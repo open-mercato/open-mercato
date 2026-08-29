@@ -2,6 +2,7 @@ import { GET, PATCH, DELETE } from '@open-mercato/core/modules/messages/api/[id]
 import { Message, MessageObject, MessageRecipient } from '@open-mercato/core/modules/messages/data/entities'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
+import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 
 const resolveMessageContextMock = jest.fn()
 const hasOrganizationAccessMock = jest.fn(() => true)
@@ -9,6 +10,10 @@ const findWithDecryptionMock = jest.fn()
 const findOneWithDecryptionMock = jest.fn()
 
 jest.mock('@open-mercato/core/modules/messages/lib/routeHelpers', () => ({
+  // Only the request-context entry points are stubbed. `canUseChannelThreadFallback`
+  // stays REAL so the RBAC gate is exercised against the fixture's container rather
+  // than against a stub that could agree with a broken route.
+  ...jest.requireActual('@open-mercato/core/modules/messages/lib/routeHelpers'),
   resolveMessageContext: (...args: unknown[]) => resolveMessageContextMock(...args),
   hasOrganizationAccess: (...args: unknown[]) => hasOrganizationAccessMock(...args),
 }))
@@ -847,5 +852,285 @@ describe('messages /api/messages/[id] optimistic locking', () => {
     const body = await response.json()
     expect(body).toEqual(expect.objectContaining({ code: 'optimistic_lock_conflict' }))
     expect(commandBus.execute).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * #5535 — an inbound channel message is authored by the channel system user and,
+ * on an unassigned conversation, has no recipient rows, so the participant test
+ * above denied every operator: the detail page the reply button lives on could
+ * not even be opened. For a thread the channels hub owns, the hub's own access
+ * rule applies instead.
+ */
+describe('messages /api/messages/[id] GET on a channel-linked thread (#5535)', () => {
+  const operatorUserId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+  const systemUserId = '00000000-0000-0000-0000-000000000000'
+  const otherOperatorId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+  const tenantId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+  const organizationId = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
+  const threadId = '11111111-1111-4111-8111-111111111111'
+  const anchorId = '22222222-2222-4222-8222-222222222222'
+
+  const inboundMessage = {
+    id: anchorId,
+    threadId,
+    senderUserId: systemUserId,
+    organizationId,
+    tenantId,
+    deletedAt: null,
+    isDraft: false,
+    type: 'channel.discord',
+    visibility: 'public',
+    sourceEntityType: 'communication_channels.external_conversation',
+    sourceEntityId: '77777777-7777-4777-8777-777777777777',
+    externalEmail: null,
+    externalName: 'discord-user',
+    parentMessageId: null,
+    subject: 'Incoming from Discord',
+    body: 'is anyone there?',
+    bodyFormat: 'text',
+    priority: 'normal',
+    sentAt: new Date('2026-08-23T10:00:00.000Z'),
+    actionData: null,
+    actionTaken: null,
+    actionTakenAt: null,
+    actionTakenByUserId: null,
+  }
+
+  const threadMessages = [
+    {
+      id: anchorId,
+      senderUserId: systemUserId,
+      externalName: 'discord-user',
+      sourceEntityType: 'communication_channels.external_conversation',
+      body: 'is anyone there?',
+      bodyFormat: 'text',
+      sentAt: new Date('2026-08-23T10:00:00.000Z'),
+    },
+    {
+      id: '33333333-3333-4333-8333-333333333333',
+      senderUserId: otherOperatorId,
+      sourceEntityType: 'communication_channels.external_conversation',
+      body: 'answered by a colleague',
+      bodyFormat: 'text',
+      sentAt: new Date('2026-08-23T10:05:00.000Z'),
+    },
+  ]
+
+  function setupHarness(
+    channelThreadAccess: unknown,
+    options: {
+      registered?: boolean
+      features?: string[]
+      thread?: unknown[]
+      anchor?: unknown
+      /** `false` drops `rbacService` from the container entirely. */
+      rbac?: boolean
+    } = {},
+  ) {
+    const thread = options.thread ?? threadMessages
+    const anchor = options.anchor ?? inboundMessage
+    const em = {
+      findOne: jest.fn(async () => null),
+      find: jest.fn(async (entity: unknown, where: Record<string, unknown>) => {
+        if (entity === Message && where.threadId === threadId) return thread
+        return []
+      }),
+    }
+
+    findWithDecryptionMock.mockImplementation(async (_em: unknown, entity: unknown) => {
+      if (entity === Message) return thread
+      if (entity === User) return []
+      return []
+    })
+    findOneWithDecryptionMock.mockImplementation(async (_em: unknown, entity: unknown) => (
+      entity === Message ? anchor : null
+    ))
+
+    const resolveChannelThreadAccess = jest.fn(async () => channelThreadAccess)
+    // The session JWT carries no `features` claim, so the route resolves the
+    // caller's grants through RBAC — the fixture mirrors that, wildcard matching
+    // included, rather than handing the route a features array it never sees.
+    const grantedFeatures = options.features ?? ['messages.view']
+    const rbacService = {
+      userHasAllFeatures: jest.fn(async (_userId: string, required: string[]) => (
+        authorizeFeatures(required, { grantedFeatures })
+      )),
+    }
+    resolveMessageContextMock.mockResolvedValue({
+      ctx: {
+        auth: { sub: operatorUserId },
+        container: {
+          resolve: (name: string) => {
+            if (name === 'em') return em
+            if (name === 'rbacService') return options.rbac === false ? null : rbacService
+            if (name === 'communicationChannelsResolveChannelThreadAccess') {
+              return options.registered === false ? null : resolveChannelThreadAccess
+            }
+            return null
+          },
+        },
+      },
+      scope: { tenantId, organizationId, userId: operatorUserId },
+    })
+    return { resolveChannelThreadAccess, rbacService }
+  }
+
+  const grantedThread = {
+    messageThreadId: threadId,
+    externalConversationId: '77777777-7777-4777-8777-777777777777',
+    channelId: '88888888-8888-4888-8888-888888888888',
+    channelType: 'discord',
+    canAccess: true,
+  }
+
+  beforeEach(() => jest.clearAllMocks())
+
+  function getDetail() {
+    return GET(
+      new Request(`http://localhost/api/messages/${anchorId}?skipMarkRead=1`),
+      { params: { id: anchorId } },
+    )
+  }
+
+  it('lets an operator open a message the channel behind its thread grants access to', async () => {
+    const { resolveChannelThreadAccess, rbacService } = setupHarness(grantedThread)
+
+    const response = await getDetail()
+
+    expect(response.status).toBe(200)
+    // The gate is the RBAC call; `actor.features` is only the documented
+    // pass-through, and on a real request it is empty because the session JWT
+    // carries no `features` claim. Asserting that here keeps the two apart.
+    expect(rbacService.userHasAllFeatures).toHaveBeenCalledWith(
+      operatorUserId,
+      ['messages.view'],
+      { tenantId, organizationId },
+    )
+    expect(resolveChannelThreadAccess).toHaveBeenCalledWith(
+      expect.anything(),
+      { tenantId, organizationId },
+      { messageThreadId: threadId },
+      { userId: operatorUserId, features: [] },
+    )
+  })
+
+  it('shows the whole conversation rather than only the operator own messages', async () => {
+    setupHarness(grantedThread)
+
+    const payload = await (await getDetail()).json() as { thread?: Array<{ id?: string }> }
+
+    expect((payload.thread ?? []).map((item) => item.id)).toEqual([
+      anchorId,
+      '33333333-3333-4333-8333-333333333333',
+    ])
+  })
+
+  it('still denies a caller the channel itself refuses', async () => {
+    setupHarness({ ...grantedThread, canAccess: false })
+
+    expect((await getDetail()).status).toBe(403)
+  })
+
+  it('still denies when the thread is not channel-linked', async () => {
+    setupHarness(null)
+
+    expect((await getDetail()).status).toBe(403)
+  })
+
+  it('still denies when the channels module is not installed', async () => {
+    setupHarness(null, { registered: false })
+
+    expect((await getDetail()).status).toBe(403)
+  })
+
+  // @pkarw's blocker on #5645: `assertCanAccessChannel` grants every SHARED
+  // channel unconditionally and documents its precondition as a caller the route
+  // already feature-gated — and this route is `requireAuth` only. Without a gate
+  // of its own the fallback handed any authenticated tenant user the whole
+  // external conversation. The fixture below is the one the review named: an
+  // actor holding NO features at all.
+  describe('feature gate on the channel fallback', () => {
+    it('denies a caller holding no features and never consults the channel at all', async () => {
+      const { resolveChannelThreadAccess } = setupHarness(grantedThread, { features: [] })
+
+      expect((await getDetail()).status).toBe(403)
+      expect(resolveChannelThreadAccess).not.toHaveBeenCalled()
+    })
+
+    it('denies a caller holding only unrelated features', async () => {
+      const { resolveChannelThreadAccess } = setupHarness(grantedThread, {
+        features: ['sales.view', 'catalog.view'],
+      })
+
+      expect((await getDetail()).status).toBe(403)
+      expect(resolveChannelThreadAccess).not.toHaveBeenCalled()
+    })
+
+    it('honors a wildcard grant rather than an exact feature-string match', async () => {
+      const { resolveChannelThreadAccess } = setupHarness(grantedThread, { features: ['messages.*'] })
+
+      expect((await getDetail()).status).toBe(200)
+      expect(resolveChannelThreadAccess).toHaveBeenCalled()
+    })
+
+    // QA regression (PR #5645): the first cut of this gate read
+    // `ctx.auth.features`, which is always empty on a real request — the session
+    // JWT has no `features` claim — so it returned 403 to every caller including
+    // a tenant admin, re-closing the journey #5535 opened. TC-CHANNEL-REPLY-001
+    // caught it against a live app; this pins it without one.
+    it('denies when RBAC cannot be consulted rather than trusting the session payload', async () => {
+      const { resolveChannelThreadAccess } = setupHarness(grantedThread, { rbac: false })
+
+      expect((await getDetail()).status).toBe(403)
+      expect(resolveChannelThreadAccess).not.toHaveBeenCalled()
+    })
+  })
+
+  // Channel access means "you may work this conversation", not "you may read the
+  // notes other operators kept off it".
+  describe('internal-visibility messages stay participant-only', () => {
+    const internalNoteId = '44444444-4444-4444-8444-444444444444'
+    const threadWithInternalNote = [
+      ...threadMessages,
+      {
+        id: internalNoteId,
+        senderUserId: otherOperatorId,
+        sourceEntityType: 'communication_channels.external_conversation',
+        visibility: 'internal',
+        body: 'known chargeback risk — do not refund',
+        bodyFormat: 'text',
+        sentAt: new Date('2026-08-23T10:06:00.000Z'),
+      },
+    ]
+
+    it('hides another operator internal note from a caller who reached the thread via the channel', async () => {
+      setupHarness(grantedThread, { thread: threadWithInternalNote })
+
+      const payload = await (await getDetail()).json() as { thread?: Array<{ id?: string }> }
+
+      expect((payload.thread ?? []).map((item) => item.id)).not.toContain(internalNoteId)
+    })
+
+    it('keeps the caller own internal note visible', async () => {
+      setupHarness(grantedThread, {
+        thread: [
+          ...threadMessages,
+          { ...threadWithInternalNote[threadWithInternalNote.length - 1], senderUserId: operatorUserId },
+        ],
+      })
+
+      const payload = await (await getDetail()).json() as { thread?: Array<{ id?: string }> }
+
+      expect((payload.thread ?? []).map((item) => item.id)).toContain(internalNoteId)
+    })
+
+    it('denies opening another operator internal note directly, channel access notwithstanding', async () => {
+      setupHarness(grantedThread, {
+        anchor: { ...inboundMessage, visibility: 'internal', senderUserId: otherOperatorId },
+      })
+
+      expect((await getDetail()).status).toBe(403)
+    })
   })
 })

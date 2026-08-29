@@ -7,15 +7,19 @@ const conversationId = '66666666-6666-4666-8666-666666666666'
 const em = { fork: jest.fn(), find: jest.fn(), findOne: jest.fn() }
 const commandBusExecuteMock = jest.fn()
 const resolveChannelTypeMock = jest.fn()
+const resolveChannelThreadAccessMock = jest.fn()
 
 const container = {
   resolve: jest.fn((name: string) => {
     if (name === 'em') return em
     if (name === 'commandBus') return { execute: (...args: unknown[]) => commandBusExecuteMock(...args) }
     if (name === 'communicationChannelsResolveChannelType') return resolveChannelTypeMock
+    if (name === 'communicationChannelsResolveChannelThreadAccess') return resolveChannelThreadAccessMock
     throw new Error(`Unexpected container resolve: ${name}`)
   }),
 }
+
+const CHANNEL_THREAD_ID = '55555555-5555-4555-8555-555555555555'
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => container),
@@ -88,6 +92,15 @@ beforeEach(() => {
   em.fork.mockReturnValue(em)
   em.find.mockResolvedValue([])
   em.findOne.mockResolvedValue(null)
+  // #5535: a public compose naming a channel conversation is attached to that
+  // conversation's existing thread, so the default fixture resolves one.
+  resolveChannelThreadAccessMock.mockResolvedValue({
+    messageThreadId: CHANNEL_THREAD_ID,
+    externalConversationId: conversationId,
+    channelId: '77777777-7777-4777-8777-777777777777',
+    channelType: 'discord',
+    canAccess: true,
+  })
   commandBusExecuteMock.mockImplementation(async () => ({
     result: { id: messageId, threadId: 'thread-1' },
     logEntry: null,
@@ -230,5 +243,88 @@ describe('POST /api/messages — the channel-type lookup stays off the compose h
 
     await expect(composeMessage(composeRequest(publicComposeBody()))).rejects.toThrow()
     expect(resolveChannelTypeMock).toHaveBeenCalledTimes(1)
+  })
+})
+
+// #5535 — composing on a channel conversation used to open a brand-new thread:
+// 201, no ChannelThreadMapping, no outbound link, and nothing ever delivered.
+// A success response for a message that never leaves the building is worse than
+// a refusal, so the route now either threads the message onto the conversation
+// or says why it cannot.
+describe('POST /api/messages — channel conversation deliverability (#5535)', () => {
+  it('threads a public compose onto the conversation existing thread', async () => {
+    resolveChannelTypeMock.mockResolvedValue('discord')
+
+    const response = await composeMessage(composeRequest(publicComposeBody()))
+
+    expect(response.status).toBe(201)
+    expect(resolveChannelThreadAccessMock).toHaveBeenCalledWith(
+      container,
+      { tenantId, organizationId },
+      { externalConversationId: conversationId },
+      { userId, features: ['*'] },
+    )
+    expect(composeInput().parentMessageId).toBe(CHANNEL_THREAD_ID)
+  })
+
+  it('refuses with 409 when the conversation has no channel thread to deliver into', async () => {
+    resolveChannelTypeMock.mockResolvedValue('discord')
+    resolveChannelThreadAccessMock.mockResolvedValue(null)
+
+    const response = await composeMessage(composeRequest(publicComposeBody()))
+
+    expect(response.status).toBe(409)
+    await expect(response.json()).resolves.toEqual({
+      error: 'Conversation has no channel thread to deliver into',
+    })
+    expect(commandBusExecuteMock).not.toHaveBeenCalled()
+  })
+
+  it('refuses with 403 when the caller may not act on the channel behind the thread', async () => {
+    resolveChannelTypeMock.mockResolvedValue('email')
+    resolveChannelThreadAccessMock.mockResolvedValue({
+      messageThreadId: CHANNEL_THREAD_ID,
+      externalConversationId: conversationId,
+      channelId: '77777777-7777-4777-8777-777777777777',
+      channelType: 'email',
+      canAccess: false,
+    })
+
+    const response = await composeMessage(
+      composeRequest(publicComposeBody({ externalEmail: 'jane@example.com' })),
+    )
+
+    expect(response.status).toBe(403)
+    expect(commandBusExecuteMock).not.toHaveBeenCalled()
+  })
+
+  it('leaves a caller-supplied parent message alone', async () => {
+    resolveChannelTypeMock.mockResolvedValue('discord')
+
+    const response = await composeMessage(
+      composeRequest(publicComposeBody({ parentMessageId: messageId })),
+    )
+
+    expect(response.status).toBe(201)
+    expect(resolveChannelThreadAccessMock).not.toHaveBeenCalled()
+    expect(composeInput().parentMessageId).toBe(messageId)
+  })
+
+  it('leaves drafts and internal notes on the conversation untouched', async () => {
+    const draft = await composeMessage(composeRequest(publicComposeBody({ isDraft: true })))
+    expect(draft.status).toBe(201)
+
+    const internalNote = await composeMessage(
+      composeRequest({
+        visibility: 'internal',
+        sourceEntityType: 'communication_channels.external_conversation',
+        sourceEntityId: conversationId,
+        subject: 'Note to the team',
+        body: 'Handled by phone',
+        recipients: [{ userId, type: 'to' }],
+      }),
+    )
+    expect(internalNote.status).toBe(201)
+    expect(resolveChannelThreadAccessMock).not.toHaveBeenCalled()
   })
 })

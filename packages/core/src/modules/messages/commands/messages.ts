@@ -13,6 +13,7 @@ import {
   updateDraftSchema,
 } from '../data/validators'
 import { linkAttachmentsToMessage, linkLibraryAttachmentsToMessage, copyAttachmentsForForwardMessages } from '../lib/attachments'
+import { resolveActorFeatures, resolveMessageChannelThreadAccess } from '../lib/channelThreadAccess'
 import { MESSAGE_ATTACHMENT_ENTITY_ID, MESSAGE_ENTITY_ID } from '../lib/constants'
 import { getMessageTypeOrDefault } from '../lib/message-types-registry'
 import { validateMessageObjectsForType } from '../lib/object-validation'
@@ -698,7 +699,22 @@ const replyMessageCommand: CommandHandler<unknown, { id: string; externalEmail: 
       recipientUserId: input.userId,
       deletedAt: null,
     })
-    if (original.senderUserId !== input.userId && !ownRecipient) throw new Error('Access denied')
+    if (original.senderUserId !== input.userId && !ownRecipient) {
+      // A message that arrived over a communication channel has no platform
+      // participant to match: its sender is the channel system user and an
+      // unassigned conversation produces no recipient rows, so the
+      // sender-or-recipient test denies every operator — a tenant admin
+      // included (#5535). For a thread the channels hub owns, that hub's own
+      // access rule is the applicable one; an internal thread resolves to
+      // `null` here and keeps the participant rule unchanged.
+      const channelThread = await resolveMessageChannelThreadAccess(
+        ctx.container,
+        { tenantId: input.tenantId, organizationId: input.organizationId ?? null },
+        { messageThreadId: original.threadId ?? original.id },
+        { userId: input.userId, features: resolveActorFeatures(ctx.auth) },
+      )
+      if (!channelThread?.canAccess) throw new Error('Access denied')
+    }
 
     const messageType = getMessageTypeOrDefault(original.type)
     if (messageType.allowReply === false) throw new Error('Reply is not allowed for this message type')
