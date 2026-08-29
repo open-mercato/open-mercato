@@ -48,7 +48,9 @@ export function SiteWarehouseRolesClient({
   const queryClient = useQueryClient();
   const canManage = useCanManageSites();
   const { confirm, ConfirmDialogElement } = useConfirmDialog();
-  const { runMutation } = useGuardedMutation<Record<string, unknown>>({
+  const { runMutation, retryLastMutation } = useGuardedMutation<{
+    retryLastMutation: () => Promise<boolean>;
+  }>({
     contextId: "wms-site-warehouse-roles",
   });
   const [page, setPage] = React.useState(1);
@@ -136,7 +138,7 @@ export function SiteWarehouseRolesClient({
                   ),
                 }),
             ),
-          context: {},
+          context: { retryLastMutation },
           mutationPayload: { id: row.id },
         });
         flash(
@@ -155,7 +157,7 @@ export function SiteWarehouseRolesClient({
         );
       }
     },
-    [confirm, refresh, runMutation, t],
+    [confirm, refresh, retryLastMutation, runMutation, t],
   );
   const columns = React.useMemo(() => buildSiteWarehouseRoleColumns(t), [t]);
   return (

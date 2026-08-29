@@ -63,7 +63,9 @@ export function SiteFormClient({ siteId }: { siteId?: string }) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const canManage = useCanManageSites();
-  const { runMutation } = useGuardedMutation<Record<string, unknown>>({
+  const { runMutation, retryLastMutation } = useGuardedMutation<{
+    retryLastMutation: () => Promise<boolean>;
+  }>({
     contextId: "wms-site-form",
   });
   const query = useQuery({
@@ -172,7 +174,7 @@ export function SiteFormClient({ siteId }: { siteId?: string }) {
                         "Failed to save site.",
                       ),
                     }),
-              context: {},
+              context: { retryLastMutation },
               mutationPayload: payload,
             });
             flash(t("wms.sites.flash.saved", "Site saved."), "success");

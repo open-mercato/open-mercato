@@ -109,7 +109,9 @@ export function SiteWarehouseRoleDialogForm({
   onSaved,
 }: SiteWarehouseRoleDialogFormProps) {
   const t = useT();
-  const { runMutation } = useGuardedMutation<Record<string, unknown>>({
+  const { runMutation, retryLastMutation } = useGuardedMutation<{
+    retryLastMutation: () => Promise<boolean>;
+  }>({
     contextId: "wms-site-warehouse-role-form",
   });
   const [submitting, setSubmitting] = React.useState(false);
@@ -238,7 +240,7 @@ export function SiteWarehouseRoleDialogForm({
                     "Failed to save warehouse role.",
                   ),
                 }),
-          context: {},
+          context: { retryLastMutation },
           mutationPayload: payload,
         });
         flash(
@@ -260,7 +262,7 @@ export function SiteWarehouseRoleDialogForm({
         setSubmitting(false);
       }
     },
-    [onOpenChange, onSaved, row, runMutation, siteId, t],
+    [onOpenChange, onSaved, retryLastMutation, row, runMutation, siteId, t],
   );
 
   return (
