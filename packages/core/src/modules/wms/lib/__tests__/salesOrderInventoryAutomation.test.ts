@@ -220,6 +220,7 @@ describe('releaseInventoryForCancelledOrder', () => {
   beforeEach(() => {
     findWithDecryptionMock.mockReset()
     execute.mockReset()
+    emitWmsEventMock.mockReset()
   })
 
   it('continues releasing remaining reservations when one was already released', async () => {
@@ -256,6 +257,7 @@ describe('releaseInventoryForCancelledOrder', () => {
     ).resolves.toBeUndefined()
 
     expect(execute).toHaveBeenCalledTimes(2)
+    expect(emitWmsEventMock).not.toHaveBeenCalled()
     expect(execute).toHaveBeenLastCalledWith(
       'wms.inventory.release',
       expect.objectContaining({

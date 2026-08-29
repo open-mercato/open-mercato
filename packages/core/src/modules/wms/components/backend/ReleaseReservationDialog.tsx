@@ -241,8 +241,8 @@ export function ReleaseReservationDialog({
             return call.result ?? {}
           },
           context: mutationContext,
-           mutationPayload: payload,
-         })
+          mutationPayload: payload,
+        })
 
         if ('handled' in mutationResult && mutationResult.handled) return
 
