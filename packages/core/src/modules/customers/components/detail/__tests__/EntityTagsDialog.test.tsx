@@ -23,6 +23,28 @@ jest.mock('../ManageTagsDialog', () => ({
   ManageTagsDialog: ({ open }: { open: boolean }) => (open ? <div>manage-tags-dialog</div> : null),
 }))
 
+// Mirrors `REMOTE_CATEGORY_PAGE_SIZE` in the dialog. A page that comes back
+// with this many entries is the only "there may be more" signal the load-more
+// affordance reads.
+const REMOTE_CATEGORY_PAGE_SIZE = 50
+
+function makeTagEntries(
+  count: number,
+  prefix = 'filler',
+  labelPrefix = 'Filler',
+): Array<{ id: string; value: string; label: string; color: string | null }> {
+  return Array.from({ length: count }, (_, index) => ({
+    id: `${prefix}-${index + 1}`,
+    value: `${prefix}-${index + 1}`,
+    label: `${labelPrefix} ${index + 1}`,
+    color: null,
+  }))
+}
+
+function makeLabelEntries(count: number) {
+  return makeTagEntries(count, 'label', 'Label')
+}
+
 describe('EntityTagsDialog', () => {
   beforeEach(() => {
     apiCallMock.mockReset()
@@ -41,12 +63,17 @@ describe('EntityTagsDialog', () => {
             },
           })
         }
+        // Page 1 comes back full, page 2 short — the shape a query-engine list
+        // actually emits, and what the dialog now terminates on.
         return Promise.resolve({
           ok: true,
           result: {
             items: page === '2'
               ? [{ id: 'tag-2', value: 'tag-2', label: 'VIP', color: '#f59e0b' }]
-              : [{ id: 'tag-1', value: 'tag-1', label: 'Prospect', color: '#60a5fa' }],
+              : [
+                  { id: 'tag-1', value: 'tag-1', label: 'Prospect', color: '#60a5fa' },
+                  ...makeTagEntries(REMOTE_CATEGORY_PAGE_SIZE - 1),
+                ],
             totalPages: 2,
           },
         })
@@ -203,6 +230,8 @@ describe('EntityTagsDialog', () => {
     await waitFor(() => {
       expect(screen.getByText('VIP')).toBeInTheDocument()
     })
+    // Page 2 was short, so the sequence is over even though `totalPages` said 2.
+    expect(screen.queryByRole('button', { name: 'Load more' })).toBeNull()
 
     fireEvent.change(screen.getByPlaceholderText('Search tags...'), {
       target: { value: 'priority' },
@@ -219,6 +248,207 @@ describe('EntityTagsDialog', () => {
       expect(screen.getByText('Priority')).toBeInTheDocument()
     })
     expect(screen.queryByText('Prospect')).not.toBeInTheDocument()
+  })
+
+  // The affordance used to be gated on `activeCategoryPage < activeCategoryTotalPages`.
+  // When the reported total under-reports the result set — tags created between
+  // two requests, or a capped list count — the button vanished and every tag
+  // past the reported end became unreachable. Termination now follows the page
+  // coming back short.
+  describe('load-more termination', () => {
+    const respondToTagsWith = (respond: (page: string) => { items: unknown[]; totalPages: number }) => {
+      const fallback = apiCallMock.getMockImplementation()!
+      apiCallMock.mockImplementation((url: string, ...rest: unknown[]) => {
+        if (url.startsWith('/api/customers/tags?')) {
+          const page = new URL(url, 'http://localhost').searchParams.get('page') ?? '1'
+          return Promise.resolve({ ok: true, result: respond(page) })
+        }
+        return fallback(url, ...rest)
+      })
+    }
+
+    // The dialog drives two endpoints from one affordance, and they paginate
+    // differently — `/api/customers/labels` is hand-rolled and clamps the
+    // requested page, so it needs its own harness rather than the suite's
+    // default empty-page stub.
+    const respondToLabelsWith = (
+      respond: (page: string) => { ok?: boolean; items?: unknown[]; page?: number; totalPages?: number },
+    ) => {
+      const fallback = apiCallMock.getMockImplementation()!
+      apiCallMock.mockImplementation((url: string, ...rest: unknown[]) => {
+        if (url.startsWith('/api/customers/labels?')) {
+          const page = new URL(url, 'http://localhost').searchParams.get('page') ?? '1'
+          const { ok = true, ...result } = respond(page)
+          return Promise.resolve({ ok, result: { assignedIds: [], ...result } })
+        }
+        return fallback(url, ...rest)
+      })
+    }
+
+    const openLabelsCategory = () => {
+      fireEvent.click(screen.getByRole('button', { name: /^Labels\b/ }))
+    }
+
+    const renderDialog = async () => {
+      await act(async () => {
+        renderWithProviders(
+          <EntityTagsDialog
+            open
+            onClose={jest.fn()}
+            entityId="person-1"
+            entityType="person"
+            entityOrganizationId="org-1"
+            entityData={{}}
+          />,
+        )
+      })
+    }
+
+    it('offers Load more on a full page even when totalPages reports a single page', async () => {
+      respondToTagsWith(() => ({ items: makeTagEntries(REMOTE_CATEGORY_PAGE_SIZE), totalPages: 1 }))
+
+      await renderDialog()
+
+      expect(await screen.findByRole('button', { name: 'Load more' })).toBeInTheDocument()
+    })
+
+    it('hides Load more once a page comes back short, whatever totalPages promises', async () => {
+      respondToTagsWith(() => ({ items: makeTagEntries(3), totalPages: 99 }))
+
+      await renderDialog()
+
+      expect(await screen.findByText('Filler 1')).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Load more' })).toBeNull()
+    })
+
+    // `/api/customers/tags` is query-engine backed and computes an unclamped
+    // offset, so the page past the end comes back empty rather than re-serving
+    // the last one. That empty page is what ends the sequence.
+    it('stops on the empty page past the end', async () => {
+      respondToTagsWith((page) =>
+        page === '1'
+          ? { items: makeTagEntries(REMOTE_CATEGORY_PAGE_SIZE), totalPages: 1 }
+          : { items: [], totalPages: 1 })
+
+      await renderDialog()
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Load more' }))
+
+      await waitFor(() => {
+        expect(screen.queryByRole('button', { name: 'Load more' })).toBeNull()
+      })
+      expect(screen.getByText('Filler 50')).toBeInTheDocument()
+    })
+
+    // The flag belongs to the active category exactly as the page number does:
+    // switching to a category whose first page is short must not inherit the
+    // previous category's affordance. Labels serves a genuinely short page here
+    // rather than an empty one, so the assertion fails if the reset is dropped
+    // instead of passing because the category had no entries at all.
+    it('keeps the affordance keyed to the active category', async () => {
+      respondToTagsWith(() => ({ items: makeTagEntries(REMOTE_CATEGORY_PAGE_SIZE), totalPages: 1 }))
+      respondToLabelsWith(() => ({ items: makeLabelEntries(3), page: 1, totalPages: 1 }))
+
+      await renderDialog()
+
+      expect(await screen.findByRole('button', { name: 'Load more' })).toBeInTheDocument()
+
+      openLabelsCategory()
+
+      expect(await screen.findByText('Label 1')).toBeInTheDocument()
+      await waitFor(() => {
+        expect(screen.queryByRole('button', { name: 'Load more' })).toBeNull()
+      })
+    })
+
+    // The inverse direction: a category whose first page is full must gain the
+    // affordance after one whose page was short, so the reset recomputes the
+    // flag rather than merely clearing it.
+    it('re-offers the affordance when the next category has a full first page', async () => {
+      respondToTagsWith(() => ({ items: makeTagEntries(3), totalPages: 1 }))
+      respondToLabelsWith(() => ({ items: makeLabelEntries(REMOTE_CATEGORY_PAGE_SIZE), page: 1, totalPages: 1 }))
+
+      await renderDialog()
+
+      expect(await screen.findByText('Filler 1')).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Load more' })).toBeNull()
+
+      openLabelsCategory()
+
+      expect(await screen.findByRole('button', { name: 'Load more' })).toBeInTheDocument()
+    })
+
+    it('hides Load more once a labels page comes back short', async () => {
+      respondToLabelsWith((page) =>
+        page === '1'
+          ? { items: makeLabelEntries(REMOTE_CATEGORY_PAGE_SIZE), page: 1, totalPages: 1 }
+          : { items: makeLabelEntries(2), page: 2, totalPages: 2 })
+
+      await renderDialog()
+      openLabelsCategory()
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Load more' }))
+
+      await waitFor(() => {
+        expect(screen.queryByRole('button', { name: 'Load more' })).toBeNull()
+      })
+      expect(screen.getByText('Label 50')).toBeInTheDocument()
+    })
+
+    // `/api/customers/labels` pages an in-memory array and clamps the requested
+    // page to the last one (`api/labels/route.ts`), so a request past the end
+    // re-serves the last page in full — for ever. The served count alone can
+    // never terminate there; the echoed page is what ends the sequence. This is
+    // obligation 2 in the `hasMoreFromPage` docstring.
+    it('terminates when the labels endpoint clamps the page past the end', async () => {
+      const lastPage = makeLabelEntries(REMOTE_CATEGORY_PAGE_SIZE)
+      respondToLabelsWith(() => ({ items: lastPage, page: 1, totalPages: 1 }))
+
+      await renderDialog()
+      openLabelsCategory()
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Load more' }))
+
+      await waitFor(() => {
+        expect(screen.queryByRole('button', { name: 'Load more' })).toBeNull()
+      })
+      expect(screen.getByText('Label 1')).toBeInTheDocument()
+      expect(screen.getByText('Label 50')).toBeInTheDocument()
+    })
+
+    // A transport failure is not an end-of-list signal. Clearing the flag on a
+    // failed fetch would strand the user on a partial list with no way back;
+    // advancing the page on the retry would skip the page that failed.
+    it('keeps a retry affordance when a page fails to load', async () => {
+      respondToLabelsWith((page) =>
+        page === '1'
+          ? { items: makeLabelEntries(REMOTE_CATEGORY_PAGE_SIZE), page: 1, totalPages: 2 }
+          : { ok: false, items: [] })
+
+      await renderDialog()
+      openLabelsCategory()
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Load more' }))
+
+      const retry = await screen.findByRole('button', { name: 'Retry' })
+      expect(retry).toBeInTheDocument()
+      expect(screen.getByText('Label 1')).toBeInTheDocument()
+
+      const requestedPages = () =>
+        apiCallMock.mock.calls
+          .map(([url]: [string]) => url)
+          .filter((url: string) => typeof url === 'string' && url.startsWith('/api/customers/labels?'))
+          .map((url: string) => new URL(url, 'http://localhost').searchParams.get('page'))
+
+      const before = requestedPages().length
+      fireEvent.click(retry)
+
+      await waitFor(() => {
+        expect(requestedPages().length).toBeGreaterThan(before)
+      })
+      // The retry re-requests the page that failed rather than advancing past it.
+      expect(requestedPages().slice(before)).toEqual(['2'])
+    })
   })
 
   it('includes tenant-defined custom categories from kind settings', async () => {

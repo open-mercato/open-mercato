@@ -41,6 +41,7 @@ type TeamRolesResponse = {
   items?: Array<Record<string, unknown>>
   total?: number
   totalPages?: number
+  totalIsCapped?: boolean
 }
 
 type TeamsResponse = {
@@ -56,6 +57,7 @@ export default function StaffTeamRolesPage() {
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [search, setSearch] = React.useState('')
   const [isLoading, setIsLoading] = React.useState(true)
   const [reloadToken, setReloadToken] = React.useState(0)
@@ -203,6 +205,7 @@ export default function StaffTeamRolesPage() {
       setRows(buildTeamRoleRows(items.map(mapApiTeamRole), labels.groups.unassigned))
       setTotal(typeof payload.total === 'number' ? payload.total : items.length)
       setTotalPages(typeof payload.totalPages === 'number' ? payload.totalPages : Math.max(1, Math.ceil(items.length / PAGE_SIZE)))
+      setTotalIsCapped(payload?.totalIsCapped === true)
     } catch (error) {
       logger.error('staff.team-roles.list', { err: error })
       flash(labels.errors.load, 'error')
@@ -329,6 +332,7 @@ export default function StaffTeamRolesPage() {
             pageSize: PAGE_SIZE,
             total,
             totalPages,
+            totalIsCapped,
             onPageChange: setPage,
           }}
           rowActions={(row) => row.kind === 'role' ? (

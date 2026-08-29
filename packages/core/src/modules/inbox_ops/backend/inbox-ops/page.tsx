@@ -41,6 +41,7 @@ type ProposalListResponse = {
   total?: number
   page?: number
   totalPages?: number
+  totalIsCapped?: boolean
 }
 
 type StatusCounts = {
@@ -90,6 +91,7 @@ export default function InboxOpsProposalsPage() {
 
   const [items, setItems] = React.useState<ProposalRow[]>([])
   const [total, setTotal] = React.useState(0)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [page, setPage] = React.useState(1)
   const [pageSize] = React.useState(25)
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
@@ -119,6 +121,7 @@ export default function InboxOpsProposalsPage() {
       if (result?.ok && result.result?.items) {
         setItems(result.result.items)
         setTotal(result.result.total || 0)
+        setTotalIsCapped(result.result.totalIsCapped === true)
       } else {
         setError(t('inbox_ops.flash.load_failed', 'Failed to load proposals'))
       }
@@ -384,6 +387,7 @@ export default function InboxOpsProposalsPage() {
             pageSize,
             total,
             totalPages: Math.ceil(total / pageSize),
+            totalIsCapped,
             onPageChange: setPage,
           }}
           isLoading={isLoading}

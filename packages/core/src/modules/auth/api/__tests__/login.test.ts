@@ -282,7 +282,50 @@ describe('POST /api/auth/login with custom route interceptors', () => {
 
     const setCookie = res.headers.get('set-cookie') ?? ''
     expect(setCookie).toContain('auth_token=pending-token')
-    expect(setCookie).not.toContain('session_token=')
+    // The replaced token is provisional, so no refresh cookie is planted — and any earlier one is
+    // actively cleared, otherwise /api/auth/session/refresh would trade it for a full staff token
+    // and skip the outstanding second factor (#5212).
+    expect(setCookie).toContain('session_token=;')
+    expect(setCookie).toMatch(/session_token=;[^,]*Max-Age=0/i)
+    expect(setCookie).not.toContain('session_token=session-token')
+  })
+
+  test('clears a previously planted session_token when an interceptor replaces the issued token without remember-me', async () => {
+    registerApiInterceptors([
+      {
+        moduleId: 'example',
+        interceptors: [
+          {
+            id: 'example.auth.login.replace',
+            targetRoute: 'auth/login',
+            methods: ['POST'],
+            async after() {
+              return {
+                replace: {
+                  ok: true,
+                  mfa_required: true,
+                  challenge_id: 'challenge-1',
+                  token: 'pending-token',
+                },
+              }
+            },
+          },
+        ],
+      },
+    ])
+
+    const req = new Request('http://localhost/api/auth/login', {
+      method: 'POST',
+      body: makeFormData({ email: 'user@example.com', password: 'secret' }),
+    })
+
+    const res = await POST(req)
+    expect(res.status).toBe(200)
+
+    const setCookie = res.headers.get('set-cookie') ?? ''
+    expect(setCookie).toContain('auth_token=pending-token')
+    expect(setCookie).toMatch(/session_token=;[^,]*Max-Age=0/i)
+    expect(setCookie).not.toContain('session_token=session-token')
   })
 })
 

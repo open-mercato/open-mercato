@@ -1543,12 +1543,17 @@ function RichEditorAutoToolbar({
   return (
     <div className="relative w-full">
       <div
-        ref={measureRef}
         aria-hidden="true"
-        className="pointer-events-none invisible absolute left-0 top-0 flex flex-row flex-nowrap items-center gap-0.5"
+        data-slot="rich-editor-toolbar-measure-clip"
+        className="pointer-events-none absolute inset-0 overflow-hidden"
       >
-        {items.map(renderToolbarItem)}
-        <RichEditorDropdownButton icon={<MoreVertical />} ariaLabel={labels.more} showChevron={false} menu={<div />} />
+        <div
+          ref={measureRef}
+          className="invisible absolute left-0 top-0 flex flex-row flex-nowrap items-center gap-0.5"
+        >
+          {items.map(renderToolbarItem)}
+          <RichEditorDropdownButton icon={<MoreVertical />} ariaLabel={labels.more} showChevron={false} menu={<div />} />
+        </div>
       </div>
       <RichEditorToolbar ref={containerRef} className="w-full flex-nowrap overflow-hidden">
         {visibleItems.map(renderToolbarItem)}

@@ -29,6 +29,52 @@ function normalizeOrganizationIds(options: SearchOptions): string[] | null {
   ))
 }
 
+const CF_ALIAS_PREFIX = 'cf_'
+const CF_CANONICAL_PREFIX = 'cf:'
+
+/**
+ * Rewrites the query engine's aliased custom-field keys back to the spelling `search_tokens` is
+ * meant to carry.
+ *
+ * The engine cannot label a column `cf:<key>` — `:` is not a valid SQL identifier — so it sanitizes
+ * the alias down to `cf_<key>`. Core's token writer builds from `entity_indexes.doc`, which keeps
+ * `cf:<key>`, and both writers replace a record's tokens by deleting only the `(entity_id, field)`
+ * pairs their own document carries. Under two spellings neither deletes the other's custom-field
+ * rows: every custom field is tokenized twice under names that carry the same hashes, while the
+ * base-field rows the two documents share are alternately deleted and re-inserted on every write.
+ *
+ * `cf:` is the side to converge on because it is the side that is read — the query engine's search
+ * predicate and every caller of `findEntityIdsBySearchTokens` ask for `cf:<key>`.
+ *
+ * Deliberately scoped to the rows this strategy writes rather than applied to
+ * `IndexableRecord.fields` upstream: the same object is handed to the fulltext driver, and
+ * Meilisearch rejects an attribute name containing `:`.
+ *
+ * The reversal assumes word-character keys. The engine's alias sanitizer is
+ * `[^a-zA-Z0-9_] -> _` and a custom-field key is an unconstrained `z.string()`, so a key named
+ * `order-ref` arrives as `cf_order_ref` and is rewritten to `cf:order_ref` — a name nothing reads,
+ * which leaves that one field's double-write unfixed. Inverting the sanitizer would need the
+ * field-definition key list, which this strategy has not got.
+ */
+function normalizeCustomFieldKeys(
+  fields: Record<string, unknown> | null | undefined,
+): Record<string, unknown> | null | undefined {
+  if (!fields) return fields
+  const normalized: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(fields)) {
+    if (!key.startsWith(CF_ALIAS_PREFIX)) {
+      normalized[key] = value
+      continue
+    }
+    const canonical = `${CF_CANONICAL_PREFIX}${key.slice(CF_ALIAS_PREFIX.length)}`
+    // A document carrying both spellings meant the explicit one; the alias is the sanitizer's
+    // output for the same field.
+    if (canonical in fields) continue
+    normalized[canonical] = value
+  }
+  return normalized
+}
+
 /**
  * TokenSearchStrategy provides hash-based search using the existing search_tokens table.
  * This strategy is always available and serves as a fallback when other strategies fail.
@@ -67,9 +113,20 @@ export class TokenSearchStrategy implements SearchStrategy {
     // Dynamically import tokenization to avoid circular dependencies
     const { tokenizeText } = await import('@open-mercato/shared/lib/search/tokenize')
     const { resolveSearchConfig } = await import('@open-mercato/shared/lib/search/config')
+    const { listSearchTokenExcludedEntityTypes } = await import(
+      '@open-mercato/core/modules/query_index/lib/search-entity-policy'
+    )
 
     const config = resolveSearchConfig()
     if (!config.enabled) return []
+
+    // The rows themselves stay in `search_tokens` — list routes and the query engines' encrypted
+    // like/ilike rewrite depend on them — so the exclusion is enforced here, at read time.
+    const excludedEntityTypes = listSearchTokenExcludedEntityTypes()
+    const requestedEntityTypes = options.entityTypes?.length
+      ? options.entityTypes.filter((entityType) => !excludedEntityTypes.includes(entityType))
+      : undefined
+    if (options.entityTypes?.length && !requestedEntityTypes?.length) return []
 
     const { hashes } = tokenizeText(query, config)
     if (hashes.length === 0) return []
@@ -96,8 +153,10 @@ export class TokenSearchStrategy implements SearchStrategy {
       queryBuilder = queryBuilder.where('organization_id' as any, 'in', organizationIds)
     }
 
-    if (options.entityTypes?.length) {
-      queryBuilder = queryBuilder.where('entity_type' as any, 'in', options.entityTypes)
+    if (requestedEntityTypes?.length) {
+      queryBuilder = queryBuilder.where('entity_type' as any, 'in', requestedEntityTypes)
+    } else if (excludedEntityTypes.length) {
+      queryBuilder = queryBuilder.where('entity_type' as any, 'not in', excludedEntityTypes)
     }
 
     const rows = await queryBuilder.execute() as Array<{
@@ -135,7 +194,7 @@ export class TokenSearchStrategy implements SearchStrategy {
       recordId: record.recordId,
       tenantId: record.tenantId,
       organizationId: record.organizationId,
-      doc: record.fields,
+      doc: normalizeCustomFieldKeys(record.fields),
     })
   }
 
@@ -164,7 +223,7 @@ export class TokenSearchStrategy implements SearchStrategy {
       recordId: record.recordId,
       tenantId: record.tenantId,
       organizationId: record.organizationId,
-      doc: record.fields as Record<string, unknown>,
+      doc: normalizeCustomFieldKeys(record.fields) as Record<string, unknown>,
     }))
 
     await replaceSearchTokensForBatch(this.db, payloads)

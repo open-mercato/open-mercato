@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/core",
-  "version": "0.6.7",
+  "version": "0.7.0",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
@@ -231,7 +231,6 @@
     "@mikro-orm/core": "^7.1.8",
     "@mikro-orm/decorators": "^7.1.8",
     "@mikro-orm/postgresql": "^7.1.8",
-    "@types/html-to-text": "^9.0.4",
     "@types/leaflet": "^1.9.12",
     "@types/leaflet.markercluster": "^1.5.5",
     "@types/sanitize-html": "^2.13.0",
@@ -240,7 +239,6 @@
     "ai": "^7.0.4",
     "date-fns": "4.4.0",
     "date-fns-tz": "^3.2.0",
-    "html-to-text": "^10.0.0",
     "leaflet": "^1.9.4",
     "leaflet.markercluster": "^1.5.3",
     "mammoth": "^1.9.0",

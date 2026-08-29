@@ -24,6 +24,7 @@ type ChannelListResponse = {
   items?: ChannelRow[]
   total?: number
   totalPages?: number
+  totalIsCapped?: boolean
 }
 
 export default function ChannelsListPage() {
@@ -31,6 +32,7 @@ export default function ChannelsListPage() {
   const [rows, setRows] = React.useState<ChannelRow[]>([])
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [page, setPage] = React.useState(1)
   const [isLoading, setIsLoading] = React.useState(true)
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null)
@@ -72,6 +74,7 @@ export default function ChannelsListPage() {
         setRows(Array.isArray(data.items) ? data.items : [])
         setTotal(typeof data.total === 'number' ? data.total : 0)
         setTotalPages(typeof data.totalPages === 'number' ? data.totalPages : 1)
+        setTotalIsCapped(data.totalIsCapped === true)
       }
       setIsLoading(false)
     }
@@ -139,6 +142,7 @@ export default function ChannelsListPage() {
             pageSize,
             total,
             totalPages,
+            totalIsCapped,
             onPageChange: setPage,
           }}
         />

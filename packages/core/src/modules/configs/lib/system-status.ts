@@ -268,6 +268,15 @@ export const SYSTEM_STATUS_VARIABLES: SystemStatusVariableDefinition[] = [
     defaultValue: 'false',
   },
   {
+    key: 'OM_LIST_COUNT_CAP',
+    category: 'query_index',
+    kind: 'string',
+    labelKey: 'configs.systemStatus.variables.listCountCap.label',
+    descriptionKey: 'configs.systemStatus.variables.listCountCap.description',
+    docUrl: `${SYSTEM_STATUS_DOC_BASE}#om_list_count_cap`,
+    defaultValue: '10000',
+  },
+  {
     key: 'FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES',
     category: 'query_index',
     kind: 'boolean',

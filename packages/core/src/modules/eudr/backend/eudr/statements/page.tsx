@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
-import { RowActions } from '@open-mercato/ui/backend/RowActions'
+import { RowActions, type RowActionItem } from '@open-mercato/ui/backend/RowActions'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
@@ -22,7 +22,8 @@ import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import type { EudrActivityType, EudrCommodity, EudrRiskConclusion, EudrRiskTier, EudrStatementStatus } from '../../../data/validators'
-import { commodityOptions, statementStatusOptions, statusBadgeVariant } from '../../../components/formConfig'
+import { commodityOptions, statementStatusOptions, statusBadgeVariant, translateEudrErrorMessage } from '../../../components/formConfig'
+import { canDeleteStatement } from '../../../lib/statement-lifecycle'
 import {
   riskConclusionBadgeVariant,
   riskTierBadgeVariant,
@@ -52,6 +53,7 @@ type StatementsResponse = {
   items: StatementRow[]
   total: number
   totalPages: number
+  totalIsCapped?: boolean
 }
 
 function formatDateTime(value: string | null | undefined, emptyLabel: string, locale: string): string {
@@ -78,6 +80,7 @@ export default function EudrStatementsPage() {
   const [pageSize, setPageSize] = React.useState(20)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [search, setSearch] = React.useState('')
   const [sorting, setSorting] = React.useState<SortingState>([])
   const [filters, setFilters] = React.useState<FilterValues>({})
@@ -133,6 +136,7 @@ export default function EudrStatementsPage() {
         setRows(Array.isArray(payload.items) ? payload.items : [])
         setTotal(typeof payload.total === 'number' ? payload.total : 0)
         setTotalPages(typeof payload.totalPages === 'number' ? payload.totalPages : 1)
+        setTotalIsCapped(payload?.totalIsCapped === true)
       } catch {
         if (!cancelled) flash(translate('eudr.statements.list.loadError'), 'error')
       } finally {
@@ -186,7 +190,11 @@ export default function EudrStatementsPage() {
       refreshRows()
     } catch (error) {
       if (surfaceRecordConflict(error, translate, { onRefresh: refreshRows })) return
-      flash(translate('eudr.statements.list.deleteError'), 'error')
+      flash(
+        translateEudrErrorMessage(error, translate, translate('eudr.statements.list.deleteError')),
+        'error',
+      )
+      refreshRows()
     }
   }, [confirm, mutationContextId, refreshRows, retryLastMutation, runMutation, translate])
 
@@ -309,30 +317,31 @@ export default function EudrStatementsPage() {
               </Link>
             </Button>
           )}
-          rowActions={(row) => (
-            <RowActions
-              items={[
-                {
-                  id: 'edit',
-                  label: translate('eudr.statements.list.actions.edit'),
-                  href: `/backend/eudr/statements/${row.id}`,
+          rowActions={(row) => {
+            const items: RowActionItem[] = [
+              {
+                id: 'edit',
+                label: translate('eudr.statements.list.actions.edit'),
+                href: `/backend/eudr/statements/${row.id}`,
+              },
+              {
+                id: 'duplicate',
+                label: translate('eudr.statements.duplicateAction'),
+                href: `/backend/eudr/statements/create?duplicateFrom=${encodeURIComponent(row.id)}`,
+              },
+            ]
+            if (canDeleteStatement(row.status)) {
+              items.push({
+                id: 'delete',
+                label: translate('eudr.statements.list.actions.delete'),
+                destructive: true,
+                onSelect: () => {
+                  void handleDelete(row)
                 },
-                {
-                  id: 'duplicate',
-                  label: translate('eudr.statements.duplicateAction'),
-                  href: `/backend/eudr/statements/create?duplicateFrom=${encodeURIComponent(row.id)}`,
-                },
-                {
-                  id: 'delete',
-                  label: translate('eudr.statements.list.actions.delete'),
-                  destructive: true,
-                  onSelect: () => {
-                    void handleDelete(row)
-                  },
-                },
-              ]}
-            />
-          )}
+              })
+            }
+            return <RowActions items={items} />
+          }}
           onRowClick={(row) => router.push(`/backend/eudr/statements/${row.id}`)}
           rowClickActionIds={['edit']}
           emptyState={(
@@ -354,6 +363,7 @@ export default function EudrStatementsPage() {
             pageSize,
             total,
             totalPages,
+            totalIsCapped,
             onPageChange: setPage,
             pageSizeOptions: [20, 50, 100],
             onPageSizeChange: (nextPageSize) => {

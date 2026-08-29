@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/app",
-  "version": "0.6.5",
+  "version": "0.7.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -34,6 +34,7 @@
     "@open-mercato/ai-assistant": "workspace:*",
     "@open-mercato/cache": "workspace:*",
     "@open-mercato/channel-apns": "workspace:*",
+    "@open-mercato/channel-discord": "workspace:*",
     "@open-mercato/channel-expo": "workspace:*",
     "@open-mercato/channel-fcm": "workspace:*",
     "@open-mercato/channel-gmail": "workspace:*",
@@ -42,6 +43,7 @@
     "@open-mercato/cli": "workspace:*",
     "@open-mercato/content": "workspace:*",
     "@open-mercato/core": "workspace:*",
+    "@open-mercato/documents": "workspace:*",
     "@open-mercato/enterprise": "workspace:*",
     "@open-mercato/events": "workspace:*",
     "@open-mercato/gateway-stripe": "workspace:*",
