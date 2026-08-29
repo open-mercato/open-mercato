@@ -206,8 +206,10 @@ export function createSyncEngine(deps: EngineDeps) {
 
   // Rides the heartbeat timer, which is the only thing that runs while the adapter is still
   // producing a batch — the engine's own cancellation check sits in the batch handler and is
-  // reached only after a yield. Swallows its own errors because it runs on a timer, where an
-  // unhandled rejection is fatal, and stops polling once it has aborted.
+  // reached only after a yield. Since that timer now spans the consumer body too, a cancel is
+  // also observed during the per-batch bookkeeping rather than waiting out the next read.
+  // Swallows its own errors because it runs on a timer, where an unhandled rejection is fatal,
+  // and stops polling once it has aborted.
   function makeCancellationTick(progressJobId: string | null | undefined, scope: SyncScope, controller: AbortController): () => void {
     if (!progressJobId) return () => {}
     let inFlight = false
