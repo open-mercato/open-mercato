@@ -48,9 +48,26 @@ interface PersonData {
   } | null
 }
 
-function InviteForm({ personEntityId, onSuccess }: { personEntityId: string; onSuccess: () => void }) {
+async function fetchPendingInvitation(filter: string): Promise<PendingInvitationData | null> {
+  const result = await apiCall(`/api/customer_accounts/admin/users-invite?${filter}&pageSize=1`)
+  if (!result.ok) return null
+  const json = result.result as Record<string, unknown> | null
+  const items = json?.items as PendingInvitationData[] | undefined
+  return items?.[0] || null
+}
+
+function InviteForm({
+  personEntityId,
+  personData,
+  isLoadingPerson,
+  onSuccess,
+}: {
+  personEntityId: string
+  personData: PersonData | null
+  isLoadingPerson: boolean
+  onSuccess: () => void
+}) {
   const t = useT()
-  const [isLoadingPerson, setIsLoadingPerson] = React.useState(true)
   const [email, setEmail] = React.useState('')
   const [displayName, setDisplayName] = React.useState('')
   const [selectedRoleIds, setSelectedRoleIds] = React.useState<string[]>([])
@@ -63,35 +80,19 @@ function InviteForm({ personEntityId, onSuccess }: { personEntityId: string; onS
   })
 
   React.useEffect(() => {
-    let cancelled = false
-    async function loadPerson() {
-      try {
-        const call = await apiCall<PersonData>(
-          `/api/customers/people/${encodeURIComponent(personEntityId)}`,
-        )
-        if (cancelled) return
-        if (call.ok && call.result) {
-          const person = call.result.person
-          const profile = call.result.profile
-          if (person?.primaryEmail) {
-            setEmail(person.primaryEmail)
-          }
-          const nameParts = [profile?.firstName, profile?.lastName].filter(Boolean)
-          if (nameParts.length > 0) {
-            setDisplayName(nameParts.join(' '))
-          } else if (person?.displayName) {
-            setDisplayName(person.displayName)
-          }
-        }
-      } catch {
-        /* ignore - fields will remain empty for manual entry */
-      } finally {
-        if (!cancelled) setIsLoadingPerson(false)
-      }
+    if (!personData) return
+    const person = personData.person
+    const profile = personData.profile
+    if (person?.primaryEmail) {
+      setEmail(person.primaryEmail)
     }
-    loadPerson()
-    return () => { cancelled = true }
-  }, [personEntityId])
+    const nameParts = [profile?.firstName, profile?.lastName].filter(Boolean)
+    if (nameParts.length > 0) {
+      setDisplayName(nameParts.join(' '))
+    } else if (person?.displayName) {
+      setDisplayName(person.displayName)
+    }
+  }, [personData])
 
   React.useEffect(() => {
     let cancelled = false
@@ -272,23 +273,44 @@ export default function AccountStatusWidget({ context }: AccountStatusProps) {
     enabled: !!personEntityId,
   })
 
+  // The person record backs both the pending-invitation email fallback below and
+  // the invite form defaults, so it is fetched once here and shared.
+  const { data: personData, isLoading: isLoadingPerson } = useQuery({
+    queryKey: ['customer-account-person', personEntityId],
+    queryFn: async (): Promise<PersonData | null> => {
+      if (!personEntityId) return null
+      const result = await apiCall<PersonData>(
+        `/api/customers/people/${encodeURIComponent(personEntityId)}`,
+      )
+      if (!result.ok) return null
+      return (result.result as PersonData | null) || null
+    },
+    enabled: !!personEntityId && !isLoading && !data,
+  })
+
+  const personEmail = personData?.person?.primaryEmail?.trim() || null
+
   // A portal account only exists once the invitation is accepted, so the users
   // query above stays empty right after a successful invite. Without this the
   // widget renders the identical "no account" state and the invite looks like a
   // no-op (#4950).
   const { data: pendingInvitation, isLoading: isLoadingInvitation } = useQuery({
-    queryKey: ['customer-account-pending-invitation', personEntityId],
+    queryKey: ['customer-account-pending-invitation', personEntityId, personEmail],
     queryFn: async (): Promise<PendingInvitationData | null> => {
       if (!personEntityId) return null
-      const result = await apiCall(
-        `/api/customer_accounts/admin/users-invite?personEntityId=${encodeURIComponent(personEntityId)}&pageSize=1`,
+      const byPerson = await fetchPendingInvitation(
+        `personEntityId=${encodeURIComponent(personEntityId)}`,
       )
-      if (!result.ok) return null
-      const json = result.result as Record<string, unknown> | null
-      const items = json?.items as PendingInvitationData[] | undefined
-      return items?.[0] || null
+      if (byPerson) return byPerson
+      // person_entity_id is optional on an invitation: the portal invite route
+      // only ever knows the company, and rows written before the entity-ownership
+      // guard landed the person id in customer_entity_id instead. The recipient
+      // address is the one identity every invitation carries, so match on it
+      // before reporting "no account" for someone who was already invited (#5499).
+      if (!personEmail) return null
+      return fetchPendingInvitation(`email=${encodeURIComponent(personEmail)}`)
     },
-    enabled: !!personEntityId && !isLoading && !data,
+    enabled: !!personEntityId && !isLoading && !data && !isLoadingPerson,
   })
 
   function handleInviteSuccess() {
@@ -342,7 +364,12 @@ export default function AccountStatusWidget({ context }: AccountStatusProps) {
           </div>
         )}
         {showInviteForm && personEntityId && (
-          <InviteForm personEntityId={personEntityId} onSuccess={handleInviteSuccess} />
+          <InviteForm
+            personEntityId={personEntityId}
+            personData={personData ?? null}
+            isLoadingPerson={isLoadingPerson}
+            onSuccess={handleInviteSuccess}
+          />
         )}
       </div>
     )
