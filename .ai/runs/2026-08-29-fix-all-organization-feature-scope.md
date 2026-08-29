@@ -52,11 +52,11 @@ Finish PR #5778 by preserving established empty-scope and non-enumerating route 
 
 ### Phase 2: Resolve CI regressions
 
-- [ ] 2.1 Diagnose failed CI shards and classify their attribution
-- [ ] 2.2 Preserve empty-scope feature authorization while retaining fail-closed query narrowing
-- [ ] 2.3 Add regression coverage for empty-list and non-enumerating detail behavior
+- [x] 2.1 Diagnose failed CI shards and classify their attribution — dc9d7cd541
+- [x] 2.2 Preserve empty-scope feature authorization while retaining fail-closed query narrowing — dc9d7cd541
+- [x] 2.3 Add regression coverage for empty-list and non-enumerating detail behavior — dc9d7cd541
 
 ### Phase 3: Validate and return for review
 
-- [ ] 3.1 Run focused Docker integration tests and the configured validation gate
+- [x] 3.1 Run focused Docker integration tests and the configured validation gate — dc9d7cd541
 - [ ] 3.2 Complete the authoritative review pass, update PR evidence, and release the continuation lock
