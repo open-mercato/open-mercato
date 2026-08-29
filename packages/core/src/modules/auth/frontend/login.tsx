@@ -23,29 +23,6 @@ import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { useRegisteredComponent } from '@open-mercato/ui/backend/injection/useRegisteredComponent'
 import type { AuthOverride, LoginFormWidgetContext } from './login-injection'
 
-const loginTenantKey = 'om_login_tenant'
-const loginTenantCookieMaxAge = 60 * 60 * 24 * 14
-
-function readTenantCookie() {
-  if (typeof document === 'undefined') return null
-  const entries = document.cookie.split(';')
-  for (const entry of entries) {
-    const [name, ...rest] = entry.trim().split('=')
-    if (name === loginTenantKey) return decodeURIComponent(rest.join('='))
-  }
-  return null
-}
-
-function setTenantCookie(value: string) {
-  if (typeof document === 'undefined') return
-  document.cookie = `${loginTenantKey}=${encodeURIComponent(value)}; path=/; max-age=${loginTenantCookieMaxAge}; samesite=lax`
-}
-
-function clearTenantCookie() {
-  if (typeof document === 'undefined') return
-  document.cookie = `${loginTenantKey}=; path=/; max-age=0; samesite=lax`
-}
-
 function extractErrorMessage(payload: unknown): string | null {
   if (!payload) return null
   if (typeof payload === 'string') return payload
@@ -181,18 +158,20 @@ export default function LoginPage() {
     return () => { cancelled = true }
   }, [router, redirectParam, requiredFeatures.length, requiredRoles.length])
 
+  // The `tenant` query parameter is a hint scoped to the CURRENT visit: it is
+  // the URL, and nothing else, that decides whether the tenant banner shows and
+  // whether the hidden `tenantId` field is submitted. It used to be mirrored
+  // into localStorage['om_login_tenant'] and a 14-day cookie of the same name
+  // and replayed on every later visit, which welded the banner to /login for
+  // anyone who had ever followed a link carrying it — with no TTL of its own and
+  // no clear after a successful sign-in. @open-mercato/onboarding puts the
+  // parameter on the login link in the workspace-ready e-mail, in the
+  // post-verification redirect and in the onboarding status endpoint, so every
+  // self-serve signup passed through it exactly once and then carried the banner
+  // permanently.
   useEffect(() => {
     const tenantParam = (searchParams.get('tenant') || '').trim()
-    if (tenantParam) {
-      setTenantId(tenantParam)
-      window.localStorage.setItem(loginTenantKey, tenantParam)
-      setTenantCookie(tenantParam)
-      return
-    }
-    const storedTenant = window.localStorage.getItem(loginTenantKey) || readTenantCookie()
-    if (storedTenant) {
-      setTenantId(storedTenant)
-    }
+    setTenantId(tenantParam || null)
   }, [searchParams])
 
   useEffect(() => {
@@ -237,8 +216,9 @@ export default function LoginPage() {
   }, [tenantId, translate])
 
   function handleClearTenant() {
-    window.localStorage.removeItem(loginTenantKey)
-    clearTenantCookie()
+    // Nothing is persisted, so clearing is dropping the parameter from the URL
+    // and the local state that mirrors it. The effect above re-runs on the
+    // replaced URL and agrees.
     setTenantId(null)
     setTenantName(null)
     setTenantInvalid(null)
