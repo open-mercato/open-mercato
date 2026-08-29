@@ -60,6 +60,7 @@ import { AddressEditor, type AddressEditorDraft } from '@open-mercato/core/modul
 import { useSalesChannelsEnabled } from '../useSalesChannelsEnabled'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { SalesOrderDraftLines, createSalesOrderLineDraft, type SalesOrderLineDraft } from './SalesOrderDraftLines'
+import { normalizeAddressDraft } from './normalizeAddressDraft'
 
 const logger = createLogger('sales')
 
@@ -433,43 +434,6 @@ function parseCustomerOptions(items: unknown[], kind: 'person' | 'company'): Cus
     parsed.push({ id, label: `${label}`, subtitle, kind, primaryEmail: email })
   }
   return parsed
-}
-
-/**
- * Build the create page's address snapshot from the editor's draft.
- *
- * Exported for its test and for nothing else. It is the assign list below that makes this worth
- * pinning: there is no prior snapshot to merge against on a create, so a key the editor writes and
- * this list omits is simply absent from the payload — the value is gone, with no error anywhere. The
- * list has drifted from the editor once already.
- */
-export function normalizeAddressDraft(draft?: AddressDraft | null): Record<string, unknown> | null {
-  if (!draft) return null
-  const normalized: Record<string, unknown> = {}
-  const assign = (key: keyof AddressDraft, target: string) => {
-    const value = draft[key]
-    if (typeof value === 'string' && value.trim().length) normalized[target] = value.trim()
-    if (typeof value === 'boolean') normalized[target] = value
-  }
-  assign('name', 'name')
-  assign('purpose', 'purpose')
-  assign('companyName', 'companyName')
-  assign('addressLine1', 'addressLine1')
-  assign('addressLine2', 'addressLine2')
-  assign('buildingNumber', 'buildingNumber')
-  assign('flatNumber', 'flatNumber')
-  assign('city', 'city')
-  assign('region', 'region')
-  assign('postalCode', 'postalCode')
-  assign('country', 'country')
-  // The editor writes these two, so this list must carry them: a key it writes and this omits is
-  // simply absent from the payload, and the value is gone with no error to show for it. There is no
-  // merge-back here to catch it — the document does not exist yet, so there is no prior snapshot.
-  assign('taxId', 'taxId')
-  assign('taxIdType', 'taxIdType')
-  assign('phone', 'phone')
-  assign('isPrimary', 'isPrimary')
-  return Object.keys(normalized).length ? normalized : null
 }
 
 type DocumentNumberFieldProps = CrudCustomFieldRenderProps & { t: Translator }

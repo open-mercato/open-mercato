@@ -43,7 +43,7 @@ The gap is felt by any deployment that ships physical goods (a delivery without 
 >
 > **Rejected:** an email on the address — two of the three commerce platforms deliberately keep it on the order, and an order-level email is the better home; splicing contact details into the postal address lines — nobody does this, and it corrupts every one-line summary built from those lines.
 
-**Touched:** `packages/core/src/modules/customers/utils/addressFormat.tsx`, `packages/ui/src/backend/detail/addressFormat.tsx` (near-identical twin — the two files differ only in the import and the `AddressFormatStrategy` alias, so they must be edited in parallel rather than copied over one another), `packages/core/src/modules/sales/components/documents/AddressesSection.tsx`, sales i18n (5 locales), Phase 3 only: `customers` address entities + migration.
+**Touched:** `packages/core/src/modules/customers/utils/addressFormat.tsx`, `packages/ui/src/backend/detail/addressFormat.tsx` (near-identical twin — the two files differ only in the import and the `AddressFormatStrategy` alias, so they must be edited in parallel rather than copied over one another), `packages/core/src/modules/sales/components/documents/AddressesSection.tsx`, customers i18n (5 locales), Phase 3 only: `customers` address entities + migration.
 
 **Not touched:** `sales_document_addresses` schema (explicitly rejected — see Alternatives), `addressSnapshotSchema` (stays free-form), search indexing config outside the tax-id rules, per-country address formats, VIES calls, address filterability (blocked by encryption at rest), `buildingNumber`/`flatNumber` logic (house numbers are conventionally written into the street line, and the field is near-empty in practice — see Appendix).
 
@@ -107,7 +107,7 @@ Every question raised while this spec was drafted is settled. They are recorded 
 - A **warehouse operator** dispatching an order sees the phone the carrier needs, on the delivery address that carries it — not a number belonging to a different address of the same customer.
 - An **accountant** sees the tax identifier a B2B invoice was issued under, on the billing address, exactly as frozen at document time.
 - An **integration author** posting an address with a phone number sees it rendered, and sees it survive a subsequent manual edit.
-- A **third-party module author** calls `AddressView` exactly as before and observes zero change until they opt in with labels.
+- A **third-party module author** calls `AddressView` exactly as before and observes zero change; contact fields remain outside its postal-only contract.
 
 ## Architecture
 
@@ -140,7 +140,7 @@ Six keys added under `customers.people.detail.addresses.fields.*`, in `en`, `pl`
 
 ## UI/UX
 
-- Contact block under the shipping/billing tiles as `text-xs text-muted-foreground` label–value lines; self-hiding when the address carries nothing.
+- Tax-id scheme, tax number, and phone inputs appear inside shipping/billing `AddressEditor` tiles only when the caller opts in with `showTaxIdField` / `showPhoneField`; they share the tile's editable or disabled state.
 - Phase 1 passes `disabled={locked}` to the two snapshot `AddressEditor`s, so a locked document stops presenting an editable form over data the API refuses to change.
 - DS rules apply: semantic tokens only, shared primitives, no new inline comments.
 - Phase 1 MUST remove `// @ts-nocheck` from `AddressesSection.tsx` and fix the type errors it hides. This is a precondition of the phase, not a preference: while the directive stands the file is invisible to `tsc`, so everything the phase adds there is unchecked by CI.
@@ -190,7 +190,7 @@ The `SalesDocumentForm.tsx` copy needs no merge-back: it runs only on document c
 
 Unit (`packages/core`): postal lines unchanged when contacts present (**the safety property**); per-field label gate; null-render preserved; snapshot round-trip keeps unowned keys, asserted through the document detail save path — the only path on which a prior snapshot exists.
 
-Route/UI level (Phase 1): `packages/core/src/modules/sales/__integration__/TC-SALES-ADDR-CONTACT-001.spec.ts` — order created via API with a snapshot carrying `phone`/`taxId`; detail page renders both; save round-trips them from the detail tab and from the document form; a locked document renders the address inputs in their disabled state. Self-contained fixtures, no seeded data.
+Route/UI level (Phase 1): `packages/core/src/modules/sales/__integration__/TC-SALES-ADDR-CONTACT-001.spec.ts` covers the API/detail edit-and-reload round-trip; `TC-SALES-ADDR-CONTACT-002.spec.ts` creates a document through the form and verifies both persisted snapshots; `TC-SALES-ADDR-CONTACT-003.spec.ts` verifies the disabled contact controls under an address-editing guard. Self-contained fixtures, no seeded data.
 
 Phase 3: `TC-CRM-CRUDFORM-*` proves `recipient_name`/`phone` save-and-reload on customer address create + update.
 

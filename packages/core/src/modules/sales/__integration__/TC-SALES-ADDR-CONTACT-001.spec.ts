@@ -3,24 +3,8 @@ import { login } from '@open-mercato/core/modules/core/__integration__/helpers/a
 import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import { createSalesOrderFixture } from '@open-mercato/core/modules/core/__integration__/helpers/salesFixtures'
 
-/**
- * TC-SALES-ADDR-CONTACT-001 — address-level contact details on the document detail page.
- *
- * Spec: .ai/specs/2026-08-10-address-contact-and-tax-fields.md (Phase 1)
- *
- * The document address snapshot is schemaless, so an integration posting `phone` / `taxId` /
- * `taxIdType` beside the postal fields always had them PERSISTED — this phase gives them a read
- * path. The spec proves the full journey: an order created via the API with a snapshot carrying
- * the contact keys round-trips them through the API, and the document detail page renders them
- * as the contact block under the billing tile.
- *
- * The editor-save round-trip (unowned keys surviving a manual address save) and the
- * locked-document disabled editor are covered at the component level —
- * `components/documents/__tests__/AddressesSection.test.tsx` — where both sides of each
- * behaviour can be asserted deterministically; this spec owns the API-and-page journey.
- */
-
 const BASE_URL = process.env.BASE_URL?.trim() || null
+
 function resolveUrl(path: string): string {
   return BASE_URL ? `${BASE_URL}${path}` : path
 }
@@ -61,15 +45,17 @@ async function readOrder(request: APIRequestContext, token: string, orderId: str
   return item as Record<string, unknown>
 }
 
-test.describe('TC-SALES-ADDR-CONTACT-001: contact details on the document address', () => {
+test.describe('TC-SALES-ADDR-CONTACT-001: document address detail round-trip', () => {
   let token: string
   let orderId: string
 
   test.beforeAll(async ({ request }) => {
     token = await getAuthToken(request)
     orderId = await createSalesOrderFixture(request, token)
-    const put = await putOrder(request, token, orderId, { billingAddressSnapshot: BILLING_SNAPSHOT })
-    expect(put.status(), 'seeding the billing snapshot should succeed').toBe(200)
+    const response = await putOrder(request, token, orderId, {
+      billingAddressSnapshot: BILLING_SNAPSHOT,
+    })
+    expect(response.status(), 'seeding the billing snapshot should succeed').toBe(200)
   })
 
   test.afterAll(async ({ request }) => {
@@ -94,37 +80,43 @@ test.describe('TC-SALES-ADDR-CONTACT-001: contact details on the document addres
     })
   })
 
-  test('the document detail page renders the tax id and the phone on the billing address', async ({ page }) => {
+  test('the detail page saves and reloads the tax id and phone', async ({ page, request }) => {
     await login(page)
-    await page.goto(resolveUrl(`/backend/sales/orders/${orderId}`))
+    await page.goto(resolveUrl(`/backend/sales/orders/${orderId}`), { waitUntil: 'domcontentloaded' })
     await page.getByRole('button', { name: 'Addresses' }).click()
 
-    // Both are ordinary inputs on the tile, so there is no "<label>: <value>" line to match — the
-    // value is the field's value, and the label is its placeholder until something is typed.
-    await expect(page.getByPlaceholder('Tax number')).toHaveValue('PL1234567890')
-    await expect(page.getByPlaceholder('Phone')).toHaveValue('+48 600 100 200')
+    const taxIdInput = page.getByRole('textbox', { name: 'Tax number' })
+    const phoneInput = page.getByRole('textbox', { name: 'Phone' })
+    await expect(taxIdInput).toHaveValue('PL1234567890')
+    await expect(phoneInput).toHaveValue('+48 600 100 200')
 
-    // Visibility is a separate assertion from value, because a field can be in the DOM holding the
-    // right string and still not be on screen — `toHaveValue` passes either way. It catches the blunt
-    // cases: a hidden parent, `display: none`, a zero-size box.
-    //
-    // It does NOT catch every way a field can fail to appear. The tile layout is width-dependent, and
-    // at this viewport a field can render correctly here while a narrower tile squeezes it out; that
-    // failure needs a browser at the width it happens on, which this suite does not model. Treat this
-    // pair as a guard, not as coverage for a layout regression.
-    await expect(page.getByPlaceholder('Tax number')).toBeVisible()
-    await expect(page.getByPlaceholder('Phone')).toBeVisible()
+    await taxIdInput.fill('PL9876543210')
+    await phoneInput.fill('+48 600 900 800')
+    const updateResponsePromise = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === '/api/sales/orders' &&
+        response.request().method() === 'PUT',
+    )
+    await page.getByRole('button', { name: 'Update addresses' }).click()
+    const updateResponse = await updateResponsePromise
+    expect(updateResponse.ok(), `Address update failed: ${updateResponse.status()}`).toBeTruthy()
 
-    // The scheme's name appears TWICE, and the count is the assertion: once as the picker's selected
-    // option and once as the marker at the filled field's right edge. Asserting mere visibility
-    // passes on the picker alone, which is how a missing marker survived a green run before.
+    const item = await readOrder(request, token, orderId)
+    const snapshot = (item.billingAddressSnapshot ?? item.billing_address_snapshot) as
+      | Record<string, unknown>
+      | undefined
+    expect(snapshot).toMatchObject({
+      phone: '+48 600 900 800',
+      taxId: 'PL9876543210',
+      taxIdType: 'eu_vat',
+    })
+
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    await page.getByRole('button', { name: 'Addresses' }).click()
+    await expect(page.getByRole('textbox', { name: 'Tax number' })).toHaveValue('PL9876543210')
+    await expect(page.getByRole('textbox', { name: 'Phone' })).toHaveValue('+48 600 900 800')
     await expect(page.getByText('EU VAT')).toHaveCount(2)
-
-    // The type interprets the value; it is never rendered as a value itself.
     await expect(page.getByText(/eu_vat/)).toHaveCount(0)
-
-    // Postal-purity downstream: the one-line summaries built from the postal lines must not have
-    // the contact details spliced in.
-    await expect(page.getByText('12 Market Street, PL1234567890')).toHaveCount(0)
+    await expect(page.getByText('12 Market Street, PL9876543210')).toHaveCount(0)
   })
 })

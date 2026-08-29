@@ -15,9 +15,9 @@ export type AddressValue = {
   companyName?: string | null
   /**
    * Contact details that belong to the ADDRESS rather than to the customer: who to call about this
-   * delivery, and the tax identifier this invoice address was billed under. Deliberately NOT part of
-   * the postal lines — see `formatAddressLines` — they render only through `AddressView`, and only
-   * when the caller supplies labels for them.
+   * delivery, and the tax identifier this invoice address was billed under. They remain available to
+   * address editors and snapshot payloads, but are deliberately excluded from `formatAddressLines`
+   * and `AddressView`, whose existing contract remains postal-only.
    *
    * `taxIdType` interprets the value in Stripe's `{country}_{kind}` vocabulary (`pl_nip`, `eu_vat`,
    * `other`, widened additively): `1234567890` and `PL1234567890` are the same business, and only the
@@ -33,11 +33,9 @@ export type AddressValue = {
  * Tax-id labels keyed by `taxIdType`, for a caller that wants the identifier named correctly rather
  * than generically.
  *
- * A two-letter prefix is stored as `eu_vat` whatever the country, so a German `DE811907980` reads
- * "EU VAT" and not the neutral fallback. `other` covers a non-domestic address whose number carries
- * no country prefix, and also an address written before `taxIdType` existed. An unrecognised type
- * takes the `other` route rather than a guess: naming a foreign number after a domestic scheme
- * renames it, which is worse than saying nothing specific.
+ * The stored scheme is chosen explicitly rather than inferred from the identifier. `other` also
+ * covers an address written before `taxIdType` existed. An unrecognised type takes the `other` route
+ * instead of guessing a domestic scheme.
  */
 export type TaxIdLabelByType = {
   plNip: string

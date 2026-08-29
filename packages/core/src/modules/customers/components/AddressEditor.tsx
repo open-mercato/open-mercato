@@ -44,7 +44,7 @@ export type AddressEditorDraft = {
   /**
    * Contact details that belong to the ADDRESS rather than to the customer: the tax identifier it was
    * invoiced under, and the phone a carrier calls about a delivery. Optional so every existing caller
-   * keeps compiling — one that omits them renders two empty fields, exactly as it does for `region`.
+   * keeps compiling; callers must opt in with the matching `show*Field` props before they render.
    */
   taxId?: string
   /**
@@ -146,8 +146,6 @@ export function AddressEditor({
     [t],
   )
 
-  // One mapping, one home. The picker's options resolve through `resolveTaxIdLabel`, so a scheme
-  // cannot be called one thing in the list and another wherever else an identifier is named.
   const taxIdLabels = {
     plNip: t('customers.people.detail.addresses.fields.taxId.plNip', 'Tax ID'),
     euVat: t('customers.people.detail.addresses.fields.taxId.euVat', 'EU VAT'),
@@ -526,88 +524,68 @@ export function AddressEditor({
             {errors.longitude ? <p className="text-xs text-destructive">{errors.longitude}</p> : null}
           </>
         ) : null}
-        {/*
-          Ordinary fields, not a block rendered beside the editor. An address's tax identifier and
-          phone are as much part of it as its street, so they render always and edit the same way —
-          whether the address can be edited at all is a property of the address, not decided per
-          field. Whether each appears at all is the CALLER's answer, above.
-        */}
         {showTaxIdField ? (
-        <>
-        {/*
-          The scheme is picked, not inferred. Reading it off the form of the value works for the
-          three seeded cases and stops working as the vocabulary grows — and a wrong type is worse
-          than none, because it puts a name on the number. Stripe asks for the same choice.
-
-          Picker and value are two ordinary cells of the surrounding grid, like every other pair in
-          this form. Nesting them in a flex row of their own reads as tidier and is not: `Input`
-          renders a `w-full` wrapper, which as a flex item next to a fixed-basis trigger collapses to
-          nothing and takes the field with it.
-        */}
-        <Select
-          value={current.taxIdType || undefined}
-          onValueChange={(next) => update('taxIdType', next ?? '')}
-          disabled={disabled}
-        >
-          <SelectTrigger
-            className={errors.taxIdType ? 'border-destructive' : undefined}
-            aria-invalid={errors.taxIdType ? 'true' : undefined}
-          >
-            <SelectValue
-              placeholder={t('customers.people.detail.addresses.fields.taxIdType', 'Tax id type')}
+          <>
+            <Select
+              value={current.taxIdType || undefined}
+              onValueChange={(next) => update('taxIdType', next ?? '')}
+              disabled={disabled}
+            >
+              <SelectTrigger
+                className={errors.taxIdType ? 'border-destructive' : undefined}
+                aria-label={t('customers.people.detail.addresses.fields.taxIdType', 'Tax id type')}
+                aria-invalid={errors.taxIdType ? 'true' : undefined}
+              >
+                <SelectValue
+                  placeholder={t('customers.people.detail.addresses.fields.taxIdType', 'Tax id type')}
+                />
+              </SelectTrigger>
+              <SelectContent>
+                {TAX_ID_TYPES.map((type) => (
+                  <SelectItem key={type} value={type}>
+                    {resolveTaxIdLabel(taxIdLabels, type)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Input
+              className={inputClass('taxId')}
+              placeholder={t('customers.people.detail.addresses.fields.taxId', 'Tax number')}
+              aria-label={t('customers.people.detail.addresses.fields.taxId', 'Tax number')}
+              rightIcon={
+                current.taxId ? (
+                  <span className="text-xs">{resolveTaxIdLabel(taxIdLabels, current.taxIdType)}</span>
+                ) : null
+              }
+              value={current.taxId ?? ''}
+              onChange={(evt) => update('taxId', evt.target.value)}
+              disabled={disabled}
+              aria-invalid={errors.taxId ? 'true' : undefined}
             />
-          </SelectTrigger>
-          <SelectContent>
-            {TAX_ID_TYPES.map((type) => (
-              <SelectItem key={type} value={type}>
-                {resolveTaxIdLabel(taxIdLabels, type)}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Input
-          className={inputClass('taxId')}
-          placeholder={t('customers.people.detail.addresses.fields.taxId', 'Tax number')}
-          aria-label={t('customers.people.detail.addresses.fields.taxId', 'Tax number')}
-          // The placeholder is this field's only label and it disappears the moment someone types,
-          // leaving a bare number directly under the postcode. The marker names it, and names it by
-          // the chosen scheme rather than generically — the same mapping the picker resolves through,
-          // so the two can never disagree.
-          rightIcon={
-            current.taxId ? (
-              <span className="text-xs">{resolveTaxIdLabel(taxIdLabels, current.taxIdType)}</span>
-            ) : null
-          }
-          value={current.taxId ?? ''}
-          onChange={(evt) => update('taxId', evt.target.value)}
-          disabled={disabled}
-          aria-invalid={errors.taxId ? 'true' : undefined}
-        />
-        {errors.taxId ? <p className="text-xs text-destructive">{errors.taxId}</p> : null}
-        </>
+            {errors.taxId ? <p className="text-xs text-destructive">{errors.taxId}</p> : null}
+          </>
         ) : null}
         {showPhoneField ? (
-        <>
-        <Input
-          className={inputClass('phone')}
-          placeholder={t('customers.people.detail.addresses.fields.phone', 'Phone')}
-          aria-label={t('customers.people.detail.addresses.fields.phone', 'Phone')}
-          // Same reason as the tax id above, with one difference: this label is constant. A phone has
-          // no scheme to interpret, so there is nothing to resolve — it simply names the field once
-          // the placeholder that named it has gone.
-          rightIcon={
-            current.phone ? (
-              <span className="text-xs">{t('customers.people.detail.addresses.fields.phone', 'Phone')}</span>
-            ) : null
-          }
-          inputMode="tel"
-          value={current.phone ?? ''}
-          onChange={(evt) => update('phone', evt.target.value)}
-          disabled={disabled}
-          aria-invalid={errors.phone ? 'true' : undefined}
-        />
-        {errors.phone ? <p className="text-xs text-destructive">{errors.phone}</p> : null}
-        </>
+          <>
+            <Input
+              className={inputClass('phone')}
+              placeholder={t('customers.people.detail.addresses.fields.phone', 'Phone')}
+              aria-label={t('customers.people.detail.addresses.fields.phone', 'Phone')}
+              rightIcon={
+                current.phone ? (
+                  <span className="text-xs">
+                    {t('customers.people.detail.addresses.fields.phone', 'Phone')}
+                  </span>
+                ) : null
+              }
+              inputMode="tel"
+              value={current.phone ?? ''}
+              onChange={(evt) => update('phone', evt.target.value)}
+              disabled={disabled}
+              aria-invalid={errors.phone ? 'true' : undefined}
+            />
+            {errors.phone ? <p className="text-xs text-destructive">{errors.phone}</p> : null}
+          </>
         ) : null}
       </div>
       {!hidePrimaryToggle ? (

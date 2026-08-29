@@ -1,13 +1,4 @@
-import { normalizeAddressDraft } from '../SalesDocumentForm'
-
-// The bug this file exists for: the create page builds its address snapshot from an explicit assign
-// list, and that list stopped at `country` while the editor had learned to write three more keys.
-// Nothing failed — a create simply produced a snapshot without them, and the values were gone. There
-// is no merge-back on this path to soften it, because the document does not exist yet.
-//
-// The update path has its own copy of this list in `AddressesSection`, covered by its own suite. The
-// two are deliberately separate until the spec's deferred merge, which is exactly why each needs
-// pinning: they drift silently.
+import { normalizeAddressDraft } from '../normalizeAddressDraft'
 const draft = {
   name: 'Fixture GmbH',
   purpose: '',
@@ -46,8 +37,6 @@ describe('SalesDocumentForm — the create page keeps every key the editor write
   })
 
   it('omits a field left blank rather than writing an empty string', () => {
-    // The three keys are optional on the draft and empty on most addresses. A blank one must not
-    // reach the snapshot: an empty `taxIdType` beside a filled `taxId` would name the number nothing.
     const normalized = normalizeAddressDraft({ ...draft, taxId: '', taxIdType: '', phone: '   ' })
 
     expect(normalized).not.toHaveProperty('taxId')
