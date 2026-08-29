@@ -128,18 +128,32 @@ function makeCtx(em: any, syncOrigin?: string | null) {
   return { ctx, queue }
 }
 
-async function runUpdate(syncOrigin?: string | null) {
+async function runCommand(commandId: string, input: Record<string, unknown>, syncOrigin?: string | null) {
   const { entity, profile } = makeFixtures()
   const em = makeEm(entity, profile)
   const { ctx, queue } = makeCtx(em, syncOrigin)
-  const handler = commandRegistry.get('customers.people.update') as CommandHandler
+  const handler = commandRegistry.get(commandId) as CommandHandler
 
-  await handler.execute({ id: ENTITY_ID, firstName: 'Janina' }, ctx)
+  await handler.execute(input, ctx)
 
   const sideEffect = queue.find((entry) => entry.events?.entity === 'person')
-  if (!sideEffect) throw new Error('[internal] no person CRUD side effect was queued')
+  if (!sideEffect) throw new Error(`[internal] ${commandId} queued no person CRUD side effect`)
   return sideEffect
 }
+
+const runUpdate = (syncOrigin?: string | null) =>
+  runCommand('customers.people.update', { id: ENTITY_ID, firstName: 'Janina' }, syncOrigin)
+
+const runCreate = (syncOrigin?: string | null) =>
+  runCommand('customers.people.create', {
+    organizationId: ORG_ID,
+    tenantId: TENANT_ID,
+    firstName: 'Janina',
+    lastName: 'Kowalska',
+  }, syncOrigin)
+
+const runDelete = (syncOrigin?: string | null) =>
+  runCommand('customers.people.delete', { body: { id: ENTITY_ID } }, syncOrigin)
 
 describe('customers.people.update — syncOrigin provenance (#5750)', () => {
   afterEach(() => jest.clearAllMocks())
@@ -174,5 +188,27 @@ describe('customers.people.update — syncOrigin provenance (#5750)', () => {
 
     const payload = sideEffect.events?.buildPayload?.(sideEffect) as Record<string, unknown>
     expect(payload).not.toHaveProperty('syncOrigin')
+  })
+})
+
+describe('customers.people create/delete — syncOrigin provenance (#5750)', () => {
+  afterEach(() => jest.clearAllMocks())
+
+  it('forwards syncOrigin and actorUserId from customers.people.create', async () => {
+    const sideEffect = await runCreate(SYNC_ORIGIN)
+
+    expect(sideEffect.action).toBe('created')
+    expect(sideEffect.syncOrigin).toBe(SYNC_ORIGIN)
+    expect(sideEffect.actorUserId).toBe(ACTOR_USER_ID)
+    expect(sideEffect.events?.buildPayload?.(sideEffect)).toMatchObject({ syncOrigin: SYNC_ORIGIN })
+  })
+
+  it('forwards syncOrigin and actorUserId from customers.people.delete', async () => {
+    const sideEffect = await runDelete(SYNC_ORIGIN)
+
+    expect(sideEffect.action).toBe('deleted')
+    expect(sideEffect.syncOrigin).toBe(SYNC_ORIGIN)
+    expect(sideEffect.actorUserId).toBe(ACTOR_USER_ID)
+    expect(sideEffect.events?.buildPayload?.(sideEffect)).toMatchObject({ syncOrigin: SYNC_ORIGIN })
   })
 })
