@@ -28,7 +28,7 @@ export interface NormalizeInboundGmailOptions {
   gmailThreadId: string
   gmailLabelIds?: string[]
   accountIdentifier: string
-  fallbackDate?: Date
+  fallbackDate?: Date | null
 }
 
 export async function normalizeInboundGmailMessage(

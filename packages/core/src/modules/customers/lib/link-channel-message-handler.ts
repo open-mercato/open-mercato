@@ -211,7 +211,7 @@ export default async function handler(
         ? (payloadJson!.text as string)
         : null
 
-  const occurredAt = link.createdAt instanceof Date ? link.createdAt : new Date()
+  const occurredAt = await resolveEmailOccurredAt(em, link, tenantId, organizationId)
   const providerKey =
     typeof link.providerKey === 'string' ? (link.providerKey as string) : null
 
@@ -325,7 +325,7 @@ async function handleThreadingInheritance(
           : typeof metaJson?.bodyText === 'string'
             ? (metaJson.bodyText as string)
             : null
-      const occurredAt = _link.createdAt instanceof Date ? (_link.createdAt as Date) : new Date()
+      const occurredAt = await resolveEmailOccurredAt(em, _link, tenantId, organizationId)
       const providerKey = typeof _link.providerKey === 'string' ? (_link.providerKey as string) : null
       await persistInteractions(em, threadPersonIds, {
         linkId,
@@ -420,7 +420,7 @@ async function handleThreadingInheritance(
   const inheritedMeta = (link.channelMetadata ?? null) as Record<string, unknown> | null
   const subject =
     typeof inheritedMeta?.subject === 'string' ? (inheritedMeta.subject as string) : null
-  const occurredAt = link.createdAt instanceof Date ? (link.createdAt as Date) : new Date()
+  const occurredAt = await resolveEmailOccurredAt(em, link, tenantId, organizationId)
   const providerKey =
     typeof link.providerKey === 'string' ? (link.providerKey as string) : null
 
@@ -442,6 +442,25 @@ async function handleThreadingInheritance(
   )
 }
 
+async function resolveEmailOccurredAt(
+  em: EntityManager,
+  link: Record<string, unknown>,
+  tenantId: string,
+  organizationId: string | null,
+): Promise<Date | null> {
+  const message = typeof link.messageId === 'string'
+    ? await findOneWithDecryption(
+        em,
+        'Message' as never,
+        { id: link.messageId, tenantId, organizationId, deletedAt: null } as never,
+        undefined,
+        { tenantId, organizationId },
+      ) as { sentAt?: Date | null } | null
+    : null
+
+  return message?.sentAt ?? null
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────
 
 interface InteractionData {
@@ -452,7 +471,7 @@ interface InteractionData {
   title: string | null
   body: string | null
   authorUserId: string | null
-  occurredAt: Date
+  occurredAt: Date | null
   visibility: 'private' | 'shared'
   channelProviderKey: string | null
 }

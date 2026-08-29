@@ -255,6 +255,7 @@
   "messages.types.default": "메시지",
   "messages.types.defaultWithObjects": "객체 메시지",
   "messages.types.system": "시스템 알림",
+  "messages.unknownDate": "날짜를 알 수 없음",
   "messages.visibility": "공개 범위",
   "messages.visibilityInternal": "내부",
   "messages.visibilityInternalHint": "내부 메시지는 선택한 시스템 사용자에게 전송됩니다.",

@@ -295,7 +295,8 @@ export async function GET(req: Request) {
       'r.status as recipient_status',
       'r.read_at',
     ])
-    .orderBy('m.sent_at', 'desc')
+    .orderBy(sql`${sql.ref('m.sent_at')} desc nulls last`)
+    .orderBy('m.id', 'desc')
     .offset(offset)
     .limit(input.pageSize)
     .execute()
@@ -402,6 +403,7 @@ export async function GET(req: Request) {
           senderUserId: message.senderUserId,
           priority: message.priority,
           status: row.recipient_status ?? (row.is_draft ? 'draft' : 'sent'),
+          isDraft: row.is_draft,
           hasObjects: (objectsByMessage[message.id] || []).length > 0,
           objectCount: (objectsByMessage[message.id] || []).length,
           hasAttachments: (attachmentCountByMessage[message.id] || 0) > 0,

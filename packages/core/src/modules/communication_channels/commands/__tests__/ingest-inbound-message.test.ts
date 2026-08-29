@@ -25,6 +25,7 @@ import ingestInboundMessageCommand, {
   type IngestInboundMessageInput,
 } from '../ingest-inbound-message'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { normalizedInboundMessageSchema } from '../../data/validators'
 import { composeMessageSchema } from '../../../messages/data/validators'
 
 const mockIngestFindOne = findOneWithDecryption as jest.MockedFunction<typeof findOneWithDecryption>
@@ -43,6 +44,23 @@ describe('ingestInboundMessageCommand metadata', () => {
 })
 
 describe('ingestInboundMessageCommand input schema', () => {
+  it('accepts an explicitly unknown message timestamp', () => {
+    const result = normalizedInboundMessageSchema.parse({
+      externalMessageId: 'ext-unknown-date',
+      externalConversationId: 'conv-1',
+      senderIdentifier: 'jane@example.com',
+      body: 'hi',
+      bodyFormat: 'text',
+      timestamp: null,
+      providerTimestamp: new Date('2026-05-29T10:00:00.000Z'),
+      channelPayload: {},
+      channelContentType: 'email/mime',
+      channelMetadata: {},
+    })
+    expect(result.timestamp).toBeNull()
+    expect(result.providerTimestamp).toEqual(new Date('2026-05-29T10:00:00.000Z'))
+  })
+
   it('rejects empty providerKey', async () => {
     const input = {
       channelId: '11111111-1111-1111-1111-111111111111',
@@ -109,7 +127,6 @@ describe('ingestInboundMessageCommand input schema', () => {
       ccAddresses: meta.cc as string[],
       bodyPlain: sample.bodyFormat === 'html' ? null : sample.body,
       bodyHtml: sample.bodyFormat === 'html' ? sample.body : null,
-      receivedAt: sample.timestamp,
     }
     expect(matcherInput.messageId).toBe('<reply@external.example>')
     expect(matcherInput.inReplyTo).toBe('<original@example.com>')
@@ -514,6 +531,7 @@ describe('ingestInboundMessageCommand — HTML body normalization', () => {
         },
       } as any,
       commandBus,
+      em,
     }
   }
 
@@ -676,5 +694,35 @@ describe('ingestInboundMessageCommand — HTML body normalization', () => {
     const { input: composed } = composedInput(commandBus)
     expect(composed.body).toContain('Short enough')
     expect(composed.body).not.toContain('message truncated by Open Mercato')
+  })
+
+  it('persists only the separately supplied provider timestamp on ExternalMessage', async () => {
+    primeLookups()
+    const { ctx, em } = makeCtx()
+    const providerTimestamp = new Date('2026-05-29T10:00:00.000Z')
+    const input = makeInput('hello', 'text')
+    input.message.timestamp = new Date('2026-05-28T10:00:00.000Z')
+    input.message.providerTimestamp = providerTimestamp
+
+    await ingestInboundMessageCommand.execute(input as never, ctx)
+
+    const externalMessageCreate = em.create.mock.calls.find(([, data]: [unknown, Record<string, unknown>]) => (
+      data.externalMessageId === 'ext-html-1' && data.direction === 'inbound'
+    ))
+    expect(externalMessageCreate?.[1].providerTimestamp).toEqual(providerTimestamp)
+  })
+
+  it('does not reclassify the canonical timestamp as a provider timestamp', async () => {
+    primeLookups()
+    const { ctx, em } = makeCtx()
+    const input = makeInput('hello', 'text')
+    input.message.timestamp = new Date('2026-05-28T10:00:00.000Z')
+
+    await ingestInboundMessageCommand.execute(input as never, ctx)
+
+    const externalMessageCreate = em.create.mock.calls.find(([, data]: [unknown, Record<string, unknown>]) => (
+      data.externalMessageId === 'ext-html-1' && data.direction === 'inbound'
+    ))
+    expect(externalMessageCreate?.[1].providerTimestamp).toBeNull()
   })
 })

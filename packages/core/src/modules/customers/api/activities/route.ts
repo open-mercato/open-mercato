@@ -30,6 +30,7 @@ import { resolveCustomersRequestContext } from '../../lib/interactionRequestCont
 import { hydrateCanonicalInteractions } from '../../lib/interactionReadModel'
 import { resolveCanonicalActivityTargetId } from '../../lib/legacyActivityBridge'
 import { buildEmailVisibilityMikroFilter } from '../../lib/visibilityFilter'
+import { buildInteractionOccurredAtOrderBy } from '../../lib/interactionOrderBy'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('customers')
@@ -148,14 +149,14 @@ function buildLegacyOrderBy(sortField: string | undefined, sortDir: 'asc' | 'des
   if (sortField === 'createdAt') {
     return { createdAt: sortDir }
   }
-  return { occurredAt: sortDir, createdAt: sortDir } as const
+  return buildInteractionOccurredAtOrderBy(sortDir)
 }
 
 function buildCanonicalOrderBy(sortField: string | undefined, sortDir: 'asc' | 'desc') {
   if (sortField === 'createdAt') {
     return { createdAt: sortDir }
   }
-  return { occurredAt: sortDir, createdAt: sortDir } as const
+  return buildInteractionOccurredAtOrderBy(sortDir)
 }
 
 function resolveActivitySortValue(item: ActivityItem, sortField: string | undefined): number {
