@@ -98,7 +98,7 @@ export function VariantBasicsSection({ values, setValue, errors }: VariantSectio
       <div className="space-y-2">
         <Label className="flex items-center gap-1">
           {t('catalog.variants.form.nameLabel', 'Name')}
-          <span className="text-status-error-text">*</span>
+          <span className="text-accent-indigo">*</span>
         </Label>
         <Input
           value={values.name}

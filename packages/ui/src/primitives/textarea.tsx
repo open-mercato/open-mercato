@@ -5,7 +5,7 @@ import * as React from 'react'
 import { cn } from '@open-mercato/shared/lib/utils'
 
 const baseTextareaClass =
-  'flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-xs transition-colors placeholder:text-muted-foreground outline-none focus-visible:outline-none focus-visible:shadow-focus focus-visible:border-foreground hover:bg-muted/40 disabled:cursor-not-allowed disabled:bg-bg-disabled disabled:border-border-disabled disabled:shadow-none disabled:hover:bg-bg-disabled aria-[invalid=true]:border-destructive aria-[invalid=true]:focus-visible:border-destructive resize-y min-h-[80px]'
+  'flex w-full rounded-md border border-input bg-background px-3 py-2 text-base sm:text-sm shadow-xs transition-colors placeholder:text-muted-foreground outline-none focus-visible:outline-none focus-visible:shadow-focus focus-visible:border-foreground hover:bg-muted/40 disabled:cursor-not-allowed disabled:bg-bg-disabled disabled:border-border-disabled disabled:shadow-none disabled:hover:bg-bg-disabled aria-[invalid=true]:border-destructive aria-[invalid=true]:focus-visible:border-destructive resize-y min-h-[80px]'
 
 export type TextareaProps = React.TextareaHTMLAttributes<HTMLTextAreaElement> & {
   /** Show character counter (`current/max`) below the textarea. Requires `maxLength`. */

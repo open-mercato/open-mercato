@@ -149,7 +149,7 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
         <div key={fieldName} className="space-y-2">
           <label htmlFor={fieldName} className={labelClasses}>
             {fieldTitle}
-            {required && <span className="text-status-error-text ml-1">*</span>}
+            {required && <span className="text-accent-indigo ml-1">*</span>}
           </label>
           {fieldDescription && (
             <p className="text-xs text-muted-foreground">{fieldDescription}</p>
@@ -186,7 +186,7 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
             <div key={fieldName} className="space-y-2">
               <label htmlFor={fieldName} className={labelClasses}>
                 {fieldTitle}
-                {required && <span className="text-status-error-text ml-1">*</span>}
+                {required && <span className="text-accent-indigo ml-1">*</span>}
               </label>
               {fieldDescription && (
                 <p className="text-xs text-muted-foreground">{fieldDescription}</p>
@@ -205,7 +205,7 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
             <div key={fieldName} className="space-y-2">
               <label htmlFor={fieldName} className={labelClasses}>
                 {fieldTitle}
-                {required && <span className="text-status-error-text ml-1">*</span>}
+                {required && <span className="text-accent-indigo ml-1">*</span>}
               </label>
               {fieldDescription && (
                 <p className="text-xs text-muted-foreground">{fieldDescription}</p>
@@ -226,7 +226,7 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
             <div key={fieldName} className="space-y-2">
               <label htmlFor={fieldName} className={labelClasses}>
                 {fieldTitle}
-                {required && <span className="text-status-error-text ml-1">*</span>}
+                {required && <span className="text-accent-indigo ml-1">*</span>}
               </label>
               {fieldDescription && (
                 <p className="text-xs text-muted-foreground">{fieldDescription}</p>
@@ -246,7 +246,7 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
           <div key={fieldName} className="space-y-2">
             <label htmlFor={fieldName} className={labelClasses}>
               {fieldTitle}
-              {required && <span className="text-status-error-text ml-1">*</span>}
+              {required && <span className="text-accent-indigo ml-1">*</span>}
             </label>
             {fieldDescription && (
               <p className="text-xs text-muted-foreground">{fieldDescription}</p>
@@ -267,7 +267,7 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
           <div key={fieldName} className="space-y-2">
             <label htmlFor={fieldName} className={labelClasses}>
               {fieldTitle}
-              {required && <span className="text-status-error-text ml-1">*</span>}
+              {required && <span className="text-accent-indigo ml-1">*</span>}
             </label>
             {fieldDescription && (
               <p className="text-xs text-muted-foreground">{fieldDescription}</p>
@@ -296,7 +296,7 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
               />
               <label htmlFor={fieldName} className="text-sm font-medium text-foreground">
                 {fieldTitle}
-                {required && <span className="text-status-error-text ml-1">*</span>}
+                {required && <span className="text-accent-indigo ml-1">*</span>}
               </label>
             </div>
             {fieldDescription && (
@@ -310,7 +310,7 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
           <div key={fieldName} className="space-y-2">
             <label htmlFor={fieldName} className={labelClasses}>
               {fieldTitle}
-              {required && <span className="text-status-error-text ml-1">*</span>}
+              {required && <span className="text-accent-indigo ml-1">*</span>}
             </label>
             {fieldDescription && (
               <p className="text-xs text-muted-foreground">{fieldDescription}</p>

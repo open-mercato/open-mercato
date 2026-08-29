@@ -1,14 +1,15 @@
 'use client'
 
 import * as React from 'react'
-import { Building2, Briefcase, FileText, Search, X } from 'lucide-react'
+import { Building2, Briefcase, Check, FileText, Search, X } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { hasMoreFromPage } from '@open-mercato/shared/lib/pagination/load-more'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
-import { Popover, PopoverContent, PopoverTrigger } from '@open-mercato/ui/primitives/popover'
+import { Input } from '@open-mercato/ui/primitives/input'
+import { SegmentedControl, SegmentedControlItem } from '@open-mercato/ui/primitives/segmented-control'
 import type { ActivityType, ScheduleFieldId } from './fieldConfig'
 import { isVisible, getFieldLabel } from './fieldConfig'
 import type { LinkedEntity } from './useScheduleFormState'
@@ -65,6 +66,31 @@ function resolveLinkedEntityLabel(
   )
 }
 
+// Same dismiss pattern as ParticipantsField: outside pointer-down or Escape
+// closes only the panel (Escape is swallowed so the dialog stays open).
+function useDropdownDismiss(open: boolean, onClose: () => void): React.RefObject<HTMLDivElement | null> {
+  const rootRef = React.useRef<HTMLDivElement | null>(null)
+  React.useEffect(() => {
+    if (!open) return
+    const handlePointerDown = (event: PointerEvent) => {
+      if (rootRef.current && event.target instanceof Node && !rootRef.current.contains(event.target)) onClose()
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.stopPropagation()
+        onClose()
+      }
+    }
+    document.addEventListener('pointerdown', handlePointerDown, true)
+    document.addEventListener('keydown', handleKeyDown, true)
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown, true)
+      document.removeEventListener('keydown', handleKeyDown, true)
+    }
+  }, [open, onClose])
+  return rootRef
+}
+
 function EntityLinkSearchPopover({
   existingIds,
   onAdd,
@@ -77,6 +103,8 @@ function EntityLinkSearchPopover({
   t: (key: string, fallback: string) => string
 }) {
   const [open, setOpen] = React.useState(false)
+  const closeDropdown = React.useCallback(() => setOpen(false), [])
+  const rootRef = useDropdownDismiss(open, closeDropdown)
   const [linkType, setLinkType] = React.useState<'company' | 'deal' | 'offer'>('company')
   const [query, setQuery] = React.useState('')
   const [results, setResults] = React.useState<Array<{ id: string; label: string }>>([])
@@ -131,46 +159,36 @@ function EntityLinkSearchPopover({
   }, [open, query, linkType])
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button type="button" variant="ghost" size="sm" className="h-auto inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-2.5 py-1.5 text-xs text-muted-foreground">
-          <span className="text-sm">+</span>
-          {t('customers.schedule.addLink', 'Add link')}
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent align="start" className="w-72 p-2">
-        <div className="flex gap-1 mb-2">
+    <div ref={rootRef} className="relative">
+      <Input
+        type="text"
+        leftIcon={<Search />}
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        onFocus={() => setOpen(true)}
+        placeholder={t('customers.schedule.searchEntity', 'Search...')}
+        aria-expanded={open}
+      />
+      {open ? (
+      <div className="absolute z-dropdown mt-1 w-full rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
+        <SegmentedControl
+          value={linkType}
+          onValueChange={(next) => { setLinkType(next as typeof linkType); setQuery('') }}
+          aria-label={t('customers.schedule.linkTypeSwitcher', 'Link type')}
+          className="mb-2 w-full"
+        >
           {ENTITY_LINK_TYPES.map((type) => (
-            <Button
-              key={type}
-              type="button"
-              variant={linkType === type ? 'default' : 'ghost'}
-              size="sm"
-              className="h-6 text-xs flex-1"
-              onClick={() => { setLinkType(type as typeof linkType); setQuery('') }}
-            >
-              {type === 'company' ? <Building2 className="mr-1 size-3" /> : type === 'deal' ? <Briefcase className="mr-1 size-3" /> : <FileText className="mr-1 size-3" />}
-              {type === 'company' ? t('customers.schedule.linkType.company', 'Company') : type === 'deal' ? t('customers.schedule.linkType.deal', 'Deal') : t('customers.schedule.linkType.offer', 'Offer')}
-            </Button>
+            <SegmentedControlItem key={type} value={type} className="min-w-0 flex-1 gap-1.5">
+              {type === 'company' ? <Building2 className="size-3.5 shrink-0" /> : type === 'deal' ? <Briefcase className="size-3.5 shrink-0" /> : <FileText className="size-3.5 shrink-0" />}
+              <span className="truncate">{type === 'company' ? t('customers.schedule.linkType.company', 'Company') : type === 'deal' ? t('customers.schedule.linkType.deal', 'Deal') : t('customers.schedule.linkType.offer', 'Offer')}</span>
+            </SegmentedControlItem>
           ))}
-        </div>
-        <div className="flex items-center gap-2 rounded-md border bg-background px-2 py-1.5 mb-2">
-          <Search className="size-3.5 text-muted-foreground shrink-0" />
-          <input
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={t('customers.schedule.searchEntity', 'Search...')}
-            className="flex-1 bg-transparent text-sm focus:outline-none"
-            autoFocus
-          />
-        </div>
+        </SegmentedControl>
         {selectableResults.length ? (
           <div className="mb-2">
             <Button
               type="button"
               variant="outline"
-              size="sm"
               className="w-full"
               onClick={() => {
                 onAddMany(
@@ -202,29 +220,30 @@ function EntityLinkSearchPopover({
                 disabled={alreadyLinked}
                 onClick={() => {
                   onAdd({ id: r.id, type: linkType, label: r.label })
-                  setOpen(false)
                   setQuery('')
                 }}
                 className={cn(
-                  'h-auto flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors',
-                  alreadyLinked ? 'opacity-40 cursor-default' : 'hover:bg-accent cursor-pointer',
+                  'h-9 flex w-full items-center gap-2 rounded-md px-2 text-left text-sm transition-colors',
+                  alreadyLinked ? 'cursor-default disabled:bg-transparent disabled:text-foreground disabled:opacity-100' : 'hover:bg-accent cursor-pointer',
                 )}
               >
                 {linkType === 'company' ? <Building2 className="size-3.5 text-muted-foreground shrink-0" /> : linkType === 'deal' ? <Briefcase className="size-3.5 text-muted-foreground shrink-0" /> : <FileText className="size-3.5 text-muted-foreground shrink-0" />}
                 <span className="min-w-0 flex-1 truncate">{r.label}</span>
+                {alreadyLinked ? <Check className="size-3.5 shrink-0 text-status-success-icon" aria-hidden /> : null}
               </Button>
             )
           })}
           {!loading && hasMore ? (
             <div className="px-2 py-2">
-              <Button type="button" variant="outline" size="sm" className="w-full" onClick={() => setPage((current) => current + 1)}>
+              <Button type="button" variant="outline" className="w-full" onClick={() => setPage((current) => current + 1)}>
                 {t('customers.schedule.loadMore', 'Load more')}
               </Button>
             </div>
           ) : null}
         </div>
-      </PopoverContent>
-    </Popover>
+      </div>
+      ) : null}
+    </div>
   )
 }
 
@@ -255,27 +274,11 @@ export function LinkedEntitiesField({
 
   return (
     <div>
-      <label className="text-overline font-semibold uppercase text-muted-foreground tracking-wider">
+      <label className="text-sm font-medium">
         {sectionLabel}
       </label>
-      <div className="mt-2.5 flex flex-wrap content-center items-center gap-2">
-        {linkedEntities.map((entity) => (
-          <div
-            key={entity.id}
-            className={cn(
-              'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-xs',
-              entity.type === 'deal'
-                ? 'border-status-success-border bg-status-success-bg font-semibold text-foreground'
-                : 'border-border bg-muted text-foreground',
-            )}
-          >
-            {entity.type === 'company' ? <Building2 className="size-3" /> : entity.type === 'deal' ? <Briefcase className="size-3" /> : <FileText className="size-3" />}
-            {entity.label}
-            <IconButton type="button" variant="ghost" size="sm" onClick={() => setLinkedEntities((prev) => prev.filter((e) => e.id !== entity.id))} className="h-auto text-muted-foreground hover:text-foreground p-0" aria-label={t('customers.schedule.removeLink', 'Remove link')}>
-              <X className="size-2.5" />
-            </IconButton>
-          </div>
-        ))}
+      {/* Action first, tags underneath. */}
+      <div className="mt-2">
         <EntityLinkSearchPopover
           existingIds={new Set(linkedEntities.map((e) => e.id))}
           onAdd={(entity) => setLinkedEntities((prev) => [...prev, entity])}
@@ -283,6 +286,23 @@ export function LinkedEntitiesField({
           t={t}
         />
       </div>
+      {linkedEntities.length > 0 && (
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          {/* DS Tag [1.1] (Figma 431:16147): compact radius-6 rect, icon + label + × */}
+          {linkedEntities.map((entity) => (
+            <div
+              key={entity.id}
+              className="inline-flex h-6 items-center gap-1 rounded-sm bg-muted px-1.5 text-xs font-medium text-foreground"
+            >
+              {entity.type === 'company' ? <Building2 className="size-3 text-muted-foreground" /> : entity.type === 'deal' ? <Briefcase className="size-3 text-muted-foreground" /> : <FileText className="size-3 text-muted-foreground" />}
+              <span className="max-w-48 truncate">{entity.label}</span>
+              <IconButton type="button" variant="ghost" size="sm" onClick={() => setLinkedEntities((prev) => prev.filter((e) => e.id !== entity.id))} className="h-auto text-muted-foreground hover:text-foreground p-0" aria-label={t('customers.schedule.removeLink', 'Remove link')}>
+                <X className="size-2.5" />
+              </IconButton>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

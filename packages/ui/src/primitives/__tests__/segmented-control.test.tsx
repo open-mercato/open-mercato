@@ -70,21 +70,21 @@ describe('SegmentedControl', () => {
     expect(getByRole('radio', { name: 'All' }).getAttribute('aria-checked')).toBe('false')
   })
 
-  it('applies size="default" classes by default (h-8 track, h-7 items, text-sm)', () => {
+  it('applies size="default" classes by default (h-9 track, h-7 items, text-sm)', () => {
     const { container } = render(<Controlled />)
     const root = container.querySelector('[data-slot="segmented-control"]') as HTMLElement
-    expect(root.className).toContain('h-8')
-    expect(root.className).toContain('rounded-full')
+    expect(root.className).toContain('h-9')
+    expect(root.className).toContain('rounded-lg')
     const item = container.querySelector('[data-slot="segmented-control-item"]') as HTMLElement
     expect(item.className).toContain('h-7')
     expect(item.className).toContain('text-sm')
   })
 
-  it('applies size="sm" classes (h-7 track, h-6 items, text-xs)', () => {
+  it('applies size="sm" classes (h-8 track, h-6 items, text-xs)', () => {
     const { container } = render(<Controlled size="sm" />)
     const root = container.querySelector('[data-slot="segmented-control"]') as HTMLElement
-    expect(root.className).toContain('h-7')
-    expect(root.className).not.toContain('h-8')
+    expect(root.className).toContain('h-8')
+    expect(root.className).not.toContain('h-9')
     const item = container.querySelector('[data-slot="segmented-control-item"]') as HTMLElement
     expect(item.className).toContain('h-6')
     expect(item.className).toContain('text-xs')
@@ -123,7 +123,7 @@ describe('SegmentedControl', () => {
     )
     const root = container.querySelector('[data-slot="segmented-control"]') as HTMLElement
     expect(root.className).toContain('custom-class')
-    expect(root.className).toContain('rounded-full')
+    expect(root.className).toContain('rounded-lg')
     expect(root.className).toContain('bg-muted')
   })
 })

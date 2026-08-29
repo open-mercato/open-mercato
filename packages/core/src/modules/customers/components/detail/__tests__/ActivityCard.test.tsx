@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
-import { screen } from '@testing-library/react'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { ActivityCard } from '../ActivityCard'
 import type { InteractionSummary } from '../types'
 
@@ -88,5 +88,42 @@ describe('ActivityCard', () => {
   it.each(['done', 'canceled'])('hides the Mark done affordance for terminal status %s', (status) => {
     renderWithProviders(<ActivityCard activity={createActivity({ status })} />)
     expect(screen.queryByRole('button', { name: /Mark done/i })).not.toBeInTheDocument()
+  })
+
+  it('hides the delete menu item when no onDelete handler is supplied', async () => {
+    renderWithProviders(<ActivityCard activity={createActivity()} onOpen={jest.fn()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open actions' }))
+
+    expect(await screen.findByRole('menuitem', { name: 'Edit' })).toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: /Delete activity/i })).not.toBeInTheDocument()
+  })
+
+  it('deletes through the overflow menu and forwards the activity without opening the card', async () => {
+    const onDelete = jest.fn()
+    const onOpen = jest.fn()
+    const activity = createActivity()
+    renderWithProviders(<ActivityCard activity={activity} onOpen={onOpen} onDelete={onDelete} />)
+
+    // Destructive actions stay quiet by default: no standalone delete control on the card.
+    expect(screen.queryByRole('button', { name: /Delete activity/i })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open actions' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: /Delete activity/i }))
+
+    await waitFor(() => expect(onDelete).toHaveBeenCalledWith(activity))
+    // The row itself is clickable; deleting must not also trigger the edit dialog.
+    expect(onOpen).not.toHaveBeenCalled()
+  })
+
+  it('opens the edit dialog from the overflow menu Edit item', async () => {
+    const onOpen = jest.fn()
+    const activity = createActivity()
+    renderWithProviders(<ActivityCard activity={activity} onOpen={onOpen} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open actions' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Edit' }))
+
+    expect(onOpen).toHaveBeenCalledWith(activity)
   })
 })

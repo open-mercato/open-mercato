@@ -62,6 +62,8 @@ describe('ConfirmDialog', () => {
   })
 
   it('renders the destructive confirmation as the solid variant', () => {
+    // ds-rules.md: the confirm button inside a confirmation dialog is the single
+    // point of no return and MUST be the filled destructive-solid variant.
     renderWithProviders(
       <ConfirmDialog
         open

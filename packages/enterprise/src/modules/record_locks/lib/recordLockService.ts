@@ -1008,7 +1008,7 @@ export class RecordLockService {
       }
     }
 
-    const parsedHeaders = this.normalizeMutationHeaders(input.headers)
+    const parsedHeaders = this.scopeMutationHeadersToResource(this.normalizeMutationHeaders(input.headers), input)
     const keepMineResolution = parsedHeaders.resolution === 'accept_mine' || parsedHeaders.resolution === 'merged'
       ? parsedHeaders.resolution
       : null
@@ -1492,6 +1492,27 @@ export class RecordLockService {
     const parsed = recordLockMutationHeaderSchema.partial().safeParse(headers)
     if (!parsed.success) return {}
     return parsed.data
+  }
+
+  /**
+   * Lock headers carry their own scope (`x-om-record-lock-kind` /
+   * `x-om-record-lock-resource-id`). A page-level lock widget attaches that
+   * scope to every mutation flowing through the page's injection context —
+   * including sub-resource mutations (e.g. deleting an interaction from a
+   * company detail page, whose headers are scoped to the company). Honoring a
+   * base action-log id from a DIFFERENT resource diffs two unrelated log
+   * chains and manufactures an unresolvable conflict, so headers explicitly
+   * scoped to another resource are treated as absent.
+   */
+  private scopeMutationHeadersToResource(
+    headers: Partial<RecordLockMutationHeaders>,
+    resource: RecordLockResource,
+  ): Partial<RecordLockMutationHeaders> {
+    const scopedToOtherResource = Boolean(
+      (headers.resourceKind && headers.resourceKind !== resource.resourceKind)
+      || (headers.resourceId && headers.resourceId !== resource.resourceId),
+    )
+    return scopedToOtherResource ? {} : headers
   }
 
   private buildScopeWhere(scope: Pick<RecordLockScope, 'tenantId' | 'organizationId'>): {
