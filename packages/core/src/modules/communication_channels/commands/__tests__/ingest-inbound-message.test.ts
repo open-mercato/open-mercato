@@ -21,7 +21,9 @@ jest.mock('../../lib/system-user', () => ({
 }))
 
 import ingestInboundMessageCommand, {
+  COMMUNICATION_CHANNELS_IMPORT_INBOUND_COMMAND_ID,
   COMMUNICATION_CHANNELS_INGEST_INBOUND_COMMAND_ID,
+  importInboundMessageCommand,
   type IngestInboundMessageInput,
 } from '../ingest-inbound-message'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -34,6 +36,10 @@ describe('ingestInboundMessageCommand metadata', () => {
       'communication_channels.message.ingest_inbound',
     )
     expect(ingestInboundMessageCommand.id).toBe(COMMUNICATION_CHANNELS_INGEST_INBOUND_COMMAND_ID)
+    expect(COMMUNICATION_CHANNELS_IMPORT_INBOUND_COMMAND_ID).toBe(
+      'communication_channels.message.import_inbound',
+    )
+    expect(importInboundMessageCommand.id).toBe(COMMUNICATION_CHANNELS_IMPORT_INBOUND_COMMAND_ID)
   })
 
   it('exports an `execute` function on the command handler', () => {
@@ -152,8 +158,20 @@ describe('ingestInboundMessageCommand input schema', () => {
   })
 })
 
-describe('ingestInboundMessageCommand message materialization', () => {
-  it('uses record_ingested without authored delivery controls', async () => {
+describe('inbound message materialization', () => {
+  it.each([
+    {
+      command: ingestInboundMessageCommand,
+      expectedMaterializationCommandId: 'messages.messages.record_ingested',
+    },
+    {
+      command: importInboundMessageCommand,
+      expectedMaterializationCommandId: 'messages.messages.record_existing',
+    },
+  ])('uses $expectedMaterializationCommandId with the assigned recipient', async ({
+    command,
+    expectedMaterializationCommandId,
+  }) => {
     mockIngestFindOne.mockReset()
     mockIngestFindOne
       .mockResolvedValueOnce(null)
@@ -170,7 +188,7 @@ describe('ingestInboundMessageCommand message materialization', () => {
       .mockResolvedValueOnce({
         id: '550e8400-e29b-41d4-a716-446655440060',
         messageThreadId: '550e8400-e29b-41d4-a716-446655440070',
-        assignedUserId: null,
+        assignedUserId: '550e8400-e29b-41d4-a716-446655440090',
       } as never)
 
     const commandBus = {
@@ -204,7 +222,7 @@ describe('ingestInboundMessageCommand message materialization', () => {
       organizationIds: null,
     } as any
 
-    const result = await ingestInboundMessageCommand.execute({
+    const result = await command.execute({
       channelId: '550e8400-e29b-41d4-a716-446655440040',
       providerKey: 'gmail',
       channelType: 'email',
@@ -229,11 +247,14 @@ describe('ingestInboundMessageCommand message materialization', () => {
 
     expect(result.status).toBe('created')
     expect(commandBus.execute).toHaveBeenCalledWith(
-      'messages.messages.record_ingested',
+      expectedMaterializationCommandId,
       expect.objectContaining({
         input: expect.objectContaining({
           idempotencyKey: 'cc:550e8400-e29b-41d4-a716-446655440040:ext-1',
           recordedByUserId: '00000000-0000-0000-0000-000000000000',
+          recipients: [
+            { userId: '550e8400-e29b-41d4-a716-446655440090', type: 'to' },
+          ],
         }),
       }),
     )

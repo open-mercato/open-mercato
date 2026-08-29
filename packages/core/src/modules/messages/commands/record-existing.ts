@@ -1,6 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
-import { registerCommand, type CommandHandler } from '@open-mercato/shared/lib/commands'
+import { registerCommand, type CommandHandler, type CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { Message, MessageObject, MessageRecipient, type MessageActionData } from '../data/entities'
 import {
@@ -35,15 +35,17 @@ const recordExistingMessageSchema = z.object({
   recordedByUserId: z.string().uuid(),
 }).strict()
 
-export type RecordExistingMessageInput = z.infer<typeof recordExistingMessageSchema>
+export type MaterializeMessageInput = z.infer<typeof recordExistingMessageSchema>
+export type RecordExistingMessageInput = MaterializeMessageInput
 
-export type RecordExistingMessageResult = {
+export type MaterializeMessageResult = {
   id: string
   threadId: string | null
   externalEmail: string | null
   recipientUserIds: string[]
   deduplicated?: boolean
 }
+export type RecordExistingMessageResult = MaterializeMessageResult
 
 function isUniqueViolation(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false
@@ -55,7 +57,7 @@ function isUniqueViolation(error: unknown): boolean {
 async function buildExistingResult(
   em: EntityManager,
   message: Message,
-): Promise<RecordExistingMessageResult> {
+): Promise<MaterializeMessageResult> {
   const recipients = await findWithDecryption(
     em,
     MessageRecipient,
@@ -74,7 +76,7 @@ async function buildExistingResult(
 
 async function findExisting(
   em: EntityManager,
-  input: RecordExistingMessageInput,
+  input: MaterializeMessageInput,
 ): Promise<Message | null> {
   return findOneWithDecryption(
     em,
@@ -90,7 +92,7 @@ async function findExisting(
 
 async function emitMessageIndexUpsert(
   container: { resolve: (name: string) => unknown },
-  input: RecordExistingMessageInput,
+  input: MaterializeMessageInput,
   messageId: string,
 ): Promise<void> {
   let resolvedEventBus: unknown
@@ -118,124 +120,127 @@ async function emitMessageIndexUpsert(
   ).catch(() => undefined)
 }
 
-const recordExistingMessageCommand: CommandHandler<unknown, RecordExistingMessageResult> = {
-  id: 'messages.messages.record_existing',
-  isUndoable: false,
-  async execute(rawInput, ctx) {
-    const input = recordExistingMessageSchema.parse(rawInput)
-    if (input.objects?.length) {
-      const validationError = validateMessageObjectsForType(input.type, input.objects)
-      if (validationError) throw new Error(validationError)
-    }
+export async function materializeExistingMessage(
+  rawInput: unknown,
+  ctx: CommandRuntimeContext,
+): Promise<MaterializeMessageResult> {
+  const input = recordExistingMessageSchema.parse(rawInput)
+  if (input.objects?.length) {
+    const validationError = validateMessageObjectsForType(input.type, input.objects)
+    if (validationError) throw new Error(validationError)
+  }
 
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const existing = await findExisting(em, input)
-    if (existing) return buildExistingResult(em, existing)
+  const em = (ctx.container.resolve('em') as EntityManager).fork()
+  const existing = await findExisting(em, input)
+  if (existing) return buildExistingResult(em, existing)
 
-    let messageId = ''
-    let threadId: string | null = null
-    try {
-      await em.transactional(async (trx) => {
-        const parent = input.parentMessageId
-          ? await findOneWithDecryption(
-              trx,
-              Message,
-              {
-                id: input.parentMessageId,
-                tenantId: input.tenantId,
-                organizationId: input.organizationId,
-                deletedAt: null,
-              },
-              undefined,
-              { tenantId: input.tenantId, organizationId: input.organizationId },
-            )
-          : null
-        const message = trx.create(Message, {
-          type: input.type,
-          visibility: input.visibility ?? null,
-          sourceEntityType: input.sourceEntityType,
-          sourceEntityId: input.sourceEntityId,
-          externalEmail: input.externalEmail,
-          externalName: input.externalName,
-          threadId: parent?.threadId ?? parent?.id,
-          parentMessageId: input.parentMessageId,
-          senderUserId: input.recordedByUserId,
-          subject: input.subject,
-          body: input.body,
-          bodyFormat: input.bodyFormat,
-          priority: input.priority,
-          status: 'sent',
-          isDraft: false,
-          sentAt: new Date(),
-          actionData: input.actionData as MessageActionData | undefined,
-          sendViaEmail: false,
-          idempotencyKey: input.idempotencyKey,
-          tenantId: input.tenantId,
-          organizationId: input.organizationId,
-        })
-        await trx.persist(message).flush()
-        if (!message.threadId) {
-          message.threadId = message.id
-          await trx.flush()
-        }
-        for (const recipient of input.recipients) {
-          trx.persist(trx.create(MessageRecipient, {
-            messageId: message.id,
-            recipientUserId: recipient.userId,
-            recipientType: recipient.type,
-            status: 'unread',
-          }))
-        }
-        for (const object of input.objects ?? []) {
-          trx.persist(trx.create(MessageObject, {
-            messageId: message.id,
-            entityModule: object.entityModule,
-            entityType: object.entityType,
-            entityId: object.entityId,
-            actionRequired: object.actionRequired,
-            actionType: object.actionType,
-            actionLabel: object.actionLabel,
-          }))
-        }
-        await trx.flush()
-        if (input.attachmentIds?.length) {
-          await linkAttachmentsToMessage(
+  let messageId = ''
+  let threadId: string | null = null
+  try {
+    await em.transactional(async (trx) => {
+      const parent = input.parentMessageId
+        ? await findOneWithDecryption(
             trx,
-            message.id,
-            input.attachmentIds,
-            input.organizationId,
-            input.tenantId,
+            Message,
+            {
+              id: input.parentMessageId,
+              tenantId: input.tenantId,
+              organizationId: input.organizationId,
+              deletedAt: null,
+            },
+            undefined,
+            { tenantId: input.tenantId, organizationId: input.organizationId },
           )
-        }
-        if (input.attachmentRecordId) {
-          await linkLibraryAttachmentsToMessage(
-            trx,
-            message.id,
-            input.attachmentRecordId,
-            input.organizationId,
-            input.tenantId,
-          )
-        }
-        messageId = message.id
-        threadId = message.threadId ?? null
+        : null
+      const message = trx.create(Message, {
+        type: input.type,
+        visibility: input.visibility ?? null,
+        sourceEntityType: input.sourceEntityType,
+        sourceEntityId: input.sourceEntityId,
+        externalEmail: input.externalEmail,
+        externalName: input.externalName,
+        threadId: parent?.threadId ?? parent?.id,
+        parentMessageId: input.parentMessageId,
+        senderUserId: input.recordedByUserId,
+        subject: input.subject,
+        body: input.body,
+        bodyFormat: input.bodyFormat,
+        priority: input.priority,
+        status: 'sent',
+        isDraft: false,
+        sentAt: new Date(),
+        actionData: input.actionData as MessageActionData | undefined,
+        sendViaEmail: false,
+        idempotencyKey: input.idempotencyKey,
+        tenantId: input.tenantId,
+        organizationId: input.organizationId,
       })
-    } catch (error) {
-      if (isUniqueViolation(error)) {
-        const winner = await findExisting(em.fork(), input)
-        if (winner) return buildExistingResult(em.fork(), winner)
+      await trx.persist(message).flush()
+      if (!message.threadId) {
+        message.threadId = message.id
+        await trx.flush()
       }
-      throw error
+      for (const recipient of input.recipients) {
+        trx.persist(trx.create(MessageRecipient, {
+          messageId: message.id,
+          recipientUserId: recipient.userId,
+          recipientType: recipient.type,
+          status: 'unread',
+        }))
+      }
+      for (const object of input.objects ?? []) {
+        trx.persist(trx.create(MessageObject, {
+          messageId: message.id,
+          entityModule: object.entityModule,
+          entityType: object.entityType,
+          entityId: object.entityId,
+          actionRequired: object.actionRequired,
+          actionType: object.actionType,
+          actionLabel: object.actionLabel,
+        }))
+      }
+      await trx.flush()
+      if (input.attachmentIds?.length) {
+        await linkAttachmentsToMessage(
+          trx,
+          message.id,
+          input.attachmentIds,
+          input.organizationId,
+          input.tenantId,
+        )
+      }
+      if (input.attachmentRecordId) {
+        await linkLibraryAttachmentsToMessage(
+          trx,
+          message.id,
+          input.attachmentRecordId,
+          input.organizationId,
+          input.tenantId,
+        )
+      }
+      messageId = message.id
+      threadId = message.threadId ?? null
+    })
+  } catch (error) {
+    if (isUniqueViolation(error)) {
+      const winner = await findExisting(em.fork(), input)
+      if (winner) return buildExistingResult(em.fork(), winner)
     }
+    throw error
+  }
 
-    await emitMessageIndexUpsert(ctx.container, input, messageId)
-    return {
-      id: messageId,
-      threadId,
-      externalEmail: input.externalEmail ?? null,
-      recipientUserIds: input.recipients.map((recipient) => recipient.userId),
-    }
-  },
-  buildLog: ({ input, result }) => {
+  await emitMessageIndexUpsert(ctx.container, input, messageId)
+  return {
+    id: messageId,
+    threadId,
+    externalEmail: input.externalEmail ?? null,
+    recipientUserIds: input.recipients.map((recipient) => recipient.userId),
+  }
+}
+
+export const buildMessageMaterializationLog: NonNullable<
+  CommandHandler<unknown, MaterializeMessageResult>['buildLog']
+> = ({ input, result }) => {
     if (result.deduplicated) return { skipLog: true }
     const parsed = recordExistingMessageSchema.parse(input)
     return {
@@ -245,7 +250,13 @@ const recordExistingMessageCommand: CommandHandler<unknown, RecordExistingMessag
       tenantId: parsed.tenantId,
       organizationId: parsed.organizationId,
     }
-  },
+}
+
+const recordExistingMessageCommand: CommandHandler<unknown, RecordExistingMessageResult> = {
+  id: 'messages.messages.record_existing',
+  isUndoable: false,
+  execute: materializeExistingMessage,
+  buildLog: buildMessageMaterializationLog,
 }
 
 registerCommand(recordExistingMessageCommand)

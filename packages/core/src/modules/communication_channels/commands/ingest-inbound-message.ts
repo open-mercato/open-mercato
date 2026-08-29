@@ -35,6 +35,7 @@ const ingestInputSchema = z.object({
 })
 
 export type IngestInboundMessageInput = z.infer<typeof ingestInputSchema>
+export type ImportInboundMessageInput = IngestInboundMessageInput
 
 export type IngestInboundMessageResult = {
   status: 'created' | 'duplicate'
@@ -47,6 +48,11 @@ export type IngestInboundMessageResult = {
 }
 
 export const COMMUNICATION_CHANNELS_INGEST_INBOUND_COMMAND_ID = 'communication_channels.message.ingest_inbound'
+export const COMMUNICATION_CHANNELS_IMPORT_INBOUND_COMMAND_ID = 'communication_channels.message.import_inbound'
+
+type MessageMaterializationCommandId =
+  | 'messages.messages.record_ingested'
+  | 'messages.messages.record_existing'
 
 /**
  * Idempotently ingest a normalized inbound channel message.
@@ -57,7 +63,7 @@ export const COMMUNICATION_CHANNELS_INGEST_INBOUND_COMMAND_ID = 'communication_c
  *   2. Create or load `ExternalConversation` by `(channel_id, external_conversation_id)`.
  *   3. Create or load `ChannelThreadMapping` (1:1 with ExternalConversation).
  *   4. Resolve CRM contact via adapter + QueryEngine (best-effort).
- *   5. Record the platform `Message` via `messages.messages.record_ingested` (separate transaction).
+ *   5. Record the platform `Message` through the command selected by the public entry point.
  *   6. Create `ExternalMessage` + `MessageChannelLink`.
  *   7. Emit `communication_channels.message.received` (and `.conversation.created` / `.contact.resolved` when applicable).
  *
@@ -65,9 +71,14 @@ export const COMMUNICATION_CHANNELS_INGEST_INBOUND_COMMAND_ID = 'communication_c
  * the link's unique-on-message-id constraint is the safety net against orphans. See
  * the pre-implementation analysis for a discussion of single-transaction alternatives.
  */
-const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, IngestInboundMessageResult> = {
-  id: COMMUNICATION_CHANNELS_INGEST_INBOUND_COMMAND_ID,
-  async execute(rawInput, ctx) {
+function createInboundMessageCommand(
+  id: string,
+  materializationCommandId: MessageMaterializationCommandId,
+): CommandHandler<IngestInboundMessageInput, IngestInboundMessageResult> {
+  const execute: CommandHandler<IngestInboundMessageInput, IngestInboundMessageResult>['execute'] = async (
+    rawInput,
+    ctx,
+  ) => {
     const input = ingestInputSchema.parse(rawInput) as IngestInboundMessageInput
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -382,7 +393,7 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
 
     const commandBus = ctx.container.resolve('commandBus') as CommandBus
     const recordExistingResult = await commandBus.execute<typeof recordExistingInput, { id: string; threadId: string | null }>(
-      'messages.messages.record_ingested',
+      materializationCommandId,
       {
         input: recordExistingInput,
         ctx: passthroughCommandCtx(ctx, input.scope),
@@ -390,7 +401,7 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
     )
     const message = recordExistingResult.result
     if (!message?.id) {
-      throw new Error('[internal] messages.messages.record_ingested did not return a message id')
+      throw new Error(`[internal] ${materializationCommandId} did not return a message id`)
     }
 
     // (3 continued) Create or update ChannelThreadMapping now that we have a threadId.
@@ -537,12 +548,12 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
       threadMappingId: mapping.id,
       contactPersonId: matchedPersonId,
     }
-  },
+  }
+  return { id, execute }
 }
 
-
 /**
- * Build a runtime context for the nested `messages.messages.record_ingested` call.
+ * Build a runtime context for the nested message materialization call.
  *
  * The record command expects a `CommandRuntimeContext`. For inbound webhook
  * processing there is no platform user; we pass `auth: null` and use the tenant
@@ -589,6 +600,17 @@ function extractStringArrayFromMeta(
   return value.filter((item): item is string => typeof item === 'string')
 }
 
+const ingestInboundMessageCommand = createInboundMessageCommand(
+  COMMUNICATION_CHANNELS_INGEST_INBOUND_COMMAND_ID,
+  'messages.messages.record_ingested',
+)
+
+export const importInboundMessageCommand = createInboundMessageCommand(
+  COMMUNICATION_CHANNELS_IMPORT_INBOUND_COMMAND_ID,
+  'messages.messages.record_existing',
+)
+
 registerCommand(ingestInboundMessageCommand)
+registerCommand(importInboundMessageCommand)
 
 export default ingestInboundMessageCommand

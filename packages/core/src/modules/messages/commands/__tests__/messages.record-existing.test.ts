@@ -121,6 +121,14 @@ describe('messages.messages.record_existing', () => {
     expect(emitMessagesEventMock).not.toHaveBeenCalled()
   })
 
+  it('registers the shared materializer and log builder as the command implementation', () => {
+    const command = registeredCommands.get('messages.messages.record_existing')
+    const recordExistingModule = require('@open-mercato/core/modules/messages/commands/record-existing')
+
+    expect(command!.execute).toBe(recordExistingModule.materializeExistingMessage)
+    expect(command!.buildLog).toBe(recordExistingModule.buildMessageMaterializationLog)
+  })
+
   it.each([
     ['sendViaEmail', { sendViaEmail: true }],
     ['isDraft', { isDraft: false }],
@@ -251,6 +259,9 @@ describe('messages.messages.record_ingested', () => {
 
   it('preserves action-log metadata for the ingested command', async () => {
     const command = registeredCommands.get('messages.messages.record_ingested')
+    const recordExistingModule = require('@open-mercato/core/modules/messages/commands/record-existing')
+
+    expect(command!.buildLog).toBe(recordExistingModule.buildMessageMaterializationLog)
 
     const log = command!.buildLog?.({
       input: input(),

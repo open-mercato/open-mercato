@@ -1,18 +1,23 @@
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { emitMessagesEvent } from '../events'
-import recordExistingMessageCommand, {
-  type RecordExistingMessageInput,
-  type RecordExistingMessageResult,
+import {
+  buildMessageMaterializationLog,
+  materializeExistingMessage,
+  type MaterializeMessageInput,
+  type MaterializeMessageResult,
 } from './record-existing'
 
 export const RECORD_INGESTED_MESSAGE_COMMAND_ID = 'messages.messages.record_ingested'
 
-const recordIngestedMessageCommand: CommandHandler<RecordExistingMessageInput, RecordExistingMessageResult> = {
+export type RecordIngestedMessageInput = MaterializeMessageInput
+export type RecordIngestedMessageResult = MaterializeMessageResult
+
+const recordIngestedMessageCommand: CommandHandler<RecordIngestedMessageInput, RecordIngestedMessageResult> = {
   id: RECORD_INGESTED_MESSAGE_COMMAND_ID,
   isUndoable: false,
   async execute(input, ctx) {
-    const result = await recordExistingMessageCommand.execute(input, ctx)
+    const result = await materializeExistingMessage(input, ctx)
     if (result.deduplicated) return result
 
     await emitMessagesEvent(
@@ -28,7 +33,7 @@ const recordIngestedMessageCommand: CommandHandler<RecordExistingMessageInput, R
     )
     return result
   },
-  buildLog: (args) => recordExistingMessageCommand.buildLog?.(args),
+  buildLog: buildMessageMaterializationLog,
 }
 
 registerCommand(recordIngestedMessageCommand)

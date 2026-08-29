@@ -28,6 +28,9 @@ The Messages module provides an internal messaging system with support for:
 - `messages.messages.record_ingested` wraps that strict command for newly ingested external
   messages. It emits `messages.message.ingested`, which creates in-app notifications for
   internal recipients without entering an email-delivery flow.
+- Communication-channel live delivery uses `communication_channels.message.ingest_inbound`,
+  while operator-triggered history backfills use `communication_channels.message.import_inbound`.
+  The latter materializes through `record_existing`, so imported history does not notify recipients.
 - In-app notification creation and email job creation are separate persistent subscribers.
   The email worker independently revalidates current persisted intent, state, scope, and
   target before calling a provider.
