@@ -8,6 +8,7 @@ import {
   mergeExtensionPayload,
   type ParsedExtensionPayload,
 } from '@open-mercato/shared/lib/umes/extension-payload'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 
 export type ApiCallOptions<TReturn> = {
   parse?: (res: Response) => Promise<TReturn | null>
@@ -23,6 +24,7 @@ export type ApiCallResult<TReturn> = {
 }
 
 const scopedRequestHeaders = createScopedHeaderStack()
+const logger = createLogger('ui').child({ component: 'apiCall' })
 
 type ScopedRequestBody = {
   payload: ParsedExtensionPayload
@@ -67,13 +69,9 @@ function hasJsonContentType(input: RequestInfo | URL, init: RequestInit | undefi
   return mediaType === 'application/json' || mediaType.endsWith('+json')
 }
 
-function resolveArmedScopedBody(): ParsedExtensionPayload | undefined {
-  let result: ParsedExtensionPayload | undefined
-  for (const scoped of scopedRequestBodies) {
-    if (scoped.spent) continue
-    result = mergeExtensionPayload(result, scoped.payload)
-  }
-  return result
+function resolveArmedScopedBody(): ScopedRequestBody | undefined {
+  const armed = scopedRequestBodies.filter((scoped) => !scoped.spent)
+  return armed.length === 1 ? armed[0] : undefined
 }
 
 function withScopedWidgetPayload(
@@ -91,14 +89,14 @@ function withScopedWidgetPayload(
     return init
   }
   if (typeof body !== 'object' || body === null || Array.isArray(body)) return init
-  const scopedPayload = resolveArmedScopedBody()
-  if (!scopedPayload) return init
-  for (const scoped of scopedRequestBodies) scoped.spent = true
+  const scoped = resolveArmedScopedBody()
+  if (!scoped) return init
+  scoped.spent = true
   const mergedBody = {
     ...(body as Record<string, unknown>),
     [EXTENSION_PAYLOAD_TRANSPORT_KEY]: mergeExtensionPayload(
       (body as Record<string, unknown>)[EXTENSION_PAYLOAD_TRANSPORT_KEY],
-      scopedPayload,
+      scoped.payload,
     ),
   }
   return { ...init, body: JSON.stringify(mergedBody) }
@@ -164,6 +162,9 @@ export async function withScopedApiRequestBody<T>(
   } finally {
     const index = scopedRequestBodies.lastIndexOf(scoped)
     if (index >= 0) scopedRequestBodies.splice(index, 1)
+    if (!scoped.spent && process.env.NODE_ENV === 'development') {
+      logger.warn('Scoped widget payload was not sent with an eligible request')
+    }
   }
 }
 

@@ -15,7 +15,7 @@ export function buildCrudWidgetPayload(
       if (excludedFieldIds.has(field.id)) continue
       const sanitized = sanitizeExtensionPayload({ [widget.moduleId]: { [field.id]: values[field.id] } })
       const modulePayload = sanitized?.[widget.moduleId]
-      if (!modulePayload) continue
+      if (!modulePayload || Object.keys(modulePayload).length === 0) continue
       payload[widget.moduleId] = { ...(payload[widget.moduleId] ?? {}), ...modulePayload }
     }
   }

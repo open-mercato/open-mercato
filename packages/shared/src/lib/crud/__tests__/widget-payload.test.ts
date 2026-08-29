@@ -23,6 +23,15 @@ describe('CRUD widget payload', () => {
     })
   })
 
+  it('omits a module whose injected fields have no serializable values', () => {
+    const payload = buildCrudWidgetPayload(
+      [{ moduleId: 'relations', fields: [{ id: 'relatedPersonId' }] }],
+      {},
+    )
+
+    expect(payload).toBeUndefined()
+  })
+
   it('merges nested scopes by module and extracts the transport key before entity validation', () => {
     const merged = mergeExtensionPayload(
       { relations: { relatedPersonId: 'person-1' } },

@@ -22,8 +22,9 @@ JSON-object body, then spends the scope, so a secondary write inside the same
 module's field values. `CrudForm` cannot name its submit URL — `onSubmit` is
 caller-supplied and the component has no endpoint prop — so two residuals
 remain, narrowed rather than eliminated: a concurrent write racing the submit
-inside that one-request window, and two forms submitting at the same time, where
-the first eligible request takes both payloads. Both are why a form submitting
+inside that one-request window, and two forms submitting at the same time. In
+the latter case the payloads are withheld until only one scope remains, rather
+than allowing either request to receive another form's values. Both are why a form submitting
 to a hand-written route (instead of a `makeCrudRoute` one) is documented as
 responsible for stripping the transport field itself. A submit that does not
 declare a JSON content-type carries no payload at all.

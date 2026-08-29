@@ -65,7 +65,7 @@ test.describe('TC-CUST-EXTPAYLOAD-001 injected CrudForm extension payload', () =
       const stored = await readPersonById(request, token, personId)
       expect(stored, 'created person is not readable').not.toBeNull()
       expect(stored).not.toHaveProperty(TRANSPORT_KEY)
-      expect(stored).toMatchObject({ displayName: `ExtPayload Person ${stamp}` })
+      expect(stored).toMatchObject({ display_name: `ExtPayload Person ${stamp}` })
 
       const updated = await apiRequest(request, 'PUT', PEOPLE_PATH, {
         token,
@@ -83,7 +83,7 @@ test.describe('TC-CUST-EXTPAYLOAD-001 injected CrudForm extension payload', () =
 
       const reread = await readPersonById(request, token, personId)
       expect(reread).not.toHaveProperty(TRANSPORT_KEY)
-      expect(reread).toMatchObject({ displayName: `ExtPayload Person ${stamp} updated` })
+      expect(reread).toMatchObject({ display_name: `ExtPayload Person ${stamp} updated` })
     } finally {
       await deleteEntityIfExists(request, token, PEOPLE_PATH, personId)
     }

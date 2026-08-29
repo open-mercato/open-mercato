@@ -79,19 +79,26 @@ describe('withScopedApiRequestBody', () => {
     ;(globalThis as { fetch?: typeof fetch }).fetch = originalFetch
   })
 
-  test('merges every open scope into the first eligible write and leaves later calls alone', async () => {
-    await withScopedApiRequestBody({ relations: { relatedPersonId: 'person-1' } }, async () => {
-      await withScopedApiRequestBody({ relations: { relationType: 'father' } }, async () => {
-        await apiCall('/api/people', jsonInit({ name: 'Alex' }))
-      })
+  test('does not attach one scope payload to another scope’s request', async () => {
+    let releaseOuter: (() => void) | undefined
+    const outerReady = new Promise<void>((resolve) => {
+      releaseOuter = resolve
+    })
+
+    const outerScope = withScopedApiRequestBody({ relations: { relatedPersonId: 'person-1' } }, async () => {
+      await outerReady
+      await apiCall('/api/people', jsonInit({ name: 'Alex' }))
+    })
+
+    await withScopedApiRequestBody({ relations: { relationType: 'father' } }, async () => {
       await apiCall('/api/people/person-1/emails', jsonInit({ email: 'alex@example.com' }))
     })
-    await apiCall('/api/people', jsonInit({ name: 'Taylor' }))
+    releaseOuter?.()
+    await outerScope
 
     expect(sentBodies()).toEqual([
-      { name: 'Alex', __om_ext_v1: { relations: { relatedPersonId: 'person-1', relationType: 'father' } } },
       { email: 'alex@example.com' },
-      { name: 'Taylor' },
+      { name: 'Alex', __om_ext_v1: { relations: { relatedPersonId: 'person-1' } } },
     ])
   })
 
