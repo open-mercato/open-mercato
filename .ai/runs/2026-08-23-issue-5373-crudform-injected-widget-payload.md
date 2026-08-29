@@ -76,3 +76,9 @@ Make the injected-`CrudForm`-field payload reach CRUD `POST`/`PUT` interceptors 
 ### Phase 6: Validation and handback
 
 - [x] 6.1 Run the full validation gate and post the resume summary on the PR
+
+### Phase 7: Round-3 re-review follow-up
+
+- [x] 7.1 Merge `origin/develop` so the mutation workflow can load `scripts/stryker/relatedTests.mjs` — 7412cdaf2
+- [x] 7.2 Omit empty module payloads, prevent cross-scope payload transfer, and repair the integration read-back assertion — 69bbdbec8
+- [ ] 7.3 Run targeted validation, self-review, and hand the updated branch back for review
