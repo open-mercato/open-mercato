@@ -33,7 +33,7 @@ Progress is controlled through three separate states: skeleton-ready, full-spec-
 | Q1 — Manufacturing workspace package/module | Accepted by the roadmap owner on 2026-08-19 | Create one OSS workspace package at `packages/manufacturing`, published as `@open-mercato/manufacturing`, containing one opt-in runtime module `manufacturing`; hard-require `catalog`, keep WMS/Resources/Planner optional, and expose entrypoints only. |
 ## Scope
 
-This backlog covers Manufacturing-owned Wave 0 specification authoring and readiness work for P1.0a and P1.4 through P1.12. It also records the owner-approved, non-blocking post-Wave 0 BOM candidates P1.4c through P1.4h and P1.13; neither group is an implementation commitment. WMS Site remains an external WMS-owned capability, not a Manufacturing work item.
+This backlog covers Manufacturing-owned Wave 0 specification authoring and readiness work for P1.0a and P1.4 through P1.12. It also records the owner-approved, non-blocking post-Wave 0 BOM candidates P1.4c through P1.4h and P1.13; neither group is an implementation commitment. WMS Site and Catalog quantity/UoM remain external owner capabilities, not Manufacturing work items. Manufacturing consumes the Catalog contract on quantity-bearing paths but does not own, track, or wait on Catalog delivery; non-quantity work may proceed independently.
 
 The backlog will define:
 
@@ -134,7 +134,7 @@ The package bootstrap specification defines the workspace manifest, build/test e
 P1.0 roadmap acceptance
   +--> P1.0a package/module bootstrap
 
-P1.0a + Catalog public quantity/UoM contract --> P1.4a BOM draft authoring/integrity
+P1.0a + Catalog public quantity/UoM contract for quantity-bearing writes --> P1.4a BOM draft authoring/integrity
 P1.4a --> P1.4b bounded draft preview
 P1.4a --> P1.4c list workspace, P1.4d business identity, P1.4e history/comments, P1.4g copy
 P1.4a + P1.4b --> P1.4f revision comparison/where-used
@@ -143,8 +143,8 @@ P1.7/P1.10 add released/execution semantics to P1.4e, P1.4f and P1.4h; none of P
 P1.0a --> P1.6 Work Centers --> P1.5 routing drafts
 P1.0a --> P1.9 fact ledger
 
-External WMS Site contract + Catalog public quantity/UoM contract + P1.4a + P1.5 + P1.6 --> P1.7 definition release
-External WMS Site contract + Catalog public quantity/UoM contract + P1.7 + P1.9 --> P1.10 order lifecycle + execution snapshot + basic confirmations
+External WMS Site contract + Catalog public quantity/UoM contract for quantity-bearing release data + P1.4a + P1.5 + P1.6 --> P1.7 definition release
+External WMS Site contract + Catalog public quantity/UoM contract for quantity-bearing order data + P1.7 + P1.9 --> P1.10 order lifecycle + execution snapshot + basic confirmations
 External WMS posting contract + P1.9 + P1.10 --> P1.8b Manufacturing adapter
 External WMS quantity/evidence/posting contracts + P1.8b + P1.10 --> P1.11 stock execution
 
@@ -160,8 +160,8 @@ The lanes describe contract-finalization order, not a ban on earlier skeletons o
 |---|---|---|---|---|
 | P1.0 | Existing roadmap and repository review evidence | Maintainers/community | In progress | PR #5256 is accepted or revised |
 | P1.0a | `2026-08-19-manufacturing-package-module-bootstrap.md` | `@open-mercato/manufacturing` / `manufacturing` | Full spec complete | P1.0 package/module decision is accepted through repository review |
-| P1.4a | `2026-08-19-manufacturing-bom-drafts.md` | `manufacturing` | Full specification complete; implementation gated | P1.0 accepted; P1.0a package contract and Catalog public quantity/UoM contract available |
-| P1.4b | `2026-08-19-manufacturing-bom-draft-preview.md` | `manufacturing` | Full specification complete; implementation gated | P1.0 accepted; P1.0a, Catalog public quantity/UoM contract and P1.4a ready |
+| P1.4a | `2026-08-19-manufacturing-bom-drafts.md` | `manufacturing` | Full specification complete; implementation gated | P1.0 accepted; P1.0a package contract and Catalog public quantity/UoM contract available for quantity-bearing writes |
+| P1.4b | `2026-08-19-manufacturing-bom-draft-preview.md` | `manufacturing` | Full specification complete; implementation gated | P1.0 accepted; P1.0a, P1.4a ready, and Catalog public quantity/UoM contract available for exact evaluation |
 | P1.4c | `manufacturing-bom-list-workspace.md` | `manufacturing` | Post-Wave 0 decision/specification work after P1.4a | Search/filter/index/sort/perspective decisions resolved; P1.4a list contract stable |
 | P1.4d | `manufacturing-bom-business-identity.md` | `manufacturing` | Post-Wave 0 decision/specification work after P1.4a | Code/name ownership, uniqueness and compatibility decision resolved |
 | P1.4e | `manufacturing-bom-history-and-comments.md` | `manufacturing` | Post-Wave 0 decision/specification work after P1.4a | History/comment ownership and immutable-release behavior resolved where P1.7 is consumed |
@@ -409,6 +409,7 @@ Every child records its work-item ID, owner, planned artifact, upstream dependen
 - 2026-08-19: Fresh-context review split P1.4 into P1.4a direct-level BOM draft authoring/integrity (#5393) and P1.4b bounded read-only multi-level preview (#5405); the roadmap owner accepted the boundary.
 - 2026-08-19: Completed both split specifications, fresh-context reviews (**PASS**), P1.12 mappings and final compliance gates; implementation remains blocked by their named P1.0/P1.0a/Catalog-contract/P1.4a prerequisites.
 - 2026-08-28: Removed Catalog and WMS delivery work from the Manufacturing backlog. Manufacturing consumes public contracts and does not own, track or wait on those tasks as module dependencies.
+- 2026-08-29: Clarified that the Catalog/UoM contract gates only quantity-bearing Manufacturing paths; bootstrap, Work Center/routing, and neutral fact-ledger work are independent.
 - 2026-08-28: Removed WMS Site and warehouse-role assignments from the Manufacturing tracker set; their readiness remains WMS-owned and is recorded only as an external contract for later release and order flows.
 - 2026-08-19: Re-ran the P1.4a pre-implementation audit, remediated framework/data/API/UI/export findings, and recorded that reusable BOMs exclude customer/order/due-date context owned by P1.10.
 - 2026-08-19: Added deferred future consideration for collaborative BOM drafting. P1.4a remains aligned with the standard Sales/platform optimistic-lock pattern; presence, ownership, comparison, merge, and recovery stay outside Wave 0 pending real collaboration evidence.

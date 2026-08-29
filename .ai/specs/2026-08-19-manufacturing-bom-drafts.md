@@ -8,7 +8,7 @@ Every quantity is a canonical decimal string normalized through the Catalog-owne
 
 This slice includes data, migration, direct-level CRUD/API/UI, commands, undo/redo, ordering, ACL, events, exact quantity/UoM evidence, child-resolution warnings, and direct/indirect/concurrent cycle prevention. Bounded recursive draft preview/explosion is the independently deliverable P1.4b capability specified in [`2026-08-19-manufacturing-bom-draft-preview.md`](2026-08-19-manufacturing-bom-draft-preview.md).
 
-**Specification status:** Full implementation-ready design. Product implementation remains gated by acceptance of P1.0, delivery of P1.0a, and an available Catalog exact quantity/UoM contract; no Catalog roadmap task is a Manufacturing runtime dependency.
+**Specification status:** Full implementation-ready design. The quantity-bearing P1.4a implementation remains gated by acceptance of P1.0, delivery of P1.0a, and an available Catalog exact quantity/UoM contract. No Catalog roadmap task is a Manufacturing runtime dependency or blocker for non-quantity Manufacturing work.
 
 **Tracker:** [Issue #5393](https://github.com/open-mercato/open-mercato/issues/5393), under [Wave 0 tracker #5386](https://github.com/open-mercato/open-mercato/issues/5386).
 
@@ -871,9 +871,9 @@ None.
 
 ### Verdict
 
-**Fully compliant at specification level.** Approved as implementation-ready subject to P1.0 acceptance, ready P1.0a, and an available Catalog exact quantity/UoM contract.
+**Fully compliant at specification level.** Approved as implementation-ready subject to P1.0 acceptance, ready P1.0a, and an available Catalog exact quantity/UoM contract for its quantity-bearing write paths.
 
-Implementation remains gated by P1.0 acceptance, P1.0a, and the Catalog quantity/UoM contract. No product code is authorized by this documentation task.
+Implementation of the quantity-bearing P1.4a write paths remains gated by P1.0 acceptance, P1.0a, and the Catalog quantity/UoM contract. This does not block non-quantity Manufacturing work. No product code is authorized by this documentation task.
 
 ## Changelog
 
@@ -887,6 +887,7 @@ Implementation remains gated by P1.0 acceptance, P1.0a, and the Catalog quantity
 - 2026-08-19: Linked the owner-approved post-Wave 0 BOM capability lane: P1.4c list workspace, P1.4d business identity, P1.4e history/comments, P1.4f revision comparison/where-used, P1.4g copy, and P1.4h extensibility/document control. These remain explicitly out of P1.4a scope.
 - 2026-08-20: Rebuilt the local BOM UX prototype with the integrated story map, 23 review screens, local field/action guides, and explicit labels for post-P1.4a proposals.
 - 2026-08-20: Reviewed the prototype against Sales and the P1.4a data/API contract; corrected base-output and revision-label fields, entered/normalized quantity evidence, system-owned line position, up/down ordering controls, yield-factor input, and keyset-cursor wording.
+- 2026-08-29: Clarified that the Catalog/UoM prerequisite applies to P1.4a quantity-bearing writes, not to the Manufacturing programme as a whole.
 
 ### Review — 2026-08-19
 

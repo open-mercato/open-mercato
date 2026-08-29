@@ -4,7 +4,7 @@
 
 P1.0a creates the additive OSS workspace package `packages/manufacturing`, published as `@open-mercato/manufacturing`, with one opt-in runtime module named `manufacturing`. The module has one hard dependency, `catalog`; WMS, `resources`, and `planner` remain optional peers. The first release exposes only the package root and module discovery entrypoint and does not freeze domain constants or types.
 
-This bootstrap establishes package build, discovery, activation, export, and isolation mechanics only. It introduces no Manufacturing entities, APIs, UI, migrations, ACL, events, WMS calls, or speculative domain contracts. Work is tracked by [Issue #5387](https://github.com/open-mercato/open-mercato/issues/5387) under [Wave 0 tracker #5386](https://github.com/open-mercato/open-mercato/issues/5386).
+This bootstrap establishes package build, discovery, activation, export, and isolation mechanics only. It introduces no Manufacturing entities, APIs, UI, migrations, ACL, events, WMS calls, or speculative domain contracts. The `catalog` runtime requirement defines the module's product/variant ownership boundary; it is not a readiness gate for this bootstrap or for later non-quantity capabilities. Work is tracked by [Issue #5387](https://github.com/open-mercato/open-mercato/issues/5387) under [Wave 0 tracker #5386](https://github.com/open-mercato/open-mercato/issues/5386).
 
 ## Overview
 
@@ -320,6 +320,7 @@ None.
 - 2026-08-19: Expanded the skeleton into an implementation-ready package/discovery specification with compatibility, testing, risks, and compliance review.
 - 2026-08-19: Aligned capability numbering after the accepted P1.4a authoring/P1.4b preview split; package, module, and dependency contracts are unchanged.
 - 2026-08-19: Clarified the distinction between supported consumer entrypoints and depth-aware generator/discovery export plumbing required by later convention files.
+- 2026-08-29: Clarified that the hard `catalog` runtime dependency is an ownership/activation contract, not a programme-wide readiness gate for the bootstrap or non-quantity Manufacturing work.
 
 ### Review — 2026-08-19
 

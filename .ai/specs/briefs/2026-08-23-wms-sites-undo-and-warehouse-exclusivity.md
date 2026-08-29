@@ -49,12 +49,12 @@ Rejected: a plain partial unique index on the existing mapping table. It cannot 
 | What serializes the Site state that decides membership or permits undo? | A site-scoped advisory key taken before any warehouse keys by activation, deactivation, site create/update undo, and every mapping write — including writes on an inactive site — with `is_active` and `deleted_at` re-read inside it |
 | What shape must the concurrency test take? | Two genuinely overlapping transactions proving the chosen constraint or lock, not sequential preflight checks; deliberate cross-family and within-warehouse hash collisions must complete without `40P01`, while a shared membership still resolves to one commit and one stable `409` |
 | What must the create-undo test assert? | Removal from list results, release of the site code, redo restoring the same site ID, and both commit orders against a concurrent same-Site mapping create without an orphan child |
-| Should the roadmap document change too? | No — the reviewer confirmed the roadmap decomposition is sound and that no split is needed |
+| Should the roadmap document change too? | Yes — propose the 2026-08-28 ownership correction for maintainer review: keep WMS and Catalog capabilities outside the Manufacturing work-item sequence while preserving their named contract gates in the Manufacturing readiness dashboard |
 
 ## Non-goals
 
 - No implementation, migration, entity, or command code in this change — the specification is the deliverable.
-- No change to `.ai/specs/2026-08-13-manufacturing-product-roadmap` scope or to any other capability spec in the PR.
+- No change to the ownership, implementation scope, or delivery order of external WMS and Catalog capabilities. The accompanying, pending-review roadmap proposal only removes them from the Manufacturing-owned work-item sequence and records the public contracts that still gate Manufacturing slices.
 - No relaxation of the exclusivity rule itself; shared warehouses across active sites stay deliberately out of the first core.
 - No new `DELETE` route, OpenAPI operation, command, or UI action for a site — soft-delete remains reachable only through the undo path.
 - No revisiting of the default-promotion, readiness, or optimistic-locking rules the review did not challenge.
@@ -70,3 +70,4 @@ Rejected: a plain partial unique index on the existing mapping table. It cannot 
   - lines ~394–395 — the concurrency and create-undo test expectations
   - lines ~449–450 — the two risk-table rows that still describe the superseded mitigations
 - Tracking issue #5389 (`readiness(wms): P1.2 Sites and warehouse roles`) — context only; no change required by this brief.
+- The proposed documentation-scope correction spans [commit `c7ade96038`](https://github.com/open-mercato/open-mercato/commit/c7ade96038) (roadmap, execution plan, WMS precision spec, both BOM specs, BOM analysis, backlog, README, and readiness dashboard) and [commit `0231390f96`](https://github.com/open-mercato/open-mercato/commit/0231390f96) (roadmap, execution plan, backlog, README, and readiness dashboard). It is pending maintainer review in [PR #5729](https://github.com/open-mercato/open-mercato/pull/5729) and does not change any external capability's design or delivery plan.

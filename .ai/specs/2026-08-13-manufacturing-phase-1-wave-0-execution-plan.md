@@ -52,7 +52,7 @@ Execution readiness
   minimum fact ledger → production order/execution snapshot/basic confirmations → material execution through WMS
 ```
 
-The first two workstreams can begin in parallel. The third can define contracts and test scenarios early, but cannot ship a stock-affecting production workflow until the WMS contract is available.
+The first two workstreams can begin in parallel. The Catalog/UoM contract is a narrow prerequisite only for quantity-bearing BOM, definition-release, and production-order paths; it is not a Manufacturing-owned delivery task and does not block the package bootstrap, Work Centers, routing drafts, the neutral fact ledger, or other non-quantity work. The third workstream can define contracts and test scenarios early, but cannot ship a stock-affecting production workflow until the WMS contract is available.
 
 ## Phase 1 Workstream Table
 
@@ -60,8 +60,8 @@ The first two workstreams can begin in parallel. The third can define contracts 
 |---|---|---|---|---|---|---|
 | P1.0 | Freeze Phase 1 boundaries and dependency semantics | Manufacturing planning / specs | `wms`, `catalog`, `resources`, `planner`, `events`, `queue` | Accepted; maintain the baseline and gate evidence | Parent roadmap | Accepted implementation baseline; no accidental hard dependency or duplicated ownership |
 | P1.0a | Bootstrap the Manufacturing workspace package and single opt-in module | `@open-mercato/manufacturing` / `manufacturing` | Workspace manifest, module discovery, entrypoint exports, build/test and opt-in app conventions | Full specification accepted for staged implementation | P1.0 | Stable package/module home without domain behavior; hard `catalog`, optional WMS/Resources/Planner |
-| P1.4a | Author direct-level BOM drafts and enforce aggregate integrity | `manufacturing` discrete definition capability | Catalog public quantity/UoM contract | Specification complete; implementation after roadmap acceptance and upstream readiness | P1.0a; Catalog contract before quantity contracts freeze | Editable versioned drafts with stable direct occurrences, base output, fixed/variable basis, yield, optimistic locking, undo and cycle-safe graph writes; `siteId` remains absent until release |
-| P1.4b | Preview bounded multi-level BOM drafts | `manufacturing` discrete read capability | Catalog public quantity/UoM contract; P1.4a internal reader/events | Specification complete; implementation after P1.4a readiness | P1.0a, Catalog contract, P1.4a | Read-only occurrence tree with exact fixed/variable/yield calculation, variant fallback, unresolved warnings, repeatable-read consistency and hard depth/node bounds |
+| P1.4a | Author direct-level BOM drafts and enforce aggregate integrity | `manufacturing` discrete definition capability | Catalog public quantity/UoM contract for quantity-bearing writes | Specification complete; implementation after roadmap acceptance and upstream readiness | P1.0a; Catalog contract before quantity schemas freeze | Editable versioned drafts with stable direct occurrences, base output, fixed/variable basis, yield, optimistic locking, undo and cycle-safe graph writes; `siteId` remains absent until release |
+| P1.4b | Preview bounded multi-level BOM drafts | `manufacturing` discrete read capability | Catalog public quantity/UoM contract for exact quantity evaluation; P1.4a internal reader/events | Specification complete; implementation after P1.4a readiness | P1.0a, P1.4a; Catalog contract for quantity evaluation | Read-only occurrence tree with exact fixed/variable/yield calculation, variant fallback, unresolved warnings, repeatable-read consistency and hard depth/node bounds |
 | P1.4c | BOM list workspace | `manufacturing` post-Wave 0 usability capability | P1.4a list/read contract; shared DataTable perspectives | Specification task [#5408](https://github.com/open-mercato/open-mercato/issues/5408); not a Wave 0 gate | P1.4a | BOM-specific search/filter/sort plus personal column/filter/sort perspectives; retain keyset pagination and exclude bulk mutation |
 | P1.4d | BOM business identity | `manufacturing` post-Wave 0 master-data capability | P1.4a family/revision identity; Catalog product identifiers | Specification task [#5409](https://github.com/open-mercato/open-mercato/issues/5409); not a Wave 0 gate | P1.4a | Decide code/name necessity, owner, uniqueness, migration and compatibility without duplicating production-order numbering |
 | P1.4e | BOM history, change context and comments | `manufacturing` post-Wave 0 collaboration-context capability | P1.4a action log/events; shared Version History and Notes | Specification task [#5410](https://github.com/open-mercato/open-mercato/issues/5410); not a Wave 0 gate | P1.4a; P1.7 only for released-record semantics | History/comments/change reason without presence, merge or edit locks |
@@ -84,7 +84,7 @@ The first two workstreams can begin in parallel. The third can define contracts 
 
 | Capability | Primary module | Why it is safe before WMS |
 |---|---|---|
-| Multi-level BOM draft CRUD/API/UI | Future discrete definition capability | It persists real editable drafts without inventory effects. Each line is a distinct occurrence. `siteId` may be absent in draft; Catalog's public quantity/UoM contract is required before quantity contracts freeze; incomplete or ambiguous drafts cannot release. |
+| Multi-level BOM draft CRUD/API/UI | Future discrete definition capability | It persists real editable drafts without inventory effects. Each line is a distinct occurrence. `siteId` may be absent in draft; the Catalog public quantity/UoM contract is required before quantity-bearing schemas freeze, but is not a programme gate for other Manufacturing work; incomplete or ambiguous drafts cannot release. |
 | Optional sequential routing draft CRUD | Future discrete definition capability | It stores operation order, basic setup/run time, instructions, work-centre/resource references, and no calendar/scheduling semantics |
 | Work-center applicability | `manufacturing` with an optional `resources` seam | It links manufacturing constraints by scalar IDs and does not replace resource/calendar ownership |
 | Draft versioning and validation | Future discrete definition capability | It can reject incomplete definitions without making any WMS claim |
@@ -169,7 +169,7 @@ Readiness is staged. Evidence is required only for the capability being enabled.
 
 1. Real BOM and optional sequential-routing CRUD/API/UI work in tenant and organization scope without stock effects.
 2. Draft BOMs preserve repeated component occurrences, reject direct and indirect cycles, and may omit `siteId` until release.
-3. Catalog provides the shared exact-decimal and UoM normalization contract before Manufacturing quantity schemas freeze.
+3. Catalog provides the shared exact-decimal and UoM normalization contract before Manufacturing quantity-bearing schemas freeze; this condition does not block the bootstrap, Work Center/routing, or neutral fact-ledger work.
 4. Minimal Work Centers, setup/run time, instructions, audit, ACL, and optimistic locking work without requiring calendars or finite-capacity planning.
 
 ### Gate B — released definitions and production orders
@@ -213,6 +213,7 @@ The WMS–Sales work is especially contract-sensitive: current sales-order event
 - 2026-08-19: Added P1.0a package bootstrap and aligned cohesive ownership: P1.7 definition release, P1.9 neutral facts, P1.10 order release/execution snapshot/basic confirmations, and P1.8b Manufacturing stock orchestration over an external WMS contract.
 - 2026-08-28: Removed Catalog and WMS delivery tasks from this Manufacturing plan. They remain external public-contract prerequisites, not Manufacturing-owned work items or runtime dependencies.
 - 2026-08-28: Moved WMS Site and warehouse-role assignments out of the Manufacturing work-item sequence; later release and order flows consume the external WMS Site contract.
+- 2026-08-29: Clarified that Catalog/UoM is consumed as a narrow external contract by quantity-bearing paths only and does not block non-quantity Manufacturing work.
 - 2026-08-19: Split P1.4 after fresh-context review and owner approval: P1.4a owns direct-level BOM draft authoring/integrity, while P1.4b owns the independently deployable bounded read-only multi-level preview. Only P1.4a is a P1.7 release prerequisite.
 - 2026-08-19: Assigned provider-neutral demand references and required/planned dates explicitly to P1.10 rather than the reusable P1.4a BOM aggregate.
 - 2026-08-19: Added the owner-approved post-Wave 0 P1.4c-h lane with specification trackers #5408-#5413: list workspace, business identity, history/comments, revision comparison/where-used, copy, and extensibility/document control. These candidates do not gate Wave 0 delivery.

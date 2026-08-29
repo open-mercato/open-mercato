@@ -2,7 +2,7 @@
 
 > A single operational view of the Manufacturing programme. It links the product roadmap, delivery workstreams, capability specifications, and the relevant GitHub Issues and Pull Requests.
 
-**Last reviewed:** 2026-08-28
+**Last reviewed:** 2026-08-29
 **Programme status:** The product roadmap is the accepted baseline for staged Wave 0 delivery. Each slice proceeds only through a dedicated ready specification and its named safety gates.
 
 ## How to use this document
@@ -19,6 +19,8 @@
 First establish safe foundations: plant identity, warehouse-role rules, exact quantity and unit handling, versioned manufacturing definitions, and a WMS posting contract. Only then build an executable production-order lifecycle.
 
 The opt-in `manufacturing` module owns production intent, semantic commands, derived posting lines, and production history. WMS remains the owner of physical stock, reservations, lots, serials, and inventory movements through a generic atomic posting-group contract. Manufacturing must not create a competing inventory ledger, and WMS must not interpret Manufacturing definitions or calculate backflush.
+
+Catalog and UoM are an external contract boundary, not a Manufacturing delivery dependency. Catalog remains the owner of product, variant, and unit-of-measure identity. Manufacturing consumes its exact quantity/conversion contract only on quantity-bearing BOM, definition-release, and production-order paths. Bootstrap, Work Centers, routing drafts, the neutral fact ledger, and other non-quantity work may proceed without waiting for Catalog delivery.
 
 ## Current work overview
 
@@ -46,9 +48,14 @@ The opt-in `manufacturing` module owns production intent, semantic commands, der
 
 ## External capabilities, outside the Manufacturing roadmap
 
-| Capability | Owner and tracking | Relationship to Manufacturing |
-|---|---|---|
-| WMS Site and current warehouse-role assignments | WMS; [readiness task #5389](https://github.com/open-mercato/open-mercato/issues/5389) | A standalone WMS capability. Manufacturing neither installs nor implements it; released definitions and production orders consume its public Site contract only when they require a site. |
+| Capability | Owner and tracking | Current state | Manufacturing gates |
+|---|---|---|---|
+| WMS Site and current warehouse-role assignments | WMS; [specification](../../.ai/specs/2026-08-13-wms-sites-and-warehouse-roles.md); [readiness #5389](https://github.com/open-mercato/open-mercato/issues/5389) | Design complete; WMS readiness review pending | P1.7 released definitions and P1.10 production orders consume the public Site contract when a site is required. It is not a Manufacturing work item or `ModuleInfo.requires` dependency. |
+| Catalog exact quantity and UoM normalization | Catalog; [specification](../../.ai/specs/2026-08-13-catalog-quantity-normalization.md); [readiness #5390](https://github.com/open-mercato/open-mercato/issues/5390) | Design complete; external consumer-contract readiness review pending | Only quantity-bearing P1.4a/P1.4b/P1.4g/P1.7/P1.10 paths consume the public exact quantity/UoM contract; this is not a gate for unrelated Manufacturing work. |
+| WMS quantity precision and profile alignment | WMS; [specification](../../.ai/specs/2026-08-13-wms-quantity-precision-alignment.md); [audit #5391](https://github.com/open-mercato/open-mercato/issues/5391) | Design complete; WMS data-envelope audit pending | P1.11 requires this contract before stock-affecting execution. |
+| WMS quantity evidence and correlated reversal | WMS; [specification](../../.ai/specs/2026-08-13-wms-quantity-evidence-reversal.md); [readiness #5392](https://github.com/open-mercato/open-mercato/issues/5392) | Design complete; WMS readiness review pending | P1.11 requires durable evidence and correlated reversal before stock-affecting execution. |
+| Provider-neutral atomic WMS posting groups | WMS; [spec task #5397](https://github.com/open-mercato/open-mercato/issues/5397) | Direction proposed; dedicated WMS contract remains to be authored | P1.8b consumes this contract; P1.11 additionally requires it through P1.8b before stock-affecting execution. |
+| WMS status/expiry-aware availability projection | WMS; [core-inventory specification](../../.ai/specs/2026-04-15-wms-phase-1-core-inventory.md) | Core-inventory specification exists; no dedicated readiness evidence is linked for this contract | P1.11 requires basic WMS availability to exclude ineligible stock; an external QMS/disposition provider is not required. |
 
 ## Delivery sequence
 
@@ -61,10 +68,10 @@ Parallel foundation work
   P1.5 optional sequential routing drafts, P1.6 work-centre boundary
 
 Foundation contracts
-  External WMS Site contract + Catalog exact quantity/UoM contract + P1.4a + P1.5 + P1.6 → P1.7 released definitions
+  External WMS Site contract + Catalog quantity/UoM contract for release data + P1.4a + P1.5 + P1.6 → P1.7 released definitions
   P1.0a → P1.9 Manufacturing fact ledger
 First shippable production flow
-  External WMS Site contract + Catalog exact quantity/UoM contract + P1.7 + P1.9 → P1.10 lifecycle + execution snapshot + basic confirmations
+  External WMS Site contract + Catalog quantity/UoM contract for order data + P1.7 + P1.9 → P1.10 lifecycle + execution snapshot + basic confirmations
   External provider-neutral WMS posting contract + P1.9 + P1.10 → P1.8b Manufacturing inventory adapter
   External WMS quantity/evidence/posting contracts + P1.8b + P1.10 → P1.11 stock-affecting execution
 
@@ -72,7 +79,7 @@ Later capability
   P1.13 configurable order/batch/lot/serial number ranges and offline allocation
 ```
 
-The first staged increment is the P1.0a package/module bootstrap, alongside the P1.4a BOM lane, the P1.6 Work Center boundary, and then P1.5 routing/operation drafts. P1.4a consumes Catalog only through its public quantity/UoM contract; P1.5 follows P1.6. P1.10 and P1.11 are not implementation work to start now. The WMS Site capability is tracked and delivered by WMS; Manufacturing consumes its public contract only when release and order flows need a site.
+The first staged increment is the P1.0a package/module bootstrap, alongside the P1.4a BOM lane, the P1.6 Work Center boundary, and then P1.5 routing/operation drafts. P1.4a consumes Catalog only through its public quantity/UoM contract, which gates its quantity-bearing write paths rather than the wider Manufacturing programme; P1.5 follows P1.6. P1.10 and P1.11 are not implementation work to start now. The WMS Site capability is tracked and delivered by WMS; Manufacturing consumes its public contract only when release and order flows need a site.
 
 ## Mandatory BOM rules
 
