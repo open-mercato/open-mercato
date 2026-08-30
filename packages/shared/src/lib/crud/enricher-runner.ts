@@ -137,11 +137,12 @@ function resolveCache(context: EnricherContext): CacheLike | null {
 function buildCacheKey(
   enricher: ResponseEnricher,
   context: EnricherContext,
+  targetEntity: string,
   mode: 'one' | 'many',
   recordIds: string[],
 ): string {
   const sortedIds = [...recordIds].sort((a, b) => a.localeCompare(b))
-  return `umes:enricher:${enricher.id}:tenant:${context.tenantId}:org:${context.organizationId}:mode:${mode}:ids:${JSON.stringify(sortedIds)}`
+  return `umes:enricher:${enricher.id}:entity:${targetEntity}:tenant:${context.tenantId}:org:${context.organizationId}:mode:${mode}:ids:${JSON.stringify(sortedIds)}`
 }
 
 function extractRecordId(record: Record<string, unknown>): string {
@@ -235,7 +236,9 @@ export async function applyResponseEnrichers<T extends Record<string, unknown>>(
       let result: T[]
       const recordIds = currentItems.map((item) => extractRecordId(item))
       const shouldUseCache = enricher.cache?.strategy === 'read-through'
-      const cacheKey = shouldUseCache ? buildCacheKey(enricher, context, 'many', recordIds) : null
+      const cacheKey = shouldUseCache
+        ? buildCacheKey(enricher, context, targetEntity, 'many', recordIds)
+        : null
       if (shouldUseCache && cacheKey) {
         const cached = await readEnricherCache<T[]>(cache, cacheKey)
         if (cached) {
@@ -334,7 +337,9 @@ export async function applyResponseEnricherToRecord<T extends Record<string, unk
     try {
       const recordId = extractRecordId(currentRecord)
       const shouldUseCache = enricher.cache?.strategy === 'read-through'
-      const cacheKey = shouldUseCache ? buildCacheKey(enricher, context, 'one', [recordId]) : null
+      const cacheKey = shouldUseCache
+        ? buildCacheKey(enricher, context, targetEntity, 'one', [recordId])
+        : null
       if (shouldUseCache && cacheKey) {
         const cached = await readEnricherCache<T>(cache, cacheKey)
         if (cached) {
