@@ -12,6 +12,7 @@ import {
   invokeWorkflowHeaderAction,
   runWorkflowPaletteCommand,
   WORKFLOW_CODE_VIEW_MENU_ITEM_LABEL,
+  isWorkflowDefinitionSave,
 } from '@open-mercato/core/helpers/integration/workflowsUi'
 
 /**
@@ -86,9 +87,7 @@ test.describe('TC-WF-062: Code view two-way sync', () => {
       // The Studio has no bare Save button — saving is a command, the same way
       // the keyboard-only spec saves.
       const savePromise = page.waitForResponse(
-        (res) =>
-          res.url().includes(`/api/workflows/definitions/${definitionId}`) &&
-          res.request().method() === 'PUT',
+        (res) => isWorkflowDefinitionSave(res, definitionId!),
         { timeout: 30_000 },
       )
       await runWorkflowPaletteCommand(page, 'Save')

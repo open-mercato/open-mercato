@@ -6,7 +6,10 @@ import {
   createWorkflowDefinitionFixture,
   deleteWorkflowDefinitionIfExists,
 } from '@open-mercato/core/helpers/integration/workflowsFixtures'
-import { runWorkflowPaletteCommand } from '@open-mercato/core/helpers/integration/workflowsUi'
+import {
+  isWorkflowDefinitionSave,
+  runWorkflowPaletteCommand,
+} from '@open-mercato/core/helpers/integration/workflowsUi'
 
 /**
  * TC-WF-033: route reattachment preserves the route's configuration (#4233).
@@ -61,10 +64,13 @@ function buildReattachDefinitionPayload(timestamp: number) {
     version: 1,
     enabled: false,
     definition: {
-      // Positions are pinned rather than left to dagre: this test drags a route
-      // endpoint, and an auto-laid-out graph packs these four steps close enough
-      // in the editor's viewport that a neighbouring card covers the reconnect
-      // anchor or the drop handle, so the gesture never completes. Manual
+      // Positions are pinned rather than left to dagre, and the reattached route
+      // is given a LONG span. This test drags the route's target anchor, which
+      // sits one radius off the target card; the route's chips (condition +
+      // activity) render at the edge midpoint and scale with the canvas, so on a
+      // short edge the chip row reaches the anchor and swallows the press —
+      // Playwright named the activity chip's icon as the interceptor. Half of a
+      // 780px span clears the widest chip row this fixture can produce. Manual
       // placement always wins over layout, so the canvas honours these.
       steps: [
         { stepId: 'start', stepName: 'Start', stepType: 'START', _editorPosition: { x: 0, y: 200 } },
@@ -75,8 +81,8 @@ function buildReattachDefinitionPayload(timestamp: number) {
           userTaskConfig: { assignedTo: 'admin' },
           _editorPosition: { x: 320, y: 200 },
         },
-        { stepId: 'notify', stepName: 'Notify', stepType: 'AUTOMATED', _editorPosition: { x: 680, y: 200 } },
-        { stepId: 'approved', stepName: 'Approved', stepType: 'END', _editorPosition: { x: 1040, y: 420 } },
+        { stepId: 'notify', stepName: 'Notify', stepType: 'AUTOMATED', _editorPosition: { x: 1100, y: 200 } },
+        { stepId: 'approved', stepName: 'Approved', stepType: 'END', _editorPosition: { x: 1100, y: 560 } },
       ],
       transitions: [
         { transitionId: 't_qa_wf033_start', fromStepId: 'start', toStepId: 'review', trigger: 'auto' },
@@ -150,17 +156,28 @@ async function dragRouteTargetOnto(page: Page, transitionId: string, targetStepI
   await page.mouse.up()
 }
 
+/**
+ * Run the Save command and return the PUT it issued, or null when it issued none.
+ *
+ * The Studio renders no bare Update/Save button — saving is a command, the same
+ * path the keyboard-only spec uses. After a REFUSED reconnect there is nothing
+ * to save: the guard rejects the change before it reaches the document, so the
+ * editor is not dirty and Save is a no-op. Demanding a PUT there would only
+ * assert that the editor got dirty over a change it correctly threw away.
+ *
+ * A PUT that DOES arrive is still checked — that is what catches a refusal that
+ * repainted the canvas and let the bad route into the document anyway.
+ */
 async function saveDefinition(page: Page, definitionId: string): Promise<void> {
-  // The Studio renders no bare Update/Save button — saving is a command, the
-  // same path the keyboard-only spec uses.
-  const [response] = await Promise.all([
-    page.waitForResponse(
-      (res) => res.url().includes(`/api/workflows/definitions/${definitionId}`) && res.request().method() === 'PUT',
-      { timeout: 30_000 },
-    ),
-    runWorkflowPaletteCommand(page, 'Save'),
-  ])
-  expect(response.status(), 'PUT after reattachment should succeed').toBe(200)
+  const putResponse = page
+    .waitForResponse(
+      (res) => isWorkflowDefinitionSave(res, definitionId),
+      { timeout: 15_000 },
+    )
+    .catch(() => null)
+  await runWorkflowPaletteCommand(page, 'Save')
+  const response = await putResponse
+  if (response) expect(response.status(), 'a save that fires must succeed').toBe(200)
 }
 
 test.describe('TC-WF-033: route reattachment preserves route configuration', () => {
@@ -179,7 +196,15 @@ test.describe('TC-WF-033: route reattachment preserves route configuration', () 
       await dragRouteTargetOnto(page, RICH_TRANSITION_ID, 'approved')
       await expect(page.getByText('Route re-targeted').first()).toBeVisible({ timeout: 10_000 })
 
-      await saveDefinition(page, definitionId)
+      // An ACCEPTED reconnect changed the document, so this one must persist.
+      const [saveResponse] = await Promise.all([
+        page.waitForResponse(
+          (res) => isWorkflowDefinitionSave(res, definitionId!),
+          { timeout: 30_000 },
+        ),
+        runWorkflowPaletteCommand(page, 'Save'),
+      ])
+      expect(saveResponse.status(), 'PUT after reattachment should succeed').toBe(200)
 
       const detail = await apiRequest(
         request,

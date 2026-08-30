@@ -188,6 +188,24 @@ export async function runWorkflowPaletteCommand(page: Page, query: string): Prom
   await expect(search).toBeHidden({ timeout: 15_000 })
 }
 
+/**
+ * Predicate matching the Studio's SAVE, and nothing else.
+ *
+ * The editor also autosaves to `…/definitions/<id>/draft`, so a `url.includes(id)
+ * && method === 'PUT'` matcher — what these specs used to write — is satisfied by
+ * the autosave. A spec then walks on to read the definition the save never wrote
+ * and reports a persistence bug that is not there (TC-WF-037 did exactly this).
+ * Matching the pathname's END keeps the draft out.
+ */
+export function isWorkflowDefinitionSave(response: { url(): string; request(): { method(): string } }, definitionId: string): boolean {
+  if (response.request().method() !== 'PUT') return false
+  try {
+    return new URL(response.url()).pathname.endsWith(`/api/workflows/definitions/${definitionId}`)
+  } catch {
+    return false
+  }
+}
+
 /** Open the header's overflow menu and pick `label`. */
 export async function invokeWorkflowHeaderAction(page: Page, label: string): Promise<void> {
   await openWorkflowHeaderMenu(page)

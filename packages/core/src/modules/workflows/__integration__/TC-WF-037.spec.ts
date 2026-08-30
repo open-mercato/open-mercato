@@ -1,5 +1,8 @@
 import { expect, test, type Page } from '@playwright/test'
-import { workflowInspector } from '@open-mercato/core/helpers/integration/workflowsUi'
+import {
+  isWorkflowDefinitionSave,
+  workflowInspector,
+} from '@open-mercato/core/helpers/integration/workflowsUi'
 import { login } from '@open-mercato/core/helpers/integration/auth'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
@@ -32,7 +35,10 @@ import {
  */
 
 type DefinitionRecord = {
-  definition?: { steps?: Array<{ stepId?: string; stepName?: string; stepType?: string }> }
+  definition?: {
+    steps?: Array<{ stepId?: string; stepName?: string; stepType?: string }>
+    transitions?: Array<{ fromStepId?: string; toStepId?: string }>
+  }
 }
 
 const NEW_STEP_NAME = 'Keyboard Added Step'
@@ -105,13 +111,47 @@ test.describe('TC-WF-037: keyboard-only authoring loop (a11y smoke)', () => {
       await expect(nodeDialog).toBeHidden({ timeout: 15_000 })
 
       // The card announces type, title and status — status is never colour-only.
+      // In the EDITOR every card's status is "Not started" (WorkflowNodeCard:
+      // there is no run behind an authoring canvas); "Pending" is a run-view
+      // label and never appeared here.
       await expect(
-        page.getByRole('group', { name: `AUTOMATED: ${NEW_STEP_NAME} — Pending` }),
+        page.getByRole('group', { name: `AUTOMATED: ${NEW_STEP_NAME} — Not started` }),
       ).toBeVisible({ timeout: 15_000 })
 
-      // 4. SAVE — through the palette, again without a pointer.
+      // 4. CONNECT — through the Code view, still without a pointer.
+      //    A step that hangs off the graph is a validation ERROR ("Node … is
+      //    disconnected") and the Studio refuses to save one, so a loop that only
+      //    adds and names a step can never reach a save. The palette offers no
+      //    connect command; the Code view is the non-pointer path the acceptance
+      //    criterion names alongside it, so the loop rewires start → new → end
+      //    there. `fill` and `press` focus and type without dispatching pointer
+      //    events, so this leg keeps the spec's no-pointer rule.
+      await runPaletteCommand(page, 'Toggle the Code view')
+      const editor = page.getByTestId('workflow-code-view-json')
+      await expect(editor).toBeVisible({ timeout: 15_000 })
+
+      const draft = JSON.parse(await editor.inputValue()) as {
+        steps: Array<{ stepId: string; stepName: string }>
+        transitions: Array<{ transitionId: string; fromStepId: string; toStepId: string; trigger?: string }>
+      }
+      const addedStep = draft.steps.find((step) => step.stepName === NEW_STEP_NAME)
+      expect(addedStep, 'the added step reaches the Code view').toBeTruthy()
+      draft.transitions = [
+        { transitionId: 'start-to-added', fromStepId: 'start', toStepId: addedStep!.stepId, trigger: 'auto' },
+        { transitionId: 'added-to-end', fromStepId: addedStep!.stepId, toStepId: 'end', trigger: 'auto' },
+      ]
+      await editor.fill(JSON.stringify(draft, null, 2))
+      const apply = page.getByTestId('workflow-code-view-apply')
+      await expect(apply, 'a valid definition can be applied').toBeEnabled({ timeout: 15_000 })
+      await apply.press('Enter')
+      // Escape closes the drawer; an APPLIED edit survives it (only an unapplied
+      // draft is discarded), and the toolbar's Save is unreachable until it does.
+      await page.keyboard.press('Escape')
+      await expect(editor).toBeHidden({ timeout: 15_000 })
+
+      // 5. SAVE — through the palette, again without a pointer.
       const savePromise = page.waitForResponse(
-        (res) => res.url().includes(`/api/workflows/definitions/${definitionId}`) && res.request().method() === 'PUT',
+        (res) => isWorkflowDefinitionSave(res, definitionId!),
         { timeout: 30_000 },
       )
       await runPaletteCommand(page, 'Save')
@@ -128,6 +168,14 @@ test.describe('TC-WF-037: keyboard-only authoring loop (a11y smoke)', () => {
       const added = (body?.data?.definition?.steps ?? []).find((step) => step.stepName === NEW_STEP_NAME)
       expect(added, 'the step authored by keyboard is persisted').toBeTruthy()
       expect(added?.stepType).toBe('AUTOMATED')
+      const transitions = body?.data?.definition?.transitions ?? []
+      expect(
+        transitions.map((transition) => [transition.fromStepId, transition.toStepId]),
+        'the route the keyboard author drew through the Code view is persisted too',
+      ).toEqual([
+        ['start', added!.stepId],
+        [added!.stepId, 'end'],
+      ])
     } finally {
       await deleteWorkflowDefinitionIfExists(request, apiToken, definitionId)
     }
