@@ -72,5 +72,5 @@ PR: #5802
 
 ### Phase 4: Configuration and documentation
 
-- [ ] 4.1 Add the application/template environment example, user guide, telemetry catalog, and implemented-spec catalog updates.
+- [x] 4.1 Add the application/template environment example, user guide, telemetry catalog, and implemented-spec catalog updates. — 22be33f313
 - [ ] 4.2 Run template synchronization and the repository validation gate.
