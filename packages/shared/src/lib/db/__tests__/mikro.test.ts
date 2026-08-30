@@ -343,4 +343,69 @@ describe('instrumentPrimaryPool', () => {
 
     dispose()
   })
+
+  it('replaces prior instrumentation without stacking wrappers or collectors', async () => {
+    const { EventEmitter } = await import('node:events')
+    const { instrumentPrimaryPool } = await import('../mikro')
+    const { collectTelemetryMetrics } = await import('../../telemetry/runtime')
+    const points = await registerMetricRecorder()
+    const client = { id: 'client' }
+    const originalConnect = jest.fn(() => Promise.resolve(client))
+    const pool = Object.assign(new EventEmitter(), {
+      totalCount: 2,
+      idleCount: 1,
+      waitingCount: 0,
+      options: { max: 20 },
+      connect: originalConnect,
+    }) as unknown as ObservablePool
+    const firstDispose = instrumentPrimaryPool(pool, () => 100)
+    const firstInstrumentedConnect = pool.connect
+    const secondDispose = instrumentPrimaryPool(pool, () => 250)
+    const secondInstrumentedConnect = pool.connect
+
+    expect(firstInstrumentedConnect).not.toBe(secondInstrumentedConnect)
+    await expect(pool.connect()).resolves.toBe(client)
+    collectTelemetryMetrics()
+
+    expect(points.filter((point) => point.name === 'db.client.connection.wait_time'))
+      .toHaveLength(1)
+    expect(points.filter((point) => point.name === 'db.client.connection.count'))
+      .toHaveLength(2)
+
+    firstDispose()
+    expect(pool.connect).toBe(secondInstrumentedConnect)
+    secondDispose()
+    expect(pool.connect).toBe(originalConnect)
+  })
+
+  it('does not let metric-provider failures change pool acquisition semantics', async () => {
+    const { EventEmitter } = await import('node:events')
+    const { instrumentPrimaryPool } = await import('../mikro')
+    const { registerTelemetryRuntime } = await import('../../telemetry/runtime')
+    const client = { id: 'client' }
+    const originalConnect = jest.fn(() => Promise.resolve(client))
+    const pool = Object.assign(new EventEmitter(), {
+      totalCount: 1,
+      idleCount: 0,
+      waitingCount: 0,
+      options: { max: 20 },
+      connect: originalConnect,
+    }) as unknown as ObservablePool
+    registerTelemetryRuntime({
+      canUseGlobalTracePropagation: () => false,
+      captureTraceContext: () => ({}),
+      continueTrace: (_carrier, _name, fn) => fn(),
+      recordMetric: () => {
+        throw new Error('[internal] metric provider unavailable')
+      },
+      recordHttpDuration: () => {},
+      reportError: () => {},
+      shutdown: async () => {},
+    })
+    const dispose = instrumentPrimaryPool(pool, () => 100)
+
+    await expect(pool.connect()).resolves.toBe(client)
+
+    dispose()
+  })
 })

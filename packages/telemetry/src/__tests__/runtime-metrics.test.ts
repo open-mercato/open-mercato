@@ -9,6 +9,7 @@ import {
 import {
   createRuntimeMetricsSampler,
   resetRuntimeMetrics,
+  startRuntimeMetrics,
   type EventLoopDelayMonitor,
   type RuntimeMetricSources,
 } from '../runtime-metrics'
@@ -158,5 +159,72 @@ describe('runtime metrics sampler', () => {
         { kind: 'gauge', name: 'nodejs.eventloop.delay.p90', value: 0, unit: 's' },
         { kind: 'gauge', name: 'nodejs.eventloop.delay.p99', value: 0, unit: 's' },
       ])
+  })
+
+  it('resets delay state after a sampling-source failure and disposes once', () => {
+    registerTelemetryRuntime(createRuntime(() => {}))
+    let sample = () => {}
+    const interval = { unref: jest.fn() } as unknown as ReturnType<typeof setInterval>
+    const delay: EventLoopDelayMonitor = {
+      enable: jest.fn(),
+      disable: jest.fn(),
+      percentile: () => 0,
+      reset: jest.fn(),
+    }
+    const sources: RuntimeMetricSources = {
+      createEventLoopDelayMonitor: () => delay,
+      eventLoopUtilization: () => ({ idle: 0, active: 0, utilization: 0 }),
+      memoryUsage: () => {
+        throw new Error('[internal] memory sample failed')
+      },
+      heapSpaceStatistics: () => [],
+      setInterval: (handler) => {
+        sample = handler
+        return interval
+      },
+      clearInterval: jest.fn(),
+    }
+
+    const dispose = createRuntimeMetricsSampler(sources)
+    sample()
+    dispose()
+    dispose()
+
+    expect(delay.reset).toHaveBeenCalledTimes(1)
+    expect(delay.disable).toHaveBeenCalledTimes(1)
+    expect(sources.clearInterval).toHaveBeenCalledTimes(1)
+  })
+
+  it('shares one process sampler until every owner releases it', () => {
+    const interval = { unref: jest.fn() } as unknown as ReturnType<typeof setInterval>
+    const delay: EventLoopDelayMonitor = {
+      enable: jest.fn(),
+      disable: jest.fn(),
+      percentile: () => 0,
+      reset: jest.fn(),
+    }
+    const sources: RuntimeMetricSources = {
+      createEventLoopDelayMonitor: jest.fn(() => delay),
+      eventLoopUtilization: () => ({ idle: 0, active: 0, utilization: 0 }),
+      memoryUsage: () => ({ rss: 0 }),
+      heapSpaceStatistics: () => [],
+      setInterval: jest.fn(() => interval),
+      clearInterval: jest.fn(),
+    }
+
+    const releaseFirst = startRuntimeMetrics(sources)
+    const releaseSecond = startRuntimeMetrics(sources)
+
+    expect(sources.createEventLoopDelayMonitor).toHaveBeenCalledTimes(1)
+    expect(sources.setInterval).toHaveBeenCalledTimes(1)
+
+    releaseFirst()
+    expect(sources.clearInterval).not.toHaveBeenCalled()
+
+    releaseSecond()
+    releaseSecond()
+
+    expect(sources.clearInterval).toHaveBeenCalledTimes(1)
+    expect(delay.disable).toHaveBeenCalledTimes(1)
   })
 })

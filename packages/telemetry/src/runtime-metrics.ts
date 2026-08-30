@@ -116,28 +116,36 @@ export function createRuntimeMetricsSampler(
         })
       }
 
-      collectTelemetryMetrics()
-      delay.reset()
+      collectTelemetryMetrics((err) => {
+        logger.warn('Runtime metric collector failed', { err })
+      })
     } catch (err) {
       logger.warn('Runtime metric sampling failed', { err })
+    } finally {
+      delay.reset()
     }
   }
 
   const interval = sources.setInterval(sample, SAMPLE_INTERVAL_MS)
   interval.unref?.()
 
+  let disposed = false
   return () => {
+    if (disposed) return
+    disposed = true
     sources.clearInterval(interval)
     delay.disable()
   }
 }
 
-export function startRuntimeMetrics(): () => void {
+export function startRuntimeMetrics(
+  sources: RuntimeMetricSources = defaultSources,
+): () => void {
   const current = store()
   if (!current.active) {
     current.active = {
       references: 0,
-      dispose: createRuntimeMetricsSampler(),
+      dispose: createRuntimeMetricsSampler(sources),
     }
   }
 

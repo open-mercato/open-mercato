@@ -191,6 +191,21 @@ describe('telemetry metric bridge', () => {
 
     expect(calls).toEqual(['first', 'second', 'first'])
   })
+
+  it('isolates collector failures and reports them without skipping later collectors', () => {
+    const failure = new Error('[internal] collector failed')
+    const nextCollector = jest.fn()
+    const onError = jest.fn()
+    registerTelemetryMetricCollector(() => {
+      throw failure
+    })
+    registerTelemetryMetricCollector(nextCollector)
+
+    collectTelemetryMetrics(onError)
+
+    expect(onError).toHaveBeenCalledWith(failure)
+    expect(nextCollector).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('withTelemetrySpan', () => {

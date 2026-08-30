@@ -124,9 +124,19 @@ export function registerTelemetryMetricCollector(collector: TelemetryMetricColle
   }
 }
 
-export function collectTelemetryMetrics(): void {
+export function collectTelemetryMetrics(onError?: (error: Error) => void): void {
   const collectors = Array.from(store().metricCollectors ?? [])
-  for (const collector of collectors) collector()
+  for (const collector of collectors) {
+    try {
+      collector()
+    } catch (error) {
+      onError?.(
+        error instanceof Error
+          ? error
+          : new Error('Telemetry metric collector failed with a non-Error value'),
+      )
+    }
+  }
 }
 
 /** Test-only: clear the process-wide telemetry bridge. */

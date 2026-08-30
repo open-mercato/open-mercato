@@ -112,6 +112,31 @@ export type ObservablePool = PoolEventSource & {
   connect: PoolConnect
 }
 
+const GLOBAL_PRIMARY_POOL_INSTRUMENTATION_KEY = Symbol.for(
+  '@open-mercato/shared.primaryPoolInstrumentation',
+)
+
+type PrimaryPoolInstrumentation = {
+  dispose(): void
+}
+
+type PrimaryPoolInstrumentationStore = {
+  active?: PrimaryPoolInstrumentation
+}
+
+function primaryPoolInstrumentationStore(): PrimaryPoolInstrumentationStore {
+  const globalStore = globalThis as unknown as Record<
+    symbol,
+    PrimaryPoolInstrumentationStore | undefined
+  >
+  let current = globalStore[GLOBAL_PRIMARY_POOL_INSTRUMENTATION_KEY]
+  if (!current) {
+    current = {}
+    globalStore[GLOBAL_PRIMARY_POOL_INSTRUMENTATION_KEY] = current
+  }
+  return current
+}
+
 // Postgres can terminate a connection at any moment (admin termination, network
 // drop, and — most relevantly for long-running daemons — the
 // `idle_in_transaction_session_timeout` configured above, FATAL 25P03). Where
@@ -190,17 +215,26 @@ export function instrumentPrimaryPool(
   pool: ObservablePool,
   now: () => number = () => performance.now(),
 ): () => void {
+  const instrumentationStore = primaryPoolInstrumentationStore()
+  instrumentationStore.active?.dispose()
   const originalConnect = pool.connect
   const disposeCollector = registerTelemetryMetricCollector(() => recordPoolState(pool))
+  let metricFailureLogged = false
 
   const recordWait = (startedAt: number) => {
-    recordTelemetryMetric({
-      kind: 'histogram',
-      name: 'db.client.connection.wait_time',
-      value: Math.max(0, now() - startedAt) / 1_000,
-      labels: { pool: 'primary' },
-      unit: 's',
-    })
+    try {
+      recordTelemetryMetric({
+        kind: 'histogram',
+        name: 'db.client.connection.wait_time',
+        value: Math.max(0, now() - startedAt) / 1_000,
+        labels: { pool: 'primary' },
+        unit: 's',
+      })
+    } catch (err) {
+      if (metricFailureLogged) return
+      metricFailureLogged = true
+      logger.warn('Failed to record pg pool acquisition wait metric', { err })
+    }
   }
 
   const instrumentedConnect = function (
@@ -234,12 +268,19 @@ export function instrumentPrimaryPool(
 
   pool.connect = instrumentedConnect
   let disposed = false
-  return () => {
+  const instrumentation: PrimaryPoolInstrumentation = { dispose: () => {} }
+  const dispose = () => {
     if (disposed) return
     disposed = true
     disposeCollector()
     if (pool.connect === instrumentedConnect) pool.connect = originalConnect
+    if (instrumentationStore.active === instrumentation) {
+      instrumentationStore.active = undefined
+    }
   }
+  instrumentation.dispose = dispose
+  instrumentationStore.active = instrumentation
+  return dispose
 }
 
 export async function getOrm() {
