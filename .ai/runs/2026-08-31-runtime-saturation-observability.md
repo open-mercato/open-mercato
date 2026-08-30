@@ -47,6 +47,8 @@ Add default-unloaded PostgreSQL pool and Node.js runtime saturation metrics thro
 
 ## Progress
 
+PR: #5801
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Shared bridge and Node.js runtime sampler
@@ -62,3 +64,7 @@ Add default-unloaded PostgreSQL pool and Node.js runtime saturation metrics thro
 ### Phase 3: Catalog and compatibility documentation
 
 - [x] 3.1 Update the telemetry README, package guidance, and implemented telemetry specification with the exact built-in metric catalog and lifecycle rules. — 86c5e36c21
+
+### Review hardening
+
+- [x] 4.1 Make pool attachment globally single-owner, coalesce concurrent initialization, isolate collector failures, and add lifecycle regression coverage. — 10e60ba3b5
