@@ -53,7 +53,7 @@ Bound process-local access-log write backlogs at both asynchronous stages, expos
 
 ## Progress
 
-PR: pending
+PR: #5802
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
