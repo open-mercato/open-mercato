@@ -57,6 +57,8 @@ Make Open Mercato's optional OTLP telemetry mode deployable and diagnosable by w
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
+PR: #5799
+
 ### Phase 1: Fail-fast OTLP bootstrap
 
 - [x] 1.1 Replace selected-OTLP fallback with an actionable startup error — 95e7942f6c
@@ -74,4 +76,4 @@ Make Open Mercato's optional OTLP telemetry mode deployable and diagnosable by w
 
 - [x] 3.1 Add the runtime telemetry guide, navigation entry, and logging cross-link — 0e14f9bb98
 - [x] 3.2 Run focused documentation/topology checks and audit both-spec coverage — 04a857173f
-- [ ] 3.3 Run the full validation, review, and final delivery gates
+- [x] 3.3 Run the full validation, review, and final delivery gates — 97e20d8951
