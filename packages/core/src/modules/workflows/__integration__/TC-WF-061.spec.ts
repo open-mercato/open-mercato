@@ -126,8 +126,11 @@ test.describe('TC-WF-061: failure-queue triage and bulk replay', () => {
       ).toContain(failedInstanceId)
       expect(group?.key, 'the group key is normalized, not the raw message').not.toBe(group?.label)
       expect(group?.key ?? '', 'numbers in the message are replaced by a placeholder').toContain('{n}')
+      // The engine's message names the activity and what it could not resolve —
+      // it does not spell the activity TYPE, so assert on the part that actually
+      // tells an operator what broke.
       expect(group?.label ?? '', 'the label keeps a real message an operator can read').toContain(
-        'EXECUTE_FUNCTION',
+        'qa-nonexistent-function-do-not-register',
       )
       expect(queue?.grouping?.scanLimit, 'the response reports the bound it grouped over').toBeGreaterThan(0)
 
@@ -155,7 +158,7 @@ test.describe('TC-WF-061: failure-queue triage and bulk replay', () => {
     }
   })
 
-  test('a bulk replay runs through the progress module and clears the queue', async ({ request }) => {
+  test('a bulk replay runs through the progress module and releases every parked run', async ({ request }) => {
     test.setTimeout(180_000)
 
     const token = await getAuthToken(request, 'admin')
@@ -228,10 +231,23 @@ test.describe('TC-WF-061: failure-queue triage and bulk replay', () => {
         ).toBeNull()
       }
 
+      // The replayed run is NOT gone from triage, and that is the union working:
+      // it reached END, so it is COMPLETED and unparked, but a step failed on the
+      // way — the deterministic fixture guarantees it — so its verdict is
+      // `partial_failure`, which the queue's third arm exists to surface. A
+      // replay moves a run out of the parked arm; it does not repair it.
       const queue = await getWorkflowFailureQueue(request, token)
-      const queuedIds = (queue?.data ?? []).map((row) => row.id)
       for (const instanceId of instanceIds) {
-        expect(queuedIds, `instance ${instanceId} is no longer awaiting triage`).not.toContain(instanceId)
+        const row = (queue?.data ?? []).find((candidate) => candidate.id === instanceId)
+        expect(row, `instance ${instanceId} is still accounted for in triage`).toBeTruthy()
+        expect(
+          row?.attentionReason ?? null,
+          `instance ${instanceId} left the parked arm of the union`,
+        ).toBeNull()
+        expect(
+          row?.outcome,
+          `instance ${instanceId} is now listed by its verdict, not by a parking marker`,
+        ).toBe('partial_failure')
       }
 
       const job = await apiRequest(request, 'GET', `/api/progress/jobs/${progressJobId}`, { token })
@@ -309,8 +325,11 @@ test.describe('TC-WF-061: failure-queue triage and bulk replay', () => {
 
       // Error grouping is what makes this a triage list rather than a second
       // instance list. Selecting a group narrows the table to it.
+      // The chip is labelled with the group's own label — the first raw message —
+      // which names the activity and what it could not resolve, not the activity
+      // type. Match the part of it that is stable across runs.
       const groupChip = page
-        .getByRole('button', { name: /EXECUTE_FUNCTION/ })
+        .getByRole('button', { name: /qa-nonexistent-function-do-not-register/ })
         .first()
       await expect(groupChip).toBeVisible({ timeout: 30_000 })
       await groupChip.click()

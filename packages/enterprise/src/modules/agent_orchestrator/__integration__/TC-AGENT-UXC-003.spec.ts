@@ -85,7 +85,10 @@ test.describe('TC-AGENT-UXC-003: semantic cron validation + next-run preview', (
     await expect(cronInput).toBeVisible({ timeout: 10_000 })
 
     await cronInput.fill('0 7 * * 1')
-    const preview = page.getByText(/next runs:/i)
+    // The label and the occurrences are separate nodes inside one paragraph, and
+    // `getByText` resolves to the innermost match — the label span, whose text is
+    // just "Next runs:". Read the paragraph that holds both.
+    const preview = page.locator('p').filter({ hasText: /next runs:/i }).first()
     await expect(preview).toBeVisible({ timeout: 5_000 })
     // Three occurrences joined by the " · " separator → exactly two separators.
     const previewText = (await preview.textContent()) ?? ''

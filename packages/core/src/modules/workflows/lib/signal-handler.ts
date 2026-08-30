@@ -348,6 +348,18 @@ export async function sendSignal(
   // the executor loop, so the wired outcome route has to be honoured here too —
   // routing it in only one of the two places would silently send every
   // human-dispositioned proposal down the happy path.
+  //
+  // Resume from the paused wait BEFORE dispatching, exactly as the ordinary
+  // resume path below does. On this path the instance is PAUSED by definition —
+  // it is parked on the very signal being delivered — and two things depended on
+  // that being cleared first: the executor's defence-in-depth PAUSED guard stops
+  // a routed run at its first step, and `instance.status === 'PAUSED'` below
+  // could never mean "this dispatch parked the run" while the pre-existing pause
+  // was still set. Every routed outcome therefore returned early and the run sat
+  // on its route target, PAUSED, forever (TC-WF-051, TC-WF-052).
+  instance.status = 'RUNNING'
+  await em.flush()
+
   // Imported lazily rather than read off the DI-resolved executor: the resolved
   // service is the module, and reaching for a named export on it couples this
   // path to every test double that stubs only the two methods it needed.
@@ -367,8 +379,9 @@ export async function sendSignal(
       return
     }
     if (outcomeDispatch.kind === 'parked') return
-    if (outcomeDispatch.paused || instance.status === 'PAUSED') return
-    instance.status = 'RUNNING'
+    // `paused` is the dispatch's own report that IT parked the run (a
+    // step-through release, a wait step on the far side of the route).
+    if (outcomeDispatch.paused) return
     await em.flush()
     await workflowExecutor.executeWorkflow(em, container, instance.id, { userId })
     return

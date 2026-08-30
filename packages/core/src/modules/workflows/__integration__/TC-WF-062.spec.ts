@@ -126,8 +126,15 @@ test.describe('TC-WF-062: Code view two-way sync', () => {
       edited.transitions = edited.transitions.filter((transition) => transition.toStepId !== 'review')
       await editor.fill(JSON.stringify(edited, null, 2))
 
-      // The issue list stays the Problems panel's list, and each locatable row
-      // now carries the line its node lives on.
+      // The issue list IS the Problems panel's list, which is evaluated over the
+      // canvas — code → canvas needs an explicit Apply, so the detached step has
+      // to reach the document before any issue can name it. (Parse and schema
+      // failures are the live half, and the first test covers those.)
+      const apply = page.getByTestId('workflow-code-view-apply')
+      await expect(apply, 'a graph warning does not block an apply').toBeEnabled()
+      await apply.click()
+
+      // Each locatable row carries the line its node lives on.
       const issues = page.getByTestId('workflow-code-view-issues')
       await expect(issues).toBeVisible()
       await expect(issues.locator('[data-issue-line]').first()).toBeVisible()

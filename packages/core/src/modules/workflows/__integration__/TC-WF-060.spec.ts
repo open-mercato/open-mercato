@@ -220,26 +220,19 @@ test.describe('TC-WF-060: rerun from step', () => {
   })
 
   /**
-   * KNOWN DEFECT — asserted as it behaves today, deliberately, not softened.
+   * The engine now writes a TERMINAL row for a synchronously-failed AUTOMATED
+   * step (the returned-error path marks it FAILED, matching the thrown-error
+   * path), so `resolveRerunEligibility` reads a terminal latest attempt and the
+   * step is rerunnable like any other.
    *
-   * §8.4's headline is "rerun from FAILED step", and that is the one case the
-   * endpoint currently refuses. When an AUTOMATED step's own activity fails,
-   * `handleAutomatedStep` RETURNS `{ status: 'FAILED' }` rather than throwing, so
-   * `executeStep`'s catch — the only place that writes `StepInstance.status =
-   * 'FAILED'` — never runs. The instance goes FAILED while the step row is left
-   * `ACTIVE` for ever (no `STEP_FAILED` event is logged either), and
-   * `resolveRerunEligibility` then reads a non-terminal latest attempt and
-   * answers `WORKFLOW_STEP_STILL_PARKED` — a refusal written for a step with a
-   * live queue job or a pending proposal, neither of which exists here.
-   *
-   * WHEN THAT IS FIXED (the engine must mark the row FAILED on the returned-error
-   * path, matching the thrown-error path) this test must be INVERTED: the rerun
-   * of `boom` becomes a 200 and the two assertions below become the regression
-   * that the terminal row was written. It is asserted meanwhile so the gap
-   * between the spec's promise and the shipped behaviour is visible in CI rather
-   * than only in a report.
+   * This test was previously INVERTED, asserting the defect: the row stayed
+   * `ACTIVE` for ever, no `STEP_FAILED` event was logged, and the rerun was
+   * refused `WORKFLOW_STEP_STILL_PARKED` — a refusal written for a step with a
+   * live queue job or a pending proposal, neither of which exists here. It is
+   * kept, the right way round, as the regression that the terminal row is
+   * written: replaying the step that failed is the whole point of the surface.
    */
-  test('the failed step itself cannot be rerun, because the engine leaves its row ACTIVE', async ({ request }) => {
+  test('the step that failed is itself rerunnable, because its row is terminal', async ({ request }) => {
     test.setTimeout(180_000)
 
     const token = await getAuthToken(request, 'admin')
@@ -255,17 +248,21 @@ test.describe('TC-WF-060: rerun from step', () => {
       instanceId = await startWorkflowInstanceFixture(request, token, {
         workflowId: payload.workflowId,
       })
-      await pollWorkflowInstance(request, token, instanceId, (instance) => instance.status === 'FAILED', {
-        timeoutMs: 40_000,
-      })
+      const failed = await pollWorkflowInstance(
+        request,
+        token,
+        instanceId,
+        (instance) => instance.status === 'FAILED',
+        { timeoutMs: 40_000 },
+      )
 
       const steps = await listWorkflowInstanceSteps(request, token, instanceId)
       const boom = steps.find((step) => step.stepId === 'boom')
       expect(boom, 'the failing step has a row').toBeTruthy()
       expect(
         boom?.status,
-        'DEFECT: a synchronously-failed AUTOMATED step is left non-terminal (expected FAILED once fixed)',
-      ).toBe('ACTIVE')
+        'a synchronously-failed AUTOMATED step is left terminal, like the thrown-error path',
+      ).toBe('FAILED')
 
       const response = await apiRequest(
         request,
@@ -276,9 +273,22 @@ test.describe('TC-WF-060: rerun from step', () => {
       const body = await readJsonSafe<RerunResponse>(response)
       expect(
         response.status(),
-        'DEFECT: rerunning the failed step is refused (expected 200 once the row is marked FAILED)',
-      ).toBe(409)
-      expect(body?.code).toBe('WORKFLOW_STEP_STILL_PARKED')
+        `rerunning the failed step is accepted (got ${response.status()}: ${JSON.stringify(body)})`,
+      ).toBe(200)
+
+      // A replay is an attempt: the instance counts it, which is what separates
+      // an accepted rerun from a 200 that did nothing.
+      const replayed = await pollWorkflowInstance(
+        request,
+        token,
+        instanceId,
+        (instance) => (instance.retryCount ?? 0) > (failed?.retryCount ?? 0),
+        { timeoutMs: 40_000 },
+      )
+      expect(
+        replayed?.retryCount ?? 0,
+        'the replay counts as an attempt on the instance',
+      ).toBeGreaterThan(failed?.retryCount ?? 0)
     } finally {
       await cancelWorkflowInstanceIfExists(request, token, instanceId)
       await deleteWorkflowDefinitionIfExists(request, token, definitionId)

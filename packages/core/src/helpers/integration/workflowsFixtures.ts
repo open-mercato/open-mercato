@@ -1077,7 +1077,16 @@ export type FailureQueueGroupSnapshot = {
 };
 
 export type FailureQueueBody = {
-  data?: Array<{ id?: string; status?: string; retryCount?: number; errorMessage?: string | null }>;
+  // `attentionReason` and `outcome` are the two non-status arms of the union:
+  // a row can be here because it is parked, or because its verdict says so.
+  data?: Array<{
+    id?: string;
+    status?: string;
+    retryCount?: number;
+    errorMessage?: string | null;
+    attentionReason?: string | null;
+    outcome?: string | null;
+  }>;
   groups?: FailureQueueGroupSnapshot[];
   grouping?: { scannedCount?: number; scanLimit?: number; truncated?: boolean };
   pagination?: { total?: number; limit?: number; offset?: number; hasMore?: boolean };

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
@@ -23,6 +24,8 @@ import { isAgentCapacityError, resolveAdmissionMaxWaitMs } from '../../../../lib
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['agent_orchestrator.agents.run'] },
 }
+
+const logger = createLogger('agent_orchestrator').child({ component: 'agent-run-api' })
 
 const errorSchema = z.object({ error: z.string() })
 
@@ -152,6 +155,14 @@ export async function POST(req: Request, ctx: RouteContext) {
         { status: 503 },
       )
     }
+    // Anything past the typed mappings above becomes an empty-bodied 500, which
+    // is unreadable from the client and left no server-side trace either — the
+    // failing run was invisible in the app log as well as in the response.
+    logger.error('Agent run failed with an unclassified error', {
+      agentId: id,
+      runId: observedRunId,
+      err,
+    })
     throw err
   }
 
