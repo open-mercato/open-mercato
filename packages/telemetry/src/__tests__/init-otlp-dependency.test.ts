@@ -66,6 +66,7 @@ describe('OTLP dependency bootstrap', () => {
     else process.env.TELEMETRY_BACKEND = originalBackend
     jest.dontMock('../provider/console-provider')
     jest.dontMock('../provider/otlp-provider')
+    jest.dontMock('../init')
     jest.resetModules()
     jest.restoreAllMocks()
   })
@@ -145,6 +146,38 @@ describe('OTLP dependency bootstrap', () => {
 
     expect(loadAttempts).toBe(2)
     expect(provider.start).toHaveBeenCalledTimes(1)
+  })
+
+  it('propagates a dependency load failure through the standard Next.js bootstrap', async () => {
+    const importCause = new Error('simulated missing package')
+    jest.doMock('../provider/otlp-provider', () => {
+      throw importCause
+    })
+    const telemetry = await import('../init')
+    shutdownTelemetry = telemetry.shutdownTelemetry
+    const { registerTelemetryForNextjs } = await import('../nextjs')
+    process.env.TELEMETRY_BACKEND = 'otlp'
+
+    await expect(registerTelemetryForNextjs()).rejects.toMatchObject({
+      name: 'OtlpDependencyUnavailableError',
+      cause: importCause,
+    })
+  })
+
+  it('keeps unrelated provider initialization failures best effort in Next.js', async () => {
+    const startupFailure = new Error('collector configuration rejected')
+    const initTelemetry = jest.fn(async () => {
+      throw startupFailure
+    })
+    jest.doMock('../init', () => ({
+      initTelemetry,
+      shutdownTelemetry: jest.fn(async () => {}),
+    }))
+    const { registerTelemetryForNextjs } = await import('../nextjs')
+    process.env.TELEMETRY_BACKEND = 'otlp'
+
+    await expect(registerTelemetryForNextjs()).resolves.toBeUndefined()
+    expect(initTelemetry).toHaveBeenCalledTimes(1)
   })
 
   it('preserves a provider startup failure and can retry it without misclassifying dependencies', async () => {

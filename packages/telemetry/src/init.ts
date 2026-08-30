@@ -23,6 +23,18 @@ let disposeLoggerExtension: (() => void) | undefined
 let disposeRuntime: (() => void) | undefined
 
 const logger = createLogger('telemetry')
+const OTLP_DEPENDENCY_UNAVAILABLE = Symbol.for('open-mercato.telemetry.otlp-dependency-unavailable')
+
+class OtlpDependencyUnavailableError extends Error {
+  constructor(backend: TelemetryBackendName, cause: unknown) {
+    super(
+      `[internal] OTLP telemetry backend "${backend}" cannot start because its OpenTelemetry runtime dependencies are unavailable. Install optional dependencies, set TELEMETRY_BACKEND=console, or unset TELEMETRY_BACKEND to disable telemetry.`,
+      { cause },
+    )
+    this.name = 'OtlpDependencyUnavailableError'
+    Object.defineProperty(this, OTLP_DEPENDENCY_UNAVAILABLE, { value: true })
+  }
+}
 
 /**
  * One-shot bootstrap, invoked from `apps/mercato/instrumentation.ts` (web) and,
@@ -91,10 +103,7 @@ async function loadOtlpProvider(backend: TelemetryBackendName): Promise<Telemetr
   try {
     mod = await import('./provider/otlp-provider')
   } catch (error) {
-    throw new Error(
-      `[internal] OTLP telemetry backend "${backend}" cannot start because its OpenTelemetry runtime dependencies are unavailable. Install optional dependencies, set TELEMETRY_BACKEND=console, or unset TELEMETRY_BACKEND to disable telemetry.`,
-      { cause: error },
-    )
+    throw new OtlpDependencyUnavailableError(backend, error)
   }
   return new mod.OtlpProvider({}, backend)
 }
