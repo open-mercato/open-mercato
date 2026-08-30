@@ -328,3 +328,11 @@ None.
 - **Commands**: Passed — no business command or mutation is involved.
 - **Risks**: Passed — debug-exporter exposure, drift, collector outage, and image cost are covered.
 - **Verdict**: Approved.
+
+### Implementation — 2026-08-31
+
+- Implemented in PR #5799 on `feat/telemetry-docker-topology`; the runtime, deployment, documentation, and regression-test changes are complete at `8b07a5c32a` pending the final delivery-only plan commit.
+- Forwarded the seven supported telemetry/OTLP variables through the root, Traefik-overlay, and create-app Compose definitions.
+- Added the opt-in `telemetry` profile, pinned private collector service, and byte-identical root/template collector configurations without host-published ports or app startup coupling.
+- Added the operator telemetry guide, sidebar entry, logging cross-link, source-contract tests, and disabled/profile Compose graph validation.
+- Validation evidence: `yarn build:packages`, `yarn generate`, `yarn typecheck`, `yarn lint`, `yarn build:app`, 97 telemetry tests, 47 combined Compose tests, 16 docs checks, and Docker Compose v5.4 config validation all passed. `yarn template:sync` reports only the pre-existing `modules.ts` drift. The local full `yarn test` gate is blocked solely by existing create-app live-harness host/sandbox failures; focused affected suites pass and the prior PR-head GitHub test check passed.
