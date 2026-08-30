@@ -61,11 +61,22 @@ function buildReattachDefinitionPayload(timestamp: number) {
     version: 1,
     enabled: false,
     definition: {
+      // Positions are pinned rather than left to dagre: this test drags a route
+      // endpoint, and an auto-laid-out graph packs these four steps close enough
+      // in the editor's viewport that a neighbouring card covers the reconnect
+      // anchor or the drop handle, so the gesture never completes. Manual
+      // placement always wins over layout, so the canvas honours these.
       steps: [
-        { stepId: 'start', stepName: 'Start', stepType: 'START' },
-        { stepId: 'review', stepName: 'Review', stepType: 'USER_TASK', userTaskConfig: { assignedTo: 'admin' } },
-        { stepId: 'notify', stepName: 'Notify', stepType: 'AUTOMATED' },
-        { stepId: 'approved', stepName: 'Approved', stepType: 'END' },
+        { stepId: 'start', stepName: 'Start', stepType: 'START', _editorPosition: { x: 0, y: 200 } },
+        {
+          stepId: 'review',
+          stepName: 'Review',
+          stepType: 'USER_TASK',
+          userTaskConfig: { assignedTo: 'admin' },
+          _editorPosition: { x: 320, y: 200 },
+        },
+        { stepId: 'notify', stepName: 'Notify', stepType: 'AUTOMATED', _editorPosition: { x: 680, y: 200 } },
+        { stepId: 'approved', stepName: 'Approved', stepType: 'END', _editorPosition: { x: 1040, y: 420 } },
       ],
       transitions: [
         { transitionId: 't_qa_wf033_start', fromStepId: 'start', toStepId: 'review', trigger: 'auto' },
