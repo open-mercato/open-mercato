@@ -24,6 +24,7 @@ Making enrichers faster, changing enricher timeout semantics, creating a general
 | The original implementation and focused tests are already landed. | Commit `e0b04ccce9d108c0a48441e4a01c3e1dc2df1458` and the six-file PR diff | high |
 | Required CI remains the only open technical gate. | PR checks and the `changes-requested` rationale comment | high |
 | The failed shard must be treated as branch-specific until disproved. | User report that contemporaneous PRs passed CI | high |
+| The failed shard was not caused by the PR's product code. | The first failure exceeded the SSO fixture's 10-second live OIDC discovery timeout; the remaining failures cascaded after cleanup was skipped. The exact failing test passed 5/5 locally, and CI run `33332985776` passed all 15 integration shards on identical product code. | high |
 
 ## Assumptions
 
@@ -46,13 +47,13 @@ Making enrichers faster, changing enricher timeout semantics, creating a general
 
 ### Phase 2: Diagnose the required CI regression
 
-- [ ] 2.1 Compare the failed SSO shard with a contemporaneous passing run and identify the branch-specific HTTP 500 path
+- [x] 2.1 Compare the failed SSO shard with a contemporaneous passing run and identify the branch-specific HTTP 500 path — the first activation reached 10.2 seconds against a 10-second live OIDC discovery timeout; retry-state leakage caused the later HTTP 500 cascade, while the same product code passed the focused replay and full CI rerun
 
 ### Phase 3: Make the telemetry path failure-safe
 
-- [ ] 3.1 Implement the minimal root-cause fix and add regression coverage for the CI-only failure mode
+- [x] 3.1 Implement the minimal root-cause fix and add regression coverage for the CI-only failure mode — no product patch was justified because the failing SSO path does not initialize or invoke this PR's telemetry bridge and passed unchanged on replay
 
 ### Phase 4: Verify and update the existing PR
 
-- [ ] 4.1 Run focused checks and the configured full validation gate
-- [ ] 4.2 Run automated review, push the completed plan, monitor CI, and normalize PR status
+- [x] 4.1 Run focused checks and the configured full validation gate — focused shared/telemetry tests, the exact SSO replay, and all configured local validation commands passed; CI run `33332985776` also passed
+- [x] 4.2 Run automated review, push the completed plan, monitor CI, and normalize PR status — automated review found no findings; GitHub still requires an eligible external reviewer
