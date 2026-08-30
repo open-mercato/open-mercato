@@ -61,4 +61,4 @@ Add default-unloaded PostgreSQL pool and Node.js runtime saturation metrics thro
 
 ### Phase 3: Catalog and compatibility documentation
 
-- [ ] 3.1 Update the telemetry README, package guidance, and implemented telemetry specification with the exact built-in metric catalog and lifecycle rules.
+- [x] 3.1 Update the telemetry README, package guidance, and implemented telemetry specification with the exact built-in metric catalog and lifecycle rules. — 86c5e36c21
