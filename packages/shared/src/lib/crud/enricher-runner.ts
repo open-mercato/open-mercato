@@ -212,6 +212,7 @@ export async function applyResponseEnrichers<T extends Record<string, unknown>>(
   context: EnricherContext,
   preFilteredEntries?: EnricherRegistryEntry[],
 ): Promise<EnrichmentResult<T>> {
+  const enricherContext: EnricherContext = { ...context, targetEntity }
   const activeEntries = preFilteredEntries
     ? filterByACLAndTenant(preFilteredEntries, context)
     : getActiveEnrichers(targetEntity, context)
@@ -246,7 +247,7 @@ export async function applyResponseEnrichers<T extends Record<string, unknown>>(
 
       if (enricher.enrichMany) {
         result = await Promise.race([
-          enricher.enrichMany(currentItems, context) as Promise<T[]>,
+          enricher.enrichMany(currentItems, enricherContext) as Promise<T[]>,
           timeoutPromise(timeout),
         ])
       } else {
@@ -311,6 +312,7 @@ export async function applyResponseEnricherToRecord<T extends Record<string, unk
   context: EnricherContext,
   preFilteredEntries?: EnricherRegistryEntry[],
 ): Promise<SingleEnrichmentResult<T>> {
+  const enricherContext: EnricherContext = { ...context, targetEntity }
   const activeEntries = preFilteredEntries
     ? filterByACLAndTenant(preFilteredEntries, context)
     : getActiveEnrichers(targetEntity, context)
@@ -342,7 +344,7 @@ export async function applyResponseEnricherToRecord<T extends Record<string, unk
         }
       }
       const result = await Promise.race([
-        enricher.enrichOne(currentRecord, context) as Promise<T>,
+        enricher.enrichOne(currentRecord, enricherContext) as Promise<T>,
         timeoutPromise(timeout),
       ])
 
