@@ -56,8 +56,8 @@ Add default-unloaded PostgreSQL pool and Node.js runtime saturation metrics thro
 
 ### Phase 2: PostgreSQL pool instrumentation
 
-- [ ] 2.1 Register idempotent pool state collection and wrap promise/callback acquisition timing with explicit cleanup.
-- [ ] 2.2 Extend pool tests for exact gauges, wait histograms, overload preservation, late telemetry initialization, disabled no-timer behavior, and disposal.
+- [x] 2.1 Register idempotent pool state collection and wrap promise/callback acquisition timing with explicit cleanup. — 20123af092
+- [x] 2.2 Extend pool tests for exact gauges, wait histograms, overload preservation, late telemetry initialization, disabled no-timer behavior, and disposal. — 20123af092
 
 ### Phase 3: Catalog and compatibility documentation
 
