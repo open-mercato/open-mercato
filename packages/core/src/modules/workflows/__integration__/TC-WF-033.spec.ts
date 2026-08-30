@@ -6,6 +6,7 @@ import {
   createWorkflowDefinitionFixture,
   deleteWorkflowDefinitionIfExists,
 } from '@open-mercato/core/helpers/integration/workflowsFixtures'
+import { runWorkflowPaletteCommand } from '@open-mercato/core/helpers/integration/workflowsUi'
 
 /**
  * TC-WF-033: route reattachment preserves the route's configuration (#4233).
@@ -139,14 +140,14 @@ async function dragRouteTargetOnto(page: Page, transitionId: string, targetStepI
 }
 
 async function saveDefinition(page: Page, definitionId: string): Promise<void> {
-  const saveButton = page.getByRole('button', { name: 'Update', exact: true })
-  await expect(saveButton).toBeVisible()
+  // The Studio renders no bare Update/Save button — saving is a command, the
+  // same path the keyboard-only spec uses.
   const [response] = await Promise.all([
     page.waitForResponse(
       (res) => res.url().includes(`/api/workflows/definitions/${definitionId}`) && res.request().method() === 'PUT',
       { timeout: 30_000 },
     ),
-    saveButton.click(),
+    runWorkflowPaletteCommand(page, 'Save'),
   ])
   expect(response.status(), 'PUT after reattachment should succeed').toBe(200)
 }

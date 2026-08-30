@@ -292,36 +292,6 @@ export default function WorkflowGraphImpl({
     setEdges(initialEdges)
   }, [initialEdges, setEdges])
 
-  useEffect(() => {
-    if (!focusTarget) return
-    const instance = reactFlowInstanceRef.current
-    if (!instance) return
-    const focusOptions = { zoom: 1, duration: 300 }
-    if (focusTarget.nodeId) {
-      const node = latestNodesRef.current.find((candidate) => candidate.id === focusTarget.nodeId)
-      if (!node) return
-      const width = node.measured?.width ?? 0
-      const height = node.measured?.height ?? 0
-      void instance.setCenter(node.position.x + width / 2, node.position.y + height / 2, focusOptions)
-      setNodes((currentNodes) =>
-        currentNodes.map((candidate) => ({ ...candidate, selected: candidate.id === focusTarget.nodeId }))
-      )
-    } else if (focusTarget.edgeId) {
-      const edge = latestEdgesRef.current.find((candidate) => candidate.id === focusTarget.edgeId)
-      if (!edge) return
-      const source = latestNodesRef.current.find((candidate) => candidate.id === edge.source)
-      const target = latestNodesRef.current.find((candidate) => candidate.id === edge.target)
-      if (!source || !target) return
-      void instance.setCenter(
-        (source.position.x + target.position.x) / 2,
-        (source.position.y + target.position.y) / 2,
-        focusOptions
-      )
-      setEdges((currentEdges) =>
-        currentEdges.map((candidate) => ({ ...candidate, selected: candidate.id === focusTarget.edgeId }))
-      )
-    }
-  }, [focusTarget, setNodes, setEdges])
 
   const onConnect = useCallback(
     (connection: Connection) => {
@@ -399,6 +369,51 @@ export default function WorkflowGraphImpl({
     },
     [setEdges, onEdgesChangeProp]
   )
+
+  useEffect(() => {
+    if (!focusTarget) return
+    const instance = reactFlowInstanceRef.current
+    if (!instance) return
+    const focusOptions = { zoom: 1, duration: 300 }
+    if (focusTarget.nodeId) {
+      const node = latestNodesRef.current.find((candidate) => candidate.id === focusTarget.nodeId)
+      if (!node) return
+      const width = node.measured?.width ?? 0
+      const height = node.measured?.height ?? 0
+      void instance.setCenter(node.position.x + width / 2, node.position.y + height / 2, focusOptions)
+      // Through the change handler, never `setNodes` directly: that is the ONE
+      // path that also tells the parent, and the parent's copy of the nodes is
+      // what the Enter binding reads to open the inspector for the selection.
+      // Selecting only inside the graph left "Go to step" visually selected and
+      // keyboard-dead (TC-WF-037). A `select` change is classified
+      // non-persistable, so this still never reaches an autosave.
+      handleNodesChange(
+        latestNodesRef.current.map((candidate) => ({
+          id: candidate.id,
+          type: 'select' as const,
+          selected: candidate.id === focusTarget.nodeId,
+        })),
+      )
+    } else if (focusTarget.edgeId) {
+      const edge = latestEdgesRef.current.find((candidate) => candidate.id === focusTarget.edgeId)
+      if (!edge) return
+      const source = latestNodesRef.current.find((candidate) => candidate.id === edge.source)
+      const target = latestNodesRef.current.find((candidate) => candidate.id === edge.target)
+      if (!source || !target) return
+      void instance.setCenter(
+        (source.position.x + target.position.x) / 2,
+        (source.position.y + target.position.y) / 2,
+        focusOptions
+      )
+      handleEdgesChange(
+        latestEdgesRef.current.map((candidate) => ({
+          id: candidate.id,
+          type: 'select' as const,
+          selected: candidate.id === focusTarget.edgeId,
+        })),
+      )
+    }
+  }, [focusTarget, handleNodesChange, handleEdgesChange])
 
   // Decorate nodes with validation-error state at render time only, so the
   // error flags never enter the committed graph state or the saved definition.

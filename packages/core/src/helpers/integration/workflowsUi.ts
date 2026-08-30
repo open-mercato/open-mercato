@@ -171,6 +171,23 @@ export async function closeWorkflowHeaderMenu(page: Page, label: string): Promis
   await expect(workflowHeaderMenuItem(page, label)).toBeHidden({ timeout: 10_000 })
 }
 
+/**
+ * Run a Studio command from the Cmd/Ctrl+K palette.
+ *
+ * The palette is the complete non-pointer path (spec section 4.6), and it is
+ * also the only way to reach an action the header renders no button for — Save
+ * among them.
+ */
+export async function runWorkflowPaletteCommand(page: Page, query: string): Promise<void> {
+  await page.keyboard.press('ControlOrMeta+k')
+  const search = page.getByPlaceholder('Search commands…')
+  await expect(search).toBeVisible({ timeout: 15_000 })
+  await search.fill(query)
+  await expect(page.getByRole('option').filter({ hasText: query }).first()).toBeVisible({ timeout: 15_000 })
+  await page.keyboard.press('Enter')
+  await expect(search).toBeHidden({ timeout: 15_000 })
+}
+
 /** Open the header's overflow menu and pick `label`. */
 export async function invokeWorkflowHeaderAction(page: Page, label: string): Promise<void> {
   await openWorkflowHeaderMenu(page)

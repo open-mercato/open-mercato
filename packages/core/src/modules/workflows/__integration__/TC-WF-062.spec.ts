@@ -10,6 +10,7 @@ import {
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth'
 import {
   invokeWorkflowHeaderAction,
+  runWorkflowPaletteCommand,
   WORKFLOW_CODE_VIEW_MENU_ITEM_LABEL,
 } from '@open-mercato/core/helpers/integration/workflowsUi'
 
@@ -77,8 +78,22 @@ test.describe('TC-WF-062: Code view two-way sync', () => {
       await expect(page.getByText(renamed).first()).toBeVisible()
 
       // --- and a Save persists it ------------------------------------------
-      await page.getByRole('button', { name: /^Save$/i }).click()
-      await expect(page.getByText(/saved/i).first()).toBeVisible({ timeout: 20_000 })
+      // The Code view is a modal drawer over the editor, so the toolbar's Save
+      // is unreachable until it is closed. Closing after an Apply keeps the
+      // edit: only an UNAPPLIED draft is discarded.
+      await page.keyboard.press('Escape')
+      await expect(editor).toBeHidden({ timeout: 15_000 })
+      // The Studio has no bare Save button — saving is a command, the same way
+      // the keyboard-only spec saves.
+      const savePromise = page.waitForResponse(
+        (res) =>
+          res.url().includes(`/api/workflows/definitions/${definitionId}`) &&
+          res.request().method() === 'PUT',
+        { timeout: 30_000 },
+      )
+      await runWorkflowPaletteCommand(page, 'Save')
+      const saveResponse = await savePromise
+      expect(saveResponse.status(), 'the Code-view edit must actually persist').toBe(200)
 
       const readBack = await apiRequest(
         request,

@@ -128,10 +128,21 @@ test.describe('TC-AGENT-UX-P0-004: inbox pager and disabled process actions', ()
         .click()
       await expect(page.getByText(`21–${PENDING_COUNT} of ${PENDING_COUNT}`)).toBeVisible({ timeout: 10_000 })
 
-      // --- Process detail stub actions render disabled.
+      // --- Process detail stub actions.
+      //
+      // They ship behind `NEXT_PUBLIC_OM_AGENT_ORCHESTRATOR_PREVIEW_UI`, which
+      // is OFF by default — so "disabled" is only the right assertion when the
+      // preview UI is on. With the flag off the stubs must not be rendered at
+      // all, which is the stronger statement of the two: a case action nobody
+      // can perform yet should not be on the page. The coming-soon note renders
+      // under exactly the same flag, so it is the witness.
       await page.goto(`/backend/processes/${encodeURIComponent(processId)}`, { waitUntil: 'domcontentloaded' })
+      const previewUi = page.getByText(/pause, reassign, take over/i)
+      const previewUiEnabled = await previewUi.isVisible().catch(() => false)
       for (const name of [/pause/i, /reassign/i, /take over/i]) {
-        await expect(page.getByRole('button', { name })).toBeDisabled({ timeout: 10_000 })
+        const action = page.getByRole('button', { name })
+        if (previewUiEnabled) await expect(action).toBeDisabled({ timeout: 10_000 })
+        else await expect(action).toHaveCount(0)
       }
     } finally {
       await deleteAgentOrchestratorRowsForOrganization(orgId).catch(() => {})
