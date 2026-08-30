@@ -81,6 +81,19 @@ async function handleRequest(method: string, req: NextRequest): Promise<Response
 }
 `
 
+const LEGACY_INSTRUMENTATION = `import { isTelemetryBackendEnabled } from '@open-mercato/shared/lib/telemetry/runtime'
+
+export async function register(): Promise<void> {
+  if (
+    process.env.NEXT_RUNTIME === 'nodejs'
+    && isTelemetryBackendEnabled()
+  ) {
+    const { registerTelemetryForNextjs } = await import('@open-mercato/telemetry/nextjs')
+    await registerTelemetryForNextjs()
+  }
+}
+`
+
 describe('mercato telemetry init', () => {
   let tmpDir: string
   let cwd: string
@@ -264,6 +277,22 @@ describe('mercato telemetry init', () => {
     expect(instrumentation).toContain('nodeProcess.stderr.write')
     expect(instrumentation).toContain('nodeProcess.exit(1)')
     expect(instrumentation).toContain("console.log('custom warmup')") // preserved
+  })
+
+  it('upgrades the legacy generated instrumentation and stays idempotent', async () => {
+    baseFixture(tmpDir)
+    fs.writeFileSync(path.join(tmpDir, dispatcherPath), SIMPLE_DISPATCHER)
+    fs.writeFileSync(path.join(tmpDir, 'src', 'instrumentation.ts'), LEGACY_INSTRUMENTATION)
+
+    await runTelemetryInit([])
+    const migrated = read('src/instrumentation.ts')
+    assertParses(migrated, 'legacy-instrumentation-migration')
+    expect(migrated).toContain('nodeProcess.stderr.write')
+    expect(migrated).toContain('nodeProcess.exit(1)')
+    expect((migrated.match(/registerTelemetryForNextjs\(\)/g) ?? []).length).toBe(1)
+
+    await runTelemetryInit([])
+    expect(read('src/instrumentation.ts')).toBe(migrated)
   })
 
   it('is idempotent — a second run changes nothing and does not double-insert', async () => {

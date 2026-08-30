@@ -182,17 +182,45 @@ function patchInstrumentation(appDir: string, options: TelemetryInitOptions): St
   }
   const content = readFileSync(path, 'utf8')
   if (content.includes('registerTelemetryForNextjs')) {
-    if (content.includes('isTelemetryBackendEnabled')) {
+    let migrated = content
+    const changes: string[] = []
+    if (!migrated.includes('isTelemetryBackendEnabled')) {
+      migrated =
+        `import { isTelemetryBackendEnabled } from '@open-mercato/shared/lib/telemetry/runtime'\n` +
+        migrated.replace(
+          `if (process.env.NEXT_RUNTIME === 'nodejs') {`,
+          `if (process.env.NEXT_RUNTIME === 'nodejs' && isTelemetryBackendEnabled()) {`,
+        )
+      changes.push('added the explicit backend import guard')
+    }
+    if (!migrated.includes('nodeProcess.exit(1)')) {
+      const registration = migrated.match(/^([ \t]*)await registerTelemetryForNextjs\(\)[ \t]*$/m)
+      if (!registration) {
+        return {
+          file,
+          status: 'manual',
+          detail: 'existing telemetry bootstrap needs a fail-closed host wrapper',
+          manualSnippet: INSTRUMENTATION_TS,
+        }
+      }
+      const indent = registration[1]
+      const wrappedRegistration = [
+        `${indent}try {`,
+        `${indent}  await registerTelemetryForNextjs()`,
+        `${indent}} catch (err) {`,
+        `${indent}  const nodeProcess = process`,
+        `${indent}  nodeProcess.stderr.write(\`\${err instanceof Error ? err.message : String(err)}\\n\`)`,
+        `${indent}  nodeProcess.exit(1)`,
+        `${indent}}`,
+      ].join('\n')
+      migrated = migrated.replace(registration[0], wrappedRegistration)
+      changes.push('wrapped OTLP dependency failures with host termination')
+    }
+    if (migrated === content) {
       return { file, status: 'skipped', detail: 'telemetry already wired' }
     }
-    const migrated =
-      `import { isTelemetryBackendEnabled } from '@open-mercato/shared/lib/telemetry/runtime'\n` +
-      content.replace(
-        `if (process.env.NEXT_RUNTIME === 'nodejs') {`,
-        `if (process.env.NEXT_RUNTIME === 'nodejs' && isTelemetryBackendEnabled()) {`,
-      )
     if (!options.dryRun) writeFileSync(path, migrated)
-    return { file, status: 'patched', detail: 'added the explicit backend import guard' }
+    return { file, status: 'patched', detail: changes.join(' and ') }
   }
   const anchor = content.match(/export\s+async\s+function\s+register\s*\([^)]*\)\s*:\s*Promise<void>\s*\{/)
   if (!anchor || anchor.index === undefined) {
