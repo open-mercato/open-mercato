@@ -1,7 +1,6 @@
 # Runtime Saturation Observability — Execution Plan
 
 Source doc: .ai/specs/2026-08-30-runtime-saturation-observability.md
-Spec PR: #5800
 Issue: #5784
 
 ## Goal
