@@ -86,6 +86,20 @@ const LEGACY_INSTRUMENTATION = `import { isTelemetryBackendEnabled } from '@open
 export async function register(): Promise<void> {
   if (
     process.env.NEXT_RUNTIME === 'nodejs'
+    && process.env.NEXT_PHASE !== 'phase-production-build'
+  ) {
+    const { assertJwtSecretPolicy } = await import('@open-mercato/shared/lib/auth/jwt')
+    try {
+      assertJwtSecretPolicy()
+    } catch (err) {
+      const nodeProcess = process
+      nodeProcess.stderr.write(\`\${err instanceof Error ? err.message : String(err)}\\n\`)
+      nodeProcess.exit(1)
+    }
+  }
+
+  if (
+    process.env.NEXT_RUNTIME === 'nodejs'
     && isTelemetryBackendEnabled()
   ) {
     const { registerTelemetryForNextjs } = await import('@open-mercato/telemetry/nextjs')
@@ -290,9 +304,51 @@ describe('mercato telemetry init', () => {
     expect(migrated).toContain('nodeProcess.stderr.write')
     expect(migrated).toContain('nodeProcess.exit(1)')
     expect((migrated.match(/registerTelemetryForNextjs\(\)/g) ?? []).length).toBe(1)
+    expect((migrated.match(/nodeProcess\.exit\(1\)/g) ?? []).length).toBe(2)
 
     await runTelemetryInit([])
     expect(read('src/instrumentation.ts')).toBe(migrated)
+  })
+
+  it('upgrades the older Node-only generated bootstrap', async () => {
+    baseFixture(tmpDir)
+    fs.writeFileSync(path.join(tmpDir, dispatcherPath), SIMPLE_DISPATCHER)
+    fs.writeFileSync(
+      path.join(tmpDir, 'src', 'instrumentation.ts'),
+      `export async function register(): Promise<void> {
+  if (process.env.NEXT_RUNTIME === 'nodejs') {
+    const { registerTelemetryForNextjs } = await import('@open-mercato/telemetry/nextjs')
+    await registerTelemetryForNextjs()
+  }
+}
+`,
+    )
+
+    await runTelemetryInit([])
+    const migrated = read('src/instrumentation.ts')
+
+    assertParses(migrated, 'node-only-instrumentation-migration')
+    expect(migrated).toContain("import { isTelemetryBackendEnabled }")
+    expect(migrated).toContain("process.env.NEXT_RUNTIME === 'nodejs' && isTelemetryBackendEnabled()")
+    expect(migrated).toContain('nodeProcess.exit(1)')
+  })
+
+  it('leaves an unrecognized custom telemetry bootstrap for a manual update', async () => {
+    baseFixture(tmpDir)
+    fs.writeFileSync(path.join(tmpDir, dispatcherPath), SIMPLE_DISPATCHER)
+    const customInstrumentation = `export async function register(): Promise<void> {
+  const { registerTelemetryForNextjs } = await import('@open-mercato/telemetry/nextjs')
+  if (process.env.NEXT_RUNTIME === 'nodejs') await registerTelemetryForNextjs()
+  const nodeProcess = process
+  nodeProcess.exit(1)
+}
+`
+    fs.writeFileSync(path.join(tmpDir, 'src', 'instrumentation.ts'), customInstrumentation)
+
+    await runTelemetryInit([])
+
+    expect(read('src/instrumentation.ts')).toBe(customInstrumentation)
+    expect(logSpy.mock.calls.flat().join('\n')).toContain('manual step for src/instrumentation.ts')
   })
 
   it('is idempotent — a second run changes nothing and does not double-insert', async () => {
