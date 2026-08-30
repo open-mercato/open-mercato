@@ -28,6 +28,8 @@ off by default. Spec:
 - Use semantic-convention metric/attribute names when available.
 - Keep the built-in metric names, units, and fixed labels synchronized with the
   catalog in `packages/telemetry/README.md`.
+- Keep access-log backlog stages fixed to `crud_dispatch` and `service_write`,
+  and the dropped-reason label fixed to `capacity`.
 - Keep metric labels low-cardinality. Tenant, organization, and user IDs belong
   on span attributes, never metric labels.
 - Apply redaction at the provider boundary as well as at facade call sites.

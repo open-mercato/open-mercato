@@ -356,6 +356,9 @@ Built-in metrics — prefer **OpenTelemetry semantic-convention** instruments wh
 | `nodejs.eventloop.delay.p50/p90/p99` | gauge (`s`) | none | event-loop delay percentiles over the sampling interval |
 | `process.memory.usage` | gauge (`By`) | none | process RSS |
 | `v8js.memory.heap.used` | gauge (`By`) | `v8js.heap.space.name` | used bytes per bounded V8 heap space |
+| `om.audit_logs.pending_writes` | gauge (`{task}`) | `stage=crud_dispatch|service_write` | sampled accepted access-log tasks at each independently bounded stage |
+| `om.audit_logs.oldest_pending_age` | gauge (`s`) | `stage=crud_dispatch|service_write` | monotonic age of the oldest accepted task; zero when empty |
+| `om.audit_logs.dropped` | counter (`{task}`) | `stage=crud_dispatch|service_write`, `reason=capacity` | immediate capacity rejections before async work starts |
 | `om.queue.jobs` / `om.queue.duration` | counter / histogram | queue, status | partial — RED is also derivable by the backend from queue spans |
 | `om.queue.depth` | gauge | queue | needs a core queue hook |
 | `om.event.subscribers.duration` | histogram | event_id | |
@@ -647,6 +650,11 @@ Touched areas (cross-package wiring, for reviewer awareness):
 
 ## Changelog
 
+- **2026-08-31 (access-log overload metrics)** — Added independently bounded
+  CRUD-dispatch and service-write backlog tracking, sampled pending-depth and
+  oldest-age gauges, and an immediate capacity-drop counter. Labels are limited
+  to two fixed stages and one fixed reason; collectors register only while work
+  is pending and emit zero before cleanup.
 - **2026-08-31 (runtime saturation metrics)** — Added an optional shared metric
   bridge and collector registry, an enabled-only 10-second Node.js event-loop
   and memory sampler, primary PostgreSQL pool state gauges, and promise/callback
