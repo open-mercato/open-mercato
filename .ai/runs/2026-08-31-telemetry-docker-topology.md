@@ -60,7 +60,7 @@ Make Open Mercato's optional OTLP telemetry mode deployable and diagnosable by w
 ### Phase 1: Fail-fast OTLP bootstrap
 
 - [x] 1.1 Replace selected-OTLP fallback with an actionable startup error — 95e7942f6c
-- [x] 1.2 Add deterministic OTLP bootstrap unit coverage — 95e7942f6c
+- [x] 1.2 Add deterministic OTLP bootstrap unit coverage — 95e7942f6c; 04a857173f
 - [x] 1.3 Run focused telemetry validation and compatibility review — 95e7942f6c
 
 ### Phase 2: Docker topology and collector example
@@ -72,6 +72,6 @@ Make Open Mercato's optional OTLP telemetry mode deployable and diagnosable by w
 
 ### Phase 3: Operator documentation and delivery gates
 
-- [ ] 3.1 Add the runtime telemetry guide, navigation entry, and logging cross-link
-- [ ] 3.2 Run focused documentation/topology checks and audit both-spec coverage
+- [x] 3.1 Add the runtime telemetry guide, navigation entry, and logging cross-link — 0e14f9bb98
+- [x] 3.2 Run focused documentation/topology checks and audit both-spec coverage — 04a857173f
 - [ ] 3.3 Run the full validation, review, and final delivery gates
