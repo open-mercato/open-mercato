@@ -65,10 +65,10 @@ Make Open Mercato's optional OTLP telemetry mode deployable and diagnosable by w
 
 ### Phase 2: Docker topology and collector example
 
-- [ ] 2.1 Forward telemetry and OTLP variables through all supported Compose definitions
-- [ ] 2.2 Add profile-gated collector services and byte-identical example configurations
-- [ ] 2.3 Add deterministic Docker topology contract coverage
-- [ ] 2.4 Validate disabled and telemetry-profile Compose graphs
+- [x] 2.1 Forward telemetry and OTLP variables through all supported Compose definitions — 1e1a1d69b4
+- [x] 2.2 Add profile-gated collector services and byte-identical example configurations — 1e1a1d69b4
+- [x] 2.3 Add deterministic Docker topology contract coverage — 1e1a1d69b4
+- [x] 2.4 Validate disabled and telemetry-profile Compose graphs — 1e1a1d69b4
 
 ### Phase 3: Operator documentation and delivery gates
 
