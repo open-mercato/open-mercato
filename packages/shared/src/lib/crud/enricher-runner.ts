@@ -15,6 +15,7 @@ import type {
 import { getEnrichersForEntity } from './enricher-registry'
 import { logEnricherTiming } from '../umes/enricher-timing'
 import { createLogger } from '../logger'
+import { getTelemetryRuntime } from '../telemetry/runtime'
 import { authorizeFeatures } from '../../security/featurePolicy'
 
 const logger = createLogger('shared').child({ component: 'umes' })
@@ -22,7 +23,65 @@ const logger = createLogger('shared').child({ component: 'umes' })
 const DEFAULT_TIMEOUT = 2000
 const SLOW_WARN_MS = 100
 const SLOW_ERROR_MS = 500
+const SLOW_LOG_INTERVAL_MS = 30_000
 const DEFAULT_CACHE_TTL_MS = 60_000
+const ENRICHER_DURATION_METRIC = 'om.enricher.duration'
+
+type SlowLogState = {
+  lastLoggedAt: number
+  suppressedCount: number
+  maxElapsedMs: number
+}
+
+const slowLogStateByEnricher = new Map<string, SlowLogState>()
+
+function recordEnricherDuration(
+  enricherId: string,
+  moduleId: string,
+  targetEntity: string,
+  elapsedMs: number,
+): void {
+  logEnricherTiming(enricherId, moduleId, targetEntity, elapsedMs)
+  getTelemetryRuntime()?.recordHistogram?.(
+    ENRICHER_DURATION_METRIC,
+    elapsedMs / 1000,
+    { 'enricher.id': enricherId },
+    's',
+  )
+}
+
+function logSlowEnricher(enricherId: string, elapsedMs: number, finishedAt: number): void {
+  if (elapsedMs <= SLOW_WARN_MS) return
+
+  if (elapsedMs <= SLOW_ERROR_MS) {
+    logger.debug('Enricher exceeded slow threshold', {
+      enricherId,
+      elapsedMs,
+      thresholdMs: SLOW_WARN_MS,
+    })
+    return
+  }
+
+  const state = slowLogStateByEnricher.get(enricherId)
+  if (state && finishedAt - state.lastLoggedAt < SLOW_LOG_INTERVAL_MS) {
+    state.suppressedCount += 1
+    state.maxElapsedMs = Math.max(state.maxElapsedMs, elapsedMs)
+    return
+  }
+
+  logger.error('Enricher exceeded slow threshold', {
+    enricherId,
+    elapsedMs,
+    thresholdMs: SLOW_ERROR_MS,
+    suppressedCount: state?.suppressedCount ?? 0,
+    maxElapsedMs: Math.max(state?.maxElapsedMs ?? 0, elapsedMs),
+  })
+  slowLogStateByEnricher.set(enricherId, {
+    lastLoggedAt: finishedAt,
+    suppressedCount: 0,
+    maxElapsedMs: 0,
+  })
+}
 
 function timeoutPromise(ms: number): Promise<never> {
   return new Promise((_, reject) =>
@@ -255,13 +314,10 @@ export async function applyResponseEnrichers<T extends Record<string, unknown>>(
         )
       }
 
-      const elapsedMs = Date.now() - startTime
-      if (elapsedMs > SLOW_ERROR_MS) {
-        logger.error('Enricher exceeded slow threshold', { enricherId: enricher.id, elapsedMs, thresholdMs: SLOW_ERROR_MS })
-      } else if (elapsedMs > SLOW_WARN_MS) {
-        logger.warn('Enricher exceeded slow threshold', { enricherId: enricher.id, elapsedMs, thresholdMs: SLOW_WARN_MS })
-      }
-      logEnricherTiming(enricher.id, entry.moduleId, targetEntity, elapsedMs)
+      const finishedAt = Date.now()
+      const elapsedMs = finishedAt - startTime
+      logSlowEnricher(enricher.id, elapsedMs, finishedAt)
+      recordEnricherDuration(enricher.id, entry.moduleId, targetEntity, elapsedMs)
 
       currentItems = result
       if (shouldUseCache && cacheKey) {
@@ -347,7 +403,7 @@ export async function applyResponseEnricherToRecord<T extends Record<string, unk
       ])
 
       const elapsedMs = Date.now() - startTime
-      logEnricherTiming(enricher.id, entry.moduleId, targetEntity, elapsedMs)
+      recordEnricherDuration(enricher.id, entry.moduleId, targetEntity, elapsedMs)
 
       currentRecord = result
       if (shouldUseCache && cacheKey) {
