@@ -2,7 +2,11 @@ jest.mock('@open-mercato/shared/lib/encryption/customFieldValues', () => ({
   resolveTenantEncryptionService: jest.fn(() => null),
 }))
 
-import { AccessLogService, flushAccessLog } from '../accessLogService'
+import {
+  AccessLogService,
+  flushAccessLog,
+  resetAccessLogRuntimeStateForTests,
+} from '../accessLogService'
 import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
 
 type ExecuteCall = { sql: string; params: unknown[] }
@@ -47,12 +51,17 @@ function payload(idx: number) {
 }
 
 describe('AccessLogService.logMany', () => {
+  const originalMaxPending = process.env.AUDIT_LOGS_MAX_PENDING
+
   beforeEach(() => {
     ;(resolveTenantEncryptionService as jest.Mock).mockImplementation(() => null)
+    resetAccessLogRuntimeStateForTests()
   })
 
   afterEach(async () => {
     await flushAccessLog()
+    if (originalMaxPending === undefined) delete process.env.AUDIT_LOGS_MAX_PENDING
+    else process.env.AUDIT_LOGS_MAX_PENDING = originalMaxPending
     jest.clearAllMocks()
   })
 
@@ -164,6 +173,32 @@ describe('AccessLogService.logMany', () => {
     expect(encryptionMock.encryptEntityPayload).toHaveBeenCalledTimes(8)
     // Sequential awaits would peak at 1; parallel awaits must peak at the chunk size.
     expect(inflight.peak).toBeGreaterThan(1)
+  })
+
+  it('rejects service writes before parsing or database work when capacity is full', async () => {
+    process.env.AUDIT_LOGS_MAX_PENDING = '1'
+    let releaseWrite: () => void = () => {}
+    const pendingWrite = new Promise<void>((resolve) => {
+      releaseWrite = resolve
+    })
+    const { em, fork } = makeFakeEm()
+    const execute = jest.fn(async () => {
+      await pendingWrite
+      return [{ id: '00000000-0000-4000-8000-000000000001' }]
+    })
+    fork.getConnection = () => ({ execute })
+    const service = new AccessLogService(em as any)
+
+    const accepted = service.log(payload(0))
+    const rejectedSingle = await service.log(payload(1))
+    const rejectedBatch = await service.logMany([payload(2)])
+
+    expect(rejectedSingle).toBeNull()
+    expect(rejectedBatch).toBe(0)
+    releaseWrite()
+    await accepted
+    await flushAccessLog()
+    expect(execute).toHaveBeenCalledTimes(1)
   })
 })
 
