@@ -331,7 +331,7 @@ None.
 
 ### Implementation — 2026-08-31
 
-- Implemented in PR #5799 on `feat/telemetry-docker-topology`; the runtime, deployment, documentation, and regression-test changes are complete at `8b07a5c32a` pending the final delivery-only plan commit.
+- Implemented in PR #5799 on `feat/telemetry-docker-topology`; the runtime, deployment, documentation, regression-test, review, and run-ledger changes are complete at `b403e61f4c`.
 - Forwarded the seven supported telemetry/OTLP variables through the root, Traefik-overlay, and create-app Compose definitions.
 - Added the opt-in `telemetry` profile, pinned private collector service, and byte-identical root/template collector configurations without host-published ports or app startup coupling.
 - Added the operator telemetry guide, sidebar entry, logging cross-link, source-contract tests, and disabled/profile Compose graph validation.
