@@ -64,6 +64,29 @@ const modelUnavailableErrorSchema = errorSchema.extend({
 const PROVIDER_REFUSAL_STATUSES = new Set([401, 402, 403, 429])
 const BILLING_REFUSAL = /credit balance|billing|insufficient[_ ]quota|payment required/i
 
+const MODEL_FACTORY_ERROR_CODES = new Set(['no_provider_configured', 'api_key_missing'])
+
+/**
+ * Is this the model factory saying the deployment cannot resolve a model?
+ *
+ * `instanceof` alone is not enough: the run executes behind the admission queue,
+ * and by the time the error surfaces here it no longer carries the factory's
+ * prototype — CI caught a pinned-provider failure ("the model is pinned to
+ * openai, but that provider is not configured") falling past the 503 branch into
+ * the unclassified 500. The name and the code survive that crossing, so they are
+ * what we match on, the same way the provider-refusal check above works.
+ */
+function asModelFactoryError(err: unknown): { code: string } | null {
+  if (err instanceof AiModelFactoryError) return { code: err.code }
+  if (!err || typeof err !== 'object') return null
+  const candidate = err as { name?: unknown; code?: unknown }
+  if (candidate.name !== 'AiModelFactoryError') return null
+  const code = typeof candidate.code === 'string' && MODEL_FACTORY_ERROR_CODES.has(candidate.code)
+    ? candidate.code
+    : 'no_provider_configured'
+  return { code }
+}
+
 function isProviderRefusal(err: unknown): boolean {
   if (!err || typeof err !== 'object') return false
   const candidate = err as { name?: unknown; statusCode?: unknown; responseBody?: unknown }
@@ -181,9 +204,10 @@ export async function POST(req: Request, ctx: RouteContext) {
     // bad model answer — so it is 503, not one of this route's 422s, which all
     // mean "the run happened and its outcome is unusable". Mirrors the mapping
     // the ai_assistant routing endpoint already uses for the same error.
-    if (err instanceof AiModelFactoryError) {
+    const modelFactoryError = asModelFactoryError(err)
+    if (modelFactoryError) {
       return NextResponse.json(
-        { error: 'No LLM provider is configured for this deployment', code: err.code },
+        { error: 'No LLM provider is configured for this deployment', code: modelFactoryError.code },
         { status: 503 },
       )
     }
