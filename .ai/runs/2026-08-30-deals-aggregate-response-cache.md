@@ -56,7 +56,7 @@ Add a tenant-safe, organization-safe 30-second read-through cache to `GET /api/c
 
 ### Phase 2: Regression proof and delivery gate
 
-- [ ] 2.1 Add focused unit cache coverage
-- [ ] 2.2 Add self-contained TC-CRM-5785 integration coverage
+- [x] 2.1 Add focused unit cache coverage — b2a921e52d
+- [x] 2.2 Add self-contained TC-CRM-5785 integration coverage — b2a921e52d
 - [ ] 2.3 Pass focused and configured validation gates
 - [ ] 2.4 Pass authoritative review/autofix and complete handoff
