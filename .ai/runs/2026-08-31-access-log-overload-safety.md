@@ -1,7 +1,6 @@
 # Access-Log Overload Safety — Execution Plan
 
 Source doc: .ai/specs/2026-08-30-access-log-overload-safety.md
-Spec PR: #5800
 Issue: #5784
 Dependency PR: #5801
 
