@@ -51,8 +51,8 @@ Add default-unloaded PostgreSQL pool and Node.js runtime saturation metrics thro
 
 ### Phase 1: Shared bridge and Node.js runtime sampler
 
-- [ ] 1.1 Add the provider-neutral metric point/helper and periodic collector registry with bridge tests.
-- [ ] 1.2 Add the enabled-only runtime sampler and provider lifecycle integration with fake-timer and recording-provider tests.
+- [x] 1.1 Add the provider-neutral metric point/helper and periodic collector registry with bridge tests. — 0a6c816d6f
+- [x] 1.2 Add the enabled-only runtime sampler and provider lifecycle integration with fake-timer and recording-provider tests. — 0a6c816d6f
 
 ### Phase 2: PostgreSQL pool instrumentation
 
