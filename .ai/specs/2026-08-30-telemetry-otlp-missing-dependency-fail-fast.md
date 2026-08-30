@@ -280,8 +280,8 @@ None.
 
 ### Implementation — 2026-08-31
 
-- Implemented in PR #5799 on `feat/telemetry-docker-topology`; the runtime hardening is complete at `8b07a5c32a` pending the final delivery-only plan commit.
+- Implemented in PR #5799 on `feat/telemetry-docker-topology`; the runtime hardening, legacy CLI migration, review, and run-ledger changes are complete at `b403e61f4c`.
 - Replaced the selected-OTLP console fallback with an internal actionable error that retains the original import failure as `cause`, leaves initialization state clean, and permits retry after correction while keeping OpenTelemetry packages optional.
 - Marked only that intentional dependency failure for propagation through the reusable Next.js helper; unrelated provider initialization failures remain best effort.
 - Terminated the shipped app host at its instrumentation boundary with exit code 1 and a sanitized top-level stderr message, mirrored the behavior into the create-app template and `mercato telemetry init` output, and added regression coverage that proves the nested cause is not printed.
-- Validation evidence: the telemetry suite passes 97/97 tests, the app host-boundary test passes, the CLI telemetry-init suite passes 13/13, telemetry and CLI package typechecks pass, and the full repository `yarn typecheck` and `yarn lint` gates pass (with 10 pre-existing warnings only).
+- Validation evidence: the telemetry suite passes 97/97 tests, the app host-boundary test passes, the CLI telemetry-init suite passes 16/16, telemetry and CLI package typechecks pass, and the full repository `yarn typecheck` and `yarn lint` gates pass (with 10 pre-existing warnings only).
