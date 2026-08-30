@@ -71,7 +71,7 @@ describe('OTLP dependency bootstrap', () => {
   })
 
   it.each(['otlp', 'signoz', 'newrelic'])('fails clearly when %s dependencies cannot load', async (backend) => {
-    const importCause = new Error('simulated missing OpenTelemetry package')
+    const importCause = new Error('simulated missing package at /private/runtime with token=secret-value')
     const consoleProvider = jest.fn()
     jest.doMock('../provider/console-provider', () => ({ ConsoleProvider: consoleProvider }))
     jest.doMock('../provider/otlp-provider', () => {
@@ -86,8 +86,18 @@ describe('OTLP dependency bootstrap', () => {
     expect(failure).toBeInstanceOf(Error)
     expect((failure as Error).message).toContain(`OTLP telemetry backend "${backend}" cannot start`)
     expect((failure as Error).message).toContain('Install optional dependencies')
+    expect((failure as Error).message).not.toContain('/private/runtime')
+    expect((failure as Error).message).not.toContain('secret-value')
     expect((failure as Error).cause).toBe(importCause)
     expect(consoleProvider).not.toHaveBeenCalled()
+    const [{ getActiveProvider }, { getLoggerExtension }, { getTelemetryRuntime }] = await Promise.all([
+      import('../provider/registry'),
+      import('@open-mercato/shared/lib/logger'),
+      import('@open-mercato/shared/lib/telemetry/runtime'),
+    ])
+    expect(getActiveProvider().name).toBe('noop')
+    expect(getLoggerExtension()).toBeUndefined()
+    expect(getTelemetryRuntime()).toBeUndefined()
   })
 
   it('starts the dynamically loaded provider when OTLP dependencies are available', async () => {
@@ -135,5 +145,31 @@ describe('OTLP dependency bootstrap', () => {
 
     expect(loadAttempts).toBe(2)
     expect(provider.start).toHaveBeenCalledTimes(1)
+  })
+
+  it('preserves a provider startup failure and can retry it without misclassifying dependencies', async () => {
+    const provider = createProvider()
+    const startupFailure = new Error('collector configuration rejected')
+    jest.mocked(provider.start)
+      .mockRejectedValueOnce(startupFailure)
+      .mockResolvedValueOnce(undefined)
+    jest.doMock('../provider/otlp-provider', () => ({
+      OtlpProvider: jest.fn(() => provider),
+    }))
+    const telemetry = await import('../init')
+    shutdownTelemetry = telemetry.shutdownTelemetry
+    process.env.TELEMETRY_BACKEND = 'otlp'
+
+    await expect(telemetry.initTelemetry()).rejects.toBe(startupFailure)
+    const [{ getActiveProvider }, { getTelemetryRuntime }] = await Promise.all([
+      import('../provider/registry'),
+      import('@open-mercato/shared/lib/telemetry/runtime'),
+    ])
+    expect(getActiveProvider().name).toBe('noop')
+    expect(getTelemetryRuntime()).toBeUndefined()
+
+    await telemetry.initTelemetry()
+
+    expect(provider.start).toHaveBeenCalledTimes(2)
   })
 })
