@@ -58,5 +58,5 @@ Add a tenant-safe, organization-safe 30-second read-through cache to `GET /api/c
 
 - [x] 2.1 Add focused unit cache coverage — b2a921e52d
 - [x] 2.2 Add self-contained TC-CRM-5785 integration coverage — b2a921e52d
-- [ ] 2.3 Pass focused and configured validation gates
+- [x] 2.3 Pass focused and configured validation gates — a629178e5e (all change-scoped checks pass; full `yarn test` is blocked only by the reproducible, unrelated `staff/timesheets/page.durationEntry.test.tsx` baseline failure)
 - [ ] 2.4 Pass authoritative review/autofix and complete handoff
