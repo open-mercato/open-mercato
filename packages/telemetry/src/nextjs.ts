@@ -19,9 +19,9 @@ function isOtlpDependencyUnavailableError(error: unknown): boolean {
 
 /**
  * One-line telemetry bootstrap for a Next.js `instrumentation.ts`. Initializes
- * the active backend (no-op unless `TELEMETRY_BACKEND` is set), terminates on
- * an explicit OTLP missing-dependency failure, degrades to no telemetry for
- * other initialization failures, and registers a best-effort flush on
+ * the active backend (no-op unless `TELEMETRY_BACKEND` is set), propagates an
+ * explicit OTLP missing-dependency failure, degrades to no telemetry for other
+ * initialization failures, and registers a best-effort flush on
  * `SIGTERM`/`SIGINT`. Skips the edge runtime — the OTEL NodeSDK is Node-only —
  * so callers may import it unconditionally, though gating the dynamic import on
  * `NEXT_RUNTIME === 'nodejs'` also keeps the SDK off the edge bundle.
@@ -33,10 +33,7 @@ export async function registerTelemetryForNextjs(): Promise<void> {
   try {
     await initTelemetry()
   } catch (error) {
-    if (isOtlpDependencyUnavailableError(error)) {
-      logger.error('Init from Next.js instrumentation failed', { err: error })
-      process.exit(1)
-    }
+    if (isOtlpDependencyUnavailableError(error)) throw error
     logger.warn('Init from Next.js instrumentation failed', { err: error })
     return
   }

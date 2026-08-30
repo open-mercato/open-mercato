@@ -148,12 +148,8 @@ describe('OTLP dependency bootstrap', () => {
     expect(provider.start).toHaveBeenCalledTimes(1)
   })
 
-  it('terminates the standard Next.js host after a dependency load failure', async () => {
+  it('propagates a dependency load failure through the standard Next.js bootstrap', async () => {
     const importCause = new Error('simulated missing package')
-    const interceptedExit = new Error('process exit intercepted')
-    const exit = jest.spyOn(process, 'exit').mockImplementation(() => {
-      throw interceptedExit
-    })
     jest.doMock('../provider/otlp-provider', () => {
       throw importCause
     })
@@ -162,8 +158,10 @@ describe('OTLP dependency bootstrap', () => {
     const { registerTelemetryForNextjs } = await import('../nextjs')
     process.env.TELEMETRY_BACKEND = 'otlp'
 
-    await expect(registerTelemetryForNextjs()).rejects.toBe(interceptedExit)
-    expect(exit).toHaveBeenCalledWith(1)
+    await expect(registerTelemetryForNextjs()).rejects.toMatchObject({
+      name: 'OtlpDependencyUnavailableError',
+      cause: importCause,
+    })
   })
 
   it('keeps unrelated provider initialization failures best effort in Next.js', async () => {

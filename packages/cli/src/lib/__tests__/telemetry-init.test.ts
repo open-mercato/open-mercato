@@ -124,6 +124,8 @@ describe('mercato telemetry init', () => {
     expect(read('.env.example')).toContain('TELEMETRY_BACKEND')
     expect(read('.env.example')).toContain('OTEL_EXPORTER_OTLP_ENDPOINT')
     expect(read('src/instrumentation.ts')).toContain('registerTelemetryForNextjs')
+    expect(read('src/instrumentation.ts')).toContain('nodeProcess.stderr.write')
+    expect(read('src/instrumentation.ts')).toContain('nodeProcess.exit(1)')
 
     const nextConfig = read('next.config.ts')
     expect(nextConfig).toContain('@open-mercato/telemetry/nextjs-config')
@@ -259,6 +261,8 @@ describe('mercato telemetry init', () => {
     const instrumentation = read('src/instrumentation.ts')
     assertParses(instrumentation, 'custom-instrumentation')
     expect(instrumentation).toContain('registerTelemetryForNextjs')
+    expect(instrumentation).toContain('nodeProcess.stderr.write')
+    expect(instrumentation).toContain('nodeProcess.exit(1)')
     expect(instrumentation).toContain("console.log('custom warmup')") // preserved
   })
 
