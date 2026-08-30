@@ -37,6 +37,12 @@ const guardrailBlockedErrorSchema = errorSchema.extend({
   guardrailSetVersion: z.string().nullable(),
 })
 
+/** 500 body for a failure this route could not classify — it names itself. */
+const unclassifiedErrorSchema = errorSchema.extend({
+  code: z.literal('agent_run_failed'),
+  reason: z.string(),
+})
+
 /** 503 body for a deployment whose LLM provider is missing or unusable. */
 const modelUnavailableErrorSchema = errorSchema.extend({
   code: z.enum(['no_provider_configured', 'api_key_missing', 'provider_rejected']),
@@ -192,15 +198,30 @@ export async function POST(req: Request, ctx: RouteContext) {
         { status: 503 },
       )
     }
-    // Anything past the typed mappings above becomes an empty-bodied 500, which
-    // is unreadable from the client and left no server-side trace either — the
-    // failing run was invisible in the app log as well as in the response.
+    // Anything past the typed mappings above used to rethrow into an
+    // empty-bodied 500: unreadable from the client, and — because the app runs
+    // as its own process whose output the harness captures rather than prints —
+    // invisible in CI too. A failing run then reported only "expected 200,
+    // received 500", which names nothing.
+    //
+    // It answers with its own body now, carrying the error's name and a
+    // truncated message. This surface is gated on `agents.run`, the message is
+    // operational detail ("provider refused", "column does not exist"), and the
+    // provider's response body — which echoes the request — is never included.
     logger.error('Agent run failed with an unclassified error', {
       agentId: id,
       runId: observedRunId,
       err,
     })
-    throw err
+    const reason = err instanceof Error ? `${err.name}: ${err.message}` : String(err)
+    return NextResponse.json(
+      {
+        error: 'The agent run failed unexpectedly',
+        code: 'agent_run_failed',
+        reason: reason.slice(0, 300),
+      },
+      { status: 500 },
+    )
   }
 
   if (guardResult?.shouldRunAfterSuccess) {
@@ -271,9 +292,15 @@ export const openApi: OpenApiRouteDoc = {
         },
         { status: 429, description: 'Agent run capacity exhausted (admission control); includes Retry-After', schema: errorSchema },
         {
+          status: 500,
+          description:
+            'The run failed for a reason this route does not classify; the body carries `code` (`agent_run_failed`) and a truncated `reason`',
+          schema: unclassifiedErrorSchema,
+        },
+        {
           status: 503,
           description:
-            'The deployment has no usable LLM provider; the body carries `code` (`no_provider_configured` or `api_key_missing`)',
+            'The deployment has no usable LLM provider; the body carries `code` (`no_provider_configured`, `api_key_missing`, or `provider_rejected` when a configured provider refuses the call)',
           schema: modelUnavailableErrorSchema,
         },
       ],
