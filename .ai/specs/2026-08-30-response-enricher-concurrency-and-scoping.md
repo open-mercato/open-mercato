@@ -1,6 +1,6 @@
 # Response Enricher Concurrency and Request Scoping
 
-**Status:** Draft — ⚠ NEEDS HUMAN CONFIRMATION on scope split
+**Status:** Ready for review
 
 **Tracking issue:** [#5779](https://github.com/open-mercato/open-mercato/issues/5779)
 **Related roadmap:** [Enterprise Performance & Stability Hardening](https://github.com/open-mercato/open-mercato/pull/5777)
@@ -13,7 +13,7 @@ Reduce CRUD response-enrichment tail latency without changing default responses.
 
 | # | Question | Applied default | Rationale | Confirm? |
 |---|----------|-----------------|-----------|----------|
-| Q1 | Keep concurrency and request scoping together or split them? | Provisionally keep one issue-aligned spec and implementation PR, but do not implement until a maintainer confirms or requests two specs/issues. | The issue and `om-auto-fix-issue` feature route require one implementation PR, but the fresh-context scope review found the scheduler and selector independently deployable under the repository's one-capability-per-spec rule. Resolving that conflict changes the delivery shape. | ⚠ NEEDS HUMAN CONFIRMATION |
+| Q1 | Keep concurrency and request scoping together or split them? | Keep one issue-aligned spec and implementation PR. | The maintainer confirmed that #5779 intentionally treats the scheduler and selector as one response-enricher performance deliverable despite their independent deployability. | confirmed 2026-08-30 |
 | Q2 | What is the selector contract? | Use exact, case-sensitive, trimmed `providesFields` tokens. An absent `enrich` parameter means all; a present empty value means no declared fields. | Exact tokens add no wildcard parser or ambiguous namespace rules, while the absent/present distinction preserves existing callers and provides an explicit minimal request. | ok |
 | Q3 | Which HTTP operations receive request scoping? | Populate `requestedFields` only for authenticated GET list/detail requests. | Pages consume GET responses; keeping mutation response enrichment unchanged minimizes behavioral surface and makes rollback straightforward. | ok |
 | Q4 | How does the rollout switch behave? | Default concurrent bands on; parse the shared boolean vocabulary; `0`/`off` restores fully serial execution. | This ships the measured performance improvement by default while retaining a one-release operational escape hatch and avoiding ad hoc boolean parsing. | ok |
@@ -372,16 +372,11 @@ Acceptance criteria:
 
 ### Non-Compliant Items
 
-#### Scope cohesion requires a maintainer decision
-
-- **Rule:** A spec covers one independently deployable capability; a `SPLIT` verdict returns to the maintainer as an Open Question.
-- **Source:** `.ai/skills/om-spec-writing/references/spec-checklist.md` §1.
-- **Gap:** Priority-band concurrency remains complete with response selection unchanged after Phase 1, while requested-field scoping works under either the concurrent or legacy serial scheduler. Sharing a runner file and performance goal does not make either capability depend on the other.
-- **Recommendation:** Confirm one of two delivery shapes before implementation: (a) keep #5779 intentionally bundled as one implementation PR and record an explicit exception, or (b) split into a concurrency spec/issue and a requested-field scoping spec/issue, then update the top-level feature route accordingly.
+None. The fresh-context review correctly identified that the two phases are independently deployable; the maintainer explicitly approved a one-spec/one-implementation-PR exception because #5779 defines them as one response-enricher performance deliverable.
 
 ### Verdict
 
-**Non-compliant:** Blocked pending ⚠ NEEDS HUMAN CONFIRMATION on the scope/delivery shape.
+**Compliant under an explicit maintainer-approved scope exception:** Ready for implementation.
 
 ## Changelog
 
@@ -389,6 +384,7 @@ Acceptance criteria:
 
 - Added the focused response-enricher concurrency and requested-field scoping specification for #5779.
 - Recorded four autonomous defaults, the additive compatibility contract, cache-safety requirements, rollback switch, integration coverage, and phased implementation plan.
+- Recorded maintainer confirmation that #5779 intentionally ships both independently deployable phases as one specification and implementation PR.
 
 ### Review — 2026-08-30
 
@@ -398,5 +394,5 @@ Acceptance criteria:
 - **Cache:** Passed — selector-aware active entries drive both cache signatures and execution.
 - **Commands:** N/A — no mutations or commands are introduced.
 - **Risks:** Passed — dependency, merge, downstream pressure, cache cohort, declaration drift, and rollout risks have mitigations and residuals.
-- **Scope cohesion:** Split recommended — the two phases are independently deployable and have distinct contracts/risks.
-- **Verdict:** Needs revision pending maintainer confirmation of the one-PR exception or a two-spec/two-issue split.
+- **Scope cohesion:** Exception approved — the two phases are independently deployable, and the maintainer confirmed they remain bundled as the single performance deliverable tracked by #5779.
+- **Verdict:** Approved and ready for implementation under the recorded scope exception.
