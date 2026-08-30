@@ -7,6 +7,7 @@ import { AgentRun, type AgentRunStatus } from '../data/entities'
 import { agentTypeSchema } from '../data/validators'
 import { emitAgentOrchestratorEvent } from '../events'
 import { getRerunOfRunId } from '../lib/runtime/rerunContext'
+import { invalidateAgentRunCache } from '../lib/crudCache'
 
 const createAgentRunSchema = z.object({
   tenantId: z.string().uuid(),
@@ -117,6 +118,11 @@ export const createAgentRunCommand: CommandHandler<CreateAgentRunInput, { runId:
     })
     em.persist(run)
     await em.flush()
+    await invalidateAgentRunCache(
+      ctx.container,
+      { id: run.id, tenantId: run.tenantId, organizationId: run.organizationId },
+      'agent_orchestrator.runs.create',
+    )
 
     await emitAgentOrchestratorEvent('agent_orchestrator.run.created', {
       id: run.id,
@@ -146,6 +152,11 @@ export const completeAgentRunCommand: CommandHandler<CompleteAgentRunInput, { ru
     if (!run.completedAt) run.completedAt = new Date()
     run.updatedAt = new Date()
     await em.flush()
+    await invalidateAgentRunCache(
+      ctx.container,
+      { id: run.id, tenantId: run.tenantId, organizationId: run.organizationId },
+      'agent_orchestrator.runs.complete',
+    )
 
     await emitAgentOrchestratorEvent('agent_orchestrator.run.completed', {
       id: run.id,
@@ -174,6 +185,11 @@ export const failAgentRunCommand: CommandHandler<FailAgentRunInput, { runId: str
     if (!run.completedAt) run.completedAt = new Date()
     run.updatedAt = new Date()
     await em.flush()
+    await invalidateAgentRunCache(
+      ctx.container,
+      { id: run.id, tenantId: run.tenantId, organizationId: run.organizationId },
+      'agent_orchestrator.runs.fail',
+    )
 
     await emitAgentOrchestratorEvent('agent_orchestrator.run.completed', {
       id: run.id,

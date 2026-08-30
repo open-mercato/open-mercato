@@ -11,6 +11,7 @@ import { resolveJudgeSampleRate, shouldSampleForJudge } from '../lib/eval/sampli
 import { AgentEvalAssertion, AgentRun } from '../data/entities'
 import { AGENT_ORCHESTRATOR_LLM_JUDGE_QUEUE, getAgentOrchestratorQueue } from '../lib/queue'
 import { emitAgentOrchestratorEvent } from '../events'
+import { invalidateAgentRunCache } from '../lib/crudCache'
 
 const logger = createLogger('agent_orchestrator').child({ command: 'trace' })
 
@@ -35,6 +36,13 @@ const ingestTraceCommand: CommandHandler<IngestTraceCommandInput, IngestTraceRes
     const result = await ingestTrace(em, scope, input.payload, {
       offloadArtifact: createArtifactOffloader(ctx.container, scope),
     })
+    // The ingest rewrites run status, usage and cost — everything the cached
+    // runs list shows — so its tags have to go with it.
+    await invalidateAgentRunCache(
+      ctx.container,
+      { id: result.runId, tenantId: scope.tenantId, organizationId: scope.organizationId },
+      'agent_orchestrator.trace.ingest',
+    )
 
     // Inline deterministic evaluation (gate tier). Reuses the same EM; `warn`
     // results never block, a failing `gate` marks the run evalPassed = false.

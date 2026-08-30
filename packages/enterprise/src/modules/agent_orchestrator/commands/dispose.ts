@@ -23,6 +23,7 @@ import { PROPOSAL_OPTION_ID_MAX, disposeProposalSchema } from '../data/validator
 import { deriveEnvelopeConfidence, listProposalOptionIds } from '../data/proposalEnvelope'
 import { emitAgentOrchestratorEvent } from '../events'
 import { resumeWorkflowForProposal } from '../lib/disposition/resume'
+import { invalidateAgentProposalCache } from '../lib/crudCache'
 
 const logger = createLogger('agent_orchestrator').child({ command: 'dispose' })
 
@@ -249,6 +250,20 @@ const disposeProposalCommand: CommandHandler<DisposeProposalCommandInput, Dispos
         },
       ],
       { transaction: true, label: 'agent_orchestrator.proposals.dispose' },
+    )
+
+    // 6b. Flush the cached caseload/detail reads. The verdict is committed, but
+    // the list route these are read through is a cached CRUD GET whose tags only
+    // this write can clear — without it the operator watches the row they just
+    // approved sit in their queue as `pending` until the entry expires.
+    await invalidateAgentProposalCache(
+      container,
+      {
+        id: proposal.id,
+        tenantId: proposal.tenantId,
+        organizationId: proposal.organizationId,
+      },
+      'agent_orchestrator.proposals.dispose',
     )
 
     // 7. Mutation guard (after) — fire audit + index side effects.

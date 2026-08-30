@@ -617,15 +617,10 @@ export default function AgentCaseloadPage() {
                     // `selectedOptionId` names which alternative an approve runs —
                     // the one the operator chose, never a leader picked for them.
                     // A reject runs none and must NOT carry one.
-                    // A proposal with no option envelope carries no
-                    // `selectedOptionId` at all: the field is optional on the
-                    // command, and `null` is not what optional means.
                     body: JSON.stringify(
                       rejectReason
                         ? { disposition, reason: rejectReason }
-                        : target.optionId
-                          ? { disposition, selectedOptionId: target.optionId }
-                          : { disposition },
+                        : { disposition, selectedOptionId: target.optionId },
                     ),
                   }),
                 ),
@@ -685,13 +680,7 @@ export default function AgentCaseloadPage() {
       let needsChoice = 0
       for (const row of pending) {
         const optionId = chosenOptionOf(row)
-        // Only a proposal that OFFERS alternatives needs one named. A proposal
-        // with no envelope has nothing to choose, and `selectedOptionId` is
-        // optional on the dispose command — treating "none offered" like
-        // "several offered, none picked" made every plain proposal
-        // unapprovable from this queue, by hotkey or by row action, and told
-        // the operator to pick an option that was never on offer.
-        if (optionId == null && row.optionCount > 0) {
+        if (optionId == null) {
           needsChoice += 1
           continue
         }

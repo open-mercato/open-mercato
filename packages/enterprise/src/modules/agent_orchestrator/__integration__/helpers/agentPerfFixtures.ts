@@ -45,7 +45,28 @@ export type AgentProposalSeed = {
   createdAt: Date
 }
 
-const SEED_PAYLOAD = JSON.stringify({ seededBy: 'TC-AGENT-PERF' })
+/**
+ * A proposal the product could actually have produced.
+ *
+ * `normalizeProposalEnvelope` gives every persisted proposal at least one
+ * option — a legacy `{ actions, confidence }` body is wrapped in a single
+ * implicit one — and `dispose` REQUIRES `selectedOptionId` for an approve. A
+ * seed with neither `options` nor `actions` is therefore a shape the runtime
+ * never writes and that nothing can approve: the Caseload has no option to name,
+ * so it refuses the row before the request, and a hand-built request is refused
+ * by the validator. Seeding the envelope is what makes these rows dispositionable.
+ */
+const SEED_PAYLOAD = JSON.stringify({
+  options: [
+    {
+      id: 'primary',
+      label: 'Proposal',
+      actions: [{ type: 'seeded_action', payload: { seededBy: 'integration-fixture' } }],
+      confidence: 0.9,
+    },
+  ],
+  rationale: 'Seeded by an integration fixture',
+})
 const INSERT_CHUNK_SIZE = 50
 
 /** Inserts agent_runs rows with explicit timestamps; returns the new ids (input order). */

@@ -6,6 +6,7 @@ import { AgentProposal } from '../data/entities'
 import { agentProposalSchema, guardResultsSchema } from '../data/validators'
 import { getProcessSubject } from '../lib/processes/subjectContext'
 import { emitAgentOrchestratorEvent } from '../events'
+import { invalidateAgentProposalCache } from '../lib/crudCache'
 
 const createAgentProposalSchema = z.object({
   tenantId: z.string().uuid(),
@@ -48,6 +49,11 @@ const createAgentProposalCommand: CommandHandler<CreateAgentProposalInput, { pro
     })
     em.persist(proposal)
     await em.flush()
+    await invalidateAgentProposalCache(
+      ctx.container,
+      { id: proposal.id, tenantId: proposal.tenantId, organizationId: proposal.organizationId },
+      'agent_orchestrator.proposals.create',
+    )
 
     // `subject` (process projection spec, 2026-06-25): the INVOKE_AGENT node's
     // business-record descriptor, read from the async-scoped binding the workflow

@@ -9,6 +9,7 @@ import type {
   DisposeProposalCommandInput,
   DisposeProposalCommandResult,
 } from '../../commands/dispose'
+import { invalidateAgentProposalCache } from '../crudCache'
 
 const logger = createLogger('agent_orchestrator').child({ component: 'disposition-service' })
 
@@ -212,6 +213,11 @@ export class DispositionServiceImpl implements DispositionService {
         { autoDispositionBlock: block },
       )
       proposal.autoDispositionBlock = block
+      await invalidateAgentProposalCache(
+        this.container as Parameters<typeof invalidateAgentProposalCache>[0],
+        { id: proposal.id, tenantId: proposal.tenantId, organizationId: proposal.organizationId },
+        'agent_orchestrator.proposals.auto_block',
+      )
     } catch (error) {
       logger.warn('auto-disposition block not recorded', {
         proposalId: proposal.id,
@@ -275,6 +281,11 @@ export class DispositionServiceImpl implements DispositionService {
         { userTaskId },
       )
       proposal.userTaskId = userTaskId
+      await invalidateAgentProposalCache(
+        this.container as Parameters<typeof invalidateAgentProposalCache>[0],
+        { id: proposal.id, tenantId: proposal.tenantId, organizationId: proposal.organizationId },
+        'agent_orchestrator.proposals.review_task',
+      )
     } catch (error) {
       // The task exists and the proposal is pending; losing the link costs the
       // automatic close, never the review itself.

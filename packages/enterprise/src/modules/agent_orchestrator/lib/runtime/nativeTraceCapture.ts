@@ -4,6 +4,7 @@ import { ingestTrace } from '../trace/traceIngestionService'
 import { createArtifactOffloader } from '../trace/artifactStore'
 import { evaluateRun } from '../eval/evalRuntimeService'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { invalidateAgentRunCache } from '../crudCache'
 
 const logger = createLogger('agent_orchestrator').child({ component: 'native-trace-capture' })
 
@@ -196,6 +197,11 @@ export async function captureNativeRunTrace(
     const result = await ingestTrace(em, scope, buildNativeTracePayload(input), {
       offloadArtifact: createArtifactOffloader(container, scope),
     })
+    await invalidateAgentRunCache(
+      container as Parameters<typeof invalidateAgentRunCache>[0],
+      { id: result.runId, tenantId: scope.tenantId, organizationId: scope.organizationId },
+      'agent_orchestrator.trace.capture',
+    )
     // Parity with the `trace.ingest` command (used by the OpenCode/HMAC path):
     // score the run online (deterministic assertions + the golden-match plane) on
     // the same EM. Without this, native runs never get an eval verdict or a golden

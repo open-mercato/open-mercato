@@ -28,8 +28,16 @@ import {
  *    checkboxes survive it;
  * 2. dispose the SELECTED row B — the disposed row leaves the selection,
  *    A stays;
- * 3. seed a brand-new proposal D directly (no event) and refresh — the reload
- *    with a new row present still keeps A selected.
+ * 3. refresh explicitly with an unselected row D still present — the reload
+ *    keeps A selected and leaves D unchecked.
+ *
+ * D is seeded up front rather than mid-test. The fixtures write straight to
+ * Postgres, and the caseload list is a cached CRUD GET whose tags only an
+ * in-product write clears (see `lib/crudCache.ts`), so a row that appears behind
+ * the app's back is invisible to it by construction — every arrival the product
+ * itself produces goes through `agent_orchestrator.proposals.create` and flushes
+ * those tags. Seeding D with the rest keeps this spec's actual subject, the
+ * selection, and drops an assertion about an arrival no operator can observe.
  */
 
 const AGENT_ID = 'deals.health_check'
@@ -89,24 +97,33 @@ test.describe('TC-AGENT-CASELOAD-011: selection survives live reloads', () => {
         name: 'QA TC-AGENT-CASELOAD-011',
       })
 
-      // Default sort (waitingDesc) renders createdAt ASC → rows [A, B, C].
+      // Default sort (waitingDesc) renders createdAt ASC → rows [A, B, C, D].
       const base = Date.now() - 60 * 60_000
-      const runIds = await insertAgentRunFixtures([
-        { tenantId: tenantId!, organizationId: orgId!, agentId: AGENT_ID, createdAt: new Date(base) },
-        { tenantId: tenantId!, organizationId: orgId!, agentId: AGENT_ID, createdAt: new Date(base + 60_000) },
-        { tenantId: tenantId!, organizationId: orgId!, agentId: AGENT_ID, createdAt: new Date(base + 120_000) },
-      ])
-      await insertAgentProposalFixtures([
-        { tenantId: tenantId!, organizationId: orgId!, agentId: AGENT_ID, runId: runIds[0], disposition: 'pending', createdAt: new Date(base) },
-        { tenantId: tenantId!, organizationId: orgId!, agentId: AGENT_ID, runId: runIds[1], disposition: 'pending', createdAt: new Date(base + 60_000) },
-        { tenantId: tenantId!, organizationId: orgId!, agentId: AGENT_ID, runId: runIds[2], disposition: 'pending', createdAt: new Date(base + 120_000) },
-      ])
+      const offsets = [0, 60_000, 120_000, 180_000]
+      const runIds = await insertAgentRunFixtures(
+        offsets.map((offset) => ({
+          tenantId: tenantId!,
+          organizationId: orgId!,
+          agentId: AGENT_ID,
+          createdAt: new Date(base + offset),
+        })),
+      )
+      await insertAgentProposalFixtures(
+        offsets.map((offset, index) => ({
+          tenantId: tenantId!,
+          organizationId: orgId!,
+          agentId: AGENT_ID,
+          runId: runIds[index],
+          disposition: 'pending' as const,
+          createdAt: new Date(base + offset),
+        })),
+      )
 
       await loginAs(page, email, password)
       await page.goto('/backend/caseload?view=list', { waitUntil: 'domcontentloaded' })
 
       const rows = page.locator('table tbody tr')
-      await expect(rows).toHaveCount(3, { timeout: 15_000 })
+      await expect(rows).toHaveCount(4, { timeout: 15_000 })
 
       // Select A (row 0) and B (row 1); the bulk bar confirms the count.
       await rows.nth(0).getByRole('checkbox').check()
@@ -119,7 +136,7 @@ test.describe('TC-AGENT-CASELOAD-011: selection survives live reloads', () => {
       // half-built selection survives the reload.
       await rows.nth(2).hover()
       await rows.nth(2).getByRole('button', { name: 'Approve proposal' }).click()
-      await expect(rows).toHaveCount(2, { timeout: 20_000 })
+      await expect(rows).toHaveCount(3, { timeout: 20_000 })
       await expect(page.getByText('2 selected')).toBeVisible()
       await expect(rows.nth(0).getByRole('checkbox')).toBeChecked()
       await expect(rows.nth(1).getByRole('checkbox')).toBeChecked()
@@ -128,19 +145,13 @@ test.describe('TC-AGENT-CASELOAD-011: selection survives live reloads', () => {
       // selection while A stays selected.
       await rows.nth(1).hover()
       await rows.nth(1).getByRole('button', { name: 'Approve proposal' }).click()
-      await expect(rows).toHaveCount(1, { timeout: 20_000 })
+      await expect(rows).toHaveCount(2, { timeout: 20_000 })
       await expect(page.getByText('1 selected')).toBeVisible()
       await expect(rows.nth(0).getByRole('checkbox')).toBeChecked()
 
-      // Phase 3 — a brand-new proposal appears (direct seed emits no event, so
-      // the manual refresh stands in for the next reload): the new row renders
-      // unselected and A's checkbox still survives.
-      const extraRunIds = await insertAgentRunFixtures([
-        { tenantId: tenantId!, organizationId: orgId!, agentId: AGENT_ID, createdAt: new Date(base + 180_000) },
-      ])
-      await insertAgentProposalFixtures([
-        { tenantId: tenantId!, organizationId: orgId!, agentId: AGENT_ID, runId: extraRunIds[0], disposition: 'pending', createdAt: new Date(base + 180_000) },
-      ])
+      // Phase 3 — an explicit refresh with the never-selected row D still in the
+      // slice: the reload keeps A checked and leaves D unchecked, so neither the
+      // surviving selection nor the untouched row is rebuilt from row position.
       await page.getByRole('button', { name: 'Refresh' }).click()
       await expect(rows).toHaveCount(2, { timeout: 15_000 })
       await expect(page.getByText('1 selected')).toBeVisible()
