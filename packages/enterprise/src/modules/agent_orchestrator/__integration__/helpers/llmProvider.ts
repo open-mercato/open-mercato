@@ -38,3 +38,17 @@ export async function hasConfiguredLlmProvider(
 /** Skip reason shared by every spec that needs a live model call. */
 export const NO_LLM_PROVIDER_SKIP_REASON =
   'no LLM provider is configured in this environment — this spec executes a real agent run'
+
+/**
+ * Is this run response the environment saying "I cannot run a model"?
+ *
+ * The readiness probe above answers whether a provider is CONFIGURED, which a
+ * provider that then refuses every call — no credit, revoked key, exhausted
+ * quota — still satisfies. The run route answers 503 for both shapes, so the
+ * response is the only witness that tells them apart from a real defect, and a
+ * spec covering the run CONTRACT has nothing to assert once the model never
+ * ran. Anything else, 500 included, stays a failure.
+ */
+export function isModelUnavailableResponse(status: number): boolean {
+  return status === 503
+}

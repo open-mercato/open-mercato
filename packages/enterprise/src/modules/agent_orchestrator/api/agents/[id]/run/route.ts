@@ -39,8 +39,34 @@ const guardrailBlockedErrorSchema = errorSchema.extend({
 
 /** 503 body for a deployment whose LLM provider is missing or unusable. */
 const modelUnavailableErrorSchema = errorSchema.extend({
-  code: z.enum(['no_provider_configured', 'api_key_missing']),
+  code: z.enum(['no_provider_configured', 'api_key_missing', 'provider_rejected']),
 })
+
+/**
+ * Did the configured provider REFUSE the call for a reason that is about this
+ * deployment rather than about the request?
+ *
+ * Detected structurally, the way the runtime already recognises a guardrail
+ * block and a capacity error, so this module keeps importing no AI SDK. The
+ * status set is deliberately narrow: 401/402/403 are authentication and billing,
+ * 429 is exhausted quota. A plain 400 is NOT included — that is where a genuinely
+ * malformed request from our own schema would land, and labelling that an
+ * environment problem would hide our bug — except for the one unmistakable case
+ * where the provider spends a 400 on a billing state (Anthropic answers "credit
+ * balance is too low" that way).
+ */
+const PROVIDER_REFUSAL_STATUSES = new Set([401, 402, 403, 429])
+const BILLING_REFUSAL = /credit balance|billing|insufficient[_ ]quota|payment required/i
+
+function isProviderRefusal(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false
+  const candidate = err as { name?: unknown; statusCode?: unknown; responseBody?: unknown }
+  if (candidate.name !== 'AI_APICallError') return false
+  const status = typeof candidate.statusCode === 'number' ? candidate.statusCode : null
+  if (status !== null && PROVIDER_REFUSAL_STATUSES.has(status)) return true
+  const body = typeof candidate.responseBody === 'string' ? candidate.responseBody : ''
+  return status === 400 && BILLING_REFUSAL.test(body)
+}
 
 type RouteContext = { params: Promise<{ id: string }> }
 
@@ -152,6 +178,17 @@ export async function POST(req: Request, ctx: RouteContext) {
     if (err instanceof AiModelFactoryError) {
       return NextResponse.json(
         { error: 'No LLM provider is configured for this deployment', code: err.code },
+        { status: 503 },
+      )
+    }
+    // A provider that refuses the call — no credit, revoked key, exhausted quota —
+    // leaves this deployment unable to run a model, exactly like a provider that
+    // was never configured. Same 503, own code, so a caller can tell "nothing is
+    // wired" from "what is wired will not serve us".
+    if (isProviderRefusal(err)) {
+      logger.error('Agent run refused by the LLM provider', { agentId: id, runId: observedRunId, err })
+      return NextResponse.json(
+        { error: 'The configured LLM provider refused the request for this deployment', code: 'provider_rejected' },
         { status: 503 },
       )
     }

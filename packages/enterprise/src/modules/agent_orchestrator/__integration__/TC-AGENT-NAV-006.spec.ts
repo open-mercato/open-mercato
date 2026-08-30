@@ -9,7 +9,11 @@ import {
   deleteUserIfExists,
   setRoleAclFeatures,
 } from '@open-mercato/core/helpers/integration/authFixtures'
-import { hasConfiguredLlmProvider, NO_LLM_PROVIDER_SKIP_REASON } from './helpers/llmProvider'
+import {
+  hasConfiguredLlmProvider,
+  isModelUnavailableResponse,
+  NO_LLM_PROVIDER_SKIP_REASON,
+} from './helpers/llmProvider'
 
 /**
  * TC-AGENT-NAV-006: the playground "Tools used" panel renders the run's ACTUAL
@@ -47,7 +51,17 @@ async function runFromPlayground(page: Page, agentId: string): Promise<void> {
   const insertSample = page.getByRole('button', { name: 'Insert sample' })
   await expect(insertSample).toBeVisible({ timeout: 15_000 })
   await insertSample.click()
-  await page.getByRole('button', { name: 'Run', exact: true }).click()
+  // The run answers 503 when the configured provider refuses the call, and the
+  // playground then renders an error instead of a trace — so watch the response
+  // rather than waiting 120s for a section that is never coming.
+  const [runResponse] = await Promise.all([
+    page.waitForResponse(
+      (res) => /\/api\/agent_orchestrator\/agents\/[^/]+\/run$/.test(new URL(res.url()).pathname),
+      { timeout: 120_000 },
+    ),
+    page.getByRole('button', { name: 'Run', exact: true }).click(),
+  ])
+  test.skip(isModelUnavailableResponse(runResponse.status()), NO_LLM_PROVIDER_SKIP_REASON)
   // Wait for the result trace section to appear (LLM run — generous timeout).
   await expect(page.getByText('Tools & steps')).toBeVisible({ timeout: 120_000 })
   await page.getByText('Tools & steps').click()

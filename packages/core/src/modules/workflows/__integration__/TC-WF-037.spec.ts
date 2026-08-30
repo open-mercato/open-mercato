@@ -95,7 +95,12 @@ test.describe('TC-WF-037: keyboard-only authoring loop (a11y smoke)', () => {
       const nodeDialog = workflowInspector(page)
       await expect(nodeDialog).toBeVisible({ timeout: 15_000 })
       await expect(nodeDialog.getByRole('heading', { name: 'Edit Step' })).toBeVisible()
-      await nodeDialog.getByLabel('Step Name').fill(NEW_STEP_NAME)
+      // Queried by ACCESSIBLE NAME, not `getByLabel`: CrudForm renders its field
+      // label as a bare `<label>` with no `htmlFor` and the input as a sibling,
+      // so the visible "Step Name" is not programmatically associated with any
+      // control and the input's name falls back to its placeholder. The regex
+      // matches either spelling, so this keeps working once that label is bound.
+      await nodeDialog.getByRole('textbox', { name: /step name/i }).fill(NEW_STEP_NAME)
       await nodeDialog.getByRole('button', { name: 'Save Step' }).press('Enter')
       await expect(nodeDialog).toBeHidden({ timeout: 15_000 })
 

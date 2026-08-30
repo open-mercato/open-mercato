@@ -1,7 +1,11 @@
 import { expect, test, type Page } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
-import { hasConfiguredLlmProvider, NO_LLM_PROVIDER_SKIP_REASON } from './helpers/llmProvider'
+import {
+  hasConfiguredLlmProvider,
+  isModelUnavailableResponse,
+  NO_LLM_PROVIDER_SKIP_REASON,
+} from './helpers/llmProvider'
 
 /**
  * TC-AGENT-NAV-001: the playground run response carries `runId` + `proposalId`,
@@ -51,6 +55,10 @@ test.describe('TC-AGENT-NAV-001: playground response ids + deep links', () => {
       `/api/agent_orchestrator/agents/${encodeURIComponent(agent!.id!)}/run`,
       { token, data: { input: agent!.sampleInput } },
     )
+    // A 503 is this environment reporting that it cannot run a model — the
+    // provider is configured but refuses the call — and the readiness probe
+    // above cannot see that. There is no run to assert a contract about.
+    test.skip(isModelUnavailableResponse(runRes.status()), NO_LLM_PROVIDER_SKIP_REASON)
     expect(runRes.status(), await runRes.text()).toBe(200)
     const run = (await runRes.json()) as RunResponse
 
