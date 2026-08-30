@@ -49,10 +49,10 @@ Add a tenant-safe, organization-safe 30-second read-through cache to `GET /api/c
 
 ### Phase 1: Route-local read-through cache
 
-- [ ] 1.1 Add cache eligibility, key, and tag helpers
-- [ ] 1.2 Return schema-validated cache hits before aggregate computation
-- [ ] 1.3 Store final responses with TTL, tags, tenant context, and fail-open handling
-- [ ] 1.4 Preserve disabled, bypassed, invalid, unauthorized, and failure behavior
+- [x] 1.1 Add cache eligibility, key, and tag helpers — 2f2593dbfc
+- [x] 1.2 Return schema-validated cache hits before aggregate computation — 2f2593dbfc
+- [x] 1.3 Store final responses with TTL, tags, tenant context, and fail-open handling — 2f2593dbfc
+- [x] 1.4 Preserve disabled, bypassed, invalid, unauthorized, and failure behavior — 2f2593dbfc
 
 ### Phase 2: Regression proof and delivery gate
 
