@@ -63,7 +63,7 @@ PR: #5802
 
 ### Phase 2: CRUD dispatch admission
 
-- [ ] 2.1 Replace the unbounded CRUD dispatch set with capacity-first admission, deterministic rejection results, rate-limited warnings, and regression coverage.
+- [x] 2.1 Replace the unbounded CRUD dispatch set with capacity-first admission, deterministic rejection results, rate-limited warnings, and regression coverage. — 0067004e2d
 
 ### Phase 3: Service admission and rotation safety
 
