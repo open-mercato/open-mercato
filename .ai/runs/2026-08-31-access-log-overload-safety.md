@@ -67,8 +67,8 @@ PR: #5802
 
 ### Phase 3: Service admission and rotation safety
 
-- [ ] 3.1 Replace the service write set with independent capacity-first admission and preserve `log`, `logMany`, and `flush` contracts.
-- [ ] 3.2 Coalesce concurrent retention sweeps into one in-flight promise and extend interval-zero concurrency coverage.
+- [x] 3.1 Replace the service write set with independent capacity-first admission and preserve `log`, `logMany`, and `flush` contracts. — 561293d1c1
+- [x] 3.2 Coalesce concurrent retention sweeps into one in-flight promise and extend interval-zero concurrency coverage. — 561293d1c1
 
 ### Phase 4: Configuration and documentation
 
