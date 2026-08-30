@@ -59,7 +59,7 @@ PR: #5802
 
 ### Phase 1: Bounded pending-operation tracker
 
-- [ ] 1.1 Add the shared tracker, capacity parser, exact telemetry points, settlement-wave flushing, and lifecycle tests.
+- [x] 1.1 Add the shared tracker, capacity parser, exact telemetry points, settlement-wave flushing, and lifecycle tests. — 778f9b0649
 
 ### Phase 2: CRUD dispatch admission
 
