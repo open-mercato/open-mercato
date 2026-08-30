@@ -4,6 +4,16 @@ export type TelemetrySpanAttributes = Record<string, string | number | boolean |
 
 export type TelemetrySpanKind = 'internal' | 'server' | 'client' | 'producer' | 'consumer'
 
+export type TelemetryMetricPoint = {
+  kind: 'counter' | 'histogram' | 'gauge'
+  name: string
+  value: number
+  labels?: TelemetrySpanAttributes
+  unit?: string
+}
+
+export type TelemetryMetricCollector = () => void
+
 /** The subset of the telemetry package's `Span` that bridge consumers need. */
 export type TelemetrySpan = {
   setAttributes(attributes: TelemetrySpanAttributes): void
@@ -43,6 +53,7 @@ export type TelemetryRuntime = {
    * running `fn` untraced.
    */
   withSpan?<T>(name: string, fn: (span: TelemetrySpan) => T, options?: TelemetrySpanOptions): T
+  recordMetric?(point: TelemetryMetricPoint): void
   recordHttpDuration(method: string, route: string, status: number, startedAt: number): void
   reportError(
     error: unknown,
@@ -59,6 +70,7 @@ const ENABLED_BACKENDS = new Set(['console', 'signoz', 'newrelic', 'otlp'])
 
 type TelemetryRuntimeStore = {
   active?: TelemetryRuntime
+  metricCollectors?: Set<TelemetryMetricCollector>
 }
 
 function store(): TelemetryRuntimeStore {
@@ -96,9 +108,35 @@ export function getTelemetryRuntime(): TelemetryRuntime | undefined {
   return store().active
 }
 
+export function recordTelemetryMetric(point: TelemetryMetricPoint): boolean {
+  const runtime = getTelemetryRuntime()
+  if (!runtime?.recordMetric) return false
+  runtime.recordMetric(point)
+  return true
+}
+
+export function registerTelemetryMetricCollector(collector: TelemetryMetricCollector): () => void {
+  const current = store()
+  current.metricCollectors ??= new Set()
+  current.metricCollectors.add(collector)
+  return () => {
+    current.metricCollectors?.delete(collector)
+  }
+}
+
+export function collectTelemetryMetrics(): void {
+  const collectors = Array.from(store().metricCollectors ?? [])
+  for (const collector of collectors) collector()
+}
+
 /** Test-only: clear the process-wide telemetry bridge. */
 export function resetTelemetryRuntime(): void {
   store().active = undefined
+}
+
+/** Test-only: clear process-wide metric collectors registered by shared owners. */
+export function resetTelemetryMetricCollectors(): void {
+  store().metricCollectors?.clear()
 }
 
 const NOOP_SPAN: TelemetrySpan = { setAttributes() {} }

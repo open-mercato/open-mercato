@@ -16,11 +16,13 @@ import { captureTraceContext, continueTrace } from './facade/propagation'
 import { withSpan } from './facade/tracer'
 import { recordHttpDuration } from './facade/http'
 import { reportError } from './facade/report-error'
+import { startRuntimeMetrics } from './runtime-metrics'
 
 let initialized = false
 let activeProvider: TelemetryProvider | undefined
 let disposeLoggerExtension: (() => void) | undefined
 let disposeRuntime: (() => void) | undefined
+let disposeRuntimeMetrics: (() => void) | undefined
 
 const logger = createLogger('telemetry')
 
@@ -62,6 +64,7 @@ export async function initTelemetry(): Promise<void> {
   activeProvider = provider
   disposeLoggerExtension = registerTelemetryLogger(provider)
   disposeRuntime = registerTelemetryRuntime(createRuntime(provider))
+  disposeRuntimeMetrics = startRuntimeMetrics()
   initialized = true
 
   logger.info('Telemetry initialized', {
@@ -104,6 +107,8 @@ export async function shutdownTelemetry(): Promise<void> {
   initialized = false
   disposeLoggerExtension?.()
   disposeLoggerExtension = undefined
+  disposeRuntimeMetrics?.()
+  disposeRuntimeMetrics = undefined
   disposeRuntime?.()
   disposeRuntime = undefined
   clearActiveProvider()
@@ -119,6 +124,7 @@ function createRuntime(provider: TelemetryProvider): TelemetryRuntime {
     continueTrace: (carrier, name, fn, options) =>
       continueTrace(carrier, name, () => fn(), options),
     withSpan: (name, fn, options) => withSpan(name, fn, options),
+    recordMetric: (point) => provider.recordMetric(point),
     recordHttpDuration,
     reportError,
     shutdown: shutdownTelemetry,
@@ -131,6 +137,8 @@ export function resetTelemetryInit(): void {
   activeProvider = undefined
   disposeLoggerExtension?.()
   disposeLoggerExtension = undefined
+  disposeRuntimeMetrics?.()
+  disposeRuntimeMetrics = undefined
   disposeRuntime?.()
   disposeRuntime = undefined
 }
