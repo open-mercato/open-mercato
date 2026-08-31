@@ -1,0 +1,379 @@
+<!doctype html>
+<html lang="en" data-prototype-id="storefront-app">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Storefront App — interactive prototype (deliberately out-of-scope for om-mockup-prototype)</title>
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="components.css" />
+<link rel="stylesheet" href="screens.css" />
+<link rel="stylesheet" href="prototype.css" />
+<style>
+  /* Storefront-only additions. Not part of the backend AppShell primitives in screens.css —
+     this prototype deliberately covers apps/storefront, which the om-mockup-prototype skill
+     scopes to backend/backoffice flows. Kept to plain DS tokens, no new colors. */
+  .sf-header{display:flex;align-items:center;gap:1.5rem;padding:0.875rem 1.5rem;border-bottom:1px solid var(--border);background:var(--background)}
+  .sf-logo{font-weight:600;font-size:1rem;letter-spacing:-0.01em}
+  .sf-nav{display:flex;gap:1.25rem;flex:1;font-size:0.875rem;color:var(--muted-foreground)}
+  .sf-nav a{color:inherit;text-decoration:none}
+  .sf-nav a.current{color:var(--foreground);font-weight:500}
+  .sf-header-actions{display:flex;align-items:center;gap:0.75rem}
+  .sf-cart-badge{position:relative}
+  .sf-cart-count{position:absolute;top:-6px;right:-6px;background:var(--primary);color:var(--primary-foreground);font-size:0.6875rem;line-height:1;border-radius:999px;padding:0.15rem 0.35rem}
+  .sf-container{max-width:72rem;margin:0 auto;padding:0 1.5rem}
+  .sf-hero{padding:3rem 1.5rem;text-align:center;background:var(--muted)}
+  .sf-hero h1{font-size:2.25rem;font-weight:300;letter-spacing:-0.02em;margin:0 0 0.5rem}
+  .sf-section{padding:2.5rem 1.5rem}
+  .sf-section h2{font-size:1.5rem;font-weight:600;margin:0 0 1rem}
+  .sf-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:1.25rem}
+  .sf-card{border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;background:var(--card)}
+  .sf-card-img{aspect-ratio:1/1;background:var(--muted);display:flex;align-items:center;justify-content:center;color:var(--muted-foreground)}
+  .sf-card-body{padding:0.75rem}
+  .sf-card-title{font-size:0.875rem;font-weight:500;margin:0 0 0.25rem}
+  .sf-price{font-size:1.125rem;font-weight:600}
+  .sf-price-was{font-size:0.8125rem;color:var(--muted-foreground);text-decoration:line-through;margin-right:0.375rem}
+  .sf-meta{font-size:0.75rem;color:var(--muted-foreground)}
+  .sf-breadcrumbs{font-size:0.8125rem;color:var(--muted-foreground);padding:1rem 1.5rem 0}
+  .sf-breadcrumbs a{color:inherit;text-decoration:none}
+  .sf-layout{display:grid;grid-template-columns:16rem 1fr;gap:2rem;padding:1.5rem}
+  .sf-filter-group{margin-bottom:1.25rem}
+  .sf-filter-group h3{font-size:0.8125rem;font-weight:600;text-transform:uppercase;letter-spacing:0.02em;color:var(--muted-foreground);margin:0 0 0.5rem}
+  .sf-swatch-row{display:flex;gap:0.5rem;flex-wrap:wrap}
+  .sf-swatch{border:1px solid var(--border);border-radius:var(--radius-md);padding:0.5rem 0.875rem;font-size:0.8125rem;background:var(--card);cursor:pointer}
+  .sf-swatch[aria-checked="true"]{border-color:var(--primary);border-width:2px;font-weight:600}
+  .sf-swatch[disabled]{color:var(--muted-foreground);text-decoration:line-through;cursor:not-allowed;opacity:0.6}
+  .sf-pdp{display:grid;grid-template-columns:1fr 1fr;gap:3rem;padding:2rem 1.5rem}
+  .sf-gallery-main{aspect-ratio:1/1;background:var(--muted);border-radius:var(--radius-lg);display:flex;align-items:center;justify-content:center;color:var(--muted-foreground)}
+  .sf-gallery-thumbs{display:flex;gap:0.5rem;margin-top:0.75rem}
+  .sf-gallery-thumb{width:3.5rem;height:3.5rem;border-radius:var(--radius-md);background:var(--muted);border:1px solid var(--border)}
+  .sf-tabs{display:flex;gap:1.5rem;border-bottom:1px solid var(--border);margin-top:2rem;font-size:0.875rem}
+  .sf-tabs button{background:none;border:none;padding:0.75rem 0;color:var(--muted-foreground);cursor:pointer;border-bottom:2px solid transparent}
+  .sf-tabs button[aria-selected="true"]{color:var(--foreground);border-color:var(--primary);font-weight:500}
+  .sf-cart-line{display:grid;grid-template-columns:4rem 1fr auto auto;gap:1rem;align-items:center;padding:1rem 0;border-bottom:1px solid var(--border)}
+  .sf-cart-thumb{width:4rem;height:4rem;border-radius:var(--radius-md);background:var(--muted)}
+  .sf-qty-stepper{display:flex;align-items:center;border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden;width:fit-content}
+  .sf-qty-stepper button{width:2rem;height:2rem;border:none;background:var(--card);cursor:pointer}
+  .sf-qty-stepper input{width:2.5rem;border:none;text-align:center;background:var(--card)}
+  .sf-summary{border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.25rem}
+  .sf-summary-row{display:flex;justify-content:space-between;font-size:0.875rem;padding:0.375rem 0}
+  .sf-summary-row.total{font-weight:600;font-size:1rem;border-top:1px solid var(--border);margin-top:0.5rem;padding-top:0.75rem}
+  .sf-footer{border-top:1px solid var(--border);padding:2rem 1.5rem;display:flex;justify-content:space-between;font-size:0.8125rem;color:var(--muted-foreground)}
+  @media (max-width: 900px){ .sf-grid{grid-template-columns:repeat(2,1fr)} .sf-pdp{grid-template-columns:1fr} .sf-layout{grid-template-columns:1fr} }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<symbol id="ic-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+<symbol id="ic-cart" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/></symbol>
+<symbol id="ic-user" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></symbol>
+<symbol id="ic-chevron-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></symbol>
+<symbol id="ic-chevron-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></symbol>
+<symbol id="ic-package" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73Z"/><path d="M12 22V12"/><path d="M3.29 7 12 12l8.71-5"/><path d="m7.5 4.27 9 5.15"/></symbol>
+<symbol id="ic-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+<symbol id="ic-trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></symbol>
+<symbol id="ic-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></symbol>
+</defs></svg>
+
+<div class="doc-toolbar">
+  <strong style="font-size:0.875rem">Storefront App — prototype</strong>
+  <nav class="screen-nav" aria-label="Screens">
+    <a href="#s1">1 Home</a>
+    <a href="#s2">2 Category (PLP)</a>
+    <a href="#s3">3 Product (PDP)</a>
+    <a href="#s4">4 Cart</a>
+  </nav>
+  <button class="btn btn-outline btn-sm" id="theme-toggle" type="button"><svg><use href="#ic-sun"/></svg> Theme</button>
+</div>
+
+<div class="doc">
+
+<header class="doc-head">
+  <h1>Storefront App — screen inventory</h1>
+  <p class="muted" style="max-width:70ch;margin:0">
+    Derived from <code class="t-mono">.ai/specs/2026-08-14-storefront-app.md</code> (§4 Route Tree, §5 Components, §6 Design System, §7 Responsive).
+    <strong>Deliberate scope exception:</strong> <code class="t-mono">om-mockup-prototype</code> is written for backend/backoffice flows and
+    explicitly routes storefront work elsewhere — this prototype exists anyway, at the requester's explicit request, kept intentionally small
+    (4 screens, desktop only, no account/checkout). It uses the same click-through/comment tooling as the backend prototypes but a storefront
+    chrome (top nav, not the AppShell sidebar), per §6's own token table (page title <code class="t-mono">text-4xl font-light tracking-tight</code>,
+    container <code class="t-mono">max-w-7xl</code>) rather than <code class="t-mono">packages/ui/src/backend/</code> patterns. This spec has no
+    User Stories section of its own (§4/§5/§6 are architecture, not stories), so screens are cited directly against those sections instead of
+    story ids.
+  </p>
+</header>
+
+<!-- ============================================================ -->
+<!-- S1 — Home -->
+<!-- ============================================================ -->
+<section class="screen" id="s1">
+  <div class="screen-meta">
+    <h2>1. Home</h2>
+    <p><code class="t-mono">app/page.tsx</code> — merchandising placement <code class="t-mono">home.main</code>, server-rendered, ISR 60s per audience digest for anonymous visitors (§3.3).</p>
+    <div class="screen-refs"><span class="ref">§4</span><span class="ref">§6</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">shop.northwind.example/</span></div>
+    <div style="background:var(--background);border-radius:0 0 var(--radius-lg) var(--radius-lg);overflow:hidden">
+      <header class="sf-header">
+        <span class="sf-logo">Northwind Fasteners</span>
+        <nav class="sf-nav">
+          <a href="#" class="current">Shop</a>
+          <a href="#" data-goto="s2">Categories</a>
+          <a href="#">Wholesale</a>
+          <a href="#">About</a>
+        </nav>
+        <div class="sf-header-actions">
+          <button class="icon-btn" aria-label="Search"><svg><use href="#ic-search"/></svg></button>
+          <button class="icon-btn" aria-label="Account"><svg><use href="#ic-user"/></svg></button>
+          <button class="icon-btn sf-cart-badge" aria-label="Cart" data-goto="s4"><svg><use href="#ic-cart"/></svg><span class="sf-cart-count">2</span></button>
+        </div>
+      </header>
+
+      <div class="sf-hero">
+        <h1>Fasteners &amp; hardware, done right</h1>
+        <p class="muted" style="margin:0 0 1rem">Retail and wholesale pricing, same catalogue.</p>
+        <button class="btn btn-primary" data-goto="s2">Shop the catalogue</button>
+      </div>
+
+      <div class="sf-section">
+        <h2>Featured this week</h2>
+        <div class="sf-grid">
+          <div class="sf-card clickable" data-goto="s3">
+            <div class="sf-card-img"><svg style="width:2rem;height:2rem"><use href="#ic-package"/></svg></div>
+            <div class="sf-card-body">
+              <div class="sf-card-title">M8 Hex Bolt (Bulk Pack, 500ct)</div>
+              <span class="sf-price">84,00 zł</span>
+              <div class="sf-meta">excl. VAT</div>
+            </div>
+          </div>
+          <div class="sf-card">
+            <div class="sf-card-img"><svg style="width:2rem;height:2rem"><use href="#ic-package"/></svg></div>
+            <div class="sf-card-body">
+              <div class="sf-card-title">Standard Wood Screw 4×40</div>
+              <span class="sf-price">6,50 zł</span>
+              <div class="sf-meta">excl. VAT</div>
+            </div>
+          </div>
+          <div class="sf-card">
+            <div class="sf-card-img"><svg style="width:2rem;height:2rem"><use href="#ic-package"/></svg></div>
+            <div class="sf-card-body">
+              <span class="sf-price-was">129,00 zł</span><span class="sf-price" style="color:var(--accent)">99,00 zł</span>
+              <div class="sf-card-title" style="margin-top:0.25rem">TorquePro X1 Wrench</div>
+              <div class="sf-meta">excl. VAT</div>
+            </div>
+          </div>
+          <div class="sf-card">
+            <div class="sf-card-img"><svg style="width:2rem;height:2rem"><use href="#ic-package"/></svg></div>
+            <div class="sf-card-body">
+              <div class="sf-card-title">Hex Nut Assortment Kit</div>
+              <span class="sf-price">34,00 zł</span>
+              <div class="sf-meta">excl. VAT</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <footer class="sf-footer">
+        <span>© Northwind Fasteners</span>
+        <span>Terms · Privacy · Shipping</span>
+      </footer>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>The block layout is illustrative — real content comes from merchandising placement <code class="t-mono">home.main</code> (sibling spec, already mocked in <code class="t-mono">storefront-merchandising</code>), not built here.</span></div>
+    <div class="note"><b>2</b><span>Header/footer nav and cart badge are static; no live cart state, search, or auth in this prototype.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S2 — Category / Listing (PLP) -->
+<!-- ============================================================ -->
+<section class="screen" id="s2">
+  <div class="screen-meta">
+    <h2>2. Category — listing + filters (PLP)</h2>
+    <p><code class="t-mono">categories/[slug]/page.tsx</code> — desktop sidebar filters (§5.4), 4-column grid at <code class="t-mono">≥1024px</code> (§7).</p>
+    <div class="screen-refs"><span class="ref">§4</span><span class="ref">§5.4</span><span class="ref">§7</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">shop.northwind.example/categories/fasteners</span></div>
+    <div style="background:var(--background);border-radius:0 0 var(--radius-lg) var(--radius-lg);overflow:hidden">
+      <header class="sf-header">
+        <span class="sf-logo" data-goto="s1">Northwind Fasteners</span>
+        <nav class="sf-nav"><a href="#" data-goto="s1">Shop</a><a href="#" class="current">Categories</a><a href="#">Wholesale</a><a href="#">About</a></nav>
+        <div class="sf-header-actions"><button class="icon-btn" aria-label="Search"><svg><use href="#ic-search"/></svg></button><button class="icon-btn" aria-label="Account"><svg><use href="#ic-user"/></svg></button><button class="icon-btn sf-cart-badge" aria-label="Cart" data-goto="s4"><svg><use href="#ic-cart"/></svg><span class="sf-cart-count">2</span></button></div>
+      </header>
+      <div class="sf-breadcrumbs"><a data-goto="s1">Home</a> <svg style="width:0.7rem;height:0.7rem;display:inline;vertical-align:-1px"><use href="#ic-chevron-right"/></svg> Fasteners</div>
+
+      <div class="sf-layout">
+        <aside>
+          <div class="sf-filter-group">
+            <h3>Category</h3>
+            <div class="chip chip-active">Fasteners <svg style="width:0.75rem;height:0.75rem;margin-left:0.25rem"><use href="#ic-x"/></svg></div>
+          </div>
+          <div class="sf-filter-group">
+            <h3>Price</h3>
+            <div class="row"><input class="input" style="width:5rem" value="0" /><span class="t-hint">–</span><input class="input" style="width:5rem" value="150" /></div>
+          </div>
+          <div class="sf-filter-group">
+            <h3>Tags</h3>
+            <div class="row" style="flex-wrap:wrap;gap:0.375rem"><span class="chip">b2b-only (14)</span><span class="chip">clearance (3)</span></div>
+          </div>
+        </aside>
+        <div>
+          <div class="row between" style="margin-bottom:1rem"><span class="t-hint">42 products</span><select class="select" style="width:auto"><option>Sort: Best match</option></select></div>
+          <div class="sf-grid">
+            <div class="sf-card clickable" data-goto="s3">
+              <div class="sf-card-img"><svg style="width:2rem;height:2rem"><use href="#ic-package"/></svg></div>
+              <div class="sf-card-body"><div class="sf-card-title">M8 Hex Bolt (Bulk Pack, 500ct)</div><span class="sf-price">84,00 zł</span></div>
+            </div>
+            <div class="sf-card"><div class="sf-card-img"><svg style="width:2rem;height:2rem"><use href="#ic-package"/></svg></div><div class="sf-card-body"><div class="sf-card-title">M6 Hex Bolt (Bulk Pack, 500ct)</div><span class="sf-price">72,00 zł</span></div></div>
+            <div class="sf-card"><div class="sf-card-img"><svg style="width:2rem;height:2rem"><use href="#ic-package"/></svg></div><div class="sf-card-body"><div class="sf-card-title">Standard Wood Screw 4×40</div><span class="sf-price">6,50 zł</span></div></div>
+            <div class="sf-card"><div class="sf-card-img"><svg style="width:2rem;height:2rem"><use href="#ic-package"/></svg></div><div class="sf-card-body"><span class="badge badge-neutral" style="margin-bottom:0.25rem">Out of stock</span><div class="sf-card-title">Hex Nut Assortment Kit</div><span class="sf-price">34,00 zł</span></div></div>
+            <div class="sf-card"><div class="sf-card-img"><svg style="width:2rem;height:2rem"><use href="#ic-package"/></svg></div><div class="sf-card-body"><div class="sf-card-title">Wing Nut 5-Pack</div><span class="sf-price">11,00 zł</span></div></div>
+            <div class="sf-card"><div class="sf-card-img"><svg style="width:2rem;height:2rem"><use href="#ic-package"/></svg></div><div class="sf-card-body"><div class="sf-card-title">Flat Washer Assortment</div><span class="sf-price">18,00 zł</span></div></div>
+          </div>
+        </div>
+      </div>
+      <footer class="sf-footer"><span>© Northwind Fasteners</span><span>Terms · Privacy · Shipping</span></footer>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Sidebar filters shown here; below 1024px this becomes a slide-over sheet with a 2-column grid (§7) — not drawn as a separate screen to keep this prototype minimal, per the requester's "simplest" ask.</span></div>
+    <div class="note"><b>2</b><span>Result-count and filter-chip changes are announced via <code class="t-mono">aria-live="polite"</code> in the real app (§5.4) — not exercised by this static prototype.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S3 — Product Detail (PDP) -->
+<!-- ============================================================ -->
+<section class="screen" id="s3">
+  <div class="screen-meta">
+    <h2>3. Product detail (PDP)</h2>
+    <p><code class="t-mono">products/[handle]/page.tsx</code> — <code class="t-mono">VariantSelector</code> (§5.1), <code class="t-mono">PriceDisplay</code> with Omnibus (§5.3), <code class="t-mono">AddToCart</code> (§5.2).</p>
+    <div class="screen-refs"><span class="ref">§4</span><span class="ref">§5.1</span><span class="ref">§5.2</span><span class="ref">§5.3</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">shop.northwind.example/products/torquepro-x1-wrench</span></div>
+    <div style="background:var(--background);border-radius:0 0 var(--radius-lg) var(--radius-lg);overflow:hidden">
+      <header class="sf-header">
+        <span class="sf-logo" data-goto="s1">Northwind Fasteners</span>
+        <nav class="sf-nav"><a href="#" data-goto="s1">Shop</a><a href="#" data-goto="s2">Categories</a><a href="#">Wholesale</a><a href="#">About</a></nav>
+        <div class="sf-header-actions"><button class="icon-btn" aria-label="Search"><svg><use href="#ic-search"/></svg></button><button class="icon-btn" aria-label="Account"><svg><use href="#ic-user"/></svg></button><button class="icon-btn sf-cart-badge" aria-label="Cart" data-goto="s4"><svg><use href="#ic-cart"/></svg><span class="sf-cart-count">2</span></button></div>
+      </header>
+      <div class="sf-breadcrumbs"><a data-goto="s1">Home</a> <svg style="width:0.7rem;height:0.7rem;display:inline;vertical-align:-1px"><use href="#ic-chevron-right"/></svg> <a data-goto="s2">Hardware</a> <svg style="width:0.7rem;height:0.7rem;display:inline;vertical-align:-1px"><use href="#ic-chevron-right"/></svg> TorquePro X1 Wrench</div>
+
+      <div class="sf-pdp">
+        <div>
+          <div class="sf-gallery-main"><svg style="width:3rem;height:3rem"><use href="#ic-package"/></svg></div>
+          <div class="sf-gallery-thumbs"><div class="sf-gallery-thumb"></div><div class="sf-gallery-thumb"></div><div class="sf-gallery-thumb"></div></div>
+        </div>
+        <div>
+          <h1 style="font-size:1.75rem;font-weight:300;letter-spacing:-0.01em;margin:0 0 0.5rem">TorquePro X1 Wrench</h1>
+          <div style="margin-bottom:0.25rem"><span class="sf-price-was">129,00 zł</span><span class="sf-price" style="color:var(--accent)">99,00 zł</span></div>
+          <div class="t-hint" style="margin-bottom:0.25rem">excl. VAT · Lowest price in last 30 days: <strong>109,00 zł</strong> <span class="t-hint">(Omnibus, §5.3)</span></div>
+          <span class="badge badge-success" style="margin-bottom:1rem">In stock</span>
+
+          <div style="margin:1.25rem 0" role="radiogroup" aria-labelledby="opt-size-label">
+            <div id="opt-size-label" class="t-label" style="margin-bottom:0.5rem">Size</div>
+            <div class="sf-swatch-row">
+              <button class="sf-swatch" role="radio" aria-checked="false">10mm</button>
+              <button class="sf-swatch" role="radio" aria-checked="true">14mm</button>
+              <button class="sf-swatch" role="radio" aria-checked="false" disabled>19mm — unavailable</button>
+            </div>
+          </div>
+
+          <div class="row" style="align-items:flex-end;gap:0.75rem">
+            <div class="sf-qty-stepper"><button aria-label="Decrease">−</button><input value="1" aria-label="Quantity" /><button aria-label="Increase">+</button></div>
+            <button class="btn btn-primary" data-goto="s4"><svg style="width:1rem;height:1rem"><use href="#ic-cart"/></svg> Add to cart</button>
+          </div>
+          <div class="t-hint" style="margin-top:0.5rem">100 units — 84,00 zł each, save 15% <span class="t-hint">(B2B tier pricing, §5.2)</span></div>
+
+          <div class="sf-tabs" role="tablist">
+            <button role="tab" aria-selected="true">Description</button>
+            <button role="tab" aria-selected="false">Specifications</button>
+            <button role="tab" aria-selected="false">Shipping</button>
+          </div>
+          <p class="t-body" style="margin-top:1rem;max-width:42ch">Precision torque wrench for fastener assembly, calibrated to ±4% accuracy. Includes a hard-shell case.</p>
+        </div>
+      </div>
+      <footer class="sf-footer"><span>© Northwind Fasteners</span><span>Terms · Privacy · Shipping</span></footer>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Unavailable variant ("19mm") renders disabled with a text label, not hidden and not colour-only — §5.1's own accessibility requirement.</span></div>
+    <div class="note"><b>2</b><span>Add to cart is illustrative — no optimistic update, rollback, or <code class="t-mono">aria-live</code> announcement runs here (§5.2); clicking navigates straight to screen 4.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S4 — Cart -->
+<!-- ============================================================ -->
+<section class="screen" id="s4">
+  <div class="screen-meta">
+    <h2>4. Cart</h2>
+    <p><code class="t-mono">cart/page.tsx</code> — client, always live (§3.3). Reuses the same line-item shape as the illustrative cart drawer in the <code class="t-mono">buyer-scoped-catalog-visibility</code> prototype.</p>
+    <div class="screen-refs"><span class="ref">§4</span><span class="ref">§5.6</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">shop.northwind.example/cart</span></div>
+    <div style="background:var(--background);border-radius:0 0 var(--radius-lg) var(--radius-lg);overflow:hidden">
+      <header class="sf-header">
+        <span class="sf-logo" data-goto="s1">Northwind Fasteners</span>
+        <nav class="sf-nav"><a href="#" data-goto="s1">Shop</a><a href="#" data-goto="s2">Categories</a><a href="#">Wholesale</a><a href="#">About</a></nav>
+        <div class="sf-header-actions"><button class="icon-btn" aria-label="Search"><svg><use href="#ic-search"/></svg></button><button class="icon-btn" aria-label="Account"><svg><use href="#ic-user"/></svg></button><button class="icon-btn sf-cart-badge" aria-label="Cart"><svg><use href="#ic-cart"/></svg><span class="sf-cart-count">2</span></button></div>
+      </header>
+
+      <div class="sf-container" style="padding:2rem 1.5rem;display:grid;grid-template-columns:2fr 1fr;gap:2rem">
+        <div>
+          <h1 style="font-size:1.5rem;font-weight:600;margin:0 0 1rem">Your cart</h1>
+          <div class="sf-cart-line">
+            <div class="sf-cart-thumb"></div>
+            <div><div class="t-body">M8 Hex Bolt (Bulk Pack, 500ct)</div><div class="t-hint">84,00 zł each</div></div>
+            <div class="sf-qty-stepper"><button aria-label="Decrease">−</button><input value="2" aria-label="Quantity" /><button aria-label="Increase">+</button></div>
+            <button class="btn btn-icon btn-sm" aria-label="Remove"><svg><use href="#ic-trash"/></svg></button>
+          </div>
+          <div class="sf-cart-line">
+            <div class="sf-cart-thumb"></div>
+            <div><div class="t-body">TorquePro X1 Wrench</div><div class="t-hint">99,00 zł each</div></div>
+            <div class="sf-qty-stepper"><button aria-label="Decrease">−</button><input value="1" aria-label="Quantity" /><button aria-label="Increase">+</button></div>
+            <button class="btn btn-icon btn-sm" aria-label="Remove"><svg><use href="#ic-trash"/></svg></button>
+          </div>
+          <div class="row" style="margin-top:1rem"><input class="input" placeholder="Promotion code" style="width:14rem" /><button class="btn btn-outline btn-sm">Apply</button></div>
+        </div>
+        <div class="sf-summary">
+          <div class="sf-summary-row"><span>Subtotal</span><span class="num">267,00 zł</span></div>
+          <div class="sf-summary-row"><span>Shipping</span><span class="t-hint">calculated at checkout</span></div>
+          <div class="sf-summary-row total"><span>Total (excl. VAT)</span><span class="num">267,00 zł</span></div>
+          <button class="btn btn-primary" style="width:100%;margin-top:1rem">Checkout</button>
+        </div>
+      </div>
+      <footer class="sf-footer"><span>© Northwind Fasteners</span><span>Terms · Privacy · Shipping</span></footer>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Illustrative only — no live re-price, promotion validation, or price-change disclosure runs (cart spec §5, checkout spec §7). "Checkout" has no target screen; that funnel is a separate, unmocked spec (§4 route <code class="t-mono">checkout/page.tsx</code>).</span></div>
+  </div>
+</section>
+
+</div>
+
+<script>
+(function () {
+  var btn = document.getElementById('theme-toggle');
+  btn.addEventListener('click', function () {
+    document.documentElement.classList.toggle('dark');
+  });
+})();
+</script>
+<script src="comments.js"></script>
+<script src="prototype.js"></script>
+</body>
+</html>
