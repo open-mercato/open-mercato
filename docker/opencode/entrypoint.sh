@@ -80,6 +80,9 @@ if [ -z "$MODEL" ]; then
     openrouter)
       MODEL="meta-llama/llama-3.3-70b-instruct"
       ;;
+    orcarouter)
+      MODEL="orcarouter/fusion"
+      ;;
     deepinfra)
       MODEL="deepinfra/zai-org/GLM-5.1"
       ;;
@@ -103,12 +106,22 @@ fi
 
 MODEL_ID="$MODEL"
 CONFIG_MODEL="$MODEL"
-case "$MODEL" in
-  "$PROVIDER"/*)
-    MODEL_ID="${MODEL#"$PROVIDER"/}"
+case "$PROVIDER" in
+  orcarouter)
+    # OrcaRouter gateway model ids carry a vendor/model namespace (e.g.
+    # `orcarouter/fusion`, `openai/gpt-4o-mini`) and the full id is sent to the
+    # API unchanged, so never strip the leading provider prefix.
+    CONFIG_MODEL="$PROVIDER/$MODEL"
     ;;
   *)
-    CONFIG_MODEL="$PROVIDER/$MODEL"
+    case "$MODEL" in
+      "$PROVIDER"/*)
+        MODEL_ID="${MODEL#"$PROVIDER"/}"
+        ;;
+      *)
+        CONFIG_MODEL="$PROVIDER/$MODEL"
+        ;;
+    esac
     ;;
 esac
 
@@ -123,6 +136,7 @@ case "$PROVIDER" in
   groq)       PROVIDER_KEY="${GROQ_API_KEY:-}"; PROVIDER_BASE_URL="${GROQ_BASE_URL:-https://api.groq.com/openai/v1}";;
   together)   PROVIDER_KEY="${TOGETHER_API_KEY:-}"; PROVIDER_BASE_URL="${TOGETHER_BASE_URL:-https://api.together.xyz/v1}";;
   fireworks)  PROVIDER_KEY="${FIREWORKS_API_KEY:-}"; PROVIDER_BASE_URL="${FIREWORKS_BASE_URL:-https://api.fireworks.ai/inference/v1}";;
+  orcarouter) PROVIDER_KEY="${ORCAROUTER_API_KEY:-}"; PROVIDER_BASE_URL="${ORCAROUTER_BASE_URL:-https://api.orcarouter.ai/v1}";;
   litellm)    PROVIDER_KEY="${LITELLM_API_KEY:-}"; PROVIDER_BASE_URL="${LITELLM_BASE_URL:-}";;
   ollama)     PROVIDER_KEY="${OLLAMA_API_KEY:-ollama}"; PROVIDER_BASE_URL="${OLLAMA_BASE_URL:-http://host.docker.internal:11434/v1}";;
   lm-studio)  PROVIDER_KEY="${LM_STUDIO_API_KEY:-lm-studio}"; PROVIDER_BASE_URL="${LM_STUDIO_BASE_URL:-http://host.docker.internal:1234/v1}";;
@@ -145,6 +159,16 @@ case "$PROVIDER" in
       OPENROUTER_OPTIONS=", \"options\": { \"baseURL\": \"$OPENROUTER_BASE_URL\" }"
     fi
     PROVIDER_CONFIG="\"openrouter\": { \"models\": { \"$MODEL_ID\": {} }$OPENROUTER_OPTIONS }"
+    ;;
+  orcarouter)
+    # OrcaRouter is an OpenAI-compatible gateway (@ai-sdk/openai-compatible).
+    # The key/baseURL are passed explicitly so OpenCode does not need a built-in
+    # provider definition; the full `vendor/model` id is passed through as-is.
+    COMPAT_OPTIONS="\"apiKey\": \"$(json_escape "$PROVIDER_KEY")\""
+    if [ -n "$PROVIDER_BASE_URL" ]; then
+      COMPAT_OPTIONS="$COMPAT_OPTIONS, \"baseURL\": \"$(json_escape "$PROVIDER_BASE_URL")\""
+    fi
+    PROVIDER_CONFIG="\"orcarouter\": { \"npm\": \"@ai-sdk/openai-compatible\", \"options\": { $COMPAT_OPTIONS }, \"models\": { \"$MODEL_ID\": {} } }"
     ;;
   azure | deepinfra | groq | together | fireworks | litellm | ollama | lm-studio)
     # Treat as an OpenAI-compatible endpoint (@ai-sdk/openai-compatible). The

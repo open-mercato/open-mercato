@@ -19,6 +19,8 @@ services:
       GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-}
+      ORCAROUTER_API_KEY: ${ORCAROUTER_API_KEY:-}
+      ORCAROUTER_BASE_URL: ${ORCAROUTER_BASE_URL:-}
       # In-network MCP wiring. MCP_SERVER_API_KEY (env) wins when set; the
       # file fallback reads the key the mcp service provisioned into the
       # shared volume after waiting for the MCP /health endpoint.
@@ -222,6 +224,8 @@ services:
       GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-}
+      ORCAROUTER_API_KEY: ${ORCAROUTER_API_KEY:-}
+      ORCAROUTER_BASE_URL: ${ORCAROUTER_BASE_URL:-}
       MEILISEARCH_HOST: http://mercato-meilisearch-${DEPLOY_ENV:-local}:7700
       MEILISEARCH_API_KEY: ${MEILISEARCH_MASTER_KEY:-meilisearch-dev-key}
       NEXT_PUBLIC_UPGRADE_ACTIONS_ENABLED: ${NEXT_PUBLIC_UPGRADE_ACTIONS_ENABLED:-true}

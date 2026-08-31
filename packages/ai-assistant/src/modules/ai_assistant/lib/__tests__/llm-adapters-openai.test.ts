@@ -60,11 +60,11 @@ describe('OpenAIAdapter (OpenAI-compatible provider factory)', () => {
     expect(provider.usesVendorPrefixedModelIds).toBe(true)
   })
 
-  it('flags exactly the gateway presets (openrouter/requesty/litellm) in the catalog', () => {
+  it('flags exactly the gateway presets (openrouter/requesty/litellm/orcarouter) in the catalog', () => {
     const flagged = new Set(
       OPENAI_COMPATIBLE_PRESETS.filter((p) => p.usesVendorPrefixedModelIds).map((p) => p.id),
     )
-    expect(flagged).toEqual(new Set(['openrouter', 'requesty', 'litellm']))
+    expect(flagged).toEqual(new Set(['openrouter', 'requesty', 'litellm', 'orcarouter']))
     // Non-gateway backends stay unflagged.
     for (const id of ['openai', 'deepinfra', 'together', 'fireworks', 'groq', 'azure']) {
       const preset = OPENAI_COMPATIBLE_PRESETS.find((p) => p.id === id)!
@@ -190,8 +190,8 @@ describe('OpenAI preset OPENCODE_* fallback env keys', () => {
 })
 
 describe('OPENAI_COMPATIBLE_PRESETS built-in catalog', () => {
-  it('ships at least 10 built-in presets including openai, openrouter, and lm-studio', () => {
-    expect(OPENAI_COMPATIBLE_PRESETS.length).toBeGreaterThanOrEqual(10)
+  it('ships at least 11 built-in presets including openai, openrouter, orcarouter, and lm-studio', () => {
+    expect(OPENAI_COMPATIBLE_PRESETS.length).toBeGreaterThanOrEqual(11)
     const ids = OPENAI_COMPATIBLE_PRESETS.map((p) => p.id)
     expect(ids).toContain('openai')
     expect(ids).toContain('deepinfra')
@@ -202,6 +202,7 @@ describe('OPENAI_COMPATIBLE_PRESETS built-in catalog', () => {
     expect(ids).toContain('litellm')
     expect(ids).toContain('ollama')
     expect(ids).toContain('openrouter')
+    expect(ids).toContain('orcarouter')
     expect(ids).toContain('lm-studio')
   })
 
@@ -286,6 +287,48 @@ describe('OpenRouter preset', () => {
       apiKey: 'or-key',
       modelId: openrouterPreset.defaultModel,
       baseURL: 'https://overridden.example.com/v1',
+    })
+    expect(model).toBeDefined()
+  })
+})
+
+describe('OrcaRouter preset', () => {
+  const orcarouterPreset = OPENAI_COMPATIBLE_PRESETS.find((p) => p.id === 'orcarouter')!
+
+  it('has expected shape', () => {
+    expect(orcarouterPreset).toBeDefined()
+    expect(orcarouterPreset.baseURL).toBe('https://api.orcarouter.ai/v1')
+    expect(orcarouterPreset.baseURLEnvKeys).toContain('ORCAROUTER_BASE_URL')
+    expect(orcarouterPreset.envKeys).toContain('ORCAROUTER_API_KEY')
+    expect(orcarouterPreset.defaultModel).toBe('orcarouter/fusion')
+    expect(orcarouterPreset.usesVendorPrefixedModelIds).toBe(true)
+  })
+
+  it('isConfigured returns true only when ORCAROUTER_API_KEY is set', () => {
+    const provider = createOpenAICompatibleProvider(orcarouterPreset)
+    expect(provider.isConfigured({ ORCAROUTER_API_KEY: 'orca-key' })).toBe(true)
+    expect(provider.isConfigured({ OPENAI_API_KEY: 'unrelated' })).toBe(false)
+    expect(provider.isConfigured({})).toBe(false)
+  })
+
+  it('getConfiguredEnvKey returns ORCAROUTER_API_KEY', () => {
+    const provider = createOpenAICompatibleProvider(orcarouterPreset)
+    expect(provider.getConfiguredEnvKey({ ORCAROUTER_API_KEY: 'key' })).toBe('ORCAROUTER_API_KEY')
+    expect(provider.getConfiguredEnvKey({})).toBe('ORCAROUTER_API_KEY')
+  })
+
+  it('createModel with default baseURL does not throw', () => {
+    const provider = createOpenAICompatibleProvider(orcarouterPreset)
+    const model = provider.createModel({ apiKey: 'orca-key', modelId: orcarouterPreset.defaultModel })
+    expect(model).toBeDefined()
+  })
+
+  it('createModel with per-call baseURL override does not throw', () => {
+    const provider = createOpenAICompatibleProvider(orcarouterPreset)
+    const model = provider.createModel({
+      apiKey: 'orca-key',
+      modelId: orcarouterPreset.defaultModel,
+      baseURL: 'https://my-orcarouter-proxy.example.com/v1',
     })
     expect(model).toBeDefined()
   })

@@ -20,6 +20,8 @@ services:
       GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-}
+      ORCAROUTER_API_KEY: ${ORCAROUTER_API_KEY:-}
+      ORCAROUTER_BASE_URL: ${ORCAROUTER_BASE_URL:-}
       # Additional OM AI providers (Windows setup / .env). Forwarded so a
       # provider chosen in the configurator actually reaches this container.
       AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}
@@ -267,6 +269,8 @@ services:
       GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-}
+      ORCAROUTER_API_KEY: ${ORCAROUTER_API_KEY:-}
+      ORCAROUTER_BASE_URL: ${ORCAROUTER_BASE_URL:-}
       # Additional OM AI providers (Windows setup / .env), for the unified
       # in-process AI framework (playground / <AiChat>).
       AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}

@@ -302,6 +302,38 @@ const REQUESTY_PRESET: OpenAICompatiblePreset = {
 }
 
 /**
+ * OrcaRouter — OpenAI-compatible AI gateway exposing a unified model
+ * namespace (e.g. `anthropic/claude-…`, `openai/gpt-…`, `orcarouter/fusion`)
+ * plus adaptive routing, failover, and gateway-level agent security behind a
+ * single endpoint.
+ */
+const ORCAROUTER_PRESET: OpenAICompatiblePreset = {
+  id: 'orcarouter',
+  name: 'OrcaRouter',
+  baseURL: 'https://api.orcarouter.ai/v1',
+  baseURLEnvKeys: ['ORCAROUTER_BASE_URL'],
+  envKeys: ['ORCAROUTER_API_KEY'],
+  defaultModel: 'orcarouter/fusion',
+  // OrcaRouter model ids are `vendor/model` (e.g. `anthropic/claude-sonnet-4.5`);
+  // the leading `vendor/` is part of the gateway model id, not a native-provider pin.
+  usesVendorPrefixedModelIds: true,
+  defaultModels: [
+    {
+      id: 'orcarouter/fusion',
+      name: 'Fusion (OrcaRouter)',
+      contextWindow: 1000000,
+      tags: ['flagship'],
+    },
+    {
+      id: 'orcarouter/fusion-mini',
+      name: 'Fusion Mini (OrcaRouter)',
+      contextWindow: 1000000,
+      tags: ['budget'],
+    },
+  ],
+}
+
+/**
  * LM Studio — local model server for development and offline use.
  * Default port 1234 can be overridden via `LM_STUDIO_BASE_URL`.
  * `defaultModel` is intentionally empty — LM Studio auto-detects
@@ -334,5 +366,6 @@ export const OPENAI_COMPATIBLE_PRESETS: readonly OpenAICompatiblePreset[] = [
   OLLAMA_PRESET,
   OPENROUTER_PRESET,
   REQUESTY_PRESET,
+  ORCAROUTER_PRESET,
   LM_STUDIO_PRESET,
 ]
