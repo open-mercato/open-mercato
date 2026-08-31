@@ -37,6 +37,44 @@ Three phases, two module owners, no new data model:
 - **commercetools' Standalone Prices** define an explicit, documented precedence: Customer Group > Channel > country, currency always required, and — notably — **a tiered price is ignored once a product discount already applies**, rather than the two effects composing. That's a directly relevant precedent for the resolution → promotions boundary this spec deliberately keeps out of scope: whoever builds the promotions handoff should decide interaction rules explicitly (suppress vs. compose), not assume additive stacking. This spec does not implement that decision — it flags it as a documented open question for that future work, so it isn't silently assumed. [Price selection | commercetools](https://docs.commercetools.com/learning-price-and-discount-your-products/price-calculation/price-selection)
 - **What this spec deliberately skips relative to both:** neither a new "price set" grouping abstraction nor a formal declarative rule DSL. `CatalogProductPrice` rows plus `scorePrice`'s weighted specificity already produce the same *outcome* (most-specific-match-wins) with far less new surface. commercetools' Customer-Group-over-Channel precedence differs from `scorePrice`'s current weights (channel +5 > customerGroup +3) — this spec does **not** change that ordering; `catalog/AGENTS.md` § Ask First explicitly requires asking before touching resolver priority semantics, and doing so is out of scope here. Noted for whoever eventually revisits `scorePrice`'s weights.
 
+## 📝 User Stories / Use Cases
+
+Added retroactively to an already-approved spec, scoped strictly to capability already described above (Phase 1 UI, Phase 3 diagnostic page) — no new capability is introduced by this section.
+
+### Epic 1 — Manage product price rules (Phase 1)
+
+- **Operator** wants to see every price rule configured for a product in one list, so they understand the current pricing configuration without querying the database directly.
+  - *Empty state*: a product with zero `CatalogProductPrice` rows shows "No price rules yet — add one to price this product beyond its base price," not a blank table.
+  - *Default state*: list renders scope as chips (customer / customer group / channel), the quantity range, currency + amount, and the validity window at a glance — the reachability gap this spec exists to close.
+- **Operator** wants to create a price rule scoped to a specific B2B customer group, so a contracted account automatically sees the agreed price.
+  - *Default values*: currency pre-fills from the store/channel context; `kind` defaults to `regular`.
+  - *Optional scope*: saving without a customer or customer-group selection is valid (a channel- or tier-only rule) — scope fields are optional, not required.
+  - *Error state*: an exact-duplicate scope (same customer group + channel + quantity range) is rejected with a field-level error, not a raw 500.
+- **Operator** wants to define quantity-tier pricing (e.g. 10+ units at a lower unit price), so bulk buyers get an automatic discount without a separate promotion.
+  - *Error state*: `maxQuantity` set below `minQuantity` is rejected at save; leaving `maxQuantity` empty means "and above."
+- **Operator** wants to set a validity window (starts/ends) on a price rule, so a seasonal or promotional price expires on its own without manual cleanup.
+  - *Error state*: `endsAt` before `startsAt` is rejected with a field-level error.
+  - *Default state*: an expired rule stays visible in the list (never silently hidden) with a visual "Expired" indicator, so operators can find and renew or remove it.
+- **Operator** wants to scope a price rule to a specific channel and currency, so multi-channel or multi-currency catalogs don't collide on a single price.
+  - *Error state*: currency is required at save time — no silent fallback to the store's default currency when a channel with a different currency is selected.
+- **Operator** wants to edit or delete an existing price rule, so mistakes can be corrected without direct database access.
+  - *Default state*: the edit form pre-fills every field from the existing row — round-trip fidelity is the reachability gap this spec closes.
+  - *Optimistic-lock conflict*: editing a row changed since the form loaded surfaces the standard conflict bar (`surfaceRecordConflict`) instead of silently overwriting it.
+  - *Undo*: delete requires confirmation; both delete and edit are undoable via the existing `catalog.prices.*` command undo/redo mechanism.
+  - *Keyboard*: `Cmd/Ctrl+Enter` submits the form, `Escape` cancels, per the platform's dialog convention.
+
+### Epic 2 — Diagnose the active pricing resolver (Phase 3, optional)
+
+- **Admin** wants to see which pricing resolver is currently registered and at what priority, so they can diagnose "why is this price wrong" without reading server logs or code.
+  - *Permission state*: without the `pricing.diagnostics.view` feature, the page is absent from navigation and direct navigation returns the standard permission-denied page.
+  - *Empty/baseline state*: when the optional `pricing` module isn't installed, the page (if reached) states plainly that only catalog's built-in resolver is active — this is a normal state, not an error.
+  - *Read-only*: the page performs no mutations.
+
+### Cross-cutting rules
+- Every price-rule mutation flows through the existing `catalog.prices.create/update/delete` commands — no bespoke pricing logic in the UI layer.
+- The list and form surface only fields the API/commands already accept (per Problem Statement — closing a reachability gap, not adding new capability).
+- Phase 1 reuses the existing `catalog.products.manage` feature (no new ACL surface); only Phase 3's diagnostic page introduces a feature (`pricing.diagnostics.view`).
+
 ## 📝 Architecture
 
 ```
@@ -231,4 +269,5 @@ Explicitly deferred / out of scope for this spec (named so the gap doesn't silen
 - **2026-08-21** — Q1 (module location) closed by rule (`packages/core/AGENTS.md` § Where to Put Code). Pre-implementation analysis (`ANALYSIS-2026-08-21-pricing-engine.md`) surfaced the `pricingResolvers` `globalThis`-scoping bug; folded into scope.
 - **2026-08-21** — Q1(orig. numbering)/Q2/Q4 resolved (engine-only for sales/cart wiring; currency-aware; `customerGroupIds` from day one). Verification of catalog's existing price UI/API showed the admin-UI gap is UI-only, with data/API/commands already complete — reframed Q3 as a module-ownership question.
 - **2026-08-21** — Scope-cohesion check: admin UI and resolution engine are independently deployable; user chose to keep as two phases of one spec rather than splitting into two. Full Architecture/Data Model/API Contracts/Phasing drafted, grounded against Medusa.js and commercetools pricing architectures.
+- **2026-08-31** — Added the "User Stories / Use Cases" section (Epics 1–2, role-goal-outcome stories with UX acceptance criteria for empty/error/permission/optimistic-lock/undo/keyboard/default-value states), scoped strictly to capability already described in Proposed Solution/UI-UX — no new capability introduced. Added to unblock an `om-mockup-prototype` click-through prototype of Phase 1's admin UI.
 - **2026-08-21** — Fresh-context adversarial review (per `om-spec-writing` step 8, reviewer had no prior context and independently verified claims against the actual repo). Findings applied: sibling-spec citations (`ecommerce-suite-roadmap`/ADR-4, `cart-module`, `customer-groups-and-b2b-terms`) marked with an explicit provenance note — they live on unmerged branch `spec/ecommerce-module-suite` (PR #5384), not on `develop`; `PricingContext`'s Data Model diagram corrected to match the actual current type (`quantity`/`date` are required, existing optional fields carry `| null`) after the draft had silently narrowed/widened them undisclosed; `registerCatalogPricingResolver`'s API Contracts signature corrected to match the real `options?: { priority?: number }`; added an explicit tenant/organization-scoping caller-contract Edge Case (the resolver has no scoping check of its own — always been true, now documented); named the bundling friction (reviewer-skill mismatch, no sequencing benefit, discoverability) as a High risk instead of leaving it implicit in the Final Compliance Report; split Phase 2's circular tie-break-decide-and-test step into two; added a named `pricing.diagnostics.view` ACL feature for the optional diagnostic route.
