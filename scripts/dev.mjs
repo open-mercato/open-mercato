@@ -34,7 +34,6 @@ import {
   buildMcpCliArgs,
   deriveMcpHealthUrl,
   isFastMcpCrash,
-  isKeyRotationOutput,
   looksLikeMissingKeyOwner,
   looksLikePermissionError,
   looksLikeUninitializedDatabase,
@@ -1948,6 +1947,9 @@ async function waitForMcpHealthy() {
 async function runMcpLifecycle() {
   let fastCrashes = 0
   while (!shuttingDown) {
+    const provisioned = await provisionMcpApiKey()
+    if (!provisioned || shuttingDown) return
+
     const startedAt = Date.now()
     const capturedLines = []
     const child = spawnMcpCommand(['mcp:serve-http', '--port', String(mcpPort)], 'MCP server', verbose ? null : (line) => {
