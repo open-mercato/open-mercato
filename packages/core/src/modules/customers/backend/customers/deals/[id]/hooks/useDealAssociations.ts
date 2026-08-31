@@ -274,6 +274,10 @@ export function useDealAssociations({
         if (!surfaceRecordConflict(error, t, { onRefresh: onRefresh ?? null })) {
           flash(t('customers.deals.detail.peopleUpdateError', 'Failed to update linked people.'), 'error')
         }
+        // Re-throw after reporting. The link dialog closes as soon as its confirm handler
+        // resolves, so swallowing here would drop the user's whole selection on a 409 while
+        // the conflict bar appears behind the closing dialog.
+        throw error
       } finally {
         setPeopleSaving(false)
       }
@@ -325,6 +329,8 @@ export function useDealAssociations({
         if (!surfaceRecordConflict(error, t, { onRefresh: onRefresh ?? null })) {
           flash(t('customers.deals.detail.companiesUpdateError', 'Failed to update linked companies.'), 'error')
         }
+        // See the people handler: the dialog must stay open when the save failed.
+        throw error
       } finally {
         setCompaniesSaving(false)
       }

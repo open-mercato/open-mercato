@@ -70,7 +70,11 @@ describe('useDealAssociations — 409 conflict handling', () => {
     )
 
     await act(async () => {
-      await result.current.handlePeopleAssociationsChange(['person-1'])
+      // The handler reports the failure and then re-throws, so the link dialog can keep the
+      // user's selection instead of closing over a conflict it never saw.
+      await expect(result.current.handlePeopleAssociationsChange(['person-1'])).rejects.toBe(
+        conflict,
+      )
     })
 
     expect(surfaceRecordConflictMock).toHaveBeenCalledTimes(1)
@@ -95,10 +99,35 @@ describe('useDealAssociations — 409 conflict handling', () => {
     )
 
     await act(async () => {
-      await result.current.handleCompaniesAssociationsChange(['company-1'])
+      await expect(
+        result.current.handleCompaniesAssociationsChange(['company-1']),
+      ).rejects.toThrow('boom')
     })
 
     expect(surfaceRecordConflictMock).toHaveBeenCalledTimes(1)
     expect(flashMock).toHaveBeenCalledTimes(1)
+  })
+
+  test('a successful save resolves so the dialog can close', async () => {
+    const runMutationWithContext = jest.fn(async (operation: () => Promise<unknown>) =>
+      operation(),
+    ) as unknown as HookOptions['runMutationWithContext']
+
+    const { result } = renderHook(() =>
+      useDealAssociations({
+        currentDealId: 'deal-1',
+        data: baseData,
+        setData: jest.fn(),
+        runMutationWithContext,
+      }),
+    )
+
+    await act(async () => {
+      await expect(
+        result.current.handlePeopleAssociationsChange(['person-1']),
+      ).resolves.toBeUndefined()
+    })
+
+    expect(flashMock).not.toHaveBeenCalled()
   })
 })

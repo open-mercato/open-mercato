@@ -131,7 +131,13 @@ export function DealPeopleSection({
         setRefreshKey((current) => current + 1)
         return
       }
-      await onSaveSelection([...selectedIds, createdId])
+      try {
+        await onSaveSelection([...selectedIds, createdId])
+      } catch {
+        // onSaveSelection has already reported the failure; the person exists and can be
+        // linked manually. Callers invoke this fire-and-forget, so swallowing here is what
+        // keeps a reported failure from surfacing again as an unhandled rejection.
+      }
       setRefreshKey((current) => current + 1)
     },
     [onSaveSelection, selectedIds],
