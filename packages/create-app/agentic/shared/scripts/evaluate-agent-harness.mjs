@@ -149,8 +149,7 @@ const CLAUDE_DISCOVERY_TOOL = 'ToolSearch'
 // routing. Refused attempts transfer no bytes, so they never enter the context budgets.
 const MAX_REFUSED_CONTEXT_READS = 6
 const DEFAULT_LIVE_TIMEOUT_MS = 300_000
-const CLAUDE_TIMEOUT_MS = 600_000
-const HIGH_EFFORT_MINI_TIMEOUT_MS = 900_000
+const REASONING_EFFORT_LEVELS = ['minimal', 'low', 'medium', 'high', 'xhigh']
 
 function usage() {
   return `Open Mercato standalone agent harness evaluator
@@ -227,7 +226,7 @@ function parseArgs(argv) {
   if (options.reasoningEffort && options.runner !== 'codex') {
     throw new Error('--reasoning-effort is supported only with --runner codex')
   }
-  if (options.reasoningEffort && !['minimal', 'low', 'medium', 'high', 'xhigh'].includes(options.reasoningEffort)) {
+  if (options.reasoningEffort && !REASONING_EFFORT_LEVELS.includes(options.reasoningEffort)) {
     throw new Error('--reasoning-effort must be minimal, low, medium, high, or xhigh')
   }
   if (!Number.isInteger(options.timeout) || options.timeout < 1_000 || options.timeout > 3_600_000) {
@@ -1379,6 +1378,17 @@ function validateCatalog({ root, cases, registry, releaseMatrix, fixtures, seeds
   if (JSON.stringify(Object.keys(releaseMatrix?.routing?.runners ?? {})) !== JSON.stringify(supportedRunners)) globalErrors.push('routing matrix must configure exactly Codex and Claude')
   for (const runner of supportedRunners) {
     if (typeof releaseMatrix?.routing?.runners?.[runner]?.modelSelector !== 'string') globalErrors.push(`routing matrix requires a ${runner} model selector`)
+  }
+  const timeoutFloors = releaseMatrix?.routing?.timeoutFloors
+  if (!Array.isArray(timeoutFloors) || timeoutFloors.length === 0) globalErrors.push('routing matrix must declare runner timeout floors')
+  else for (const floor of timeoutFloors) {
+    const validFloor = isPlainObject(floor)
+      && Object.keys(floor).every((key) => ['runner', 'modelPattern', 'reasoningEffort', 'timeoutMs'].includes(key))
+      && supportedRunners.includes(floor.runner)
+      && Number.isInteger(floor.timeoutMs) && floor.timeoutMs >= 60_000 && floor.timeoutMs <= 3_600_000
+      && (floor.modelPattern === undefined || (typeof floor.modelPattern === 'string' && /^[A-Za-z0-9*][A-Za-z0-9._:/*-]{0,99}$/.test(floor.modelPattern)))
+      && (floor.reasoningEffort === undefined || REASONING_EFFORT_LEVELS.includes(floor.reasoningEffort))
+    if (!validFloor) globalErrors.push(`invalid routing timeout floor entry: ${JSON.stringify(floor?.runner ?? '<missing>')}`)
   }
   if (releaseSuite?.requireGenerativeJudge !== true) globalErrors.push('release suite must require the generative judge')
   if (releaseSuite?.requireGeneratedCodeReview !== true) globalErrors.push('release suite must retain the generated-code review compatibility contract')
@@ -3567,7 +3577,7 @@ function generatedCodeReviewRun({ options, cases, registry, releaseMatrix, fixtu
       root: bundleRoot,
       schemaPath,
       prompt: buildReviewPrompt(reviewedPaths, evidenceIds, reviewReferences, options.judgeCanonical, terminationClassification),
-      timeout: options.timeout,
+      timeout: resolveLiveCaseTimeout(options, model, 0, releaseMatrix.routing.timeoutFloors),
       model,
       reasoningEffort: options.reasoningEffort,
       writable: false,
@@ -3653,27 +3663,32 @@ function deterministicRun(selected, validation) {
   return failed ? EXIT_FAILURE : EXIT_PASS
 }
 
-export function resolveLiveCaseTimeout(options, model, caseTimeout = 0) {
-  const runnerTimeout = options.timeoutExplicit
-    ? options.timeout
-    : options.runner === 'claude'
-      ? CLAUDE_TIMEOUT_MS
-      : options.runner === 'codex'
-        && options.reasoningEffort === 'high'
-        && model === 'gpt-5.4-mini'
-        ? HIGH_EFFORT_MINI_TIMEOUT_MS
-        : options.timeout
-  return Math.max(runnerTimeout, caseTimeout)
+function timeoutFloorMatches(floor, options, model) {
+  if (floor.runner !== options.runner) return false
+  if (floor.reasoningEffort !== undefined && floor.reasoningEffort !== options.reasoningEffort) return false
+  if (floor.modelPattern === undefined) return true
+  const pattern = floor.modelPattern.split('*').map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*')
+  return new RegExp(`^${pattern}$`).test(model)
+}
+
+// The floors live in release-matrix.json (routing.timeoutFloors) so a new slow model family is a
+// data change; an explicit operator --timeout always suppresses them.
+export function resolveLiveCaseTimeout(options, model, caseTimeout = 0, timeoutFloors = []) {
+  const floor = options.timeoutExplicit
+    ? 0
+    : timeoutFloors.reduce((highest, entry) => (timeoutFloorMatches(entry, options, model) ? Math.max(highest, entry.timeoutMs) : highest), 0)
+  return Math.max(options.timeout, floor, caseTimeout)
 }
 
 function liveRun({ options, selected, registry, releaseMatrix, fixtures, root, harnessDir, resultSchema }) {
   const schemaPath = path.join(harnessDir, 'routing-response.schema.json')
   const version = runnerVersion(options.runner, root)
   const model = options.model ?? releaseMatrix.routing.runners[options.runner].modelSelector
+  const timeoutFloors = releaseMatrix.routing.timeoutFloors
   const writableRoot = options.writableRoot ? path.resolve(options.writableRoot) : undefined
   if (writableRoot) assertFilesystemDisjoint(root, writableRoot, 'writable root')
   let failures = 0
-  const runnerTimeout = resolveLiveCaseTimeout(options, model)
+  const runnerTimeout = resolveLiveCaseTimeout(options, model, 0, timeoutFloors)
   console.log(`Runner: ${options.runner} ${version}; model selector: ${model}${options.reasoningEffort ? `; reasoning effort: ${options.reasoningEffort}` : ''}; case timeout floor: ${runnerTimeout}ms; cases: ${selected.length}; fresh process per case`)
   for (let offset = 0; offset < selected.length; offset += options.batchSize) {
     const batch = selected.slice(offset, offset + options.batchSize)
@@ -3709,7 +3724,7 @@ function liveRun({ options, selected, registry, releaseMatrix, fixtures, root, h
       // Root immutability is resolved before writable-pattern matching, including inside the
       // fail-closed tool server, so a declared example root can never be written.
       const immutableRoots = immutableExampleRoots(evaluationCase)
-      const timeout = resolveLiveCaseTimeout(options, model, caseRecord.timeoutMs ?? 0)
+      const timeout = resolveLiveCaseTimeout(options, model, caseRecord.timeoutMs ?? 0, timeoutFloors)
       const executions = [runAgentOnce({
         runner: options.runner, root: runRoot, schemaPath, prompt, timeout, model, reasoningEffort: options.reasoningEffort, writable,
         allowedReads, allowedWrites: writable ? caseRecord.allowedWrites ?? [] : [], immutableRoots,
