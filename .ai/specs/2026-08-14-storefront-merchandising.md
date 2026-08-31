@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Status** | Specification (rev 2 — pre-implementation fixes 2026-08-17) |
+| **Status** | Specification (rev 3 — user stories 2026-08-31) |
 | **Created** | 2026-08-14 |
 | **Suite** | [Ecommerce Suite Roadmap](./2026-08-14-ecommerce-suite-roadmap.md) — spec 8, Phase 4 |
 | **Modules** | `merchandising` (new) |
@@ -420,7 +420,125 @@ Scheduled blocks need care: a block whose window opens at 09:00 must not be serv
 
 ---
 
-## 11) Implementation Phases
+## 11) User Stories
+
+Roles referenced below map directly to the ACL features in §7.3: **Merchandiser** holds the `*.manage` features but not `*.publish`; **Store Manager** holds both `*.manage` and `*.publish`; **Viewer** holds only `*.view` features; **Platform Admin** is the rare role additionally holding `merchandising.blocks.embed_html`. Outcomes are written from the storefront buyer's perspective where the admin action's effect is what matters.
+
+### Navigation (menus)
+
+**US-N1 — Build a menu tree**
+As a Merchandiser, I want to add, nest and drag-reorder menu items in a store's menu, so that buyers see a header/footer/mobile navigation the merchant chose rather than the raw category tree.
+- Depth is capped at 3; the UI blocks a 4th-level drop and explains why.
+- An item's `target_type` (`category | collection | product | content_page | url | search_query`) drives a type-specific target picker; picking `search_query` accepts a filter string directly (§4.2).
+- Reordering is optimistic: the new order applies immediately in the tree and rolls back with an inline error if the save fails.
+- Deleting an item with children asks for confirmation and explains that children are removed too (no orphaned rows).
+- Empty state: a menu with no items shows a prompt to add the first one, not a blank tree.
+- Keyboard: arrow keys move focus between tree rows; Cmd/Ctrl+Enter saves the currently edited item; Escape cancels an in-progress edit.
+
+**US-N2 — Target a menu item to an audience**
+As a Merchandiser, I want to scope a menu item to specific customer groups (or require authentication, or exclude a group), so that a B2B buyer sees "Bulk Orders" while a retail visitor does not, from the same `main` menu.
+- The audience editor exposes `customerGroupIds`, `excludeCustomerGroupIds`, `requiresAuthentication`, `locales`, `channels` (§4.7); leaving all empty is visibly labeled "Everyone."
+- Setting both an inclusion and an exclusion for the same group shows an inline hint that exclusion wins (§4.7's stated precedence), not a silent contradiction.
+- Default value: a newly created item inherits no audience restriction (everyone) rather than an empty-but-ambiguous state.
+
+**US-N3 — Restricted targets stay invisible, not broken**
+As a Merchandiser, I want a menu item pointing at a category or collection outside a buyer's assortment to simply not render for that buyer, so that curation never becomes a dead link or an error page (R1).
+- The admin tree still shows the item to the Merchandiser (it is valid configuration), with a badge noting it targets a scoped resource.
+- The prototype's preview-as-audience control (US-P4) demonstrates the item disappearing for a restricted persona.
+
+**US-N4 — Read-only access**
+As a Viewer, I want to see the full menu tree and item configuration without edit controls, so that I can audit navigation without risking a change.
+- Drag handles, delete buttons and the "Add item" action are absent, not disabled-and-clickable.
+- Attempting a direct API action a Viewer's role does not permit surfaces the same permission error CrudForm shows elsewhere, not a silent no-op.
+
+### Placements and blocks
+
+**US-P1 — Compose a placement's blocks**
+As a Merchandiser, I want to add, reorder and remove blocks (hero, banner, rich text, product carousel, product grid, collection grid, category grid, video, countdown) within a placement slot, so that a page like `home.main` renders the composition I chose in one request (§7.1, R4).
+- The block-type picker excludes `html_embed` unless the current user holds `merchandising.blocks.embed_html` (§4.4); Merchandisers without it never see the option.
+- A block's `config` form is type-specific (a discriminated union per §4.4); submitting a config that fails its schema shows the specific field error inline, not a generic failure toast.
+- Removing a block asks for confirmation and is undoable for the remainder of the editing session (a "Block removed — Undo" flash), not a hard delete on click.
+- Empty state: a placement with zero blocks shows a prompt to add the first block, distinguishing "nothing configured yet" from "configured to show nothing."
+
+**US-P2 — Schedule a block**
+As a Merchandiser, I want to set a block's `starts_at`/`ends_at` window, so that a campaign banner appears and disappears on schedule without anyone touching it live (§5, R6).
+- Leaving both fields empty means "always active within its published state," shown as an explicit "No schedule" default rather than blank inputs that look unset.
+- An end date before the start date is rejected inline before submit.
+- The block list shows a compact schedule badge ("Starts in 3 days", "Ends today", "Expired") so a Merchandiser can scan a placement's timeline at a glance.
+
+**US-P3 — Draft and publish are separate steps**
+As a Merchandiser without publish rights, I want to save a block as `draft` and hand it to a Store Manager to publish, so that drafting and publishing stay separately accountable (§7.3).
+As a Store Manager, I want to review a draft block and publish it, so that only reviewed content goes live.
+- The status control offers `draft`/`published`/`archived`; a Merchandiser without `merchandising.blocks.publish` sees `published` disabled with a tooltip explaining who can set it.
+- A published block that is later edited reverts to `draft` only if the spec's workflow requires re-approval — this prototype flags it as an **open question** (see Open Questions) rather than assuming an answer.
+
+**US-P4 — Preview draft and scheduled content**
+As a Merchandiser, I want to generate a preview link (or pick a preview persona and "as of" time in the admin UI) and see draft/scheduled blocks as that buyer would, so that I can verify a campaign before it goes live (§5).
+- The preview banner is unmistakable ("Previewing as: B2B — Wholesale, as of 2026-09-01 09:00") so a Merchandiser never mistakes a preview for the live site.
+- An expired or invalid preview token shows a clear "This preview link has expired" state, never a blank page (R7).
+- Preview responses are never cached client-side either — reloading re-fetches.
+
+**US-P5 — `html_embed` carries a visible warning**
+As a Platform Admin, when I add an `html_embed` block, I want an explicit stored-XSS warning next to the editor, so that the risk of the one block type that is not sanitized is never invisible (R3).
+- The raw-HTML textarea is visually distinct (warning-toned border/banner using DS status tokens) from every sanitized rich-text field.
+- Saving shows a confirmation step restating that this content is not sanitized before it takes effect.
+
+### Collections
+
+**US-C1 — Curate a manual collection**
+As a Merchandiser, I want to search products and add them to a manual collection with drag-reorder and pinning, so that I control exactly which products appear in "Staff Picks" and in what order (§4.5, §4.6).
+- Adding a product already in the collection is a no-op with an inline "Already in this collection" hint, not a duplicate row.
+- Pinned items are visually pulled to the top of the list with a pin icon, and the UI explains they lead regardless of `sort_strategy`.
+- Removing the last item shows the collection's empty state, not an error.
+
+**US-C2 — Build a rule collection from a saved query**
+As a Merchandiser, I want to build a rule collection by reusing the storefront's own filter builder and saving the result, so that "Everything on Sale" stays current without manual curation (§4.5).
+- A live "Preview matches" action calls `preview-query` and shows a count and a sample grid before saving, so a Merchandiser sees the effect of a filter change immediately.
+- Zero matches is shown as an explicit "No products match this query yet" state, not an empty grid indistinguishable from a loading state.
+- Changing `sort_strategy` after products already exist visibly reorders the preview so the field never feels inert.
+
+**US-C3 — Materialize on demand**
+As a Merchandiser, I want to trigger materialization for a rule collection and see how current it is, so that I do not have to wait up to an hour for a change in the underlying catalogue to show up (§6).
+- `materialized_at` is shown as a relative freshness label ("Materialized 12 minutes ago"); a collection that has never materialized shows "Not yet materialized."
+- Triggering materialization shows an in-progress state (the job is enqueued and returns immediately, §6) rather than blocking the UI until the job completes.
+- A materialization failure surfaces on the collection detail screen, not silently.
+
+**US-C4 — Collection audience and SEO**
+As a Merchandiser, I want to scope a collection to an audience and set its SEO overrides, so that a B2B-only collection is invisible to retail buyers and still ranks well for the audience it serves (§4.5, §4.7).
+- Same audience editor as US-N2, reused rather than reinvented.
+
+### Recommendations and category enrichment
+
+**US-R1 — Configure a recommendation rule**
+As a Merchandiser, I want to set up a recommendation rule for a slot (`pdp.cross_sell`, `pdp.upsell`, `cart.cross_sell`, `checkout.cross_sell`) with a strategy and a source, so that cross-sell and upsell reflect merchandising intent instead of a hard-coded "same category" fallback (§4.8).
+- The strategy picker lists `manual | same_category | same_tag | bought_together | collection | higher_tier`.
+- Picking `collection` reveals a `target_collection_id` picker; picking any other strategy hides it, so the form never shows an irrelevant field.
+- `max_items` defaults to 8 (§4.8) and is editable.
+
+**US-R2 — `bought_together` is honestly unavailable**
+As a Merchandiser, when I open the strategy picker, I want `bought_together` shown but disabled with an explanatory note, so that I understand it is reserved for a future release rather than assuming it works and getting silently empty results (R8, §4.8).
+- Hovering or focusing the disabled option shows the same "not yet available" copy used elsewhere in the admin for reserved-but-unbuilt features.
+
+**US-R3 — `higher_tier` B2B upsell**
+As a Merchandiser serving a B2B store, I want to configure a `higher_tier` rule so that a product page recommends the next quantity tier or the larger pack, so that wholesale buyers naturally trade up (§4.8).
+
+**US-R4 — Enrich a category page**
+As a Merchandiser, I want to add hero media, intro/outro copy, a featured collection and SEO overrides to a category, so that a category landing page reads as curated rather than a bare product grid (§4.9).
+- Intro/outro HTML fields are rich-text (sanitized), not raw HTML, and are visually distinct from the `html_embed` warning state in US-P5.
+- Leaving SEO overrides empty falls back to the category's own defaults, shown as greyed-out placeholder text rather than blank fields.
+
+### Cross-cutting
+
+**US-X1 — Optimistic locking on every editable entity**
+As a Merchandiser, when another Merchandiser or Store Manager edits the same menu, block, collection or rule I have open, I want to see a conflict instead of silently overwriting their change, so that concurrent editing across a merchandising team is safe (per `AGENTS.md`'s default-on optimistic locking rule).
+- Every edit/delete form derives its lock header from `initialValues.updatedAt`; a conflicting save surfaces the unified conflict bar (`surfaceRecordConflict`), not a generic 500.
+
+**US-X2 — Consistent dialog keyboard behavior**
+As any admin user, I want every dialog in this module (audience editor, block config, preview picker, materialize confirmation) to submit on Cmd/Ctrl+Enter and cancel on Escape, so that the module feels consistent with the rest of the backoffice.
+
+---
+
+## 12) Implementation Phases
 
 ### Phase 1 — Navigation
 Menus, items, audience targeting, public menu endpoint, admin tree editor with drag-reorder.
@@ -444,16 +562,17 @@ Recommendation rules (excluding `bought_together`), category enrichment, `html_e
 
 ---
 
-## 12) Open Questions
+## 13) Open Questions
 
 1. **`bought_together`** — needs order-history analysis, and the question of whether that runs in `search`, `analytics` or a new module is unresolved. Reserved, not built (R8).
 2. **A/B testing placements** — merchants will ask. The `priority` field and audience model could carry a split, but experiment assignment, tracking and significance belong to an analytics capability that does not exist.
 3. **Personalization beyond groups** — browsing history and affinity are a different class of problem from audience targeting and would need a profile store and a consent model.
 4. **Page builder for arbitrary pages** — this module composes *known slots*. Whether merchants can create wholly new URLs with arbitrary composition, and whether that belongs here or in `content`, is unresolved. The roadmap's non-goal list excluded a full CMS; this stays inside that line.
+5. **Re-approval on edit of a published block** (raised while drafting §11 US-P3) — whether editing an already-`published` block reverts it to `draft` (forcing a Store Manager to re-approve every edit) or lets a Merchandiser edit published content in place without re-publish. Neither §5 nor §7.3 states this; it changes the admin UI's status-transition rules and should be resolved before Phase 2 implementation.
 
 ---
 
-## 13) Final Compliance Report
+## 14) Final Compliance Report
 
 | Requirement | Status |
 |---|---|
@@ -474,14 +593,18 @@ Recommendation rules (excluding `bought_together`), category enrichment, `html_e
 
 ---
 
-## 14) Changelog
+## 15) Changelog
+
+### 2026-08-31 (rev 3 — user stories)
+
+Added §11 User Stories (role-goal-outcome, with acceptance criteria covering empty/permission/error/optimistic/undo/keyboard/default-value states) so a click-through admin-UI prototype could be built from this spec. Roles map onto §7.3's ACL features (`*.manage` vs `*.publish` vs `*.view`, plus the rare `embed_html` holder). Renumbered §11–§14 to §12–§15 accordingly. Raised one new Open Question (§13 Q5): whether editing a published block forces re-approval — neither §5 nor §7.3 states this, and it changes the admin status-transition rules.
 
 ### 2026-08-17 (rev 2 — pre-implementation fixes)
 
 Fixed the findings of a `/om-pre-implement-spec` audit (`ANALYSIS-2026-08-14-storefront-merchandising.md`):
 
 - **Critical (new R9)**: §8's cache table keyed "Placement blocks" and "Recommendations" on `audienceDigest` alone, directly contradicting §7.1's own statement that `product_carousel`/`product_grid`/`collection_grid` blocks and every `/recommendations` response embed resolved, buyer-priced product payloads. Two buyers sharing customer groups but differing price kinds or personal contract prices would have shared cached prices — the same severity `ecommerce`'s and `storefront-public-api`'s own R1 rate Critical, and the identical defect class already found and fixed once in this same suite (`storefront-public-api.md` §9.1's facet/`priceRange` split). Fixed: split both surfaces into a structural layer (`audienceDigest`) and a resolved-product layer (full buyer digest); added R9, a regression test (§10), and a structural CI guard.
-- Named the shared `sanitizeRichTextHtml` helper for rich-text/embed sanitization instead of an independently-described allowlist (R3, §13).
+- Named the shared `sanitizeRichTextHtml` helper for rich-text/embed sanitization instead of an independently-described allowlist (R3, §14).
 - Declared the collection-materialization worker's queue, concurrency and idempotency (§6).
 - Stated `category_grid`'s price-independence and `rule_query.sort`'s precedence against `sort_strategy` explicitly (§4.4, §4.5).
 - Added a Module File Structure section (§3.1) and concrete cache-invalidation tag names (§8).
