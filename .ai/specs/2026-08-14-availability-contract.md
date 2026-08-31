@@ -453,7 +453,78 @@ Phases 1 and 2 unblock spec 4 (public API). Phase 3 is required only by spec 7 (
 
 ---
 
-## 17) Changelog
+## 17) User Story Map (Prototype Input)
+
+*Added 2026-08-31 to support the `om-mockup-prototype` backend click-through. Derived from §5, §8, §9, §12's data/API/event contracts; no new scope. Epics A–B are backoffice UI journeys; Epics C–D are internal service-contract journeys (storefront/checkout developers and ops/support) with no dedicated end-user screen — a prototype built from them should treat their screens as illustrative debug/ops tooling, not the contract itself.*
+
+### Epic A — Sell Policy Configuration
+Merchandiser authors per-variant/product/store sell policy.
+
+- **US-A1** — As a merchandiser, I want to set sell-policy fields (stock-managed toggle, backorder + lead time, preorder release date, low-stock threshold, min/max/increment quantity, hide-when-out-of-stock) on a policy row scoped to a variant, product, or store default, so that buyers see accurate purchasability without engineering involvement.
+  - AC: a variant/product with no policy row yet shows "No policy set — inheriting from parent/tenant defaults" (§5.2's module default), never a form pre-filled with blanks that look like explicit zeros.
+  - AC: policy list/edit requires `availability.policies.view`/`.manage`; a view-only role sees read-only fields and no Save action, not a 403 after submit.
+  - AC: enabling `allow_backorder` makes `backorder_lead_time_days` required inline, validated before submit.
+  - AC: `min_order_quantity`/`max_order_quantity`/`quantity_increment`/`low_stock_threshold` reject negative input and `max < min` inline.
+  - AC: saving over a stale version shows the platform conflict bar (`surfaceRecordConflict`) naming the concurrent editor's change, per root `AGENTS.md` optimistic locking.
+  - AC: Cmd/Ctrl+Enter submits the policy form, Escape cancels.
+  - AC: `is_stock_managed` defaults per §5.2's module default (checked when `wms` is enabled and a `ProductInventoryProfile` exists, else unchecked) — shown as a real toggle state, not blank.
+
+- **US-A2** — As a merchandiser, I want to see which level of the resolution chain (variant+store → variant → product+store → product → store default → module default) currently decides each field before I save an override, so that I don't create a redundant or conflicting one.
+  - AC: a brand-new product with no policy rows anywhere shows every field resolving to "module default", clearly labeled.
+  - AC: the resolution preview updates live as the admin edits the form, before save.
+
+### Epic B — Diagnosing Availability States
+Support explains why a buyer saw a given state.
+
+- **US-B1** — As a support agent, I want an admin check tool that reproduces exactly what a buyer saw (state, sellable quantity, `policySourceId`) for a given item/tenant/store, so that I can answer "why is this out of stock" without re-deriving the resolution chain by hand.
+  - AC: gated by `availability.check`; a user without it gets an explicit no-access state, not a silent empty result.
+  - AC: querying an item with no balance data and no policy (fallback path) returns `not_tracked` with a plain explanation, not an error.
+  - AC: an unknown item id shows an inline "no such product/variant" error, never a stack trace or blank panel.
+  - AC: quantity defaults to 1, store defaults to the tenant's default store.
+  - AC: Cmd/Ctrl+Enter runs the check.
+
+- **US-B2** — As a support agent, I want the check result to name the exact `policySourceId` (or "module default") for every resolved field, so that I can explain an unexpected state without guessing across store/product/variant overrides.
+  - AC: each resolved field shows its source as a visible child(variant) → parent(product) → store → module-default trace, not a tooltip that must be discovered (mirrors the customer-groups Epic C "explain terms" pattern).
+  - AC: `not_tracked` is visually and textually distinct from `in_stock` in the tool's own output — it must never render as "in stock" (R5, §3.2).
+
+### Epic C — Advisory vs. Authoritative Availability (internal consumer contract)
+Storefront/checkout developers rely on the read/hold distinction from §7.
+
+- **US-C1** — As a storefront developer building a listing or PDP, I want `resolveAvailability()`'s result to unambiguously mark itself advisory (`isAuthoritative: false`, up to 60s stale), so that I never treat a browse-time state as a stock guarantee.
+  - AC: the response shape makes advisory-vs-live unambiguous for every call site (browse-cached vs. cart-live, §6) — acceptance here is contract clarity, not a UI state.
+  - AC: `not_tracked` cannot be collapsed into `in_stock` by a naive consumer reading the response (R5).
+
+- **US-C2** — As a checkout developer, I want `reserveAvailability()` to be the single authoritative gate before an order is placed, returning a per-line shortfall instead of an opaque failure, so that checkout shows one "no longer available" error per line rather than failing the whole cart blindly.
+  - AC: a shortfall response names each affected `catalogProductId`/`catalogVariantId` with requested vs. available quantity (§4.1's `AvailabilityShortfallLine`).
+  - AC: a failed/partial reserve holds nothing — all-or-nothing per call (§12); there is no partial state to roll back.
+  - AC: N parallel reserve calls for the last unit succeed exactly once; the loser gets a shortfall response, never a silent double-sell (§12).
+
+### Epic D — Shortfall & Reservation Lifecycle (Ops/Support)
+Ops/support keep abandoned holds from locking up stock.
+
+- **US-D1** — As an ops/support user, I want to be alerted when the checkout shortfall rate rises, so that I know when the staleness budget or reservation model needs revisiting rather than hearing it from angry buyers.
+  - AC: `availability.shortfall.detected` fires on every failed `reserve()` (§9) — this story is observability-only; no dashboard is in this spec's scope (§8 defines no public storefront endpoints).
+
+- **US-D2** — As an ops/support user, I want abandoned checkout holds to release automatically and orphaned holds (dead sessions) to be caught by reconciliation, so abandoned carts don't quietly lock up sellable stock (R6).
+  - AC: default `ttlSeconds` is 900; the one-minute expiry sweep gives a documented 30-minute worst case (§10).
+  - AC: an orphan reservation (session gone) is released and reported, never silently left held.
+  - AC: release is idempotent against the same `idempotencyKey` — safe to run more than once, so no separate "undo" action is needed.
+
+### Cross-cutting rules (apply to every screen/consumer above)
+
+- `resolveAvailability()` (advisory) and `reserveAvailability()`/`commitAvailability()` (authoritative) must never be conflated by any caller or screen — the single most likely misuse (§4.1).
+- `not_tracked` is never rendered as `in_stock`, anywhere a state renders (§3.2, R5).
+- `check()` issues exactly one balance aggregation, one profile lookup, one policy lookup per call regardless of item count (§4.2) — no screen or prototype may assume per-item calls.
+- Every policy edit dialog: Cmd/Ctrl+Enter submits, Escape cancels (root `AGENTS.md`).
+- The optimistic-lock conflict bar is the platform's shared component, reused here for `AvailabilityPolicy` edits — not redrawn.
+- No hardcoded status colors — the six availability states use DS status tokens.
+
+---
+
+## 18) Changelog
+
+### 2026-08-31 (story map)
+- Added §17 User Story Map to support the `om-mockup-prototype` backend click-through: 4 epics, 9 stories, UX acceptance criteria (empty/permission/error/optimistic-lock/keyboard/default-value states applied only where genuinely applicable — Epics C/D are internal service-contract journeys, not end-user screens). No scope change.
 
 ### 2026-08-17
 - Reconciled with the independently-approved `wms-roadmap.md` rev 10/11 design for the same contract, found by a joint `/om-pre-implement-spec` audit (see Reconciliation note at the top of this document). Base contract, registry, and catalog-only fallback move to `packages/shared`; this module is re-scoped to `AvailabilityPolicy` + the reservation lifecycle; `AvailabilityItemRef.productId`/`.variantId` renamed to `catalogProductId`/`catalogVariantId`; `reserve`/`release`/`commit` specified as undoable commands wrapping `wms`'s existing reservation commands; added §15 Migration & Backward Compatibility (previously missing).
