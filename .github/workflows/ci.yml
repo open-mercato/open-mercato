@@ -1106,6 +1106,7 @@ jobs:
           ignore-unfixed: true
           format: table
           exit-code: '1'
+          trivyignores: .trivyignore.yaml
 
       - name: Build opencode container
         uses: useblacksmith/build-push-action@v2

@@ -20,33 +20,12 @@ concurrency:
   group: security-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# CodeQL is not a job here on purpose: this repository runs CodeQL through GitHub's
+# default setup, and GitHub rejects SARIF from an advanced workflow while default
+# setup is enabled ("CodeQL analyses from advanced configurations cannot be
+# processed when the default setup is enabled"). Query suite and languages are
+# managed in the repository's Code security settings.
 jobs:
-  codeql:
-    name: CodeQL
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    permissions:
-      actions: read
-      contents: read
-      packages: read
-      security-events: write
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@v4
-        with:
-          languages: javascript-typescript,actions
-          queries: security-extended
-
-      - name: Analyze source and workflows
-        uses: github/codeql-action/analyze@v4
-        with:
-          category: /language:javascript-typescript-actions
-
   dependency-review:
     name: Dependency review
     if: github.event_name == 'pull_request'
@@ -84,6 +63,7 @@ jobs:
           format: table
           exit-code: '1'
           skip-dirs: node_modules,apps/mercato/.mercato,tmp
+          trivyignores: .trivyignore.yaml
 
       - name: Generate SPDX SBOM
         uses: anchore/sbom-action@v0.24.0
