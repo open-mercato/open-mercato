@@ -44,6 +44,10 @@
   "audit_logs.hint.view_self_only": "Showing only your own changes. Contact an administrator for broader access.",
   "audit_logs.nav.title": "Audit Logs",
   "audit_logs.tabs.label": "Audit log views",
+  "audit_logs.upgradeActions.accessLogRetention.cta": "Schedule access-log retention",
+  "audit_logs.upgradeActions.accessLogRetention.loading": "Scheduling access-log retention…",
+  "audit_logs.upgradeActions.accessLogRetention.message": "Register daily tenant-scoped cleanup for access logs after the configured retention period.",
+  "audit_logs.upgradeActions.accessLogRetention.success": "Access-log retention is scheduled.",
   "audit_logs.version_history.action.redo": "Redo {action}",
   "audit_logs.version_history.action.undo": "Undo {action}",
   "audit_logs.version_history.close": "Close",
@@ -62,9 +66,5 @@
   "audit_logs.version_history.status.failed": "Failed",
   "audit_logs.version_history.status.redone": "Redone",
   "audit_logs.version_history.status.undone": "Undone",
-  "audit_logs.version_history.title": "Version History",
-  "audit_logs.upgradeActions.accessLogRetention.cta": "Schedule access-log retention",
-  "audit_logs.upgradeActions.accessLogRetention.loading": "Scheduling access-log retention…",
-  "audit_logs.upgradeActions.accessLogRetention.message": "Register daily tenant-scoped cleanup for access logs after the configured retention period.",
-  "audit_logs.upgradeActions.accessLogRetention.success": "Access-log retention is scheduled."
+  "audit_logs.version_history.title": "Version History"
 }
