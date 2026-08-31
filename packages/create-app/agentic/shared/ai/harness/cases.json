@@ -21183,5 +21183,85 @@
       "OMH-194",
       "OMH-210"
     ]
+  },
+  {
+    "id": "OMH-235",
+    "title": "Return a departing tenant's complete data without a hand-written database dump",
+    "family": "architecture",
+    "mode": "analysis",
+    "evaluationKind": "routing",
+    "risk": "high",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, a customer is leaving and their operations lead has asked for everything the platform holds about their tenant, business records and uploaded files alike, in a format their next vendor can load without Open Mercato. Before proposing any script, establish whether an installed module already owns a tenant exit package and name it, or state positively that none does. Then decide the smallest safe design against what the installed modules already provide: how the package is scoped to exactly one tenant and its organizations, why a raw database dump is the wrong shape, how encrypted application fields become readable in the package while login sessions, reset tokens and other runtime secrets stay out of it, how attachment binaries travel with the data, and who may run the export and from where. Keep tenant and organization boundaries intact, state the handling posture for the produced archive, and identify the smallest relevant validation. Do not write your own dump wrapper, per-table export loop, or archive format before that check is done.",
+    "tags": [
+      "architecture",
+      "module-facts",
+      "reuse-installed",
+      "tenant-exit",
+      "data-portability"
+    ],
+    "owner": {
+      "kind": "facts",
+      "path": ".ai/guides/modules/tenant_exports/index.md",
+      "ruleIds": [
+        "BC-01",
+        "BC-04"
+      ]
+    },
+    "expectedRouter": {
+      "required": [
+        "architecture"
+      ],
+      "allowedExtra": [
+        "module-data",
+        "framework-context",
+        "debugging"
+      ]
+    },
+    "requiredSkills": [
+      "om-help"
+    ],
+    "context": {
+      "required": [
+        "AGENTS.md",
+        ".ai/guides/architecture.md",
+        ".ai/skills/om-help/SKILL.md",
+        ".ai/guides/modules/tenant_exports/index.md"
+      ],
+      "allowedExtra": [
+        ".ai/guides/modules/attachments/index.md",
+        ".ai/guides/contracts.md"
+      ],
+      "forbidden": [
+        ".env*",
+        ".git/**"
+      ]
+    },
+    "requiredDecisions": [
+      "facts-first",
+      "reuse-installed-tenant-export",
+      "tenant-scope",
+      "smallest-validation"
+    ],
+    "forbiddenPatterns": [
+      "node_modules.{0,40}(?:write|edit|patch)",
+      "(?:tenant|organization).{0,30}(?:unscoped|scope optional)",
+      "(?:token|secret|password).{0,20}(?:console|log)"
+    ],
+    "validators": [
+      "catalog.schema",
+      "owner.reference",
+      "skills.reference",
+      "router.contract",
+      "context.budget",
+      "context.forbidden",
+      "patterns.forbidden"
+    ],
+    "maxContextFiles": 8,
+    "maxInitialContextBytes": 53248,
+    "maxTotalContextBytes": 73728,
+    "relatedCases": [
+      "OMH-157",
+      "OMH-204"
+    ]
   }
 ]
