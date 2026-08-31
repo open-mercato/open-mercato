@@ -1,6 +1,6 @@
 ---
 title: Standalone Harness Generalization for Unenumerated Business Modules
-date: 2026-08-31
+date: 2026-08-29
 status: draft
 ---
 
@@ -12,7 +12,7 @@ The standalone-app agent harness (routing knowledge, blueprints, fact sheets, an
 
 ## Problem Statement
 
-Audit evidence (2026-08-31, measured against the shipped 234-case catalog):
+Audit evidence (2026-08-29, measured against the shipped 234-case catalog):
 
 1. **Fact-sheet monopoly.** Module fact sheets are generated only for `@open-mercato/*` packages (`packages/create-app/build.mjs`, `packages/cli/src/lib/generators/module-facts-discovery.ts`), and `assertPackageModuleFactsOnly` (`packages/cli/src/lib/generators/module-facts.ts`) throws on any app-local fact. `yarn generate` writes nothing under `.ai/guides/`. A user's own module in `src/modules/` therefore never has a fact sheet, while 163/234 cases (70%) lean on that asset class. The router hands a `customers` task a curated sheet, a blueprint row, and a keyword-map entry; it hands a user's `bookings` module nothing but raw source.
 2. **Blueprint row matching with no miss handler.** The root router's `module-data` row makes loading `om-module-scaffold/references/business-one-shot-blueprints.md` and picking its "exact key" mandatory for every business one-shot. The file holds 42 rows (only 3 greenfield), instructs "Pick the closest row" and "Once a row matches, its route key is binding", and has no branch for a brief that matches no row. A generic brief is forced to impersonate the nearest CRM row.
@@ -82,4 +82,4 @@ Four tracks, independently landable, ordered by leverage over cost. Every change
 
 ## Changelog
 
-- 2026-08-31: Initial draft from the multi-model robustness and over-specificity audit.
+- 2026-08-29: Initial draft from the multi-model robustness and over-specificity audit.
