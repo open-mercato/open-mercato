@@ -137,6 +137,24 @@ class TestSeedChannelAdapter implements ChannelAdapter {
 }
 
 /**
+ * Capabilities for the chat stub. Identical to the email stub's except for the
+ * recipient shape: a chat channel is addressed by a provider-issued identifier
+ * (a Discord snowflake), not an email address.
+ *
+ * Without this override the chat stub inherited `baseEmailCapabilities`, so it
+ * claimed `channelType: 'discord'` while validating recipients as email
+ * addresses — a channel that could not be addressed the way the provider it
+ * imitates actually is. That left the hub's `'provider-native'` branch
+ * (#4976: per-provider recipient validation, and the omitted recipient that
+ * falls back to the adapter's own target) reachable only with a live Discord
+ * bot, so no integration test could cover it and CI never exercised it.
+ */
+const testSeedChatCapabilities: ChannelCapabilities = {
+  ...testSeedCapabilities,
+  recipientFormat: 'provider-native',
+}
+
+/**
  * Chat-flavoured twin of {@link TestSeedChannelAdapter}: same network-free
  * behaviour, but it declares a non-email `channelType`, so a channel connected
  * through it is shaped like a real chat channel — including an
@@ -145,6 +163,7 @@ class TestSeedChannelAdapter implements ChannelAdapter {
 class TestSeedChatChannelAdapter extends TestSeedChannelAdapter {
   readonly providerKey: string = TEST_SEED_CHAT_PROVIDER_KEY
   readonly channelType: string = 'discord'
+  readonly capabilities = testSeedChatCapabilities
 
   async normalizeInbound(raw: InboundMessage): Promise<NormalizedInboundMessage> {
     // Unlike the email stub, this one is reachable: the test-seed ingest action

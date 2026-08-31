@@ -92,7 +92,8 @@ describe('customers deals list filters', () => {
 
     const lostParsed = dealListQuerySchema.parse({ status: ['lost'] })
     const lostFilters = await buildDealListFilters(lostParsed)
-    expect(lostFilters.status).toEqual({ $in: ['loose', 'lost'] })
+    expect(lostFilters.status).toEqual({ $in: expect.arrayContaining(['lost', 'loose']) })
+    expect(lostFilters.status.$in).toHaveLength(2)
   })
 
   it('is case-insensitive for won/lost aliases and preserves unknown values', async () => {

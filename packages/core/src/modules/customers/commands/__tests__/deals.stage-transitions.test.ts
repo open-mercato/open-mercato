@@ -284,7 +284,7 @@ describe('customers.deals.update stage transitions', () => {
     },
     {
       closureOutcome: 'lost' as const,
-      status: 'loose',
+      status: 'lost',
       terminalStageId: '550e8400-e29b-41d4-a716-446655440013',
       terminalStageLabel: 'Lost',
       lossReasonId: '550e8400-e29b-41d4-a716-446655440021',

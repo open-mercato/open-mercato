@@ -390,7 +390,7 @@
   "auth.acl.modules.webhooks": "Webhooks",
   "auth.acl.modules.wms": "Warehouse Management System",
   "auth.acl.modules.workflows": "Workflow Engine",
-  "auth.acl.organizationWarning": "Organization restrictions are saved only when at least one feature override is selected. Add a feature or enable a module wildcard before saving.",
+  "auth.acl.organizationWarning": "Organization restrictions require at least one feature override. Add a feature or module wildcard, or clear the organization scope before saving.",
   "auth.acl.organizationsScope": "Organizations scope",
   "auth.acl.organizationsScopeHint": "Empty means all organizations. Select one or more to restrict access.",
   "auth.acl.restricted": "Restricted",

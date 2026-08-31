@@ -5,6 +5,7 @@ export const notificationTypes: NotificationTypeDefinition[] = [
   {
     type: 'demo.silent_ping',
     module: 'example',
+    channels: ['push'],
     titleKey: 'example.notifications.demoSilentPing.title',
     bodyKey: 'example.notifications.demoSilentPing.body',
     icon: 'bell',
@@ -17,6 +18,7 @@ export const notificationTypes: NotificationTypeDefinition[] = [
   {
     type: 'demo.push_playground',
     module: 'example',
+    channels: ['push'],
     titleKey: 'example.notifications.demoPushPlayground.title',
     bodyKey: 'example.notifications.demoPushPlayground.body',
     icon: 'bell',
@@ -27,6 +29,7 @@ export const notificationTypes: NotificationTypeDefinition[] = [
   {
     type: 'example.umes.actionable',
     module: 'example',
+    channels: ['in_app', 'email'],
     titleKey: 'example.notifications.umesActionable.title',
     bodyKey: 'example.notifications.umesActionable.body',
     icon: 'bell',
