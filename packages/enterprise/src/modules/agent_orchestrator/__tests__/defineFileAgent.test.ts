@@ -56,6 +56,11 @@ const VALID_AGENT_MD = [
   'You assess the health of a sales deal.',
 ].join('\n')
 
+const AGENT_WITH_SUB_AGENT_MD = VALID_AGENT_MD.replace(
+  'maxSteps: 12',
+  'maxSteps: 12\nsubAgents: [deals.activity_scan]',
+)
+
 const VALID_OUTCOME = [
   '---',
   'kind: proposal',
@@ -80,17 +85,18 @@ describe('loadFileAgentDir', () => {
     for (const dir of created) fs.rmSync(dir, { recursive: true, force: true })
   })
 
-  it('loads a valid agent into an opencode entry with the compiled schema', () => {
+  it('loads a valid agent into a Business Harness entry with the compiled schema', () => {
     const dir = makeAgentDir({ agentMd: VALID_AGENT_MD, outcome: VALID_OUTCOME })
     created.push(dir)
     const loaded = loadFileAgentDir(dir)
     expect(loaded).not.toBeNull()
-    expect(loaded!.entry.runtime).toBe('opencode')
+    expect(loaded!.entry.runtime).toBe('business-harness')
     expect(loaded!.entry.id).toBe('deals.health_check')
     expect(loaded!.entry.resultKind).toBe('proposal')
-    expect(loaded!.openCodeAgentName).toBe('deals_health_check')
     expect(loaded!.entry.loop).toEqual({ maxSteps: 12 })
     expect(loaded!.entry.defaultProvider).toBe('anthropic')
+    expect(loaded!.entry.instructions).toBe('You assess the health of a sales deal.')
+    expect(loaded!.entry.tools).toEqual([])
 
     // schema validates the proposal envelope
     expect(
@@ -101,12 +107,6 @@ describe('loadFileAgentDir', () => {
     ).toBe(true)
     expect(loaded!.entry.schema.safeParse({ kind: 'researcher', data: {} }).success).toBe(false)
 
-    // rendered OpenCode agent file carries the propose-only allowlist + submit_outcome
-    expect(loaded!.openCodeAgentFile).toContain('mode: primary')
-    expect(loaded!.openCodeAgentFile).toContain('"*": false')
-    expect(loaded!.openCodeAgentFile).toContain('open-mercato_agent_orchestrator_submit_outcome')
-    expect(loaded!.openCodeAgentFile).toContain('write: deny')
-    expect(loaded!.openCodeAgentFile).toContain('submit_outcome')
   })
 
   it('reads an optional SAMPLE.json into entry.sampleInput (and ignores a malformed one)', () => {
@@ -158,8 +158,8 @@ describe('loadFileAgentDir', () => {
   })
 
   // Phase 4 — sub-agents.
-  it('loads sub-agents, renders them mode: subagent + read-only, and wires the primary task allowance', () => {
-    const dir = makeAgentDir({ agentMd: VALID_AGENT_MD, outcome: VALID_OUTCOME })
+  it('loads declared researcher sub-agents for Business Harness delegation', () => {
+    const dir = makeAgentDir({ agentMd: AGENT_WITH_SUB_AGENT_MD, outcome: VALID_OUTCOME })
     created.push(dir)
     addSubAgent(dir, 'activity_scan', { agentMd: SUB_AGENT_MD, outcome: SUB_OUTCOME_RESEARCHER })
 
@@ -169,22 +169,9 @@ describe('loadFileAgentDir', () => {
     const sub = loaded!.subAgents[0]
     expect(sub.entry.id).toBe('deals.activity_scan')
     expect(sub.resultKind).toBe('researcher')
-    expect(sub.openCodeAgentName).toBe('deals_activity_scan')
-
-    // Sub-agent file: mode subagent, read-only, NO further delegation (task deny).
-    expect(sub.openCodeAgentFile).toContain('mode: subagent')
-    expect(sub.openCodeAgentFile).toContain('write: deny')
-    expect(sub.openCodeAgentFile).toContain('task: deny')
-    expect(sub.openCodeAgentFile).not.toContain('"task": true')
-
-    // Primary delegates via the server-side delegate_agent tool, NEVER OpenCode's `task`.
-    expect(loaded!.openCodeAgentFile).toContain('mode: primary')
-    expect(loaded!.openCodeAgentFile).toContain('task: deny')
-    expect(loaded!.openCodeAgentFile).not.toContain('"task": true')
-    expect(loaded!.openCodeAgentFile).toContain('"open-mercato_agent_orchestrator_delegate_agent": true')
-    expect(loaded!.openCodeAgentFile).toContain('## Sub-agents')
-    // The delegation prompt names the sub-agent by its FULL registry id.
-    expect(loaded!.openCodeAgentFile).toContain('deals.activity_scan')
+    expect(sub.entry.runtime).toBe('business-harness')
+    expect(sub.entry.subAgents).toEqual([])
+    expect(loaded!.entry.subAgents).toEqual(['deals.activity_scan'])
   })
 
   it('rejects a proposal sub-agent (only the primary proposes)', () => {

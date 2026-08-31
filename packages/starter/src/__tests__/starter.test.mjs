@@ -7,11 +7,11 @@ import { test } from 'node:test'
 
 import { parseComposePsOutput, resolveRepoRoot } from '../compose.mjs'
 import { hostTrustEnv, summarizeProbeResults, writeCaBundle } from '../certs.mjs'
-import { DEFAULT_OPENCODE_BASE_IMAGE, DEFAULT_PORTS, resolveStackPorts } from '../constants.mjs'
+import { DEFAULT_PORTS, resolveStackPorts } from '../constants.mjs'
 import { addEnvValue, readEnvValue, setEnvValue } from '../env-file.mjs'
 import { ensureLlmProvider, syncProviderConfigToAppEnv } from '../providers.mjs'
 import { ensureWindowsUtf8Console, resolveSpawnCommand } from '../spawn.mjs'
-import { StepBlocked, buildToolchainStep, clearConvergenceState, databaseIsInitialized, listMigrationModules, migrationsFingerprint, probePostgresCredentials, readAppliedMigrationModules, resolveOpencodeBaseImage, runSteps } from '../steps.mjs'
+import { StepBlocked, buildToolchainStep, clearConvergenceState, databaseIsInitialized, listMigrationModules, migrationsFingerprint, probePostgresCredentials, readAppliedMigrationModules, runSteps } from '../steps.mjs'
 import { ensureEnvFiles } from '../env-setup.mjs'
 import { removeLeftoverComposeResources } from '../infra.mjs'
 import { checkBuildToolchain, defenderExclusionCovers, detectHostGateway, hostIpCandidates } from '../doctor.mjs'
@@ -303,27 +303,6 @@ test('readAppliedMigrationModules parses psql bookkeeping tables and returns nul
 
   assert.equal(readAppliedMigrationModules(ctx, { runComposeImpl: () => ({ status: 1, stdout: '' }) }), null)
   assert.equal(readAppliedMigrationModules(ctx, { runComposeImpl: () => { throw new Error('compose missing') } }), null)
-})
-
-test('resolveOpencodeBaseImage: env wins, then .env, then the pinned default', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'om-starter-opencode-'))
-  try {
-    assert.equal(
-      resolveOpencodeBaseImage(root, {}),
-      DEFAULT_OPENCODE_BASE_IMAGE,
-    )
-    fs.writeFileSync(path.join(root, '.env'), 'OPENCODE_BASE_IMAGE=registry.corp/opencode-base:1.18.3\n')
-    assert.equal(
-      resolveOpencodeBaseImage(root, {}),
-      'registry.corp/opencode-base:1.18.3',
-    )
-    assert.equal(
-      resolveOpencodeBaseImage(root, { OPENCODE_BASE_IMAGE: 'override/base:2' }),
-      'override/base:2',
-    )
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true })
-  }
 })
 
 test('checkBuildToolchain is a no-op off Windows and the gate only applies to hybrid+win32', () => {

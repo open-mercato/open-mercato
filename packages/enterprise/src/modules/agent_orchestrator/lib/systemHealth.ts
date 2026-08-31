@@ -23,7 +23,7 @@ export type HealthState = 'ok' | 'unknown' | 'degraded' | 'down' | 'error'
  */
 const SEVERITY: Record<HealthState, number> = { ok: 0, unknown: 1, degraded: 2, down: 3, error: 4 }
 
-export type HealthIndicatorId = 'webSearch' | 'mcp' | 'opencode' | 'opencodeMcp'
+export type HealthIndicatorId = 'webSearch' | 'harness' | 'capability'
 
 /** What calling an adapter's health check costs. See `packages/web-research`. */
 export type ProbeCost = 'free' | 'heavy' | 'billable'
@@ -33,6 +33,8 @@ export type HealthIndicator = {
   state: HealthState
   /** Short, already-resolved supporting text, or null. Never a translation key. */
   detail: string | null
+  /** Deployment shape for the business harness indicator. */
+  runtimeMode?: 'one-off' | 'standalone'
   /**
    * Enabled adapters that were not called, so the panel can name them without
    * this module inventing user-facing prose it cannot translate.
@@ -63,11 +65,9 @@ export type WebSearchHealthPayload = {
 }
 
 export type AiRuntimeHealthPayload = {
-  status?: 'ok' | 'error'
-  opencode?: { healthy: boolean; version: string }
-  mcp?: Record<string, { status: string; error?: string }>
-  mcpHealth?: { healthy: boolean; status?: string; tools?: number }
-  message?: string
+  status?: 'ok' | 'degraded'
+  harness?: { healthy: boolean; detail?: string; mode?: 'one-off' | 'standalone' }
+  capability?: { driver: 'mcp-http' | 'cli-stdio'; healthy: boolean; detail?: string; tools?: number }
 }
 
 export function isWebSearchHealthPayload(value: unknown): value is WebSearchHealthPayload {
@@ -82,7 +82,7 @@ export function isWebSearchHealthPayload(value: unknown): value is WebSearchHeal
 export function isAiRuntimeHealthPayload(value: unknown): value is AiRuntimeHealthPayload {
   if (typeof value !== 'object' || value === null) return false
   const candidate = value as Record<string, unknown>
-  return 'status' in candidate || 'opencode' in candidate || 'mcpHealth' in candidate
+  return 'status' in candidate || 'harness' in candidate || 'capability' in candidate
 }
 
 /**
@@ -134,10 +134,8 @@ export function deriveWebSearchIndicator(
 }
 
 /**
- * MCP, OpenCode, and the binding between them. They are reported separately
- * because they fail separately and are fixed in different places: an MCP server
- * that is up while OpenCode cannot see it is a config problem, not an outage,
- * and the tile should not blur the two into one amber dot.
+ * The business harness process and its configured capability transport are
+ * independent dependencies and therefore remain separate indicators.
  */
 export function deriveRuntimeIndicators(
   payload: AiRuntimeHealthPayload | null,
@@ -145,58 +143,38 @@ export function deriveRuntimeIndicators(
 ): HealthIndicator[] {
   if (fetchFailed) {
     return [
-      { id: 'mcp', state: 'error', detail: null },
-      { id: 'opencode', state: 'error', detail: null },
-      { id: 'opencodeMcp', state: 'error', detail: null },
+      { id: 'harness', state: 'error', detail: null },
+      { id: 'capability', state: 'error', detail: null },
     ]
   }
   if (!payload) {
     return [
-      { id: 'mcp', state: 'unknown', detail: null },
-      { id: 'opencode', state: 'unknown', detail: null },
-      { id: 'opencodeMcp', state: 'unknown', detail: null },
+      { id: 'harness', state: 'unknown', detail: null },
+      { id: 'capability', state: 'unknown', detail: null },
     ]
   }
 
-  const mcp: HealthIndicator = payload.mcpHealth
+  const harness: HealthIndicator = payload.harness
     ? {
-        id: 'mcp',
-        state: payload.mcpHealth.healthy ? 'ok' : 'down',
+        id: 'harness',
+        state: payload.harness.healthy ? 'ok' : 'down',
+        detail: payload.harness.detail ?? null,
+        runtimeMode: payload.harness.mode,
+      }
+    : { id: 'harness', state: 'unknown', detail: null }
+
+  const capability: HealthIndicator = payload.capability
+    ? {
+        id: 'capability',
+        state: payload.capability.healthy ? 'ok' : 'down',
         detail:
-          payload.mcpHealth.healthy && typeof payload.mcpHealth.tools === 'number'
-            ? `${payload.mcpHealth.tools}`
-            : null,
+          payload.capability.healthy && typeof payload.capability.tools === 'number'
+            ? `${payload.capability.driver}: ${payload.capability.tools}`
+            : payload.capability.detail ?? payload.capability.driver,
       }
-    : { id: 'mcp', state: 'unknown', detail: null }
+    : { id: 'capability', state: 'unknown', detail: null }
 
-  const opencode: HealthIndicator = payload.opencode
-    ? {
-        id: 'opencode',
-        state: payload.opencode.healthy ? 'ok' : 'down',
-        detail: payload.opencode.version || null,
-      }
-    : {
-        id: 'opencode',
-        // A top-level `error` IS the OpenCode probe failing — that is the branch
-        // `handleOpenCodeHealth` returns when the client throws.
-        state: payload.status === 'error' ? 'down' : 'unknown',
-        detail: payload.message ?? null,
-      }
-
-  const bindings = Object.entries(payload.mcp ?? {})
-  let opencodeMcp: HealthIndicator
-  if (bindings.length === 0) {
-    opencodeMcp = { id: 'opencodeMcp', state: 'unknown', detail: null }
-  } else {
-    const broken = bindings.filter(([, binding]) => binding.status !== 'connected')
-    opencodeMcp = {
-      id: 'opencodeMcp',
-      state: broken.length === 0 ? 'ok' : broken.length === bindings.length ? 'down' : 'degraded',
-      detail: broken.length > 0 ? broken.map(([name]) => name).join(', ') : null,
-    }
-  }
-
-  return [mcp, opencode, opencodeMcp]
+  return [harness, capability]
 }
 
 /**

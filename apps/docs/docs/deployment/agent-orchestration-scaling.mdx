@@ -5,13 +5,13 @@ description: Size the queue, worker fleet, and database connections for real age
 
 # Agent Orchestration Scaling
 
-This runbook explains how to configure an Open Mercato deployment so the agent-orchestration pipeline (the enterprise `agent_orchestrator` module plus the core `workflows` engine) sustains real production load. Out of the box the platform is tuned for development, not for a fleet of LLM-bound agent runs.
+This runbook explains how to configure an Open Mercato deployment so the agent-orchestration pipeline (the enterprise `agent_orchestrator` module plus the core `workflows` engine) sustains real production load. Out of the box the platform is tuned for development, not for a fleet of LLM-bound agent runs. Configure the agent execution service first with [Business Harness Runtime](./business-harness-runtime).
 
 ## Why the defaults are not enough
 
 The reference load target is **1,000 cases/day × ~12 agents per case ≈ 12,000 agent runs/day**. With an average run taking on the order of a minute, that works out to roughly **~20 concurrently executing LLM-bound runs in steady state** across a business-hours window (and 50–100 at peak). The default configuration — a file-based sequential queue processed by a single process at concurrency 1 — is an order of magnitude below that.
 
-Three things must change for production agent load: the queue strategy, the worker deployment, and (in containerized topologies) the OpenCode URL.
+Three things must change for production agent load: the queue strategy, the worker deployment, and the Business Harness runtime topology.
 
 ## Queue strategy: `QUEUE_STRATEGY=async` is required
 
@@ -77,7 +77,7 @@ The agent runtime enforces process-local protection around each run:
 | `OM_AGENT_ADMISSION_MAX_QUEUE` | `100` | Max waiters per process; beyond this, rejection is immediate. |
 
 :::warning The admission cap is process-local, not fleet-wide
-`OM_AGENT_MAX_CONCURRENT_RUNS` bounds **one process**. The fleet-wide bound is `cap × replicas` — with 4 worker replicas at the default cap of 25, up to 100 runs can execute cluster-wide. The fleet-wide throttle is **worker concurrency** (`WORKERS_WORKFLOW_INVOKE_AGENT_CONCURRENCY` × replicas); the admission gate only protects each process's DB pool and the OpenCode service from direct-caller bursts (playground, scripts, agent fan-out).
+`OM_AGENT_MAX_CONCURRENT_RUNS` bounds **one process**. The fleet-wide bound is `cap × replicas` — with 4 worker replicas at the default cap of 25, up to 100 runs can execute cluster-wide. The fleet-wide throttle is **worker concurrency** (`WORKERS_WORKFLOW_INVOKE_AGENT_CONCURRENCY` × replicas); the admission gate only protects each process's DB pool and Business Harness from direct-caller bursts (playground, scripts, agent fan-out).
 :::
 
 ## Provider LLM budgets (native runtime)
@@ -104,12 +104,16 @@ Native runs are LLM-latency-bound I/O waits — a worker at concurrency K holds 
 - Leave the per-provider budget at 10 unless your provider tier allows more: 5 replicas × 10 = 50 concurrent calls per provider fleet-wide; excess runs queue briefly at the budget gate instead of turning into provider 429 storms.
 - Span capture is always-on: at hundreds of parallel runs, schedule the span/tool-call retention work (F3 partitioning) alongside the rollout — see the lightweight-agent-runtime spec's Dependencies section.
 
-## OpenCode connectivity
+## Business Harness connectivity
 
 | Env var | Default | Meaning |
 |---|---|---|
-| `OPENCODE_URL` | `http://localhost:4096` | Base URL of the OpenCode server. In containerized topologies this **must** point at the OpenCode service name — the compose bundles use `http://opencode:4096`. The `localhost` default is unreachable from inside an app or worker container. |
-| `OM_OPENCODE_RUN_TIMEOUT_MS` | `300000` | Wall-clock ceiling for one OpenCode-executed agent run. |
+| `OM_BUSINESS_HARNESS_TRANSPORT` | `stdio` | Use `stdio` for one process per run or `http` when the runtime is deployed as a standalone service. |
+| `OM_BUSINESS_HARNESS_URL` | `http://127.0.0.1:4300` | Base URL of the standalone service. In a containerized topology it must use an address reachable from the app and worker containers. |
+| `BUSINESS_HARNESS_SERVICE_TOKEN` | Development fallback only | Shared bearer token for OM and the standalone service. It is required in production. |
+| `OM_BUSINESS_HARNESS_RUN_TIMEOUT_MS` | `120000` | Wall-clock ceiling for one Business Harness agent run. |
+
+See [Business Harness Runtime](./business-harness-runtime) for the complete one-off and standalone setup, credential broker configuration, and MCP or CLI connector options.
 
 ## Index pre-creation on large tables
 
@@ -137,4 +141,4 @@ Watch these signals in production:
 - **Provider 429 retry rate and budget wait time** (native runtime) — sustained retries or long waits at the provider gate mean `OM_AGENT_PROVIDER_MAX_CONCURRENT × replicas` exceeds your provider tier; lower the budget or raise the tier.
 - **Span-ingest lag** — native runs write their span trees post-run, best-effort; a run whose trace stays empty long after completion (with `OM_AGENT_TRACE_CAPTURE=on`) indicates capture failures — check worker logs for `native trace capture failed`.
 - **DB pool saturation** in both web and worker processes — see the connection-budget invariant above.
-- **OpenCode session count** — the single OpenCode container is a shared resource; remember the fleet-wide run bound is `cap × replicas`.
+- **Business Harness request latency and failures** — a standalone service is shared by the worker fleet, so scale its replicas and connection capacity with worker concurrency.

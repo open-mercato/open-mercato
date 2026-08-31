@@ -132,16 +132,16 @@ async function probeHttp(url, timeoutMs = 3000) {
   }
 }
 
-export async function collectStatus(repoRoot, { runCompose }) {
+export async function collectStatus(repoRoot, { runCompose, probeExternalHarness = false }) {
   const ports = resolveStackPorts(repoRoot)
   const urls = stackUrls(ports)
   const state = readRunState(repoRoot)
   const detachedAlive = state ? isPidAlive(state.pid) : false
 
-  const [appUp, mcpUp, opencodeUp, splash] = await Promise.all([
+  const [appUp, mcpUp, businessHarnessUp, splash] = await Promise.all([
     probeHttp(urls.app),
     probeHttp(urls.mcpHealth),
-    probeHttp(urls.opencodeHealth),
+    probeExternalHarness ? probeHttp(urls.businessHarnessHealth) : Promise.resolve(null),
     fetchJson(`${urls.splash}/status`),
   ])
 
@@ -158,7 +158,7 @@ export async function collectStatus(repoRoot, { runCompose }) {
     containers = []
   }
 
-  return { ports, urls, detached: state && detachedAlive ? state : null, appUp, mcpUp, opencodeUp, splash, containers }
+  return { ports, urls, detached: state && detachedAlive ? state : null, appUp, mcpUp, businessHarnessUp, splash, containers }
 }
 
 export function printStatus(status, { log = console.log } = {}) {
@@ -168,7 +168,11 @@ export function printStatus(status, { log = console.log } = {}) {
   const flag = (up) => (up ? `${icons.ok} up  ` : `${icons.fail} down`)
   log(`  app        ${flag(status.appUp)}   ${color.cyan(status.urls.app)}`)
   log(`  mcp        ${flag(status.mcpUp)}   ${color.cyan(status.urls.mcpHealth)}`)
-  log(`  opencode   ${flag(status.opencodeUp)}   ${color.cyan(status.urls.opencodeHealth)}`)
+  if (status.businessHarnessUp === null) {
+    log(`  harness    ${icons.ok} on demand   ${color.dim('(one-off stdio subprocess)')}`)
+  } else {
+    log(`  harness    ${flag(status.businessHarnessUp)}   ${color.cyan(status.urls.businessHarnessHealth)}`)
+  }
   if (status.detached) log(`  supervisor ${icons.ok} detached (pid ${status.detached.pid}, since ${status.detached.startedAt})`)
   else log(`  supervisor ${icons.info} not detached (foreground \`yarn dev\` or stopped)`)
   if (status.splash?.phase || status.splash?.activity) {

@@ -3,8 +3,8 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { getAgentEntry, ensureAgentsLoaded } from '../sdk/defineAgent'
 import { type AgentResult } from '../../data/validators'
-import { OpenCodeAgentRunner } from './openCodeAgentRunner'
 import { NativeAgentRunner } from './nativeAgentRunner'
+import { BusinessHarnessAgentRunner } from './businessHarnessAgentRunner'
 import { getCurrentRunId } from './runContext'
 import { acquireAgentRunSlot, type AgentRunSlotRelease } from './admission'
 import { withAgentActor } from '../identity/agentWriteScope'
@@ -31,10 +31,8 @@ export type AgentRuntimeDeps = {
 /**
  * Runtime dispatch service: resolves the registered agent entry, applies the
  * cross-runtime protections (admission gate, agent-actor no-bypass scope), and
- * dispatches on `entry.runtime` — `'opencode'` to the OpenCode runner (file
- * agents, deprecation planned), everything else (`'native'` and its accepted
- * legacy alias `'in-process'`) to the {@link NativeAgentRunner}, the extracted
- * in-process engine (lightweight-agent-runtime spec Phase 1).
+ * dispatches `business-harness` agents to the configured stdio or HTTP
+ * transport and native agents to the in-process {@link NativeAgentRunner}.
  *
  * The call surface (`agentRuntime.run(agentId, input, ctx)`) is unchanged —
  * callers stay runtime-agnostic.
@@ -61,13 +59,15 @@ export class AgentRuntimeService {
     // `em.flush()` bypass impossible at runtime. Unprincipalled (legacy/playground)
     // runs keep their prior behavior (no actor scope, guard never fires).
     const dispatch = (): Promise<AgentResult> => {
-      if (entry.runtime === 'opencode') {
-        const runner = new OpenCodeAgentRunner({
+      if (entry.runtime === 'business-harness') {
+        const runner = new BusinessHarnessAgentRunner({
           container: this.container,
           commandBus: this.commandBus,
-          openCodeClient: this.container.resolve('openCodeClient'),
         })
         return runner.run(entry, input, ctx)
+      }
+      if (entry.runtime === 'external') {
+        throw new Error('[internal] Agent runtime "external" is not executable by AgentRuntimeService')
       }
       const runner = new NativeAgentRunner({
         container: this.container,

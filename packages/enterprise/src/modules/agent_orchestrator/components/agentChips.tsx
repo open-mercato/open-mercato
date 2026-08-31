@@ -50,7 +50,7 @@ export const AGENT_TYPE_ICON: Record<string, React.ComponentType<{ className?: s
 export const RUNTIME_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
   'in-process': Cpu,
   native: Cpu,
-  opencode: SquareCode,
+  'business-harness': SquareCode,
   external: Globe,
 }
 

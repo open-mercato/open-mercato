@@ -67,7 +67,11 @@ const sidebars: SidebarsConfig = {
     {
       type: "category",
       label: "Deployment",
-      items: ["deployment/railway", "deployment/agent-orchestration-scaling"],
+      items: [
+        "deployment/railway",
+        "deployment/business-harness-runtime",
+        "deployment/agent-orchestration-scaling",
+      ],
     },
     {
       type: "category",

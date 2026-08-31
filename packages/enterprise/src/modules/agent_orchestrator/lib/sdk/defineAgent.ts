@@ -19,12 +19,12 @@ export type AgentResultKind = 'proposal' | 'researcher'
  * `NativeAgentRunner` (lightweight-agent-runtime spec Phase 1). `'in-process'`
  * is the accepted legacy alias for the same runner — the union stays
  * ADDITIVE-ONLY per BACKWARD_COMPATIBILITY.md, so entries registered with
- * `'in-process'` dispatch identically. `'opencode'` agents are authored as
+ * `'in-process'` dispatch identically. `'business-harness'` agents are authored as
  * `agents/<id>/` file conventions (AGENT.md + OUTCOME.md), registered via
  * `registerFileAgent`, and run on the OpenCode runtime (deprecation planned —
  * see the spec's Phase 3/6).
  */
-export type AgentRuntime = 'in-process' | 'native' | 'opencode' | 'external'
+export type AgentRuntime = 'in-process' | 'native' | 'business-harness' | 'external'
 
 /**
  * Runtime labels that execute on the native (in-process) runner. Persisted
@@ -470,7 +470,7 @@ async function loadFileAgents(): Promise<void> {
         defaultProvider: descriptor.provider,
         defaultModel: descriptor.model,
         loop: descriptor.maxSteps != null ? { maxSteps: descriptor.maxSteps } : undefined,
-        runtime: 'opencode',
+        runtime: 'business-harness',
         outcomeSchema: descriptor.outcomeSchema,
         sampleInput: descriptor.sampleInput,
         facts: descriptor.facts,

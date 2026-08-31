@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import tls from 'node:tls'
 
-import { CAPTURED_CA_BUNDLE, DOCKER_CERTS_DIR, OPENCODE_CERTS_DIR, TLS_PROBE_HOSTS } from './constants.mjs'
+import { CAPTURED_CA_BUNDLE, DOCKER_CERTS_DIR, TLS_PROBE_HOSTS } from './constants.mjs'
 
 // Corporate TLS interception handling. Managed devices (Zscaler, Netskope,
 // Palo Alto, ...) resign every TLS connection with a company root CA that the
@@ -13,7 +13,7 @@ import { CAPTURED_CA_BUNDLE, DOCKER_CERTS_DIR, OPENCODE_CERTS_DIR, TLS_PROBE_HOS
 //   provision — drop the bundle everywhere the stack needs it:
 //     * NODE_EXTRA_CA_CERTS for every host-side child process (yarn, corepack,
 //       node scripts)
-//     * docker/certs/ + docker/opencode/certs/ (baked into image builds and
+//     * docker/certs/ (baked into image builds and
 //       runtime container trust by the existing Dockerfiles)
 //   guide  — engine-level trust (Docker Desktop reads the Windows cert store;
 //     Rancher Desktop needs the CA inside its WSL distro) is reported by the
@@ -192,12 +192,11 @@ export function writeCaBundle(repoRoot, { companyBundles = [], capturedPems = []
 }
 
 // Copy the bundle into the gitignored image-build drop zones. The root
-// Dockerfile and docker/opencode/Dockerfile append everything in these dirs to
+// The root Dockerfile appends everything in this directory to
 // the container trust store (build-time AND runtime egress).
 export function provisionDockerCerts(repoRoot, bundlePath) {
   const targets = [
     path.join(repoRoot, DOCKER_CERTS_DIR, 'corporate-root-ca.crt'),
-    path.join(repoRoot, OPENCODE_CERTS_DIR, 'corporate-root-ca.crt'),
   ]
   const written = []
   for (const target of targets) {

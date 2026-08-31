@@ -48,7 +48,7 @@ async function listAgents(entries: AgentRegistryEntry[]) {
 describe('agents API outcome schema exposure', () => {
   it('serves a file agent OUTCOME schema verbatim', async () => {
     const items = await listAgents([
-      entry({ id: 'files.risk', runtime: 'opencode', outcomeSchema: FILE_AGENT_OUTCOME }),
+      entry({ id: 'files.risk', runtime: 'business-harness', outcomeSchema: FILE_AGENT_OUTCOME }),
     ])
     expect(items[0].outcomeSchema).toEqual(FILE_AGENT_OUTCOME)
   })

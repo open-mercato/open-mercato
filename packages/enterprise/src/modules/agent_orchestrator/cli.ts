@@ -156,7 +156,7 @@ const DEMO_AGENTS: DemoAgentSpec[] = [
   },
   {
     id: 'deals.health_check_file',
-    runtime: 'opencode',
+    runtime: 'business-harness',
     model: 'claude-sonnet-4-5',
     kind: 'proposal',
     runCount: 12,
@@ -192,7 +192,7 @@ const DEMO_AGENTS: DemoAgentSpec[] = [
   },
   {
     id: 'support.resolution_advisor',
-    runtime: 'opencode',
+    runtime: 'business-harness',
     model: 'claude-sonnet-4-5',
     kind: 'proposal',
     runCount: 14,
@@ -212,7 +212,7 @@ const DEMO_AGENTS: DemoAgentSpec[] = [
   },
   {
     id: 'deals.web_researcher',
-    runtime: 'opencode',
+    runtime: 'business-harness',
     model: 'claude-sonnet-4-5',
     kind: 'researcher',
     runCount: 8,

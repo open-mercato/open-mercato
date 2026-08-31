@@ -57,6 +57,8 @@ export type NativeTraceInput = {
   fallbackUsage?: { inputTokens?: number; outputTokens?: number } | null
   /** Declared model id fallback when no step reported one. */
   fallbackModel?: string | null
+  /** Persisted runtime label. Defaults to `native` for backward compatibility. */
+  runtime?: 'native' | 'business-harness'
 }
 
 /** Escape hatch: `OM_AGENT_TRACE_CAPTURE=off` disables native span capture. */
@@ -165,7 +167,7 @@ export function buildNativeTracePayload(input: NativeTraceInput): TraceIngest {
   const modelId = resolveModelId(input)
 
   return {
-    runtime: 'native',
+    runtime: input.runtime ?? 'native',
     externalRunId: input.runId,
     agentId: input.agentId,
     ...(modelId ? { model: modelId } : {}),

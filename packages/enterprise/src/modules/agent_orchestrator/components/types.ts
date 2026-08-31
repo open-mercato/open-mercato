@@ -6,6 +6,7 @@
 import { isAgentIconName, type AgentIconName } from '../data/agentIcons'
 import { normalizeAgentTags } from '../data/agentTags'
 import type { AgentType } from '../data/validators'
+import type { BusinessHarnessRuntimeMode } from '../lib/runtime/businessHarnessMode'
 import type { AgentTokenUsage, TokenizedFile } from '../lib/tokens/types'
 
 export type ProposalView = {
@@ -91,6 +92,7 @@ export type RunView = {
   updatedAt: string | null
   // Trace-eval overlay fields (present on the trace list + detail reads).
   runtime: string | null
+  runtimeMode: BusinessHarnessRuntimeMode | null
   externalRunId: string | null
   model: string | null
   confidence: number | null
@@ -210,7 +212,7 @@ export type RunDetailView = {
   goldenCase: GoldenCaseView | null
 }
 
-export type AgentRuntime = 'in-process' | 'native' | 'opencode' | 'external'
+export type AgentRuntime = 'in-process' | 'native' | 'business-harness' | 'external'
 
 export type AgentView = {
   id: string
@@ -230,6 +232,7 @@ export type AgentView = {
    */
   allowedActions: string[] | null
   runtime: AgentRuntime
+  runtimeMode: BusinessHarnessRuntimeMode | null
   /** Tenant-configured presentation icon (lucide name), or null for the fallback glyph. */
   icon: AgentIconName | null
   /** Tenant-configured operator tags, normalized; empty when untagged. */
@@ -409,6 +412,7 @@ export function mapRun(item: Record<string, unknown>): RunView | null {
     createdAt: asString(item.created_at) ?? asString(item.createdAt),
     updatedAt: asString(item.updated_at) ?? asString(item.updatedAt),
     runtime: asString(item.runtime),
+    runtimeMode: asBusinessHarnessRuntimeMode(item.runtimeMode ?? item.runtime_mode),
     externalRunId: asString(item.external_run_id) ?? asString(item.externalRunId),
     model: asString(item.model),
     confidence: asNumber(item.confidence),
@@ -571,8 +575,8 @@ export function mapAgent(item: Record<string, unknown>): AgentView | null {
   if (!id) return null
   const resultKind = item.resultKind === 'proposal' ? 'proposal' : 'researcher'
   const runtime: AgentRuntime =
-    item.runtime === 'opencode'
-      ? 'opencode'
+    item.runtime === 'business-harness'
+      ? 'business-harness'
       : item.runtime === 'external'
         ? 'external'
         : item.runtime === 'native'
@@ -588,6 +592,7 @@ export function mapAgent(item: Record<string, unknown>): AgentView | null {
       ? item.allowedActions.filter((action): action is string => typeof action === 'string')
       : null,
     runtime,
+    runtimeMode: asBusinessHarnessRuntimeMode(item.runtimeMode ?? item.runtime_mode),
     icon: isAgentIconName(item.icon) ? item.icon : null,
     tags: normalizeAgentTags(item.tags),
     tools: Array.isArray(item.tools) ? item.tools.filter((tool): tool is string => typeof tool === 'string') : [],
@@ -595,6 +600,10 @@ export function mapAgent(item: Record<string, unknown>): AgentView | null {
     sampleInput: item.sampleInput,
     facts: mapAgentFacts(item.facts),
   }
+}
+
+function asBusinessHarnessRuntimeMode(value: unknown): BusinessHarnessRuntimeMode | null {
+  return value === 'one-off' || value === 'standalone' ? value : null
 }
 
 const AGENT_TYPE_VALUES: readonly AgentType[] = ['researcher', 'decision_maker', 'action']

@@ -47,7 +47,7 @@ export function ensureEnvFiles(repoRoot, { log = console.log, warn = console.war
   setValue('POSTGRES_PASSWORD', postgresPassword)
   // NOTE: MCP_SERVER_API_KEY is intentionally NOT generated here. `yarn dev`
   // provisions a real DB-backed key into .mercato/mcp-shared; a random env
-  // value would shadow it and break OpenCode -> MCP authentication.
+  // value would shadow it and break MCP authentication.
 
   if (!fs.existsSync(appEnv)) {
     if (fs.existsSync(appEnvExample)) {
@@ -79,7 +79,7 @@ export function ensureEnvFiles(repoRoot, { log = console.log, warn = console.war
   // loads apps/mercato/.env, NOT the root compose .env. The superadmin
   // identity must live there too: otherwise `initialize` seeds one admin while
   // MCP key provisioning resolves a different (default) owner, throws "owner
-  // not found", and OpenCode never gets a key. Propagate the same values
+  // not found". Propagate the same values
   // (fill-missing-only, so a user's own app .env is never clobbered).
   if (fs.existsSync(appEnv)) {
     const superEmail = readEnvValue(rootEnv, 'OM_INIT_SUPERADMIN_EMAIL')?.trim()

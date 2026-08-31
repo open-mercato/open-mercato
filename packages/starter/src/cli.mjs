@@ -27,7 +27,7 @@ import { FULLAPP_DEV_COMPOSE_FILE, STARTER_STATE_DIR, resolveStackPorts, stackUr
 import { loadCompanyConfig } from './company.mjs'
 import { printDoctorReport, runDoctor } from './doctor.mjs'
 import { infraDown, infraUp, ensureMcpSharedDir, removeLeftoverComposeResources } from './infra.mjs'
-import { buildUpSteps, clearConvergenceState, createStepContext, ensureOpencodeImage, runSteps, yarnInvocation } from './steps.mjs'
+import { buildUpSteps, clearConvergenceState, createStepContext, ensureBusinessHarnessImage, runSteps, yarnInvocation } from './steps.mjs'
 import { collectStatus, printStatus, readRunState, isPidAlive, startDetached, stopDetached, tailLogs } from './supervise.mjs'
 import { ensureWindowsUtf8Console } from './spawn.mjs'
 import { color, guideBox, printBanner, statusLine } from './ui.mjs'
@@ -160,7 +160,7 @@ async function commandUp(flags) {
   if (flags.clean) {
     // Full re-converge: drop the completed-step markers (keeps the mode, all
     // data, and the one-time initialize state — `reset` is the destructive
-    // variant) and rebuild the OpenCode service image.
+    // variant) and rebuild container images when the selected mode uses them.
     flags.rebuild = true
     const cleared = clearConvergenceState(repoRoot)
     console.log(color.dim(`  --clean: cleared ${cleared.length} convergence marker(s) — install, build, and migrations will re-run (data untouched).`))
@@ -187,7 +187,7 @@ async function commandUp(flags) {
   console.log(color.bold(color.green('Environment ready — starting the dev runtime')) + color.dim(' (app + queue workers + scheduler + MCP server)'))
   console.log(`  App:      ${color.cyan(urls.app)}   ${color.dim('(login page appears once the app finishes booting)')}`)
   console.log(`  MCP:      ${color.cyan(urls.mcp)}`)
-  console.log(`  OpenCode: ${color.cyan(`http://127.0.0.1:${ports.opencode}`)}`)
+  console.log(`  Harness:  ${color.cyan('one-off stdio subprocess')}`)
   console.log(color.dim(`  Superadmin sign-in: ${readEnvValue(path.join(repoRoot, '.env'), 'OM_INIT_SUPERADMIN_EMAIL')?.trim() || 'superadmin@acme.com'} / ${readEnvValue(path.join(repoRoot, '.env'), 'OM_INIT_SUPERADMIN_PASSWORD')?.trim() || 'secret'}`))
   console.log(color.dim('  Stop: Ctrl+C (infra containers keep running; `stop` shuts everything down)'))
   console.log('')
@@ -213,7 +213,7 @@ async function commandUpDocker(ctx, flags) {
   if (!outcome.ok) process.exit(2)
 
   ensureMcpSharedDir(repoRoot)
-  ensureOpencodeImage(ctx)
+  ensureBusinessHarnessImage(ctx)
   const composeFile = FULLAPP_DEV_COMPOSE_FILE
   const upArgs = ['up', '-d']
   if (flags.rebuild) upArgs.push('--build')
@@ -227,26 +227,19 @@ async function commandUpDocker(ctx, flags) {
 
   const ports = resolveStackPorts(repoRoot)
   const urls = stackUrls(ports)
-  console.log(color.dim('  Startup order: infra healthy -> app serving -> MCP -> OpenCode -> end-to-end wiring check.'))
+  console.log(color.dim('  Startup order: infra healthy -> app serving -> MCP -> business harness.'))
   const infraOk = await waitForHealthyServices(repoRoot, composeFile, ['postgres', 'redis', 'meilisearch'], { log: console.log })
   if (!infraOk.ok) process.exit(1)
   console.log(color.dim('  First boot runs migrations + seed inside the app container — expect several minutes.'))
   if (!(await waitForHttp(urls.app, { label: `app ${urls.app}`, timeoutMs: 30 * 60 * 1000 }))) process.exit(1)
   const mcpOk = await waitForHttp(urls.mcpHealth, { label: 'MCP /health' })
-  const opencodeOk = await waitForHttp(urls.opencodeHealth, { label: 'OpenCode /global/health' })
-  if (mcpOk && opencodeOk) {
-    await waitForHttp(urls.opencodeMcpStatus, {
-      label: 'OpenCode <-> MCP wiring',
-      timeoutMs: 2 * 60 * 1000,
-      validate: (body) => body.includes('connected'),
-    })
-  }
+  await waitForHttp(urls.businessHarnessHealth, { label: 'business harness /healthz' })
   console.log('')
   console.log(color.bold(color.green('Stack is up.')))
   const superEmail = readEnvValue(path.join(repoRoot, '.env'), 'OM_INIT_SUPERADMIN_EMAIL')?.trim() || 'superadmin@acme.com'
   const superPassword = readEnvValue(path.join(repoRoot, '.env'), 'OM_INIT_SUPERADMIN_PASSWORD')?.trim() || 'secret'
   console.log(`  App:      ${color.cyan(urls.app)}  ${color.dim(`(sign in: ${superEmail} / ${superPassword})`)}`)
-  console.log(`  OpenCode: ${color.cyan(`http://127.0.0.1:${ports.opencode}`)}`)
+  console.log(`  Harness:  ${color.cyan(`http://127.0.0.1:${ports.businessHarness}`)}`)
   console.log(color.dim('  Manage it with the stop / status / logs subcommands.'))
 }
 
@@ -276,6 +269,7 @@ async function commandStatus(flags) {
   const mode = resolveMode(flags.mode)
   const status = await collectStatus(repoRoot, {
     runCompose: (root, args, opts) => runCompose(root, args, { ...opts, composeFile: mode === 'docker' ? FULLAPP_DEV_COMPOSE_FILE : undefined }),
+    probeExternalHarness: mode === 'docker',
   })
   printStatus(status)
 }
@@ -339,12 +333,11 @@ async function commandInfra(flags) {
     process.exit(infraDown(repoRoot, { volumes: flags.volumes }))
   }
   ensureMcpSharedDir(repoRoot)
-  ensureOpencodeImage({ repoRoot, env: process.env, flags: { rebuild: flags.rebuild }, log: console.log })
   const status = infraUp(repoRoot, { profiles: flags.profiles })
   if (status === 0) {
-    const ports = resolveStackPorts(repoRoot)
     console.log('')
-    console.log(`✅ Infra containers are up (opencode :${ports.opencode}, postgres :${ports.postgres}, redis :${ports.redis}, meilisearch :${ports.meilisearch}).`)
+    const ports = resolveStackPorts(repoRoot)
+    console.log(`✅ Infra containers are up (postgres :${ports.postgres}, redis :${ports.redis}, meilisearch :${ports.meilisearch}).`)
     console.log('   Next: yarn dev (starts the app and the MCP server on this machine)')
   }
   process.exit(status)

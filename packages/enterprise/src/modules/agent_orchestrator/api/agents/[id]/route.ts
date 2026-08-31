@@ -11,6 +11,7 @@ import { getAgentSettingRow } from '../../../lib/settings/agentSettings'
 import { AGENT_ICON_NAMES, isAgentIconName } from '../../../data/agentIcons'
 import { normalizeAgentTags } from '../../../data/agentTags'
 import { agentTypeSchema } from '../../../data/validators'
+import { readBusinessHarnessRuntimeMode } from '../../../lib/runtime/businessHarnessMode'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['agent_orchestrator.agents.view'] },
@@ -43,7 +44,8 @@ const agentDetailSchema = z.object({
   // null semantics (undeclared type, un-narrowed catalogue).
   agentType: agentTypeSchema.nullable(),
   allowedActions: z.array(z.string()).nullable(),
-  runtime: z.enum(['in-process', 'native', 'opencode', 'external']),
+  runtime: z.enum(['in-process', 'native', 'business-harness', 'external']),
+  runtimeMode: z.enum(['one-off', 'standalone']).nullable(),
   tools: z.array(z.string()),
   skills: z.array(z.string()),
   skillDetails: z.array(skillDetailSchema),
@@ -128,6 +130,7 @@ export async function GET(req: Request, ctx: RouteContext) {
     agentType: entry.agentType ?? null,
     allowedActions: entry.allowedActions ? [...entry.allowedActions] : null,
     runtime: entry.runtime,
+    runtimeMode: entry.runtime === 'business-harness' ? readBusinessHarnessRuntimeMode() : null,
     tools: entry.tools,
     skills: entry.skills,
     skillDetails,

@@ -176,6 +176,18 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@ai-sdk/openai@npm:^4.0.23":
+  version: 4.0.47
+  resolution: "@ai-sdk/openai@npm:4.0.47"
+  dependencies:
+    "@ai-sdk/provider": "npm:4.0.8"
+    "@ai-sdk/provider-utils": "npm:5.0.30"
+  peerDependencies:
+    zod: ^3.25.76 || ^4.1.8
+  checksum: 10/7b83979b9cf16fcea4a754ed7d57cfa2c7c698151529f6bb9d242f08a21634a98def3815ed3b58187793816c4a225dd81696654ca20c755b4bcec12206b43aac
+  languageName: node
+  linkType: hard
+
 "@ai-sdk/provider-utils@npm:5.0.1":
   version: 5.0.1
   resolution: "@ai-sdk/provider-utils@npm:5.0.1"
@@ -217,6 +229,21 @@ __metadata:
   peerDependencies:
     zod: ^3.25.76 || ^4.1.8
   checksum: 10/5bb6a25ee8681d317a8cdefb1a5c74e152f72a5156a556c8fb99a93a84ccc3aa8fa0b0240ff3256e79d2995bb8ce1823266066b3067d3f53a59dfb225da8fbe5
+  languageName: node
+  linkType: hard
+
+"@ai-sdk/provider-utils@npm:5.0.30":
+  version: 5.0.30
+  resolution: "@ai-sdk/provider-utils@npm:5.0.30"
+  dependencies:
+    "@ai-sdk/provider": "npm:4.0.8"
+    "@standard-schema/spec": "npm:^1.1.0"
+    "@workflow/serde": "npm:4.1.0"
+    eventsource-parser: "npm:^3.0.8"
+    undici: "npm:^7.28.0"
+  peerDependencies:
+    zod: ^3.25.76 || ^4.1.8
+  checksum: 10/02fda2edf0e482a1e5c923d9545911cf7ae9b29516d23eeb1ca8a7cb32c8f11f924f25dd1a0dc8c8e2f09ca58527d73eab3dcadc03141a6017ed0f81196e1909
   languageName: node
   linkType: hard
 
@@ -267,6 +294,15 @@ __metadata:
   dependencies:
     json-schema: "npm:^0.4.0"
   checksum: 10/9c813a89084b66881296d551b8e567f6ba63a625288c2cc7135b0ad58a0beb76f09b95d922f7d6ceb50a70667487138dd0f86c75246cd97effd367bf56a05644
+  languageName: node
+  linkType: hard
+
+"@ai-sdk/provider@npm:4.0.8":
+  version: 4.0.8
+  resolution: "@ai-sdk/provider@npm:4.0.8"
+  dependencies:
+    json-schema: "npm:^0.4.0"
+  checksum: 10/52a9b7c8a1910e5a8e47febdb6aa3cbce0bb66f385b4b4f296a393380af1dbe31a9e7b0b1e35b2e44f58463ad36fc18eca5773abbbf8e6da101f1ae9d88fc069
   languageName: node
   linkType: hard
 
@@ -8379,6 +8415,24 @@ __metadata:
   languageName: unknown
   linkType: soft
 
+"@open-mercato/business-harness@workspace:*, @open-mercato/business-harness@workspace:packages/business-harness":
+  version: 0.0.0-use.local
+  resolution: "@open-mercato/business-harness@workspace:packages/business-harness"
+  dependencies:
+    "@ai-sdk/anthropic": "npm:^4.0.23"
+    "@ai-sdk/openai": "npm:^4.0.23"
+    "@modelcontextprotocol/sdk": "npm:^1.30.0"
+    "@types/node": "npm:^26.1.2"
+    ai: "npm:^7.0.4"
+    ajv: "npm:^8.17.1"
+    tsx: "npm:^4.23.1"
+    typescript: "npm:7.0.2"
+    zod: "npm:^4.4.3"
+  bin:
+    om-business-harness: ./dist/cli.js
+  languageName: unknown
+  linkType: soft
+
 "@open-mercato/cache@workspace:*, @open-mercato/cache@workspace:packages/cache":
   version: 0.0.0-use.local
   resolution: "@open-mercato/cache@workspace:packages/cache"
@@ -8767,6 +8821,7 @@ __metadata:
     "@dnd-kit/sortable": "npm:^10.0.0"
     "@dnd-kit/utilities": "npm:^3.2.2"
     "@open-mercato/ai-assistant": "workspace:*"
+    "@open-mercato/business-harness": "workspace:*"
     "@open-mercato/core": "workspace:*"
     "@open-mercato/queue": "workspace:*"
     "@open-mercato/scheduler": "workspace:*"

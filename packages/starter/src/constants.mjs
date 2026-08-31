@@ -10,7 +10,7 @@ export const DEFAULT_PORTS = {
   app: 3000,
   mcp: 3001,
   splash: 4000,
-  opencode: 4096,
+  businessHarness: 4300,
   localstack: 4566,
   verdaccio: 4873,
   postgres: 5432,
@@ -23,7 +23,7 @@ const PORT_ENV_KEYS = {
   app: 'APP_PORT',
   mcp: 'MCP_PORT',
   splash: 'OM_DEV_SPLASH_PORT',
-  opencode: 'OPENCODE_PORT',
+  businessHarness: 'BUSINESS_HARNESS_PORT',
   localstack: 'LOCALSTACK_PORT',
   verdaccio: 'VERDACCIO_PORT',
   postgres: 'POSTGRES_PORT',
@@ -56,8 +56,7 @@ export function stackUrls(ports) {
     splash: `http://${LOOPBACK_HOST}:${ports.splash}`,
     mcpHealth: `http://${LOOPBACK_HOST}:${ports.mcp}/health`,
     mcp: `http://${LOOPBACK_HOST}:${ports.mcp}/mcp`,
-    opencodeHealth: `http://${LOOPBACK_HOST}:${ports.opencode}/global/health`,
-    opencodeMcpStatus: `http://${LOOPBACK_HOST}:${ports.opencode}/mcp`,
+    businessHarnessHealth: `http://${LOOPBACK_HOST}:${ports.businessHarness}/healthz`,
   }
 }
 
@@ -71,15 +70,8 @@ export const STARTER_STATE_DIR = path.join('.mercato', 'starter')
 export const RUN_STATE_DIR = path.join('.mercato', 'run')
 export const CAPTURED_CA_BUNDLE = path.join('.mercato', 'certs', 'corporate-ca.pem')
 export const DOCKER_CERTS_DIR = path.join('docker', 'certs')
-export const OPENCODE_CERTS_DIR = path.join('docker', 'opencode', 'certs')
 export const DEV_LOG_DIR = path.join('.mercato', 'logs')
 
 export const FULLAPP_DEV_COMPOSE_FILE = path.join('starters', 'docker', 'compose.fullapp.dev.yml')
 
-// The published OpenCode image is a BASE (binary + non-root user, no
-// entrypoint/agents — docker/opencode/BASE_IMAGE.md). The runnable service
-// image is the thin local build FROM it, tagged opencode-mvp. Keep the default
-// tag in sync with the compose files' OPENCODE_BASE_IMAGE default and the
-// docker/opencode/Dockerfile ARG.
-export const DEFAULT_OPENCODE_BASE_IMAGE = 'docker.io/openmercatocom/open-mercato-opencode:1.18.3'
-export const OPENCODE_SERVICE_IMAGE = 'opencode-mvp'
+export const BUSINESS_HARNESS_SERVICE_IMAGE = 'open-mercato-business-harness:dev'

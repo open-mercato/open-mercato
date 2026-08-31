@@ -3,7 +3,7 @@ import { createSpinner } from './ui.mjs'
 
 // Health-wait loops for the fully containerized mode, ported from the retired
 // Windows launcher (start-dev.ps1) so every platform gets the same sequencing:
-//   infra healthy -> app serving -> mcp + opencode healthy -> e2e MCP wiring.
+//   infra healthy -> app serving -> MCP + optional HTTP harness healthy.
 // Crash-loop detection beats compose healthchecks here: the generous
 // start_periods keep a wedged service "starting" for minutes, while a service
 // stuck in restarting/exited flips visibly within three polls.

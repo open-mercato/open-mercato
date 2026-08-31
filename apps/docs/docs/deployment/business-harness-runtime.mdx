@@ -1,0 +1,218 @@
+---
+title: Business Harness Runtime
+description: Run Business Harness as a one-off process or a standalone HTTP service, and configure its model and capability connections.
+---
+
+# Business Harness Runtime
+
+Open Mercato runs file-defined agents with Business Harness. The default mode starts a small CLI process for each run. A production deployment can instead keep Business Harness running as a standalone HTTP service.
+
+The runtime transport and the capability connector are separate choices:
+
+| Setting | Choices | Responsibility |
+| --- | --- | --- |
+| OM to Business Harness | `stdio` or `http` | Decides whether OM starts one process per run or calls a served harness. |
+| Business Harness to OM tools | `mcp-http` or `cli-stdio` | Decides how the harness lists and calls Open Mercato tools. |
+
+Changing the runtime to standalone does not require changing MCP to CLI. Both runtime modes support both connector drivers.
+
+## Choose a runtime mode
+
+| Mode | Recommended use | Behavior |
+| --- | --- | --- |
+| One-off `stdio` | Local development and low-volume installations | OM starts `om-business-harness run --stdio` for each agent run and stops it when the run finishes. No harness port or service token is needed. |
+| Standalone `http` | Production, isolated deployment, independent scaling | OM sends each execution bundle to a long-running Business Harness service over HTTP. |
+
+The UI displays `Business Harness` for one-off mode and `Business Harness (standalone)` for HTTP mode.
+
+## Default one-off setup
+
+Build the runtime once after installing dependencies or changing its source:
+
+```bash
+yarn workspace @open-mercato/business-harness build
+```
+
+No runtime environment variable is required. An unset `OM_BUSINESS_HARNESS_TRANSPORT` resolves to `stdio`.
+
+These optional OM variables override the package defaults:
+
+```bash
+OM_BUSINESS_HARNESS_TRANSPORT=stdio
+OM_BUSINESS_HARNESS_CONFIG_FILE=packages/business-harness/harness.config.host.json
+OM_BUSINESS_HARNESS_CREDENTIAL_BROKER_URL=http://127.0.0.1:3000/api/agent_orchestrator/internal/credentials/exchange
+OM_BUSINESS_HARNESS_CLI_PATH=packages/business-harness/dist/cli.js
+```
+
+Paths are resolved from the OM process working directory. Use absolute paths when the web process or worker starts from another directory.
+
+## Switch a local OM instance to standalone
+
+First build the harness:
+
+```bash
+yarn workspace @open-mercato/business-harness build
+```
+
+Start the service from the repository root in a separate terminal. Use the same service token in this process and in OM.
+
+```bash
+HARNESS_SERVICE_TOKEN=<long-random-service-token> \
+HARNESS_CREDENTIAL_MODE=broker \
+HARNESS_CREDENTIAL_BROKER_URL=http://127.0.0.1:3000/api/agent_orchestrator/internal/credentials/exchange \
+HARNESS_CONFIG_FILE=packages/business-harness/harness.config.host.json \
+yarn workspace @open-mercato/business-harness start
+```
+
+Then add the following values to `apps/mercato/.env`:
+
+```bash
+OM_BUSINESS_HARNESS_TRANSPORT=http
+OM_BUSINESS_HARNESS_URL=http://127.0.0.1:4300
+BUSINESS_HARNESS_SERVICE_TOKEN=<long-random-service-token>
+```
+
+Restart OM after changing the environment. The service token must contain at least 24 characters. Use a generated secret in every shared or production environment.
+
+To return to one-off mode, set `OM_BUSINESS_HARNESS_TRANSPORT=stdio`, restart OM, and stop the standalone service.
+
+## Configure a deployed standalone service
+
+The standalone service reads these variables:
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `HARNESS_SERVICE_TOKEN` | Required | Bearer token accepted by `POST /v1/runs`. It must contain at least 24 characters. |
+| `HARNESS_CONFIG_FILE` | `./harness.config.json` | JSON file containing runtime profiles, connector definitions, and the OpenAI-compatible origin allowlist. |
+| `HARNESS_CREDENTIAL_MODE` | `broker` | Keep this set to `broker` for OM integration. |
+| `HARNESS_CREDENTIAL_BROKER_URL` | Required in broker mode | OM endpoint used to exchange a run grant for short-lived model and capability credentials. |
+| `HARNESS_HOST` | `127.0.0.1` | HTTP listen address. Use `0.0.0.0` inside a container. |
+| `HARNESS_PORT` | `4300` | HTTP listen port. |
+
+Configure every OM web and worker process that can execute agents:
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `OM_BUSINESS_HARNESS_TRANSPORT` | `stdio` | Set to `http` to use the standalone service. |
+| `OM_BUSINESS_HARNESS_URL` | `http://127.0.0.1:4300` | Base URL reachable from the OM process. |
+| `BUSINESS_HARNESS_SERVICE_TOKEN` | Development fallback only | Must match `HARNESS_SERVICE_TOKEN`. It is required when OM runs with `NODE_ENV=production`. |
+| `OM_BUSINESS_HARNESS_RUN_TIMEOUT_MS` | `120000` | Requested wall-clock limit for one run. The current business profile caps it at 120 seconds. |
+| `OM_BUSINESS_HARNESS_CONFIG_FILE` | Package host config | Passed to the runtime in one-off mode. In standalone mode OM reads it only to identify the connector driver for health reporting. The served runtime reads `HARNESS_CONFIG_FILE`. |
+
+The harness must be able to reach both the credential broker and the configured capability connector. For example, a remote service might use:
+
+```bash
+HARNESS_CREDENTIAL_BROKER_URL=https://mercato.example.com/api/agent_orchestrator/internal/credentials/exchange
+```
+
+Use TLS and private networking or a restricted ingress policy between OM and the harness. The unauthenticated `GET /healthz` endpoint reports process health. Agent execution at `POST /v1/runs` requires the service token.
+
+### Docker Compose
+
+The full Docker stacks already use standalone mode:
+
+- `starters/docker/compose.fullapp.yml`
+- `starters/docker/compose.fullapp.dev.yml`
+
+They configure OM to call `http://business-harness:4300`, configure the harness to call the credential broker at `http://app:3000`, and use `harness.config.compose.json` to reach MCP at `http://mcp:3001/mcp`.
+
+Set `BUSINESS_HARNESS_SERVICE_TOKEN` in the repository-root `.env` before starting a shared or production stack. Compose passes the same value to OM and the harness.
+
+## Configure capabilities independently
+
+`HARNESS_CONFIG_FILE` selects the connector used by either runtime mode. The repository contains three topology-specific examples:
+
+| File | MCP address |
+| --- | --- |
+| `harness.config.host.json` | `http://127.0.0.1:3001/mcp` |
+| `harness.config.container.json` | `http://host.docker.internal:3001/mcp` |
+| `harness.config.compose.json` | `http://mcp:3001/mcp` |
+
+Select the file whose addresses are reachable from the harness process. Do not use a host loopback URL from inside a container.
+
+### MCP connector
+
+The current OM configuration uses the `mcp-http` driver:
+
+```json
+{
+  "connectors": {
+    "open-mercato": {
+      "driver": "mcp-http",
+      "url": "http://127.0.0.1:3001/mcp",
+      "credentialAudience": "open-mercato:mcp",
+      "credentialBindingId": "open-mercato-default",
+      "auth": { "headerName": "x-api-key" },
+      "hiddenArguments": {
+        "_sessionToken": {
+          "source": "credential-metadata",
+          "key": "sessionToken"
+        }
+      }
+    }
+  }
+}
+```
+
+### CLI connector
+
+To move tool access to an OM CLI later, change only the `open-mercato` connector. The CLI must implement the harness NDJSON JSON-RPC contract for `initialize`, `tools/list`, `tools/call`, and `shutdown`.
+
+```json
+{
+  "connectors": {
+    "open-mercato": {
+      "driver": "cli-stdio",
+      "command": "/absolute/path/to/om-capabilities",
+      "args": [],
+      "credentialAudience": "open-mercato:mcp",
+      "credentialBindingId": "open-mercato-default",
+      "credentialEnv": {
+        "OM_API_KEY": { "source": "credential-value" },
+        "OM_SESSION_TOKEN": {
+          "source": "credential-metadata",
+          "key": "sessionToken"
+        }
+      }
+    }
+  }
+}
+```
+
+The executable must exist in the harness environment. Credentials are passed through environment variables and never through CLI arguments.
+
+## Model credentials and runtime policy
+
+OM remains the control plane in both modes. It selects the provider and model from the agent defaults, tenant settings, and `OM_AI_PROVIDER` or `OM_AI_MODEL`. Provider API keys stay in the OM environment. The harness receives a model binding and exchanges its run grant for a short-lived credential lease when execution starts.
+
+Do not copy provider keys into the harness service. Keep `HARNESS_CREDENTIAL_MODE=broker` and make the broker URL reachable instead.
+
+The harness configuration controls runtime limits and allowed model endpoints:
+
+```json
+{
+  "runtimeProfiles": {
+    "business-v1": {
+      "maxSteps": 12,
+      "maxTimeoutMs": 120000,
+      "maxToolCalls": 40
+    }
+  },
+  "modelPolicy": {
+    "allowedOpenAICompatibleOrigins": [
+      "https://openrouter.ai"
+    ]
+  }
+}
+```
+
+OM currently sends file-defined agents with the `business-v1` profile. Configure that profile when you need stricter limits. Add an origin to `allowedOpenAICompatibleOrigins` before selecting a custom OpenAI-compatible endpoint in OM.
+
+## Verify the switch
+
+1. Open `http://127.0.0.1:4300/healthz` and confirm the standalone process returns `status: ok`.
+2. Open the Agent Orchestrator system health panel in OM. It checks the configured harness mode and capability connection.
+3. Confirm file-defined agents are labeled `Business Harness (standalone)`.
+4. Run a file-defined health-check agent and inspect its trace.
+
+`/healthz` proves only that the HTTP process is listening. The OM system health check and a real agent run also verify the connector, credential broker, model credential, and service-token configuration.

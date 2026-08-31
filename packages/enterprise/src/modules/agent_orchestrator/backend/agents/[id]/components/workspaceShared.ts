@@ -154,7 +154,7 @@ function toTokenNumber(value: unknown): number | null {
 /**
  * Actual token consumption across the agent's fetched runs (input/output token
  * columns the runtime records per run). Works for every runtime — unlike the
- * baked construction-file estimate, which only file-defined (OpenCode) agents
+ * baked construction-file estimate, which only file-defined Business Harness agents
  * carry. Returns null when no run reported tokens.
  */
 export function computeRuntimeTokens(runs: Array<Record<string, unknown>>): RuntimeTokenUsage | null {

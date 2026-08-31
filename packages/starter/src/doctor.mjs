@@ -368,7 +368,7 @@ export function checkDefenderExclusion(repoRoot) {
 }
 
 // Verifies a container can reach a host port through host.docker.internal —
-// the linchpin of the hybrid topology (OpenCode container -> host MCP). Two
+// useful for validating container-to-host MCP access on local installations. Two
 // probes: (1) with the same extra_hosts pin compose.infra.yml uses (unless
 // OM_HOST_GATEWAY overrides it), (2) with the engine's NATIVE resolution.
 // On Rancher Desktop/WSL2 the pin can point at the WSL distro instead of the
@@ -429,7 +429,7 @@ export function checkContainerToHost(repoRoot, { mcpPort }) {
   const native = probeContainerToHost(mcpPort, null)
   if (native.mcpAnswered) {
     return result('container-host', 'Container → host connectivity', 'fail', `the compose extra_hosts pin (${pin}) does NOT reach the host, but the engine's native host.docker.internal DOES${native.resolvedIp ? ` (${native.resolvedIp})` : ''} — common on Rancher Desktop/WSL2`, {
-      guide: [`Set OM_HOST_GATEWAY=${native.resolvedIp ?? '<the engine-native IP>'} in the root .env, then restart the opencode container.`],
+      guide: [`Set OM_HOST_GATEWAY=${native.resolvedIp ?? '<the engine-native IP>'} in the root .env, then restart the business-harness container.`],
     })
   }
   if (pinned.resolvedIp || native.resolvedIp) {
@@ -449,7 +449,7 @@ export function checkContainerToHost(repoRoot, { mcpPort }) {
     })
   }
   return result('container-host', 'Container → host connectivity', 'fail', 'host.docker.internal does not resolve inside containers', {
-    guide: ['Set OPENCODE_MCP_URL in .env to a host IP the containers can reach, e.g. http://<your-lan-ip>:' + mcpPort + '/mcp.'],
+    guide: ['Set OM_HOST_GATEWAY in .env to an address the containers can use to reach this host.'],
   })
 }
 

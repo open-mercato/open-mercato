@@ -40,7 +40,6 @@ import {
 import { AgentRuntimeService } from './lib/runtime/agentRuntime'
 import { GuardrailService } from './lib/guardrails/guardrailService'
 import { DbAgentRunSessionStore } from './lib/runtime/agentRunSessionStore'
-import { AgentWorkspaceManager } from './lib/runtime/agentWorkspaceManager'
 import { DispositionServiceImpl } from './lib/disposition/dispositionService'
 import { AgentWorkflowBridgeService } from './lib/runtime/invokeAgentForWorkflow'
 import { ContextResolverImpl } from './lib/context/contextResolver'
@@ -140,15 +139,11 @@ export function register(container: AppContainer) {
     // Phase 1 runtime guardrails: deterministic output schema + tool-scope
     // backstop checks. Pure/stateless aside from the container it persists through.
     guardrailService: asFunction(() => new GuardrailService(container)).scoped(),
-    // Cross-process correlation store for OpenCode file-agent runs. Built from
+    // Cross-process correlation store for business-harness runs. Built from
     // each process's own container (app + the separate mcp:serve-http process),
     // both backed by the same DB — the in-process Map seam does not work because
     // the runner and the submit_outcome MCP tool run in different processes.
     agentRunSessionStore: asFunction(() => new DbAgentRunSessionStore(container)).scoped(),
-    // File plane (#12): per-run sandbox lifecycle + serialized container lease.
-    // SINGLETON so the concurrency semaphore (OM_OPENCODE_POOL_SIZE, default 1) is
-    // process-wide — every tool-enabled OpenCode run shares the one shared container.
-    agentWorkspaceManager: asFunction(() => new AgentWorkspaceManager()).singleton(),
     // Context overlay (Phase 1): hybrid TDCR resolver. Resolves the per-capability
     // ContextModule (code-first registry, fails closed), reads the mandatory floor
     // via the queryEngine (org-scoped query_index), packs under a token budget, and

@@ -117,56 +117,42 @@ describe('deriveRuntimeIndicators', () => {
   const byId = (payload: AiRuntimeHealthPayload | null, fetchFailed = false) =>
     Object.fromEntries(deriveRuntimeIndicators(payload, fetchFailed).map((row) => [row.id, row]))
 
-  it('separates a healthy MCP server from an OpenCode that cannot see it', () => {
-    // Different faults, different fixes — one amber dot for both would send the
-    // operator to the wrong place.
+  it('separates the harness from its capability transport', () => {
     const rows = byId({
       status: 'ok',
-      opencode: { healthy: true, version: '1.1.21' },
-      mcpHealth: { healthy: true, tools: 12 },
-      mcp: { 'open-mercato': { status: 'failed', error: 'connection refused' } },
+      harness: { healthy: true, detail: 'stdio one-off', mode: 'one-off' },
+      capability: { driver: 'mcp-http', healthy: false, detail: 'connection refused' },
     })
-    expect(rows.mcp.state).toBe('ok')
-    expect(rows.opencode.state).toBe('ok')
-    expect(rows.opencodeMcp.state).toBe('down')
-    expect(rows.opencodeMcp.detail).toBe('open-mercato')
+    expect(rows.harness.state).toBe('ok')
+    expect(rows.harness.runtimeMode).toBe('one-off')
+    expect(rows.capability.state).toBe('down')
+    expect(rows.capability.detail).toBe('connection refused')
   })
 
-  it('reads a top-level error as the OpenCode probe failing', () => {
-    const rows = byId({ status: 'error', message: 'OpenCode not reachable', mcpHealth: { healthy: true } })
-    expect(rows.opencode.state).toBe('down')
-    expect(rows.mcp.state).toBe('ok')
-  })
-
-  it('calls a partially-connected binding degraded, not down', () => {
+  it('carries standalone mode and the capability tool count', () => {
     const rows = byId({
       status: 'ok',
-      mcp: { 'open-mercato': { status: 'connected' }, other: { status: 'failed' } },
+      harness: { healthy: true, detail: 'business-harness', mode: 'standalone' },
+      capability: { driver: 'mcp-http', healthy: true, tools: 98 },
     })
-    expect(rows.opencodeMcp.state).toBe('degraded')
+    expect(rows.harness.runtimeMode).toBe('standalone')
+    expect(rows.capability.detail).toBe('mcp-http: 98')
   })
 
   it('reports every runtime indicator as unknown when the fetch produced nothing', () => {
     const rows = byId(null)
-    expect([rows.mcp.state, rows.opencode.state, rows.opencodeMcp.state]).toEqual([
-      'unknown',
-      'unknown',
-      'unknown',
-    ])
+    expect([rows.harness.state, rows.capability.state]).toEqual(['unknown', 'unknown'])
   })
 
   it('reports error, not unknown, when the runtime health call itself failed', () => {
     const rows = byId(null, true)
-    expect([rows.mcp.state, rows.opencode.state, rows.opencodeMcp.state]).toEqual([
-      'error',
-      'error',
-      'error',
-    ])
+    expect([rows.harness.state, rows.capability.state]).toEqual(['error', 'error'])
   })
 
-  it('does not invent a verdict for a binding the payload never mentioned', () => {
-    const rows = byId({ status: 'ok', opencode: { healthy: true, version: '1' } })
-    expect(rows.opencodeMcp.state).toBe('unknown')
+  it('does not invent a verdict for a dependency the payload never mentioned', () => {
+    const rows = byId({ status: 'ok', harness: { healthy: true } })
+    expect(rows.harness.state).toBe('ok')
+    expect(rows.capability.state).toBe('unknown')
   })
 })
 
@@ -175,32 +161,31 @@ describe('rollupHealth', () => {
     expect(
       rollupHealth([
         { id: 'webSearch', state: 'ok', detail: null },
-        { id: 'mcp', state: 'ok', detail: null },
-        { id: 'opencode', state: 'down', detail: null },
-        { id: 'opencodeMcp', state: 'ok', detail: null },
+        { id: 'capability', state: 'ok', detail: null },
+        { id: 'harness', state: 'down', detail: null },
       ]),
     ).toBe('down')
   })
 
   it('ranks error above down above degraded above unknown above ok', () => {
-    expect(rollupHealth([{ id: 'mcp', state: 'unknown', detail: null }])).toBe('unknown')
+    expect(rollupHealth([{ id: 'capability', state: 'unknown', detail: null }])).toBe('unknown')
     expect(
       rollupHealth([
-        { id: 'mcp', state: 'unknown', detail: null },
-        { id: 'opencode', state: 'degraded', detail: null },
+        { id: 'capability', state: 'unknown', detail: null },
+        { id: 'harness', state: 'degraded', detail: null },
       ]),
     ).toBe('degraded')
     // Pins the SEVERITY entry: a state missing from the map would make every
     // comparison against it false, and the rollup would swallow it silently.
     expect(
       rollupHealth([
-        { id: 'mcp', state: 'ok', detail: null },
+        { id: 'capability', state: 'ok', detail: null },
         { id: 'webSearch', state: 'error', detail: null },
       ]),
     ).toBe('error')
     expect(
       rollupHealth([
-        { id: 'mcp', state: 'down', detail: null },
+        { id: 'capability', state: 'down', detail: null },
         { id: 'webSearch', state: 'error', detail: null },
       ]),
     ).toBe('error')
@@ -210,7 +195,7 @@ describe('rollupHealth', () => {
     expect(
       rollupHealth([
         { id: 'webSearch', state: 'ok', detail: null },
-        { id: 'mcp', state: 'ok', detail: null },
+        { id: 'capability', state: 'ok', detail: null },
       ]),
     ).toBe('ok')
   })

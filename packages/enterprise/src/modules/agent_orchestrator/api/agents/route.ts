@@ -9,6 +9,7 @@ import { resolveAgentOutcomeJsonSchema } from '../../lib/sdk/agentOutcomeContrac
 import { getAgentPresentationMaps } from '../../lib/settings/agentSettings'
 import { AGENT_ICON_NAMES } from '../../data/agentIcons'
 import { agentTypeSchema } from '../../data/validators'
+import { readBusinessHarnessRuntimeMode } from '../../lib/runtime/businessHarnessMode'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['agent_orchestrator.agents.view'] },
@@ -24,7 +25,8 @@ const agentItemSchema = z.object({
   // the agent declared no narrowing (it may propose anything in the catalogue);
   // an empty array means nothing survived the intersection.
   allowedActions: z.array(z.string()).nullable(),
-  runtime: z.enum(['in-process', 'native', 'opencode', 'external']),
+  runtime: z.enum(['in-process', 'native', 'business-harness', 'external']),
+  runtimeMode: z.enum(['one-off', 'standalone']).nullable(),
   tools: z.array(z.string()),
   skills: z.array(z.string()),
   label: z.string(),
@@ -85,12 +87,14 @@ export async function GET(req: Request) {
     }
   }
 
+  const harnessRuntimeMode = readBusinessHarnessRuntimeMode()
   const items = listAgentEntries().map((entry) => ({
     id: entry.id,
     resultKind: entry.resultKind,
     agentType: entry.agentType ?? null,
     allowedActions: entry.allowedActions ? [...entry.allowedActions] : null,
     runtime: entry.runtime,
+    runtimeMode: entry.runtime === 'business-harness' ? harnessRuntimeMode : null,
     tools: entry.tools,
     skills: entry.skills,
     label: entry.label,

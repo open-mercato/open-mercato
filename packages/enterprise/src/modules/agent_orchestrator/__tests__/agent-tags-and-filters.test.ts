@@ -69,7 +69,7 @@ describe('agent settings write schema', () => {
 describe('agents registry filtering', () => {
   const rows: AgentFilterableRow[] = [
     row({ id: 'deals.health', label: 'Deal health', runtime: 'in-process', resultKind: 'proposal', status: 'good', autonomy: 'review', tags: ['sales', 'billing'] }),
-    row({ id: 'support.triage', label: 'Ticket triage', runtime: 'opencode', resultKind: 'researcher', status: 'watch', autonomy: 'auto', tags: ['support'] }),
+    row({ id: 'support.triage', label: 'Ticket triage', runtime: 'business-harness', resultKind: 'researcher', status: 'watch', autonomy: 'auto', tags: ['support'] }),
     row({ id: 'ops.audit', label: 'Ops audit', description: 'Reviews billing exports', runtime: 'native', resultKind: 'researcher', status: 'poor', autonomy: 'auto' }),
   ]
 
@@ -86,12 +86,12 @@ describe('agents registry filtering', () => {
   })
 
   it('ORs values inside a facet and ANDs across facets', () => {
-    expect(filterAgentRows(rows, '', { runtime: ['opencode', 'native'] }).map((r) => r.id)).toEqual([
+    expect(filterAgentRows(rows, '', { runtime: ['business-harness', 'native'] }).map((r) => r.id)).toEqual([
       'support.triage',
       'ops.audit',
     ])
     expect(
-      filterAgentRows(rows, '', { runtime: ['opencode', 'native'], status: ['poor'] }).map((r) => r.id),
+      filterAgentRows(rows, '', { runtime: ['business-harness', 'native'], status: ['poor'] }).map((r) => r.id),
     ).toEqual(['ops.audit'])
   })
 
@@ -109,7 +109,7 @@ describe('agents registry filtering', () => {
   })
 
   it('combines search with filters', () => {
-    expect(filterAgentRows(rows, 'audit', { runtime: ['opencode'] })).toHaveLength(0)
+    expect(filterAgentRows(rows, 'audit', { runtime: ['business-harness'] })).toHaveLength(0)
     expect(filterAgentRows(rows, 'audit', { runtime: ['native'] }).map((r) => r.id)).toEqual(['ops.audit'])
   })
 

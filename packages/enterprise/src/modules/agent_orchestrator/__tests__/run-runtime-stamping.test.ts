@@ -58,7 +58,7 @@ function createFakeEm() {
 
 const SCOPE = { tenantId: 'tenant-1', organizationId: 'org-1' }
 
-/** Models what `agent_orchestrator.runs.create` persists for an opencode run. */
+/** Models what `agent_orchestrator.runs.create` persists for a Business Harness run. */
 function stampRunAtCreation(
   storeFor: (entity: unknown) => Array<Record<string, unknown>>,
   fields: { runtime: string; externalRunId: string; agentId: string },
@@ -99,27 +99,26 @@ function tracePayload(runtime: string, externalRunId: string) {
 }
 
 describe('run runtime stamping → trace ingest correlation (F8)', () => {
-  it('upserts the SAME run a runner stamped with (opencode, externalRunId) — no duplicate', async () => {
+  it('upserts the same Business Harness run by externalRunId without a duplicate', async () => {
     const { em, storeFor } = createFakeEm()
 
-    // The OpenCode runner stamps runtime='opencode' + the session id at creation.
-    const externalRunId = 'ses_fake_1'
+    const externalRunId = 'business-run-1'
     const createdRunId = stampRunAtCreation(storeFor, {
-      runtime: 'opencode',
+      runtime: 'business-harness',
       externalRunId,
       agentId: 'deals.health_check',
     })
     expect(storeFor(AgentRun)).toHaveLength(1)
 
     // A later trace POST for the SAME (runtime, externalRunId) must upsert it.
-    const result = await ingestTrace(em, SCOPE, tracePayload('opencode', externalRunId))
+    const result = await ingestTrace(em, SCOPE, tracePayload('business-harness', externalRunId))
 
     expect(result.created).toBe(false)
     expect(result.runId).toBe(createdRunId)
     expect(storeFor(AgentRun)).toHaveLength(1)
 
     const run = storeFor(AgentRun)[0]
-    expect(run.runtime).toBe('opencode')
+    expect(run.runtime).toBe('business-harness')
     expect(run.externalRunId).toBe(externalRunId)
     // Run-level fields from the trace were applied to the existing row.
     expect(run.status).toBe('ok')
@@ -128,12 +127,12 @@ describe('run runtime stamping → trace ingest correlation (F8)', () => {
   it('creates a fresh run only when the (runtime, externalRunId) key does not match', async () => {
     const { em, storeFor } = createFakeEm()
     stampRunAtCreation(storeFor, {
-      runtime: 'opencode',
-      externalRunId: 'ses_one',
+      runtime: 'business-harness',
+      externalRunId: 'business-run-1',
       agentId: 'deals.health_check',
     })
 
-    const result = await ingestTrace(em, SCOPE, tracePayload('opencode', 'ses_two'))
+    const result = await ingestTrace(em, SCOPE, tracePayload('business-harness', 'business-run-2'))
 
     expect(result.created).toBe(true)
     expect(storeFor(AgentRun)).toHaveLength(2)

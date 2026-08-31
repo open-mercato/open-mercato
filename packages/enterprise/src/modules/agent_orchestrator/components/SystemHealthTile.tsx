@@ -23,12 +23,12 @@ import {
 import { OPTIONAL_REQUEST_INIT } from './optionalRequest'
 import { SystemHealthPanel } from './health/SystemHealthPanel'
 import { HealthStateBadge } from './health/HealthStateBadge'
+import { runtimeDisplayLabel } from './runtimeLabel'
 
 const INDICATOR_LABEL_KEY: Record<HealthIndicatorId, string> = {
   webSearch: 'agent_orchestrator.overview.health.webSearch',
-  mcp: 'agent_orchestrator.overview.health.mcp',
-  opencode: 'agent_orchestrator.overview.health.opencode',
-  opencodeMcp: 'agent_orchestrator.overview.health.opencodeMcp',
+  harness: 'agent_orchestrator.overview.health.harness',
+  capability: 'agent_orchestrator.overview.health.capability',
 }
 
 const STATE_LABEL_KEY: Record<HealthState, string> = {
@@ -58,8 +58,8 @@ function isDenied(call: { status?: number } | null): boolean {
  * The orchestrator's runtime dependencies, in one KPI-sized tile.
  *
  * It replaces a full-width web-search card that spent a whole row on one of the
- * four things that can be down, while the two that stop an agent running at all
- * — MCP and OpenCode — were not on the page. The per-adapter detail the old
+ * runtime dependencies, while the harness and capability transport that stop
+ * an agent running were not on the page. The per-adapter detail the old
  * card carried is not lost: it moves into the panel, which is where detail
  * belongs on a page you scan.
  *
@@ -86,7 +86,7 @@ export function SystemHealthTile() {
     // `isDenied` as a status, or the panel reports "not permitted" as "broken".
     const [webSearchCall, runtimeCall] = await Promise.all([
       apiCall<unknown>(url, OPTIONAL_REQUEST_INIT).catch(() => null),
-      apiCall<unknown>('/api/ai_assistant/health', OPTIONAL_REQUEST_INIT).catch(() => null),
+      apiCall<unknown>('/api/agent_orchestrator/runtime/health', OPTIONAL_REQUEST_INIT).catch(() => null),
     ])
     const webSearchOk = Boolean(webSearchCall?.ok) && isWebSearchHealthPayload(webSearchCall?.result)
     const runtimeOk = Boolean(runtimeCall?.ok) && isAiRuntimeHealthPayload(runtimeCall?.result)
@@ -171,7 +171,11 @@ export function SystemHealthTile() {
               aria-hidden="true"
               className={`size-1.5 shrink-0 rounded-full ${DOT_CLASS[indicator.state]}`}
             />
-            <span className="truncate">{t(INDICATOR_LABEL_KEY[indicator.id])}</span>
+            <span className="truncate">
+              {indicator.id === 'harness'
+                ? runtimeDisplayLabel(t, 'business-harness', indicator.runtimeMode)
+                : t(INDICATOR_LABEL_KEY[indicator.id])}
+            </span>
             <span className="sr-only">{t(STATE_LABEL_KEY[indicator.state])}</span>
           </li>
         ))}

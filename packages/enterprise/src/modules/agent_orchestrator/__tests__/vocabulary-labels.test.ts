@@ -16,6 +16,8 @@ const catalogs = Object.fromEntries(LOCALES.map((locale) => [locale, loadLocale(
 
 describe('enum label maps (consistency pass Area 4)', () => {
   const ENUM_KEYS = [
+    'agent_orchestrator.agents.list.runtime.business-harness',
+    'agent_orchestrator.agents.list.runtime.business-harness-standalone',
     'agent_orchestrator.agents.list.runtime.native',
     'agent_orchestrator.traces.detail.guardrailPhase.input',
     'agent_orchestrator.traces.detail.guardrailPhase.output',
@@ -44,7 +46,7 @@ describe('enum label maps (consistency pass Area 4)', () => {
     const FAMILIES = [
       ['agent_orchestrator.agents.list.autonomy.', ['auto', 'gated', 'review']],
       ['agent_orchestrator.agents.list.status.', ['good', 'new', 'poor', 'watch']],
-      ['agent_orchestrator.agents.list.runtime.', ['external', 'in-process', 'native', 'opencode']],
+      ['agent_orchestrator.agents.list.runtime.', ['business-harness', 'business-harness-standalone', 'external', 'in-process', 'native']],
       ['agent_orchestrator.agentDetail.outcome.', ['applied', 'failed', 'overridden', 'pending']],
       ['agent_orchestrator.disposition.', ['approved', 'auto_approved', 'edited', 'pending', 'rejected']],
     ] as const

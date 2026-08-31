@@ -6,7 +6,7 @@ import path from 'node:path'
 import { detectDocker, parseComposePsOutput, runCaptureSync, runCompose, runStreamingSync } from './compose.mjs'
 import { captureInterceptionCas, findVendorCaBundles, harvestWindowsStoreCas, hostTrustEnv, probeTlsInterception, provisionDockerCerts, provisionRancherDesktopCa, summarizeProbeResults, writeCaBundle } from './certs.mjs'
 import { loadCompanyConfig, resolveCompanyCertBundles } from './company.mjs'
-import { CAPTURED_CA_BUNDLE, DEFAULT_OPENCODE_BASE_IMAGE, OPENCODE_SERVICE_IMAGE, STARTER_STATE_DIR, resolveStackPorts } from './constants.mjs'
+import { BUSINESS_HARNESS_SERVICE_IMAGE, CAPTURED_CA_BUNDLE, STARTER_STATE_DIR, resolveStackPorts } from './constants.mjs'
 import { checkBuildToolchain, checkContainerRuntime, checkGit, checkNodeVersion, checkWsl2, detectHostGateway } from './doctor.mjs'
 import { ensureEnvFiles } from './env-setup.mjs'
 import { addEnvValue, readEnvValue } from './env-file.mjs'
@@ -359,7 +359,7 @@ export const corporateCertsStep = {
     ctx.env = hostTrustEnv(bundlePath, ctx.env)
     const provisioned = provisionDockerCerts(ctx.repoRoot, bundlePath)
     ctx.log(`   host tooling: NODE_EXTRA_CA_CERTS=${path.relative(ctx.repoRoot, bundlePath)} + --use-system-ca`)
-    for (const target of provisioned) ctx.log(`   image builds:  ${path.relative(ctx.repoRoot, target)} (baked into app/opencode images)`)
+    for (const target of provisioned) ctx.log(`   image builds:  ${path.relative(ctx.repoRoot, target)} (baked into app images)`)
     const rancherScript = provisionRancherDesktopCa(ctx.repoRoot, bundlePath)
     if (rancherScript) ctx.log(`   rancher engine: ${rancherScript} (applied on the next Rancher Desktop restart)`)
     if (process.platform === 'win32') {
@@ -480,58 +480,35 @@ export const llmProviderStep = {
   },
 }
 
-export function resolveOpencodeBaseImage(repoRoot, env = process.env) {
-  return env.OPENCODE_BASE_IMAGE
-    ?? readEnvValue(path.join(repoRoot, '.env'), 'OPENCODE_BASE_IMAGE')?.trim()
-    ?? DEFAULT_OPENCODE_BASE_IMAGE
-}
-
-// The published image is a BASE (OpenCode binary + user, no entrypoint or
-// agents — docker/opencode/BASE_IMAGE.md); the runnable service image is the
-// thin local build FROM it. The only network step is the base pull, which
-// goes through the engine's trust (OS certificate store on Docker/Rancher
-// Desktop) and therefore survives corporate TLS interception that breaks
-// build-stage egress; the thin build itself only COPYs project files.
-// --rebuild forces the thin rebuild (e.g. after yarn generate in prod mode).
-export function ensureOpencodeImage(ctx) {
-  const baseImage = resolveOpencodeBaseImage(ctx.repoRoot, ctx.env)
-  const baseExists = spawnSync('docker', ['image', 'inspect', baseImage], { stdio: 'ignore' }).status === 0
-  if (baseExists) {
-    ctx.log(`   opencode base image: ${baseImage} (already present)`)
-  } else {
-    ctx.log(`   pulling OpenCode base image ${baseImage} ...`)
-    const pull = spawnSync('docker', ['pull', baseImage], { stdio: 'inherit' })
-    if (pull.status !== 0) {
-      throw new Error(`Could not pull the OpenCode base image ${baseImage}. Behind a proxy that blocks registry-1.docker.io? Set OPENCODE_BASE_IMAGE in .env to your internal mirror (build/push runbook: docker/opencode/BASE_IMAGE.md), then re-run.`)
-    }
-  }
-  const serviceExists = spawnSync('docker', ['image', 'inspect', OPENCODE_SERVICE_IMAGE], { stdio: 'ignore' }).status === 0
+export function ensureBusinessHarnessImage(ctx) {
+  const serviceImage = BUSINESS_HARNESS_SERVICE_IMAGE
+  const serviceExists = spawnSync('docker', ['image', 'inspect', serviceImage], { stdio: 'ignore' }).status === 0
   if (serviceExists && !ctx.flags.rebuild) {
-    ctx.log(`   opencode image: ${OPENCODE_SERVICE_IMAGE} (already built)`)
+    ctx.log(`   business harness image: ${serviceImage} (already built)`)
     return
   }
-  ctx.log(`   building ${OPENCODE_SERVICE_IMAGE} from ${baseImage} (project files only — no network) ...`)
+  ctx.log(`   building ${serviceImage} ...`)
   const build = spawnSync('docker', [
     'build',
-    '-t', OPENCODE_SERVICE_IMAGE,
-    '--build-arg', `OPENCODE_BASE_IMAGE=${baseImage}`,
-    path.join(ctx.repoRoot, 'docker', 'opencode'),
+    '-t', serviceImage,
+    '-f', path.join(ctx.repoRoot, 'packages', 'business-harness', 'Dockerfile'),
+    ctx.repoRoot,
   ], { stdio: 'inherit', cwd: ctx.repoRoot })
   if (build.status !== 0) {
-    throw new Error('Local build of the OpenCode service image failed — see the output above, then re-run.')
+    throw new Error('Local build of the business harness image failed. See the output above, then re-run.')
   }
 }
 
 export const infraUpStep = {
   id: 'infra-up',
-  expectation: 'first run pulls the OpenCode base image (a few minutes); seconds afterwards',
-  title: 'Infra containers (postgres, redis, meilisearch, opencode)',
+  expectation: 'usually seconds once images are present',
+  title: 'Infra containers (postgres, redis, meilisearch)',
   appliesTo: (ctx) => ctx.mode === 'hybrid' && !ctx.flags.noInfra,
   async check(ctx) {
     const ps = runCompose(ctx.repoRoot, ['ps', '--format', 'json'], { stdio: 'pipe' })
     const services = parseComposePsOutput(ps.stdout ?? '')
     const running = new Set(services.filter((entry) => entry.State === 'running').map((entry) => entry.Service))
-    const required = ['postgres', 'redis', 'meilisearch', 'opencode']
+    const required = ['postgres', 'redis', 'meilisearch']
     const missing = required.filter((service) => !running.has(service))
     ctx.infraMissing = missing
     return { ok: missing.length === 0 && !ctx.flags.rebuild, detail: missing.length === 0 ? 'all infra containers running' : `starting: ${missing.join(', ')}` }
@@ -539,14 +516,13 @@ export const infraUpStep = {
   async apply(ctx) {
     const ports = resolveStackPorts(ctx.repoRoot)
     ensureMcpSharedDir(ctx.repoRoot)
-    ensureOpencodeImage(ctx)
     const status = infraUp(ctx.repoRoot, { build: false, profiles: ctx.flags.profiles })
     if (status !== 0) {
       const hints = ['docker compose up failed — see the output above. Re-running resumes from this step.']
       if (ctx.tlsProbes?.some((entry) => entry.status === 'intercepted')) {
         hints.push('TLS/certificate errors from the engine usually mean it does not trust the corporate CA yet: restart Docker Desktop (it re-imports the Windows certificate store) or Rancher Desktop (the starter wrote a provisioning script for it), then re-run.')
       }
-      hints.push(`Port conflicts? Something else may own ${ports.postgres}/${ports.redis}/${ports.meilisearch}/${ports.opencode} — override the *_PORT vars in .env.`)
+      hints.push(`Port conflicts? Something else may own ${ports.postgres}/${ports.redis}/${ports.meilisearch} — override the *_PORT vars in .env.`)
       throw new Error(hints.join('\n'))
     }
   },
@@ -651,9 +627,9 @@ function startHostProbeListener(port) {
 }
 
 // Rancher Desktop/WSL2 can resolve host-gateway to the WSL distro instead of
-// the Windows host, silently breaking OpenCode -> host MCP. Probe BEFORE the
+// the Windows host, silently breaking container -> host communication. Probe BEFORE the
 // containers come up and pin a working IP into .env (compose feeds it to
-// extra_hosts; a changed pin makes compose recreate opencode on the next up).
+// extra_hosts; a changed pin makes compose recreate the harness on the next up).
 // A throwaway listener on the MCP port makes the probe exercise the exact
 // firewall path the real server will use.
 export const hostGatewayStep = {
@@ -686,7 +662,7 @@ export const hostGatewayStep = {
       } else {
         ctx.log(`   ⚠️ containers cannot reach this machine on port ${ports.mcp} — Windows Firewall likely blocks the WSL adapter`)
         ctx.log(`   ↳ allow it (elevated PowerShell): New-NetFirewallRule -DisplayName "Open Mercato MCP dev" -Direction Inbound -Action Allow -Protocol TCP -LocalPort ${ports.mcp} -Profile Any`)
-        ctx.log('   ↳ then re-run — OpenCode waits for the MCP server and recovers once the port answers')
+        ctx.log('   ↳ then re-run the host connectivity check')
       }
     } finally {
       listener?.kill()

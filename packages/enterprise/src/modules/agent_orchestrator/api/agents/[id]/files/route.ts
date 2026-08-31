@@ -46,7 +46,7 @@ export async function GET(req: Request, ctx: RouteContext) {
   // The Files tab is a read-only view of a file-defined (OpenCode) agent's
   // source. Native/in-process agents have no baked files → 404 so the UI never
   // renders the tab for them.
-  if (entry.runtime !== 'opencode' || !entry.sourceFiles) {
+  if (entry.runtime !== 'business-harness' || !entry.sourceFiles) {
     return NextResponse.json({ error: 'Agent has no source files' }, { status: 404 })
   }
   return NextResponse.json({

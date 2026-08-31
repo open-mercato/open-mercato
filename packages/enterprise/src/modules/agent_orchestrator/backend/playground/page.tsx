@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { useSearchParams } from 'next/navigation'
-import { Play, Plug, RotateCw, Server, ShieldAlert, SquareCode } from 'lucide-react'
+import { Play, RotateCw, Server, ShieldAlert, SquareCode } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
@@ -28,6 +28,7 @@ import { mapAgent, type AgentView } from '../../components/types'
 import { toolPanelStateFromResponse, type ToolPanelState } from '../../components/playgroundToolCalls'
 import { runErrorStateFromBody } from '../../components/playgroundRunError'
 import { Chip, TYPE_ICON, RUNTIME_ICON, resolveAgentIcon } from '../../components/agentChips'
+import { runtimeDisplayLabel } from '../../components/runtimeLabel'
 import { PlaygroundEvalPanel } from './PlaygroundEvalPanel'
 import { deriveEnvelopeConfidence, normalizeProposalEnvelope, readProposalActions } from '../../data/proposalEnvelope'
 
@@ -45,12 +46,8 @@ type AgentResult =
 
 type AgentRunResponse = AgentResult & { runId?: string | null; proposalId?: string | null }
 
-// Connectivity states derived from the ai_assistant health endpoint — the same
-// source the AI assistant settings page reads. Three independent signals:
-//   • opencode   — the OpenCode container is up (GET /global/health)
-//   • mcpBridge  — OpenCode has bound to the MCP server (GET /mcp)
-//   • mcpServer  — the MCP HTTP server itself is healthy (GET {mcpUrl}/health)
-// `hidden` covers callers without `ai_assistant.view`.
+// The harness and capability transport are probed independently. The transport
+// is MCP today and may become CLI without changing this component's contract.
 type ConnState = 'ok' | 'warn' | 'down' | 'unknown'
 
 type ConnectionsState =
@@ -58,19 +55,18 @@ type ConnectionsState =
   | { mode: 'hidden' }
   | {
       mode: 'ready'
-      opencode: ConnState
-      opencodeVersion: string | null
-      mcpBridge: ConnState
-      mcpBridgeServers: Array<{ name: string; status: string }>
-      mcpServer: ConnState
-      mcpServerTools: number | null
+      harness: ConnState
+      harnessDetail: string | null
+      harnessMode: 'one-off' | 'standalone' | null
+      capability: ConnState
+      capabilityDriver: string | null
+      capabilityTools: number | null
     }
 
 type HealthResponse = {
-  status?: 'ok' | 'error'
-  opencode?: { healthy?: boolean; version?: string }
-  mcp?: Record<string, { status?: string; error?: string }>
-  mcpHealth?: { healthy?: boolean; status?: string; tools?: number }
+  status?: 'ok' | 'degraded'
+  harness?: { healthy?: boolean; detail?: string; mode?: 'one-off' | 'standalone' }
+  capability?: { driver?: string; healthy?: boolean; detail?: string; tools?: number }
 }
 
 const CONN_VARIANT: Record<ConnState, StatusBadgeVariant> = {
@@ -81,30 +77,28 @@ const CONN_VARIANT: Record<ConnState, StatusBadgeVariant> = {
 }
 
 function connectionsFromHealth(result: HealthResponse | null): Omit<Extract<ConnectionsState, { mode: 'ready' }>, 'mode'> {
-  const opencodeHealthy = result?.opencode?.healthy === true
-  const mcpEntries = Object.entries(result?.mcp ?? {}).map(([name, value]) => ({
-    name,
-    status: typeof value?.status === 'string' ? value.status : 'unknown',
-  }))
-  const mcpBridge: ConnState = mcpEntries.some((entry) => entry.status === 'connected')
-    ? 'ok'
-    : mcpEntries.some((entry) => entry.status === 'connecting')
-      ? 'warn'
-      : mcpEntries.length > 0
-        ? 'down'
-        : 'unknown'
-  const mcpServer: ConnState = result?.mcpHealth
-    ? result.mcpHealth.healthy === true
+  const harness: ConnState = result?.harness
+    ? result.harness.healthy === true
+      ? 'ok'
+      : 'down'
+    : 'unknown'
+  const capability: ConnState = result?.capability
+    ? result.capability.healthy === true
       ? 'ok'
       : 'down'
     : 'unknown'
   return {
-    opencode: opencodeHealthy ? 'ok' : 'down',
-    opencodeVersion: typeof result?.opencode?.version === 'string' ? result.opencode.version : null,
-    mcpBridge,
-    mcpBridgeServers: mcpEntries,
-    mcpServer,
-    mcpServerTools: typeof result?.mcpHealth?.tools === 'number' ? result.mcpHealth.tools : null,
+    harness,
+    harnessDetail: typeof result?.harness?.detail === 'string' ? result.harness.detail : null,
+    harnessMode:
+      result?.harness?.mode === 'one-off' || result?.harness?.mode === 'standalone'
+        ? result.harness.mode
+        : null,
+    capability,
+    capabilityDriver:
+      typeof result?.capability?.driver === 'string' ? result.capability.driver : null,
+    capabilityTools:
+      typeof result?.capability?.tools === 'number' ? result.capability.tools : null,
   }
 }
 
@@ -113,7 +107,7 @@ function ConnectionBadges() {
   const [state, setState] = React.useState<ConnectionsState>({ mode: 'loading' })
 
   const load = React.useCallback(async () => {
-    const call = await apiCall<HealthResponse>('/api/ai_assistant/health', undefined, { fallback: null })
+    const call = await apiCall<HealthResponse>('/api/agent_orchestrator/runtime/health', undefined, { fallback: null })
     if (!call.ok) {
       // 401/403 → the caller cannot read health at all; hide instead of guessing.
       if (call.status === 401 || call.status === 403) {
@@ -122,12 +116,12 @@ function ConnectionBadges() {
       }
       setState({
         mode: 'ready',
-        opencode: 'down',
-        opencodeVersion: null,
-        mcpBridge: 'unknown',
-        mcpBridgeServers: [],
-        mcpServer: 'unknown',
-        mcpServerTools: null,
+        harness: 'down',
+        harnessDetail: null,
+        harnessMode: null,
+        capability: 'unknown',
+        capabilityDriver: null,
+        capabilityTools: null,
       })
       return
     }
@@ -158,42 +152,31 @@ function ConnectionBadges() {
           ? t('agent_orchestrator.playground.connections.disconnected', 'Not connected')
           : t('agent_orchestrator.playground.connections.unknown', 'Status unknown')
 
-  const opencodeTooltip =
-    state.opencode === 'ok' && state.opencodeVersion
-      ? `${stateLabel(state.opencode)} · ${t('agent_orchestrator.playground.connections.version', 'Version {version}', { version: state.opencodeVersion })}`
-      : stateLabel(state.opencode)
-  const mcpBridgeTooltip =
-    state.mcpBridgeServers.length > 0
-      ? state.mcpBridgeServers.map((server) => `${server.name}: ${server.status}`).join(' · ')
-      : stateLabel(state.mcpBridge)
-  const mcpServerTooltip =
-    state.mcpServer === 'ok' && state.mcpServerTools !== null
-      ? `${stateLabel(state.mcpServer)} · ${t('agent_orchestrator.playground.connections.tools', '{count} tools', { count: state.mcpServerTools })}`
-      : stateLabel(state.mcpServer)
+  const harnessTooltip = state.harnessDetail
+    ? `${stateLabel(state.harness)} · ${state.harnessDetail}`
+    : stateLabel(state.harness)
+  const capabilityTooltip =
+    state.capability === 'ok' && state.capabilityTools !== null
+      ? `${stateLabel(state.capability)} · ${state.capabilityDriver ?? 'capability'} · ${t('agent_orchestrator.playground.connections.tools', '{count} tools', { count: state.capabilityTools })}`
+      : stateLabel(state.capability)
 
   return (
     <div className="flex items-center gap-1.5">
-      <SimpleTooltip content={opencodeTooltip}>
+      <SimpleTooltip content={harnessTooltip}>
         <span>
-          <StatusBadge variant={CONN_VARIANT[state.opencode]} dot className="gap-1.5">
+          <StatusBadge variant={CONN_VARIANT[state.harness]} dot className="gap-1.5">
             <SquareCode className="size-3.5 shrink-0" aria-hidden />
-            {t('agent_orchestrator.playground.connections.opencode', 'OpenCode')}
+            {runtimeDisplayLabel(t, 'business-harness', state.harnessMode)}
           </StatusBadge>
         </span>
       </SimpleTooltip>
-      <SimpleTooltip content={mcpBridgeTooltip}>
+      <SimpleTooltip content={capabilityTooltip}>
         <span>
-          <StatusBadge variant={CONN_VARIANT[state.mcpBridge]} dot className="gap-1.5">
-            <Plug className="size-3.5 shrink-0" aria-hidden />
-            {t('agent_orchestrator.playground.connections.mcpBridge', 'MCP ↔ OpenCode')}
-          </StatusBadge>
-        </span>
-      </SimpleTooltip>
-      <SimpleTooltip content={mcpServerTooltip}>
-        <span>
-          <StatusBadge variant={CONN_VARIANT[state.mcpServer]} dot className="gap-1.5">
+          <StatusBadge variant={CONN_VARIANT[state.capability]} dot className="gap-1.5">
             <Server className="size-3.5 shrink-0" aria-hidden />
-            {t('agent_orchestrator.playground.connections.mcp', 'MCP')}
+            {state.capabilityDriver === 'cli-stdio'
+              ? t('agent_orchestrator.playground.connections.cli', 'CLI')
+              : t('agent_orchestrator.playground.connections.mcp', 'MCP')}
           </StatusBadge>
         </span>
       </SimpleTooltip>
@@ -378,7 +361,7 @@ export default function AgentPlaygroundPage() {
               {selectedAgent ? (
                 <span className="flex items-center gap-1.5">
                   <Chip icon={RUNTIME_ICON[selectedAgent.runtime]}>
-                    {t(`agent_orchestrator.agents.list.runtime.${selectedAgent.runtime}`)}
+                    {runtimeDisplayLabel(t, selectedAgent.runtime, selectedAgent.runtimeMode)}
                   </Chip>
                   <Chip icon={TYPE_ICON[selectedAgent.resultKind]}>
                     {t(`agent_orchestrator.agents.list.resultKind.${selectedAgent.resultKind}`)}

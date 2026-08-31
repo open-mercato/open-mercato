@@ -6,6 +6,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { AgentRun, AgentSpan, AgentToolCall, AgentEvalResult, AgentEvalCase, AgentContextBundle, AgentGuardrailCheck, AgentProposal } from '../../../data/entities'
+import { readBusinessHarnessRuntimeMode } from '../../../lib/runtime/businessHarnessMode'
 
 /**
  * Full run detail for the trace inspector: the run plus its ordered spans and
@@ -72,7 +73,10 @@ export async function GET(req: Request, ctx: RouteContext) {
   ])
 
   return NextResponse.json({
-    run,
+    run: {
+      ...run,
+      runtimeMode: run.runtime === 'business-harness' ? readBusinessHarnessRuntimeMode() : null,
+    },
     spans,
     toolCalls,
     evalResults,

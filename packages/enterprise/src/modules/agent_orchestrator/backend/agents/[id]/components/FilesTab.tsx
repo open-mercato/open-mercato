@@ -13,6 +13,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { formatNumber, type AgentDetailView } from '../../../../components/types'
+import { runtimeDisplayLabel } from '../../../../components/runtimeLabel'
 import {
   buildFileTree,
   filterTree,
@@ -190,7 +191,7 @@ function DefinitionOverview({ agent }: { agent: AgentDetailView }) {
   const locale = useLocale()
   const defaultValue = t('agent_orchestrator.agentDetail.defaultValue', 'Default')
   const items: Array<{ key: string; value: string; mono?: boolean }> = [
-    { key: t('agent_orchestrator.agentDetail.config.runtimeKind', 'Runtime'), value: `${agent.runtime} · ${t('agent_orchestrator.files.fileDefined', 'file-defined')}`, mono: true },
+    { key: t('agent_orchestrator.agentDetail.config.runtimeKind', 'Runtime'), value: `${runtimeDisplayLabel(t, agent.runtime, agent.runtimeMode)} · ${t('agent_orchestrator.files.fileDefined', 'file-defined')}` },
     { key: t('agent_orchestrator.agentDetail.fields.provider', 'Provider'), value: agent.defaultProvider ?? defaultValue, mono: true },
     { key: t('agent_orchestrator.agentDetail.fields.model', 'Model'), value: agent.defaultModel ?? defaultValue, mono: true },
     { key: t('agent_orchestrator.agentDetail.fields.maxSteps', 'Max steps'), value: agent.loopMaxSteps != null ? String(agent.loopMaxSteps) : defaultValue },

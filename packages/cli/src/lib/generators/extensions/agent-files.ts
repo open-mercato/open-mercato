@@ -7,29 +7,17 @@ import { resolveStandaloneSourceMirrorBase } from '../scanner'
 /**
  * Generator extension for the `agents/<id>/` file-defined-agent convention
  * (AGENT.md + OUTCOME.md). For every enabled module it scans the module's
- * `agents/` tree, validates each agent dir, and emits two artifacts as a
- * deterministic fs side effect from `generateOutput()`:
- *
- *   1. The committed, git-tracked registry manifest
- *      `packages/enterprise/src/modules/agent_orchestrator/generated/file-agents.generated.ts`
- *      (raw JSON-Schema, recompiled to Zod at load by `ensureAgentsLoaded`).
- *   2. OpenCode agent `.md` files under `docker/opencode/agents/` (container
- *      delivery: dev bind-mount, prod Dockerfile COPY).
- *
- * Both targets live OUTSIDE the app `.mercato/generated/` dir, so they are
- * written directly (not via the Map<filename,content> return, which targets the
- * app generated dir). `generateOutput()` therefore returns an empty Map.
+ * `agents/` tree, validates each agent dir, and emits the committed, git-tracked
+ * registry manifest under the enterprise agent orchestrator. `generateOutput()`
+ * writes that manifest directly and returns an empty Map because the target lives
+ * outside the app `.mercato/generated/` directory.
  *
  * Generation FAILS (throws) on any malformed AGENT.md/OUTCOME.md/SKILL.md,
  * naming the offending dir (spec §9). The CLI does not depend on
  * `@open-mercato/core`, so the small AGENT.md/OUTCOME.md/SKILL.md parsers are
  * reimplemented here; they MUST stay in sync with
  * `lib/sdk/{agentMarkdown,skillMarkdown,defineFileAgent}.ts`.
- *
- * Phase 3 also emits NATIVE OpenCode skill files under `docker/opencode/skills/`
- * (frontmatter `name` sanitized to `^[a-z0-9]+(-[a-z0-9]+)*$`, `description`
- * required, body = skill instructions) and unions skill-contributed read-only
- * tools into the agent allowlist (manifest + docker agent-file `tools` block).
+
  */
 
 /** One sandboxed script carried as plain data (Phase 5). */
@@ -48,8 +36,6 @@ type DiscoveredSkill = {
   tools: string[]
   /** Sandboxed helper scripts (`scripts/*.ts`), Phase 5. */
   scripts: DiscoveredScript[]
-  /** OpenCode native skill name (sanitized to ^[a-z0-9]+(-[a-z0-9]+)*$). */
-  openCodeSkillName: string
 }
 
 type DiscoveredAgent = {
@@ -61,13 +47,10 @@ type DiscoveredAgent = {
   instructions: string
   resultKind: 'researcher' | 'proposal'
   outcomeSchema: Record<string, unknown>
-  /** OUTCOME.md prose after the JSON-Schema fence — injected into the agent prompt. */
-  outcomeProse: string
   /** Effective allowlist: AGENT.md tools ∪ skill-contributed read-only tools. */
   tools: string[]
   skills: string[]
   subAgents: string[]
-  openCodeAgentName: string
   /** Resolved agent-local skill content (Phase 3). */
   skillsContent: DiscoveredSkill[]
   /**
@@ -76,8 +59,6 @@ type DiscoveredAgent = {
    * sub-agent itself (depth cap = 1) and for primaries with no sub-agents.
    */
   subAgentsContent: DiscoveredAgent[]
-  /** `'primary'` (default) or `'subagent'` for a discovered sub-agent. */
-  mode: 'primary' | 'subagent'
   maxSteps?: number
   provider?: string
   model?: string
@@ -287,10 +268,6 @@ function assertOutcomeSchemaSupported(node: unknown, where: string, path = '$'):
   }
 }
 
-function sanitizeAgentName(id: string): string {
-  return id.replace(/[^a-z0-9_-]/gi, '_')
-}
-
 /**
  * Read the optional `agents/<id>/SAMPLE.json` example input emitted into the
  * manifest for the Playground "Insert sample" button. Pure JSON (no markdown),
@@ -364,22 +341,6 @@ function discoverFacts(dir: string): DiscoveredFact[] | undefined {
       ...(fact.format !== undefined ? { format: fact.format as DiscoveredFact['format'] } : {}),
     }
   })
-}
-
-/**
- * Sanitize a skill id into an OpenCode native skill `name`, which must match
- * `^[a-z0-9]+(-[a-z0-9]+)*$`: lowercase, underscores/dots/spaces → hyphens,
- * any other char → hyphen, collapse runs, trim leading/trailing hyphens. Must
- * stay in sync with the loader's interpretation of skill ids.
- */
-function sanitizeSkillName(id: string): string {
-  const name = id
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-+/, '')
-    .replace(/-+$/, '')
-  return name || 'skill'
 }
 
 type SkillFrontmatter = {
@@ -556,7 +517,6 @@ function discoverAgentSkills(agentDir: string, skillIds: string[]): DiscoveredSk
       examples: listExampleBodies(skillDir),
       tools: parsed.meta.tools,
       scripts: listScripts(path.join(skillDir, 'scripts')),
-      openCodeSkillName: sanitizeSkillName(id),
     })
   }
 
@@ -623,8 +583,7 @@ function discoverSubAgents(agentDir: string): DiscoveredAgent[] {
               examples: [],
               tools: [],
               scripts: toolFiles.scripts,
-              openCodeSkillName: sanitizeSkillName(AGENT_TOOLS_SKILL_ID),
-            },
+                    },
           ]
         : skillsContent
     const effectiveTools = Array.from(
@@ -639,14 +598,11 @@ function discoverSubAgents(agentDir: string): DiscoveredAgent[] {
       instructions: agent.instructions,
       resultKind: outcome.kind,
       outcomeSchema: outcome.schema,
-      outcomeProse: outcome.prose,
       tools: effectiveTools,
       skills: agent.skills,
       subAgents: [],
-      openCodeAgentName: sanitizeAgentName(agent.id!),
       skillsContent: effectiveSkillsContent,
       subAgentsContent: [],
-      mode: 'subagent',
       maxSteps: agent.maxSteps,
       provider: agent.provider,
       model: agent.model,
@@ -803,23 +759,13 @@ function collectAgentFiles(agentDir: string, prefix = '', depth = 0): FileAgentS
   return files
 }
 
-function renderOpenCodeSkillFile(skill: DiscoveredSkill): string {
-  const frontmatter = [
-    '---',
-    `name: ${skill.openCodeSkillName}`,
-    `description: ${JSON.stringify(skill.description)}`,
-    '---',
-  ]
-  return `${frontmatter.join('\n')}\n${skill.instructions.trim()}\n`
-}
-
 /** Walk up from a known in-repo path until a dir containing both `docker` and `packages` is found. */
 function findRepoRoot(start: string): string | null {
   let current = path.resolve(start)
   for (let depth = 0; depth < 40; depth += 1) {
     if (
-      fs.existsSync(path.join(current, 'docker', 'opencode')) &&
-      fs.existsSync(path.join(current, 'packages'))
+      fs.existsSync(path.join(current, 'package.json')) &&
+      fs.existsSync(path.join(current, 'packages', 'enterprise'))
     ) {
       return current
     }
@@ -838,107 +784,7 @@ function listAgentDirs(agentsBase: string): string[] {
     .map((entry) => path.join(agentsBase, entry.name))
 }
 
-function renderToolPermissionLine(toolName: string): string {
-  return `  ${JSON.stringify(toolName)}: true`
-}
-
 const ORCHESTRATOR_MODULE_ID = 'agent_orchestrator'
-// OpenCode names every MCP tool `<serverKey>_<toolName with dots→underscores>`
-// (verified against the running image). Keep in sync with
-// `lib/sdk/defineFileAgent.ts`.
-const OPENCODE_MCP_SERVER_KEY = 'open-mercato'
-const CORE_FILE_AGENT_TOOL_IDS = [
-  'agent_orchestrator.submit_outcome',
-  'agent_orchestrator.load_skill',
-  'agent_orchestrator.run_skill_script',
-]
-/**
- * MCP tool a file-agent orchestrator uses to run a sub-agent SERVER-SIDE. We
- * route delegation through this tool instead of OpenCode's built-in `task` tool:
- * `task` spawns each sub-agent in a fresh session that never receives the run's
- * `_sessionToken`, so the sub-agent's MCP calls fail with `no_active_run`. The
- * delegate tool runs the sub-agent via `agentRuntime.run`, which mints its own
- * per-run session token + correlation, so sub-agent tool calls authenticate.
- */
-const DELEGATE_AGENT_TOOL_ID = 'agent_orchestrator.delegate_agent'
-function toOpenCodeMcpToolId(omToolId: string): string {
-  return `${OPENCODE_MCP_SERVER_KEY}_${omToolId.replace(/\./g, '_')}`
-}
-
-/**
- * Render an OpenCode agent .md file. Must stay in sync with
- * `lib/sdk/defineFileAgent.ts` `renderOpenCodeAgentFile`. The built-in OpenCode
- * `task` tool is NEVER granted (`permission.task: deny` for every agent): it
- * spawns each sub-agent in a fresh session that does not inherit the run's
- * `_sessionToken`, so the sub-agent's MCP calls fail with `no_active_run`.
- * Instead, a primary that declares sub-agents is granted the
- * `agent_orchestrator.delegate_agent` MCP tool (runs each sub-agent server-side
- * under its own minted session token) and gains a "Sub-agents" prompt section
- * nudging parallel fan-out through that tool. Sub-agent files (`mode: subagent`)
- * get neither the delegate tool nor `task` (depth cap = 1).
- */
-function renderOpenCodeAgentFile(agent: DiscoveredAgent): string {
-  const subAgentIds =
-    agent.mode === 'primary' ? agent.subAgentsContent.map((sub) => sub.id) : []
-  const hasSubAgents = subAgentIds.length > 0
-  const omMcpToolIds = Array.from(
-    new Set([
-      ...agent.tools,
-      ...CORE_FILE_AGENT_TOOL_IDS,
-      ...(hasSubAgents ? [DELEGATE_AGENT_TOOL_ID] : []),
-    ]),
-  )
-  const allowedTools = omMcpToolIds.map(toOpenCodeMcpToolId)
-  const modelLine =
-    agent.provider && agent.model
-      ? `model: ${agent.provider}/${agent.model}`
-      : agent.model
-        ? `model: ${agent.model}`
-        : null
-  const frontmatterLines = [
-    '---',
-    `description: ${JSON.stringify(agent.description)}`,
-    ...(modelLine ? [modelLine] : []),
-    `mode: ${agent.mode}`,
-    'tools:',
-    '  "*": false',
-    ...allowedTools.map(renderToolPermissionLine),
-    'permission:',
-    '  write: deny',
-    '  edit: deny',
-    '  bash: deny',
-    '  task: deny',
-    '---',
-  ]
-  const terminalInstruction =
-    `Finish by calling the \`${toOpenCodeMcpToolId('agent_orchestrator.submit_outcome')}\` tool with a value matching the outcome contract (pass it as the \`outcome\` argument). You MUST call the tool — do not answer in prose or emit the result as a code block.`
-  const delegateToolName = toOpenCodeMcpToolId(DELEGATE_AGENT_TOOL_ID)
-  const subAgentSection = hasSubAgents
-    ? `## Sub-agents\nDelegate a sub-task by calling the \`${delegateToolName}\` tool with \`{ agentId: "<sub-agent id>", input: <sub-task input object> }\`. Issue multiple \`${delegateToolName}\` calls in the SAME step to fan out in parallel, then combine their results before submitting your outcome. Available sub-agents: ${subAgentIds.join(', ')}.`
-    : null
-  // Inject the OUTCOME contract so the agent SEES the exact shape it must submit
-  // (otherwise it guesses and learns the shape only from validation errors). Keep
-  // in sync with lib/sdk/defineFileAgent.ts renderOutcomeSection.
-  const outcomeTarget = agent.resultKind === 'proposal' ? 'the `proposal` object' : 'the `data` object'
-  const outcomeSection = [
-    '## Outcome contract',
-    `Your result MUST match this JSON Schema (${outcomeTarget}). Pass it as the \`outcome\` argument of the submit_outcome tool, as a JSON object (not a string):`,
-    '',
-    '```json',
-    JSON.stringify(agent.outcomeSchema, null, 2),
-    '```',
-    ...(agent.outcomeProse ? ['', agent.outcomeProse] : []),
-  ].join('\n')
-  const body = [
-    agent.instructions.trim(),
-    ...(subAgentSection ? [subAgentSection] : []),
-    outcomeSection,
-    terminalInstruction,
-  ]
-    .filter(Boolean)
-    .join('\n\n')
-  return `${frontmatterLines.join('\n')}\n${body}\n`
-}
 
 /**
  * Render one agent descriptor as a key-per-line object literal at `indent`.
@@ -985,7 +831,6 @@ function renderDescriptor(agent: DiscoveredAgent, indent: string): string {
     `${indent}  tools: ${JSON.stringify(agent.tools)},`,
     `${indent}  skills: ${JSON.stringify(agent.skills)},`,
     `${indent}  subAgents: ${JSON.stringify(agent.subAgents)},`,
-    `${indent}  openCodeAgentName: ${JSON.stringify(agent.openCodeAgentName)},`,
     `${indent}  skillsContent: ${JSON.stringify(skillsContent)},`,
     `${indent}  tokenUsage: ${JSON.stringify(agent.tokenUsage)},`,
     `${indent}  sourceFiles: ${JSON.stringify(agent.sourceFiles)},`,
@@ -999,12 +844,12 @@ function renderManifest(agents: DiscoveredAgent[]): string {
 
   return `// AUTO-GENERATED by mercato generate registry — DO NOT EDIT BY HAND.
 //
-// Committed, generator-owned manifest of file-defined (OpenCode) agents,
+// Committed, generator-owned manifest of file-defined business agents,
 // discovered from \`agents/<id>/\` directories across every enabled module. It
 // stores PLAIN data (raw JSON-Schema, not a Zod instance) so this file is pure
 // data and travels with the repo (survives \`yarn clean-generated\`).
 // \`ensureAgentsLoaded()\` recompiles each \`outcomeSchema\` to Zod via
-// \`compileOutcome\` at load time and registers it with \`runtime:'opencode'\`.
+// \`compileOutcome\` at load time and registers it with \`runtime:'business-harness'\`.
 //
 // Regenerate with \`yarn generate\`.
 import type { JsonSchemaNode, OutcomeKind } from '../lib/sdk/outcomeSchema'
@@ -1024,7 +869,7 @@ export type FileAgentSkillContent = {
   /**
    * Sandboxed helper scripts (Phase 5). Carried as plain source; run server-side
    * in the Code Mode \`isolated-vm\` sandbox via the \`run_skill_script\` MCP tool.
-   * Never copied to the OpenCode container. The synthetic skill id
+   * Never copied to the runtime process. The synthetic skill id
    * \`__agent_tools__\` carries an agent's LOCAL \`tools/*.ts\` sources.
    */
   scripts?: FileAgentScript[]
@@ -1051,7 +896,6 @@ export type FileAgentDescriptor = {
   tools: string[]
   skills: string[]
   subAgents: string[]
-  openCodeAgentName: string
   skillsContent?: FileAgentSkillContent[]
   /**
    * Baked token-usage estimate of the agent's construction files (AGENT.md,
@@ -1124,7 +968,7 @@ export function createAgentFilesExtension(): GeneratorExtension {
         throw new Error(`[internal] malformed OUTCOME.md at ${dir}: missing kind or JSON-Schema block`)
       }
       assertOutcomeSchemaSupported(outcome.schema, dir)
-      // The id is the registry/dup key AND the OpenCode `agent` message field —
+      // The id is the registry key and the stable execution identity.
       // constrain it to a safe charset (module.entity-style: lowercase alnum + . _ -).
       if (!/^[a-z0-9][a-z0-9._-]*$/.test(agent.id!)) {
         throw new Error(
@@ -1156,8 +1000,7 @@ export function createAgentFilesExtension(): GeneratorExtension {
                 examples: [],
                 tools: [],
                 scripts: toolFiles.scripts,
-                openCodeSkillName: sanitizeSkillName(AGENT_TOOLS_SKILL_ID),
-              },
+                        },
             ]
           : skillsContent
       const effectiveTools = Array.from(
@@ -1175,14 +1018,11 @@ export function createAgentFilesExtension(): GeneratorExtension {
         instructions: agent.instructions,
         resultKind: outcome.kind,
         outcomeSchema: outcome.schema,
-        outcomeProse: outcome.prose,
         tools: effectiveTools,
         skills: agent.skills,
         subAgents: agent.subAgents,
-        openCodeAgentName: sanitizeAgentName(agent.id!),
-        skillsContent: effectiveSkillsContent,
+          skillsContent: effectiveSkillsContent,
         subAgentsContent,
-        mode: 'primary',
         maxSteps: agent.maxSteps,
         provider: agent.provider,
         model: agent.model,
@@ -1218,7 +1058,7 @@ export function createAgentFilesExtension(): GeneratorExtension {
       if (!sawOrchestratorModule && sorted.length === 0) {
         // Neither the orchestrator (the manifest's only consumer) nor any agent
         // module is part of this run — the enterprise agents flag is off. The
-        // committed manifest and `docker/opencode/**` files belong to modules
+        // committed manifest belongs to modules
         // that are merely switched off, so pruning them here would delete
         // tracked artifacts on every `yarn generate`. Leave the tree untouched.
         return new Map<string, string>()
@@ -1236,66 +1076,6 @@ export function createAgentFilesExtension(): GeneratorExtension {
       )
       fs.mkdirSync(path.dirname(manifestPath), { recursive: true })
       fs.writeFileSync(manifestPath, renderManifest(sorted), 'utf8')
-
-      const dockerAgentsDir = path.join(repoRoot, 'docker', 'opencode', 'agents')
-      fs.mkdirSync(dockerAgentsDir, { recursive: true })
-      const desiredFiles = new Map<string, string>()
-      for (const agent of sorted) {
-        desiredFiles.set(`${agent.openCodeAgentName}.md`, renderOpenCodeAgentFile(agent))
-        // Phase 4: emit each sub-agent as its own `mode: subagent` file so
-        // OpenCode can reach it via the primary's whitelisted `task` tool.
-        for (const sub of agent.subAgentsContent) {
-          desiredFiles.set(`${sub.openCodeAgentName}.md`, renderOpenCodeAgentFile(sub))
-        }
-      }
-      // Idempotent: remove stale generated agent files, write the current set.
-      for (const existing of fs.existsSync(dockerAgentsDir) ? fs.readdirSync(dockerAgentsDir) : []) {
-        if (existing.endsWith('.md') && !desiredFiles.has(existing)) {
-          fs.rmSync(path.join(dockerAgentsDir, existing))
-        }
-      }
-      for (const [fileName, content] of desiredFiles) {
-        fs.writeFileSync(path.join(dockerAgentsDir, fileName), content, 'utf8')
-      }
-
-      // Phase 3: emit NATIVE OpenCode skill files (one dir per skill name) under
-      // `docker/opencode/skills/<sanitized-skill-name>/SKILL.md`. Idempotent:
-      // remove stale skill dirs not in the current desired set. Sub-agents
-      // (Phase 4) may carry their own skills too, so flatten them in.
-      const allAgents = sorted.flatMap((agent) => [agent, ...agent.subAgentsContent])
-      const dockerSkillsDir = path.join(repoRoot, 'docker', 'opencode', 'skills')
-      // The synthetic `__agent_tools__` skill only carries an agent's local
-      // `tools/*.ts` sources (run via `run_skill_script`); it has no instructions
-      // and MUST NOT be emitted as a native OpenCode skill (OpenCode requires a
-      // non-empty `description`, and it is not a progressive-disclosure skill).
-      const isNativeSkill = (skill: { id: string }): boolean => skill.id !== AGENT_TOOLS_SKILL_ID
-      const desiredSkillNames = new Set<string>()
-      for (const agent of allAgents) {
-        for (const skill of agent.skillsContent) {
-          if (isNativeSkill(skill)) desiredSkillNames.add(skill.openCodeSkillName)
-        }
-      }
-      if (desiredSkillNames.size > 0) fs.mkdirSync(dockerSkillsDir, { recursive: true })
-      if (fs.existsSync(dockerSkillsDir)) {
-        for (const existing of fs.readdirSync(dockerSkillsDir, { withFileTypes: true })) {
-          if (existing.isDirectory() && !desiredSkillNames.has(existing.name)) {
-            fs.rmSync(path.join(dockerSkillsDir, existing.name), { recursive: true, force: true })
-          }
-        }
-      }
-      const renderedSkillNames = new Set<string>()
-      for (const agent of allAgents) {
-        for (const skill of agent.skillsContent) {
-          if (!isNativeSkill(skill)) continue
-          // A skill name may be shared across agents; the first rendering wins
-          // (content is keyed by name, deterministic by sorted agent order).
-          if (renderedSkillNames.has(skill.openCodeSkillName)) continue
-          renderedSkillNames.add(skill.openCodeSkillName)
-          const skillDir = path.join(dockerSkillsDir, skill.openCodeSkillName)
-          fs.mkdirSync(skillDir, { recursive: true })
-          fs.writeFileSync(path.join(skillDir, 'SKILL.md'), renderOpenCodeSkillFile(skill), 'utf8')
-        }
-      }
 
       return new Map<string, string>()
     },

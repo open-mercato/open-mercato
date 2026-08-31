@@ -11,15 +11,15 @@ import type { HealthIndicator, HealthIndicatorId, WebSearchHealthPayload } from 
 import { HealthRow } from './HealthRow'
 import { HealthStateBadge } from './HealthStateBadge'
 import { formatProbeAge } from './vocabulary'
+import { runtimeDisplayLabel } from '../runtimeLabel'
 
 const INDICATOR_LABEL_KEY: Record<HealthIndicatorId, string> = {
   webSearch: 'agent_orchestrator.overview.health.webSearch',
-  mcp: 'agent_orchestrator.overview.health.mcp',
-  opencode: 'agent_orchestrator.overview.health.opencode',
-  opencodeMcp: 'agent_orchestrator.overview.health.opencodeMcp',
+  harness: 'agent_orchestrator.overview.health.harness',
+  capability: 'agent_orchestrator.overview.health.capability',
 }
 
-const RUNTIME_ORDER: HealthIndicatorId[] = ['mcp', 'opencode', 'opencodeMcp']
+const RUNTIME_ORDER: HealthIndicatorId[] = ['harness', 'capability']
 
 export type SystemHealthPanelProps = {
   indicators: readonly HealthIndicator[]
@@ -101,7 +101,11 @@ export function SystemHealthPanel({
               return (
                 <HealthRow
                   key={id}
-                  label={t(INDICATOR_LABEL_KEY[id])}
+                  label={
+                    id === 'harness'
+                      ? runtimeDisplayLabel(t, 'business-harness', indicator.runtimeMode)
+                      : t(INDICATOR_LABEL_KEY[id])
+                  }
                   detail={indicator.detail}
                   trailing={<HealthStateBadge state={indicator.state} />}
                 />

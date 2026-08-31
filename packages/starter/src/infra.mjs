@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Hybrid infra lifecycle: OpenCode + postgres/redis/meilisearch containers.
+// Hybrid infra lifecycle: postgres/redis/meilisearch containers.
 // Preferred entry: `yarn om infra up|down` (or npx @open-mercato/starter).
 // Direct usage: node packages/starter/src/infra.mjs up [--profile <name>]
 //               node packages/starter/src/infra.mjs down [--volumes --yes]
@@ -22,11 +22,7 @@ export function infraUp(repoRooot, { profiles = [] } = {}) {
   for (const profile of profiles) {
     upArgs.push('--profile', profile)
   }
-  // --wait blocks on the postgres/redis/meilisearch healthchecks; opencode has
-  // no healthcheck here and counts as started immediately (its entrypoint
-  // waits for the host MCP server on its own). The opencode image is obtained
-  // beforehand (base pull + thin local build, see steps.mjs
-  // ensureOpencodeImage) — this file never builds.
+  // --wait blocks on the database, search and cache healthchecks.
   upArgs.push('up', '-d', '--wait')
   return runCompose(repoRoot, upArgs).status ?? 1
 }
@@ -118,7 +114,7 @@ function main() {
     const status = infraUp(repoRoot, { build: !args.includes('--no-build'), profiles })
     if (status === 0) {
       console.log('')
-      console.log('✅ Infra containers are up (opencode :4096, postgres :5432, redis :6379, meilisearch :7700).')
+      console.log('✅ Infra containers are up (postgres :5432, redis :6379, meilisearch :7700).')
       console.log('   Next: yarn dev (starts the app and the MCP server on this machine)')
     }
     process.exit(status)

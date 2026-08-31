@@ -45,7 +45,7 @@ function applyProviderConfig(rootEnv, entry, { key = '', baseUrl = '', model = '
 }
 
 // The root .env is the starter's source of truth for AI provider config: it
-// feeds the compose interpolation for the opencode container. The host app
+// is consumed by Open Mercato and leased to the business harness per run. The host app
 // only loads apps/mercato/.env, so the chosen provider must be mirrored there
 // too or the app keeps the .env.example defaults (provider 'openai' with an
 // empty key) and the selection silently "does not persist". Provider/model are
@@ -116,7 +116,7 @@ export async function ensureLlmProvider(rootEnvOrFiles, { skipPrompt = false, no
   }
 
   if (skipPrompt) {
-    warn('LLM prompt skipped with no provider key — AI chat will not work until you set a provider (e.g. OPENAI_API_KEY) in .env and restart the opencode container.')
+    warn('LLM prompt skipped with no provider key. AI runs require a provider such as OPENAI_API_KEY in .env.')
     return 'skipped'
   }
   if (nonInteractive || !process.stdin.isTTY) {
@@ -129,7 +129,7 @@ export async function ensureLlmProvider(rootEnvOrFiles, { skipPrompt = false, no
 
   try {
     console.log('')
-    console.log('The AI assistant (OpenCode + MCP) needs one LLM provider to power the Cmd+K agent.')
+    console.log('The AI runtime needs one LLM provider to execute agents.')
     console.log('Setup requires one to continue. (Ctrl+C aborts; re-run later with --skip-llm-prompt to configure it in .env yourself.)')
 
     while (true) {

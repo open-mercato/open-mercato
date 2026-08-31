@@ -1,0 +1,30 @@
+{
+  "runtimeProfiles": {},
+  "connectors": {
+    "open-mercato": {
+      "driver": "mcp-http",
+      "url": "http://host.docker.internal:3001/mcp",
+      "credentialAudience": "open-mercato:mcp",
+      "credentialBindingId": "open-mercato-default",
+      "auth": {
+        "headerName": "x-api-key"
+      },
+      "hiddenArguments": {
+        "_sessionToken": {
+          "source": "credential-metadata",
+          "key": "sessionToken"
+        }
+      }
+    }
+  },
+  "modelPolicy": {
+    "allowedOpenAICompatibleOrigins": [
+      "https://api.deepinfra.com",
+      "https://api.groq.com",
+      "https://api.together.xyz",
+      "https://api.fireworks.ai",
+      "https://openrouter.ai",
+      "https://router.requesty.ai"
+    ]
+  }
+}

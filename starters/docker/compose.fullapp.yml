@@ -1,71 +1,27 @@
 
 
 services:
-  opencode:
+  business-harness:
     build:
-      context: ./docker/opencode
-      args:
-        # OpenCode is pre-installed in this published base image (see
-        # docker/opencode/BASE_IMAGE.md); the local build only COPYs project
-        # files, so it needs no proxy-hostile network — the FROM pull goes
-        # through the container engine's trust (OS certificate store).
-        # Override to pin a different pushed base tag.
-        OPENCODE_BASE_IMAGE: ${OPENCODE_BASE_IMAGE:-docker.io/openmercatocom/open-mercato-opencode:1.18.3}
-    image: opencode-mvp
-    container_name: mercato-opencode-${DEPLOY_ENV:-local}
+      context: .
+      dockerfile: packages/business-harness/Dockerfile
+    image: open-mercato-business-harness:dev
+    container_name: mercato-business-harness-${DEPLOY_ENV:-local}
     restart: unless-stopped
     environment:
-      # Unified AI provider/model selection. OM_AI_* wins; OPENCODE_* stays
-      # as a BC fallback resolved by the opencode entrypoint script.
-      OM_AI_PROVIDER: ${OM_AI_PROVIDER:-openai}
-      OM_AI_MODEL: ${OM_AI_MODEL:-gpt-5-mini}
-      OPENCODE_PROVIDER: ${OPENCODE_PROVIDER:-}
-      OPENCODE_MODEL: ${OPENCODE_MODEL:-}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY:-}
-      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
-      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-}
-      AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}
-      AZURE_OPENAI_BASE_URL: ${AZURE_OPENAI_BASE_URL:-}
-      DEEPINFRA_API_KEY: ${DEEPINFRA_API_KEY:-}
-      DEEPINFRA_BASE_URL: ${DEEPINFRA_BASE_URL:-}
-      GROQ_API_KEY: ${GROQ_API_KEY:-}
-      GROQ_BASE_URL: ${GROQ_BASE_URL:-}
-      TOGETHER_API_KEY: ${TOGETHER_API_KEY:-}
-      TOGETHER_BASE_URL: ${TOGETHER_BASE_URL:-}
-      FIREWORKS_API_KEY: ${FIREWORKS_API_KEY:-}
-      FIREWORKS_BASE_URL: ${FIREWORKS_BASE_URL:-}
-      LITELLM_API_KEY: ${LITELLM_API_KEY:-}
-      LITELLM_BASE_URL: ${LITELLM_BASE_URL:-}
-      OLLAMA_API_KEY: ${OLLAMA_API_KEY:-}
-      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-}
-      LM_STUDIO_API_KEY: ${LM_STUDIO_API_KEY:-}
-      LM_STUDIO_BASE_URL: ${LM_STUDIO_BASE_URL:-}
-      # In-network MCP wiring. MCP_SERVER_API_KEY (env) wins when set; the
-      # file fallback reads the key the mcp service provisioned into the
-      # shared volume after waiting for the MCP /health endpoint.
-      OPENCODE_MCP_URL: ${OPENCODE_MCP_URL:-http://mcp:3001/mcp}
-      MCP_SERVER_API_KEY: ${MCP_SERVER_API_KEY:-}
-      MCP_SERVER_API_KEY_FILE: /run/mcp-shared/mcp-api-key
-    volumes:
-      - mcp_shared:/run/mcp-shared:ro
-      # Corporate CA bundle for pulled images (entrypoint exports
-      # SSL_CERT_FILE/NODE_EXTRA_CA_CERTS when certs are present).
-      - ./docker/opencode/certs:/run/om-certs:ro
-    depends_on:
-      mcp:
-        condition: service_started
-    # Visibility only (compose ps / smoke tests): the entrypoint owns the
-    # wait-for-MCP-and-key sequencing.
+      HARNESS_SERVICE_TOKEN: ${BUSINESS_HARNESS_SERVICE_TOKEN:-open-mercato-business-harness-local-token}
+      HARNESS_CREDENTIAL_MODE: broker
+      HARNESS_CREDENTIAL_BROKER_URL: http://app:3000/api/agent_orchestrator/internal/credentials/exchange
+      HARNESS_CONFIG_FILE: /workspace/packages/business-harness/harness.config.compose.json
+      HARNESS_HOST: 0.0.0.0
+      HARNESS_PORT: 4300
+    ports:
+      - "${BUSINESS_HARNESS_PORT:-4300}:4300"
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "--max-time", "5", "http://127.0.0.1:4096/global/health"]
-      interval: 30s
-      timeout: 6s
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:4300/healthz"]
+      interval: 5s
+      timeout: 3s
       retries: 20
-      start_period: 900s
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     networks:
       - mercato-network-fullapp
 
@@ -165,7 +121,7 @@ services:
         - NEXT_PUBLIC_DOCUMENTS_COLLAB_URL=${NEXT_PUBLIC_DOCUMENTS_COLLAB_URL:-}
     image: open-mercato/app:${DEPLOY_ENV:-local}
     # Without a restart policy the app stays down after a daemon/host reboot
-    # while mcp and opencode (restart: unless-stopped) wait on it forever.
+    # while mcp and the business harness wait on it forever.
     restart: unless-stopped
     user: "0"
     command:
@@ -241,11 +197,9 @@ services:
       ENABLE_CRUD_API_CACHE: ${ENABLE_CRUD_API_CACHE:-true}
       OM_AI_PROVIDER: ${OM_AI_PROVIDER:-openai}
       OM_AI_MODEL: ${OM_AI_MODEL:-gpt-5-mini}
-      OPENCODE_PROVIDER: ${OPENCODE_PROVIDER:-}
-      OPENCODE_MODEL: ${OPENCODE_MODEL:-}
-      # Point OpenCode clients at the sibling opencode service (the code default
-      # http://localhost:4096 is unreachable from inside the app container).
-      OPENCODE_URL: ${OPENCODE_URL:-http://opencode:4096}
+      OM_BUSINESS_HARNESS_URL: http://business-harness:4300
+      OM_BUSINESS_HARNESS_TRANSPORT: http
+      BUSINESS_HARNESS_SERVICE_TOKEN: ${BUSINESS_HARNESS_SERVICE_TOKEN:-open-mercato-business-harness-local-token}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY:-}
@@ -290,8 +244,7 @@ services:
       PLATFORM_DOMAINS: ${PLATFORM_DOMAINS:-localhost,${PLATFORM_PRIMARY_HOST:-openmercato.com}}
       PLATFORM_PORTAL_BASE_URL: ${PLATFORM_PORTAL_BASE_URL:-https://${PLATFORM_PRIMARY_HOST:-openmercato.com}}
       CUSTOMER_DOMAIN_ORIGIN_HEADER: ${CUSTOMER_DOMAIN_ORIGIN_HEADER:-X-Open-Mercato-Origin}
-      # MCP wiring (OPENCODE_URL is declared above with the AI provider block;
-      # NEXT_PUBLIC_APP_URL stays a browser-resolvable URL, never service DNS).
+      # MCP wiring. NEXT_PUBLIC_APP_URL stays browser-resolvable, never service DNS.
       MCP_URL: ${MCP_URL:-http://mcp:3001}
       MCP_SERVER_API_KEY_FILE: /run/mcp-shared/mcp-api-key
     depends_on:

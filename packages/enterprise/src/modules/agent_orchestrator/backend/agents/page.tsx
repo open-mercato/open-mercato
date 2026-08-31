@@ -26,20 +26,14 @@ import {
   type AgentWindowMetricsView,
 } from '../../components/types'
 import { Chip, TYPE_ICON, AGENT_TYPE_ICON, RUNTIME_ICON, AUTONOMY_ICON, agentAvatarIcon } from '../../components/agentChips'
+import { runtimeDisplayLabel } from '../../components/runtimeLabel'
 import { isAgentPreviewUiEnabled } from '../../lib/featureFlags'
 import { AGENT_TYPE_UNDECLARED, collectAgentTagOptions, filterAgentRows } from './agentListFilters'
 import type { AgentType } from '../../data/validators'
 
 const AGENT_TYPE_VALUES: readonly AgentType[] = ['researcher', 'decision_maker', 'action']
 
-const RUNTIME_LABEL: Record<AgentRuntime, string> = {
-  'in-process': 'In Process',
-  native: 'Native',
-  opencode: 'Open Code',
-  external: 'External',
-}
-
-const RUNTIME_VALUES: AgentRuntime[] = ['in-process', 'native', 'opencode', 'external']
+const RUNTIME_VALUES: AgentRuntime[] = ['in-process', 'native', 'business-harness', 'external']
 const AUTONOMY_VALUES: Autonomy[] = ['auto', 'review', 'gated']
 const HEALTH_VALUES: Health[] = ['good', 'watch', 'poor', 'new']
 
@@ -200,7 +194,7 @@ export default function AgentsRegistryPage() {
       header: t('agent_orchestrator.agents.list.col.runtime', 'Runtime'),
       cell: ({ row }) => (
         <Chip icon={RUNTIME_ICON[row.original.runtime]}>
-          {t(`agent_orchestrator.agents.list.runtime.${row.original.runtime}`, RUNTIME_LABEL[row.original.runtime])}
+          {runtimeDisplayLabel(t, row.original.runtime, row.original.runtimeMode)}
         </Chip>
       ),
     },
@@ -281,6 +275,10 @@ export default function AgentsRegistryPage() {
   ], [t])
 
   const tagOptions = React.useMemo(() => collectAgentTagOptions(rows), [rows])
+  const harnessRuntimeMode = React.useMemo(
+    () => rows.find((row) => row.runtime === 'business-harness')?.runtimeMode ?? null,
+    [rows],
+  )
 
   const filterDefs = React.useMemo<FilterDef[]>(() => [
     {
@@ -316,7 +314,7 @@ export default function AgentsRegistryPage() {
       multiple: true,
       options: RUNTIME_VALUES.map((value) => ({
         value,
-        label: t(`agent_orchestrator.agents.list.runtime.${value}`, RUNTIME_LABEL[value]),
+        label: runtimeDisplayLabel(t, value, value === 'business-harness' ? harnessRuntimeMode : null),
       })),
     },
     {
@@ -346,7 +344,7 @@ export default function AgentsRegistryPage() {
       placeholder: t('agent_orchestrator.agents.tags.filterPlaceholder', 'Pick a tag'),
       options: tagOptions.map((tag) => ({ value: tag, label: tag })),
     },
-  ], [t, tagOptions])
+  ], [t, tagOptions, harnessRuntimeMode])
 
   const filteredRows = React.useMemo(
     () => filterAgentRows(rows, search, filterValues),
@@ -528,4 +526,3 @@ function StatCard({ icon: Icon, label, sub, children }: { icon: React.ComponentT
     </div>
   )
 }
-

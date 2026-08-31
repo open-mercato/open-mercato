@@ -34,7 +34,7 @@ describe('agent_orchestrator.submit_outcome', () => {
         label: 'Submit test',
         description: 'test',
         instructions: 'x',
-        runtime: 'opencode',
+        runtime: 'business-harness',
       }
       registerFileAgent(entry)
     }

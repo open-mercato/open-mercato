@@ -9,6 +9,7 @@ import { SectionHeader } from '@open-mercato/ui/backend/SectionHeader'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { formatNumber, type AgentDetailView, type SkillDetailView } from '../../../../components/types'
+import { runtimeDisplayLabel } from '../../../../components/runtimeLabel'
 import { TokenUsageCard } from './workspacePrimitives'
 import type { RuntimeTokenUsage } from './workspaceShared'
 
@@ -70,7 +71,7 @@ export function ConfigurationTab({ agent, runtimeTokens, onSkillClick }: Configu
             <dt className="text-muted-foreground">{t('agent_orchestrator.agentDetail.fields.maxSteps', 'Max steps')}</dt>
             <dd className="tabular-nums text-foreground">{agent.loopMaxSteps != null ? String(agent.loopMaxSteps) : defaultValue}</dd>
             <dt className="text-muted-foreground">{t('agent_orchestrator.agentDetail.config.runtimeKind', 'Runtime')}</dt>
-            <dd className="font-mono text-foreground">{agent.runtime}</dd>
+            <dd className="text-foreground">{runtimeDisplayLabel(t, agent.runtime, agent.runtimeMode)}</dd>
             <dt className="text-muted-foreground">{t('agent_orchestrator.agentDetail.config.resultKind', 'Result kind')}</dt>
             <dd className="text-foreground">{agent.resultKind}</dd>
             {/* The DECLARED type is an authoring fact and sits beside — never
@@ -178,7 +179,9 @@ export function ConfigurationTab({ agent, runtimeTokens, onSkillClick }: Configu
           </section>
         ) : null}
 
-        {agent.runtime === 'opencode' && agent.tokenUsage ? <TokenUsageCard agent={agent} /> : null}
+        {agent.runtime === 'business-harness' && agent.tokenUsage ? (
+          <TokenUsageCard agent={agent} />
+        ) : null}
       </div>
     </div>
   )

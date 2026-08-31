@@ -5,20 +5,18 @@ import { createAgentFilesExtension } from '../lib/generators/extensions/agent-fi
 import type { ModuleScanContext } from '../lib/generators/extension'
 
 /**
- * Build a throwaway repo root carrying the `docker/opencode` + `packages`
- * sentinels the extension uses to locate the repo, plus a module `agents/` tree
- * under the app base. Returns the paths the extension's fs side effect targets.
+ * Build a throwaway repo root carrying the package sentinels used to locate the
+ * repo, plus a module `agents/` tree under the app base.
  */
 function makeRepo(): {
   root: string
   appBase: string
   pkgBase: string
-  dockerAgentsDir: string
   manifestPath: string
 } {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-files-repo-'))
-  fs.mkdirSync(path.join(root, 'docker', 'opencode'), { recursive: true })
-  fs.mkdirSync(path.join(root, 'packages'), { recursive: true })
+  fs.writeFileSync(path.join(root, 'package.json'), '{}', 'utf8')
+  fs.mkdirSync(path.join(root, 'packages', 'enterprise'), { recursive: true })
   const appBase = path.join(root, 'apps', 'mercato', 'src', 'modules', 'agent_examples')
   const pkgBase = path.join(root, 'packages', 'core', 'src', 'modules', '__none__')
   fs.mkdirSync(appBase, { recursive: true })
@@ -27,7 +25,6 @@ function makeRepo(): {
     root,
     appBase,
     pkgBase,
-    dockerAgentsDir: path.join(root, 'docker', 'opencode', 'agents'),
     manifestPath: path.join(
       root,
       'packages',
@@ -115,7 +112,7 @@ describe('agent-files generator (Phase 4 sub-agents)', () => {
     for (const root of created) fs.rmSync(root, { recursive: true, force: true })
   })
 
-  it('emits a subagent .md, wires the primary task permission, and nests the manifest descriptor', () => {
+  it('nests the sub-agent in the manifest without runtime-specific files', () => {
     const repo = makeRepo()
     created.push(repo.root)
     const agentDir = path.join(repo.appBase, 'agents', 'deals_health_check')
@@ -129,35 +126,13 @@ describe('agent-files generator (Phase 4 sub-agents)', () => {
     extension.scanModule(makeCtx(repo, 'agent_examples'))
     extension.generateOutput()
 
-    const primaryMd = fs.readFileSync(
-      path.join(repo.dockerAgentsDir, 'deals_health_check.md'),
-      'utf8',
-    )
-    const subMd = fs.readFileSync(path.join(repo.dockerAgentsDir, 'deals_activity_scan.md'), 'utf8')
-
-    // Sub-agent file is mode: subagent, read-only, and may NOT delegate (task deny).
-    expect(subMd).toContain('mode: subagent')
-    expect(subMd).toContain('write: deny')
-    expect(subMd).toContain('task: deny')
-    expect(subMd).not.toContain('"task": true')
-
-    // Primary allows the task tool and whitelists ONLY its sub-agent's name.
-    expect(primaryMd).toContain('mode: primary')
-    // Delegation runs through the orchestrator's own MCP tool, never OpenCode's
-    // native `task`: the server-side path is depth-capped, read-only and takes
-    // its scope from the run context rather than from model-supplied input. So
-    // `task` stays denied on the primary agent too, and the generated allowlist
-    // names the delegate tool instead.
-    expect(primaryMd).toContain('"open-mercato_agent_orchestrator_delegate_agent": true')
-    expect(primaryMd).toContain('task: deny')
-    expect(primaryMd).not.toContain('"task": true')
-    expect(primaryMd).toContain('## Sub-agents')
-
     // Manifest carries the sub-agent as a nested descriptor.
     const manifest = fs.readFileSync(repo.manifestPath, 'utf8')
     expect(manifest).toContain('deals.health_check')
     expect(manifest).toContain('subAgentDescriptors')
     expect(manifest).toContain('deals.activity_scan')
+    expect(manifest).not.toContain('openCodeAgentName')
+    expect(fs.existsSync(path.join(repo.root, 'docker'))).toBe(false)
   })
 
   it('fails generation when a sub-agent is proposal (only the primary proposes)', () => {

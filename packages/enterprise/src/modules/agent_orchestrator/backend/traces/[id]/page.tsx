@@ -30,6 +30,7 @@ import {
   type SpanView,
   type ToolCallView,
 } from '../../../components/types'
+import { runtimeDisplayLabel } from '../../../components/runtimeLabel'
 import { deriveReasoning } from '../../../components/proposalFactsData'
 import { proposalCaseStatus, proposalCaseStatusVariant } from '../../../components/proposalCaseStatus'
 import { findProposalOption, normalizeProposalEnvelope, rankProposalOptions } from '../../../data/proposalEnvelope'
@@ -930,10 +931,11 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
             const costLabel = formatCostMinor(run.costMinor, run.currency)
             const gated = run.humanConfirmedAt == null && run.resultKind === 'proposal'
             const runLabel = run.externalRunId ?? `RUN-${run.id.slice(0, 8)}`
+            const runtimeLabel = runtimeDisplayLabel(t, run.runtime, run.runtimeMode)
             const subtitle = [
               run.agentVersion ? `v${run.agentVersion}` : null,
               run.model,
-              run.runtime,
+              run.runtime ? runtimeLabel : null,
             ].filter(Boolean).join(' — ')
             const axisTicks = timeline
               ? [0, 0.25, 0.5, 0.75, 1].map(
@@ -1111,7 +1113,7 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
                       label={t('agent_orchestrator.traces.detail.duration')}
                       value={formatDurationMs(run.latencyMs) ?? '—'}
                     />
-                    {/* Tokens and cost are runtime-reported; the opencode runtime
+                    {/* Tokens and cost are runtime-reported; the Business Harness runtime
                         supplies neither, and a permanent '—' tile reads as a bug
                         rather than as an absent metric. Timing tiles keep their
                         dash — those are expected to fill in. */}
@@ -1139,7 +1141,7 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
                     <StatCell
                       icon={Cpu}
                       label={t('agent_orchestrator.traces.detail.runtimeLabel')}
-                      value={run.runtime ?? '—'}
+                      value={runtimeLabel}
                     />
                   </div>
                 </section>

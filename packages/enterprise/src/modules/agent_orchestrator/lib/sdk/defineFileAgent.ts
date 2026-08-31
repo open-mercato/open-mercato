@@ -1,7 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import type { AgentFact, AgentRegistryEntry, FileAgentFilesConfig } from './defineAgent'
-import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
+import type { AgentFact, AgentRegistryEntry } from './defineAgent'
 import { parseAgentMarkdown } from './agentMarkdown'
 import { parseAgentLocalSkillMarkdown } from './skillMarkdown'
 import { compileOutcome, type JsonSchemaNode, type OutcomeKind } from './outcomeSchema'
@@ -41,7 +40,7 @@ export type LoadedSkillContent = {
   tools: string[]
   /**
    * Optional sandboxed helper scripts (`scripts/*.ts`), Phase 5. Carried as
-   * plain `{ name, source }` data (NOT copied to the OpenCode container); the
+   * plain `{ name, source }` data (NOT copied to the runtime process); the
    * agent runs them via the `run_skill_script` MCP tool, server-side in the
    * Code Mode `isolated-vm` sandbox (no fs/net, 30s cap, per-call ACL).
    */
@@ -49,16 +48,12 @@ export type LoadedSkillContent = {
 }
 
 export type LoadedFileAgent = {
-  /** runtime: 'opencode'; schema = compiled OUTCOME resultSchema. */
+  /** Runtime registry entry with a schema compiled from OUTCOME.md. */
   entry: AgentRegistryEntry
   /** Raw JSON-Schema subset from OUTCOME.md (plain data for the committed manifest). */
   outcomeSchema: JsonSchemaNode
   /** OUTCOME.md kind. */
   resultKind: OutcomeKind
-  /** Rendered OpenCode agent .md (frontmatter + body). */
-  openCodeAgentFile: string
-  /** Sanitized filename-id passed in the message `agent` field. */
-  openCodeAgentName: string
   /**
    * Resolved agent-local skill content (Phase 3). One entry per skill referenced
    * by AGENT.md `skills:` that resolved to an `agents/<id>/skills/<skill_id>/`
@@ -127,29 +122,6 @@ function parseOutcomeMarkdown(raw: string): OutcomeDescriptor | null {
 }
 
 /**
- * Render the "## Outcome contract" prompt section so the agent SEES the exact
- * shape it must submit (otherwise it guesses and only learns the shape from
- * submit_outcome's validation errors). Shows the JSON-Schema + the OUTCOME.md prose.
- */
-function renderOutcomeSection(kind: OutcomeKind, schema: JsonSchemaNode, prose: string): string {
-  const target = kind === 'proposal' ? 'the `proposal` object' : 'the `data` object'
-  const schemaJson = JSON.stringify(schema, null, 2)
-  return [
-    '## Outcome contract',
-    `Your result MUST match this JSON Schema (${target}). Pass it as the \`outcome\` argument of the submit_outcome tool, as a JSON object (not a string):`,
-    '',
-    '```json',
-    schemaJson,
-    '```',
-    ...(prose ? ['', prose] : []),
-  ].join('\n')
-}
-
-function sanitizeAgentName(id: string): string {
-  return id.replace(/[^a-z0-9_-]/gi, '_')
-}
-
-/**
  * Read the optional `agents/<id>/SAMPLE.json` example input, surfaced by the
  * Playground's "Insert sample" button. Pure JSON (no markdown/frontmatter) so it
  * needs no custom parser. Returns undefined when the file is absent or invalid
@@ -209,161 +181,6 @@ function loadFacts(dir: string): AgentFact[] | undefined {
     })
     return undefined
   }
-}
-
-function renderToolPermissionLine(toolName: string): string {
-  return `  ${JSON.stringify(toolName)}: true`
-}
-
-/**
- * File-agent delegation goes through the server-side `agent_orchestrator.delegate_agent`
- * MCP tool (runs each sub-agent as its own authenticated run), NOT OpenCode's built-in
- * `task` tool — a `task` sub-session runs in a fresh session that never inherits the
- * run's session token, so its MCP calls fail with no_active_run. Kept in sync with the
- * CLI generator (`packages/cli/src/lib/generators/extensions/agent-files.ts`).
- */
-const DELEGATE_AGENT_TOOL_ID = 'agent_orchestrator.delegate_agent'
-
-/**
- * The MCP server key OpenCode connects under (the `mcp.<key>` in opencode.jsonc;
- * `open-mercato` in OM's container). OpenCode exposes each MCP tool as
- * `<serverKey>_<toolName with dots→underscores>`, so a file-agent's `tools`
- * allowlist + prompt MUST reference that id — verified against the running image.
- */
-const OPENCODE_MCP_SERVER_KEY = 'open-mercato'
-
-/** Core MCP tools every file agent may call (terminal outcome + progressive disclosure + sandboxed scripts). */
-const CORE_FILE_AGENT_TOOL_IDS = [
-  'agent_orchestrator.submit_outcome',
-  'agent_orchestrator.load_skill',
-  'agent_orchestrator.run_skill_script',
-]
-
-/** Map an OM tool id (`module.tool`) to OpenCode's MCP tool id (`<serverKey>_module_tool`). */
-function toOpenCodeMcpToolId(omToolId: string): string {
-  return `${OPENCODE_MCP_SERVER_KEY}_${omToolId.replace(/\./g, '_')}`
-}
-
-/**
- * Render the OpenCode agent .md file: YAML-ish frontmatter (description,
- * optional model/provider, mode, a read-only tools/permission block) plus the
- * body = instructions + the terminal `submit_outcome` instruction.
- *
- * The `tools` block denies everything by default and allows ONLY the agent's
- * declared read-only MCP tool ids plus `submit_outcome` (propose-only gate; see
- * findings §C8). Writes (`write`/`edit`/`bash`) are denied via `permission`.
- *
- * Sub-agent files (`mode: subagent`, Phase 4) are rendered with NO `task`
- * allowance and `permission.task: deny`, so they cannot delegate further (depth
- * cap = 1). The PRIMARY, when it declares sub-agents, additionally allows the
- * built-in `task` tool, whitelists ONLY its sub-agents' sanitized names under
- * `permission.task`, and gets a "Sub-agents" prompt section nudging parallel
- * fan-out (mirrors `defineAgent`'s `subAgentSection`).
- */
-function renderOpenCodeAgentFile(args: {
-  description: string
-  provider?: string
-  model?: string
-  instructions: string
-  tools: string[]
-  /** `'primary'` (default) or `'subagent'` for a generated sub-agent file. */
-  mode?: 'primary' | 'subagent'
-  /** Sanitized OpenCode names of this primary's reachable sub-agents (empty otherwise). */
-  subAgentNames?: string[]
-  /** Full registry ids of this primary's reachable sub-agents — the `agentId` values passed to delegate_agent. */
-  subAgentIds?: string[]
-  /** The OUTCOME contract — injected into the prompt so the agent sees its exact shape. */
-  outcomeKind: OutcomeKind
-  outcomeSchema: JsonSchemaNode
-  outcomeProse: string
-  /** File-plane opt-in (#12). When set + `OM_OPENCODE_FILES_ENABLED`, grants sandbox-scoped write/edit/read. */
-  files?: FileAgentFilesConfig
-}): string {
-  const mode = args.mode ?? 'primary'
-  const subAgentIds = mode === 'primary' ? (args.subAgentIds ?? []) : []
-  const hasSubAgents = subAgentIds.length > 0
-  // The agent's MCP tools = its declared read tools + the core file-agent tools
-  // (submit_outcome / load_skill / run_skill_script). OpenCode names every MCP
-  // tool `<serverKey>_<toolName with dots→underscores>`, so the allowlist key and
-  // the prompt MUST use that form — a dotted OM id never matches and `"*": false`
-  // would silently drop it. `task` is an OpenCode built-in (not prefixed).
-  const omMcpToolIds = Array.from(
-    new Set([...args.tools, ...CORE_FILE_AGENT_TOOL_IDS, ...(hasSubAgents ? [DELEGATE_AGENT_TOOL_ID] : [])]),
-  )
-  const allowedTools = omMcpToolIds.map(toOpenCodeMcpToolId)
-  const modelLine =
-    args.provider && args.model
-      ? `model: ${args.provider}/${args.model}`
-      : args.model
-        ? `model: ${args.model}`
-        : null
-  // OpenCode's built-in `task` tool is NEVER granted — delegation goes through the
-  // server-side `agent_orchestrator.delegate_agent` tool instead (see DELEGATE_AGENT_TOOL_ID),
-  // so no agent (primary or sub-agent) can spawn a `task` sub-session.
-  const taskPermissionLines = ['  task: deny']
-
-  // File plane (#12): a primary that opted in gets sandbox-scoped write/edit/read
-  // ONLY when the global kill-switch `OM_OPENCODE_FILES_ENABLED` is on — otherwise
-  // it renders the historical deny frontmatter (BC: default off = unchanged). Sub-
-  // agents never get file tools (read-only, researcher). Isolation is by per-run
-  // sandbox subdir + container lease (Phase 0); this static glob only confines the
-  // agent to the shared workspace root, away from OpenCode internals.
-  const filesActive =
-    mode === 'primary' &&
-    !!args.files?.enabled &&
-    parseBooleanWithDefault(process.env.OM_OPENCODE_FILES_ENABLED, false)
-  // The frontmatter runs INSIDE the OpenCode container, so the permission glob
-  // uses the CONTAINER-side workspace root (OM_OPENCODE_WORKSPACE_ROOT_CONTAINER,
-  // defaulting to OM_OPENCODE_WORKSPACE_ROOT — equal in the full-docker case).
-  const containerWorkspaceRoot = (
-    process.env.OM_OPENCODE_WORKSPACE_ROOT_CONTAINER ||
-    process.env.OM_OPENCODE_WORKSPACE_ROOT ||
-    '/home/opencode/work'
-  ).trim()
-  const workspaceGlob = `${containerWorkspaceRoot}/**`
-  const fileToolLines: string[] = []
-  const filePermissionLines: string[] = ['  write: deny', '  edit: deny', '  bash: deny']
-  if (filesActive) {
-    fileToolLines.push('  read: true', '  write: true', '  edit: true')
-    if (args.files?.bash) fileToolLines.push('  bash: true')
-    filePermissionLines.length = 0
-    for (const tool of ['write', 'edit', 'read']) {
-      filePermissionLines.push(`  ${tool}:`, `    ${JSON.stringify(workspaceGlob)}: allow`, '    "*": deny')
-    }
-    filePermissionLines.push(args.files?.bash ? '  bash: allow' : '  bash: deny')
-  }
-
-  const frontmatterLines = [
-    '---',
-    `description: ${JSON.stringify(args.description)}`,
-    ...(modelLine ? [modelLine] : []),
-    `mode: ${mode}`,
-    'tools:',
-    '  "*": false',
-    ...allowedTools.map(renderToolPermissionLine),
-    ...fileToolLines,
-    'permission:',
-    ...filePermissionLines,
-    ...taskPermissionLines,
-    '---',
-  ]
-  const submitToolId = toOpenCodeMcpToolId('agent_orchestrator.submit_outcome')
-  const terminalInstruction =
-    `Finish by calling the \`${submitToolId}\` tool with a value matching the outcome contract (pass it as the \`outcome\` argument). You MUST call the tool — do not answer in prose or emit the result as a code block.`
-  const delegateToolName = toOpenCodeMcpToolId(DELEGATE_AGENT_TOOL_ID)
-  const subAgentSection = hasSubAgents
-    ? `## Sub-agents\nDelegate a sub-task by calling the \`${delegateToolName}\` tool with \`{ agentId: "<sub-agent id>", input: <sub-task input object> }\`. Issue multiple \`${delegateToolName}\` calls in the SAME step to fan out in parallel, then combine their results before submitting your outcome. Available sub-agents: ${subAgentIds.join(', ')}.`
-    : null
-  const outcomeSection = renderOutcomeSection(args.outcomeKind, args.outcomeSchema, args.outcomeProse)
-  const body = [
-    args.instructions.trim(),
-    ...(subAgentSection ? [subAgentSection] : []),
-    outcomeSection,
-    terminalInstruction,
-  ]
-    .filter(Boolean)
-    .join('\n\n')
-  return `${frontmatterLines.join('\n')}\n${body}\n`
 }
 
 /**
@@ -449,7 +266,7 @@ function loadSkillDir(skillDir: string): LoadedSkillContent | null {
  *     skill scripts via `run_skill_script` (skillId `__agent_tools__`). It can
  *     never touch fs/net/mutation or escape the sandbox, and is `isMutation:false`
  *     at the MCP boundary — so propose-only holds without generating an
- *     unsandboxed native `.opencode/tool/` file that would bypass the MCP ACL gate.
+ *     unsandboxed native unsandboxed tool file that would bypass the MCP ACL gate.
  *
  * Returns `{ refs, scripts }`: `refs` union into the allowlist; `scripts` carry
  * local sandboxed tool sources.
@@ -517,8 +334,8 @@ function loadAgentSkills(agentDir: string, skillIds: string[]): LoadedSkillConte
 
 /**
  * Load one sub-agent dir `agents/<id>/sub-agents/<subid>/` (Phase 4). Sub-agents
- * are full file agents (AGENT.md + OUTCOME.md) but constrained: each is rendered
- * `mode: subagent`, read-only, and MUST satisfy two hard rules (matching the
+ * are full file agents (AGENT.md + OUTCOME.md) and MUST satisfy two hard
+ * rules matching the
  * in-process `delegate_agent` contract):
  *
  *   1. OUTCOME `kind` MUST be `researcher` (sub-agents inform; only the primary
@@ -567,7 +384,6 @@ function loadSubAgentDir(dir: string): LoadedFileAgent {
   const skillTools = skillsContent.flatMap((skill) => skill.tools)
   const effectiveTools = Array.from(new Set([...agent.tools, ...skillTools]))
 
-  const openCodeAgentName = sanitizeAgentName(agent.id)
   const entry: AgentRegistryEntry = {
     id: agent.id,
     moduleId: '',
@@ -582,29 +398,15 @@ function loadSubAgentDir(dir: string): LoadedFileAgent {
     defaultProvider: agent.provider,
     defaultModel: agent.model,
     loop: agent.maxSteps != null ? { maxSteps: agent.maxSteps } : undefined,
-    runtime: 'opencode',
+    runtime: 'business-harness',
     sampleInput: loadSampleInput(dir),
     facts: loadFacts(dir),
   }
-
-  const openCodeAgentFile = renderOpenCodeAgentFile({
-    description: agent.description,
-    provider: agent.provider,
-    model: agent.model,
-    instructions: agent.instructions,
-    tools: effectiveTools,
-    mode: 'subagent',
-    outcomeKind: outcome.kind,
-    outcomeSchema: outcome.schema,
-    outcomeProse: outcome.prose,
-  })
 
   return {
     entry,
     outcomeSchema: outcome.schema,
     resultKind: outcome.kind,
-    openCodeAgentFile,
-    openCodeAgentName,
     skillsContent,
     subAgents: [],
   }
@@ -630,17 +432,14 @@ function loadSubAgents(agentDir: string): LoadedFileAgent[] {
 /**
  * Read `agents/<id>/{AGENT.md,OUTCOME.md}` (+ skills + sub-agents), validate,
  * compile the OUTCOME schema, and build an `AgentRegistryEntry` with
- * `runtime:'opencode'`. Pure and fs-based (unit-testable against fixtures).
+ * `runtime:'business-harness'`. Pure and fs-based (unit-testable against fixtures).
  * Returns null when the dir is not a valid agent (missing/malformed AGENT.md or
  * OUTCOME.md); the generator turns a null into a hard generation error naming the
  * dir. A present-but-invalid SUB-agent throws (so a constraint violation fails
  * loudly rather than being silently dropped).
  *
  * `subAgents` (loaded children) is populated from `agents/<id>/sub-agents/`; the
- * declared sub-agent ids are still carried on `entry.subAgents`. When sub-agents
- * are present, the rendered primary agent file additionally allows the `task`
- * tool, whitelists ONLY its sub-agents' sanitized names under `permission.task`,
- * and gains a "Sub-agents" prompt section.
+ * declared sub-agent ids are still carried on `entry.subAgents`.
  */
 export function loadFileAgentDir(dir: string): LoadedFileAgent | null {
   const agentMdPath = path.join(dir, 'AGENT.md')
@@ -685,9 +484,6 @@ export function loadFileAgentDir(dir: string): LoadedFileAgent | null {
 
   // Phase 4: load sub-agent dirs (constraints enforced — throws on violation).
   const subAgents = loadSubAgents(dir)
-  const subAgentNames = subAgents.map((sub) => sub.openCodeAgentName)
-
-  const openCodeAgentName = sanitizeAgentName(agent.id)
   const entry: AgentRegistryEntry = {
     id: agent.id,
     moduleId: '',
@@ -702,33 +498,16 @@ export function loadFileAgentDir(dir: string): LoadedFileAgent | null {
     defaultProvider: agent.provider,
     defaultModel: agent.model,
     loop: agent.maxSteps != null ? { maxSteps: agent.maxSteps } : undefined,
-    runtime: 'opencode',
+    runtime: 'business-harness',
     sampleInput: loadSampleInput(dir),
     facts: loadFacts(dir),
     files: agent.files,
   }
 
-  const openCodeAgentFile = renderOpenCodeAgentFile({
-    description: agent.description,
-    provider: agent.provider,
-    model: agent.model,
-    instructions: agent.instructions,
-    tools: effectiveTools,
-    mode: 'primary',
-    subAgentNames,
-    subAgentIds: subAgents.map((sub) => sub.entry.id),
-    outcomeKind: outcome.kind,
-    outcomeSchema: outcome.schema,
-    outcomeProse: outcome.prose,
-    files: agent.files,
-  })
-
   return {
     entry,
     outcomeSchema: outcome.schema,
     resultKind: outcome.kind,
-    openCodeAgentFile,
-    openCodeAgentName,
     skillsContent: effectiveSkillsContent,
     subAgents,
   }

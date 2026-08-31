@@ -8,6 +8,7 @@ module.exports = {
   rootDir: '.',
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
   moduleNameMapper: {
+    '^@open-mercato/business-harness(?:/bin-path)?$': '<rootDir>/src/modules/agent_orchestrator/__tests__/support/businessHarnessPackage.ts',
     '^@open-mercato/enterprise/(.*)$': '<rootDir>/src/$1',
     '^@open-mercato/core/(.*)$': '<rootDir>/../core/src/$1',
     '^@open-mercato/shared/(.*)$': '<rootDir>/../shared/src/$1',

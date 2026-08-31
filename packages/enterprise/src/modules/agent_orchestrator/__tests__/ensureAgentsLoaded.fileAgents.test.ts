@@ -4,7 +4,7 @@
  * `registry.size > 0`, but in-process agents populate that registry first via
  * `ai-agents.ts` import side-effects (e.g. the global AiAssistantLauncher hitting
  * `loadAgentRegistry()` on every backoffice page). The early return then starved
- * `loadFileAgents()`, so `runtime: 'opencode'` agents were never registered.
+ * `loadFileAgents()`, so business-harness file agents were never registered.
  *
  * This test reproduces the condition (registry pre-populated) and asserts the
  * opencode agent still loads.
@@ -82,7 +82,7 @@ test('ensureAgentsLoaded registers opencode file agents even when the registry w
   const entries = listAgentEntries()
   const opencode = entries.find((entry) => entry.id === 'demo.opencode_agent')
   expect(opencode).toBeDefined()
-  expect(opencode?.runtime).toBe('opencode')
+  expect(opencode?.runtime).toBe('business-harness')
   // Both runtimes coexist in the same registry.
   expect(entries.map((entry) => entry.id)).toEqual(
     expect.arrayContaining(['demo.in_process_agent', 'demo.opencode_agent']),

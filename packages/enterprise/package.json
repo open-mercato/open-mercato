@@ -71,6 +71,7 @@
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@open-mercato/ai-assistant": "workspace:*",
+    "@open-mercato/business-harness": "workspace:*",
     "@open-mercato/core": "workspace:*",
     "@open-mercato/queue": "workspace:*",
     "@open-mercato/scheduler": "workspace:*",
