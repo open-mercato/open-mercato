@@ -54,7 +54,7 @@ The transport is selected in harness server configuration. The bundle refers onl
 
 ## Runtime and Agent Contracts
 
-`AgentRuntime` gains the additive value `business-harness`. File-agent loader output is registered with this runtime. `opencode` remains accepted for historical and third-party registry entries during the compatibility window.
+`AgentRuntime` gains the additive value `business-harness`. File-agent loader output is registered with this runtime. `opencode` stays in the union, in the agents API response enum and in the UI label and icon maps, and `AgentRuntimeService` dispatches it to `BusinessHarnessAgentRunner` through the shared `BUSINESS_HARNESS_RUNTIME_VALUES` cohort, so historical rows and third-party registry entries keep working for the compatibility window.
 
 The bundle protocol is version `1`. The initial profile is `business-v1`:
 
@@ -80,7 +80,9 @@ Model selection reuses the existing OM precedence and tenant scope:
 
 The harness supports `openai`, `anthropic`, and registered OpenAI-compatible providers. Unsupported provider protocols fail before the HTTP call.
 
-For this development integration, provider secrets stay in the OM process environment and are returned only by the credential broker after verifying the run grant and a still-running `AgentRun`. The bundle contains a credential binding id, never the secret. A future encrypted DB credential source can replace the environment source behind the same broker contract without changing the harness.
+Provider secrets stay in the OM process environment and are returned only by the credential broker after verifying the run grant and a still-running `AgentRun`. The bundle contains a credential binding id, never the secret.
+
+The capability lease is genuinely single-run: it carries the caller-scoped MCP session key the runner revokes in its `finally`. The model lease is not. It returns the deployment's real provider API key, and `expiresAt` only bounds how long OM will reissue it. A harness process therefore holds a provider credential for its lifetime, in the compose topology as well as in local development. A future encrypted DB credential source, or a per-deployment scoped provider key, can replace the environment source behind the same broker contract without changing the harness.
 
 ## Run Grant and Broker API
 
@@ -112,7 +114,7 @@ Request:
 }
 ```
 
-The model response contains the provider key as a short-lived lease. The capability response contains the caller-scoped MCP API key plus `metadata.sessionToken`. Neither endpoint logs or persists returned plaintext.
+The model response contains the provider key with a lease expiry bounded by the grant (see Model Configuration and Credentials for what that expiry does and does not guarantee). The capability response contains the caller-scoped MCP API key plus `metadata.sessionToken`. Neither endpoint logs or persists returned plaintext.
 
 ## Tool and Skill Mapping
 
@@ -136,7 +138,7 @@ BUSINESS_HARNESS_SERVICE_TOKEN=<shared service token>
 BUSINESS_HARNESS_PORT=4300
 ```
 
-Production rejects a missing service token. A documented fixed fallback is allowed only outside production for local development.
+Production rejects a missing service token, and also rejects the fixed fallback token this repository publishes. The harness accepts that placeholder only behind an explicit `HARNESS_ALLOW_INSECURE_TOKEN=true`, which the local dev compose sets and the production compose does not. The production compose declares the token with `:?` so the stack refuses to start unconfigured, and does not publish the harness port to the host.
 
 ## Data Models
 
@@ -166,13 +168,14 @@ POST /v1/runs
 - Broker returns a provider lease and a caller-scoped MCP lease, then refuses a terminal run.
 - Client consumes NDJSON events and the terminal result and handles an NDJSON error.
 - Runner completes a researcher result and a proposal result through existing persistence helpers.
-- Harness package tests cover MCP, CLI stdio, policy, credentials, HTTP and tool loops.
+- Harness package tests cover MCP, CLI stdio, policy, credentials, HTTP, tool loops and the placeholder service-token guard.
+- OM-side tests cover the run grant, the credential broker route, the bundle compiler against the harness's own `AgentExecutionBundleSchema`, the NDJSON reader, runtime dispatch including the `opencode` alias, the subprocess pool and the runtime health route.
 - Dev smoke test verifies harness `/healthz`, broker authentication and one real file-agent run when a provider key is configured.
 
 ## Migration and Backward Compatibility
 
-- `business-harness` is an additive runtime value.
-- Existing `opencode` database rows and API filters remain supported.
+- `business-harness` is an additive runtime value; `opencode` is retained and deprecated, never removed.
+- Existing `opencode` database rows, API filters, response enums and UI labels remain supported, and an `opencode` registry entry dispatches to the harness runner.
 - OpenCode-specific source and Docker files remain for one compatibility window but are no longer the default dev or file-agent runtime.
 - `submit_outcome` and its MCP id remain registered during the window, although the harness does not expose it.
 - The public `agentRuntime.run()` signature and AgentResult contract do not change.
@@ -195,6 +198,14 @@ Severity: Medium. The descriptor uses `createModelFactory` with the same tenant 
 
 Severity: Medium. The runner has an abortable wall-clock deadline, fails the existing AgentRun, revokes the session key in `finally`, and does not retry the whole business run. Residual risk: low.
 
+### One-off subprocesses exhaust the host
+
+Severity: Medium. `delegate_agent` fan-out runs nested, and nested runs bypass the `acquireAgentRunSlot` admission gate by design so a parent cannot livelock behind its own children. In stdio mode each nested run is a Node process loading the AI SDK, so the fan-out was unbounded once the OpenCode container lease was removed. `BusinessHarnessProcessClient` now holds a process-wide FIFO semaphore, default 4, tunable with `OM_BUSINESS_HARNESS_MAX_CONCURRENT_PROCESSES`; waiters are abortable and release their slot. Residual risk: low.
+
+### Grant expires during harness startup
+
+Severity: Low. The harness asks the broker for a lease covering `timeoutMs + 5s`, so `GRANT_MARGIN_MS` minus that 5s is the entire budget for subprocess spawn, SDK load and config read. At the original 30s margin a slow start produced an opaque `CREDENTIAL_EXCHANGE_FAILED`. The margin is now 90s. Residual risk: low.
+
 ### OpenAI-compatible endpoint is used for SSRF
 
 Severity: High. The harness accepts compatible endpoints only when their origin appears in server-owned `modelPolicy.allowedOpenAICompatibleOrigins`. The bundle cannot add to that allowlist. Residual risk: low.
@@ -213,3 +224,4 @@ Severity: High. The harness accepts compatible endpoints only when their origin 
 ### 2026-08-31
 
 - Initial implementation specification for replacing the default file-agent OpenCode path with the business harness.
+- Review follow-up: `opencode` retained as a deprecated runtime label that dispatches to the harness; production compose requires a generated service token and stops publishing the harness port; the harness rejects the published placeholder token; one-off subprocesses bounded by a FIFO semaphore; grant margin widened to 90s; the model lease documented as the real provider key rather than a scoped one; OM-side coverage added for the grant, broker, bundle, NDJSON reader, dispatch, pool and health route.

@@ -334,9 +334,8 @@ function loadAgentSkills(agentDir: string, skillIds: string[]): LoadedSkillConte
 
 /**
  * Load one sub-agent dir `agents/<id>/sub-agents/<subid>/` (Phase 4). Sub-agents
- * are full file agents (AGENT.md + OUTCOME.md) and MUST satisfy two hard
- * rules matching the
- * in-process `delegate_agent` contract):
+ * are full file agents (AGENT.md + OUTCOME.md) and MUST satisfy two hard rules
+ * (matching the in-process `delegate_agent` contract):
  *
  *   1. OUTCOME `kind` MUST be `researcher` (sub-agents inform; only the primary
  *      proposes);

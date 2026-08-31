@@ -82,7 +82,8 @@ The standalone service reads these variables:
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `HARNESS_SERVICE_TOKEN` | Required | Bearer token accepted by `POST /v1/runs`. It must contain at least 24 characters. |
+| `HARNESS_SERVICE_TOKEN` | Required | Bearer token accepted by `POST /v1/runs`. It must contain at least 24 characters, and must not be the placeholder this repository publishes in its compose files. |
+| `HARNESS_ALLOW_INSECURE_TOKEN` | unset | Local development only. Set to `true` to accept the published placeholder token. The local dev compose sets it; the production compose does not. |
 | `HARNESS_CONFIG_FILE` | `./harness.config.json` | JSON file containing runtime profiles, connector definitions, and the OpenAI-compatible origin allowlist. |
 | `HARNESS_CREDENTIAL_MODE` | `broker` | Keep this set to `broker` for OM integration. |
 | `HARNESS_CREDENTIAL_BROKER_URL` | Required in broker mode | OM endpoint used to exchange a run grant for short-lived model and capability credentials. |
@@ -97,7 +98,14 @@ Configure every OM web and worker process that can execute agents:
 | `OM_BUSINESS_HARNESS_URL` | `http://127.0.0.1:4300` | Base URL reachable from the OM process. |
 | `BUSINESS_HARNESS_SERVICE_TOKEN` | Development fallback only | Must match `HARNESS_SERVICE_TOKEN`. It is required when OM runs with `NODE_ENV=production`. |
 | `OM_BUSINESS_HARNESS_RUN_TIMEOUT_MS` | `120000` | Requested wall-clock limit for one run. The current business profile caps it at 120 seconds. |
+| `OM_BUSINESS_HARNESS_MAX_CONCURRENT_PROCESSES` | `4` | One-off mode only. Cap on live harness subprocesses in this OM process. Each one loads the AI SDK, so this is the memory bound on `delegate_agent` fan-out, which runs nested and is not covered by the agent admission gate. Waiters queue in FIFO order and honor their own run deadline. |
 | `OM_BUSINESS_HARNESS_CONFIG_FILE` | Package host config | Passed to the runtime in one-off mode. In standalone mode OM reads it only to identify the connector driver for health reporting. The served runtime reads `HARNESS_CONFIG_FILE`. |
+
+### What the harness receives from the broker
+
+The capability lease is genuinely scoped: it carries the caller's own single-run MCP session key, which OM revokes when the run ends.
+
+The model lease is not. It returns the deployment's configured provider API key from the OM process environment. `expiresAt` bounds how long OM will hand it out again; it does not shorten the key's life at the provider, and the harness holds the plaintext for as long as its process lives. Treat a standalone harness as a component trusted with your provider credentials: run it on private networking, do not expose its port, and prefer a provider key scoped to this deployment so it can be rotated on its own.
 
 The harness must be able to reach both the credential broker and the configured capability connector. For example, a remote service might use:
 
@@ -116,7 +124,9 @@ The full Docker stacks already use standalone mode:
 
 They configure OM to call `http://business-harness:4300`, configure the harness to call the credential broker at `http://app:3000`, and use `harness.config.compose.json` to reach MCP at `http://mcp:3001/mcp`.
 
-Set `BUSINESS_HARNESS_SERVICE_TOKEN` in the repository-root `.env` before starting a shared or production stack. Compose passes the same value to OM and the harness.
+`compose.fullapp.yml` requires `BUSINESS_HARNESS_SERVICE_TOKEN` in the repository-root `.env` and refuses to start without it. Compose passes the same value to OM and to the harness. That profile also keeps the harness off the host: OM reaches it over the compose network at `http://business-harness:4300`, so no port is published.
+
+`compose.fullapp.dev.yml` keeps a fixed local token for convenience and opts into it with `HARNESS_ALLOW_INSECURE_TOKEN=true`. Do not copy that pair into a shared environment.
 
 ## Configure capabilities independently
 

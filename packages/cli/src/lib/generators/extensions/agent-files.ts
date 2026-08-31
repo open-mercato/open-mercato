@@ -17,7 +17,6 @@ import { resolveStandaloneSourceMirrorBase } from '../scanner'
  * `@open-mercato/core`, so the small AGENT.md/OUTCOME.md/SKILL.md parsers are
  * reimplemented here; they MUST stay in sync with
  * `lib/sdk/{agentMarkdown,skillMarkdown,defineFileAgent}.ts`.
-
  */
 
 /** One sandboxed script carried as plain data (Phase 5). */
@@ -583,7 +582,7 @@ function discoverSubAgents(agentDir: string): DiscoveredAgent[] {
               examples: [],
               tools: [],
               scripts: toolFiles.scripts,
-                    },
+            },
           ]
         : skillsContent
     const effectiveTools = Array.from(
@@ -1000,7 +999,7 @@ export function createAgentFilesExtension(): GeneratorExtension {
                 examples: [],
                 tools: [],
                 scripts: toolFiles.scripts,
-                        },
+              },
             ]
           : skillsContent
       const effectiveTools = Array.from(
