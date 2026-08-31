@@ -951,7 +951,10 @@ export default function TimeTrackingEntriesPage() {
       accessorKey: 'taskTitle',
       header: labels.columns.task,
       enableSorting: false,
-      meta: { priority: 1 },
+      // `taskTitle` matches none of DataTable's wide-column keys, so it fell to the
+      // 150px default and truncated to "Consulting / Worksh…" while the nowrap
+      // numeric columns kept their slack. This is the row's primary content.
+      meta: { priority: 1, maxWidth: '520px' },
       cell: ({ row }) => {
         const entry = row.original
         const rateOverrideLabel =
@@ -996,7 +999,7 @@ export default function TimeTrackingEntriesPage() {
       accessorKey: 'projectLabel',
       header: labels.columns.project,
       enableSorting: false,
-      meta: { priority: 2 },
+      meta: { priority: 2, maxWidth: '240px' },
       cell: ({ row }) =>
         row.original.projectLabel ? (
           <span className="truncate text-sm text-muted-foreground">{row.original.projectLabel}</span>
@@ -1010,7 +1013,7 @@ export default function TimeTrackingEntriesPage() {
       accessorKey: 'startText',
       header: labels.columns.clock,
       enableSorting: false,
-      meta: { priority: 3 },
+      meta: { priority: 3, maxWidth: '160px' },
       cell: ({ row }) => {
         const range = formatEntryClockRange(row.original)
         return range ? (
@@ -1025,7 +1028,7 @@ export default function TimeTrackingEntriesPage() {
       id: 'durationMinutes',
       accessorKey: 'durationMinutes',
       header: rightHeader(labels.columns.duration),
-      meta: { priority: 1 },
+      meta: { priority: 1, maxWidth: '120px' },
       cell: ({ row }) => (
         <TimeEntryDurationCell
           value={row.original.durationMinutes}
@@ -1044,7 +1047,7 @@ export default function TimeTrackingEntriesPage() {
         accessorKey: 'cost',
         header: rightHeader(labels.columns.cost),
         enableSorting: false,
-        meta: { priority: 4 },
+        meta: { priority: 4, maxWidth: '140px' },
         cell: ({ row }) => {
           const formatted =
             row.original.cost === null ? null : formatCurrency(row.original.cost, row.original.currencyCode)
