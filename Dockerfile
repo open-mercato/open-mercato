@@ -218,6 +218,10 @@ RUN if [ "$INSTALL_CHROMIUM" = "1" ]; then \
 # Enable Corepack for Yarn
 RUN corepack enable
 
+# npm is not used at runtime (Yarn runs through Corepack) and its bundled
+# dependencies lag behind CVE fixes, so it stays out of the production image.
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
+
 # Copy workspace configuration for production install
 COPY package.json yarn.lock .yarnrc.yml turbo.json ./
 COPY tsconfig.base.json tsconfig.json ./
