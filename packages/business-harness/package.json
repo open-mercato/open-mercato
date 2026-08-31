@@ -9,6 +9,10 @@
       "types": "./src/index.ts",
       "import": "./dist/index.js"
     },
+    "./contracts": {
+      "types": "./src/contracts.ts",
+      "import": "./dist/contracts.js"
+    },
     "./bin-path": {
       "types": "./src/bin-path.ts",
       "import": "./dist/bin-path.js"

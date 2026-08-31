@@ -93,7 +93,13 @@ async function consumeLine(
         'Business harness returned more than one terminal result',
       )
     }
-    return frame.result as BusinessHarnessRunResult
+    if (!isRunResult(frame.result)) {
+      throw new BusinessHarnessClientError(
+        'HARNESS_PROTOCOL_ERROR',
+        'Business harness returned a malformed terminal result',
+      )
+    }
+    return frame.result as unknown as BusinessHarnessRunResult
   }
   throw new BusinessHarnessClientError(
     'HARNESS_PROTOCOL_ERROR',
@@ -103,4 +109,25 @@ async function consumeLine(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/**
+ * The subprocess is the trust boundary here: the runner reads `identity` and `usage`
+ * straight off this value to assert run identity and stamp cost, so a malformed frame
+ * must fail as a typed protocol error rather than as a TypeError three calls later.
+ */
+function isRunResult(value: Record<string, unknown>): boolean {
+  const identity = value.identity
+  return (
+    value.protocolVersion === '1' &&
+    value.status === 'completed' &&
+    isRecord(identity) &&
+    typeof identity.runId === 'string' &&
+    typeof identity.agentId === 'string' &&
+    typeof identity.agentVersion === 'string' &&
+    typeof identity.agentDigest === 'string' &&
+    typeof identity.runtimeProfile === 'string' &&
+    isRecord(identity.model) &&
+    isRecord(value.usage)
+  )
 }

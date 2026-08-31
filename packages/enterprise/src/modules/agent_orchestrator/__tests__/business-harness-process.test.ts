@@ -1,4 +1,5 @@
 import path from 'node:path'
+import { AgentExecutionBundleSchema } from '@open-mercato/business-harness/contracts'
 import type { BusinessHarnessExecutionBundle } from '../lib/runtime/businessHarnessContracts'
 import { BusinessHarnessProcessClient } from '../lib/runtime/businessHarnessProcessClient'
 import {
@@ -9,6 +10,10 @@ import {
 const fixture = path.join(__dirname, 'fixtures', 'fake-business-harness-cli.mjs')
 
 describe('business harness process transport', () => {
+  it('sends a bundle the harness runtime accepts', () => {
+    expect(AgentExecutionBundleSchema.safeParse(makeBundle()).success).toBe(true)
+  })
+
   it('uses one subprocess per run, streams events and does not inherit arbitrary OM secrets', async () => {
     process.env.OM_TEST_LONG_SECRET = 'must-not-reach-the-runtime'
     const client = new BusinessHarnessProcessClient({
@@ -47,12 +52,11 @@ describe('business harness process transport', () => {
 })
 
 function makeBundle(): BusinessHarnessExecutionBundle {
+  // Kept parseable by the harness's own AgentExecutionBundleSchema (asserted below),
+  // so this fixture cannot drift away from the shape the runner actually sends.
   return {
     protocolVersion: '1',
     runId: 'run-process-1',
-    runGrant: 'grant',
-    requestedAt: '2026-08-31T10:00:00.000Z',
-    deadline: '2026-08-31T10:02:00.000Z',
     agent: {
       id: 'agent.process',
       version: '1',
@@ -67,9 +71,10 @@ function makeBundle(): BusinessHarnessExecutionBundle {
         credentialBindingId: 'provider-openai',
       },
       capabilities: [],
-      loop: { maxSteps: 1, timeoutMs: 120_000, maxToolCalls: 0 },
-      output: { mode: 'text' },
+      loop: { maxSteps: 1, timeoutMs: 120_000, maxToolCalls: 1 },
+      output: { mode: 'object', schema: { type: 'object' } },
     },
     input: { prompt: 'test' },
+    authorization: { runGrant: 'a-run-grant-token-value' },
   }
 }
