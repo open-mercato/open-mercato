@@ -10,6 +10,7 @@ import { getAgentPresentationMaps } from '../../lib/settings/agentSettings'
 import { AGENT_ICON_NAMES } from '../../data/agentIcons'
 import { agentTypeSchema } from '../../data/validators'
 import { readBusinessHarnessRuntimeMode } from '../../lib/runtime/businessHarnessMode'
+import { isBusinessHarnessRuntime } from '../../lib/runtime/agentRuntimeValues'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['agent_orchestrator.agents.view'] },
@@ -25,7 +26,9 @@ const agentItemSchema = z.object({
   // the agent declared no narrowing (it may propose anything in the catalogue);
   // an empty array means nothing survived the intersection.
   allowedActions: z.array(z.string()).nullable(),
-  runtime: z.enum(['in-process', 'native', 'business-harness', 'external']),
+  // `opencode` is the deprecated predecessor label of `business-harness`; it stays
+  // in the published contract for the compatibility window (BACKWARD_COMPATIBILITY.md).
+  runtime: z.enum(['in-process', 'native', 'business-harness', 'opencode', 'external']),
   runtimeMode: z.enum(['one-off', 'standalone']).nullable(),
   tools: z.array(z.string()),
   skills: z.array(z.string()),
@@ -94,7 +97,7 @@ export async function GET(req: Request) {
     agentType: entry.agentType ?? null,
     allowedActions: entry.allowedActions ? [...entry.allowedActions] : null,
     runtime: entry.runtime,
-    runtimeMode: entry.runtime === 'business-harness' ? harnessRuntimeMode : null,
+    runtimeMode: isBusinessHarnessRuntime(entry.runtime) ? harnessRuntimeMode : null,
     tools: entry.tools,
     skills: entry.skills,
     label: entry.label,

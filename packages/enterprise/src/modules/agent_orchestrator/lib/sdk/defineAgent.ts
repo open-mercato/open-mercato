@@ -21,10 +21,19 @@ export type AgentResultKind = 'proposal' | 'researcher'
  * ADDITIVE-ONLY per BACKWARD_COMPATIBILITY.md, so entries registered with
  * `'in-process'` dispatch identically. `'business-harness'` agents are authored as
  * `agents/<id>/` file conventions (AGENT.md + OUTCOME.md), registered via
- * `registerFileAgent`, and run on the OpenCode runtime (deprecation planned —
- * see the spec's Phase 3/6).
+ * `registerFileAgent`, and run in the Open Mercato business harness.
+ *
+ * `'opencode'` is the deprecated predecessor label of `'business-harness'`. It
+ * stays in the union and dispatches to the same runner for the compatibility
+ * window so third-party registry entries keep working. See
+ * {@link BUSINESS_HARNESS_RUNTIME_VALUES}.
  */
-export type AgentRuntime = 'in-process' | 'native' | 'business-harness' | 'external'
+export type AgentRuntime = 'in-process' | 'native' | 'business-harness' | 'opencode' | 'external'
+
+export {
+  BUSINESS_HARNESS_RUNTIME_VALUES,
+  isBusinessHarnessRuntime,
+} from '../runtime/agentRuntimeValues'
 
 /**
  * Runtime labels that execute on the native (in-process) runner. Persisted
@@ -182,16 +191,16 @@ export interface AgentRegistryEntry {
   outcomeSchema?: JsonSchemaNode
   /** Optional Caseload fact declarations (see DefineAgentInput). */
   facts?: AgentFact[]
-  /** File-plane opt-in (#12). OpenCode file agents only; undefined for native agents. */
+  /** File-plane opt-in (#12). File-defined agents only; undefined for native agents. */
   files?: FileAgentFilesConfig
   /**
    * Baked token-usage estimate of the agent's construction files. File-defined
-   * (`runtime: 'opencode'`) agents only; undefined for native agents.
+   * agents only; undefined for native agents.
    */
   tokenUsage?: AgentTokenUsage
   /**
    * Baked raw content of the agent's construction files, for the read-only Files
-   * tab. File-defined (`runtime: 'opencode'`) agents only; undefined for native.
+   * tab. File-defined agents only; undefined for native.
    */
   sourceFiles?: FileAgentFile[]
 }
@@ -356,10 +365,10 @@ async function narrowRegisteredActionVocabularies(): Promise<void> {
 }
 
 /**
- * Load file-defined (OpenCode) agents from the committed, generator-owned
+ * Load file-defined agents from the committed, generator-owned
  * manifest (`generated/file-agents.generated.ts`). The manifest stores PLAIN
  * data (raw JSON-Schema, not a Zod instance); for each descriptor we recompile
- * the result schema via `compileOutcome` and register it with `runtime:'opencode'`.
+ * the result schema via `compileOutcome` and register it with `runtime:'business-harness'`.
  * The import is guarded: the manifest may be absent or empty before the first
  * `yarn generate`, and a descriptor whose schema fails to compile is skipped
  * (warned) so one bad agent never blocks the rest.

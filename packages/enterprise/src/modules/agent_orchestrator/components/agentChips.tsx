@@ -51,6 +51,7 @@ export const RUNTIME_ICON: Record<string, React.ComponentType<{ className?: stri
   'in-process': Cpu,
   native: Cpu,
   'business-harness': SquareCode,
+  opencode: SquareCode,
   external: Globe,
 }
 

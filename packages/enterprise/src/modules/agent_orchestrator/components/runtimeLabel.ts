@@ -6,6 +6,7 @@ const RUNTIME_FALLBACK: Record<AgentRuntime, string> = {
   'in-process': 'In Process',
   native: 'Native',
   'business-harness': 'Business Harness',
+  opencode: 'Open Code',
   external: 'External',
 }
 

@@ -1,7 +1,7 @@
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
-import { getAgentEntry, ensureAgentsLoaded } from '../sdk/defineAgent'
+import { getAgentEntry, ensureAgentsLoaded, isBusinessHarnessRuntime } from '../sdk/defineAgent'
 import { type AgentResult } from '../../data/validators'
 import { NativeAgentRunner } from './nativeAgentRunner'
 import { BusinessHarnessAgentRunner } from './businessHarnessAgentRunner'
@@ -31,8 +31,9 @@ export type AgentRuntimeDeps = {
 /**
  * Runtime dispatch service: resolves the registered agent entry, applies the
  * cross-runtime protections (admission gate, agent-actor no-bypass scope), and
- * dispatches `business-harness` agents to the configured stdio or HTTP
- * transport and native agents to the in-process {@link NativeAgentRunner}.
+ * dispatches `business-harness` agents (and their deprecated `opencode` alias)
+ * to the configured stdio or HTTP transport, and native agents to the in-process
+ * {@link NativeAgentRunner}.
  *
  * The call surface (`agentRuntime.run(agentId, input, ctx)`) is unchanged —
  * callers stay runtime-agnostic.
@@ -59,7 +60,7 @@ export class AgentRuntimeService {
     // `em.flush()` bypass impossible at runtime. Unprincipalled (legacy/playground)
     // runs keep their prior behavior (no actor scope, guard never fires).
     const dispatch = (): Promise<AgentResult> => {
-      if (entry.runtime === 'business-harness') {
+      if (isBusinessHarnessRuntime(entry.runtime)) {
         const runner = new BusinessHarnessAgentRunner({
           container: this.container,
           commandBus: this.commandBus,

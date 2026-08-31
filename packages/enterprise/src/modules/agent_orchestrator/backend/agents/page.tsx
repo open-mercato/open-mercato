@@ -27,6 +27,7 @@ import {
 } from '../../components/types'
 import { Chip, TYPE_ICON, AGENT_TYPE_ICON, RUNTIME_ICON, AUTONOMY_ICON, agentAvatarIcon } from '../../components/agentChips'
 import { runtimeDisplayLabel } from '../../components/runtimeLabel'
+import { isBusinessHarnessRuntime } from '../../lib/runtime/agentRuntimeValues'
 import { isAgentPreviewUiEnabled } from '../../lib/featureFlags'
 import { AGENT_TYPE_UNDECLARED, collectAgentTagOptions, filterAgentRows } from './agentListFilters'
 import type { AgentType } from '../../data/validators'
@@ -276,7 +277,7 @@ export default function AgentsRegistryPage() {
 
   const tagOptions = React.useMemo(() => collectAgentTagOptions(rows), [rows])
   const harnessRuntimeMode = React.useMemo(
-    () => rows.find((row) => row.runtime === 'business-harness')?.runtimeMode ?? null,
+    () => rows.find((row) => row.runtimeMode !== null)?.runtimeMode ?? null,
     [rows],
   )
 
@@ -314,7 +315,7 @@ export default function AgentsRegistryPage() {
       multiple: true,
       options: RUNTIME_VALUES.map((value) => ({
         value,
-        label: runtimeDisplayLabel(t, value, value === 'business-harness' ? harnessRuntimeMode : null),
+        label: runtimeDisplayLabel(t, value, isBusinessHarnessRuntime(value) ? harnessRuntimeMode : null),
       })),
     },
     {

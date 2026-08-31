@@ -10,6 +10,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { formatNumber, type AgentDetailView, type SkillDetailView } from '../../../../components/types'
 import { runtimeDisplayLabel } from '../../../../components/runtimeLabel'
+import { isBusinessHarnessRuntime } from '../../../../lib/runtime/agentRuntimeValues'
 import { TokenUsageCard } from './workspacePrimitives'
 import type { RuntimeTokenUsage } from './workspaceShared'
 
@@ -179,7 +180,7 @@ export function ConfigurationTab({ agent, runtimeTokens, onSkillClick }: Configu
           </section>
         ) : null}
 
-        {agent.runtime === 'business-harness' && agent.tokenUsage ? (
+        {isBusinessHarnessRuntime(agent.runtime) && agent.tokenUsage ? (
           <TokenUsageCard agent={agent} />
         ) : null}
       </div>

@@ -212,7 +212,15 @@ export type RunDetailView = {
   goldenCase: GoldenCaseView | null
 }
 
-export type AgentRuntime = 'in-process' | 'native' | 'business-harness' | 'external'
+export type AgentRuntime = 'in-process' | 'native' | 'business-harness' | 'opencode' | 'external'
+
+const AGENT_RUNTIME_VALUES: readonly AgentRuntime[] = [
+  'in-process',
+  'native',
+  'business-harness',
+  'opencode',
+  'external',
+]
 
 export type AgentView = {
   id: string
@@ -574,14 +582,10 @@ export function mapAgent(item: Record<string, unknown>): AgentView | null {
   const id = asString(item.id)
   if (!id) return null
   const resultKind = item.resultKind === 'proposal' ? 'proposal' : 'researcher'
-  const runtime: AgentRuntime =
-    item.runtime === 'business-harness'
-      ? 'business-harness'
-      : item.runtime === 'external'
-        ? 'external'
-        : item.runtime === 'native'
-          ? 'native'
-          : 'in-process'
+  // Unknown labels fall back to the native cohort, which is where dispatch sends them.
+  const runtime: AgentRuntime = AGENT_RUNTIME_VALUES.includes(item.runtime as AgentRuntime)
+    ? (item.runtime as AgentRuntime)
+    : 'in-process'
   return {
     id,
     label: asString(item.label) ?? id,
