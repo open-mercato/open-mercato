@@ -28,12 +28,11 @@ type UseDealAssociationsOptions = {
   setData: React.Dispatch<React.SetStateAction<DealDetailPayload | null>>
   runMutationWithContext: GuardedMutationRunner
   /**
-   * Re-fetch the deal detail. Wired into the conflict bar's refresh action on a 409, and
-   * awaited after a successful link save: the deal's `updated_at` is the lock token these
-   * writes send, and the server now advances it whenever the links change, so a page that
-   * kept its old token would 409 against its own next write.
+   * Re-fetch the deal detail. Required, not optional: this hook no longer patches the list
+   * itself on success, so a caller without it would show a stale list *and* keep a superseded
+   * lock token that 409s on the next save. It also backs the conflict bar's refresh on a 409.
    */
-  onRefresh?: (() => void | Promise<void>) | null
+  onRefresh: () => void | Promise<void>
 }
 
 type UseDealAssociationsResult = {
@@ -135,12 +134,7 @@ export function useDealAssociations({
           ),
           { id: currentDealId, personIds: nextIds, operation: 'updateDealPeople' },
         )
-        // The deal has to be re-read: `updated_at` is the optimistic-lock token this save
-        // sends, and the server advances it whenever the links change, so a page holding the
-        // superseded version would 409 against its own next write. The reload carries the
-        // refreshed `people` / `linkedPersonIds` / `counts` with it, so patching them from a
-        // separate lookup first would only be overwritten one round trip later.
-        await onRefresh?.()
+        await onRefresh()
       } catch (error) {
         setPeopleEditorIds(previousIds)
         setData((prev) =>
@@ -155,7 +149,7 @@ export function useDealAssociations({
         )
         // runMutationWithContext already surfaces the conflict bar on a 409; only
         // fall back to the generic flash when this is not a record conflict.
-        if (!surfaceRecordConflict(error, t, { onRefresh: onRefresh ?? null })) {
+        if (!surfaceRecordConflict(error, t, { onRefresh })) {
           flash(t('customers.deals.detail.peopleUpdateError', 'Failed to update linked people.'), 'error')
         }
       } finally {
@@ -181,8 +175,7 @@ export function useDealAssociations({
           ),
           { id: currentDealId, companyIds: nextIds, operation: 'updateDealCompanies' },
         )
-        // See the people handler above: the reload refreshes the lock token and the list.
-        await onRefresh?.()
+        await onRefresh()
       } catch (error) {
         setCompaniesEditorIds(previousIds)
         setData((prev) =>
@@ -197,7 +190,7 @@ export function useDealAssociations({
         )
         // runMutationWithContext already surfaces the conflict bar on a 409; only
         // fall back to the generic flash when this is not a record conflict.
-        if (!surfaceRecordConflict(error, t, { onRefresh: onRefresh ?? null })) {
+        if (!surfaceRecordConflict(error, t, { onRefresh })) {
           flash(t('customers.deals.detail.companiesUpdateError', 'Failed to update linked companies.'), 'error')
         }
       } finally {

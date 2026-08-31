@@ -56,12 +56,16 @@ const GLOBEX = '550e8400-e29b-41d4-a716-4466554400c2'
 const BASE_UPDATED_AT = new Date('2026-04-10T08:00:00.000Z')
 
 type Probe = {
-  /** Monotonic tick, bumped on every EM read. */
+  /** Monotonic tick, bumped on every EM read and every flush. */
   tick: number
   /** Tick at which the last read happened. */
   lastQueryTick: number
-  /** Tick at which `updatedAt` was assigned, or null if it never was. */
+  /** Tick at which `updatedAt` was last assigned, or null if it never was. */
   touchTick: number | null
+  /** Ticks at which reads happened, in order. */
+  readTicks: number[]
+  /** Ticks at which `em.flush()` was called, in order. */
+  flushTicks: number[]
 }
 
 function makeDeal(probe: Probe): CustomerDeal {
@@ -110,7 +114,12 @@ type LinkFixtures = {
   companies?: string[]
 }
 
-function makeEm(deal: CustomerDeal, links: LinkFixtures, probe: Probe) {
+function makeEm(
+  deal: CustomerDeal,
+  links: LinkFixtures,
+  probe: Probe,
+  scope: { tenantId: string; organizationId: string } = { tenantId: 'tenant-1', organizationId: 'org-1' },
+) {
   const personLinks = (links.people ?? []).map((entry, index) => ({
     id: `person-link-${index}`,
     deal,
@@ -127,15 +136,16 @@ function makeEm(deal: CustomerDeal, links: LinkFixtures, probe: Probe) {
   }))
 
   const known = new Map<string, unknown>([
-    [ADA, { id: ADA, organizationId: 'org-1', tenantId: 'tenant-1', kind: 'person', deletedAt: null }],
-    [BOB, { id: BOB, organizationId: 'org-1', tenantId: 'tenant-1', kind: 'person', deletedAt: null }],
-    [ACME, { id: ACME, organizationId: 'org-1', tenantId: 'tenant-1', kind: 'company', deletedAt: null }],
-    [GLOBEX, { id: GLOBEX, organizationId: 'org-1', tenantId: 'tenant-1', kind: 'company', deletedAt: null }],
+    [ADA, { id: ADA, ...scope, kind: 'person', deletedAt: null }],
+    [BOB, { id: BOB, ...scope, kind: 'person', deletedAt: null }],
+    [ACME, { id: ACME, ...scope, kind: 'company', deletedAt: null }],
+    [GLOBEX, { id: GLOBEX, ...scope, kind: 'company', deletedAt: null }],
   ])
 
   const noteRead = () => {
     probe.tick += 1
     probe.lastQueryTick = probe.tick
+    probe.readTicks.push(probe.tick)
   }
 
   const em: any = {
@@ -158,7 +168,10 @@ function makeEm(deal: CustomerDeal, links: LinkFixtures, probe: Probe) {
     nativeDelete: jest.fn(async () => {}),
     create: jest.fn((ctor: unknown, payload: Record<string, unknown>) => ({ __entity: ctor, ...payload })),
     persist: jest.fn(() => {}),
-    flush: jest.fn(async () => {}),
+    flush: jest.fn(async () => {
+      probe.tick += 1
+      probe.flushTicks.push(probe.tick)
+    }),
     transactional: jest.fn(async (fn: (inner: any) => Promise<unknown>) => fn(em)),
     begin: jest.fn().mockResolvedValue(undefined),
     commit: jest.fn().mockResolvedValue(undefined),
@@ -173,7 +186,10 @@ function makeEm(deal: CustomerDeal, links: LinkFixtures, probe: Probe) {
   return em
 }
 
-function makeCtx(em: any) {
+const SCOPE_TENANT_ID = '550e8400-e29b-41d4-a716-4466554400f1'
+const SCOPE_ORG_ID = '550e8400-e29b-41d4-a716-4466554400f2'
+
+function makeCtx(em: any, scope?: { tenantId: string; orgId: string }) {
   const engine: any = {
     setCustomFields: jest.fn(async () => {}),
     emitOrmEntityEvent: jest.fn(async () => {}),
@@ -197,10 +213,10 @@ function makeCtx(em: any) {
     } as any,
     auth: {
       sub: '550e8400-e29b-41d4-a716-446655440099',
-      tenantId: 'tenant-1',
-      orgId: 'org-1',
+      tenantId: scope?.tenantId ?? 'tenant-1',
+      orgId: scope?.orgId ?? 'org-1',
     } as any,
-    selectedOrganizationId: 'org-1',
+    selectedOrganizationId: scope?.orgId ?? 'org-1',
     organizationScope: null,
     organizationIds: null,
     request: undefined as any,
@@ -210,7 +226,7 @@ function makeCtx(em: any) {
 async function runUpdate(links: LinkFixtures, input: Record<string, unknown>) {
   const handler = commandRegistry.get('customers.deals.update') as CommandHandler
   expect(handler).toBeDefined()
-  const probe: Probe = { tick: 0, lastQueryTick: 0, touchTick: null }
+  const probe: Probe = { tick: 0, lastQueryTick: 0, touchTick: null, readTicks: [], flushTicks: [] }
   const deal = makeDeal(probe)
   const em = makeEm(deal, links, probe)
   await handler.execute!({ id: DEAL_ID, ...input }, makeCtx(em))
@@ -218,20 +234,38 @@ async function runUpdate(links: LinkFixtures, input: Record<string, unknown>) {
 }
 
 /**
- * The token moved AND the assignment was not stranded behind a later read on the same EM.
- * Without the second half, an implementation that touches before `requireCustomerEntity`
- * passes here while issuing no UPDATE at all.
+ * The token moved AND the assignment reached the database.
+ *
+ * The property that actually matters is *not* "the touch was the last event on the EM" —
+ * that only holds for a single-field payload, where the sibling helper returns at its
+ * `=== undefined` guard without querying. For the combined `{ personIds, companyIds }` shape
+ * the deal is touched by `syncDealPeople` and then `syncDealCompanies` issues its own read,
+ * which is still correct because `withAtomicFlush` flushes after **every** phase — an
+ * invariant that lives in another package and that nothing here would otherwise pin.
+ *
+ * So assert the real thing: a flush follows the touch with no read in between. MikroORM
+ * discards a pending scalar change when a query runs before the flush (SPEC-018), so a read
+ * landing in that window is exactly the failure mode, whatever the payload shape.
  */
 function expectTokenAdvanced(deal: CustomerDeal, probe: Probe) {
   expect(deal.updatedAt.getTime()).toBeGreaterThan(BASE_UPDATED_AT.getTime())
   expect(probe.touchTick).not.toBeNull()
-  expect(probe.touchTick).toBeGreaterThanOrEqual(probe.lastQueryTick)
+  const touchTick = probe.touchTick as number
+  const nextFlush = probe.flushTicks.find((tick) => tick > touchTick)
+  expect(nextFlush).toBeDefined()
+  const readsInWindow = probe.readTicks.filter(
+    (tick) => tick > touchTick && tick < (nextFlush as number),
+  )
+  expect(readsInWindow).toEqual([])
 }
 
 function expectTokenUnchanged(deal: CustomerDeal, probe: Probe) {
   expect(deal.updatedAt.getTime()).toBe(BASE_UPDATED_AT.getTime())
   expect(probe.touchTick).toBeNull()
 }
+
+const COMBINED_NOTE =
+  'the shape DealForm submits on every deal save — both lists, unconditionally'
 
 describe('customers.deals.update — deal lock token on link changes', () => {
   afterEach(() => {
@@ -297,6 +331,34 @@ describe('customers.deals.update — deal lock token on link changes', () => {
     expectTokenAdvanced(deal, probe)
   })
 
+  // `DealForm` puts personIds AND companyIds into its payload on every save, so this is the
+  // dominant shape in production — and the only one where the people-side touch is followed by
+  // another helper's read. It passes because withAtomicFlush flushes per phase; these cases are
+  // what would catch that guarantee being removed.
+  it(`advances the token when only the people set changes in a combined payload (${COMBINED_NOTE})`, async () => {
+    const { deal, probe } = await runUpdate(
+      { people: [{ personId: ADA }], companies: [ACME] },
+      { personIds: [ADA, BOB], companyIds: [ACME] },
+    )
+    expectTokenAdvanced(deal, probe)
+  })
+
+  it('advances the token when both sets change in a combined payload', async () => {
+    const { deal, probe } = await runUpdate(
+      { people: [{ personId: ADA }], companies: [ACME] },
+      { personIds: [ADA, BOB], companyIds: [ACME, GLOBEX] },
+    )
+    expectTokenAdvanced(deal, probe)
+  })
+
+  it('leaves the token alone when a combined payload changes neither set', async () => {
+    const { deal, probe } = await runUpdate(
+      { people: [{ personId: ADA }], companies: [ACME] },
+      { personIds: [ADA], companyIds: [ACME] },
+    )
+    expectTokenUnchanged(deal, probe)
+  })
+
   it('leaves the token and the rows alone when the company set is unchanged', async () => {
     const { deal, em, probe } = await runUpdate(
       { companies: [ACME, GLOBEX] },
@@ -304,5 +366,42 @@ describe('customers.deals.update — deal lock token on link changes', () => {
     )
     expectTokenUnchanged(deal, probe)
     expect(em.nativeDelete).not.toHaveBeenCalledWith(CustomerDealCompanyLink, expect.anything())
+  })
+
+  // The spec's blast-radius section asks that create and the undo directions keep producing the
+  // exact sets they produce today. Create additionally opts out of the stamp: a brand-new deal
+  // has no other session holding a token, and stamping there would only push `updated_at` past
+  // `created_at` on every deal created with links.
+  it('does not stamp the token on create, while still linking the requested people', async () => {
+    const handler = commandRegistry.get('customers.deals.create') as CommandHandler
+    expect(handler).toBeDefined()
+
+    const probe: Probe = { tick: 0, lastQueryTick: 0, touchTick: null, readTicks: [], flushTicks: [] }
+    const deal = makeDeal(probe)
+    const em = makeEm(deal, {}, probe, {
+      tenantId: SCOPE_TENANT_ID,
+      organizationId: SCOPE_ORG_ID,
+    })
+    // The create path builds its own entity; hand back the fixture so the helpers operate on a
+    // deal whose `updatedAt` is instrumented.
+    em.create = jest.fn((ctor: unknown, payload: Record<string, unknown>) =>
+      ctor === CustomerDeal ? Object.assign(deal, payload) : { __entity: ctor, ...payload },
+    )
+
+    await handler.execute!(
+      {
+        title: 'New expansion',
+        organizationId: SCOPE_ORG_ID,
+        tenantId: SCOPE_TENANT_ID,
+        personIds: [ADA, BOB],
+      },
+      makeCtx(em, { tenantId: SCOPE_TENANT_ID, orgId: SCOPE_ORG_ID }),
+    )
+
+    expect(probe.touchTick).toBeNull()
+    expect(deal.updatedAt.getTime()).toBe(BASE_UPDATED_AT.getTime())
+    expect(em.persist).toHaveBeenCalledWith(
+      expect.objectContaining({ __entity: CustomerDealPersonLink }),
+    )
   })
 })
