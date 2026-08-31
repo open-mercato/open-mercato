@@ -156,7 +156,7 @@ function stableJson(value: unknown): string {
   if (value && typeof value === 'object') {
     const record = value as Record<string, unknown>
     return `{${Object.keys(record)
-      .sort()
+      .sort((left, right) => (left < right ? -1 : left > right ? 1 : 0))
       .map((key) => `${JSON.stringify(key)}:${stableJson(record[key])}`)
       .join(',')}}`
   }

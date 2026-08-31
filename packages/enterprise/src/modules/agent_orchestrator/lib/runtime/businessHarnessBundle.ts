@@ -100,7 +100,7 @@ export function effectiveBusinessHarnessTools(entry: AgentRegistryEntry): string
     tools.add(RUN_SKILL_SCRIPT_TOOL_ID)
   }
   if (entry.subAgents.length > 0) tools.add(DELEGATE_TOOL_ID)
-  return [...tools].sort()
+  return [...tools].sort((left, right) => (left < right ? -1 : left > right ? 1 : 0))
 }
 
 export function businessHarnessAgentDigest(
@@ -117,8 +117,8 @@ export function businessHarnessAgentDigest(
         instructions: entry.instructions,
         outputSchema,
         tools,
-        skills: [...entry.skills].sort(),
-        subAgents: [...entry.subAgents].sort(),
+        skills: [...entry.skills].sort((left, right) => (left < right ? -1 : left > right ? 1 : 0)),
+        subAgents: [...entry.subAgents].sort((left, right) => (left < right ? -1 : left > right ? 1 : 0)),
         loop: entry.loop ?? null,
         runtimeProfile: 'business-v1',
       }),
@@ -147,7 +147,7 @@ function stableJson(value: unknown): string {
   if (value && typeof value === 'object') {
     const record = value as Record<string, unknown>
     return `{${Object.keys(record)
-      .sort()
+      .sort((left, right) => (left < right ? -1 : left > right ? 1 : 0))
       .map((key) => `${JSON.stringify(key)}:${stableJson(record[key])}`)
       .join(',')}}`
   }

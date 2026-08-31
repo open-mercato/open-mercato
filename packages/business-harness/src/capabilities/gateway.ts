@@ -244,7 +244,7 @@ function stableJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
   if (isRecord(value)) {
     return `{${Object.keys(value)
-      .sort()
+      .sort((left, right) => (left < right ? -1 : left > right ? 1 : 0))
       .map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`)
       .join(',')}}`;
   }
