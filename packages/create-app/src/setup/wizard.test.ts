@@ -5,7 +5,12 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { AGENT_TOOL_IDS, parseAgentsValue, promptSelection } from './wizard.js'
+import {
+  AGENT_TOOL_IDS,
+  parseAgentsValue,
+  promptSelection,
+  resolveExperimentalHooksValidator,
+} from './wizard.js'
 import type { AskFn } from './wizard.js'
 
 const wizardPath = fileURLToPath(new URL('./wizard.ts', import.meta.url))
@@ -44,6 +49,32 @@ test('parseAgentsValue: none cannot combine with a tool', () => {
 
 test('parseAgentsValue: all cannot combine with a tool', () => {
   assert.throws(() => parseAgentsValue('all,codex'), /cannot be combined with individual agents/)
+})
+
+test('resolveExperimentalHooksValidator: stays disabled by default', () => {
+  assert.equal(resolveExperimentalHooksValidator(undefined, {}), false)
+})
+
+test('resolveExperimentalHooksValidator: accepts explicit setup and environment opt-ins', () => {
+  assert.equal(resolveExperimentalHooksValidator(true, {}), true)
+  assert.equal(resolveExperimentalHooksValidator(undefined, {
+    OM_HARNESS_EXPERIMENTAL_HOOKS_VALIDATOR: 'yes',
+  }), true)
+})
+
+test('resolveExperimentalHooksValidator: explicit setup value overrides the environment default', () => {
+  assert.equal(resolveExperimentalHooksValidator(false, {
+    OM_HARNESS_EXPERIMENTAL_HOOKS_VALIDATOR: '1',
+  }), false)
+})
+
+test('resolveExperimentalHooksValidator: rejects ambiguous environment values', () => {
+  assert.throws(
+    () => resolveExperimentalHooksValidator(undefined, {
+      OM_HARNESS_EXPERIMENTAL_HOOKS_VALIDATOR: 'sometimes',
+    }),
+    /must be one of/,
+  )
 })
 
 async function withTty(stdin: boolean, stdout: boolean, run: () => Promise<void>): Promise<void> {

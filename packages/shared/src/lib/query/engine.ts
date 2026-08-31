@@ -1,4 +1,4 @@
-import type { QueryEngine, QueryOptions, QueryResult, QueryResultMeta, EncryptedSortRowCapWarning, QueryCustomFieldSource, QueryExtensionsConfig, Sort } from './types'
+import type { QueryEngine, QueryOptions, QueryResult, QueryResultMeta, EncryptedSortRowCapWarning, ListCountCapWarning, QueryCustomFieldSource, QueryExtensionsConfig, Sort } from './types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { type Kysely, sql, type RawBuilder } from 'kysely'
@@ -20,6 +20,8 @@ import {
   type SearchTokenProbeQueryBuilder,
 } from '../search/availability'
 import { tokenizeText } from '../search/tokenize'
+import { fieldNameCandidates } from './encrypted-sort'
+import { isTenantDataEncryptionEnabled } from '../encryption/toggles'
 import { runBeforeQueryPipeline, runAfterQueryPipeline, type QueryExtensionContext } from './query-extension-runner'
 import {
   buildCustomFieldDefinitionIndexFromRows,
@@ -29,7 +31,9 @@ import {
 } from '../crud/custom-field-definition-index'
 import { warnOnCiphertextLikeFallback } from './ciphertext-search-warning'
 import { resolveEncryptedSortFields, resolveEncryptedSortMaxRows, sortRowsInMemory } from './encrypted-sort'
+import { resolveListCountCap } from './count-cap'
 import { mapWithConcurrency } from './bounded-decrypt'
+import { parseNumberWithDefault } from '../number'
 import { createLogger } from '../logger'
 
 const logger = createLogger('shared').child({ component: 'query' })
@@ -43,15 +47,112 @@ const entityTableCache = new Map<string, string>()
 
 type EncryptionResolver = () => {
   decryptEntityPayload?: (entityId: EntityId, payload: Record<string, unknown>, tenantId?: string | null, organizationId?: string | null) => Promise<Record<string, unknown>>
-  getEncryptedFieldNames?: (entityId: EntityId, tenantId?: string | null, organizationId?: string | null) => Promise<readonly string[]>
+  getEncryptedFieldNames?: (entityId: EntityId, tenantId?: string | null, organizationId?: string | null, options?: { ignoreRuntimeHealth?: boolean }) => Promise<readonly string[]>
   isEnabled?: () => boolean
 } | null
+
+/**
+ * Membership across name shapes: encryption maps may declare a field as `displayName` or
+ * `display_name` (TenantDataEncryptionService resolves both), while query filters carry real
+ * column names. Both sides expand through `fieldNameCandidates` at set-build and lookup time.
+ */
+export function isEncryptedLikeField(encrypted: ReadonlySet<string>, field: string): boolean {
+  return fieldNameCandidates(field).some((candidate) => encrypted.has(candidate))
+}
+
+// The all-orgs union behind `getEncryptedFieldNames(..., organizationId: null)` is an UNCACHED
+// `encryption_maps` read. Encryption maps change on deploys, not per request, so a short TTL
+// removes the per-search round-trip without meaningfully delaying a map rollout.
+const ENCRYPTED_LIKE_FIELDS_TTL_MS = 60_000
+const ENCRYPTED_LIKE_FIELDS_CACHE_CAP = 500
+const encryptedLikeFieldsCache = new Map<string, { at: number; fields: Set<string> }>()
+
+export async function resolveEncryptedLikeFieldSet(
+  read: () => Promise<readonly string[]>,
+  entity: string,
+  tenantId: string | null,
+): Promise<Set<string>> {
+  const key = `${entity}|${tenantId ?? ''}`
+  const hit = encryptedLikeFieldsCache.get(key)
+  if (hit && Date.now() - hit.at < ENCRYPTED_LIKE_FIELDS_TTL_MS) return hit.fields
+  const names = await read()
+  const fields = new Set<string>()
+  for (const name of names ?? []) {
+    for (const candidate of fieldNameCandidates(String(name))) fields.add(candidate)
+  }
+  if (encryptedLikeFieldsCache.size >= ENCRYPTED_LIKE_FIELDS_CACHE_CAP) encryptedLikeFieldsCache.clear()
+  encryptedLikeFieldsCache.set(key, { at: Date.now(), fields })
+  return fields
+}
+
+/** Test-only: the TTL memo would otherwise leak state across specs. */
+export function clearEncryptedLikeFieldsCache(): void {
+  encryptedLikeFieldsCache.clear()
+}
+
+// Module-scoped on purpose: `createRequestContainer` builds a fresh `BasicQueryEngine`
+// per request, so an instance field alone re-pays the `information_schema` probe on
+// every request (#5605). Schema shape (does a table have this column?) is not
+// per-request state — unlike `tenantEncryptionService` — so sharing the answer across
+// requests is safe. One map per module instance rather than a true process singleton:
+// standalone builds can duplicate this package, which for a memo is harmless (two
+// caches, both correct), so nothing may be built on top of singleton semantics here.
+//
+// Bounded and TTL'd for two reasons. `columnExists` is reached with caller-supplied
+// field names via `resolveBaseColumn` (sort fields and base filter keys arrive raw from
+// the HTTP layer), so an unbounded map would grow monotonically on request input. And a
+// cached `false` is consumed where the tenant/organization/soft-delete predicates are
+// applied, so a schema change that adds one of those columns must not stay invisible
+// until the process restarts — a migration applied against a running `yarn dev` or
+// not-yet-recycled pods converges within the TTL instead. The TTL still removes
+// essentially all of the traffic: a hot column is probed twelve times an hour rather
+// than tens of thousands. Set OM_QUERY_COLUMN_EXISTS_CACHE_MS=0 to disable and probe
+// per request again; OM_QUERY_COLUMN_EXISTS_CACHE_MAX_ENTRIES tunes the bound.
+const COLUMN_EXISTS_CACHE_DEFAULT_TTL_MS = 300_000
+const COLUMN_EXISTS_CACHE_DEFAULT_MAX_ENTRIES = 10_000
+const columnExistsCache = new Map<string, { value: boolean; expiresAt: number }>()
+
+function resolveColumnExistsCacheTtlMs(): number {
+  return parseNumberWithDefault(process.env.OM_QUERY_COLUMN_EXISTS_CACHE_MS, COLUMN_EXISTS_CACHE_DEFAULT_TTL_MS, { integer: true, min: 0 })
+}
+
+function resolveColumnExistsCacheMaxEntries(): number {
+  return parseNumberWithDefault(process.env.OM_QUERY_COLUMN_EXISTS_CACHE_MAX_ENTRIES, COLUMN_EXISTS_CACHE_DEFAULT_MAX_ENTRIES, { integer: true, min: 1 })
+}
+
+function storeColumnExists(key: string, value: boolean, ttlMs: number): void {
+  const maxEntries = resolveColumnExistsCacheMaxEntries()
+  if (columnExistsCache.size >= maxEntries) {
+    const now = Date.now()
+    for (const [entryKey, entry] of columnExistsCache) {
+      if (entry.expiresAt <= now) columnExistsCache.delete(entryKey)
+    }
+    if (columnExistsCache.size >= maxEntries) columnExistsCache.clear()
+  }
+  columnExistsCache.set(key, { value, expiresAt: Date.now() + ttlMs })
+}
+
+/** Test-only: the module-scoped memo would otherwise leak state across specs. */
+export function clearColumnExistsCache(): void {
+  columnExistsCache.clear()
+}
+
+/** Test-only: entry count of the column-existence memo, for the cap regression test. */
+export function columnExistsCacheSize(): number {
+  return columnExistsCache.size
+}
 
 type ResolvedCustomFieldSource = {
   entityId: EntityId
   alias: string
   table: string
   recordIdExpr: RawBuilder<string>
+  /**
+   * The base→source join edge for joined sources (absent on the base source).
+   * The count projection uses it to correlate cf-value EXISTS subqueries
+   * without attaching the source join to the outer query.
+   */
+  hop?: { fromField: string; toField: string; recordIdColumn: string; type: 'left' | 'inner' }
 }
 
 type ResultRow = Record<string, unknown>
@@ -71,6 +172,16 @@ const pluralizeBaseName = (name: string): string => {
   if (name.endsWith('y')) return `${name.slice(0, -1)}ies`
   return `${name}s`
 }
+
+/**
+ * Accepts a module-declared `EntityExtension.table` only when it is a bare SQL
+ * identifier. The value is interpolated into a join clause, so anything else is
+ * ignored in favour of the derived table name.
+ */
+const PLAIN_TABLE_IDENTIFIER_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/
+
+const isPlainTableIdentifier = (value: unknown): value is string =>
+  typeof value === 'string' && PLAIN_TABLE_IDENTIFIER_PATTERN.test(value)
 
 const toPascalCase = (value: string): string => {
   return value
@@ -213,7 +324,6 @@ function computeCustomFieldScore(cfg: Record<string, unknown>, kind: string, ent
  * {@link HybridQueryEngine} when the query index is unavailable or incomplete.
  */
 export class BasicQueryEngine implements QueryEngine {
-  private columnCache = new Map<string, boolean>()
   private searchAliasSeq = 0
   private searchAvailabilityInstance: SearchTokenAvailability | null = null
 
@@ -316,6 +426,10 @@ export class BasicQueryEngine implements QueryEngine {
     }
     const { baseFilters, joinFilters } = partitionFilters(table, normalizedFilters, joinMap)
     const cfFilters = normalizedFilters.filter((filter) => String(filter.field).startsWith('cf:'))
+    // Custom-field leaves carrying an orGroup belong to an OR disjunct; applying them
+    // one `.where()` at a time would AND them onto every disjunct (#5039).
+    const regularCfFilters = cfFilters.filter((filter) => !filter.orGroup)
+    const orGroupCfFilters = cfFilters.filter((filter) => filter.orGroup)
     const searchConfig = resolveSearchConfig()
     const searchFilters = [...baseFilters, ...cfFilters].filter((filter) => isSearchFilterOp(filter.op))
     // Callers that opt out of automatic tenant/org scoping own the full
@@ -331,6 +445,62 @@ export class BasicQueryEngine implements QueryEngine {
       ? await this.searchAvailability().hasTokens(String(entity), opts.tenantId ?? null, orgScope)
       : false
     const searchActive = searchEnabled && hasSearchTokens
+    // Opt-in via OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS (default false: the pre-existing
+    // rewrite-everything behavior is kept). When enabled, base-column like/ilike is rerouted
+    // through search tokens ONLY for encrypted columns, where
+    // ILIKE against ciphertext cannot match. On a plaintext column SQL ILIKE is exact, and the token
+    // rewrite silently changes the result set: tokenization splits on non-alphanumerics and drops
+    // tokens shorter than minTokenLength, so a document-number search like "ZK 1/2026" degrades to
+    // the tokens {202, 2026} and matches every record from that year instead of the one document.
+    // `ignoreRuntimeHealth` asks the on-disk question -- a column holds ciphertext even while the
+    // KMS is down -- so an outage keeps encrypted columns on the token path (#4622).
+    // `organizationId: null` is deliberate, not an omission: the service then unions in every
+    // organization's map (`fetchAllOrganizationFieldNames`), so a field any org encrypts stays on
+    // the token path -- a wider set fails safe. Passing the request's org instead would silently
+    // break encrypted-column search for orgs without their own map. That union is an UNCACHED
+    // `encryption_maps` read, one extra round-trip per searched list request. `null` means
+    // the encryption service could not answer at all; keep the pre-existing rewrite-everything
+    // behavior then, because guessing "plaintext" would turn encrypted-column search into an
+    // ILIKE-on-ciphertext that matches nothing.
+    let encryptedLikeFields: Set<string> | null = null
+    if (
+      searchActive &&
+      searchConfig.useIlikeForNonEncryptedFields === true &&
+      searchFilters.some((filter) => !String(filter.field).startsWith('cf:'))
+    ) {
+      try {
+        const service = this.getEncryptionService()
+        const readEncryptedFieldNames = service?.getEncryptedFieldNames?.bind(service)
+        if (readEncryptedFieldNames) {
+          encryptedLikeFields = await resolveEncryptedLikeFieldSet(
+            () => readEncryptedFieldNames(
+              String(entity),
+              opts.tenantId ?? null,
+              null,
+              { ignoreRuntimeHealth: true },
+            ),
+            String(entity),
+            opts.tenantId ?? null,
+          )
+        } else if (isTenantDataEncryptionEnabled()) {
+          // Encryption is on but the service is unreachable (a swallowed DI failure looks
+          // exactly like "no service"): treat the map as UNKNOWN and keep the token rewrite,
+          // rather than guessing "plaintext" and running ILIKE against ciphertext.
+          encryptedLikeFields = null
+        } else {
+          // Encryption disabled: nothing is ciphertext at rest, exact ILIKE is always right.
+          encryptedLikeFields = new Set()
+        }
+      } catch (err) {
+        // The fallback is safe (the old rewrite-everything behavior), but taking it silently
+        // would hide that the gate has stopped working.
+        logger.warn('search: encrypted-field map unavailable; keeping the token rewrite for all columns', {
+          entity: String(entity),
+          error: err instanceof Error ? err.message : String(err),
+        })
+        encryptedLikeFields = null
+      }
+    }
     if (searchFilters.length) {
       const fields = searchFilters.map((filter) => String(filter.field))
       this.logSearchDebug('search:init', {
@@ -408,7 +578,13 @@ export class BasicQueryEngine implements QueryEngine {
         searchActive &&
         typeof value === 'string' &&
         fieldName &&
-        typeof column === 'string'
+        typeof column === 'string' &&
+        // Plaintext columns keep exact SQL ILIKE -- see the encryptedLikeFields note above. cf:*
+        // filters never reach this path (they are applied by the custom-field branches), so this
+        // gate only decides base columns. Membership is tested across name-shape candidates --
+        // encryption maps may declare `displayName` while the filter carries the column name
+        // `display_name`, and a raw comparison would misread that ciphertext column as plaintext.
+        (encryptedLikeFields === null || isEncryptedLikeField(encryptedLikeFields, fieldName))
       ) {
         const tokens = tokenizeText(String(value), searchConfig)
         const hashes = tokens.hashes
@@ -532,11 +708,16 @@ export class BasicQueryEngine implements QueryEngine {
     // Builds the fully-scoped query from a fresh root. `projection: 'full'` reproduces
     // today's complete selection (base fields + CF projections + extension joins).
     // `projection: 'sortKeys'` selects only `id` + the sort columns — the slim phase-1
-    // candidate scan used when `requiresPlaintextSort`. Re-running the WHERE/JOIN logic
-    // twice is cheap: every `columnExists` check is memoized on `this.columnCache`,
-    // so the second pass hits no extra DB calls.
-    const buildQuery = async (projection: 'full' | 'sortKeys'): Promise<BuiltQuery> => {
+    // candidate scan used when `requiresPlaintextSort`. `projection: 'count'` carries
+    // scope + filters only: projection joins (CF defs/values, extensions) are omitted
+    // and cf filters are expressed as correlated EXISTS semi-joins, so nothing can
+    // multiply base rows and a LIMIT above the query is an enforceable bound.
+    // Re-running the WHERE/JOIN logic per projection is cheap: every `columnExists`
+    // check is memoized on the module-scoped `columnExistsCache`, so later passes
+    // hit no extra DB calls.
+    const buildQuery = async (projection: 'full' | 'sortKeys' | 'count'): Promise<BuiltQuery> => {
       const isSortKeysProjection = projection === 'sortKeys'
+      const isCountProjection = projection === 'count'
       let q: AnyBuilder = db.selectFrom(table as any)
 
       // Tenant/org/soft-delete scope
@@ -576,50 +757,40 @@ export class BasicQueryEngine implements QueryEngine {
       }
 
       // OR-grouped filters: AND within each group (one $or disjunct), OR between groups.
-      if (orGroupFilters.length > 0) {
-        const groups = new Map<string, typeof orGroupFilters>()
-        for (const f of orGroupFilters) {
+      // Resolution happens here (it needs async column lookups); the WHERE itself is
+      // applied further down, once the cf:* value expressions exist — an OR group may
+      // contain custom-field leaves whose SQL is only available then (#5039).
+      type ResolvedOrClause =
+        | { kind: 'column'; qualified: string; op: NormalizedFilter['op']; value: unknown }
+        | { kind: 'doc'; field: string; op: NormalizedFilter['op']; value: unknown }
+        | { kind: 'cf'; key: string; op: NormalizedFilter['op']; value: unknown }
+      const resolvedGroupFilters: ResolvedOrClause[][] = []
+      if (orGroupFilters.length > 0 || orGroupCfFilters.length > 0) {
+        const groups = new Map<string, NormalizedFilter[]>()
+        for (const f of [...orGroupFilters, ...orGroupCfFilters]) {
           const group = groups.get(f.orGroup!) ?? []
-          group.push(f)
+          group.push(f as NormalizedFilter)
           groups.set(f.orGroup!, group)
         }
-        type ResolvedOrClause =
-          | { kind: 'column'; qualified: string; op: NormalizedFilter['op']; value: unknown }
-          | { kind: 'doc'; field: string; op: NormalizedFilter['op']; value: unknown }
-        const resolvedGroupFilters: ResolvedOrClause[][] = []
         for (const [, groupFilters] of groups) {
           const resolved: ResolvedOrClause[] = []
           for (const filter of groupFilters) {
-            const column = await this.resolveBaseColumn(table, String(filter.field))
+            const field = String(filter.field)
+            if (field.startsWith('cf:')) {
+              resolved.push({ kind: 'cf', key: field.slice(3), op: filter.op, value: filter.value })
+              continue
+            }
+            const column = await this.resolveBaseColumn(table, field)
             if (column) {
               resolved.push({ kind: 'column', qualified: qualify(column), op: filter.op, value: filter.value })
             } else {
               // Field is not a base column — for custom-entity records it lives in
               // entity_indexes.doc. Build an EXISTS sub-filter so `$or` searches
               // across doc fields resolve instead of being silently dropped (#3229).
-              resolved.push({ kind: 'doc', field: String(filter.field), op: filter.op, value: filter.value })
+              resolved.push({ kind: 'doc', field, op: filter.op, value: filter.value })
             }
           }
           if (resolved.length > 0) resolvedGroupFilters.push(resolved)
-        }
-        if (resolvedGroupFilters.length > 0) {
-          q = q.where((eb: any) => eb.or(
-            resolvedGroupFilters.map((group) => {
-              const parts = group.map((rf) => rf.kind === 'column'
-                ? this.buildColumnOpExpression(eb, rf.qualified, rf.op, rf.value)
-                : this.buildIndexDocOpExpression(eb, {
-                    entity: String(entity),
-                    field: rf.field,
-                    op: rf.op,
-                    value: rf.value,
-                    recordIdColumn,
-                    tenantId: opts.tenantId ?? null,
-                    organizationScope: orgScope,
-                    withDeleted: opts.withDeleted === true,
-                  }))
-              return parts.length === 1 ? parts[0] : eb.and(parts)
-            })
-          ))
         }
       }
 
@@ -638,7 +809,10 @@ export class BasicQueryEngine implements QueryEngine {
       })
 
       // Selection (base columns only here; cf:* handled later)
-      if (isSortKeysProjection) {
+      if (isCountProjection) {
+        // The caller owns the count query's SELECT (a constant inside the
+        // bounded subquery, or the aggregate itself when the cap is off).
+      } else if (isSortKeysProjection) {
         q = q.select(sql.ref(qualify('id')).as('id'))
         if (await this.columnExists(table, 'tenant_id')) {
           q = q.select(sql.ref(qualify('tenant_id')).as('tenant_id'))
@@ -664,14 +838,14 @@ export class BasicQueryEngine implements QueryEngine {
       }
 
       // Resolve which custom fields to include
-      const cfSourcesResult = this.configureCustomFieldSources(q, table, entity, db, opts, qualify)
+      const cfSourcesResult = this.configureCustomFieldSources(q, table, entity, db, opts, qualify, !isCountProjection)
       q = cfSourcesResult.builder
       const cfSources = cfSourcesResult.sources
       const entityIdToSource = new Map<string, ResolvedCustomFieldSource>()
       for (const source of cfSources) {
         entityIdToSource.set(String(source.entityId), source)
       }
-      const requestedCustomFieldKeys = (!isSortKeysProjection && Array.isArray(opts.includeCustomFields))
+      const requestedCustomFieldKeys = (projection === 'full' && Array.isArray(opts.includeCustomFields))
         ? opts.includeCustomFields.map((key) => String(key))
         : []
       const cfKeys = new Set<string>()
@@ -681,7 +855,7 @@ export class BasicQueryEngine implements QueryEngine {
       // Output-only — never resolved for the slim sortKeys projection.
       let resolvedCustomFieldDefinitions: ResolvedCustomFieldDefinitions | undefined
       // Explicit in fields/filters
-      if (!isSortKeysProjection) {
+      if (projection === 'full') {
         for (const f of (opts.fields || [])) {
           if (typeof f === 'string' && f.startsWith('cf:')) cfKeys.add(f.slice(3))
         }
@@ -689,7 +863,17 @@ export class BasicQueryEngine implements QueryEngine {
       for (const f of cfFilters) {
         if (typeof f.field === 'string' && f.field.startsWith('cf:')) cfKeys.add(f.field.slice(3))
       }
-      if (!isSortKeysProjection && opts.includeCustomFields === true) {
+      // A `cf:` sort needs the same joins and value expression as a `cf:` field or
+      // filter: the sort loop below orders by an aggregated alias that only exists
+      // once the key reached `cfKeys`. Without this, a sort-only custom-field query
+      // emitted `ORDER BY "cf_<key>"` against a column it never selected (#5521).
+      // The count shape never sorts, so it stays out of this.
+      if (!isCountProjection) {
+        for (const s of (opts.sort || [])) {
+          if (typeof s.field === 'string' && s.field.startsWith('cf:')) cfKeys.add(s.field.slice(3))
+        }
+      }
+      if (projection === 'full' && opts.includeCustomFields === true) {
         if (entityIdToSource.size > 0) {
           const entityIdList = Array.from(entityIdToSource.keys())
           const entityOrder = new Map<string, number>()
@@ -816,6 +1000,9 @@ export class BasicQueryEngine implements QueryEngine {
       for (const key of cfKeys) {
         const source = keySource.get(key)
         if (!source) continue
+        // The count shape never joins defs/values — cf filters are applied as
+        // correlated EXISTS semi-joins below, so no join can multiply base rows.
+        if (isCountProjection) continue
         const entityIdForKey = source.entityId
         const recordIdExpr = source.recordIdExpr
         const sourceAliasSafe = sanitize(source.alias || 'src')
@@ -869,12 +1056,16 @@ export class BasicQueryEngine implements QueryEngine {
         }
       }
 
-      // Apply cf:* filters (on raw expressions)
-      for (const f of cfFilters) {
+      // Apply cf:* filters (on raw expressions; as EXISTS semi-joins for the count
+      // shape). OR-grouped ones are excluded here and combined with their
+      // disjunct's other leaves right below.
+      for (const f of regularCfFilters) {
         if (!f.field.startsWith('cf:')) continue
         const key = f.field.slice(3)
+        const filterSource = keySource.get(key)
+        if (!filterSource) continue
         const expr = cfValueExprByKey[key]
-        if (!expr) continue
+        if (!isCountProjection && !expr) continue
         if ((f.op === 'like' || f.op === 'ilike') && searchActive && typeof f.value === 'string') {
           const tokens = tokenizeText(String(f.value), searchConfig)
           const hashes = tokens.hashes
@@ -909,11 +1100,80 @@ export class BasicQueryEngine implements QueryEngine {
             })
           }
         }
+        if (isCountProjection) {
+          q = this.applyCfValueExistsFilter(q, {
+            source: filterSource,
+            qualify,
+            tenantId: tenantId ?? null,
+            key,
+            op: f.op,
+            value: f.value,
+          })
+          continue
+        }
         q = this.applyColumnOp(q, expr, f.op, f.value)
       }
 
-      // Entity extensions joins (no selection yet; enables future filters/projections)
-      if (opts.includeExtensions) {
+      // OR groups are applied here, after the cf:* value expressions exist, so a
+      // disjunct mixing base/doc and custom-field leaves is united rather than
+      // intersected. A cf leaf whose key resolved no value expression yields no
+      // predicate and is dropped; a disjunct left empty by that is dropped too,
+      // because an empty AND would read as TRUE and widen the result.
+      //
+      // Known limitation, shared with the `doc` clause kind above: a leaf inside an OR
+      // group compares against the stored value directly and does not route `like` /
+      // `ilike` through the search-token index the way the ungrouped path does. On a
+      // field covered by an encryption map such a leaf therefore compares against
+      // ciphertext and will not match.
+      //
+      // The count shape never populates cfValueExprByKey (it joins no cf tables), so
+      // its applicability test is key resolution itself — the same condition that
+      // gates the full shape's expression map — and a cf leaf compiles to a
+      // correlated EXISTS instead of a value-expression comparison. Dropping it
+      // instead would narrow the OR and undercount relative to the display query.
+      const cfLeafApplicable = (key: string): boolean =>
+        isCountProjection ? keySource.has(key) : Boolean(cfValueExprByKey[key])
+      const applicableGroupFilters = resolvedGroupFilters
+        .map((group) => group.filter((rf) => rf.kind !== 'cf' || cfLeafApplicable(rf.key)))
+        .filter((group) => group.length > 0)
+      if (applicableGroupFilters.length > 0) {
+        q = q.where((eb: any) => {
+          const disjuncts = applicableGroupFilters.map((group) => {
+            const parts = group.map((rf) => {
+              if (rf.kind === 'column') return this.buildColumnOpExpression(eb, rf.qualified, rf.op, rf.value)
+              if (rf.kind === 'cf') {
+                if (isCountProjection) {
+                  return this.buildCfValueExistsExpression(eb, {
+                    source: keySource.get(rf.key)!,
+                    qualify,
+                    tenantId: tenantId ?? null,
+                    key: rf.key,
+                    op: rf.op,
+                    value: rf.value,
+                  })
+                }
+                return this.buildColumnOpExpression(eb, cfValueExprByKey[rf.key], rf.op, rf.value)
+              }
+              return this.buildIndexDocOpExpression(eb, {
+                entity: String(entity),
+                field: rf.field,
+                op: rf.op,
+                value: rf.value,
+                recordIdColumn,
+                tenantId: opts.tenantId ?? null,
+                organizationScope: orgScope,
+                withDeleted: opts.withDeleted === true,
+              })
+            })
+            return parts.length === 1 ? parts[0] : eb.and(parts)
+          })
+          return disjuncts.length === 1 ? disjuncts[0] : eb.or(disjuncts)
+        })
+      }
+
+      // Entity extensions joins (no selection yet; enables future filters/projections).
+      // Projection-only, so the count shape omits them.
+      if (opts.includeExtensions && !isCountProjection) {
         const { getModules } = await import('@open-mercato/shared/lib/i18n/server')
         const allMods = getModules() as any[]
         const allExts = allMods.flatMap((m) => (m as any).entityExtensions || [])
@@ -923,7 +1183,15 @@ export class BasicQueryEngine implements QueryEngine {
           : exts
         for (const e of chosen) {
           const [, extName] = (e.extension as string).split(':')
-          const extTable = extName.endsWith('s') ? extName : `${extName}s`
+          // Uses the SAME derivation as every other table-name fallback in this file
+          // (`pluralizeBaseName`, also called at the resolveEntityTableName sites above)
+          // rather than a separate inline one. The inline version handled only `+s`, so
+          // `example_customer_priority` derived `example_customer_prioritys` against the
+          // real `example_customer_priorities`. Behaviour is unchanged for every name that
+          // does not end in `y`; `table` below remains the escape hatch for irregular
+          // plurals no guesser can win (`person` → `people`).
+          const derivedTable = pluralizeBaseName(extName)
+          const extTable = isPlainTableIdentifier(e.table) ? e.table : derivedTable
           const alias = `ext_${sanitize(extName)}`
           q = q.leftJoin(`${extTable} as ${alias}` as any, (jb: any) =>
             jb.onRef(`${alias}.${e.join.extensionKey}`, '=', `${table}.${e.join.baseKey}`)
@@ -932,7 +1200,7 @@ export class BasicQueryEngine implements QueryEngine {
       }
 
       // Sorting: base fields and cf:* (use aggregated alias for cf)
-      for (const s of resolvedSorts) {
+      for (const s of isCountProjection ? [] : resolvedSorts) {
         if (s.field.startsWith('cf:')) {
           const key = s.field.slice(3)
           const alias = sanitize(`cf:${key}`)
@@ -944,14 +1212,24 @@ export class BasicQueryEngine implements QueryEngine {
               cfSelectedAliases.push(alias)
             }
           }
-          if (!requiresPlaintextSort) q = q.orderBy(alias, (s.dir ?? 'asc') as any)
+          // Only order by an alias the projection actually carries. A key that
+          // resolved to no expression is dropped rather than emitted as an
+          // unselected alias, which is what the base-column branch above already
+          // does when `resolveBaseColumn` returns null.
+          if (!requiresPlaintextSort && cfSelectedAliases.includes(alias)) {
+            q = q.orderBy(alias, (s.dir ?? 'asc') as any)
+          }
         } else {
           if (!requiresPlaintextSort) q = q.orderBy(qualify(s.field), (s.dir ?? 'asc') as any)
         }
       }
 
-      // Deduplicate if we joined CFs or extensions by grouping on base id
-      const hasJoinedAggregates = (opts.includeExtensions && (Array.isArray(opts.includeExtensions) ? (opts.includeExtensions.length > 0) : true)) || Object.keys(cfValueExprByKey).length > 0
+      // Deduplicate if we joined CFs or extensions by grouping on base id. The count
+      // shape has neither, and must stay barrier-free for its LIMIT to bind.
+      const hasJoinedAggregates = !isCountProjection && (
+        (opts.includeExtensions && (Array.isArray(opts.includeExtensions) ? (opts.includeExtensions.length > 0) : true)) ||
+        Object.keys(cfValueExprByKey).length > 0
+      )
       if (hasJoinedAggregates) {
         q = q.groupBy(`${table}.id`)
       }
@@ -971,22 +1249,35 @@ export class BasicQueryEngine implements QueryEngine {
       resolvedCustomFieldDefinitions,
     } = await buildQuery('full')
 
-    // `count(distinct base.id)` is only required when a join can multiply base rows
-    // (CF/extension aggregates, explicit relation joins, or custom-field sources).
-    // Without such joins base.id is the unique PK, so `count(*)` is equivalent and
-    // lets Postgres skip the redundant DISTINCT sort/hash for an index-only count (#2227).
-    const mayMultiplyBaseRows =
-      hasJoinedAggregates ||
-      (Array.isArray(opts.joins) && opts.joins.length > 0) ||
-      (Array.isArray(opts.customFieldSources) && opts.customFieldSources.length > 0)
-    const countExpr = mayMultiplyBaseRows
-      ? sql<string>`count(distinct ${sql.ref(`${table}.id`)})`
-      : sql<string>`count(*)`
-    const countBuilder = hasJoinedAggregates
-      ? qFull.clearSelect().clearOrderBy().clearGroupBy().select(countExpr.as('count'))
-      : qFull.clearSelect().clearOrderBy().select(countExpr.as('count'))
-    const countRow = await countBuilder.executeTakeFirst() as { count: unknown } | undefined
-    const total = Number((countRow as any)?.count ?? 0)
+    // The count is built independently of the display query (the `'count'`
+    // projection): scope + filters only, cf filters as correlated EXISTS
+    // semi-joins, no projection joins. Nothing can multiply base rows, so
+    // `count(*)` needs no DISTINCT (completing #2227) and — when the cap is
+    // active — the LIMIT sits on a row-producing inner query with no
+    // aggregate/sort barrier below it, so it actually bounds the scan.
+    const countCap = resolveListCountCap()
+    const { builder: countShape } = await buildQuery('count')
+    let total: number
+    let listCountCapWarning: ListCountCapWarning | undefined
+    if (countCap !== null) {
+      const probe = countShape.select(sql<number>`1`.as('one')).limit(countCap + 1)
+      const countRow = await db
+        .selectFrom(probe.as('om_count_probe') as any)
+        .select(sql<string>`count(*)`.as('count'))
+        .executeTakeFirst() as { count: unknown } | undefined
+      const probed = Number((countRow as any)?.count ?? 0)
+      if (probed > countCap) {
+        total = countCap
+        listCountCapWarning = { entity, cap: countCap }
+      } else {
+        total = probed
+      }
+    } else {
+      const countRow = await countShape
+        .select(sql<string>`count(*)`.as('count'))
+        .executeTakeFirst() as { count: unknown } | undefined
+      total = Number((countRow as any)?.count ?? 0)
+    }
 
     const svc = encryptionService
     const decryptPayload =
@@ -1047,9 +1338,14 @@ export class BasicQueryEngine implements QueryEngine {
       const cap = resolveEncryptedSortMaxRows()
       let qSort = (await buildQuery('sortKeys')).builder
       if (cap !== null) {
-        qSort = qSort.limit(cap).orderBy(qualify('id'), 'asc' as any)
+        // Probe one row past the cap: truncation is detected from the candidate
+        // scan itself, not by comparing against `total` — which may itself be
+        // capped (`OM_LIST_COUNT_CAP`) and would then never exceed the sort cap.
+        qSort = qSort.limit(cap + 1).orderBy(qualify('id'), 'asc' as any)
       }
-      const candidateRows = await qSort.execute() as ResultRow[]
+      const candidateRowsRaw = await qSort.execute() as ResultRow[]
+      const sortTruncated = cap !== null && candidateRowsRaw.length > cap
+      const candidateRows = sortTruncated && cap !== null ? candidateRowsRaw.slice(0, cap) : candidateRowsRaw
       const decryptedCandidates = decryptPayload
         ? await mapWithConcurrency(candidateRows, DECRYPT_CONCURRENCY, decryptRow)
         : candidateRows
@@ -1058,7 +1354,7 @@ export class BasicQueryEngine implements QueryEngine {
         .slice((page - 1) * pageSize, page * pageSize)
         .map((row) => row.id)
 
-      if (cap !== null && total > cap) {
+      if (sortTruncated && cap !== null) {
         encryptedSortRowCapWarning = {
           entity,
           sortFields: resolvedSorts.map((s) => s.field),
@@ -1094,8 +1390,10 @@ export class BasicQueryEngine implements QueryEngine {
 
     let queryResult: QueryResult<T> = { items: pagedItems as unknown as T[], page, pageSize, total }
 
-    if (encryptedSortRowCapWarning) {
-      const meta: QueryResultMeta = { encryptedSortRowCapWarning }
+    if (encryptedSortRowCapWarning || listCountCapWarning) {
+      const meta: QueryResultMeta = {}
+      if (encryptedSortRowCapWarning) meta.encryptedSortRowCapWarning = encryptedSortRowCapWarning
+      if (listCountCapWarning) meta.listCountCapWarning = listCountCapWarning
       queryResult.meta = meta
     }
 
@@ -1154,7 +1452,144 @@ export class BasicQueryEngine implements QueryEngine {
     }
   }
 
-  private buildColumnOpExpression(eb: any, column: string, op: string, value: unknown): any {
+  /**
+   * Apply a `cf:*` filter as a correlated EXISTS semi-join over
+   * `custom_field_values` (+ `custom_field_defs` for kind-based coercion) —
+   * the count shape's equivalent of the projection path's leftJoin + WHERE.
+   * A semi-join returns each base row at most once, so the count query needs
+   * no DISTINCT or GROUP BY and stays boundable by an outer LIMIT.
+   *
+   * Predicates satisfied by the *absence* of a value row (`eq null`,
+   * `exists: false`) become `NOT EXISTS(value) OR EXISTS(null value)`,
+   * matching the leftJoin form where a missing row yields a NULL expression.
+   */
+  private applyCfValueExistsFilter(
+    q: AnyBuilder,
+    opts: {
+      source: ResolvedCustomFieldSource
+      qualify: (column: string) => string
+      tenantId: string | null
+      key: string
+      op: NormalizedFilter['op']
+      value: unknown
+    },
+  ): AnyBuilder {
+    return q.where((eb: any) => this.buildCfValueExistsExpression(eb, opts))
+  }
+
+  /**
+   * Expression-returning core of `applyCfValueExistsFilter`, so a cf leaf
+   * inside an OR group can compile to an EXISTS predicate on the count shape
+   * instead of being dropped for lacking a `cfValueExprByKey` entry.
+   */
+  private buildCfValueExistsExpression(
+    eb: any,
+    opts: {
+      source: ResolvedCustomFieldSource
+      qualify: (column: string) => string
+      tenantId: string | null
+      key: string
+      op: NormalizedFilter['op']
+      value: unknown
+    },
+  ): any {
+    const { source, qualify, tenantId, key, op, value } = opts
+    const seq = this.searchAliasSeq++
+    const valAlias = `cfev_${seq}`
+    const defAlias = `cfed_${seq}`
+    const srcAlias = `cfes_${seq}`
+    const caseExpr = sql<string | null>`CASE ${sql.ref(`${defAlias}.kind`)}
+         WHEN 'integer' THEN (${sql.ref(`${valAlias}.value_int`)})::text
+         WHEN 'float' THEN (${sql.ref(`${valAlias}.value_float`)})::text
+         WHEN 'boolean' THEN (${sql.ref(`${valAlias}.value_bool`)})::text
+         WHEN 'multiline' THEN (${sql.ref(`${valAlias}.value_multiline`)})::text
+         ELSE (${sql.ref(`${valAlias}.value_text`)})::text
+       END`
+
+    const buildSub = (eb: any): AnyBuilder => {
+      let sub: AnyBuilder = eb
+        .selectFrom(`custom_field_values as ${valAlias}`)
+        .select(sql<number>`1`.as('one'))
+        .leftJoin(`custom_field_defs as ${defAlias}`, (jb: any) =>
+          jb.on(`${defAlias}.entity_id`, '=', String(source.entityId))
+            .on(`${defAlias}.key`, '=', key)
+            .on(`${defAlias}.is_active`, '=', true)
+            .on((jeb: any) => jeb.or([
+              jeb(`${defAlias}.tenant_id`, '=', tenantId),
+              jeb(`${defAlias}.tenant_id`, 'is', null),
+            ])))
+        .where(`${valAlias}.entity_id`, '=', String(source.entityId))
+        .where(`${valAlias}.field_key`, '=', key)
+        .where((web: any) => web.or([
+          web(`${valAlias}.tenant_id`, '=', tenantId),
+          web(`${valAlias}.tenant_id`, 'is', null),
+        ]))
+      if (source.hop) {
+        sub = sub
+          .innerJoin(`${source.table} as ${srcAlias}`, (jb: any) =>
+            jb.on(sql<boolean>`${sql.ref(`${valAlias}.record_id`)} = (${sql.ref(`${srcAlias}.${source.hop!.recordIdColumn}`)})::text`))
+          .whereRef(`${srcAlias}.${source.hop.toField}`, '=', qualify(source.hop.fromField))
+      } else {
+        sub = sub.where(sql<boolean>`${sql.ref(`${valAlias}.record_id`)} = ${source.recordIdExpr}`)
+      }
+      return sub
+    }
+
+    const absenceSatisfiable = (op === 'eq' && value === null) || (op === 'exists' && !value)
+    if (absenceSatisfiable) {
+      return eb.or([
+        eb.not(eb.exists(buildSub(eb))),
+        eb.exists(buildSub(eb).where(sql<boolean>`${caseExpr} is null`)),
+      ])
+    }
+
+    let predicate: RawBuilder<boolean> | null = null
+    switch (op) {
+      case 'eq':
+        predicate = sql<boolean>`${caseExpr} = ${value}`
+        break
+      case 'ne':
+        predicate = value === null
+          ? sql<boolean>`${caseExpr} is not null`
+          : sql<boolean>`${caseExpr} != ${value}`
+        break
+      case 'gt':
+      case 'gte':
+      case 'lt':
+      case 'lte': {
+        const operator = sql.raw(op === 'gt' ? '>' : op === 'gte' ? '>=' : op === 'lt' ? '<' : '<=')
+        predicate = sql<boolean>`${caseExpr} ${operator} ${value}`
+        break
+      }
+      case 'in': {
+        const vals = Array.isArray(value) ? value : [value]
+        predicate = sql<boolean>`${caseExpr} in (${sql.join(vals.map((v) => sql`${v}`), sql`, `)})`
+        break
+      }
+      case 'nin': {
+        const vals = Array.isArray(value) ? value : [value]
+        predicate = sql<boolean>`${caseExpr} not in (${sql.join(vals.map((v) => sql`${v}`), sql`, `)})`
+        break
+      }
+      case 'like':
+        predicate = sql<boolean>`${caseExpr} like ${value}`
+        break
+      case 'ilike':
+        predicate = sql<boolean>`${caseExpr} ilike ${value}`
+        break
+      case 'exists':
+        predicate = sql<boolean>`${caseExpr} is not null`
+        break
+      default:
+        // Mirrors buildColumnOpExpression's unknown-op fallback: a neutral
+        // predicate, so full and count shapes drop the same leaves.
+        return eb.val(true)
+    }
+    const captured = predicate
+    return eb.exists(buildSub(eb).where(captured))
+  }
+
+  private buildColumnOpExpression(eb: any, column: string | RawBuilder<unknown>, op: string, value: unknown): any {
     switch (op) {
       case 'eq': return value === null ? eb(column, 'is', null) : eb(column, '=', value)
       case 'ne': return value === null ? eb(column, 'is not', null) : eb(column, '!=', value)
@@ -1179,11 +1614,9 @@ export class BasicQueryEngine implements QueryEngine {
 
   private async columnExists(table: string, column: string): Promise<boolean> {
     const key = `${table}.${column}`
-    if (this.columnCache.has(key)) {
-      const cached = this.columnCache.get(key)
-      if (cached === true) return true
-      this.columnCache.delete(key)
-    }
+    const ttlMs = resolveColumnExistsCacheTtlMs()
+    const cached = columnExistsCache.get(key)
+    if (cached && cached.expiresAt > Date.now()) return cached.value
     const db = this.getDb()
     const exists = await db
       .selectFrom('information_schema.columns' as any)
@@ -1193,8 +1626,7 @@ export class BasicQueryEngine implements QueryEngine {
       .limit(1)
       .executeTakeFirst()
     const present = !!exists
-    if (present) this.columnCache.set(key, true)
-    else this.columnCache.delete(key)
+    if (ttlMs > 0) storeColumnExists(key, present, ttlMs)
     return present
   }
 
@@ -1401,6 +1833,7 @@ export class BasicQueryEngine implements QueryEngine {
     db: AnyDb,
     opts: QueryOptions,
     qualify: (column: string) => string,
+    attachJoins: boolean = true,
   ): { builder: AnyBuilder; sources: ResolvedCustomFieldSource[] } {
     const sources: ResolvedCustomFieldSource[] = [
       {
@@ -1419,15 +1852,28 @@ export class BasicQueryEngine implements QueryEngine {
       if (!join) {
         throw new Error(`QueryEngine: customFieldSources entry for ${String(srcOpt.entityId)} requires a join configuration`)
       }
-      const joinFn = (join.type ?? 'left') === 'inner' ? 'innerJoin' : 'leftJoin'
-      next = (next as any)[joinFn](`${joinTable} as ${alias}`, (jb: any) =>
-        jb.onRef(`${alias}.${join.toField}`, '=', qualify(join.fromField)))
+      const joinType: 'left' | 'inner' = (join.type ?? 'left') === 'inner' ? 'inner' : 'left'
+      if (attachJoins) {
+        const joinFn = joinType === 'inner' ? 'innerJoin' : 'leftJoin'
+        next = (next as any)[joinFn](`${joinTable} as ${alias}`, (jb: any) =>
+          jb.onRef(`${alias}.${join.toField}`, '=', qualify(join.fromField)))
+      } else if (joinType === 'inner') {
+        // The count projection carries no projection joins, but an inner-typed
+        // source join restricts the result set — preserve that as a semi-join.
+        next = next.where((eb: any) => eb.exists(
+          eb
+            .selectFrom(`${joinTable} as ${alias}`)
+            .select(sql<number>`1`.as('one'))
+            .whereRef(`${alias}.${join.toField}`, '=', qualify(join.fromField)),
+        ))
+      }
       const recordColumn = srcOpt.recordIdColumn ?? 'id'
       sources.push({
         entityId: srcOpt.entityId,
         alias,
         table: joinTable,
         recordIdExpr: sql<string>`${sql.ref(`${alias}.${recordColumn}`)}::text`,
+        hop: { fromField: join.fromField, toField: join.toField, recordIdColumn: recordColumn, type: joinType },
       })
     })
     return { builder: next, sources }

@@ -45,6 +45,13 @@ import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/l
 import { E } from '#generated/entities.ids.generated'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { isMissingDealStageTransitionTable, warnMissingDealStageTransitionTable } from '../lib/dealStageTransitionTable'
+import {
+  dealClosureOutcomeFromStatus,
+  loadClosurePipelineStageSnapshot,
+  type DealClosureOutcome,
+  type PipelineStageSnapshot,
+} from '../lib/closureStage'
+import { canonicalDealStatus, isClosedDealStatus } from '../lib/dealStatus'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('customers')
@@ -63,13 +70,6 @@ const dealCrudEvents: CrudEventsConfig = {
     organizationId: ctx.identifiers.organizationId,
     tenantId: ctx.identifiers.tenantId,
   }),
-}
-
-type PipelineStageSnapshot = {
-  id: string
-  pipelineId: string
-  label: string
-  order: number
 }
 
 type DealStageTransitionSnapshot = {
@@ -114,6 +114,16 @@ async function loadPipelineStageSnapshot(
     label: stage.label,
     order: stage.order,
   }
+}
+
+function resolveRequestedClosureOutcome(input: DealUpdateInput): DealClosureOutcome | null {
+  if (input.closureOutcome === 'won' || input.closureOutcome === 'lost') {
+    return input.closureOutcome
+  }
+  // `win` / `lost` are what the UI closure flows persist; `won` / `lost` are the
+  // spellings the AI stage tool persists (`loose` before 0.7.1). Both must derive the same
+  // closure outcome so every closed deal lands in the pipeline's terminal stage (#5107).
+  return dealClosureOutcomeFromStatus(input.status)
 }
 
 async function resolvePipelineStageValue(
@@ -681,6 +691,8 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
     }
     let nextPipelineStageLabel: string | null = null
     let resolvedCurrentPipelineStageLabel: string | null = null
+    let pipelineStageAssignmentChanged = false
+    let requestedClosureOutcome: DealClosureOutcome | null = null
 
     await runCrudCommandWrite({
       ctx,
@@ -701,18 +713,32 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
       }),
       phases: [
         async () => {
+          requestedClosureOutcome = resolveRequestedClosureOutcome(parsed)
+          const requestedPipelineId =
+            parsed.pipelineId !== undefined ? parsed.pipelineId ?? null : record.pipelineId ?? null
+          const closureStageSnapshot =
+            parsed.pipelineStageId === undefined && requestedClosureOutcome
+              ? await loadClosurePipelineStageSnapshot(em, {
+                pipelineId: requestedPipelineId,
+                closureOutcome: requestedClosureOutcome,
+                tenantId: record.tenantId,
+                organizationId: record.organizationId,
+              })
+              : null
+          pipelineStageAssignmentChanged =
+            parsed.pipelineStageId !== undefined || closureStageSnapshot !== null
           const pipelineAssignmentChanged =
-            parsed.pipelineId !== undefined || parsed.pipelineStageId !== undefined
+            parsed.pipelineId !== undefined || pipelineStageAssignmentChanged
           const requestedPipelineStageId =
             parsed.pipelineStageId !== undefined
               ? parsed.pipelineStageId ?? null
-              : record.pipelineStageId ?? null
-          const requestedPipelineId =
-            parsed.pipelineId !== undefined ? parsed.pipelineId ?? null : record.pipelineId ?? null
+              : closureStageSnapshot?.id ?? record.pipelineStageId ?? null
 
-          nextStageSnapshot = requestedPipelineStageId && (pipelineAssignmentChanged || !record.pipelineStage)
-            ? await loadPipelineStageSnapshot(em, requestedPipelineStageId, record.tenantId, record.organizationId)
-            : null
+          nextStageSnapshot = closureStageSnapshot ?? (
+            requestedPipelineStageId && (pipelineAssignmentChanged || !record.pipelineStage)
+              ? await loadPipelineStageSnapshot(em, requestedPipelineStageId, record.tenantId, record.organizationId)
+              : null
+          )
           if (pipelineAssignmentChanged) {
             nextPipelineAssignment = resolvePipelineAssignment({
               pipelineId: requestedPipelineId,
@@ -738,14 +764,14 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
           if (parsed.description !== undefined) record.description = parsed.description ?? null
           if (parsed.status !== undefined) record.status = parsed.status ?? record.status
           if (parsed.pipelineStage !== undefined) record.pipelineStage = parsed.pipelineStage ?? null
-          if (parsed.pipelineId !== undefined || (parsed.pipelineStageId !== undefined && nextStageSnapshot)) {
+          if (parsed.pipelineId !== undefined || (pipelineStageAssignmentChanged && nextStageSnapshot)) {
             record.pipelineId = nextPipelineAssignment.pipelineId
           }
-          if (parsed.pipelineStageId !== undefined) record.pipelineStageId = nextPipelineAssignment.pipelineStageId
+          if (pipelineStageAssignmentChanged) record.pipelineStageId = nextPipelineAssignment.pipelineStageId
 
-          if (nextPipelineStageLabel && (parsed.pipelineStageId !== undefined || !record.pipelineStage)) {
+          if (nextPipelineStageLabel && (pipelineStageAssignmentChanged || !record.pipelineStage)) {
             record.pipelineStage = nextPipelineStageLabel
-          } else if (resolvedCurrentPipelineStageLabel && (parsed.pipelineStageId !== undefined || !record.pipelineStage)) {
+          } else if (resolvedCurrentPipelineStageLabel && (pipelineStageAssignmentChanged || !record.pipelineStage)) {
             record.pipelineStage = resolvedCurrentPipelineStageLabel
           }
 
@@ -756,6 +782,27 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
           if (parsed.ownerUserId !== undefined) record.ownerUserId = parsed.ownerUserId ?? null
           if (parsed.source !== undefined) record.source = parsed.source ?? null
           if (parsed.closureOutcome !== undefined) record.closureOutcome = parsed.closureOutcome ?? null
+          // Derive the outcome only when the status spelling alone drives the closure —
+          // the same condition that triggers the terminal-stage move below — so an
+          // explicit non-terminal pipelineStageId never produces a half-closed state.
+          else if (requestedClosureOutcome && parsed.pipelineStageId === undefined) {
+            record.closureOutcome = requestedClosureOutcome
+          } else if (
+            parsed.status !== undefined &&
+            !requestedClosureOutcome &&
+            // `closed` is a seeded dictionary status: saving it is not a reopen, so only
+            // a genuinely non-closed status clears stored closure state — and only when
+            // the deal actually carries any (a no-op status echo must not wipe loss data).
+            // Canonicalize first: `dealClosureOutcomeFromStatus` above already matches
+            // case-insensitively, so matching `closed` exactly would let `Closed` through
+            // this guard and null the operator's loss notes.
+            !isClosedDealStatus(canonicalDealStatus(parsed.status)) &&
+            record.closureOutcome !== null
+          ) {
+            record.closureOutcome = null
+            if (parsed.lossReasonId === undefined) record.lossReasonId = null
+            if (parsed.lossNotes === undefined) record.lossNotes = null
+          }
           if (parsed.lossReasonId !== undefined) record.lossReasonId = parsed.lossReasonId ?? null
           if (parsed.lossNotes !== undefined) record.lossNotes = parsed.lossNotes ?? null
         },
@@ -774,9 +821,9 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
           const snapshot = nextStageSnapshot
           if (!snapshot) return
           const shouldRecord =
-            parsed.pipelineStageId !== undefined &&
-            parsed.pipelineStageId !== null &&
-            parsed.pipelineStageId !== previousPipelineStageId
+            pipelineStageAssignmentChanged &&
+            nextPipelineAssignment.pipelineStageId !== null &&
+            nextPipelineAssignment.pipelineStageId !== previousPipelineStageId
           if (!shouldRecord) return
           await upsertDealStageTransition(em, {
             deal: record,
@@ -799,6 +846,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
     // subscribers (workflow event triggers, business-rules triggers) drop a
     // null-scoped event before trigger matching.
     const newStatus = record.status
+    // `loose` stays mapped here for deals written before the 0.7.1 rename.
     const normalizedStatus = newStatus === 'win' ? 'won' : newStatus === 'loose' ? 'lost' : newStatus
     if (previousStatus !== newStatus && (normalizedStatus === 'won' || normalizedStatus === 'lost')) {
       const closureEvent = normalizedStatus === 'won' ? 'customers.deal.won' : 'customers.deal.lost'

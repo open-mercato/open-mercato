@@ -17,6 +17,7 @@ import { getSecurityEmailBaseUrl, mapSecurityEmailUrlError } from '@open-mercato
 import { generateAuthToken, hashAuthToken } from '@open-mercato/core/modules/auth/lib/tokenHash'
 import { assertActorCanAccessUserTarget } from '@open-mercato/core/modules/auth/lib/grantChecks'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -96,6 +97,12 @@ export async function POST(req: Request) {
         organizationId: auth.orgId ?? null,
         targetUserId: parsed.data.id,
         actorIsSuperAdmin: isSuperAdmin,
+        organizationScope: await resolveOrganizationScopeForRequest({
+          container,
+          auth,
+          request: req,
+          tenantId: auth.tenantId ?? null,
+        }),
       })
     } catch (err) {
       if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
@@ -132,7 +139,7 @@ export async function POST(req: Request) {
 
   let base: string
   try {
-    base = getSecurityEmailBaseUrl(req.url)
+    base = getSecurityEmailBaseUrl(req)
   } catch (error) {
     const mapped = mapSecurityEmailUrlError(error, {
       scope: 'auth.users.resend-invite',

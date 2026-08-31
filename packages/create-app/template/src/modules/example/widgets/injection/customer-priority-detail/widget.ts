@@ -5,6 +5,7 @@ const widget: InjectionWidgetModule = {
   metadata: {
     id: 'example.injection.customer-priority-detail',
     title: 'Customer Priority',
+    requiredModules: ['customers'],
     priority: 40,
   },
   Widget: CustomerPriorityDetailWidget,

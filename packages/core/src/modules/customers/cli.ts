@@ -59,7 +59,7 @@ export const DEAL_STATUS_DEFAULTS: DictionaryDefault[] = [
   { value: 'open', label: 'Open', color: '#2563eb', icon: 'lucide:circle' },
   { value: 'closed', label: 'Closed', color: '#6b7280', icon: 'lucide:check-circle' },
   { value: 'win', label: 'Win', color: '#22c55e', icon: 'lucide:trophy' },
-  { value: 'loose', label: 'Loose', color: '#ef4444', icon: 'lucide:flag' },
+  { value: 'lost', label: 'Lost', color: '#ef4444', icon: 'lucide:flag' },
   { value: 'in_progress', label: 'In progress', color: '#f59e0b', icon: 'lucide:activity' },
 ]
 
@@ -70,7 +70,7 @@ export const PIPELINE_STAGE_DEFAULTS: DictionaryDefault[] = [
   { value: 'offering', label: 'Offering', color: '#22c55e', icon: 'lucide:package' },
   { value: 'negotiations', label: 'Negotiations', color: '#facc15', icon: 'lucide:handshake' },
   { value: 'win', label: 'Win', color: '#16a34a', icon: 'lucide:award' },
-  { value: 'loose', label: 'Loose', color: '#ef4444', icon: 'lucide:flag' },
+  { value: 'lost', label: 'Lost', color: '#ef4444', icon: 'lucide:flag' },
   { value: 'stalled', label: 'Stalled', color: '#6b7280', icon: 'lucide:alert-circle' },
 ]
 
@@ -827,8 +827,8 @@ export const CUSTOMER_EXAMPLES: ExampleCompany[] = [
         slug: 'cedar-creek-retreat',
         title: 'Cedar Creek Retreat Expansion',
         description: 'New wellness center build-out including retail area and treatment rooms.',
-        status: 'loose',
-        pipelineStage: 'loose',
+        status: 'lost',
+        pipelineStage: 'lost',
         valueAmount: 98000,
         valueCurrency: 'USD',
         expectedCloseAt: isoDaysFromNow(-70),
@@ -2549,7 +2549,7 @@ async function seedCustomerStressTest(
       const dealId = randomUUID()
       const valueAmount = toAmount(monetaryBase + randomInt(0, 7500))
       const expectedCloseAt =
-        dealStatus === 'win' || dealStatus === 'closed' || dealStatus === 'loose'
+        dealStatus === 'win' || dealStatus === 'closed' || dealStatus === 'lost'
           ? randomPastDate(120)
           : randomFutureDate(120)
       const dealRow: CustomerDealRow = {

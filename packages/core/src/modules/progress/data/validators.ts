@@ -29,6 +29,7 @@ export const completeJobSchema = z.object({
 export const failJobSchema = z.object({
   errorMessage: z.string().max(2000),
   errorStack: z.string().max(10000).optional(),
+  resultSummary: z.record(z.string(), z.unknown()).optional(),
 })
 
 export const listProgressJobsSchema = z.object({

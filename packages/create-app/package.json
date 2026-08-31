@@ -1,6 +1,6 @@
 {
   "name": "create-mercato-app",
-  "version": "0.6.7",
+  "version": "0.7.0",
   "type": "module",
   "description": "Create a new Open Mercato application",
   "main": "./dist/index.js",
@@ -13,7 +13,13 @@
   ],
   "scripts": {
     "build": "node build.mjs",
-    "test": "node --import tsx --test --test-timeout=120000 src/**/*.test.ts",
+    "harness:validate-knowledge-change": "node ./agentic/shared/scripts/validate-knowledge-change.mjs",
+    "harness:validate-source-links": "node ./scripts/validate-source-links.mjs",
+    "harness:generate-source-link-inventory": "node ./scripts/generate-source-link-inventory.mjs",
+    "harness:check-source-link-inventory": "node ./scripts/generate-source-link-inventory.mjs --check",
+    "harness:generate-design-system-inventory": "node ./scripts/generate-design-system-inventory.mjs",
+    "harness:check-design-system-inventory": "node ./scripts/generate-design-system-inventory.mjs --check",
+    "test": "node build.mjs && node scripts/prepare-test-git-history.mjs && node --import tsx --test --test-timeout=120000 --test-reporter=spec --test-reporter-destination=stdout --test-reporter=./scripts/report-truncation.mjs --test-reporter-destination=stdout src/**/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

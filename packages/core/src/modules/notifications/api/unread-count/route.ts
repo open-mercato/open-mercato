@@ -8,11 +8,12 @@ import {
 } from '@open-mercato/shared/lib/crud/cache'
 import { Notification } from '../../data/entities'
 import { unreadCountResponseSchema } from '../openapi'
-import { resolveNotificationContext } from '../../lib/routeHelpers'
+import { resolveGuardedNotificationContext } from '../../lib/routeHelpers'
 import {
   buildNotificationReadScopeWhere,
   getNotificationReadScopeTagOrganizationIds,
 } from '../../lib/notificationScope'
+import { inAppVisibleFilter } from '../../lib/notificationVisibility'
 
 export const metadata = {
   GET: { requireAuth: true },
@@ -39,7 +40,9 @@ function buildUnreadCountCacheKey(params: {
 }
 
 export async function GET(req: Request) {
-  const { scope, ctx } = await resolveNotificationContext(req)
+  const resolved = await resolveGuardedNotificationContext(req)
+  if (!resolved.ok) return resolved.response
+  const { scope, ctx } = resolved
   const em = ctx.container.resolve('em') as EntityManager
 
   const userId = scope.userId
@@ -73,7 +76,10 @@ export async function GET(req: Request) {
     recipientUserId: userId,
     tenantId: scope.tenantId,
     status: 'unread',
-    ...buildNotificationReadScopeWhere(scope),
+    $and: [
+      buildNotificationReadScopeWhere(scope),
+      inAppVisibleFilter(),
+    ],
   })
 
   if (cache && cacheKey) {

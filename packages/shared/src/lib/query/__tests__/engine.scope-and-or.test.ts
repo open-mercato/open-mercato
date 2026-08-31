@@ -1,5 +1,15 @@
-import { BasicQueryEngine } from '../engine'
+import { BasicQueryEngine, clearColumnExistsCache } from '../engine'
 import { normalizeFilters } from '../join-utils'
+
+// The column-existence answer is memoized on the module, not the instance (#5605), and
+// the fixtures below declare mutually contradictory `information_schema.columns` shapes
+// for the same `scheduled_jobs` table. Without this clear, whichever test ran first
+// decides the scoping every later test sees — the automatic tenant/organization guard
+// would silently drop out of a query and the assertion for it would still be reading a
+// stale `false`.
+beforeEach(() => {
+  clearColumnExistsCache()
+})
 
 type FakeData = Record<string, any[]>
 
@@ -482,5 +492,99 @@ describe('BasicQueryEngine — multi-field $or grouping', () => {
     expect(hasSystemScope).toBe(true)
     expect(hasNullOrg).toBe(true)
     expect(hasNullTenant).toBe(true)
+  })
+})
+
+describe('BasicQueryEngine — custom-field leaves inside an $or group (#5039)', () => {
+  const customFieldDb = () => createFakeKysely({
+    scheduled_jobs: [],
+    custom_field_defs: [
+      { key: 'priority', entity_id: 'scheduler:scheduled_job', is_active: true, tenant_id: null, kind: 'text' },
+    ],
+    custom_field_values: [],
+    'information_schema.columns': [
+      { table_name: 'scheduled_jobs', column_name: 'organization_id' },
+      { table_name: 'scheduled_jobs', column_name: 'tenant_id' },
+      { table_name: 'scheduled_jobs', column_name: 'scope_type' },
+    ],
+  })
+
+  test('two cf:* values joined by $or become one OR of two disjuncts, not two ANDed filters', async () => {
+    const fakeDb = customFieldDb()
+    const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
+    await engine.query('scheduler:scheduled_job', {
+      tenantId: 't1',
+      fields: ['id', 'cf:priority'],
+      omitAutomaticTenantOrgScope: true,
+      filters: {
+        $or: [
+          { 'cf:priority': { $eq: 'high' } },
+          { 'cf:priority': { $eq: 'low' } },
+        ],
+      },
+    })
+
+    const baseCall = fakeDb._calls.find((b: any) => b._ops.table === 'scheduled_jobs')
+    expect(baseCall).toBeTruthy()
+
+    // Before the fix each value was applied as its own `.where()`, so the query asked
+    // for priority = 'high' AND priority = 'low' and could never match a row.
+    const orEntry = baseCall._ops.wheres.find((w: any) => Array.isArray(w) && w[0] === 'or')
+    expect(orEntry).toBeTruthy()
+    const orParts: Node[] = orEntry[1]
+    expect(orParts.length).toBe(2)
+
+    const values = orParts.flatMap((part) => flattenCmps(part)).map((cmp) => cmp.value)
+    expect(values).toEqual(expect.arrayContaining(['high', 'low']))
+
+    const standaloneCfFilters = baseCall._ops.wheres.filter(
+      (w: any) => Array.isArray(w) && w.length === 3 && (w[2] === 'high' || w[2] === 'low'),
+    )
+    expect(standaloneCfFilters).toHaveLength(0)
+  })
+
+  test('a base column OR a cf:* value unites both legs in the same disjunction', async () => {
+    const fakeDb = customFieldDb()
+    const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
+    await engine.query('scheduler:scheduled_job', {
+      tenantId: 't1',
+      fields: ['id', 'cf:priority'],
+      omitAutomaticTenantOrgScope: true,
+      filters: {
+        $or: [
+          { scope_type: { $eq: 'system' } },
+          { 'cf:priority': { $eq: 'high' } },
+        ],
+      },
+    })
+
+    const baseCall = fakeDb._calls.find((b: any) => b._ops.table === 'scheduled_jobs')
+    const orEntry = baseCall._ops.wheres.find((w: any) => Array.isArray(w) && w[0] === 'or')
+    expect(orEntry).toBeTruthy()
+    const orParts: Node[] = orEntry[1]
+    expect(orParts.length).toBe(2)
+
+    const cmps = orParts.flatMap((part) => flattenCmps(part))
+    expect(cmps.some((cmp) => String(cmp.column).endsWith('scope_type') && cmp.value === 'system')).toBe(true)
+    expect(cmps.some((cmp) => cmp.value === 'high')).toBe(true)
+  })
+
+  test('an ungrouped cf:* filter still applies as its own AND predicate', async () => {
+    const fakeDb = customFieldDb()
+    const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
+    await engine.query('scheduler:scheduled_job', {
+      tenantId: 't1',
+      fields: ['id', 'cf:priority'],
+      omitAutomaticTenantOrgScope: true,
+      filters: { 'cf:priority': { $eq: 'high' } },
+    })
+
+    const baseCall = fakeDb._calls.find((b: any) => b._ops.table === 'scheduled_jobs')
+    const orEntry = baseCall._ops.wheres.find((w: any) => Array.isArray(w) && w[0] === 'or')
+    expect(orEntry).toBeFalsy()
+    const directFilter = baseCall._ops.wheres.some(
+      (w: any) => Array.isArray(w) && w.length === 3 && w[1] === '=' && w[2] === 'high',
+    )
+    expect(directFilter).toBe(true)
   })
 })

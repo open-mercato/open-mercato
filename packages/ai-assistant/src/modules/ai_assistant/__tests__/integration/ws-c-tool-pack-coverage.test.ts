@@ -156,10 +156,15 @@ describe('WS-C integration — tool-pack coverage', () => {
 
     it('propagates tenantId + organizationId to the search service call', async () => {
       const searchMock = jest.fn().mockResolvedValue([])
+      const searchIndexerMock = {
+        getEntityConfig: (entityId: string) => ({ entityId, aclFeatures: ['ai_assistant.view'], enabled: true } as any),
+        getAllEntityConfigs: () => [{ entityId: 'test:entity', aclFeatures: ['ai_assistant.view'], enabled: true } as any],
+      }
       const ctx = makeCtx({
         container: {
           resolve: (name: string) => {
             if (name === 'searchService') return { search: searchMock }
+            if (name === 'searchIndexer') return searchIndexerMock
             throw new Error(`Unknown registration: ${name}`)
           },
         },
