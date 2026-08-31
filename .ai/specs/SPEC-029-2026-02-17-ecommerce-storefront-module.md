@@ -453,6 +453,82 @@ Spec 4 adds `lib/storefront*.ts` and the public read routes to this same module.
 
 ---
 
+## 10a) User Stories
+
+Scope: the admin/backoffice surface only — store definition, hostname binding, channel binding, branding, SEO. The shopper-facing storefront (spec 10) and the public catalogue (spec 4) are out of scope here; no shopper personas appear below.
+
+**Roles**, from §9.3 ACL features and `setup.ts`: **Tenant Admin** (`admin` — all `ecommerce.*` features) and **Team Member** (`member` — `*.view` features only, no `.manage`/`.branding.manage`/`.domains.manage`/`.channels.manage`). A Team Member can navigate every tab a store's `view` feature exposes but cannot submit any write action.
+
+### Epic A — Store directory and lifecycle
+*Screens: store list (`backend/config/ecommerce/page.tsx`)*
+
+- **US-A1.** As a Tenant Admin, I want to see all stores in my tenant with their status, primary domain and channel, so that I can find the one I need to configure.
+  - Columns: Name, Code, Status, Primary domain, Channel, Created (§11). Status filter.
+  - *Default-value:* a freshly onboarded tenant shows exactly one `draft` store, seeded from organization metadata (§17 Phase 3) — there is no reachable "zero stores" state after setup.
+  - *Empty:* a status filter that matches nothing shows an explicit empty-results state, distinct from the seeded-default case above.
+  - *Permission:* a Team Member sees the same list and columns but no Create action and no per-row Archive action.
+- **US-A2.** As a Tenant Admin, I want to create a new store, so that I can stand up an additional selling surface (e.g. a second brand) without touching the first.
+  - *Error:* a `code` or `slug` already used within the tenant is rejected with a field-level error, not a generic failure.
+  - *Keyboard:* the create dialog follows the project-wide rule — `Cmd/Ctrl+Enter` submits, `Escape` cancels.
+- **US-A3.** As a Tenant Admin, I want to archive a store I no longer sell through, so that it stops resolving publicly (`410`, §6.2) while its configuration and history are preserved.
+  - *Undo:* the spec defines no unarchive transition (§5.1 only lists `draft | active | archived`) — archiving is therefore presented behind an explicit confirmation, not an optimistic, silently-reversible toggle. This is a spec gap worth flagging in review, not something the prototype should paper over by inventing an unarchive button.
+- **US-A4.** As a Team Member, I want read-only visibility into store status and bindings, so that I can support customers or diagnose issues without being able to change store configuration.
+  - *Permission:* covered by the row-level restriction in US-A1; every write control (Create, Archive, and every Save button on every tab below) is hidden or disabled, never just failing silently on submit.
+
+### Epic B — General settings
+*Screens: store edit → General tab*
+
+- **US-B1.** As a Tenant Admin, I want to edit a store's name, code, slug, supported locales, default locale and default currency, so that the store's identity and localization match how it actually sells.
+  - *Error:* `default_locale` must be a member of `supported_locales` (§5.1) — removing the currently-default locale from the supported set is rejected with a field error, not silently auto-picking a new default.
+  - *Optimistic:* two admins editing the same store concurrently — the second Save is rejected with a `409`, surfaced through the unified conflict bar (`surfaceRecordConflict`, derived from `initialValues.updatedAt` per `CrudForm`'s default optimistic-locking behavior), not a blind overwrite.
+  - *Keyboard:* `Cmd/Ctrl+Enter` submit, `Escape` cancel.
+
+### Epic C — Branding
+*Screens: store edit → Branding tab, `GET .../preview-branding`*
+
+- **US-C1.** As a Tenant Admin, I want to set my store's colors, fonts and corner radius, so that the storefront matches my brand without needing a developer.
+  - *Default-value:* any unset field falls back to the documented DS default (§7.1 table) — the form shows those defaults pre-filled rather than blank inputs of unknown effective value.
+  - *Error:* a colour outside OKLCH/hex, or a font outside the allowlist, is rejected with a field error at submit time — never escaped-and-saved (R4, §7.3).
+  - *Permission:* `ecommerce.branding.manage` gates this tab's write actions independently of `ecommerce.stores.manage` — a Tenant Admin missing only this feature can view the tab but not submit it.
+- **US-C2.** As a Tenant Admin, I want to preview my branding changes live before saving, so that I can iterate on look-and-feel without repeatedly persisting bad values.
+  - The preview iframe applies validated values via `postMessage` and CSS custom properties (§11) — nothing is written until an explicit Save, so this is illustrative live feedback, not an optimistic write; the prototype must not imply the preview alone persists anything.
+
+### Epic D — Domain bindings
+*Screens: store edit → Domains tab*
+
+- **US-D1.** As a Tenant Admin, I want to bind an already-verified domain (optionally with a path prefix) to my store, so that the store becomes reachable at that hostname.
+  - *Business rule as a permission-like gate:* only `DomainMapping`s already `verified` in `customer_accounts` are selectable for immediate serving; picking an unverified one is allowed but renders an explicit warning that the store will not serve at that host yet (§11).
+  - *Error:* a duplicate `(domain_mapping_id, path_prefix)` pair is rejected (unique constraint, §5.2); two bindings where one prefix is a proper prefix of the other are both allowed and resolve by longest-prefix match (R6) — the UI should not present that as a conflict.
+- **US-D2.** As a Tenant Admin, I want to be told clearly when a bound domain's underlying `DomainMapping` has been deleted elsewhere (in `customer_accounts`), so that I understand why my store stopped serving instead of seeing an unexplained generic error.
+  - *Error state (R3):* the Domains tab surfaces an explicit "domain removed" diagnostic for a dangling binding, with a link to the domain management screen in `customer_accounts` (read-only cross-module reference, never a direct edit surface).
+- **US-D3.** As a Tenant Admin, I want to designate one binding as primary, so that canonical URLs are unambiguous when a store has several domains.
+  - *Default-value:* at most one `is_primary = true` per store is enforced — setting a new primary implicitly and visibly un-sets the previous one.
+
+### Epic E — Channel bindings and assortment
+*Screens: store edit → Channels tab*
+
+- **US-E1.** As a Tenant Admin, I want to bind a sales channel to my store, optionally overriding its price kind and narrowing its assortment by category/tag, so that I control what this store sells and at what prices.
+  - The tab shows a live count of matching products for the current `assortment_scope` (§11).
+  - *Empty:* when the channel's assortment scope and a buyer's group scope (set elsewhere, in `customer_groups`) intersect to nothing for a real buyer, that is surfaced to admins as a warning event (R7) rather than silently shown as a normal, if small, catalogue — the prototype should show this as a distinct alert state, not just a "0 products" count.
+- **US-E2.** As a Tenant Admin, I want to be notified when my store has no default channel binding, so that I can fix a misconfiguration before it causes a `503` for real traffic (§6.2).
+  - *Error:* an in-app admin notification (`notifications.ts`, §10) is the delivery mechanism — this is a proactive alert, not something the admin has to discover by hitting the storefront themselves.
+
+### Epic F — SEO defaults
+*Screens: store edit → SEO tab*
+
+- **US-F1.** As a Tenant Admin, I want to set my store's site name, default meta description, `robots.txt` and Google site verification token, so that search engines index the storefront correctly.
+  - *Default-value:* unset fields have no store-level fallback beyond "absent" (§5.1.1 `seo` subtree has no documented defaults, unlike `branding`) — the form should show these as genuinely empty, not implying a hidden default exists.
+  - *Keyboard:* `Cmd/Ctrl+Enter` submit, `Escape` cancel.
+
+### Cross-cutting rules
+
+- Every write action across every tab uses `CrudForm` with optimistic locking derived from `initialValues.updatedAt`; a conflicting concurrent edit always surfaces through the unified conflict bar, never a silent overwrite or an unexplained failure (applies to US-B1 and, by the same mechanism, US-C1/D1/D3/E1/F1).
+- Every dialog and form follows `Cmd/Ctrl+Enter` submit / `Escape` cancel.
+- `ecommerce.stores.view` is the floor: it grants read-only navigation into every tab. Each `.manage` feature (`stores`, `branding`, `domains`, `channels`) independently gates that tab's write controls — a Team Member, or a Tenant Admin missing one specific `.manage` feature, sees the tab but its Save/Create/Archive controls are hidden or disabled rather than present-but-failing.
+- No story above proposes an unarchive action, a shopper-facing view, or a redesign of the resolution/caching architecture in §4–§8 — this section only decomposes the already-decided admin surface (§11) into reviewable, screen-addressable stories for the click-through prototype.
+
+---
+
 ## 11) Admin UI
 
 **Store list** (`backend/config/ecommerce/page.tsx`) — `DataTable` with Name, Code, Status, Primary domain, Channel, Created. Row actions: Edit, Domains, Channels, Archive. Status filter.
