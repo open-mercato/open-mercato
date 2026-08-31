@@ -16,6 +16,71 @@ const logger = createLogger('agent_orchestrator').child({ component: 'business-h
 const DEFAULT_MAX_RESPONSE_BYTES = 10_000_000
 const DEFAULT_TERMINATE_GRACE_MS = 2_000
 const MAX_STDERR_BYTES = 64_000
+const DEFAULT_MAX_CONCURRENT_PROCESSES = 4
+
+/**
+ * Process-wide cap on live one-off harness subprocesses. Each one is a fresh Node
+ * process that loads the AI SDK and MCP client, so an unbounded count is a memory
+ * cliff: `delegate_agent` fan-out runs NESTED, and nested runs deliberately bypass
+ * the `acquireAgentRunSlot` admission gate to avoid livelocking the parent. This
+ * semaphore is that cohort's only bound (it replaces the OM_OPENCODE_POOL_SIZE
+ * lease the shared OpenCode container used to provide).
+ *
+ * Waiters are FIFO and abortable, so a queued run still honors its own deadline.
+ * Standalone HTTP deployments do not use this path; the served harness bounds itself.
+ */
+const processSemaphore = {
+  active: 0,
+  waiting: [] as Array<{ admit: () => void }>,
+}
+
+function resolveMaxConcurrentProcesses(): number {
+  const parsed = Number.parseInt(process.env.OM_BUSINESS_HARNESS_MAX_CONCURRENT_PROCESSES ?? '', 10)
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : DEFAULT_MAX_CONCURRENT_PROCESSES
+}
+
+function acquireProcessSlot(signal: AbortSignal | undefined): Promise<() => void> {
+  const release = () => {
+    processSemaphore.active -= 1
+    const next = processSemaphore.waiting.shift()
+    if (next) {
+      processSemaphore.active += 1
+      next.admit()
+    }
+  }
+  if (processSemaphore.active < resolveMaxConcurrentProcesses()) {
+    processSemaphore.active += 1
+    return Promise.resolve(releaseOnce(release))
+  }
+  return new Promise<() => void>((resolveSlot, rejectSlot) => {
+    const waiter = {
+      admit: () => {
+        signal?.removeEventListener('abort', onAbort)
+        resolveSlot(releaseOnce(release))
+      },
+    }
+    function onAbort() {
+      const index = processSemaphore.waiting.indexOf(waiter)
+      if (index >= 0) processSemaphore.waiting.splice(index, 1)
+      rejectSlot(
+        new BusinessHarnessClientError('HARNESS_ABORTED', 'Business harness run was aborted', {
+          cause: signal?.reason,
+        }),
+      )
+    }
+    signal?.addEventListener('abort', onAbort, { once: true })
+    processSemaphore.waiting.push(waiter)
+  })
+}
+
+function releaseOnce(fn: () => void): () => void {
+  let called = false
+  return () => {
+    if (called) return
+    called = true
+    fn()
+  }
+}
 
 type SpawnImplementation = typeof spawn
 
@@ -55,6 +120,8 @@ export class BusinessHarnessProcessClient implements BusinessHarnessTransport {
       })
     }
 
+    const releaseProcessSlot = await acquireProcessSlot(options.signal)
+
     let child: ChildProcessWithoutNullStreams
     try {
       child = this.spawnImplementation(process.execPath, [this.cliPath, 'run', '--stdio'], {
@@ -63,6 +130,7 @@ export class BusinessHarnessProcessClient implements BusinessHarnessTransport {
         env: buildRuntimeEnvironment(this.configFile, this.credentialBrokerUrl),
       })
     } catch (error) {
+      releaseProcessSlot()
       throw new BusinessHarnessClientError(
         'HARNESS_UNAVAILABLE',
         'Could not start the business harness process',
@@ -131,6 +199,7 @@ export class BusinessHarnessProcessClient implements BusinessHarnessTransport {
     } finally {
       options.signal?.removeEventListener('abort', abort)
       if (killTimer) clearTimeout(killTimer)
+      releaseProcessSlot()
     }
   }
 }

@@ -69,7 +69,13 @@ const DEFAULT_MAX_TOOL_CALLS = 40
 const MAX_TIMEOUT_MS = 120_000
 const MAX_STEPS = 12
 const MAX_TOOL_CALLS = 40
-const GRANT_MARGIN_MS = 30_000
+/**
+ * How far the run grant outlives the run's own wall clock. The harness asks the
+ * broker for a lease covering `timeoutMs + 5s`, so this margin minus that 5s is the
+ * entire budget for everything before the first credential call: subprocess spawn,
+ * AI SDK and MCP client module load, config read. 30s left almost none of it.
+ */
+const GRANT_MARGIN_MS = 90_000
 
 export type BusinessHarnessAgentRunnerDeps = {
   container: AwilixContainer
@@ -277,7 +283,7 @@ export class BusinessHarnessAgentRunner {
       const message = error instanceof Error ? error.message : String(error)
       await failOnce(message)
       scheduleTraceCapture()
-      if (isHarnessTimeout(error)) throw new AgentRunTimeoutError(agentId, resolveTimeoutFromContext(ctx))
+      if (isHarnessTimeout(error)) throw new AgentRunTimeoutError(agentId, resolveDefaultTimeoutMs())
       throw error
     } finally {
       if (sessionToken && sessionOpened) {
@@ -596,18 +602,18 @@ function resolveLoopSettings(
   override: { disabled: boolean; maxSteps?: number; maxToolCalls?: number; maxWallClockMs?: number },
 ): BusinessHarnessLoopSettings {
   const timeoutMs = clamp(
-    ctx.runTimeoutMs ?? override.maxWallClockMs ?? resolveTimeoutFromContext(ctx),
+    ctx.runTimeoutMs ?? override.maxWallClockMs ?? resolveDefaultTimeoutMs(),
     1,
     MAX_TIMEOUT_MS,
   )
   const maxSteps = override.disabled
     ? 1
     : clamp(override.maxSteps ?? entry.loop?.maxSteps ?? DEFAULT_MAX_STEPS, 1, MAX_STEPS)
-  const maxToolCalls = clamp(override.maxToolCalls ?? DEFAULT_MAX_TOOL_CALLS, 0, MAX_TOOL_CALLS)
+  const maxToolCalls = clamp(override.maxToolCalls ?? DEFAULT_MAX_TOOL_CALLS, 1, MAX_TOOL_CALLS)
   return { timeoutMs, maxSteps, maxToolCalls }
 }
 
-function resolveTimeoutFromContext(_ctx: AgentRunCtx): number {
+function resolveDefaultTimeoutMs(): number {
   const parsed = Number.parseInt(process.env.OM_BUSINESS_HARNESS_RUN_TIMEOUT_MS ?? '', 10)
   return Number.isFinite(parsed) && parsed > 0 ? Math.min(parsed, MAX_TIMEOUT_MS) : DEFAULT_TIMEOUT_MS
 }

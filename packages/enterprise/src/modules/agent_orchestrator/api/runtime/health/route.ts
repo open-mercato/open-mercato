@@ -8,6 +8,7 @@ import { z } from 'zod'
 import { agentOrchestratorTag } from '../../openapi'
 import {
   businessHarnessRuntimeMode,
+  readBusinessHarnessRuntimeMode,
   resolveBusinessHarnessTransportMode,
 } from '../../../lib/runtime/businessHarnessMode'
 
@@ -16,6 +17,18 @@ export const metadata = {
 }
 
 export async function GET() {
+  // An unusable OM_BUSINESS_HARNESS_TRANSPORT is exactly what this endpoint exists to
+  // report, so it is answered as `down` rather than raised as an unhandled 500.
+  if (readBusinessHarnessRuntimeMode() === null) {
+    return NextResponse.json(
+      {
+        status: 'degraded',
+        harness: { healthy: false, detail: 'unsupported transport configuration', mode: 'one-off' },
+        capability: { driver: 'mcp-http', healthy: false, detail: 'unsupported transport configuration' },
+      },
+      { headers: { 'cache-control': 'no-store' } },
+    )
+  }
   const transport = resolveBusinessHarnessTransportMode()
   const connector = await resolveConnectorHealthTarget()
   const [harnessHealth, capability] = await Promise.all([
