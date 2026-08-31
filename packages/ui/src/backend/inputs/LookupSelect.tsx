@@ -83,6 +83,11 @@ export function LookupSelect({
   const [query, setQuery] = React.useState('')
   const [items, setItems] = React.useState<LookupSelectItem[]>(options ?? [])
   const [loading, setLoading] = React.useState(false)
+  // Escape collapses the list without clearing the selection. Derived state is not
+  // enough here: Escape empties the query but the fetched `items` linger, so the
+  // list would stay open and the collapsed summary — the branch that keeps a raw
+  // record id out of the DOM (TC-EUDR-013) — would never render.
+  const [collapsed, setCollapsed] = React.useState(false)
   const [hasTyped, setHasTyped] = React.useState(defaultOpen)
   const [error, setError] = React.useState<string | null>(null)
   const [fetchKey, setFetchKey] = React.useState(0)
@@ -187,6 +192,7 @@ export function LookupSelect({
       event.stopPropagation()
       setQuery('')
       setActiveIndex(-1)
+      setCollapsed(true)
     }
   }, [activeIndex, items, isInteractiveItem, listboxVisible, moveActiveIndex, onChange, query])
   React.useEffect(() => {
@@ -269,6 +275,7 @@ export function LookupSelect({
             onChange={(event) => {
               setQuery(event.target.value)
               setHasTyped(true)
+              setCollapsed(false)
             }}
             onKeyDown={handleInputKeyDown}
             placeholder={resolvedSearchPlaceholder}
@@ -282,7 +289,17 @@ export function LookupSelect({
         </div>
         {actionSlot && !disabled ? <div className="sm:self-start">{actionSlot}</div> : null}
       </div>
-      {shouldSearch ? (
+      {/*
+       * `shouldSearch` decides whether to FETCH; this decides whether to RENDER a
+       * list. They differ for a set value whose lookup comes back empty: develop's
+       * #5248 work needs the list (and its selected option) whenever items exist,
+       * while the collapsed summary — which keeps a selection visible after the
+       * search box reverts to its placeholder, and keeps a raw record id out of the
+       * DOM (TC-EUDR-013) — is only reachable when they do not. Falling through on
+       * an empty result satisfies both. A non-empty query still renders the list so
+       * its spinner and empty-state are reachable while the user is searching.
+       */}
+      {shouldSearch && !collapsed && (items.length > 0 || query.trim().length > 0) ? (
         <div className="space-y-2">
           {loading || loadingProp ? (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
