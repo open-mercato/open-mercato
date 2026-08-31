@@ -516,7 +516,94 @@ Phases 1 and 2 unblock the rest of the ecommerce suite. Phases 3 and 4 are requi
 
 ---
 
-## 17) Changelog
+## 17) User Story Map (Prototype Input)
+
+Added 2026-08-31 to support the `om-mockup-prototype` backend click-through. Derived from §13's UI-path list and the data models/API contracts in §5–§9; no new scope. Roles are backoffice unless noted.
+
+### Epic A — Group Management
+Operator authors the commercial-group catalog and its precedence.
+
+- **US-A1** — As a commerce operator, I want to create and edit customer groups with a priority and optional parent, so that I can express overlapping B2B tiers (e.g. "Wholesale", "Q3 Promo Tier") with unambiguous precedence.
+  - AC: empty state (no groups yet) shows a "Create your first group" CTA, not a bare empty table.
+  - AC: create/edit form validates unique `code` and unique `priority` within the tenant inline, before submit.
+  - AC: the list supports drag-reorder; dropping a row rewrites affected `priority` values in one transaction (per R4) and the change is visible immediately, no page reload.
+  - AC: `parent_id` picker excludes the group itself and any descendant (cycle prevention) and warns when depth would exceed 5.
+  - AC: `is_default` is a toggle; enabling it on one group and attempting to enable it on a second shows an inline conflict ("X is currently default — enabling this will replace it") rather than a silent double-default.
+  - AC: deleting a group with active memberships or terms shows a confirm dialog naming the dependent counts (per platform optimistic-lock delete pattern); Escape cancels, Cmd/Ctrl+Enter confirms.
+  - AC: `is_active = false` groups remain visible in the list (filterable), never disappear, since history depends on them.
+
+- **US-A2** — As an operator, I want an orphan-reference banner on the groups list and a reconciliation report, so that price rows or tax rates pointing at unmodeled UUIDs are visible instead of silently inert (§8.2, R3).
+  - AC: banner shows only while `GET /api/customer-groups/reconcile` reports orphans > 0, with the count.
+  - AC: report screen lists each orphan UUID, its affected-row count, and a sample of referencing rows (catalog price / tax rate) with a link to each.
+  - AC: report empty state ("No orphaned references") replaces the banner-triggering table when the count is zero.
+  - AC: "Adopt" action requires a confirm naming how many placeholder groups will be created, since it is a real write (`is_active: false`, `code: orphan-<short-uuid>`); result list is highlighted so the operator can rename/activate them next.
+
+### Epic B — Group Membership
+Operator manages which customers belong to which groups and for how long.
+
+- **US-B1** — As an operator, I want to assign a customer to a group with an optional validity window from the customer detail page, so that time-bounded commercial relationships (a seasonal contract, a trial tier) are explicit and expire on their own.
+  - AC: assignment form defaults `valid_from` to now and `valid_until` to empty (= indefinite); both are optional per §5.2.
+  - AC: assigning the same customer to a group they already (currently or historically, non-deleted) belong to is blocked with an inline "already a member of this group" error — the unique constraint is surfaced before submit, not as a raw 500/409.
+  - AC: assigning to a *different* group while already a member of another is allowed with no warning (overlapping membership is expected, §2.3).
+  - AC: the membership list on the customer detail page shows current, upcoming (`valid_from` in the future), and expired memberships with distinct status pills; expired rows are read-only.
+  - AC: removing a membership is a soft delete behind a confirm dialog (Escape cancel, Cmd/Ctrl+Enter confirm).
+
+### Epic C — Commercial Terms
+Operator sets, and support explains, the per-group buying terms.
+
+- **US-C1** — As an operator, I want to edit a group's commercial terms (price kind, payment terms, credit default, approval threshold, min order, assortment scope), so that a B2B buyer in that group automatically gets the right pricing, payment, and approval behavior at checkout.
+  - AC: a group with no terms row yet shows an explicit "No terms set — inheriting from parent / tenant defaults" empty state, not a form pre-filled with blanks that look like explicit zeros.
+  - AC: `price_kind_id` is a picker sourced from `catalog` price kinds, not a free-text id (contrast with the *rule*-side `customerGroupId` columns this spec explicitly leaves as free text — §7.3 note applies only there).
+  - AC: numeric fields (`default_credit_limit`, `approval_required_above`, `min_order_value`) reject negative input inline.
+  - AC: saving over a stale version shows the platform conflict bar (`surfaceRecordConflict`) with the concurrent editor's change summarized, per the optimistic-locking rule in root `AGENTS.md`.
+  - AC: `assortment_scope` uses the same category/tag/exclude picker pattern as the channel-binding scope elsewhere in the app — do not invent a new picker.
+
+- **US-C2** — As a support agent, I want an "explain terms" panel on the customer detail page, so that when a buyer asks "why do I have net-30 instead of net-60" I can answer without guessing across four overlapping groups (R5).
+  - AC: each resolved field (`priceKindId`, `paymentTermsDays`, `allowPurchaseOnAccount`, `approvalRequiredAbove`, `minOrderValue`, `assortmentScope`) shows its value and the group it came from (`sourceGroupId`).
+  - AC: a field with `sourceGroupId: null` is labeled "tenant default", not left blank.
+  - AC: the trace is a visible ancestor path (child → parent → tenant), not a tooltip that must be discovered.
+
+### Epic D — Group Picker in Catalog & Sales
+Operator references a group from a price row or tax rate without inventing a UUID.
+
+- **US-D1** — As an operator editing a catalog price row or a sales tax rate, I want to pick a customer group by name instead of pasting a UUID, so that I can't typo a group reference into permanent silence (§2.1).
+  - AC: the picker is searchable by code/name, shows `priority` inline so precedence is visible while authoring.
+  - AC: a price row or tax rate whose stored `customer_group_id` matches no group renders an explicit `Unknown group (<uuid>)` error chip in place of the picker's normal selected-value display — never hidden (§7.3).
+  - AC: the same picker widget renders identically in both host forms (`catalog.catalog_product_price` and `sales.sales_tax_rate`), since it is one injected widget per §7.3.
+
+### Epic E — Credit Accounts & Ledger
+Finance operator manages purchase-on-account exposure.
+
+- **US-E1** — As a finance operator, I want to view a customer's credit account and its ledger, so that I see current exposure as a computed fact rather than trusting a counter that could have drifted (§4.3, R1).
+  - AC: exposure is displayed as `SUM(amount)` over ledger entries — the screen never shows `balance_after` as the primary number, only as a per-row audit annotation.
+  - AC: editing `credit_limit` is optimistic-lock protected; a stale save shows the conflict bar rather than silently overwriting a concurrent change.
+  - AC: toggling `is_on_hold` requires a `hold_reason` before it can be saved; once on hold, the account's status badge reflects it regardless of computed exposure.
+  - AC: the ledger table is read-only and append-only — there is no row-level edit or delete action, matching §5.5's "no update or delete route."
+  - AC: "Adjust" opens a dialog that appends a new `adjust` entry with a required note; it is visually distinct from `reserve`/`release`/`settle` entries (which the UI never creates directly — those come from checkout flows outside this prototype's scope).
+
+### Epic F — Purchase Approvals
+Approver/account manager reviews over-threshold purchase requests.
+
+- **US-F1** — As an approver, I want to see pending purchase approval requests and decide them, so that an over-threshold B2B order doesn't proceed without the sign-off the group's `approval_required_above` term requires.
+  - AC: the pending list shows customer, requester, subject type, snapshot amount, and time remaining until `expires_at`.
+  - AC: deciding opens a dialog with Approve/Reject and an optional note; Cmd/Ctrl+Enter submits, Escape cancels.
+  - AC: deciding against a stale snapshot (a second approver already decided) surfaces the conflict bar naming who decided and when, rather than silently double-deciding (R8) — this is illustrative in the prototype since the underlying `enforceCommandOptimisticLock` check is server-side.
+  - AC: an approval past `expires_at` renders as a read-only "Expired" row with no decide action available.
+
+### Cross-cutting rules (apply to every screen above)
+
+- Every dialog: Cmd/Ctrl+Enter submits, Escape cancels (root `AGENTS.md`).
+- Every list: `pageSize` ≤ 100, an explicit empty state, and an explicit no-access state distinct from empty.
+- The optimistic-lock conflict bar is the same visual pattern across Group Terms, Credit Account, and Approval Decide — one component, three call sites.
+- No hardcoded status colors; group `kind` (`b2c | b2b | internal | partner`), membership status, approval status, and credit-hold status all use DS status tokens.
+- The group picker (Epic D) is one widget rendered in two host forms — do not draw it twice as different components.
+
+---
+
+## 18) Changelog
+
+### 2026-08-31 (story map)
+- Added §17 User Story Map to support the `om-mockup-prototype` backend click-through: 6 epics, 8 stories, UX acceptance criteria (empty/permission/error/optimistic-lock/keyboard/default-value states) derived from §13's UI-path list and §5–§9's data/API contracts. No scope change.
 
 ### 2026-08-17 (rev 2)
 - Removed `CustomerGroupTerms.tax_display_mode`: found by the `/om-pre-implement-spec` audit on the sibling `SPEC-029-2026-02-17-ecommerce-storefront-module.md` (v4) to be an unreconciled second source of truth alongside `price_kind_id` — the only real gross/net computation path in this codebase (`catalog`'s `LineItemDialog.tsx`) always derives display mode from the price kind's own `displayMode`, never from an independent buyer-level field. Added §6.1a documenting the fix: gross/net is derived downstream by `ecommerce` from the resolved `priceKindId`, not carried in `ResolvedTerms`.
