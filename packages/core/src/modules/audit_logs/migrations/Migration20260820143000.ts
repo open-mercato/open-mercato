@@ -3,6 +3,31 @@ import { Migration } from '@mikro-orm/migrations'
 export class Migration20260820143000 extends Migration {
   override up(): void {
     this.addSql(`
+      create or replace function om_audit_key_is_sensitive(input_key text)
+      returns boolean
+      language sql
+      immutable
+      strict
+      as $$
+        select key_words !~ '_(hash|hashes|id|ids|count|counts|at|expiry|expires|expiration|ttl|length|type|kind|name|label|enabled|required|configured|present|exists|scope|scopes|version|policy)_$'
+           and key_words ~ '_(password|passwords|passphrase|passphrases|secret|secrets|token|tokens|api_key|apikey|api_keys|apikeys|private_key|privatekey|private_keys|privatekeys|recovery_code|recoverycode|recovery_codes|recoverycodes|credential|credentials|authorization|auth_header|authheader|cookie|cookies|otp|otps)_'
+        from (
+          select '_' || trim(both '_' from regexp_replace(
+            lower(
+              regexp_replace(
+                regexp_replace(
+                  regexp_replace(
+                    regexp_replace(input_key, '([a-z0-9])([A-Z])', '\\1_\\2', 'g'),
+                    '([A-Z]+)([A-Z][a-z])', '\\1_\\2', 'g'),
+                  '([a-zA-Z])([0-9])', '\\1_\\2', 'g'),
+                '([0-9])([a-zA-Z])', '\\1_\\2', 'g')
+            ),
+            '[^a-z0-9]+', '_', 'g')) || '_' as key_words
+        ) as normalized
+      $$;
+    `)
+
+    this.addSql(`
       create or replace function om_audit_redact_sensitive(input_value jsonb)
       returns jsonb
       language plpgsql
@@ -17,8 +42,7 @@ export class Migration20260820143000 extends Migration {
             jsonb_object_agg(
               entry.key,
               case
-                when lower(regexp_replace(entry.key, '[^a-zA-Z0-9]', '', 'g')) not like '%hash'
-                  and lower(regexp_replace(entry.key, '[^a-zA-Z0-9]', '', 'g')) ~ '(passwords?|passphrases?|secrets?|tokens?|apikeys?|privatekeys?|recoverycodes?|credentials?|authorization|authorizationheader|authheader|cookies?|otps?|otpcodes?|otpseed)$'
+                when om_audit_key_is_sensitive(entry.key)
                 then to_jsonb('[REDACTED]'::text)
                 else om_audit_redact_sensitive(entry.value)
               end
@@ -90,6 +114,7 @@ export class Migration20260820143000 extends Migration {
     `)
 
     this.addSql('drop function if exists om_audit_redact_sensitive(jsonb);')
+    this.addSql('drop function if exists om_audit_key_is_sensitive(text);')
   }
 
   override down(): void {}

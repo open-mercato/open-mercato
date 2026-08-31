@@ -51,6 +51,32 @@ describe('command audit redaction', () => {
     expect(isSensitiveAuditKey('refresh_token')).toBe(true)
   })
 
+  it('redacts secrets whose key carries a qualifier after the sensitive noun', () => {
+    const input = {
+      secretKey: 'abc',
+      privateKeyPem: 'x',
+      passwordConfirmation: 'y',
+      clientSecret: 'z',
+      apiKey: 'k',
+      mfaSecretValue: 'm',
+      tokenValue: 't',
+      'x-apikey': 'q',
+      oauth2Token: 'o',
+      OTPCode: 'c',
+    }
+
+    const result = redactSensitiveAuditData(input)
+
+    expect(result.redacted).toBe(true)
+    expect(result.value).toEqual(Object.fromEntries(Object.keys(input).map((key) => [key, AUDIT_REDACTED_VALUE])))
+  })
+
+  it('does not treat words that merely contain a sensitive noun or derived attributes as secrets', () => {
+    for (const key of ['footprint', 'secretary', 'tokenizer', 'cookieless', 'secretName', 'tokenType', 'passwordLength', 'otpEnabled', 'apiKeyIds']) {
+      expect(isSensitiveAuditKey(key)).toBe(false)
+    }
+  })
+
   it('handles arrays, dotted change keys and circular values', () => {
     const circular: Record<string, unknown> = {
       changes: {

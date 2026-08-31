@@ -2,7 +2,10 @@ export const AUDIT_REDACTED_VALUE = '[REDACTED]'
 export const AUDIT_REDO_UNAVAILABLE_KEY = '__redoUnavailable'
 export const AUDIT_REDO_UNAVAILABLE_REASON = 'sensitive-data-redacted'
 
-const SENSITIVE_KEY_SUFFIXES = [
+// Matched against the key split into words (camelCase, snake_case, kebab-case, digit
+// boundaries), so `secretKey`, `privateKeyPem` and `tokenValue` are caught while
+// `footprint`, `secretary` and `tokenizer` are not.
+const SENSITIVE_KEY_TERMS = [
   'password',
   'passwords',
   'passphrase',
@@ -11,25 +14,57 @@ const SENSITIVE_KEY_SUFFIXES = [
   'secrets',
   'token',
   'tokens',
-  'apikey',
-  'apikeys',
-  'privatekey',
-  'privatekeys',
-  'recoverycode',
-  'recoverycodes',
+  'api_key',
+  'api_keys',
+  'private_key',
+  'private_keys',
+  'recovery_code',
+  'recovery_codes',
   'credential',
   'credentials',
   'authorization',
-  'authorizationheader',
-  'authheader',
+  'auth_header',
   'cookie',
   'cookies',
   'otp',
   'otps',
-  'otpcode',
-  'otpcodes',
-  'otpseed',
 ] as const
+
+// A key whose last word names a derived attribute (`passwordHash`, `tokenId`,
+// `accessTokenExpiresAt`, `tokenCount`) carries no secret material.
+const DERIVED_ATTRIBUTE_SUFFIXES = new Set([
+  'hash',
+  'hashes',
+  'id',
+  'ids',
+  'count',
+  'counts',
+  'at',
+  'expiry',
+  'expires',
+  'expiration',
+  'ttl',
+  'length',
+  'type',
+  'kind',
+  'name',
+  'label',
+  'enabled',
+  'required',
+  'configured',
+  'present',
+  'exists',
+  'scope',
+  'scopes',
+  'version',
+  'policy',
+])
+
+const SENSITIVE_KEY_PATTERN = new RegExp(
+  `_(${SENSITIVE_KEY_TERMS.flatMap((term) => (
+    term.includes('_') ? [term, term.replace(/_/g, '')] : [term]
+  )).join('|')})_`,
+)
 
 export type AuditRedactionResult<T> = {
   value: T
@@ -41,14 +76,22 @@ type MutableRedactionResult = {
   redacted: boolean
 }
 
-function normalizeAuditKey(key: string): string {
-  return key.toLowerCase().replace(/[^a-z0-9]/g, '')
+function tokenizeAuditKey(key: string): string[] {
+  return key
+    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1_$2')
+    .replace(/([a-zA-Z])([0-9])/g, '$1_$2')
+    .replace(/([0-9])([a-zA-Z])/g, '$1_$2')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean)
 }
 
 export function isSensitiveAuditKey(key: string): boolean {
-  const normalized = normalizeAuditKey(key)
-  if (!normalized || normalized.endsWith('hash')) return false
-  return SENSITIVE_KEY_SUFFIXES.some((suffix) => normalized.endsWith(suffix))
+  const tokens = tokenizeAuditKey(key)
+  if (tokens.length === 0) return false
+  if (DERIVED_ATTRIBUTE_SUFFIXES.has(tokens[tokens.length - 1])) return false
+  return SENSITIVE_KEY_PATTERN.test(`_${tokens.join('_')}_`)
 }
 
 function redactValue(
