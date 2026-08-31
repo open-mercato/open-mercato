@@ -201,6 +201,9 @@ describe('POST /api/ai/actions/:id/confirm route (Step 5.8)', () => {
       organizationId: 'org-1',
       userId: 'user-1',
     })
+    // Guard the loop below against passing vacuously: a refactor that stops
+    // calling setStatus entirely must fail here rather than iterate zero times.
+    expect(repoSetStatusMock).toHaveBeenCalled()
     for (const [, , scope] of repoSetStatusMock.mock.calls) {
       expect(scope).toEqual({
         tenantId: 'tenant-1',

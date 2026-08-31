@@ -19,7 +19,17 @@ import {
 export interface AiPendingActionContext {
   tenantId: string
   organizationId?: string | null
-  userId?: string | null
+  /**
+   * The caller the lookup is scoped to. Required — not optional — so that a new
+   * user-facing route cannot lose owner scoping by forgetting the field: opting
+   * out has to be written down as an explicit `null`, which the compiler will
+   * not fill in for you.
+   *
+   * `null` means "no user identity", which disables the owner predicate. It is
+   * reserved for system paths that legitimately act across owners, today only
+   * the TTL cleanup worker (`workers/ai-pending-action-cleanup.ts`).
+   */
+  userId: string | null
 }
 
 export interface AiPendingActionCreateInput {
@@ -58,8 +68,13 @@ export interface AiPendingActionSetStatusExtra {
  * - Create new pending rows with a TTL-derived `expiresAt`, honoring
  *   idempotency within the window (same `idempotencyKey` returns the same
  *   row as long as it is still `pending`; any terminal state mints a new row).
- * - Tenant-scoped lookups for the confirm/cancel/reconnect routes and the
- *   in-app UI's "open actions" list.
+ * - Tenant- and owner-scoped lookups for the confirm/cancel/reconnect routes
+ *   and the in-app UI's "open actions" list: `getById`, `setStatus` and
+ *   `listPendingForAgent` match on `createdByUserId` as well as the tenant
+ *   scope, so one user can never read or resolve another user's proposal.
+ *   Passing `ctx.userId: null` deliberately bypasses that predicate and is
+ *   reserved for system paths with no user identity — today only the TTL
+ *   cleanup worker, which must expire every tenant's rows.
  * - State-machine enforcement: `setStatus` rejects illegal transitions via
  *   {@link AiPendingActionStateError}. The runtime callers translate this
  *   to a 409 Conflict response.
@@ -213,6 +228,7 @@ export class AiPendingActionRepository {
         organizationId: ctx.organizationId ?? null,
         agentId,
         status: 'pending',
+        ...(ctx.userId ? { createdByUserId: ctx.userId } : {}),
       } as any,
       {
         orderBy: { createdAt: 'desc' } as any,

@@ -261,6 +261,7 @@ Rules:
 - on execution, the server emits a `mutation-result-card` UI part and fires the normal CRUD/domain events so the rest of the UI (lists, detail pages, injected widgets) refreshes automatically through the DOM event bridge
 - every agent declares a `mutationPolicy` field: `'read-only'` (default), `'confirm-required'`, or `'destructive-confirm-required'` — runtime enforces the gate regardless of prompt content
 - pending actions are tenant-scoped, expire by default (TTL), and carry an idempotency key so a double-click or double-submit is safe
+  - **Amended 2026-08-31 (#5687):** tenant scope alone proved insufficient — reads and resolutions are now scoped to the creating user as well (`created_by_user_id`), so a same-tenant non-owner gets `404 pending_action_not_found` from `GET`, `confirm` and `cancel`. System paths with no user identity (the TTL cleanup worker) pass `userId: null` and keep operating across owners. See `apps/docs/docs/framework/ai-assistant/mutation-approvals.mdx` § "Who may call them — owner scoping".
 - pending actions record enough context for auditing: who proposed (agent + user), what tool + input, what record, what diff, what side effects, when created, when confirmed or cancelled
 - this contract must be reusable by future **agent-to-agent** or **autonomous** execution flows — the record shape is the same whether a human confirms the action or a future approval queue does
 
@@ -1080,6 +1081,7 @@ Rules:
 - `fieldDiff` is computed server-side from `normalizedInput` against the target record's current state; the card renders directly from this field so the UI does not re-derive the diff
 - `recordVersion` (when present) is used on confirm to detect stale proposals; if the record has moved on, confirm returns `409 Conflict` and the agent must propose again
 - `idempotencyKey` prevents double-submission; re-calling `prepareMutation` with the same key within the TTL returns the same `id`
+  - **Amended 2026-08-31 (#5687):** the key now hashes `created_by_user_id` too, so that guarantee holds *per user*. Two users issuing an identical mutation in one tenant each get their own row — required, because the row is owner-scoped and a shared row would be unresolvable by its second holder.
 - `expiresAt` defaults to 10 minutes from `createdAt`; overridable per agent (`mutationApprovalTtlMs`)
 - `queueMode` defaults to `'inline'` in this spec; `'stack'` is reserved for the future Stacked Approval Queue (D17) and no runtime honors it yet
 - `executionResult` is populated only on `confirmed`, `executing`, or `failed` statuses and contains enough information for the `mutation-result-card` UI part without a second round trip

@@ -247,6 +247,26 @@ describe('prepareMutation', () => {
     expect(a).toHaveLength(64)
   })
 
+  it('computeMutationIdempotencyKey separates two users issuing the identical mutation', () => {
+    const shared = {
+      tenantId: 't-alpha',
+      organizationId: 'org-alpha',
+      agentId: 'catalog.merch',
+      conversationId: null,
+      toolName: 'catalog.products.update',
+      normalizedInput: { productId: 'p-1', patch: { name: 'new' } },
+    }
+
+    const first = computeMutationIdempotencyKey({ ...shared, createdByUserId: 'u-1' })
+    const second = computeMutationIdempotencyKey({ ...shared, createdByUserId: 'u-2' })
+
+    // Dedupe must not span owners: pending actions are owner-scoped, so a
+    // shared key would hand the second user a row they could neither confirm
+    // nor cancel until the TTL swept it.
+    expect(first).not.toBe(second)
+    expect(computeMutationIdempotencyKey({ ...shared, createdByUserId: 'u-1' })).toBe(first)
+  })
+
   it('single-record happy path: emits mutation-preview-card with pendingActionId and a computed fieldDiff', async () => {
     const em = mockEm()
     const container = makeContainer(em)
@@ -282,6 +302,63 @@ describe('prepareMutation', () => {
     expect(pendingAction.recordVersion).toBe('v-1')
     expect(pendingAction.tenantId).toBe('t-alpha')
     expect(pendingAction.organizationId).toBe('org-alpha')
+  })
+
+  it('gives two users their own pending row for the identical mutation in one tenant', async () => {
+    const em = mockEm()
+    const container = makeContainer(em)
+    const tool = makeTool({
+      name: 'catalog.products.update',
+      isMutation: true,
+      loadBeforeRecord: async () => ({
+        recordId: 'p-1',
+        entityType: 'catalog.product',
+        recordVersion: 'v-1',
+        before: { name: 'old' },
+      }),
+    })
+    const agent = makeAgent({ id: 'catalog.merch' })
+    const call = {
+      agent,
+      tool,
+      toolCallArgs: { productId: 'p-1', patch: { name: 'new' } },
+      conversationId: null,
+    }
+
+    const first = await prepareMutation(call, { ...baseCtx, userId: 'u-1', container })
+    const second = await prepareMutation(call, { ...baseCtx, userId: 'u-2', container })
+
+    expect(second.pendingAction.id).not.toBe(first.pendingAction.id)
+    expect(first.pendingAction.createdByUserId).toBe('u-1')
+    expect(second.pendingAction.createdByUserId).toBe('u-2')
+    expect(second.pendingAction.idempotencyKey).not.toBe(first.pendingAction.idempotencyKey)
+  })
+
+  it('still collapses a retry by the same user into one pending row', async () => {
+    const em = mockEm()
+    const container = makeContainer(em)
+    const tool = makeTool({
+      name: 'catalog.products.update',
+      isMutation: true,
+      loadBeforeRecord: async () => ({
+        recordId: 'p-1',
+        entityType: 'catalog.product',
+        recordVersion: 'v-1',
+        before: { name: 'old' },
+      }),
+    })
+    const agent = makeAgent({ id: 'catalog.merch' })
+    const call = {
+      agent,
+      tool,
+      toolCallArgs: { productId: 'p-1', patch: { name: 'new' } },
+      conversationId: null,
+    }
+
+    const first = await prepareMutation(call, { ...baseCtx, userId: 'u-1', container })
+    const retry = await prepareMutation(call, { ...baseCtx, userId: 'u-1', container })
+
+    expect(retry.pendingAction.id).toBe(first.pendingAction.id)
   })
 
   it('uses resolver-provided after snapshots and display labels for operator previews', async () => {

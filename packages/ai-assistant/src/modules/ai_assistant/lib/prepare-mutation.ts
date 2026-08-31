@@ -136,14 +136,21 @@ function safeStringify(value: unknown): string {
 }
 
 /**
- * Hashes `(tenantId, orgId, agentId, conversationId, toolName, normalizedInput)`
- * into a stable SHA-256 digest so that retries of the same tool call with the
- * same payload collapse to a single `AiPendingAction` row inside the TTL
- * window. The input is normalized through `safeStringify` to make object key
- * order irrelevant (spec §8 rule `idempotencyKey prevents double-submission`).
- * Attachments are NOT included — the attachment set is captured separately on
- * the pending row so that re-uploading the same file set with a different
- * tool-call object never accidentally collides.
+ * Hashes `(tenantId, orgId, createdByUserId, agentId, conversationId, toolName,
+ * normalizedInput)` into a stable SHA-256 digest so that retries of the same
+ * tool call with the same payload collapse to a single `AiPendingAction` row
+ * inside the TTL window. The input is normalized through `safeStringify` to
+ * make object key order irrelevant (spec §8 rule `idempotencyKey prevents
+ * double-submission`). Attachments are NOT included — the attachment set is
+ * captured separately on the pending row so that re-uploading the same file set
+ * with a different tool-call object never accidentally collides.
+ *
+ * `createdByUserId` is on the hash axis because pending actions are owner-scoped:
+ * `AiPendingActionRepository.getById` / `setStatus` match on `createdByUserId`,
+ * so a dedupe that ignored the owner would hand the second user the first user's
+ * row — one they could then neither read, confirm nor cancel until it expired.
+ * The field is optional only to keep the exported signature additive; every
+ * caller acting for a real user MUST pass it.
  */
 export function computeMutationIdempotencyKey(input: {
   tenantId: string
@@ -152,10 +159,12 @@ export function computeMutationIdempotencyKey(input: {
   conversationId: string | null
   toolName: string
   normalizedInput: Record<string, unknown>
+  createdByUserId?: string | null
 }): string {
   const canonical = safeStringify({
     tenant: input.tenantId,
     org: input.organizationId ?? null,
+    user: input.createdByUserId ?? null,
     agent: input.agentId,
     conversation: input.conversationId ?? null,
     tool: input.toolName,
@@ -417,6 +426,7 @@ export async function prepareMutation(
     conversationId,
     toolName: tool.name,
     normalizedInput,
+    createdByUserId: ctx.userId,
   })
 
   const pendingAction = await repo.create(

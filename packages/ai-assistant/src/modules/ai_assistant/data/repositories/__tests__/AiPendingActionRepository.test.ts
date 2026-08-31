@@ -401,4 +401,47 @@ describe('AiPendingActionRepository', () => {
     expect(pending).toHaveLength(1)
     expect(pending[0].idempotencyKey).toBe('p-2')
   })
+
+  it('listPendingForAgent hides rows owned by another user in the same tenant', async () => {
+    const em = mockEm()
+    const repo = new AiPendingActionRepository(em)
+    const ownerCtx = { tenantId: tenantAlpha, organizationId: null, userId: 'u-1' }
+
+    await repo.create(
+      baseInput({ idempotencyKey: 'p-1', agentId: 'catalog.assistant' }),
+      ownerCtx,
+    )
+
+    const otherUser = await repo.listPendingForAgent('catalog.assistant', {
+      tenantId: tenantAlpha,
+      organizationId: null,
+      userId: 'u-2',
+    })
+    expect(otherUser).toEqual([])
+
+    const owner = await repo.listPendingForAgent('catalog.assistant', ownerCtx)
+    expect(owner).toHaveLength(1)
+    expect(owner[0].createdByUserId).toBe('u-1')
+  })
+
+  it('listPendingForAgent without a userId still sees every owner (system path)', async () => {
+    const em = mockEm()
+    const repo = new AiPendingActionRepository(em)
+
+    await repo.create(
+      baseInput({ idempotencyKey: 'p-1', agentId: 'catalog.assistant', createdByUserId: 'u-1' }),
+      { tenantId: tenantAlpha, organizationId: null, userId: 'u-1' },
+    )
+    await repo.create(
+      baseInput({ idempotencyKey: 'p-2', agentId: 'catalog.assistant', createdByUserId: 'u-2' }),
+      { tenantId: tenantAlpha, organizationId: null, userId: 'u-2' },
+    )
+
+    const all = await repo.listPendingForAgent('catalog.assistant', {
+      tenantId: tenantAlpha,
+      organizationId: null,
+      userId: null,
+    })
+    expect(all).toHaveLength(2)
+  })
 })

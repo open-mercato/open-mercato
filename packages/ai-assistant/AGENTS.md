@@ -1479,6 +1479,10 @@ Agents that need multi-step tool loops configure the `loop` block on `AiAgentDef
 
 ## Changelog
 
+### 2026-08-31 - Pending actions are owner-scoped, not just tenant-scoped (#5687)
+
+`AiPendingActionRepository.getById` / `setStatus` / `listPendingForAgent` now add `createdByUserId = ctx.userId` when `ctx.userId` is set; they previously matched on `id + tenant + org` only, so any same-tenant holder of `ai_assistant.view` could read, confirm or cancel another user's pending action (the id leaks via the `mutation-preview-card` in shareable transcripts). `AiPendingActionContext.userId` is now required (`string | null`) so opting out is deliberate; `userId: null` stays the system bypass the TTL sweeper needs. `computeMutationIdempotencyKey` gained an additive optional `createdByUserId` on the hash axis — dedupe must never be wider than the access predicate, or the second user gets a row they cannot resolve. Operator impact: non-owners take the existing `404 pending_action_not_found`; key values change, so one TTL window of pre-upgrade rows stops deduping (extra unconfirmed proposal, no duplicated write). Rules and rationale: [`mutation-approvals.mdx`](../../apps/docs/docs/framework/ai-assistant/mutation-approvals.mdx) § "Who may call them".
+
 ### 2026-07-07 - Containerized MCP server + file-based key delivery
 
 **What changed**:
@@ -1551,23 +1555,9 @@ Note: the guard is intentionally NOT added to `mcp-client.ts` `connectHttp`, whi
 
 ### 2026-05-13 - Remove dead `indexApiEndpoints` from MCP boot (#1876)
 
-**What changed**:
-- MCP HTTP / stdio / dev entry points no longer call `indexApiEndpoints(searchService)` at startup. The Code Mode rewrite (2026-02-22) deleted the only readers (`find_api` / `call_api` / `discover_schema`), so the call was indexing into fulltext + tokens + vector indexes that nothing queried. On large specs (≳200 ops + remote embedding latency) the search-service fan-out also burned an `OpenAI` embedding storm + pgvector load on every boot — Code Mode reads the OpenAPI document directly via `getRawOpenApiSpec()` / `loadRichOpenApiSpec()`, in-memory.
-- Deleted `lib/api-discovery-tools.ts`, `lib/entity-graph-tools.ts`, `lib/api-endpoint-index-config.ts` — all dead since the 2026-02-22 rewrite, kept only by the boot-time indexing call we removed.
-- Pruned `lib/api-endpoint-index.ts`: removed `indexApiEndpoints`, `searchEndpoints`, `searchEndpointsFallback`, `buildSearchableContent`, `lastIndexChecksum`, and the `API_ENDPOINT_ENTITY` deprecated alias. Kept `parseApiEndpoints` (private), `getApiEndpoints`, `getEndpointByOperationId`, `getRawOpenApiSpec`, `loadRichOpenApiSpec`, `setRawSpecCache`, `clearRawSpecCache`, `clearEndpointCache`, `simplifyRequestBodySchema` — those still serve Code Mode.
+MCP HTTP / stdio / dev entry points no longer call `indexApiEndpoints(searchService)` at boot — the Code Mode rewrite (2026-02-22) had already deleted its only readers, so it indexed into fulltext/tokens/vector for nothing and burned an embedding storm on large specs. `lib/api-discovery-tools.ts`, `lib/entity-graph-tools.ts` and `lib/api-endpoint-index-config.ts` were deleted and `lib/api-endpoint-index.ts` pruned to what Code Mode still uses. Every removed symbol lived under the module's internal `lib/` path and was already documented as legacy, so nothing on the contract surface changed. See git history for the per-symbol detail.
 
-**Files modified**:
-- `lib/http-server.ts`, `lib/mcp-server.ts`, `lib/mcp-dev-server.ts` — removed the `indexApiEndpoints` import + call
-- `lib/api-endpoint-index.ts` — pruned dead code
-
-**Files deleted**:
-- `lib/api-discovery-tools.ts`
-- `lib/entity-graph-tools.ts`
-- `lib/api-endpoint-index-config.ts`
-
-**Backward compatibility**: All removed symbols (`indexApiEndpoints`, `searchEndpoints`, `searchEndpointsFallback`, `endpointToIndexableRecord`, `API_ENDPOINT_ENTITY`, `API_ENDPOINT_SEARCH_CONFIG`, `apiEndpointEntityConfig`, `computeEndpointsChecksum`, `API_ENDPOINT_ENTITY_ID`, `GLOBAL_TENANT_ID` from `api-endpoint-index-config`) live inside the module's internal `lib/` path and are not part of the documented developer contract surface (see `BACKWARD_COMPATIBILITY.md`). They were already documented as legacy and unused.
-
-**Operator cleanup (optional)**: If a deployment previously booted MCP and accumulated rows in fulltext/vector/tokens under `entityId: 'ai_assistant:api_endpoint'` / `tenantId: '00000000-0000-0000-0000-000000000000'`, they are orphaned but inert — no live workflow reads them. Manual purge is purely cosmetic.
+**Operator cleanup (optional)**: rows a pre-#1876 boot left under `entityId: 'ai_assistant:api_endpoint'` / `tenantId: '00000000-0000-0000-0000-000000000000'` are orphaned but inert; purging them is cosmetic.
 
 ### 2026-05-08 - Phase 5 opt-in ToolLoopAgent backend (spec 2026-04-28-ai-agents-agentic-loop-controls)
 
