@@ -81,7 +81,7 @@ test('production runtime image supports Chromium for Documents PDF export', asyn
   const dockerfile = await readFile(new URL('../../Dockerfile', import.meta.url), 'utf8')
 
   assert.match(dockerfile, /PUPPETEER_EXECUTABLE_PATH=\/usr\/bin\/chromium/)
-  assert.match(dockerfile, /apk add --no-cache ca-certificates chromium openssl sudo/)
+  assert.match(dockerfile, /apk add --no-cache ca-certificates chromium openssl postgresql-client sudo/)
 })
 
 test('production runtime Chromium install is opt-in via INSTALL_CHROMIUM build arg', async () => {
@@ -90,12 +90,12 @@ test('production runtime Chromium install is opt-in via INSTALL_CHROMIUM build a
   assert.match(dockerfile, /ARG INSTALL_CHROMIUM=0/, 'runner stage should default INSTALL_CHROMIUM to 0')
   assert.match(
     dockerfile,
-    /if \[ "\$INSTALL_CHROMIUM" = "1" \]; then[\s\S]*?apk add --no-cache ca-certificates chromium openssl sudo/,
+    /if \[ "\$INSTALL_CHROMIUM" = "1" \]; then[\s\S]*?apk add --no-cache ca-certificates chromium openssl postgresql-client sudo/,
     'chromium install should be guarded by the INSTALL_CHROMIUM build arg',
   )
   assert.match(
     dockerfile,
-    /else[\s\S]*?apk add --no-cache ca-certificates openssl sudo/,
+    /else[\s\S]*?apk add --no-cache ca-certificates openssl postgresql-client sudo/,
     'opting out must still install the non-chromium runtime packages',
   )
 })
