@@ -2,6 +2,10 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
+  clearTenantExportExclusions,
+  registerTenantExportExclusions,
+} from '@open-mercato/shared/lib/privacy'
+import {
   buildTenantTableSelection,
   isSensitiveTenantExportColumn,
   normalizeTenantExportValue,
@@ -55,6 +59,8 @@ describe('tenant exit export helpers', () => {
 })
 
 describe('TenantExitExportService archive publication', () => {
+  afterEach(() => clearTenantExportExclusions())
+
   it('publishes the staged package and returns aggregate counts', async () => {
     const executed: string[] = []
     const connection = {
@@ -112,6 +118,65 @@ describe('TenantExitExportService archive publication', () => {
         version: 1,
       })
       expect(executed.some((sql) => sql.startsWith('set transaction'))).toBe(true)
+    } finally {
+      await rm(testRoot, { force: true, recursive: true })
+    }
+  })
+
+  it('skips tables their owning module declared as runtime secrets and records the owner', async () => {
+    registerTenantExportExclusions({ module: 'auth', tables: ['sessions'] })
+    const executed: string[] = []
+    const connection = {
+      async execute<T>(sql: string): Promise<T> {
+        executed.push(sql)
+        if (sql.includes('from "tenants"')) return [{ id: 'tenant-1' }] as T
+        if (sql.includes('from "organizations"')) return [] as T
+        if (sql.includes('information_schema.columns')) {
+          return [
+            { table_name: 'sessions', column_name: 'id' },
+            { table_name: 'sessions', column_name: 'tenant_id' },
+            { table_name: 'sessions', column_name: 'token_hash' },
+            { table_name: 'tenants', column_name: 'id' },
+            { table_name: 'tenants', column_name: 'name' },
+          ] as T
+        }
+        if (sql.includes("constraint_type = 'PRIMARY KEY'")) {
+          return [
+            { table_name: 'sessions', column_name: 'id', ordinal_position: 1 },
+            { table_name: 'tenants', column_name: 'id', ordinal_position: 1 },
+          ] as T
+        }
+        if (sql.includes("constraint_type = 'FOREIGN KEY'")) return [] as T
+        if (sql.startsWith('set transaction')) return undefined as T
+        throw new Error(`Unexpected SQL: ${sql}`)
+      },
+    }
+    const em = {
+      getMetadata: () => ({ getAll: () => new Map() }),
+      getConnection: () => connection,
+      transactional: async <T>(callback: (transactionalEm: unknown) => Promise<T>) => callback(em),
+    }
+    let archivedManifest = ''
+    const testRoot = await mkdtemp(join(tmpdir(), 'tenant-exit-export-test-'))
+    const outputPath = join(testRoot, 'tenant-exit.tar.gz')
+    const service = new TenantExitExportService({
+      archiveWriter: async (sourceDir, archivePath) => {
+        archivedManifest = await readFile(join(sourceDir, 'manifest.json'), 'utf8')
+        await mkdir(join(archivePath, '..'), { recursive: true })
+        await writeFile(archivePath, 'archive')
+      },
+      em: em as never,
+    })
+
+    try {
+      await expect(service.export({ actor: 'operator-1', outputPath, tenantId: 'tenant-1' })).resolves.toMatchObject({
+        rowCount: 1,
+        tableCount: 1,
+      })
+      expect(JSON.parse(archivedManifest).excludedTables).toEqual([
+        { module: 'auth', name: 'sessions', reason: 'authentication-or-runtime-secret' },
+      ])
+      expect(executed.some((sql) => sql.includes('"sessions"'))).toBe(false)
     } finally {
       await rm(testRoot, { force: true, recursive: true })
     }

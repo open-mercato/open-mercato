@@ -23,7 +23,7 @@ Operators need a repeatable way to return customer data without giving database 
 - Discover tenant-scoped tables from the live PostgreSQL schema.
 - Include directly scoped rows and relational child rows that belong to the selected tenant.
 - Decrypt registered entity fields, dynamic entity documents, and custom field values.
-- Redact credential-shaped columns and exclude authentication/session tables.
+- Redact credential-shaped columns and skip authentication/session tables that their owning modules declare through `registerTenantExportExclusions` (`@open-mercato/shared/lib/privacy`); the exporter holds no table list of its own.
 - Copy attachment binaries through the configured storage driver.
 - Produce an owner-readable `tar.gz` containing a manifest, JSONL table files, attachments, checksums, and handling instructions.
 
@@ -76,7 +76,7 @@ The archive is not encrypted by Open Mercato. It is created with owner-only perm
 |---|---|---|---|
 | Cross-tenant row is included | Critical | Exact tenant predicates, relational selection, and foreign-key scope validation | Tables without scope columns or declared relations are listed as excluded |
 | Encryption key is unavailable | High | Detect mapped encrypted fields and abort instead of exporting ciphertext | Operator must restore KMS access before retrying |
-| Credential leaks through data export | High | Exclude runtime authentication tables and redact credential-shaped columns | Module-specific secrets stored under unexpected names require review |
+| Credential leaks through data export | High | Owning modules declare runtime authentication tables as export exclusions; credential-shaped columns are redacted | A module that adds a token or session table without declaring it exports that table until the declaration lands; manifest exclusions name the owning module so reviews can spot gaps |
 | Attachment binary is missing | High | Strict failure by default; explicit exception flag and manifest entry | Source storage may change after database snapshot |
 | Archive is read by an unauthorized party | High | Mode `0600`, no overwrite, handling warning | Encryption in transit and at rest remains an operator responsibility |
 
@@ -87,3 +87,4 @@ The new module, CLI command, service types, and archive format are additive. Exi
 ## Changelog
 
 - **2026-08-24:** Added the MIT Core tenant exit export command, portable package format, attachment collection, decryption, credential filtering, integrity checks and operator documentation.
+- **2026-08-31:** Replaced the exporter's hard-coded cross-module table denylist with module-owned `registerTenantExportExclusions` declarations; the manifest now records the owning module of every skipped table.

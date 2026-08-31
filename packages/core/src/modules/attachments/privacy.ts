@@ -3,7 +3,7 @@ import type {
   PrivacyDataClassHandler,
   PrivacyEnvironmentSanitizationInput,
 } from '@open-mercato/shared/lib/privacy'
-import { registerPrivacyDataClass } from '@open-mercato/shared/lib/privacy'
+import { registerPrivacyDataClass, registerTenantExportExclusions } from '@open-mercato/shared/lib/privacy'
 import { Attachment } from './data/entities'
 import type { StorageDriverFactory } from './lib/drivers'
 
@@ -19,6 +19,8 @@ registerPrivacyDataClass({
   subjectActions: [],
   environmentSanitization: { categories: ['attachments', 'personal_data'] },
 })
+
+registerTenantExportExclusions({ module: 'attachments', tables: ['attachment_quota_reservations'] })
 
 export class AttachmentEnvironmentPrivacyHandler implements PrivacyDataClassHandler {
   constructor(

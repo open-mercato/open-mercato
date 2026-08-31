@@ -10,6 +10,7 @@ import { ScimTokenService } from './services/scimTokenService'
 import { ScimService } from './services/scimService'
 import { ScimGroupService } from './services/scimGroupService'
 import { ScimBulkService } from './services/scimBulkService'
+import './privacy'
 
 export function register(container: AppContainer) {
   const registry = new SsoProviderRegistry()

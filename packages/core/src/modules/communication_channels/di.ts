@@ -12,6 +12,7 @@ import { getChannelAdapterRegistry } from './lib/adapter-registry-singleton'
 import { ensureTestSeedAdapterRegistered } from './lib/test-seed'
 import { sendAsUser } from './lib/send-as-user'
 import { resolveChannelTypeSafely } from './lib/resolve-channel-type'
+import './privacy'
 
 export function register(container: AppContainer) {
   // Test-only: register the network-free stub channel adapter when

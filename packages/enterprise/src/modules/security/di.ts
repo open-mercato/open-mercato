@@ -16,6 +16,7 @@ import { MfaAdminService } from './services/MfaAdminService'
 import { SudoChallengeService } from './services/SudoChallengeService'
 import { mfaProviders as defaultMfaProviders } from './security.mfa-providers'
 import { readSecurityModuleConfig } from './lib/security-config'
+import './privacy'
 
 export function register(container: AppContainer) {
   const mfaProviderRegistry = new MfaProviderRegistry()

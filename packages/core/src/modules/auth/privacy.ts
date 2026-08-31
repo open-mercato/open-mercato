@@ -8,7 +8,7 @@ import type {
   PrivacySubjectResolutionInput,
   PrivacySubjectInput,
 } from '@open-mercato/shared/lib/privacy'
-import { registerPrivacyDataClass } from '@open-mercato/shared/lib/privacy'
+import { registerPrivacyDataClass, registerTenantExportExclusions } from '@open-mercato/shared/lib/privacy'
 import {
   findAndCountWithDecryption,
   findOneWithDecryption,
@@ -33,6 +33,8 @@ registerPrivacyDataClass({
   subjectActions: ['discover', 'export', 'erase', 'anonymize'],
   environmentSanitization: { categories: ['personal_data', 'authentication'] },
 })
+
+registerTenantExportExclusions({ module: 'auth', tables: ['password_resets', 'sessions'] })
 
 export class AuthUsersPrivacyHandler implements PrivacyDataClassHandler {
   constructor(

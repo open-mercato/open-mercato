@@ -17,26 +17,12 @@ import { listEntityMetadata } from '@open-mercato/shared/lib/db/entityMetadata'
 import { resolveEntityIdFromMetadata } from '@open-mercato/shared/lib/encryption/entityIds'
 import { decryptCustomFieldValue } from '@open-mercato/shared/lib/encryption/customFieldValues'
 import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+import { getTenantExportExclusion } from '@open-mercato/shared/lib/privacy'
 
 export const TENANT_EXIT_EXPORT_FORMAT = 'open-mercato.tenant-exit'
 export const TENANT_EXIT_EXPORT_VERSION = 1
 const IDENTIFIER_PATTERN = /^[a-zA-Z_][a-zA-Z0-9_]*$/
 const ENCRYPTED_VALUE_PATTERN = /^[A-Za-z0-9+/=]+:[A-Za-z0-9+/=]*:[A-Za-z0-9+/=]+:v1$/
-
-const EXCLUDED_SECURITY_TABLES = new Set([
-  'attachment_quota_reservations',
-  'channel_thread_tokens',
-  'customer_user_email_verifications',
-  'customer_user_invitations',
-  'customer_user_password_resets',
-  'customer_user_sessions',
-  'gateway_session_initializations',
-  'message_access_tokens',
-  'password_resets',
-  'scim_tokens',
-  'sessions',
-  'sudo_sessions',
-])
 
 type SqlRow = Record<string, unknown>
 
@@ -107,6 +93,7 @@ type MissingAttachment = {
 }
 
 type ExcludedTable = {
+  module?: string
   name: string
   reason: 'authentication-or-runtime-secret' | 'no-tenant-scope-or-relation' | 'unsupported-relational-key'
 }
@@ -443,8 +430,9 @@ export class TenantExitExportService {
     const excludedTables: ExcludedTable[] = []
 
     for (const [tableName, schema] of schemas) {
-      if (EXCLUDED_SECURITY_TABLES.has(tableName)) {
-        excludedTables.push({ name: tableName, reason: 'authentication-or-runtime-secret' })
+      const exclusion = getTenantExportExclusion(tableName)
+      if (exclusion) {
+        excludedTables.push({ module: exclusion.module, name: tableName, reason: exclusion.reason })
         continue
       }
       const selection = buildTenantTableSelection(tableName, schema, input.tenantId, organizationIds)
@@ -460,7 +448,7 @@ export class TenantExitExportService {
     const exportedTables: ExportedTable[] = []
 
     for (const tableName of Array.from(schemas.keys()).sort((left, right) => (left < right ? -1 : left > right ? 1 : 0))) {
-      if (EXCLUDED_SECURITY_TABLES.has(tableName)) continue
+      if (getTenantExportExclusion(tableName)) continue
       const schema = schemas.get(tableName)
       if (!schema) continue
       const direct = directSelections.get(tableName)
@@ -594,7 +582,7 @@ export class TenantExitExportService {
     while (changed) {
       changed = false
       for (const foreignKey of foreignKeys) {
-        if (EXCLUDED_SECURITY_TABLES.has(foreignKey.childTable)) continue
+        if (getTenantExportExclusion(foreignKey.childTable)) continue
         if (directSelections.has(foreignKey.childTable)) continue
         const parentIds = selected.get(foreignKey.parentTable)
         const childSchema = schemas.get(foreignKey.childTable)

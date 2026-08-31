@@ -30,3 +30,16 @@ export {
   privacyDataClassRegistry,
   registerPrivacyDataClass,
 } from './registry'
+
+export type {
+  TenantExportExclusion,
+  TenantExportExclusionInput,
+  TenantExportExclusionReason,
+} from './tenant-export-exclusions'
+
+export {
+  clearTenantExportExclusions,
+  getTenantExportExclusion,
+  listTenantExportExclusions,
+  registerTenantExportExclusions,
+} from './tenant-export-exclusions'
