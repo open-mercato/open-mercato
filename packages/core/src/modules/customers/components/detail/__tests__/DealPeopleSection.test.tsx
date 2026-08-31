@@ -51,6 +51,18 @@ jest.mock('../CreatePersonDialog', () => ({
     ) : null,
 }))
 
+const capturedAdapters: unknown[] = []
+jest.mock('../LinkedPeopleSection', () => {
+  const actual = jest.requireActual('../LinkedPeopleSection')
+  return {
+    ...actual,
+    LinkedPeopleSection: (props: { linkAdapter: unknown }) => {
+      capturedAdapters.push(props.linkAdapter)
+      return actual.LinkedPeopleSection(props)
+    },
+  }
+})
+
 jest.mock('../PersonCard', () => ({
   PersonCard: ({
     person,
@@ -100,6 +112,7 @@ describe('DealPeopleSection', () => {
   }
 
   beforeEach(() => {
+    capturedAdapters.length = 0
     readApiResultOrThrowMock.mockReset()
     readApiResultOrThrowMock.mockImplementation(async () => ({
       items: linkedPeople,
@@ -235,6 +248,33 @@ describe('DealPeopleSection', () => {
 
     expect(offered).toEqual(['name-asc', 'name-desc'])
     expect(offered).not.toContain('recent')
+  })
+
+  // `LinkEntityDialog` resets its query, results and draft selection whenever `adapter`
+  // changes identity. The deal page passes `onSaveSelection` as an inline arrow, so anything
+  // derived from it would rebuild the adapter on every parent render and wipe a dialog the
+  // user is in the middle of using.
+  it('keeps the link adapter referentially stable across re-renders', async () => {
+    const { rerender } = renderSection(jest.fn(async () => {}))
+    await waitForInitialLoad()
+
+    const first = capturedAdapters[capturedAdapters.length - 1]
+    expect(first).toBeDefined()
+
+    // A fresh inline onSaveSelection, exactly as the page produces on every render.
+    rerender(
+      <DealPeopleSection
+        dealId="deal-1"
+        dealName="Expansion renewal"
+        selectedIds={['person-1', 'person-2']}
+        onSaveSelection={jest.fn(async () => {})}
+        addActionLabel="Add person"
+        emptyLabel="No people linked to this deal yet."
+        emptyState={emptyState}
+      />,
+    )
+
+    expect(capturedAdapters[capturedAdapters.length - 1]).toBe(first)
   })
 
   it('does not render the linked date on the card', async () => {

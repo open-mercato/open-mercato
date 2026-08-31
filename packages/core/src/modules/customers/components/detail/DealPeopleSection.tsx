@@ -70,7 +70,6 @@ export function DealPeopleSection({
   )
   const translate: Translator = translator ?? fallbackTranslator
   const [createDialogOpen, setCreateDialogOpen] = React.useState(false)
-  const [linkDialogOpen, setLinkDialogOpen] = React.useState(false)
   const [refreshKey, setRefreshKey] = React.useState(0)
 
   const loadPage = React.useCallback(
@@ -174,21 +173,29 @@ export function DealPeopleSection({
             'customers.deals.detail.people.addNewSubtitle',
             'The new contact is linked to this deal automatically',
           ),
-          render: ({ onCancel }) => (
+          // Hand the new person back through `onCreated` rather than saving here. That is the
+          // dialog's own flow: it merges the option into the draft, focuses it and closes just
+          // the nested form, so anything the user had already ticked survives and the whole
+          // selection is written once, on confirm. Saving and force-closing from here would
+          // discard those ticks silently.
+          render: ({ onCreated, onCancel }) => (
             <CreatePersonDialog
               open
               onClose={onCancel}
               runGuardedMutation={runGuardedMutation}
               onPersonCreated={(created) => {
-                void handlePersonCreated(created)
-                setLinkDialogOpen(false)
-                onCancel()
+                const createdId = created?.id?.trim()
+                if (!createdId) {
+                  onCancel()
+                  return
+                }
+                onCreated({ id: createdId, label: created?.displayName || createdId })
               }}
             />
           ),
         },
       }),
-    [dealId, dealName, handlePersonCreated, runGuardedMutation, translate],
+    [dealId, dealName, runGuardedMutation, translate],
   )
 
   return (
@@ -199,8 +206,6 @@ export function DealPeopleSection({
         loadPage={loadPage}
         onUnlink={handleUnlink}
         linkAdapter={personLinkAdapter}
-        linkDialogOpen={linkDialogOpen}
-        onLinkDialogOpenChange={setLinkDialogOpen}
         linkedIds={selectedIds}
         onLinkConfirm={handleLinkConfirm}
         refreshKey={refreshKey}
