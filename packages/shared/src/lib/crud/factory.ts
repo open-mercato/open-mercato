@@ -792,6 +792,8 @@ function shouldBlockAccessLogWrites(): boolean {
     logger.warn('Invalid OM_CRUD_ACCESS_LOG_MODE; using blocking access-log writes', { mode })
   }
 
+  // OM_CRUD_ACCESS_LOG_BLOCKING is deprecated in favour of OM_CRUD_ACCESS_LOG_MODE and is
+  // only consulted when the mode is unset; see UPGRADE_NOTES.md (0.7.0 -> 0.7.1).
   const legacy = process.env.OM_CRUD_ACCESS_LOG_BLOCKING?.trim()
   if (legacy === '0') return false
   if (legacy === '1') return true
@@ -916,7 +918,7 @@ export async function logCrudAccess(options: LogCrudAccessOptions): Promise<LogC
     operation: accessType,
     result: statusCode >= 400 ? 'failure' : 'success',
     statusCode,
-    requestId: normalizedHeaderValue(request?.headers.get('x-request-id') ?? null, 200) ?? crypto.randomUUID(),
+    requestId: normalizedHeaderValue(request?.headers.get('x-request-id') ?? null, 200) ?? randomUUID(),
     sessionId: typeof auth.sid === 'string' && auth.sid.length > 0 ? auth.sid : null,
     method: request?.method ?? null,
     sourceIp: request

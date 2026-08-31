@@ -47,7 +47,7 @@ yarn mercato audit_logs access-retention:prune --tenant <uuid> --org <uuid>
 
 Use `--class core` or `--class non_core` for class-specific runs, `--retention-days` to increase the period, and `--batch` to adjust the bounded batch size. A global run requires the explicit `--all-scopes` flag.
 
-CRUD access-log writes are blocking by default: a successful response is not returned until the log insert succeeds. `OM_CRUD_ACCESS_LOG_MODE=async` is available for low-assurance deployments that explicitly accept possible log loss on process failure.
+CRUD access-log writes are blocking by default: a successful response is not returned until the log insert succeeds, and a failed insert fails the request instead of being dropped. `OM_CRUD_ACCESS_LOG_MODE=async` is available for low-assurance deployments that explicitly accept possible log loss on process failure. The older `OM_CRUD_ACCESS_LOG_BLOCKING=0|1` switch is deprecated; it is still read when `OM_CRUD_ACCESS_LOG_MODE` is unset and will be removed in a later minor release.
 
 The Access Log page shows the normalized request context, including method, path, request and session identifiers, result, user agent, and source IP when trusted proxy depth is configured. The source IP uses the same `RATE_LIMIT_TRUST_PROXY_DEPTH` safety rule as rate limiting; forwarded headers are ignored by default.
 

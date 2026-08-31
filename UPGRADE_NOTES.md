@@ -24,6 +24,24 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.7.0 → 0.7.1 (unreleased)
 
+### Production boots fail closed without tenant encryption and a healthy KMS (#5557)
+
+With `NODE_ENV=production` the platform now refuses to start unless tenant data encryption is enabled and a healthy KMS (or the dedicated `TENANT_DATA_ENCRYPTION_FALLBACK_KEY`) is available. `assertTenantDataEncryptionConfiguration` runs during bootstrap and `createRequestContainer()` rethrows the failure instead of degrading to an unencrypted container, so every request path and CLI command fails until the configuration is fixed. Outside production the same check is opt-in through `TENANT_DATA_ENCRYPTION_REQUIRED=true`; setting it to `false` has no effect in production.
+
+**Action for operators:** before upgrading a production deployment, confirm `TENANT_DATA_ENCRYPTION` is not disabled and that Vault (or the fallback key) resolves at boot. `GET /api/configs/health/ready` reports the encryption and KMS state and is the readiness probe to watch during rollout.
+
+### CRUD access-log writes block the response by default; `OM_CRUD_ACCESS_LOG_BLOCKING` is deprecated (#5557)
+
+`makeCrudRoute` handlers now await the access-log insert before returning a successful response. Previously the write was fire-and-forget unless `OM_CRUD_ACCESS_LOG_BLOCKING=1` was set. The switch is now `OM_CRUD_ACCESS_LOG_MODE`: `blocking` (default) or `async`. `OM_CRUD_ACCESS_LOG_BLOCKING=0|1` is deprecated; it is still honored when `OM_CRUD_ACCESS_LOG_MODE` is unset and is removed no earlier than the next minor release.
+
+Two consequences follow. Every CRUD read now waits for one insert into `access_logs`, and an insert that fails no longer disappears silently: the request answers with a `500` so an audit gap is never hidden behind a successful response. Deployments that prefer availability over audit completeness set `OM_CRUD_ACCESS_LOG_MODE=async` and accept possible log loss on process failure.
+
+### Access-log retention has a 90-day floor and runs in a queue worker (#5557)
+
+Access logs are kept for at least 90 days. `AUDIT_LOGS_RETENTION_DAYS` is the single retention setting; the legacy `AUDIT_LOGS_CORE_RETENTION_DAYS` and `AUDIT_LOGS_NON_CORE_RETENTION_HOURS` values are still read but clamped **up** to the floor, so a deployment that kept non-core access logs for 8 hours now keeps them for 90 days. Plan for the storage growth before upgrading.
+
+Rotation no longer happens on the write path. Cleanup runs through the `audit-logs-retention` queue (the `audit_logs.register-access-log-retention` upgrade action registers the schedule for existing tenants) or on demand with `yarn mercato audit_logs access-retention:prune --dry-run`. A deployment that runs no queue worker must schedule the CLI itself, otherwise the table only grows.
+
 ### `AlertDescription` renders a `<div>` instead of a `<p>` (#5487)
 
 `AlertDescription` from `@open-mercato/ui/primitives/alert` rendered a `<p>`, which may only contain phrasing content. Every caller that nested a paragraph, a list, or any other block element inside it therefore produced invalid HTML: the browser's parser closed the paragraph early, the resulting DOM stopped matching what React rendered on the server, and hydration failed with `In HTML, <p> cannot be a descendant of <p>`. Eleven call sites across `ui`, `ai-assistant`, `core`, `enterprise`, and `scheduler` were nesting block children this way. The primitive now renders a `<div>` with the same `text-sm leading-5` classes, which removes the whole class of bug at once.
