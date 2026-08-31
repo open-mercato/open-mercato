@@ -1,6 +1,8 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { DefaultCatalogOmnibusService } from '../catalogOmnibusService'
+import { buildPrefetchKey, DefaultCatalogOmnibusService } from '../catalogOmnibusService'
+import { selectScopeAggregate } from '../omnibusAggregate'
+import type { OmnibusAggregateExecutor, OmnibusAggregateScope } from '../omnibusAggregate'
 import type { OmnibusConfig } from '../../data/validators'
 import type { OmnibusHistoryRow, OmnibusResolutionContext } from '../../lib/omnibusTypes'
 
@@ -36,12 +38,90 @@ function row(overrides: Partial<StoredRow> & { recordedAt: string; gross?: strin
   }
 }
 
-function makeService(config: OmnibusConfig) {
+function toHistoryRow(stored: StoredRow): OmnibusHistoryRow {
+  return {
+    id: stored.id,
+    priceId: stored.priceId,
+    changeType: stored.changeType,
+    unitPriceNet: stored.unitPriceNet,
+    unitPriceGross: stored.unitPriceGross,
+    recordedAt: stored.recordedAt.toISOString(),
+    startsAt: stored.startsAt?.toISOString() ?? null,
+    offerId: stored.offerId,
+    isAnnounced: stored.isAnnounced,
+  }
+}
+
+/** The window the pinned clock and the default 30-day lookback produce, as a scope literal. */
+function aggregateScope(overrides: Partial<OmnibusAggregateScope> = {}): OmnibusAggregateScope {
+  return {
+    key: 'product-1|kind-1|PLN',
+    offerId: null,
+    variantId: null,
+    productId: 'product-1',
+    priceKindId: 'kind-1',
+    currencyCode: 'PLN',
+    channelId: 'ch-pl',
+    windowStart: new Date('2026-05-11T00:00:00.000Z'),
+    windowEnd: new Date('2026-06-10T00:00:00.000Z'),
+    anchor: null,
+    presented: null,
+    ...overrides,
+  }
+}
+
+/**
+ * Stands in for the SQL aggregate, which needs a real database.
+ *
+ * It reads the same two row sets the tests already program — rows at or before the window start,
+ * then rows inside it — and hands them to `selectScopeAggregate`, the in-memory twin of the SQL.
+ * The rules under test (EC-7, the change_type filter, tie-breaks, the baseline instant) are
+ * therefore exercised exactly as production resolves them; only the execution engine differs, and
+ * `omnibusAggregate.parity` proves the two agree on real PostgreSQL.
+ */
+const inMemoryAggregate: OmnibusAggregateExecutor = async (em, scope, axis, scopes) => {
+  const result = new Map<string, ReturnType<typeof selectScopeAggregate>>()
+  for (const entry of scopes) {
+    // Same scope predicate the SQL applies, so tests can assert on it the way they always have.
+    const scopeWhere: Record<string, unknown> = {
+      priceKindId: { $eq: entry.priceKindId },
+      currencyCode: { $eq: entry.currencyCode },
+      // The SQL restricts candidates to offered change types; mirror it so assertions about the
+      // predicate hold for every history read, not just the ones outside the aggregate.
+      changeType: { $in: ['create', 'update'] },
+    }
+    if (entry.offerId) scopeWhere.offerId = { $eq: entry.offerId }
+    if (entry.variantId) scopeWhere.variantId = { $eq: entry.variantId }
+    else if (entry.productId) scopeWhere.productId = { $eq: entry.productId }
+    if (entry.channelId) scopeWhere.channelId = { $eq: entry.channelId }
+
+    const baseline = (await findWithDecryption(
+      em,
+      null as never,
+      { ...scopeWhere, recordedAt: { $lte: entry.windowStart } } as never,
+      {} as never,
+      scope as never,
+    )) as unknown as StoredRow[]
+    const inWindow = (await findWithDecryption(
+      em,
+      null as never,
+      { ...scopeWhere, recordedAt: { $gt: entry.windowStart, $lte: entry.windowEnd } } as never,
+      {} as never,
+      scope as never,
+    )) as unknown as StoredRow[]
+    const rows = [...(baseline ?? []), ...(inWindow ?? [])].map(toHistoryRow)
+    result.set(entry.key, selectScopeAggregate(rows, entry, axis))
+  }
+  return result
+}
+
+function makeService(config: OmnibusConfig, executor: OmnibusAggregateExecutor = inMemoryAggregate) {
   const moduleConfigService = { getValue: jest.fn().mockResolvedValue(config) }
   const cache = { get: jest.fn().mockResolvedValue(null), set: jest.fn().mockResolvedValue(undefined) }
   const service = new DefaultCatalogOmnibusService(
     moduleConfigService as unknown as ConstructorParameters<typeof DefaultCatalogOmnibusService>[0],
     cache as unknown as ConstructorParameters<typeof DefaultCatalogOmnibusService>[1],
+    executor,
   )
   return { service, moduleConfigService, cache }
 }
@@ -65,7 +145,14 @@ const euConfig: OmnibusConfig = {
   channels: { 'ch-pl': { countryCode: 'PL' } },
 }
 
-beforeEach(() => findMock.mockReset())
+// The fixtures below are dated June 2026 and are meant to sit inside the lookback window. The
+// window is computed from the clock, so it has to be pinned — otherwise the same fixture drifts
+// out of the window as real time passes and the suite starts asserting a different scenario.
+beforeEach(() => {
+  jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate'] }).setSystemTime(new Date('2026-06-10T00:00:00.000Z'))
+  findMock.mockReset()
+})
+afterEach(() => jest.useRealTimers())
 
 describe('DefaultCatalogOmnibusService.resolveOmnibusBlock — gating', () => {
   it('returns null and issues no query when Omnibus is disabled', async () => {
@@ -782,6 +869,10 @@ describe('DefaultCatalogOmnibusService — request-scoped config memo', () => {
 // the moment of the backfill, which pushes every later real reduction outside the
 // window and reports no reference at all.
 describe('DefaultCatalogOmnibusService — offer anchor ignores backfilled rows', () => {
+  // This block's fixtures are dated a month later than the suite default; the window has to end
+  // after them or they fall outside it and the scenario stops being the one under test.
+  beforeEach(() => jest.setSystemTime(new Date('2026-08-12T00:00:00.000Z')))
+
   const offerCtx: OmnibusResolutionContext = { ...baseCtx, offerId: 'offer-1' }
 
   const backfilled = {
@@ -989,15 +1080,24 @@ describe('DefaultCatalogOmnibusService — tax-only change (C2)', () => {
 // may become the legal reference — a fat-fingered price that is immediately undone would otherwise
 // be a permanent candidate.
 describe('DefaultCatalogOmnibusService — withdrawn prices are not reference candidates', () => {
-  it('excludes delete and undo rows from the SQL candidate query', async () => {
-    const { service } = makeService(euConfig)
-    findMock.mockResolvedValue([])
+  it('drops every change type that is not an offered price', () => {
+    const scope = aggregateScope()
+    const rows = ['create', 'update', 'delete', 'undo'].map((changeType, index) =>
+      toHistoryRow({
+        ...row({ id: changeType, recordedAt: `2026-06-0${index + 1}T00:00:00.000Z`, gross: '10' }),
+        changeType,
+      }),
+    )
 
-    await service.resolveOmnibusBlock(em, baseCtx, null, false)
+    const kept = ['create', 'update'].map((changeType) =>
+      selectScopeAggregate(rows.filter((r) => r.changeType === changeType), scope, 'gross')?.lowest?.id,
+    )
+    const dropped = ['delete', 'undo'].map((changeType) =>
+      selectScopeAggregate(rows.filter((r) => r.changeType === changeType), scope, 'gross')?.lowest,
+    )
 
-    for (const call of findMock.mock.calls) {
-      expect(call[2]).toMatchObject({ changeType: { $in: ['create', 'update'] } })
-    }
+    expect(kept).toEqual(['create', 'update'])
+    expect(dropped).toEqual([null, null])
   })
 
   it('ignores a stray withdrawn row that reaches the candidate set', async () => {
@@ -1016,52 +1116,67 @@ describe('DefaultCatalogOmnibusService — withdrawn prices are not reference ca
   })
 })
 
-// Review finding 2. The cap has to shed rows once a scope exceeds it. Shedding the oldest — what a
-// recordedAt ordering does — throws away the rows most likely to hold the minimum and yields a
-// reference price that is too high, with nothing to signal it.
-describe('DefaultCatalogOmnibusService — in-window row cap', () => {
-  it('orders the scan by the minimisation axis so the cap sheds the most expensive rows', async () => {
-    const { service } = makeService(euConfig)
+// Review finding 3 again. The original fix covered the standard window but not the derogations,
+// which run their own reads. On those paths the row that comes back IS the reference price, so a
+// withdrawn or undone price becoming "the price immediately preceding the reduction" is the same
+// defect the reviewer described, just one branch over.
+describe('DefaultCatalogOmnibusService — derogations reject withdrawn prices too', () => {
+  const perishableConfig: OmnibusConfig = {
+    ...euConfig,
+    channels: { 'ch-pl': { countryCode: 'PL', perishableGoodsRule: 'last_price' } },
+  }
+
+  it('asks the perishable read for offered change types only', async () => {
+    const { service } = makeService(perishableConfig)
     findMock.mockResolvedValue([])
 
-    await service.resolveOmnibusBlock(em, baseCtx, null, false)
+    await service.resolveOmnibusBlock(em, { ...baseCtx, omnibusExempt: true }, null, false)
 
-    const inWindowCall = findMock.mock.calls.find((call) => {
-      const where = call[2] as { recordedAt?: Record<string, unknown> }
-      return Boolean(where.recordedAt && '$gt' in where.recordedAt)
-    })
-    expect(inWindowCall).toBeDefined()
-    expect((inWindowCall![3] as { orderBy: unknown[] }).orderBy[0]).toEqual({ unitPriceGross: 'ASC' })
+    expect(findMock).toHaveBeenCalled()
+    expect(findMock.mock.calls[0]![2]).toMatchObject({ changeType: { $in: ['create', 'update'] } })
   })
 
-  it('orders by net when that is the configured axis', async () => {
-    const { service } = makeService({ ...euConfig, minimizationAxis: 'net' })
+  it('does not let a withdrawn price become the perishable reference', async () => {
+    const { service } = makeService(perishableConfig)
+    // What the database returns once the filter is applied: the withdrawal is simply not there.
+    findMock.mockResolvedValue([row({ id: 'genuine', recordedAt: '2026-06-05T00:00:00.000Z', gross: '100' })])
+
+    const block = await service.resolveOmnibusBlock(em, { ...baseCtx, omnibusExempt: true }, null, false)
+
+    expect(block?.lowestPriceGross).toBe('100')
+    expect(block?.applicabilityReason).toBe('perishable_last_price')
+  })
+
+  it('asks the progressive reads for offered change types only', async () => {
+    const { service } = makeService({
+      ...euConfig,
+      channels: { 'ch-pl': { countryCode: 'PL', progressiveReductionRule: true } },
+    })
     findMock.mockResolvedValue([])
 
-    await service.resolveOmnibusBlock(em, baseCtx, null, false)
+    await service.resolveOmnibusBlock(em, { ...baseCtx, offerId: 'offer-1' }, null, false)
 
-    const inWindowCall = findMock.mock.calls.find((call) => {
-      const where = call[2] as { recordedAt?: Record<string, unknown> }
-      return Boolean(where.recordedAt && '$gt' in where.recordedAt)
-    })
-    expect((inWindowCall![3] as { orderBy: unknown[] }).orderBy[0]).toEqual({ unitPriceNet: 'ASC' })
+    // Every history read on this path, including the campaign anchor probe.
+    for (const call of findMock.mock.calls) {
+      expect(call[2]).toMatchObject({ changeType: { $in: ['create', 'update'] } })
+    }
   })
+})
 
-  it('reports insufficient history when the scan is truncated', async () => {
-    const { service } = makeService(euConfig)
-    const full = Array.from({ length: 1000 }, (_, index) =>
-      row({ id: `r${index}`, recordedAt: '2026-06-02T00:00:00.000Z', gross: String(50 + index) }),
-    )
-    findMock
-      .mockResolvedValueOnce([row({ id: 'base', recordedAt: '2026-05-01T00:00:00.000Z', gross: '100' })])
-      .mockResolvedValueOnce(full)
+// Review finding 2. The scan used to cap at 1000 rows ordered by time, which shed the oldest rows —
+// exactly the ones most likely to hold the minimum — and reported a complete-looking block anyway.
+// The aggregate resolves the minimum in SQL, so there is no cap left to shed anything.
+describe('DefaultCatalogOmnibusService — no row cap on the window', () => {
+  it('finds a minimum that a 1000-row time-ordered cap would have dropped', () => {
+    // Oldest row holds the minimum; a recordedAt-ordered cap of 1000 would have discarded it.
+    const rows = [
+      toHistoryRow(row({ id: 'oldest', recordedAt: '2026-05-12T00:00:00.000Z', gross: '1' })),
+      ...Array.from({ length: 2000 }, (_, index) =>
+        toHistoryRow(row({ id: `r${index}`, recordedAt: '2026-06-02T00:00:00.000Z', gross: String(50 + index) })),
+      ),
+    ]
 
-    const block = await service.resolveOmnibusBlock(em, baseCtx, null, false)
-
-    // The minimum is still trustworthy — it survives the cap by construction — but the window is
-    // no longer fully represented, so the block must not look complete.
-    expect(block?.lowestPriceGross).toBe('50')
-    expect(block?.applicabilityReason).toBe('insufficient_history')
+    expect(selectScopeAggregate(rows, aggregateScope(), 'gross')?.lowest?.id).toBe('oldest')
   })
 })
 
@@ -1071,9 +1186,11 @@ describe('DefaultCatalogOmnibusService — page-wide history prefetch', () => {
   const productA = { ...baseCtx, productId: 'product-a' }
   const productB = { ...baseCtx, productId: 'product-b' }
 
-  // Relative to now: the prefetch filters each product's slice against its real window, so fixed
-  // calendar dates would fall outside it and the rows would be correctly discarded.
-  const daysAgo = (days: number) => new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
+  // Relative to the pinned clock, not to Date.now(): this runs while the describe body is being
+  // evaluated, which is before beforeEach installs the fake timer, so a real-clock offset would
+  // place every fixture outside the window under test.
+  const daysAgo = (days: number) =>
+    new Date(new Date('2026-06-10T00:00:00.000Z').getTime() - days * 24 * 60 * 60 * 1000).toISOString()
   const rowFor = (productId: string, gross: string, recordedAt: string, id: string) => ({
     ...row({ id, recordedAt, gross }),
     productId,
@@ -1083,8 +1200,9 @@ describe('DefaultCatalogOmnibusService — page-wide history prefetch', () => {
   const IN_WINDOW_AT = daysAgo(5)
   const BASELINE_AT = daysAgo(40)
 
-  it('issues two queries for a page instead of two per product', async () => {
-    const { service } = makeService(euConfig)
+  it('resolves the whole page with one aggregate, not one per product', async () => {
+    const spy = jest.fn(inMemoryAggregate)
+    const { service } = makeService(euConfig, spy)
     findMock.mockResolvedValue([])
 
     await service.prefetchHistoryForProducts(em, [
@@ -1092,31 +1210,35 @@ describe('DefaultCatalogOmnibusService — page-wide history prefetch', () => {
       { ctx: productB, presentedPriceEntry: null },
     ])
 
-    expect(findMock).toHaveBeenCalledTimes(2)
+    // One call carrying both scopes — in production that is a single SQL statement for the page,
+    // which is what replaced the per-row fan-out review finding 4 flagged.
+    expect(spy).toHaveBeenCalledTimes(1)
+    expect((spy.mock.calls[0]![3] as unknown[]).length).toBe(2)
   })
 
-  it('gives each product only the rows from its own scope', async () => {
+  it('gives each product the answer for its own scope', async () => {
     const { service } = makeService(euConfig)
-    findMock
-      .mockResolvedValueOnce([
-        rowFor('product-a', '90', IN_WINDOW_AT, 'a-in'),
-        rowFor('product-b', '70', IN_WINDOW_AT, 'b-in'),
-      ])
-      .mockResolvedValueOnce([
-        rowFor('product-a', '100', BASELINE_AT, 'a-base'),
-        rowFor('product-b', '200', BASELINE_AT, 'b-base'),
-      ])
+    findMock.mockImplementation(async (_em, _entity, where) => {
+      const productId = (where as { productId?: { $eq?: string } }).productId?.$eq ?? ''
+      const isBaseline = !(where as { recordedAt?: { $gt?: Date } }).recordedAt?.$gt
+      if (isBaseline) {
+        return [rowFor(productId, productId === 'product-a' ? '100' : '200', BASELINE_AT, `${productId}-base`)]
+      }
+      return [rowFor(productId, productId === 'product-a' ? '90' : '70', IN_WINDOW_AT, `${productId}-in`)]
+    })
 
     const prefetch = await service.prefetchHistoryForProducts(em, [
       { ctx: productA, presentedPriceEntry: null },
       { ctx: productB, presentedPriceEntry: null },
     ])
 
-    expect(prefetch.inWindow.get('product-a|kind-1|PLN')?.map((r) => r.id)).toEqual(['a-in'])
-    expect(prefetch.inWindow.get('product-b|kind-1|PLN')?.map((r) => r.id)).toEqual(['b-in'])
-    // The baseline is the whole instant, so each product gets an array of the rows in effect.
-    expect(prefetch.baseline.get('product-a|kind-1|PLN')?.map((r) => r.unitPriceGross)).toEqual(['100'])
-    expect(prefetch.baseline.get('product-b|kind-1|PLN')?.map((r) => r.unitPriceGross)).toEqual(['200'])
+    // Looked up through the same function the resolver uses, not a literal: the point under test
+    // is that each product gets its own scope's answer, not what the key happens to look like.
+    expect(prefetch.byKey.get(buildPrefetchKey(productA))?.lowest?.unitPriceGross).toBe('90')
+    expect(prefetch.byKey.get(buildPrefetchKey(productB))?.lowest?.unitPriceGross).toBe('70')
+    // The baseline is the cheapest row of the instant that was in effect when the window opened.
+    expect(prefetch.byKey.get(buildPrefetchKey(productA))?.baselineLowest?.unitPriceGross).toBe('100')
+    expect(prefetch.byKey.get(buildPrefetchKey(productB))?.baselineLowest?.unitPriceGross).toBe('200')
   })
 
   it('resolves to the same block with and without the prefetch', async () => {
@@ -1144,6 +1266,7 @@ describe('DefaultCatalogOmnibusService — page-wide history prefetch', () => {
     // Empty batch: no key present, so the resolver must not treat that as "no history".
     findMock.mockResolvedValue([])
     const prefetch = await service.prefetchHistoryForProducts(em, [{ ctx: productA, presentedPriceEntry: null }])
+    expect(prefetch.byKey.has('product-c|kind-1|PLN')).toBe(false)
     findMock.mockReset()
     findMock
       .mockResolvedValueOnce([rowFor('product-c', '100', BASELINE_AT, 'c-base')])
@@ -1173,7 +1296,7 @@ describe('DefaultCatalogOmnibusService — page-wide history prefetch', () => {
     ])
 
     // Left out of the batch on purpose — the perishable branch does its own bounded read.
-    expect(prefetch.inWindow.has('product-a|kind-1|PLN')).toBe(false)
+    expect(prefetch.byKey.has('product-a|kind-1|PLN')).toBe(false)
   })
 })
 

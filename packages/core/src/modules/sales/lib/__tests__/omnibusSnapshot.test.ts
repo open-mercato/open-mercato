@@ -1,5 +1,9 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import { DefaultCatalogOmnibusService } from '../../../catalog/services/catalogOmnibusService'
+import { selectScopeAggregate } from '../../../catalog/services/omnibusAggregate'
+import type { OmnibusAggregateExecutor } from '../../../catalog/services/omnibusAggregate'
+import type { OmnibusBlock, OmnibusHistoryRow } from '../../../catalog/lib/omnibusTypes'
 import {
   applyOmnibusSnapshotToLine,
   readOmnibusSourcePriceId,
@@ -20,7 +24,9 @@ const document: OmnibusDocumentScope = {
   currencyCode: 'PLN',
 }
 
-const block = {
+// Typed, not inferred: the finding this file failed to catch was a mock carrying a field the real
+// OmnibusBlock has never had. Annotating it makes the compiler the guard against that drift.
+const block: OmnibusBlock = {
   presentedPriceKindId: 'kind-1',
   lookbackDays: 30,
   minimizationAxis: 'gross' as const,
@@ -386,6 +392,111 @@ describe('applyOmnibusSnapshotToLine', () => {
 // Compliance case C14, second half. The snapshot is the shop's evidence of what
 // the buyer was shown at purchase time, so a later catalog price change — or any
 // later edit of the same line — must not move it.
+
+/**
+ * The snapshot driven by the real resolver rather than a hand-built block.
+ *
+ * Requested by the PR #5192 review, and it is the test the finding asked for: the helper used to
+ * read `isPersonalized` off the resolved block, `OmnibusBlock` has never carried that field, and
+ * every existing test passed because it mocked a block shape the service does not produce. A mock
+ * cannot catch that class of defect — only running the real service can.
+ *
+ * The only substitution is the aggregate executor, which needs a database. Everything else is the
+ * production object: the same config gating, the same window and anchor derivation, the same
+ * candidate selection through `selectScopeAggregate`, and the same `OmnibusBlock` the API returns.
+ */
+describe('applyOmnibusSnapshotToLine driven by the real CatalogOmnibusService', () => {
+  const promoStartsAt = new Date('2026-06-01T00:00:00.000Z')
+  const historyRows: OmnibusHistoryRow[] = [
+    // Pre-reduction price, in effect when the window opened.
+    { id: 'h-base', priceId: 'other-price', changeType: 'create', unitPriceNet: '81.3008', unitPriceGross: '100.0000', recordedAt: '2026-05-02T00:00:00.000Z', startsAt: null, offerId: null, isAnnounced: null },
+    // A cheaper price that was withdrawn — never a valid reference (finding 3).
+    { id: 'h-gone', priceId: 'other-price', changeType: 'delete', unitPriceNet: '8.1300', unitPriceGross: '10.0000', recordedAt: '2026-05-20T00:00:00.000Z', startsAt: null, offerId: null, isAnnounced: null },
+    // The announced reduction itself — excluded from its own window (EC-7).
+    { id: 'h-promo', priceId, changeType: 'update', unitPriceNet: '65.0407', unitPriceGross: '80.0000', recordedAt: promoStartsAt.toISOString(), startsAt: promoStartsAt.toISOString(), offerId: null, isAnnounced: true },
+  ]
+
+  const toEntity = (row: OmnibusHistoryRow) => ({
+    ...row,
+    recordedAt: new Date(row.recordedAt),
+    startsAt: row.startsAt ? new Date(row.startsAt) : null,
+  })
+
+  const aggregateFromRows: OmnibusAggregateExecutor = async (_em, _scope, axis, scopes) =>
+    new Map(scopes.map((entry) => [entry.key, selectScopeAggregate(historyRows, entry, axis)]))
+
+  function makeRealService() {
+    const moduleConfigService = {
+      getValue: jest.fn().mockResolvedValue({
+        enabled: true,
+        enabledCountryCodes: ['PL'],
+        lookbackDays: 30,
+        minimizationAxis: 'gross',
+        channels: { 'ch-pl': { countryCode: 'PL' } },
+      }),
+    }
+    return new DefaultCatalogOmnibusService(
+      moduleConfigService as unknown as ConstructorParameters<typeof DefaultCatalogOmnibusService>[0],
+      null,
+      aggregateFromRows,
+    )
+  }
+
+  // `em.find` serves resolvePresentedEntryForPrice (newest entry for the sold price);
+  // `em.findOne` serves the price lookup the snapshot does first.
+  function makeRealEm(price: unknown) {
+    return {
+      findOne: jest.fn(async () => price),
+      find: jest.fn(async () => [toEntity(historyRows[2]!)]),
+    } as unknown as EntityManager
+  }
+
+  it('writes a reference the real resolver produced, not one a mock invented', async () => {
+    const line = makeLine()
+    await applyOmnibusSnapshotToLine({
+      em: makeRealEm({ ...priceRow, customerId: 'cust-1' }),
+      service: makeRealService(),
+      line,
+      sourceLine: { productId: 'product-1', priceId, currencyCode: 'PLN' },
+      document,
+      documentKind: 'order',
+    })
+
+    // 100.00, not 80.00: the announced reduction is excluded from its own window (EC-7).
+    // And not 10.00: the withdrawn price was never on offer.
+    expect(line.omnibusReferenceGross).toBe('100.0000')
+    expect(line.omnibusReferenceNet).toBe('81.3008')
+    expect(line.omnibusApplicabilityReason).toBe('announced_promotion')
+    // The window is frozen to the promotion start, so the reference cannot drift mid-campaign.
+    expect(line.omnibusPromotionAnchorAt).toEqual(promoStartsAt)
+    // The field the finding was about: it comes from the price row, and the real block has no
+    // opinion on it at all.
+    expect(line.isPersonalized).toBe(true)
+    expect(line.personalizationReason).toBe('customer_specific_price')
+  })
+
+  it('records nothing when the tenant has Omnibus disabled, through the real config gate', async () => {
+    const moduleConfigService = { getValue: jest.fn().mockResolvedValue({ enabled: false }) }
+    const service = new DefaultCatalogOmnibusService(
+      moduleConfigService as unknown as ConstructorParameters<typeof DefaultCatalogOmnibusService>[0],
+      null,
+      aggregateFromRows,
+    )
+    const line = makeLine()
+
+    await applyOmnibusSnapshotToLine({
+      em: makeRealEm(priceRow),
+      service,
+      line,
+      sourceLine: { productId: 'product-1', priceId },
+      document,
+      documentKind: 'order',
+    })
+
+    expect(line).toEqual({})
+  })
+})
+
 describe('snapshot immutability after the catalog price moves', () => {
   // This helper deliberately has NO internal guard: it overwrites whatever it is
   // given. Immutability therefore lives entirely in the caller condition

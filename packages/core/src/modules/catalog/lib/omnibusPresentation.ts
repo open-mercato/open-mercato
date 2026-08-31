@@ -1,5 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { latestHistoryEntryIdsByPrice } from '../services/omnibusAggregate'
 import { CatalogPriceHistoryEntry, CatalogPriceKind, CatalogProductPrice } from '../data/entities'
 import type { OmnibusConfig } from '../data/validators'
 import type { OmnibusHistoryRow, OmnibusResolutionContext } from './omnibusTypes'
@@ -131,9 +132,9 @@ export type PresentedPriceRequest = {
  *
  * The per-item `resolvePresentedPrice` issues one price query and one history query each, so a
  * 100-row products grid fires 200 of them concurrently through a single forked EntityManager.
- * This collapses that to three: the price kinds, the active prices, and their newest history
- * entries. The neighbouring pricing and unit-conversion enrichment in the same `afterList` hook
- * batches for the same reason.
+ * This collapses that to four for the whole page: the price kinds, the active prices, the id of
+ * each active price's newest history row, and those rows. The neighbouring pricing and
+ * unit-conversion enrichment in the same `afterList` hook batches for the same reason.
  *
  * Selection has to match the per-item version exactly: the active price is the one with the
  * newest `startsAt`, then the newest `updatedAt`.
@@ -191,19 +192,21 @@ export async function resolvePresentedPricesForProducts(
   }
 
   const selectedPriceIds = Array.from(new Set(Array.from(priceByKey.values()).map((price) => price.id)))
-  const newestEntryByPriceId = new Map<string, (typeof entries)[number]>()
-  const entries = selectedPriceIds.length
+  // Two steps rather than one, because "fetch the page's history and keep the newest per price"
+  // is unbounded in the size of the log. The first resolves one winning row id per price, the
+  // second reads exactly those rows through findWithDecryption.
+  const newestEntryIds = await latestHistoryEntryIdsByPrice(em, scope, selectedPriceIds)
+  const entries = newestEntryIds.length
     ? await findWithDecryption(
         em,
         CatalogPriceHistoryEntry,
-        { tenantId: scope.tenantId, organizationId: scope.organizationId, priceId: { $in: selectedPriceIds } },
-        { orderBy: { recordedAt: 'DESC', id: 'DESC' } },
+        { tenantId: scope.tenantId, organizationId: scope.organizationId, id: { $in: newestEntryIds } },
+        undefined,
         scope,
       )
     : []
-  for (const entry of entries) {
-    if (!newestEntryByPriceId.has(entry.priceId)) newestEntryByPriceId.set(entry.priceId, entry)
-  }
+  const newestEntryByPriceId = new Map<string, (typeof entries)[number]>()
+  for (const entry of entries) newestEntryByPriceId.set(entry.priceId, entry)
 
   for (const request of requests) {
     const priceKindIsPromotion = promotionByKind.get(request.priceKindId) === true

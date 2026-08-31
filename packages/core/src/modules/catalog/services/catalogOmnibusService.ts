@@ -6,12 +6,19 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { CatalogPriceHistoryEntry, CatalogProductPrice } from '../data/entities'
 import type { OmnibusChannelConfig, OmnibusConfig } from '../data/validators'
 import { buildHistoryEntry, buildOmnibusCacheTags, MS_PER_DAY } from '../lib/omnibus'
+import { aggregateOmnibusScopes } from './omnibusAggregate'
+import type {
+  OmnibusAggregateExecutor,
+  OmnibusAggregateScope,
+  OmnibusScopeAggregate,
+} from './omnibusAggregate'
 import type { PriceHistorySnapshot } from '../lib/omnibus'
 import {
   CATALOG_SETTINGS_MODULE_ID,
   OMNIBUS_CONFIG_KEY,
   OMNIBUS_DEFAULT_LOOKBACK_DAYS,
 } from '../lib/settings'
+import { OFFERED_CHANGE_TYPES } from '../lib/omnibusTypes'
 import type {
   OmnibusApplicabilityReason,
   OmnibusBlock,
@@ -31,24 +38,22 @@ export type {
 const logger = createLogger('catalog')
 
 const CACHE_TTL_MS = 5 * 60 * 1000
-const IN_WINDOW_ROW_CAP = 1000
-// Enough to cover every price row sharing one backfill instant for a single scope.
-const BASELINE_ROW_CAP = 200
-// Only these two state a price that was actually on offer; see isOfferedPrice.
-const OFFERED_CHANGE_TYPES = ['create', 'update']
+// Bounds the derogation reads, which still walk rows rather than aggregating them: a long campaign
+// on a busy offer would otherwise materialise its whole log on a request path. The standard window
+// needs no cap — `aggregateOmnibusScopes` resolves the minimum in SQL and returns three rows.
+const DEROGATION_ROW_CAP = 1000
 const DEFAULT_PROGRESSIVE_MAX_GAP_DAYS = 7
 
 /**
  * Page-wide history prefetch for the products list.
  *
  * Keyed `productId|priceKindId|currencyCode` — the products-list path resolves product-scoped, so
- * that triple is the whole scope. Built with the same `findWithDecryption` reads the per-scope path
- * uses, so nothing here bypasses the decryption contract or reaches for raw SQL.
+ * that triple is the whole scope. Each entry is the finished answer for its scope, not the rows it
+ * was derived from: one aggregate resolves the whole page, and `computeLowestPrice` runs the same
+ * aggregate for a single scope when the page did not prefetch it.
  */
 export type OmnibusHistoryPrefetch = {
-  baseline: Map<string, OmnibusHistoryRow[]>
-  inWindow: Map<string, OmnibusHistoryRow[]>
-  truncated: Set<string>
+  byKey: Map<string, OmnibusScopeAggregate>
 }
 
 export type OmnibusPrefetchRequest = {
@@ -104,6 +109,8 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
   constructor(
     private readonly moduleConfigService: ModuleConfigService,
     private readonly cache: CacheStrategy | null,
+    // Substituted only by tests, which have no database to run the aggregate against.
+    private readonly aggregate: OmnibusAggregateExecutor = aggregateOmnibusScopes,
   ) {}
 
   async getConfig(scope?: { tenantId?: string | null; organizationId?: string | null }): Promise<OmnibusConfig> {
@@ -215,69 +222,38 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
     const cached = await this.readCache(cacheKey)
     if (cached) return cached
 
-    // A prefetched page serves both reads from memory; anything the batch could not cover falls
-    // back to the per-scope query, so the result is identical either way.
-    const prefetchKey = prefetch ? buildPrefetchKey(ctx) : null
-    const prefetched = prefetchKey && prefetch?.inWindow.has(prefetchKey) ? prefetch : null
+    // One SQL aggregate answers the scope, whether or not the page prefetched it. Keeping a single
+    // code path is the point: the batched and per-scope routes previously diverged on ties, and a
+    // divergence here is a wrong legally-binding reference price.
+    //
+    // EC-7 lives inside that statement: the announced reduction must not become its own reference,
+    // enforced by presented-row identity (catches a non-anchored promotion) and the anchor bound
+    // (catches the rest). The `change_type` filter is separate and just as load-bearing — `delete`
+    // records the value a price held as it was withdrawn, and the undo of a `create` records the
+    // value being removed, so both describe prices that were never on offer at that point. Counting
+    // them lets a fat-fingered price that was immediately undone become the legal reference for ever.
+    const prefetchKey = buildPrefetchKey(ctx)
+    const aggregate =
+      prefetch?.byKey.get(prefetchKey) ??
+      (await this.aggregate(em, { tenantId: ctx.tenantId, organizationId: ctx.organizationId }, axis, [
+        buildAggregateScope(prefetchKey, ctx, windowStart, windowEnd, anchor, presentedPriceEntry),
+      ])).get(prefetchKey)!
 
-    const baselineRows = prefetched
-      ? (prefetched.baseline.get(prefetchKey!) ?? (await this.fetchBaseline(em, ctx, windowStart)))
-      : await this.fetchBaseline(em, ctx, windowStart)
-    const { rows: inWindow, truncated } = prefetched
-      ? {
-          rows: (prefetched.inWindow.get(prefetchKey!) ?? []).filter((row) => {
-            const at = new Date(row.recordedAt)
-            return at > windowStart && at <= windowEnd
-          }),
-          truncated: prefetched.truncated.has(prefetchKey!),
-        }
-      : await this.fetchInWindow(em, ctx, windowStart, windowEnd, axis)
-    if (truncated) {
-      // The minimum itself survives the cap because the scan is ordered by the axis, but the
-      // window is no longer fully represented, so `coverageStartAt` and `previousRow` are
-      // approximate. Say so rather than presenting a complete-looking block.
-      logger.warn('Omnibus in-window scan hit the row cap', {
-        tenantId: ctx.tenantId,
-        organizationId: ctx.organizationId,
-        productId: ctx.productId,
-        variantId: ctx.variantId,
-        channelId: ctx.channelId,
-        cap: IN_WINDOW_ROW_CAP,
-      })
-    }
-
-    // EC-7: the announced reduction must not become its own reference. Both filters are
-    // needed — identity catches a non-anchored promotion, the anchor bound catches the rest.
-    // The change_type filter is separate and just as load-bearing: `delete` records the value a
-    // price held as it was withdrawn, and the undo of a `create` records the value being removed,
-    // so both describe prices that were never on offer at that point. Counting them lets a
-    // fat-fingered price that was immediately undone become the legal reference for ever.
-    const candidates = [...baselineRows, ...inWindow].filter(
-      (row) =>
-        isOfferedPrice(row) &&
-        !isPresentedReduction(row, presentedPriceEntry) &&
-        (anchor === null || new Date(row.recordedAt) < anchor),
-    )
-
-    let lowestRow = pickLowestRow(candidates, axis)
+    const lowestRow = aggregate.lowest
     let previousRow: OmnibusHistoryRow | null = null
     let insufficientHistory = false
     let coverageStartAt: string | null = null
 
     if (lowestRow) {
-      const baselineIds = new Set(baselineRows.map((row) => row.id))
-      const keptBaseline = candidates.filter((row) => baselineIds.has(row.id))
-      if (keptBaseline.length && !truncated) {
+      if (aggregate.baselineLowest) {
         // Several rows can share the baseline instant; the cheapest is the one that matters,
         // for the same reason the reference itself is a minimum.
-        previousRow = pickLowestRow(keptBaseline, axis) ?? keptBaseline[0]!
+        previousRow = aggregate.baselineLowest
       } else {
-        previousRow = pickOldestRow(candidates)
+        previousRow = aggregate.oldest
         insufficientHistory = true
         coverageStartAt = previousRow?.recordedAt ?? null
       }
-    } else {
-      lowestRow = null
     }
 
     const result: OmnibusLowestPriceResult = {
@@ -424,18 +400,22 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
   }
 
   /**
-   * Two queries for a whole products page instead of two per row.
+   * One aggregate for a whole products page instead of a read per row.
    *
-   * The windows differ per product — each has its own anchor and its own new-arrival lookback — so
-   * the batch fetches the union window and each product filters its own slice out in memory. The
-   * baseline read is capped, and `computeLowestPrice` falls back to a per-scope query for any
-   * product the cap did not reach, which keeps the result identical to the unbatched path.
+   * Each product has its own anchor and its own new-arrival lookback, so each becomes its own row
+   * in the aggregate's `scopes` list and the database resolves them together — one statement per
+   * distinct minimisation axis for the whole page, rather than one read per product.
+   *
+   * A scope this cannot answer is simply left out: `resolveWindowFor` declines whenever a
+   * derogation, an offer anchor or a gate would take a different path, and `computeLowestPrice`
+   * then runs the same aggregate for that one scope. Absence is what keeps the batched and
+   * per-scope routes identical — there is no second selection algorithm to keep in step.
    */
   async prefetchHistoryForProducts(
     em: EntityManager,
     requests: OmnibusPrefetchRequest[],
   ): Promise<OmnibusHistoryPrefetch> {
-    const empty: OmnibusHistoryPrefetch = { baseline: new Map(), inWindow: new Map(), truncated: new Set() }
+    const empty: OmnibusHistoryPrefetch = { byKey: new Map() }
     if (!requests.length) return empty
 
     const config = await this.getConfig({
@@ -453,79 +433,31 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
     if (!scoped.length) return empty
 
     const { tenantId, organizationId } = requests[0]!.ctx
-    const scope = { tenantId, organizationId }
-    const productIds = Array.from(new Set(scoped.map((entry) => entry.ctx.productId).filter(Boolean) as string[]))
-    const priceKindIds = Array.from(new Set(scoped.map((entry) => entry.ctx.priceKindId)))
-    const currencyCodes = Array.from(new Set(scoped.map((entry) => entry.ctx.currencyCode)))
-    const channelIds = Array.from(new Set(scoped.map((entry) => entry.ctx.channelId).filter(Boolean) as string[]))
-    if (!productIds.length) return empty
 
-    const unionStart = new Date(Math.min(...scoped.map((entry) => entry.windowStart.getTime())))
-    const unionEnd = new Date(Math.max(...scoped.map((entry) => entry.windowEnd.getTime())))
-    const maxStart = new Date(Math.max(...scoped.map((entry) => entry.windowStart.getTime())))
-
-    const baseFilters: Record<string, unknown> = {
-      tenantId: { $eq: tenantId },
-      organizationId: { $eq: organizationId },
-      productId: { $in: productIds },
-      priceKindId: { $in: priceKindIds },
-      currencyCode: { $in: currencyCodes },
-      changeType: { $in: OFFERED_CHANGE_TYPES },
-    }
-    if (channelIds.length) baseFilters.channelId = { $in: channelIds }
-
-    const pageCap = IN_WINDOW_ROW_CAP * Math.max(1, productIds.length)
-    const [inWindowRows, baselineRows] = await Promise.all([
-      findWithDecryption(
-        em,
-        CatalogPriceHistoryEntry,
-        { ...baseFilters, recordedAt: { $gt: unionStart, $lte: unionEnd } },
-        { orderBy: [{ recordedAt: 'DESC' }, { id: 'DESC' }], limit: pageCap },
-        scope,
-      ),
-      findWithDecryption(
-        em,
-        CatalogPriceHistoryEntry,
-        { ...baseFilters, recordedAt: { $lte: maxStart } },
-        { orderBy: [{ recordedAt: 'DESC' }, { id: 'DESC' }], limit: pageCap },
-        scope,
-      ),
-    ])
-
-    const inWindowByKey = new Map<string, OmnibusHistoryRow[]>()
-    for (const raw of inWindowRows) {
-      const key = buildPrefetchKeyFromEntry(raw)
-      const bucket = inWindowByKey.get(key) ?? []
-      bucket.push(mapRow(raw))
-      inWindowByKey.set(key, bucket)
-    }
-    // Rows arrive newest-first, so the first hit per key at or before a given start is its baseline.
-    const baselineCandidates = new Map<string, OmnibusHistoryRow[]>()
-    for (const raw of baselineRows) {
-      const key = buildPrefetchKeyFromEntry(raw)
-      const bucket = baselineCandidates.get(key) ?? []
-      bucket.push(mapRow(raw))
-      baselineCandidates.set(key, bucket)
-    }
-
-    const result: OmnibusHistoryPrefetch = { baseline: new Map(), inWindow: new Map(), truncated: new Set() }
+    // The axis is per-channel configurable, so a page spanning two channels can need both. One
+    // statement per distinct axis, which is one in every configuration shipped today.
+    const byAxis = new Map<OmnibusMinimizationAxis, OmnibusAggregateScope[]>()
+    const seen = new Set<string>()
     for (const entry of scoped) {
-      const rows = (inWindowByKey.get(entry.key) ?? []).filter((row) => {
-        const at = new Date(row.recordedAt)
-        return at > entry.windowStart && at <= entry.windowEnd
-      })
-      result.inWindow.set(entry.key, rows)
-      if (rows.length >= IN_WINDOW_ROW_CAP) result.truncated.add(entry.key)
-
-      const eligible = (baselineCandidates.get(entry.key) ?? []).filter(
-        (row) => new Date(row.recordedAt) <= entry.windowStart,
+      // Two rows of the same page can share a scope; the aggregate answers it once.
+      if (seen.has(entry.key)) continue
+      seen.add(entry.key)
+      const bucket = byAxis.get(entry.axis) ?? []
+      bucket.push(
+        buildAggregateScope(entry.key, entry.ctx, entry.windowStart, entry.windowEnd, entry.anchor, entry.presentedPriceEntry),
       )
-      const atInstant = takeNewestInstant(eligible)
-      // Absent means "the cap did not reach it", not "there is none" — leaving the key unset makes
-      // computeLowestPrice fall back to its own query rather than silently treating it as missing.
-      if (atInstant.length) result.baseline.set(entry.key, atInstant)
+      byAxis.set(entry.axis, bucket)
     }
-    return result
+
+    const results = await Promise.all(
+      Array.from(byAxis.entries()).map(([axis, entries]) =>
+        this.aggregate(em, { tenantId, organizationId }, axis, entries),
+      ),
+    )
+
+    const byKey = new Map<string, OmnibusScopeAggregate>()
+    for (const map of results) for (const [key, value] of map) byKey.set(key, value)
+    return { byKey }
   }
 
   /**
@@ -536,7 +468,7 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
     ctx: OmnibusResolutionContext,
     config: OmnibusConfig,
     presentedPriceEntry: OmnibusHistoryRow | null,
-  ): { windowStart: Date; windowEnd: Date } | null {
+  ): { windowStart: Date; windowEnd: Date; anchor: Date | null; axis: OmnibusMinimizationAxis } | null {
     if (!ctx.productId || ctx.variantId || ctx.offerId) return null
     const enabledCountryCodes = config.enabledCountryCodes ?? []
     if (!enabledCountryCodes.length) return null
@@ -556,63 +488,8 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
     const effectiveLookbackDays = newArrival?.lookbackDays ?? lookbackDays
     const anchor = presentedPriceEntry?.startsAt ? new Date(presentedPriceEntry.startsAt) : null
     const windowEnd = anchor ?? new Date()
-    return { windowStart: subtractDays(windowEnd, effectiveLookbackDays), windowEnd }
-  }
-
-  /**
-   * Every row that was in effect when the window opened — not one of them.
-   *
-   * `omnibus:backfill` stamps every price it seeds with a single `recorded_at`, so a product with
-   * more than one variant or price row always has several rows sharing the baseline instant. Taking
-   * `limit: 1` picked among them by id, which is arbitrary: the same data resolved to 138, 148 or
-   * 168 depending on which row happened to come back. Worse, discarding the others throws away
-   * genuine candidates, so the reference could come out too high. There is no single "price in
-   * effect at window start" for a product-scoped query; there is a set, and the minimum over it is
-   * the answer.
-   */
-  private async fetchBaseline(
-    em: EntityManager,
-    ctx: OmnibusResolutionContext,
-    windowStart: Date,
-  ): Promise<OmnibusHistoryRow[]> {
-    const filters = buildScopeFilters(ctx)
-    filters.recordedAt = { $lte: windowStart }
-    filters.changeType = { $in: OFFERED_CHANGE_TYPES }
-    const rows = await findWithDecryption(
-      em,
-      CatalogPriceHistoryEntry,
-      filters,
-      { orderBy: { recordedAt: 'DESC', id: 'DESC' }, limit: BASELINE_ROW_CAP },
-      { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
-    )
-    return takeNewestInstant(rows.map(mapRow))
-  }
-
-  private async fetchInWindow(
-    em: EntityManager,
-    ctx: OmnibusResolutionContext,
-    windowStart: Date,
-    windowEnd: Date,
-    axis: OmnibusMinimizationAxis,
-  ): Promise<{ rows: OmnibusHistoryRow[]; truncated: boolean }> {
-    const filters = buildScopeFilters(ctx)
-    // Inclusive upper bound; the EC-7 filter drops rows at or after the anchor.
-    filters.recordedAt = { $gt: windowStart, $lte: windowEnd }
-    filters.changeType = { $in: OFFERED_CHANGE_TYPES }
-    // Ordered by the minimisation axis, NOT by time. The cap has to drop something once a
-    // scope exceeds it, and dropping the most expensive rows is harmless — dropping the
-    // oldest, as a recordedAt ordering does, throws away exactly the rows most likely to
-    // hold the minimum and yields a reference price that is too high. Postgres sorts NULLs
-    // last on ASC, so rows with no value on the axis are shed first.
-    const axisColumn = axis === 'net' ? 'unitPriceNet' : 'unitPriceGross'
-    const rows = await findWithDecryption(
-      em,
-      CatalogPriceHistoryEntry,
-      filters,
-      { orderBy: [{ [axisColumn]: 'ASC' }, { recordedAt: 'DESC' }, { id: 'DESC' }], limit: IN_WINDOW_ROW_CAP },
-      { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
-    )
-    return { rows: rows.map(mapRow), truncated: rows.length >= IN_WINDOW_ROW_CAP }
+    const axis: OmnibusMinimizationAxis = channelConfig?.minimizationAxis ?? config.minimizationAxis ?? 'gross'
+    return { windowStart: subtractDays(windowEnd, effectiveLookbackDays), windowEnd, anchor, axis }
   }
 
   private async fetchFirstOfferEntry(
@@ -625,6 +502,7 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
     // the offer id onto it. Anchoring to one freezes the window at backfill time and every
     // later real reduction falls outside it.
     filters.source = { $ne: 'system' }
+    filters.changeType = { $in: OFFERED_CHANGE_TYPES }
     const rows = await findWithDecryption(
       em,
       CatalogPriceHistoryEntry,
@@ -646,13 +524,17 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
     axis: OmnibusMinimizationAxis,
     lookbackDays: number,
   ): Promise<OmnibusLowestPriceResult | null> {
+    const campaignFilters = buildScopeFilters({ ...ctx, offerId })
+    // A withdrawal or an undo is not a campaign step; counting one as a reduction would let a
+    // monotonic campaign look broken, or a broken one look monotonic.
+    campaignFilters.changeType = { $in: OFFERED_CHANGE_TYPES }
     const rows = await findWithDecryption(
       em,
       CatalogPriceHistoryEntry,
-      buildScopeFilters({ ...ctx, offerId }),
+      campaignFilters,
       // Bounded like every other history read: a long campaign on a busy offer would otherwise
       // materialise its whole log on a request path.
-      { orderBy: { recordedAt: 'ASC', id: 'ASC' }, limit: IN_WINDOW_ROW_CAP },
+      { orderBy: { recordedAt: 'ASC', id: 'ASC' }, limit: DEROGATION_ROW_CAP },
       { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
     )
     const entries = rows.map(mapRow)
@@ -669,6 +551,7 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
 
     const preCampaignFilters = buildScopeFilters({ ...ctx, offerId: undefined })
     preCampaignFilters.offerId = null
+    preCampaignFilters.changeType = { $in: OFFERED_CHANGE_TYPES }
     preCampaignFilters.recordedAt = { $lt: new Date(firstOfferEntry.recordedAt) }
     const baselineRows = await findWithDecryption(
       em,
@@ -713,6 +596,9 @@ export class DefaultCatalogOmnibusService implements CatalogOmnibusService {
     // "Immediately preceding the reduction" bounds this by the presented entry, not `now`:
     // that entry is normally the newest row, so without the bound it becomes its own reference.
     const filters = buildScopeFilters(ctx)
+    // Same rule as the standard path: a withdrawn or undone price was never on offer, so it cannot
+    // be "the price immediately preceding the reduction" either.
+    filters.changeType = { $in: OFFERED_CHANGE_TYPES }
     if (presentedPriceEntry) {
       filters.recordedAt = { $lt: new Date(presentedPriceEntry.recordedAt) }
     }
@@ -857,26 +743,55 @@ function resolvePriceProductId(price: CatalogProductPrice): string | null {
   return null
 }
 
-// Only `create` and `update` state a price that was actually on offer. Excluding `undo` loses
-// nothing: an undo restores a value that its own earlier create/update row already records.
-// The rows at the newest recorded instant, which is the set that was simultaneously in effect.
-function takeNewestInstant(rows: OmnibusHistoryRow[]): OmnibusHistoryRow[] {
-  if (!rows.length) return []
-  const newest = rows.reduce((max, row) => (row.recordedAt > max ? row.recordedAt : max), rows[0]!.recordedAt)
-  return rows.filter((row) => row.recordedAt === newest)
+/**
+ * Translate a resolution context into the aggregate's scope shape. `variantId` narrows instead of
+ * `productId` rather than alongside it, matching buildScopeFilters — an offer can span products, so
+ * the narrower of the two is the whole scope.
+ */
+function buildAggregateScope(
+  key: string,
+  ctx: OmnibusResolutionContext,
+  windowStart: Date,
+  windowEnd: Date,
+  anchor: Date | null,
+  presented: OmnibusHistoryRow | null,
+): OmnibusAggregateScope {
+  return {
+    key,
+    offerId: ctx.offerId ?? null,
+    variantId: ctx.variantId ?? null,
+    productId: ctx.variantId ? null : (ctx.productId ?? null),
+    priceKindId: ctx.priceKindId,
+    currencyCode: ctx.currencyCode,
+    channelId: ctx.channelId ?? null,
+    windowStart,
+    windowEnd,
+    anchor,
+    presented,
+  }
 }
 
-function buildPrefetchKey(ctx: OmnibusResolutionContext): string {
-  return `${ctx.productId ?? ''}|${ctx.priceKindId}|${ctx.currencyCode}`
+/**
+ * Identity of a resolution scope. Exported because it is the key of `OmnibusHistoryPrefetch.byKey`,
+ * so anything reading that map needs it — the format itself is not a contract.
+ *
+ * Every dimension `buildAggregateScope` narrows on is in here. That is not decoration: a lookup
+ * that hits an entry answering a *different* scope returns a reference price resolved from the
+ * wrong rows, and it does so silently. Product-scoped and variant-scoped resolutions of the same
+ * product previously produced the same key, and only the fact that the one caller passing a
+ * prefetch never resolves variant-scoped kept them apart.
+ */
+export function buildPrefetchKey(ctx: OmnibusResolutionContext): string {
+  return [
+    ctx.productId ?? '',
+    ctx.variantId ?? '',
+    ctx.offerId ?? '',
+    ctx.channelId ?? '',
+    ctx.priceKindId,
+    ctx.currencyCode,
+  ].join('|')
 }
 
-function buildPrefetchKeyFromEntry(entry: CatalogPriceHistoryEntry): string {
-  return `${entry.productId}|${entry.priceKindId}|${entry.currencyCode}`
-}
-
-function isOfferedPrice(row: OmnibusHistoryRow): boolean {
-  return row.changeType === 'create' || row.changeType === 'update'
-}
 
 function isPresentedReduction(row: OmnibusHistoryRow, presented: OmnibusHistoryRow | null): boolean {
   if (!presented) return false
@@ -885,42 +800,6 @@ function isPresentedReduction(row: OmnibusHistoryRow, presented: OmnibusHistoryR
     row.changeType === presented.changeType &&
     row.recordedAt === presented.recordedAt
   )
-}
-
-// Deterministic tie-break: lowest value on the axis, then earliest recording, then smallest id.
-// A null value on the axis is treated as +Infinity so such a row is never selected as lowest.
-function pickLowestRow(rows: OmnibusHistoryRow[], axis: OmnibusMinimizationAxis): OmnibusHistoryRow | null {
-  let best: OmnibusHistoryRow | null = null
-  let bestValue = Number.POSITIVE_INFINITY
-  for (const row of rows) {
-    const value = getPriceValue(row, axis)
-    if (!Number.isFinite(value)) continue
-    if (best === null || value < bestValue) {
-      best = row
-      bestValue = value
-      continue
-    }
-    if (value === bestValue && best !== null) {
-      if (row.recordedAt < best.recordedAt || (row.recordedAt === best.recordedAt && row.id < best.id)) {
-        best = row
-      }
-    }
-  }
-  return best
-}
-
-function pickOldestRow(rows: OmnibusHistoryRow[]): OmnibusHistoryRow | null {
-  let oldest: OmnibusHistoryRow | null = null
-  for (const row of rows) {
-    if (
-      oldest === null ||
-      row.recordedAt < oldest.recordedAt ||
-      (row.recordedAt === oldest.recordedAt && row.id < oldest.id)
-    ) {
-      oldest = row
-    }
-  }
-  return oldest
 }
 
 function buildScopeFilters(ctx: OmnibusResolutionContext): Record<string, unknown> {

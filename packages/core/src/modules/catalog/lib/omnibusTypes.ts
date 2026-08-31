@@ -1,4 +1,21 @@
 import { z } from 'zod'
+import type { CatalogPriceHistoryChangeType } from '../data/types'
+
+/**
+ * The only change types that state a price a consumer could actually have paid.
+ *
+ * `delete` records the value a price held as it was withdrawn, and the undo of a `create` records
+ * the value being removed, so neither was ever on offer and neither may become the legal reference
+ * (PR #5192 review, finding 3). Excluding `undo` loses nothing: an undo restores a value its own
+ * earlier create/update row already records.
+ *
+ * Single source of truth on purpose. The rule has to hold in three places that cannot share code —
+ * the SQL aggregate, its in-memory twin, and the MikroORM filters on the derogation reads — and the
+ * finding this constant exists for was precisely the rule being applied in some of them and not
+ * others. It lives here, with the types, because the aggregate must not pull the ORM entity graph
+ * in behind it.
+ */
+export const OFFERED_CHANGE_TYPES: readonly CatalogPriceHistoryChangeType[] = ['create', 'update']
 
 export const omnibusApplicabilityReasonSchema = z.enum([
   'no_history',
