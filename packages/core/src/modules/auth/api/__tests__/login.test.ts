@@ -340,6 +340,7 @@ describe('POST /api/auth/login with custom route interceptors', () => {
             methods: ['POST'],
             async after() {
               return {
+                statusCode: 403,
                 replace: {
                   ok: false,
                   code: 'AUTH_POLICY_REQUIRED',
@@ -357,12 +358,40 @@ describe('POST /api/auth/login with custom route interceptors', () => {
       body: makeFormData({ email: 'user@example.com', password: 'secret' }),
     }))
 
-    expect(res.status).toBe(200)
+    expect(res.status).toBe(403)
     expect(await res.json()).toEqual({
       ok: false,
       code: 'AUTH_POLICY_REQUIRED',
       error: 'Authentication policy requirement was not met',
     })
+    expect(res.headers.get('set-cookie')).toBeNull()
+    expect(authServiceMock.deleteSessionById).toHaveBeenCalledWith('session-1')
+  })
+
+  test('never answers an interceptor rejection with a 2xx status', async () => {
+    registerApiInterceptors([
+      {
+        moduleId: 'example',
+        interceptors: [
+          {
+            id: 'example.auth.login.reject-without-status',
+            targetRoute: 'auth/login',
+            methods: ['POST'],
+            async after() {
+              return { replace: { ok: false, code: 'MFA_UNAVAILABLE', error: 'MFA is unavailable' } }
+            },
+          },
+        ],
+      },
+    ])
+
+    const res = await POST(new Request('http://localhost/api/auth/login', {
+      method: 'POST',
+      body: makeFormData({ email: 'user@example.com', password: 'secret' }),
+    }))
+
+    expect(res.status).toBe(500)
+    expect(await res.json()).toEqual({ ok: false, code: 'MFA_UNAVAILABLE', error: 'MFA is unavailable' })
     expect(res.headers.get('set-cookie')).toBeNull()
     expect(authServiceMock.deleteSessionById).toHaveBeenCalledWith('session-1')
   })

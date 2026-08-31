@@ -232,6 +232,7 @@ async function handleLoginRequest(req: Request) {
   }
 
   const interceptedBody = interceptedResponse.body
+  const interceptedFailureStatus = interceptedResponse.statusCode >= 400 ? interceptedResponse.statusCode : 500
   const authTokenForCookie = interceptedBody.ok === true
     && typeof interceptedBody.token === 'string'
     && interceptedBody.token.length > 0
@@ -245,7 +246,7 @@ async function handleLoginRequest(req: Request) {
         { status: 500 },
       )
     }
-    return NextResponse.json(interceptedBody, { status: interceptedResponse.statusCode })
+    return NextResponse.json(interceptedBody, { status: interceptedFailureStatus })
   }
   const refreshTokenForCookie = typeof interceptedBody.refreshToken === 'string'
     ? interceptedBody.refreshToken
@@ -308,6 +309,7 @@ const loginMethodDoc: OpenApiMethodDoc = {
     { status: 401, description: 'Invalid credentials', schema: loginErrorSchema },
     { status: 403, description: 'User lacks required role', schema: loginErrorSchema },
     { status: 429, description: 'Too many login attempts', schema: rateLimitErrorSchema },
+    { status: 503, description: 'A login interceptor declared the sign-in unavailable (for example the MFA challenge could not be created)', schema: loginErrorSchema },
   ],
 }
 

@@ -132,6 +132,7 @@ describe('security auth/login api interceptor', () => {
     )
 
     expect(result).toEqual({
+      statusCode: 503,
       replace: {
         ok: false,
         code: 'MFA_UNAVAILABLE',
@@ -200,6 +201,7 @@ describe('security auth/login api interceptor', () => {
     )
 
     expect(result).toEqual({
+      statusCode: 503,
       replace: {
         ok: false,
         code: 'MFA_UNAVAILABLE',
@@ -234,6 +236,7 @@ describe('security auth/login api interceptor', () => {
     )
 
     expect(result).toEqual({
+      statusCode: 503,
       replace: {
         ok: false,
         code: 'MFA_UNAVAILABLE',

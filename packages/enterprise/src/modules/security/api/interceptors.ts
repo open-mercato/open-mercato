@@ -1,4 +1,4 @@
-import type { ApiInterceptor } from '@open-mercato/shared/lib/crud/api-interceptor'
+import type { ApiInterceptor, InterceptorAfterResult } from '@open-mercato/shared/lib/crud/api-interceptor'
 import { verifyJwt } from '@open-mercato/shared/lib/auth/jwt'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -56,9 +56,10 @@ function resolveMfaVerificationService(container: { resolve: (name: string) => u
   }
 }
 
-async function mfaUnavailableResponse() {
+async function mfaUnavailableResponse(): Promise<InterceptorAfterResult> {
   const { translate } = await resolveTranslations()
   return {
+    statusCode: 503,
     replace: {
       ok: false,
       code: 'MFA_UNAVAILABLE',
