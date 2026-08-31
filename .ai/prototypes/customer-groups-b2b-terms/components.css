@@ -97,12 +97,12 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .input-invalid { border-color: var(--destructive); }
 .field-error { font-size: 0.75rem; color: var(--status-error-text); }
 .input-group { display: flex; align-items: center; gap: 0.5rem; }
-.addon svg { width: 1rem; height: 1rem; flex: none; }
 .addon {
   display: inline-flex; align-items: center; padding: 0 0.625rem; height: 2.25rem;
   border: 1px solid var(--input); border-radius: var(--radius-md);
   background: var(--muted); color: var(--muted-foreground); font-size: 0.75rem;
 }
+.addon svg { width: 0.875rem; height: 0.875rem; flex: none; }
 
 /* Switch */
 .switch {
@@ -154,6 +154,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
   display: inline-flex; align-items: center; gap: 0.5rem;
 }
 .tabs > button[aria-selected="true"] { color: var(--foreground); border-bottom-color: var(--primary); }
+.tabs > button svg { width: 1rem; height: 1rem; flex: none; }
 .tab-count {
   font-size: var(--font-size-overline); line-height: 1rem; padding: 0 0.375rem;
   border-radius: 9999px; background: var(--muted); color: var(--muted-foreground);

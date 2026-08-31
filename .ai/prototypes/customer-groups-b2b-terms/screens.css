@@ -467,7 +467,7 @@
 @media (min-width: 640px) { .form-head { flex-direction: row; align-items: center; justify-content: space-between; gap: 0.75rem; } }
 .form-head .title { font-size: 1rem; font-weight: 500; }
 .back-link { display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.875rem; color: var(--muted-foreground); text-decoration: none; }
-.back-link svg { width: 1rem; height: 1rem; }
+.back-link svg { width: 1rem; height: 1rem; flex: none; }
 .back-link:hover { color: var(--foreground); }
 /* FormFooter — order is extraActions → Delete → Cancel → Save */
 .form-foot { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }

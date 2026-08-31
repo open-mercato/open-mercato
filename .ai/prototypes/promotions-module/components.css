@@ -97,12 +97,12 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .input-invalid { border-color: var(--destructive); }
 .field-error { font-size: 0.75rem; color: var(--status-error-text); }
 .input-group { display: flex; align-items: center; gap: 0.5rem; }
-.addon svg { width: 1rem; height: 1rem; flex: none; }
 .addon {
   display: inline-flex; align-items: center; padding: 0 0.625rem; height: 2.25rem;
   border: 1px solid var(--input); border-radius: var(--radius-md);
   background: var(--muted); color: var(--muted-foreground); font-size: 0.75rem;
 }
+.addon svg { width: 1rem; height: 1rem; flex: none; }
 
 /* Switch */
 .switch {

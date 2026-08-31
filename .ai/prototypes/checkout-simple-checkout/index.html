@@ -1,0 +1,777 @@
+<!doctype html>
+<html lang="en" data-prototype-id="checkout-simple-checkout">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Checkout Funnel — interactive prototype (deliberate scope exception, funnel screens)</title>
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="components.css" />
+<link rel="stylesheet" href="screens.css" />
+<link rel="stylesheet" href="prototype.css" />
+<style>
+  /* Storefront funnel additions (screens 1-16) — same rationale as the storefront-app
+     prototype: not backend AppShell, plain DS tokens only. Screens 17-18 (admin session
+     viewer) reuse screens.css's real .app/.sidebar/.topbar/.dt backend primitives instead —
+     that surface is genuinely in scope, no exception needed there. */
+  .sf-header{display:flex;align-items:center;gap:1.5rem;padding:0.875rem 1.5rem;border-bottom:1px solid var(--border);background:var(--background)}
+  .sf-logo{font-weight:600;font-size:1rem;letter-spacing:-0.01em}
+  .sf-header-actions{display:flex;align-items:center;gap:0.75rem;margin-left:auto}
+  .sf-container{max-width:44rem;margin:0 auto;padding:0 1.5rem}
+  .sf-footer{border-top:1px solid var(--border);padding:1.5rem;display:flex;justify-content:space-between;font-size:0.8125rem;color:var(--muted-foreground)}
+  .co-page{padding:2rem 1.5rem 3rem}
+  .co-stepper{display:flex;align-items:center;max-width:44rem;margin:0 auto 2rem}
+  .co-step{display:flex;align-items:center;gap:0.5rem;font-size:0.8125rem;color:var(--muted-foreground)}
+  .co-step-circle{width:1.625rem;height:1.625rem;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:0.75rem;font-weight:600;border:1px solid var(--border);background:var(--card);flex-shrink:0}
+  .co-step.done .co-step-circle{background:var(--primary);color:var(--primary-foreground);border-color:var(--primary)}
+  .co-step.active .co-step-circle{border-color:var(--primary);border-width:2px;color:var(--primary)}
+  .co-step.active{color:var(--foreground);font-weight:500}
+  .co-step-line{flex:1;height:1px;background:var(--border);margin:0 0.625rem;min-width:1rem}
+  .radio-card{border:1px solid var(--border);border-radius:var(--radius-lg);padding:0.875rem 1rem;display:flex;align-items:center;gap:0.75rem;cursor:pointer;margin-bottom:0.625rem}
+  .radio-card[aria-checked="true"]{border-color:var(--primary);border-width:2px;background:color-mix(in oklab, var(--primary) 6%, var(--card))}
+  .radio-dot{width:1.1rem;height:1.1rem;border-radius:50%;border:2px solid var(--border);flex-shrink:0}
+  .radio-card[aria-checked="true"] .radio-dot{border-color:var(--primary);box-shadow:inset 0 0 0 3px var(--card);background:var(--primary)}
+  .co-summary-line{display:flex;justify-content:space-between;padding:0.5rem 0;border-bottom:1px solid var(--border);font-size:0.875rem}
+  .co-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:0.75rem}
+  .co-form-grid .full{grid-column:1/-1}
+  .co-center{text-align:center;padding:3rem 1.5rem}
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<symbol id="ic-home" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></symbol>
+<symbol id="ic-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+<symbol id="ic-chevron-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></symbol>
+<symbol id="ic-chevron-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></symbol>
+<symbol id="ic-bell" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></symbol>
+<symbol id="ic-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/></symbol>
+<symbol id="ic-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></symbol>
+<symbol id="ic-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+<symbol id="ic-save" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7H7v7"/><path d="M7 3v5h8"/></symbol>
+<symbol id="ic-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></symbol>
+<symbol id="ic-warn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
+<symbol id="ic-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></symbol>
+<symbol id="ic-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+<symbol id="ic-package" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73Z"/><path d="M12 22V12"/><path d="M3.29 7 12 12l8.71-5"/><path d="m7.5 4.27 9 5.15"/></symbol>
+<symbol id="ic-mail" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></symbol>
+<symbol id="ic-phone" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13.832 16.568a1 1 0 0 0 1.213-.303l.355-.465A2 2 0 0 1 17 15h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2A18 18 0 0 1 2 4a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2v3a2 2 0 0 1-.8 1.6l-.468.351a1 1 0 0 0-.292 1.233 14 14 0 0 0 6.392 6.384"/></symbol>
+<symbol id="ic-map-pin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/></symbol>
+<symbol id="ic-truck" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14"/><circle cx="17" cy="18" r="2"/><circle cx="7" cy="18" r="2"/></symbol>
+<symbol id="ic-credit-card" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></symbol>
+<symbol id="ic-file-text" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></symbol>
+<symbol id="ic-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></symbol>
+<symbol id="ic-arrow-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></symbol>
+<symbol id="ic-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></symbol>
+<symbol id="ic-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.06 12.35a1 1 0 0 1 0-.7 10.75 10.75 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-19.88 0"/><circle cx="12" cy="12" r="3"/></symbol>
+<symbol id="ic-layers" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/></symbol>
+</defs></svg>
+
+<div class="doc-toolbar">
+  <strong style="font-size:0.875rem">Checkout Funnel — prototype</strong>
+  <nav class="screen-nav" aria-label="Screens">
+    <a href="#s1">1 Contact</a>
+    <a href="#s2">2 Addresses</a>
+    <a href="#s3">3 Delivery</a>
+    <a href="#s4">4 Delivery (stale rate)</a>
+    <a href="#s5">5 Payment B2C</a>
+    <a href="#s6">6 Payment B2B</a>
+    <a href="#s7">7 Review</a>
+    <a href="#s8">8 Confirmation (order)</a>
+    <a href="#s9">9 Confirmation (quote)</a>
+    <a href="#s10">10 price_changed</a>
+    <a href="#s11">11 stock_shortfall</a>
+    <a href="#s12">12 credit_refused</a>
+    <a href="#s13">13 Approval required</a>
+    <a href="#s14">14 Awaiting approval</a>
+    <a href="#s15">15 Re-approval</a>
+    <a href="#s16">16 Locked (2nd tab)</a>
+    <a href="#s17">17 Admin: Sessions list</a>
+    <a href="#s18">18 Admin: Session detail</a>
+  </nav>
+  <button class="btn btn-outline btn-sm" id="theme-toggle" type="button"><svg><use href="#ic-sun"/></svg> Theme</button>
+</div>
+
+<div class="doc">
+
+<header class="doc-head">
+  <h1>Checkout Funnel — screen inventory</h1>
+  <p class="muted" style="max-width:74ch;margin:0">
+    Derived from <code class="t-mono">.ai/specs/2026-03-19-checkout-simple-checkout.md</code>. Screens 1–16 are the
+    buyer-facing funnel (<code class="t-mono">apps/storefront</code>'s <code class="t-mono">checkout/</code> route) —
+    the same deliberate <code class="t-mono">om-mockup-prototype</code> scope exception as the <code class="t-mono">storefront-app</code>
+    prototype, storefront top-nav chrome rather than the backend AppShell. Screens 17–18 are the module's one genuine
+    backend surface, <code class="t-mono">checkout.sessions.view</code>/<code class="t-mono">.manage</code> (§9) —
+    those need no exception and use the real AppShell. This set aims for full behavioral coverage of the spec: every
+    step (§5.2), the stale-rate bounce-back (§5.2/R5), both submit outcomes (order/quote, §8.1), every named submit
+    failure and compensation trigger (§7.2, R1–R10) that has buyer-visible behavior, the B2B approval gate and its
+    re-approval edge case (§8.2, R8), the cart-lock conflict a second tab sees (§6), and the admin session/event-trail
+    viewer (§9). Not drawn: literal combinatorics of every field-validation message, and Phase A pay-link entry mode
+    (§3.2) — noted in-line instead, since it reuses an already-implemented, already-shipped flow this suite doesn't
+    touch. Tenant: Northwind Fasteners, continuing the suite's sample data.
+  </p>
+</header>
+
+<!-- ============================================================ -->
+<!-- S1 — Step: Contact -->
+<!-- ============================================================ -->
+<section class="screen" id="s1">
+  <div class="screen-meta">
+    <h2>1. Step — Contact</h2>
+    <p>Guest B2C buyer "Alex Morgan." A known, logged-in buyer skips straight to Addresses (or further) per step-visibility configuration.</p>
+    <div class="screen-refs"><span class="ref">§4.1</span><span class="ref">§5.2</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">shop.northwind.example/checkout — step: contact</span></div>
+    <div style="background:var(--background);border-radius:0 0 var(--radius-lg) var(--radius-lg);overflow:hidden">
+      <header class="sf-header"><span class="sf-logo">Northwind Fasteners</span><div class="sf-header-actions"><svg style="width:1rem;height:1rem;color:var(--muted-foreground)"><use href="#ic-lock"/></svg><span class="t-hint">Secure checkout</span></div></header>
+      <div class="co-page">
+        <div class="co-stepper">
+          <div class="co-step active"><span class="co-step-circle">1</span><span>Contact</span></div><span class="co-step-line"></span>
+          <div class="co-step"><span class="co-step-circle">2</span><span>Address</span></div><span class="co-step-line"></span>
+          <div class="co-step"><span class="co-step-circle">3</span><span>Delivery</span></div><span class="co-step-line"></span>
+          <div class="co-step"><span class="co-step-circle">4</span><span>Payment</span></div><span class="co-step-line"></span>
+          <div class="co-step"><span class="co-step-circle">5</span><span>Review</span></div>
+        </div>
+        <div class="sf-container co-narrow">
+          <h1 style="font-size:1.5rem;font-weight:600;margin:0 0 1.25rem">Contact information</h1>
+          <div class="field"><label><svg style="width:0.9rem;height:0.9rem;display:inline;vertical-align:-1px"><use href="#ic-mail"/></svg> Email</label><input class="input" value="alex.morgan@example.com" /></div>
+          <div class="field"><label><svg style="width:0.9rem;height:0.9rem;display:inline;vertical-align:-1px"><use href="#ic-phone"/></svg> Phone</label><input class="input" value="+48 601 222 333" /></div>
+          <label class="row" style="margin:0.75rem 0 1.5rem;font-size:0.875rem"><input type="checkbox" checked style="margin-right:0.5rem" /> Email me about order updates and offers</label>
+          <button class="btn btn-primary" style="width:100%" data-goto="s2">Continue to address</button>
+        </div>
+      </div>
+      <footer class="sf-footer"><span>© Northwind Fasteners</span><span>Terms · Privacy</span></footer>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>A digital-only cart skips the whole Delivery step (§5.2); a known logged-in buyer with a saved address skips Contact and Addresses entirely — not drawn as separate screens, since the remaining steps look identical either way.</span></div>
+    <div class="note"><b>2</b><span>Not drawn: Phase A pay-link entry (§3.2) — a merchant-sent link seeds a cart from a <code class="t-mono">CheckoutLinkCartTemplate</code> and skips straight past this funnel to an already-shipped, unrelated flow.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S2 — Step: Addresses -->
+<!-- ============================================================ -->
+<section class="screen" id="s2">
+  <div class="screen-meta">
+    <h2>2. Step — Addresses</h2>
+    <p>Shipping and billing; "same as shipping" avoids redundant entry (WCAG 2.2 §3.3.7, cited by the storefront-app spec).</p>
+    <div class="screen-refs"><span class="ref">§4.1</span><span class="ref">§5.2</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">shop.northwind.example/checkout — step: addresses</span></div>
+    <div style="background:var(--background);border-radius:0 0 var(--radius-lg) var(--radius-lg);overflow:hidden">
+      <header class="sf-header"><span class="sf-logo">Northwind Fasteners</span><div class="sf-header-actions"><svg style="width:1rem;height:1rem;color:var(--muted-foreground)"><use href="#ic-lock"/></svg><span class="t-hint">Secure checkout</span></div></header>
+      <div class="co-page">
+        <div class="co-stepper">
+          <div class="co-step done"><span class="co-step-circle"><svg style="width:0.8rem;height:0.8rem"><use href="#ic-check"/></svg></span><span>Contact</span></div><span class="co-step-line"></span>
+          <div class="co-step active"><span class="co-step-circle">2</span><span>Address</span></div><span class="co-step-line"></span>
+          <div class="co-step"><span class="co-step-circle">3</span><span>Delivery</span></div><span class="co-step-line"></span>
+          <div class="co-step"><span class="co-step-circle">4</span><span>Payment</span></div><span class="co-step-line"></span>
+          <div class="co-step"><span class="co-step-circle">5</span><span>Review</span></div>
+        </div>
+        <div class="sf-container co-narrow">
+          <h1 style="font-size:1.5rem;font-weight:600;margin:0 0 1.25rem"><svg style="width:1.1rem;height:1.1rem;display:inline;vertical-align:-2px"><use href="#ic-map-pin"/></svg> Shipping address</h1>
+          <div class="co-form-grid">
+            <div class="field full"><label>Full name</label><input class="input" value="Alex Morgan" /></div>
+            <div class="field full"><label>Street address</label><input class="input" value="ul. Grunwaldzka 12/4" /></div>
+            <div class="field"><label>City</label><input class="input" value="Gdańsk" /></div>
+            <div class="field"><label>Postal code</label><input class="input" value="80-244" /></div>
+            <div class="field full"><label>Country</label><input class="input" value="Poland" /></div>
+          </div>
+          <label class="row" style="margin:1rem 0;font-size:0.875rem"><input type="checkbox" checked style="margin-right:0.5rem" /> Billing address is the same as shipping</label>
+          <div class="row" style="justify-content:space-between"><a class="back-link" data-goto="s1"><svg><use href="#ic-arrow-left"/></svg> Back</a><button class="btn btn-primary" data-goto="s3">Continue to delivery</button></div>
+        </div>
+      </div>
+      <footer class="sf-footer"><span>© Northwind Fasteners</span><span>Terms · Privacy</span></footer>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>Unchecking "same as shipping" reveals a second, identical address form for billing — not drawn as a separate screen.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S3 — Step: Delivery -->
+<!-- ============================================================ -->
+<section class="screen" id="s3">
+  <div class="screen-meta">
+    <h2>3. Step — Delivery</h2>
+    <p>Live rate quote for the address just entered, cached 5 min per address+cart hash (§13 R10).</p>
+    <div class="screen-refs"><span class="ref">§4.1</span><span class="ref">§9</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">shop.northwind.example/checkout — step: delivery</span></div>
+    <div style="background:var(--background);border-radius:0 0 var(--radius-lg) var(--radius-lg);overflow:hidden">
+      <header class="sf-header"><span class="sf-logo">Northwind Fasteners</span><div class="sf-header-actions"><svg style="width:1rem;height:1rem;color:var(--muted-foreground)"><use href="#ic-lock"/></svg><span class="t-hint">Secure checkout</span></div></header>
+      <div class="co-page">
+        <div class="co-stepper">
+          <div class="co-step done"><span class="co-step-circle"><svg style="width:0.8rem;height:0.8rem"><use href="#ic-check"/></svg></span><span>Contact</span></div><span class="co-step-line"></span>
+          <div class="co-step done"><span class="co-step-circle"><svg style="width:0.8rem;height:0.8rem"><use href="#ic-check"/></svg></span><span>Address</span></div><span class="co-step-line"></span>
+          <div class="co-step active"><span class="co-step-circle">3</span><span>Delivery</span></div><span class="co-step-line"></span>
+          <div class="co-step"><span class="co-step-circle">4</span><span>Payment</span></div><span class="co-step-line"></span>
+          <div class="co-step"><span class="co-step-circle">5</span><span>Review</span></div>
+        </div>
+        <div class="sf-container co-narrow">
+          <h1 style="font-size:1.5rem;font-weight:600;margin:0 0 1.25rem"><svg style="width:1.1rem;height:1.1rem;display:inline;vertical-align:-2px"><use href="#ic-truck"/></svg> Delivery method</h1>
+          <div class="radio-card" aria-checked="false"><span class="radio-dot"></span><div class="grow"><div class="t-body">Standard — 3–5 business days</div></div><span class="num">14,00 zł</span></div>
+          <div class="radio-card" aria-checked="true"><span class="radio-dot"></span><div class="grow"><div class="t-body">Express — 1–2 business days</div></div><span class="num">34,00 zł</span></div>
+          <div class="row" style="justify-content:space-between;margin-top:0.75rem"><a class="back-link" data-goto="s2"><svg><use href="#ic-arrow-left"/></svg> Back</a><button class="btn btn-primary" data-goto="s5">Continue to payment</button></div>
+        </div>
+      </div>
+      <footer class="sf-footer"><span>© Northwind Fasteners</span><span>Terms · Privacy</span></footer>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>Digital-only carts skip this step entirely (§5.2) — not drawn separately, since Payment would simply follow Address directly.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S4 — Step: Delivery, stale rate invalidated -->
+<!-- ============================================================ -->
+<section class="screen" id="s4">
+  <div class="screen-meta">
+    <h2>4. Step — Delivery (stale rate invalidated, R5)</h2>
+    <p>The buyer went back and changed the shipping address after already selecting Express. The quote no longer applies — the funnel returns here with the reason stated, not a silent re-price.</p>
+    <div class="screen-refs"><span class="ref">§5.2</span><span class="ref">R5</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">shop.northwind.example/checkout — step: delivery</span></div>
+    <div style="background:var(--background);border-radius:0 0 var(--radius-lg) var(--radius-lg);overflow:hidden">
+      <header class="sf-header"><span class="sf-logo">Northwind Fasteners</span><div class="sf-header-actions"><svg style="width:1rem;height:1rem;color:var(--muted-foreground)"><use href="#ic-lock"/></svg><span class="t-hint">Secure checkout</span></div></header>
+      <div class="co-page">
+        <div class="co-stepper">
+          <div class="co-step done"><span class="co-step-circle"><svg style="width:0.8rem;height:0.8rem"><use href="#ic-check"/></svg></span><span>Contact</span></div><span class="co-step-line"></span>
+          <div class="co-step done"><span class="co-step-circle"><svg style="width:0.8rem;height:0.8rem"><use href="#ic-check"/></svg></span><span>Address</span></div><span class="co-step-line"></span>
+          <div class="co-step active"><span class="co-step-circle">3</span><span>Delivery</span></div><span class="co-step-line"></span>
+          <div class="co-step"><span class="co-step-circle">4</span><span>Payment</span></div><span class="co-step-line"></span>
+          <div class="co-step"><span class="co-step-circle">5</span><span>Review</span></div>
+        </div>
+        <div class="sf-container co-narrow">
+          <div class="alert alert-warning">
+            <svg><use href="#ic-warn"/></svg>
+            <div><div class="alert-title">Your delivery quote expired</div><div class="t-hint">You changed the shipping address after choosing Express. Rates are being re-quoted for the new address.</div></div>
+          </div>
+          <h1 style="font-size:1.5rem;font-weight:600;margin:1.25rem 0 1.25rem"><svg style="width:1.1rem;height:1.1rem;display:inline;vertical-align:-2px"><use href="#ic-truck"/></svg> Delivery method</h1>
+          <div class="radio-card" aria-checked="false"><span class="radio-dot"></span><div class="grow"><div class="t-body">Standard — 4–6 business days</div></div><span class="num">18,00 zł</span></div>
+          <div class="radio-card" aria-checked="false"><span class="radio-dot"></span><div class="grow"><div class="t-body">Express — 2–3 business days</div></div><span class="num">41,00 zł</span></div>
+          <div class="row" style="justify-content:space-between;margin-top:0.75rem"><a class="back-link" data-goto="s2"><svg><use href="#ic-arrow-left"/></svg> Back</a><button class="btn btn-primary is-disabled">Select a method to continue</button></div>
+        </div>
+      </div>
+      <footer class="sf-footer"><span>© Northwind Fasteners</span><span>Terms · Privacy</span></footer>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>Illustrative — no live re-quote call runs. The old rate (34,00 zł Express) is gone, not silently kept; the merchant never absorbs a stale-rate cost silently.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S5 — Step: Payment (B2C, gateway) -->
+<!-- ============================================================ -->
+<section class="screen" id="s5">
+  <div class="screen-meta">
+    <h2>5. Step — Payment (B2C, gateway)</h2>
+    <p>Card fields are provider-hosted — card data never touches this platform (§13).</p>
+    <div class="screen-refs"><span class="ref">§4.1</span><span class="ref">§13</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">shop.northwind.example/checkout — step: payment</span></div>
+    <div style="background:var(--background);border-radius:0 0 var(--radius-lg) var(--radius-lg);overflow:hidden">
+      <header class="sf-header"><span class="sf-logo">Northwind Fasteners</span><div class="sf-header-actions"><svg style="width:1rem;height:1rem;color:var(--muted-foreground)"><use href="#ic-lock"/></svg><span class="t-hint">Secure checkout</span></div></header>
+      <div class="co-page">
+        <div class="co-stepper">
+          <div class="co-step done"><span class="co-step-circle"><svg style="width:0.8rem;height:0.8rem"><use href="#ic-check"/></svg></span><span>Contact</span></div><span class="co-step-line"></span>
+          <div class="co-step done"><span class="co-step-circle"><svg style="width:0.8rem;height:0.8rem"><use href="#ic-check"/></svg></span><span>Address</span></div><span class="co-step-line"></span>
+          <div class="co-step done"><span class="co-step-circle"><svg style="width:0.8rem;height:0.8rem"><use href="#ic-check"/></svg></span><span>Delivery</span></div><span class="co-step-line"></span>
+          <div class="co-step active"><span class="co-step-circle">4</span><span>Payment</span></div><span class="co-step-line"></span>
+          <div class="co-step"><span class="co-step-circle">5</span><span>Review</span></div>
+        </div>
+        <div class="sf-container co-narrow">
+          <h1 style="font-size:1.5rem;font-weight:600;margin:0 0 1.25rem"><svg style="width:1.1rem;height:1.1rem;display:inline;vertical-align:-2px"><use href="#ic-credit-card"/></svg> Payment</h1>
+          <div class="radio-card" aria-checked="true"><span class="radio-dot"></span><div class="grow"><div class="t-body">Card</div><div class="t-hint">Visa, Mastercard — via payment provider</div></div></div>
+          <div class="radio-card" aria-checked="false"><span class="radio-dot"></span><div class="grow"><div class="t-body">BLIK</div></div></div>
+          <div class="card" style="margin-top:0.75rem;padding:1rem;background:var(--muted)"><div class="t-hint" style="text-align:center">Card fields render here via the payment provider's hosted iframe (Phase A delegation, unchanged) — not reproduced in this prototype.</div></div>
+          <div class="row" style="justify-content:space-between;margin-top:1rem"><a class="back-link" data-goto="s3"><svg><use href="#ic-arrow-left"/></svg> Back</a><button class="btn btn-primary" data-goto="s7">Continue to review</button></div>
+        </div>
+      </div>
+      <footer class="sf-footer"><span>© Northwind Fasteners</span><span>Terms · Privacy</span></footer>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>The B2B on-account variant of this same step is screen 6 — meaningfully different fields (PO number, credit summary), not a toggle on this one.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S6 — Step: Payment (B2B, on account) -->
+<!-- ============================================================ -->
+<section class="screen" id="s6">
+  <div class="screen-meta">
+    <h2>6. Step — Payment (B2B, purchase on account)</h2>
+    <p>Dana Ruiz, Ironclad Supply Co. — gateway selection is skipped for on-account, but the step itself is not (§5.2); PO number captured here (§8.4).</p>
+    <div class="screen-refs"><span class="ref">§8.3</span><span class="ref">§8.4</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">shop.northwind.example/checkout — step: payment</span></div>
+    <div style="background:var(--background);border-radius:0 0 var(--radius-lg) var(--radius-lg);overflow:hidden">
+      <header class="sf-header"><span class="sf-logo">Northwind Fasteners</span><div class="sf-header-actions"><span class="t-hint">Ironclad Supply Co. · Dana Ruiz</span></div></header>
+      <div class="co-page">
+        <div class="co-stepper">
+          <div class="co-step done"><span class="co-step-circle"><svg style="width:0.8rem;height:0.8rem"><use href="#ic-check"/></svg></span><span>Contact</span></div><span class="co-step-line"></span>
+          <div class="co-step done"><span class="co-step-circle"><svg style="width:0.8rem;height:0.8rem"><use href="#ic-check"/></svg></span><span>Address</span></div><span class="co-step-line"></span>
+          <div class="co-step done"><span class="co-step-circle"><svg style="width:0.8rem;height:0.8rem"><use href="#ic-check"/></svg></span><span>Delivery</span></div><span class="co-step-line"></span>
+          <div class="co-step active"><span class="co-step-circle">4</span><span>Payment</span></div><span class="co-step-line"></span>
+          <div class="co-step"><span class="co-step-circle">5</span><span>Review</span></div>
+        </div>
+        <div class="sf-container co-narrow">
+          <h1 style="font-size:1.5rem;font-weight:600;margin:0 0 1.25rem"><svg style="width:1.1rem;height:1.1rem;display:inline;vertical-align:-2px"><use href="#ic-file-text"/></svg> Payment</h1>
+          <div class="radio-card" aria-checked="true"><span class="radio-dot"></span><div class="grow"><div class="t-body">Purchase on account (NET-30)</div><div class="t-hint">Invoiced per your account terms</div></div></div>
+          <div class="radio-card" aria-checked="false"><span class="radio-dot"></span><div class="grow"><div class="t-body">Card</div></div></div>
+          <div class="card" style="padding:0.875rem 1rem;margin:0.75rem 0"><div class="row between"><span class="t-hint">Credit limit</span><span class="num">50 000,00 zł</span></div><div class="row between"><span class="t-hint">Available</span><span class="num" style="color:var(--status-success-text)">37 200,00 zł</span></div></div>
+          <div class="field"><label>PO number <span class="req">*</span></label><input class="input" value="PO-2026-0417" /><span class="t-hint">Required by your account terms — a B2B invoice without it will not be paid (§8.4).</span></div>
+          <div class="row" style="justify-content:space-between;margin-top:1rem"><a class="back-link" data-goto="s3"><svg><use href="#ic-arrow-left"/></svg> Back</a><button class="btn btn-primary" data-goto="s7">Continue to review</button></div>
+        </div>
+      </div>
+      <footer class="sf-footer"><span>© Northwind Fasteners</span><span>Terms · Privacy</span></footer>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>PO number is required here only when the buyer's group terms require it — the field's own presence is conditional, not always shown.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S7 — Step: Review -->
+<!-- ============================================================ -->
+<section class="screen" id="s7">
+  <div class="screen-meta">
+    <h2>7. Step — Review</h2>
+    <p>Final step before submit — terms acceptance, editable summary, <span class="t-mono">Cmd/Ctrl+Enter</span> submits per this repo's dialog-UX convention.</p>
+    <div class="screen-refs"><span class="ref">§4.1</span><span class="ref">§6</span><span class="ref">§7.1</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">shop.northwind.example/checkout — step: review</span></div>
+    <div style="background:var(--background);border-radius:0 0 var(--radius-lg) var(--radius-lg);overflow:hidden">
+      <header class="sf-header"><span class="sf-logo">Northwind Fasteners</span><div class="sf-header-actions"><svg style="width:1rem;height:1rem;color:var(--muted-foreground)"><use href="#ic-lock"/></svg><span class="t-hint">Secure checkout</span></div></header>
+      <div class="co-page">
+        <div class="co-stepper">
+          <div class="co-step done"><span class="co-step-circle"><svg style="width:0.8rem;height:0.8rem"><use href="#ic-check"/></svg></span><span>Contact</span></div><span class="co-step-line"></span>
+          <div class="co-step done"><span class="co-step-circle"><svg style="width:0.8rem;height:0.8rem"><use href="#ic-check"/></svg></span><span>Address</span></div><span class="co-step-line"></span>
+          <div class="co-step done"><span class="co-step-circle"><svg style="width:0.8rem;height:0.8rem"><use href="#ic-check"/></svg></span><span>Delivery</span></div><span class="co-step-line"></span>
+          <div class="co-step done"><span class="co-step-circle"><svg style="width:0.8rem;height:0.8rem"><use href="#ic-check"/></svg></span><span>Payment</span></div><span class="co-step-line"></span>
+          <div class="co-step active"><span class="co-step-circle">5</span><span>Review</span></div>
+        </div>
+        <div class="sf-container co-narrow">
+          <div class="row between" style="margin-bottom:0.375rem"><span class="t-label">Contact</span><a class="t-hint" data-goto="s1" style="cursor:pointer;text-decoration:underline">Edit</a></div>
+          <div class="t-hint" style="margin-bottom:1rem">alex.morgan@example.com · +48 601 222 333</div>
+          <div class="row between" style="margin-bottom:0.375rem"><span class="t-label">Ship to</span><a class="t-hint" data-goto="s2" style="cursor:pointer;text-decoration:underline">Edit</a></div>
+          <div class="t-hint" style="margin-bottom:1rem">Alex Morgan, ul. Grunwaldzka 12/4, 80-244 Gdańsk</div>
+          <div class="row between" style="margin-bottom:0.375rem"><span class="t-label">Delivery</span><a class="t-hint" data-goto="s3" style="cursor:pointer;text-decoration:underline">Edit</a></div>
+          <div class="t-hint" style="margin-bottom:1rem">Express — 1–2 business days</div>
+          <div class="row between" style="margin-bottom:1rem"><span class="t-label">Payment</span><a class="t-hint" data-goto="s5" style="cursor:pointer;text-decoration:underline">Edit</a></div>
+
+          <div class="co-summary-line"><span>M8 Hex Bolt (Bulk Pack, 500ct) × 2</span><span class="num">168,00 zł</span></div>
+          <div class="co-summary-line"><span>TorquePro X1 Wrench × 1</span><span class="num">99,00 zł</span></div>
+          <div class="co-summary-line"><span>Shipping — Express</span><span class="num">34,00 zł</span></div>
+          <div class="co-summary-line" style="font-weight:600;border-bottom:none"><span>Total (excl. VAT)</span><span class="num">301,00 zł</span></div>
+
+          <label class="row" style="margin:1rem 0;font-size:0.875rem"><input type="checkbox" checked style="margin-right:0.5rem" /> I agree to the <a href="#" style="margin:0 0.25rem">Terms of Sale</a></label>
+          <button class="btn btn-primary" style="width:100%" data-goto="s8">Place order — 301,00 zł</button>
+          <div class="t-hint" style="text-align:center;margin-top:0.5rem"><span class="kbd">⌘⏎</span> to place order</div>
+        </div>
+      </div>
+      <footer class="sf-footer"><span>© Northwind Fasteners</span><span>Terms · Privacy</span></footer>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>Clicking "Place order" is where §7.2's whole sequence runs server-side: cart lock + forced re-price first (§6), then stock reservation, then (B2C) payment. Screens 8–16 show every outcome that sequence can reach.</span></div>
+    <div class="note"><b>2</b><span>A double-tap on this button is not drawn as a separate screen because it isn't visibly different — the button disables while in flight, and a repeat with the same idempotency key while the first is in flight or after it succeeded returns the same result rather than creating a second order (§7.4, R2).</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S8 — Confirmation (order) -->
+<!-- ============================================================ -->
+<section class="screen" id="s8">
+  <div class="screen-meta">
+    <h2>8. Confirmation — order (B2C success)</h2>
+    <p><code class="t-mono">GET /sessions/:token/result</code>. §7.2 step 7 succeeded: stock committed, payment captured, cart converted.</p>
+    <div class="screen-refs"><span class="ref">§7.2</span><span class="ref">§9</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">shop.northwind.example/checkout/{token}/confirmation</span></div>
+    <div style="background:var(--background);border-radius:0 0 var(--radius-lg) var(--radius-lg);overflow:hidden">
+      <header class="sf-header"><span class="sf-logo">Northwind Fasteners</span></header>
+      <div class="co-center">
+        <div class="empty-icon" style="color:var(--status-success-icon)"><svg style="width:2.5rem;height:2.5rem"><use href="#ic-check"/></svg></div>
+        <h1 style="font-size:1.5rem;font-weight:600;margin:0.75rem 0 0.25rem">Order confirmed</h1>
+        <p class="t-hint">Order <span class="t-mono">#SO-10482</span> · Confirmation sent to alex.morgan@example.com</p>
+        <div class="row" style="justify-content:center;gap:0.75rem;margin-top:1.25rem"><button class="btn btn-outline btn-sm">View order</button><button class="btn btn-outline btn-sm" data-goto="s1">Continue shopping</button></div>
+      </div>
+      <footer class="sf-footer"><span>© Northwind Fasteners</span><span>Terms · Privacy</span></footer>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>Post-submit orchestration (confirmation email, invoice, fulfilment handoff) runs as an async workflow off <code class="t-mono">checkout.session.completed</code> (§5.1) — not shown, since the buyer has already left by then.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S9 — Confirmation (quote outcome) -->
+<!-- ============================================================ -->
+<section class="screen" id="s9">
+  <div class="screen-meta">
+    <h2>9. Confirmation — quote outcome (B2B negotiated terms)</h2>
+    <p>Dana Ruiz requested terms/negotiated pricing — <code class="t-mono">outcome_kind = 'quote'</code>: quote created, no payment, no stock commitment (§8.1).</p>
+    <div class="screen-refs"><span class="ref">§7.2 step 5</span><span class="ref">§8.1</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">shop.northwind.example/checkout/{token}/confirmation</span></div>
+    <div style="background:var(--background);border-radius:0 0 var(--radius-lg) var(--radius-lg);overflow:hidden">
+      <header class="sf-header"><span class="sf-logo">Northwind Fasteners</span></header>
+      <div class="co-center">
+        <div class="empty-icon"><svg style="width:2.5rem;height:2.5rem"><use href="#ic-file-text"/></svg></div>
+        <h1 style="font-size:1.5rem;font-weight:600;margin:0.75rem 0 0.25rem">Quote request sent</h1>
+        <p class="t-hint" style="max-width:36ch;margin:0 auto">Quote <span class="t-mono">#Q-1042</span> is with our sales team for confirmation. No payment was taken and no stock was reserved yet — you'll get an email once it's ready to convert to an order.</p>
+        <div class="row" style="justify-content:center;margin-top:1.25rem"><button class="btn btn-outline btn-sm" data-goto="s1">Back to shop</button></div>
+      </div>
+      <footer class="sf-footer"><span>© Northwind Fasteners</span><span>Terms · Privacy</span></footer>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>Explicitly stating "no stock reserved" matters — a quote is not a soft hold, and this screen should not read like one.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S10 — 409 price_changed -->
+<!-- ============================================================ -->
+<section class="screen" id="s10">
+  <div class="screen-meta">
+    <h2>10. Submit blocked — price changed (409, R4)</h2>
+    <p><code class="t-mono">cart.lock()</code>'s forced re-price (§6) found a changed total — submit aborts before any side effect. The buyer re-confirms a price they've actually seen.</p>
+    <div class="screen-refs"><span class="ref">§6</span><span class="ref">§7.2 step 1</span><span class="ref">R4</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">shop.northwind.example/checkout — step: review</span></div>
+    <div style="background:var(--background);border-radius:0 0 var(--radius-lg) var(--radius-lg);overflow:hidden">
+      <header class="sf-header"><span class="sf-logo">Northwind Fasteners</span></header>
+      <div class="co-page">
+        <div class="sf-container co-narrow">
+          <div class="alert alert-warning">
+            <svg><use href="#ic-warn"/></svg>
+            <div><div class="alert-title">Your total changed</div><div class="t-hint">A promotion expired while you were checking out. Please review the new total before continuing — nothing has been charged.</div></div>
+          </div>
+          <div class="co-summary-line" style="margin-top:1rem"><span>TorquePro X1 Wrench × 1</span><span><span class="sf-price-was" style="text-decoration:line-through;color:var(--muted-foreground);margin-right:0.375rem">99,00 zł</span><strong>129,00 zł</strong></span></div>
+          <div class="co-summary-line" style="font-weight:600;border-bottom:none"><span>New total (excl. VAT)</span><span class="num">331,00 zł <span class="t-hint" style="font-weight:400">(was 301,00 zł)</span></span></div>
+          <button class="btn btn-primary" style="width:100%;margin-top:1rem">Confirm new total — 331,00 zł</button>
+          <button class="btn btn-outline" style="width:100%;margin-top:0.5rem">Review cart instead</button>
+        </div>
+      </div>
+      <footer class="sf-footer"><span>© Northwind Fasteners</span><span>Terms · Privacy</span></footer>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>This is the mechanism that prevents charging a price the buyer never agreed to (§6) — nothing downstream (stock, payment, document) runs until this is explicitly re-confirmed.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S11 — 409 stock_shortfall -->
+<!-- ============================================================ -->
+<section class="screen" id="s11">
+  <div class="screen-meta">
+    <h2>11. Submit blocked — stock shortfall (409)</h2>
+    <p>§7.2 step 2: <code class="t-mono">availabilityService.reserve()</code> found a shortfall — cart unlocked, nothing else was touched.</p>
+    <div class="screen-refs"><span class="ref">§7.2 step 2</span><span class="ref">§7.3</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">shop.northwind.example/checkout — step: review</span></div>
+    <div style="background:var(--background);border-radius:0 0 var(--radius-lg) var(--radius-lg);overflow:hidden">
+      <header class="sf-header"><span class="sf-logo">Northwind Fasteners</span></header>
+      <div class="co-page">
+        <div class="sf-container co-narrow">
+          <div class="alert alert-error">
+            <svg><use href="#ic-warn"/></svg>
+            <div><div class="alert-title">One item is no longer available in that quantity</div><div class="t-hint">Someone else bought the last few just now.</div></div>
+          </div>
+          <div class="co-summary-line" style="margin-top:1rem"><span>M8 Hex Bolt (Bulk Pack, 500ct)</span><span class="t-hint">requested 2, only 1 left</span></div>
+          <div class="row" style="gap:0.5rem;margin-top:1rem"><button class="btn btn-primary">Update quantity to 1</button><button class="btn btn-outline">Remove item</button></div>
+        </div>
+      </div>
+      <footer class="sf-footer"><span>© Northwind Fasteners</span><span>Terms · Privacy</span></footer>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>Nothing to undo at this failure point (§7.1) — this is why preconditions are checked before any side effect.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S12 — 402 credit_refused -->
+<!-- ============================================================ -->
+<section class="screen" id="s12">
+  <div class="screen-meta">
+    <h2>12. Submit blocked — credit refused (402)</h2>
+    <p>§7.2 step 3: <code class="t-mono">reserveCredit()</code> refused for Dana Ruiz's account — stock already reserved at step 2 is released, cart unlocked (§7.3).</p>
+    <div class="screen-refs"><span class="ref">§7.2 step 3</span><span class="ref">§7.3</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">shop.northwind.example/checkout — step: review</span></div>
+    <div style="background:var(--background);border-radius:0 0 var(--radius-lg) var(--radius-lg);overflow:hidden">
+      <header class="sf-header"><span class="sf-logo">Northwind Fasteners</span><div class="sf-header-actions"><span class="t-hint">Ironclad Supply Co. · Dana Ruiz</span></div></header>
+      <div class="co-page">
+        <div class="sf-container co-narrow">
+          <div class="alert alert-error">
+            <svg><use href="#ic-warn"/></svg>
+            <div><div class="alert-title">This order exceeds your available credit</div><div class="t-hint">Requested 12 400,00 zł on account, but only 9 800,00 zł is currently available on your NET-30 line.</div></div>
+          </div>
+          <div class="row" style="gap:0.5rem;margin-top:1rem"><button class="btn btn-primary" data-goto="s5">Pay by card instead</button><button class="btn btn-outline">Request a quote instead</button></div>
+        </div>
+      </div>
+      <footer class="sf-footer"><span>© Northwind Fasteners</span><span>Terms · Privacy</span></footer>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>Offering prepayment or a quote (§8.1) instead of a dead end — the buyer isn't stuck once refused on account.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S13 — B2B: blocked at precondition, approval required -->
+<!-- ============================================================ -->
+<section class="screen" id="s13">
+  <div class="screen-meta">
+    <h2>13. Submit blocked at precondition — over approval threshold</h2>
+    <p>§7.1 precondition 6: cart value exceeds Dana's group's <code class="t-mono">approval_required_above</code> and no approval is attached — blocked before submit even begins.</p>
+    <div class="screen-refs"><span class="ref">§7.1</span><span class="ref">§8.1</span><span class="ref">§8.2</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">shop.northwind.example/checkout — step: review</span></div>
+    <div style="background:var(--background);border-radius:0 0 var(--radius-lg) var(--radius-lg);overflow:hidden">
+      <header class="sf-header"><span class="sf-logo">Northwind Fasteners</span><div class="sf-header-actions"><span class="t-hint">Ironclad Supply Co. · Dana Ruiz</span></div></header>
+      <div class="co-page">
+        <div class="sf-container co-narrow">
+          <div class="alert alert-info">
+            <svg><use href="#ic-shield"/></svg>
+            <div><div class="alert-title">This order needs approval</div><div class="t-hint">18 400,00 zł is above your account's 15 000,00 zł approval threshold. A company approver needs to sign off before this can be submitted.</div></div>
+          </div>
+          <button class="btn btn-primary" style="width:100%;margin-top:1rem" data-goto="s14">Request approval</button>
+        </div>
+      </div>
+      <footer class="sf-footer"><span>© Northwind Fasteners</span><span>Terms · Privacy</span></footer>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>Cheap and immediate — this precondition is checked before any side effect (§7.1), unlike screens 10–12 which are mid-sequence aborts.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S14 — B2B: awaiting_approval, parked -->
+<!-- ============================================================ -->
+<section class="screen" id="s14">
+  <div class="screen-meta">
+    <h2>14. Session parked — awaiting approval</h2>
+    <p>Session status <code class="t-mono">awaiting_approval</code>. The cart is deliberately <strong>not</strong> locked while waiting — approval can take days (§8.2).</p>
+    <div class="screen-refs"><span class="ref">§8.2</span><span class="ref">§5.1</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">shop.northwind.example/checkout — step: review</span></div>
+    <div style="background:var(--background);border-radius:0 0 var(--radius-lg) var(--radius-lg);overflow:hidden">
+      <header class="sf-header"><span class="sf-logo">Northwind Fasteners</span><div class="sf-header-actions"><span class="t-hint">Ironclad Supply Co. · Dana Ruiz</span></div></header>
+      <div class="co-center">
+        <div class="empty-icon"><svg style="width:2.5rem;height:2.5rem"><use href="#ic-clock"/></svg></div>
+        <h1 style="font-size:1.5rem;font-weight:600;margin:0.75rem 0 0.25rem">Waiting on approval</h1>
+        <p class="t-hint" style="max-width:38ch;margin:0 auto">Sent to your company's approvers 2 hours ago. Your cart is <strong>not locked</strong> — you can keep shopping or edit this cart while you wait.</p>
+        <div class="row" style="justify-content:center;gap:0.75rem;margin-top:1.25rem"><button class="btn btn-outline btn-sm" data-goto="s1">Keep shopping</button><button class="btn btn-outline btn-sm">Cancel request</button></div>
+      </div>
+      <footer class="sf-footer"><span>© Northwind Fasteners</span><span>Terms · Privacy</span></footer>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>Long-running, human-in-the-loop — this is the one part of the funnel that genuinely runs on <code class="t-mono">workflows</code> (§5.1), not the synchronous state machine.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S15 — B2B: re-approval required after price rose (R8) -->
+<!-- ============================================================ -->
+<section class="screen" id="s15">
+  <div class="screen-meta">
+    <h2>15. Approval granted, but the total rose — re-approval required (R8)</h2>
+    <p>Approval came back for 15 000,00 zł; the forced re-price on resume found the cart now totals 18 200,00 zł. The higher total re-requests approval rather than being silently honoured.</p>
+    <div class="screen-refs"><span class="ref">§8.2</span><span class="ref">R8</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">shop.northwind.example/checkout — step: review</span></div>
+    <div style="background:var(--background);border-radius:0 0 var(--radius-lg) var(--radius-lg);overflow:hidden">
+      <header class="sf-header"><span class="sf-logo">Northwind Fasteners</span><div class="sf-header-actions"><span class="t-hint">Ironclad Supply Co. · Dana Ruiz</span></div></header>
+      <div class="co-page">
+        <div class="sf-container co-narrow">
+          <div class="alert alert-warning">
+            <svg><use href="#ic-warn"/></svg>
+            <div><div class="alert-title">Your total changed since approval</div><div class="t-hint">Approved at 15 000,00 zł. Your cart now totals 18 200,00 zł — this needs a fresh approval before it can be submitted.</div></div>
+          </div>
+          <button class="btn btn-primary" style="width:100%;margin-top:1rem" data-goto="s14">Request approval for the new total</button>
+        </div>
+      </div>
+      <footer class="sf-footer"><span>© Northwind Fasteners</span><span>Terms · Privacy</span></footer>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>Prices legitimately move during a multi-day approval wait — this is the guard against submitting a re-priced cart against a stale approval amount (R8).</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S16 — 423 Locked (second tab) -->
+<!-- ============================================================ -->
+<section class="screen" id="s16">
+  <div class="screen-meta">
+    <h2>16. Cart locked — a second tab mid-submit (423)</h2>
+    <p>The buyer has this checkout open in two tabs; the first tab's submit is mid-flight and has locked the cart. The second tab is sent back here rather than shown a broken basket (§6).</p>
+    <div class="screen-refs"><span class="ref">§6</span><span class="ref">R6</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">shop.northwind.example/cart</span></div>
+    <div style="background:var(--background);border-radius:0 0 var(--radius-lg) var(--radius-lg);overflow:hidden">
+      <header class="sf-header"><span class="sf-logo">Northwind Fasteners</span></header>
+      <div class="co-center">
+        <div class="empty-icon"><svg style="width:2.5rem;height:2.5rem"><use href="#ic-lock"/></svg></div>
+        <h1 style="font-size:1.5rem;font-weight:600;margin:0.75rem 0 0.25rem">Your cart is being checked out</h1>
+        <p class="t-hint" style="max-width:36ch;margin:0 auto">You have a checkout in progress in another tab. This one will unlock automatically once that finishes, or in a few minutes if it doesn't.</p>
+        <button class="btn btn-outline btn-sm" style="margin-top:1.25rem">Go to that checkout</button>
+      </div>
+      <footer class="sf-footer"><span>© Northwind Fasteners</span><span>Terms · Privacy</span></footer>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>The lock only spans submit itself, not the whole funnel (§6) — this state should be rare and short-lived by design, and a stale-lock job unlocks a crashed one within 5 minutes (R6) as a backstop.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S17 — Admin: Checkout Sessions list -->
+<!-- ============================================================ -->
+<section class="screen" id="s17">
+  <div class="screen-meta">
+    <h2>17. Admin — Checkout Sessions (list)</h2>
+    <p>The module's one real backend surface (§9) — genuinely in scope, no exception needed. Read-only under <code class="t-mono">checkout.sessions.view</code>.</p>
+    <div class="screen-refs"><span class="ref">§9</span><span class="ref">§9.1</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/checkout/sessions</span></div>
+    <div class="app app-tall">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Northwind Fasteners</span></div>
+        <nav class="sidebar-nav"><div class="nav-group"><span>Checkout</span><svg><use href="#ic-chevron-down"/></svg></div><div class="nav-items"><span class="nav-item active"><svg><use href="#ic-layers"/></svg> Sessions</span></div></nav>
+      </aside>
+      <div class="main">
+        <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span class="here">Checkout Sessions</span></div></div><div class="topbar-right"><span class="avatar">AN</span></div></header>
+        <main class="page">
+          <div class="page-head"><div><h1 class="t-page-title">Checkout Sessions</h1><p>Read-only — for support and reconciliation. Force-expire and force re-price require <span class="t-mono">checkout.sessions.manage</span>.</p></div></div>
+          <div class="dt">
+            <div class="dt-head"><div class="dt-head-row"><h2 class="t-table-title">6 sessions</h2></div><div class="dt-toolbar"><div class="dt-toolbar-row"><input class="input dt-search" placeholder="Search token, email, order…" /><div class="dt-toolbar-right"><button class="chip"><svg><use href="#ic-search"/></svg> Status</button></div></div></div></div>
+            <table class="table">
+              <thead><tr><th>Token</th><th>Channel</th><th>Status</th><th>Step</th><th>Buyer</th><th class="right">Total</th><th>Updated</th><th class="right">Actions</th></tr></thead>
+              <tbody>
+                <tr class="clickable" data-goto="s18"><td class="t-mono">chk_8f2a…</td><td>storefront</td><td><span class="badge badge-success">completed</span></td><td class="muted">—</td><td>alex.morgan@example.com</td><td class="right num">301,00 zł</td><td class="t-hint">2 min ago</td><td class="right"><button class="btn btn-icon btn-sm" data-goto="s18"><svg><use href="#ic-eye"/></svg></button></td></tr>
+                <tr class="clickable" data-goto="s18"><td class="t-mono">chk_1c90…</td><td>storefront</td><td><span class="badge badge-warning">awaiting_approval</span></td><td>review</td><td>Dana Ruiz — Ironclad Supply</td><td class="right num">18 200,00 zł</td><td class="t-hint">2 hours ago</td><td class="right"><button class="btn btn-icon btn-sm" data-goto="s18"><svg><use href="#ic-eye"/></svg></button></td></tr>
+                <tr class="clickable" data-goto="s18"><td class="t-mono">chk_44de…</td><td>storefront</td><td><span class="badge badge-neutral">open</span></td><td>delivery</td><td>guest</td><td class="right num">72,00 zł</td><td class="t-hint">11 min ago</td><td class="right"><button class="btn btn-icon btn-sm" data-goto="s18"><svg><use href="#ic-eye"/></svg></button></td></tr>
+                <tr class="clickable" data-goto="s18"><td class="t-mono">chk_09b1…</td><td>storefront</td><td><span class="badge badge-error">failed</span></td><td class="muted">—</td><td>guest</td><td class="right num">129,00 zł</td><td class="t-hint">38 min ago</td><td class="right"><button class="btn btn-icon btn-sm" data-goto="s18"><svg><use href="#ic-eye"/></svg></button></td></tr>
+                <tr><td class="t-mono">chk_77fa…</td><td>pos</td><td><span class="badge badge-neutral">open</span></td><td>payment</td><td>walk-in</td><td class="right num">44,00 zł</td><td class="t-hint">1 min ago</td><td class="right"><button class="btn btn-icon btn-sm"><svg><use href="#ic-eye"/></svg></button></td></tr>
+                <tr><td class="t-mono">chk_5e2b…</td><td>storefront</td><td><span class="badge badge-neutral">expired</span></td><td class="muted">—</td><td>guest</td><td class="right num">210,00 zł</td><td class="t-hint">yesterday</td><td class="right"><button class="btn btn-icon btn-sm"><svg><use href="#ic-eye"/></svg></button></td></tr>
+              </tbody>
+            </table>
+            <div class="dt-foot"><span class="t-hint num">Showing 1 to 6 of 6 results</span></div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span></footer>
+      </div>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>Every status/step value here comes straight from <code class="t-mono">CheckoutSession.status</code>/<code class="t-mono">.step</code>'s own enums (§4.1) — no new vocabulary invented for the admin view.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S18 — Admin: Session detail + event trail -->
+<!-- ============================================================ -->
+<section class="screen" id="s18">
+  <div class="screen-meta">
+    <h2>18. Admin — Session detail, event trail, force actions</h2>
+    <p>The <code class="t-mono">CheckoutSessionEvent</code> audit log (§4.2) rendered in order — "what happened" answerable without reading application logs. Force-expire/force re-price gated on <code class="t-mono">checkout.sessions.manage</code>.</p>
+    <div class="screen-refs"><span class="ref">§4.2</span><span class="ref">§9</span><span class="ref">§9.1</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/checkout/sessions/chk_1c90</span></div>
+    <div class="app app-taller">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Northwind Fasteners</span></div>
+        <nav class="sidebar-nav"><div class="nav-group"><span>Checkout</span><svg><use href="#ic-chevron-down"/></svg></div><div class="nav-items"><a class="nav-item active" href="#s17" data-goto="s17"><svg><use href="#ic-layers"/></svg> Sessions</a></div></nav>
+      </aside>
+      <div class="main">
+        <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><a data-goto="s17" style="color:var(--muted-foreground);text-decoration:none">Sessions</a><svg><use href="#ic-chevron-right"/></svg><span class="here t-mono">chk_1c90…</span></div></div></header>
+        <main class="page">
+          <div class="page-head">
+            <div><h1 class="t-page-title t-mono">chk_1c90a3f7…</h1><p class="row"><span class="badge badge-warning">awaiting_approval</span><span class="t-hint">Dana Ruiz — Ironclad Supply Co. · 18 200,00 zł</span></p></div>
+            <div class="page-actions"><button class="btn btn-outline btn-sm"><svg><use href="#ic-refresh"/></svg> Force re-price</button><button class="btn btn-destructive-outline btn-sm"><svg><use href="#ic-x"/></svg> Force-expire</button></div>
+          </div>
+
+          <div class="form-layout">
+            <div class="form-col">
+              <div class="dt">
+                <div class="dt-head"><div class="dt-head-row"><h2 class="t-table-title">Event trail</h2></div></div>
+                <table class="table">
+                  <thead><tr><th>Kind</th><th>Actor</th><th>When</th></tr></thead>
+                  <tbody>
+                    <tr><td>step_entered <span class="t-hint">(review)</span></td><td>buyer</td><td class="t-hint">2h 04m ago</td></tr>
+                    <tr><td>field_updated <span class="t-hint">(purchase_order_number)</span></td><td>buyer</td><td class="t-hint">2h 05m ago</td></tr>
+                    <tr><td>failure <span class="t-hint">(approval_required)</span></td><td>system</td><td class="t-hint">2h 06m ago</td></tr>
+                    <tr><td>step_entered <span class="t-hint">(awaiting_approval)</span></td><td>system</td><td class="t-hint">2h 06m ago</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div class="form-col">
+              <div class="form-group">
+                <div class="title">Session</div>
+                <div class="t-hint">Channel: storefront</div>
+                <div class="t-hint">Currency: PLN</div>
+                <div class="t-hint">Cart: <span class="t-mono">cart_ac02…</span></div>
+                <div class="t-hint">Approval: <span class="t-mono">appr_5f10…</span> (pending)</div>
+              </div>
+              <div class="form-group">
+                <div class="title">Redaction</div>
+                <div class="t-hint">Event payloads are redacted at write time — never card data, never full addresses (§13). This trail is the full record; there is nothing more to reveal in logs.</div>
+              </div>
+            </div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span></footer>
+      </div>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>"Force re-price"/"Force-expire" are illustrative — no live command runs. Both are command-routed with no meaningful undo (§11) — admin mutation guard/interceptor/audit wiring applies, but "undo" doesn't reverse a real-world payment.</span></div>
+  </div>
+</section>
+
+</div>
+
+<script>
+(function () {
+  var btn = document.getElementById('theme-toggle');
+  btn.addEventListener('click', function () {
+    document.documentElement.classList.toggle('dark');
+  });
+})();
+</script>
+<script src="comments.js"></script>
+<script src="prototype.js"></script>
+</body>
+</html>

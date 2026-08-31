@@ -479,3 +479,49 @@
 .split { display: grid; gap: 1rem; grid-template-columns: minmax(0, 1fr); }
 @media (min-width: 1024px) { .split-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (min-width: 1024px) { .split-side { grid-template-columns: minmax(0, 1fr) 18rem; } }
+
+/* ── Optimistic-lock conflict bar ─────────────────────────────────────
+   Mirrors packages/ui/src/backend/conflicts/RecordConflictBanner.tsx:
+   role=alert, rendered once above page content (not inside the form card),
+   status-error tokens, Refresh action + dismiss X. Does not auto-dismiss. */
+.conflict-bar {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
+  padding: 0.5rem 0.75rem; border-radius: var(--radius-md);
+  border: 1px solid var(--status-error-border); background: var(--status-error-bg); color: var(--status-error-text);
+}
+.conflict-bar .msg { font-size: 0.875rem; min-width: 0; }
+.conflict-bar .msg b { font-weight: 500; margin-right: 0.375rem; }
+.conflict-bar .actions { display: flex; align-items: center; gap: 0.25rem; flex: none; }
+.conflict-bar .btn-outline { border-color: var(--status-error-border); background: var(--status-error-bg); color: var(--status-error-text); }
+.conflict-bar .btn-outline:hover { background: var(--status-error-border); }
+.conflict-bar .icon-btn { color: var(--status-error-text); }
+.conflict-bar .icon-btn:hover { background: var(--status-error-border); }
+
+/* ── Branding live-preview mini storefront ─────────────────────────── */
+.brand-preview {
+  border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden;
+  background: var(--preview-bg, var(--background)); color: var(--preview-fg, var(--foreground));
+}
+.brand-preview .bp-nav {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0.625rem 0.875rem; background: var(--preview-primary, var(--primary)); color: var(--preview-primary-fg, var(--primary-foreground));
+  font-weight: 600; font-size: 0.8125rem;
+}
+.brand-preview .bp-body { padding: 1.25rem 1rem; display: flex; flex-direction: column; gap: 0.5rem; align-items: flex-start; }
+.brand-preview .bp-title { font-size: 1rem; font-weight: 700; }
+.brand-preview .bp-sub { font-size: 0.75rem; opacity: 0.75; }
+.brand-preview .bp-cta {
+  margin-top: 0.375rem; padding: 0.4375rem 0.875rem; border-radius: var(--preview-radius, var(--radius-md));
+  background: var(--preview-primary, var(--primary)); color: var(--preview-primary-fg, var(--primary-foreground));
+  font-size: 0.75rem; font-weight: 600;
+}
+
+/* ── Tab icon sizing (components.css defines .tabs but not icon size) ─ */
+.tabs > button svg { width: 1rem; height: 1rem; flex: none; }
+
+/* ── Notification panel (bell dropdown) ────────────────────────────── */
+.notif-panel { position: absolute; top: 2.5rem; right: 0; width: 22rem; z-index: 30; }
+.notif-panel .notif-head { padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border); }
+.notif-item { display: flex; align-items: flex-start; gap: 0.625rem; padding: 0.75rem; }
+.notif-item .empty-icon { width: 2rem; height: 2rem; flex: none; }
+.notif-item .empty-icon svg { width: 1rem; height: 1rem; }
