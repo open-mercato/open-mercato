@@ -11,6 +11,7 @@ import type { ExchangeRateService } from '@open-mercato/core/modules/currencies/
 import { parseBooleanFromUnknown } from '@open-mercato/shared/lib/boolean'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import type { CrudCtx } from '@open-mercato/shared/lib/crud/factory'
+import { readQueryParamList } from '@open-mercato/shared/lib/crud/query-params'
 import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { fetchStuckDealIds } from '../../../lib/stuckDeals'
@@ -122,11 +123,8 @@ export const openApi: OpenApiRouteDoc = {
 }
 
 function readArrayParam(searchParams: URLSearchParams, key: string): string[] | null {
-  const all = searchParams.getAll(key)
-  if (!all.length) return null
-  const flat = all.flatMap((v) => v.split(','))
-  const trimmed = flat.map((s) => s.trim()).filter(Boolean)
-  return trimmed.length ? trimmed : null
+  const values = readQueryParamList(searchParams, key)
+  return values.length ? values : null
 }
 
 function restrictToIds(where: string[], values: Array<string | number | null>, ids: string[]) {

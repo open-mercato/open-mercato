@@ -1380,7 +1380,7 @@
   "customers.deals.kanban.quickDeal.probability": "Probability",
   "customers.deals.kanban.quickDeal.status": "Status",
   "customers.deals.kanban.quickDeal.status.in_progress": "En curso",
-  "customers.deals.kanban.quickDeal.status.loose": "Estancado",
+  "customers.deals.kanban.quickDeal.status.lost": "Perdido",
   "customers.deals.kanban.quickDeal.status.open": "Abierto",
   "customers.deals.kanban.quickDeal.status.win": "Ganado",
   "customers.deals.kanban.quickDeal.submit": "Add deal",
