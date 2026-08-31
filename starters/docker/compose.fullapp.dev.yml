@@ -11,6 +11,9 @@ services:
     restart: unless-stopped
     environment:
       HARNESS_SERVICE_TOKEN: ${BUSINESS_HARNESS_SERVICE_TOKEN:-open-mercato-business-harness-local-token}
+      # Local-only: accept the published default token. The production profile has no
+      # default and this flag is absent there, so the placeholder fails closed.
+      HARNESS_ALLOW_INSECURE_TOKEN: "true"
       HARNESS_CREDENTIAL_MODE: broker
       HARNESS_CREDENTIAL_BROKER_URL: http://app:3000/api/agent_orchestrator/internal/credentials/exchange
       HARNESS_CONFIG_FILE: /workspace/packages/business-harness/harness.config.compose.json

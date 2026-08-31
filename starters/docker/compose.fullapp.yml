@@ -5,18 +5,18 @@ services:
     build:
       context: .
       dockerfile: packages/business-harness/Dockerfile
-    image: open-mercato-business-harness:dev
+    image: open-mercato-business-harness:${DEPLOY_ENV:-local}
     container_name: mercato-business-harness-${DEPLOY_ENV:-local}
     restart: unless-stopped
     environment:
-      HARNESS_SERVICE_TOKEN: ${BUSINESS_HARNESS_SERVICE_TOKEN:-open-mercato-business-harness-local-token}
+      # Shared bearer for POST /v1/runs. Required: a published default would be a
+      # forgeable secret, the same reason JWT_SECRET below is `:?` and not `:-`.
+      HARNESS_SERVICE_TOKEN: "${BUSINESS_HARNESS_SERVICE_TOKEN:?set BUSINESS_HARNESS_SERVICE_TOKEN in the .env file next to this compose file - generate one with: openssl rand -hex 32}"
       HARNESS_CREDENTIAL_MODE: broker
       HARNESS_CREDENTIAL_BROKER_URL: http://app:3000/api/agent_orchestrator/internal/credentials/exchange
       HARNESS_CONFIG_FILE: /workspace/packages/business-harness/harness.config.compose.json
       HARNESS_HOST: 0.0.0.0
       HARNESS_PORT: 4300
-    ports:
-      - "${BUSINESS_HARNESS_PORT:-4300}:4300"
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:4300/healthz"]
       interval: 5s
@@ -199,7 +199,7 @@ services:
       OM_AI_MODEL: ${OM_AI_MODEL:-gpt-5-mini}
       OM_BUSINESS_HARNESS_URL: http://business-harness:4300
       OM_BUSINESS_HARNESS_TRANSPORT: http
-      BUSINESS_HARNESS_SERVICE_TOKEN: ${BUSINESS_HARNESS_SERVICE_TOKEN:-open-mercato-business-harness-local-token}
+      BUSINESS_HARNESS_SERVICE_TOKEN: "${BUSINESS_HARNESS_SERVICE_TOKEN:?set BUSINESS_HARNESS_SERVICE_TOKEN in the .env file next to this compose file - generate one with: openssl rand -hex 32}"
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY:-}

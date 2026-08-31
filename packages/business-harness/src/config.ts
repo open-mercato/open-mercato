@@ -156,10 +156,28 @@ export async function loadRuntimeProcessConfig(
   };
 }
 
+/**
+ * Service tokens that ship in this repository's compose files, docs and examples.
+ * A deployment reaching production with one of these is not "weakly configured".
+ * It is publicly forgeable by anyone who has read the repository, so `POST /v1/runs`
+ * would accept arbitrary execution bundles. `HARNESS_ALLOW_INSECURE_TOKEN=true` is
+ * the explicit opt-out the local dev compose sets.
+ */
+const PLACEHOLDER_SERVICE_TOKENS = new Set(['open-mercato-business-harness-local-token']);
+
 export async function loadProcessConfig(env: NodeJS.ProcessEnv = process.env): Promise<ProcessConfig> {
   const serviceToken = requiredEnv(env, 'HARNESS_SERVICE_TOKEN');
   if (serviceToken.length < 24) {
     throw new HarnessError('CONFIGURATION_ERROR', 'HARNESS_SERVICE_TOKEN must contain at least 24 characters');
+  }
+  if (
+    PLACEHOLDER_SERVICE_TOKENS.has(serviceToken) &&
+    env.HARNESS_ALLOW_INSECURE_TOKEN?.trim().toLowerCase() !== 'true'
+  ) {
+    throw new HarnessError(
+      'CONFIGURATION_ERROR',
+      'HARNESS_SERVICE_TOKEN is set to a placeholder published in this repository. Generate a real one with `openssl rand -hex 32`, or set HARNESS_ALLOW_INSECURE_TOKEN=true for local development.',
+    );
   }
   const runtime = await loadRuntimeProcessConfig(env);
   return {

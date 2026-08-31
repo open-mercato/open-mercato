@@ -72,14 +72,16 @@ function resolveHarnessUrl(): string {
   return process.env.OM_BUSINESS_HARNESS_URL?.trim() || 'http://127.0.0.1:4300'
 }
 
+/** Documented local-development fallback, published in this repository's compose files and docs. */
+const LOCAL_DEVELOPMENT_SERVICE_TOKEN = 'open-mercato-business-harness-local-token'
+
 function resolveHarnessServiceToken(): string {
   const configured = process.env.BUSINESS_HARNESS_SERVICE_TOKEN?.trim()
-  if (configured) return configured
-  if (process.env.NODE_ENV === 'production') {
+  if (process.env.NODE_ENV === 'production' && (!configured || configured === LOCAL_DEVELOPMENT_SERVICE_TOKEN)) {
     throw new BusinessHarnessClientError(
       'HARNESS_CONFIGURATION_ERROR',
-      'BUSINESS_HARNESS_SERVICE_TOKEN is required in production',
+      'BUSINESS_HARNESS_SERVICE_TOKEN must be set to a generated secret in production',
     )
   }
-  return 'open-mercato-business-harness-local-token'
+  return configured || LOCAL_DEVELOPMENT_SERVICE_TOKEN
 }
