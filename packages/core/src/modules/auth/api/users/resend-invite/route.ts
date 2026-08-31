@@ -139,7 +139,7 @@ export async function POST(req: Request) {
 
   let base: string
   try {
-    base = getSecurityEmailBaseUrl(req.url)
+    base = getSecurityEmailBaseUrl(req)
   } catch (error) {
     const mapped = mapSecurityEmailUrlError(error, {
       scope: 'auth.users.resend-invite',

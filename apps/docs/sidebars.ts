@@ -124,6 +124,7 @@ const sidebars: SidebarsConfig = {
           items: [
             "user-guide/integrations",
             "user-guide/webhooks",
+            "user-guide/notifications-and-push",
             {
               type: "category",
               label: "Communication Channels",
@@ -395,6 +396,10 @@ const sidebars: SidebarsConfig = {
             "framework/modules/routes-and-pages",
             "framework/modules/overrides",
             "framework/modules/notifications",
+            "framework/modules/notification-delivery",
+            "framework/modules/push-notifications",
+            "framework/modules/devices",
+            "framework/modules/communication-channels",
             "framework/modules/messages",
             "framework/modules/currencies",
             "framework/modules/integrations-data-sync",
