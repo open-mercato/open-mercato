@@ -86,6 +86,17 @@ export function MutationPreviewCard(props: MutationPreviewCardProps) {
       await refresh()
       return
     }
+    // HTTP 202 — another request already holds the atomic execution claim
+    // (double-click, client retry). Nothing failed: the winning request is
+    // still running it. Stay on the "applying…" spinner and let the polling
+    // hook flip to the result card once the row goes terminal. This branch
+    // must precede the handler-error mapping below, which would otherwise
+    // read the 202's `ok: false` + null `mutationResult` as a handler failure
+    // and tell the operator the mutation errored while it is succeeding.
+    if (result.data?.code === 'confirmation_in_progress') {
+      await refresh()
+      return
+    }
     // HTTP 200 path. The dispatcher returns `ok: false` AND a populated
     // `mutationResult.error` when the wrapped tool handler failed inside
     // the confirm route — the row is already in a terminal state but the

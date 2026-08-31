@@ -272,16 +272,13 @@ describe('AiPendingActionRepository', () => {
     const em = mockEm()
     const repo = new AiPendingActionRepository(em)
     const ctx = { tenantId: tenantAlpha, organizationId: null, userId: 'u-1' }
-    const now = new Date('2026-04-18T12:30:00.000Z')
     const row = await repo.create(baseInput({ idempotencyKey: 'idem-claim' }), ctx)
 
     const first = await repo.claimForConfirmation(row.id, ctx, {
       resolvedByUserId: 'u-1',
-      now,
     })
     const second = await repo.claimForConfirmation(row.id, ctx, {
       resolvedByUserId: 'u-1',
-      now,
     })
 
     expect(first.claimed).toBe(true)

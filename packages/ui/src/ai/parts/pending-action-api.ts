@@ -17,6 +17,12 @@ import type { AiPendingActionCardAction } from './types'
 
 export type PendingActionMutationOk = {
   ok: boolean
+  /**
+   * Machine-readable outcome on a 2xx that is not a completed mutation.
+   * Currently only `confirmation_in_progress`, returned with HTTP 202 when
+   * another request holds the atomic execution claim.
+   */
+  code?: string
   pendingAction: AiPendingActionCardAction
   mutationResult?: AiPendingActionCardAction['executionResult']
 }

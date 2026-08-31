@@ -889,11 +889,11 @@ describe('Pending-action contract integration (Step 5.17)', () => {
   })
 
   // Scenario 14 -------------------------------------------------------------
-  it('scenario-14 permits the claim path and rejects cancellation while executing or reopening a terminal row', async () => {
+  it('scenario-14 permits the claim path and rejects cancellation while executing, without narrowing the published table', async () => {
     const seed = makeSeed()
     const { repo } = makeRepoStub({ seeds: [seed] })
 
-    // The atomic claim uses the legal pending → executing transition.
+    // The atomic claim uses the pending → executing transition.
     await repo.setStatus(
       'pa_1',
       'executing',
@@ -911,21 +911,38 @@ describe('Pending-action contract integration (Step 5.17)', () => {
       ),
     ).rejects.toBeInstanceOf(AiPendingActionStateError)
 
-    // Complete the execution, then verify that confirmed is terminal.
     await repo.setStatus(
       'pa_1',
       'confirmed',
       { tenantId: 'tenant-a', organizationId: 'org-a' },
       { now: REFERENCE_CLOCK },
     )
+
+    // Illegal from a terminal row: confirmed → cancelled was never allowed.
     await expect(
       repo.setStatus(
         'pa_1',
-        'executing',
+        'cancelled',
         { tenantId: 'tenant-a', organizationId: 'org-a' },
         { now: REFERENCE_CLOCK },
       ),
     ).rejects.toBeInstanceOf(AiPendingActionStateError)
+  })
+
+  it('scenario-14b keeps the published transition table a superset of the pre-claim contract', () => {
+    // `AI_PENDING_ACTION_ALLOWED_TRANSITIONS` is re-exported from the package
+    // root, so third-party modules can call `setStatus` along these edges.
+    // Narrowing them is a breaking change that needs the deprecation protocol
+    // in BACKWARD_COMPATIBILITY.md — the atomic claim does not require it,
+    // because `claimForConfirmation` never consults this table.
+    expect(AI_PENDING_ACTION_ALLOWED_TRANSITIONS.pending).toEqual(
+      expect.arrayContaining(['confirmed', 'cancelled', 'expired']),
+    )
+    expect(AI_PENDING_ACTION_ALLOWED_TRANSITIONS.confirmed).toEqual(
+      expect.arrayContaining(['executing']),
+    )
+    // Additive edge the claim path documents.
+    expect(AI_PENDING_ACTION_ALLOWED_TRANSITIONS.pending).toContain('executing')
   })
 
   // Scenario 15 -------------------------------------------------------------

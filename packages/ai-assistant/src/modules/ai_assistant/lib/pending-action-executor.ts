@@ -322,11 +322,11 @@ function toToolHandlerContext(
 /**
  * Idempotent entry point for the Step 5.8 confirm route.
  *
- * - If the action is already `confirmed` with a stored `executionResult`,
- *   returns that prior result without re-invoking the handler (double-click /
- *   retry contract).
- * - If the action is already `confirmed`, returns the stored result without
- *   reopening the terminal state.
+ * - If the action is already `confirmed`, returns the stored
+ *   `executionResult` without re-invoking the handler and without reopening
+ *   the terminal state (double-click / retry contract).
+ * - If the action is already `executing`, another request holds the claim:
+ *   reports `confirmation_in_progress` instead of running the handler.
  * - If the action is still `pending`, atomically claims it, then runs the
  *   remaining transitions and handler only for the winning caller.
  * - Any other status is rejected at the re-check layer before this helper
@@ -370,7 +370,6 @@ export async function executePendingActionConfirm(
 
   const claim = await repo.claimForConfirmation(action.id, scope, {
     resolvedByUserId: ctx.userId,
-    now: clock,
     ...(partialFailedRecords ? { failedRecords: partialFailedRecords } : {}),
   })
   if (!claim.claimed) {

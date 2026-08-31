@@ -34,6 +34,9 @@ import {
  *     short-circuits (200) rather than throwing.
  *   - cancelling an expired row -> 409 `expired`; confirming a cancelled row ->
  *     409 `invalid_status`; unknown id -> 404 `pending_action_not_found`.
+ *   - confirming a row already claimed by another request (`executing`) ->
+ *     202 `confirmation_in_progress`, so a double-click never re-runs the
+ *     tool handler.
  *   - all three require `ai_assistant.view`.
  *
  * The confirm HAPPY path is exercised via the terminal short-circuit (a seeded
@@ -134,6 +137,28 @@ test.describe('TC-AI-ACTIONS-PENDING-004: Pending action confirm/cancel', () => 
       });
       expect(confirmCancelled.status()).toBe(409);
       expect((await readJsonSafe<{ code?: string }>(confirmCancelled))?.code).toBe('invalid_status');
+
+      // Confirming a row another request already claimed -> 202
+      // confirmation_in_progress. `executing` is the state the atomic claim
+      // leaves behind for the losing caller, so a double-click or a client
+      // retry must be told "still running", never handed a terminal verdict
+      // and never allowed to run the tool handler a second time.
+      const executingRow = await seed({ status: 'executing' });
+      const confirmExecuting = await apiRequest(request, 'POST', `${ACTIONS}/${executingRow.id}/confirm`, {
+        token: adminToken,
+        data: {},
+      });
+      expect(confirmExecuting.status()).toBe(202);
+      const inProgressBody = await readJsonSafe<{
+        ok: boolean;
+        code?: string;
+        pendingAction: SerializedPendingAction;
+        mutationResult: unknown;
+      }>(confirmExecuting);
+      expect(inProgressBody?.ok).toBe(false);
+      expect(inProgressBody?.code).toBe('confirmation_in_progress');
+      expect(inProgressBody?.pendingAction.status).toBe('executing');
+      expect(inProgressBody?.mutationResult).toBeNull();
 
       // Cancelling an expired row -> 409 expired.
       const expiredRow = await seed({ status: 'pending', expiresInMinutes: -10 });

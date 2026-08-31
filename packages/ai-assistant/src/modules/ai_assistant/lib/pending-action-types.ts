@@ -33,14 +33,26 @@ export type AiPendingActionQueueMode = (typeof AI_PENDING_ACTION_QUEUE_MODES)[nu
  *               └─▶ expired
  * ```
  *
+ * The confirm path takes `pending → executing` through the repository's
+ * atomic `claimForConfirmation` compare-and-swap, which carries its own
+ * status predicate in the `UPDATE` and never consults this table.
+ *
+ * The legacy `pending → confirmed` and `confirmed → executing` edges are
+ * retained because this constant is exported from the package root and
+ * third-party modules may still drive them through `setStatus`. Nothing
+ * in the confirm path reaches `setStatus` for those transitions any more,
+ * so keeping them cannot reopen the concurrent-execution hole the atomic
+ * claim closes. Removing them would be a breaking narrowing of a public
+ * surface and needs the `BACKWARD_COMPATIBILITY.md` deprecation protocol.
+ *
  * Every other transition is rejected with `AiPendingActionStateError`.
  */
 export const AI_PENDING_ACTION_ALLOWED_TRANSITIONS: Record<
   AiPendingActionStatus,
   ReadonlyArray<AiPendingActionStatus>
 > = {
-  pending: ['cancelled', 'expired', 'executing'],
-  confirmed: [],
+  pending: ['confirmed', 'cancelled', 'expired', 'executing'],
+  confirmed: ['executing'],
   executing: ['confirmed', 'failed'],
   cancelled: [],
   expired: [],

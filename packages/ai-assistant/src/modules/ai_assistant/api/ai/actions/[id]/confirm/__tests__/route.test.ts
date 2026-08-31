@@ -239,6 +239,26 @@ describe('POST /api/ai/actions/:id/confirm route (Step 5.8)', () => {
     expect(repoSetStatusMock).not.toHaveBeenCalled()
   })
 
+  it('409 invalid_status when the row goes terminal between the recheck and the claim', async () => {
+    // A concurrent cancel (or the TTL worker) moves the row after the
+    // recheck passed. The claim then fails against a `cancelled` row, and
+    // the route must answer with the 409 its OpenAPI contract declares for
+    // an incompatible terminal status — the same answer a row that was
+    // already terminal on arrival gets.
+    repoGetByIdMock.mockResolvedValueOnce(makeRow())
+    repoClaimForConfirmationMock.mockResolvedValueOnce({
+      claimed: false,
+      action: makeRow({ status: 'cancelled' }),
+    })
+
+    const response = await POST(buildRequest() as any, buildContext('pa_123'))
+    expect(response.status).toBe(409)
+    const body = await response.json()
+    expect(body.code).toBe('invalid_status')
+    expect(body.pendingAction.status).toBe('cancelled')
+    expect(repoSetStatusMock).not.toHaveBeenCalled()
+  })
+
   it('409 invalid_status: already cancelled', async () => {
     repoGetByIdMock.mockResolvedValueOnce(makeRow({ status: 'cancelled' }))
 

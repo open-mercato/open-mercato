@@ -300,11 +300,15 @@ export class AiPendingActionRepository {
    * both win from stale in-memory `pending` snapshots. The winner advances the
    * row directly to `executing`; losers receive the current row without
    * changing it and can report that execution is still in progress.
+   *
+   * `executing` is not a resolved state, so no clock is taken here: the
+   * caller stamps `resolvedAt` on the terminal `confirmed` / `failed`
+   * transition through {@link setStatus}.
    */
   async claimForConfirmation(
     id: string,
     ctx: AiPendingActionContext,
-    extra?: Pick<AiPendingActionSetStatusExtra, 'resolvedByUserId' | 'failedRecords' | 'now'>,
+    extra?: Pick<AiPendingActionSetStatusExtra, 'resolvedByUserId' | 'failedRecords'>,
   ): Promise<AiPendingActionClaimResult> {
     if (!ctx?.tenantId) {
       throw new Error('AiPendingActionRepository.claimForConfirmation requires tenantId')
@@ -313,7 +317,6 @@ export class AiPendingActionRepository {
       throw new Error('AiPendingActionRepository.claimForConfirmation requires id')
     }
 
-    const now = extra?.now ?? new Date()
     const affected = await this.em.nativeUpdate(
       AiPendingAction,
       {

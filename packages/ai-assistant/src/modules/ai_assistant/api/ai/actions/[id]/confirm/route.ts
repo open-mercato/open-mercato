@@ -238,6 +238,20 @@ export async function POST(req: NextRequest, context: RouteContext): Promise<Res
       }, { status: 202 })
     }
 
+    // The row reached a terminal status between the recheck and the atomic
+    // claim (a concurrent cancel, or the TTL worker). Answer with the same
+    // 409 `invalid_status` the recheck layer produces for a row that was
+    // already terminal on arrival, so the declared response surface holds
+    // however the race lands.
+    if (executed.executionResult.error?.code === 'invalid_status') {
+      return jsonError(
+        409,
+        executed.executionResult.error.message,
+        'invalid_status',
+        { pendingAction: serializePendingActionForClient(executed.action) },
+      )
+    }
+
     return NextResponse.json({
       ok: executed.ok,
       pendingAction: serializePendingActionForClient(executed.action),
