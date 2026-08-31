@@ -1,7 +1,7 @@
 'use client'
 
 import React from 'react'
-import { useParams, useRouter, useSearchParams } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { PasswordInput } from '@open-mercato/ui/primitives/password-input'
@@ -51,11 +51,8 @@ interface SsoIdentityRow {
   createdAt: string
 }
 
-export default function SsoConfigDetailPage() {
-  const params = useParams()
-  const configId = (params?.slug && Array.isArray(params.slug))
-    ? params.slug[2]
-    : (Array.isArray(params?.id) ? params.id[0] : params?.id as string)
+export default function SsoConfigDetailPage({ params }: { params?: { id?: string } }) {
+  const configId = params?.id ?? ''
   const router = useRouter()
   const searchParams = useSearchParams()
   const t = useT()

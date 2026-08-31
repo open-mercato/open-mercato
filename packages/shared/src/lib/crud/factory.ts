@@ -70,6 +70,7 @@ import type { EnricherContext } from './response-enricher'
 import type { ApiInterceptorMethod, InterceptorRequest, InterceptorResponse } from './api-interceptor'
 import { runApiInterceptorsAfter, runApiInterceptorsBefore } from './interceptor-runner'
 import { mergeIdFilter, parseIdsParam, isIdsParamProvided } from './ids'
+import { buildQueryParams } from './query-params'
 import { mergeAdvancedFilters } from './advanced-filter-integration'
 import { parseExtensionHeaders } from '../umes/extension-headers'
 import { createGenericOptimisticLockReader } from './optimistic-lock'
@@ -1548,7 +1549,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         return json({ error: 'Not implemented' }, { status: 501 })
       }
       const url = new URL(request.url)
-      const rawQueryParams = Object.fromEntries(url.searchParams.entries())
+      const rawQueryParams = buildQueryParams(url.searchParams)
       profiler.mark('query_parsed')
       let validated = opts.list.schema.parse(rawQueryParams)
       profiler.mark('query_validated')
@@ -2902,7 +2903,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       if (useCommand) {
         const action = opts.actions!.delete!
         const body = await request.json().catch(() => ({}))
-        const raw = { body, query: Object.fromEntries(url.searchParams.entries()) }
+        const raw = { body, query: buildQueryParams(url.searchParams) }
         const parsed = action.schema ? action.schema.parse(raw) : raw
         const interceptorInput =
           parsed && typeof parsed === 'object' && (parsed as Record<string, unknown>).body && typeof (parsed as Record<string, unknown>).body === 'object'
@@ -2921,7 +2922,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const interceptedBody = interceptorRequestPayload.body ?? {}
         const reparsedRaw = {
           body: interceptedBody,
-          query: Object.fromEntries(url.searchParams.entries()),
+          query: buildQueryParams(url.searchParams),
         }
         const reparsed = action.schema ? action.schema.parse(reparsedRaw) : reparsedRaw
         const input = action.mapInput ? await action.mapInput({ parsed: reparsed, raw: reparsedRaw, ctx }) : reparsed
@@ -3038,7 +3039,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         request,
         method: 'DELETE',
         body: idFrom === 'query' ? undefined : ({ id } as Record<string, unknown>),
-        query: idFrom === 'query' ? Object.fromEntries(url.searchParams.entries()) : undefined,
+        query: idFrom === 'query' ? buildQueryParams(url.searchParams) : undefined,
       })
       if (beforeInterceptors.errorResponse) return beforeInterceptors.errorResponse
       interceptorRequestPayload = beforeInterceptors.requestPayload
