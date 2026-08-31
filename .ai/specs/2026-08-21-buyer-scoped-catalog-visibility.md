@@ -69,6 +69,70 @@ Neither sibling spec states whether `categoryIds` and `tagIds` within one `Assor
 
 ---
 
+## User Stories
+
+Derived from §1's problem statement and §3–§7's proposed solution. Story IDs (`US-<epic>-<n>`) are referenced by the click-through prototype's `screen-refs` (see `om-mockup-prototype`). Epics D–F cover buyer-facing behavior this spec specifies but does not itself build UI for (the storefront/cart UI belongs to sibling specs); their stories are included so the prototype can illustrate the *consequence* of this spec's rules honestly, not as new UI scope.
+
+### Epic A — Merchant grants group-level catalog visibility (`customer_groups`)
+
+**US-A1** — As a merchant admin, I want to restrict a customer group's catalog to specific categories and tags, so that I can run a wholesale-only assortment without editing every product.
+- Given the group-terms form (§7), when I open the "Assortment scope" section, I see category and tag multi-select pickers, empty by default (= unrestricted).
+- Selecting one or more categories/tags saves as `AssortmentScope.categoryIds`/`tagIds`; clearing all selections back to empty saves as "no restriction," never as "hide everything" (§3.2, R4).
+- Permission: only a user with the existing group-terms edit feature can change this field; a read-only viewer sees the pickers disabled, not hidden.
+- Error: saving with a category/tag id no longer present in `catalog` shows an inline validation error naming the missing id, not a generic failure toast.
+
+**US-A2** — As a merchant admin, I want to exclude specific products, categories, or tags from a group's grant, so that I can carve out exceptions without restructuring the whole scope.
+- Given a group already has an inclusion scope, when I add an item to "Exclude products/categories/tags," that item is vetoed even if a category grant would otherwise include it (§3.2, exclusion beats inclusion).
+- Empty exclude lists behave identically to absent (no vetoes) — same empty-array convention as inclusion.
+
+**US-A3** — As a merchant admin, I want a buyer in two groups to see the union of what each group grants, so that adding a more permissive group only ever widens what that buyer can see, never narrows it based on a `priority` value set for an unrelated reason.
+- Given a buyer in "Wholesale" (grants category A) and "Preview" (grants tag B), viewing the buyer's effective catalog (Epic C's explainability tool) shows both a category-A/no-tag-B product and a tag-B/not-category-A product as visible.
+- Illustrative only in the prototype — §3.1's union algebra is not executed; a note says so explicitly and cites §3.1/R2.
+
+### Epic B — Merchant configures channel-level scope and the authentication gate (`ecommerce`)
+
+**US-B1** — As a merchant admin, I want to restrict a storefront channel's own catalog independently of any customer group, so that I can run a public catalog with a narrower channel-wide assortment.
+- Given the channel-binding "Channels" tab, setting category/tag/exclude pickers recalculates the existing live product-count preview to reflect the channel scope alone.
+- Empty state: a channel with no scope configured shows "All products in this channel's catalog" and the full count.
+- Permission: gated behind the existing `ecommerce.channels.manage` feature (`SPEC-029` §9.3), the same feature that already gates every other field on this binding — no new permission is introduced for the assortment-scope pickers or the authentication toggle in US-B2.
+
+**US-B2** — As a merchant admin, I want to require login before any product is visible on a channel, so that I can run an invitation-only B2B portal with no public catalog at all.
+- Default value: an existing or newly-created channel binding starts with the toggle off (`require_authentication: false`, §3.4) — a merchant who never opens this tab keeps today's public-catalog behavior.
+- Given the channel-binding form, toggling "Require authentication" takes effect on save; the live count preview updates to "0 products visible to anonymous visitors" (§3.4, §8's edge-case row).
+- The toggle's help text states it governs catalog visibility only, not the whole storefront, so an admin does not mistake it for a full site lockout (§3.4; full site lock is explicitly out of scope, §10 Q1).
+- Keyboard: the toggle is reachable and operable via Tab/Space like any other form control — no custom widget.
+
+### Epic C — Merchant diagnoses why a buyer can/can't see a product (optional explainability tool)
+
+**US-C1** — As a merchant support agent, I want to look up one buyer and one product and see the verdict plus every contributing source, so that I can answer "why can't this customer see this item" without reading code or logs.
+- Given the diagnose panel, entering a buyer and a product shows: the channel's own scope verdict, each of the buyer's matching groups (`sourceGroupIds`) with its individual grant/no-grant, and the final combined verdict.
+- Field-combination example (§1.4/§3.2, the AND-of-dimensions rule the sibling specs left ambiguous): for a product in a group's granted category but *not* tagged with that same group's required tag, the trace shows that single group's own verdict as no-grant — category alone does not satisfy a scope that also specifies `tagIds` — while a sibling group whose scope only names the category still grants it independently (this is what makes the case legible as "one group's AND, several groups' OR" rather than one flattened rule).
+- Permission: gated behind `ecommerce.visibility.diagnose`; a user without that feature does not see the panel or its menu entry at all — an absence, not a disabled state, matching this repo's RBAC convention.
+- No-match state: a buyer with zero matching groups shows "no group grants — visibility depends on the channel's own scope only," not an empty or broken table.
+- Error state: an unknown buyer or product id shows a clear "not found" message — distinguishable here, since this is an internal admin tool, not the public storefront oracle (§3.5 applies only to buyer-facing surfaces).
+- Dependency: this panel is optional (§7 — "cut first if this spec needs to shrink"); US-A3's illustration of the union rule is written against this panel because it is the only surface that shows a multi-group verdict, so if Epic C is descoped the prototype substitutes a static annotated diagram for US-A3 rather than silently dropping that story.
+
+### Epic D — Buyer browses a scoped storefront (read-side, illustrative)
+
+**US-D1** — As a storefront buyer, I want a product I'm not permitted to see to behave exactly like a nonexistent product, so that I can't distinguish "restricted" from "deleted" by probing the storefront.
+- Visiting a restricted product's detail page (or it appearing in a listing/facet/search) returns the same 404 / absence a deleted product would.
+- Illustrative only — the prototype does not execute `matchesScope`; a note cites §3.5/R4 (handle-enumeration-oracle rule).
+
+### Epic E — Buyer's cart mutation is checked at add time (write-side, illustrative)
+
+**US-E1** — As a storefront buyer, I want adding a restricted product straight to my cart (a stale link, a scraped id) to be rejected the same way an out-of-stock item is, so a hidden catalog restriction can't be bypassed by calling the cart API directly.
+- Adding a restricted product shows a non-fatal "unavailable" warning in the cart drawer; the line is not added; other lines in the same bulk-add are unaffected (§6.1, §6.3).
+- The rejection is indistinguishable in class from an out-of-stock rejection and from a nonexistent-product rejection (§6.3, R5) — a note flags this as deliberate, not a bug.
+
+### Epic F — Buyer's cart flags a line that became restricted mid-session (whole-cart re-visibility)
+
+**US-F1** — As a storefront buyer, I want to be warned — not silently have my cart line deleted — if a product I already added becomes restricted before I check out, so that I keep control over resolving the conflict.
+- If a buyer's group membership lapses (or the channel scope narrows) after a line was added while visible, the cart shows the line flagged "unavailable" instead of removing it (§6.2).
+- With a flagged line present, attempting to lock the cart for checkout is blocked with an explanation naming the flagged line(s); removing or replacing the line (undo path) unblocks the lock.
+- Illustrative only — the prototype shows the flagged-line and blocked-checkout states as static screens, not a live re-price trigger.
+
+---
+
 ## 2) Research — What Market Leaders Get Right
 
 - **commercetools' Product Selections** are exactly this problem, solved as a first-class object: a Store's assortment is the union of its assigned *inclusion* Product Selections, and "if Product Selections of both Inclusion and Exclusion types are assigned to a Store and all are active, exclusion of Products takes precedence." This validates **multiple active selections combine (union)**, the precedent for Q1's resolution (§3.1 below) — commercetools does not have a "the highest-priority selection wins and the rest are discarded" mode. Its exclusion rule is a *cross-selection, global* override (an Exclusion-type selection beats the union of every Inclusion selection assigned to the store), which is a coarser mechanism than this spec's *within-one-scope* exclusion (§3.2, one group's own `excludeCategoryIds` only vetoes that same group's own grant — a sibling group without that exclusion can still grant the product back through the union). The two are not the same mechanism, but they support the same underlying principle — exclusion should win over inclusion wherever both apply — which `storefront-merchandising.md` §4.7 also independently adopted for its own, unrelated audience-targeting model ("Exclusion beats inclusion"), a second, unprompted confirmation the principle is the right default in this codebase's own conventions, even though its exclusion axis (group-audience membership) differs from this spec's (product/category/tag). [Product Selections | Merchant Center](https://docs.commercetools.com/merchant-center/product-selections)
@@ -466,3 +530,8 @@ A rising rate of `product_unavailable` rejections is exactly the kind of drift t
   - No operational signal for a rising rate of visibility rejections, unlike this suite's own `availability.shortfall.detected` and `customer_groups`' `.credit.limit_exceeded` precedents for analogous gates. Fixed: new event `cart.line.visibility_rejected` (§6.3a), amending `cart-module.md`'s Events list (§0 table updated).
   - §11 lacked the UI-paths test list every sibling spec in this suite carries for its own admin-UI work. Fixed: added (§11).
   - Nice-to-have gaps also applied: a `packages/shared/AGENTS.md` Library Directory table update noted in Phase 1 (§12); an explicit no-circular-dependency statement in §3.3, mirroring `availability-contract.md`'s own precedent; named i18n key namespaces for the two new user-facing strings (§7).
+- **2026-08-31** — Added a **User Stories** section (Epics A–F, role-goal-outcome stories with acceptance criteria) as prep for `om-mockup-prototype`, per `AGENTS.md`'s `om-mockup-prototype` requirement that requirements contain user stories before a click-through prototype is built. Epics A–C cover the merchant-facing admin UI already described in §7 (group-terms pickers, channel-binding form + `require_authentication` toggle + live count preview, optional explainability panel); Epics D–F cover buyer-facing consequences of this spec's rules (storefront 404, cart `product_unavailable` warning, flagged-line/blocked-checkout state) so the prototype can illustrate them honestly as static, non-executed screens rather than omitting them. No other section changed.
+- **2026-08-31** — `/om-spec-writing` quality-bar pass over the User Stories section only (per `AGENTS.md`'s `om-mockup-prototype` requirement, applied before the click-through prototype is built). Three gaps found and fixed, none requiring a new epic:
+  - Epic B had zero permission-state acceptance criteria while Epic A had one for the equivalent group-terms form. Fixed: added a permission bullet to US-B1 naming the existing `ecommerce.channels.manage` feature (`SPEC-029` §9.3) that already gates this binding, rather than inventing a new one.
+  - US-B2 never stated the `require_authentication` toggle's default value, even though §3.4 specifies it (`false`) and the om-mockup-prototype checklist requires default-value coverage. Fixed: added a default-value bullet.
+  - §1.4's field-combination ambiguity names two sub-problems — the empty-array convention (already covered by US-A1/US-A2) and the AND-between-`categoryIds`/`tagIds` rule (§3.2) — but only the first had a demonstrating story; the AND rule, arguably the more novel of the two hard-won rules in this spec alongside §3.1's union, had no story showing it. Fixed: added a worked-example acceptance criterion to US-C1 showing one group's AND-of-dimensions verdict alongside a sibling group's independent OR-branch, and noted US-A3's dependency on the (optional, §7) explainability panel plus its fallback if that panel is cut.
