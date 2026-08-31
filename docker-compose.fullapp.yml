@@ -263,12 +263,19 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    # Restarted automatically by the autoheal service when this healthcheck
+    # flips to unhealthy.
+    labels:
+      - "autoheal=true"
     networks:
       - mercato-network-fullapp
 
   redis:
     image: redis:7-alpine
     container_name: mercato-redis-${DEPLOY_ENV:-local}
+    # Without a restart policy Redis stays down after a daemon/host reboot,
+    # taking the cache and queue strategies with it.
+    restart: unless-stopped
     # ports not exposed - only accessible within docker network
     volumes:
       - ./docker/redis/redis.conf:/usr/local/etc/redis/redis.conf
@@ -279,6 +286,10 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    # Restarted automatically by the autoheal service when this healthcheck
+    # flips to unhealthy.
+    labels:
+      - "autoheal=true"
     networks:
       - mercato-network-fullapp
 
@@ -298,6 +309,10 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    # Restarted automatically by the autoheal service when this healthcheck
+    # flips to unhealthy.
+    labels:
+      - "autoheal=true"
     networks:
       - mercato-network-fullapp
 
@@ -320,6 +335,37 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+    networks:
+      - mercato-network-fullapp
+
+  # Container auto-recovery.
+  #
+  # Docker's `restart:` policy only reacts to a process that EXITS. It cannot
+  # see a container that is still running but has stopped answering (wedged on
+  # a full disk, deadlocked, frozen). autoheal watches healthcheck state and
+  # restarts anything labelled `autoheal=true` that goes unhealthy, which is
+  # the gap the restart policy leaves.
+  autoheal:
+    image: willfarrell/autoheal:1.2.0
+    container_name: mercato-autoheal-${DEPLOY_ENV:-local}
+    restart: unless-stopped
+    environment:
+      # Only containers carrying `autoheal=true` are watched, so this never
+      # touches unrelated containers on a shared Docker host.
+      AUTOHEAL_CONTAINER_LABEL: autoheal
+      AUTOHEAL_INTERVAL: ${AUTOHEAL_INTERVAL:-15}
+      AUTOHEAL_START_PERIOD: ${AUTOHEAL_START_PERIOD:-300}
+      AUTOHEAL_DEFAULT_STOP_TIMEOUT: ${AUTOHEAL_DEFAULT_STOP_TIMEOUT:-30}
+      # Must stay comfortably above AUTOHEAL_DEFAULT_STOP_TIMEOUT. autoheal
+      # restarts via 'curl --max-time $CURL_TIMEOUT', and a wedged container
+      # burns the full stop timeout waiting for SIGTERM before SIGKILL. At the
+      # 30s default the two expire together and autoheal logs 'Restarting
+      # container failed' on every restart that actually succeeded.
+      CURL_TIMEOUT: ${AUTOHEAL_CURL_TIMEOUT:-90}
+    volumes:
+      # Read-write: autoheal issues container restarts. This grants effective
+      # root on the host, which is why the label filter above is narrow.
+      - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - mercato-network-fullapp
 

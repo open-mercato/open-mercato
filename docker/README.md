@@ -42,6 +42,47 @@ curl http://localhost:4096/mcp             # {"open-mercato":{"status":"connecte
 
 Two operational notes: OpenCode reads the key **once at startup** — after a DB reset, `mcp:ensure-api-key --rotate`, or anything else that rotates the key, run `docker compose restart opencode`. And after restarting only the `app` container (which re-runs install/build in the shared volumes), restart `mcp` too once the app is back up.
 
+### Container auto-recovery (fullapp stacks)
+
+`docker-compose.fullapp.yml` runs a small `autoheal` sidecar that restarts containers whose healthcheck goes unhealthy. It covers `postgres`, `redis` and `meilisearch` — the services with meaningful healthchecks — via an `autoheal=true` label on each.
+
+It exists because Docker's `restart:` policy only reacts to a process that **exits**. A container that is still running but has stopped answering — wedged on a full disk, deadlocked, frozen — stays "up" forever as far as the restart policy is concerned. Only the healthcheck sees that, and only autoheal acts on it.
+
+The two failure modes recover on very different timescales:
+
+| Failure | Detected by | Measured time to recovery |
+|---------|-------------|---------------------------|
+| Process crashes (container exits) | `restart: unless-stopped` | **~12s** |
+| Process wedges (container stays up) | healthcheck + autoheal | **~107s** (postgres), ~112s (meilisearch), ~125s (redis) |
+
+The wedge path is slower by design: the healthcheck must fail `retries` times before autoheal will act, and the interval does not reset when the service breaks — so you wait out the remainder of the current interval plus 5 more. In practice that is **60-90s** to be marked unhealthy at a 10s interval. Lower `interval`/`retries` on a service if you want it to self-heal faster.
+
+autoheal also restarts serially, so several services wedging at once recover more slowly than any one of them alone (measured: 171s for all three, against ~110s for postgres by itself).
+
+Relevant `.env` keys:
+
+```bash
+AUTOHEAL_INTERVAL=15              # seconds between health scans
+AUTOHEAL_START_PERIOD=300         # grace period before autoheal acts after it starts
+AUTOHEAL_DEFAULT_STOP_TIMEOUT=30  # SIGTERM grace before SIGKILL on restart
+AUTOHEAL_CURL_TIMEOUT=90          # must exceed the stop timeout (see below)
+```
+
+`AUTOHEAL_CURL_TIMEOUT` must stay above `AUTOHEAL_DEFAULT_STOP_TIMEOUT`. autoheal restarts containers with `curl --max-time $CURL_TIMEOUT`, and a wedged container burns the full stop timeout waiting on SIGTERM before Docker sends SIGKILL. If the two are equal, autoheal logs `Restarting container ... failed` on every restart even though the restart succeeded.
+
+Two operational notes. `autoheal` mounts the Docker socket **read-write**, which is effectively root on the host; the narrow `autoheal=true` label filter is what keeps it from touching unrelated containers on a shared host. And `app`, `mcp` and `opencode` are deliberately **not** covered — `app` has no healthcheck at all, and the `mcp`/`opencode` healthchecks are documented as visibility-only.
+
+To verify it works on your own stack, wedge a service rather than killing it (a kill only tests the restart policy):
+
+```bash
+# freeze the postgres process from outside its PID namespace
+PID=$(docker inspect -f '{{.State.Pid}}' mercato-postgres-local)
+docker run --rm --privileged --pid=host alpine:3 kill -STOP "$PID"
+docker events --filter event=restart   # autoheal should restart it within ~110s
+```
+
+Note that some images run an init wrapper (meilisearch is `tini -- /bin/sh -c /bin/meilisearch`), so PID 1 is not the server. Use `docker top <container> -eo pid,args` to find the real process, or freezing PID 1 will leave the service happily answering its healthcheck.
+
 ## Quick Start
 
 ```bash
