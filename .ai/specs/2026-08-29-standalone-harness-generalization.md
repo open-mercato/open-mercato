@@ -1,7 +1,7 @@
 ---
 title: Standalone Harness Generalization for Unenumerated Business Modules
 date: 2026-08-29
-status: draft
+status: in-progress
 ---
 
 # Standalone Harness Generalization for Unenumerated Business Modules
@@ -47,7 +47,7 @@ Four tracks, independently landable, ordered by leverage over cost. Every change
 
 ### Track 4: honest decision-label scoring
 
-- Replace the `decisionVocabulary ?? requiredDecisions` fallback in the evaluator's prompt builder with deterministic distractor injection: the effective vocabulary is `requiredDecisions` plus distractors sampled from a family-level label pool derived from the catalog, seeded by case ID so prompts stay reproducible per catalog version. `validateCatalog` enforces that the effective vocabulary is at least twice the size of `requiredDecisions` (or that the case declares an explicit vocabulary meeting the same ratio).
+- Replace the `decisionVocabulary ?? requiredDecisions` fallback in the evaluator's prompt builder with deterministic distractor injection: the effective vocabulary is `requiredDecisions` plus `max(|requiredDecisions|, 4)` distractors sampled from the case's family label pool, then the whole-catalog pool, seeded by case ID and required labels so prompts stay reproducible per catalog version; the result is sorted so required labels are not positionally identifiable. Declared vocabularies pass through verbatim and keep the existing at-least-one-contrastive-label rule; `validateCatalog` fails closed when assembly cannot add a single distractor, and the assembled vocabulary is recorded in the sanitized result for audit. The grader already fails any selected non-required label, so distractors make the dimension meaningful with grading unchanged.
 - Add an advisory validator listing single-use labels to drive a later consolidation pass of the 608-label space toward a smaller canonical set; consolidation itself is out of scope here.
 - This changes the assembled prompt for up to 215 cases, so Track 4 requires a full `yarn harness:release` re-certification, not only targeted case runs. `promptHash` (sha256 of the case's task prompt) is unaffected.
 
@@ -83,3 +83,4 @@ Four tracks, independently landable, ordered by leverage over cost. Every change
 ## Changelog
 
 - 2026-08-29: Initial draft from the multi-model robustness and over-specificity audit.
+- 2026-08-29: Implemented in this branch: Track 1 (blueprint `No Matching Row` fallback; root keyword-map default arm, paid for by reclaiming unpinned root bytes, both roots mirrored), Track 2 (`generateAppLocalModuleFacts` in `yarn generate` emitting `.ai/guides/app-modules/<id>/`, gated on the installed `.ai/guides` harness; progressive-path classification, `pathReferenceExists` tolerance, `contracts.md` pointer, template gitignore), Track 3 relocation (the Complete Library Contract moved to `om-module-scaffold/references/library-contract.md`; OMH-185/193 own and require it; the staff-inference section reheaded domain-neutral), and Track 4 (deterministic distractor assembly, catalog validation, advisory single-use-label count, vocabulary recorded in results). Still pending: the Track 3 transfer case, Track 1 routing cases for unenumerated domains, live failure-first runner evidence, and the full `yarn harness:release` re-certification on a Linux/Bubblewrap host.

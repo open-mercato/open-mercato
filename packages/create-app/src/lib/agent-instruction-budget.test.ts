@@ -29,6 +29,8 @@ const ROOT_SOURCES = [
 // progressive context, not part of the initial payload.
 function isInitialContext(relativePath: string): boolean {
   return !relativePath.includes('/references/')
+    && !relativePath.startsWith('.ai/framework-context/')
+    && !relativePath.startsWith('.ai/guides/app-modules/')
     && !relativePath.startsWith('.ai/guides/modules/')
     && !relativePath.startsWith('.ai/guides/reference-modules/')
     && !relativePath.startsWith('.ai/guides/upstream/')

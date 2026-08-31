@@ -135,6 +135,24 @@ export function discoverLocalReferenceModuleSource(options: {
 }
 
 /**
+ * Every enabled `@app` module with readable TypeScript source under `src/modules/<id>`.
+ * Disabled directories stay out: their surfaces are inert, so a fact sheet would claim
+ * behavior the app does not run.
+ */
+export function discoverAppLocalModuleSources(resolver: PackageResolver): ModuleFactSource[] {
+  const appDir = resolver.getAppDir()
+  const sources: ModuleFactSource[] = []
+  const seen = new Set<string>()
+  for (const entry of resolver.loadEnabledModules()) {
+    if (entry.from !== '@app' || seen.has(entry.id)) continue
+    seen.add(entry.id)
+    const source = discoverLocalReferenceModuleSource({ appRoot: appDir, moduleId: entry.id })
+    if (source) sources.push(source)
+  }
+  return sources.sort((left, right) => left.moduleId.localeCompare(right.moduleId))
+}
+
+/**
  * Appends the local reference source to the package batch, rejecting a duplicate module
  * id *before* assignment. A package that already provides the same id would otherwise be
  * silently replaced by (or silently replace) the app-local projection, and the emitted
