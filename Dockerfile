@@ -50,6 +50,7 @@ COPY tsconfig.base.json tsconfig.json ./
 COPY apps/docs/package.json ./apps/docs/
 COPY apps/mercato/package.json ./apps/mercato/
 COPY packages/ai-assistant/package.json ./packages/ai-assistant/
+COPY packages/business-harness/package.json ./packages/business-harness/
 COPY packages/cache/package.json ./packages/cache/
 COPY packages/channel-apns/package.json ./packages/channel-apns/
 COPY packages/channel-discord/package.json ./packages/channel-discord/
@@ -159,6 +160,7 @@ COPY tsconfig.base.json tsconfig.json ./
 COPY apps/docs/package.json ./apps/docs/
 COPY apps/mercato/package.json ./apps/mercato/
 COPY packages/ai-assistant/package.json ./packages/ai-assistant/
+COPY packages/business-harness/package.json ./packages/business-harness/
 COPY packages/cache/package.json ./packages/cache/
 COPY packages/channel-apns/package.json ./packages/channel-apns/
 COPY packages/channel-discord/package.json ./packages/channel-discord/
