@@ -108,7 +108,6 @@ type UseDealAssociationsResult = {
   companiesSaving: boolean
   handlePeopleAssociationsChange: (nextIds: string[]) => Promise<void>
   handleCompaniesAssociationsChange: (nextIds: string[]) => Promise<void>
-  loadLinkedPeoplePage: (page: number, query: string) => Promise<LinkedPageResult>
   loadLinkedCompaniesPage: (page: number, query: string) => Promise<LinkedPageResult>
 }
 
@@ -203,33 +202,6 @@ export function useDealAssociations({
       }))
     }
   }, [])
-
-  const loadLinkedPeoplePage = React.useCallback(
-    async (page: number, query: string): Promise<LinkedPageResult> => {
-      if (!currentDealId) {
-        return { items: [], totalPages: 1, total: 0 }
-      }
-      const params = new URLSearchParams({
-        page: String(page),
-        pageSize: '20',
-        sort: 'name-asc',
-      })
-      if (query.trim().length > 0) {
-        params.set('search', query.trim())
-      }
-      const payload = await readApiResultOrThrow<{
-        items?: DealAssociation[]
-        total?: number
-        totalPages?: number
-      }>(`/api/customers/deals/${encodeURIComponent(currentDealId)}/people?${params.toString()}`)
-      return {
-        items: Array.isArray(payload.items) ? payload.items : [],
-        totalPages: typeof payload.totalPages === 'number' ? payload.totalPages : 1,
-        total: typeof payload.total === 'number' ? payload.total : 0,
-      }
-    },
-    [currentDealId],
-  )
 
   const loadLinkedCompaniesPage = React.useCallback(
     async (page: number, query: string): Promise<LinkedPageResult> => {
@@ -377,7 +349,6 @@ export function useDealAssociations({
     companiesSaving,
     handlePeopleAssociationsChange,
     handleCompaniesAssociationsChange,
-    loadLinkedPeoplePage,
     loadLinkedCompaniesPage,
   }
 }
