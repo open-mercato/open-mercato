@@ -1926,3 +1926,91 @@ describe('HybridQueryEngine like/ilike routing by column encryption (applyColumn
     expect(JSON.stringify(legacy.toOperationNode())).toEqual(JSON.stringify(sql`true`.toOperationNode()))
   })
 })
+
+describe('HybridQueryEngine decrypt tenant binding (#5430)', () => {
+  const buildEngine = (rows: any[], decryptEntityPayload: jest.Mock) => {
+    const db = createFakeKysely({
+      baseTable: 'users',
+      hasIndexAny: true,
+      baseCount: rows.length,
+      indexCount: rows.length,
+      rows: { users: rows },
+    })
+    return new HybridQueryEngine(
+      buildEm(db),
+      { query: jest.fn() } as any,
+      () => ({ emitEvent: jest.fn().mockResolvedValue(undefined) }),
+      undefined,
+      () => ({ decryptEntityPayload }),
+    )
+  }
+
+  test('returns ciphertext and never fetches a DEK when the row tenant contradicts the query tenant', async () => {
+    const decryptEntityPayload = jest.fn(async () => ({ name: 'Alice Owner' }))
+    const engine = buildEngine(
+      [{ id: 'user-1', name: 'encrypted-name', tenant_id: 'tenant-b', organization_id: 'org1' }],
+      decryptEntityPayload,
+    )
+    const result = await engine.query('auth:user', {
+      fields: ['id', 'name'],
+      tenantId: 'tenant-a',
+      page: { page: 1, pageSize: 50 },
+    })
+    expect(decryptEntityPayload).not.toHaveBeenCalled()
+    expect(result.items).toEqual([expect.objectContaining({ id: 'user-1', name: 'encrypted-name' })])
+  })
+
+  test('still decrypts a row whose tenant matches the query tenant', async () => {
+    const decryptEntityPayload = jest.fn(async () => ({ name: 'Alice Owner' }))
+    const engine = buildEngine(
+      [{ id: 'user-1', name: 'encrypted-name', tenant_id: 'tenant-a', organization_id: 'org1' }],
+      decryptEntityPayload,
+    )
+    const result = await engine.query('auth:user', {
+      fields: ['id', 'name'],
+      tenantId: 'tenant-a',
+      page: { page: 1, pageSize: 50 },
+    })
+    expect(decryptEntityPayload).toHaveBeenCalledWith(
+      'auth:user',
+      expect.objectContaining({ id: 'user-1' }),
+      'tenant-a',
+      'org1',
+    )
+    expect(result.items).toEqual([expect.objectContaining({ name: 'Alice Owner' })])
+  })
+
+  test('a row with no tenant of its own still decrypts under the caller tenant', async () => {
+    const decryptEntityPayload = jest.fn(async () => ({ name: 'Alice Owner' }))
+    const engine = buildEngine([{ id: 'user-1', name: 'encrypted-name', tenant_id: null }], decryptEntityPayload)
+    const result = await engine.query('auth:user', {
+      fields: ['id', 'name'],
+      tenantId: 'tenant-a',
+      organizationId: 'org1',
+      page: { page: 1, pageSize: 50 },
+    })
+    expect(decryptEntityPayload).toHaveBeenCalledWith(
+      'auth:user',
+      expect.objectContaining({ id: 'user-1' }),
+      'tenant-a',
+      'org1',
+    )
+    expect(result.items).toEqual([expect.objectContaining({ name: 'Alice Owner' })])
+  })
+
+  test('a refused row keeps its cf: custom-field values encrypted too', async () => {
+    const decryptEntityPayload = jest.fn(async () => ({ name: 'Alice Owner' }))
+    const engine = buildEngine(
+      [{ id: 'user-1', name: 'encrypted-name', tenant_id: 'tenant-b', 'cf:priority': 'enc:v1:cipher-priority' }],
+      decryptEntityPayload,
+    )
+    const result = await engine.query('auth:user', {
+      fields: ['id', 'name', 'cf:priority'],
+      includeCustomFields: true,
+      tenantId: 'tenant-a',
+      page: { page: 1, pageSize: 50 },
+    })
+    expect(decryptEntityPayload).not.toHaveBeenCalled()
+    expect((result.items[0] as any)['cf:priority']).toBe('enc:v1:cipher-priority')
+  })
+})

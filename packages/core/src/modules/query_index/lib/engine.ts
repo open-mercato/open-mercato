@@ -10,6 +10,11 @@ import { readCoverageSnapshot, refreshCoverageSnapshot } from './coverage'
 import { createProfiler, shouldEnableProfiler, type Profiler } from '@open-mercato/shared/lib/profiler'
 import type { VectorIndexService } from '@open-mercato/search/vector'
 import { decryptIndexDocCustomFields } from '@open-mercato/shared/lib/encryption/indexDoc'
+import {
+  DECRYPT_REFUSAL_LOG_MESSAGE,
+  DecryptRefusalTally,
+  resolveDecryptScope,
+} from '@open-mercato/shared/lib/encryption/decryptScope'
 import { parseBooleanToken, parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import {
   applyJoinFilters,
@@ -1199,18 +1204,28 @@ export class HybridQueryEngine implements QueryEngine {
 
       const dekKeyCache = new Map<string | null, string | null>()
 
+      const refusalTally = new DecryptRefusalTally()
+
       const decryptRow = async (item: Record<string, unknown>): Promise<Record<string, unknown>> => {
         let next = item
+        const decision = resolveDecryptScope({
+          rowTenantId: (next?.tenant_id ?? next?.tenantId ?? null) as string | null,
+          rowOrganizationId: (next?.organization_id ?? next?.organizationId ?? null) as string | null,
+          callerTenantId: opts.tenantId ?? null,
+          callerOrganizationId: fallbackOrgId ?? null,
+        })
+        // Fail closed: the caller asserted a tenant and this row contradicts it. Both the base
+        // payload and the `cf:` values are keyed by the same scope, so neither may be decrypted.
+        if (!decision.decrypt) {
+          refusalTally.record(decision)
+          return next
+        }
         if (encSvc?.decryptEntityPayload) {
           const decrypt = encSvc.decryptEntityPayload.bind(encSvc) as (
             entityId: EntityId, payload: Record<string, unknown>, tenantId: string | null, organizationId: string | null,
           ) => Promise<Record<string, unknown>>
           try {
-            const decrypted = await decrypt(
-              entity, next,
-              (next?.tenant_id ?? next?.tenantId ?? opts.tenantId ?? null) as string | null,
-              (next?.organization_id ?? next?.organizationId ?? fallbackOrgId ?? null) as string | null,
-            )
+            const decrypted = await decrypt(entity, next, decision.tenantId, decision.organizationId)
             next = { ...next, ...decrypted }
           } catch (err) {
             logger.error('Error decrypting entity payload', { err })
@@ -1221,7 +1236,7 @@ export class HybridQueryEngine implements QueryEngine {
             next = await decryptIndexDocCustomFields(
               next,
               {
-                tenantId: (next?.tenant_id ?? next?.tenantId ?? opts.tenantId ?? null) as string | null,
+                tenantId: decision.tenantId,
                 organizationId: (next?.organization_id ?? next?.organizationId ?? null) as string | null,
               },
               encSvc as any, dekKeyCache,
@@ -1229,6 +1244,11 @@ export class HybridQueryEngine implements QueryEngine {
           } catch { /* keep next as-is */ }
         }
         return next
+      }
+
+      const reportDecryptRefusals = () => {
+        if (refusalTally.refused === 0) return
+        logger.warn(DECRYPT_REFUSAL_LOG_MESSAGE, refusalTally.toLogContext(String(entity)))
       }
 
       let items: Record<string, unknown>[]
@@ -1321,6 +1341,7 @@ export class HybridQueryEngine implements QueryEngine {
         ) as Record<string, unknown>[]
         items = await mapWithConcurrency(itemsRaw, DECRYPT_CONCURRENCY, decryptRow)
       }
+      reportDecryptRefusals()
       if (debugEnabled) this.debug('query:complete', { entity, total, items: items.length })
 
       const typedItems = items as unknown as T[]
