@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
 import { render, act } from '@testing-library/react'
 import type { PerspectivesIndexResponse } from '@open-mercato/shared/modules/perspectives/types'
+import { createEmptyTree } from '@open-mercato/shared/lib/query/advanced-filter-tree'
 
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: jest.fn(), replace: jest.fn(), prefetch: jest.fn() }),
@@ -82,8 +83,9 @@ function buildPerspective(
   }
 }
 
-function renderTable(response: PerspectivesIndexResponse) {
+function renderTable(response: PerspectivesIndexResponse, options?: { withAdvancedFilterHost?: boolean }) {
   const searchChanges: string[] = []
+  const appliedTrees: unknown[] = []
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { staleTime: Infinity, gcTime: Infinity, retry: false },
@@ -102,11 +104,21 @@ function renderTable(response: PerspectivesIndexResponse) {
           searchValue=""
           onSearchChange={(value) => { searchChanges.push(value) }}
           perspective={{ tableId: TABLE_ID }}
+          advancedFilter={options?.withAdvancedFilterHost
+            ? {
+                fields: [],
+                value: createEmptyTree(),
+                onChange: () => {},
+                onApply: () => {},
+                onClear: () => {},
+                onApplyTree: (tree) => { appliedTrees.push(tree) },
+              }
+            : undefined}
         />
       </I18nProvider>
     </QueryClientProvider>,
   )
-  return { ...utils, searchChanges, queryClient }
+  return { ...utils, searchChanges, appliedTrees, queryClient }
 }
 
 describe('DataTable localStorage snapshot vs. server perspective reconciliation (#5113)', () => {
@@ -189,6 +201,25 @@ describe('DataTable localStorage snapshot vs. server perspective reconciliation 
     ))
 
     expect(searchChanges).not.toContain('server-default')
+  })
+
+  it('does not overwrite a host-owned advanced filter while reconciling', () => {
+    // Reconciliation is a background correction, so it follows the mount-time
+    // restore: on People/Companies/Deals the URL owns the filter and a repaint
+    // the user never asked for must not clear what is on screen.
+    writePerspectiveSnapshot(TABLE_ID, {
+      perspectiveId: 'persp-1',
+      settings: { searchValue: 'stale' },
+      updatedAt: SERVER_UPDATED_AT_MS - 60_000,
+    })
+
+    const { searchChanges, appliedTrees } = renderTable(
+      buildIndexResponse([buildPerspective('persp-1', 'fresh')]),
+      { withAdvancedFilterHost: true },
+    )
+
+    expect(searchChanges[searchChanges.length - 1]).toBe('fresh')
+    expect(appliedTrees).toHaveLength(0)
   })
 
   it('reconciles once per table, so a later refetch cannot clobber post-mount edits', () => {

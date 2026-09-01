@@ -2631,7 +2631,13 @@ export function DataTable<T extends RowData>({
           sanitizePerspectiveSettings(snapshot.settings) ?? {},
         ).length > 0
         if (serverIsNewer && settingsDiffer) {
-          applyPerspectiveSettings(local.settings, local.id)
+          // Reconciliation is a background correction the user did not ask for,
+          // so it follows the mount-time restore rather than an explicit view
+          // selection: on a host that owns filter persistence through the URL,
+          // it must not overwrite the filter currently on screen.
+          applyPerspectiveSettings(local.settings, local.id, {
+            preserveAdvancedFilter: !!advancedFilter?.onApplyTree,
+          })
           initialPerspectiveAppliedRef.current = true
         }
         return
@@ -2664,7 +2670,7 @@ export function DataTable<T extends RowData>({
       applyPerspectiveSettings(target.settings, target.id)
     }
     initialPerspectiveAppliedRef.current = true
-  }, [canUsePerspectives, perspectiveData, perspectiveTableId, perspectiveConfig, applyPerspectiveSettings, activePerspectiveId])
+  }, [canUsePerspectives, perspectiveData, perspectiveTableId, perspectiveConfig, applyPerspectiveSettings, activePerspectiveId, advancedFilter])
 
   const scrollTableIntoView = React.useCallback(() => {
     const rect = containerRef.current?.getBoundingClientRect()
