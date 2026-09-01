@@ -37,8 +37,11 @@ Non-goals: no changes to `.ai/ds/**`, `globals.css`, or any design-system govern
 - The snapshot canonicalizes ordering (sorted keys), so regenerated `tokens.css` reorders declarations relative to the old authoring-order output; mitigated by an order-insensitive `--check` and a declaration-level equivalence test against the old parser's output.
 - The neutral fallback values are a second place design defaults live and can drift from the snapshot; they are deliberately neutral so drift is invisible when a real token source is present (accepted in the spec).
 - The full validation gate builds the whole monorepo for a `.ai/skills`-scoped change; long but unavoidable per config.
+- Gate outcome on the run machine: builds, generate, i18n checks, typecheck, and build:app green; the test task green for every package, with two environment caveats documented in the PR summary — jest-worker SIGSEGV flakiness under parallel load (each affected package passes when run serially), and one pre-existing assertion failure (`packages/core .../page.durationEntry.test.tsx`, "stops counting a cell in the totals once its pending value becomes invalid") that reproduces identically on pristine `origin/develop`, so it is not introduced by this change.
 
 ## Progress
+
+PR: #5832
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
@@ -57,4 +60,4 @@ Non-goals: no changes to `.ai/ds/**`, `globals.css`, or any design-system govern
 ### Phase 3: Layout and portability
 
 - [x] 3.1 Assets moved under references/assets/ — 6a433a967
-- [x] 3.2 Portability proof in a bare checkout — see PR evidence comment
+- [x] 3.2 Portability proof in a bare checkout — ebf9402fc
