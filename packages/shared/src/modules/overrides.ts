@@ -619,13 +619,25 @@ function applyArrayOverrides<T>(
   let changed = false
 
   for (const item of items) {
-    const id = resolveOverrideIds(item, options)
-      .find((candidate) => Object.prototype.hasOwnProperty.call(overrides, candidate))
-    if (!id) {
+    const matched = resolveOverrideIds(item, options)
+      .filter((candidate) => Object.prototype.hasOwnProperty.call(overrides, candidate))
+    if (matched.length === 0) {
       result.push(item)
       continue
     }
-    consumed.add(id)
+    // Every matching spelling is consumed, not just the winner: addressing one item
+    // under both of its ids is one instruction written twice, and reporting the loser
+    // as stale is the log noise #5152 asks to remove. Genuinely conflicting values
+    // still get their own warning, since only one of them can take effect.
+    const id = matched[0]
+    for (const candidate of matched) consumed.add(candidate)
+    if (matched.some((candidate) => overrides[candidate] !== overrides[id])) {
+      logger.warn('Conflicting overrides for the same entry — the first matching key wins', {
+        label: options.label,
+        id,
+        keys: matched,
+      })
+    }
     changed = true
     const replacement = overrides[id]
     if (replacement === null) continue
@@ -1202,6 +1214,11 @@ function applyEntryListOverrides<TEntry extends { moduleId: string }, TValue>(
  * the entries registry is keyed by `key`, so an override map keyed by one spelling
  * used to reach only one of the two consumers (#5152). Remembering the pairs lets
  * either spelling address the widget everywhere.
+ *
+ * Pairs are additive for the process lifetime — re-registration under HMR re-adds
+ * identical pairs, which the sets deduplicate, and a renamed widget leaves behind a
+ * pairing that can only ever over-match an override key naming something that no
+ * longer exists. Only the test reset clears it.
  */
 const injectionWidgetIdAliases = new Map<string, Set<string>>()
 

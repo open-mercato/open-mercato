@@ -12,11 +12,19 @@ const logger = createLogger('app').child({ component: 'ClientBootstrap' })
 // a disabled widget reappears on hydration (#5152). Only the domains backing the
 // registries below are dispatched — the rest stay server-only, so a domain whose
 // applier never loads in the browser is not reported as unwired.
-const CLIENT_OVERRIDE_DOMAINS: readonly ModuleOverrideDomain[] = ['widgets', 'notifications']
+export const CLIENT_OVERRIDE_DOMAINS: readonly ModuleOverrideDomain[] = ['widgets', 'notifications']
 
 let moduleOverridesPromise: Promise<void> | null = null
 
-function ensureModuleOverridesApplied(): Promise<void> {
+/**
+ * Exported so the registry groups' dependency on it is testable. A failure here is
+ * deliberately NOT fatal: registering the raw generated registries is what this app
+ * did before the overrides reached the browser at all, whereas rethrowing would fail
+ * the whole group and leave the page with no injection widgets, no dashboard widgets
+ * and no notification handlers. Showing one widget that should have been hidden is
+ * the smaller of the two failures.
+ */
+export function ensureModuleOverridesApplied(): Promise<void> {
   const pending = moduleOverridesPromise
   if (pending) return pending
 
@@ -29,13 +37,16 @@ function ensureModuleOverridesApplied(): Promise<void> {
       domains: CLIENT_OVERRIDE_DOMAINS,
     })
   })().catch((err) => {
-    moduleOverridesPromise = null
-    logger.error('Failed to apply module overrides on the client; next render will retry', { err })
-    throw err
+    logger.error('Failed to apply module overrides on the client; registries stay unfiltered', { err })
   })
 
   moduleOverridesPromise = promise
   return promise
+}
+
+/** @__internal Test-only hook — forget that the dispatch already ran. */
+export function resetModuleOverridesAppliedForTests(): void {
+  moduleOverridesPromise = null
 }
 
 export type ClientBootstrapProfile =

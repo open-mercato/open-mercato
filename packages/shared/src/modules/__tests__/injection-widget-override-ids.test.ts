@@ -119,6 +119,46 @@ describe('injection widget overrides accept either identifier (#5152)', () => {
     expect(staleWarnings()).toEqual([])
   })
 
+  it('accepts a map carrying both spellings without reporting either as stale', () => {
+    applyModuleOverridesFromEnabledModules([{
+      id: 'app',
+      from: '@app',
+      overrides: { widgets: { injection: { [ENTRY_KEY]: null, [WIDGET_ID]: null } } },
+    }])
+
+    expect(applyInjectionWidgetOverridesToEntries(makeEntries()).map((entry) => entry.key))
+      .toEqual(['catalog:pricing:widget'])
+    expect(applyInjectionWidgetOverridesToTables(makeTables())).toEqual([
+      {
+        moduleId: 'catalog',
+        table: {
+          'backend.product.tabs': [{ widgetId: 'catalog.injection.pricing', priority: 20 }],
+        },
+      },
+    ])
+    expect(staleWarnings()).toEqual([])
+    expect(loggerWarn.mock.calls.filter((args) => String(args[0]).includes('Conflicting overrides'))).toEqual([])
+  })
+
+  it('warns when the two spellings of one widget disagree', () => {
+    const replacement: ModuleInjectionWidgetEntry = {
+      moduleId: 'app',
+      key: ENTRY_KEY,
+      source: 'app',
+      widgetId: WIDGET_ID,
+      loader: jest.fn(),
+    }
+    applyModuleOverridesFromEnabledModules([{
+      id: 'app',
+      from: '@app',
+      overrides: { widgets: { injection: { [ENTRY_KEY]: replacement, [WIDGET_ID]: null } } },
+    }])
+
+    expect(applyInjectionWidgetOverridesToEntries(makeEntries())[0]).toBe(replacement)
+    expect(staleWarnings()).toEqual([])
+    expect(loggerWarn.mock.calls.filter((args) => String(args[0]).includes('Conflicting overrides'))).toHaveLength(1)
+  })
+
   it('still warns for an override key that matches neither identifier', () => {
     disableWidget('catalog.injection.does-not-exist')
 
