@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import MyTimesheetsPage from '../page'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 
@@ -136,12 +136,52 @@ function saveButton(): HTMLButtonElement {
   return screen.getByRole('button', { name: 'Save Changes' }) as HTMLButtonElement
 }
 
+// The grid's column headers render each visible day's day-of-month number, so a
+// document-wide query for a bare digit can match a calendar header instead of a
+// total. Scope every total assertion to the footer row that carries them.
+function totalsRow(): HTMLElement {
+  return screen.getByText('Daily Total').closest('tr') as HTMLElement
+}
+
 function typeAndBlur(input: HTMLInputElement, value: string): void {
   fireEvent.change(input, { target: { value } })
   fireEvent.blur(input, { target: { value } })
 }
 
 describe('MyTimesheetsPage — duration entry (#4846)', () => {
+  // The page derives the visible week from the wall clock, so an unpinned clock makes
+  // every rendered day number — and any assertion that could collide with one — depend
+  // on the day the suite runs. Pin it to a week that deliberately contains a day
+  // numbered 2 (2026-09-02) so the totals-scoping guard below is exercised on every run
+  // instead of only during weeks that happen to contain that collision. Local-time parts
+  // keep this independent of the runner's timezone, and only Date is faked so the timer
+  // functions Testing Library's waitFor relies on stay real.
+  beforeAll(() => {
+    jest.useFakeTimers({
+      doNotFake: [
+        'cancelAnimationFrame',
+        'cancelIdleCallback',
+        'clearImmediate',
+        'clearInterval',
+        'clearTimeout',
+        'hrtime',
+        'nextTick',
+        'performance',
+        'queueMicrotask',
+        'requestAnimationFrame',
+        'requestIdleCallback',
+        'setImmediate',
+        'setInterval',
+        'setTimeout',
+      ],
+      now: new Date(2026, 8, 1, 12, 0, 0),
+    })
+  })
+
+  afterAll(() => {
+    jest.useRealTimers()
+  })
+
   beforeEach(() => {
     jest.clearAllMocks()
     stubApiRoutes()
@@ -220,11 +260,14 @@ describe('MyTimesheetsPage — duration entry (#4846)', () => {
   it('stops counting a cell in the totals once its pending value becomes invalid', async () => {
     const inputs = await renderGrid()
     typeAndBlur(inputs[0], '2')
-    await waitFor(() => expect(screen.getAllByText('2').length).toBeGreaterThan(0))
+    await waitFor(() => expect(within(totalsRow()).getAllByText('2').length).toBeGreaterThan(0))
 
     typeAndBlur(inputs[0], 'abc')
     await waitFor(() => expect(inputs[0]).toHaveAttribute('aria-invalid', 'true'))
-    expect(screen.queryAllByText('2')).toHaveLength(0)
+    expect(within(totalsRow()).queryAllByText('2')).toHaveLength(0)
+    // The pinned week still renders a day-of-month header reading 2, which is exactly
+    // what a document-wide query would wrongly count as a surviving total.
+    expect(screen.getAllByText('2').length).toBeGreaterThan(0)
   })
 
   it('names every duration cell after its own project and date', async () => {
