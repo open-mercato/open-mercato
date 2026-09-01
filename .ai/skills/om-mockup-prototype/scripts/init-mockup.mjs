@@ -85,7 +85,7 @@ export function initializePrototype({ slug, requirements }, options = {}) {
   }
 
   try {
-    for (const filename of ['components.css', 'screens.css', 'prototype.css', 'prototype.js']) {
+    for (const filename of ['components.css', 'screens.css', 'prototype.css', 'prototype.js', 'theme.css']) {
       copyFileSync(join(ASSETS_DIR, filename), join(staging, filename))
     }
     for (const filename of ['index.html', 'comments.js', 'README.md']) {
