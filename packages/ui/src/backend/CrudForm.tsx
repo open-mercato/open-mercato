@@ -4096,6 +4096,9 @@ function NumberInput({
     <Input
       type="text"
       inputMode="decimal"
+      // A text input is eligible for autofill and spellcheck; a number field is not.
+      autoComplete="off"
+      spellCheck={false}
       placeholder={placeholder}
       value={local}
       onChange={handleChange}

@@ -242,6 +242,9 @@ function NumberFieldInput({
       id={id}
       type="text"
       inputMode="decimal"
+      // A text input is eligible for autofill and spellcheck; a number field is not.
+      autoComplete="off"
+      spellCheck={false}
       value={local}
       disabled={disabled}
       onFocus={() => {
