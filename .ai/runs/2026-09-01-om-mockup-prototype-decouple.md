@@ -44,9 +44,9 @@ Non-goals: no changes to `.ai/ds/**`, `globals.css`, or any design-system govern
 
 ### Phase 1: Token pipeline
 
-- [ ] 1.1 Snapshot-based sync-tokens.mjs with source fallback
-- [ ] 1.2 Git-based repository root resolution with stated fallback
-- [ ] 1.3 Equivalence proof and test updates
+- [x] 1.1 Snapshot-based sync-tokens.mjs with source fallback — 6e317e1e3
+- [x] 1.2 Git-based repository root resolution with stated fallback — 6e317e1e3
+- [x] 1.3 Equivalence proof and test updates — 6e317e1e3
 
 ### Phase 2: Styling seams
 
