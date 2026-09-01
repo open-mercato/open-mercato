@@ -1863,17 +1863,14 @@ export function DataTable<T extends RowData>({
   }, [table, mergedColumns, visibilityDefaultsPass])
 
   const getCurrentSettings = React.useCallback((): PerspectiveSettings => {
-    // Seeded from the authoritative column set rather than copied from the
-    // `columnVisibility` state (#5117). That state only ever holds keys the user
-    // explicitly toggled plus whatever a view restored, so a verbatim copy stored no
-    // decision at all for columns that registered later — and an absent key renders
-    // visible, which is what made a saved view drift once custom fields or injected
-    // columns were in play. One explicit boolean per leaf column makes the stored view
-    // self-describing. It also records a column the user turned back *on* as `true`,
-    // which the sparse map could not express (`handleColumnChooserToggle` deletes the
-    // entry), so the per-column default pass above leaves that column alone on reload.
-    // `perspectiveDirty.normalizeVisibility` drops `true` entries before comparing, so
-    // a dense map still compares equal to a sparse one already stored on the server.
+    // Seeded from the authoritative column set, not copied from `columnVisibility`:
+    // that state only holds keys the user toggled plus whatever a view restored, so a
+    // verbatim copy stored no decision for columns registering later, and an absent key
+    // renders visible (#5117). One boolean per leaf column also records a column the
+    // user turned back *on* as `true` — which the sparse map could not express, since
+    // `handleColumnChooserToggle` deletes the entry — so the default pass above leaves
+    // it alone on reload. `perspectiveDirty` normalizes `true` away before comparing,
+    // so a dense map still compares equal to a sparse one stored on the server.
     const visibility: Record<string, boolean> = {}
     for (const column of table.getAllLeafColumns()) {
       visibility[column.id] = column.getIsVisible()
