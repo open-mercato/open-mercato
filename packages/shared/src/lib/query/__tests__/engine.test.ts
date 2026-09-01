@@ -1711,6 +1711,46 @@ describe('BasicQueryEngine decrypt tenant binding (#5430)', () => {
     }
   })
 
+  // A declined query must not take the plaintext-sort path: that path exists only to sort on
+  // decrypted values, so running it without decryption scans the full candidate set and then
+  // orders by ciphertext.
+  test('a declined query resolves no encrypted sort fields and never scans for a plaintext sort', async () => {
+    const fakeDb = createFakeKysely({
+      customer_entities: [
+        { id: '1', tenant_id: 'tenant-a', organization_id: 'org1', display_name: 'cipher-b' },
+        { id: '2', tenant_id: 'tenant-a', organization_id: 'org1', display_name: 'cipher-a' },
+      ],
+      'information_schema.columns': informationSchema,
+    })
+    const encryptedFieldLookups: string[] = []
+    const engine = new BasicQueryEngine(
+      {} as any,
+      () => fakeDb as any,
+      () => ({
+        isEnabled: () => true,
+        getEncryptedFieldNames: async () => {
+          encryptedFieldLookups.push('called')
+          return ['display_name']
+        },
+        decryptEntityPayload: async () => ({ display_name: 'PLAINTEXT' }),
+      }),
+    )
+
+    await engine.query('customers:customer_entity', {
+      tenantId: 'tenant-a',
+      decryptEncryptedFields: false,
+      fields: ['id', 'display_name'],
+      sort: [{ field: 'display_name', dir: SortDir.Asc }],
+      page: { page: 1, pageSize: 10 },
+    })
+
+    expect(encryptedFieldLookups).toEqual([])
+    const baseCalls = fakeDb._calls.filter((call: any) => call._ops.table === 'customer_entities')
+    // The plaintext-sort path issues a second (phase-1 candidate) query with no ORDER BY;
+    // a declined query must stay on the single ordinary SQL-ordered read.
+    expect(baseCalls.some((call: any) => call._ops.orderBys?.length > 0)).toBe(true)
+  })
+
   test('an omitAutomaticTenantOrgScope query still decrypts by default', async () => {
     const { engine, decryptCalls } = setup([
       { id: '1', tenant_id: null, organization_id: null, display_name: 'cipher-1' },

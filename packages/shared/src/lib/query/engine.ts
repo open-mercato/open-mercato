@@ -681,7 +681,9 @@ export class BasicQueryEngine implements QueryEngine {
     const fallbackOrgId =
       opts.organizationId
       ?? (Array.isArray(opts.organizationIds) && opts.organizationIds.length === 1 ? opts.organizationIds[0] : null)
-    const encryptionService = this.getEncryptionService()
+    // A query that declined decryption gets no decrypt service at all: no DEK lookup, and no
+    // plaintext-sort path either — there is no plaintext to sort by.
+    const encryptionService = resolveDecryptEnabled(opts) ? this.getEncryptionService() : null
     const resolvedSorts: Sort[] = []
     for (const s of opts.sort || []) {
       if (s.field.startsWith('cf:')) {
@@ -1285,7 +1287,7 @@ export class BasicQueryEngine implements QueryEngine {
       total = Number((countRow as any)?.count ?? 0)
     }
 
-    const svc = resolveDecryptEnabled(opts) ? encryptionService : null
+    const svc = encryptionService
     const decryptPayload =
       svc?.decryptEntityPayload?.bind(svc) as
         | ((
