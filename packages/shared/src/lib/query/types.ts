@@ -114,6 +114,16 @@ export type QueryOptions = {
    * not match the standard `organization_id = X AND tenant_id = Y` shape.
    */
   omitAutomaticTenantOrgScope?: boolean
+  /**
+   * When `false`, the engine returns encrypted fields as stored (ciphertext) instead of decrypting
+   * them, and performs no DEK lookup at all. Defaults to `true` — today's behaviour — so existing
+   * callers are unaffected.
+   *
+   * Use it on generic, entity-agnostic surfaces that select every column and do not need plaintext.
+   * It is an opt-out, not an access control: decryption is still bound to the caller's tenant by
+   * `resolveDecryptScope`, which refuses any row whose `tenant_id` contradicts `tenantId`.
+   */
+  decryptEncryptedFields?: boolean
   // Soft-delete behavior: when false (default), rows with non-null deleted_at
   // are excluded if the base table has that column. Set true to include them.
   withDeleted?: boolean

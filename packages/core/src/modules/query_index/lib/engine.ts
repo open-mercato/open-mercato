@@ -13,6 +13,7 @@ import { decryptIndexDocCustomFields } from '@open-mercato/shared/lib/encryption
 import {
   DECRYPT_REFUSAL_LOG_MESSAGE,
   DecryptRefusalTally,
+  resolveDecryptEnabled,
   resolveDecryptScope,
 } from '@open-mercato/shared/lib/encryption/decryptScope'
 import { parseBooleanToken, parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
@@ -723,7 +724,10 @@ export class HybridQueryEngine implements QueryEngine {
       const fallbackOrgId =
         opts.organizationId
         ?? (Array.isArray(opts.organizationIds) && opts.organizationIds.length === 1 ? opts.organizationIds[0] : null)
-      const encSvc = this.getEncryptionService()
+      // A query that declined decryption gets no decrypt service at all: no DEK lookup, and no
+      // plaintext-sort path either — there is no plaintext to sort by.
+      const decryptEnabled = resolveDecryptEnabled(opts)
+      const encSvc = decryptEnabled ? this.getEncryptionService() : null
       const resolvedSorts: Sort[] = []
       for (const sort of opts.sort || []) {
         const field = String(sort.field)

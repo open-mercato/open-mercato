@@ -36,6 +36,7 @@ import { mapWithConcurrency } from './bounded-decrypt'
 import {
   DECRYPT_REFUSAL_LOG_MESSAGE,
   DecryptRefusalTally,
+  resolveDecryptEnabled,
   resolveDecryptScope,
 } from '../encryption/decryptScope'
 import { parseNumberWithDefault } from '../number'
@@ -1284,7 +1285,7 @@ export class BasicQueryEngine implements QueryEngine {
       total = Number((countRow as any)?.count ?? 0)
     }
 
-    const svc = encryptionService
+    const svc = resolveDecryptEnabled(opts) ? encryptionService : null
     const decryptPayload =
       svc?.decryptEntityPayload?.bind(svc) as
         | ((

@@ -1998,6 +1998,38 @@ describe('HybridQueryEngine decrypt tenant binding (#5430)', () => {
     expect(result.items).toEqual([expect.objectContaining({ name: 'Alice Owner' })])
   })
 
+  test('performs no DEK lookup at all when the query declines decryption', async () => {
+    const decryptEntityPayload = jest.fn(async () => ({ name: 'Alice Owner' }))
+    const engine = buildEngine(
+      [{ id: 'user-1', name: 'encrypted-name', tenant_id: 'tenant-a', organization_id: 'org1' }],
+      decryptEntityPayload,
+    )
+    const result = await engine.query('auth:user', {
+      fields: ['id', 'name'],
+      tenantId: 'tenant-a',
+      decryptEncryptedFields: false,
+      page: { page: 1, pageSize: 50 },
+    })
+    expect(decryptEntityPayload).not.toHaveBeenCalled()
+    expect(result.items).toEqual([expect.objectContaining({ name: 'encrypted-name' })])
+  })
+
+  test('an explicit true still decrypts', async () => {
+    const decryptEntityPayload = jest.fn(async () => ({ name: 'Alice Owner' }))
+    const engine = buildEngine(
+      [{ id: 'user-1', name: 'encrypted-name', tenant_id: 'tenant-a', organization_id: 'org1' }],
+      decryptEntityPayload,
+    )
+    const result = await engine.query('auth:user', {
+      fields: ['id', 'name'],
+      tenantId: 'tenant-a',
+      decryptEncryptedFields: true,
+      page: { page: 1, pageSize: 50 },
+    })
+    expect(decryptEntityPayload).toHaveBeenCalledTimes(1)
+    expect(result.items).toEqual([expect.objectContaining({ name: 'Alice Owner' })])
+  })
+
   test('a refused row keeps its cf: custom-field values encrypted too', async () => {
     const decryptEntityPayload = jest.fn(async () => ({ name: 'Alice Owner' }))
     const engine = buildEngine(

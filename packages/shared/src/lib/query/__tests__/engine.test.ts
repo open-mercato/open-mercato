@@ -1681,6 +1681,49 @@ describe('BasicQueryEngine decrypt tenant binding (#5430)', () => {
     expect((result.items[0] as any).display_name).toBe('PLAINTEXT')
   })
 
+  test('performs no DEK lookup at all when the query declines decryption', async () => {
+    const { engine, decryptCalls } = setup([
+      { id: '1', tenant_id: 'tenant-a', organization_id: 'org1', display_name: 'cipher-1' },
+    ])
+    const result = await engine.query('customers:customer_entity', {
+      tenantId: 'tenant-a',
+      decryptEncryptedFields: false,
+      fields: ['id', 'display_name'],
+      page: { page: 1, pageSize: 10 },
+    })
+    expect(decryptCalls).toEqual([])
+    expect((result.items[0] as any).display_name).toBe('cipher-1')
+  })
+
+  test('an explicit true keeps decrypting, as does omitting the flag', async () => {
+    for (const decryptEncryptedFields of [true, undefined]) {
+      const { engine, decryptCalls } = setup([
+        { id: '1', tenant_id: 'tenant-a', organization_id: 'org1', display_name: 'cipher-1' },
+      ])
+      const result = await engine.query('customers:customer_entity', {
+        tenantId: 'tenant-a',
+        decryptEncryptedFields,
+        fields: ['id', 'display_name'],
+        page: { page: 1, pageSize: 10 },
+      })
+      expect(decryptCalls).toHaveLength(1)
+      expect((result.items[0] as any).display_name).toBe('PLAINTEXT')
+    }
+  })
+
+  test('an omitAutomaticTenantOrgScope query still decrypts by default', async () => {
+    const { engine, decryptCalls } = setup([
+      { id: '1', tenant_id: null, organization_id: null, display_name: 'cipher-1' },
+    ])
+    await engine.query('customers:customer_entity', {
+      tenantId: 'tenant-a',
+      omitAutomaticTenantOrgScope: true,
+      fields: ['id', 'display_name'],
+      page: { page: 1, pageSize: 10 },
+    })
+    expect(decryptCalls).toHaveLength(1)
+  })
+
   test('refuses each mismatching row independently within one page', async () => {
     const { engine, decryptCalls } = setup([
       { id: '1', tenant_id: 'tenant-a', organization_id: 'org1', display_name: 'cipher-1' },
