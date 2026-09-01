@@ -56,5 +56,5 @@ Non-goals: no changes to `.ai/ds/**`, `globals.css`, or any design-system govern
 
 ### Phase 3: Layout and portability
 
-- [ ] 3.1 Assets moved under references/assets/
-- [ ] 3.2 Portability proof in a bare checkout
+- [x] 3.1 Assets moved under references/assets/ — 6a433a967
+- [x] 3.2 Portability proof in a bare checkout — see PR evidence comment
