@@ -30,7 +30,7 @@ Make query-engine field decryption fail closed: bind the DEK to the tenant the c
 ## Risks
 
 - The guard sits on every decrypting read path, so a **pre-existing** scoping bug elsewhere would start returning ciphertext and could be reported as a regression. Intended; mitigated by the aggregated warning and called out in the PR body.
-- Phase 3's `omitAutomaticTenantOrgScope` default is a behaviour change on a public surface (spec assumption Q3, `⚠ NEEDS HUMAN CONFIRMATION`). Verified inert for both shipped call sites; kept in its own phase so it reverts independently.
+- ~~Phase 3's `omitAutomaticTenantOrgScope` default~~ — **dropped during implementation.** Both engines require `opts.tenantId` on every query (`engine.ts:410`, `query_index/lib/engine.ts:470`), so the Phase 1 guard already refuses foreign-tenant rows on those reads. Flipping the default would only have stripped plaintext from legitimately global rows (`tenant_id IS NULL`) for no security gain. `decryptEncryptedFields` is now a pure opt-in, which removes the spec's only `⚠ NEEDS HUMAN CONFIRMATION` assumption.
 - Log volume: bounded to one aggregated warning per query execution rather than one per row.
 
 ## Implementation Plan
@@ -74,11 +74,11 @@ Make query-engine field decryption fail closed: bind the DEK to the tenant the c
 
 ### Phase 3: decryptEncryptedFields opt-out
 
-- [ ] 3.1 Add the QueryOptions option and the default rule
-- [ ] 3.2 Honour the option in both engines
-- [ ] 3.3 Expose the option through makeCrudRoute
-- [ ] 3.4 Add the TC-ENC-001 integration spec
+- [x] 3.1 Add the QueryOptions option and the default rule — 4292a46e3
+- [x] 3.2 Honour the option in both engines — 4292a46e3
+- [x] 3.3 Expose the option through makeCrudRoute — 4292a46e3
+- [x] 3.4 Add the TC-ENC-001 integration spec — 4292a46e3
 
 ### Phase 4: Documentation correction
 
-- [ ] 4.1 Document the at-rest contract and the new option
+- [x] 4.1 Document the at-rest contract and the new option — 37d2110b6
