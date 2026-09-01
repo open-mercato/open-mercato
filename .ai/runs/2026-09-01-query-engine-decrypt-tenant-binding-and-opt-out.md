@@ -63,10 +63,10 @@ Make query-engine field decryption fail closed: bind the DEK to the tenant the c
 
 ### Phase 1: Fail-closed tenant binding in the query engines
 
-- [ ] 1.1 Add the decrypt-scope helper and its unit tests
-- [ ] 1.2 Apply the guard in BasicQueryEngine
-- [ ] 1.3 Apply the guard in HybridQueryEngine including custom fields
-- [ ] 1.4 Emit one aggregated refusal warning per query
+- [x] 1.1 Add the decrypt-scope helper and its unit tests — 53746d6b4
+- [x] 1.2 Apply the guard in BasicQueryEngine — 53746d6b4
+- [x] 1.3 Apply the guard in HybridQueryEngine including custom fields — be0a7f745
+- [x] 1.4 Emit one aggregated refusal warning per query — 53746d6b4
 
 ### Phase 2: Extend the guard to the ORM read path
 
