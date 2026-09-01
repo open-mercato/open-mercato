@@ -439,9 +439,15 @@ async function syncDealPeople(
       })
     }
     const currentPrimaryId = links.find((link) => link.isPrimary)?.person?.id ?? null
+    // Nothing changed — same invariant the whole-set branch below enforces. Without this the
+    // clear loop and its flush would rewrite every link row just to put the flag back on the
+    // row it was already on, and would briefly leave the deal with no primary at all inside
+    // the transaction. Only one row can carry the flag (partial unique index on
+    // `deal_id where is_primary`), so there is no second stale flag left to clean up here.
+    if (currentPrimaryId === primaryPersonEntityId) return
     // Safe here: only assignments and the explicit flush below follow — no query runs
     // between this touch and the flush that persists it.
-    if (stampLockToken && currentPrimaryId !== primaryPersonEntityId) {
+    if (stampLockToken) {
       touchDealLockToken(deal)
     }
     for (const link of links) {
