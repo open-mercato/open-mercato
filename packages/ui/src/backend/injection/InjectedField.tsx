@@ -3,7 +3,8 @@
 import * as React from 'react'
 import type { InjectionFieldDefinition, FieldContext } from '@open-mercato/shared/modules/widgets/injection'
 import { evaluateInjectedVisibility } from './visibility-utils'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useOptionalLocale } from '@open-mercato/shared/lib/i18n/context'
+import { parseLocaleNumber } from '@open-mercato/shared/lib/number'
 import { Input } from '../../primitives/input'
 import { Checkbox } from '../../primitives/checkbox'
 import { Textarea } from '../../primitives/textarea'
@@ -182,23 +183,79 @@ export function InjectedField({ field, value, onChange, context, formData, readO
     )
   }
 
+  if (field.type === 'number') {
+    return (
+      <div className="space-y-2" data-crud-field-id={field.id}>
+        <Label htmlFor={field.id}>{label}</Label>
+        <NumberFieldInput
+          id={field.id}
+          value={value}
+          disabled={disabled}
+          onChange={(next) => onChange(field.id, next)}
+        />
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-2" data-crud-field-id={field.id}>
       <Label htmlFor={field.id}>{label}</Label>
       <Input
         id={field.id}
-        type={field.type === 'number' ? 'number' : field.type === 'date' ? 'date' : 'text'}
+        type={field.type === 'date' ? 'date' : 'text'}
         value={typeof value === 'string' || typeof value === 'number' ? String(value) : ''}
         disabled={disabled}
-        onChange={(event) => {
-          if (field.type === 'number') {
-            onChange(field.id, event.target.value === '' ? undefined : Number(event.target.value))
-            return
-          }
-          onChange(field.id, event.target.value)
-        }}
+        onChange={(event) => onChange(field.id, event.target.value)}
       />
     </div>
+  )
+}
+
+/**
+ * Buffers the raw string the user is typing so a value that is not YET a number —
+ * `110,` on the way to `110,70` — does not clear the box. Renders as text rather than
+ * type="number" because a type="number" value is sanitized against the BROWSER locale,
+ * which discards the separator the application locale displays (issue #5552).
+ */
+function NumberFieldInput({
+  id,
+  value,
+  disabled,
+  onChange,
+}: {
+  id: string
+  value: unknown
+  disabled?: boolean
+  onChange: (value: number | undefined) => void
+}) {
+  const locale = useOptionalLocale()
+  const serializedValue = typeof value === 'string' || typeof value === 'number' ? String(value) : ''
+  const [local, setLocal] = React.useState<string>(serializedValue)
+  const isFocusedRef = React.useRef(false)
+
+  React.useEffect(() => {
+    if (!isFocusedRef.current) setLocal(serializedValue)
+  }, [serializedValue])
+
+  return (
+    <Input
+      id={id}
+      type="text"
+      inputMode="decimal"
+      value={local}
+      disabled={disabled}
+      onFocus={() => {
+        isFocusedRef.current = true
+      }}
+      onBlur={() => {
+        isFocusedRef.current = false
+      }}
+      onChange={(event) => {
+        const raw = event.target.value
+        setLocal(raw)
+        onChange(raw === '' ? undefined : (parseLocaleNumber(raw, locale) ?? undefined))
+      }}
+    />
   )
 }
 

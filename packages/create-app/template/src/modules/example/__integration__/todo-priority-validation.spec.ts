@@ -80,7 +80,7 @@ test.describe('Todo priority validation', () => {
     await page.goto('/backend/todos/create', { waitUntil: 'commit' })
 
     const priorityField = page.locator('[data-crud-field-id="cf_priority"]').first()
-    const priorityInput = priorityField.locator('input[type="number"]').first()
+    const priorityInput = priorityField.locator('input').first()
 
     await expect(priorityInput).toBeVisible()
     await priorityInput.scrollIntoViewIfNeeded()
@@ -108,7 +108,7 @@ test.describe('Todo priority validation', () => {
 
       const titleInput = page.locator('[data-crud-field-id="title"] input').first()
       const priorityField = page.locator('[data-crud-field-id="cf_priority"]').first()
-      const priorityInput = priorityField.locator('input[type="number"]').first()
+      const priorityInput = priorityField.locator('input').first()
       const severityField = page.locator('[data-crud-field-id="cf_severity"]').first()
       const form = page.locator('[data-crud-field-id="title"]').first().locator('xpath=ancestor::form').first()
 
