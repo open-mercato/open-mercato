@@ -460,6 +460,27 @@ describe('DataTable public save-view API', () => {
     await waitFor(() => expect(screen.getByTestId('save-view-trigger')).not.toBeDisabled())
   })
 
+  it('describes every column in the settings it serializes, without reporting a change nobody made', async () => {
+    // #5117: the serialized visibility used to be a verbatim copy of the sparse TanStack
+    // state, so a saved view carried no decision for columns the user never toggled and an
+    // absent key renders visible. It is now seeded from the full leaf-column set — and the
+    // dense map must still compare equal to the sparse one the server stored, or every
+    // table with a saved view would report unsaved changes the moment it mounted.
+    const apiRef = React.createRef<DataTableViewApi | null>() as React.MutableRefObject<DataTableViewApi | null>
+    const states: DataTableViewDirtyState[] = []
+    renderTable({
+      apiRef,
+      onDirty: (state) => { states.push(state) },
+      initialSettings: { columnVisibility: { name: false } },
+    })
+
+    await waitFor(() => expect(apiRef.current).not.toBeNull())
+    expect(apiRef.current!.getCurrentSettings().columnVisibility).toEqual({ name: false, id: true })
+
+    await waitFor(() => expect(states.length).toBeGreaterThan(0))
+    expect(states.every((state) => !state.isDirty)).toBe(true)
+  })
+
   it('sends an unnamed save to the sidebar instead of inventing a name', async () => {
     const { setSearchValue } = renderTable({ showSaveViewButton: true })
     const trigger = await screen.findByTestId('save-view-trigger')

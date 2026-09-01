@@ -1827,9 +1827,6 @@ export function DataTable<T extends RowData>({
     })
   }, [table, mergedColumns])
 
-  // A stored perspective seeds `columnVisibility` at mount and wins outright over the
-  // `meta.hidden` defaults, so the auto-hide pass is skipped entirely in that case.
-  const visibilitySeededByStoredSettings = React.useRef(Boolean(mergedInitialSettings?.columnVisibility))
   // Auto-hiding is a per-column default, applied once per column — not an enforcement.
   // It cannot be latched by a single has-run boolean: columns arrive in waves, because
   // custom-field columns are built from definitions fetched asynchronously. The first
@@ -1840,26 +1837,46 @@ export function DataTable<T extends RowData>({
   // `handleColumnChooserToggle` *deletes* a column's entry when the user turns it back on,
   // so a re-shown column is indistinguishable from one never seen and would be hidden again
   // on the next wave. Hence an explicit per-column record of what this pass has applied.
-  const autoHiddenColumnIds = React.useRef<Set<string>>(new Set())
+  // A stored view decides only the columns it actually names (#5117). Latching the whole
+  // pass on "the view carried some visibility" left every column that registered after the
+  // save — custom fields, injected columns — with no decision at all, and an undecided
+  // column renders visible. Seeding the record with the stored keys keeps the view winning
+  // wherever it speaks, and lets `meta.hidden` still supply a default where it does not.
+  const visibilityDecidedColumnIds = React.useRef<Set<string>>(
+    new Set(Object.keys(mergedInitialSettings?.columnVisibility ?? {})),
+  )
+  // Bumped whenever the record is re-seeded, so the pass below re-runs for a newly
+  // applied view. The record lives in a ref (it is written from inside the pass and must
+  // not itself re-trigger it), so switching views would otherwise not re-evaluate the
+  // defaults until the next wave of columns happened to arrive.
+  const [visibilityDefaultsPass, setVisibilityDefaultsPass] = React.useState(0)
   React.useEffect(() => {
-    if (visibilitySeededByStoredSettings.current) return
     const hidden: VisibilityState = {}
     table.getAllLeafColumns().forEach((column) => {
+      if (visibilityDecidedColumnIds.current.has(column.id)) return
+      visibilityDecidedColumnIds.current.add(column.id)
       const hiddenMeta = (column.columnDef as any)?.meta?.hidden
-      if (!hiddenMeta || autoHiddenColumnIds.current.has(column.id)) return
-      hidden[column.id] = false
-      autoHiddenColumnIds.current.add(column.id)
+      if (hiddenMeta) hidden[column.id] = false
     })
     if (!Object.keys(hidden).length) return
     setColumnVisibility((prev) => ({ ...hidden, ...prev }))
-  }, [table, mergedColumns])
+  }, [table, mergedColumns, visibilityDefaultsPass])
 
   const getCurrentSettings = React.useCallback((): PerspectiveSettings => {
+    // Seeded from the authoritative column set rather than copied from the
+    // `columnVisibility` state (#5117). That state only ever holds keys the user
+    // explicitly toggled plus whatever a view restored, so a verbatim copy stored no
+    // decision at all for columns that registered later — and an absent key renders
+    // visible, which is what made a saved view drift once custom fields or injected
+    // columns were in play. One explicit boolean per leaf column makes the stored view
+    // self-describing. It also records a column the user turned back *on* as `true`,
+    // which the sparse map could not express (`handleColumnChooserToggle` deletes the
+    // entry), so the per-column default pass above leaves that column alone on reload.
+    // `perspectiveDirty.normalizeVisibility` drops `true` entries before comparing, so
+    // a dense map still compares equal to a sparse one already stored on the server.
     const visibility: Record<string, boolean> = {}
-    for (const [key, value] of Object.entries(columnVisibility)) {
-      if (typeof key === 'string' && typeof value === 'boolean') {
-        visibility[key] = value
-      }
+    for (const column of table.getAllLeafColumns()) {
+      visibility[column.id] = column.getIsVisible()
     }
     // When the host page wires an advanced-filter tree, persist that as the
     // single source of truth for `filters`. The tree wins over legacy
@@ -1888,7 +1905,10 @@ export function DataTable<T extends RowData>({
       searchValue,
     }
     return sanitizePerspectiveSettings(candidate) ?? {}
-  }, [columnOrder, columnVisibility, columnSizing, sorting, filterValues, searchValue, advancedFilter])
+    // `columnVisibility` is no longer read directly, but it stays in the deps on purpose:
+    // `column.getIsVisible()` resolves against that state, so dropping it would hand back
+    // the visibility from before the user's last toggle.
+  }, [table, columnOrder, columnVisibility, columnSizing, sorting, filterValues, searchValue, advancedFilter])
 
   const applyPerspectiveSettings = React.useCallback((
     settings: PerspectiveSettings,
@@ -1919,6 +1939,12 @@ export function DataTable<T extends RowData>({
       const ids = table.getAllLeafColumns().map((column) => column.id)
       if (ids.length) setColumnOrder(ids)
     }
+    // Re-seed the per-column record so the newly applied view decides exactly the
+    // columns it names and nothing else (#5117). Clearing to "No view" empties it, which
+    // is what lets the `meta.hidden` defaults come back instead of staying suppressed for
+    // the rest of the session by a view the user has since dismissed.
+    visibilityDecidedColumnIds.current = new Set(Object.keys(normalized.columnVisibility ?? {}))
+    setVisibilityDefaultsPass((pass) => pass + 1)
     if (normalized.columnVisibility) setColumnVisibility(normalized.columnVisibility)
     else setColumnVisibility({})
     if (normalized.sorting) {
