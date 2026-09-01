@@ -70,7 +70,7 @@ Make query-engine field decryption fail closed: bind the DEK to the tenant the c
 
 ### Phase 2: Extend the guard to the ORM read path
 
-- [ ] 2.1 Guard EncryptionSubscriber.decrypt
+- [x] 2.1 Guard EncryptionSubscriber.decrypt — b16024790
 
 ### Phase 3: decryptEncryptedFields opt-out
 
