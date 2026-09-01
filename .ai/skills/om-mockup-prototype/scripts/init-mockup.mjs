@@ -12,11 +12,10 @@ import {
 } from 'node:fs'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { buildTokens } from './sync-tokens.mjs'
+import { REPO_ROOT, buildTokens } from './sync-tokens.mjs'
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url))
 const SKILL_DIR = resolve(SCRIPT_DIR, '..')
-const REPO_ROOT = resolve(SKILL_DIR, '../../..')
 const ASSETS_DIR = join(SKILL_DIR, 'assets')
 const PROTOTYPES_ROOT = join(REPO_ROOT, '.ai/prototypes')
 const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
