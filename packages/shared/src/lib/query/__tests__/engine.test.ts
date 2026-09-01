@@ -1611,3 +1611,91 @@ describe('module-scoped column-existence cache (#5605)', () => {
     expect(columnProbesFor(fakeDb, 'tenant_id').length).toBeGreaterThan(probesAfterFirstEngine)
   })
 })
+
+describe('BasicQueryEngine decrypt tenant binding (#5430)', () => {
+  const informationSchema = [
+    { table_name: 'customer_entities', column_name: 'id' },
+    { table_name: 'customer_entities', column_name: 'tenant_id' },
+    { table_name: 'customer_entities', column_name: 'organization_id' },
+    { table_name: 'customer_entities', column_name: 'deleted_at' },
+    { table_name: 'customer_entities', column_name: 'display_name' },
+  ]
+
+  function setup(rows: any[]) {
+    const fakeDb = createFakeKysely({ customer_entities: rows, 'information_schema.columns': informationSchema })
+    const decryptCalls: Array<{ tenantId: string | null; organizationId: string | null }> = []
+    const engine = new BasicQueryEngine(
+      {} as any,
+      () => fakeDb as any,
+      () => ({
+        isEnabled: () => true,
+        getEncryptedFieldNames: async () => ['display_name'],
+        decryptEntityPayload: async (_entityId: any, _payload: any, tenantId: any, organizationId: any) => {
+          decryptCalls.push({ tenantId, organizationId })
+          return { display_name: 'PLAINTEXT' }
+        },
+      }),
+    )
+    return { engine, decryptCalls }
+  }
+
+  test('returns ciphertext and never fetches a DEK when the row tenant contradicts the query tenant', async () => {
+    const { engine, decryptCalls } = setup([
+      { id: '1', tenant_id: 'tenant-b', organization_id: 'org1', display_name: 'cipher-1' },
+    ])
+    const result = await engine.query('customers:customer_entity', {
+      tenantId: 'tenant-a',
+      fields: ['id', 'display_name'],
+      page: { page: 1, pageSize: 10 },
+    })
+    expect(decryptCalls).toEqual([])
+    expect((result.items[0] as any).display_name).toBe('cipher-1')
+  })
+
+  test('still decrypts a row whose tenant matches the query tenant', async () => {
+    const { engine, decryptCalls } = setup([
+      { id: '1', tenant_id: 'tenant-a', organization_id: 'org1', display_name: 'cipher-1' },
+    ])
+    const result = await engine.query('customers:customer_entity', {
+      tenantId: 'tenant-a',
+      fields: ['id', 'display_name'],
+      page: { page: 1, pageSize: 10 },
+    })
+    expect(decryptCalls).toEqual([{ tenantId: 'tenant-a', organizationId: 'org1' }])
+    expect((result.items[0] as any).display_name).toBe('PLAINTEXT')
+  })
+
+  // Both engines require `opts.tenantId` on every query, so a row that carries no tenant of its
+  // own — a global row on an `omitAutomaticTenantOrgScope` read — is the only fallback case left.
+  test('a row with no tenant of its own still decrypts under the caller tenant', async () => {
+    const { engine, decryptCalls } = setup([
+      { id: '1', tenant_id: null, organization_id: null, display_name: 'cipher-1' },
+    ])
+    const result = await engine.query('customers:customer_entity', {
+      tenantId: 'tenant-a',
+      omitAutomaticTenantOrgScope: true,
+      fields: ['id', 'display_name'],
+      page: { page: 1, pageSize: 10 },
+    })
+    expect(decryptCalls).toEqual([{ tenantId: 'tenant-a', organizationId: null }])
+    expect((result.items[0] as any).display_name).toBe('PLAINTEXT')
+  })
+
+  test('refuses each mismatching row independently within one page', async () => {
+    const { engine, decryptCalls } = setup([
+      { id: '1', tenant_id: 'tenant-a', organization_id: 'org1', display_name: 'cipher-1' },
+      { id: '2', tenant_id: 'tenant-b', organization_id: 'org1', display_name: 'cipher-2' },
+      { id: '3', tenant_id: 'tenant-c', organization_id: 'org1', display_name: 'cipher-3' },
+    ])
+    const result = await engine.query('customers:customer_entity', {
+      tenantId: 'tenant-a',
+      fields: ['id', 'display_name'],
+      page: { page: 1, pageSize: 10 },
+    })
+    expect(decryptCalls).toHaveLength(1)
+    const byId = new Map((result.items as any[]).map((row) => [row.id, row.display_name]))
+    expect(byId.get('1')).toBe('PLAINTEXT')
+    expect(byId.get('2')).toBe('cipher-2')
+    expect(byId.get('3')).toBe('cipher-3')
+  })
+})

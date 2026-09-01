@@ -33,6 +33,11 @@ import { warnOnCiphertextLikeFallback } from './ciphertext-search-warning'
 import { resolveEncryptedSortFields, resolveEncryptedSortMaxRows, sortRowsInMemory } from './encrypted-sort'
 import { resolveListCountCap } from './count-cap'
 import { mapWithConcurrency } from './bounded-decrypt'
+import {
+  DECRYPT_REFUSAL_LOG_MESSAGE,
+  DecryptRefusalTally,
+  resolveDecryptScope,
+} from '../encryption/decryptScope'
 import { parseNumberWithDefault } from '../number'
 import { createLogger } from '../logger'
 
@@ -1290,20 +1295,34 @@ export class BasicQueryEngine implements QueryEngine {
           ) => Promise<Record<string, unknown>>)
         | null
 
+    const refusalTally = new DecryptRefusalTally()
+
     const decryptRow = async (item: ResultRow): Promise<ResultRow> => {
       if (!decryptPayload) return item
+      const decision = resolveDecryptScope({
+        rowTenantId: (item?.tenant_id ?? item?.tenantId ?? null) as string | null,
+        rowOrganizationId: (item?.organization_id ?? item?.organizationId ?? null) as string | null,
+        callerTenantId: opts.tenantId ?? null,
+        callerOrganizationId: fallbackOrgId ?? null,
+      })
+      // Fail closed: the caller asserted a tenant and this row contradicts it, so decrypting
+      // would hand back a foreign tenant's plaintext under a foreign tenant's DEK.
+      if (!decision.decrypt) {
+        refusalTally.record(decision)
+        return item
+      }
       try {
-        const decrypted = await decryptPayload(
-          entity,
-          item,
-          (item?.tenant_id ?? item?.tenantId ?? opts.tenantId ?? null) as string | null,
-          (item?.organization_id ?? item?.organizationId ?? fallbackOrgId ?? null) as string | null,
-        )
+        const decrypted = await decryptPayload(entity, item, decision.tenantId, decision.organizationId)
         return { ...item, ...decrypted }
       } catch (err) {
         logger.error('Error decrypting entity payload', { err })
         return item
       }
+    }
+
+    const reportDecryptRefusals = () => {
+      if (refusalTally.refused === 0) return
+      logger.warn(DECRYPT_REFUSAL_LOG_MESSAGE, refusalTally.toLogContext(String(entity)))
     }
 
     const normalizeCfJsonAliases = (rows: ResultRow[]) => {
@@ -1387,6 +1406,8 @@ export class BasicQueryEngine implements QueryEngine {
         ? await mapWithConcurrency(items, DECRYPT_CONCURRENCY, decryptRow)
         : items
     }
+
+    reportDecryptRefusals()
 
     let queryResult: QueryResult<T> = { items: pagedItems as unknown as T[], page, pageSize, total }
 
