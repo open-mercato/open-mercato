@@ -16,7 +16,7 @@ import { REPO_ROOT, buildTokens } from './sync-tokens.mjs'
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url))
 const SKILL_DIR = resolve(SCRIPT_DIR, '..')
-const ASSETS_DIR = join(SKILL_DIR, 'assets')
+const ASSETS_DIR = join(SKILL_DIR, 'references/assets')
 const PROTOTYPES_ROOT = join(REPO_ROOT, '.ai/prototypes')
 const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 

@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url))
 const SKILL_DIR = resolve(SCRIPT_DIR, '..')
-const ASSETS_DIR = join(SKILL_DIR, 'assets')
+const ASSETS_DIR = join(SKILL_DIR, 'references/assets')
 const BUNDLED_SNAPSHOT_PATH = join(SKILL_DIR, 'references/ds-tokens.default.json')
 const REPO_SNAPSHOT_RELATIVE = '.ai/ds/ds-tokens.json'
 const BUNDLED_STYLESHEETS = ['components.css', 'screens.css', 'prototype.css']
