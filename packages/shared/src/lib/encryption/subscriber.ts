@@ -6,6 +6,7 @@ import { isTenantDataEncryptionEnabled } from './toggles'
 import { isEncryptionDebugEnabled } from './toggles'
 import { resolveTenantEncryptionService } from './customFieldValues'
 import { createLogger } from '../logger'
+import { DECRYPT_REFUSAL_LOG_MESSAGE, resolveDecryptScope } from './decryptScope'
 import { listEntityMetadataFromRegistry } from '../db/entityMetadata'
 
 const logger = createLogger('shared').child({ component: 'encryption' })
@@ -315,8 +316,26 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
     const entityId = this.resolveEntityId(resolvedMeta)
     if (!entityId) return
     const { tenantId, organizationId } = resolveScope(target)
-    const scopedTenantId = tenantId ?? fallbackScope?.tenantId ?? null
-    const scopedOrgId = organizationId ?? fallbackScope?.organizationId ?? null
+    const decision = resolveDecryptScope({
+      rowTenantId: tenantId,
+      rowOrganizationId: organizationId,
+      callerTenantId: fallbackScope?.tenantId ?? null,
+      callerOrganizationId: fallbackScope?.organizationId ?? null,
+    })
+    // Fail closed: the caller scoped this read to one tenant and the entity belongs to another,
+    // so decrypting would key off a foreign tenant's DEK. Leave the graph untouched — including
+    // its relations, which must not inherit a fallback derived from a refused entity.
+    if (!decision.decrypt) {
+      logger.warn(DECRYPT_REFUSAL_LOG_MESSAGE, {
+        entity: entityId,
+        refusedRows: 1,
+        callerTenantId: decision.callerTenantId,
+        rowTenantIds: [decision.rowTenantId],
+      })
+      return
+    }
+    const scopedTenantId = decision.tenantId
+    const scopedOrgId = decision.organizationId
     // Capture pending (un-flushed) changes BEFORE decrypt mutates the target. Re-baselining a
     // managed entity that a command already mutated would clear its dirty changeset and silently
     // drop the pending write (e.g. an undo handler that mutates an entity, then loads a related
