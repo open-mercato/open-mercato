@@ -52,7 +52,7 @@ The default app and `create-mercato-app` template also export a non-applied `mod
 | Page routes | `routes.pages` | `'/backend/path'` or `'/frontend/path'` |
 | Event subscribers | `events.subscribers` | subscriber id |
 | Workers | `workers` | worker id |
-| Widget injection | `widgets.injection` | injection widget id |
+| Widget injection | `widgets.injection` | injection widget id — either the registry `key` (`module:widget:file`) or the widget's own `widgetId` (`module.injection.widget`) |
 | Component overrides | `widgets.components` | component handle |
 | Dashboard widgets | `widgets.dashboard` | widget id |
 | Notification types and handlers | `notifications.types`, `notifications.handlers` | type id / handler id |
@@ -184,6 +184,18 @@ overrides: {
   },
 }
 ```
+
+An injection widget is addressable by two ids: the generated registry `key`
+(`catalog:product-seo:widget`) and the widget module's own `widgetId`
+(`catalog.injection.product-seo`). Either spelling disables or replaces the widget
+in both the entries registry and every injection table that places it, so you never
+need to list both — and neither is reported as a stale override.
+
+The dispatcher must also run in the browser. `ClientBootstrap` re-registers the
+injection, dashboard and notification registries after hydration, so an app that
+forks it MUST call `applyModuleOverridesFromEnabledModules(enabledModules, { domains: ['widgets', 'notifications'] })`
+before those registrations — otherwise the raw generated registries overwrite the
+filtered ones and a disabled widget reappears once hydration finishes.
 
 ### Notifications And Runtime Hooks
 

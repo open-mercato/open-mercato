@@ -2,8 +2,41 @@
 
 import * as React from 'react'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import type { ModuleOverrideDomain } from '@open-mercato/shared/modules/overrides'
 
 const logger = createLogger('app').child({ component: 'ClientBootstrap' })
+
+// The registries below are also registered by the server bootstrap, which applies
+// `src/modules.ts` overrides first. Re-registering them in the browser without the
+// same step would overwrite the filtered registries with the raw generated ones, so
+// a disabled widget reappears on hydration (#5152). Only the domains backing the
+// registries below are dispatched — the rest stay server-only, so a domain whose
+// applier never loads in the browser is not reported as unwired.
+const CLIENT_OVERRIDE_DOMAINS: readonly ModuleOverrideDomain[] = ['widgets', 'notifications']
+
+let moduleOverridesPromise: Promise<void> | null = null
+
+function ensureModuleOverridesApplied(): Promise<void> {
+  const pending = moduleOverridesPromise
+  if (pending) return pending
+
+  const promise = (async () => {
+    const [appModules, overrides] = await Promise.all([
+      import('@/modules'),
+      import('@open-mercato/shared/modules/overrides'),
+    ])
+    overrides.applyModuleOverridesFromEnabledModules(appModules.enabledModules, {
+      domains: CLIENT_OVERRIDE_DOMAINS,
+    })
+  })().catch((err) => {
+    moduleOverridesPromise = null
+    logger.error('Failed to apply module overrides on the client; next render will retry', { err })
+    throw err
+  })
+
+  moduleOverridesPromise = promise
+  return promise
+}
 
 export type ClientBootstrapProfile =
   | 'public'
@@ -89,6 +122,7 @@ async function loadRegistryGroup(group: ClientRegistryGroup): Promise<void> {
   if (pending) return pending
 
   const promise = (async () => {
+    await ensureModuleOverridesApplied()
     switch (group) {
       case 'translations':
         await import('@/.mercato/generated/translations-fields.generated')
@@ -103,7 +137,7 @@ async function loadRegistryGroup(group: ClientRegistryGroup): Promise<void> {
         ])
         uiRegistry.registerInjectionWidgets(widgets.injectionWidgetEntries)
         coreRegistry.registerCoreInjectionWidgets(widgets.injectionWidgetEntries)
-        coreRegistry.registerCoreInjectionTables(tables.injectionTables)
+        coreRegistry.registerCoreInjectionTables(tables.injectionTables, widgets.injectionWidgetEntries)
         coreRegistry.registerEnabledModuleIds(enabledModules.enabledModuleIds)
         break
       }
