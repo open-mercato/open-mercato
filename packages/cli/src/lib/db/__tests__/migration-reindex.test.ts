@@ -33,8 +33,13 @@ describe('resolveMigrationFilePath', () => {
     expect(resolveMigrationFilePath(MIGRATIONS_PATH, 'anything', known, fileExists)).toBe(known)
   })
 
-  it('refuses names that could escape the migrations directory', () => {
-    expect(resolveMigrationFilePath(MIGRATIONS_PATH, '../../../etc/passwd', null, () => true)).toBeNull()
+  it('keeps a directory-qualified migration name inside the migrations directory', () => {
+    expect(resolveMigrationFilePath(MIGRATIONS_PATH, '../../../etc/passwd', null, () => true))
+      .toBe(path.join(MIGRATIONS_PATH, 'passwd.ts'))
+  })
+
+  it('refuses names that survive basename but are not a plausible file name', () => {
+    expect(resolveMigrationFilePath(MIGRATIONS_PATH, 'migration name; rm -rf /', null, () => true)).toBeNull()
   })
 
   it('returns null when no file backs the migration name', () => {
@@ -141,11 +146,28 @@ describe('requestQueryIndexReindex', () => {
       },
     })
 
-    expect(result).toEqual({ requested: ['customers:deal'], queued: false })
+    expect(result).toEqual({ requested: [], queued: false })
     expect(onWarn).toHaveBeenCalledTimes(1)
     const warning = onWarn.mock.calls[0][0] as string
     expect(warning).toContain('mercato query_index rebuild --entity customers:deal --global')
     expect(warning).toContain('no event bus here')
+  })
+
+  it('names only the entity types that did not make it into the queue', async () => {
+    const onWarn = jest.fn()
+    const emitEvent = jest.fn(async (_event: string, payload: Record<string, unknown>) => {
+      if (payload.entityType === 'workflows:workflow_definition') throw new Error('queue went away')
+    })
+
+    const result = await requestQueryIndexReindex(
+      ['customers:deal', 'workflows:workflow_definition'],
+      { onWarn, createContainer: async () => ({ resolve: () => ({ emitEvent }) }) },
+    )
+
+    expect(result).toEqual({ requested: ['customers:deal'], queued: false })
+    const warning = onWarn.mock.calls[0][0] as string
+    expect(warning).toContain('mercato query_index rebuild --entity workflows:workflow_definition --global')
+    expect(warning).not.toContain('--entity customers:deal')
   })
 })
 

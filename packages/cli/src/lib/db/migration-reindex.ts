@@ -33,7 +33,7 @@ export function resolveMigrationFilePath(
   fileExists: (filePath: string) => boolean = fs.existsSync,
 ): string | null {
   if (knownPath && fileExists(knownPath)) return knownPath
-  const stem = migrationName.replace(/\.(ts|js|mjs|cjs)$/i, '')
+  const stem = path.basename(migrationName).replace(/\.(ts|js|mjs|cjs)$/i, '')
   if (!stem || !MIGRATION_FILE_NAME_PATTERN.test(stem)) return null
   for (const extension of MIGRATION_EXTENSIONS) {
     const candidate = path.join(migrationsPath, `${stem}${extension}`)
@@ -113,6 +113,7 @@ export async function requestQueryIndexReindex(
   if (!entityTypes.length) return { requested: [], queued: false }
 
   let container: QueryIndexReindexContainer | null = null
+  const queued: string[] = []
   try {
     container = await deps.createContainer()
     const eventBus = container.resolve('eventBus') as QueryIndexReindexEmitter
@@ -122,18 +123,20 @@ export async function requestQueryIndexReindex(
         { entityType, allowAllTenants: true, force: false },
         { persistent: true },
       )
+      queued.push(entityType)
     }
     deps.onInfo?.(
-      `[query_index] Queued a reindex for ${entityTypes.length} entity type(s) touched by data migrations: ${entityTypes.join(', ')}`,
+      `[query_index] Queued a reindex for ${queued.length} entity type(s) touched by data migrations: ${queued.join(', ')}`,
     )
-    return { requested: [...entityTypes], queued: true }
+    return { requested: queued, queued: true }
   } catch (error) {
+    const unqueued = entityTypes.filter((entityType) => !queued.includes(entityType))
     deps.onWarn?.(
-      `${formatManualReindexInstructions(entityTypes)}\n             Reason: ${
+      `${formatManualReindexInstructions(unqueued)}\n             Reason: ${
         error instanceof Error ? error.message : String(error)
       }`,
     )
-    return { requested: [...entityTypes], queued: false }
+    return { requested: queued, queued: false }
   } finally {
     if (container && typeof container.dispose === 'function') {
       try {
