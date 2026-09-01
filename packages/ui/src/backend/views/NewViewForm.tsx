@@ -15,6 +15,10 @@ type Props = {
 export function NewViewForm({ name, onNameChange, onSubmit, onCancel, saving }: Props) {
   const t = useT()
   const trimmed = name.trim()
+  const hintId = React.useId()
+  // A greyed-out check that does nothing when clicked is the dead end reported
+  // in #5113 — always render the reason the control is inert.
+  const nameRequiredHint = t('ui.perspectives.form.nameRequired', 'Enter a name to create the view')
   return (
     <div className="relative">
       <input
@@ -22,6 +26,7 @@ export function NewViewForm({ name, onNameChange, onSubmit, onCancel, saving }: 
         onChange={(e) => onNameChange(e.target.value)}
         placeholder={t('ui.perspectives.form.namePlaceholder', 'View name...')}
         autoFocus
+        aria-describedby={trimmed ? undefined : hintId}
         className="w-full h-9 rounded border border-primary pl-2 pr-16 text-sm"
         onKeyDown={(e) => {
           if (e.key === 'Enter' && trimmed) onSubmit()
@@ -35,6 +40,7 @@ export function NewViewForm({ name, onNameChange, onSubmit, onCancel, saving }: 
           size="xs"
           onClick={() => { if (trimmed) onSubmit() }}
           disabled={!trimmed || saving}
+          title={trimmed ? undefined : nameRequiredHint}
           aria-label={t('ui.perspectives.form.confirmCreate', 'Create view')}
         >
           <Check className={`size-4 ${trimmed ? 'text-brand-violet' : 'text-muted-foreground opacity-50'}`} />
@@ -49,6 +55,9 @@ export function NewViewForm({ name, onNameChange, onSubmit, onCancel, saving }: 
           <X className="size-4 text-muted-foreground hover:text-destructive" />
         </IconButton>
       </div>
+      {trimmed ? null : (
+        <p id={hintId} className="mt-1 text-xs text-muted-foreground">{nameRequiredHint}</p>
+      )}
     </div>
   )
 }

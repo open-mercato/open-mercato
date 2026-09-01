@@ -1334,6 +1334,14 @@ export function DataTable<T extends RowData>({
   // hydration mismatch. Initial render uses only props-derived state (identical on both sides).
   const initialSnapshotRef = React.useRef<PerspectiveSnapshot | null>(null)
   const snapshotHydratedTableRef = React.useRef<string | null>(null)
+  // Tracks the table whose locally-restored state has already been reconciled
+  // against the server response, so reconciliation happens once per table
+  // rather than on every refetch (#5113).
+  const serverReconciledTableRef = React.useRef<string | null>(null)
+  // The snapshot exactly as it came out of localStorage. `initialSnapshotRef`
+  // cannot serve here: applying a snapshot rewrites the stored copy with a
+  // fresh `Date.now()`, which would make every server row look older than it is.
+  const hydratedSnapshotRef = React.useRef<PerspectiveSnapshot | null>(null)
   const initialSettingsSource = perspectiveConfig?.initialState?.initialSettings ?? null
   // Memoized on the host's own object: `sanitizePerspectiveSettings` returns a
   // fresh result on every call, so without this every effect keyed on the
@@ -2040,6 +2048,7 @@ export function DataTable<T extends RowData>({
     const snapshot = readPerspectiveSnapshot(perspectiveTableId)
     if (!snapshot) return
     initialSnapshotRef.current = snapshot
+    hydratedSnapshotRef.current = snapshot
     // When the host page wired an advanced-filter tree (`advancedFilter.onApplyTree`),
     // the host owns filter persistence — typically by hydrating from / writing to the
     // URL (see CRM People/Companies/Deals lazy useState initializers + URL writer
@@ -2577,8 +2586,6 @@ export function DataTable<T extends RowData>({
   React.useLayoutEffect(() => {
     if (!canUsePerspectives) return
     if (!perspectiveTableId) return
-    if (initialSnapshotRef.current) return
-    if (initialPerspectiveAppliedRef.current) return
 
     const source = perspectiveData ?? perspectiveConfig?.initialState?.response
     if (!source) return
@@ -2587,6 +2594,55 @@ export function DataTable<T extends RowData>({
       if (!id) return undefined
       return source.perspectives.find((p) => p.id === id)
         ?? source.rolePerspectives.find((p) => p.id === id)
+    }
+
+    // Whatever was painted at mount — the server's initial settings or the
+    // localStorage snapshot — is a paint-flash optimisation, not a source of
+    // truth. Reconcile it against the server response exactly once per table:
+    // the guard used to be permanent, which pinned a browser to a stale layout
+    // (or to a perspective deleted elsewhere) for the lifetime of its
+    // localStorage entry (#5113). One-shot matters as much as reconciling at
+    // all — a later refetch must not clobber edits made after mount.
+    if (initialSnapshotRef.current || initialPerspectiveAppliedRef.current) {
+      if (serverReconciledTableRef.current === perspectiveTableId) return
+      serverReconciledTableRef.current = perspectiveTableId
+      // A snapshot only speaks for the active perspective: once the user has
+      // picked a different view, reconciling the mount-time one would undo that
+      // choice, so fall back to identity-only resolution.
+      const hydrated = hydratedSnapshotRef.current
+      const snapshot = hydrated && (!activePerspectiveId || activePerspectiveId === hydrated.perspectiveId)
+        ? hydrated
+        : null
+      const localId = snapshot?.perspectiveId ?? activePerspectiveId
+      // "No view" and the widths-only snapshot (#1835) carry no perspective;
+      // resolving a server default over them would override an explicit choice.
+      if (!localId) return
+      const local = tryResolve(localId)
+      if (local) {
+        const serverUpdatedAt = local.updatedAt ? Date.parse(local.updatedAt) : NaN
+        const serverIsNewer = snapshot != null
+          && Number.isFinite(serverUpdatedAt)
+          && serverUpdatedAt > snapshot.updatedAt
+        // `snapshot.updatedAt` is a browser clock reading and `local.updatedAt`
+        // a database one, so clock skew alone must never re-apply a view — the
+        // settings have to differ materially too.
+        const settingsDiffer = snapshot != null && diffPerspectiveSettings(
+          sanitizePerspectiveSettings(local.settings) ?? {},
+          sanitizePerspectiveSettings(snapshot.settings) ?? {},
+        ).length > 0
+        if (serverIsNewer && settingsDiffer) {
+          applyPerspectiveSettings(local.settings, local.id)
+          initialPerspectiveAppliedRef.current = true
+        }
+        return
+      }
+      // The snapshot points at a perspective that no longer exists — deleted,
+      // unshared, or reassigned in another session. Drop it and fall through to
+      // normal resolution instead of staying pinned to orphaned settings.
+      writePerspectiveSnapshot(perspectiveTableId, null)
+      initialSnapshotRef.current = null
+      hydratedSnapshotRef.current = null
+      initialPerspectiveAppliedRef.current = false
     }
 
     let target: PerspectiveDto | RolePerspectiveDto | undefined
