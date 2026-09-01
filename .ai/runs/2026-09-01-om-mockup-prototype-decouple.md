@@ -50,9 +50,9 @@ Non-goals: no changes to `.ai/ds/**`, `globals.css`, or any design-system govern
 
 ### Phase 2: Styling seams
 
-- [ ] 2.1 Neutral fallbacks for bundled CSS variables
-- [ ] 2.2 theme.css scaffold wired into the load order
-- [ ] 2.3 Fidelity claims replaced
+- [x] 2.1 Neutral fallbacks for bundled CSS variables — 300b94582
+- [x] 2.2 theme.css scaffold wired into the load order — 300b94582
+- [x] 2.3 Fidelity claims replaced — 300b94582
 
 ### Phase 3: Layout and portability
 
