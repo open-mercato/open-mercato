@@ -9,6 +9,12 @@ import { PostgreSqlDriver } from '@mikro-orm/postgresql'
 import { getSslConfig } from '@open-mercato/shared/lib/db/ssl'
 import type { PackageResolver, ModuleEntry } from '../resolver'
 import { quotePostgresIdentifier } from './identifiers'
+import {
+  collectQueryIndexReindexEntityTypes,
+  isMigrationReindexEnabled,
+  requestQueryIndexReindex,
+  type AppliedMigration,
+} from './migration-reindex'
 
 const QUIET_MODE = process.env.OM_CLI_QUIET === '1' || process.env.MERCATO_QUIET === '1'
 const PROGRESS_EMOJI = ''
@@ -338,6 +344,7 @@ export async function dbMigrate(resolver: PackageResolver, options: DbOptions = 
   const modules = resolver.loadEnabledModules()
   const ordered = sortModules(modules)
   const results: string[] = []
+  const appliedMigrations: AppliedMigration[] = []
 
   for (const entry of ordered) {
     const modId = entry.id
@@ -404,6 +411,14 @@ export async function dbMigrate(resolver: PackageResolver, options: DbOptions = 
             ? migration
             : (migration as any).name ?? (migration as any).fileName
         await migrator.up(migrationName ? { migrations: [migrationName] } : undefined)
+        if (migrationName) {
+          appliedMigrations.push({
+            moduleId: modId,
+            migrationsPath,
+            name: String(migrationName),
+            filePath: typeof migration === 'string' ? null : (migration as any).path ?? null,
+          })
+        }
         applied += 1
         if (!QUIET_MODE) {
           process.stdout.write(`\r   ${PROGRESS_EMOJI} ${modId}: ${renderProgress(applied)}`)
@@ -419,6 +434,32 @@ export async function dbMigrate(resolver: PackageResolver, options: DbOptions = 
   }
 
   console.log(results.join('\n'))
+  await dischargeQueryIndexReindexRequests(appliedMigrations)
+}
+
+/**
+ * Runs after every module migrated and after `orm.close()`, so the rewrites the declarations
+ * refer to are committed before the reindex is queued.
+ */
+async function dischargeQueryIndexReindexRequests(applied: readonly AppliedMigration[]): Promise<void> {
+  if (!applied.length || !isMigrationReindexEnabled()) return
+
+  const entityTypes = await collectQueryIndexReindexEntityTypes(applied, {
+    importModule: dynamicImportProvider,
+    onWarn: (message) => console.warn(message),
+  })
+  if (!entityTypes.length) return
+
+  await requestQueryIndexReindex(entityTypes, {
+    createContainer: async () => {
+      const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
+      return (await createRequestContainer()) as any
+    },
+    onInfo: (message) => {
+      if (!QUIET_MODE) console.log(message)
+    },
+    onWarn: (message) => console.warn(message),
+  })
 }
 
 export async function dbGreenfield(resolver: PackageResolver, options: GreenfieldOptions): Promise<void> {
