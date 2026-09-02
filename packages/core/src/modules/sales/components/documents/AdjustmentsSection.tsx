@@ -41,6 +41,12 @@ type SalesDocumentAdjustmentsSectionProps = {
   tenantId?: string | null
   onActionChange?: (action: SectionAction | null) => void
   onRowsChange?: (rows: AdjustmentRow[]) => void
+  /**
+   * Whether the viewer may change adjustments. `false` removes every edit affordance rather than
+   * disabling it: a control that can only ever answer "no" is worse than no control, and the
+   * denial is stated once per screen by the page instead of once per button.
+   */
+  canEdit?: boolean
 }
 
 const FALLBACK_ADJUSTMENT_KIND_VALUES: SalesAdjustmentKind[] = [
@@ -75,6 +81,7 @@ export function SalesDocumentAdjustmentsSection({
   tenantId: tenantFromProps,
   onActionChange,
   onRowsChange,
+  canEdit = true,
 }: SalesDocumentAdjustmentsSectionProps) {
   const t = useT()
   const locale = useLocale()
@@ -291,13 +298,17 @@ export function SalesDocumentAdjustmentsSection({
 
   React.useEffect(() => {
     if (!onActionChange) return
+    if (!canEdit) {
+      onActionChange(null)
+      return
+    }
     onActionChange({
       label: t('sales.documents.adjustments.add', 'Add adjustment'),
       onClick: handleOpenCreate,
       disabled: false,
     })
     return () => onActionChange(null)
-  }, [handleOpenCreate, onActionChange, t])
+  }, [canEdit, handleOpenCreate, onActionChange, t])
 
   const handleFormSubmit = React.useCallback(
     async (values: AdjustmentSubmitPayload) => {
@@ -484,14 +495,14 @@ export function SalesDocumentAdjustmentsSection({
           columns={columns}
           isLoading={loading && rows.length > 0}
           embedded
-          onRowClick={handleEdit}
-          rowActions={renderRowActions}
+          onRowClick={canEdit ? handleEdit : undefined}
+          rowActions={canEdit ? renderRowActions : undefined}
           emptyState={
             <TabEmptyState
               title={t('sales.documents.empty.adjustments.title', 'No adjustments yet.')}
               description={t('sales.documents.empty.adjustments.description', 'Add discounts, fees, or taxes to refine totals.')}
-              actionLabel={t('sales.documents.adjustments.add', 'Add adjustment')}
-              onAction={handleOpenCreate}
+              actionLabel={canEdit ? t('sales.documents.adjustments.add', 'Add adjustment') : undefined}
+              onAction={canEdit ? handleOpenCreate : undefined}
             />
           }
         />

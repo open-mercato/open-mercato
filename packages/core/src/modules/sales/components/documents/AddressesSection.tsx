@@ -8,7 +8,7 @@ import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-merc
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
-import { ErrorMessage, LoadingMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
+import { AccessDeniedMessage, ErrorMessage, LoadingMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
 import { Button } from '@open-mercato/ui/primitives/button'
 import {
   Select,
@@ -52,6 +52,20 @@ export type SalesDocumentAddressesSectionProps = {
   shippingAddressSnapshot?: Record<string, unknown> | null
   billingAddressSnapshot?: Record<string, unknown> | null
   lockedReason?: string | null
+  /**
+   * Why the section is locked. `status` (default) keeps the editable-status treatment: an error
+   * banner with the status message repeated as a disabled caption. `permission` renders an access
+   * denial instead, with no caption — a status-worded caption beside a permission-worded banner
+   * contradicts itself.
+   */
+  lockedKind?: 'status' | 'permission'
+  /**
+   * Lock the section without stating why. Defaults to `Boolean(lockedReason)`, which is the usual
+   * case; pass it explicitly when the caller knows editing is unavailable but not yet why — a
+   * permission check still in flight, or one that failed. Withholding the controls is right there;
+   * naming a reason nobody verified is not.
+   */
+  locked?: boolean
   onUpdated?: (patch: {
     shippingAddressId?: string | null
     billingAddressId?: string | null
@@ -209,6 +223,8 @@ export function SalesDocumentAddressesSection({
   shippingAddressSnapshot,
   billingAddressSnapshot,
   lockedReason,
+  lockedKind = 'status',
+  locked: lockedProp,
   onUpdated,
 }: SalesDocumentAddressesSectionProps) {
   const t = useT()
@@ -254,7 +270,7 @@ export function SalesDocumentAddressesSection({
   const [additionalDraft, setAdditionalDraft] = React.useState<AddressEditorDraft>(emptyDraft)
   const [additionalSaving, setAdditionalSaving] = React.useState(false)
   const [deletingAddressIds, setDeletingAddressIds] = React.useState<Set<string>>(new Set())
-  const locked = Boolean(lockedReason)
+  const locked = lockedProp ?? Boolean(lockedReason)
   const [editingAddressId, setEditingAddressId] = React.useState<string | null>(null)
   const [editingDraft, setEditingDraft] = React.useState<AddressEditorDraft>(emptyDraft)
   const [editingSaving, setEditingSaving] = React.useState(false)
@@ -1039,15 +1055,19 @@ export function SalesDocumentAddressesSection({
     <div className="space-y-4">
       <div className="grid gap-4 md:grid-cols-2">
         {lockedReason ? (
-          <ErrorMessage
-            label={lockedReason}
-            className="md:col-span-2"
-            action={
-              <Button size="sm" variant="outline" disabled>
-                {t('sales.documents.detail.addresses.blocked', 'Addresses cannot be changed for the current status.')}
-              </Button>
-            }
-          />
+          lockedKind === 'permission' ? (
+            <AccessDeniedMessage label={lockedReason} className="md:col-span-2" />
+          ) : (
+            <ErrorMessage
+              label={lockedReason}
+              className="md:col-span-2"
+              action={
+                <Button size="sm" variant="outline" disabled>
+                  {t('sales.documents.detail.addresses.blocked', 'Addresses cannot be changed for the current status.')}
+                </Button>
+              }
+            />
+          )
         ) : null}
 
         {addressesError ? (
@@ -1096,6 +1116,7 @@ export function SalesDocumentAddressesSection({
                 t={t as Translator}
                 onChange={(next) => setShippingDraft(next)}
                 hidePrimaryToggle
+                disabled={locked}
               />
               <SwitchField
                 label={t('sales.documents.form.address.saveToCustomer', 'Save this address to the customer')}
@@ -1163,6 +1184,7 @@ export function SalesDocumentAddressesSection({
                     t={t as Translator}
                     onChange={(next) => setBillingDraft(next)}
                     hidePrimaryToggle
+                    disabled={locked}
                   />
                   <SwitchField
                     label={t('sales.documents.form.address.saveToCustomer', 'Save this address to the customer')}
@@ -1265,6 +1287,7 @@ export function SalesDocumentAddressesSection({
                       t={t as Translator}
                       onChange={(next) => setEditingDraft(next)}
                       hidePrimaryToggle
+                      disabled={editingSaving || locked}
                     />
                     <div className="flex justify-end gap-2">
                       <Button
@@ -1381,6 +1404,7 @@ export function SalesDocumentAddressesSection({
                 t={t as Translator}
                 onChange={(next) => setAdditionalDraft(next)}
                 hidePrimaryToggle
+                disabled={additionalSaving || locked}
               />
             ) : null}
 

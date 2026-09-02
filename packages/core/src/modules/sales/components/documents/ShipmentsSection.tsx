@@ -39,6 +39,12 @@ type SalesShipmentsSectionProps = {
   documentUpdatedAt?: string | null
   onActionChange?: (action: SectionAction | null) => void
   onAddComment?: (body: string) => Promise<void>
+  /**
+   * Whether the viewer may change shipments. `false` removes every edit affordance rather than
+   * disabling it: a control that can only ever answer "no" is worse than no control, and the
+   * denial is stated once per screen by the page instead of once per button.
+   */
+  canEdit?: boolean
 }
 
 export function formatDisplayDate(value: string | null | undefined, locale?: string): string | null {
@@ -121,6 +127,7 @@ export function SalesShipmentsSection({
   documentUpdatedAt,
   onActionChange,
   onAddComment,
+  canEdit = true,
 }: SalesShipmentsSectionProps) {
   const t = useT()
   const locale = useLocale()
@@ -386,13 +393,17 @@ export function SalesShipmentsSection({
 
   React.useEffect(() => {
     if (!onActionChange) return
+    if (!canEdit) {
+      onActionChange(null)
+      return
+    }
     onActionChange({
       label: addShipmentLabel,
       onClick: handleOpenCreate,
       disabled: false,
     })
     return () => onActionChange(null)
-  }, [addShipmentLabel, handleOpenCreate, onActionChange])
+  }, [addShipmentLabel, canEdit, handleOpenCreate, onActionChange])
 
   const handleEdit = React.useCallback((shipment: ShipmentRow) => {
     setDialogState({ mode: 'edit', shipment })
@@ -477,12 +488,16 @@ export function SalesShipmentsSection({
             'sales.documents.shipments.empty.description',
             'Add shipments for this document to let the user track the order.'
           )}
-          action={{
-            label: addShipmentLabel,
-            onClick: handleOpenCreate,
-            icon: <Plus className="h-4 w-4" aria-hidden />,
-            disabled: loading,
-          }}
+          action={
+            canEdit
+              ? {
+                  label: addShipmentLabel,
+                  onClick: handleOpenCreate,
+                  icon: <Plus className="h-4 w-4" aria-hidden />,
+                  disabled: loading,
+                }
+              : undefined
+          }
         />
       ) : (
         <div className="grid gap-3 md:grid-cols-2">
@@ -516,24 +531,28 @@ export function SalesShipmentsSection({
                       </p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8"
-                      onClick={() => handleEdit(shipment)}
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 text-destructive"
-                      onClick={() => void handleDelete(shipment)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
+                  {canEdit ? (
+                    <div className="flex items-center gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={() => handleEdit(shipment)}
+                      >
+                        <Pencil className="h-4 w-4" aria-hidden />
+                        <span className="sr-only">{t('sales.documents.shipments.edit', 'Edit shipment')}</span>
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-destructive"
+                        onClick={() => void handleDelete(shipment)}
+                      >
+                        <Trash2 className="h-4 w-4" aria-hidden />
+                        <span className="sr-only">{t('sales.documents.shipments.delete', 'Delete shipment')}</span>
+                      </Button>
+                    </div>
+                  ) : null}
                 </div>
                 <div className="mt-3 space-y-2 text-sm">
                   <div className="flex flex-wrap items-center gap-2 text-muted-foreground">

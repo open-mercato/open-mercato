@@ -107,14 +107,98 @@ export async function createShipmentFixture(
   token: string,
   orderId: string,
   items: Array<{ orderLineId: string; quantity: number }>,
+  data?: Record<string, unknown>,
 ): Promise<string> {
   return createEntity(
     request,
     token,
     '/api/sales/shipments',
-    { orderId, items },
+    { orderId, items, ...(data ?? {}) },
     ['id', 'shipmentId'],
   );
+}
+
+export async function createAdjustmentFixture(
+  request: APIRequestContext,
+  token: string,
+  orderId: string,
+  data?: Record<string, unknown>,
+): Promise<string> {
+  return createEntity(
+    request,
+    token,
+    '/api/sales/order-adjustments',
+    {
+      orderId,
+      label: `QA adjustment ${Date.now()}`,
+      kind: 'surcharge',
+      amountNet: 5,
+      amountGross: 5,
+      currencyCode: 'USD',
+      ...(data ?? {}),
+    },
+    ['id', 'adjustmentId'],
+  );
+}
+
+export async function createPaymentFixture(
+  request: APIRequestContext,
+  token: string,
+  orderId: string,
+  data?: Record<string, unknown>,
+): Promise<string> {
+  return createEntity(
+    request,
+    token,
+    '/api/sales/payments',
+    {
+      orderId,
+      amount: 10,
+      paymentReference: `QA-PAY-${Date.now()}`,
+      currencyCode: 'USD',
+      ...(data ?? {}),
+    },
+    ['id', 'paymentId'],
+  );
+}
+
+/**
+ * The referenced line must already be shipped in the given quantity
+ * (see createShipmentFixture) or the API rejects the return.
+ */
+export async function createReturnFixture(
+  request: APIRequestContext,
+  token: string,
+  orderId: string,
+  lines: Array<{ orderLineId: string; quantity: number }>,
+  data?: Record<string, unknown>,
+): Promise<string> {
+  return createEntity(
+    request,
+    token,
+    '/api/sales/returns',
+    { orderId, reason: `QA return ${Date.now()}`, lines, ...(data ?? {}) },
+    ['id', 'returnId'],
+  );
+}
+
+/**
+ * Returns are the one sales entity whose DELETE reads its payload from the
+ * request body ({ id, orderId }) rather than a query string, so
+ * deleteSalesEntityIfExists cannot clean them up.
+ */
+export async function deleteSalesReturnIfExists(
+  request: APIRequestContext,
+  token: string | null,
+  returnId: string | null,
+  orderId: string | null,
+): Promise<void> {
+  if (!token || !returnId || !orderId) return;
+  try {
+    await apiRequest(request, 'DELETE', '/api/sales/returns', { token, data: { id: returnId, orderId } });
+  } catch {
+    return;
+  }
 }
 
 /**

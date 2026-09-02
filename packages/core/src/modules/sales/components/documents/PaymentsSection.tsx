@@ -49,6 +49,12 @@ type SalesDocumentPaymentsSectionProps = {
   onActionChange?: (action: SectionAction | null) => void
   onTotalsChange?: () => void
   onPaymentsChange?: (payments: PaymentRow[]) => void
+  /**
+   * Whether the viewer may change payments. `false` removes every edit affordance rather than
+   * disabling it: a control that can only ever answer "no" is worse than no control, and the
+   * denial is stated once per screen by the page instead of once per button.
+   */
+  canEdit?: boolean
 }
 
 function normalizeNumber(value: unknown): number {
@@ -78,6 +84,7 @@ export function SalesDocumentPaymentsSection({
   onActionChange,
   onTotalsChange,
   onPaymentsChange,
+  canEdit = true,
 }: SalesDocumentPaymentsSectionProps) {
   const t = useT()
   const locale = useLocale()
@@ -256,13 +263,17 @@ export function SalesDocumentPaymentsSection({
 
   React.useEffect(() => {
     if (!onActionChange) return
+    if (!canEdit) {
+      onActionChange(null)
+      return
+    }
     onActionChange({
       label: addActionLabel,
       onClick: openCreate,
       disabled: false,
     })
     return () => onActionChange(null)
-  }, [addActionLabel, onActionChange, openCreate])
+  }, [addActionLabel, canEdit, onActionChange, openCreate])
 
   const columns = React.useMemo<ColumnDef<PaymentRow>[]>(
     () => [
@@ -308,27 +319,31 @@ export function SalesDocumentPaymentsSection({
             row.createdAt ? new Date(row.createdAt).toLocaleString(locale) : undefined,
         },
       },
-      {
-        id: 'actions',
-        header: '',
-        cell: ({ row }) => {
-          return (
-            <RowActions
-              items={[
-                { id: 'edit', label: editActionLabel, onSelect: () => openEditPayment(row.original) },
-                {
-                  id: 'delete',
-                  label: deleteActionLabel,
-                  destructive: true,
-                  onSelect: () => void handleDelete(row.original),
-                },
-              ]}
-            />
-          )
-        },
-      },
+      ...(canEdit
+        ? [
+            {
+              id: 'actions',
+              header: '',
+              cell: ({ row }) => {
+                return (
+                  <RowActions
+                    items={[
+                      { id: 'edit', label: editActionLabel, onSelect: () => openEditPayment(row.original) },
+                      {
+                        id: 'delete',
+                        label: deleteActionLabel,
+                        destructive: true,
+                        onSelect: () => void handleDelete(row.original),
+                      },
+                    ]}
+                  />
+                )
+              },
+            } satisfies ColumnDef<PaymentRow>,
+          ]
+        : []),
     ],
-    [currencyCode, deleteActionLabel, editActionLabel, handleDelete, locale, openEditPayment, t]
+    [canEdit, currencyCode, deleteActionLabel, editActionLabel, handleDelete, locale, openEditPayment, t]
   )
 
   if (loading) {
@@ -359,7 +374,7 @@ export function SalesDocumentPaymentsSection({
         <DataTable<PaymentRow>
           columns={columns}
           data={payments}
-          onRowClick={openEditPayment}
+          onRowClick={canEdit ? openEditPayment : undefined}
           extensionTableId={extensionPoints.hosts.paymentsTable.tableId}
         />
       ) : (
@@ -369,12 +384,16 @@ export function SalesDocumentPaymentsSection({
             'sales.documents.payments.emptyDescription',
             'Track received payments to keep outstanding balances up to date.'
           )}
-          action={{
-            label: addActionLabel,
-            onClick: openCreate,
-            icon: <Plus className="h-4 w-4" aria-hidden />,
-            disabled: loading,
-          }}
+          action={
+            canEdit
+              ? {
+                  label: addActionLabel,
+                  onClick: openCreate,
+                  icon: <Plus className="h-4 w-4" aria-hidden />,
+                  disabled: loading,
+                }
+              : undefined
+          }
         />
       )}
 

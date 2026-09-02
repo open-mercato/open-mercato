@@ -75,6 +75,7 @@ import { InjectionSpot, useInjectionWidgets } from '@open-mercato/ui/backend/inj
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from '@open-mercato/ui/backend/injection/recordContext'
 import { useSalesChannelsEnabled } from '@open-mercato/core/modules/sales/components/useSalesChannelsEnabled'
+import { useSalesDocumentPermissions } from './useSalesDocumentPermissions'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('sales')
@@ -345,6 +346,7 @@ function CustomerInlineEditor({
   saving,
   error,
   guardMessage,
+  permissionLocked = false,
   onClearError,
 }: {
   label: string
@@ -361,6 +363,13 @@ function CustomerInlineEditor({
   saving: boolean
   error: string | null
   guardMessage?: string | null
+  /**
+   * The viewer's manage feature denies the edit, so the card offers nothing at all. Distinct from
+   * `guardMessage`, which blocks on the document's *status* and stays clickable to say so — this
+   * card has nowhere to render a reason, and a control that only answers "no" is worse than no
+   * control.
+   */
+  permissionLocked?: boolean
   onClearError: () => void
 }) {
   const t = useT()
@@ -764,8 +773,8 @@ function CustomerInlineEditor({
       email={customerEmail ?? undefined}
       kind={customerSnapshot?.customer?.kind === 'person' ? 'person' : 'company'}
       className="h-full"
-      onEditSnapshot={handleSnapshotActivate}
-      onSelectCustomer={handleSelectActivate}
+      onEditSnapshot={permissionLocked ? undefined : handleSnapshotActivate}
+      onSelectCustomer={permissionLocked ? undefined : handleSelectActivate}
     />
   )
 }
@@ -1914,7 +1923,11 @@ export default function SalesDocumentDetailPage({
   const [isNotFound, setIsNotFound] = React.useState(false)
   const [record, setRecord] = React.useState<DocumentRecord | null>(null)
   const [tags, setTags] = React.useState<TagOption[]>([])
-  const [kind, setKind] = React.useState<'order' | 'quote'>('quote')
+  const [kind, setKind] = React.useState<'order' | 'quote'>(() => {
+    const requested = searchParams.get('kind')
+    if (requested === 'order' || requested === 'quote') return requested
+    return initialKind ?? 'quote'
+  })
   const [error, setError] = React.useState<string | null>(null)
   const [reloadKey, setReloadKey] = React.useState(0)
   const [activeTab, setActiveTab] = React.useState<string>('items')
@@ -1927,7 +1940,18 @@ export default function SalesDocumentDetailPage({
   const [sendOpen, setSendOpen] = React.useState(false)
   const [validForDays, setValidForDays] = React.useState(14)
   const [numberEditing, setNumberEditing] = React.useState(false)
-  const [canEditNumber, setCanEditNumber] = React.useState(false)
+  // Payments, shipments and returns are written through their OWN features, not the document's.
+  // A user may hold sales.orders.manage and still be refused a payment, so each section is
+  // resolved separately rather than inheriting `canManage`.
+  const {
+    canEditNumber,
+    canManageOrders,
+    canManageQuotes,
+    canManagePayments,
+    canManageShipments,
+    canCreateReturns,
+    canManageReturns,
+  } = useSalesDocumentPermissions()
   const [currencyError, setCurrencyError] = React.useState<string | null>(null)
   const [hasItems, setHasItems] = React.useState(false)
   const [hasPayments, setHasPayments] = React.useState(false)
@@ -2021,41 +2045,17 @@ export default function SalesDocumentDetailPage({
     [t]
   )
 
-  React.useEffect(() => {
-    let active = true
-    async function loadNumberPermission() {
-      try {
-        const call = await apiCall<{ granted?: unknown[] }>(
-          '/api/auth/feature-check',
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ features: ['sales.documents.number.edit'] }),
-          }
-        )
-        if (!active) return
-        const granted = Array.isArray(call.result?.granted)
-          ? call.result?.granted.map((item) => String(item))
-          : []
-        const has = granted.some((feature) => {
-          if (feature === '*') return true
-          if (feature === 'sales.documents.number.edit') return true
-          if (feature.endsWith('.*')) {
-            const prefix = feature.slice(0, -2)
-            return 'sales.documents.number.edit' === prefix || 'sales.documents.number.edit'.startsWith(`${prefix}.`)
-          }
-          return false
-        })
-        setCanEditNumber(Boolean(call.ok && has))
-      } catch {
-        if (active) setCanEditNumber(false)
-      }
-    }
-    loadNumberPermission().catch(() => {})
-    return () => {
-      active = false
-    }
-  }, [scopeVersion])
+  // The two derived flags are deliberately not each other's negation: an affordance needs a
+  // *granted* answer to appear, while only a *denied* one may be stated as a reason. While the check
+  // is unresolved the page is locked and says nothing — and the hook treats an answer from a
+  // previous organization scope as unresolved, so a scope switch fails closed for the round trip.
+  const canManage = kind === 'order' ? canManageOrders : canManageQuotes
+  const managePermitted = canManage === true
+  const manageDenied = canManage === false
+  const paymentsPermitted = canManagePayments === true
+  const shipmentsPermitted = canManageShipments === true
+  const returnsCreatePermitted = canCreateReturns === true
+  const returnsManagePermitted = canManageReturns === true
   const saveShortcutLabel = React.useMemo(
     () => t('sales.documents.detail.inline.save', 'Save ⌘⏎ / Ctrl+Enter'),
     [t]
@@ -2948,9 +2948,13 @@ export default function SalesDocumentDetailPage({
   const customerGuardMessage = customerGuardBlocked
     ? t('sales.documents.detail.customerBlocked', 'Customer cannot be changed for the current status.')
     : null
-  const addressGuardMessage = addressGuardBlocked
+  const addressGuardMessage = manageDenied
+    ? t('sales.documents.detail.noEditPermission.addresses', "You do not have permission to change this document's addresses.")
+    : addressGuardBlocked
     ? t('sales.documents.detail.addresses.blocked', 'Addresses cannot be changed for the current status.')
     : null
+  const addressLockKind: 'status' | 'permission' = manageDenied ? 'permission' : 'status'
+  const addressLocked = !managePermitted || addressGuardBlocked
   React.useEffect(() => {
     const id = record?.customerEntityId ?? null
     if (!id) return
@@ -4236,6 +4240,8 @@ export default function SalesDocumentDetailPage({
           shippingAddressSnapshot={shippingSnapshot ?? null}
           billingAddressSnapshot={billingSnapshot ?? null}
           lockedReason={addressGuardMessage}
+          lockedKind={addressLockKind}
+          locked={addressLocked}
           onUpdated={(patch) => setRecord((prev) => (prev ? { ...prev, ...patch } : prev))}
         />
       )
@@ -4250,6 +4256,7 @@ export default function SalesDocumentDetailPage({
           organizationId={(record as any)?.organizationId ?? (record as any)?.organization_id ?? null}
           tenantId={(record as any)?.tenantId ?? (record as any)?.tenant_id ?? null}
           onActionChange={handleSectionActionChange}
+          canEdit={managePermitted}
           onItemsChange={(items) => setHasItems(items.length > 0)}
         />
       )
@@ -4274,6 +4281,7 @@ export default function SalesDocumentDetailPage({
             documentUpdatedAt={record.updatedAt ?? null}
             shippingAddressSnapshot={shippingSnapshot ?? null}
             onActionChange={handleSectionActionChange}
+            canEdit={shipmentsPermitted}
             onAddComment={appendShipmentComment}
           />
           <InjectionSpot
@@ -4295,6 +4303,8 @@ export default function SalesDocumentDetailPage({
           orderId={record.id}
           currencyCode={record.currencyCode ?? null}
           documentUpdatedAt={record.updatedAt}
+          canCreate={returnsCreatePermitted}
+          canEdit={returnsManagePermitted}
         />
       )
     }
@@ -4308,6 +4318,7 @@ export default function SalesDocumentDetailPage({
           organizationId={(record as any)?.organizationId ?? (record as any)?.organization_id ?? null}
           tenantId={(record as any)?.tenantId ?? (record as any)?.tenant_id ?? null}
           onActionChange={handleSectionActionChange}
+          canEdit={managePermitted}
           onRowsChange={setAdjustmentRows}
         />
       )
@@ -4330,6 +4341,7 @@ export default function SalesDocumentDetailPage({
           tenantId={(record as any)?.tenantId ?? (record as any)?.tenant_id ?? null}
           documentUpdatedAt={record.updatedAt ?? null}
           onActionChange={handleSectionActionChange}
+          canEdit={paymentsPermitted}
           onPaymentsChange={(payments) => setHasPayments(payments.length > 0)}
           onTotalsChange={() => {
             void refreshDocumentTotals()
@@ -4680,7 +4692,7 @@ export default function SalesDocumentDetailPage({
             { id: 'convert', label: t('sales.documents.detail.convertToOrder', 'Convert to order'), icon: ArrowRightLeft, onSelect: () => void handleConvert(), disabled: converting, loading: converting },
             { id: 'send', label: t('sales.quotes.send.action', 'Send to customer'), icon: Send, onSelect: () => setSendOpen(true), disabled: !contactEmail || sending, loading: sending },
           ] satisfies ActionItem[]) : undefined}
-          onDelete={() => void handleDelete()}
+          onDelete={managePermitted ? () => void handleDelete() : undefined}
           isDeleting={deleting}
           deleteLabel={t('sales.documents.detail.delete', 'Delete')}
         />
@@ -4701,6 +4713,7 @@ export default function SalesDocumentDetailPage({
               saving={customerSaving}
               error={customerError}
               guardMessage={customerGuardMessage}
+              permissionLocked={!managePermitted}
               onClearError={clearCustomerError}
             />
           </div>
@@ -4923,7 +4936,7 @@ export default function SalesDocumentDetailPage({
             tags={tags}
             onChange={setTags}
             isSubmitting={false}
-            canEdit
+            canEdit={managePermitted}
             loadOptions={loadTagOptions}
             createTag={createTag}
             onSave={({ next }) => handleTagsSave({ next })}

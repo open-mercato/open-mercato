@@ -36,6 +36,7 @@ jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({
 }))
 
 jest.mock('@open-mercato/ui/backend/detail', () => ({
+  AccessDeniedMessage: ({ label }: any) => <p>{label}</p>,
   ErrorMessage: () => null,
   LoadingMessage: () => null,
   TabEmptyState: () => null,
@@ -84,8 +85,9 @@ jest.mock('@open-mercato/ui/primitives/switch-field', () => ({
 }))
 
 jest.mock('@open-mercato/core/modules/customers/components/AddressEditor', () => ({
-  AddressEditor: ({ value, onChange }: any) => (
+  AddressEditor: ({ value, onChange, disabled }: any) => (
     <>
+      <input data-testid="address-editor" readOnly disabled={Boolean(disabled)} />
       <button
         type="button"
         onClick={() =>
@@ -311,6 +313,52 @@ describe('SalesDocumentAddressesSection', () => {
     const [, request] = mockApiCallOrThrow.mock.calls[0]
     const payload = JSON.parse(request.body)
     expect(payload.shippingAddressSnapshot).toBeNull()
+  })
+
+  // The section honoured its lock on every button, select and toggle, but the address lines come
+  // from a nested AddressEditor that never received it: you could type into a locked order's
+  // street field and only learn on save that the write was refused.
+  it('passes the lock to the nested address editor', async () => {
+    render(
+      <SalesDocumentAddressesSection
+        documentId="order-1"
+        kind="order"
+        customerId="customer-1"
+        shippingAddressSnapshot={{
+          addressLine1: '12 Market Street',
+          city: 'London',
+          postalCode: 'SW1A 1AA',
+          country: 'GB',
+        }}
+        locked
+        lockedKind="permission"
+        lockedReason="You do not have permission to change this document's addresses."
+      />,
+    )
+
+    const editors = await screen.findAllByTestId('address-editor')
+    expect(editors.length).toBeGreaterThan(0)
+    editors.forEach((editor) => expect(editor).toBeDisabled())
+  })
+
+  it('leaves the nested address editor writable when the section is unlocked', async () => {
+    render(
+      <SalesDocumentAddressesSection
+        documentId="order-1"
+        kind="order"
+        customerId="customer-1"
+        shippingAddressSnapshot={{
+          addressLine1: '12 Market Street',
+          city: 'London',
+          postalCode: 'SW1A 1AA',
+          country: 'GB',
+        }}
+      />,
+    )
+
+    const editors = await screen.findAllByTestId('address-editor')
+    expect(editors.length).toBeGreaterThan(0)
+    editors.forEach((editor) => expect(editor).not.toBeDisabled())
   })
 
   it('lets a cleared editable field stay cleared while unowned keys survive', async () => {

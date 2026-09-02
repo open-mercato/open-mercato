@@ -1,0 +1,521 @@
+import { expect, test, type APIRequestContext, type Page, type Route } from '@playwright/test'
+import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
+import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import {
+  createRoleFixture,
+  createUserFixture,
+  deleteRoleIfExists,
+  deleteUserIfExists,
+  setRoleAclFeatures,
+} from '@open-mercato/core/helpers/integration/authFixtures'
+import {
+  createAdjustmentFixture,
+  createOrderLineFixture,
+  createPaymentFixture,
+  createReturnFixture,
+  createSalesOrderFixture,
+  createSalesQuoteFixture,
+  createShipmentFixture,
+  deleteSalesEntityIfExists,
+  deleteSalesReturnIfExists,
+} from '@open-mercato/core/helpers/integration/salesFixtures'
+
+/**
+ * TC-SALES-042: the order detail page offers no edit it cannot complete.
+ *
+ * `sales.orders.manage` gates every order write route, but the detail page used to render its
+ * customer card, addresses tab, tag editor and Delete button regardless — so a view-only user
+ * could retype an address, press Save, and only then be refused. TC-SALES-035 already pins the
+ * API half (403 without the feature); this pins the part the page itself decides.
+ *
+ * The two roles are the point. A test that only asserts the Delete button is ABSENT passes just
+ * as happily when the page failed to render at all, so the manager pass runs first and proves
+ * the button is there to be missed.
+ */
+
+function readTokenClaims(token: string): { tenantId?: string; orgId?: string | null } {
+  const parts = token.split('.')
+  return JSON.parse(Buffer.from(parts[1], 'base64url').toString()) as {
+    tenantId?: string
+    orgId?: string | null
+  }
+}
+
+async function loginWithCredentials(page: Page, email: string, password: string): Promise<void> {
+  const form = new URLSearchParams()
+  form.set('email', email)
+  form.set('password', password)
+  const response = await page.request.post('/api/auth/login', {
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    data: form.toString(),
+  })
+  expect(response.ok(), `Failed to log in ${email}: ${response.status()}`).toBeTruthy()
+  const payload = await readJsonSafe<{ token?: string }>(response)
+  expect(typeof payload?.token === 'string' && payload!.token!.length > 0, 'Login should return a token').toBeTruthy()
+  const claims = readTokenClaims(payload!.token!)
+  const baseUrl = process.env.BASE_URL || 'http://localhost:3000'
+  const cookies = [
+    { name: 'om_demo_notice_ack', value: 'ack', url: baseUrl, sameSite: 'Lax' as const },
+    { name: 'om_cookie_notice_ack', value: 'ack', url: baseUrl, sameSite: 'Lax' as const },
+    { name: 'om_feedback_suppress', value: '1', url: baseUrl, sameSite: 'Lax' as const },
+  ]
+  if (claims.tenantId) cookies.push({ name: 'om_selected_tenant', value: claims.tenantId, url: baseUrl, sameSite: 'Lax' as const })
+  if (claims.orgId) cookies.push({ name: 'om_selected_org', value: claims.orgId, url: baseUrl, sameSite: 'Lax' as const })
+  await page.context().addCookies(cookies)
+  await page.goto('/backend', { waitUntil: 'domcontentloaded' })
+  await expect(page).toHaveURL(/\/backend(?:\/.*)?$/)
+}
+
+async function openDocument(page: Page, path: string): Promise<void> {
+  // Every affordance here starts locked and only opens once the feature check answers, so an
+  // assertion made before that resolves would pass for any user, including one whose request
+  // never completed. Await the response itself rather than a rendered proxy for it.
+  const answered = page.waitForResponse(
+    (res) => res.url().includes('/api/auth/feature-check'),
+    { timeout: 30_000 },
+  )
+  await page.goto(path, { waitUntil: 'commit' })
+  await answered
+  // The permission banner lives inside the addresses section, which is only mounted while that
+  // tab is active; `items` is the default.
+  await page.getByRole('button', { name: 'Addresses' }).click()
+  await expect(addressesSectionHeading(page)).toBeVisible({ timeout: 30_000 })
+}
+
+// `getByText` matches by substring, so a bare 'Shipping address' also catches the
+// "Billing will mirror the shipping address…" caption and trips strict mode.
+function addressesSectionHeading(page: Page) {
+  return page.getByText('Shipping address', { exact: true })
+}
+
+// The two icon buttons on the customer card, located individually and by EXACT name.
+//
+// A regex `name` cannot be used here. `DocumentCustomerCard` puts `role="button"` on the card
+// CONTAINER whenever `onSelectCustomer` is supplied, and `role="button"` takes its accessible name
+// from content — so the container's name concatenates both buttons' `sr-only` labels
+// ("Customer ACME a@b.c Edit customer snapshot Select customer"). Playwright substring-matches a
+// RegExp `name` but exact-matches a string, so `/Edit customer snapshot|Select customer/` counts the
+// container as a third match while these two do not.
+function customerCardEditButton(page: Page) {
+  return page.getByRole('button', { name: 'Edit customer snapshot', exact: true })
+}
+
+function customerCardSelectButton(page: Page) {
+  return page.getByRole('button', { name: 'Select customer', exact: true })
+}
+
+// The addresses section has no banner while the lock has no stated reason, so its own submit is
+// what says whether editing is open.
+function updateAddressesButton(page: Page) {
+  return page.getByRole('button', { name: 'Update addresses' })
+}
+
+// The tags card carries `role="button"` only while editing is permitted. `TagsSection` keys that on
+// `canEdit` on its own, so this locator pins the page passing `canEdit={managePermitted}` — not the
+// component. TagsSection's own affordances (the header Edit button, the hover pencil) are covered by
+// packages/ui/src/backend/__tests__/TagsSection.canEdit.test.tsx; neither is reachable from here.
+function tagsEditTarget(page: Page) {
+  return page.getByText('Tags', { exact: true }).locator('xpath=following::*[@role="button"][1]')
+}
+
+// The order fixture seeds exactly one line, named so it can be located. Scoping to that ROW —
+// rather than to the table — is deliberate: DocumentTotals renders a second `<table>` alongside
+// every tab, so a bare `getByRole('table')` matches two and trips strict mode.
+function lineItemRow(page: Page) {
+  return page.getByRole('row').filter({ hasText: /QA seed line/ })
+}
+
+// The row controls carry the bare accessible names 'Edit' and 'Delete', which also match the
+// header Delete button, so they are only ever located inside the row.
+function lineItemEditButton(page: Page) {
+  return lineItemRow(page).getByRole('button', { name: 'Edit', exact: true })
+}
+
+function lineItemDeleteButton(page: Page) {
+  return lineItemRow(page).getByRole('button', { name: 'Delete', exact: true })
+}
+
+// `items` is the default tab, so this asserts on what a viewer sees first. Unlike openDocument
+// it stays put rather than clicking through to Addresses.
+async function openDocumentOnItems(page: Page, path: string): Promise<void> {
+  const answered = page.waitForResponse(
+    (res) => res.url().includes('/api/auth/feature-check'),
+    { timeout: 30_000 },
+  )
+  await page.goto(path, { waitUntil: 'commit' })
+  await answered
+  await expect(lineItemRow(page)).toHaveCount(1, { timeout: 30_000 })
+}
+
+// Each section publishes its create action up to the page, which renders it in the header; the
+// section's own empty state reuses the same label, so one locator covers both.
+//
+// `mounted` is not decoration. Asserting an absence straight after a tab click passes just as
+// happily against a section that has not finished loading, so each entry names something the
+// section renders regardless of permission, and that is awaited first.
+const SECTION_CREATE_ACTIONS = [
+  { tab: 'Adjustments', label: 'Add adjustment', mounted: 'No adjustments yet.' },
+  { tab: 'Shipments', label: 'Add shipment', mounted: 'No shipments yet.' },
+  { tab: 'Payments', label: 'Add payment', mounted: 'No payments yet.' },
+  { tab: 'Returns', label: 'Create return', mounted: 'No returns yet.' },
+] as const
+
+// The kebab trigger RowActions renders for a row's Edit/Delete menu. Its glyph is aria-hidden,
+// so the sr-only label is the whole accessible name. Every populated-section assertion scopes to
+// the active tab implicitly: inactive sections are unmounted, and nothing in the always-mounted
+// side column renders a RowActions.
+function rowActionsTrigger(page: Page) {
+  return page.getByRole('button', { name: 'Open actions', exact: true })
+}
+
+test.describe('TC-SALES-042 — order detail hides edits the viewer may not make', () => {
+  let request: APIRequestContext
+  let token: string
+  let organizationId: string
+  let orderId: string | null = null
+  let managerRoleId: string | null = null
+  let viewerRoleId: string | null = null
+  let managerUserId: string | null = null
+  let viewerUserId: string | null = null
+  let quoteManagerRoleId: string | null = null
+  let quoteManagerUserId: string | null = null
+  let quoteId: string | null = null
+  // A second order carries one row in each of the four sections whose per-row edits are gated.
+  // The first order stays empty on purpose: the create-action walks above anchor on the
+  // empty-state strings, which a populated section no longer renders.
+  let rowOrderId: string | null = null
+  let rowAdjustmentId: string | null = null
+  let rowShipmentId: string | null = null
+  let rowPaymentId: string | null = null
+  let rowReturnId: string | null = null
+  let rowReturnNumber: string | null = null
+  let createdTagId: string | null = null
+
+  const stamp = Date.now()
+  const managerEmail = `tc-sales-042-manager-${stamp}@example.com`
+  const viewerEmail = `tc-sales-042-viewer-${stamp}@example.com`
+  const quoteManagerEmail = `tc-sales-042-quotes-${stamp}@example.com`
+  const password = 'TcSales042!pass'
+  const rowAdjustmentLabel = `QA rowgate adjustment ${stamp}`
+  const rowShipmentNumber = `QA-SHIP-042-${stamp}`
+  const rowPaymentReference = `QA-PAY-042-${stamp}`
+
+  test.beforeAll(async ({ playwright }) => {
+    request = await playwright.request.newContext({ baseURL: process.env.BASE_URL || 'http://localhost:3000' })
+    token = await getAuthToken(request)
+    const claims = readTokenClaims(token)
+    organizationId = String(claims.orgId ?? '')
+    expect(organizationId, 'admin token should carry an organization').not.toEqual('')
+
+    orderId = await createSalesOrderFixture(request, token)
+
+    rowOrderId = await createSalesOrderFixture(request, token)
+    const rowLineId = await createOrderLineFixture(request, token, rowOrderId, {
+      name: `QA rowgate line ${stamp}`,
+      quantity: 3,
+    })
+    rowAdjustmentId = await createAdjustmentFixture(request, token, rowOrderId, { label: rowAdjustmentLabel })
+    // The return below can only cover quantity that was shipped first (issue #3034); ship 2 of 3
+    // so the line stays partially open and the order keeps behaving like a live one.
+    rowShipmentId = await createShipmentFixture(
+      request,
+      token,
+      rowOrderId,
+      [{ orderLineId: rowLineId, quantity: 2 }],
+      { shipmentNumber: rowShipmentNumber },
+    )
+    rowPaymentId = await createPaymentFixture(request, token, rowOrderId, { paymentReference: rowPaymentReference })
+    rowReturnId = await createReturnFixture(request, token, rowOrderId, [{ orderLineId: rowLineId, quantity: 1 }])
+    // The return row renders its server-assigned number, which the create response does not carry.
+    const returnDetail = await apiRequest(request, 'GET', `/api/sales/returns/${encodeURIComponent(rowReturnId)}`, { token })
+    expect(returnDetail.ok(), `GET /api/sales/returns/${rowReturnId} failed: ${returnDetail.status()}`).toBeTruthy()
+    const returnPayload = await readJsonSafe<{ returnNumber?: string }>(returnDetail)
+    rowReturnNumber = returnPayload?.returnNumber ?? null
+    expect(rowReturnNumber, 'return detail should carry returnNumber').toBeTruthy()
+
+    managerRoleId = await createRoleFixture(request, token, { name: `tc-sales-042-manager-${stamp}` })
+    await setRoleAclFeatures(request, token, {
+      roleId: managerRoleId,
+      // Payments, shipments and returns are written through their own features, so a role holding
+      // only sales.orders.manage would see those sections locked and prove nothing about them.
+      features: [
+        'sales.orders.view',
+        'sales.orders.manage',
+        'sales.payments.manage',
+        'sales.shipments.manage',
+        'sales.returns.view',
+        'sales.returns.create',
+        'sales.returns.manage',
+      ],
+    })
+    viewerRoleId = await createRoleFixture(request, token, { name: `tc-sales-042-viewer-${stamp}` })
+    await setRoleAclFeatures(request, token, {
+      roleId: viewerRoleId,
+      // sales.returns.view earns its place: without it the Returns tab renders a load error
+      // instead of its empty state, and an absent create button would prove nothing.
+      features: ['sales.orders.view', 'sales.returns.view'],
+    })
+
+    managerUserId = await createUserFixture(request, token, {
+      email: managerEmail, password, organizationId, roles: [managerRoleId], name: 'TC-SALES-042 manager',
+    })
+    viewerUserId = await createUserFixture(request, token, {
+      email: viewerEmail, password, organizationId, roles: [viewerRoleId], name: 'TC-SALES-042 viewer',
+    })
+
+    quoteId = await createSalesQuoteFixture(request, token)
+    quoteManagerRoleId = await createRoleFixture(request, token, { name: `tc-sales-042-quotes-${stamp}` })
+    await setRoleAclFeatures(request, token, {
+      roleId: quoteManagerRoleId,
+      // Deliberately NO sales.orders.view: /backend/sales/quotes/[id] requires only the quote
+      // features, and /api/sales/tags accepts either kind's view/manage — a role this narrow is
+      // what proves it. An orders grant here would mask a tags route that regressed to orders-only.
+      features: ['sales.quotes.view', 'sales.quotes.manage'],
+    })
+    quoteManagerUserId = await createUserFixture(request, token, {
+      email: quoteManagerEmail, password, organizationId, roles: [quoteManagerRoleId], name: 'TC-SALES-042 quotes manager',
+    })
+  })
+
+  test.afterAll(async () => {
+    await deleteUserIfExists(request, token, quoteManagerUserId)
+    await deleteRoleIfExists(request, token, quoteManagerRoleId)
+    await deleteSalesEntityIfExists(request, token, '/api/sales/quotes', quoteId)
+    await deleteUserIfExists(request, token, viewerUserId)
+    await deleteUserIfExists(request, token, managerUserId)
+    await deleteRoleIfExists(request, token, viewerRoleId)
+    await deleteRoleIfExists(request, token, managerRoleId)
+    await deleteSalesEntityIfExists(request, token, '/api/sales/orders', orderId)
+    await deleteSalesReturnIfExists(request, token, rowReturnId, rowOrderId)
+    await deleteSalesEntityIfExists(request, token, '/api/sales/payments', rowPaymentId)
+    await deleteSalesEntityIfExists(request, token, '/api/sales/shipments', rowShipmentId)
+    await deleteSalesEntityIfExists(request, token, '/api/sales/order-adjustments', rowAdjustmentId)
+    await deleteSalesEntityIfExists(request, token, '/api/sales/orders', rowOrderId)
+    await deleteSalesEntityIfExists(request, token, '/api/sales/tags', createdTagId)
+    await request.dispose()
+  })
+
+  test('a user holding sales.orders.manage is offered the edits', async ({ page }) => {
+    await loginWithCredentials(page, managerEmail, password)
+    await openDocument(page, `/backend/sales/orders/${encodeURIComponent(orderId!)}`)
+
+    // Control for the assertions below: these exist and are reachable when the feature is held,
+    // so their absence in the viewer case is a decision rather than a rendering failure.
+    await expect(page.getByRole('button', { name: 'Delete' })).toBeVisible()
+    await expect(page.getByText(/You do not have permission to change/)).toHaveCount(0)
+    // Counterparts to the viewer's absences: without these the zeros below prove nothing.
+    await expect(customerCardEditButton(page)).toHaveCount(1)
+    await expect(customerCardSelectButton(page)).toHaveCount(1)
+    await expect(tagsEditTarget(page)).toHaveCount(1)
+    await expect(updateAddressesButton(page)).toBeEnabled()
+  })
+
+  test('a user without sales.orders.manage is offered none of them', async ({ page }) => {
+    await loginWithCredentials(page, viewerEmail, password)
+    await openDocument(page, `/backend/sales/orders/${encodeURIComponent(orderId!)}`)
+
+    // Absent, not disabled: FormHeader renders the button as `{onDelete ? … }`.
+    await expect(page.getByRole('button', { name: 'Delete' })).toHaveCount(0)
+
+    // The denial is worded for what is actually locked, and is not the status policy's message.
+    await expect(page.getByText("You do not have permission to change this document's addresses.")).toBeVisible()
+    await expect(page.getByText('Addresses cannot be changed for the current status.')).toHaveCount(0)
+
+    // The two affordances that used to render and merely fail on click. Both are asserted as
+    // present in the manager test, so a zero here is a decision rather than an empty page.
+    await expect(customerCardEditButton(page)).toHaveCount(0)
+    await expect(customerCardSelectButton(page)).toHaveCount(0)
+    await expect(tagsEditTarget(page)).toHaveCount(0)
+  })
+
+  test('a manager is offered the line-item edits on the default tab', async ({ page }) => {
+    // Control for the viewer test below. The order fixture seeds exactly one line, and an order
+    // may not drop its last one, so Delete renders disabled here — presence is the assertion.
+    await loginWithCredentials(page, managerEmail, password)
+    await openDocumentOnItems(page, `/backend/sales/orders/${encodeURIComponent(orderId!)}`)
+
+    await expect(page.getByRole('button', { name: 'Add item' })).toBeVisible()
+    await expect(lineItemEditButton(page)).toHaveCount(1)
+    await expect(lineItemDeleteButton(page)).toHaveCount(1)
+  })
+
+  test('a viewer is offered no line-item edits on the default tab', async ({ page }) => {
+    await loginWithCredentials(page, viewerEmail, password)
+    await openDocumentOnItems(page, `/backend/sales/orders/${encodeURIComponent(orderId!)}`)
+
+    // openDocumentOnItems already awaited the row, so the line is readable and only the edits
+    // are gone — the zeros below are a decision, not a table that failed to load.
+    await expect(page.getByRole('button', { name: 'Add item' })).toHaveCount(0)
+    await expect(lineItemEditButton(page)).toHaveCount(0)
+    await expect(lineItemDeleteButton(page)).toHaveCount(0)
+  })
+
+  test('a manager is offered every section create action', async ({ page }) => {
+    // Control for the viewer walk below: each of these renders when its own feature is held.
+    await loginWithCredentials(page, managerEmail, password)
+    await openDocumentOnItems(page, `/backend/sales/orders/${encodeURIComponent(orderId!)}`)
+
+    for (const { tab, label, mounted } of SECTION_CREATE_ACTIONS) {
+      await page.getByRole('button', { name: tab, exact: true }).click()
+      await expect(page.getByText(mounted)).toBeVisible({ timeout: 30_000 })
+      await expect(page.getByRole('button', { name: label }).first()).toBeVisible()
+    }
+  })
+
+  test('a viewer is offered no create action on any document section', async ({ page }) => {
+    // Sections publish their create action to the page header rather than rendering it, so a
+    // page-level gate would also have silenced Comments. Each section decides for itself, and
+    // this walks every tab that has one.
+    await loginWithCredentials(page, viewerEmail, password)
+    await openDocumentOnItems(page, `/backend/sales/orders/${encodeURIComponent(orderId!)}`)
+
+    for (const { tab, label, mounted } of SECTION_CREATE_ACTIONS) {
+      await page.getByRole('button', { name: tab, exact: true }).click()
+      await expect(page.getByText(mounted)).toBeVisible({ timeout: 30_000 })
+      await expect(page.getByRole('button', { name: label })).toHaveCount(0)
+    }
+
+    // Comments is gated by no manage feature, so its action must survive the same pass — proving
+    // the walk above measured a decision rather than a header that renders nothing for anyone.
+    await page.getByRole('button', { name: 'Comments', exact: true }).click()
+    await expect(page.getByRole('button', { name: /Add comment/i })).toHaveCount(1)
+  })
+
+  test('a manager is offered the row edits on populated sections', async ({ page }) => {
+    // Control for the viewer walk below: every per-row edit control exists and is reachable when
+    // the governing feature is held, so the zeros in the next test are decisions.
+    await loginWithCredentials(page, managerEmail, password)
+    await openDocumentOnItems(page, `/backend/sales/orders/${encodeURIComponent(rowOrderId!)}`)
+
+    await page.getByRole('button', { name: 'Adjustments', exact: true }).click()
+    await expect(page.getByText(rowAdjustmentLabel)).toBeVisible({ timeout: 30_000 })
+    await expect(rowActionsTrigger(page)).toHaveCount(1)
+    // The row itself is a control too: clicking it opens the edit dialog. Proven here so the
+    // viewer's inert row below measures a withheld handler, not a dialog that never worked.
+    await page.getByText(rowAdjustmentLabel).click()
+    await expect(page.getByRole('dialog')).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+
+    await page.getByRole('button', { name: 'Shipments', exact: true }).click()
+    await expect(page.getByText(rowShipmentNumber)).toBeVisible({ timeout: 30_000 })
+    await expect(page.getByRole('button', { name: 'Edit shipment', exact: true })).toHaveCount(1)
+    await expect(page.getByRole('button', { name: 'Delete shipment', exact: true })).toHaveCount(1)
+
+    await page.getByRole('button', { name: 'Payments', exact: true }).click()
+    await expect(page.getByText(rowPaymentReference)).toBeVisible({ timeout: 30_000 })
+    await expect(rowActionsTrigger(page)).toHaveCount(1)
+
+    await page.getByRole('button', { name: 'Returns', exact: true }).click()
+    await expect(page.getByText(rowReturnNumber!)).toBeVisible({ timeout: 30_000 })
+    await expect(rowActionsTrigger(page)).toHaveCount(1)
+  })
+
+  test('a viewer is offered no row edits on populated sections', async ({ page }) => {
+    // The create-action walk cannot catch these: it runs against the empty order, and the per-row
+    // Edit/Delete branches only render once a section has rows. Every anchor is the row's own
+    // content, which the viewer's read features do load — so each zero is measured against a row
+    // that is demonstrably there.
+    await loginWithCredentials(page, viewerEmail, password)
+    await openDocumentOnItems(page, `/backend/sales/orders/${encodeURIComponent(rowOrderId!)}`)
+
+    await page.getByRole('button', { name: 'Adjustments', exact: true }).click()
+    await expect(page.getByText(rowAdjustmentLabel)).toBeVisible({ timeout: 30_000 })
+    await expect(rowActionsTrigger(page)).toHaveCount(0)
+    // The click a manager gets a dialog from must do nothing at all. The dialog would render in
+    // the same frame as the click, but give it a beat so the zero cannot pass on timing alone.
+    await page.getByText(rowAdjustmentLabel).click()
+    await page.waitForTimeout(300)
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+
+    await page.getByRole('button', { name: 'Shipments', exact: true }).click()
+    await expect(page.getByText(rowShipmentNumber)).toBeVisible({ timeout: 30_000 })
+    await expect(page.getByRole('button', { name: 'Edit shipment', exact: true })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Delete shipment', exact: true })).toHaveCount(0)
+
+    await page.getByRole('button', { name: 'Payments', exact: true }).click()
+    await expect(page.getByText(rowPaymentReference)).toBeVisible({ timeout: 30_000 })
+    await expect(rowActionsTrigger(page)).toHaveCount(0)
+    await page.getByText(rowPaymentReference).click()
+    await page.waitForTimeout(300)
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+
+    await page.getByRole('button', { name: 'Returns', exact: true }).click()
+    await expect(page.getByText(rowReturnNumber!)).toBeVisible({ timeout: 30_000 })
+    await expect(rowActionsTrigger(page)).toHaveCount(0)
+  })
+
+  test('a quotes manager can create a tag on a quote', async ({ page }) => {
+    // /api/sales/tags used to demand the ORDERS features even on a quote, so the editor this page
+    // shows a quotes manager either failed to load options (no sales.orders.view) or offered a
+    // create that predictably 403'd (no sales.orders.manage). The role above holds neither orders
+    // feature, so opening the editor exercises the read check and saving a new label the write
+    // check — end to end through the route's kind-agnostic ACL.
+    await loginWithCredentials(page, quoteManagerEmail, password)
+    await openDocument(page, `/backend/sales/quotes/${encodeURIComponent(quoteId!)}`)
+
+    await tagsEditTarget(page).click()
+    const input = page.getByPlaceholder('No tags yet. Add labels to keep documents organized.')
+    await expect(input).toBeVisible({ timeout: 30_000 })
+
+    const label = `qa-tag-042-${stamp}`
+    const created = page.waitForResponse(
+      (res) => res.url().includes('/api/sales/tags') && res.request().method() === 'POST',
+      { timeout: 30_000 },
+    )
+    await input.fill(label)
+    await input.press('Enter')
+    await page.getByRole('button', { name: 'Save ⌘⏎ / Ctrl+Enter', exact: true }).click()
+
+    const response = await created
+    expect(response.status(), 'POST /api/sales/tags must accept sales.quotes.manage').toBe(201)
+    const payload = (await response.json().catch(() => null)) as { id?: string } | null
+    createdTagId = payload?.id ?? null
+    // The editor closes and the chip renders only after the assignment saved through the quote
+    // update route, so this also covers the sales.quotes.manage PUT.
+    await expect(page.getByText(label, { exact: true })).toBeVisible({ timeout: 30_000 })
+  })
+
+  test('a quotes manager is not locked out of a quote by the orders feature', async ({ page }) => {
+    // `canManage` branches on the document kind; requesting both features in one call exists
+    // precisely so the quote answer is right, and nothing else exercises that branch.
+    await loginWithCredentials(page, quoteManagerEmail, password)
+    await openDocument(page, `/backend/sales/quotes/${encodeURIComponent(quoteId!)}`)
+
+    await expect(page.getByRole('button', { name: 'Delete' })).toBeVisible()
+    await expect(page.getByText(/You do not have permission to change/)).toHaveCount(0)
+  })
+
+  // Failing closed on the affordances is right; telling a user they lack a permission nobody
+  // managed to check is not. The two transports fail differently and only one of them used to
+  // reach the unresolved state: `apiCall` rejects on an aborted fetch, but RESOLVES a non-2xx,
+  // so an expired session or a 500 arrived on the success path with an empty `granted` list.
+  for (const { label, handle } of [
+    { label: 'never answers', handle: (route: Route) => route.abort() },
+    {
+      label: 'answers with an HTTP error',
+      handle: (route: Route) => route.fulfill({ status: 500, contentType: 'application/json', body: '{}' }),
+    },
+  ]) {
+    test(`a permission check that ${label} locks the affordances without asserting a reason`, async ({ page }) => {
+      await loginWithCredentials(page, managerEmail, password)
+      await page.route('**/api/auth/feature-check', handle)
+      await page.goto(`/backend/sales/orders/${encodeURIComponent(orderId!)}`, { waitUntil: 'commit' })
+      await page.getByRole('button', { name: 'Addresses' }).click()
+      // Prove the page rendered before asserting on absences.
+      await expect(addressesSectionHeading(page)).toBeVisible({ timeout: 30_000 })
+
+      // Every surface, not just Delete. `managePermitted` and `!manageDenied` differ exactly here,
+      // and a page that gates some affordances on one and some on the other locks half of itself.
+      await expect(page.getByRole('button', { name: 'Delete' })).toHaveCount(0)
+      await expect(customerCardEditButton(page)).toHaveCount(0)
+      await expect(customerCardSelectButton(page)).toHaveCount(0)
+      await expect(tagsEditTarget(page)).toHaveCount(0)
+      await expect(updateAddressesButton(page)).toBeDisabled()
+
+      // Locked, and silent about why: nobody established that this user lacks anything.
+      await expect(page.getByText(/You do not have permission to change/)).toHaveCount(0)
+      await expect(page.getByText('Addresses cannot be changed for the current status.')).toHaveCount(0)
+    })
+  }
+})
