@@ -246,7 +246,7 @@
     "mammoth": "^1.9.0",
     "pdfjs-dist": "^6.2.108",
     "resend": "^6.18.1",
-    "sanitize-html": "2.17.5",
+    "sanitize-html": "2.17.7",
     "semver": "^7.8.5",
     "sharp": "^0.35.3",
     "svix": "^1.99.1",
