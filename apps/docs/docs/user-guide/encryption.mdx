@@ -83,7 +83,7 @@ mistake elsewhere therefore degrades to ciphertext instead of disclosing another
 The comparison needs a tenant on both sides. An ORM read through `find*WithDecryption` that passes
 no scope has no caller tenant to bind against and keeps the pre-guard behaviour — pass `{ tenantId }`
 to get the binding. See
-[Decryption is bound to the caller's tenant](/docs/architecture/data-encryption#decryption-is-bound-to-the-callers-tenant)
+[Decryption is bound to the caller's tenant](../architecture/data-encryption#decryption-is-bound-to-the-callers-tenant)
 for the full set of limits.
 
 A query that does not need plaintext at all can decline it outright with
