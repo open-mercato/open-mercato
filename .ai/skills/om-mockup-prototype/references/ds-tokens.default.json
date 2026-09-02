@@ -1,6 +1,5 @@
 {
-  "source": "apps/mercato/src/app/globals.css",
-  "generator": "scripts/ds-tokens-export.mjs",
+  "source": "bundled example design system — see references/ds-tokens.md for format and provenance",
   "tokens": {
     "accent": {
       "kind": "color",
