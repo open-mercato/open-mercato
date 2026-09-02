@@ -145,6 +145,7 @@ Adapter contract (`data_sync/lib/adapter.ts`) requires:
 - optional `validateConnection(...)`
 - optional `runParameters` — see below
 - optional `persistsSharedCursor(entityType)`
+- optional `supportsStartControl(control, entityType)` — see below
 
 ## Honouring cancellation inside a batch
 
@@ -221,6 +222,34 @@ For a multi-locale deployment, pair each literal with an i18n key — `labelKey`
 Retrying a run re-normalizes the stored values against the adapter's *current* declaration, so parameters you have since removed or re-scoped are dropped and a value that no longer satisfies its declaration fails the retry with a 422 rather than reaching the adapter.
 
 A recurring schedule cannot yet pin an operator-chosen value, but it does apply your declared defaults: the scheduled worker normalizes an empty input against the current declaration, so a scheduled run reaches the adapter with the same set an untouched dashboard form would rather than an empty object. Write the adapter against its defaults, not against `undefined`. A declared default that violates its own declaration skips the scheduled run with a logged error instead of starting it half-applied.
+
+## Start controls the dashboard renders
+
+Alongside your `runParameters`, the "Run once now" card renders two controls the framework owns: **Run as full sync** and **Batch size**. Whether either one means anything depends on what your adapter does with the value for that entity type, which is something core cannot see. Declare it:
+
+```ts
+const adapter: DataSyncAdapter = {
+  providerKey: 'my_provider',
+  direction: 'import',
+  supportedEntities: ['orders.feed', 'orders.backfill'],
+  supportsStartControl: (control, entityType) =>
+    !(control === 'fullSync' && entityType === 'orders.backfill'),
+  // ...
+}
+```
+
+Only an explicit `false` removes a control, so omitting the hook keeps today's form exactly. Return `false` where the operator's choice reaches you and changes nothing observable:
+
+- **`fullSync`** — for an entity type whose cursor carries identity. If you check whether an arriving cursor is your own and mint a fresh position when it is not, then `fullSync: true` (a `null` cursor) and `fullSync: false` (an inherited one) both start you at the top. The switch's help text promises to *"ignore the saved cursor"*, and an operator who ticks it cannot tell "it had no effect" from "it worked".
+- **`batchSize`** — for an entity type whose paging the source fixes, so the value arrives on `StreamImportInput` / `StreamExportInput` and is ignored.
+
+The predicate is per entity type for the same reason `persistsSharedCursor` is: one adapter commonly serves both an incremental feed and a whole-table backfill, and only one of them has a beginning to restart from.
+
+`GET /api/data_sync/options` evaluates the predicate across your `supportedEntities` and ships the result as a sparse `startControls` map — entity types with no restriction are omitted, so an adapter that declares nothing sends `{}`.
+
+**This changes what the dashboard offers, not what the API accepts.** `POST /api/data_sync/run` still honours both fields whatever you declare, so a script or an API client posting `fullSync: true` gets a `null` start cursor as before.
+
+Do not infer the answer from `persistsSharedCursor`. Where a cursor is stored and whether restarting from scratch is meaningful are independent facts — an entity type kept out of the shared row can still have a genuine beginning — and both are yours to state.
 
 ## Shared cursor vs run-scoped cursor
 
