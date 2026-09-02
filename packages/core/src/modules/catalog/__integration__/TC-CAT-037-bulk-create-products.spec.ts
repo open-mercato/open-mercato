@@ -2,9 +2,7 @@ import path from 'node:path'
 import { expect, test, type APIRequestContext } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { deleteCatalogProductIfExists } from '@open-mercato/core/helpers/integration/catalogFixtures'
-import { bootstrapFromAppRoot } from '@open-mercato/shared/lib/bootstrap/dynamicLoader'
-import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { createQueue } from '@open-mercato/queue'
+import { drainIntegrationQueue } from '@open-mercato/core/helpers/integration/queue'
 
 const POLL_INTERVAL_MS = 200
 const POLL_TIMEOUT_MS = 30_000
@@ -21,40 +19,12 @@ if (!TEST_APP_ROOT) {
   process.env.QUEUE_BASE_DIR = APP_QUEUE_BASE_DIR
 }
 
-/** See TC-CAT-036's identical helper for the full rationale. */
-async function drainQueue(queueName: string): Promise<number> {
-  const data = await bootstrapFromAppRoot(APP_ROOT)
-  const worker = data.modules.flatMap((module) => module.workers ?? []).find((entry) => entry.queue === queueName)
-  if (!worker) return 0
-
-  const container = await createRequestContainer()
-  const queue = createQueue(queueName, 'local', { baseDir: APP_QUEUE_BASE_DIR, concurrency: 1 })
-  const resolve = <T = unknown>(name: string): T => container.resolve(name) as T
-
-  try {
-    let processedJobs = 0
-    while (true) {
-      const result = await queue.process(
-        async (job, ctx) => {
-          await Promise.resolve(worker.handler(job, { ...ctx, resolve }))
-        },
-        { limit: 100 },
-      )
-      const handled = result.processed + result.failed
-      processedJobs += handled
-      if (handled === 0) return processedJobs
-    }
-  } finally {
-    await queue.close()
-  }
-}
-
 async function waitForProgressJob(
   request: APIRequestContext,
   token: string,
   jobId: string,
 ): Promise<Record<string, unknown>> {
-  await drainQueue(QUEUE_NAME)
+  await drainIntegrationQueue(QUEUE_NAME, { appRoot: APP_ROOT })
   const deadline = Date.now() + POLL_TIMEOUT_MS
   let last: Record<string, unknown> | null = null
   while (Date.now() < deadline) {

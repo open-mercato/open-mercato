@@ -2,9 +2,7 @@ import path from 'node:path'
 import { expect, test, type APIRequestContext } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { deleteCatalogCategoryIfExists } from '@open-mercato/core/helpers/integration/catalogFixtures'
-import { bootstrapFromAppRoot } from '@open-mercato/shared/lib/bootstrap/dynamicLoader'
-import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { createQueue } from '@open-mercato/queue'
+import { drainIntegrationQueue } from '@open-mercato/core/helpers/integration/queue'
 
 const POLL_INTERVAL_MS = 200
 const POLL_TIMEOUT_MS = 30_000
@@ -21,46 +19,12 @@ if (!TEST_APP_ROOT) {
   process.env.QUEUE_BASE_DIR = APP_QUEUE_BASE_DIR
 }
 
-/**
- * Drains the local file-based queue in-process by running the registered worker handler
- * against every available job. CI's integration test harness runs no separate worker
- * process — the Next.js server only enqueues — so without this the bulk-create job stays
- * `pending` forever and the progress-poll loop below times out. Copied (and adapted) from
- * TC-CRM-068's `drainQueue` helper.
- */
-async function drainQueue(queueName: string): Promise<number> {
-  const data = await bootstrapFromAppRoot(APP_ROOT)
-  const worker = data.modules.flatMap((module) => module.workers ?? []).find((entry) => entry.queue === queueName)
-  if (!worker) return 0
-
-  const container = await createRequestContainer()
-  const queue = createQueue(queueName, 'local', { baseDir: APP_QUEUE_BASE_DIR, concurrency: 1 })
-  const resolve = <T = unknown>(name: string): T => container.resolve(name) as T
-
-  try {
-    let processedJobs = 0
-    while (true) {
-      const result = await queue.process(
-        async (job, ctx) => {
-          await Promise.resolve(worker.handler(job, { ...ctx, resolve }))
-        },
-        { limit: 100 },
-      )
-      const handled = result.processed + result.failed
-      processedJobs += handled
-      if (handled === 0) return processedJobs
-    }
-  } finally {
-    await queue.close()
-  }
-}
-
 async function waitForProgressJob(
   request: APIRequestContext,
   token: string,
   jobId: string,
 ): Promise<Record<string, unknown>> {
-  await drainQueue(QUEUE_NAME)
+  await drainIntegrationQueue(QUEUE_NAME, { appRoot: APP_ROOT })
   const deadline = Date.now() + POLL_TIMEOUT_MS
   let last: Record<string, unknown> | null = null
   while (Date.now() < deadline) {
@@ -150,36 +114,56 @@ test.describe('TC-CAT-036: Bulk create categories', () => {
     }
   })
 
-  test('honors a cancellation requested before the worker picks the batch up', async ({ request }) => {
+  test('honors a cancellation and stops the batch before its last row', async ({ request }) => {
     test.slow()
 
     const token = await getAuthToken(request)
     const stamp = Date.now()
-    const name = `TC-CAT-036 Cancelled ${stamp}`
+    const prefix = `TC-CAT-036 Cancelled ${stamp}`
+    // The batch has to be long enough that the worker is still working it when the cancel
+    // request lands. `ephemeral-integration` runs the app with AUTO_SPAWN_WORKERS defaulting
+    // to true, so a queue worker picks the job up on its own within milliseconds of the
+    // enqueue — a one-row batch finished before the DELETE arrived and the job reported
+    // `completed`, which is correct behaviour for a job that is already over but made this
+    // test race the worker (PR #5610, CI run 33684841152).
+    const items = Array.from({ length: 80 }, (_, index) => ({ name: `${prefix} ${index}` }))
 
-    const enqueueResponse = await apiRequest(request, 'POST', '/api/catalog/categories/bulk-create', {
-      token,
-      data: { items: [{ name }] },
-    })
-    expect(enqueueResponse.status()).toBe(202)
-    const { progressJobId } = (await enqueueResponse.json()) as { progressJobId: string }
+    const createdIds: string[] = []
+    try {
+      const enqueueResponse = await apiRequest(request, 'POST', '/api/catalog/categories/bulk-create', {
+        token,
+        data: { items },
+      })
+      expect(enqueueResponse.status()).toBe(202)
+      const { progressJobId } = (await enqueueResponse.json()) as { progressJobId: string }
 
-    const cancelResponse = await apiRequest(request, 'DELETE', `/api/progress/jobs/${progressJobId}`, { token })
-    expect(cancelResponse.status(), 'A cancellable bulk-create job must accept a cancel request').toBe(200)
+      const cancelResponse = await apiRequest(request, 'DELETE', `/api/progress/jobs/${progressJobId}`, { token })
+      expect(cancelResponse.status(), 'A cancellable bulk-create job must accept a cancel request').toBe(200)
 
-    const finalJob = await waitForProgressJob(request, token, progressJobId)
-    expect(finalJob.status, `progress job final status: ${JSON.stringify(finalJob)}`).toBe('cancelled')
+      const finalJob = await waitForProgressJob(request, token, progressJobId)
+      expect(finalJob.status, `progress job final status: ${JSON.stringify(finalJob)}`).toBe('cancelled')
 
-    // The worker observed the cancel on its first checkpoint-boundary poll, before executing
-    // any row, so nothing was created and the job is not silently left `running`.
-    const listResponse = await apiRequest(
-      request,
-      'GET',
-      `/api/catalog/categories?search=${encodeURIComponent(name)}&status=all`,
-      { token },
-    )
-    const listBody = (await listResponse.json()) as { items?: Array<Record<string, unknown>> }
-    expect(listBody.items ?? [], 'A cancelled batch must not create any category').toHaveLength(0)
+      // Cancellation is cooperative: the worker stops at its next checkpoint-boundary poll, so
+      // strictly fewer than `items.length` categories exist. Counting through the list endpoint
+      // rather than the job's partial summary keeps the assertion true for both interleavings —
+      // a cancel that lands before the worker starts writes no summary at all.
+      const listResponse = await apiRequest(
+        request,
+        'GET',
+        `/api/catalog/categories?search=${encodeURIComponent(prefix)}&status=all&pageSize=100`,
+        { token },
+      )
+      const listBody = (await listResponse.json()) as { items?: Array<Record<string, unknown>>; total?: number }
+      createdIds.push(...(listBody.items ?? []).map((row) => row.id as string))
+      expect(
+        listBody.total ?? createdIds.length,
+        'A cancelled batch must stop before creating every row',
+      ).toBeLessThan(items.length)
+    } finally {
+      for (const id of createdIds) {
+        await deleteCatalogCategoryIfExists(request, token, id)
+      }
+    }
   })
 
   test('rejects invalid payloads with 400 and reports the failing row path', async ({ request }) => {
