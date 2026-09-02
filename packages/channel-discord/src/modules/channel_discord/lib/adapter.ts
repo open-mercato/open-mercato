@@ -22,6 +22,7 @@ import type {
   VerifyWebhookInput,
 } from '@open-mercato/core/modules/communication_channels/lib/adapter'
 import { discordCapabilities } from './capabilities'
+import { DISCORD_CHANNEL_TYPE, DISCORD_PROVIDER_KEY } from './channel-identity'
 import { parseDiscordCredentialsOrThrow, discordCredentialsSchema } from './credentials'
 import {
   DiscordApiError,
@@ -58,8 +59,8 @@ import {
  * which can answer synchronously (the generic route only 202-acks).
  */
 class DiscordChannelAdapter implements ChannelAdapter {
-  readonly providerKey = 'discord'
-  readonly channelType = 'discord'
+  readonly providerKey = DISCORD_PROVIDER_KEY
+  readonly channelType = DISCORD_CHANNEL_TYPE
   readonly capabilities = discordCapabilities
 
   async sendMessage(input: SendMessageInput): Promise<SendMessageResult> {
