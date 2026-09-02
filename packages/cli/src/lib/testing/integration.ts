@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process'
 import { createServer } from 'node:net'
 import { existsSync, readFileSync } from 'node:fs'
 import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
-import { createHash } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import path from 'node:path'
 import { createInterface, type Interface } from 'node:readline/promises'
 import { stdin as input, stdout as output } from 'node:process'
@@ -23,6 +23,11 @@ type EphemeralRuntimeOptions = {
   requiredExistingSource?: string
   environmentOverrides?: NodeJS.ProcessEnv
 }
+
+const TEST_EMAIL_CAPTURE_ACCESS_TOKEN =
+  process.env.OM_TEST_EMAIL_CAPTURE_ACCESS_TOKEN ?? randomBytes(32).toString('hex')
+const TEST_EMAIL_CAPTURE_CORRELATION_TOKEN =
+  process.env.OM_TEST_EMAIL_CAPTURE_CORRELATION_TOKEN ?? randomBytes(32).toString('hex')
 
 export type EphemeralEnvironmentHandle = {
   baseUrl: string
@@ -274,6 +279,11 @@ const EPHEMERAL_BUILD_CACHE_STATE_PATH = path.join(projectRootDirectory, '.ai', 
 const EPHEMERAL_CACHE_DB_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'ephemeral-cache.sqlite')
 const EPHEMERAL_EMAIL_CAPTURE_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'email-capture.jsonl')
 const EPHEMERAL_QUEUE_BASE_DIR = path.join(appDirectory, '.mercato', 'queue')
+// The Communications Hub keeps its own tenant-scoped capture, in runtime state rather than in the
+// repo: its record shape differs from the unscoped `shared/lib/email/send` capture above, and the
+// repo ships a committed fixture copy of that one. One file for both would make each mechanism
+// read the other's records.
+const EPHEMERAL_SYSTEM_EMAIL_CAPTURE_PATH = path.join(appDirectory, '.mercato', 'test-email-capture.jsonl')
 const PRIVATE_ATTACHMENTS_PARTITION_ENV_KEY = 'ATTACHMENTS_PARTITION_PRIVATE_ATTACHMENTS_ROOT'
 const EPHEMERAL_PRIVATE_ATTACHMENTS_ROOT = path.join(
   resolveDefaultPrivateAttachmentsAppDirectory(),
@@ -2170,8 +2180,18 @@ function buildReusableEnvironment(
     OM_ENABLE_ENTERPRISE_MODULES_SSO: process.env.OM_ENABLE_ENTERPRISE_MODULES_SSO ?? enterpriseModulesFlag,
     OM_ENABLE_ENTERPRISE_MODULES_SECURITY: process.env.OM_ENABLE_ENTERPRISE_MODULES_SECURITY ?? enterpriseModulesFlag,
     OM_TEST_MODE: '1',
-    OM_TEST_EMAIL_CAPTURE_PATH: EPHEMERAL_EMAIL_CAPTURE_PATH,
+    OM_TEST_EMAIL_CAPTURE_PATH: process.env.OM_TEST_EMAIL_CAPTURE_PATH ?? EPHEMERAL_EMAIL_CAPTURE_PATH,
     OM_TEST_AUTH_RATE_LIMIT_MODE: 'opt-in',
+    OM_DISABLE_EMAIL_DELIVERY: '0',
+    OM_ENABLE_TEST_CHANNEL_SEEDING: 'true',
+    OM_ENABLE_TEST_EMAIL_CAPTURE_DELIVERY: 'true',
+    OM_TEST_SYSTEM_EMAIL_CAPTURE_PATH: EPHEMERAL_SYSTEM_EMAIL_CAPTURE_PATH,
+    OM_TEST_EMAIL_CAPTURE_ACCESS_TOKEN: TEST_EMAIL_CAPTURE_ACCESS_TOKEN,
+    OM_TEST_EMAIL_CAPTURE_CORRELATION_TOKEN: TEST_EMAIL_CAPTURE_CORRELATION_TOKEN,
+    SYSTEM_EMAIL_PROVIDER: '__test_seed__',
+    EMAIL_FROM: process.env.EMAIL_FROM ?? 'system@test-seed.local',
+    NOTIFICATIONS_EMAIL_FROM: process.env.NOTIFICATIONS_EMAIL_FROM ?? 'notifications@test-seed.local',
+    ADMIN_EMAIL: process.env.ADMIN_EMAIL ?? 'admin@test-seed.local',
     // Register the test-only `push_stub` channel adapter in the reused Playwright
     // process (and any drain/worker child it spawns) so push integration specs can
     // drive real delivery. Production-safe + inert unless a delivery row carries
@@ -3549,8 +3569,17 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       OM_ENABLE_ENTERPRISE_MODULES_SSO: process.env.OM_ENABLE_ENTERPRISE_MODULES_SSO ?? enterpriseModulesFlag,
       OM_ENABLE_ENTERPRISE_MODULES_SECURITY: process.env.OM_ENABLE_ENTERPRISE_MODULES_SECURITY ?? enterpriseModulesFlag,
       OM_TEST_MODE: '1',
-      OM_TEST_EMAIL_CAPTURE_PATH: EPHEMERAL_EMAIL_CAPTURE_PATH,
+      OM_TEST_EMAIL_CAPTURE_PATH: process.env.OM_TEST_EMAIL_CAPTURE_PATH ?? EPHEMERAL_EMAIL_CAPTURE_PATH,
       OM_TEST_AUTH_RATE_LIMIT_MODE: 'opt-in',
+      OM_ENABLE_TEST_CHANNEL_SEEDING: 'true',
+      OM_ENABLE_TEST_EMAIL_CAPTURE_DELIVERY: 'true',
+      OM_TEST_SYSTEM_EMAIL_CAPTURE_PATH: EPHEMERAL_SYSTEM_EMAIL_CAPTURE_PATH,
+      OM_TEST_EMAIL_CAPTURE_ACCESS_TOKEN: TEST_EMAIL_CAPTURE_ACCESS_TOKEN,
+      OM_TEST_EMAIL_CAPTURE_CORRELATION_TOKEN: TEST_EMAIL_CAPTURE_CORRELATION_TOKEN,
+      SYSTEM_EMAIL_PROVIDER: '__test_seed__',
+      EMAIL_FROM: process.env.EMAIL_FROM ?? 'system@test-seed.local',
+      NOTIFICATIONS_EMAIL_FROM: process.env.NOTIFICATIONS_EMAIL_FROM ?? 'notifications@test-seed.local',
+      ADMIN_EMAIL: process.env.ADMIN_EMAIL ?? 'admin@test-seed.local',
       // Register the network-free `push_stub` channel adapter so push integration
       // specs (TC-PUSH-003) can drive the strategy → delivery-row → send-push worker
       // → sendMessage chain end-to-end without a real FCM/APNs/Expo provider. The
@@ -3569,7 +3598,11 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       // Expo's receipt reaper ignores rows younger than 15 minutes by default (it polls a real
       // provider's async receipts). No integration test can wait that out — poll immediately.
       OM_PUSH_RECEIPT_MIN_AGE_MINUTES: process.env.OM_PUSH_RECEIPT_MIN_AGE_MINUTES ?? '0',
-      OM_DISABLE_EMAIL_DELIVERY: '1',
+      // Delivery stays ON here (it was '1' before the pluggable-provider work) because
+      // `SYSTEM_EMAIL_PROVIDER='__test_seed__'` above routes every send into the local
+      // capture file rather than a network provider. The email integration specs assert
+      // on those captured messages, so disabling delivery would black-hole them.
+      OM_DISABLE_EMAIL_DELIVERY: '0',
       OM_WEBHOOKS_ALLOW_PRIVATE_URLS: process.env.OM_WEBHOOKS_ALLOW_PRIVATE_URLS ?? '1',
       // Read at build time as well as at runtime, so this block has to carry it:
       // the app build and `yarn start` both run with this environment. See the

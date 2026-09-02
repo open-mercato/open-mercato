@@ -208,6 +208,7 @@ export async function POST(req: Request) {
   try {
     await sendCustomerInvitationEmail({
       container,
+      tenantId: auth.tenantId!,
       organizationId: auth.orgId!,
       email: invitation.email,
       rawToken,

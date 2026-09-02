@@ -94,6 +94,8 @@ export default async function mfaResetNotificationSubscriber(
     await sendEmail({
       to: user.email,
       subject: 'Your MFA methods were reset',
+      tenantId: user.tenantId,
+      organizationId: user.organizationId,
       react: MfaResetEmail({
         reason,
         resetAtIso,

@@ -794,6 +794,13 @@ jobs:
       OM_ENABLE_ENTERPRISE_MODULES: 'true'
       OM_ENABLE_ENTERPRISE_MODULES_SSO: 'true'
       OM_ENABLE_ENTERPRISE_MODULES_SECURITY: 'true'
+      OM_DISABLE_EMAIL_DELIVERY: '0'
+      OM_ENABLE_TEST_CHANNEL_SEEDING: 'true'
+      SYSTEM_EMAIL_PROVIDER: '__test_seed__'
+      EMAIL_FROM: 'system@test-seed.local'
+      NOTIFICATIONS_EMAIL_FROM: 'notifications@test-seed.local'
+      ADMIN_EMAIL: 'admin@test-seed.local'
+      SELF_SERVICE_ONBOARDING_ENABLED: 'true'
       # TC-DOCUMENTS-017 owns a disposable loopback collaboration sidecar on
       # the same ephemeral database. The separate documents-multi-instance job
       # proves the Redis-backed two-sidecar path.

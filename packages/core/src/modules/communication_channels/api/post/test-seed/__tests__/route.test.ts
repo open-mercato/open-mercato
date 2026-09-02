@@ -6,6 +6,10 @@ const mockFindOneWithDecryption = jest.fn()
 const mockEmitEvent = jest.fn()
 const mockExecute = jest.fn()
 const mockLoadAcl = jest.fn()
+const mockClearCapturedMessages = jest.fn()
+const mockListCapturedMessages = jest.fn()
+const mockIsCaptureAccessAuthorized = jest.fn()
+const mockCreateTestSeedPlatformMessage = jest.fn()
 
 const mockEm = {
   fork: jest.fn(),
@@ -41,8 +45,12 @@ jest.mock('../../../../events', () => ({
 
 jest.mock('../../../../lib/test-seed', () => ({
   TEST_SEED_PROVIDER_KEY: '__test_seed__',
+  clearTestSeedCapturedMessages: (...args: unknown[]) => mockClearCapturedMessages(...args),
+  createTestSeedPlatformMessage: (...args: unknown[]) => mockCreateTestSeedPlatformMessage(...args),
   ensureTestSeedAdapterRegistered: jest.fn(),
+  isTestEmailCaptureAccessAuthorized: (...args: unknown[]) => mockIsCaptureAccessAuthorized(...args),
   isTestChannelSeedingEnabled: () => true,
+  listTestSeedCapturedMessages: (...args: unknown[]) => mockListCapturedMessages(...args),
 }))
 
 import { POST } from '../route'
@@ -64,6 +72,7 @@ function expectNothingSeeded(): void {
   expect(mockEm.create).not.toHaveBeenCalled()
   expect(mockEm.persist).not.toHaveBeenCalled()
   expect(mockExecute).not.toHaveBeenCalled()
+  expect(mockCreateTestSeedPlatformMessage).not.toHaveBeenCalled()
   expect(mockEmitEvent).not.toHaveBeenCalled()
 }
 
@@ -78,6 +87,7 @@ describe('POST /api/communication_channels/test-seed — emit-inbound channel au
     mockEm.flush.mockResolvedValue(undefined)
     mockEm.getConnection.mockReturnValue({ execute: mockExecute })
     mockExecute.mockResolvedValue([{ id: 'seeded-message-id' }])
+    mockCreateTestSeedPlatformMessage.mockResolvedValue('seeded-message-id')
     mockEmitEvent.mockResolvedValue(undefined)
     mockCreateRequestContainer.mockResolvedValue(mockContainer)
     mockLoadAcl.mockResolvedValue({
@@ -184,6 +194,62 @@ describe('POST /api/communication_channels/test-seed — emit-inbound channel au
       'communication_channels.message.received',
       expect.objectContaining({ channelId: CHANNEL_ID, tenantId: CALLER_TENANT }),
       { persistent: true },
+    )
+  })
+})
+
+describe('POST /api/communication_channels/test-seed — system capture authorization', () => {
+  const correlationToken = 'c'.repeat(64)
+
+  function captureRequest(accessToken?: string): Request {
+    return new Request('http://localhost/api/communication_channels/test-seed', {
+      method: 'POST',
+      headers: accessToken
+        ? { 'x-om-test-email-capture-access-token': accessToken }
+        : undefined,
+      body: JSON.stringify({
+        action: 'list-capture',
+        systemRecipient: 'target@example.test',
+        captureCorrelationToken: correlationToken,
+      }),
+    })
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockCreateRequestContainer.mockResolvedValue(mockContainer)
+    mockLoadAcl.mockResolvedValue({
+      isSuperAdmin: false,
+      features: ['communication_channels.connect_user_channel'],
+      organizations: null,
+    })
+    mockGetAuthFromRequest.mockResolvedValue({
+      sub: CALLER_USER,
+      tenantId: CALLER_TENANT,
+      orgId: CALLER_ORG,
+    })
+    mockListCapturedMessages.mockResolvedValue([])
+  })
+
+  it('rejects system capture reads without the harness-only access secret', async () => {
+    mockIsCaptureAccessAuthorized.mockReturnValue(false)
+
+    const res = await POST(captureRequest())
+
+    expect(res.status).toBe(403)
+    expect(mockListCapturedMessages).not.toHaveBeenCalled()
+  })
+
+  it('passes the opaque correlation token only after the access secret is authorized', async () => {
+    mockIsCaptureAccessAuthorized.mockReturnValue(true)
+
+    const res = await POST(captureRequest('opaque-harness-secret'))
+
+    expect(res.status).toBe(200)
+    expect(mockIsCaptureAccessAuthorized).toHaveBeenCalledWith('opaque-harness-secret')
+    expect(mockListCapturedMessages).toHaveBeenCalledWith(
+      { tenantId: CALLER_TENANT, organizationId: CALLER_ORG },
+      { systemRecipient: 'target@example.test', captureCorrelationToken: correlationToken },
     )
   })
 })
