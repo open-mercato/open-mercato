@@ -16,8 +16,7 @@
  * That stubbing is a hard constraint of this tier, not a shortcut: letting esbuild compile a real
  * `src/modules.ts` here emits genuine ESM, which Jest's CJS runtime then refuses to `import()`
  * (`SyntaxError: Unexpected token 'export'`). So the esbuild compile path and the cross-module
- * singleton it depends on are covered at the integration tier instead — see the follow-up issue
- * linked from #5665.
+ * singleton it depends on are covered at the integration tier instead (#5855).
  *
  * `bootstrapFromAppRoot` reaches the factory through `import('./factory.js')`, and the `ai` override
  * applier through `import('@open-mercato/ai-assistant/...')` — specifiers with no on-disk counterpart
