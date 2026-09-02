@@ -82,3 +82,15 @@ PR: #5835
 ### Phase 3: Land and close the original
 
 - [x] 3.1 Close #5812 pointing at the port PR — closed with a comment naming #5835
+
+### Phase 4: Drive CI green (resume)
+
+The port itself is complete; the only red required check left is `test`, and the failure is the
+pre-existing time-bomb tracked as #5825 rather than anything this PR changed. It is fixed here
+because it reds the required `test` check on every open PR for as long as the rendered week
+contains a day numbered 2, so no PR — this one included — can reach green until it is repaired.
+
+- [ ] 4.1 Scope the timesheet totals assertion to the totals footer so a day-of-month header can never satisfy it (#5825)
+- [ ] 4.2 Merge current develop into the branch
+- [ ] 4.3 Re-run the full validation gate
+- [ ] 4.4 Push and drive every required check to green
