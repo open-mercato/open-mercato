@@ -46,6 +46,13 @@ services:
       NODE_OPTIONS: ${NODE_OPTIONS:---max-old-space-size=3072}
       DEPLOY_ENV: ${DEPLOY_ENV:-local}
       PORT: ${CONTAINER_PORT:-3000}
+      TELEMETRY_BACKEND: ${TELEMETRY_BACKEND:-}
+      TELEMETRY_SAMPLING_RATIO: ${TELEMETRY_SAMPLING_RATIO:-}
+      TELEMETRY_TRUST_INBOUND_TRACE: ${TELEMETRY_TRUST_INBOUND_TRACE:-false}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-open-mercato}
+      OTEL_RESOURCE_ATTRIBUTES: ${OTEL_RESOURCE_ATTRIBUTES:-}
       DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-open-mercato}
       DB_POOL_MAX: ${DB_POOL_MAX:-20}
       DB_POOL_MIN: ${DB_POOL_MIN:-2}
@@ -223,6 +230,16 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - mercato-network-fullapp
+
+  otel-collector:
+    profiles: [telemetry]
+    image: otel/opentelemetry-collector:0.159.0
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./docker/otel-collector-config.yaml:/etc/otelcol/config.yaml:ro
     networks:
       - mercato-network-fullapp
 

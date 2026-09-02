@@ -1,0 +1,153 @@
+---
+title: OTLP Telemetry Deployment
+description: Enable Open Mercato traces, metrics, and logs through a managed OTLP endpoint or the opt-in Docker collector profile.
+---
+
+# OTLP Telemetry Deployment
+
+Open Mercato can export server-side traces, metrics, and structured logs through OpenTelemetry Protocol over HTTP (OTLP/HTTP). Telemetry is off by default: when `TELEMETRY_BACKEND` is unset, blank, `noop`, or unknown, the application does not load the telemetry runtime or OpenTelemetry SDK.
+
+Use either of these deployment modes:
+
+- **Managed or existing collector** — point the app directly at an OTLP/HTTP endpoint. No bundled collector service is needed.
+- **Local diagnostic collector** — enable the Compose `telemetry` profile. The collector receives all three signals and writes them to its debug exporter so you can verify the pipeline.
+
+The profile is a diagnostic starting point, not a production observability backend. It has no storage, dashboards, retention, or alerting.
+
+## Quick start with the Docker collector
+
+Add these values to the `.env` file beside `docker-compose.fullapp.yml`:
+
+```dotenv
+TELEMETRY_BACKEND=otlp
+OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+OTEL_SERVICE_NAME=open-mercato
+OTEL_RESOURCE_ATTRIBUTES=deployment.environment=local
+```
+
+Start the full app and the opt-in collector:
+
+```bash
+docker compose -f docker-compose.fullapp.yml \
+  --profile telemetry up --build
+```
+
+The same command works from a generated create-app project. With the bundled Traefik overlay, include both files:
+
+```bash
+docker compose \
+  -f docker-compose.fullapp.yml \
+  -f docker-compose.fullapp.traefik.yml \
+  --profile telemetry up --build
+```
+
+Make an application request, exercise a database-backed path, and inspect the collector:
+
+```bash
+docker compose -f docker-compose.fullapp.yml \
+  --profile telemetry logs -f otel-collector
+```
+
+The debug output should eventually contain trace, metric, and log records. Export is batched, so records may not appear on the same line or immediately after the request.
+
+The collector:
+
+- runs only when the `telemetry` profile is selected;
+- listens on port `4318` inside `mercato-network-fullapp`;
+- publishes no port to the host;
+- uses a version-pinned official collector image;
+- loads `docker/otel-collector-config.yaml` read-only;
+- has no hard startup dependency from the app.
+
+[Compose profiles](https://docs.docker.com/compose/how-tos/profiles/) keep the default service graph unchanged. OTLP exporter retry behavior handles collector start order, so telemetry startup does not couple business traffic to this optional service.
+
+## Export directly to an OTLP backend
+
+For a managed vendor or an existing collector, set its base endpoint and authentication headers in deployment secrets, then start the ordinary Compose graph without the `telemetry` profile:
+
+```dotenv
+TELEMETRY_BACKEND=otlp
+OTEL_EXPORTER_OTLP_ENDPOINT=https://otlp.example.com
+OTEL_EXPORTER_OTLP_HEADERS=api-key=replace-with-a-secret
+OTEL_SERVICE_NAME=open-mercato
+OTEL_RESOURCE_ATTRIBUTES=deployment.environment=production
+```
+
+```bash
+docker compose -f docker-compose.fullapp.yml up -d
+```
+
+`otlp`, `signoz`, and `newrelic` select the same OTLP provider. Endpoint and header values choose the destination; there is no provider-specific application code path.
+
+`OTEL_EXPORTER_OTLP_ENDPOINT` is the common OTLP/HTTP base URL. The standard exporters append `/v1/traces`, `/v1/metrics`, and `/v1/logs`. Do not append a signal path to the common endpoint unless the destination's documentation explicitly requires a non-standard base. See the [OTLP exporter specification](https://opentelemetry.io/docs/specs/otel/protocol/exporter/).
+
+Inside the app container, `localhost` refers to the app container itself. Use `http://otel-collector:4318` for the bundled profile or the network-reachable hostname supplied by your collector/vendor.
+
+## Configuration reference
+
+The supported full-app, Traefik overlay, and create-app Compose files forward the same runtime values:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `TELEMETRY_BACKEND` | blank (off) | `otlp`, `signoz`, or `newrelic` for OTLP export; `console` for local span/metric diagnostics; `noop` or blank for off. |
+| `TELEMETRY_SAMPLING_RATIO` | `1.0` outside production, `0.1` in production | Root trace sampling ratio from `0.0` through `1.0`. Invalid values use the environment default. |
+| `TELEMETRY_TRUST_INBOUND_TRACE` | `false` | Continue caller-supplied W3C trace context. Enable only behind trusted infrastructure. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | exporter default when blank | Common OTLP/HTTP base endpoint. Use `http://otel-collector:4318` for the bundled profile. |
+| `OTEL_EXPORTER_OTLP_HEADERS` | blank | Comma-separated exporter authentication headers. Store only in deployment secrets. |
+| `OTEL_SERVICE_NAME` | `open-mercato` | Stable service name shown by the collector/backend. |
+| `OTEL_RESOURCE_ATTRIBUTES` | blank | Comma-separated resource attributes such as `deployment.environment=production`. |
+
+The Compose files do not enable a backend or invent credentials. They pass operator-provided values into the app container at runtime, so endpoints and secrets are not baked into the image.
+
+`TELEMETRY_TRUST_INBOUND_TRACE=false` is the safe default because both `traceparent` and the backup trace header are caller-controlled at an HTTP boundary. Queue/event propagation through the dedicated `_trace` carrier continues to work without enabling inbound trust.
+
+## Optional dependency behavior
+
+The OpenTelemetry SDK packages remain `optionalDependencies` so the disabled path stays unloaded. Standard Open Mercato images include them unless the image build explicitly omits optional dependencies.
+
+If `otlp`, `signoz`, or `newrelic` is selected but those packages cannot load, startup fails with an error naming the selected backend and explaining the safe remediations. The application no longer substitutes the console backend, because that would make a broken remote-export configuration appear healthy.
+
+Choose one remediation:
+
+1. Rebuild or install with optional dependencies included.
+2. Set `TELEMETRY_BACKEND=console` when local diagnostic output is intentional.
+3. Unset `TELEMETRY_BACKEND` or set it to `noop` to disable telemetry.
+
+The original module-loading failure is retained as the error cause for diagnostics. The top-level message does not include endpoint URLs, exporter headers, or arbitrary thrown-object values.
+
+## Troubleshooting
+
+### Collector logs are empty
+
+1. Confirm that the profile is active:
+
+   ```bash
+   docker compose -f docker-compose.fullapp.yml --profile telemetry ps
+   ```
+
+2. Check only the non-secret values inside the app container:
+
+   ```bash
+   docker compose -f docker-compose.fullapp.yml exec app printenv TELEMETRY_BACKEND
+   docker compose -f docker-compose.fullapp.yml exec app printenv OTEL_EXPORTER_OTLP_ENDPOINT
+   ```
+
+3. Confirm the endpoint is `http://otel-collector:4318`, not `localhost`.
+4. Exercise a real application and database path, then allow time for batch export.
+5. Inspect app logs for exporter errors and collector logs for receiver/configuration errors.
+
+Do not print `OTEL_EXPORTER_OTLP_HEADERS` during troubleshooting; it commonly contains credentials.
+
+### The collector is unreachable after startup
+
+The application has no hard dependency on the diagnostic collector. After a successful SDK bootstrap, exporter failures stay in the telemetry layer while application traffic continues. Check that both services share `mercato-network-fullapp`, that the `telemetry` profile is active, and that the endpoint uses the `otel-collector` service name.
+
+### Too few or too many traces arrive
+
+Set `TELEMETRY_SAMPLING_RATIO` between `0.0` and `1.0`. The sampler is parent-based: child spans follow their trace's existing decision, while new root traces use the configured ratio. Use `1.0` for a short diagnostic session, then choose a lower production ratio based on traffic and backend cost.
+
+### Debug output is too sensitive or noisy
+
+The bundled collector writes operational telemetry to container logs. It is opt-in and the provider applies its normal redaction, but span names and low-cardinality attributes are still operational metadata. Restrict log access and replace the debug exporter with an authenticated production exporter before using the configuration as a longer-lived deployment.
+
+For application logging behavior, trace correlation, level control, and redaction boundaries, see [Structured Logging](./logging).

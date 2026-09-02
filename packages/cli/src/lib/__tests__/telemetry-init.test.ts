@@ -81,6 +81,33 @@ async function handleRequest(method: string, req: NextRequest): Promise<Response
 }
 `
 
+const LEGACY_INSTRUMENTATION = `import { isTelemetryBackendEnabled } from '@open-mercato/shared/lib/telemetry/runtime'
+
+export async function register(): Promise<void> {
+  if (
+    process.env.NEXT_RUNTIME === 'nodejs'
+    && process.env.NEXT_PHASE !== 'phase-production-build'
+  ) {
+    const { assertJwtSecretPolicy } = await import('@open-mercato/shared/lib/auth/jwt')
+    try {
+      assertJwtSecretPolicy()
+    } catch (err) {
+      const nodeProcess = process
+      nodeProcess.stderr.write(\`\${err instanceof Error ? err.message : String(err)}\\n\`)
+      nodeProcess.exit(1)
+    }
+  }
+
+  if (
+    process.env.NEXT_RUNTIME === 'nodejs'
+    && isTelemetryBackendEnabled()
+  ) {
+    const { registerTelemetryForNextjs } = await import('@open-mercato/telemetry/nextjs')
+    await registerTelemetryForNextjs()
+  }
+}
+`
+
 describe('mercato telemetry init', () => {
   let tmpDir: string
   let cwd: string
@@ -124,6 +151,8 @@ describe('mercato telemetry init', () => {
     expect(read('.env.example')).toContain('TELEMETRY_BACKEND')
     expect(read('.env.example')).toContain('OTEL_EXPORTER_OTLP_ENDPOINT')
     expect(read('src/instrumentation.ts')).toContain('registerTelemetryForNextjs')
+    expect(read('src/instrumentation.ts')).toContain('nodeProcess.stderr.write')
+    expect(read('src/instrumentation.ts')).toContain('nodeProcess.exit(1)')
 
     const nextConfig = read('next.config.ts')
     expect(nextConfig).toContain('@open-mercato/telemetry/nextjs-config')
@@ -259,7 +288,67 @@ describe('mercato telemetry init', () => {
     const instrumentation = read('src/instrumentation.ts')
     assertParses(instrumentation, 'custom-instrumentation')
     expect(instrumentation).toContain('registerTelemetryForNextjs')
+    expect(instrumentation).toContain('nodeProcess.stderr.write')
+    expect(instrumentation).toContain('nodeProcess.exit(1)')
     expect(instrumentation).toContain("console.log('custom warmup')") // preserved
+  })
+
+  it('upgrades the legacy generated instrumentation and stays idempotent', async () => {
+    baseFixture(tmpDir)
+    fs.writeFileSync(path.join(tmpDir, dispatcherPath), SIMPLE_DISPATCHER)
+    fs.writeFileSync(path.join(tmpDir, 'src', 'instrumentation.ts'), LEGACY_INSTRUMENTATION)
+
+    await runTelemetryInit([])
+    const migrated = read('src/instrumentation.ts')
+    assertParses(migrated, 'legacy-instrumentation-migration')
+    expect(migrated).toContain('nodeProcess.stderr.write')
+    expect(migrated).toContain('nodeProcess.exit(1)')
+    expect((migrated.match(/registerTelemetryForNextjs\(\)/g) ?? []).length).toBe(1)
+    expect((migrated.match(/nodeProcess\.exit\(1\)/g) ?? []).length).toBe(2)
+
+    await runTelemetryInit([])
+    expect(read('src/instrumentation.ts')).toBe(migrated)
+  })
+
+  it('upgrades the older Node-only generated bootstrap', async () => {
+    baseFixture(tmpDir)
+    fs.writeFileSync(path.join(tmpDir, dispatcherPath), SIMPLE_DISPATCHER)
+    fs.writeFileSync(
+      path.join(tmpDir, 'src', 'instrumentation.ts'),
+      `export async function register(): Promise<void> {
+  if (process.env.NEXT_RUNTIME === 'nodejs') {
+    const { registerTelemetryForNextjs } = await import('@open-mercato/telemetry/nextjs')
+    await registerTelemetryForNextjs()
+  }
+}
+`,
+    )
+
+    await runTelemetryInit([])
+    const migrated = read('src/instrumentation.ts')
+
+    assertParses(migrated, 'node-only-instrumentation-migration')
+    expect(migrated).toContain("import { isTelemetryBackendEnabled }")
+    expect(migrated).toContain("process.env.NEXT_RUNTIME === 'nodejs' && isTelemetryBackendEnabled()")
+    expect(migrated).toContain('nodeProcess.exit(1)')
+  })
+
+  it('leaves an unrecognized custom telemetry bootstrap for a manual update', async () => {
+    baseFixture(tmpDir)
+    fs.writeFileSync(path.join(tmpDir, dispatcherPath), SIMPLE_DISPATCHER)
+    const customInstrumentation = `export async function register(): Promise<void> {
+  const { registerTelemetryForNextjs } = await import('@open-mercato/telemetry/nextjs')
+  if (process.env.NEXT_RUNTIME === 'nodejs') await registerTelemetryForNextjs()
+  const nodeProcess = process
+  nodeProcess.exit(1)
+}
+`
+    fs.writeFileSync(path.join(tmpDir, 'src', 'instrumentation.ts'), customInstrumentation)
+
+    await runTelemetryInit([])
+
+    expect(read('src/instrumentation.ts')).toBe(customInstrumentation)
+    expect(logSpy.mock.calls.flat().join('\n')).toContain('manual step for src/instrumentation.ts')
   })
 
   it('is idempotent — a second run changes nothing and does not double-insert', async () => {
