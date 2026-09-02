@@ -228,14 +228,18 @@ function stripTemplateDisabledModules(content: string, rel: string): string {
   return stripped
 }
 
-// `channel_discord` stays commented out (not stripped) in the template: enabling it pushes the
+// Modules that stay commented out (not stripped) in the template: enabling them pushes the
 // generated root close to its byte budget, so the template keeps a maintainer-facing explanation
 // instead of silently dropping the registration like TEMPLATE_DISABLED_MODULE_IDS entries.
-const CHANNEL_DISCORD_SOURCE_COMMENT = `  // Discord bot channel (SPEC 2026-06-19) — two-way Discord via REST + a
+// Each entry replaces the app's registration and its leading comment verbatim, so a reworded
+// source comment fails the transform loudly rather than drifting back into the template.
+const TEMPLATE_COMMENTED_MODULES: Record<string, { source: string; template: string }> = {
+  channel_discord: {
+    source: `  // Discord bot channel (SPEC 2026-06-19) — two-way Discord via REST + a
   // provider-owned Gateway worker + a signed Interactions endpoint, plus an
   // optional AI auto-reply subscriber.
-  { id: 'channel_discord', from: '@open-mercato/channel-discord' },`
-const CHANNEL_DISCORD_TEMPLATE_COMMENT = `  // Discord bot channel (SPEC 2026-06-19). The package ships with the scaffold
+  { id: 'channel_discord', from: '@open-mercato/channel-discord' },`,
+    template: `  // Discord bot channel (SPEC 2026-06-19). The package ships with the scaffold
   // but stays disabled by default. #4989 removed the hard overflow this used to
   // cause (the generated root now sheds its module-fact index instead), but the
   // headroom is still gone: enabling it puts the generated root at 12,275 of the
@@ -245,13 +249,17 @@ const CHANNEL_DISCORD_TEMPLATE_COMMENT = `  // Discord bot channel (SPEC 2026-06
   // packages/create-app/src/lib/agent-instruction-budget.test.ts
   // ('one more template module still fits the root budget with its inline index
   // intact'), and #4983 for the discussion.
-  // { id: 'channel_discord', from: '@open-mercato/channel-discord' },`
+  // { id: 'channel_discord', from: '@open-mercato/channel-discord' },`,
+  },
+}
 
-function disableChannelDiscordModule(content: string, rel: string): string {
-  if (!content.includes(CHANNEL_DISCORD_SOURCE_COMMENT)) {
-    failTemplateTransform(rel, 'expected the channel_discord enabledModules entry with its source comment')
-  }
-  return content.replace(CHANNEL_DISCORD_SOURCE_COMMENT, CHANNEL_DISCORD_TEMPLATE_COMMENT)
+function commentOutTemplateModules(content: string, rel: string): string {
+  return Object.entries(TEMPLATE_COMMENTED_MODULES).reduce((current, [moduleId, replacement]) => {
+    if (!current.includes(replacement.source)) {
+      failTemplateTransform(rel, `expected the ${moduleId} enabledModules entry with its source comment`)
+    }
+    return current.replace(replacement.source, replacement.template)
+  }, content)
 }
 
 export const TEMPLATE_CONTENT_TRANSFORMS: Record<string, (content: string) => string> = {
@@ -265,7 +273,7 @@ export const TEMPLATE_CONTENT_TRANSFORMS: Record<string, (content: string) => st
     ),
   // Scaffolds ship the example and design-system source but keep both runtime-disabled;
   // channel_discord stays commented out with a byte-budget explanation instead.
-  'modules.ts': (content) => disableChannelDiscordModule(stripTemplateDisabledModules(content, 'modules.ts'), 'modules.ts'),
+  'modules.ts': (content) => commentOutTemplateModules(stripTemplateDisabledModules(content, 'modules.ts'), 'modules.ts'),
   'scripts/dev-cache-purge.mjs': (content) =>
     content
       .replaceAll("['apps', 'mercato', '.mercato', 'next'", "['.mercato', 'next'")
