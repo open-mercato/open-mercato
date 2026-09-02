@@ -100,7 +100,7 @@ export function buildTokens(snapshotPath, assetsDirectory = ASSETS_DIR) {
   const generated = [
     '/* GENERATED — do not edit by hand.',
     ` * Source: ${snapshot.source}`,
-    ' * Regenerate with .ai/skills/om-mockup-prototype/scripts/sync-tokens.mjs.',
+    ' * Regenerate with the om-mockup-prototype skill: scripts/sync-tokens.mjs.',
     ' */',
     '',
     ':root {',

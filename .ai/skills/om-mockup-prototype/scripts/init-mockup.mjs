@@ -5,6 +5,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   realpathSync,
   renameSync,
   rmSync,
@@ -19,6 +20,44 @@ const SKILL_DIR = resolve(SCRIPT_DIR, '..')
 const ASSETS_DIR = join(SKILL_DIR, 'references/assets')
 const PROTOTYPES_ROOT = join(REPO_ROOT, '.ai/prototypes')
 const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
+
+const OVERRIDE_RELATIVE = '.ai/skills/om-mockup-prototype/references/screen-patterns.md'
+const ANATOMY_TEMPLATE_PATH = join(SKILL_DIR, 'references/screen-patterns.md')
+const UXPROOF_DIR = join(REPO_ROOT, '.uxproof')
+
+export function ensureAnatomyOverride() {
+  const overridePath = join(REPO_ROOT, OVERRIDE_RELATIVE)
+  if (existsSync(overridePath)) {
+    return { source: `repo-local override (${OVERRIDE_RELATIVE})`, created: false }
+  }
+  mkdirSync(dirname(overridePath), { recursive: true })
+  let content = readFileSync(ANATOMY_TEMPLATE_PATH, 'utf8')
+  let prefilled = false
+  if (existsSync(UXPROOF_DIR)) {
+    const contractFiles = readdirSync(UXPROOF_DIR).filter((name) => !name.startsWith('.')).sort()
+    if (contractFiles.length) {
+      prefilled = true
+      content = content.replace(
+        '## Application shell',
+        [
+          "## This repository's design contract",
+          '',
+          `Extracted by om-ux-setup into \`.uxproof/\`: ${contractFiles.map((name) => `\`${name}\``).join(', ')}.`,
+          'Fold its tokens, component registry, and screen archetypes into the sections',
+          'below; the contract is the measured source, this scaffold is only the',
+          'starting shape.',
+          '',
+          '## Application shell',
+        ].join('\n'),
+      )
+    }
+  }
+  writeFileSync(overridePath, content, 'utf8')
+  return {
+    source: `shipped neutral template, scaffolded to ${OVERRIDE_RELATIVE}${prefilled ? ' (pre-filled from the om-ux-setup contract)' : ''}`,
+    created: true,
+  }
+}
 
 export function parseInitArguments(args) {
   if (args.length !== 3 || args[1] !== '--requirements') {
@@ -104,8 +143,10 @@ export function initializePrototype({ slug, requirements }, options = {}) {
 function main() {
   try {
     const result = initializePrototype(parseInitArguments(process.argv.slice(2)))
+    const anatomy = ensureAnatomyOverride()
     console.log(`Prototype ready: ${result}/`)
-    console.log('Next: build stable .screen sections using references/screen-patterns.md.')
+    console.log(`Screen anatomy: ${anatomy.source}`)
+    console.log('Next: build stable .screen sections using the anatomy reference above.')
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error))
     process.exitCode = 2
