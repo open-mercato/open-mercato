@@ -178,7 +178,8 @@ export default function ApiKeysListPage() {
     <Page>
       <PageBody>
         <DataTable
-          title={t('api_keys.list.title')}
+        title={t('api_keys.list.title')}
+        titleHeadingLevel={1}
           actions={(
             <Button asChild>
               <Link href="/backend/api-keys/create">{t('api_keys.list.actions.create')}</Link>

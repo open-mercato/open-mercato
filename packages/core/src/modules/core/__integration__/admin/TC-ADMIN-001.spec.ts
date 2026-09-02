@@ -23,14 +23,22 @@ test.describe('TC-ADMIN-001: Create API Key', () => {
 
       // Navigate to API Keys via Settings
       await page.goto('/backend/api-keys');
-      await expect(page.getByRole('heading', { name: 'API Keys', level: 2 })).toBeVisible();
+      await page.keyboard.press('Tab');
+      const skipLink = page.getByRole('link', { name: 'Skip to main content' });
+      await expect(skipLink).toBeFocused();
+      await page.keyboard.press('Enter');
+      await expect(page.locator('#main-content')).toBeFocused();
+      await expect(page).toHaveURL(/\/backend\/api-keys#main-content$/);
+      await expect(page.getByRole('heading', { name: 'API Keys', level: 1 })).toBeVisible();
+      await expect(page.locator('main h1')).toHaveCount(1);
 
       // Click Create. Use { exact: true } to disambiguate from the topbar
       // "Create sales document" widget which also exposes a `<a>` matching the
       // partial "Create" name.
       await page.getByRole('link', { name: 'Create', exact: true }).click();
       await expect(page).toHaveURL(/\/backend\/api-keys\/create$/);
-      await expect(page.locator('main').getByText('Create API Key', { exact: true })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Create API Key', level: 1 })).toBeVisible();
+      await expect(page.locator('main h1')).toHaveCount(1);
 
       // Fill in the name
       const nameField = page.locator('form').getByRole('textbox').first();

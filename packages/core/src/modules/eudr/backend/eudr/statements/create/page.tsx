@@ -463,6 +463,7 @@ export default function CreateEudrStatementPage() {
         ) : (
         <CrudForm<StatementFormValues>
           title={translate('eudr.statements.create.title')}
+          titleHeadingLevel={1}
           backHref="/backend/eudr/statements"
           cancelHref="/backend/eudr/statements"
           submitLabel={translate('eudr.statements.form.submitCreate')}

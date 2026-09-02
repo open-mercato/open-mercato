@@ -47,6 +47,7 @@ export default function CreatePersonPage() {
       <PageBody>
         <CrudForm<PersonFormValues>
           title={t('customers.people.create.title')}
+          titleHeadingLevel={1}
           backHref={returnTo ?? '/backend/customers/people'}
           fields={fields}
           groups={groups}

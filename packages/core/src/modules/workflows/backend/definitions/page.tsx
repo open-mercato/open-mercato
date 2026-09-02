@@ -410,7 +410,8 @@ export default function WorkflowDefinitionsListPage() {
     <Page>
       <PageBody>
         <DataTable
-          title={t('workflows.list.title')}
+        title={t('workflows.list.title')}
+        titleHeadingLevel={1}
           actions={(
             <div className="flex items-center gap-2">
               <Button asChild variant="outline">

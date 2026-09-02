@@ -363,6 +363,7 @@ export default function CustomerRoleDetailPage({ params }: { params?: { id?: str
       <PageBody>
         <CrudForm
           title={data.name}
+          titleHeadingLevel={1}
           backHref="/backend/customer_accounts/roles"
           fields={fields}
           groups={groups}

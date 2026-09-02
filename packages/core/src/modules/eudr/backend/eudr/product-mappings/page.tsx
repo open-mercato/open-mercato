@@ -247,7 +247,8 @@ export default function EudrProductMappingsPage() {
     <Page>
       <PageBody>
         <DataTable<ProductMappingRow>
-          title={translate('eudr.productMappings.list.title')}
+        title={translate('eudr.productMappings.list.title')}
+        titleHeadingLevel={1}
           columns={columns}
           data={rows}
           searchValue={search}

@@ -313,6 +313,7 @@ export default function CreateEudrEvidenceSubmissionPage() {
       <PageBody>
         <CrudForm<EvidenceSubmissionFormValues>
           title={translate('eudr.evidenceSubmissions.create.title')}
+          titleHeadingLevel={1}
           backHref="/backend/eudr/evidence-submissions"
           cancelHref="/backend/eudr/evidence-submissions"
           submitLabel={translate('eudr.evidenceSubmissions.form.submitCreate')}

@@ -106,6 +106,7 @@
   "appShell.sidebarCustomizationVariantsEmpty": "Brak zapisanych wariantów",
   "appShell.sidebarRoleHasPreset": "używa tych ustawień",
   "appShell.sidebarRoleWillClear": "ustawienia zostaną usunięte",
+  "appShell.skipToMainContent": "Przejdź do głównej treści",
   "appShell.toggleSidebar": "Przełącz panel boczny",
   "appShell.userFallback": "Użytkownik",
   "appShell.version": "Wersja {{version}}",

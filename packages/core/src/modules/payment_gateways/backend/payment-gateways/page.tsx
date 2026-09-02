@@ -467,6 +467,7 @@ export default function PaymentTransactionsPage() {
         <DataTable
           stickyActionsColumn
           title={t('payment_gateways.transactions.tableTitle', 'Transactions')}
+          titleHeadingLevel={2}
           columns={columns}
           data={rows}
           filters={filters}

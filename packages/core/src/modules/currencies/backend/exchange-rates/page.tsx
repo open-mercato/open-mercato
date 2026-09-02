@@ -284,7 +284,8 @@ export default function ExchangeRatesPage() {
     <Page>
       <PageBody>
         <DataTable
-          title={t('exchangeRates.list.title')}
+        title={t('exchangeRates.list.title')}
+        titleHeadingLevel={1}
           columns={columns}
           data={rows}
           searchValue={search}

@@ -379,6 +379,7 @@ export default function CreateCatalogProductPage() {
       <PageBody>
         <CrudForm<ProductFormValues>
           title={t("catalog.products.create.title", "Create product")}
+          titleHeadingLevel={1}
           backHref="/backend/catalog/products"
           fields={[]}
           groups={groups}

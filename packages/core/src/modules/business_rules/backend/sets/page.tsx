@@ -238,7 +238,8 @@ export default function RuleSetsListPage() {
     <Page>
       <PageBody>
         <DataTable
-          title={t('business_rules.sets.list.title')}
+        title={t('business_rules.sets.list.title')}
+        titleHeadingLevel={1}
           actions={(
             <Button asChild>
               <Link href="/backend/sets/create">

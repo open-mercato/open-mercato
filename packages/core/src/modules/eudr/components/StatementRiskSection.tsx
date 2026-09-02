@@ -221,6 +221,7 @@ export function StatementRiskSection({
 
       <DataTable<RiskHistoryRow>
         title={translate('eudr.risk.history.title')}
+        titleHeadingLevel={2}
         columns={historyColumns}
         data={historyRows}
         isLoading={historyLoading}
