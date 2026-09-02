@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import MyTimesheetsPage from '../page'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 
@@ -136,6 +136,14 @@ function saveButton(): HTMLButtonElement {
   return screen.getByRole('button', { name: 'Save Changes' }) as HTMLButtonElement
 }
 
+// The grid's column headers render a bare day-of-month, so a document-wide text query for a
+// duration also matches the calendar whenever the rendered week happens to contain that number.
+// Totals assertions therefore scope themselves to the footer row, which holds only the per-day
+// totals and the grand total (#5825).
+function totalsRow(): HTMLElement {
+  return screen.getByText('Daily Total').closest('tr') as HTMLElement
+}
+
 function typeAndBlur(input: HTMLInputElement, value: string): void {
   fireEvent.change(input, { target: { value } })
   fireEvent.blur(input, { target: { value } })
@@ -220,11 +228,11 @@ describe('MyTimesheetsPage — duration entry (#4846)', () => {
   it('stops counting a cell in the totals once its pending value becomes invalid', async () => {
     const inputs = await renderGrid()
     typeAndBlur(inputs[0], '2')
-    await waitFor(() => expect(screen.getAllByText('2').length).toBeGreaterThan(0))
+    await waitFor(() => expect(within(totalsRow()).getAllByText('2').length).toBeGreaterThan(0))
 
     typeAndBlur(inputs[0], 'abc')
     await waitFor(() => expect(inputs[0]).toHaveAttribute('aria-invalid', 'true'))
-    expect(screen.queryAllByText('2')).toHaveLength(0)
+    expect(within(totalsRow()).queryAllByText('2')).toHaveLength(0)
   })
 
   it('names every duration cell after its own project and date', async () => {
