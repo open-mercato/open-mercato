@@ -148,7 +148,13 @@ export const MAX_ACTION_REQUEST_BYTES = 16 * 1024
 // Validates an action request coming from the dev-only app route. The action is
 // matched against the fixed allowlist here as well as at the runner, so a
 // malformed sink line can never widen what the supervisor will execute.
-export function validateActionRequest(input) {
+export function validateActionRequest(input, options = {}) {
+  const maxBytes = Number.isInteger(options.maxBytes) ? options.maxBytes : MAX_ACTION_REQUEST_BYTES
+  const serialized = typeof input === 'string' ? input : JSON.stringify(input)
+  if (typeof serialized !== 'string' || Buffer.byteLength(serialized, 'utf8') > maxBytes) {
+    return { ok: false, status: 400, error: { code: 'action_too_large', message: 'Action request exceeds the size limit.' } }
+  }
+
   let payload = input
   if (typeof input === 'string') {
     try {

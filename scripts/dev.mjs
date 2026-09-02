@@ -35,6 +35,7 @@ import { DevRuntimeConfigError, resolveDevRuntimeConfig } from './dev-runtime-co
 import { createDevRuntimeSupervisor } from './dev-runtime-supervisor.mjs'
 import { createDevRuntimeGateway } from './dev-runtime-gateway.mjs'
 import { createDevRuntimeActionRunner } from './dev-runtime-actions.mjs'
+import { isMatchingDevRuntimeToken } from './dev-runtime-diagnostics.mjs'
 import {
   resolveDevBaseUrl,
   resolveSplashUrl as resolveSplashAccessUrl,
@@ -796,6 +797,7 @@ function launchStandaloneDev(options = {}) {
     activity,
   })
 
+  writeSplashChildStateFileClear()
   devRuntime.beginGeneration('standalone app runtime launch')
   const app = spawnCommand(process.execPath, runtimeArgs, {
     stdio: 'inherit',
@@ -1224,6 +1226,12 @@ async function startSplashServer() {
 
     if (req.url === '/runtime/status') {
       res.setHeader('Content-Type', 'application/json; charset=utf-8')
+      const guard = assertLocalSplashRequest(req, process.env)
+      if (!guard.ok) {
+        res.statusCode = guard.status
+        res.end(JSON.stringify({ error: { code: 'forbidden', message: guard.error } }))
+        return
+      }
       res.end(JSON.stringify(devRuntime.enabled ? devRuntime.getStatus() : { error: { code: 'diagnostics_disabled', message: 'Dev runtime diagnostics are disabled.' } }))
       return
     }
@@ -1243,7 +1251,7 @@ async function startSplashServer() {
         res.end(JSON.stringify({ error: { code: 'diagnostics_disabled', message: 'Dev runtime diagnostics are disabled.' } }))
         return
       }
-      if (req.headers['x-om-dev-runtime-token'] !== devRuntime.token) {
+      if (!isMatchingDevRuntimeToken(devRuntime.token, req.headers['x-om-dev-runtime-token'])) {
         res.statusCode = 403
         res.end(JSON.stringify({ error: { code: 'forbidden', message: 'Invalid dev runtime token.' } }))
         return
@@ -1263,6 +1271,12 @@ async function startSplashServer() {
 
     if (req.url.startsWith('/runtime/logs')) {
       res.setHeader('Content-Type', 'application/json; charset=utf-8')
+      const guard = assertLocalSplashRequest(req, process.env)
+      if (!guard.ok) {
+        res.statusCode = guard.status
+        res.end(JSON.stringify({ error: { code: 'forbidden', message: guard.error } }))
+        return
+      }
       if (!devRuntime.enabled) {
         res.statusCode = 404
         res.end(JSON.stringify({ error: { code: 'diagnostics_disabled', message: 'Dev runtime diagnostics are disabled.' } }))
@@ -2201,6 +2215,7 @@ function launchMonorepoAppDev() {
     progressLabel: 'Launching app runtime',
     activity: 'App runtime is starting',
   })
+  writeSplashChildStateFileClear()
   devRuntime.beginGeneration('app runtime launch')
   const app = spawnCommand(process.execPath, appArgs, {
     cwd: monorepoAppDir,

@@ -99,8 +99,39 @@ for (const relPath of SUPERVISOR_FILES) {
     )
     assert.match(block, /assertLocalSplashRequest\(req, process\.env\)/)
     assert.match(block, /if \(!devRuntime\.enabled\)/)
-    assert.match(block, /req\.headers\['x-om-dev-runtime-token'\] !== devRuntime\.token/)
+    assert.match(block, /isMatchingDevRuntimeToken\(devRuntime\.token, req\.headers\['x-om-dev-runtime-token'\]\)/)
     assert.match(block, /await devRuntimeActions\.run\(action\)/)
+  })
+
+  test(`${relPath} clears child state before opening each runtime generation`, () => {
+    const source = read(relPath)
+
+    for (const launcher of [
+      'function launchStandaloneDev(options = {}) {',
+      'function launchMonorepoAppDev() {',
+    ]) {
+      const start = source.indexOf(launcher)
+      assert.notEqual(start, -1, `missing ${launcher}`)
+      const body = source.slice(start, start + 2500)
+      const clearIndex = body.indexOf('writeSplashChildStateFileClear()')
+      const generationIndex = body.indexOf('devRuntime.beginGeneration(')
+      assert.ok(clearIndex >= 0 && clearIndex < generationIndex, `${launcher} must clear stale child state before resetting the ingestion cursor`)
+    }
+  })
+
+  test(`${relPath} host-guards every additive runtime read or recovery endpoint`, () => {
+    const source = read(relPath)
+    const statusBlock = source.slice(
+      source.indexOf("if (req.url === '/runtime/status')"),
+      source.indexOf("if (req.method === 'POST' && req.url.startsWith('/runtime/actions/'))"),
+    )
+    const logsBlock = source.slice(
+      source.indexOf("if (req.url.startsWith('/runtime/logs'))"),
+      source.indexOf("if (req.url === '/' || req.url.startsWith('/?'))"),
+    )
+
+    assert.match(statusBlock, /assertLocalSplashRequest\(req, process\.env\)/)
+    assert.match(logsBlock, /assertLocalSplashRequest\(req, process\.env\)/)
   })
 
   test(`${relPath} keeps the existing splash status contract intact`, () => {

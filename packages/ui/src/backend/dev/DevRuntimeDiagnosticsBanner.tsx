@@ -2,7 +2,6 @@
 import * as React from 'react'
 import { ChevronDown, ChevronUp, Database, RefreshCw, RotateCcw, ScrollText, Wrench, X } from 'lucide-react'
 import { useOptionalT } from '@open-mercato/shared/lib/i18n/context'
-import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import {
   isDevRuntimeBannerEnabled,
   readDevRuntimeLogsUrl,
@@ -22,6 +21,7 @@ import {
 import { Button } from '../../primitives/button'
 import { IconButton } from '../../primitives/icon-button'
 import { useConfirmDialog } from '../confirm-dialog'
+import { apiCall } from '../utils/apiCall'
 
 const ACTION_ICONS: Record<RuntimeRecoveryAction, typeof RefreshCw> = {
   generate: Wrench,
@@ -76,13 +76,13 @@ function dismissalKey(status: RuntimeStatus, issue: RuntimeIssue | null): string
 }
 
 async function fetchRuntimeStatus(token: string, signal: AbortSignal): Promise<RuntimeStatus | null> {
-  const response = await fetch(DEV_RUNTIME_STATUS_PATH, {
+  const response = await apiCall<RuntimeStatus>(DEV_RUNTIME_STATUS_PATH, {
     headers: { [DEV_RUNTIME_TOKEN_HEADER]: token },
     cache: 'no-store',
     signal,
   })
   if (!response.ok) return null
-  return (await response.json()) as RuntimeStatus
+  return response.result
 }
 
 function useRuntimeStatus(token: string | null): RuntimeStatus | null {
@@ -181,11 +181,11 @@ export function DevRuntimeDiagnosticsBanner() {
     setLogsOpen(true)
     if (!token) return
     try {
-      const response = await fetch(`${DEV_RUNTIME_LOGS_PATH}?cursor=0`, {
+      const response = await apiCall<DevRuntimeLogSnapshot>(`${DEV_RUNTIME_LOGS_PATH}?cursor=0`, {
         headers: { [DEV_RUNTIME_TOKEN_HEADER]: token },
         cache: 'no-store',
       })
-      setLogs(response.ok ? ((await response.json()) as DevRuntimeLogSnapshot) : null)
+      setLogs(response.ok ? response.result : null)
     } catch {
       setLogs(null)
     }
@@ -211,14 +211,13 @@ export function DevRuntimeDiagnosticsBanner() {
     setPendingAction(action)
     setActionError(null)
     try {
-      const response = await fetch(`${DEV_RUNTIME_ACTIONS_PATH}/${action}`, {
+      const response = await apiCall<{ error?: { message?: string } }>(`${DEV_RUNTIME_ACTIONS_PATH}/${action}`, {
         method: 'POST',
         headers: { [DEV_RUNTIME_TOKEN_HEADER]: token },
         cache: 'no-store',
       })
       if (!response.ok) {
-        const payload = await readJsonSafe<{ error?: { message?: string } }>(response)
-        setActionError(payload?.error?.message ?? t('ui.devRuntime.actions.failed', 'The recovery action could not be started.'))
+        setActionError(response.result?.error?.message ?? t('ui.devRuntime.actions.failed', 'The recovery action could not be started.'))
       }
     } catch {
       setActionError(t('ui.devRuntime.actions.failed', 'The recovery action could not be started.'))

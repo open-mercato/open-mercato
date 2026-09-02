@@ -10,6 +10,7 @@ import {
   createDiagnosticsSink,
   createRateLimiter,
   isMatchingDevRuntimeToken,
+  validateActionRequest,
   validateBrowserReport,
 } from '../dev-runtime-diagnostics.mjs'
 import { createRuntimeStateStore } from '../dev-runtime-state.mjs'
@@ -77,6 +78,17 @@ test('rejects an oversized report', () => {
   const result = validateBrowserReport(oversized)
   assert.equal(result.ok, false)
   assert.equal(result.error.code, 'report_too_large')
+})
+
+test('rejects an oversized recovery action request before it reaches the action sink', () => {
+  const result = validateActionRequest(JSON.stringify({
+    action: 'restart',
+    padding: 'x'.repeat(16 * 1024),
+  }))
+
+  assert.equal(result.ok, false)
+  assert.equal(result.status, 400)
+  assert.equal(result.error.code, 'action_too_large')
 })
 
 test('rejects non-JSON input', () => {
