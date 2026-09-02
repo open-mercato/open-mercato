@@ -30,9 +30,9 @@
   "devDependencies": {
     "@open-mercato/cli": "workspace:*",
     "@open-mercato/shared": "workspace:*",
-    "@types/node": "^26.1.2",
-    "esbuild": "^0.28.1",
-    "tsx": "^4.23.1",
+    "@types/node": "^26.4.0",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.23.12",
     "typescript": "7.0.2",
     "typescript-standalone": "npm:typescript@6.0.3"
   },

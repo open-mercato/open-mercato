@@ -35,11 +35,11 @@
   "dependencies": {
     "@open-mercato/queue": "workspace:*",
     "@open-mercato/shared": "workspace:*",
-    "pg": "8.22.0"
+    "pg": "8.23.0"
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",
-    "jest": "^30.4.2",
+    "jest": "^30.5.0",
     "ts-jest": "^29.4.12",
     "typescript": "7.0.2"
   },

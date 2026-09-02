@@ -106,9 +106,9 @@
     }
   },
   "dependencies": {
-    "@mikro-orm/core": "^7.1.8",
-    "@mikro-orm/decorators": "^7.1.8",
-    "@mikro-orm/postgresql": "^7.1.8",
+    "@mikro-orm/core": "^7.1.14",
+    "@mikro-orm/decorators": "^7.1.14",
+    "@mikro-orm/postgresql": "^7.1.14",
     "@open-mercato/cache": "workspace:*",
     "@types/html-to-text": "^9.0.4",
     "@types/sanitize-html": "^2.16.1",
@@ -123,7 +123,7 @@
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",
-    "jest": "^30.4.2",
+    "jest": "^30.5.0",
     "ts-jest": "^29.4.12",
     "ts-morph": "^28.0.0",
     "typescript": "7.0.2"
