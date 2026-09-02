@@ -120,6 +120,61 @@ describe('DefaultDataEngine route-declared indexer default', () => {
     expect(engine.hasIndexedDefaultEntityClass()).toBe(false)
   })
 
+  it('keeps a handler indexer when a later events-only mark hits the same key', async () => {
+    const { engine, indexPayloads } = buildEngine()
+    engine.setDefaultIndexerConfig({ indexer: ROUTE_INDEXER, entityClass: RouteEntity })
+
+    // Same (action, id, organizationId, tenantId) key twice. The merge branch must not let the
+    // route default overwrite the config the first mark installed — that would silently drop the
+    // handler's own `buildUpsertPayload` and invert the "explicit always wins" rule.
+    engine.markOrmEntityChange({
+      action: 'updated',
+      entity: new RouteEntity('rec-1'),
+      events: EVENTS,
+      indexer: HANDLER_INDEXER,
+      identifiers: IDENTIFIERS,
+    })
+    engine.markOrmEntityChange({ action: 'updated', entity: new RouteEntity('rec-1'), events: EVENTS, identifiers: IDENTIFIERS })
+    await engine.flushOrmEntityChanges()
+
+    const upserts = indexPayloads('query_index.upsert_one')
+    expect(upserts).toHaveLength(1)
+    expect(upserts[0]).toMatchObject({ entityType: 'customers:handler_owned' })
+  })
+
+  it('still applies the default when the first mark on a key carried no indexer', async () => {
+    const { engine, indexPayloads } = buildEngine()
+    engine.setDefaultIndexerConfig({ indexer: ROUTE_INDEXER, entityClass: RouteEntity })
+
+    engine.markOrmEntityChange({ action: 'updated', entity: new RouteEntity('rec-1'), events: EVENTS, identifiers: IDENTIFIERS })
+    engine.markOrmEntityChange({ action: 'updated', entity: new RouteEntity('rec-1'), events: EVENTS, identifiers: IDENTIFIERS })
+    await engine.flushOrmEntityChanges()
+
+    const upserts = indexPayloads('query_index.upsert_one')
+    expect(upserts).toHaveLength(1)
+    expect(upserts[0]).toMatchObject({ entityType: 'customers:customer_tag' })
+  })
+
+  it('ignores a non-constructor entityClass instead of throwing on the write path', async () => {
+    const { engine, emitEvent } = buildEngine()
+    // `OrmEntityConfig.entity` is `any` and this repo treats `EntitySchema` instances — plain
+    // objects, not constructors — as a first-class entity shape. `instanceof` against one throws,
+    // and it would throw inside `markOrmEntityChange`, outside the flush's best-effort catch.
+    const entitySchemaLike = { name: 'RouteEntity', meta: {} } as unknown as new (...args: never[]) => unknown
+    engine.setDefaultIndexerConfig({ indexer: ROUTE_INDEXER, entityClass: entitySchemaLike })
+
+    expect(() => engine.markOrmEntityChange({
+      action: 'created',
+      entity: new RouteEntity('rec-1'),
+      events: EVENTS,
+      identifiers: IDENTIFIERS,
+    })).not.toThrow()
+    await engine.flushOrmEntityChanges()
+
+    expect(emitEvent.mock.calls.map(([name]) => name)).not.toContain('query_index.upsert_one')
+    expect(engine.hasIndexedDefaultEntityClass()).toBe(false)
+  })
+
   it('honours a bulk-import skipReindex suppression over the declaration', async () => {
     const { engine, emitEvent } = buildEngine()
     engine.setDefaultIndexerConfig({ indexer: ROUTE_INDEXER, entityClass: RouteEntity })

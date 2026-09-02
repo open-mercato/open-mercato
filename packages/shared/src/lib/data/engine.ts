@@ -219,6 +219,15 @@ export class DefaultDataEngine implements DataEngine {
   private indexedDefaultEntityClass = false
   constructor(private em: EntityManager, private container: AwilixContainer) {}
 
+  /**
+   * Per-command state, deliberately held on the engine instance rather than threaded through
+   * `CommandRuntimeContext` the way the bulk-import flags are. That is sound only because
+   * `createRequestContainer()` registers `dataEngine` per request (`lib/di/container.ts`), so
+   * one engine instance never spans two requests, and no `makeCrudRoute` verb runs two commands
+   * concurrently against it. An application that re-registers `dataEngine` as a transient would
+   * break both assumptions: the command would mark on a different instance than the route
+   * declared on, so nothing is indexed and every write logs the undischarged-declaration warning.
+   */
   setDefaultIndexerConfig(config: DefaultCrudIndexerConfig | null): void {
     this.defaultIndexer = config
     this.indexedDefaultEntityClass = false
@@ -229,8 +238,14 @@ export class DefaultDataEngine implements DataEngine {
   }
 
   private matchesDefaultEntityClass(entity: unknown): boolean {
-    if (!this.defaultIndexer) return false
-    return entity instanceof this.defaultIndexer.entityClass
+    const declared = this.defaultIndexer?.entityClass
+    // `OrmEntityConfig.entity` is `any` and this repository treats `EntitySchema` instances as a
+    // first-class entity shape (`lib/bootstrap/types.ts`). An `EntitySchema` is an object rather
+    // than a constructor, so `instanceof` against it throws — and it would throw inside
+    // `markOrmEntityChange`, outside the best-effort try/catch that guards the flush, turning
+    // every write on such a route into a 500.
+    if (typeof declared !== 'function') return false
+    return entity instanceof declared
   }
 
   private resolveDefaultIndexer(entity: unknown): CrudIndexerConfig<unknown> | undefined {
@@ -791,7 +806,11 @@ export class DefaultDataEngine implements DataEngine {
       existing.syncOrigin = opts.syncOrigin ?? null
       existing.actorUserId = opts.actorUserId ?? null
       if (opts.events) existing.events = opts.events as CrudEventsConfig<unknown>
-      if (indexer) existing.indexer = indexer
+      // Explicit always wins, on the merge branch too: a second `events:`-only mark on the same
+      // key must not let the route default overwrite the `indexer:` an earlier mark installed,
+      // which would silently drop that handler's own `buildUpsertPayload`.
+      if (opts.indexer) existing.indexer = opts.indexer as CrudIndexerConfig<unknown>
+      else if (!existing.indexer && indexer) existing.indexer = indexer
       this.pendingSideEffects.set(key, existing)
       return
     }

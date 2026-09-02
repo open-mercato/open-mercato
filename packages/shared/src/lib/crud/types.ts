@@ -34,6 +34,18 @@ export type CrudEventsConfig<TEntity = unknown> = {
  * `indexer` still indexes the record under this `entityType`, and one that passes its own
  * `indexer` keeps it. A handler that marks no side effect at all indexes nothing — the route
  * logs a warning naming the command when that happens.
+ *
+ * Two limits of that hand-down are worth knowing before you rely on it:
+ *
+ * - It is scoped to one `CommandBus.execute()`, and the declaration lives on the request's
+ *   `DataEngine` instance. That is sound because `createRequestContainer()` registers
+ *   `dataEngine` per request; re-registering it as a transient would leave the command marking
+ *   on a different instance than the route declared on, so nothing is indexed and every write
+ *   logs the warning.
+ * - `CommandBus.undo()` runs outside any route, so no declaration is active there. An undo
+ *   handler that must maintain the projection MUST pass its own `indexer` to
+ *   `emitCrudUndoSideEffects` — otherwise undoing a delete restores the row in the database and
+ *   leaves it missing from `query_index` until the next full rebuild.
  */
 export type CrudIndexerConfig<TEntity = unknown> = {
   entityType: string

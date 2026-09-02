@@ -1124,8 +1124,12 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       const result = await run()
       if (de.hasIndexedDefaultEntityClass?.() === false) {
         // The one genuinely undiagnosable case: a handler that marks no side effect at all,
-        // so neither the route nor the command maintains the projection. One line per
-        // dropped write, no false positives — a handler that marks gets no warning.
+        // so neither the route nor the command maintains the projection. One line per dropped
+        // write — far narrower than warning at construction time, though not literally false-
+        // positive-free: the flag tracks the route's own entity class, so a handler that
+        // discharges the projection through a different class (marking a parent aggregate with
+        // its own explicit `indexer:`) would also be warned about. No route in this repository
+        // does that today; widen the flag to "any indexer discharged" if one ever needs to.
         logger.warn('CRUD route declares an indexer that its command handler did not discharge; the query index was not updated for this write', {
           resourceKind,
           operation,

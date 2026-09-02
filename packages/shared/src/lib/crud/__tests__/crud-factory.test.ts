@@ -1174,6 +1174,52 @@ describe('CRUD Factory', () => {
 
       expect(mockDataEngine.setDefaultIndexerConfig).toHaveBeenLastCalledWith(null)
     })
+
+    describe('the undischarged-declaration warning', () => {
+      // The warning is the only part of this change a module author ever sees, so it is pinned
+      // in both directions: present when a handler drops the write, absent on the happy path.
+      const logRecords: LoggerExtensionRecord[] = []
+      const undischargedWarnings = () => logRecords.filter((record) =>
+        record.level === 'warn' && String(record.message).includes('did not discharge'))
+
+      beforeEach(() => {
+        logRecords.length = 0
+        registerLoggerExtension({ emit: (record) => logRecords.push(record) })
+      })
+      afterEach(() => { resetLoggerExtension() })
+
+      it('warns once, naming the command, when the handler marks nothing at all', async () => {
+        commandBus.execute.mockImplementation(async () => ({ result: { id: 'todo-1' }, logEntry: { id: 'log-1' } }))
+        const route = buildCommandRoute()
+        const res = await route.POST(new Request('http://x/api/example/todos/command', {
+          method: 'POST',
+          body: JSON.stringify({}),
+          headers: { 'content-type': 'application/json' },
+        }))
+
+        expect(res.status).toBeLessThan(400)
+        const warnings = undischargedWarnings()
+        expect(warnings).toHaveLength(1)
+        expect(warnings[0].fields).toMatchObject({
+          operation: 'created',
+          commandId: 'example.todo.create',
+          entityType: routeIndexer.entityType,
+        })
+      })
+
+      it('stays silent when the handler discharges the declaration', async () => {
+        commandBus.execute.mockImplementation(markEventsOnly('created', new Todo()))
+        const route = buildCommandRoute()
+        const res = await route.POST(new Request('http://x/api/example/todos/command', {
+          method: 'POST',
+          body: JSON.stringify({}),
+          headers: { 'content-type': 'application/json' },
+        }))
+
+        expect(res.status).toBeLessThan(400)
+        expect(undischargedWarnings()).toHaveLength(0)
+      })
+    })
   })
 
   it('POST command route runs mutation guards before executing the command', async () => {
