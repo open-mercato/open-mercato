@@ -6,8 +6,10 @@ import {
   siteWarehouseRoleUpdateSchema,
 } from "../../data/validators";
 import {
+  assertSiteWarehouseRoleCustomFieldsUnsupported,
   booleanQueryFilterSchema,
   localizeSiteValidationResult,
+  parseSiteWarehouseRoleUpdateInput,
   resolveSiteCustomFieldContext,
   transformSiteListItem,
   uuidListQueryFilterSchema,
@@ -124,12 +126,26 @@ describe("WMS Site validation responses", () => {
           context as never,
           translate,
         );
-        return siteWarehouseRoleCreateSchema.parse(parsed);
+        assertSiteWarehouseRoleCustomFieldsUnsupported(parsed, translate);
+        return parsed;
       }, translate),
     );
 
     expect(error.body).toEqual({
-      error: "pl:wms.sites.errors.invalidInput:Correct the highlighted form fields.",
+      error:
+        "pl:wms.sites.roles.errors.customFieldsUnsupported:Custom fields are not supported for warehouse roles.",
     });
+
+    const updateError = expectLocalizedValidationError(() =>
+      parseSiteWarehouseRoleUpdateInput(
+        {
+          id: "33333333-3333-4333-8333-333333333333",
+          isDefault: true,
+          customFields: { priority: "high" },
+        },
+        translate,
+      ),
+    );
+    expect(updateError.body).toEqual(error.body);
   });
 });

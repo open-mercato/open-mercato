@@ -13,6 +13,7 @@ import {
   siteWarehouseRoleSchema,
 } from "../../data/validators";
 import {
+  assertSiteWarehouseRoleCustomFieldsUnsupported,
   booleanQueryFilterSchema,
   localizeSiteValidationResult,
   parseSiteWarehouseRoleUpdateInput,
@@ -101,12 +102,6 @@ const crud = makeCrudRoute({
       warehouseId: item.warehouse_id ?? null,
       role: item.role ?? null,
       isDefault: item.is_default === true,
-      warehouse: {
-        id: item.warehouse_id ?? null,
-        code: item.warehouse_code ?? null,
-        name: item.warehouse_name ?? null,
-        isActive: item.warehouse_is_active === true,
-      },
       createdAt: item.created_at ?? null,
       updatedAt: item.updated_at ?? null,
     }),
@@ -144,7 +139,8 @@ const crud = makeCrudRoute({
               ctx,
               translate,
             );
-            return siteWarehouseRoleCreateSchema.parse(parsed);
+            assertSiteWarehouseRoleCustomFieldsUnsupported(parsed, translate);
+            return parsed;
           },
           translate,
         );

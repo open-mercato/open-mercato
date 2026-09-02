@@ -3,7 +3,7 @@ import { Migration } from '@mikro-orm/migrations';
 export class Migration20260828134114_wms extends Migration {
 
   override up(): void | Promise<void> {
-    this.addSql(`create table "wms_sites" ("id" uuid not null default gen_random_uuid(), "organization_id" uuid not null, "tenant_id" uuid not null, "metadata" jsonb null, "created_at" timestamptz not null, "updated_at" timestamptz not null, "deleted_at" timestamptz null, "code" text not null, "name" text not null, "is_active" boolean not null default false, primary key ("id"));`);
+    this.addSql(`create table "wms_sites" ("id" uuid not null default gen_random_uuid(), "organization_id" uuid not null, "tenant_id" uuid not null, "metadata" jsonb null, "created_at" timestamptz not null, "updated_at" timestamptz not null, "deleted_at" timestamptz null, "code" text not null, "name" text not null, "is_active" boolean not null default true, primary key ("id"));`);
     this.addSql(`create unique index "wms_sites_org_code_unique_idx" on "wms_sites" ("tenant_id", "organization_id", lower("code")) where deleted_at is null;`);
     this.addSql(`create index "wms_sites_org_tenant_idx" on "wms_sites" ("organization_id", "tenant_id");`);
 

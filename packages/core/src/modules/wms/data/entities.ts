@@ -8,6 +8,9 @@ import {
   Property,
 } from '@mikro-orm/decorators/legacy'
 import type { JsonValue } from '@open-mercato/shared/lib/json'
+import type { SiteWarehouseRoleType } from '../lib/siteWarehouseRoles'
+
+export { SITE_WAREHOUSE_ROLES, type SiteWarehouseRoleType } from '../lib/siteWarehouseRoles'
 
 export type WarehouseLocationType = 'zone' | 'aisle' | 'rack' | 'bin' | 'slot' | 'dock' | 'staging'
 export type InventoryStrategy = 'fifo' | 'lifo' | 'fefo'
@@ -25,8 +28,6 @@ export type InventoryMovementType =
   | 'cycle_count'
   | 'return_receive'
 export type InventoryMovementReferenceType = 'po' | 'so' | 'transfer' | 'manual' | 'qc' | 'rma'
-export const SITE_WAREHOUSE_ROLES = ['raw_material', 'line_side', 'wip', 'finished_goods', 'quarantine', 'shipping'] as const
-export type SiteWarehouseRoleType = (typeof SITE_WAREHOUSE_ROLES)[number]
 type WmsOptionalProps = 'createdAt' | 'updatedAt' | 'deletedAt' | 'metadata'
 
 abstract class WmsScopedEntity {

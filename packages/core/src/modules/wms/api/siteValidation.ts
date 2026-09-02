@@ -155,12 +155,32 @@ export function parseSiteWarehouseRoleUpdateInput(
   payload: unknown,
   translate: TranslateFn,
 ): SiteWarehouseRoleUpdateInput {
+  assertSiteWarehouseRoleCustomFieldsUnsupported(payload, translate);
   try {
     return siteWarehouseRoleUpdateSchema.parse(payload ?? {});
   } catch (error) {
     if (error instanceof z.ZodError) localizeSiteValidationError(error, translate);
     throw error;
   }
+}
+
+export function assertSiteWarehouseRoleCustomFieldsUnsupported(
+  input: unknown,
+  translate: TranslateFn,
+): void {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return;
+  const keys = Object.keys(input as Record<string, unknown>);
+  const hasCustomFields = keys.some(
+    (key) =>
+      key === "customFields" || key.startsWith("cf_") || key.startsWith("cf:"),
+  );
+  if (!hasCustomFields) return;
+  throw new CrudHttpError(400, {
+    error: translate(
+      "wms.sites.roles.errors.customFieldsUnsupported",
+      "Custom fields are not supported for warehouse roles.",
+    ),
+  });
 }
 
 export function localizeSiteValidationResult<T>(

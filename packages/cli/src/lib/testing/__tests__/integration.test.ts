@@ -40,6 +40,7 @@ const CACHE_TTL_ENV_VAR = 'OM_INTEGRATION_BUILD_CACHE_TTL_SECONDS'
 const APP_READY_TIMEOUT_ENV_VAR = 'OM_INTEGRATION_APP_READY_TIMEOUT_SECONDS'
 const CHECKOUT_TEST_INJECTION_FLAG = 'NEXT_PUBLIC_OM_EXAMPLE_CHECKOUT_TEST_INJECTIONS_ENABLED'
 const PRIVATE_ATTACHMENTS_PARTITION_ENV_KEY = 'ATTACHMENTS_PARTITION_PRIVATE_ATTACHMENTS_ROOT'
+const TEST_EPHEMERAL_JWT_SECRET = 'integration-test-ephemeral-jwt-secret'
 const resolver = createResolver()
 const projectRootDirectory = resolver.getRootDir()
 const appDirectory = path.join(projectRootDirectory, 'apps', 'mercato')
@@ -201,8 +202,9 @@ describe('integration cache and options', () => {
   it('reuses an existing reachable ephemeral environment state', async () => {
     const baseUrl = 'http://127.0.0.1:5001'
     const originalJwtSecret = process.env.JWT_SECRET
+    const callerJwtSecret = 'change-me-dev-secret'
     delete process.env[CHECKOUT_TEST_INJECTION_FLAG]
-    process.env.JWT_SECRET = 'change-me-dev-secret'
+    process.env.JWT_SECRET = callerJwtSecret
     const fetchSpy = mockHealthyReadinessFetch()
 
     try {
@@ -211,6 +213,7 @@ describe('integration cache and options', () => {
         port: 5001,
         databaseUrl: 'postgres://integration:integration@127.0.0.1:5432/open_mercato',
         queueBaseDir: '/tmp/open-mercato-queue',
+        jwtSecret: callerJwtSecret,
         logPrefix: 'integration',
         captureScreenshots: true,
       })
@@ -238,9 +241,7 @@ describe('integration cache and options', () => {
         ownedByCurrentProcess: false,
       })
       expect(environment?.commandEnvironment.OM_INTEGRATION_TEST).toBe('true')
-      expect(environment?.commandEnvironment.JWT_SECRET).toBe(
-        '32f2f3ddfaa24f6d534165c7e42835a81be1f44a35da998b29367a8d2c7ec0da',
-      )
+      expect(environment?.commandEnvironment.JWT_SECRET).toBe(callerJwtSecret)
       expect(environment?.commandEnvironment.DATABASE_URL).toBe(
         'postgres://integration:integration@127.0.0.1:5432/open_mercato',
       )
@@ -262,6 +263,41 @@ describe('integration cache and options', () => {
     }
   }, REUSE_ENV_TEST_TIMEOUT_MS)
 
+  it('reuses the persisted JWT secret when a later process has no JWT_SECRET', async () => {
+    const baseUrl = 'http://127.0.0.1:5001'
+    const originalJwtSecret = process.env.JWT_SECRET
+    const fetchSpy = mockHealthyReadinessFetch()
+    delete process.env.JWT_SECRET
+
+    try {
+      await writeEphemeralEnvironmentState({
+        baseUrl,
+        port: 5001,
+        databaseUrl: 'postgres://integration:integration@127.0.0.1:5432/open_mercato',
+        queueBaseDir: '/tmp/open-mercato-queue',
+        jwtSecret: TEST_EPHEMERAL_JWT_SECRET,
+        logPrefix: 'integration',
+        captureScreenshots: true,
+      })
+
+      const environment = await tryReuseExistingEnvironment({
+        verbose: false,
+        captureScreenshots: true,
+        logPrefix: 'integration',
+        forceRebuild: false,
+      })
+
+      expect(environment?.commandEnvironment.JWT_SECRET).toBe(TEST_EPHEMERAL_JWT_SECRET)
+    } finally {
+      fetchSpy.mockRestore()
+      if (originalJwtSecret === undefined) {
+        delete process.env.JWT_SECRET
+      } else {
+        process.env.JWT_SECRET = originalJwtSecret
+      }
+    }
+  }, REUSE_ENV_TEST_TIMEOUT_MS)
+
   it('reuses an existing environment with checkout wrapper injections only when explicitly enabled', async () => {
     const baseUrl = 'http://127.0.0.1:5001'
     process.env[CHECKOUT_TEST_INJECTION_FLAG] = 'true'
@@ -273,6 +309,7 @@ describe('integration cache and options', () => {
         port: 5001,
         databaseUrl: 'postgres://integration:integration@127.0.0.1:5432/open_mercato',
         queueBaseDir: '/tmp/open-mercato-queue',
+        jwtSecret: TEST_EPHEMERAL_JWT_SECRET,
         logPrefix: 'integration',
         captureScreenshots: true,
       })
@@ -308,6 +345,7 @@ describe('integration cache and options', () => {
         port: 5001,
         databaseUrl: 'postgres://integration:integration@127.0.0.1:5432/open_mercato',
         queueBaseDir,
+        jwtSecret: TEST_EPHEMERAL_JWT_SECRET,
         logPrefix: 'integration',
         captureScreenshots: false,
       })
@@ -341,6 +379,7 @@ describe('integration cache and options', () => {
         port: 5001,
         databaseUrl: 'postgres://integration:integration@127.0.0.1:5432/open_mercato',
         queueBaseDir: '/tmp/open-mercato-queue',
+        jwtSecret: TEST_EPHEMERAL_JWT_SECRET,
         logPrefix: 'integration',
         captureScreenshots: true,
       })
@@ -378,6 +417,7 @@ describe('integration cache and options', () => {
         port: 5001,
         databaseUrl: 'postgres://integration:integration@127.0.0.1:5432/open_mercato',
         queueBaseDir: '/tmp/open-mercato-queue',
+        jwtSecret: TEST_EPHEMERAL_JWT_SECRET,
         logPrefix: 'integration',
         captureScreenshots: false,
       })
@@ -410,6 +450,7 @@ describe('integration cache and options', () => {
         port: 5001,
         databaseUrl: 'postgres://integration:integration@127.0.0.1:5432/open_mercato',
         queueBaseDir: '/tmp/open-mercato-queue',
+        jwtSecret: TEST_EPHEMERAL_JWT_SECRET,
         logPrefix: 'integration',
         captureScreenshots: false,
       })
@@ -440,6 +481,7 @@ describe('integration cache and options', () => {
         port: 5001,
         databaseUrl: 'postgres://integration:integration@127.0.0.1:5432/open_mercato',
         queueBaseDir: '/tmp/open-mercato-queue',
+        jwtSecret: TEST_EPHEMERAL_JWT_SECRET,
         logPrefix: 'integration',
         captureScreenshots: true,
       })

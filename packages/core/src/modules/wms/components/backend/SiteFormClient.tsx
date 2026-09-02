@@ -24,6 +24,7 @@ import { raiseCrudError } from "@open-mercato/ui/backend/utils/serverErrors";
 import { extractCustomFieldEntries } from "@open-mercato/shared/lib/crud/custom-fields-client";
 import { useT } from "@open-mercato/shared/lib/i18n/context";
 import { E } from "#generated/entities.ids.generated";
+import { extensionPoints } from "../../extension-points";
 import { flashMutationError } from "../../lib/flashMutationError";
 import { SiteWarehouseRolesClient } from "./SiteWarehouseRolesClient";
 import {
@@ -147,6 +148,7 @@ export function SiteFormClient({ siteId }: { siteId?: string }) {
         contentMinHeight="none"
         entityId={E.wms.site}
         entityIds={[E.wms.site]}
+        injectionSpotId={extensionPoints.hosts.siteForm.spotId}
         initialValues={initialValues}
         submitLabel={
           siteId

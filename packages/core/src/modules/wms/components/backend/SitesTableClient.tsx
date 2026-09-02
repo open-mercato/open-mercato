@@ -172,18 +172,6 @@ export function SitesTableClient() {
               onSelect: () =>
                 router.push(`/backend/wms/sites/${encodeURIComponent(row.id)}`),
             },
-            ...(canManage
-              ? [
-                  {
-                    id: "edit",
-                    label: t("common.edit", "Edit"),
-                    onSelect: () =>
-                      router.push(
-                        `/backend/wms/sites/${encodeURIComponent(row.id)}`,
-                      ),
-                  },
-                ]
-              : []),
           ]}
         />
       )}

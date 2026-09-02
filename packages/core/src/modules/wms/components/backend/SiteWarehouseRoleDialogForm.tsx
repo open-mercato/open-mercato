@@ -19,19 +19,14 @@ import {
   SelectValue,
 } from "@open-mercato/ui/primitives/select";
 import { useT } from "@open-mercato/shared/lib/i18n/context";
-import { E } from "#generated/entities.ids.generated";
 import { flashMutationError } from "../../lib/flashMutationError";
+import {
+  SITE_WAREHOUSE_ROLES,
+  type SiteWarehouseRoleType,
+} from "../../lib/siteWarehouseRoles";
 import { loadActiveWarehouseOptions } from "./wmsLookupLoaders";
 
-const roles = [
-  "raw_material",
-  "line_side",
-  "wip",
-  "finished_goods",
-  "quarantine",
-  "shipping",
-] as const;
-export type SiteWarehouseRoleType = (typeof roles)[number];
+export type { SiteWarehouseRoleType } from "../../lib/siteWarehouseRoles";
 
 export type SiteWarehouseRoleRow = {
   id: string;
@@ -62,7 +57,7 @@ function createSchema(t: ReturnType<typeof useT>) {
       .string()
       .uuid(t("wms.sites.validation.id", "The record identifier is invalid."))
       .optional(),
-    role: z.enum(roles, {
+    role: z.enum(SITE_WAREHOUSE_ROLES, {
       message: t(
         "wms.sites.validation.role",
         "Select a valid warehouse role.",
@@ -133,9 +128,9 @@ export function SiteWarehouseRoleDialogForm({
         component: ({ disabled, setFormValue, setValue, value }) => {
           const selectedRole =
             typeof value === "string" &&
-            roles.includes(value as SiteWarehouseRoleType)
+            SITE_WAREHOUSE_ROLES.includes(value as SiteWarehouseRoleType)
               ? (value as SiteWarehouseRoleType)
-              : roles[0];
+              : SITE_WAREHOUSE_ROLES[0];
           return (
             <Select
               value={selectedRole}
@@ -151,7 +146,7 @@ export function SiteWarehouseRoleDialogForm({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {roles.map((role) => (
+                {SITE_WAREHOUSE_ROLES.map((role) => (
                   <SelectItem key={role} value={role}>
                     {t(`wms.sites.roles.role.${role}`, role)}
                   </SelectItem>
@@ -269,7 +264,6 @@ export function SiteWarehouseRoleDialogForm({
     <CrudForm<SiteWarehouseRoleFormValues>
       schema={schema}
       fields={fields}
-      entityId={E.wms.site_warehouse_role}
       initialValues={initialValues}
       submitLabel={t("common.save", "Save")}
       onSubmit={submit}

@@ -1039,6 +1039,7 @@
   "wms.sites.roles.dialog.edit": "Lagerrolle bearbeiten",
   "wms.sites.roles.empty.description": "Weisen Sie aktive Lager zu, um die operativen Rollen dieses Standorts festzulegen.",
   "wms.sites.roles.empty.title": "Keine Lagerrollen",
+  "wms.sites.roles.errors.customFieldsUnsupported": "Benutzerdefinierte Felder werden für Lagerrollen nicht unterstützt.",
   "wms.sites.roles.errors.defaultConflict": "Ein anderes Lager wurde gerade als Standard für diese Rolle festgelegt. Bitte versuchen Sie es erneut.",
   "wms.sites.roles.errors.defaultDeletion": "Legen Sie einen Ersatz fest, bevor Sie die Standardzuordnung löschen.",
   "wms.sites.roles.errors.defaultInvariant": "Solange Zuordnungen bestehen, ist ein Standardlager erforderlich.",

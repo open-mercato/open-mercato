@@ -9,7 +9,11 @@ export class Migration20260829090000_wms extends Migration {
     this.addSql(`
       alter table "wms_sales_order_warehouse_assignments"
         add constraint "wms_sales_order_warehouse_assignments_warehouse_id_foreign"
-        foreign key ("warehouse_id") references "wms_warehouses" ("id");
+        foreign key ("warehouse_id") references "wms_warehouses" ("id") not valid;
+    `)
+    this.addSql(`
+      alter table "wms_sales_order_warehouse_assignments"
+        validate constraint "wms_sales_order_warehouse_assignments_warehouse_id_foreign";
     `)
   }
 

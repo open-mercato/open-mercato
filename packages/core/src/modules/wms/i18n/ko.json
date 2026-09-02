@@ -1039,6 +1039,7 @@
   "wms.sites.roles.dialog.edit": "창고 역할 편집",
   "wms.sites.roles.empty.description": "활성 창고를 지정하여 이 사이트의 운영 역할을 정의하세요.",
   "wms.sites.roles.empty.title": "창고 역할 없음",
+  "wms.sites.roles.errors.customFieldsUnsupported": "창고 역할에는 사용자 지정 필드가 지원되지 않습니다.",
   "wms.sites.roles.errors.defaultConflict": "이 역할의 기본 창고가 방금 다른 창고로 변경되었습니다. 다시 시도하세요.",
   "wms.sites.roles.errors.defaultDeletion": "기본 할당을 삭제하기 전에 대체 항목을 지정하세요.",
   "wms.sites.roles.errors.defaultInvariant": "할당이 남아 있는 동안 기본 창고가 필요합니다.",

@@ -112,44 +112,7 @@ export class Migration20260828234646_wms extends Migration {
           or not (ra."features_json" ? 'wms.manage_sites')
         );
     `)
-  }
 
-  override down(): void {
-    this.addSql(`
-      do $$
-      begin
-        if exists (
-          select 1
-          from "wms_acl_migration_20260828234646" as backup
-          left join "role_acls" as ra on ra."id" = backup."role_acl_id"
-          where ra."id" is null
-            or ra."features_json" is distinct from backup."applied_features_json"
-            or ra."updated_at" is distinct from backup."applied_updated_at"
-        ) then
-          raise exception 'Cannot roll back WMS ACL migration after role ACL changes';
-        end if;
-      end $$;
-    `)
-
-    this.addSql(`
-      update "role_acls" as ra
-      set
-        "features_json" = backup."previous_features_json",
-        "updated_at" = backup."previous_updated_at"
-      from "wms_acl_migration_20260828234646" as backup
-      where ra."id" = backup."role_acl_id"
-        and backup."created_by_migration" = false;
-    `)
-
-    this.addSql(`
-      delete from "role_acls" as ra
-      using "wms_acl_migration_20260828234646" as backup
-      where ra."id" = backup."role_acl_id"
-        and backup."created_by_migration" = true;
-    `)
-
-    this.addSql(`
-      drop table "wms_acl_migration_20260828234646";
-    `)
+    this.addSql(`drop table "wms_acl_migration_20260828234646";`)
   }
 }

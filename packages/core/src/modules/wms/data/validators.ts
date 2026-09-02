@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { SITE_WAREHOUSE_ROLES } from '../lib/siteWarehouseRoles'
 
 const uuid = () => z.string().uuid()
 const numericQuantity = z.coerce.number().finite()
@@ -27,7 +28,7 @@ const inventoryMovementTypeSchema = z.enum([
   'return_receive',
 ])
 const inventoryMovementReferenceTypeSchema = z.enum(['po', 'so', 'transfer', 'manual', 'qc', 'rma'])
-export const siteWarehouseRoleSchema = z.enum(['raw_material', 'line_side', 'wip', 'finished_goods', 'quarantine', 'shipping'])
+export const siteWarehouseRoleSchema = z.enum(SITE_WAREHOUSE_ROLES)
 
 const metadataSchema = z.record(z.string(), z.unknown()).optional()
 
