@@ -134,6 +134,7 @@ import {
   mapOrderLineEntityToSnapshot,
   mapQuoteLineEntityToSnapshot,
   resolveUpsertDiscountFields,
+  resolveUpsertTotalsOrigin,
 } from "../lib/lineSnapshots";
 import { loadShippedQuantityByLine } from "../lib/shipments/snapshots";
 import { resolveDictionaryEntryValue, resolveCachedDictionaryEntryValue } from "../lib/dictionaries";
@@ -3038,6 +3039,13 @@ function isStoredRowSourcedLine(line: DocumentLineCreateInput): boolean {
   );
 }
 
+function isStoredRowSourcedTotalsLine(line: DocumentLineCreateInput): boolean {
+  return (
+    (line as Pick<SalesLineSnapshot, "totalsFromStoredRow">)
+      .totalsFromStoredRow === true
+  );
+}
+
 function createLineSnapshotFromInput(
   line: DocumentLineCreateInput,
   lineNumber: number,
@@ -3079,6 +3087,10 @@ function createLineSnapshotFromInput(
     ...(isStoredRowSourcedLine(line)
       ? { discountAmountFromStoredRow: true }
       : { discountAmountBasis: line.discountAmountBasis ?? "unit" }),
+    // Carried independently of the discount origin above: a line upsert can
+    // take its discount from the caller while its totals still come off the
+    // stored row, and only the caller half is worth reconciling (#5644).
+    ...(isStoredRowSourcedTotalsLine(line) ? { totalsFromStoredRow: true } : {}),
     discountPercent: line.discountPercent ?? null,
     taxRate: line.taxRate ?? null,
     taxAmount: line.taxAmount ?? null,
@@ -7240,6 +7252,7 @@ const orderLineUpsertCommand: CommandHandler<
         parsed.totalNetAmount ?? existingSnapshot?.totalNetAmount ?? null,
       totalGrossAmount:
         parsed.totalGrossAmount ?? existingSnapshot?.totalGrossAmount ?? null,
+      ...resolveUpsertTotalsOrigin(parsed.totalNetAmount, existingSnapshot),
       configuration:
         parsed.configuration ?? existingSnapshot?.configuration ?? null,
       promotionCode:
@@ -7737,6 +7750,7 @@ const quoteLineUpsertCommand: CommandHandler<
         parsed.totalNetAmount ?? existingSnapshot?.totalNetAmount ?? null,
       totalGrossAmount:
         parsed.totalGrossAmount ?? existingSnapshot?.totalGrossAmount ?? null,
+      ...resolveUpsertTotalsOrigin(parsed.totalNetAmount, existingSnapshot),
       configuration:
         parsed.configuration ?? existingSnapshot?.configuration ?? null,
       promotionCode:

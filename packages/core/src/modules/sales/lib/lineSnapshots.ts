@@ -39,6 +39,11 @@ function mapPersistedLine(line: SalesOrderLine | SalesQuoteLine): SalesLineSnaps
     discountPercent: toNumeric(line.discountPercent),
     taxRate: toNumeric(line.taxRate),
     taxAmount: toNumeric(line.taxAmount),
+    // The totals below are the engine's own previous output read back off the
+    // row, not something a caller asserted, so they are not reconciled against
+    // the recomputed net (#5644) — on a legacy row that divergence is the
+    // discount contract healing itself, not a caller mistake.
+    totalsFromStoredRow: true,
     totalNetAmount: toNumeric(line.totalNetAmount),
     totalGrossAmount: toNumeric(line.totalGrossAmount),
     configuration: line.configuration ? cloneJson(line.configuration) : null,
@@ -95,4 +100,22 @@ export function resolveUpsertDiscountFields(
     discountAmount: existingSnapshot?.discountAmount ?? null,
     discountAmountFromStoredRow: existingSnapshot != null,
   }
+}
+
+/**
+ * Decide whether the `totalNetAmount` an upsert payload ends up carrying is a
+ * caller assertion or a value that came back off the stored row.
+ *
+ * The upsert merges caller input over the existing snapshot, so the merged
+ * total has two possible origins and only the caller one is worth reconciling
+ * against the recomputed net (#5644): a value read back off the row is what the
+ * engine itself wrote last time, and on a legacy row it is exactly what
+ * recalculation is supposed to heal.
+ */
+export function resolveUpsertTotalsOrigin(
+  callerTotalNetAmount: number | null | undefined,
+  existingSnapshot: Pick<SalesLineSnapshot, 'totalNetAmount'> | null | undefined,
+): Pick<SalesLineSnapshot, 'totalsFromStoredRow'> {
+  if (callerTotalNetAmount !== null && callerTotalNetAmount !== undefined) return {}
+  return existingSnapshot != null ? { totalsFromStoredRow: true } : {}
 }
