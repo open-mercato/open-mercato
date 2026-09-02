@@ -244,6 +244,12 @@ function createFakeKysely(overrides?: FakeData) {
   return db
 }
 
+// Selects are recorded verbatim, so a plain column arrives as a string while an
+// aggregated cf projection arrives as Kysely's aliased raw builder.
+function selectAliases(call: any): string[] {
+  return call._ops.selects.map((s: any) => (typeof s === 'string' ? s : String(s?.alias ?? '')))
+}
+
 describe('BasicQueryEngine (Kysely)', () => {
   test('pluralizes entity names ending with y correctly', async () => {
     const fakeDb = createFakeKysely()
@@ -285,6 +291,39 @@ describe('BasicQueryEngine (Kysely)', () => {
     expect(hasCfOrder).toBe(true)
     const hasExtJoin = baseCall._ops.joins.length > 0
     expect(hasExtJoin).toBe(true)
+  })
+
+  test('a cf sort alone projects and joins the key it orders by', async () => {
+    const fakeDb = createFakeKysely()
+    const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
+    await engine.query('auth:user', {
+      fields: ['id', 'email'],
+      sort: [{ field: 'cf:vip', dir: SortDir.Asc }],
+      organizationId: '1',
+      tenantId: 't1',
+    })
+    const baseCall = fakeDb._calls.find((b: any) => b._ops.table === 'users')
+    expect(baseCall._ops.orderBys).toContainEqual(['cf_vip', 'asc'])
+    // Ordering by an alias the query never selected is a Postgres 42703, so the
+    // sort has to bring its own projection and joins along (#5521).
+    expect(selectAliases(baseCall)).toContain('cf_vip')
+    expect(baseCall._ops.joins.length).toBeGreaterThan(0)
+  })
+
+  test('a cf sort that resolves to no definition is dropped, not ordered by', async () => {
+    const fakeDb = createFakeKysely()
+    const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
+    await engine.query('auth:user', {
+      fields: ['id', 'email'],
+      sort: [{ field: 'cf:no_such_key', dir: SortDir.Asc }],
+      organizationId: '1',
+      tenantId: 't1',
+    })
+    const baseCall = fakeDb._calls.find((b: any) => b._ops.table === 'users')
+    // Dropping an unresolvable sort is what the base-column branch already does;
+    // the alternative here was an ORDER BY over a column that is never selected.
+    expect(baseCall._ops.orderBys).toEqual([])
+    expect(selectAliases(baseCall)).not.toContain('cf_no_such_key')
   })
 
   test('customFieldSources join additional profiles for custom fields', async () => {

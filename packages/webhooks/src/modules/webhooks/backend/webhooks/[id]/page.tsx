@@ -1,7 +1,7 @@
 "use client"
 import * as React from 'react'
 import { extensionPoints } from '@open-mercato/webhooks/modules/webhooks/extension-points'
-import { useParams, usePathname, useRouter } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 import { RotateCw } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
@@ -97,12 +97,10 @@ const statusVariantMap: Record<string, 'default' | 'secondary' | 'destructive' |
 }
 const DELIVERY_AUTO_REFRESH_INTERVAL_MS = 30000
 
-export default function WebhookDetailPage() {
-  const params = useParams()
-  const pathname = usePathname()
+export default function WebhookDetailPage({ params }: { params?: { id?: string } }) {
   const router = useRouter()
   const t = useT()
-  const webhookId = React.useMemo(() => resolveWebhookId(params?.id, pathname), [params?.id, pathname])
+  const webhookId = params?.id ?? null
 
   const [webhook, setWebhook] = React.useState<Webhook | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
@@ -733,22 +731,3 @@ export default function WebhookDetailPage() {
   )
 }
 
-function resolveWebhookId(paramValue: string | string[] | undefined, pathname: string | null): string | null {
-  if (typeof paramValue === 'string' && paramValue.trim().length > 0) {
-    return paramValue
-  }
-
-  if (Array.isArray(paramValue)) {
-    const first = paramValue.find((value) => typeof value === 'string' && value.trim().length > 0)
-    if (first) return first
-  }
-
-  if (typeof pathname === 'string') {
-    const match = pathname.match(/\/backend\/webhooks\/([^/?#]+)/)
-    if (match?.[1]) {
-      return decodeURIComponent(match[1])
-    }
-  }
-
-  return null
-}
