@@ -8996,6 +8996,7 @@ __metadata:
     "@types/react-dom": "npm:^19.2.3"
     cmdk: "npm:^1.0.0"
     date-fns: "npm:4.4.0"
+    glob: "npm:^13.0.6"
     jest: "npm:^30.4.2"
     jest-environment-jsdom: "npm:^30.4.1"
     react: "npm:19.2.8"
