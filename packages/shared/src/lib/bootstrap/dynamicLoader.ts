@@ -619,7 +619,7 @@ async function ensureOptionalOverrideAppliers(enabledModules: ModuleEntryWithOve
     })
     if (!declared) continue
     try {
-      await import(/* @vite-ignore */ specifier)
+      await import(/* webpackIgnore: true */ /* turbopackIgnore: true */ specifier)
     } catch (error) {
       logger.debug('Optional override applier module is not installed; the domain has nothing to apply to', {
         domain,
