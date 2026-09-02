@@ -11,6 +11,11 @@ import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encrypt
 import { parseDecryptedFieldValue } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { E } from '#generated/entities.ids.generated'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import {
+  createBoundedPendingOperationTracker,
+  parsePendingOperationCapacity,
+  type BoundedPendingOperationTracker,
+} from '@open-mercato/shared/lib/telemetry/pending'
 
 const logger = createLogger('audit_logs').child({ component: 'access-log-service' })
 
@@ -39,7 +44,6 @@ const NON_CORE_RETENTION_MS = NON_CORE_RETENTION_HOURS * 60 * 60 * 1000
 // process — `0` opts back into rotate-on-every-write (test harnesses).
 const ROTATE_INTERVAL_MS = toNonNegativeNumber(process.env.AUDIT_LOGS_ROTATE_INTERVAL_MS, 60_000)
 
-let lastRotatedAt: number | null = null
 const UUID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/
 // Postgres has a hard limit of 65k bind parameters per statement. Each access
 // log row uses 10 bind values (see INSERT below), so 500 rows × 10 = 5 000
@@ -49,30 +53,64 @@ const MAX_BATCH_ROWS = 500
 let validationWarningLogged = false
 let runtimeValidationAvailable: boolean | null = null
 
-// Module-level registry of in-flight access-log writes. Both `log` and
-// `logMany` opt every promise they kick off into this set so that
-// `flushAccessLog()` can drain them. This is what makes the new
-// fire-and-forget CRUD path safe for test code that asserts on `access_logs`
-// rows immediately after a response — the integration harness defaults to
-// blocking via `OM_CRUD_ACCESS_LOG_BLOCKING=1`, and direct callers can opt
-// in to draining explicitly via `flushAccessLog()`.
-const pendingAccessLogWrites = new Set<Promise<unknown>>()
+const ACCESS_LOG_WRITE_TRACKER_KEY = Symbol.for('@open-mercato/core.accessLogWritePendingTracker')
+const ACCESS_LOG_ROTATION_KEY = Symbol.for('@open-mercato/core.accessLogRotation')
 
-function trackPendingAccessLogWrite<T>(promise: Promise<T>): Promise<T> {
-  pendingAccessLogWrites.add(promise as unknown as Promise<unknown>)
-  promise
-    .catch(() => undefined)
-    .finally(() => {
-      pendingAccessLogWrites.delete(promise as unknown as Promise<unknown>)
-    })
-  return promise
+type AccessLogWriteTrackerStore = {
+  tracker?: BoundedPendingOperationTracker
+}
+
+type AccessLogRotationStore = {
+  inFlight: Promise<void> | null
+  lastRotatedAt: number | null
+}
+
+function accessLogWriteTrackerStore(): AccessLogWriteTrackerStore {
+  const globalStore = globalThis as unknown as Record<symbol, AccessLogWriteTrackerStore | undefined>
+  globalStore[ACCESS_LOG_WRITE_TRACKER_KEY] ??= {}
+  return globalStore[ACCESS_LOG_WRITE_TRACKER_KEY]
+}
+
+function accessLogRotationStore(): AccessLogRotationStore {
+  const globalStore = globalThis as unknown as Record<symbol, AccessLogRotationStore | undefined>
+  globalStore[ACCESS_LOG_ROTATION_KEY] ??= { inFlight: null, lastRotatedAt: null }
+  return globalStore[ACCESS_LOG_ROTATION_KEY]
+}
+
+function getAccessLogWriteTracker(): BoundedPendingOperationTracker {
+  const current = accessLogWriteTrackerStore()
+  const capacity = parsePendingOperationCapacity(process.env.AUDIT_LOGS_MAX_PENDING)
+  if (current.tracker && (current.tracker.capacity === capacity || current.tracker.pending > 0)) {
+    return current.tracker
+  }
+  current.tracker?.dispose()
+  current.tracker = createBoundedPendingOperationTracker({
+    capacity,
+    stage: 'service_write',
+    onDrop: () => {
+      logger.warn('Dropped access-log write because pending capacity is full', {
+        capacity,
+        stage: 'service_write',
+      })
+    },
+    onError: (err) => {
+      logger.warn('Access-log write tracker callback failed', { err, stage: 'service_write' })
+    },
+  })
+  return current.tracker
 }
 
 export async function flushAccessLog(): Promise<void> {
-  while (pendingAccessLogWrites.size > 0) {
-    const snapshot = Array.from(pendingAccessLogWrites)
-    await Promise.allSettled(snapshot)
-  }
+  await accessLogWriteTrackerStore().tracker?.flush()
+}
+
+export function resetAccessLogRuntimeStateForTests(): void {
+  const trackerState = accessLogWriteTrackerStore()
+  trackerState.tracker?.dispose()
+  trackerState.tracker = undefined
+  const rotationState = accessLogRotationStore()
+  rotationState.inFlight = null
+  rotationState.lastRotatedAt = null
 }
 
 const isZodRuntimeMissing = (err: unknown) => err instanceof TypeError && typeof err.message === 'string' && err.message.includes('_zod')
@@ -106,14 +144,14 @@ export class AccessLogService {
   constructor(private readonly em: EntityManager) {}
 
   async log(input: AccessLogCreateInput): Promise<AccessLog | null> {
-    const promise = this.logInternal(input)
-    return trackPendingAccessLogWrite(promise)
+    const admission = getAccessLogWriteTracker().tryStart(() => this.logInternal(input))
+    return admission.accepted ? admission.promise : null
   }
 
   async logMany(inputs: AccessLogCreateInput[]): Promise<number> {
     if (!Array.isArray(inputs) || inputs.length === 0) return 0
-    const promise = this.logManyInternal(inputs)
-    return trackPendingAccessLogWrite(promise)
+    const admission = getAccessLogWriteTracker().tryStart(() => this.logManyInternal(inputs))
+    return admission.accepted ? admission.promise : 0
   }
 
   flush(): Promise<void> {
@@ -393,10 +431,24 @@ export class AccessLogService {
     return { items, total, page, pageSize, totalPages }
   }
 
-  private async rotate(fork: EntityManager) {
+  private async rotate(fork: EntityManager): Promise<void> {
+    const rotationState = accessLogRotationStore()
+    if (rotationState.inFlight) return rotationState.inFlight
     const now = Date.now()
-    if (ROTATE_INTERVAL_MS > 0 && lastRotatedAt !== null && now - lastRotatedAt < ROTATE_INTERVAL_MS) return
-    lastRotatedAt = now
+    if (
+      ROTATE_INTERVAL_MS > 0
+      && rotationState.lastRotatedAt !== null
+      && now - rotationState.lastRotatedAt < ROTATE_INTERVAL_MS
+    ) return
+    rotationState.lastRotatedAt = now
+    const rotation = this.performRotation(fork, now).finally(() => {
+      if (rotationState.inFlight === rotation) rotationState.inFlight = null
+    })
+    rotationState.inFlight = rotation
+    return rotation
+  }
+
+  private async performRotation(fork: EntityManager, now: number): Promise<void> {
     const coreCutoff = new Date(now - CORE_RETENTION_MS)
     const nonCoreCutoff = new Date(now - NON_CORE_RETENTION_MS)
     try {

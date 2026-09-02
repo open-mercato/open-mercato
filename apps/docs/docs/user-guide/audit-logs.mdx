@@ -43,3 +43,19 @@ Access log retention is automatic and environment-configurable:
 - **Rotation frequency** is throttled to at most one sweep per **60 seconds** per process. Override with `AUDIT_LOGS_ROTATE_INTERVAL_MS`; setting it to `0` runs the sweep after every write.
 
 Configure these in your `.env` file to keep the volume of access logs under control while preserving critical trails for longer investigations.
+
+## Overload protection
+
+Access-log writes use two asynchronous stages: CRUD response dispatch and the audit-log service write. Each stage accepts up to **256 pending tasks per process** by default. Set `AUDIT_LOGS_MAX_PENDING` to a positive integer to change that per-stage limit; invalid, zero, and negative values use the default.
+
+When a stage is full, the newest access-log task is skipped before parsing, encryption, or database work begins. The application request continues normally. Blocking mode does not wait for capacity: it returns the same deterministic skipped result. A warning identifies only the fixed stage and configured capacity and is limited to once per minute per stage.
+
+Retention sweeps are single-flight. Concurrent writes wait for the active sweep instead of starting duplicate delete operations. With `AUDIT_LOGS_ROTATE_INTERVAL_MS=0`, concurrent callers still share the active sweep, while the next sequential write starts a new one.
+
+When telemetry is enabled, the following low-cardinality metrics expose pressure without including tenant, organization, user, resource, or request values:
+
+| Metric | Meaning |
+| --- | --- |
+| `om.audit_logs.pending_writes` | Current accepted tasks, labelled by `stage=crud_dispatch|service_write` |
+| `om.audit_logs.oldest_pending_age` | Age in seconds of the oldest accepted task at that stage; zero when empty |
+| `om.audit_logs.dropped` | Capacity rejections, labelled by stage and fixed `reason=capacity` |

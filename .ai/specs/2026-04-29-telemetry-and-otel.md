@@ -22,7 +22,8 @@ This spec also defines how **issue #60** ("global telemetry handler for exceptio
 - W3C trace-context propagation across HTTP, queue jobs, event bus dispatch, SSE bridge, outbound webhooks.
 - Auto-instrumentation of Next.js handlers, MikroORM/pg, undici/fetch, the queue worker, and event-bus dispatch.
 - PII-hygiene posture: `pg` parameter-value capture disabled, an email-redaction backstop, tenant/org/user IDs as opaque span attributes only.
-- Built-in metrics: standard `http.server.request.duration` plus `om.*` for what has no semconv equivalent.
+- Built-in metrics: standard HTTP, database-pool, Node.js runtime, and process/V8
+  measurements plus `om.*` for what has no semconv equivalent.
 - AGENTS.md guidance for module authors.
 
 **Out of scope:**
@@ -347,6 +348,17 @@ Built-in metrics — prefer **OpenTelemetry semantic-convention** instruments wh
 |---|---|---|---|
 | `http.server.request.duration` | histogram (`s`) | `http.request.method`, `http.route`, `http.response.status_code`, `error.type` | semconv standard; request count derives from histogram count |
 | `om.errors` | counter | `module` | app-specific; no semconv equivalent |
+| `db.client.connection.count` | gauge (`{connection}`) | `pool=primary`, `state=idle|used` | sampled primary-pool connections by state |
+| `db.client.connection.pending_requests` | gauge (`{request}`) | `pool=primary` | sampled callers waiting to acquire a connection |
+| `db.client.connection.max` | gauge (`{connection}`) | `pool=primary` | configured primary-pool maximum |
+| `db.client.connection.wait_time` | histogram (`s`) | `pool=primary` | caller-observed promise/callback acquisition duration |
+| `nodejs.eventloop.utilization` | gauge (`1`) | none | utilization delta over the sampling interval |
+| `nodejs.eventloop.delay.p50/p90/p99` | gauge (`s`) | none | event-loop delay percentiles over the sampling interval |
+| `process.memory.usage` | gauge (`By`) | none | process RSS |
+| `v8js.memory.heap.used` | gauge (`By`) | `v8js.heap.space.name` | used bytes per bounded V8 heap space |
+| `om.audit_logs.pending_writes` | gauge (`{task}`) | `stage=crud_dispatch|service_write` | sampled accepted access-log tasks at each independently bounded stage |
+| `om.audit_logs.oldest_pending_age` | gauge (`s`) | `stage=crud_dispatch|service_write` | monotonic age of the oldest accepted task; zero when empty |
+| `om.audit_logs.dropped` | counter (`{task}`) | `stage=crud_dispatch|service_write`, `reason=capacity` | immediate capacity rejections before async work starts |
 | `om.queue.jobs` / `om.queue.duration` | counter / histogram | queue, status | partial — RED is also derivable by the backend from queue spans |
 | `om.queue.depth` | gauge | queue | needs a core queue hook |
 | `om.event.subscribers.duration` | histogram | event_id | |
@@ -482,7 +494,9 @@ For packages that must not depend on `@open-mercato/telemetry` (see S2, "Emittin
 |---|---|
 | `withTelemetrySpan(name, fn, options?)` | runs `fn` inside a span via the active bridge; `fn` runs untraced when telemetry is off |
 | `captureTelemetryTrace()` | active trace as a carrier for `links`, or `undefined` when nothing is active |
-| Types: `TelemetrySpan`, `TelemetrySpanOptions`, `TelemetrySpanAttributes`, `TelemetrySpanKind`, `TelemetryTraceCarrier`, `TelemetryRuntime` | |
+| `recordTelemetryMetric(point)` | forwards through the optional active metric bridge and returns `false` while unavailable |
+| `registerTelemetryMetricCollector(fn)` / `collectTelemetryMetrics()` | registers shared state owners for the telemetry package's enabled-only periodic sampler |
+| Types: `TelemetrySpan`, `TelemetrySpanOptions`, `TelemetrySpanAttributes`, `TelemetrySpanKind`, `TelemetryTraceCarrier`, `TelemetryMetricPoint`, `TelemetryRuntime` | |
 
 ### HTTP API contracts
 
@@ -503,6 +517,7 @@ Per the **Backward Compatibility Contract** in root `AGENTS.md`:
 | `SpanOptions` (2026-08-11) | new **optional** `root?` / `links?` fields | ✓ ADDITIVE — omitting them preserves today's behavior exactly; a custom `TelemetryProvider` that ignores them degrades to "not a root", never breaks |
 | `Span` / `TelemetrySpan` (2026-08-13) | new **optional** `updateName?(name)` method | ✓ ADDITIVE — declared optional so a third-party provider or an older bootstrap still satisfies the interface; callers invoke it as `span.updateName?.(…)` and degrade to the original span name |
 | `TelemetryRuntime` (2026-08-11) | new **optional** `withSpan?` method on the shared bridge | ✓ ADDITIVE — declared optional so an older bootstrap still satisfies the interface; `withTelemetrySpan` falls back to running `fn` untraced |
+| `TelemetryRuntime` (2026-08-31) | new **optional** `recordMetric?` method plus additive metric/collector helpers | ✓ ADDITIVE — older bootstraps remain valid; callers no-op while the method is absent |
 | `DataSyncAdapter.streamImport/streamExport` (2026-08-11) | **unchanged** — the engine now drives the returned iterator explicitly | adapters need no changes; closing follows the language's own `IteratorClose` rules, keeping generator `finally` semantics identical to `for await` (regression-tested) |
 | Trace topology for telemetry-on consumers (2026-08-11) | sync work moves from inside the trigger's trace to per-batch traces linked back to it | intended fix, but visible in saved dashboards/views — noted in `UPGRADE_NOTES.md` |
 | Import paths | new package — STABLE from day 1 | alias re-export from `@open-mercato/shared/lib/telemetry` if the boundary is later moved |
@@ -537,7 +552,7 @@ Phases are **development milestones**; the contribution lands upstream as **one 
 
 - Worker-process init via `runWorker` in `packages/queue` (the single bootstrap every standalone worker passes through; idempotent, so in-process workers re-use the web init); `globalThis` provider registry.
 - W3C trace context across the queue on the `metadata._trace` channel — auto-inject at `enqueue` + auto-continue at the strategy dispatch (`local` and `async`), zero per-worker code. **This single change also covers persistent event subscribers and outbound webhook delivery**, since both ride the queue. Ephemeral (in-process) subscribers are already in-trace (synchronous within `emit()`). SSE-bridge `traceparent` is deferred (browser RUM out of scope).
-- Queue/webhook/event RED metrics are derived by the backend from the spans emitted above (matching the Phase 1 stance); explicit `om.queue.*` counters and depth/pool gauges remain a follow-up (need extra core hooks).
+- Queue/webhook/event RED metrics are derived by the backend from the spans emitted above. Primary-pool and Node.js runtime gauges are built in; queue depth and access-log backlog measurements remain separate follow-ups with their own ownership seams.
 - Root-per-request propagator (ignore inbound HTTP trace context behind a proxy) — shipped in Phase 1's OTLP provider.
 
 ### Phase 3 — Exception-pipeline policy + optional status page
@@ -635,6 +650,16 @@ Touched areas (cross-package wiring, for reviewer awareness):
 
 ## Changelog
 
+- **2026-08-31 (access-log overload metrics)** — Added independently bounded
+  CRUD-dispatch and service-write backlog tracking, sampled pending-depth and
+  oldest-age gauges, and an immediate capacity-drop counter. Labels are limited
+  to two fixed stages and one fixed reason; collectors register only while work
+  is pending and emit zero before cleanup.
+- **2026-08-31 (runtime saturation metrics)** — Added an optional shared metric
+  bridge and collector registry, an enabled-only 10-second Node.js event-loop
+  and memory sampler, primary PostgreSQL pool state gauges, and promise/callback
+  acquisition-wait timing. All labels are fixed or bounded, disabled telemetry
+  starts no sampler, and HMR/shutdown disposal is regression-tested.
 - **2026-08-03 (review follow-up: provider reachability and adoption hardening)** — Restored the exported custom-provider extension point without weakening default-unloaded behavior: an explicitly imported bootstrap can register a provider whose name matches `TELEMETRY_BACKEND` and call `initTelemetry()`, while unregistered/unknown names remain a hard no-op in standard hosts. The telemetry env parser now reuses the shared built-in-backend guard as its source of truth, and provider resolution degrades safely instead of throwing on future registry drift. Documented that `TELEMETRY_TRUST_INBOUND_TRACE=false` also disables richer `bullmq-otel` spans in favor of the dedicated queue carrier. Fixed the `mercato telemetry init` legacy `/nextjs` import migration to splice the array before changing import text, with regression coverage.
 - **2026-07-24 (unified logger, secure/default-unloaded carryover hardening)** — Rebased the implementation on the canonical shared logger introduced by #4003. Removed telemetry's duplicate Pino/logger facade and `TELEMETRY_LOG_*` controls; a process-wide shared-logger extension now adds trace context and one remote sink under the existing `OM_LOG_*` gate. Added a `globalThis` shared telemetry runtime bridge so API, queue, worker, and CLI code do not statically import telemetry; Next/app/CLI/worker hosts dynamically import only after an explicit supported `TELEMETRY_BACKEND`, and `nextjs-config` isolates build-time externals from runtime code. Explicit off is absolute and cannot be overridden by a custom `noop` provider. Security hardening: arbitrary thrown objects are no longer JSON-stringified, exact `token` keys are masked without clobbering `token_count`, provider-boundary redaction covers logs/spans/metrics, and both standard + backup inbound trace headers require `TELEMETRY_TRUST_INBOUND_TRACE=true`. The async BullMQ integration uses the dedicated carrier unless trusted global propagation is explicitly enabled. App/template/codemod/docs/tests were updated in lockstep; telemetry version aligned to `0.6.6`.
 - **2026-04-29** — Initial draft (spec-only). No code yet.

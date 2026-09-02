@@ -3,14 +3,20 @@ import 'reflect-metadata'
 import { MikroORM } from '@mikro-orm/core'
 import { ReflectMetadataProvider } from '@mikro-orm/decorators/legacy'
 import { PostgreSqlDriver, type EntityManager as PostgreSqlEntityManager } from '@mikro-orm/postgresql'
+import { performance } from 'node:perf_hooks'
 import { getSslConfig } from './ssl'
 import { createLogger } from '../logger'
+import {
+  recordTelemetryMetric,
+  registerTelemetryMetricCollector,
+} from '../telemetry/runtime'
 
 const logger = createLogger('shared').child({ component: 'orm' })
 
 export type AppMikroORM = MikroORM<PostgreSqlDriver, PostgreSqlEntityManager<PostgreSqlDriver>>
 
 let ormInstance: AppMikroORM | null = null
+let disposePoolInstrumentation: (() => void) | undefined
 
 // Use globalThis so standalone apps survive duplicated shared package module instances.
 const GLOBAL_ENTITIES_KEY = '__openMercatoOrmEntities__'
@@ -79,10 +85,56 @@ export function resolvePoolConfig(env: NodeJS.ProcessEnv = process.env): Resolve
   }
 }
 
-type PoolLike = {
+type PoolEventSource = {
   on(event: 'error', listener: (err: unknown) => void): unknown
   on(event: 'connect', listener: (client: { on(event: 'error', listener: (err: unknown) => void): unknown }) => void): unknown
   options?: Record<string, unknown>
+}
+
+type PoolRelease = (release?: unknown) => void
+type PoolConnectCallback = (
+  err: Error | undefined,
+  client: unknown,
+  done: PoolRelease,
+) => void
+
+type PoolConnect = {
+  (): Promise<unknown>
+  (callback: PoolConnectCallback): void
+}
+type PromisePoolConnect = () => Promise<unknown>
+type CallbackPoolConnect = (callback: PoolConnectCallback) => void
+
+export type ObservablePool = PoolEventSource & {
+  totalCount: number
+  idleCount: number
+  waitingCount: number
+  connect: PoolConnect
+}
+
+const GLOBAL_PRIMARY_POOL_INSTRUMENTATION_KEY = Symbol.for(
+  '@open-mercato/shared.primaryPoolInstrumentation',
+)
+
+type PrimaryPoolInstrumentation = {
+  dispose(): void
+}
+
+type PrimaryPoolInstrumentationStore = {
+  active?: PrimaryPoolInstrumentation
+}
+
+function primaryPoolInstrumentationStore(): PrimaryPoolInstrumentationStore {
+  const globalStore = globalThis as unknown as Record<
+    symbol,
+    PrimaryPoolInstrumentationStore | undefined
+  >
+  let current = globalStore[GLOBAL_PRIMARY_POOL_INSTRUMENTATION_KEY]
+  if (!current) {
+    current = {}
+    globalStore[GLOBAL_PRIMARY_POOL_INSTRUMENTATION_KEY] = current
+  }
+  return current
 }
 
 // Postgres can terminate a connection at any moment (admin termination, network
@@ -104,7 +156,7 @@ type PoolLike = {
 // A reaped IDLE client therefore logs twice (once here, once via the pool-level
 // handler that pg-pool's own idle listener re-emits); the pool-level line is the
 // one that identifies the client as idle.
-export function attachPoolErrorHandlers(pool: PoolLike): void {
+export function attachPoolErrorHandlers(pool: PoolEventSource): void {
   pool.on('error', (err: unknown) => {
     logger.warn('Idle pg pool client error (connection reaped/terminated)', { err })
   })
@@ -113,6 +165,122 @@ export function attachPoolErrorHandlers(pool: PoolLike): void {
       logger.warn('pg client error (connection reaped/terminated)', { err })
     })
   })
+}
+
+function readPoolMaximum(pool: ObservablePool): number | undefined {
+  const maximum = pool.options?.max
+  return typeof maximum === 'number' && Number.isFinite(maximum)
+    ? maximum
+    : undefined
+}
+
+function recordPoolState(pool: ObservablePool): void {
+  const idle = Math.max(0, pool.idleCount)
+  const used = Math.max(0, pool.totalCount - idle)
+  recordTelemetryMetric({
+    kind: 'gauge',
+    name: 'db.client.connection.count',
+    value: idle,
+    labels: { pool: 'primary', state: 'idle' },
+    unit: '{connection}',
+  })
+  recordTelemetryMetric({
+    kind: 'gauge',
+    name: 'db.client.connection.count',
+    value: used,
+    labels: { pool: 'primary', state: 'used' },
+    unit: '{connection}',
+  })
+  recordTelemetryMetric({
+    kind: 'gauge',
+    name: 'db.client.connection.pending_requests',
+    value: Math.max(0, pool.waitingCount),
+    labels: { pool: 'primary' },
+    unit: '{request}',
+  })
+
+  const maximum = readPoolMaximum(pool)
+  if (maximum !== undefined) {
+    recordTelemetryMetric({
+      kind: 'gauge',
+      name: 'db.client.connection.max',
+      value: maximum,
+      labels: { pool: 'primary' },
+      unit: '{connection}',
+    })
+  }
+}
+
+export function instrumentPrimaryPool(
+  pool: ObservablePool,
+  now: () => number = () => performance.now(),
+): () => void {
+  const instrumentationStore = primaryPoolInstrumentationStore()
+  instrumentationStore.active?.dispose()
+  const originalConnect = pool.connect
+  const disposeCollector = registerTelemetryMetricCollector(() => recordPoolState(pool))
+  let metricFailureLogged = false
+
+  const recordWait = (startedAt: number) => {
+    try {
+      recordTelemetryMetric({
+        kind: 'histogram',
+        name: 'db.client.connection.wait_time',
+        value: Math.max(0, now() - startedAt) / 1_000,
+        labels: { pool: 'primary' },
+        unit: 's',
+      })
+    } catch (err) {
+      if (metricFailureLogged) return
+      metricFailureLogged = true
+      logger.warn('Failed to record pg pool acquisition wait metric', { err })
+    }
+  }
+
+  const instrumentedConnect = function (
+    this: ObservablePool,
+    callback?: PoolConnectCallback,
+  ): Promise<unknown> | void {
+    const startedAt = now()
+    if (typeof callback === 'function') {
+      return (originalConnect as CallbackPoolConnect).call(this, (err, client, done) => {
+        recordWait(startedAt)
+        callback(err, client, done)
+      })
+    }
+
+    try {
+      return (originalConnect as PromisePoolConnect).call(this).then(
+        (client: unknown) => {
+          recordWait(startedAt)
+          return client
+        },
+        (err: unknown) => {
+          recordWait(startedAt)
+          throw err
+        },
+      )
+    } catch (err) {
+      recordWait(startedAt)
+      throw err
+    }
+  } as PoolConnect
+
+  pool.connect = instrumentedConnect
+  let disposed = false
+  const instrumentation: PrimaryPoolInstrumentation = { dispose: () => {} }
+  const dispose = () => {
+    if (disposed) return
+    disposed = true
+    disposeCollector()
+    if (pool.connect === instrumentedConnect) pool.connect = originalConnect
+    if (instrumentationStore.active === instrumentation) {
+      instrumentationStore.active = undefined
+    }
+  }
+  instrumentation.dispose = dispose
+  instrumentationStore.active = instrumentation
+  return dispose
 }
 
 export async function getOrm() {
@@ -187,8 +355,10 @@ export async function getOrm() {
       lock_timeout: lockTimeoutMs,
       options: connectionOptions,
       ssl: sslConfig,
-      onPoolCreated: (pool: PoolLike) => {
+      onPoolCreated: (pool: ObservablePool) => {
+        disposePoolInstrumentation?.()
         attachPoolErrorHandlers(pool)
+        disposePoolInstrumentation = instrumentPrimaryPool(pool)
         if (process.env.OM_DB_POOL_DEBUG === '1' || process.env.OM_INTEGRATION_TEST === 'true') {
           logger.info('pg pool created with options', {
             max: pool.options?.max,
@@ -207,6 +377,8 @@ export async function getOrm() {
 
 async function closeOrmIfLoaded(): Promise<void> {
   if (ormInstance) {
+    disposePoolInstrumentation?.()
+    disposePoolInstrumentation = undefined
     await ormInstance.close(true)
     ormInstance = null
   }
