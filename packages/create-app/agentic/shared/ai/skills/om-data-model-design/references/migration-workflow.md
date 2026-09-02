@@ -11,6 +11,10 @@ Load this reference whenever entity metadata changes.
 7. Never modify a shipped migration. Add a new one.
 8. Ask before `yarn db:migrate`, greenfield reset, or changing a database target.
 
+Normal delivery stops after migration file/snapshot/tests; local applied state is not a PR artifact.
+
+Canonical example source — the shape `yarn db:generate` produces and diffs against: [`migrations/Migration20251030150038.ts`](../../../../src/modules/example/migrations/Migration20251030150038.ts), [`migrations/Migration20260226161000_example.ts`](../../../../src/modules/example/migrations/Migration20260226161000_example.ts), and the module-scoped [`migrations/.snapshot-open-mercato.json`](../../../../src/modules/example/migrations/.snapshot-open-mercato.json). Read them for style; never copy a migration into your own module.
+
 ## Data migrations MUST declare the projections they invalidate
 
 A migration that rewrites the VALUES of a column in raw SQL — a backfill, a rename, a
@@ -37,7 +41,3 @@ export const queryIndexReindexEntityTypes = declareQueryIndexReindex(['my_module
   whereas a hand-written literal is only reported as a warning during `db migrate`.
 - Both originals forward-only? A follow-up migration that carries **only** the declaration and
   executes no SQL is the repair route for installs that already applied the original.
-
-Normal delivery stops after migration file/snapshot/tests; local applied state is not a PR artifact.
-
-Canonical example source — the shape `yarn db:generate` produces and diffs against: [`migrations/Migration20251030150038.ts`](../../../../src/modules/example/migrations/Migration20251030150038.ts), [`migrations/Migration20260226161000_example.ts`](../../../../src/modules/example/migrations/Migration20260226161000_example.ts), and the module-scoped [`migrations/.snapshot-open-mercato.json`](../../../../src/modules/example/migrations/.snapshot-open-mercato.json). Read them for style; never copy a migration into your own module.
