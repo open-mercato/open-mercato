@@ -787,6 +787,7 @@ async function runGeneratorSuite(quiet: boolean): Promise<boolean> {
     generateModuleEntities,
     generateModuleDi,
     generateModulePackageSources,
+    generateAppLocalModuleFacts,
     generateOpenApi,
   } = await import('./lib/generators')
   const resolver = createResolver()
@@ -796,6 +797,7 @@ async function runGeneratorSuite(quiet: boolean): Promise<boolean> {
     await generateModuleEntities({ resolver, quiet }),
     await generateModuleDi({ resolver, quiet }),
     await generateModulePackageSources({ resolver, quiet }),
+    await generateAppLocalModuleFacts({ resolver, quiet }),
     await generateOpenApi({ resolver, quiet }),
   ]
   return results.some((result) => (result?.filesWritten.length ?? 0) > 0)

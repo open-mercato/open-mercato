@@ -87,6 +87,7 @@ type StoredReviewResult = {
 function isInitialContextPath(relative: string): boolean {
   return !relative.includes('/references/')
     && !relative.startsWith('.ai/framework-context/')
+    && !relative.startsWith('.ai/guides/app-modules/')
     && !relative.startsWith('.ai/guides/modules/')
     && !relative.startsWith('.ai/guides/reference-modules/')
     && !relative.startsWith('.ai/guides/upstream/')
@@ -492,6 +493,32 @@ test('live timeout policy gives slow default runners measured floors without ove
   assert.equal(evaluator.resolveLiveCaseTimeout({ ...defaultOptions, runner: 'claude', reasoningEffort: undefined }, 'sonnet'), 600_000)
   assert.equal(evaluator.resolveLiveCaseTimeout({ ...defaultOptions, runner: 'claude', reasoningEffort: undefined, timeoutExplicit: true }, 'sonnet'), 300_000)
   assert.equal(evaluator.resolveLiveCaseTimeout(defaultOptions, 'gpt-5.4-mini', 1_000_000), 1_000_000)
+})
+
+test('assembled decision vocabularies add deterministic distractors and keep declared vocabularies verbatim', async () => {
+  type DecisionCase = { id: string; family: string; requiredDecisions?: string[]; decisionVocabulary?: string[] }
+  const evaluator = await import(pathToFileURL(sourceEvaluator).href) as {
+    effectiveDecisionVocabulary: (caseRecord: DecisionCase, catalog: DecisionCase[]) => string[]
+  }
+  const catalog = JSON.parse(fs.readFileSync(path.join(sourceHarness, 'cases.json'), 'utf8')) as DecisionCase[]
+  const catalogLabels = new Set(catalog.flatMap((item) => [...(item.requiredDecisions ?? []), ...(item.decisionVocabulary ?? [])]))
+
+  const declared = catalog.find((item) => item.decisionVocabulary)
+  assert.ok(declared)
+  assert.deepEqual(evaluator.effectiveDecisionVocabulary(declared, catalog), declared.decisionVocabulary)
+
+  const assembled = catalog.filter((item) => !item.decisionVocabulary)
+  assert.ok(assembled.length > 0)
+  for (const caseRecord of [assembled[0], assembled.at(-1) as DecisionCase]) {
+    const required = caseRecord.requiredDecisions ?? []
+    const vocabulary = evaluator.effectiveDecisionVocabulary(caseRecord, catalog)
+    assert.deepEqual(vocabulary, evaluator.effectiveDecisionVocabulary(caseRecord, catalog))
+    assert.deepEqual(vocabulary, [...vocabulary].sort())
+    assert.equal(new Set(vocabulary).size, vocabulary.length)
+    for (const label of required) assert.ok(vocabulary.includes(label), `required ${label} missing`)
+    assert.equal(vocabulary.length, required.length + Math.max(required.length, 4))
+    for (const label of vocabulary) assert.ok(catalogLabels.has(label), `invented distractor ${label}`)
+  }
 })
 
 test('trace-start recovery recognizes only bounded unavailable-read startup reports', async () => {
