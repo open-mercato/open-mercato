@@ -283,6 +283,7 @@ const createTimeProjectCommand: CommandHandler<StaffTimeProjectCreateInput, { ti
           tenantId: project.tenantId,
         },
         events: staffTimeProjectCrudEvents,
+        indexer: timeProjectCrudIndexer,
       })
     }
   },
@@ -660,6 +661,7 @@ const assignTimeProjectMemberCommand: CommandHandler<StaffTimeProjectMemberAssig
         entity: member,
         identifiers: { id: member.id, organizationId: member.organizationId, tenantId: member.tenantId },
         events: staffTimeProjectMemberCrudEvents,
+        indexer: timeProjectMemberCrudIndexer,
       })
     }
   },
