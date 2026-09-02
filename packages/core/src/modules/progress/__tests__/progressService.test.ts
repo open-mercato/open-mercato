@@ -1645,4 +1645,41 @@ describe('progress service — stale-sweep recovery (GSM-314)', () => {
       expect.objectContaining({ jobId: 'job-1', processedCount: 50 }),
     )
   })
+  it('markCancelled — flushes the throttled meta so a producer\'s partial summary survives the cancel', async () => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+
+    const job = {
+      id: 'job-1',
+      status: 'running',
+      jobType: 'catalog.categories.bulk_create',
+      processedCount: 0,
+      progressPercent: 0,
+      totalCount: 100,
+      cancellable: true,
+      meta: {},
+    } as unknown as ProgressJob
+    em.findOneOrFail.mockResolvedValue(job)
+    em.findOne.mockResolvedValue(job)
+
+    const service = createProgressService(em as never, eventBus)
+
+    // First write opens the throttle entry and persists. The second lands inside the throttle
+    // window with an unchanged progressPercent, so persistAndMaybeBroadcast writes nothing —
+    // exactly what a bulk worker does when it records its partial summary just before cancelling.
+    await service.updateProgress('job-1', { processedCount: 0, meta: { lastCompletedRowIndex: 4 } }, baseCtx)
+    const writesBefore = em.nativeUpdate.mock.calls.length
+    await service.updateProgress('job-1', { meta: { resultSummary: { createdCount: 5 } } }, baseCtx)
+    expect(em.nativeUpdate.mock.calls.length).toBe(writesBefore)
+
+    em.nativeUpdate.mockClear()
+    await service.markCancelled('job-1', baseCtx)
+
+    const [, , data] = em.nativeUpdate.mock.calls[0]
+    expect(data.status).toBe('cancelled')
+    expect(data.meta).toEqual(expect.objectContaining({
+      lastCompletedRowIndex: 4,
+      resultSummary: { createdCount: 5 },
+    }))
+  })
 })

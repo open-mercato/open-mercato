@@ -328,6 +328,15 @@ export const productCreateSchema = productBaseSchema
   .superRefine(productUomCrossFieldRefinement)
   .superRefine(productComplianceCrossFieldRefinement)
 
+export const productBulkCreateRowSchema = productBaseSchema
+  .omit({ organizationId: true, tenantId: true })
+  .superRefine(productUomCrossFieldRefinement)
+  .superRefine(productComplianceCrossFieldRefinement)
+
+export const productsBulkCreateSchema = z.object({
+  items: z.array(productBulkCreateRowSchema).min(1).max(2000),
+})
+
 export const productUpdateSchema = z
   .object({
     id: uuid(),
@@ -501,6 +510,15 @@ export const categoryUpdateSchema = z
   })
   .merge(categoryCreateSchema.partial())
 
+export const categoryBulkCreateRowSchema = categoryCreateSchema.omit({
+  organizationId: true,
+  tenantId: true,
+})
+
+export const categoriesBulkCreateSchema = z.object({
+  items: z.array(categoryBulkCreateRowSchema).min(1).max(10000),
+})
+
 export const productUnitConversionCreateSchema = scoped.extend({
   productId: uuid(),
   unitCode: z.string().trim().min(1).max(50),
@@ -522,6 +540,8 @@ export const productUnitConversionDeleteSchema = scoped.extend({
 
 export type ProductCreateInput = z.infer<typeof productCreateSchema>
 export type ProductUpdateInput = z.infer<typeof productUpdateSchema>
+export type ProductBulkCreateRow = z.infer<typeof productBulkCreateRowSchema>
+export type ProductsBulkCreateInput = z.infer<typeof productsBulkCreateSchema>
 export type VariantCreateInput = z.infer<typeof variantCreateSchema>
 export type VariantUpdateInput = z.infer<typeof variantUpdateSchema>
 export type OptionSchemaTemplateCreateInput = z.infer<typeof optionSchemaTemplateCreateSchema>
@@ -532,6 +552,8 @@ export type PriceCreateInput = z.infer<typeof priceCreateSchema>
 export type PriceUpdateInput = z.infer<typeof priceUpdateSchema>
 export type CategoryCreateInput = z.infer<typeof categoryCreateSchema>
 export type CategoryUpdateInput = z.infer<typeof categoryUpdateSchema>
+export type CategoryBulkCreateRow = z.infer<typeof categoryBulkCreateRowSchema>
+export type CategoriesBulkCreateInput = z.infer<typeof categoriesBulkCreateSchema>
 export type OfferInput = z.infer<typeof offerInputSchema>
 export type OfferCreateInput = z.infer<typeof offerCreateSchema>
 export type OfferUpdateInput = z.infer<typeof offerUpdateSchema>
