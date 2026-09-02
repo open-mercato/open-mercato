@@ -284,8 +284,9 @@ describe('CustomerInvitationService.createInvitation — pending-invitation dedu
 
   // #5499: re-inviting the same address from a surface that only knows the company
   // (portal invite, admin users page) must not strip the person link off the row —
-  // the person's account-status card finds the invitation through it.
-  it('keeps the existing person link when the re-invite carries none', async () => {
+  // the person's account-status card finds the invitation through it — nor the
+  // display name the invitation email is personalized with.
+  it('keeps the existing person link and display name when the re-invite carries neither', async () => {
     const personEntityId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
     const existing = {
       id: 'inv-existing',
@@ -318,8 +319,10 @@ describe('CustomerInvitationService.createInvitation — pending-invitation dedu
 
     expect(result.reused).toBe(true)
     expect(existing.personEntityId).toBe(personEntityId)
+    expect(existing.displayName).toBe('Old Name')
     expect(existing.customerEntityId).toBe('cccccccc-cccc-4ccc-8ccc-cccccccccccc')
     expect(result.rollbackState?.personEntityId).toBe(personEntityId)
+    expect(result.rollbackState?.displayName).toBe('Old Name')
   })
 
   it('inserts a new invitation row when no pending invitation exists', async () => {

@@ -313,6 +313,12 @@ export default function AccountStatusWidget({ context }: AccountStatusProps) {
     enabled: !!personEntityId && !isLoading && !data && !isLoadingPerson,
   })
 
+  // A disabled React Query reports isLoading === false, so isLoadingInvitation is
+  // false for the whole person fetch the email fallback waits on. Rendering off
+  // that alone would show "no portal account linked" with a live invite button
+  // during that window — the double-invite #5499 exists to prevent.
+  const isResolvingInvitation = isLoadingPerson || isLoadingInvitation
+
   function handleInviteSuccess() {
     setShowInviteForm(false)
     queryClient.invalidateQueries({ queryKey: ['customer-account-status', personEntityId] })
@@ -327,7 +333,7 @@ export default function AccountStatusWidget({ context }: AccountStatusProps) {
     return (
       <div className="rounded-md border p-3">
         <div className="text-sm font-medium mb-1">{t('customer_accounts.widgets.accountStatus', 'Portal Account')}</div>
-        {isLoadingInvitation ? (
+        {isResolvingInvitation ? (
           <div className="text-sm text-muted-foreground">{t('common.loading', 'Loading...')}</div>
         ) : pendingInvitation ? (
           <div className="space-y-1 text-sm">
@@ -349,7 +355,7 @@ export default function AccountStatusWidget({ context }: AccountStatusProps) {
         ) : (
           <div className="text-sm text-muted-foreground">{t('customer_accounts.widgets.noAccount', 'No portal account linked')}</div>
         )}
-        {!showInviteForm && personEntityId && !isLoadingInvitation && (
+        {!showInviteForm && personEntityId && !isResolvingInvitation && (
           <div className="mt-2">
             <Button
               type="button"

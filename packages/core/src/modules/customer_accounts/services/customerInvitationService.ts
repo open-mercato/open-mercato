@@ -85,15 +85,16 @@ export class CustomerInvitationService {
       existing.email = normalizedEmail
       existing.token = tokenHashed
       existing.customerEntityId = options.customerEntityId || null
-      // Keep the CRM person link when the re-invite does not carry one: the portal
-      // invite route and the admin users page only ever know the company, so
-      // overwriting with null would strip an invitation raised from a person card
-      // off that person's account-status card (#5499).
+      // Keep the CRM person link and the recipient's display name when the
+      // re-invite does not carry them: the portal invite route and the admin users
+      // page only ever know the company, so overwriting with null would strip an
+      // invitation raised from a person card off that person's account-status card
+      // and drop the personalization from the invitation email (#5499).
       existing.personEntityId = options.personEntityId || existing.personEntityId || null
       existing.roleIdsJson = options.roleIds
       existing.invitedByUserId = options.invitedByUserId || null
       existing.invitedByCustomerUserId = options.invitedByCustomerUserId || null
-      existing.displayName = options.displayName || null
+      existing.displayName = options.displayName || existing.displayName || null
       existing.expiresAt = expiresAt
       await this.em.flush()
       return { invitation: existing, rawToken: token, reused: true, rollbackState }
