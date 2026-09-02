@@ -13,8 +13,15 @@
  * compiled `.mjs` siblings so `compileAndImport` takes its cache path and never invokes esbuild.
  * The `.mjs` stubs use `module.exports` because Jest's CJS runtime handles the dynamic `import()`.
  *
- * `bootstrapFromAppRoot` reaches the factory through `import('./factory.js')`, a specifier with no
- * on-disk counterpart under Jest's CJS resolver, so it is mocked virtually.
+ * That stubbing is a hard constraint of this tier, not a shortcut: letting esbuild compile a real
+ * `src/modules.ts` here emits genuine ESM, which Jest's CJS runtime then refuses to `import()`
+ * (`SyntaxError: Unexpected token 'export'`). So the esbuild compile path and the cross-module
+ * singleton it depends on are covered at the integration tier instead — see the follow-up issue
+ * linked from #5665.
+ *
+ * `bootstrapFromAppRoot` reaches the factory through `import('./factory.js')`, and the `ai` override
+ * applier through `import('@open-mercato/ai-assistant/...')` — specifiers with no on-disk counterpart
+ * under Jest's CJS resolver, so both are mocked virtually.
  */
 jest.mock('../../logger', () => {
   const logger = {
@@ -33,6 +40,20 @@ jest.mock(
     createBootstrap: () => () => {},
     waitForAsyncRegistration: async () => {},
   }),
+  { virtual: true },
+)
+
+const mockAiOverrideEntries: unknown[] = []
+
+jest.mock(
+  '@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-overrides',
+  () => {
+    const { registerModuleOverrideApplier } = jest.requireActual('../../../modules/overrides')
+    registerModuleOverrideApplier('ai', (entries: unknown[]) => {
+      mockAiOverrideEntries.push(...entries)
+    })
+    return {}
+  },
   { virtual: true },
 )
 
@@ -93,6 +114,10 @@ const APP_MODULES_COMPILED_WITH_OVERRIDE = `module.exports = { enabledModules: [
 
 const APP_MODULES_TS_WITHOUT_OVERRIDE = "export const enabledModules = [{ id: 'test_module' }]"
 const APP_MODULES_COMPILED_WITHOUT_OVERRIDE = "module.exports = { enabledModules: [{ id: 'test_module' }] }"
+
+const AI_AGENT_KEY = 'catalog.catalog_assistant'
+const APP_MODULES_TS_WITH_AI_OVERRIDE = `export const enabledModules = [{ id: 'test_module', overrides: { ai: { agents: { '${AI_AGENT_KEY}': null } } } }]`
+const APP_MODULES_COMPILED_WITH_AI_OVERRIDE = `module.exports = { enabledModules: [{ id: 'test_module', overrides: { ai: { agents: { '${AI_AGENT_KEY}': null } } } }] }`
 
 function hash(content: string): string {
   return crypto.createHash('sha256').update(content).digest('hex')
@@ -164,6 +189,7 @@ describe('bootstrapFromAppRoot — src/modules.ts entry.overrides reach CLI/work
   beforeEach(() => {
     mockedLogger.debug.mockClear()
     mockedLogger.error.mockClear()
+    mockAiOverrideEntries.length = 0
     resetModuleContractOverridesForTests()
   })
 
@@ -202,22 +228,53 @@ describe('bootstrapFromAppRoot — src/modules.ts entry.overrides reach CLI/work
     expect(mockedLogger.error).not.toHaveBeenCalled()
   })
 
-  it('reports an error and keeps bootstrapping when src/modules.ts fails to load', async () => {
+  it('refuses to bootstrap when a present src/modules.ts fails to load', async () => {
     const appRoot = createAppRoot({
       ts: APP_MODULES_TS_WITH_OVERRIDE,
       compiled: "throw new Error('src/modules.ts is broken')",
     })
 
+    // Degrading here is what #5582 looked like: seed-encryption would seed the base maps and
+    // still print success, so a present-but-unloadable modules file must stop the bootstrap.
+    await expect(bootstrapFromAppRoot(appRoot)).rejects.toThrow(
+      /Failed to load the app-level modules file[\s\S]*Refusing to bootstrap with a partial override set/,
+    )
+  })
+
+  it('refuses to bootstrap when src/modules.ts exports no enabledModules array', async () => {
+    const appRoot = createAppRoot({
+      ts: 'export const somethingElse = []',
+      compiled: 'module.exports = { somethingElse: [] }',
+    })
+
+    await expect(bootstrapFromAppRoot(appRoot)).rejects.toThrow(/exports no enabledModules array/)
+  })
+
+  it('skips the dispatch without error when the app has no src/modules.ts at all', async () => {
+    const appRoot = createAppRoot(null)
+
     const data = await bootstrapFromAppRoot(appRoot)
     registerCliModules(data.modules as Module[])
 
     const maps = getDefaultEncryptionMaps(getCliModules())
-    const widgetMap = maps.find((entry) => entry.entityId === 'test_module.widget')
-
-    expect(widgetMap?.fields.map((field) => field.field)).toEqual(['email'])
-    expect(mockedLogger.error).toHaveBeenCalledTimes(1)
-    const [message, fields] = mockedLogger.error.mock.calls[0] as [string, Record<string, unknown>]
-    expect(message).toContain('Failed to load the app-level modules file')
-    expect((fields.err as Error).message).toContain('src/modules.ts is broken')
+    expect(maps.find((entry) => entry.entityId === 'test_module.widget')?.fields).toHaveLength(1)
+    expect(mockedLogger.error).not.toHaveBeenCalled()
   })
+
+  it('resolves the ai applier on demand so overrides.ai is not dropped in the CLI path', async () => {
+    const appRoot = createAppRoot({
+      ts: APP_MODULES_TS_WITH_AI_OVERRIDE,
+      compiled: APP_MODULES_COMPILED_WITH_AI_OVERRIDE,
+    })
+
+    await bootstrapFromAppRoot(appRoot)
+
+    // registerBuiltInModuleOverrideAppliers() does not register `ai`; without the on-demand
+    // import the dispatcher takes its unwired branch and discards the entry entirely.
+    expect(mockAiOverrideEntries).toEqual([
+      { moduleId: 'test_module', overrides: { agents: { [AI_AGENT_KEY]: null } } },
+    ])
+    expect(mockedLogger.error).not.toHaveBeenCalled()
+  })
+
 })
