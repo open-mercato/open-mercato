@@ -346,120 +346,139 @@ export async function dbMigrate(resolver: PackageResolver, options: DbOptions = 
   const results: string[] = []
   const appliedMigrations: AppliedMigration[] = []
 
-  for (const entry of ordered) {
-    const modId = entry.id
-    const sanitizedModId = sanitizeModuleId(modId)
-    const entities = await loadModuleEntities(entry, resolver)
+  try {
+    for (const entry of ordered) {
+      const modId = entry.id
+      const sanitizedModId = sanitizeModuleId(modId)
+      const entities = await loadModuleEntities(entry, resolver)
 
-    const migrationsPath = getMigrationsPath(entry, resolver)
+      const migrationsPath = getMigrationsPath(entry, resolver)
 
-    // Skip if no entities AND no migrations directory exists
-    // (allows @app modules to run migrations even if entities can't be dynamically imported)
-    if (!entities.length && !fs.existsSync(migrationsPath)) continue
-    fs.mkdirSync(migrationsPath, { recursive: true })
+      // Skip if no entities AND no migrations directory exists
+      // (allows @app modules to run migrations even if entities can't be dynamically imported)
+      if (!entities.length && !fs.existsSync(migrationsPath)) continue
+      fs.mkdirSync(migrationsPath, { recursive: true })
 
-    const tableName = `mikro_orm_migrations_${sanitizedModId}`
-    validateTableName(tableName)
+      const tableName = `mikro_orm_migrations_${sanitizedModId}`
+      validateTableName(tableName)
 
-    // dbMigrate only runs existing migration files — entities are intentionally
-    // omitted so MikroORM does not compare them against the snapshot and
-    // auto-generate a phantom diff migration (that would duplicate tables
-    // already created by committed migrations).
-    const sslConfig = getSslConfig()
-    const orm = await MikroORM.init<PostgreSqlDriver>({
-      driver: PostgreSqlDriver,
-      clientUrl: getClientUrl(),
-      loggerFactory: () => createMinimalLogger(),
-      dynamicImportProvider,
-      entities: [],
-      metadataProvider: ReflectMetadataProvider,
-      discovery: { warnWhenNoEntities: false },
-      migrations: {
-        path: migrationsPath,
-        glob: '!(*.d).{ts,js}',
-        tableName,
-        snapshot: false,
-        dropTables: false,
-      },
-      schemaGenerator: {
-        disableForeignKeys: true,
-      },
-      pool: {
-        min: 1,
-        max: 3,
-        idleTimeoutMillis: 30000,
-        // acquireTimeoutMillis removed for v7 (pg.Pool doesn't support it; use connectionTimeoutMillis in driverOptions if needed)
-      },
-      driverOptions: sslConfig ? {
-        ssl: sslConfig,
-      } : undefined,
-    })
+      // dbMigrate only runs existing migration files — entities are intentionally
+      // omitted so MikroORM does not compare them against the snapshot and
+      // auto-generate a phantom diff migration (that would duplicate tables
+      // already created by committed migrations).
+      const sslConfig = getSslConfig()
+      const orm = await MikroORM.init<PostgreSqlDriver>({
+        driver: PostgreSqlDriver,
+        clientUrl: getClientUrl(),
+        loggerFactory: () => createMinimalLogger(),
+        dynamicImportProvider,
+        entities: [],
+        metadataProvider: ReflectMetadataProvider,
+        discovery: { warnWhenNoEntities: false },
+        migrations: {
+          path: migrationsPath,
+          glob: '!(*.d).{ts,js}',
+          tableName,
+          snapshot: false,
+          dropTables: false,
+        },
+        schemaGenerator: {
+          disableForeignKeys: true,
+        },
+        pool: {
+          min: 1,
+          max: 3,
+          idleTimeoutMillis: 30000,
+          // acquireTimeoutMillis removed for v7 (pg.Pool doesn't support it; use connectionTimeoutMillis in driverOptions if needed)
+        },
+        driverOptions: sslConfig ? {
+          ssl: sslConfig,
+        } : undefined,
+      })
 
-    const migrator = orm.migrator as Migrator
-    const pending = await migrator.getPending()
-    if (!pending.length) {
-      results.push(formatResult(modId, 'no pending migrations', ''))
-    } else {
-      const renderProgress = createProgressRenderer(pending.length)
-      let applied = 0
-      if (!QUIET_MODE) {
-        process.stdout.write(`   ${PROGRESS_EMOJI} ${modId}: ${renderProgress(applied)}`)
-      }
-      for (const migration of pending) {
-        const migrationName =
-          typeof migration === 'string'
-            ? migration
-            : (migration as any).name ?? (migration as any).fileName
-        await migrator.up(migrationName ? { migrations: [migrationName] } : undefined)
-        if (migrationName) {
-          appliedMigrations.push({
-            moduleId: modId,
-            migrationsPath,
-            name: String(migrationName),
-            filePath: typeof migration === 'string' ? null : (migration as any).path ?? null,
-          })
+      try {
+        const migrator = orm.migrator as Migrator
+        const pending = await migrator.getPending()
+        if (!pending.length) {
+          results.push(formatResult(modId, 'no pending migrations', ''))
+        } else {
+          const renderProgress = createProgressRenderer(pending.length)
+          let applied = 0
+          if (!QUIET_MODE) {
+            process.stdout.write(`   ${PROGRESS_EMOJI} ${modId}: ${renderProgress(applied)}`)
+          }
+          for (const migration of pending) {
+            const migrationName =
+              typeof migration === 'string'
+                ? migration
+                : (migration as any).name ?? (migration as any).fileName
+            await migrator.up(migrationName ? { migrations: [migrationName] } : undefined)
+            if (migrationName) {
+              appliedMigrations.push({
+                moduleId: modId,
+                migrationsPath,
+                name: String(migrationName),
+                filePath: typeof migration === 'string' ? null : (migration as any).path ?? null,
+              })
+            }
+            applied += 1
+            if (!QUIET_MODE) {
+              process.stdout.write(`\r   ${PROGRESS_EMOJI} ${modId}: ${renderProgress(applied)}`)
+            }
+          }
+          if (!QUIET_MODE) process.stdout.write('\n')
+          results.push(
+            formatResult(modId, `${pending.length} migration${pending.length === 1 ? '' : 's'} applied`, '')
+          )
         }
-        applied += 1
-        if (!QUIET_MODE) {
-          process.stdout.write(`\r   ${PROGRESS_EMOJI} ${modId}: ${renderProgress(applied)}`)
-        }
+      } finally {
+        await orm.close(true)
       }
-      if (!QUIET_MODE) process.stdout.write('\n')
-      results.push(
-        formatResult(modId, `${pending.length} migration${pending.length === 1 ? '' : 's'} applied`, '')
-      )
     }
-
-    await orm.close(true)
+  } finally {
+    console.log(results.join('\n'))
+    await dischargeQueryIndexReindexRequests(appliedMigrations)
   }
-
-  console.log(results.join('\n'))
-  await dischargeQueryIndexReindexRequests(appliedMigrations)
 }
 
 /**
  * Runs after every module migrated and after `orm.close()`, so the rewrites the declarations
  * refer to are committed before the reindex is queued.
+ *
+ * Reached from a `finally`, so it also runs when a later migration threw: the migrations that
+ * did apply already committed, and their declarations are the only record that their projections
+ * are stale — a re-run cannot recover them, because `getPending()` no longer lists them. It must
+ * therefore never throw, or it would replace the migration failure the operator needs to see.
  */
-async function dischargeQueryIndexReindexRequests(applied: readonly AppliedMigration[]): Promise<void> {
+export async function dischargeQueryIndexReindexRequests(
+  applied: readonly AppliedMigration[],
+): Promise<void> {
   if (!applied.length || !isMigrationReindexEnabled()) return
 
-  const entityTypes = await collectQueryIndexReindexEntityTypes(applied, {
-    importModule: dynamicImportProvider,
-    onWarn: (message) => console.warn(message),
-  })
-  if (!entityTypes.length) return
+  try {
+    const entityTypes = await collectQueryIndexReindexEntityTypes(applied, {
+      importModule: dynamicImportProvider,
+      onWarn: (message) => console.warn(message),
+    })
+    if (!entityTypes.length) return
 
-  await requestQueryIndexReindex(entityTypes, {
-    createContainer: async () => {
-      const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
-      return (await createRequestContainer()) as any
-    },
-    onInfo: (message) => {
-      if (!QUIET_MODE) console.log(message)
-    },
-    onWarn: (message) => console.warn(message),
-  })
+    await requestQueryIndexReindex(entityTypes, {
+      createContainer: async () => {
+        const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
+        return (await createRequestContainer()) as any
+      },
+      onInfo: (message) => {
+        if (!QUIET_MODE) console.log(message)
+      },
+      onWarn: (message) => console.warn(message),
+    })
+  } catch (error) {
+    console.warn(
+      `[query_index] Could not determine which projections the migrations invalidated: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    )
+  }
 }
 
 export async function dbGreenfield(resolver: PackageResolver, options: GreenfieldOptions): Promise<void> {
