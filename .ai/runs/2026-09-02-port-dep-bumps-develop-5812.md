@@ -29,6 +29,8 @@ Land the dependency updates of [PR #5812](https://github.com/open-mercato/open-m
 ## Outcomes worth recording
 
 - **Age gate deviations (2 of 47 updates).** `.yarnrc.yml` sets `npmMinimalAgeGate: 5d`. At run time `jest@30.5.0` and `jest-environment-jsdom@30.5.0` were 4.9 days old and every newer 30.x release was younger still, so the highest installable version is exactly what `develop` already declares — those two ranges are therefore left at `^30.4.2` / `^30.4.1`, unbumped. `lucide-react@1.35.0` was likewise quarantined, and its highest installable version is `1.34.0`, so the range moved `^1.27.0 → ^1.34.0` instead of `^1.35.0`. Dependabot will re-propose all three once they age past the gate; bypassing it with `--no-time-gate` was rejected as a deliberate supply-chain control, not an obstacle.
+- **Validation gate result.** `build:packages`, `generate`, `build:packages`, `i18n:check-sync`, `i18n:check-usage`, `typecheck` and `build:app` all pass. `yarn test` reports exactly one failing test out of 11,888 in `@open-mercato/core` — `page.durationEntry.test.tsx › stops counting a cell in the totals once its pending value becomes invalid`. That failure is **pre-existing and unrelated**: it is already tracked as issue #5825 ("timesheet duration-entry test is date-dependent and fails in any week containing a day numbered 2"), today is the 2nd, and reverting this branch's manifests and lockfile to `origin/develop` and reinstalling reproduces the identical failure. Every other workspace suite is green.
+- **`lucide-react` moves a committed generated registry.** The bump from `^1.27.0` to `^1.34.0` adds a `Bot` icon that `yarn generate` folds into `packages/ui/src/backend/icons/lucideRegistry.generated.tsx`, a versioned generated registry. It is committed with the bump so `yarn generate` is idempotent on a fresh checkout.
 - **Two range bumps are inert behind range-less resolution pins.** The root `resolutions` block pins `mermaid: 11.16.0` and `nodemailer: 9.0.1` without a range, so they override every workspace range. `apps/docs` now asks `mermaid ^11.17.2` and `packages/channel-imap` asks `nodemailer ^9.0.6`, yet the lockfile still resolves `11.16.0` and `9.0.1`. This exactly reproduces the state #5812 produces on `main` — dependabot bumps declared ranges, never pins — so it is carried over unchanged rather than "fixed" inside a port. Whether those two pins are still wanted is a separate maintainer call.
 
 ## Risks
@@ -68,7 +70,8 @@ Land the dependency updates of [PR #5812](https://github.com/open-mercato/open-m
 ### Phase 2: Validate
 
 - [x] 2.1 Run the dependency-consistency guards — 2f8a5b0b38
-- [ ] 2.2 Run the full validation gate
+- [x] 2.2 Run the full validation gate — 11b177d14a
+- [x] Phase 2 follow-up: regenerate the committed lucide icon registry — 11b177d14a
 
 ### Phase 3: Land and close the original
 
