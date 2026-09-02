@@ -152,6 +152,27 @@ describe('DataTable — meta.hidden on columns that arrive after the first rende
     expect(screen.queryByText('Archived note')).toBeNull()
   })
 
+  it('honours meta.hidden that a column def only gains on a later render', async () => {
+    // The per-column record must key on "a default was applied", not on "this id has been
+    // seen". Marking a column decided the first time it appears would strand a def whose
+    // `meta` resolves in a later wave — an injected column widget, say — as permanently
+    // undecided, and an undecided column renders visible.
+    const withoutMeta: ColumnDef<Row>[] = [
+      ...BASE_COLUMNS,
+      { accessorKey: 'cf_late_note', header: 'Late note' },
+    ]
+    const withMeta: ColumnDef<Row>[] = [
+      ...BASE_COLUMNS,
+      { accessorKey: 'cf_late_note', header: 'Late note', meta: { hidden: true } },
+    ]
+    const { rerender } = render(<Harness columns={withoutMeta} />)
+    await waitFor(() => expect(screen.getByText('Late note')).toBeTruthy())
+
+    rerender(<Harness columns={withMeta} />)
+
+    await waitFor(() => expect(screen.queryByText('Late note')).toBeNull())
+  })
+
   it('describes every leaf column in the settings it hands back, including late arrivals', async () => {
     // Root cause 1 of #5117: `getCurrentSettings` copied the sparse TanStack state, so a
     // saved view stored no decision for columns that registered after the save and an
