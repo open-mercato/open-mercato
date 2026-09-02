@@ -60,6 +60,8 @@ Land the dependency updates of [PR #5812](https://github.com/open-mercato/open-m
 
 ## Progress
 
+PR: #5835
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Port the version bumps
@@ -77,4 +79,4 @@ Land the dependency updates of [PR #5812](https://github.com/open-mercato/open-m
 
 ### Phase 3: Land and close the original
 
-- [ ] 3.1 Close #5812 pointing at the port PR
+- [x] 3.1 Close #5812 pointing at the port PR — closed with a comment naming #5835
