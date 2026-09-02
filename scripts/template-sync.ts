@@ -73,6 +73,41 @@ const EXPLICIT_TEMPLATE_FILE_MAPPINGS = [
     rel: 'scripts/dev-splash-state.mjs',
   },
   {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-runtime-state.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-runtime-state.mjs'),
+    rel: 'scripts/dev-runtime-state.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-runtime-config.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-runtime-config.mjs'),
+    rel: 'scripts/dev-runtime-config.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-runtime-probe.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-runtime-probe.mjs'),
+    rel: 'scripts/dev-runtime-probe.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-runtime-diagnostics.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-runtime-diagnostics.mjs'),
+    rel: 'scripts/dev-runtime-diagnostics.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-runtime-supervisor.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-runtime-supervisor.mjs'),
+    rel: 'scripts/dev-runtime-supervisor.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-runtime-gateway.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-runtime-gateway.mjs'),
+    rel: 'scripts/dev-runtime-gateway.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-runtime-actions.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-runtime-actions.mjs'),
+    rel: 'scripts/dev-runtime-actions.mjs',
+  },
+  {
     sourceFile: path.join(ROOT, 'scripts', 'dev-splash-coding-flow.mjs'),
     templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-splash-coding-flow.mjs'),
     rel: 'scripts/dev-splash-coding-flow.mjs',
@@ -124,8 +159,6 @@ const EXPLICIT_TEMPLATE_FILE_MAPPINGS = [
   },
 ] as const
 export const TEMPLATE_ONLY_RELATIVE_FILES = new Set<string>([
-  'app/api/healthz/__tests__/route.test.ts',
-  'app/api/healthz/route.ts',
   'modules/auth/__integration__/TC-AUTH-001.spec.ts',
   'modules/auth/__integration__/helpers/auth.ts',
 ])

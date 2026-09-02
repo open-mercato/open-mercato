@@ -1,0 +1,185 @@
+---
+title: Dev Runtime Diagnostics
+description: Structured incident state, the in-app runtime banner, the browser collector, and the opt-in local dev gateway that owns the public port.
+---
+
+# Dev Runtime Diagnostics
+
+`yarn dev` collects everything it can observe about the development runtime —
+process exits, classified logs, startup warmup, browser errors, and a continuous
+health probe — into one structured runtime state. That state drives three
+surfaces: the standalone startup splash, an in-app banner on an already-open
+page, and (opt-in) a local gateway that owns the public application port.
+
+Everything here is development-only. A production build cannot enable it.
+
+## What you get by default
+
+Nothing about the default topology changes:
+
+```text
+PORT=3000                -> Next.js / Open Mercato runtime
+OM_DEV_SPLASH_PORT=4000  -> standalone splash and supervisor API
+```
+
+What is new in this topology:
+
+- **The splash shows a structured incident**, not just a log tail. For a missing
+  table you get "Database schema mismatch · Relation `sandboxs` is missing",
+  the stable error code, the source, the occurrence count, the last-seen time,
+  and the suggested fix. The redacted log tail stays below it.
+- **An in-app banner** appears on pages that are already open when the runtime
+  becomes degraded, unavailable, or is restarting — so you notice a post-ready
+  failure without switching to the terminal.
+- **Browser errors reach the supervisor.** `global-error.tsx`, uncaught window
+  errors, unhandled rejections, and chunk-load failures send one bounded,
+  redacted report to a local dev-only collector.
+- **A post-ready failure is no longer hidden.** `ready` used to normalize a
+  later problem away; the structured state keeps an active incident visible.
+
+## Runtime health
+
+| Health | Meaning | Public URL |
+| --- | --- | --- |
+| `starting` | Being built, launched, or warmed up. | Splash (gateway mode) |
+| `ready` | Warmup passed and the probe is healthy. | Application |
+| `degraded` | Serving, but a bounded signal is unhealthy. | Application |
+| `recovering` | A recovery action is running. | Splash (gateway mode) |
+| `unavailable` | A hard failure prevents serving. | Splash (gateway mode) |
+
+The legacy `ready` / `failed` fields on `GET /status` are a projection of this
+state and keep their existing meaning for current consumers.
+
+## The continuous probe
+
+Once the full startup warmup opens the `READY` gate, the supervisor polls
+`GET /api/healthz` on the managed runtime. It never re-runs the login warmup and
+never logs a success.
+
+```bash
+OM_DEV_RUNTIME_PROBE_INTERVAL_MS=5000          # how often to probe
+OM_DEV_RUNTIME_PROBE_TIMEOUT_MS=1500           # must stay below the interval
+OM_DEV_RUNTIME_PROBE_FAILURE_THRESHOLD=3       # consecutive failures -> degraded
+OM_DEV_RUNTIME_PROBE_RECOVERY_THRESHOLD=2      # consecutive successes -> ready
+```
+
+`GET /api/healthz` stays the minimal infrastructure contract — `200 {status:"ok"}`
+or `503 {status:"degraded"}`, with no secrets, dependency details, tenant data,
+or stack traces. It is not a diagnostics endpoint.
+
+## The in-app banner
+
+The banner renders only for `starting`, `degraded`, `recovering`, and
+`unavailable`. It polls the dev-only status bridge every two seconds.
+
+```text
+Runtime degraded · Database schema mismatch
+Relation `sandboxs` is missing                         [Show details] [×]
+```
+
+- **Show details** expands the error code, source, occurrence count, runtime
+  generation, first/last seen times, and path.
+- **Dismiss** hides the current `generation:fingerprint` only. It never
+  acknowledges or clears the incident, and the banner reappears for a new
+  fingerprint or a new runtime generation.
+- **Recovery buttons** appear alongside `Retry`: `Restart runtime` is always
+  offered, and `Run generators` / `Run migrations` only when the classifier
+  justified that action for this incident. `Run migrations` always goes through
+  a confirmation dialog. While an action is running the controls disappear and
+  the banner shows `Runtime recovering`.
+- Degraded and recovering use a polite `role="status"`; unavailable uses
+  `role="alert"`.
+
+Turn the banner off without losing collection:
+
+```bash
+OM_DEV_RUNTIME_BANNER=off
+```
+
+Turn everything off:
+
+```bash
+OM_DEV_RUNTIME_DIAGNOSTICS=off
+```
+
+Both default to following the dev splash, and both stay off in CI.
+
+## Opt-in gateway mode
+
+Gateway mode puts a small local server on the public port and moves the managed
+Next.js runtime to an internal loopback port:
+
+```bash
+OM_DEV_RUNTIME_MODE=proxy yarn dev
+```
+
+```text
+PORT=3000                 -> Open Mercato dev runtime gateway
+auto (or OM_DEV_UPSTREAM_PORT) -> managed Next.js runtime, loopback only
+OM_DEV_SPLASH_PORT=4000   -> supervisor diagnostics API
+```
+
+Why you might want it: opening the application URL during a failed startup shows
+readable diagnostics instead of a connection error or a generic framework page.
+The supervisor also stays alive after a startup-stage failure, so you can run a
+recovery action without restarting the terminal process.
+
+| Request | Gateway behavior |
+| --- | --- |
+| `/__open-mercato/*` | Handled by the gateway; never proxied to the app. |
+| HTML navigation while starting / recovering / unavailable | Splash fallback. |
+| HTML navigation while ready / degraded | Proxied to the upstream. |
+| `/api/*`, `/_next/*`, static assets | Always proxied, status and body preserved. |
+| HMR WebSocket `upgrade` | Forwarded raw; closed cleanly when the upstream is gone. |
+
+A business API error is never replaced by splash HTML: only a real browser
+navigation (`GET`/`HEAD`, `Accept: text/html`, `Sec-Fetch-Mode` absent or
+`navigate`) can receive the fallback.
+
+The gateway is a development aid, not a production reverse proxy. It binds to
+loopback by default and fails with a readable error on a port collision rather
+than silently moving.
+
+## Recovery actions
+
+The splash exposes a fixed allowlist. Request input selects an enum member and
+nothing else — it can never name a binary, append a flag, or change a working
+directory.
+
+| Action | Effect |
+| --- | --- |
+| `generate` | Reruns the generator stage, then restarts the runtime. |
+| `migrate` | Applies database migrations after explicit confirmation, then restarts. |
+| `restart` | Restarts the managed runtime through the existing supervisor. |
+| logs | Read-only bounded snapshot; not a mutating action. |
+
+Only one mutating action runs per runtime generation, and a completion from an
+older generation can never overwrite newer state.
+
+:::warning
+`migrate` applies database changes and is **not** automatically reversible.
+Rollback is a separate operator task. `generate`, `restart`, and log inspection
+are recoverable by rerunning the supervisor.
+:::
+
+## Privacy
+
+Diagnostics stay local and bounded:
+
+- Gateway, splash, and collector bind to loopback by default.
+- A per-run random token protects the diagnostics route, the status bridge, and
+  every mutating action. It reaches the browser only through a dev-only `<meta>`
+  element and is never persisted in source control.
+- Connection strings, cookies, authorization headers, JWTs, provider keys, and
+  keyed secrets are redacted before anything is stored or returned.
+- Browser reports are treated as untrusted: a report can inform runtime state,
+  but it cannot trigger a recovery action or change configuration.
+- At most 20 active incidents, 200 diagnostic lines, and 8 KiB per report are
+  retained; the local NDJSON sink rotates and must not be committed.
+
+## Reference
+
+- Spec: `.ai/specs/2026-08-18-dev-runtime-splash-and-gateway-diagnostics.md`
+- Supervisor helpers: `scripts/dev-runtime-*.mjs`
+- Dev-only app routes: `packages/shared/src/lib/dev-runtime/`
+- UI surfaces: `packages/ui/src/backend/dev/`
