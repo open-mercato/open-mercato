@@ -85,7 +85,7 @@ import { DateTimePicker } from './inputs/DateTimePicker'
 import { TimePicker } from './inputs/TimePicker'
 import { DatePicker } from './inputs/DatePicker'
 import { mapCrudServerErrorToFormErrors, parseServerMessage } from './utils/serverErrors'
-import { withScopedApiRequestHeaders } from './utils/apiCall'
+import { withScopedApiRequestBody, withScopedApiRequestHeaders } from './utils/apiCall'
 import { buildOptimisticLockHeader, extractOptimisticLockConflict } from './utils/optimisticLock'
 import { surfaceRecordConflict } from './conflicts'
 import type { CustomFieldDefLike } from '@open-mercato/shared/modules/entities/validation'
@@ -98,6 +98,7 @@ import { VersionHistoryAction } from './version-history/VersionHistoryAction'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { buildCrudWidgetPayload } from '@open-mercato/shared/lib/crud/widget-payload'
 import { useInjectionDataWidgets } from './injection/useInjectionDataWidgets'
 import { CollapsibleGroup, type CollapsibleGroupHandle } from './crud/CollapsibleGroup'
 import { SortableGroupHandleProvider, type SortableGroupHandleProps } from './crud/SortableGroupHandle'
@@ -1826,6 +1827,15 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     [injectedFieldDefinitions],
   )
 
+  const crudWidgetPayload = React.useMemo(
+    () => buildCrudWidgetPayload(
+      injectedFieldWidgets,
+      values,
+      hiddenInjectedFieldIds,
+    ),
+    [hiddenInjectedFieldIds, injectedFieldWidgets, values],
+  )
+
   const injectedCrudFields = React.useMemo<CrudField[]>(() => {
     return injectedFieldDefinitions.map((definition) => {
       // InjectedField renders its own i18n-resolved <Label> for every field type
@@ -3005,13 +3015,17 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         ...(injectionRequestHeaders ?? {}),
         ...optimisticLockHeader,
       }
-      if (Object.keys(mergedSubmitHeaders).length > 0) {
-        await withScopedApiRequestHeaders(mergedSubmitHeaders, async () => {
+      const submit = async () => {
+        if (Object.keys(mergedSubmitHeaders).length > 0) {
+          await withScopedApiRequestHeaders(mergedSubmitHeaders, async () => {
+            await onSubmit?.(coreSubmitValues, submitContext)
+          })
+        } else {
           await onSubmit?.(coreSubmitValues, submitContext)
-        })
-      } else {
-        await onSubmit?.(coreSubmitValues, submitContext)
+        }
       }
+      if (crudWidgetPayload) await withScopedApiRequestBody(crudWidgetPayload, submit)
+      else await submit()
       
       // Trigger onAfterSave event for injection widgets
       if (resolvedInjectionSpotId) {

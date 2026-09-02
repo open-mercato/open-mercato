@@ -56,4 +56,13 @@ export const metadata = {
 - **Emit events deliberately** when downstream modules should react; otherwise keep handlers idempotent.
 - **Document metadata** (`requireFeatures`, `requireRoles`) to integrate with admin navigation and ACLs.
 
+## Extension payloads in API interceptors
+
+CRUD `POST` and `PUT` interceptors can read optional, module-keyed values from
+`context.extensionPayload`. This is browser-supplied data, not an authorization
+grant: validate the selected module payload with Zod and enforce that module's
+feature before performing a side effect. The factory removes its private
+`__om_ext_v1` transport field before route and command schemas parse the entity
+body, so extension values never become entity input accidentally.
+
 Mixing CRUD factories and bespoke endpoints gives you the flexibility to move fast while keeping the platform predictable.

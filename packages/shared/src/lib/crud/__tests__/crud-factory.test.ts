@@ -1476,6 +1476,140 @@ describe('CRUD Factory', () => {
     })
   })
 
+  it('POST exposes CrudForm widget payload to interceptors but never persists it', async () => {
+    let beforeExtensionPayload: Record<string, Record<string, unknown>> | undefined
+    let afterExtensionPayload: Record<string, Record<string, unknown>> | undefined
+    registerApiInterceptors([
+      {
+        moduleId: 'example',
+        interceptors: [{
+          id: 'example.capture-widget-payload',
+          targetRoute: 'example/todos',
+          methods: ['POST'],
+          async before(_request, context) {
+            beforeExtensionPayload = context.extensionPayload
+            return { ok: true }
+          },
+          async after(_request, _response, context) {
+            afterExtensionPayload = context.extensionPayload
+            return {}
+          },
+        }],
+      },
+    ])
+
+    const res = await route.POST(new Request('http://x/api/example/todos', {
+      method: 'POST',
+      body: JSON.stringify({
+        title: 'Widget-backed item',
+        __om_ext_v1: { relations: { relatedPersonId: 'person-1', relationType: 'father' } },
+      }),
+      headers: { 'content-type': 'application/json' },
+    }))
+
+    expect(res.status).toBe(201)
+    expect(beforeExtensionPayload).toEqual({
+      relations: { relatedPersonId: 'person-1', relationType: 'father' },
+    })
+    expect(afterExtensionPayload).toEqual(beforeExtensionPayload)
+    expect(db['id-1']).toEqual(expect.objectContaining({ title: 'Widget-backed item' }))
+    expect(db['id-1']).not.toHaveProperty('__om_ext_v1')
+  })
+
+  it('POST direct route with a strict schema accepts the widget payload without a validation error', async () => {
+    let beforeExtensionPayload: Record<string, Record<string, unknown>> | undefined
+    registerApiInterceptors([
+      {
+        moduleId: 'example',
+        interceptors: [{
+          id: 'example.capture-strict-widget-payload',
+          targetRoute: 'example/todos/strict',
+          methods: ['POST'],
+          async before(_request, context) {
+            beforeExtensionPayload = context.extensionPayload
+            return { ok: true }
+          },
+        }],
+      },
+    ])
+    const strictRoute = makeCrudRoute({
+      metadata: { POST: { requireAuth: true } },
+      orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+      indexer: { entityType: 'example.todo' },
+      create: {
+        schema: createSchema.strict(),
+        mapToEntity: (input) => ({ title: (input as any).title, isDone: !!(input as any).is_done }),
+      },
+    })
+
+    const res = await strictRoute.POST(new Request('http://x/api/example/todos/strict', {
+      method: 'POST',
+      body: JSON.stringify({
+        title: 'Strict widget-backed item',
+        __om_ext_v1: { relations: { relatedPersonId: 'person-1' } },
+      }),
+      headers: { 'content-type': 'application/json' },
+    }))
+
+    expect(res.status).toBe(201)
+    expect(beforeExtensionPayload).toEqual({ relations: { relatedPersonId: 'person-1' } })
+  })
+
+  it('POST command route exposes CrudForm widget payload to interceptors but never forwards it to mapInput', async () => {
+    let beforeExtensionPayload: Record<string, Record<string, unknown>> | undefined
+    let afterExtensionPayload: Record<string, Record<string, unknown>> | undefined
+    let mapInputRaw: Record<string, unknown> | undefined
+    registerApiInterceptors([
+      {
+        moduleId: 'example',
+        interceptors: [{
+          id: 'example.capture-command-widget-payload',
+          targetRoute: 'example/todos/command',
+          methods: ['POST'],
+          async before(_request, context) {
+            beforeExtensionPayload = context.extensionPayload
+            return { ok: true }
+          },
+          async after(_request, _response, context) {
+            afterExtensionPayload = context.extensionPayload
+            return {}
+          },
+        }],
+      },
+    ])
+    commandBus.execute.mockResolvedValue({ result: { id: 'cmd-created-1' }, logEntry: { id: 'log-1' } })
+    const commandRoute = makeCrudRoute({
+      metadata: { POST: { requireAuth: true } },
+      orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+      indexer: { entityType: 'example.todo' },
+      actions: {
+        create: {
+          commandId: 'example.todo.create',
+          schema: createSchema.strict(),
+          mapInput: ({ raw }) => {
+            mapInputRaw = raw
+            return raw
+          },
+          response: () => ({ ok: true }),
+        },
+      },
+    })
+
+    const res = await commandRoute.POST(new Request('http://x/api/example/todos/command', {
+      method: 'POST',
+      body: JSON.stringify({
+        title: 'Widget-backed command item',
+        __om_ext_v1: { relations: { relatedPersonId: 'person-1' } },
+      }),
+      headers: { 'content-type': 'application/json' },
+    }))
+
+    expect(res.status).toBe(201)
+    expect(beforeExtensionPayload).toEqual({ relations: { relatedPersonId: 'person-1' } })
+    expect(afterExtensionPayload).toEqual(beforeExtensionPayload)
+    expect(mapInputRaw).not.toHaveProperty('__om_ext_v1')
+  })
+
   it('GET response is augmented by interceptor after hook', async () => {
     registerApiInterceptors([
       {

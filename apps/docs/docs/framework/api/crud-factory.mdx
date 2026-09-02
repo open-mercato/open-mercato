@@ -7,6 +7,12 @@ description: Deep dive into the CRUD factory implementation with advanced patter
 
 The CRUD factory (`makeCrudRoute`) is a powerful abstraction for building consistent, multi-tenant safe REST APIs. It integrates deeply with the open-mercato architecture to provide validation, security, performance, and extensibility.
 
+For `POST` and `PUT`, API interceptors also receive an optional
+`context.extensionPayload` containing module-keyed values supplied by injected
+CrudForm fields. Treat it as untrusted input: validate it with Zod and enforce
+the contributing module's feature before use. The factory removes the private
+transport field before both direct and command-schema validation.
+
 ## Architecture Overview
 
 ```mermaid

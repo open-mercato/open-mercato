@@ -769,6 +769,58 @@ onSave?: (data: TData, context: TContext) => void | Promise<void>
 
 ### onAfterSave
 
+#### Server-side payloads from injected CrudForm fields
+
+Injected fields can participate in the same CRUD request as the host form by
+using the request-scoped widget payload provided by `CrudForm`. The host page
+does not need to forward a second callback argument:
+
+```ts
+import { z } from 'zod'
+
+const relationSchema = z.object({
+  relatedPersonId: z.string().uuid(),
+  relationType: z.string().min(1),
+})
+
+const relationInterceptor: ApiInterceptor = {
+  id: 'customer_relations.people-create',
+  targetRoute: 'customers/people',
+  methods: ['POST'],
+  async after(_request, response, context) {
+    const relation = context.extensionPayload?.customer_relations
+    const createdPersonId = typeof response.body.id === 'string' ? response.body.id : null
+    if (relation && createdPersonId) {
+      const input = relationSchema.parse(relation)
+      // Check the module feature here before using `input`, then create the related
+      // row with the request-scoped tenant and organization from `context`.
+    }
+    return {}
+  },
+}
+```
+
+`context.extensionPayload` is an optional, module-keyed extension channel that
+is available to API interceptor before and after hooks. Its values originate in
+the browser and are untrusted: each interceptor must validate them with Zod and
+enforce the contributing module's feature before using them. The private
+`__om_ext_v1` transport property is removed before CRUD and command schemas run,
+so it never reaches entity mapping. Existing `onBeforeSave` headers and
+lifecycle signatures remain supported.
+
+The payload travels with exactly one request. `CrudForm` arms it around
+`onSubmit`, and the first `POST`/`PUT`/`PATCH` with a JSON content-type and a
+JSON-object body consumes it — every other call, including a secondary write in
+the same `onSubmit`, a background refetch, or a concurrent autosave, is left
+untouched. `CrudForm` cannot identify its caller-supplied submit endpoint, so
+the first eligible write consumes the transport property. If two payload scopes
+overlap, neither payload is attached until only one scope remains, preventing a
+form from receiving another form's values. A form whose
+`onSubmit` posts to a hand-written route rather than a `makeCrudRoute` one must strip it itself with
+`extractExtensionPayload` from
+`@open-mercato/shared/lib/umes/extension-payload`, otherwise a `.strict()`
+validator on that route rejects the unknown key.
+
 Called after save completes successfully.
 
 **Signature:**
