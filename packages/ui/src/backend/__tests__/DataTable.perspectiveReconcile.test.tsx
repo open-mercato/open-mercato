@@ -186,6 +186,25 @@ describe('DataTable localStorage snapshot vs. server perspective reconciliation 
     expect(readPerspectiveSnapshot(TABLE_ID)?.perspectiveId).toBe('persp-2')
   })
 
+  it('clears an orphaned snapshot even when no replacement view is left to fall back to', () => {
+    // "my only saved view was deleted elsewhere" is one of the two #5113
+    // scenarios. With no default, no role default and no remaining perspective,
+    // normal resolution finds no target, so the orphaned settings would stay
+    // painted — and `activePerspectiveId` would keep naming a deleted row — for
+    // the rest of this page load unless the empty case clears explicitly.
+    writePerspectiveSnapshot(TABLE_ID, {
+      perspectiveId: 'deleted-1',
+      settings: { searchValue: 'orphaned' },
+      updatedAt: SERVER_UPDATED_AT_MS - 60_000,
+    })
+
+    const { searchChanges } = renderTable(buildIndexResponse([]))
+
+    expect(searchChanges[0]).toBe('orphaned')
+    expect(searchChanges[searchChanges.length - 1]).toBe('')
+    expect(readPerspectiveSnapshot(TABLE_ID)).toBeNull()
+  })
+
   it('leaves a "No view" widths-only snapshot alone rather than forcing the server default', () => {
     // #1835: column widths survive a refresh without an active perspective, and
     // "No view" is an explicit user choice the server default must not override.

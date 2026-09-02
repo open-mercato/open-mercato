@@ -2590,6 +2590,8 @@ export function DataTable<T extends RowData>({
     const source = perspectiveData ?? perspectiveConfig?.initialState?.response
     if (!source) return
 
+    let orphanedSnapshotDropped = false
+
     const tryResolve = (id: string | null | undefined): PerspectiveDto | RolePerspectiveDto | undefined => {
       if (!id) return undefined
       return source.perspectives.find((p) => p.id === id)
@@ -2649,6 +2651,7 @@ export function DataTable<T extends RowData>({
       initialSnapshotRef.current = null
       hydratedSnapshotRef.current = null
       initialPerspectiveAppliedRef.current = false
+      orphanedSnapshotDropped = true
     }
 
     let target: PerspectiveDto | RolePerspectiveDto | undefined
@@ -2668,9 +2671,16 @@ export function DataTable<T extends RowData>({
     }
     if (target) {
       applyPerspectiveSettings(target.settings, target.id)
+    } else if (orphanedSnapshotDropped) {
+      // Nothing is left to fall back to — the deleted view was the only one. The
+      // orphaned columns/sorting/search are still painted from the mount-time
+      // restore and `activePerspectiveId` still names a row the server no longer
+      // has, so clear explicitly rather than leaving a dead view on screen until
+      // the next reload (#5113).
+      applyPerspectiveSettings({}, null)
     }
     initialPerspectiveAppliedRef.current = true
-  }, [canUsePerspectives, perspectiveData, perspectiveTableId, perspectiveConfig, applyPerspectiveSettings, activePerspectiveId, advancedFilter])
+  }, [canUsePerspectives, perspectiveData, perspectiveTableId, perspectiveConfig, applyPerspectiveSettings, activePerspectiveId, advancedFilter?.onApplyTree])
 
   const scrollTableIntoView = React.useCallback(() => {
     const rect = containerRef.current?.getBoundingClientRect()

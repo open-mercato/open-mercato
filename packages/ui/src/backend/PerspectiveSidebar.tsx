@@ -112,6 +112,9 @@ export function PerspectiveSidebar({
   const rolePerspectivesRef = React.useRef(rolePerspectives)
   rolePerspectivesRef.current = rolePerspectives
 
+  const activePerspectiveIdRef = React.useRef(activePerspectiveId)
+  activePerspectiveIdRef.current = activePerspectiveId
+
   const flushAutosave = React.useCallback(() => {
     if (autosaveRef.current) {
       clearTimeout(autosaveRef.current)
@@ -131,8 +134,12 @@ export function PerspectiveSidebar({
       const activeRole = rolePerspectivesRef.current.find((p) => p.id === activePerspectiveId)
       if (!activeRole) return
       flushAutosave()
+      const warnedId = activeRole.id
       autosaveRef.current = setTimeout(() => {
         autosaveRef.current = null
+        // Switching away within the debounce window makes the warning obsolete —
+        // it would name a shared view the user is no longer editing.
+        if (activePerspectiveIdRef.current !== warnedId) return
         flash(
           t(
             'ui.perspectives.autosave.sharedView',

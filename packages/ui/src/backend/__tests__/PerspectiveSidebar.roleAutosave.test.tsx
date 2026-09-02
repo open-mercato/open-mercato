@@ -71,7 +71,14 @@ function renderSidebar(overrides: Partial<PerspectiveSidebarProps> = {}) {
       <PerspectiveSidebar {...props} />
     </I18nProvider>,
   )
-  return { ...utils, onSave }
+  const rerenderWith = (next: Partial<PerspectiveSidebarProps>) => {
+    utils.rerender(
+      <I18nProvider locale="en" dict={{}}>
+        <PerspectiveSidebar {...props} {...next} />
+      </I18nProvider>,
+    )
+  }
+  return { ...utils, onSave, rerenderWith }
 }
 
 function toggleColumn() {
@@ -131,6 +138,19 @@ describe('PerspectiveSidebar autosave with an active role perspective (#5113)', 
     }))
   })
 
+  it('drops a pending warning when the user switches to a personal view first', async () => {
+    // The warning names the shared view the edit was made on. Firing it after the
+    // user has already moved to a personal view would warn about a view they are
+    // no longer editing, which is its own kind of misinformation.
+    const { rerenderWith } = renderSidebar({ activePerspectiveId: ROLE_VIEW.id })
+
+    toggleColumn()
+    rerenderWith({ activePerspectiveId: PERSONAL_VIEW.id })
+    await flushAutosave()
+
+    expect(mockFlash).not.toHaveBeenCalled()
+  })
+
   it('stays silent when no view is active', async () => {
     const { onSave } = renderSidebar({ activePerspectiveId: null })
 
@@ -156,6 +176,33 @@ describe('PerspectiveSidebar new-view mode affordances (#5113)', () => {
     expect(confirm).toBeDisabled()
     expect(confirm).toHaveAttribute('title', 'Enter a name to create the view')
     expect(screen.getByText('Enter a name to create the view')).toBeInTheDocument()
+  })
+
+  it('keeps the hint out of the box that centres the confirm/cancel buttons', () => {
+    // The buttons are `top-1/2 -translate-y-1/2` against their positioning
+    // context, so a hint sharing that box grows it and drags them out of the
+    // input. jsdom has no layout engine, so assert the structure that causes it.
+    renderSidebar({ activePerspectiveId: ROLE_VIEW.id })
+
+    fireEvent.click(screen.getByRole('button', { name: 'New' }))
+
+    const confirm = screen.getByRole('button', { name: 'Create view' })
+    const positioningContext = confirm.closest('.relative') as HTMLElement
+    const hint = screen.getByText('Enter a name to create the view')
+    expect(positioningContext).not.toBeNull()
+    expect(positioningContext.contains(hint)).toBe(false)
+  })
+
+  it('keeps the hint mounted once a name is typed, so nothing reflows mid-edit', () => {
+    renderSidebar({ activePerspectiveId: ROLE_VIEW.id })
+
+    fireEvent.click(screen.getByRole('button', { name: 'New' }))
+    fireEvent.change(screen.getByPlaceholderText('View name...'), { target: { value: 'Q1' } })
+
+    const hint = screen.getByText('Enter a name to create the view')
+    expect(hint).toBeInTheDocument()
+    expect(hint.className).toContain('invisible')
+    expect(screen.getByRole('button', { name: 'Create view' })).toBeEnabled()
   })
 
   it('drops the active-view highlight while the new-view form is open', () => {
