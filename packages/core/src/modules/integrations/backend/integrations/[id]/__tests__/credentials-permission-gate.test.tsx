@@ -1,19 +1,17 @@
 /**
  * @jest-environment jsdom
  *
- * Regression for #3676: when saving integration credentials hits an optimistic-lock
- * 409, the credentials form must surface the conflict on the unified
- * RecordConflictBanner with a localized message — not toast the raw `record_modified`
- * code, and not silently swallow the conflict. The page hands the failure to its host
- * CrudForm via raiseCrudError (status + body), so CrudForm's existing conflict path
- * runs. Before the fix the handler threw createCrudFormError('record_modified'), which
- * CrudForm could not recognize as a conflict, so no bar appeared and the toast showed
- * the raw key.
+ * Regression for #5816: the integration detail page must not render an editable
+ * credentials form (or an enabled "Save" action) to a user who lacks
+ * `integrations.credentials.manage`. Before the fix, `showCredentialActions` and
+ * the credentials tab body only checked whether the provider declared credential
+ * fields — never the viewer's ACL grants — so any provider with real fields (e.g.
+ * Stripe-shaped credentials) rendered an editable form and an active Save button
+ * to every viewer, even though the backend correctly rejects the write with 403.
  */
 import * as React from 'react'
-import { act, fireEvent, waitFor } from '@testing-library/react'
+import { waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
-import { OPTIMISTIC_LOCK_CONFLICT_CODE } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 
 const apiCallMock = jest.fn()
 const flashMock = jest.fn()
@@ -51,8 +49,6 @@ jest.mock('@open-mercato/ui/backend/utils/apiCall', () => {
   }
 })
 
-// runMutation must actually execute the operation so the credentials PUT (and its 409)
-// flows through to the page's failure handling — the bug lives in that handler.
 jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({
   useGuardedMutation: () => ({
     runMutation: async ({ operation }: { operation: () => Promise<unknown> }) => operation(),
@@ -87,13 +83,11 @@ jest.mock('@open-mercato/ui/backend/utils/customFieldForms', () => ({
 }))
 
 import IntegrationDetailPage from '../page'
-import { dismissRecordConflict, getRecordConflictForTest } from '@open-mercato/ui/backend/conflicts'
 
-const RECORD_MODIFIED_MESSAGE = 'This record was modified by someone else. Refresh and try again.'
+const NO_PERMISSION_MESSAGE = 'You do not have permission to manage credentials for this integration.'
 
 const dict = {
-  'ui.forms.flash.recordModified': RECORD_MODIFIED_MESSAGE,
-  'ui.forms.errors.required': 'This field is required',
+  'integrations.detail.credentials.noPermission': NO_PERMISSION_MESSAGE,
   'integrations.detail.credentials.secretConfigured': 'Configured. Enter a new value to replace it.',
 }
 
@@ -125,13 +119,6 @@ const integrationDetail = {
   analytics: { lastActivityAt: null, totalCount: 0, errorCount: 0, errorRate: 0, dailyCounts: [0, 0, 0, 0, 0, 0, 0] },
 }
 
-const conflictBody = {
-  error: 'record_modified',
-  code: OPTIMISTIC_LOCK_CONFLICT_CODE,
-  currentUpdatedAt: '2026-06-29T10:00:00.000Z',
-  expectedUpdatedAt: '2026-06-29T09:00:00.000Z',
-}
-
 function makeResponse(status: number, body: unknown): Response {
   return {
     ok: status >= 200 && status < 300,
@@ -145,29 +132,17 @@ function makeResponse(status: number, body: unknown): Response {
   } as unknown as Response
 }
 
-function mockApiResponses(secretConfigured = true) {
+function mockApiResponses(granted: string[]) {
   apiCallMock.mockImplementation((url: unknown, init?: RequestInit) => {
     const href = typeof url === 'string' ? url : ''
-    const method = (init?.method ?? 'GET').toUpperCase()
     if (href.includes('/api/auth/feature-check')) {
-      const body = { ok: true, granted: ['integrations.credentials.manage'], userId: 'user-1' }
+      const body = { ok: granted.length > 0, granted, userId: 'user-1' }
       return Promise.resolve({ ok: true, status: 200, result: body, response: makeResponse(200, body) })
     }
     if (href.includes('/credentials')) {
-      if (method === 'PUT') {
-        return Promise.resolve({
-          ok: false,
-          status: 409,
-          result: conflictBody,
-          response: makeResponse(409, conflictBody),
-        })
-      }
       const body = {
-        credentials: {
-          publishableKey: 'pk_test_123',
-          ...(secretConfigured ? { secretKey: '__om_secret_unchanged__' } : {}),
-        },
-        secretFieldsConfigured: { secretKey: secretConfigured },
+        credentials: { publishableKey: 'pk_test_123', secretKey: '__om_secret_unchanged__' },
+        secretFieldsConfigured: { secretKey: true },
         updatedAt: '2026-06-29T09:00:00.000Z',
       }
       return Promise.resolve({ ok: true, status: 200, result: body, response: makeResponse(200, body) })
@@ -180,93 +155,41 @@ function mockApiResponses(secretConfigured = true) {
   })
 }
 
-describe('Integration credentials — optimistic-lock conflict surfacing (#3676)', () => {
+describe('Integration credentials — permission gate (#5816)', () => {
   beforeEach(() => {
     apiCallMock.mockReset()
     flashMock.mockReset()
-    dismissRecordConflict()
-    mockApiResponses()
   })
 
-  afterEach(() => {
-    dismissRecordConflict()
-  })
-
-  it('surfaces a stale-save 409 on the unified conflict bar with a localized message (no raw record_modified toast)', async () => {
-    const { container } = renderWithProviders(
-      <IntegrationDetailPage params={{ id: 'gateway_stripe' }} />,
-      { dict },
-    )
-
-    let form: HTMLFormElement | null = null
-    await waitFor(() => {
-      form = container.querySelector('form')
-      expect(form).not.toBeNull()
-    })
-
-    const secretField = container.querySelector('[data-crud-field-id="secretKey"]')
-    const secretInput = secretField?.querySelector('input')
-    expect(secretInput).not.toBeNull()
-    expect(secretInput).toHaveValue('')
-    expect(secretField).toHaveTextContent('Configured. Enter a new value to replace it.')
-    expect(container).not.toHaveTextContent('__om_secret_unchanged__')
-
-    const revealButton = secretField?.querySelector('button[aria-pressed]')
-    expect(revealButton).not.toBeNull()
-    fireEvent.click(revealButton as HTMLButtonElement)
-    expect(secretInput).toHaveAttribute('type', 'text')
-    expect(secretInput).toHaveValue('')
-
-    await act(async () => {
-      fireEvent.submit(form as unknown as HTMLFormElement)
-    })
-
-    await waitFor(() => {
-      const entry = getRecordConflictForTest()
-      expect(entry).not.toBeNull()
-      expect(entry?.message).toBe(RECORD_MODIFIED_MESSAGE)
-    })
-
-    // The raw enum string must never reach the user as a toast.
-    expect(flashMock).not.toHaveBeenCalledWith('record_modified', 'error')
-    expect(flashMock).not.toHaveBeenCalledWith(RECORD_MODIFIED_MESSAGE, 'error')
-
-    // Sanity: the credentials PUT was actually attempted.
-    const putCall = apiCallMock.mock.calls.find(
-      ([, init]) => (init as RequestInit | undefined)?.method === 'PUT',
-    )
-    expect(putCall).toBeTruthy()
-    expect(JSON.parse(String((putCall?.[1] as RequestInit).body))).toEqual({
-      credentials: { publishableKey: 'pk_test_123' },
-      unchangedSecretFields: ['secretKey'],
-    })
-  })
-
-  it('keeps an unconfigured required secret mandatory and does not submit an empty value', async () => {
-    apiCallMock.mockReset()
-    mockApiResponses(false)
+  it('hides the editable credentials form and Save action from a viewer without integrations.credentials.manage', async () => {
+    mockApiResponses([])
 
     const { container } = renderWithProviders(
       <IntegrationDetailPage params={{ id: 'gateway_stripe' }} />,
       { dict },
     )
 
-    let form: HTMLFormElement | null = null
     await waitFor(() => {
-      form = container.querySelector('form')
-      expect(form).not.toBeNull()
+      expect(container).toHaveTextContent(NO_PERMISSION_MESSAGE)
     })
 
-    await act(async () => {
-      fireEvent.submit(form as HTMLFormElement)
-    })
+    expect(container.querySelector('form')).toBeNull()
+    expect(container.querySelector('[data-crud-field-id="secretKey"]')).toBeNull()
+  })
 
-    const secretField = container.querySelector('[data-crud-field-id="secretKey"]')
-    await waitFor(() => expect(secretField).toHaveTextContent('This field is required'))
+  it('renders the editable credentials form for a viewer with integrations.credentials.manage', async () => {
+    mockApiResponses(['integrations.credentials.manage'])
 
-    const putCall = apiCallMock.mock.calls.find(
-      ([, init]) => (init as RequestInit | undefined)?.method === 'PUT',
+    const { container } = renderWithProviders(
+      <IntegrationDetailPage params={{ id: 'gateway_stripe' }} />,
+      { dict },
     )
-    expect(putCall).toBeUndefined()
+
+    await waitFor(() => {
+      expect(container.querySelector('form')).not.toBeNull()
+    })
+
+    expect(container.querySelector('[data-crud-field-id="secretKey"]')).not.toBeNull()
+    expect(container).not.toHaveTextContent(NO_PERMISSION_MESSAGE)
   })
 })

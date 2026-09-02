@@ -58,6 +58,7 @@ import {
   type SecretFieldsConfigured,
 } from '../credential-secret-fields'
 import { isValidCredentialUrl } from '../../../lib/credentials-field-validation'
+import { useIntegrationCredentialsFeatureAccess } from '../useIntegrationCredentialsFeatureAccess'
 
 type CredentialField = IntegrationCredentialField
 type BuiltInIntegrationDetailTab = 'credentials' | 'version' | 'health' | 'logs' | 'data-sync-schedule'
@@ -463,6 +464,10 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
   const [activeTab, setActiveTab] = React.useState<IntegrationDetailTab>('credentials')
 
   const credentialsFormId = React.useId()
+  const {
+    isLoading: isLoadingCredentialsAccess,
+    canManageCredentials,
+  } = useIntegrationCredentialsFeatureAccess()
 
   const resolveCurrentIntegrationId = React.useCallback(() => {
     return integrationId ?? (
@@ -1032,7 +1037,10 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
     ? 'border-status-success-border bg-status-success-bg text-status-success-text'
     : 'border-status-neutral-border bg-status-neutral-bg text-status-neutral-text'
 
-  const showCredentialActions = showCredentialsTab && activeTab === 'credentials' && credentialFormFields.length > 0
+  const showCredentialActions = showCredentialsTab
+    && activeTab === 'credentials'
+    && credentialFormFields.length > 0
+    && canManageCredentials
 
   React.useEffect(() => {
     setActiveTab(resolveRequestedIntegrationDetailTab(searchParams?.get('tab'), visibleTabIds))
@@ -1280,6 +1288,14 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
                   <p className="text-sm text-muted-foreground">
                     {t('integrations.detail.credentials.notConfigured')}
                   </p>
+                ) : isLoadingCredentialsAccess ? (
+                  <div className="flex justify-center py-8"><Spinner /></div>
+                ) : !canManageCredentials ? (
+                  <EmptyState
+                    size="sm"
+                    icon={<Key className="h-8 w-8" aria-hidden="true" />}
+                    title={t('integrations.detail.credentials.noPermission', 'You do not have permission to manage credentials for this integration.')}
+                  />
                 ) : (
                   <CrudForm<Record<string, unknown>>
                     key={`${resolvedIntegration.id}:${credentialsFormKey}`}
