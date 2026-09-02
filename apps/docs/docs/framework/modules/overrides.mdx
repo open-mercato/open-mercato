@@ -295,6 +295,8 @@ applyNavGroupOrderOverrides(null) // clear, falling back to modules.ts
 
 Programmatic calls must happen before the affected registry registers its base entries. The standard app bootstrap already calls `applyModuleOverridesFromEnabledModules(enabledModules)` for inline `modules.ts` overrides.
 
+Both bootstrap paths do this, so `modules.ts` overrides apply everywhere: the Next.js runtime dispatches them from `bootstrap-common.ts`, and CLI, worker and scheduler processes dispatch the same overrides from `bootstrapFromAppRoot()` before `registerModules`/`registerCliModules` first read the registry. A `src/modules.ts` that is present but fails to load aborts that bootstrap rather than continuing with a partial override set (#5582).
+
 ## Notes
 
 - Override your own app module by editing the module directly; use `entry.overrides` for cross-module app policy.
