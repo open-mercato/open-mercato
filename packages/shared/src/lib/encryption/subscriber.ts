@@ -6,7 +6,7 @@ import { isTenantDataEncryptionEnabled } from './toggles'
 import { isEncryptionDebugEnabled } from './toggles'
 import { resolveTenantEncryptionService } from './customFieldValues'
 import { createLogger } from '../logger'
-import { DECRYPT_REFUSAL_LOG_MESSAGE, resolveDecryptScope } from './decryptScope'
+import { DECRYPT_REFUSAL_LOG_MESSAGE, DecryptRefusalTally, resolveDecryptScope } from './decryptScope'
 import { listEntityMetadataFromRegistry } from '../db/entityMetadata'
 
 const logger = createLogger('shared').child({ component: 'encryption' })
@@ -290,7 +290,12 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
     target: Record<string, unknown>,
     meta: EntityMetadata<any> | undefined,
     em?: { getMetadata?: () => any; getComparator?: () => any },
-    opts: { syncOriginal?: boolean; seen?: WeakSet<object>; fallbackScope?: Scope } = {},
+    opts: {
+      syncOriginal?: boolean
+      seen?: WeakSet<object>
+      fallbackScope?: Scope
+      refusalTallies?: Map<string, DecryptRefusalTally>
+    } = {},
   ) {
     await this.decrypt(target, meta, em, opts)
   }
@@ -303,7 +308,13 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
       syncOriginal = false,
       seen,
       fallbackScope,
-    }: { syncOriginal?: boolean; seen?: WeakSet<object>; fallbackScope?: Scope } = {},
+      refusalTallies,
+    }: {
+      syncOriginal?: boolean
+      seen?: WeakSet<object>
+      fallbackScope?: Scope
+      refusalTallies?: Map<string, DecryptRefusalTally>
+    } = {},
   ) {
     const visited = seen ?? new WeakSet<object>()
     if (visited.has(target as object)) return
@@ -326,12 +337,18 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
     // so decrypting would key off a foreign tenant's DEK. Leave the graph untouched — including
     // its relations, which must not inherit a fallback derived from a refused entity.
     if (!decision.decrypt) {
-      logger.warn(DECRYPT_REFUSAL_LOG_MESSAGE, {
-        entity: entityId,
-        refusedRows: 1,
-        callerTenantId: decision.callerTenantId,
-        rowTenantIds: [decision.rowTenantId],
-      })
+      const rowId = (target as { id?: unknown }).id
+      // A batch read hands in a tally so one mis-scoped page emits one warning instead of one per
+      // row; a single-entity call has no tally and reports itself immediately.
+      if (refusalTallies) {
+        const tally = refusalTallies.get(entityId) ?? new DecryptRefusalTally()
+        refusalTallies.set(entityId, tally)
+        tally.record(decision, rowId == null ? null : String(rowId))
+      } else {
+        const tally = new DecryptRefusalTally()
+        tally.record(decision, rowId == null ? null : String(rowId))
+        logger.warn(DECRYPT_REFUSAL_LOG_MESSAGE, tally.toLogContext(entityId))
+      }
       return
     }
     const scopedTenantId = decision.tenantId
@@ -399,6 +416,7 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
               syncOriginal: true,
               seen: visited,
               fallbackScope: nextFallback,
+              refusalTallies,
             })
           }
           continue
@@ -413,6 +431,7 @@ export class TenantEncryptionSubscriber implements EventSubscriber<any> {
               syncOriginal: true,
               seen: visited,
               fallbackScope: nextFallback,
+              refusalTallies,
             })
           }
         }
@@ -496,12 +515,20 @@ export async function decryptEntitiesWithFallbackScope(
           organizationId: organizationId ?? null,
         }
       : undefined
+  // One mis-scoped read can refuse its whole result list, so refusals are aggregated across the
+  // batch (keyed by entity) and reported once per entity instead of once per row.
+  const refusalTallies = new Map<string, DecryptRefusalTally>()
   for (const entity of list) {
     if (!entity || typeof entity !== 'object') continue
     const meta = (entity as any).__meta ?? (entity as any).__helper?.__meta
     await subscriber.decryptEntityGraph(entity as Record<string, unknown>, meta, em as any, {
       syncOriginal: true,
       fallbackScope: fallback,
+      refusalTallies,
     })
+  }
+  for (const [entityId, tally] of refusalTallies) {
+    if (tally.refused === 0) continue
+    logger.warn(DECRYPT_REFUSAL_LOG_MESSAGE, tally.toLogContext(entityId))
   }
 }

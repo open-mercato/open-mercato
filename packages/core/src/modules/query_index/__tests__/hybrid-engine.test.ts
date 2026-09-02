@@ -3,6 +3,7 @@ import { HybridQueryEngine, coerceSortDirection } from '../../query_index/lib/en
 import { BasicQueryEngine } from '@open-mercato/shared/lib/query/engine'
 import { SortDir } from '@open-mercato/shared/lib/query/types'
 import { clearSearchTokenPresenceCache } from '@open-mercato/shared/lib/search/availability'
+import { DECRYPT_REFUSAL_LOG_MESSAGE } from '@open-mercato/shared/lib/encryption/decryptScope'
 
 // The token-presence answer is cached process-wide (TTL); without clearing it,
 // probe-count assertions would observe hits from earlier tests in this file.
@@ -2028,6 +2029,59 @@ describe('HybridQueryEngine decrypt tenant binding (#5430)', () => {
     })
     expect(decryptEntityPayload).toHaveBeenCalledTimes(1)
     expect(result.items).toEqual([expect.objectContaining({ name: 'Alice Owner' })])
+  })
+
+  // The decision reads the row's own tenant_id, which a caller-supplied `fields` list omits. The
+  // engine widens the projection to carry it and strips it back out of the response.
+  test('a projection without tenant_id still refuses a foreign-tenant row and hides the column', async () => {
+    const decryptEntityPayload = jest.fn(async () => ({ name: 'Alice Owner' }))
+    const engine = buildEngine(
+      [{ id: 'user-1', name: 'encrypted-name', tenant_id: 'tenant-b', organization_id: 'org1' }],
+      decryptEntityPayload,
+    )
+    const result = await engine.query('auth:user', {
+      fields: ['id', 'name', 'organization_id'],
+      tenantId: 'tenant-a',
+      page: { page: 1, pageSize: 50 },
+    })
+    expect(decryptEntityPayload).not.toHaveBeenCalled()
+    expect(Object.prototype.hasOwnProperty.call(result.items[0], 'tenant_id')).toBe(false)
+    expect((result.items[0] as any).organization_id).toBe('org1')
+  })
+
+  test('a caller that asked for tenant_id still gets it back', async () => {
+    const decryptEntityPayload = jest.fn(async () => ({ name: 'Alice Owner' }))
+    const engine = buildEngine(
+      [{ id: 'user-1', name: 'encrypted-name', tenant_id: 'tenant-a', organization_id: 'org1' }],
+      decryptEntityPayload,
+    )
+    const result = await engine.query('auth:user', {
+      fields: ['id', 'name', 'tenant_id'],
+      tenantId: 'tenant-a',
+      page: { page: 1, pageSize: 50 },
+    })
+    expect((result.items[0] as any).tenant_id).toBe('tenant-a')
+  })
+
+  // A declined query decrypts nothing, so a scope mismatch on it is not a refusal — warning about
+  // one would be noise, and the basic engine already returns before resolving the scope.
+  test('a declined query emits no decrypt-refusal warning', async () => {
+    mockLogger.warn.mockClear()
+    const decryptEntityPayload = jest.fn(async () => ({ name: 'Alice Owner' }))
+    const engine = buildEngine(
+      [{ id: 'user-1', name: 'encrypted-name', tenant_id: 'tenant-b', organization_id: 'org1' }],
+      decryptEntityPayload,
+    )
+    await engine.query('auth:user', {
+      fields: ['id', 'name'],
+      tenantId: 'tenant-a',
+      decryptEncryptedFields: false,
+      page: { page: 1, pageSize: 50 },
+    })
+    expect(decryptEntityPayload).not.toHaveBeenCalled()
+    expect(
+      mockLogger.warn.mock.calls.filter(([message]) => message === DECRYPT_REFUSAL_LOG_MESSAGE),
+    ).toHaveLength(0)
   })
 
   test('a refused row keeps its cf: custom-field values encrypted too', async () => {

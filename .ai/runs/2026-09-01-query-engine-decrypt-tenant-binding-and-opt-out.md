@@ -57,6 +57,15 @@ Make query-engine field decryption fail closed: bind the DEK to the tenant the c
 
 4.1 State the at-rest-not-read-side-ACL contract and document the new option in both encryption docs.
 
+### Phase 5 — Review findings (added after the 2026-09-02 re-review)
+
+5.1 Carry `tenant_id` into the decrypt decision regardless of the caller's projection, in both engines, and strip it back out of the response — the guard was inert on routes that project narrowly.
+5.2 Deduplicate the refusal tally by row id so the plaintext-sort path (which decrypts an overlapping row set twice) cannot overstate the count the docs promise.
+5.3 Return from the hybrid engine's `decryptRow` before resolving the scope when the query declined decryption, matching the basic engine — a declined query must not warn about refusals it never made.
+5.4 Aggregate ORM-path refusals across a batch read so `decryptEntitiesWithFallbackScope` emits one warning per entity instead of one per row.
+5.5 Warn once when a declined query sorts on an encrypted field, and document the degradation on both option surfaces.
+5.6 Qualify the shipped documentation where the binding cannot engage, and align the opt-in/opt-out wording.
+
 ## Progress
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
@@ -82,3 +91,16 @@ Make query-engine field decryption fail closed: bind the DEK to the tenant the c
 ### Phase 4: Documentation correction
 
 - [x] 4.1 Document the at-rest contract and the new option — 37d2110b6
+
+### Phase 5: Review findings
+
+- [ ] 5.1 Carry tenant_id into the decrypt decision regardless of projection
+- [ ] 5.2 Deduplicate the refusal tally by row id
+- [ ] 5.3 Skip the refusal path in the hybrid engine when decryption is declined
+- [ ] 5.4 Aggregate ORM-path refusals across a batch read
+- [ ] 5.5 Warn when a declined query sorts on an encrypted field
+- [ ] 5.6 Qualify the docs where the binding cannot engage
+
+Not fixed in this PR, tracked instead: `decryptEncryptedFields` still ships without a production
+consumer (review finding 5) — wiring the intended list surfaces is #5845, and the PR body says so
+rather than implying the flag already protects something.

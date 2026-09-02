@@ -101,6 +101,26 @@ describe('DecryptRefusalTally', () => {
     expect(context.rowTenantIds).toEqual(['t2', 't3', 't4'])
   })
 
+  // The plaintext-sort path decrypts an overlapping row set twice (candidate scan, then page
+  // rows), so counting both passes overstated the refusal count by up to a page.
+  test('counts a row once however many times it is recorded', () => {
+    const tally = new DecryptRefusalTally()
+    tally.record(refusal('t2'), 'row-1')
+    tally.record(refusal('t3'), 'row-2')
+    tally.record(refusal('t2'), 'row-1')
+    expect(tally.refused).toBe(2)
+    expect(tally.toLogContext('customers:customer').refusedRows).toBe(2)
+  })
+
+  test('counts rows recorded without an id individually', () => {
+    const tally = new DecryptRefusalTally()
+    tally.record(refusal('t2'))
+    tally.record(refusal('t2'), null)
+    tally.record(refusal('t2'), '')
+    tally.record(refusal('t2'), 'row-1')
+    expect(tally.refused).toBe(4)
+  })
+
   test('log context carries ids only — never row values', () => {
     const tally = new DecryptRefusalTally()
     tally.record(refusal('t2'))

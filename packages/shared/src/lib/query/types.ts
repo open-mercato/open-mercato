@@ -120,8 +120,13 @@ export type QueryOptions = {
    * callers are unaffected.
    *
    * Use it on generic, entity-agnostic surfaces that select every column and do not need plaintext.
-   * It is an opt-out, not an access control: decryption is still bound to the caller's tenant by
-   * `resolveDecryptScope`, which refuses any row whose `tenant_id` contradicts `tenantId`.
+   * Opting in to decline decryption is not an access control: when decryption DOES run it is bound
+   * to the caller's tenant by `resolveDecryptScope`, which refuses any row whose `tenant_id`
+   * contradicts `tenantId`.
+   *
+   * Caveat: declining also disables the plaintext-sort path, so a `sort` on an encrypted field
+   * degrades to SQL `ORDER BY` over ciphertext — a meaningless order. Both engines log one warning
+   * when that combination is requested.
    */
   decryptEncryptedFields?: boolean
   // Soft-delete behavior: when false (default), rows with non-null deleted_at

@@ -80,6 +80,12 @@ query engines refuse to decrypt a row whose `tenant_id` contradicts `QueryOption
 it as ciphertext, and log one aggregated warning naming the mismatching tenant ids. A scoping
 mistake elsewhere therefore degrades to ciphertext instead of disclosing another tenant's plaintext.
 
+The comparison needs a tenant on both sides. An ORM read through `find*WithDecryption` that passes
+no scope has no caller tenant to bind against and keeps the pre-guard behaviour — pass `{ tenantId }`
+to get the binding. See
+[Decryption is bound to the caller's tenant](/docs/architecture/data-encryption#decryption-is-bound-to-the-callers-tenant)
+for the full set of limits.
+
 A query that does not need plaintext at all can decline it outright with
 `QueryOptions.decryptEncryptedFields: false`. The declined query performs no DEK lookup:
 
@@ -104,8 +110,12 @@ makeCrudRoute({
 ```
 
 It defaults to `true` — today's behaviour — so existing callers are unaffected, and it is an
-**opt-out for callers that do not need plaintext**, not an access control. Sorting on an encrypted
-field is unavailable on a declined query, because there is no plaintext to sort by.
+**opt-in to declining plaintext**, not an access control.
+
+Sorting on an encrypted field is unavailable on a declined query, because there is no plaintext to
+sort by: the sort falls through to SQL `ORDER BY` over ciphertext, which produces a meaningless
+order. The engines log one warning when a declined query sorts on an encrypted field — sort on a
+plaintext column instead, or drop the flag for that query.
 
 ## Manage maps in the UI
 

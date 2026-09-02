@@ -11,6 +11,7 @@ import { createProfiler, shouldEnableProfiler, type Profiler } from '@open-merca
 import type { VectorIndexService } from '@open-mercato/search/vector'
 import { decryptIndexDocCustomFields } from '@open-mercato/shared/lib/encryption/indexDoc'
 import {
+  DECLINED_ENCRYPTED_SORT_LOG_MESSAGE,
   DECRYPT_REFUSAL_LOG_MESSAGE,
   DecryptRefusalTally,
   resolveDecryptEnabled,
@@ -39,7 +40,13 @@ import {
 import { tokenizeText } from '@open-mercato/shared/lib/search/tokenize'
 import { runBeforeQueryPipeline, runAfterQueryPipeline, type QueryExtensionContext } from '@open-mercato/shared/lib/query/query-extension-runner'
 import { warnOnCiphertextLikeFallback } from '@open-mercato/shared/lib/query/ciphertext-search-warning'
-import { resolveEncryptedSortFields, resolveEncryptedSortMaxRows, sortRowsInMemory } from '@open-mercato/shared/lib/query/encrypted-sort'
+import {
+  matchEncryptedSortFields,
+  resolveEncryptedFieldNames,
+  resolveEncryptedSortFields,
+  resolveEncryptedSortMaxRows,
+  sortRowsInMemory,
+} from '@open-mercato/shared/lib/query/encrypted-sort'
 import { resolveListCountCap } from '@open-mercato/shared/lib/query/count-cap'
 import { mapWithConcurrency } from '@open-mercato/shared/lib/query/bounded-decrypt'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -738,14 +745,47 @@ export class HybridQueryEngine implements QueryEngine {
           if (baseField) resolvedSorts.push({ ...sort, field: baseField })
         }
       }
-      const encryptedSortFields = await resolveEncryptedSortFields(
+      const plainSortFields = resolvedSorts
+        .filter((sort) => !sort.field.startsWith('cf:'))
+        .map((sort) => sort.field)
+      const encryptedFieldNames = await resolveEncryptedFieldNames(
         encSvc,
         entity,
-        resolvedSorts.filter((sort) => !sort.field.startsWith('cf:')).map((sort) => sort.field),
         opts.tenantId ?? null,
         fallbackOrgId,
       )
+      const encryptedSortFields = matchEncryptedSortFields(encryptedFieldNames, plainSortFields)
       const requiresPlaintextSort = encryptedSortFields.size > 0
+      // Declining decryption also drops the plaintext-sort path, so an encrypted sort column
+      // silently becomes an ORDER BY over ciphertext. Say so once rather than returning a
+      // meaningless order.
+      if (!decryptEnabled && plainSortFields.length > 0) {
+        const declinedSortFields = await resolveEncryptedSortFields(
+          this.getEncryptionService(),
+          entity,
+          plainSortFields,
+          opts.tenantId ?? null,
+          fallbackOrgId,
+        )
+        if (declinedSortFields.size > 0) {
+          logger.warn(DECLINED_ENCRYPTED_SORT_LOG_MESSAGE, {
+            entity: String(entity),
+            sortFields: Array.from(declinedSortFields),
+          })
+        }
+      }
+      // The decrypt decision keys off the row's own tenant_id, which a caller-supplied `fields`
+      // list would otherwise omit — leaving the tenant binding inert on narrowly projecting
+      // routes. Force it into the projection and strip it back out of the response.
+      const requestedFields = opts.fields && opts.fields.length ? opts.fields.map(String) : null
+      const injectsTenantIdForDecrypt =
+        encSvc != null
+        && hasTenantColumn
+        && requestedFields != null
+        && !requestedFields.includes('tenant_id')
+        && !requestedFields.includes('tenantId')
+        // A `null` map is unknown, not empty: a decrypt attempt may still follow, so widen anyway.
+        && (encryptedFieldNames === null || encryptedFieldNames.length > 0)
 
       // ────────────────────────────────────────────────────────────────
       // Build a reusable "applyQueryShape" function that applies every
@@ -1114,6 +1154,7 @@ export class HybridQueryEngine implements QueryEngine {
       if (requiresPlaintextSort) {
         for (const field of encryptedSortFields) selectFieldSet.add(field)
       }
+      if (injectsTenantIdForDecrypt) selectFieldSet.add('tenant_id')
       if (opts.includeCustomFields === true) {
         const entityIds = Array.from(new Set(indexSources.map((src) => String(src.entityId))))
         try {
@@ -1212,6 +1253,10 @@ export class HybridQueryEngine implements QueryEngine {
 
       const decryptRow = async (item: Record<string, unknown>): Promise<Record<string, unknown>> => {
         let next = item
+        // A query that declined decryption never refuses anything: nothing would be decrypted
+        // either way, so warning about a scope mismatch here would be noise. Mirrors the basic
+        // engine, which returns before resolving the scope when it has no decrypt payload.
+        if (!encSvc) return next
         const decision = resolveDecryptScope({
           rowTenantId: (next?.tenant_id ?? next?.tenantId ?? null) as string | null,
           rowOrganizationId: (next?.organization_id ?? next?.organizationId ?? null) as string | null,
@@ -1221,7 +1266,7 @@ export class HybridQueryEngine implements QueryEngine {
         // Fail closed: the caller asserted a tenant and this row contradicts it. Both the base
         // payload and the `cf:` values are keyed by the same scope, so neither may be decrypted.
         if (!decision.decrypt) {
-          refusalTally.record(decision)
+          refusalTally.record(decision, next?.id == null ? null : String(next.id))
           return next
         }
         if (encSvc?.decryptEntityPayload) {
@@ -1346,6 +1391,10 @@ export class HybridQueryEngine implements QueryEngine {
         items = await mapWithConcurrency(itemsRaw, DECRYPT_CONCURRENCY, decryptRow)
       }
       reportDecryptRefusals()
+      // The decrypt decision has been made, so the column the caller never asked for goes back out.
+      if (injectsTenantIdForDecrypt) {
+        for (const row of items) delete row.tenant_id
+      }
       if (debugEnabled) this.debug('query:complete', { entity, total, items: items.length })
 
       const typedItems = items as unknown as T[]

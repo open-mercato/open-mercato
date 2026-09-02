@@ -6,8 +6,12 @@ jest.mock('../../logger', () => {
 })
 
 import { BasicQueryEngine } from '../engine'
+import { SortDir } from '../types'
 import { registerModules } from '../../i18n/server'
-import { DECRYPT_REFUSAL_LOG_MESSAGE } from '../../encryption/decryptScope'
+import {
+  DECLINED_ENCRYPTED_SORT_LOG_MESSAGE,
+  DECRYPT_REFUSAL_LOG_MESSAGE,
+} from '../../encryption/decryptScope'
 
 registerModules([] as any)
 
@@ -91,6 +95,69 @@ describe('BasicQueryEngine aggregated decrypt-refusal warning (#5430)', () => {
       { id: '2', tenant_id: 'tenant-a', organization_id: 'org1', display_name: 'cipher-2' },
     ])
     expect(refusalWarnings()).toHaveLength(0)
+  })
+
+  // The plaintext-sort path decrypts the candidate scan and then the page rows, so an unkeyed
+  // counter tallied every surviving row twice and the count the docs promise was wrong.
+  test('counts a refused row once even though the plaintext-sort path decrypts it twice', async () => {
+    const rows = ['tenant-b', 'tenant-c', 'tenant-d'].map((tenant, index) => ({
+      id: String(index + 1),
+      tenant_id: tenant,
+      organization_id: 'org1',
+      display_name: `cipher-${index}`,
+    }))
+    await engineFor(rows).query('customers:customer_entity', {
+      tenantId: 'tenant-a',
+      fields: ['id', 'display_name'],
+      sort: [{ field: 'display_name', dir: SortDir.Asc }],
+      page: { page: 1, pageSize: 10 },
+    })
+    const warnings = refusalWarnings()
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0][1]).toMatchObject({ refusedRows: 3 })
+  })
+
+  test('warns once when a declined query sorts on an encrypted field', async () => {
+    await engineFor([
+      { id: '1', tenant_id: 'tenant-a', organization_id: 'org1', display_name: 'cipher-1' },
+    ]).query('customers:customer_entity', {
+      tenantId: 'tenant-a',
+      decryptEncryptedFields: false,
+      fields: ['id', 'display_name'],
+      sort: [{ field: 'display_name', dir: SortDir.Asc }],
+      page: { page: 1, pageSize: 10 },
+    })
+    const warnings = warnMock.mock.calls.filter(([message]) => message === DECLINED_ENCRYPTED_SORT_LOG_MESSAGE)
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0][1]).toEqual({
+      entity: 'customers:customer_entity',
+      sortFields: ['display_name'],
+    })
+  })
+
+  test('does not warn when a declined query sorts on a plaintext column', async () => {
+    await engineFor([
+      { id: '1', tenant_id: 'tenant-a', organization_id: 'org1', display_name: 'cipher-1' },
+    ]).query('customers:customer_entity', {
+      tenantId: 'tenant-a',
+      decryptEncryptedFields: false,
+      fields: ['id', 'display_name'],
+      sort: [{ field: 'id', dir: SortDir.Asc }],
+      page: { page: 1, pageSize: 10 },
+    })
+    expect(warnMock.mock.calls.filter(([message]) => message === DECLINED_ENCRYPTED_SORT_LOG_MESSAGE)).toHaveLength(0)
+  })
+
+  test('does not warn about an encrypted sort when the query decrypts normally', async () => {
+    await engineFor([
+      { id: '1', tenant_id: 'tenant-a', organization_id: 'org1', display_name: 'cipher-1' },
+    ]).query('customers:customer_entity', {
+      tenantId: 'tenant-a',
+      fields: ['id', 'display_name'],
+      sort: [{ field: 'display_name', dir: SortDir.Asc }],
+      page: { page: 1, pageSize: 10 },
+    })
+    expect(warnMock.mock.calls.filter(([message]) => message === DECLINED_ENCRYPTED_SORT_LOG_MESSAGE)).toHaveLength(0)
   })
 
   test('never puts a decrypted or ciphertext field value in the log context', async () => {
