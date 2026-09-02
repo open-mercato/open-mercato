@@ -30,13 +30,15 @@ Non-goals: no changes to scripts/__tests__ semantics (the suite must pass unchan
 
 ## Progress
 
+PR: #5836
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Replace the local copy
 
-- [ ] 1.1 Skill directory replaced with the collection version, anatomy kept
+- [x] 1.1 Skill directory replaced with the collection version, anatomy kept — 989f56e40
 
 ### Phase 2: Repo-local routing and equivalence
 
-- [ ] 2.1 Repo-local surface-routing section
-- [ ] 2.2 Equivalence proof and test suite
+- [x] 2.1 Repo-local surface-routing section — 989f56e40
+- [x] 2.2 Equivalence proof and test suite — 989f56e40
