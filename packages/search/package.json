@@ -117,13 +117,13 @@
   "dependencies": {
     "@ai-sdk/amazon-bedrock": "^5.0.2",
     "@ai-sdk/cohere": "^4.0.14",
-    "@ai-sdk/google": "^4.0.2",
+    "@ai-sdk/google": "^4.0.56",
     "@ai-sdk/mistral": "^4.0.16",
-    "@ai-sdk/openai": "^4.0.2",
-    "ai": "^7.0.4",
+    "@ai-sdk/openai": "^4.0.50",
+    "ai": "^7.0.83",
     "ai-sdk-ollama": "4.1.0",
     "meilisearch": "^0.60.0",
-    "pg": "8.22.0",
+    "pg": "8.23.0",
     "zod": "^4.4.3"
   },
   "peerDependencies": {
