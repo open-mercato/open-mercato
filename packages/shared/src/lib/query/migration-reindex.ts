@@ -32,13 +32,25 @@ export function declareQueryIndexReindex(entityTypes: readonly string[]): readon
   return Object.freeze(normalized)
 }
 
-export function readQueryIndexReindexDeclaration(moduleExports: unknown): string[] {
+/**
+ * The reader — not `declareQueryIndexReindex` — is the contract's real boundary: it accepts any
+ * `queryIndexReindexEntityTypes` array, including one written as a plain literal. A rejected entry
+ * is therefore reported through `onReject` rather than dropped silently, so a typo such as
+ * `customers:customerDictionaryEntry` cannot leave a projection stale behind a green migrate run.
+ */
+export function readQueryIndexReindexDeclaration(
+  moduleExports: unknown,
+  onReject?: (value: unknown) => void,
+): string[] {
   if (!moduleExports || typeof moduleExports !== 'object') return []
   const declared = (moduleExports as Record<string, unknown>)[QUERY_INDEX_REINDEX_EXPORT]
   if (!Array.isArray(declared)) return []
   const collected: string[] = []
   for (const entityType of declared) {
-    if (!isQueryIndexEntityType(entityType)) continue
+    if (!isQueryIndexEntityType(entityType)) {
+      onReject?.(entityType)
+      continue
+    }
     if (!collected.includes(entityType)) collected.push(entityType)
   }
   return collected

@@ -85,6 +85,29 @@ describe('collectQueryIndexReindexEntityTypes', () => {
     expect(onWarn).toHaveBeenCalledWith(expect.stringContaining('customers/broken'))
   })
 
+  it('warns per invalid declaration entry, naming the migration that carries it', async () => {
+    const onWarn = jest.fn()
+    const collected = await collectQueryIndexReindexEntityTypes(
+      [migration('typo')],
+      {
+        fileExists,
+        onWarn,
+        // A migration author who writes the export by hand rather than through the helper gets no
+        // throw — without this warning the entry vanishes and `db migrate` still exits 0.
+        importModule: async () => ({
+          queryIndexReindexEntityTypes: ['customers:customerDictionaryEntry', 'customers:deal'],
+        }),
+      },
+    )
+
+    expect(collected).toEqual(['customers:deal'])
+    expect(onWarn).toHaveBeenCalledTimes(1)
+    const warning = onWarn.mock.calls[0][0] as string
+    expect(warning).toContain('customers/typo')
+    expect(warning).toContain('customers:customerDictionaryEntry')
+    expect(warning).toContain('module:entity')
+  })
+
   it('skips migrations whose file is gone', async () => {
     const importModule = jest.fn()
     const collected = await collectQueryIndexReindexEntityTypes(

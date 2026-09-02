@@ -46,6 +46,29 @@ describe('readQueryIndexReindexDeclaration', () => {
 
     expect(readQueryIndexReindexDeclaration(moduleExports)).toEqual(['customers:deal'])
   })
+
+  it('reports every rejected entry so a typo cannot leave a projection stale in silence', () => {
+    const rejected: unknown[] = []
+    const moduleExports = {
+      // camelCase is the natural slip in a codebase whose TS identifiers are all camelCase.
+      [QUERY_INDEX_REINDEX_EXPORT]: ['customers:customerDictionaryEntry', 'customers:deal', 42],
+    }
+
+    expect(readQueryIndexReindexDeclaration(moduleExports, (value) => rejected.push(value))).toEqual([
+      'customers:deal',
+    ])
+    expect(rejected).toEqual(['customers:customerDictionaryEntry', 42])
+  })
+
+  it('never reports an accepted entry as rejected', () => {
+    const rejected: unknown[] = []
+    const moduleExports = { [QUERY_INDEX_REINDEX_EXPORT]: ['customers:deal', 'customers:deal'] }
+
+    expect(readQueryIndexReindexDeclaration(moduleExports, (value) => rejected.push(value))).toEqual([
+      'customers:deal',
+    ])
+    expect(rejected).toEqual([])
+  })
 })
 
 describe('formatQueryIndexRebuildCommands', () => {

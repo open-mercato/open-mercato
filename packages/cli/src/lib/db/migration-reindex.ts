@@ -67,7 +67,14 @@ export async function collectQueryIndexReindexEntityTypes(
       )
       continue
     }
-    for (const entityType of readQueryIndexReindexDeclaration(moduleExports)) {
+    const declared = readQueryIndexReindexDeclaration(moduleExports, (rejected: unknown) => {
+      deps.onWarn?.(
+        `[query_index] Ignoring an invalid reindex declaration in ${migration.moduleId}/${migration.name}: ${
+          JSON.stringify(rejected) ?? String(rejected)
+        } is not a "module:entity" identifier, so its projection will NOT be rebuilt.`,
+      )
+    })
+    for (const entityType of declared) {
       if (!collected.includes(entityType)) collected.push(entityType)
     }
   }
