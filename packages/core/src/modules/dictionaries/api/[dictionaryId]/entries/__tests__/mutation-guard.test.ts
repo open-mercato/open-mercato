@@ -69,6 +69,7 @@ jest.mock('@open-mercato/shared/lib/http/readJsonSafe', () => ({
   },
 }))
 
+import { CommandInterceptorError } from '@open-mercato/shared/lib/commands/errors'
 import { POST as reorderEntries } from '../reorder/route'
 import { POST as setDefaultEntry } from '../set-default/route'
 
@@ -165,5 +166,52 @@ describe('dictionary entry custom write routes', () => {
         operation: 'custom',
       }),
     )
+  })
+  it('surfaces the status and body of an interceptor rejection that carries one', async () => {
+    em.findOne.mockResolvedValueOnce({ id: dictionaryId, organizationId, tenantId, deletedAt: null })
+    em.find.mockResolvedValueOnce([
+      { id: entryId, position: 0, updatedAt: new Date('2026-04-11T08:00:00.000Z') },
+    ])
+    commandBusExecuteMock.mockRejectedValueOnce(
+      new CommandInterceptorError('Reordering blocked by policy', {
+        status: 422,
+        body: { error: 'Reordering blocked by policy', policy: 'locked-dictionary' },
+      }),
+    )
+
+    const response = await reorderEntries(
+      new Request(`http://localhost/api/dictionaries/${dictionaryId}/entries/reorder`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ entries: [{ id: entryId, position: 1 }] }),
+      }),
+      { params: { dictionaryId } },
+    )
+
+    expect(response.status).toBe(422)
+    await expect(response.json()).resolves.toEqual({
+      error: 'Reordering blocked by policy',
+      policy: 'locked-dictionary',
+    })
+  })
+
+  it('keeps the generic 500 when an interceptor rejection carries no status', async () => {
+    em.findOne.mockResolvedValueOnce({ id: dictionaryId, organizationId, tenantId, deletedAt: null })
+    em.find.mockResolvedValueOnce([
+      { id: entryId, position: 0, updatedAt: new Date('2026-04-11T08:00:00.000Z') },
+    ])
+    commandBusExecuteMock.mockRejectedValueOnce(new CommandInterceptorError('Blocked without a status'))
+
+    const response = await reorderEntries(
+      new Request(`http://localhost/api/dictionaries/${dictionaryId}/entries/reorder`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ entries: [{ id: entryId, position: 1 }] }),
+      }),
+      { params: { dictionaryId } },
+    )
+
+    expect(response.status).toBe(500)
+    await expect(response.json()).resolves.toEqual({ error: 'Failed to reorder dictionary entries' })
   })
 })
