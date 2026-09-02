@@ -17,6 +17,39 @@ export const CLIENT_OVERRIDE_DOMAINS: readonly ModuleOverrideDomain[] = ['widget
 let moduleOverridesPromise: Promise<void> | null = null
 
 /**
+ * `src/modules.ts` is evaluated again in the browser, where every server-only
+ * `process.env.OM_*` read is `undefined` — Next.js inlines only `NEXT_PUBLIC_*`
+ * values. An entry gated on such a variable is therefore absent from the client's
+ * `enabledModules`, so the `widgets`/`notifications` overrides it carries are
+ * dispatched on the server and silently skipped here, which reproduces the very
+ * symptom of #5152 (filtered while server-rendered, back after hydration) with no
+ * log line to explain it.
+ *
+ * The generated id list is the build-time evaluation of the same file with the real
+ * env, so comparing against it names exactly the entries the browser cannot see. It
+ * is a development aid only: the list is a build-time snapshot, so a deployment
+ * whose runtime env differs from its build env would otherwise warn on every load.
+ */
+async function warnOnServerOnlyModuleGating(enabledModules: readonly { id: string }[]): Promise<void> {
+  if (process.env.NODE_ENV === 'production') return
+  try {
+    const generated = await import('@/.mercato/generated/enabled-module-ids.generated')
+    const clientIds = new Set(enabledModules.map((entry) => entry.id))
+    const invisible = generated.enabledModuleIds.filter((id) => !clientIds.has(id))
+    if (invisible.length === 0) return
+    logger.warn(
+      'Modules are missing from the browser-evaluated module list; any widgets or notifications overrides they declare cannot reach the client',
+      {
+        modules: invisible,
+        hint: 'An enabledModules entry gated on a non-NEXT_PUBLIC_ env var must not carry widgets or notifications overrides',
+      },
+    )
+  } catch (err) {
+    logger.debug('Skipped the client module-gating check; the generated module id list is unavailable', { err })
+  }
+}
+
+/**
  * Exported so the registry groups' dependency on it is testable. A failure here is
  * deliberately NOT fatal: registering the raw generated registries is what this app
  * did before the overrides reached the browser at all, whereas rethrowing would fail
@@ -28,7 +61,7 @@ export function ensureModuleOverridesApplied(): Promise<void> {
   const pending = moduleOverridesPromise
   if (pending) return pending
 
-  const promise = (async () => {
+  const promise: Promise<void> = (async () => {
     const [appModules, overrides] = await Promise.all([
       import('@/modules'),
       import('@open-mercato/shared/modules/overrides'),
@@ -36,7 +69,12 @@ export function ensureModuleOverridesApplied(): Promise<void> {
     overrides.applyModuleOverridesFromEnabledModules(appModules.enabledModules, {
       domains: CLIENT_OVERRIDE_DOMAINS,
     })
+    await warnOnServerOnlyModuleGating(appModules.enabledModules)
   })().catch((err) => {
+    // Non-fatal but retryable, mirroring loadRegistryGroup below: caching the
+    // rejected promise would pin the browser to unfiltered registries for the rest
+    // of the session after a single transient chunk-load failure.
+    if (moduleOverridesPromise === promise) moduleOverridesPromise = null
     logger.error('Failed to apply module overrides on the client; registries stay unfiltered', { err })
   })
 
@@ -60,7 +98,7 @@ export type ClientBootstrapProfile =
   | 'checkout'
   | 'message'
 
-type ClientRegistryGroup =
+export type ClientRegistryGroup =
   | 'translations'
   | 'injection'
   | 'dashboard'
@@ -127,13 +165,26 @@ export function groupsForProfile(profile: ClientBootstrapProfile): ClientRegistr
 const loadedGroups = new Set<ClientRegistryGroup>()
 const groupPromises = new Map<ClientRegistryGroup, Promise<void>>()
 
+/**
+ * The groups backing `CLIENT_OVERRIDE_DOMAINS` — the only ones whose registration an
+ * override can change. Awaiting the dispatch for the others would pull `@/modules`
+ * and the overrides module into the client graph of the public `/messages/view/*`
+ * and `/pay/*` routes, and serialize their registration behind that import, for no
+ * behavioural gain.
+ */
+export const OVERRIDE_DEPENDENT_GROUPS: ReadonlySet<ClientRegistryGroup> = new Set<ClientRegistryGroup>([
+  'injection',
+  'dashboard',
+  'notifications',
+])
+
 async function loadRegistryGroup(group: ClientRegistryGroup): Promise<void> {
   if (loadedGroups.has(group)) return
   const pending = groupPromises.get(group)
   if (pending) return pending
 
   const promise = (async () => {
-    await ensureModuleOverridesApplied()
+    if (OVERRIDE_DEPENDENT_GROUPS.has(group)) await ensureModuleOverridesApplied()
     switch (group) {
       case 'translations':
         await import('@/.mercato/generated/translations-fields.generated')

@@ -197,6 +197,36 @@ forks it MUST call `applyModuleOverridesFromEnabledModules(enabledModules, { dom
 before those registrations — otherwise the raw generated registries overwrite the
 filtered ones and a disabled widget reappears once hydration finishes.
 
+:::warning Keep client-side overrides off server-only env gates
+
+Because the browser re-evaluates `src/modules.ts`, an `enabledModules` entry gated on
+a server-only environment variable **MUST NOT** carry `widgets` or `notifications`
+overrides. Next.js inlines only `NEXT_PUBLIC_*` values into the client bundle, so a
+gate such as `parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES, false)`
+is always `false` in the browser: the entry is absent there, the server dispatches its
+overrides and the client does not, and the widget the server correctly hid reappears
+the moment hydration finishes.
+
+```ts
+// ✗ the override is server-only — it never reaches the browser
+if (parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES, false)) {
+  enabledModules.push({
+    id: 'record_locks',
+    from: '@open-mercato/enterprise',
+    overrides: { widgets: { injection: { 'catalog.injection.product-seo': null } } },
+  })
+}
+
+// ✓ gate the module on the server variable, declare the override on an ungated entry
+//   (or gate it on a NEXT_PUBLIC_ variable, which is inlined into both bundles)
+```
+
+Outside production `ClientBootstrap` compares the browser's `enabledModules` against
+the build-time `enabled-module-ids.generated` list and warns for every module the
+browser cannot see, so the mismatch shows up in the console instead of silently.
+
+:::
+
 ### Notifications And Runtime Hooks
 
 ```ts
