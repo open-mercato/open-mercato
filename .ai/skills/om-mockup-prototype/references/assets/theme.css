@@ -1,0 +1,32 @@
+/* Prototype theme — the eight identity tokens this prototype may rebrand.
+ *
+ * Loads after tokens.css and overrides it. Uncomment a token and set a value
+ * to rebrand every screen in both themes; leave it commented to inherit the
+ * generated defaults. No build step, no network.
+ *
+ * Contract: everything outside these eight tokens — status colors, surfaces,
+ * text, borders, shadows, z-index — is semantic and stays owned by
+ * tokens.css. Overriding a semantic token here is not mechanically blocked
+ * (this is plain CSS), but it breaks the review contract and the hand-off
+ * step flags it. The radius scale cascades from --radius, so one value
+ * re-rounds every surface.
+ */
+
+:root,
+.dark {
+  /* Brand primary (action buttons, active navigation) */
+  /* --primary: #4a6fa5; */
+  /* --primary-hover: #3d5c8a; */
+  /* --primary-foreground: #ffffff; */
+
+  /* Brand accents (highlights, chart and badge accents) */
+  /* --brand-lime: #a4b862; */
+  /* --brand-violet: #a292d8; */
+
+  /* Corner rounding baseline — the derived radius scale re-rounds with it */
+  /* --radius: 0.625rem; */
+
+  /* Font stacks */
+  /* --font-geist-sans: system-ui, -apple-system, "Segoe UI", sans-serif; */
+  /* --font-geist-mono: ui-monospace, Menlo, Consolas, monospace; */
+}
