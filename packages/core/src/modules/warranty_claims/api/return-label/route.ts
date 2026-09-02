@@ -8,6 +8,7 @@ import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { runRouteMutationGuards, type RouteMutationGuardResult } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import { withScopedPayload } from '@open-mercato/shared/lib/api/scoped'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -70,24 +71,23 @@ export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['warranty_claims.claim.manage'] },
 }
 
-function translateKey(key: string): string {
-  return key
-}
-
 function toRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
 }
 
-async function resolveActionContext(req: Request): Promise<ActionRouteContext> {
+async function resolveActionContext(
+  req: Request,
+  translate: ActionRouteContext['translate'],
+): Promise<ActionRouteContext> {
   const container = await createRequestContainer()
   const auth = await getAuthFromRequest(req)
   if (!auth || !auth.tenantId) {
-    throw new CrudHttpError(401, { error: 'warranty_claims.errors.unauthorized' })
+    throw new CrudHttpError(401, { error: translate('warranty_claims.errors.unauthorized', 'Unauthorized') })
   }
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
   const organizationId = scope?.selectedId ?? auth.orgId ?? null
   if (!organizationId) {
-    throw new CrudHttpError(400, { error: 'warranty_claims.errors.organization_required' })
+    throw new CrudHttpError(400, { error: translate('warranty_claims.errors.organization_required', 'Organization context is required.') })
   }
   return {
     ctx: {
@@ -100,7 +100,7 @@ async function resolveActionContext(req: Request): Promise<ActionRouteContext> {
     },
     tenantId: auth.tenantId,
     organizationId,
-    translate: translateKey,
+    translate,
   }
 }
 
@@ -143,7 +143,7 @@ async function runGuard(
 ): Promise<RouteMutationGuardResult> {
   const userId = context.ctx.auth?.sub
   if (!userId) {
-    throw new CrudHttpError(401, { error: 'warranty_claims.errors.unauthorized' })
+    throw new CrudHttpError(401, { error: context.translate('warranty_claims.errors.unauthorized', 'Unauthorized') })
   }
   return runRouteMutationGuards({
     container: context.ctx.container,
@@ -168,7 +168,7 @@ async function loadClaimAndLines(
 ): Promise<{ claim: WarrantyClaim; lines: WarrantyClaimLine[] }> {
   const scope = { tenantId: context.tenantId, organizationId: context.organizationId }
   const em = (context.ctx.container.resolve('em') as EntityManager).fork()
-  const claim = await requireScopedClaim(em, claimId, scope)
+  const claim = await requireScopedClaim(em, claimId, scope, {}, context.translate('warranty_claims.errors.notFound', 'Claim not found.'))
   const lines = await findWithDecryption(
     em,
     WarrantyClaimLine,
@@ -179,9 +179,9 @@ async function loadClaimAndLines(
   return { claim, lines }
 }
 
-function assertGeneratableStatus(claim: WarrantyClaim): void {
+function assertGeneratableStatus(claim: WarrantyClaim, translate: ActionRouteContext['translate']): void {
   if (claim.status !== 'approved' && claim.status !== 'awaiting_return') {
-    throw new CrudHttpError(400, { error: 'warranty_claims.errors.returnLabelInvalidStatus' })
+    throw new CrudHttpError(400, { error: translate('warranty_claims.errors.returnLabelInvalidStatus', 'Return labels can only be created for approved claims that are awaiting return.') })
   }
 }
 
@@ -189,12 +189,13 @@ async function executeSetReturnLabel(
   commandBus: CommandBus,
   input: ClaimSetReturnLabelInput,
   ctx: CommandRuntimeContext,
+  translate: ActionRouteContext['translate'],
 ): Promise<ReturnLabelCreatedResponse> {
   const { result } = await commandBus.execute<ClaimSetReturnLabelInput, ReturnLabelCommandResult>(
     'warranty_claims.claim.set_return_label',
     { input, ctx },
   )
-  if (!result) throw new CrudHttpError(400, { error: 'warranty_claims.errors.save_failed' })
+  if (!result) throw new CrudHttpError(400, { error: translate('warranty_claims.errors.save_failed', 'Failed to save warranty claim.') })
   return {
     status: 'created',
     labelUrl: result.labelUrl,
@@ -211,8 +212,9 @@ export function firstTranslatableIssueKey(err: z.ZodError): string {
 }
 
 export async function POST(req: Request) {
+  const { translate } = await resolveTranslations()
   try {
-    const context = await resolveActionContext(req)
+    const context = await resolveActionContext(req, translate)
     const requestInput = toReturnLabelRequest(toRecord(await readJsonSafe(req, {})))
     const guarded = await runGuard(req, context, requestInput)
     if (!guarded.ok) {
@@ -226,13 +228,14 @@ export async function POST(req: Request) {
         commandBus,
         toSetReturnLabelInput(guardedInput, context),
         context.ctx,
+        translate,
       )
       await guarded.runAfterSuccess()
       return NextResponse.json(response)
     }
 
     const { claim, lines } = await loadClaimAndLines(context, guardedInput.claimId)
-    assertGeneratableStatus(claim)
+    assertGeneratableStatus(claim, translate)
     await enforceWarrantyClaimOptimisticLock(
       context.ctx,
       claim,
@@ -260,6 +263,7 @@ export async function POST(req: Request) {
         carrier: result.carrier,
       }, context),
       context.ctx,
+      translate,
     )
     await guarded.runAfterSuccess()
     return NextResponse.json(response)
@@ -270,10 +274,10 @@ export async function POST(req: Request) {
       return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
     }
     if (err instanceof z.ZodError) {
-      return NextResponse.json({ error: firstTranslatableIssueKey(err) }, { status: 400 })
+      return NextResponse.json({ error: translate(firstTranslatableIssueKey(err), 'Invalid input') }, { status: 400 })
     }
     logger.error('warranty_claims.return-label.post failed', { err })
-    return NextResponse.json({ error: 'warranty_claims.errors.save_failed' }, { status: 500 })
+    return NextResponse.json({ error: translate('warranty_claims.errors.save_failed', 'Failed to save warranty claim.') }, { status: 500 })
   }
 }
 

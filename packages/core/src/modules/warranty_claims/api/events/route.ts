@@ -131,7 +131,7 @@ export async function GET(req: Request) {
     const context = await resolveEventContext(req)
     const url = new URL(req.url)
     const query = eventListQuerySchema.parse({ claimId: url.searchParams.get('claimId') ?? undefined })
-    const claim = await requireScopedClaim(context.em, query.claimId, context.scope)
+    const claim = await requireScopedClaim(context.em, query.claimId, context.scope, {}, context.translate('warranty_claims.errors.notFound', 'Claim not found.'))
     const events = await findWithDecryption(
       context.em,
       WarrantyClaimEvent,
