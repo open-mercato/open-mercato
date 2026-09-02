@@ -408,20 +408,28 @@ export async function applyCoverageAdjustments(
 ): Promise<void> {
   if (!adjustments.length) return
   const db = (em as any).getKysely() as Kysely<any>
+  // `em.getKysely()` hands back the EntityManager's transaction context whenever one is open,
+  // and Kysely's `Transaction` throws rather than nesting a second one. A caller already inside
+  // `em.transactional(...)` therefore gets the same guarantee the rowless nullable-tenant branch
+  // opens a transaction for, so use the ambient one instead of asking for another.
+  const ambientTrx = (db as { isTransaction?: boolean }).isTransaction === true
+    ? (db as CoverageExecutor)
+    : null
   // Keep scope initialization in a stable order. A caller-supplied transaction retains
   // advisory and unique-index locks until commit, so two batches that initialize the same
   // scopes in opposite orders could otherwise deadlock.
   const aggregated = aggregateAdjustments(adjustments).sort((left, right) => (
     scopeKey(left.scope).localeCompare(scopeKey(right.scope))
   ))
+  const executor = options?.trx ?? ambientTrx
   for (const entry of aggregated) {
     const deltas = {
       deltaBase: entry.deltaBase,
       deltaIndex: entry.deltaIndex,
       deltaVector: entry.deltaVector,
     }
-    if (options?.trx) {
-      await incrementCoverageRow(options.trx, entry.scope, deltas)
+    if (executor) {
+      await incrementCoverageRow(executor, entry.scope, deltas)
     } else if (entry.scope.tenantId == null) {
       await db.transaction().execute((trx) => incrementCoverageRow(trx, entry.scope, deltas))
     } else {

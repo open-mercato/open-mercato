@@ -1,6 +1,6 @@
 # Sequence-backed sales document numbering
 
-**Status:** implemented in #5613
+**Status:** implemented in #5766 (carries forward the superseded #5613)
 **Issue:** [#5604](https://github.com/open-mercato/open-mercato/issues/5604) — hot-row lock contention on `sales_document_sequences` and `entity_index_coverage`
 
 ## Problem
@@ -37,6 +37,8 @@ Sequences are created in three places, all idempotent: this change's migration (
 
 **Trade-off:** this creates one sequence object per actively-used `(organization, tenant, kind)` scope. Sequences materialize lazily on first use rather than for every scope that could exist, but a deployment with many organizations will accumulate them, and they appear individually in `pg_dump` output. This was accepted as the cost of a lock-free claim; a shared-sequence or block-allocation design would trade that back for coarser numbering guarantees.
 
+Nothing drops a sequence again. `createDocumentSequence` issues its DDL over `em.getConnection()`, which commits independently of the caller's transaction, so a rolled-back `onTenantCreated` leaves the sequence behind without its registry row; deleting a registry row by any other route would do the same. Both leave an unreferenced `sales_docseq_*` object rather than a correctness problem — the name is derived from a primary key that is never reused — so reclaiming them is deliberately left to an operational sweep (`select … from pg_class where relkind = 'S' and relname like 'sales\_docseq\_%'` minus the registry) rather than to a delete hook that would have to run on every teardown path.
+
 ### Coverage counters — increment in SQL
 
 `applyCoverageAdjustments` now applies each aggregated delta with one statement whose `SET` clause increments the stored columns in SQL:
@@ -57,6 +59,8 @@ The adjustment therefore stays **awaited and inside the caller's transaction** o
 
 The rowless NULL-tenant branch needs one extra guard because the existing unique constraint cannot arbitrate its first insert. The writer takes a transaction-scoped advisory lock derived from the full coverage scope only after the first `UPDATE` finds no row, then repeats the `UPDATE` before inserting. Concurrent creators therefore compose into the winner's committed row; established scopes never pay for the advisory lock and remain one statement.
 
+That lock needs a transaction to be scoped to, which `applyCoverageAdjustments` opens itself when the caller supplied no `trx`. It must not open one unconditionally: `em.getKysely()` returns the EntityManager's transaction context whenever one is open, and Kysely's `Transaction` throws on `.transaction()` rather than nesting. A caller already inside `em.transactional(...)` is in exactly the state the branch wants, so the ambient transaction is used directly and only a genuinely pool-bound handle opens a new one.
+
 ## Migration & Backward Compatibility
 
 `sales_document_sequences` keeps every column, so the ORM snapshot is unchanged and no client of the table breaks structurally.
@@ -71,7 +75,7 @@ Public service contracts are unchanged: `generate`, `peekSequences`, and `setNex
 
 - `packages/core/src/modules/sales/services/__tests__/salesDocumentNumberGenerator.test.ts` — claims go through `nextval` and not the old `UPDATE`; concurrent callers never share a number; the first claim for a scope creates the registry row and sequence; kinds stay independent; exhaustion throws rather than clamping; claim failures propagate; `peekSequences` does not consume; `setNextSequence` repositions the sequence, reports back the value it was set to, survives a re-save of that reported value without rewinding, and round-trips the start value. The connection double models `is_called`, because a double that always reported a value is what let the rewind past this suite. `documentSequenceName` is tested for stability and for rejecting non-UUID input rather than building an injectable identifier.
 - `packages/core/src/modules/sales/__integration__/TC-SALES-5604-document-number-sequence-roundtrip.spec.ts` — drives the real `GET`/`PUT /api/sales/settings/document-numbers` and `POST /api/sales/document-numbers` against Postgres: the saved counter is what the API reports, what the next claim returns, and what survives a no-op re-save. This is the layer the mocked unit suite cannot reach, since the defect lived in `is_called` state the double did not model.
-- `packages/core/src/modules/query_index/__tests__/coverage-adjustment-atomicity.test.ts` — compiles the real SQL on Kysely's `DummyDriver` and asserts that the incrementing statement adds to the column's own value, that a NULL-tenant scope is matched by an explicit `tenant_id is null` predicate rather than through a conflict target that cannot see it, that no `SELECT` of the coverage row precedes the write, that adjustments aggregate to one statement per scope, that the seeding insert still increments on conflict, and that a fully-cancelling delta touches the database not at all. `DummyDriver` answers every statement with no rows, so this suite pins the *shape* of what is sent and nothing about the counters that come back — which is why a well-formed statement matching the wrong rows escaped its first version, and why the spec below is not optional.
+- `packages/core/src/modules/query_index/__tests__/coverage-adjustment-atomicity.test.ts` — compiles the real SQL on Kysely's `DummyDriver` and asserts that the incrementing statement adds to the column's own value, that a NULL-tenant scope is matched by an explicit `tenant_id is null` predicate rather than through a conflict target that cannot see it, that no `SELECT` of the coverage row precedes the write, that adjustments aggregate to one statement per scope, that the seeding insert still increments on conflict, that an ambient EntityManager transaction is reused instead of nested, and that a fully-cancelling delta touches the database not at all. `DummyDriver` answers every statement with no rows, so this suite pins the *shape* of what is sent and nothing about the counters that come back — which is why a well-formed statement matching the wrong rows escaped its first version, and why the spec below is not optional.
 - `packages/core/src/modules/query_index/__integration__/TC-QIDX-5613-coverage-accumulation.spec.ts` — runs the real `applyCoverageAdjustments` against the ephemeral shard's Postgres and asserts the resulting totals: three sequential `+1` adjustments accumulate to `3` in a tenant-scoped, a NULL-tenant, and a NULL-tenant/NULL-organization scope, and five overlapping first adjustments create one row totaling `5`. This is the layer that distinguishes "incremented" from "overwritten" and proves the nullable initialization lock; the rows belong to a throwaway `entity_type` unique per run, so no other suite's coverage is touched.
 
 ## Out of scope

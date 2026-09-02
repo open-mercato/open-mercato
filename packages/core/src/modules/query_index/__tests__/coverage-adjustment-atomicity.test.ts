@@ -137,6 +137,26 @@ describe('applyCoverageAdjustments (#5604)', () => {
     ])
   })
 
+  it('reuses an ambient EntityManager transaction instead of opening a nested one', async () => {
+    const { db, statements } = createRecordingDb()
+
+    // `em.getKysely()` returns the EntityManager's transaction context inside
+    // `em.transactional(...)`, and Kysely's `Transaction` throws on `.transaction()`. Opening
+    // one unconditionally for the rowless nullable-tenant branch therefore turned a caller that
+    // was already transactional — the exact state that branch wants — into a hard failure.
+    await db.transaction().execute(async (trx) => {
+      await applyCoverageAdjustments(
+        createEm(trx),
+        createCoverageAdjustments({ ...scope, tenantId: null, baseDelta: 1, indexDelta: 1 })
+      )
+    })
+
+    // The ambient transaction still scopes the advisory lock, so the initialization guard is
+    // kept rather than traded away for the fix.
+    expect(statements.filter((sql) => sql.includes('pg_advisory_xact_lock'))).toHaveLength(1)
+    expect(statements.filter((sql) => sql.startsWith('update "entity_index_coverage"'))).toHaveLength(2)
+  })
+
   it('does not read the coverage row before writing it', async () => {
     const { db, statements } = createRecordingDb()
 
