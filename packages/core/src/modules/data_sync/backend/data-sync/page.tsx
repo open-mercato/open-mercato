@@ -47,7 +47,11 @@ import {
 import { getSyncRunStatusVariant, getSyncSummaryVariant } from '../../lib/syncRunStatus'
 import type { RunParameter } from '../../lib/adapter'
 import { getApplicableRunParameters } from '../../lib/run-parameters'
-import { applicableStartControls, type StartControlMap } from '../../lib/start-controls'
+import {
+  applicableStartControls,
+  type StartControlApplicability,
+  type StartControlMap,
+} from '../../lib/start-controls'
 import {
   RunParameterFields,
   buildDefaultRunParameterValues,
@@ -132,6 +136,17 @@ const DEFAULT_TIMEZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UT
 
 /** Matches `runSyncSchema`'s own default, so omitting the field submits this value. */
 const DEFAULT_BATCH_SIZE = '100'
+
+/**
+ * Keeps the batch size input at its own narrow width without leaving a phantom
+ * track: the second column exists only when the full sync card fills it. With
+ * only that card the row falls back to one full-width column.
+ */
+function startControlsGridClass(controls: StartControlApplicability): string | undefined {
+  if (controls.batchSize && controls.fullSync) return 'sm:grid-cols-[minmax(0,180px)_1fr]'
+  if (controls.batchSize) return 'sm:grid-cols-[minmax(0,180px)]'
+  return undefined
+}
 
 function formatEntityTypeLabel(entityType: string): string {
   return entityType
@@ -828,7 +843,7 @@ export default function SyncRunsDashboardPage() {
                 <Separator className="my-4" />
 
                 {startControls.batchSize || startControls.fullSync ? (
-                  <div className={cn('grid gap-4', startControls.batchSize && 'sm:grid-cols-[minmax(0,180px)_1fr]')}>
+                  <div className={cn('grid gap-4', startControlsGridClass(startControls))}>
                     {startControls.batchSize ? (
                       <div className="space-y-2">
                         <Label className="flex items-center gap-2 text-sm font-medium">

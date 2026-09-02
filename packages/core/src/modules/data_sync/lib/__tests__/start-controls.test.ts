@@ -63,6 +63,26 @@ describe('resolveStartControlMap', () => {
     expect(map).toEqual({})
   })
 
+  // On a plain object literal `map.__proto__ = value` sets the prototype rather
+  // than creating an own property, so the restriction would serialize away and
+  // reach the dashboard as "every control applies".
+  it('keeps a prototype-named entity type as a serializable own entry', () => {
+    const map = resolveStartControlMap(buildAdapter({
+      supportedEntities: ['__proto__'],
+      supportsStartControl: (control) => control !== 'fullSync',
+    }))
+
+    expect(Object.keys(map)).toEqual(['__proto__'])
+
+    // Read the round-tripped entry through a descriptor: an object literal
+    // cannot express the expectation, because `{ __proto__: ... }` sets the
+    // prototype there too.
+    const overWire = JSON.parse(JSON.stringify(map))
+    expect(Object.keys(overWire)).toEqual(['__proto__'])
+    expect(Object.getOwnPropertyDescriptor(overWire, '__proto__')?.value)
+      .toEqual({ fullSync: false, batchSize: true })
+  })
+
   it('never asks about an entity type the adapter does not support', () => {
     const supportsStartControl = jest.fn(() => true)
     resolveStartControlMap(buildAdapter({ supportedEntities: ['orders.feed'], supportsStartControl }))

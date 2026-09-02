@@ -36,10 +36,17 @@ function isApplicable(
   }
 }
 
-/** Evaluates an adapter's declaration across the entity types it supports. */
+/**
+ * Evaluates an adapter's declaration across the entity types it supports.
+ *
+ * The accumulator has a null prototype: assigning `__proto__` on a plain object
+ * literal sets that object's prototype instead of creating an own property, so
+ * an entity type under that name would serialize away and silently lose the
+ * restriction the adapter declared.
+ */
 export function resolveStartControlMap(adapter: DataSyncAdapter | null | undefined): StartControlMap {
   if (!adapter || typeof adapter.supportsStartControl !== 'function') return {}
-  const map: StartControlMap = {}
+  const map: StartControlMap = Object.create(null)
   for (const entityType of adapter.supportedEntities ?? []) {
     const applicability = allApplicable()
     let restricted = false
