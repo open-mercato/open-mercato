@@ -40,10 +40,11 @@ import { raiseCrudError } from './utils/serverErrors'
 import { computeMenuViewportShiftX } from './utils/viewport'
 import { PerspectiveSidebar } from './PerspectiveSidebar'
 import { Popover, PopoverTrigger, PopoverContent } from '../primitives/popover'
-import { formatWithPublicDateFormat, normalizeDateFormatPattern } from '../primitives/date-format'
+import { parseISO } from 'date-fns/parseISO'
+import { formatDisplayDateTime } from '../primitives/date-format'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { readVersionedPreference, writeVersionedPreference, clearVersionedPreference } from '@open-mercato/shared/lib/browser/versionedPreference'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { flash } from './FlashMessages'
 import { useConfirmDialog } from './confirm-dialog'
 import { surfaceRecordConflict } from './conflicts'
@@ -1659,15 +1660,9 @@ export function DataTable<T extends RowData>({
     return <RowActions items={injectedItems} />
   }, [injectedRowActions, rowActions, router, t])
 
-  // Date formatting setup. The OM-prefixed env vars are the new public contract;
-  // NEXT_PUBLIC_DATE_FORMAT remains supported for existing apps.
-  const DATE_FORMAT = (
-    normalizeDateFormatPattern(process.env.NEXT_PUBLIC_OM_DATE_TIME_FORMAT)
-    ?? normalizeDateFormatPattern(process.env.NEXT_PUBLIC_DATE_TIME_FORMAT)
-    ?? normalizeDateFormatPattern(process.env.NEXT_PUBLIC_OM_DATE_FORMAT)
-    ?? normalizeDateFormatPattern(process.env.NEXT_PUBLIC_DATE_FORMAT)
-    ?? 'yyyy-MM-dd HH:mm'
-  )
+  // Locale-aware for the same reason the detail fields are: with no env override a table cell and
+  // the field beside it must not disagree about the convention. An env override still wins.
+  const dateLocale = useLocale()
 
   const tryParseDate = (v: unknown): Date | null => {
     if (v == null) return null
@@ -1679,9 +1674,10 @@ export function DataTable<T extends RowData>({
     if (typeof v === 'string') {
       const s = v.trim()
       if (!s) return null
-      // ISO-like detection (YYYY-MM-DD ...)
+      // ISO-like detection (YYYY-MM-DD ...). `parseISO`, not `new Date`: the latter reads a bare
+      // `yyyy-MM-dd` as UTC midnight, which renders as the previous day west of UTC.
       if (/^\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)?$/.test(s)) {
-        const d = new Date(s)
+        const d = parseISO(s)
         return isNaN(d.getTime()) ? null : d
       }
       // Fallback: Date.parse
@@ -3531,7 +3527,7 @@ export function DataTable<T extends RowData>({
                       if (isDateCol) {
                         const raw = cell.getValue() as any
                         const d = tryParseDate(raw)
-                        content = d ? (formatWithPublicDateFormat(d, DATE_FORMAT) ?? raw) : (raw as any)
+                        content = d ? (formatDisplayDateTime(d, dateLocale) ?? raw) : (raw as any)
                       } else {
                         content = flexRender(cell.column.columnDef.cell, cell.getContext())
                       }
@@ -3554,7 +3550,7 @@ export function DataTable<T extends RowData>({
                         tooltipText = metaTooltipContent(row.original)
                       } else if (isDateCol && cellValue != null) {
                         const parsedDate = tryParseDate(cellValue)
-                        tooltipText = parsedDate ? (formatWithPublicDateFormat(parsedDate, DATE_FORMAT) ?? String(cellValue)) : String(cellValue)
+                        tooltipText = parsedDate ? (formatDisplayDateTime(parsedDate, dateLocale) ?? String(cellValue)) : String(cellValue)
                       } else {
                         tooltipText = cellValue != null ? String(cellValue) : undefined
                       }

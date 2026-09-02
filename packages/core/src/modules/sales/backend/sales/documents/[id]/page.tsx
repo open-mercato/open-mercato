@@ -24,6 +24,7 @@ import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { EmailInput } from '@open-mercato/ui/primitives/email-input'
+import { formatDisplayDate, formatDisplayDateTime, toDateInputValue, toUtcDateInputValue } from '@open-mercato/ui/primitives/date-format'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { ArrowRightLeft, Building2, CreditCard, Mail, Pencil, Plus, Send, Store, Truck, UserRound, Wand2, X } from 'lucide-react'
 import { FormHeader, type ActionItem } from '@open-mercato/ui/backend/forms'
@@ -3864,17 +3865,16 @@ export default function SalesDocumentDetailPage({
         label: t('sales.documents.detail.expectedDeliveryAt.label', 'Expected delivery'),
         emptyLabel: t('sales.documents.detail.empty', 'Not set'),
         placeholder: t('sales.documents.detail.expectedDeliveryAt.placeholder', 'Add expected delivery date'),
-        value: record?.expectedDeliveryAt
-          ? new Date(record.expectedDeliveryAt).toISOString().slice(0, 10)
-          : null,
+        // UTC, not local: this editor submits a bare `yyyy-MM-dd`, which `z.coerce.date()`
+        // stores as UTC midnight. Reading it back locally names the previous day west of UTC.
+        value: toUtcDateInputValue(record?.expectedDeliveryAt),
         onSave: handleUpdateExpectedDeliveryAt,
         inputType: 'date',
         renderDisplay: (params) => {
           const { value, emptyLabel } = params
-          if (value && value.length) {
-            return <span className="text-sm text-muted-foreground">{new Date(value).toLocaleDateString(locale)}</span>
-          }
-          return <span className="text-sm text-muted-foreground">{emptyLabel}</span>
+          return (
+            <span className="text-sm text-muted-foreground">{formatDisplayDate(value, locale) ?? emptyLabel}</span>
+          )
         },
       })
     }
@@ -3915,10 +3915,10 @@ export default function SalesDocumentDetailPage({
         render: () => (
           <SectionCard title={t('sales.documents.detail.timestamps', 'Timestamps')} muted>
             <p className="text-sm text-muted-foreground">
-              {t('sales.documents.detail.created', 'Created')}: {record?.createdAt ?? '—'}
+              {t('sales.documents.detail.created', 'Created')}: {formatDisplayDateTime(record?.createdAt, locale) ?? '—'}
             </p>
             <p className="text-sm text-muted-foreground">
-              {t('sales.documents.detail.updated', 'Updated')}: {record?.updatedAt ?? '—'}
+              {t('sales.documents.detail.updated', 'Updated')}: {formatDisplayDateTime(record?.updatedAt, locale) ?? '—'}
             </p>
           </SectionCard>
         ),
@@ -4707,28 +4707,22 @@ export default function SalesDocumentDetailPage({
           <InlineTextEditor
             key="date"
             label={t('sales.documents.detail.date', 'Date')}
-            value={
-              record?.placedAt
-                ? new Date(record.placedAt).toISOString().slice(0, 10)
-                : record?.createdAt
-                  ? new Date(record.createdAt).toISOString().slice(0, 10)
-                  : null
-            }
+            // Two readings on purpose. `placedAt` is settable from this date input, so it is
+            // stored as UTC midnight and must be read back in UTC or the field flips a day west
+            // of UTC. `createdAt` is only ever stamped from a clock — a real instant, whose local
+            // day is the one to show.
+            value={toUtcDateInputValue(record?.placedAt) ?? toDateInputValue(record?.createdAt)}
             emptyLabel={t('sales.documents.detail.empty', 'Not set')}
             onSave={handleUpdatePlacedAt}
             inputType="date"
             activateOnClick
             containerClassName="h-full"
             saveLabel={t('customers.people.detail.inline.saveShortcut')}
-            renderDisplay={({ value, emptyLabel }) =>
-              value && value.length ? (
-                <span className="text-sm text-muted-foreground">
-                  {new Date(value).toLocaleDateString(locale)}
-                </span>
-              ) : (
-                <span className="text-sm text-muted-foreground">{emptyLabel}</span>
-              )
-            }
+            renderDisplay={({ value, emptyLabel }) => (
+              <span className="text-sm text-muted-foreground">
+                {formatDisplayDate(value, locale) ?? emptyLabel}
+              </span>
+            )}
           />
         </div>
 

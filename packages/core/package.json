@@ -7,8 +7,9 @@
   "scripts": {
     "build": "node build.mjs",
     "watch": "node watch.mjs",
-    "test": "jest --config jest.config.cjs",
-    "typecheck": "tsc --noEmit"
+    "test": "jest --config jest.config.cjs && yarn test:tz",
+    "typecheck": "tsc --noEmit",
+    "test:tz": "cross-env TZ=America/New_York jest --config jest.config.cjs src/modules/sales/components/documents/__tests__/PaymentsSection.receivedAtColumn.test.tsx"
   },
   "imports": {
     "#generated/entities.ids.generated": {
@@ -270,6 +271,7 @@
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "chance": "^1.1.13",
+    "cross-env": "^10.1.0",
     "jest": "^30.4.2",
     "jest-environment-jsdom": "^30.4.1",
     "react": "19.2.8",
