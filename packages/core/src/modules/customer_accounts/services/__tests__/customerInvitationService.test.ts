@@ -282,6 +282,49 @@ describe('CustomerInvitationService.createInvitation — pending-invitation dedu
     expect(dedupeFinds[0][1].expiresAt).toHaveProperty('$gt')
   })
 
+  // #5499: re-inviting the same address from a surface that only knows the company
+  // (portal invite, admin users page) must not strip the person link off the row —
+  // the person's account-status card finds the invitation through it — nor the
+  // display name the invitation email is personalized with.
+  it('keeps the existing person link and display name when the re-invite carries neither', async () => {
+    const personEntityId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
+    const existing = {
+      id: 'inv-existing',
+      email: 'old@example.com',
+      tenantId,
+      organizationId,
+      emailHash: 'email-hash',
+      token: 'old-hashed-token',
+      customerEntityId: null,
+      personEntityId,
+      roleIdsJson: ['old-role'],
+      invitedByUserId: null,
+      invitedByCustomerUserId: null,
+      displayName: 'Old Name',
+      expiresAt: new Date(Date.now() + 60_000),
+      acceptedAt: null,
+      cancelledAt: null,
+    } as unknown as CustomerUserInvitation
+
+    ;(mockEm.findOne as jest.Mock).mockImplementation(async (entity: unknown) => {
+      if (entity === CustomerUserInvitation) return existing
+      return null
+    })
+
+    const result = await service.createInvitation(
+      'old@example.com',
+      { tenantId, organizationId },
+      { roleIds, customerEntityId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', invitedByCustomerUserId: 'portal-user-1' },
+    )
+
+    expect(result.reused).toBe(true)
+    expect(existing.personEntityId).toBe(personEntityId)
+    expect(existing.displayName).toBe('Old Name')
+    expect(existing.customerEntityId).toBe('cccccccc-cccc-4ccc-8ccc-cccccccccccc')
+    expect(result.rollbackState?.personEntityId).toBe(personEntityId)
+    expect(result.rollbackState?.displayName).toBe('Old Name')
+  })
+
   it('inserts a new invitation row when no pending invitation exists', async () => {
     ;(mockEm.findOne as jest.Mock).mockResolvedValue(null)
 
