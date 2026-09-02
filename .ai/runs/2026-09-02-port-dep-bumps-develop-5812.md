@@ -90,7 +90,26 @@ pre-existing time-bomb tracked as #5825 rather than anything this PR changed. It
 because it reds the required `test` check on every open PR for as long as the rendered week
 contains a day numbered 2, so no PR — this one included — can reach green until it is repaired.
 
-- [ ] 4.1 Scope the timesheet totals assertion to the totals footer so a day-of-month header can never satisfy it (#5825)
-- [ ] 4.2 Merge current develop into the branch
-- [ ] 4.3 Re-run the full validation gate
+- [x] 4.1 Scope the timesheet totals assertion to the totals footer so a day-of-month header can never satisfy it (#5825) — 6a4a357dc9
+- [x] 4.2 Merge current develop into the branch — ebb3e29b2a
+- [x] 4.3 Re-run the full validation gate — clean, see below
 - [ ] 4.4 Push and drive every required check to green
+
+Gate result (local runner — no compose `app` container was up, so `yarn X` rather than
+`docker-exec.mjs X`): `build:packages` ✅ · `generate` ✅ (no working-tree churn) · `build:packages`
+✅ · `i18n:check-sync` ✅ · `i18n:check-usage` ✅ · `typecheck` ✅ · `build:app` ✅ (real build, cache
+miss, 1 m 53 s).
+
+`test`: `@open-mercato/core` is now **1470 suites / 11 920 tests passing, 0 failing** — the #5825
+failure is gone. 33 of 34 turbo tasks pass. The one red task is `create-mercato-app#test`, whose
+four failures are all the same assertion in `src/lib/template-dev-log-files.test.ts`: `❌ Linux
+file-watch limits are too low for Turbopack — fs.inotify.max_user_instances: 128 < 4096`. That is
+this machine's sysctl configuration, not the branch: the test refuses to launch the template dev
+wrapper before asserting anything about it, and the same task passed on CI in the previous run
+(`Failed: @open-mercato/core#test` only). Left to CI rather than mutating the host's system-wide
+inotify limits, which is outside this PR's scope.
+
+The mutation check on 4.1: deleting the `dropDirtyCell(projectId, dateKey)` guard from
+`handleCellBlur` (`page.tsx:422`) reddens the rewritten assertion again (it finds `2` in both the
+day-total and grand-total cells), so scoping the query narrowed it to the calendar noise without
+weakening what it pins.
