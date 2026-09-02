@@ -21,11 +21,11 @@ import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { KbdShortcut } from '@open-mercato/ui/primitives/kbd'
-import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { ConnectChannelMenu } from './ConnectChannelMenu'
 
 type ChannelRow = {
   id: string
@@ -145,6 +145,8 @@ export default function ProfileCommunicationChannelsPage() {
   }, [reloadKey, t])
 
   const reauthRows = rows.filter((r) => r.status === 'requires_reauth')
+
+  const reloadChannels = React.useCallback(() => setReloadKey((k) => k + 1), [])
 
   const onSetPrimary = React.useCallback(
     async (channelId: string) => {
@@ -500,8 +502,8 @@ export default function ProfileCommunicationChannelsPage() {
   return (
     <Page>
       <PageBody>
-        <header className="mb-4 flex items-baseline justify-between">
-          <div>
+        <header className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+          <div className="min-w-0">
             <h2 className="text-2xl font-semibold">
               {t('communication_channels.profile.title', 'My communication channels')}
             </h2>
@@ -513,12 +515,9 @@ export default function ProfileCommunicationChannelsPage() {
             </p>
           </div>
           {/* Provider connect entry points injected by each channel-* package
-              (channel-gmail, channel-imap) via UMES. */}
-          <InjectionSpot
-            spotId={extensionPoints.hosts.profileConnect.spotId}
-            context={{ reload: () => setReloadKey((k) => k + 1) }}
-            data={{}}
-          />
+              (channel-gmail, channel-imap) via UMES. They stack inside one
+              dropdown so the header does not widen per installed provider. */}
+          <ConnectChannelMenu onConnected={reloadChannels} />
         </header>
 
         {reauthRows.length > 0 ? (
@@ -542,7 +541,7 @@ export default function ProfileCommunicationChannelsPage() {
           error={errorMessage}
           emptyState={t(
             'communication_channels.profile.empty',
-            'You have no connected channels yet. Use one of the Connect buttons above to add a channel.',
+            'You have no connected channels yet. Add one using the menu at the top of this page.',
           )}
         />
         <ImportHistoryDialog

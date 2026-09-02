@@ -630,6 +630,12 @@ The widget collects the credential fields and posts them to the hub's own connec
 `communication_channels.connect_user_channel`. Use `apiCall` and `useGuardedMutation`; never raw
 `fetch`. All user-facing strings go through `useT()` and your module's `i18n/` files.
 
+The hub renders this spot inside the profile page's **Connect channel** dropdown, one provider per
+full-width stacked row, so installing more providers lengthens the list instead of widening the page
+header. Ship a single control sized by the container — a `Button` works; avoid fixed widths — and
+keep any credential `Dialog` inside the widget: the hub keeps injected widgets mounted while the
+dropdown is closed precisely so a dialog opened from a row survives the dropdown closing behind it.
+
 ### 10. Verify it
 
 ```bash
