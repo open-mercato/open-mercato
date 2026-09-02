@@ -7,6 +7,7 @@ import type { ProgressService, ProgressServiceContext } from '../../progress/lib
 import {
   MAX_CHECKPOINTED_FAILURES,
   buildFirstRowIndexByKey,
+  encodePriorKeyRows,
   findRecordCreatedByPreviousAttempt,
   readCheckpoint,
   readCheckpointInterval,
@@ -40,6 +41,11 @@ export type CatalogProductBulkCreateFailure = {
 export type CatalogProductBulkCreateSummary = {
   createdCount: number
   failedCount: number
+  /**
+   * Not a complete list on a resumed run: it covers the rows the final attempt handled, while
+   * `createdCount` covers the whole batch. Iterate it for the ids it does carry, never as a
+   * substitute for `createdCount`.
+   */
   createdIds: string[]
   failedItems: CatalogProductBulkCreateFailure[]
 }
@@ -78,15 +84,22 @@ function handleKey(handle: string): string {
 }
 
 /**
- * The one key that identifies a row well enough to reclaim its record on a resumed attempt.
- * `title` is deliberately not a fallback: it carries no uniqueness constraint, so matching on it
- * would let one row claim an unrelated product and silently drop itself from the batch.
+ * Every key the row's product could be found under. `title` is deliberately absent: it carries no
+ * uniqueness constraint, so matching on it would let one row claim an unrelated product and
+ * silently drop itself from the batch.
  */
-function naturalKeyOfRow(row: ProductBulkCreateRow): string | null {
+function naturalKeysOfRow(row: ProductBulkCreateRow): string[] {
+  const keys: string[] = []
   const sku = normalizeForLookup(row.sku ?? null)
-  if (sku) return skuKey(sku)
+  if (sku) keys.push(skuKey(sku))
   const handle = normalizeForLookup(row.handle ?? null)
-  return handle ? handleKey(handle) : null
+  if (handle) keys.push(handleKey(handle))
+  return keys
+}
+
+/** The one key a row's record is reclaimed under on a resumed attempt; SKU wins when both exist. */
+function naturalKeyOfRow(row: ProductBulkCreateRow): string | null {
+  return naturalKeysOfRow(row)[0] ?? null
 }
 
 export async function createCatalogProductsWithProgress(params: {
@@ -116,11 +129,6 @@ export async function createCatalogProductsWithProgress(params: {
   // calling the command, saving a DB round-trip for rows that are provably invalid up front.
   // The same two queries also produce the key -> id map a resumed attempt uses to reclaim the
   // records an interrupted attempt already created, so resume costs no extra query.
-  //
-  // This is not the spec's original "shared identity-map pre-warm": `catalog.products.create`
-  // forks its own EntityManager with MikroORM's default `clear: true`, so nothing prefetched
-  // here can turn the command's internal lookups into cache hits. See
-  // `.ai/specs/2026-08-25-catalog-bulk-create.md` for the full analysis.
   const distinctSkus = Array.from(new Set(
     items
       .map((item) => normalizeForLookup(item.sku ?? null))
@@ -165,23 +173,31 @@ export async function createCatalogProductsWithProgress(params: {
   // attempt: after rows have been created the database can no longer tell which keys predate the
   // job. This write rides the attempt's first `updateProgress`, which always persists (a fresh
   // throttle entry has no last-persisted timestamp to throttle against), so it is durable before
-  // any row is created.
-  const isFirstAttempt = priorCheckpoint.priorNaturalKeys === null
+  // any row is created. A row counts as pre-existing when *any* of its keys is already taken, so a
+  // row whose handle is spoken for is never reclaimed on the strength of its free SKU.
+  const isFirstAttempt = priorCheckpoint.priorKeyRows === null
+  const priorKeyRowIndices: number[] = []
+  if (isFirstAttempt) {
+    items.forEach((item, index) => {
+      if (naturalKeysOfRow(item).some((key) => existingKeyIds.has(key))) priorKeyRowIndices.push(index)
+    })
+  }
   await progressService.updateProgress(
     progressJobId,
     {
       totalCount: items.length,
       processedCount: startIndex,
-      ...(isFirstAttempt ? { meta: { priorNaturalKeys: [...existingKeyIds.keys()] } } : {}),
+      ...(isFirstAttempt ? { meta: { priorKeyRows: encodePriorKeyRows(priorKeyRowIndices, items.length) } } : {}),
     },
     progressContext,
   )
 
   const resumeIndex = {
-    priorNaturalKeys: priorCheckpoint.priorNaturalKeys,
+    priorKeyRows: priorCheckpoint.priorKeyRows,
     existingKeyIds,
-    firstRowIndexByKey: buildFirstRowIndexByKey(items, naturalKeyOfRow),
+    firstRowIndexByKey: buildFirstRowIndexByKey(items, naturalKeysOfRow),
   }
+  const reclaimedIds = new Set<string>()
 
   const commandContext = buildCommandContext(scope, container)
   // Seeded from the previous attempt's checkpoint so a resumed run's summary covers the whole
@@ -253,8 +269,9 @@ export async function createCatalogProductsWithProgress(params: {
     // Reclaims a record an interrupted attempt of this job already created for this exact row,
     // so it is neither duplicated nor reported as a conflict against itself. Every other row
     // falls through to the normal path, including rows the classifier cannot speak for.
-    const reclaimedId = findRecordCreatedByPreviousAttempt(resumeIndex, index, naturalKeyOfRow(row))
+    const reclaimedId = findRecordCreatedByPreviousAttempt(resumeIndex, index, naturalKeyOfRow(row), reclaimedIds)
     if (reclaimedId) {
+      reclaimedIds.add(reclaimedId)
       createdIds.push(reclaimedId)
       createdCount += 1
       await checkpoint(index)

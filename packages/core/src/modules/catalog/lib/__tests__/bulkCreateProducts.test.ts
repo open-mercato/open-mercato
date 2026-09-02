@@ -8,12 +8,15 @@ jest.mock('@open-mercato/shared/lib/redis/connection', () => ({
 
 import type { AwilixContainer } from 'awilix'
 import { createCatalogProductsWithProgress } from '../bulkCreateProducts'
+import { encodePriorKeyRows } from '../bulkCreateCheckpoint'
 import type { ProductBulkCreateRow } from '../../data/validators'
 
 const ORG = 'org-1'
 const TENANT = 'tenant-1'
 
 type Row = ProductBulkCreateRow
+
+type ExistingProduct = { id: string, sku?: string, handle?: string }
 
 function row(title: string, overrides: Partial<Row> = {}): Row {
   return { title, ...overrides } as Row
@@ -23,6 +26,9 @@ function buildContainer(opts: {
   existingJobMeta?: Record<string, unknown> | null
   existingSkus?: string[]
   existingHandles?: string[]
+  // Use when one record must own both a sku and a handle; `existingSkus`/`existingHandles` derive
+  // a distinct id per key and cannot express that.
+  existingProducts?: ExistingProduct[]
   execute?: jest.Mock
   isCancellationRequested?: jest.Mock
 }) {
@@ -33,13 +39,20 @@ function buildContainer(opts: {
   const findCalls: unknown[] = []
   const find = jest.fn().mockImplementation(async (_entity: unknown, filter: Record<string, unknown>) => {
     findCalls.push(filter)
+    const existingProducts = opts.existingProducts ?? []
     if (Array.isArray((filter.sku as { $in?: string[] })?.$in)) {
       const skus = (filter.sku as { $in: string[] }).$in
-      return (opts.existingSkus ?? []).filter((s) => skus.includes(s)).map((s) => ({ sku: s, id: `existing-${s}` }))
+      return [
+        ...(opts.existingSkus ?? []).filter((s) => skus.includes(s)).map((s) => ({ sku: s, id: `existing-${s}` })),
+        ...existingProducts.filter((product) => product.sku != null && skus.includes(product.sku)),
+      ]
     }
     if (Array.isArray((filter.handle as { $in?: string[] })?.$in)) {
       const handles = (filter.handle as { $in: string[] }).$in
-      return (opts.existingHandles ?? []).filter((h) => handles.includes(h)).map((h) => ({ handle: h, id: `existing-${h}` }))
+      return [
+        ...(opts.existingHandles ?? []).filter((h) => handles.includes(h)).map((h) => ({ handle: h, id: `existing-${h}` })),
+        ...existingProducts.filter((product) => product.handle != null && handles.includes(product.handle)),
+      ]
     }
     return []
   })
@@ -173,7 +186,7 @@ describe('createCatalogProductsWithProgress', () => {
     const mocks = buildContainer({
       existingJobMeta: {
         lastCompletedRowIndex: 0,
-        priorNaturalKeys: [],
+        priorKeyRows: encodePriorKeyRows([], 4),
         checkpointSummary: { createdCount: 1, failedCount: 0, failedItems: [] },
       },
       existingSkus: ['sku-alpha', 'sku-beta'],
@@ -211,7 +224,7 @@ describe('createCatalogProductsWithProgress', () => {
     const mocks = buildContainer({
       existingJobMeta: {
         lastCompletedRowIndex: 0,
-        priorNaturalKeys: [],
+        priorKeyRows: encodePriorKeyRows([], 4),
         checkpointSummary: { createdCount: 1, failedCount: 0, failedItems: [] },
       },
       existingSkus: ['sku-alpha', 'sku-gamma', 'sku-delta'],
@@ -239,7 +252,7 @@ describe('createCatalogProductsWithProgress', () => {
     // created rather than reporting it as a conflict.
     const items: Row[] = [row('Alpha', { sku: 'sku-alpha' }), row('Beta', { sku: 'sku-beta' })]
     const mocks = buildContainer({
-      existingJobMeta: { priorNaturalKeys: [] },
+      existingJobMeta: { priorKeyRows: encodePriorKeyRows([], 2) },
       existingSkus: ['sku-alpha'],
     })
 
@@ -264,7 +277,7 @@ describe('createCatalogProductsWithProgress', () => {
     const mocks = buildContainer({
       existingJobMeta: {
         lastCompletedRowIndex: 0,
-        priorNaturalKeys: ['sku:sku-beta'],
+        priorKeyRows: encodePriorKeyRows([1], 2),
         checkpointSummary: { createdCount: 1, failedCount: 0, failedItems: [] },
       },
       existingSkus: ['sku-alpha', 'sku-beta'],
@@ -289,7 +302,7 @@ describe('createCatalogProductsWithProgress', () => {
     const mocks = buildContainer({
       existingJobMeta: {
         lastCompletedRowIndex: 0,
-        priorNaturalKeys: [],
+        priorKeyRows: encodePriorKeyRows([], 3),
         checkpointSummary: { createdCount: 1, failedCount: 0, failedItems: [] },
       },
     })
@@ -327,9 +340,9 @@ describe('createCatalogProductsWithProgress', () => {
     ])
   })
 
-  it('records the pre-existing natural keys on the attempt that starts the batch', async () => {
-    const items: Row[] = [row('Alpha', { sku: 'sku-alpha' }), row('Beta', { handle: 'beta-handle' })]
-    const mocks = buildContainer({ existingSkus: ['sku-alpha'], existingHandles: ['beta-handle'] })
+  it('records which rows already had a taken key on the attempt that starts the batch', async () => {
+    const items: Row[] = [row('Alpha', { sku: 'sku-alpha' }), row('Beta'), row('Gamma', { handle: 'gamma-handle' })]
+    const mocks = buildContainer({ existingSkus: ['sku-alpha'], existingHandles: ['gamma-handle'] })
 
     await createCatalogProductsWithProgress({
       container: mocks.container,
@@ -339,10 +352,78 @@ describe('createCatalogProductsWithProgress', () => {
     })
 
     expect(mocks.updateProgress.mock.calls[0][1]).toMatchObject({
-      totalCount: 2,
+      totalCount: 3,
       processedCount: 0,
-      meta: { priorNaturalKeys: ['sku:sku-alpha', 'handle:beta-handle'] },
+      meta: { priorKeyRows: encodePriorKeyRows([0, 2], 3) },
     })
+  })
+
+  it('keeps the snapshot sized by the row count rather than by the length of the keys', async () => {
+    // The snapshot rides `ProgressJob.meta`, which is rewritten and broadcast on every checkpoint,
+    // so it must not scale with how long the conflicting keys happen to be.
+    const longKey = 'sku-'.padEnd(400, 'x')
+    const items: Row[] = [row('Alpha', { sku: longKey }), row('Beta', { sku: `${longKey}-2` })]
+    const mocks = buildContainer({ existingSkus: [longKey, `${longKey}-2`] })
+
+    await createCatalogProductsWithProgress({
+      container: mocks.container,
+      progressJobId: 'job-1',
+      items,
+      scope: { organizationId: ORG, tenantId: TENANT },
+    })
+
+    const snapshot = (mocks.updateProgress.mock.calls[0][1] as { meta: { priorKeyRows: string } }).meta.priorKeyRows
+    expect(snapshot).toBe(encodePriorKeyRows([0, 1], 2))
+    expect(snapshot.length).toBeLessThan(longKey.length)
+  })
+
+  it('reports a resumed row keyed by its handle as a conflict when an earlier row owns that product by sku', async () => {
+    // Row 0 is keyed by its sku, so its handle is registered against row 0 too. Without that, row 1
+    // would look like the first row carrying `handle:h10`, reclaim row 0's product, and be counted
+    // as created — even though the unique handle index makes it uncreatable.
+    const items: Row[] = [row('Alpha', { sku: 'S5', handle: 'h10' }), row('Beta', { handle: 'h10' })]
+    const mocks = buildContainer({
+      existingJobMeta: { priorKeyRows: encodePriorKeyRows([], 2) },
+      existingProducts: [{ id: 'prod-owning-S5', sku: 'S5', handle: 'h10' }],
+    })
+
+    const summary = await createCatalogProductsWithProgress({
+      container: mocks.container,
+      progressJobId: 'job-1',
+      items,
+      scope: { organizationId: ORG, tenantId: TENANT },
+    })
+
+    expect(mocks.execute).not.toHaveBeenCalled()
+    expect(summary.createdCount).toBe(1)
+    expect(summary.createdIds).toEqual(['prod-owning-S5'])
+    expect(summary.failedItems).toEqual([
+      { index: 1, title: 'Beta', code: 'handle_taken', message: 'Product handle already exists for this organization.' },
+    ])
+  })
+
+  it('never hands the same reclaimed record to two rows', async () => {
+    // Row 0 is keyed by a handle the command derived for the product row 1 created by sku, so both
+    // rows resolve to the same id through different keys. Only the first claim may stand.
+    const items: Row[] = [row('Alpha', { handle: 'derived-handle' }), row('Beta', { sku: 'S5' })]
+    const mocks = buildContainer({
+      existingJobMeta: { priorKeyRows: encodePriorKeyRows([], 2) },
+      existingProducts: [{ id: 'prod-shared', sku: 'S5', handle: 'derived-handle' }],
+    })
+
+    const summary = await createCatalogProductsWithProgress({
+      container: mocks.container,
+      progressJobId: 'job-1',
+      items,
+      scope: { organizationId: ORG, tenantId: TENANT },
+    })
+
+    expect(summary.createdIds).toEqual(['prod-shared'])
+    expect(new Set(summary.createdIds).size).toBe(summary.createdIds.length)
+    expect(summary.createdCount + summary.failedCount).toBe(items.length)
+    expect(summary.failedItems).toEqual([
+      { index: 1, title: 'Beta', code: 'sku_taken', message: 'Product SKU already exists for this organization.' },
+    ])
   })
 
   it('keeps the checkpoint payload bounded by persisting counts rather than every created id', async () => {

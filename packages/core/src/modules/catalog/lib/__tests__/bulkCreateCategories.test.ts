@@ -8,6 +8,7 @@ jest.mock('@open-mercato/shared/lib/redis/connection', () => ({
 
 import type { AwilixContainer } from 'awilix'
 import { createCatalogCategoriesWithProgress } from '../bulkCreateCategories'
+import { encodePriorKeyRows } from '../bulkCreateCheckpoint'
 import type { CategoryBulkCreateRow } from '../../data/validators'
 
 const ORG = 'org-1'
@@ -158,7 +159,7 @@ describe('createCatalogCategoriesWithProgress', () => {
     const mocks = buildContainer({
       existingJobMeta: {
         lastCompletedRowIndex: 0,
-        priorNaturalKeys: [],
+        priorKeyRows: encodePriorKeyRows([], 4),
         checkpointSummary: { createdCount: 1, failedCount: 0, failedItems: [] },
       },
       existingSlugs: ['alpha', 'beta'],
@@ -198,7 +199,7 @@ describe('createCatalogCategoriesWithProgress', () => {
     const mocks = buildContainer({
       existingJobMeta: {
         lastCompletedRowIndex: 0,
-        priorNaturalKeys: [],
+        priorKeyRows: encodePriorKeyRows([], 4),
         checkpointSummary: { createdCount: 1, failedCount: 0, failedItems: [] },
       },
       existingSlugs: ['alpha', 'gamma', 'delta'],
@@ -226,7 +227,7 @@ describe('createCatalogCategoriesWithProgress', () => {
     // created rather than reporting it as a conflict.
     const items: Row[] = [row('Alpha', { slug: 'alpha' }), row('Beta', { slug: 'beta' })]
     const mocks = buildContainer({
-      existingJobMeta: { priorNaturalKeys: [] },
+      existingJobMeta: { priorKeyRows: encodePriorKeyRows([], 2) },
       existingSlugs: ['alpha'],
     })
 
@@ -251,7 +252,7 @@ describe('createCatalogCategoriesWithProgress', () => {
     const mocks = buildContainer({
       existingJobMeta: {
         lastCompletedRowIndex: 0,
-        priorNaturalKeys: ['slug:beta'],
+        priorKeyRows: encodePriorKeyRows([1], 2),
         checkpointSummary: { createdCount: 1, failedCount: 0, failedItems: [] },
       },
       existingSlugs: ['alpha', 'beta'],
@@ -276,7 +277,7 @@ describe('createCatalogCategoriesWithProgress', () => {
     const mocks = buildContainer({
       existingJobMeta: {
         lastCompletedRowIndex: 0,
-        priorNaturalKeys: [],
+        priorKeyRows: encodePriorKeyRows([], 3),
         checkpointSummary: { createdCount: 1, failedCount: 0, failedItems: [] },
       },
     })
@@ -328,7 +329,7 @@ describe('createCatalogCategoriesWithProgress', () => {
     expect(mocks.updateProgress.mock.calls[0][1]).toMatchObject({
       totalCount: 2,
       processedCount: 0,
-      meta: { priorNaturalKeys: ['slug:beta'] },
+      meta: { priorKeyRows: encodePriorKeyRows([1], 2) },
     })
   })
 
