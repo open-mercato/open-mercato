@@ -74,8 +74,10 @@ jest.mock('@open-mercato/shared/security/enabledModulesRegistry', () => ({
 jest.mock('@open-mercato/ui/backend/utils/nav', () => ({
   buildAdminNav: (...args: unknown[]) => mockBuildAdminNav(...(args as [])),
   buildSettingsSections: jest.fn(() => []),
+  buildProfileSections: jest.fn(() => []),
   computeSettingsPathPrefixes: jest.fn(() => []),
   convertToSectionNavGroups: jest.fn(() => []),
+  mergeSectionsWithDiscovered: jest.fn((baseline: unknown) => baseline),
 }))
 
 jest.mock('@open-mercato/ui/backend/icons/lucideRegistry', () => ({
