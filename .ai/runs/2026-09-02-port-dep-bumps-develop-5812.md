@@ -26,6 +26,11 @@ Land the dependency updates of [PR #5812](https://github.com/open-mercato/open-m
 - No change to dependabot's own configuration (retargeting it at `develop` is a policy decision for the maintainers; flagged in the PR body, not made here).
 - No changes to `external/official-modules`.
 
+## Outcomes worth recording
+
+- **Age gate deviations (2 of 47 updates).** `.yarnrc.yml` sets `npmMinimalAgeGate: 5d`. At run time `jest@30.5.0` and `jest-environment-jsdom@30.5.0` were 4.9 days old and every newer 30.x release was younger still, so the highest installable version is exactly what `develop` already declares — those two ranges are therefore left at `^30.4.2` / `^30.4.1`, unbumped. `lucide-react@1.35.0` was likewise quarantined, and its highest installable version is `1.34.0`, so the range moved `^1.27.0 → ^1.34.0` instead of `^1.35.0`. Dependabot will re-propose all three once they age past the gate; bypassing it with `--no-time-gate` was rejected as a deliberate supply-chain control, not an obstacle.
+- **Two range bumps are inert behind range-less resolution pins.** The root `resolutions` block pins `mermaid: 11.16.0` and `nodemailer: 9.0.1` without a range, so they override every workspace range. `apps/docs` now asks `mermaid ^11.17.2` and `packages/channel-imap` asks `nodemailer ^9.0.6`, yet the lockfile still resolves `11.16.0` and `9.0.1`. This exactly reproduces the state #5812 produces on `main` — dependabot bumps declared ranges, never pins — so it is carried over unchanged rather than "fixed" inside a port. Whether those two pins are still wanted is a separate maintainer call.
+
 ## Risks
 
 - **Resolution drift.** Regenerating `yarn.lock` re-resolves every `^`/`~` range that changed, so the resulting versions may be newer than the ones dependabot pinned against `main`. Acceptable — the ranges are what the repo commits to — but the validation gate is what proves it.
@@ -56,13 +61,13 @@ Land the dependency updates of [PR #5812](https://github.com/open-mercato/open-m
 
 ### Phase 1: Port the version bumps
 
-- [ ] 1.1 Apply the bumped ranges to every workspace manifest on develop
-- [ ] 1.2 Update the root resolutions pins
-- [ ] 1.3 Regenerate yarn.lock
+- [x] 1.1 Apply the bumped ranges to every workspace manifest on develop — 70c37905e0
+- [x] 1.2 Update the root resolutions pins — 70c37905e0
+- [x] 1.3 Regenerate yarn.lock — 2f8a5b0b38
 
 ### Phase 2: Validate
 
-- [ ] 2.1 Run the dependency-consistency guards
+- [x] 2.1 Run the dependency-consistency guards — 2f8a5b0b38
 - [ ] 2.2 Run the full validation gate
 
 ### Phase 3: Land and close the original
