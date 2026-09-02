@@ -36,6 +36,7 @@ import type { ChildProcess } from 'node:child_process'
 const CACHE_TTL_ENV_VAR = 'OM_INTEGRATION_BUILD_CACHE_TTL_SECONDS'
 const APP_READY_TIMEOUT_ENV_VAR = 'OM_INTEGRATION_APP_READY_TIMEOUT_SECONDS'
 const CHECKOUT_TEST_INJECTION_FLAG = 'NEXT_PUBLIC_OM_EXAMPLE_CHECKOUT_TEST_INJECTIONS_ENABLED'
+const DATA_ERASURE_MODULE_FLAG = 'OM_ENABLE_ENTERPRISE_MODULES_DATA_ERASURE'
 const PRIVATE_ATTACHMENTS_PARTITION_ENV_KEY = 'ATTACHMENTS_PARTITION_PRIVATE_ATTACHMENTS_ROOT'
 const resolver = createResolver()
 const projectRootDirectory = resolver.getRootDir()
@@ -113,6 +114,7 @@ describe('integration cache and options', () => {
   const originalCacheTtl = process.env[CACHE_TTL_ENV_VAR]
   const originalAppReadyTimeout = process.env[APP_READY_TIMEOUT_ENV_VAR]
   const originalCheckoutTestInjectionFlag = process.env[CHECKOUT_TEST_INJECTION_FLAG]
+  const originalDataErasureModuleFlag = process.env[DATA_ERASURE_MODULE_FLAG]
   let originalEphemeralEnvState: string | null = null
   let originalEphemeralLegacyEnvState: string | null = null
 
@@ -148,12 +150,18 @@ describe('integration cache and options', () => {
     } else {
       process.env[CHECKOUT_TEST_INJECTION_FLAG] = originalCheckoutTestInjectionFlag
     }
+    if (originalDataErasureModuleFlag === undefined) {
+      delete process.env[DATA_ERASURE_MODULE_FLAG]
+    } else {
+      process.env[DATA_ERASURE_MODULE_FLAG] = originalDataErasureModuleFlag
+    }
     await restoreEphemeralStateFiles(originalEphemeralEnvState, originalEphemeralLegacyEnvState)
   })
 
   it('reuses an existing reachable ephemeral environment state', async () => {
     const baseUrl = 'http://127.0.0.1:5001'
     delete process.env[CHECKOUT_TEST_INJECTION_FLAG]
+    process.env[DATA_ERASURE_MODULE_FLAG] = 'true'
     const fetchSpy = mockHealthyReadinessFetch()
 
     try {
@@ -199,6 +207,7 @@ describe('integration cache and options', () => {
       expect(environment?.commandEnvironment.OM_TEST_EMAIL_CAPTURE_PATH).toBe(
         path.join(projectRootDirectory, '.ai', 'qa', 'email-capture.jsonl'),
       )
+      expect(environment?.commandEnvironment.OM_ENABLE_ENTERPRISE_MODULES_DATA_ERASURE).toBe('true')
       expect(environment?.commandEnvironment.NEXT_PUBLIC_OM_EXAMPLE_CHECKOUT_TEST_INJECTIONS_ENABLED).toBeUndefined()
     } finally {
       fetchSpy.mockRestore()

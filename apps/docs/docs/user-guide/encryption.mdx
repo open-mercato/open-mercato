@@ -8,10 +8,13 @@ Use tenant data encryption to protect sensitive columns with per-tenant DEKs, ke
 ## Environment switches
 
 - `TENANT_DATA_ENCRYPTION` – `yes|no` (default `yes`). Set to `no` to run unencrypted (hooks no-op, validation stays).
+- `TENANT_DATA_ENCRYPTION_REQUIRED` – requires a healthy encryption runtime outside production when set to `yes`. Production always enables this policy, regardless of this variable.
 - `TENANT_DATA_ENCRYPTION_DEBUG` – `yes` to log map evaluation, Vault calls, cache hits, and fallback selection.
 - `VAULT_ADDR`, `VAULT_TOKEN` – required for HashiCorp Vault KMS. Example: `https://vault.example.com`.
 - `VAULT_KV_PATH` – KV v2 mount for tenant keys (default `secret/data`).
-- Fallback (dev / when Vault is down): set `TENANT_DATA_ENCRYPTION_FALLBACK_KEY` (preferred) or legacy `TENANT_DATA_ENCRYPTION_KEY`. `AUTH_SECRET` and `NEXTAUTH_SECRET` are not used for data encryption. The built-in dev fallback is disabled unless `ALLOW_DERIVED_KMS_FALLBACK=true`; production without a dedicated fallback secret falls back to noop KMS.
+- Fallback (dev / when Vault is down): set `TENANT_DATA_ENCRYPTION_FALLBACK_KEY` (preferred) or legacy `TENANT_DATA_ENCRYPTION_KEY`. `AUTH_SECRET` and `NEXTAUTH_SECRET` are not used for data encryption. The built-in dev fallback is disabled unless `ALLOW_DERIVED_KMS_FALLBACK=true` and is never available in production.
+
+In production, encryption is mandatory. Startup and readiness fail when encryption is disabled or neither Vault nor a dedicated fallback key is available. If KMS health or DEK resolution fails later, writes containing mapped fields are rejected before ORM persistence. Unmapped writes remain available.
 
 Note: changing encryption maps or toggling the **Encrypted** flag on a custom field only applies to data written after the change; previously stored values stay as they were unless you re-save or migrate them.
 
@@ -158,7 +161,8 @@ The `--confirm <tenantUuid>` flag is a required safety gate — it must exactly 
 
 - Turn on `TENANT_DATA_ENCRYPTION_DEBUG=yes` to see KMS cache hits/misses, Vault calls, and which fields were encrypted.
 - Debug logs also call out Vault health and the selected KMS path (Vault vs derived vs noop) so you can verify `VAULT_ADDR`, `VAULT_TOKEN`, and `VAULT_KV_PATH` without exposing the token value.
-- If Vault is unreachable, the runtime logs a warning and falls back to the derived-key KMS when a dedicated fallback secret is present; otherwise it becomes a noop KMS (data stays plaintext). Integration credentials fail closed instead of saving under a noop or auth-derived key.
+- If Vault is unreachable, the runtime falls back to the derived-key KMS when a dedicated fallback secret is present. Without either path, production readiness returns `503` and mapped writes fail closed. Development keeps the legacy no-op behavior unless `TENANT_DATA_ENCRYPTION_REQUIRED=yes` is set.
+- Probe `GET /api/configs/health/ready` from the load balancer. It returns a minimal `200` response only when required encryption dependencies are ready and `503` otherwise.
 - Use **Configuration → System status** to confirm the active values of the encryption env vars in the running instance.
 
 ## Running without Vault

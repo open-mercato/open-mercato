@@ -42,7 +42,7 @@ const SENSITIVE_ENV_KEY = /(?:^|_)(?:api_?key|auth|credential|credentials|passwo
 const GENERATED_YARN_CONFIG_PATH = '.yarnrc.yml'
 const GENERATED_YARN_CONFIG_LIMIT = 16_384
 // The deterministic step invokes no model, so its ceiling must not ride --case-timeout. Timed on
-// Linux x86_64, the complete 234-case catalog finished in 768-998 ms, and narrowing the selection
+// Linux x86_64, the complete 235-case catalog finished in 768-998 ms, and narrowing the selection
 // down to a single case measured 842-890 ms, inside the same spread, so the run is dominated by
 // fixed process and catalog load rather than by case count. A flat allowance is therefore the
 // honest shape, and 120000 ms is both about 120x the slowest observed run and the value this gate

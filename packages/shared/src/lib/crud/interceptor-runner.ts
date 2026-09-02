@@ -32,6 +32,10 @@ export type RunInterceptorsAfterResult = {
   headers: Record<string, string>
 }
 
+function isHttpStatusCode(value: unknown): value is number {
+  return Number.isInteger(value) && (value as number) >= 100 && (value as number) <= 599
+}
+
 function sanitizeObject(input?: Record<string, unknown>): Record<string, unknown> | undefined {
   if (!input || typeof input !== 'object') return undefined
   const clean = Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined))
@@ -223,6 +227,7 @@ export async function runApiInterceptorsAfter(args: {
   const { routePath, method, context } = args
   let body: Record<string, unknown> = { ...(args.response.body ?? {}) }
   let headers: Record<string, string> = { ...(args.response.headers ?? {}) }
+  let statusCode = args.response.statusCode
 
   const interceptors = getApiInterceptorsForRoute(routePath, method)
   for (const entry of interceptors) {
@@ -235,7 +240,7 @@ export async function runApiInterceptorsAfter(args: {
       const result = await runWithTimeout(
         interceptor.after(
           args.request,
-          { statusCode: args.response.statusCode, body, headers },
+          { statusCode, body, headers },
           { ...context, metadata: args.metadataByInterceptor?.[interceptor.id] },
         ),
         timeoutMs,
@@ -247,6 +252,7 @@ export async function runApiInterceptorsAfter(args: {
       } else if (result.merge && typeof result.merge === 'object') {
         body = { ...body, ...result.merge }
       }
+      if (isHttpStatusCode(result.statusCode)) statusCode = result.statusCode
     } catch (error) {
       if (isTimeoutError(error)) {
         const timeoutBody: Record<string, unknown> = { error: 'Interceptor timeout' }
@@ -271,7 +277,7 @@ export async function runApiInterceptorsAfter(args: {
 
   return {
     ok: true,
-    statusCode: args.response.statusCode,
+    statusCode,
     body,
     headers,
   }

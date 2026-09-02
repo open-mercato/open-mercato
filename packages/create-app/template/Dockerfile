@@ -37,7 +37,7 @@ ARG OPEN_MERCATO_DOCKER_REGISTRY_HOST=host.docker.internal
 
 WORKDIR /app
 
-RUN apk add --no-cache python3 make g++ ca-certificates openssl
+RUN apk add --no-cache python3 make g++ ca-certificates openssl postgresql-client
 RUN corepack enable
 
 COPY package.json yarn.lock .yarnrc.yml ./
@@ -81,11 +81,15 @@ ENV NODE_ENV=production \
 WORKDIR /app
 
 RUN if [ "$INSTALL_CHROMIUM" = "1" ]; then \
-      apk add --no-cache ca-certificates chromium openssl; \
+      apk add --no-cache ca-certificates chromium openssl postgresql-client; \
     else \
-      apk add --no-cache ca-certificates openssl; \
+      apk add --no-cache ca-certificates openssl postgresql-client; \
     fi
 RUN corepack enable
+
+# npm is not used at runtime (Yarn runs through Corepack) and its bundled
+# dependencies lag behind CVE fixes, so it stays out of the production image.
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 
 COPY package.json yarn.lock .yarnrc.yml ./
 RUN if grep -Eq 'http://(localhost|127\\.0\\.0\\.1):' .yarnrc.yml; then \

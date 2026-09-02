@@ -1,6 +1,11 @@
-import type { ApiInterceptor } from '@open-mercato/shared/lib/crud/api-interceptor'
-import { signJwt, verifyJwt } from '@open-mercato/shared/lib/auth/jwt'
+import type { ApiInterceptor, InterceptorAfterResult } from '@open-mercato/shared/lib/crud/api-interceptor'
+import { verifyJwt } from '@open-mercato/shared/lib/auth/jwt'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { emitMfaEmergencyBypassActiveWarning, readSecurityModuleConfig } from '../lib/security-config'
+import { signPendingMfaToken } from '../lib/mfa-pending-token'
+
+const logger = createLogger('security').child({ component: 'login-mfa-interceptor' })
 
 type JwtClaims = {
   sub: string
@@ -12,6 +17,7 @@ type JwtClaims = {
 }
 
 type MfaVerificationServiceLike = {
+  hasChallengeMethods: (userId: string) => Promise<boolean>
   createChallenge: (userId: string) => Promise<{
     challengeId: string
     availableMethods: Array<{ type: string; label: string; icon: string }>
@@ -39,6 +45,7 @@ function resolveMfaVerificationService(container: { resolve: (name: string) => u
     if (
       !resolved
       || typeof resolved !== 'object'
+      || typeof (resolved as { hasChallengeMethods?: unknown }).hasChallengeMethods !== 'function'
       || typeof (resolved as { createChallenge?: unknown }).createChallenge !== 'function'
     ) {
       return null
@@ -46,6 +53,21 @@ function resolveMfaVerificationService(container: { resolve: (name: string) => u
     return resolved as MfaVerificationServiceLike
   } catch {
     return null
+  }
+}
+
+async function mfaUnavailableResponse(): Promise<InterceptorAfterResult> {
+  const { translate } = await resolveTranslations()
+  return {
+    statusCode: 503,
+    replace: {
+      ok: false,
+      code: 'MFA_UNAVAILABLE',
+      error: translate(
+        'security.login.errors.mfaUnavailable',
+        'Multi-factor authentication is temporarily unavailable. Please try again.',
+      ),
+    },
   }
 }
 
@@ -61,10 +83,13 @@ export const interceptors: ApiInterceptor[] = [
       if (typeof response.body.token !== 'string' || response.body.token.length === 0) return {}
 
       const claims = readClaims(response.body.token)
-      if (!claims) return {}
+      if (!claims?.sid) return await mfaUnavailableResponse()
 
       const mfaVerificationService = resolveMfaVerificationService(context.container as { resolve: (name: string) => unknown })
-      if (!mfaVerificationService) return {}
+      if (!mfaVerificationService) {
+        logger.error('MFA verification service is unavailable during login')
+        return await mfaUnavailableResponse()
+      }
 
       if (readSecurityModuleConfig().mfa.emergencyBypass) {
         emitMfaEmergencyBypassActiveWarning('login MFA challenge bypassed', { userId: claims.sub })
@@ -72,21 +97,16 @@ export const interceptors: ApiInterceptor[] = [
       }
 
       try {
+        if (!(await mfaVerificationService.hasChallengeMethods(claims.sub))) return {}
         const challenge = await mfaVerificationService.createChallenge(claims.sub)
-        const pendingToken = signJwt(
-          {
-            sub: claims.sub,
-            sid: claims.sid ?? undefined,
-            tenantId: claims.tenantId ?? null,
-            orgId: claims.orgId ?? null,
-            email: claims.email ?? null,
-            roles: claims.roles ?? [],
-            mfa_pending: true,
-            mfa_verified: false,
-          },
-          undefined,
-          60 * 10,
-        )
+        const pendingToken = signPendingMfaToken({
+          sub: claims.sub,
+          sid: claims.sid,
+          tenantId: claims.tenantId ?? null,
+          orgId: claims.orgId ?? null,
+          email: claims.email ?? null,
+          roles: claims.roles ?? [],
+        })
         return {
           replace: {
             ok: true,
@@ -96,8 +116,9 @@ export const interceptors: ApiInterceptor[] = [
             token: pendingToken,
           },
         }
-      } catch {
-        return {}
+      } catch (error) {
+        logger.error('MFA challenge creation failed during login', { err: error })
+        return await mfaUnavailableResponse()
       }
     },
   },

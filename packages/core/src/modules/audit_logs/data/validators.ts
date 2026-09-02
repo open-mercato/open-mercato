@@ -68,6 +68,7 @@ export const accessLogListSchema = z.object({
   organizationId: uuid.optional(),
   actorUserId: uuid.optional(),
   resourceKind: z.string().optional(),
+  resourceId: z.string().optional(),
   accessType: z.string().optional(),
   limit: z.number().int().positive().max(200).optional(),
   page: z.number().int().positive().default(1),
@@ -76,7 +77,35 @@ export const accessLogListSchema = z.object({
   after: z.date().optional(),
 })
 
+export const accessLogRetentionSchema = z.object({
+  tenantId: uuid.optional(),
+  organizationId: uuid.optional(),
+  accessClass: z.enum(['all', 'core', 'non_core']).default('all'),
+  retentionDays: z.number().int().min(90).default(90),
+  batchSize: z.number().int().positive().max(10_000).default(1000),
+  dryRun: z.boolean().default(false),
+  allScopes: z.boolean().default(false),
+  now: z.date().optional(),
+}).superRefine((value, context) => {
+  if (value.organizationId && !value.tenantId) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'organizationId requires tenantId',
+      path: ['organizationId'],
+    })
+  }
+  if (!value.tenantId && !value.allScopes) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'tenantId is required unless allScopes is true',
+      path: ['tenantId'],
+    })
+  }
+})
+
 export type ActionLogCreateInput = z.infer<typeof actionLogCreateSchema>
 export type ActionLogListQuery = z.infer<typeof actionLogListSchema>
 export type AccessLogCreateInput = z.infer<typeof accessLogCreateSchema>
 export type AccessLogListQuery = z.infer<typeof accessLogListSchema>
+export type AccessLogRetentionInput = z.input<typeof accessLogRetentionSchema>
+export type AccessLogRetentionOptions = z.output<typeof accessLogRetentionSchema>

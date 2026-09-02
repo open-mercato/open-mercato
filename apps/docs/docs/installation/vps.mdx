@@ -72,6 +72,10 @@ NODE_ENV=production
 # NODE_OPTIONS=--max-old-space-size=3072  # default; raise for larger hosts — see Troubleshooting
 OM_WEBHOOK_MAX_BODY_BYTES=1048576
 
+# Field-level encryption (use Vault instead if available)
+TENANT_DATA_ENCRYPTION=true
+TENANT_DATA_ENCRYPTION_FALLBACK_KEY=replace-with-a-stable-random-secret
+
 # Cache
 CACHE_REDIS_URL=redis://redis:6379
 CACHE_STRATEGY=redis
@@ -95,6 +99,7 @@ Generate strong secrets:
 
 ```bash
 openssl rand -hex 32   # for JWT_SECRET
+openssl rand -base64 48 # for TENANT_DATA_ENCRYPTION_FALLBACK_KEY
 openssl rand -hex 24   # for MEILISEARCH_MASTER_KEY
 ```
 
@@ -229,6 +234,8 @@ Use [Certbot](https://certbot.eff.org/) for free Let's Encrypt certificates.
 - [ ] `POSTGRES_PASSWORD` — strong random value
 - [ ] `MEILISEARCH_MASTER_KEY` — strong random value
 - [ ] `NODE_ENV=production`
+- [ ] Vault or a stable `TENANT_DATA_ENCRYPTION_FALLBACK_KEY` configured
+- [ ] `/api/configs/health/ready` returns HTTP 200
 - [ ] Database and Redis ports **not** exposed to the public internet
 - [ ] HTTPS configured via reverse proxy
 - [ ] Automated daily backups scheduled for the PostgreSQL volume

@@ -58,7 +58,7 @@ describe('module-facts customers fixture (T1 anti-drift guard)', () => {
       'customers.todos.list',
     ])
     expect(facts.hostTokens.entityIds).toEqual(['customers:customer_entity'])
-    expect(facts.diTokens).toEqual([])
+    expect(facts.diTokens).toEqual(['customerPeoplePrivacyHandler'])
   })
 
   it('omits API route auth and warns when no module registry is provided', () => {

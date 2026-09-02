@@ -1,0 +1,77 @@
+name: Security Analysis
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - develop
+  schedule:
+    - cron: '41 4 * * 1'
+  workflow_dispatch:
+
+concurrency:
+  group: security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# CodeQL is not a job here on purpose: this repository runs CodeQL through GitHub's
+# default setup, and GitHub rejects SARIF from an advanced workflow while default
+# setup is enabled ("CodeQL analyses from advanced configurations cannot be
+# processed when the default setup is enabled"). Query suite and languages are
+# managed in the repository's Code security settings.
+jobs:
+  dependency-review:
+    name: Dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Reject newly introduced vulnerable dependencies
+        uses: actions/dependency-review-action@v5.0.0
+        with:
+          fail-on-severity: high
+
+  repository-scan:
+    name: Secrets, configuration and SBOM
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout complete history
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Scan repository secrets and configuration
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: secret,misconfig
+          severity: HIGH,CRITICAL
+          format: table
+          exit-code: '1'
+          skip-dirs: node_modules,apps/mercato/.mercato,tmp
+          trivyignores: .trivyignore.yaml
+
+      - name: Generate SPDX SBOM
+        uses: anchore/sbom-action@v0.24.0
+        with:
+          path: .
+          format: spdx-json
+          artifact-name: open-mercato-source-sbom.spdx.json
+          output-file: open-mercato-source-sbom.spdx.json
+          upload-artifact: true
+          upload-artifact-retention: 30
+          upload-release-assets: false

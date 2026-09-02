@@ -42,6 +42,7 @@ export type InterceptorBeforeResult = {
 export type InterceptorAfterResult = {
   merge?: Record<string, unknown>
   replace?: Record<string, unknown>
+  statusCode?: number
 }
 
 export type ApiInterceptor = {

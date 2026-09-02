@@ -1294,6 +1294,23 @@
           "enumItems": [],
           "mappedType": "text"
         },
+        "secret_hash": {
+          "name": "secret_hash",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "text"
+        },
         "updated_at": {
           "name": "updated_at",
           "type": "timestamptz(6)",
@@ -1330,6 +1347,16 @@
         }
       },
       "indexes": [
+        {
+          "keyName": "idx_user_mfa_methods_secret_hash",
+          "columnNames": [
+            "secret_hash"
+          ],
+          "composite": false,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
         {
           "columnNames": [
             "tenant_id"

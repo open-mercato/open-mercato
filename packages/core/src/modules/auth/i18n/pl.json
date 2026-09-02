@@ -120,6 +120,8 @@
   "auth.acl.features.dashboards.admin.assign-widgets": "Zarządzaj dostępnością widżetów panelu",
   "auth.acl.features.dashboards.configure": "Dostosowuj układ panelu",
   "auth.acl.features.dashboards.view": "Wyświetl panel",
+  "auth.acl.features.data_erasure.manage": "Zarządzaj operacjami ochrony danych",
+  "auth.acl.features.data_erasure.view": "Wyświetl operacje ochrony danych",
   "auth.acl.features.data_sync.configure": "Konfiguruj mapowania i harmonogramy synchronizacji",
   "auth.acl.features.data_sync.run": "Uruchamiaj synchronizację",
   "auth.acl.features.data_sync.view": "Wyświetl przebiegi synchronizacji",

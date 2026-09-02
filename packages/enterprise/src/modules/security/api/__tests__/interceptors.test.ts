@@ -17,6 +17,7 @@ jest.mock('@open-mercato/shared/lib/logger', () => ({
 
 import { signJwt, verifyJwt } from '@open-mercato/shared/lib/auth/jwt'
 import type { InterceptorContext } from '@open-mercato/shared/lib/crud/api-interceptor'
+import { verifyPendingMfaToken } from '../../lib/mfa-pending-token'
 import { interceptors } from '../interceptors'
 
 type CreateChallengeMock = jest.Mock<
@@ -24,7 +25,10 @@ type CreateChallengeMock = jest.Mock<
   [string]
 >
 
-function buildContext(createChallenge: CreateChallengeMock) {
+function buildContext(
+  createChallenge: CreateChallengeMock,
+  hasChallengeMethods: jest.Mock<Promise<boolean>, [string]> = jest.fn(async () => true),
+) {
   return {
     userId: '',
     organizationId: '',
@@ -35,6 +39,7 @@ function buildContext(createChallenge: CreateChallengeMock) {
         if (name === 'mfaVerificationService') {
           return {
             createChallenge,
+            hasChallengeMethods,
           }
         }
         throw new Error(`Unknown service: ${name}`)
@@ -77,6 +82,7 @@ describe('security auth/login api interceptor', () => {
 
     const fullToken = signJwt({
       sub: 'user-1',
+      sid: 'session-1',
       tenantId: 'tenant-1',
       orgId: 'org-1',
       email: 'user@example.com',
@@ -98,7 +104,8 @@ describe('security auth/login api interceptor', () => {
     })
     expect(typeof result.replace?.token).toBe('string')
 
-    const pendingClaims = verifyJwt(String(result.replace?.token))
+    expect(verifyJwt(String(result.replace?.token))).toBeNull()
+    const pendingClaims = verifyPendingMfaToken(String(result.replace?.token))
     expect(pendingClaims).toMatchObject({
       sub: 'user-1',
       tenantId: 'tenant-1',
@@ -110,21 +117,44 @@ describe('security auth/login api interceptor', () => {
     })
   })
 
-  test('fails closed to no-op when challenge creation fails', async () => {
+  test('fails closed when challenge creation fails', async () => {
     if (!interceptor?.after) throw new Error('Expected security auth/login interceptor')
 
     const createChallenge = jest.fn(async () => {
       throw new Error('db unavailable')
     }) as CreateChallengeMock
 
-    const fullToken = signJwt({ sub: 'user-1', tenantId: 'tenant-1' })
+    const fullToken = signJwt({ sub: 'user-1', sid: 'session-1', tenantId: 'tenant-1' })
     const result = await interceptor.after(
       { method: 'POST', url: 'http://localhost/api/auth/login', headers: {} },
       { statusCode: 200, body: { ok: true, token: fullToken }, headers: {} },
       buildContext(createChallenge),
     )
 
+    expect(result).toEqual({
+      statusCode: 503,
+      replace: {
+        ok: false,
+        code: 'MFA_UNAVAILABLE',
+        error: 'Multi-factor authentication is temporarily unavailable. Please try again.',
+      },
+    })
+  })
+
+  test('keeps password login unchanged when the user has no active MFA methods', async () => {
+    if (!interceptor?.after) throw new Error('Expected security auth/login interceptor')
+
+    const createChallenge = jest.fn() as CreateChallengeMock
+    const hasChallengeMethods = jest.fn(async () => false)
+    const fullToken = signJwt({ sub: 'user-1', sid: 'session-1', tenantId: 'tenant-1' })
+    const result = await interceptor.after(
+      { method: 'POST', url: 'http://localhost/api/auth/login', headers: {} },
+      { statusCode: 200, body: { ok: true, token: fullToken }, headers: {} },
+      buildContext(createChallenge, hasChallengeMethods),
+    )
+
     expect(result).toEqual({})
+    expect(createChallenge).not.toHaveBeenCalled()
   })
 
   test('skips MFA challenge injection when emergency bypass is enabled', async () => {
@@ -135,7 +165,7 @@ describe('security auth/login api interceptor', () => {
       challengeId: 'challenge-1',
       availableMethods: [{ type: 'totp', label: 'Authenticator App', icon: 'Smartphone' }],
     })) as CreateChallengeMock
-    const fullToken = signJwt({ sub: 'user-1', tenantId: 'tenant-1' })
+    const fullToken = signJwt({ sub: 'user-1', sid: 'session-1', tenantId: 'tenant-1' })
 
     const result = await interceptor.after(
       { method: 'POST', url: 'http://localhost/api/auth/login', headers: {} },
@@ -155,7 +185,7 @@ describe('security auth/login api interceptor', () => {
     )
   })
 
-  test('does not emit warning when bypass is enabled but token is invalid', async () => {
+  test('fails closed without warning when bypass is enabled but token is invalid', async () => {
     if (!interceptor?.after) throw new Error('Expected security auth/login interceptor')
 
     process.env.OM_SECURITY_MFA_EMERGENCY_BYPASS = 'true'
@@ -170,16 +200,23 @@ describe('security auth/login api interceptor', () => {
       buildContext(createChallenge),
     )
 
-    expect(result).toEqual({})
+    expect(result).toEqual({
+      statusCode: 503,
+      replace: {
+        ok: false,
+        code: 'MFA_UNAVAILABLE',
+        error: 'Multi-factor authentication is temporarily unavailable. Please try again.',
+      },
+    })
     expect(createChallenge).not.toHaveBeenCalled()
     expect(mockLoggerWarn).not.toHaveBeenCalled()
   })
 
-  test('does not emit warning when bypass is enabled but verification service is unavailable', async () => {
+  test('fails closed without warning when bypass is enabled but verification service is unavailable', async () => {
     if (!interceptor?.after) throw new Error('Expected security auth/login interceptor')
 
     process.env.OM_SECURITY_MFA_EMERGENCY_BYPASS = 'true'
-    const fullToken = signJwt({ sub: 'user-1', tenantId: 'tenant-1' })
+    const fullToken = signJwt({ sub: 'user-1', sid: 'session-1', tenantId: 'tenant-1' })
     const context = {
       userId: '',
       organizationId: '',
@@ -198,7 +235,14 @@ describe('security auth/login api interceptor', () => {
       context,
     )
 
-    expect(result).toEqual({})
+    expect(result).toEqual({
+      statusCode: 503,
+      replace: {
+        ok: false,
+        code: 'MFA_UNAVAILABLE',
+        error: 'Multi-factor authentication is temporarily unavailable. Please try again.',
+      },
+    })
     expect(mockLoggerWarn).not.toHaveBeenCalled()
   })
 
@@ -210,7 +254,7 @@ describe('security auth/login api interceptor', () => {
       challengeId: 'challenge-1',
       availableMethods: [{ type: 'totp', label: 'Authenticator App', icon: 'Smartphone' }],
     })) as CreateChallengeMock
-    const fullToken = signJwt({ sub: 'user-1', tenantId: 'tenant-1' })
+    const fullToken = signJwt({ sub: 'user-1', sid: 'session-1', tenantId: 'tenant-1' })
 
     const result = await interceptor.after(
       { method: 'POST', url: 'http://localhost/api/auth/login', headers: {} },

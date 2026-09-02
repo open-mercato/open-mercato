@@ -200,7 +200,7 @@ test('business one-shot guidance maps staff record outcomes to canonical complet
   assert.match(blueprint, /Avoid optional locales, standalone widget\/event\/enricher files/)
 })
 
-test('the 234-case catalog routes audited installed-module, runtime, and AI/provider branches explicitly', () => {
+test('the 235-case catalog routes audited installed-module, runtime, and AI/provider branches explicitly', () => {
   const cases = JSON.parse(read('shared/ai/harness/cases.json')) as Array<{
     id: string
     prompt: string
@@ -212,7 +212,7 @@ test('the 234-case catalog routes audited installed-module, runtime, and AI/prov
     frameworkContext?: Array<{ module?: string; package?: string; query: string }>
     source?: { paths?: string[] }
   }>
-  assert.equal(cases.length, 234)
+  assert.equal(cases.length, 235)
   const byId = new Map(cases.map((entry) => [entry.id, entry]))
   const expectations: Record<string, { contexts: string[]; decisions: string[] }> = {
     'OMH-013': { contexts: ['.ai/guides/modules/auth/index.md'], decisions: ['auth-invitation-flow', 'feature-based-declarative-auth', 'session-safe-auth'] },
@@ -377,6 +377,10 @@ test('the 234-case catalog routes audited installed-module, runtime, and AI/prov
       contexts: ['.ai/guides/modules/documents/index.md', '.ai/guides/architecture.md', '.ai/skills/om-help/SKILL.md'],
       decisions: ['facts-first', 'reuse-installed-documents', 'per-document-access', 'tenant-scope', 'acl-features', 'smallest-validation'],
     },
+    'OMH-235': {
+      contexts: ['.ai/guides/modules/tenant_exports/index.md', '.ai/guides/architecture.md', '.ai/skills/om-help/SKILL.md'],
+      decisions: ['facts-first', 'reuse-installed-tenant-export', 'tenant-scope', 'smallest-validation'],
+    },
   }
   for (const [caseId, expected] of Object.entries(expectations)) {
     const record = byId.get(caseId)
@@ -422,6 +426,7 @@ test('the 234-case catalog routes audited installed-module, runtime, and AI/prov
     'OMH-202': { factSheet: '.ai/guides/modules/wms/index.md', skill: 'om-help' },
     'OMH-229': { factSheet: '.ai/guides/modules/eudr/index.md', skill: 'om-help' },
     'OMH-234': { factSheet: '.ai/guides/modules/documents/index.md', skill: 'om-help' },
+    'OMH-235': { factSheet: '.ai/guides/modules/tenant_exports/index.md', skill: 'om-help' },
   }
   for (const [caseId, { factSheet, skill }] of Object.entries(reuseInstalledFacts)) {
     const record = byId.get(caseId)

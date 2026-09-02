@@ -1,0 +1,58 @@
+name: Authorized DAST
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_url:
+        description: Authorized HTTPS deployment to scan
+        required: true
+        type: string
+
+concurrency:
+  group: dast-${{ inputs.target_url }}
+  cancel-in-progress: false
+
+jobs:
+  zap-baseline:
+    name: OWASP ZAP baseline
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Validate target
+        env:
+          TARGET_URL: ${{ inputs.target_url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$TARGET_URL" in
+            https://localhost*|https://127.*|https://\[::1\]*)
+              echo "Loopback targets are not allowed."
+              exit 1
+              ;;
+            https://*)
+              ;;
+            *)
+              echo "target_url must use HTTPS."
+              exit 1
+              ;;
+          esac
+
+      - name: Checkout scan rules
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Run ZAP baseline scan
+        uses: zaproxy/action-baseline@v0.15.0
+        with:
+          target: ${{ inputs.target_url }}
+          allow_issue_writing: false
+          fail_action: true
+          cmd_options: '-a -I'
+          artifact_name: open-mercato-zap-baseline

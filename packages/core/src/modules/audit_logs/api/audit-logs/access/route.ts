@@ -18,6 +18,7 @@ const auditAccessQuerySchema = z.object({
   organizationId: z.string().uuid().describe('Limit results to a specific organization').optional(),
   actorUserId: z.string().uuid().describe('Filter by actor user id (tenant administrators only)').optional(),
   resourceKind: z.string().describe('Restrict to a resource kind such as `order` or `product`').optional(),
+  resourceId: z.string().describe('Restrict to a specific resource identifier').optional(),
   accessType: z.string().describe('Access type filter, e.g. `read` or `export`').optional(),
   page: z.string().describe('Page number (default 1)').optional(),
   pageSize: z.string().describe('Page size (default 50)').optional(),
@@ -95,6 +96,7 @@ export async function GET(req: Request) {
   const queryOrgId = url.searchParams.get('organizationId')
   const actorQuery = url.searchParams.get('actorUserId')
   const resourceKind = url.searchParams.get('resourceKind')
+  const resourceId = url.searchParams.get('resourceId')
   const accessType = url.searchParams.get('accessType')
   const page = parseNumber(url.searchParams.get('page'), { min: 1, max: 1000000, fallback: 1 })
   const pageSize = parseNumber(url.searchParams.get('pageSize'), { min: 1, max: 200, fallback: 50 })
@@ -120,6 +122,7 @@ export async function GET(req: Request) {
       organizationId: organizationId ?? undefined,
       actorUserId,
       resourceKind: resourceKind ?? undefined,
+      resourceId: resourceId ?? undefined,
       accessType: accessType ?? undefined,
       page,
       pageSize,

@@ -26,6 +26,12 @@ import {
 } from './security'
 import { resolveAttachmentMaxBytes } from './upload-limits'
 import type { AttachmentQuotaService } from './quota-service'
+import {
+  ensureAttachmentScanReceipt,
+  resolveAttachmentScanHttpError,
+  type AttachmentScanGate,
+  type AttachmentScanReceipt,
+} from './scanning'
 
 const logger = createLogger('attachments')
 
@@ -33,6 +39,8 @@ export type ScopedAttachmentUploadErrorCode =
   | 'dangerous_executable'
   | 'max_upload_size'
   | 'active_content'
+  | 'scan_rejected'
+  | 'scan_unavailable'
   | 'partition_unavailable'
   | 'quota_exceeded'
   | 'quota_target_exists'
@@ -112,6 +120,7 @@ export class ScopedAttachmentUploadService {
     storageDriverFactory: StorageDriverFactory
     attachmentQuotaService: AttachmentQuotaService
     attachmentQuotaRecoveryScheduler: QuotaRecoveryScheduler
+    attachmentScanGate: AttachmentScanGate
   }) {}
 
   async upload(input: ScopedAttachmentUploadInput): Promise<Attachment> {
@@ -125,6 +134,27 @@ export class ScopedAttachmentUploadService {
     const mimeType = detectAttachmentMimeType(input.buffer, safeName, input.declaredMimeType ?? '')
     if (isActiveContentAttachment(input.buffer, safeName, mimeType)) {
       throw new ScopedAttachmentUploadError('active_content', 400)
+    }
+
+    let securityScan: AttachmentScanReceipt
+    try {
+      securityScan = await ensureAttachmentScanReceipt({
+        gate: this.deps.attachmentScanGate,
+        request: {
+          tenantId: input.tenantId,
+          organizationId: input.organizationId,
+          fileName: safeName,
+          mimeType,
+          source: 'scoped_upload',
+          buffer: input.buffer,
+        },
+      })
+    } catch (error) {
+      const mapped = resolveAttachmentScanHttpError(error)
+      throw new ScopedAttachmentUploadError(
+        mapped?.status === 422 ? 'scan_rejected' : 'scan_unavailable',
+        mapped?.status ?? 503,
+      )
     }
 
     const { em, storageDriverFactory, attachmentQuotaService, attachmentQuotaRecoveryScheduler } = this.deps
@@ -226,6 +256,7 @@ export class ScopedAttachmentUploadService {
       assignments,
       tags: input.tags ?? [],
     })
+    metadata.securityScan = securityScan
     const attachmentId = randomUUID()
     let attachment!: Attachment
 

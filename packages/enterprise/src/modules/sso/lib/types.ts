@@ -38,6 +38,8 @@ export interface SsoIdentityPayload {
   emailVerified?: boolean
   name?: string
   groups?: string[]
+  acr?: string
+  amr?: string[]
 }
 
 export interface SsoFlowState {

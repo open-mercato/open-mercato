@@ -395,3 +395,17 @@ Issue #3852 removed the non-cryptographic passkey verification shape from `Passk
 **Why the deprecation protocol does not apply.** The protocol exists to give downstream authors a bridge release. Here the request shape being removed *is* the vulnerability: both values it compared are disclosed by the server, so a bridge would keep the passkey second factor bypassable for a minor version in both login MFA and sudo step-up. A security fix that leaves the hole open is not a fix.
 
 **Migration path.** Send `startAuthentication()` output as `payload.response`. The first-party `PasskeyChallengeVerify` component already does, so shipped UIs are unaffected. Credentials enrolled through the setup path's client-supplied `publicKey` shortcut are **not** reliably rendered unusable by this change — depending on what the client supplied, such a row holds either a key nobody can sign with or a keypair the enroller controls, and the second kind produces assertions this change accepts. That shortcut is a separate open surface (#5296); operator-facing remediation is in [`UPGRADE_NOTES.md`](UPGRADE_NOTES.md).
+
+---
+
+## API After-Interceptor Status Code (2026-08-31)
+
+PR #5557 lets an API route `after` interceptor set the HTTP status of the response it rewrites. The enterprise MFA login interceptor uses it to answer `503` instead of a `200` whose body says `ok: false`, which the login page treated as a success and silently reset the form.
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| Type interface (`InterceptorAfterResult`) | New **optional** field `statusCode?: number` (100-599; other values are ignored) | ✓ ADDITIVE (Type interface, optional field) |
+| Function return type (`runApiInterceptorsAfter`, `runCustomRouteAfterInterceptors`) | `statusCode` now reflects the last valid interceptor-declared status instead of always echoing the incoming one; a result with no `statusCode` behaves exactly as before | ✓ ADDITIVE (existing callers already read `statusCode`) |
+| HTTP response shape (`POST /api/auth/login`) | A non-`ok` body produced by an interceptor never leaves with a 2xx status: the interceptor's status is used, `500` when it set none. New documented `503` error | ✓ ADDITIVE (error responses only; success shape unchanged) |
+| Import paths, event IDs, widget spot IDs, database schema, DI keys, ACL features, CLI commands | No change | ✓ n/a |
+

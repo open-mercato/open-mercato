@@ -11,6 +11,7 @@ import { encryptStateCookie, decryptStateCookie, createFlowState } from '../lib/
 import { emitSsoEvent } from '../events'
 import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { SSO_CONFIG_ENCRYPTION_ENTITY_ID } from '../encryption'
 
 const logger = createLogger('sso').child({ component: 'service' })
 
@@ -141,6 +142,14 @@ export class SsoService {
       orgId: user.organizationId ? String(user.organizationId) : null,
       email: user.email,
       roles,
+      auth_source: 'oidc',
+      ...(idpPayload.acr ? { acr: idpPayload.acr } : {}),
+      ...(idpPayload.amr ? { amr: idpPayload.amr } : {}),
+      ...(
+        config.requiredAcrValues.length > 0 || config.requiredAmrValues.length > 0
+          ? { mfa_verified: true, mfa_methods: idpPayload.amr ?? [] }
+          : {}
+      ),
     })
 
     void emitSsoEvent('sso.login.completed', {
@@ -163,7 +172,7 @@ export class SsoService {
     if (!config.clientSecretEnc) return undefined
 
     const decrypted = await this.tenantEncryptionService.decryptEntityPayload(
-      config.id,
+      SSO_CONFIG_ENCRYPTION_ENTITY_ID,
       { clientSecretEnc: config.clientSecretEnc },
       config.tenantId,
       config.organizationId,

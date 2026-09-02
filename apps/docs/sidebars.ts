@@ -67,7 +67,7 @@ const sidebars: SidebarsConfig = {
     {
       type: "category",
       label: "Deployment",
-      items: ["deployment/railway"],
+      items: ["deployment/railway", "deployment/backups"],
     },
     {
       type: "category",
@@ -505,6 +505,7 @@ const sidebars: SidebarsConfig = {
           type: "category",
           label: "Security",
           items: [
+            "framework/security/audit-evidence",
             "framework/security/rate-limiting",
           ],
         },
