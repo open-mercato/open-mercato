@@ -109,8 +109,16 @@ export async function loadDictionary(locale: Locale): Promise<Dict> {
   return merged
 }
 
-export async function resolveTranslations() {
-  const locale = await detectLocale()
+/**
+ * Detect the locale and load its dictionary in one step.
+ *
+ * `options` is forwarded to `detectLocale`, so a caller that has already
+ * resolved the request's served set (a layout mounting its own `I18nProvider`)
+ * detects against that set instead of the process-wide one. Omitted — which is
+ * every route handler — behaviour is unchanged and no tenant lookup is made.
+ */
+export async function resolveTranslations(options?: DetectLocaleOptions) {
+  const locale = await detectLocale(options)
   const dict = await loadDictionary(locale)
   const t = createTranslator(dict)
   const translate = createFallbackTranslator(dict)

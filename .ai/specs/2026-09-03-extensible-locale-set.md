@@ -127,6 +127,15 @@ as `localeLocked` does.
   are untouched.
 - `useSupportedLocales()` is the hook the three label sites now iterate.
 
+**Nested providers.** The backend layout mounts a *second* `I18nProvider` inside the root
+layout's, and an inner provider wins for its whole subtree. Two rules follow, and both are
+tested: a provider omitting a prop **inherits** it from the enclosing provider before falling
+back to the process registry (so a future prop cannot be silently downgraded by a nested mount),
+and a layout that resolves its own locale MUST resolve the served set too — otherwise it detects
+against the process-wide set and can render a locale the root layout already rejected.
+`resolveTranslations(options?)` takes the served set for exactly this; omitted, it behaves as
+before and makes no tenant lookup, so the ~900 route-handler call sites are unaffected.
+
 ### 4. Label layer — `resolveLocaleLabel(locale, t?)`
 
 Replaces all three exhaustive maps with one resolver:
@@ -161,6 +170,20 @@ row in the profile menu, and no way for the user to get back. A selection that m
 servable is treated as a typo rather than an opinion and still falls back to the full set, so the
 default is not resurrected into a one-entry set. `detectLocale` re-checks its own fallback against
 the set it was handed, so a caller that narrows by hand cannot reintroduce the same hole.
+
+**Registration timing.** The resolver is registered at *module scope* in `translations/di.ts`,
+not inside `register()`. Module DI registrars only run when the first request container is built,
+but the root layout resolves the served set without ever building one — inside `register()` the
+first render of a fresh process finds an empty slot and serves the un-narrowed set. The app
+bootstrap imports `di.generated.ts` statically, so module scope fills the slot at import time.
+
+**Two meanings, one setting.** The same stored value now answers two different questions: which
+languages *content* can be translated into (any ISO 639-1 code) and which of those the *admin UI*
+can be shown in (only codes the app has a dictionary for). The screen must not let a successful
+add imply both: `GET /api/translations/locales` returns an additive `servable` array, and a chip
+or suggestion outside it is labelled "content only". The default locale's remove control is
+disabled with an explanation, because the served set keeps it whatever the selection says — a
+chip list that claims otherwise is simply wrong.
 
 Because this repurposes an **existing** persisted setting — until now it drove only the
 content-translation editor — the upgrade note for it is a standalone, load-bearing heading with a
@@ -216,7 +239,8 @@ already-shipped `PUT /api/translations/locales`. No migration.
 |-------|--------|
 | `POST /api/auth/locale` | Validates against the runtime supported set instead of a module-scope `Set` snapshot. Same 400 on an unsupported code. |
 | `GET /api/auth/locale` | Same. |
-| `GET`/`PUT /api/translations/locales` | Unchanged. |
+| `GET /api/translations/locales` | Additive `servable: string[]` in the 200 body — the locales the app can render its own UI in. `locales` is unchanged. |
+| `PUT /api/translations/locales` | Unchanged. |
 
 The zod schema on `/api/auth/locale` changed from `z.enum(locales)` to
 `z.string().refine(isSupportedLocale)`. Both the `Set` and the enum were built at **module
@@ -229,6 +253,18 @@ enumerating five values — accurate, since the valid set is now per-deployment 
 No visual change out of the box. The language switcher and profile dropdown render the same five
 languages with the same labels. When a locale is added, it appears in both, labelled with its
 endonym (e.g. `čeština`), and untranslated chrome falls back to English.
+
+The Translations settings screen changes in three ways, all of them about not overstating what an
+action did: its description names both effects of the setting; a locale the app cannot serve its
+UI in is marked "content only" on its chip and in the add suggestions; and the default locale's
+remove control is disabled with an explanation rather than accepting a removal the served set
+immediately undoes.
+
+**Out of scope, deliberately.** The English dictionary mixes endonyms (`common.languages.german =
+"Deutsch"`) with exonyms (`korean = "Korean"`), so the same language reads `한국어` in the profile
+menu and "Korean" on the login page. Pre-existing, and this change pins the rendered strings on
+purpose; reconciling the convention touches five dictionaries and the label tests, so it belongs
+in its own change.
 
 ## Configuration
 
@@ -308,6 +344,8 @@ baseline now receives the default-locale dictionary as a base layer. This cannot
 | 4 | The tenant-config read fails or is slow in the root layout, breaking every page | High | root layout | The resolver is wrapped in try/catch at two levels and falls back to the full set; `ModuleConfigService` caches 60s with tag invalidation; the read is skipped entirely for anonymous requests | Low |
 | 5 | A module-scope snapshot of the locale set rejects a later-registered locale for the process lifetime | Medium | `/api/auth/locale` | Both the `Set` and the zod enum were replaced with per-request evaluation | Low |
 | 6 | Rendered language labels change for existing locales | Medium | `packages/ui`, `packages/checkout` | The shipped five keep hand-written labels (measured: `Intl` returns lowercase `español`/`polski`); `locale-label.test.ts` pins all five in both the translator and no-translator modes | Low |
+| 6b | A nested `I18nProvider` (backend layout) drops the served set and the admin switcher offers every shipped locale | High | app layouts, `packages/shared` | The backend layout resolves and passes the set explicitly; `I18nProvider` inherits an omitted prop from the enclosing provider; asserted at the rendered-option level in `ProfileDropdown.test.tsx` and on the layout's props in `layout-locale-set.test.tsx` | Low |
+| 6c | An admin adds a locale the app cannot serve and believes the UI language set changed | Medium | `translations` | `GET /translations/locales` reports `servable`; non-servable chips and suggestions are labelled "content only"; the card description names both effects | Low |
 | 7 | The default-locale base layer leaks English strings into `pl`/`es`/`de`/`ko` | High | `packages/shared` | The layer applies only to locales outside the shipped baseline; `dictionary-locale-fallback.test.ts` asserts an English-only key does **not** appear in Polish | Low |
 
 **Known pre-existing issue, not introduced here:** `scripts/dev.mjs` regex-parses `config.ts` as
@@ -356,3 +394,8 @@ change, not a behaviour change; an assertion covering the new prop was added alo
 
 ### 2026-09-03
 - Initial specification and implementation.
+- Design-review follow-up: nested-provider inheritance plus an explicit served set in the backend
+  layout; boot-time resolver registration; `servable` on `GET /translations/locales` with the
+  "content only" qualifier and the default-locale removal guard on the settings screen. Endonym-vs-exonym
+  label inconsistency recorded as out of scope; end-to-end integration coverage of the tenant narrowing
+  is still open (code-review test gap 4).

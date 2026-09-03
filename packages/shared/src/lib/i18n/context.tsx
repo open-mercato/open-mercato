@@ -55,13 +55,20 @@ function format(template: string, params?: TranslateParams) {
   })
 }
 
-export function I18nProvider({ children, locale, dict, localeLocked = false, supportedLocales }: PropsWithChildren<{ locale: Locale; dict: Dict; localeLocked?: boolean; supportedLocales?: readonly Locale[] }>) {
+export function I18nProvider({ children, locale, dict, localeLocked, supportedLocales }: PropsWithChildren<{ locale: Locale; dict: Dict; localeLocked?: boolean; supportedLocales?: readonly Locale[] }>) {
+  // A nested provider (the backend layout mounts one inside the root layout's)
+  // shadows the whole subtree, so a prop it does not pass would otherwise be
+  // silently downgraded to the registry default for every consumer below it.
+  // Inheriting from the enclosing provider first makes an omitted prop mean
+  // "unchanged" rather than "reset", which is what a nested mount intends.
+  const outer = useContext(I18nContext)
   const value = useMemo<I18nContextValue>(() => ({
     locale,
-    localeLocked,
+    localeLocked: localeLocked ?? outer?.localeLocked ?? false,
     // Falls back to the process-local registry so a provider mounted without the
-    // prop (tests, standalone renders) behaves exactly as it did before.
-    supportedLocales: supportedLocales ?? getSupportedLocales(),
+    // prop and without an enclosing one (tests, standalone renders) behaves
+    // exactly as it did before.
+    supportedLocales: supportedLocales ?? outer?.supportedLocales ?? getSupportedLocales(),
     t: (key, fallbackOrParams, params) => {
       let fallback: string | undefined
       let resolvedParams: TranslateParams | undefined
@@ -76,7 +83,7 @@ export function I18nProvider({ children, locale, dict, localeLocked = false, sup
       const template = dict[key] ?? fallback ?? key
       return format(template, resolvedParams)
     },
-  }), [locale, dict, localeLocked, supportedLocales])
+  }), [locale, dict, localeLocked, supportedLocales, outer])
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>
 }
 
