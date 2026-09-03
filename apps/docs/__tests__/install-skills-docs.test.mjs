@@ -10,6 +10,15 @@ const repoRootPackageJsonUrl = new URL('../../../package.json', import.meta.url)
 const setupDocUrl = new URL('../docs/installation/setup.mdx', import.meta.url);
 const readmeUrl = new URL('../../../README.md', import.meta.url);
 
+// Every guide that walks a contributor through a fresh-clone bootstrap has to mention the step —
+// covering only setup.mdx would leave the #5773 failure mode reachable through the monorepo and
+// WSL2 guides, which carry their own complete `yarn install` → `yarn initialize` sequences.
+const freshCloneGuideUrls = [
+  setupDocUrl,
+  new URL('../docs/installation/monorepo.mdx', import.meta.url),
+  new URL('../docs/installation/wsl2.mdx', import.meta.url),
+];
+
 test('setup docs and README reference real install-skills scripts', async () => {
   const packageJson = JSON.parse(await readFile(repoRootPackageJsonUrl, 'utf8'));
   assert.ok(
@@ -55,4 +64,21 @@ test('setup docs record that the skill install is intentionally not a postinstal
     /(intentionally|deliberately)[^.]*\bmanual\b|\bmanual\b[^.]*(intentionally|deliberately)/,
     'setup.mdx must state that keeping the skill install manual is intentional',
   );
+});
+
+test('every fresh-clone bootstrap guide mentions the agent-skills step', async () => {
+  for (const guideUrl of freshCloneGuideUrls) {
+    const guide = await readFile(guideUrl, 'utf8');
+    const guideName = guideUrl.pathname.split('/').pop();
+    assert.match(
+      guide,
+      /yarn install-skills/,
+      `${guideName} walks a contributor through a fresh-clone bootstrap, so it must mention \`yarn install-skills\``,
+    );
+    assert.match(
+      guide,
+      /only if you use an AI coding agent|if you do not use/,
+      `${guideName} must mark the agent-skills step as optional, so contributors who use no coding agent can skip it`,
+    );
+  }
 });
