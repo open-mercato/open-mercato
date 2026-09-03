@@ -2031,6 +2031,74 @@ describe('HybridQueryEngine decrypt tenant binding (#5430)', () => {
     expect(result.items).toEqual([expect.objectContaining({ name: 'Alice Owner' })])
   })
 
+  // A declined query must not take the plaintext-sort path: that path exists only to order rows by
+  // decrypted values, so running it without decryption would scan the whole candidate set and then
+  // order by ciphertext. The gate therefore sits on `getEncryptionService()`, upstream of the sort
+  // resolution — this mirrors the BasicQueryEngine case so a regression that moved it downstream is
+  // caught in both engines rather than only in `packages/shared`.
+  test('a declined query resolves no encrypted sort fields and never scans for a plaintext sort', async () => {
+    const plaintextById: Record<string, string> = { '1': 'Bravo', '2': 'Alpha' }
+    const buildSortFixture = () => {
+      const db = createFakeKysely({
+        baseTable: 'customer_entities',
+        hasIndexAny: true,
+        baseCount: 2,
+        indexCount: 2,
+        columns: [
+          { table_name: 'customer_entities', column_name: 'id' },
+          { table_name: 'customer_entities', column_name: 'tenant_id' },
+          { table_name: 'customer_entities', column_name: 'organization_id' },
+          { table_name: 'customer_entities', column_name: 'deleted_at' },
+          { table_name: 'customer_entities', column_name: 'display_name' },
+        ],
+        rows: {
+          customer_entities: [
+            { id: '1', tenant_id: 't1', organization_id: 'org1', display_name: 'cipher-b' },
+            { id: '2', tenant_id: 't1', organization_id: 'org1', display_name: 'cipher-a' },
+          ],
+        },
+      })
+      const decryptEntityPayload = jest.fn(async (_entityId: unknown, payload: Record<string, unknown>) => ({
+        display_name: plaintextById[String(payload.id)],
+      }))
+      const engine = new HybridQueryEngine(
+        buildEm(db),
+        { query: jest.fn() } as any,
+        () => ({ emitEvent: jest.fn().mockResolvedValue(undefined) }),
+        undefined,
+        () => ({
+          isEnabled: () => true,
+          getEncryptedFieldNames: async () => ['display_name'],
+          decryptEntityPayload,
+        }),
+      )
+      return { engine, decryptEntityPayload }
+    }
+    const queryOpts = {
+      fields: ['id', 'display_name'],
+      organizationId: 'org1',
+      tenantId: 't1',
+      sort: [{ field: 'display_name', dir: SortDir.Asc }],
+      page: { page: 1, pageSize: 10 },
+    }
+
+    const declined = buildSortFixture()
+    const declinedResult = await declined.engine.query('customers:customer_entity', {
+      ...queryOpts,
+      decryptEncryptedFields: false,
+    })
+    expect(declined.decryptEntityPayload).not.toHaveBeenCalled()
+    // Rows come back in the order the database produced them: no candidate scan, no in-memory sort.
+    expect(declinedResult.items.map((item: any) => item.display_name)).toEqual(['cipher-b', 'cipher-a'])
+
+    // Control: the same fixture DOES take the plaintext-sort path when decryption is allowed, so
+    // the assertions above cannot pass vacuously.
+    const allowed = buildSortFixture()
+    const allowedResult = await allowed.engine.query('customers:customer_entity', queryOpts)
+    expect(allowed.decryptEntityPayload).toHaveBeenCalled()
+    expect(allowedResult.items.map((item: any) => item.display_name)).toEqual(['Alpha', 'Bravo'])
+  })
+
   // The decision reads the row's own tenant_id, which a caller-supplied `fields` list omits. The
   // engine widens the projection to carry it and strips it back out of the response.
   test('a projection without tenant_id still refuses a foreign-tenant row and hides the column', async () => {
