@@ -26,7 +26,7 @@ Ship the already-implemented fix for #5652 (hardcoded English column headers on 
 
 ## Assumptions
 - The stray uncommitted `packages/ui/src/backend/icons/lucideRegistry.generated.tsx` diff and `.ai/qa/test-env-*` files found in the reused worktree are leftovers from the crashed `om-auto-qa-pr` run (an unrelated icon added by `yarn generate` picking up drift elsewhere on `develop`, plus a test-env fingerprint/port file) — not part of this PR's intended diff. Left uncommitted and untouched; they do not block QA or finalization.
-- Since the worktree's `HEAD` (`16bf08ffc8`) still matches the PR head exactly and no code changed, the full `validation.commands` gate result already reported by `om-fix`/`om-auto-review-pr` against this same commit is reused rather than re-run from scratch (matches the precedent already set in the review comment). It will be re-run only if QA verification surfaces a real defect requiring a code change.
+- ~~Since the worktree's `HEAD` (`16bf08ffc8`) still matches the PR head exactly and no code changed, the full `validation.commands` gate result already reported by `om-fix`/`om-auto-review-pr` against this same commit is reused rather than re-run from scratch (matches the precedent already set in the review comment). It will be re-run only if QA verification surfaces a real defect requiring a code change.~~ **Superseded 2026-09-03:** the resuming run re-ran the full gate from scratch rather than reusing the earlier report, because the QA environment needed the build chain anyway and the skill's step-6 rule does not permit skipping the gate. Result: every command green except the documented location-dependent `@open-mercato/cli` env-resolution failures (5 tests, `Expected: "standalone" / Received: "monorepo"` — they fail in any nested checkout and are unrelated to this branch).
 
 ## Risks
 - Low. No code change is anticipated; the only remaining risk is a genuine QA failure (headers not rendering correctly in Polish), which would require a follow-up code fix and a full gate re-run before this plan can complete.
@@ -43,8 +43,8 @@ Ship the already-implemented fix for #5652 (hardcoded English column headers on 
 
 ### Phase 2: Finish UI QA verification
 
-- [ ] 2.1 Run `om-auto-qa-pr` (or the equivalent manual browser verification) against the already-posted QA instructions: Polish-locale `/backend/users` headers, plus an English-locale regression check
-- [ ] 2.2 Post QA evidence (screenshots + pass/fail) on the PR
+- [x] 2.1 Run `om-auto-qa-pr` (or the equivalent manual browser verification) against the already-posted QA instructions: Polish-locale `/backend/users` headers, plus an English-locale regression check — verified 2026-09-03 against a production build of PR head `209ce8d16` on a disposable `om_qa_pr5842` database; 4/4 steps PASS
+- [x] 2.2 Post QA evidence (screenshots + pass/fail) on the PR — https://github.com/open-mercato/open-mercato/pull/5842#issuecomment-5522625759
 
 ### Phase 3: Finalize the PR
 
