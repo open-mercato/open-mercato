@@ -14,11 +14,49 @@ import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/
 const BCRYPT_COST = 10
 const INVITATION_TTL_MS = 72 * 60 * 60 * 1000 // 72 hours
 
+// Use Symbol.for so the marker survives module duplication across bundle
+// boundaries: the accept route and this service are bundled into separate
+// chunks, so `instanceof` between them is false and the 409 mapping would
+// silently degrade back into the raw 500 this error exists to prevent.
+const CUSTOMER_INVITATION_EMAIL_CONFLICT_MARKER = Symbol.for('@open-mercato/CustomerInvitationEmailConflictError')
+
 export class CustomerInvitationEmailConflictError extends Error {
+  readonly [CUSTOMER_INVITATION_EMAIL_CONFLICT_MARKER] = true
+
   constructor(public readonly email: string) {
     super('[internal] An account with this email address already exists')
     this.name = 'CustomerInvitationEmailConflictError'
   }
+}
+
+/**
+ * Bundle-safe check for {@link CustomerInvitationEmailConflictError}. Always prefer
+ * this over `instanceof` — API routes reach this service through DI and resolve a
+ * different copy of this module.
+ */
+export function isCustomerInvitationEmailConflictError(
+  error: unknown,
+): error is CustomerInvitationEmailConflictError {
+  return !!error
+    && typeof error === 'object'
+    && (error as Record<symbol, unknown>)[CUSTOMER_INVITATION_EMAIL_CONFLICT_MARKER] === true
+}
+
+const POSTGRES_UNIQUE_VIOLATION = '23505'
+
+/**
+ * Unique-constraint detection that does not depend on `instanceof`: the MikroORM
+ * copy this module is bundled with is not necessarily the one the driver throws
+ * from, so fall back to the exception name and the Postgres SQLSTATE.
+ */
+function isUniqueConstraintViolation(error: unknown): boolean {
+  if (error instanceof UniqueConstraintViolationException) return true
+  if (!error || typeof error !== 'object') return false
+  const candidate = error as { name?: unknown; code?: unknown; cause?: unknown }
+  if (candidate.name === 'UniqueConstraintViolationException') return true
+  if (candidate.code === POSTGRES_UNIQUE_VIOLATION) return true
+  const cause = candidate.cause as { code?: unknown } | undefined
+  return !!cause && typeof cause === 'object' && cause.code === POSTGRES_UNIQUE_VIOLATION
 }
 
 export type CustomerInvitationRollbackState = {
@@ -242,7 +280,7 @@ export class CustomerInvitationService {
     try {
       await this.em.flush()
     } catch (error) {
-      if (error instanceof UniqueConstraintViolationException) {
+      if (isUniqueConstraintViolation(error)) {
         throw new CustomerInvitationEmailConflictError(invitation.email)
       }
       throw error

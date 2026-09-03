@@ -4,6 +4,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import {
   CustomerInvitationEmailConflictError,
   CustomerInvitationService,
+  isCustomerInvitationEmailConflictError,
 } from '@open-mercato/core/modules/customer_accounts/services/customerInvitationService'
 import {
   CustomerRole,
@@ -283,6 +284,23 @@ describe('CustomerInvitationService.acceptInvitation — soft-deleted email reus
       .rejects.toThrow(CustomerInvitationEmailConflictError)
   })
 
+  it('maps a driver error carrying only the Postgres unique-violation SQLSTATE, since the thrown exception class may come from another MikroORM copy', async () => {
+    const invitation = buildInvitation()
+    ;(mockEm.findOne as jest.Mock).mockImplementation(async (entity: unknown) => {
+      if (entity === CustomerUserInvitation) return invitation
+      return null
+    })
+    ;(mockEm.find as jest.Mock).mockResolvedValue([])
+    const foreignRealmViolation = Object.assign(new Error('duplicate key value violates unique constraint'), {
+      name: 'UniqueConstraintViolationException',
+      code: '23505',
+    })
+    ;(mockEm.flush as jest.Mock).mockRejectedValue(foreignRealmViolation)
+
+    await expect(service.acceptInvitation('raw-token', 'Secret123!', 'Reused User'))
+      .rejects.toThrow(CustomerInvitationEmailConflictError)
+  })
+
   it('lets an unrelated flush failure propagate untouched rather than reporting it as an email conflict', async () => {
     const invitation = buildInvitation()
     ;(mockEm.findOne as jest.Mock).mockImplementation(async (entity: unknown) => {
@@ -474,5 +492,32 @@ describe('CustomerInvitationService.rollbackInvitation', () => {
     expect(invitation).toMatchObject(rollbackState)
     expect(mockEm.remove).not.toHaveBeenCalled()
     expect(flush).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('isCustomerInvitationEmailConflictError — bundle-boundary safety', () => {
+  it('recognises an error thrown by this module', () => {
+    expect(isCustomerInvitationEmailConflictError(new CustomerInvitationEmailConflictError('a@b.test'))).toBe(true)
+  })
+
+  it('recognises an equivalent error thrown by a duplicated copy of this module', () => {
+    // The accept route resolves the service through DI and is bundled into a
+    // different chunk, so its `CustomerInvitationEmailConflictError` class is not
+    // the same object as this one and `instanceof` is false — which silently sent
+    // the 409 back to a raw 500. The Symbol.for marker is what survives that.
+    const duplicateModuleError = Object.assign(new Error('[internal] An account with this email address already exists'), {
+      name: 'CustomerInvitationEmailConflictError',
+      email: 'a@b.test',
+      [Symbol.for('@open-mercato/CustomerInvitationEmailConflictError')]: true,
+    })
+
+    expect(duplicateModuleError instanceof CustomerInvitationEmailConflictError).toBe(false)
+    expect(isCustomerInvitationEmailConflictError(duplicateModuleError)).toBe(true)
+  })
+
+  it('does not claim unrelated errors', () => {
+    expect(isCustomerInvitationEmailConflictError(new Error('boom'))).toBe(false)
+    expect(isCustomerInvitationEmailConflictError(null)).toBe(false)
+    expect(isCustomerInvitationEmailConflictError('nope')).toBe(false)
   })
 })

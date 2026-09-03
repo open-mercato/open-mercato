@@ -1,4 +1,5 @@
-import crypto from 'node:crypto'
+import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import {
@@ -23,24 +24,42 @@ import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
  * real schema end to end.
  *
  * `POST /admin/users-invite` deliberately never returns the raw token (see
- * TC-AUTH-032), so the accept half is reached by rewriting the stored token hash
- * to the hash of a token this test knows. The invitation itself is still created
- * through the real admin endpoint.
+ * TC-AUTH-032), so the raw token is read out of the captured invitation email,
+ * exactly as TC-AUTH-033 does.
  */
 
-function hashInvitationToken(rawToken: string): string {
-  return crypto.createHash('sha256').update(rawToken).digest('hex')
+type CapturedEmail = { to?: string; links?: string[] }
+
+const EMAIL_CAPTURE_PATH = process.env.OM_TEST_EMAIL_CAPTURE_PATH?.trim()
+  || join(process.cwd(), '.ai', 'qa', 'email-capture.jsonl')
+
+async function readCapturedEmails(): Promise<CapturedEmail[]> {
+  try {
+    const raw = await readFile(EMAIL_CAPTURE_PATH, 'utf8')
+    return raw.split('\n').filter(Boolean).map((line) => JSON.parse(line) as CapturedEmail)
+  } catch {
+    return []
+  }
 }
 
-/** Point an existing invitation at a token this test knows, so accept is reachable. */
-async function plantInvitationToken(invitationId: string, rawToken: string): Promise<void> {
-  await withClient(async (client) => {
-    const result = await client.query(
-      'update customer_user_invitations set token = $1 where id = $2',
-      [hashInvitationToken(rawToken), invitationId],
-    )
-    expect(result.rowCount, 'the invitation row should exist').toBe(1)
-  })
+/** Wait for the invitation email this test just triggered and return its raw token. */
+async function waitForInviteToken(to: string, alreadySeen: Set<string>): Promise<string> {
+  const deadline = Date.now() + 10_000
+  while (Date.now() < deadline) {
+    const tokens = (await readCapturedEmails())
+      .filter((entry) => entry.to?.toLowerCase() === to.toLowerCase())
+      .flatMap((entry) => entry.links ?? [])
+      .filter((link) => link.includes('/portal/invite?token='))
+      .map((link) => new URL(link).searchParams.get('token'))
+      .filter((token): token is string => !!token && !alreadySeen.has(token))
+    if (tokens.length > 0) {
+      const token = tokens[tokens.length - 1]
+      alreadySeen.add(token)
+      return token
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250))
+  }
+  throw new Error(`[internal] timed out waiting for a captured invitation email to ${to}`)
 }
 
 async function readDeletedAt(userId: string): Promise<Date | null | undefined> {
@@ -71,6 +90,7 @@ test.describe('TC-CACC-INVITE-REUSE-001: a soft-deleted portal user does not blo
     let deletedUserId: string | null = null
     let acceptedUserId: string | null = null
     const invitationIds: string[] = []
+    const seenTokens = new Set<string>()
 
     try {
       adminToken = await getAuthToken(request, 'admin')
@@ -113,8 +133,7 @@ test.describe('TC-CACC-INVITE-REUSE-001: a soft-deleted portal user does not blo
       const inviteBody = (await inviteRes.json()) as { invitation: { id: string } }
       invitationIds.push(inviteBody.invitation.id)
 
-      const rawToken = `qa-cacc-reuse-001-token-${stamp}`
-      await plantInvitationToken(inviteBody.invitation.id, rawToken)
+      const rawToken = await waitForInviteToken(email, seenTokens)
 
       const acceptRes = await request.post('/api/customer_accounts/invitations/accept', {
         data: { token: rawToken, password, displayName: `QA CACC Reuse 001 Accepted ${stamp}` },
@@ -145,8 +164,7 @@ test.describe('TC-CACC-INVITE-REUSE-001: a soft-deleted portal user does not blo
       const secondInviteBody = (await secondInviteRes.json()) as { invitation: { id: string } }
       invitationIds.push(secondInviteBody.invitation.id)
 
-      const conflictToken = `qa-cacc-reuse-001-conflict-${stamp}`
-      await plantInvitationToken(secondInviteBody.invitation.id, conflictToken)
+      const conflictToken = await waitForInviteToken(email, seenTokens)
 
       const conflictRes = await request.post('/api/customer_accounts/invitations/accept', {
         data: { token: conflictToken, password, displayName: `QA CACC Reuse 001 Duplicate ${stamp}` },

@@ -4,8 +4,8 @@ import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib
 import { invitationAcceptSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import {
-  CustomerInvitationEmailConflictError,
   CustomerInvitationService,
+  isCustomerInvitationEmailConflictError,
 } from '@open-mercato/core/modules/customer_accounts/services/customerInvitationService'
 import { CustomerSessionService } from '@open-mercato/core/modules/customer_accounts/services/customerSessionService'
 import { CustomerRbacService } from '@open-mercato/core/modules/customer_accounts/services/customerRbacService'
@@ -41,7 +41,7 @@ export async function POST(req: Request) {
       parsed.data.displayName,
     )
   } catch (error) {
-    if (error instanceof CustomerInvitationEmailConflictError) {
+    if (isCustomerInvitationEmailConflictError(error)) {
       const { translate } = await resolveTranslations()
       return NextResponse.json({
         ok: false,
