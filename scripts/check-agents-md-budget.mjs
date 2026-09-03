@@ -41,6 +41,7 @@ import { fileURLToPath } from 'node:url'
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url))
 const DEFAULT_ROOT = path.resolve(SCRIPT_DIR, '..')
 const BASELINE_RELATIVE_PATH = 'scripts/agents-md-budget.baseline.json'
+const COVERAGE_ALLOWLIST_RELATIVE_PATH = 'scripts/agents-md-coverage-allowlist.json'
 const INSTRUCTION_FILE = 'AGENTS.md'
 const DEFAULT_WARN_AT_PERCENT = 90
 const TOKEN_UNITS = new Set(['bytes', 'tokens'])
@@ -210,6 +211,103 @@ function describeUsage(evaluation) {
 }
 
 /**
+ * Directories expected to carry their own `AGENTS.md`: every workspace package, and every module
+ * under a package's or app's `src/modules`. A module that ships without one leaves an agent with
+ * nothing but the root routing table, which is the gap this check closes for NEW modules.
+ */
+export function discoverInstructionOwners(root) {
+  const owners = []
+  const childDirectories = (relativeDir) => {
+    let entries
+    try {
+      entries = fs.readdirSync(path.join(root, relativeDir), { withFileTypes: true })
+    } catch {
+      return []
+    }
+    return entries
+      .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.') && !entry.name.startsWith('__'))
+      .map((entry) => `${relativeDir}/${entry.name}`)
+      .filter((relativePath) => !isSkippedDirectory(path.basename(relativePath), relativePath))
+      .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+  }
+
+  for (const packageDir of childDirectories('packages')) {
+    if (fs.existsSync(path.join(root, packageDir, 'package.json'))) {
+      owners.push({ path: packageDir, kind: 'package' })
+    }
+  }
+  for (const workspaceRoot of ['packages', 'apps']) {
+    for (const workspaceDir of childDirectories(workspaceRoot)) {
+      const moduleDirs = childDirectories(`${workspaceDir}/src/modules`)
+      // A package shipping exactly one module is that module: its package-level AGENTS.md is the
+      // module's guidance (packages/webhooks and friends), so asking for a second file inside
+      // src/modules/<same-name> would only split the same content in two.
+      if (moduleDirs.length < 2) continue
+      for (const moduleDir of moduleDirs) owners.push({ path: moduleDir, kind: 'module' })
+    }
+  }
+  return owners.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
+}
+
+/**
+ * Optional: a checkout without the file simply has no suppressions. Every entry must carry a
+ * non-empty reason — a reasonless suppression is a config error, not an advisory finding, so it
+ * is thrown rather than warned about.
+ */
+export function readCoverageAllowlist(root) {
+  const allowlistPath = path.join(root, COVERAGE_ALLOWLIST_RELATIVE_PATH)
+  if (!fs.existsSync(allowlistPath)) return {}
+  const parsed = JSON.parse(fs.readFileSync(allowlistPath, 'utf8'))
+  const paths = parsed.paths
+  if (typeof paths !== 'object' || paths === null || Array.isArray(paths)) {
+    throw new Error(`${COVERAGE_ALLOWLIST_RELATIVE_PATH} must define a paths object`)
+  }
+  for (const [relativePath, reason] of Object.entries(paths)) {
+    if (typeof reason !== 'string' || reason.trim() === '') {
+      throw new Error(
+        `${COVERAGE_ALLOWLIST_RELATIVE_PATH} entry "${relativePath}" needs a non-empty reason — ` +
+          'a suppression without a stated reason is not allowed',
+      )
+    }
+  }
+  return paths
+}
+
+function collectCoverageWarnings(root, allowlist) {
+  const warnings = []
+  const owners = discoverInstructionOwners(root)
+  const ownerPaths = new Set(owners.map((owner) => owner.path))
+
+  for (const owner of owners) {
+    if (fs.existsSync(path.join(root, owner.path, INSTRUCTION_FILE))) continue
+    if (Object.hasOwn(allowlist, owner.path)) continue
+    warnings.push({
+      kind: 'coverage',
+      subject: owner.path,
+      message:
+        `${owner.path} is a ${owner.kind} with no ${INSTRUCTION_FILE}. Add one describing its ` +
+        `architecture, imports and validation commands, or record why it does not need one in ` +
+        `${COVERAGE_ALLOWLIST_RELATIVE_PATH}.`,
+    })
+  }
+
+  for (const relativePath of Object.keys(allowlist).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))) {
+    const hasInstructionFile = fs.existsSync(path.join(root, relativePath, INSTRUCTION_FILE))
+    const stillExists = ownerPaths.has(relativePath)
+    if (!hasInstructionFile && stillExists) continue
+    warnings.push({
+      kind: 'coverage-allowlist-stale',
+      subject: relativePath,
+      message: hasInstructionFile
+        ? `${relativePath} now has an ${INSTRUCTION_FILE}; drop its ${COVERAGE_ALLOWLIST_RELATIVE_PATH} entry so the gap cannot silently reopen.`
+        : `${relativePath} is allowlisted but is no longer a discovered package or module; drop its ${COVERAGE_ALLOWLIST_RELATIVE_PATH} entry.`,
+    })
+  }
+
+  return warnings
+}
+
+/**
  * The instruction files an agent started in `chainDir` loads, root-first.
  */
 export function collectChainFiles(root, chainDir) {
@@ -275,6 +373,7 @@ export function analyze(root, baseline) {
   const warnings = [
     ...collectRootHeadroomWarnings(baseline, rootBytes, warnAtPercent),
     ...collectFileSizeWarnings(files, warnAtPercent),
+    ...collectCoverageWarnings(root, readCoverageAllowlist(root)),
   ]
 
   return { rootBytes, chains, files, warnings, warnAtPercent, failures }
