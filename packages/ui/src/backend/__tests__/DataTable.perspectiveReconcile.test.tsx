@@ -205,6 +205,27 @@ describe('DataTable localStorage snapshot vs. server perspective reconciliation 
     expect(readPerspectiveSnapshot(TABLE_ID)).toBeNull()
   })
 
+  it('clears without touching a host-owned advanced filter when no replacement view is left', () => {
+    // The clear above is a background correction — the view was deleted in
+    // another session — so it follows the same rule as the reconciling apply:
+    // on People/Companies/Deals the URL owns the filter and the user must not
+    // lose what is on screen because a view they were not looking at vanished.
+    writePerspectiveSnapshot(TABLE_ID, {
+      perspectiveId: 'deleted-1',
+      settings: { searchValue: 'orphaned' },
+      updatedAt: SERVER_UPDATED_AT_MS - 60_000,
+    })
+
+    const { searchChanges, appliedTrees } = renderTable(
+      buildIndexResponse([]),
+      { withAdvancedFilterHost: true },
+    )
+
+    expect(searchChanges[searchChanges.length - 1]).toBe('')
+    expect(readPerspectiveSnapshot(TABLE_ID)).toBeNull()
+    expect(appliedTrees).toHaveLength(0)
+  })
+
   it('leaves a "No view" widths-only snapshot alone rather than forcing the server default', () => {
     // #1835: column widths survive a refresh without an active perspective, and
     // "No view" is an explicit user choice the server default must not override.

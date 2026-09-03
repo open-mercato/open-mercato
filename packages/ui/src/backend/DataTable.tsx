@@ -2676,8 +2676,13 @@ export function DataTable<T extends RowData>({
       // orphaned columns/sorting/search are still painted from the mount-time
       // restore and `activePerspectiveId` still names a row the server no longer
       // has, so clear explicitly rather than leaving a dead view on screen until
-      // the next reload (#5113).
-      applyPerspectiveSettings({}, null)
+      // the next reload (#5113). Like the reconciling apply above, this is a
+      // background correction the user never asked for — the view was deleted in
+      // another session — so it must not clear the filter a host that owns
+      // filter persistence through the URL currently has on screen.
+      applyPerspectiveSettings({}, null, {
+        preserveAdvancedFilter: !!advancedFilter?.onApplyTree,
+      })
     }
     initialPerspectiveAppliedRef.current = true
   }, [canUsePerspectives, perspectiveData, perspectiveTableId, perspectiveConfig, applyPerspectiveSettings, activePerspectiveId, advancedFilter?.onApplyTree])
