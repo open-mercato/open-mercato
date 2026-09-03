@@ -28,7 +28,7 @@ import type { StopCondition } from 'ai'
 import type { ZodTypeAny } from 'zod'
 import { createModelFactory, resolveAllowRuntimeOverride } from './model-factory'
 import { computeEndUserIdentifier } from '@open-mercato/shared/lib/ai/safety-identifier'
-import { llmProviderRegistry } from '@open-mercato/shared/lib/ai/llm-provider-registry'
+import { llmProviderRegistry } from './llm-registry'
 import type { EnvLookup } from '@open-mercato/shared/lib/ai/llm-provider'
 import {
   AiModerationBlockedError,
@@ -78,10 +78,6 @@ import type { AiAgentMutationPolicy } from './ai-agent-definition'
 import { recordTokenUsage } from './token-usage-recorder'
 import { injectTaskPlanIntoStream } from './task-plan-stream'
 import { TASK_PLAN_RUNTIME_PROMPT_SECTION } from './task-plan-labels'
-
-// Ensure built-in LLM providers are registered. Side-effect import; identical to
-// what `./ai-sdk.ts` consumers already rely on.
-import './llm-bootstrap'
 
 const logger = createLogger('ai_assistant').child({ component: 'agent-runtime' })
 

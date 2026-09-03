@@ -12,6 +12,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { staffTimeEntryStartTimerSchema, type StaffTimeEntryStartTimerInput } from '../../../../data/validators'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import { STAFF_TIME_TRACKING_RESOURCE_KINDS } from '../../../guards'
 import { runTimesheetInterceptors } from '../../_shared/withTimesheetInterceptors'
 
@@ -87,6 +88,10 @@ export async function POST(req: Request) {
   } catch (err) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
+    }
+    const interceptorRejection = getCommandInterceptorHttpRejection(err)
+    if (interceptorRejection) {
+      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
     }
     const { translate } = await resolveTranslations()
     logger.error('staff.timesheets.time-entries.start-timer failed', { err })

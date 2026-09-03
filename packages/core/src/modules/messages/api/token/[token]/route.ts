@@ -8,6 +8,7 @@ import { Message, MessageAccessToken, MessageObject, MessageRecipient } from '..
 import { MAX_TOKEN_USE_COUNT } from '../../../commands/tokens'
 import { messageTokenResponseSchema } from '../../openapi'
 import { hashAuthToken } from '../../../../auth/lib/tokenHash'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 
 export const metadata = {
   GET: { requireAuth: false },
@@ -134,6 +135,10 @@ export async function GET(req: Request, { params }: { params: { token: string } 
     })
     commandResult = executed.result
   } catch (error) {
+    const interceptorRejection = getCommandInterceptorHttpRejection(error)
+    if (interceptorRejection) {
+      return Response.json(interceptorRejection.body, { status: interceptorRejection.status })
+    }
     const errorResponse = responseForTokenError(error)
     if (errorResponse) return errorResponse
     throw error
