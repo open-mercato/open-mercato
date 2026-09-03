@@ -5,6 +5,7 @@ import { Users, Link2, Plus, Filter } from 'lucide-react'
 import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
+import { Input } from '@open-mercato/ui/primitives/input'
 import {
   readVersionedIdSet,
   writeVersionedIdSet,
@@ -343,12 +344,12 @@ export function LinkedPeopleSection<
               <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
                 {filtersOpen ? (
                   <div className="min-w-0 flex-1">
-                    <input
+                    <Input
                       type="text"
+                      size="lg"
                       value={searchQuery}
                       onChange={(event) => setSearchQuery(event.target.value)}
                       placeholder={searchPlaceholder}
-                      className="h-10 w-full rounded-md border bg-background px-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
                     />
                   </div>
                 ) : null}
@@ -363,13 +364,22 @@ export function LinkedPeopleSection<
                     <Filter className="mr-1.5 h-4 w-4" />
                     {translate('customers.linkedPeople.filter', 'Filters')}
                   </Button>
+                  {/*
+                    Deliberately a native <select> rather than the DS `Select`. That primitive is
+                    Radix-based (a button + listbox), and this element is the one the extraction
+                    gate runs through: `CompanyPeopleSection.test.tsx` must keep passing
+                    unmodified, and it drives the sort with `getByDisplayValue` + `fireEvent
+                    .change` — native-select APIs. Swapping it would also change the company
+                    tab's keyboard and mobile-picker behaviour, which is the one thing this PR
+                    asserts it does not do. Worth migrating, but as its own change.
+                  */}
                   {filtersOpen && sortOptions.length > 1 ? (
                     <select
                       value={sortMode}
                       onChange={(event) =>
                         setSortMode(event.target.value as LinkedPeopleSortMode)
                       }
-                      className="h-10 min-w-[11rem] rounded-md border bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                      className="h-10 min-w-44 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
                     >
                       {sortOptions.map((option) => (
                         <option key={option} value={option}>

@@ -29,9 +29,14 @@ export type CreatedPersonSummary = {
   id: string
   displayName: string
   /**
-   * Always emitted, widened to allow the company-less case rather than made optional: a
-   * consumer reading these still gets a property, whereas dropping them would remove a
-   * guarantee every existing `onPersonCreated` caller currently has.
+   * Always emitted, but nullable now that the dialog also serves the company-less case.
+   *
+   * This IS a lost guarantee, not a free widening: on a result type, `string | null` breaks a
+   * consumer that previously wrote `const owner: string = created.companyId`. It is safe here
+   * only because no in-repo consumer reads either field — the two `onPersonCreated` callers in
+   * `CompanyPeopleSection` ignore the argument entirely, and `DealPeopleSection` reads only
+   * `id` and `displayName`. Widening a result is not generally safe; do not read this as
+   * precedent.
    */
   companyId: string | null
   companyName: string | null
