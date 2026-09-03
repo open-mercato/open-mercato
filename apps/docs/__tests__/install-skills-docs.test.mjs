@@ -19,6 +19,12 @@ const freshCloneGuideUrls = [
   new URL('../docs/installation/wsl2.mdx', import.meta.url),
 ];
 
+// The Docker track never runs a bare `yarn install`, so it reaches the same failure mode through
+// the `yarn docker:*` wrapper list instead. Nothing in the Docker setup installs skills implicitly
+// (unlike the dev container, whose post-create hook runs the installer), so that list has to
+// enumerate the wrapper the same way setup.mdx does.
+const dockerGuideUrl = new URL('../docs/installation/docker.mdx', import.meta.url);
+
 test('setup docs and README reference real install-skills scripts', async () => {
   const packageJson = JSON.parse(await readFile(repoRootPackageJsonUrl, 'utf8'));
   assert.ok(
@@ -81,4 +87,18 @@ test('every fresh-clone bootstrap guide mentions the agent-skills step', async (
       `${guideName} must mark the agent-skills step as optional, so contributors who use no coding agent can skip it`,
     );
   }
+});
+
+test('the Docker guide lists the container equivalent in its wrapper commands', async () => {
+  const dockerGuide = await readFile(dockerGuideUrl, 'utf8');
+  assert.match(
+    dockerGuide,
+    /yarn docker:install-skills/,
+    'docker.mdx enumerates the `yarn docker:*` wrappers, so it must list `yarn docker:install-skills`',
+  );
+  assert.match(
+    dockerGuide,
+    /only if you use an AI coding agent|if you do not use/,
+    'docker.mdx must mark the agent-skills wrapper as optional',
+  );
 });
