@@ -232,8 +232,10 @@ function stripTemplateDisabledModules(content: string, rel: string): string {
 // generated root close to its byte budget, so the template keeps a maintainer-facing explanation
 // instead of silently dropping the registration like TEMPLATE_DISABLED_MODULE_IDS entries.
 // Each entry replaces the app's registration and its leading comment verbatim, so a reworded
-// source comment fails the transform loudly rather than drifting back into the template.
-const TEMPLATE_COMMENTED_MODULES: Record<string, { source: string; template: string }> = {
+// source comment fails the transform loudly rather than drifting back into the template. The
+// replacement goes in as a function so a `$` in a template body stays literal instead of being
+// read as a String.replace substitution pattern.
+export const TEMPLATE_COMMENTED_MODULES: Record<string, { source: string; template: string }> = {
   channel_discord: {
     source: `  // Discord bot channel (SPEC 2026-06-19) — two-way Discord via REST + a
   // provider-owned Gateway worker + a signed Interactions endpoint, plus an
@@ -258,7 +260,7 @@ function commentOutTemplateModules(content: string, rel: string): string {
     if (!current.includes(replacement.source)) {
       failTemplateTransform(rel, `expected the ${moduleId} enabledModules entry with its source comment`)
     }
-    return current.replace(replacement.source, replacement.template)
+    return current.replace(replacement.source, () => replacement.template)
   }, content)
 }
 
