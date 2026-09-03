@@ -56,8 +56,8 @@ The integration detail page must stop offering an editable credentials form and 
 
 ### Phase 2: Verification
 
-- [ ] 2.1 Re-run the full `validation.commands` gate on this worktree and record the runner and results
-- [ ] 2.2 Run `om-auto-review-pr 5843 --autofix` and drive it to a clean verdict, landing any fixes as new commits
+- [x] 2.1 Re-run the full `validation.commands` gate on this worktree and record the runner and results — dda52ed64 (no code change; local runner, all commands green except `create-mercato-app`'s AI-harness oracle suites, which need the `codex`/`claude` CLIs)
+- [x] 2.2 Run `om-auto-review-pr 5843 --autofix` and drive it to a clean verdict, landing any fixes as new commits — c9ca75eb4
 
 ### Phase 3: Finalize
 
