@@ -9,6 +9,7 @@ import {
   findInotifyLimitIssues,
   mergeVsCodeWatcherExcludes,
   readCurrentInotifyLimits,
+  resolveRequestedDevBundler,
 } from '../dev-inotify-limits.mjs'
 
 function createProcReader(files) {
@@ -79,6 +80,13 @@ test('ensureDevInotifyLimits skips non-Linux platforms', () => {
   assert.equal(result.ok, true)
   assert.equal(result.skipped, true)
   assert.equal(result.reason, 'non-linux')
+})
+
+test('resolveRequestedDevBundler defaults to automatic selection and accepts explicit overrides', () => {
+  assert.equal(resolveRequestedDevBundler({}), 'auto')
+  assert.equal(resolveRequestedDevBundler({ OM_DEV_BUNDLER: 'webpack' }), 'webpack')
+  assert.equal(resolveRequestedDevBundler({ OM_DEV_BUNDLER: 'TURBOPACK' }), 'turbopack')
+  assert.equal(resolveRequestedDevBundler({ OM_DEV_BUNDLER: 'unsupported' }), 'auto')
 })
 
 test('ensureDevInotifyLimits attempts a noninteractive sysctl repair', () => {
