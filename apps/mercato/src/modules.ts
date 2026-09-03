@@ -141,6 +141,9 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'shipping_carriers', from: '@open-mercato/core' },
   { id: 'eudr', from: '@open-mercato/core' },
   { id: 'webhooks', from: '@open-mercato/webhooks' },
+  // Same-origin OTLP proxy for browser RUM spans; inert unless
+  // TELEMETRY_BROWSER_ENABLED is set alongside an active telemetry backend.
+  { id: 'telemetry', from: '@open-mercato/telemetry' },
   { id: 'customer_accounts', from: '@open-mercato/core' },
   { id: 'portal', from: '@open-mercato/core' },
   {
