@@ -28,7 +28,7 @@ export function register(container: AppContainer) {
   container.register({ customerInvitationService: asClass(CustomerInvitationService).scoped() })
   container.register({
     domainMappingService: asFunction(
-      function domainMappingServiceFactory(em: EntityManager) {
+      function domainMappingServiceFactory(cradle: { em: EntityManager }) {
         // Resolve the cache lazily so registrations from `bootstrap(container)` (which runs after
         // module DI registrars) are visible. Awilix CLASSIC mode would fail to resolve a
         // destructured `cache` param if the key is not yet registered; using `hasRegistration`
@@ -42,8 +42,8 @@ export function register(container: AppContainer) {
         } catch {
           cacheService = undefined
         }
-        return new DomainMappingService(em, cacheService ? { cacheService } : undefined)
+        return new DomainMappingService(cradle.em, cacheService ? { cacheService } : undefined)
       },
-    ).scoped(),
+    ).scoped().proxy(),
   })
 }
