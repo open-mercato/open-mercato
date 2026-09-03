@@ -8,20 +8,30 @@
  * is dropped silently, so an oversized root file hides the tail of the harness from every
  * agent and starves the nested files of budget.
  *
- * This script enforces two things:
+ * This script BLOCKS on two things (exit 1):
  *   1. A hard limit on the root `AGENTS.md` (budget minus a reserve for nested files).
  *   2. A ratchet on the representative root-to-module chains recorded in the baseline: when a
  *      chain already exceeds the budget, the nested (non-root) part of it may only shrink, so
  *      existing overflow cannot get worse. Chains still inside the budget are free to grow, and
  *      the root file is governed by rule 1 alone so ordinary root edits never trip the ratchet.
  *
+ * It also reports ADVISORY findings, which print on every run but leave the exit code alone
+ * unless `--strict` is passed:
+ *   3. Headroom — the root file has reached `warnAtPercent` of its hard limit, so the next
+ *      addition is likely to fail rule 1. (Without this the check is a cliff, not a gradient.)
+ *   4. Per-file size — any single `AGENTS.md` in the repo has reached `warnAtPercent` of a limit
+ *      in the baseline's `tools` table, whether or not it belongs to a ratcheted chain.
+ *   5. Coverage — a workspace package or module directory that has no `AGENTS.md` and no entry
+ *      in scripts/agents-md-coverage-allowlist.json.
+ *
  * Usage:
- *   node scripts/check-agents-md-budget.mjs               # check (exit 1 on failure)
+ *   node scripts/check-agents-md-budget.mjs               # check (exit 1 on a blocking failure)
+ *   node scripts/check-agents-md-budget.mjs --strict      # advisory findings fail too
  *   node scripts/check-agents-md-budget.mjs --json        # machine-readable report
  *   node scripts/check-agents-md-budget.mjs --update-baseline
  *   node scripts/check-agents-md-budget.mjs --root <dir>  # check another checkout
  *
- * Yarn shortcut: `yarn agents:check-budget`
+ * Yarn shortcuts: `yarn agents:check-budget`, `yarn agents:check-budget:ci` (--strict)
  */
 
 import fs from 'node:fs'
@@ -47,11 +57,12 @@ export function estimateTokens(bytes) {
 }
 
 function parseArgs(argv) {
-  const options = { root: DEFAULT_ROOT, updateBaseline: false, json: false }
+  const options = { root: DEFAULT_ROOT, updateBaseline: false, json: false, strict: false }
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]
     if (arg === '--update-baseline') options.updateBaseline = true
     else if (arg === '--json') options.json = true
+    else if (arg === '--strict') options.strict = true
     else if (arg === '--root') {
       const value = argv[index + 1]
       if (!value) throw new Error('--root requires a directory path')
@@ -127,6 +138,78 @@ function fileBytes(absolutePath) {
 }
 
 /**
+ * Directories that never hold first-party instruction files: dependency and build output, plus
+ * the official-modules submodule (its own repository, with its own guidance) and the create-app
+ * template root (governed by packages/create-app/src/lib/agent-instruction-budget.test.ts).
+ */
+const SKIPPED_DIRECTORIES = new Set(['node_modules', '.git', 'dist', '.next', '.mercato', '.turbo'])
+const SKIPPED_RELATIVE_PATHS = new Set(['external', 'packages/create-app/template'])
+
+function isSkippedDirectory(name, relativePath) {
+  return SKIPPED_DIRECTORIES.has(name) || SKIPPED_RELATIVE_PATHS.has(relativePath)
+}
+
+/**
+ * Every first-party AGENTS.md in the checkout, sorted by path. The root file is excluded: it has
+ * its own hard limit and its own dedicated headroom warning, so including it here would report
+ * the same file twice.
+ */
+export function collectInstructionFiles(root) {
+  const found = []
+  const walk = (absoluteDir, relativeDir) => {
+    let entries
+    try {
+      entries = fs.readdirSync(absoluteDir, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const entry of entries) {
+      const relativePath = relativeDir ? `${relativeDir}/${entry.name}` : entry.name
+      if (entry.isDirectory()) {
+        if (isSkippedDirectory(entry.name, relativePath)) continue
+        walk(path.join(absoluteDir, entry.name), relativePath)
+      } else if (entry.isFile() && entry.name === INSTRUCTION_FILE && relativeDir) {
+        found.push({ path: relativePath, bytes: fileBytes(path.join(absoluteDir, entry.name)) })
+      }
+    }
+  }
+  walk(root, '')
+  return found.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
+}
+
+/**
+ * Measure `bytes` against every configured tool limit. Token limits are compared against an
+ * estimate (see ESTIMATED_BYTES_PER_TOKEN), which is why the result carries the unit.
+ */
+export function evaluateAgainstTools(baseline, bytes) {
+  const tools = baseline.tools ?? {}
+  return Object.keys(tools)
+    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+    .map((name) => {
+      const tool = tools[name]
+      const value = tool.unit === 'tokens' ? estimateTokens(bytes) : bytes
+      return {
+        tool: name,
+        unit: tool.unit,
+        limit: tool.limit,
+        enforced: tool.enforced === true,
+        value,
+        percent: Math.round((value / tool.limit) * 100),
+      }
+    })
+}
+
+function describeUsage(evaluation) {
+  const estimate = evaluation.unit === 'tokens' ? ' est.' : ''
+  const singularUnit = evaluation.unit === 'tokens' ? 'token' : 'byte'
+  const kind = evaluation.enforced ? 'hard limit' : 'policy budget'
+  return (
+    `${evaluation.value}${estimate} ${evaluation.unit} = ${evaluation.percent}% of ${evaluation.tool}'s ` +
+    `${evaluation.limit}-${singularUnit} ${kind}`
+  )
+}
+
+/**
  * The instruction files an agent started in `chainDir` loads, root-first.
  */
 export function collectChainFiles(root, chainDir) {
@@ -184,7 +267,59 @@ export function analyze(root, baseline) {
     }
   }
 
-  return { rootBytes, chains, failures }
+  const warnAtPercent = warnAtPercentOf(baseline)
+  const files = collectInstructionFiles(root).map((file) => ({
+    ...file,
+    evaluations: evaluateAgainstTools(baseline, file.bytes),
+  }))
+  const warnings = [
+    ...collectRootHeadroomWarnings(baseline, rootBytes, warnAtPercent),
+    ...collectFileSizeWarnings(files, warnAtPercent),
+  ]
+
+  return { rootBytes, chains, files, warnings, warnAtPercent, failures }
+}
+
+/**
+ * The root file is governed by `rootMaxBytes`, so its headroom is measured against that limit
+ * rather than the tools table — this is the warning that fires before a root edit turns CI red.
+ */
+function collectRootHeadroomWarnings(baseline, rootBytes, warnAtPercent) {
+  if (rootBytes > baseline.rootMaxBytes) return []
+  const percent = Math.round((rootBytes / baseline.rootMaxBytes) * 100)
+  if (percent < warnAtPercent) return []
+  return [
+    {
+      kind: 'root-headroom',
+      subject: INSTRUCTION_FILE,
+      message:
+        `${INSTRUCTION_FILE} is ${rootBytes} bytes — ${percent}% of its ${baseline.rootMaxBytes}-byte limit, ` +
+        `with only ${baseline.rootMaxBytes - rootBytes} bytes free. The next addition is likely to fail the ` +
+        'hard limit: move long-form prose into a referenced doc (.ai/docs/*) before adding to it.',
+    },
+  ]
+}
+
+/**
+ * A single nested file large enough to eat most of an agent's whole budget starves everything
+ * loaded after it, even when the chain it belongs to is not one of the ratcheted ones.
+ */
+function collectFileSizeWarnings(files, warnAtPercent) {
+  const warnings = []
+  for (const file of files) {
+    for (const evaluation of file.evaluations) {
+      if (evaluation.percent < warnAtPercent) continue
+      warnings.push({
+        kind: 'file-size',
+        subject: file.path,
+        message:
+          `${file.path} is ${file.bytes} bytes — ${describeUsage(evaluation)}. ` +
+          'A single instruction file this large crowds out everything loaded after it; split the ' +
+          'long-form parts into a referenced doc.',
+      })
+    }
+  }
+  return warnings
 }
 
 function formatReport(baseline, result) {
@@ -192,13 +327,15 @@ function formatReport(baseline, result) {
   const headroom = baseline.rootMaxBytes - result.rootBytes
   lines.push(
     `${INSTRUCTION_FILE}: ${result.rootBytes} bytes / ${baseline.rootMaxBytes} limit ` +
-      `(${headroom >= 0 ? `${headroom} bytes free` : `${-headroom} bytes over`}; agent budget ${baseline.budgetBytes}).`,
+      `(${headroom >= 0 ? `${headroom} bytes free` : `${-headroom} bytes over`}; agent budget ${baseline.budgetBytes}; ` +
+      `~${estimateTokens(result.rootBytes)} est. tokens).`,
   )
   for (const chain of result.chains) {
     const status = chain.overflowBytes > 0 ? `OVER by ${chain.overflowBytes} bytes` : 'within budget'
     const drift = chain.grewBy === 0 ? '' : chain.grewBy > 0 ? ` +${chain.grewBy} vs baseline` : ` ${chain.grewBy} vs baseline`
     lines.push(
-      `  chain ${chain.chainDir}: ${chain.bytes} bytes across ${chain.files.length} file(s) — ${status}${drift}`,
+      `  chain ${chain.chainDir}: ${chain.bytes} bytes across ${chain.files.length} file(s) ` +
+        `(~${estimateTokens(chain.bytes)} est. tokens) — ${status}${drift}`,
     )
     if (chain.overflowBytes > 0) {
       const last = chain.files[chain.files.length - 1]
@@ -207,6 +344,22 @@ function formatReport(baseline, result) {
       )
     }
   }
+  return lines.join('\n')
+}
+
+/**
+ * Advisory findings print on every run but only change the exit code under `--strict`, so the
+ * new checks can be adopted before they start blocking. See .ai/docs/agent-instructions.md.
+ */
+function formatWarnings(result, strict) {
+  if (result.warnings.length === 0) return ''
+  const lines = ['', `Advisory findings (${result.warnings.length}), at or above ${result.warnAtPercent}% of a limit:`]
+  for (const warning of result.warnings) lines.push(`  - [${warning.kind}] ${warning.message}`)
+  lines.push(
+    strict
+      ? 'Strict mode: advisory findings fail the run.'
+      : 'Advisory only — exit code unchanged. Run with --strict (yarn agents:check-budget:ci) to fail on these.',
+  )
   return lines.join('\n')
 }
 
@@ -227,7 +380,7 @@ function main() {
   }
 
   if (options.help) {
-    console.log('Usage: node scripts/check-agents-md-budget.mjs [--update-baseline] [--json] [--root <dir>]')
+    console.log('Usage: node scripts/check-agents-md-budget.mjs [--strict] [--update-baseline] [--json] [--root <dir>]')
     return
   }
 
@@ -257,11 +410,20 @@ function main() {
     console.log(JSON.stringify({ ...result, budgetBytes: baseline.budgetBytes, rootMaxBytes: baseline.rootMaxBytes }, null, 2))
   } else {
     console.log(formatReport(baseline, result))
+    const warningReport = formatWarnings(result, options.strict)
+    if (warningReport) console.log(warningReport)
   }
 
   if (result.failures.length > 0) {
     console.error('\nAgent instruction budget check failed:')
     for (const failure of result.failures) console.error(`  - ${failure}`)
+    console.error('\nWhy this matters: .ai/docs/agent-instructions.md')
+    process.exit(1)
+  }
+
+  if (options.strict && result.warnings.length > 0) {
+    console.error(`\nAgent instruction budget check failed in strict mode: ${result.warnings.length} advisory finding(s).`)
+    for (const warning of result.warnings) console.error(`  - [${warning.kind}] ${warning.message}`)
     console.error('\nWhy this matters: .ai/docs/agent-instructions.md')
     process.exit(1)
   }
