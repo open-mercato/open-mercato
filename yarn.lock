@@ -9057,6 +9057,7 @@ __metadata:
     ajv: "npm:^8.17.1"
     ajv-formats: "npm:^3.0.1"
     chance: "npm:^1.1.13"
+    cross-env: "npm:^10.1.0"
     date-fns: "npm:4.4.0"
     date-fns-tz: "npm:^3.2.0"
     jest: "npm:^30.4.2"

@@ -191,6 +191,32 @@ and its provider-executed tools such as `web_search`.
 uses Chat Completions. If its backend implements the Responses API and you rely on it, add
 `apiMode: 'responses'` to the preset.
 
+### Planner availability replace endpoints honour the declared `timezone`; unresolvable zones are deprecated (#5868)
+
+`POST /api/planner/availability-weekly` and `POST /api/planner/availability-date-specific` used
+to build every `DTSTART` with the host process's local clock and ignore the required
+`timezone` field (#5862). They now anchor each wall-clock time in the declared IANA zone, so
+for a non-UTC zone the stored instant moves by that zone's offset. Rows written before the
+upgrade are not re-anchored; they stay offset from newly written rows until they are replaced.
+
+Saving the weekly schedule replaces every weekly row, so legacy weekly rows go away on the next
+save. A date-specific save only replaces rows whose start falls on the saved date *in the
+rule's own zone*, and a legacy row can fall on the neighbouring day there — a full-day block in a
+negative-offset zone such as `America/New_York` (stored `T000000Z`, which is the previous day
+locally), or a late window in a large positive-offset zone such as `Pacific/Auckland`. Re-saving
+the intended date then leaves the legacy row in place on the adjacent date; clear it there.
+
+Because `timezone` now decides the stored instant, a value the runtime cannot resolve (a typo
+such as `Europe/Warszawa`, or `UTC+2`) is anchored to UTC and logged as a `[deprecated]`
+warning. The request schemas (`plannerAvailabilityWeeklyReplaceSchema`,
+`plannerAvailabilityDateSpecificReplaceSchema`) still accept it for now, so the request
+contract is unchanged. A future minor release will reject it with `400`.
+
+**Action for API callers:** send a valid IANA zone name (anything `Intl.DateTimeFormat`
+accepts, e.g. `Europe/Warsaw`, `UTC`, `Etc/GMT+2`). Look for
+`Unresolvable availability timezone` warnings in the `planner` logs to find callers that will
+start failing.
+
 ### `reviveSnapshotSeed` throws on an unparsable snapshot date; `extractUndoPayload` can revive dates (#6336)
 
 `reviveSnapshotSeed` (`@open-mercato/shared/lib/commands/redo`) now delegates to the new
