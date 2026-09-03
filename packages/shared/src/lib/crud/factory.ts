@@ -268,6 +268,16 @@ export type ListConfig<TList> = {
    * filters/sorts, `search_tokens` fulltext filtering, and vector-search branches are bypassed.
    */
   omitAutomaticTenantOrgScope?: boolean
+  /**
+   * When false, the query engine returns encrypted fields as stored (ciphertext) and performs no
+   * DEK lookup. Defaults to true — today's behaviour. Set it on generic, entity-agnostic list
+   * surfaces that select every column and do not need plaintext.
+   *
+   * Caveat: declining also disables the plaintext-sort path, so a sort on an encrypted field
+   * degrades to SQL `ORDER BY` over ciphertext. The query engine logs one warning when that
+   * combination is requested.
+   */
+  decryptEncryptedFields?: boolean
   /** When true, skip server-side CRUD GET cache for this list (avoids stale empty payloads after mutations). */
   disableListCache?: boolean
 }
@@ -1842,6 +1852,9 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         }
         if (opts.list.omitAutomaticTenantOrgScope) {
           queryOpts.omitAutomaticTenantOrgScope = true
+        }
+        if (opts.list.decryptEncryptedFields === false) {
+          queryOpts.decryptEncryptedFields = false
         }
         const queryEntity = String(opts.list.entityId)
         profiler.mark('query_options_ready')

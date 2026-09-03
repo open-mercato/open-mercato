@@ -37,6 +37,44 @@ export function resolveEncryptedSortMaxRows(): number | null {
   return Math.floor(parsed)
 }
 
+/**
+ * Reads the entity's encryption map once so a query can answer both "which sort fields are
+ * encrypted" and "must the projection carry `tenant_id` into the decrypt decision" without paying
+ * for two lookups.
+ *
+ * `null` means the map is unavailable — no service, or one that cannot report field names. A query
+ * that reads `null` keeps today's behaviour for sorting (no plaintext-sort path) but must assume a
+ * decrypt attempt may still follow. An empty array means the entity genuinely encrypts nothing.
+ */
+export async function resolveEncryptedFieldNames(
+  service: QueryEncryptionService | null | undefined,
+  entity: EntityId,
+  tenantId?: string | null,
+  organizationId?: string | null,
+): Promise<readonly string[] | null> {
+  if (service?.isEnabled && !service.isEnabled()) return []
+  if (!service?.getEncryptedFieldNames) return null
+  return await service.getEncryptedFieldNames(entity, tenantId ?? null, organizationId ?? null)
+}
+
+export function matchEncryptedSortFields(
+  encryptedFieldNames: readonly string[] | null,
+  sortFields: readonly string[],
+): Set<string> {
+  const result = new Set<string>()
+  if (!encryptedFieldNames || encryptedFieldNames.length === 0) return result
+  const encryptedCandidates = new Set<string>()
+  for (const field of encryptedFieldNames) {
+    for (const candidate of fieldNameCandidates(field)) encryptedCandidates.add(candidate)
+  }
+  for (const field of sortFields) {
+    if (field.startsWith('cf:')) continue
+    const matches = fieldNameCandidates(field).some((candidate) => encryptedCandidates.has(candidate))
+    if (matches) result.add(field)
+  }
+  return result
+}
+
 export async function resolveEncryptedSortFields(
   service: QueryEncryptionService | null | undefined,
   entity: EntityId,
@@ -44,20 +82,8 @@ export async function resolveEncryptedSortFields(
   tenantId?: string | null,
   organizationId?: string | null,
 ): Promise<Set<string>> {
-  if (!service?.getEncryptedFieldNames) return new Set()
-  if (service.isEnabled && !service.isEnabled()) return new Set()
-  const encrypted = await service.getEncryptedFieldNames(entity, tenantId ?? null, organizationId ?? null)
-  const encryptedCandidates = new Set<string>()
-  for (const field of encrypted) {
-    for (const candidate of fieldNameCandidates(field)) encryptedCandidates.add(candidate)
-  }
-  const result = new Set<string>()
-  for (const field of sortFields) {
-    if (field.startsWith('cf:')) continue
-    const matches = fieldNameCandidates(field).some((candidate) => encryptedCandidates.has(candidate))
-    if (matches) result.add(field)
-  }
-  return result
+  const encryptedFieldNames = await resolveEncryptedFieldNames(service, entity, tenantId, organizationId)
+  return matchEncryptedSortFields(encryptedFieldNames, sortFields)
 }
 
 function readField(row: Record<string, unknown>, field: string): unknown {

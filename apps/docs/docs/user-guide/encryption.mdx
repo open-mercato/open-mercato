@@ -5,6 +5,21 @@ description: Turn on tenant data encryption, wire encryption maps in code, and m
 
 Use tenant data encryption to protect sensitive columns with per-tenant DEKs, keep deterministic hashes for lookups, and let admins choose which fields stay encrypted.
 
+:::warning Encryption maps are at-rest protection, not a read-side access control
+
+Declaring a field in an encryption map controls **how the value is stored**, not **who may read it**.
+It does not restrict who can see the plaintext through an authorised query path: any caller allowed
+to read the record at all receives every mapped field in the clear, because decryption happens
+automatically on load. Marking a GDPR-relevant column `encrypted` protects it against database
+access, backups and dumps — it is not a substitute for an ACL feature on the route or page that
+exposes the record.
+
+To restrict *who* reads a field, gate the surface that returns it with an ACL feature
+(`requireFeatures` in page metadata, or a feature check in the API route). To have a specific query
+skip decryption entirely, see [Declining decryption per query](#declining-decryption-per-query).
+
+:::
+
 ## Environment switches
 
 - `TENANT_DATA_ENCRYPTION` – `yes|no` (default `yes`). Set to `no` to run unencrypted (hooks no-op, validation stays).
@@ -57,6 +72,50 @@ export const defaultEncryptionMaps: ModuleEncryptionMap[] = [
 - Seed or update maps for a tenant with the CLI (respects the env toggle):
   - `yarn mercato entities seed-encryption --tenant <tenantId> [--organization <orgId>]`
 - During `auth:setup`, the app collects `defaultEncryptionMaps` from enabled modules and applies them automatically when encryption is enabled.
+
+## Declining decryption per query
+
+Decryption is bound to the tenant the caller asserted, not to the tenant stored on the row: the
+query engines refuse to decrypt a row whose `tenant_id` contradicts `QueryOptions.tenantId`, return
+it as ciphertext, and log one aggregated warning naming the mismatching tenant ids. A scoping
+mistake elsewhere therefore degrades to ciphertext instead of disclosing another tenant's plaintext.
+
+The comparison needs a tenant on both sides. An ORM read through `find*WithDecryption` that passes
+no scope has no caller tenant to bind against and keeps the pre-guard behaviour — pass `{ tenantId }`
+to get the binding. See
+[Decryption is bound to the caller's tenant](../architecture/data-encryption#decryption-is-bound-to-the-callers-tenant)
+for the full set of limits.
+
+A query that does not need plaintext at all can decline it outright with
+`QueryOptions.decryptEncryptedFields: false`. The declined query performs no DEK lookup:
+
+```ts
+const res = await queryEngine.query('customers:customer_entity', {
+  tenantId: auth.tenantId,
+  fields: ['id', 'display_name'],
+  decryptEncryptedFields: false, // display_name comes back as stored ciphertext
+  page: { page: 1, pageSize: 50 },
+})
+```
+
+The same switch is available declaratively on a CRUD list route:
+
+```ts
+makeCrudRoute({
+  list: {
+    entityId: E.customers.customer_entity,
+    decryptEncryptedFields: false,
+  },
+})
+```
+
+It defaults to `true` — today's behaviour — so existing callers are unaffected, and it is an
+**opt-in to declining plaintext**, not an access control.
+
+Sorting on an encrypted field is unavailable on a declined query, because there is no plaintext to
+sort by: the sort falls through to SQL `ORDER BY` over ciphertext, which produces a meaningless
+order. The engines log one warning when a declined query sorts on an encrypted field — sort on a
+plaintext column instead, or drop the flag for that query.
 
 ## Manage maps in the UI
 

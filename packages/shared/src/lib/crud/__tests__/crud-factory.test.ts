@@ -501,6 +501,22 @@ describe('CRUD Factory', () => {
     } as any,
   })
 
+  it('GET forwards list.decryptEncryptedFields=false to the query engine (#5430)', async () => {
+    await makeSortedRoute({ decryptEncryptedFields: false }).GET(
+      new Request('http://x/api/example/todos?page=1&pageSize=10'),
+    )
+
+    const queryArgs = queryEngine.query.mock.calls.at(-1)?.[1]
+    expect(queryArgs?.decryptEncryptedFields).toBe(false)
+  })
+
+  it('GET leaves decryptEncryptedFields unset when the list does not opt out', async () => {
+    await makeSortedRoute().GET(new Request('http://x/api/example/todos?page=1&pageSize=10'))
+
+    const queryArgs = queryEngine.query.mock.calls.at(-1)?.[1]
+    expect(queryArgs?.decryptEncryptedFields).toBeUndefined()
+  })
+
   it('GET falls back to sorting by id when no default sort is configured', async () => {
     await makeSortedRoute().GET(new Request('http://x/api/example/todos?page=1&pageSize=10'))
 

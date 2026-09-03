@@ -1611,3 +1611,240 @@ describe('module-scoped column-existence cache (#5605)', () => {
     expect(columnProbesFor(fakeDb, 'tenant_id').length).toBeGreaterThan(probesAfterFirstEngine)
   })
 })
+
+describe('BasicQueryEngine decrypt tenant binding (#5430)', () => {
+  const informationSchema = [
+    { table_name: 'customer_entities', column_name: 'id' },
+    { table_name: 'customer_entities', column_name: 'tenant_id' },
+    { table_name: 'customer_entities', column_name: 'organization_id' },
+    { table_name: 'customer_entities', column_name: 'deleted_at' },
+    { table_name: 'customer_entities', column_name: 'display_name' },
+  ]
+
+  function setup(rows: any[], encryptedFieldNames: string[] = ['display_name']) {
+    const fakeDb = createFakeKysely({ customer_entities: rows, 'information_schema.columns': informationSchema })
+    const decryptCalls: Array<{ tenantId: string | null; organizationId: string | null }> = []
+    const engine = new BasicQueryEngine(
+      {} as any,
+      () => fakeDb as any,
+      () => ({
+        isEnabled: () => true,
+        getEncryptedFieldNames: async () => encryptedFieldNames,
+        decryptEntityPayload: async (_entityId: any, _payload: any, tenantId: any, organizationId: any) => {
+          decryptCalls.push({ tenantId, organizationId })
+          return { display_name: 'PLAINTEXT' }
+        },
+      }),
+    )
+    return { engine, decryptCalls, fakeDb }
+  }
+
+  // Every column named in any SELECT issued against the base table.
+  const selectedBaseColumns = (fakeDb: any): string[] =>
+    fakeDb._calls
+      .filter((call: any) => call._ops.table === 'customer_entities')
+      .flatMap((call: any) => selectAliases(call))
+
+  test('returns ciphertext and never fetches a DEK when the row tenant contradicts the query tenant', async () => {
+    const { engine, decryptCalls } = setup([
+      { id: '1', tenant_id: 'tenant-b', organization_id: 'org1', display_name: 'cipher-1' },
+    ])
+    const result = await engine.query('customers:customer_entity', {
+      tenantId: 'tenant-a',
+      fields: ['id', 'display_name'],
+      page: { page: 1, pageSize: 10 },
+    })
+    expect(decryptCalls).toEqual([])
+    expect((result.items[0] as any).display_name).toBe('cipher-1')
+  })
+
+  test('still decrypts a row whose tenant matches the query tenant', async () => {
+    const { engine, decryptCalls } = setup([
+      { id: '1', tenant_id: 'tenant-a', organization_id: 'org1', display_name: 'cipher-1' },
+    ])
+    const result = await engine.query('customers:customer_entity', {
+      tenantId: 'tenant-a',
+      fields: ['id', 'display_name'],
+      page: { page: 1, pageSize: 10 },
+    })
+    expect(decryptCalls).toEqual([{ tenantId: 'tenant-a', organizationId: 'org1' }])
+    expect((result.items[0] as any).display_name).toBe('PLAINTEXT')
+  })
+
+  // Both engines require `opts.tenantId` on every query, so a row that carries no tenant of its
+  // own — a global row on an `omitAutomaticTenantOrgScope` read — is the only fallback case left.
+  test('a row with no tenant of its own still decrypts under the caller tenant', async () => {
+    const { engine, decryptCalls } = setup([
+      { id: '1', tenant_id: null, organization_id: null, display_name: 'cipher-1' },
+    ])
+    const result = await engine.query('customers:customer_entity', {
+      tenantId: 'tenant-a',
+      omitAutomaticTenantOrgScope: true,
+      fields: ['id', 'display_name'],
+      page: { page: 1, pageSize: 10 },
+    })
+    expect(decryptCalls).toEqual([{ tenantId: 'tenant-a', organizationId: null }])
+    expect((result.items[0] as any).display_name).toBe('PLAINTEXT')
+  })
+
+  test('performs no DEK lookup at all when the query declines decryption', async () => {
+    const { engine, decryptCalls } = setup([
+      { id: '1', tenant_id: 'tenant-a', organization_id: 'org1', display_name: 'cipher-1' },
+    ])
+    const result = await engine.query('customers:customer_entity', {
+      tenantId: 'tenant-a',
+      decryptEncryptedFields: false,
+      fields: ['id', 'display_name'],
+      page: { page: 1, pageSize: 10 },
+    })
+    expect(decryptCalls).toEqual([])
+    expect((result.items[0] as any).display_name).toBe('cipher-1')
+  })
+
+  test('an explicit true keeps decrypting, as does omitting the flag', async () => {
+    for (const decryptEncryptedFields of [true, undefined]) {
+      const { engine, decryptCalls } = setup([
+        { id: '1', tenant_id: 'tenant-a', organization_id: 'org1', display_name: 'cipher-1' },
+      ])
+      const result = await engine.query('customers:customer_entity', {
+        tenantId: 'tenant-a',
+        decryptEncryptedFields,
+        fields: ['id', 'display_name'],
+        page: { page: 1, pageSize: 10 },
+      })
+      expect(decryptCalls).toHaveLength(1)
+      expect((result.items[0] as any).display_name).toBe('PLAINTEXT')
+    }
+  })
+
+  // A declined query must not take the plaintext-sort path: that path exists only to sort on
+  // decrypted values, so running it without decryption scans the full candidate set and then
+  // orders by ciphertext. It reads the encryption MAP once — not a DEK — only to warn that the
+  // requested sort has degraded to ciphertext ordering.
+  test('a declined query resolves no encrypted sort fields and never scans for a plaintext sort', async () => {
+    const fakeDb = createFakeKysely({
+      customer_entities: [
+        { id: '1', tenant_id: 'tenant-a', organization_id: 'org1', display_name: 'cipher-b' },
+        { id: '2', tenant_id: 'tenant-a', organization_id: 'org1', display_name: 'cipher-a' },
+      ],
+      'information_schema.columns': informationSchema,
+    })
+    const decryptCalls: string[] = []
+    const engine = new BasicQueryEngine(
+      {} as any,
+      () => fakeDb as any,
+      () => ({
+        isEnabled: () => true,
+        getEncryptedFieldNames: async () => ['display_name'],
+        decryptEntityPayload: async () => {
+          decryptCalls.push('called')
+          return { display_name: 'PLAINTEXT' }
+        },
+      }),
+    )
+
+    const result = await engine.query('customers:customer_entity', {
+      tenantId: 'tenant-a',
+      decryptEncryptedFields: false,
+      fields: ['id', 'display_name'],
+      sort: [{ field: 'display_name', dir: SortDir.Asc }],
+      page: { page: 1, pageSize: 10 },
+    })
+
+    expect(decryptCalls).toEqual([])
+    expect((result.items[0] as any).display_name).toBe('cipher-b')
+    const baseCalls = fakeDb._calls.filter((call: any) => call._ops.table === 'customer_entities')
+    // The plaintext-sort path issues a second (phase-1 candidate) query with no ORDER BY;
+    // a declined query must stay on the single ordinary SQL-ordered read.
+    expect(baseCalls.some((call: any) => call._ops.orderBys?.length > 0)).toBe(true)
+  })
+
+  test('an omitAutomaticTenantOrgScope query still decrypts by default', async () => {
+    const { engine, decryptCalls } = setup([
+      { id: '1', tenant_id: null, organization_id: null, display_name: 'cipher-1' },
+    ])
+    await engine.query('customers:customer_entity', {
+      tenantId: 'tenant-a',
+      omitAutomaticTenantOrgScope: true,
+      fields: ['id', 'display_name'],
+      page: { page: 1, pageSize: 10 },
+    })
+    expect(decryptCalls).toHaveLength(1)
+  })
+
+  // The decision reads the row's own tenant_id, so a `fields` list that omits it would leave
+  // `rowTenantId` null and make the guard inert on exactly the routes that project narrowly
+  // (e.g. the deals map route). The engine widens the projection and strips the column back out.
+  describe('tenant_id is carried into the decrypt decision regardless of the projection', () => {
+    test('a projection without tenant_id still refuses a foreign-tenant row', async () => {
+      const { engine, decryptCalls, fakeDb } = setup([
+        { id: '1', tenant_id: 'tenant-b', organization_id: 'org1', display_name: 'cipher-1' },
+      ])
+      const result = await engine.query('customers:customer_entity', {
+        tenantId: 'tenant-a',
+        fields: ['id', 'organization_id', 'display_name'],
+        page: { page: 1, pageSize: 10 },
+      })
+      expect(selectedBaseColumns(fakeDb)).toContain('tenant_id')
+      expect(decryptCalls).toEqual([])
+      expect((result.items[0] as any).display_name).toBe('cipher-1')
+    })
+
+    test('the injected column is stripped from the response shape', async () => {
+      const { engine, fakeDb } = setup([
+        { id: '1', tenant_id: 'tenant-a', organization_id: 'org1', display_name: 'cipher-1' },
+      ])
+      const result = await engine.query('customers:customer_entity', {
+        tenantId: 'tenant-a',
+        fields: ['id', 'organization_id', 'display_name'],
+        page: { page: 1, pageSize: 10 },
+      })
+      expect(selectedBaseColumns(fakeDb)).toContain('tenant_id')
+      expect(Object.prototype.hasOwnProperty.call(result.items[0], 'tenant_id')).toBe(false)
+      expect((result.items[0] as any).display_name).toBe('PLAINTEXT')
+    })
+
+    test('a caller that asked for tenant_id still gets it back', async () => {
+      const { engine } = setup([
+        { id: '1', tenant_id: 'tenant-a', organization_id: 'org1', display_name: 'cipher-1' },
+      ])
+      const result = await engine.query('customers:customer_entity', {
+        tenantId: 'tenant-a',
+        fields: ['id', 'tenant_id', 'display_name'],
+        page: { page: 1, pageSize: 10 },
+      })
+      expect((result.items[0] as any).tenant_id).toBe('tenant-a')
+    })
+
+    test('an entity with no encryption map keeps its projection untouched', async () => {
+      const { engine, fakeDb } = setup(
+        [{ id: '1', tenant_id: 'tenant-a', organization_id: 'org1', display_name: 'plain-1' }],
+        [],
+      )
+      await engine.query('customers:customer_entity', {
+        tenantId: 'tenant-a',
+        fields: ['id', 'display_name'],
+        page: { page: 1, pageSize: 10 },
+      })
+      expect(selectedBaseColumns(fakeDb)).not.toContain('tenant_id')
+    })
+  })
+
+  test('refuses each mismatching row independently within one page', async () => {
+    const { engine, decryptCalls } = setup([
+      { id: '1', tenant_id: 'tenant-a', organization_id: 'org1', display_name: 'cipher-1' },
+      { id: '2', tenant_id: 'tenant-b', organization_id: 'org1', display_name: 'cipher-2' },
+      { id: '3', tenant_id: 'tenant-c', organization_id: 'org1', display_name: 'cipher-3' },
+    ])
+    const result = await engine.query('customers:customer_entity', {
+      tenantId: 'tenant-a',
+      fields: ['id', 'display_name'],
+      page: { page: 1, pageSize: 10 },
+    })
+    expect(decryptCalls).toHaveLength(1)
+    const byId = new Map((result.items as any[]).map((row) => [row.id, row.display_name]))
+    expect(byId.get('1')).toBe('PLAINTEXT')
+    expect(byId.get('2')).toBe('cipher-2')
+    expect(byId.get('3')).toBe('cipher-3')
+  })
+})
