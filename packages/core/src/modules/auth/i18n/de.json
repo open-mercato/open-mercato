@@ -390,7 +390,7 @@
   "auth.acl.modules.webhooks": "Webhooks",
   "auth.acl.modules.wms": "Warehouse Management System",
   "auth.acl.modules.workflows": "Workflow Engine",
-  "auth.acl.organizationWarning": "Organisationseinschränkungen werden nur gespeichert, wenn mindestens eine Berechtigungsüberschreibung ausgewählt ist. Füge eine Berechtigung hinzu oder aktiviere einen Modul-Wildcard vor dem Speichern.",
+  "auth.acl.organizationWarning": "Organisationseinschränkungen erfordern mindestens eine Berechtigungsüberschreibung. Füge eine Berechtigung oder einen Modul-Platzhalter hinzu, oder lösche den Organisationsbereich vor dem Speichern.",
   "auth.acl.organizationsDenyAllWarning": "Es ist keine Organisation ausgewählt, daher entzieht diese Überschreibung den Zugriff in allen Organisationen — einschließlich der oben erteilten Berechtigungen. Wähle mindestens eine Organisation aus oder verwende „Alle Organisationen zulassen“, um den Bereich nicht einzuschränken.",
   "auth.acl.organizationsScope": "Organisationsbereich",
   "auth.acl.organizationsScopeCurrent.all": "Aktueller Bereich: alle Organisationen.",

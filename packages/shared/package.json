@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/shared",
-  "version": "0.6.7",
+  "version": "0.7.0",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
@@ -51,6 +51,10 @@
     "./lib/events/patterns": {
       "types": "./src/lib/events/patterns.ts",
       "default": "./dist/lib/events/patterns.js"
+    },
+    "./lib/db/duplicateEntityClassNames": {
+      "types": "./src/lib/db/duplicateEntityClassNames.ts",
+      "default": "./dist/lib/db/duplicateEntityClassNames.js"
     },
     "./lib/data/consistency": {
       "types": "./src/lib/data/consistency.ts",
