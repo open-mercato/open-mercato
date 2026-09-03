@@ -71,22 +71,22 @@ i.e. **8 bytes of headroom**, with no warning before the cliff.
 
 ### Phase 1: Baseline schema and tool limits
 
-- [ ] 1.1 Extend the baseline JSON with `warnAtPercent` and a per-tool limits table
-- [ ] 1.2 Make `readBaseline` validate the new keys and default them when absent
+- [x] 1.1 Extend the baseline JSON with `warnAtPercent` and a per-tool limits table — acb394d6a
+- [x] 1.2 Make `readBaseline` validate the new keys and default them when absent — acb394d6a
 
 ### Phase 2: Warning channel, headroom and per-file sizes
 
-- [ ] 2.1 Add the `warnings` channel and the `--strict` flag without touching existing failures
-- [ ] 2.2 Warn at `warnAtPercent` of every applicable tool limit for the root file and each chain
-- [ ] 2.3 Scan every AGENTS.md in the repo and warn on individually oversized files
+- [x] 2.1 Add the `warnings` channel and the `--strict` flag without touching existing failures — 3bd34cf01
+- [x] 2.2 Warn at `warnAtPercent` of every applicable tool limit for the root file and each chain — 3bd34cf01
+- [x] 2.3 Scan every AGENTS.md in the repo and warn on individually oversized files — 3bd34cf01
 
 ### Phase 3: Coverage guard
 
-- [ ] 3.1 Discover workspace packages and module directories, add the seeded coverage allowlist
-- [ ] 3.2 Emit coverage warnings and reject reasonless allowlist entries
+- [x] 3.1 Discover workspace packages and module directories, add the seeded coverage allowlist — e62df6dee
+- [x] 3.2 Emit coverage warnings and reject reasonless allowlist entries — e62df6dee
 
 ### Phase 4: Wiring, tests and docs
 
-- [ ] 4.1 Add the `agents:check-budget:ci` script and leave the CI step advisory
-- [ ] 4.2 Extend the node:test suite with headroom, strict-mode, coverage and round-trip cases
-- [ ] 4.3 Document the warnings, the allowlist and the warn-to-block escalation criterion
+- [x] 4.1 Add the `agents:check-budget:ci` script and leave the CI step advisory — 64702eddc
+- [x] 4.2 Extend the node:test suite with headroom, strict-mode, coverage and round-trip cases — 64702eddc
+- [x] 4.3 Document the warnings, the allowlist and the warn-to-block escalation criterion — 64702eddc
