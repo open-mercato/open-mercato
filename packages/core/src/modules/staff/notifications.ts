@@ -78,6 +78,7 @@ export const notificationTypes: NotificationTypeDefinition[] = [
     // subscriber overrides `linkHref` with the requester-specific deep link so
     // the project team drawer opens with the requester pre-selected.
     type: 'staff.timesheets.project_access.requested',
+    channels: ['in_app', 'email'],
     module: 'staff',
     titleKey: 'staff.notifications.timeProjectAccess.requested.title',
     bodyKey: 'staff.notifications.timeProjectAccess.requested.body',
@@ -102,6 +103,7 @@ export const notificationTypes: NotificationTypeDefinition[] = [
     // 100% crossing and carries the numbers in `bodyVariables`, so the two alerts
     // read differently without splitting the notification id.
     type: 'staff.timesheets.time_project.budget_threshold_reached',
+    channels: ['in_app', 'email'],
     module: 'staff',
     titleKey: 'staff.notifications.timeProjectBudget.thresholdReached.title',
     bodyKey: 'staff.notifications.timeProjectBudget.thresholdReached.body',
@@ -129,6 +131,7 @@ export const notificationTypes: NotificationTypeDefinition[] = [
      * who otherwise learns about it only by reopening the screen.
      */
     type: 'staff.timesheets.time_report.approved',
+    channels: ['in_app', 'email'],
     module: 'staff',
     titleKey: 'staff.notifications.timeReport.approved.title',
     bodyKey: 'staff.notifications.timeReport.approved.body',
@@ -157,6 +160,7 @@ export const notificationTypes: NotificationTypeDefinition[] = [
      * the renderer and delivery preferences are already in place when it does.
      */
     type: 'staff.timesheets.time_report.ready_for_approval',
+    channels: ['in_app', 'email'],
     module: 'staff',
     titleKey: 'staff.notifications.timeReport.readyForApproval.title',
     bodyKey: 'staff.notifications.timeReport.readyForApproval.body',
@@ -184,6 +188,7 @@ export const notificationTypes: NotificationTypeDefinition[] = [
      * does ship one.
      */
     type: 'staff.timesheets.time_entry.timer_running_long',
+    channels: ['in_app'],
     module: 'staff',
     titleKey: 'staff.notifications.timeEntryTimer.runningLong.title',
     bodyKey: 'staff.notifications.timeEntryTimer.runningLong.body',
@@ -211,6 +216,7 @@ export const notificationTypes: NotificationTypeDefinition[] = [
      * knows contract hours and leave is the thing that can raise this honestly.
      */
     type: 'staff.timesheets.timesheet.period_incomplete',
+    channels: ['in_app', 'email'],
     module: 'staff',
     titleKey: 'staff.notifications.timesheet.periodIncomplete.title',
     bodyKey: 'staff.notifications.timesheet.periodIncomplete.body',
