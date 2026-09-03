@@ -86,6 +86,7 @@ import IntegrationDetailPage from '../page'
 
 const NO_PERMISSION_MESSAGE = 'You do not have permission to manage credentials for this integration.'
 const SAVE_ACTION_LABEL = 'Save credentials'
+const FORBIDDEN_FLASH_MESSAGE = 'Access denied: you are missing the required permission "integrations.credentials.manage". Contact your administrator.'
 
 const dict = {
   'integrations.detail.credentials.noPermission': NO_PERMISSION_MESSAGE,
@@ -141,14 +142,29 @@ function makeResponse(status: number, body: unknown): Response {
   } as unknown as Response
 }
 
-function mockApiResponses(granted: string[]) {
+// `granted: null` makes the feature check itself fail, exercising the hook's fail-closed path.
+function mockApiResponses(granted: string[] | null) {
   apiCallMock.mockImplementation((url: unknown, init?: RequestInit) => {
     const href = typeof url === 'string' ? url : ''
     if (href.includes('/api/auth/feature-check')) {
+      if (granted === null) return Promise.reject(new Error('[internal] feature-check unavailable'))
       const body = { ok: granted.length > 0, granted, userId: 'user-1' }
       return Promise.resolve({ ok: true, status: 200, result: body, response: makeResponse(200, body) })
     }
     if (href.includes('/credentials')) {
+      // Mirrors the real transport: `/api/integrations/{id}/credentials` is guarded by
+      // `requireFeatures: ['integrations.credentials.manage']`, so an unprivileged viewer gets a
+      // 403 whose body carries `requiredFeatures`. `apiFetch` turns that into an "Access denied"
+      // flash plus a thrown `ForbiddenError` unless the caller opts out with the standard header.
+      if (!granted?.includes('integrations.credentials.manage')) {
+        const headers = new Headers(init?.headers)
+        if (headers.get('x-om-forbidden-redirect') !== '0') {
+          flashMock(FORBIDDEN_FLASH_MESSAGE, 'warning')
+          return Promise.reject(new Error('[internal] Forbidden'))
+        }
+        const body = { error: 'Forbidden', requiredFeatures: ['integrations.credentials.manage'] }
+        return Promise.resolve({ ok: false, status: 403, result: null, response: makeResponse(403, body) })
+      }
       const body = {
         credentials: { publishableKey: 'pk_test_123', secretKey: '__om_secret_unchanged__' },
         secretFieldsConfigured: { secretKey: true },
@@ -184,6 +200,44 @@ describe('Integration credentials — permission gate (#5816)', () => {
 
     expect(container.querySelector('form')).toBeNull()
     expect(container.querySelector('[data-crud-field-id="secretKey"]')).toBeNull()
+    expect(findSaveAction(container)).toBeNull()
+  })
+
+  it('loads credentials with the forbidden-flash opt-out so an unprivileged viewer gets no "Access denied" toast', async () => {
+    mockApiResponses([])
+
+    const { container } = renderWithProviders(
+      <IntegrationDetailPage params={{ id: 'gateway_stripe' }} />,
+      { dict },
+    )
+
+    await waitFor(() => {
+      expect(container).toHaveTextContent(NO_PERMISSION_MESSAGE)
+    })
+
+    const credentialsRequest = apiCallMock.mock.calls.find(([url, init]) => (
+      typeof url === 'string'
+      && url.includes('/credentials')
+      && (init as RequestInit | undefined)?.method === undefined
+    ))
+    expect(credentialsRequest).toBeTruthy()
+    expect(new Headers((credentialsRequest?.[1] as RequestInit).headers).get('x-om-forbidden-redirect')).toBe('0')
+    expect(flashMock).not.toHaveBeenCalled()
+  })
+
+  it('fails closed to the permission notice when the feature check itself fails', async () => {
+    mockApiResponses(null)
+
+    const { container } = renderWithProviders(
+      <IntegrationDetailPage params={{ id: 'gateway_stripe' }} />,
+      { dict },
+    )
+
+    await waitFor(() => {
+      expect(container).toHaveTextContent(NO_PERMISSION_MESSAGE)
+    })
+
+    expect(container.querySelector('form')).toBeNull()
     expect(findSaveAction(container)).toBeNull()
   })
 

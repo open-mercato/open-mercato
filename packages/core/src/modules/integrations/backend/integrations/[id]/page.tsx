@@ -66,6 +66,11 @@ type IntegrationDetailTab = BuiltInIntegrationDetailTab | string
 
 const UNSUPPORTED_CREDENTIAL_FIELD_TYPES = new Set<CredentialFieldType>(['oauth', 'ssh_keypair'])
 
+// `/api/integrations/{id}/credentials` requires `integrations.credentials.manage`, so a viewer
+// without the grant gets an expected 403 that the permission notice already explains. Opting out
+// of the global forbidden handling keeps it from raising an "Access denied" flash and throwing.
+const credentialsRequestHeaders = { 'x-om-forbidden-redirect': '0' } as const
+
 function isEditableCredentialField(field: CredentialField): boolean {
   return !UNSUPPORTED_CREDENTIAL_FIELD_TYPES.has(field.type)
 }
@@ -521,7 +526,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
       updatedAt?: string | null
     }>(
       `/api/integrations/${encodeURIComponent(currentIntegrationId)}/credentials`,
-      undefined,
+      { headers: credentialsRequestHeaders },
       { fallback: null },
     )
     if (call.ok && call.result) {
