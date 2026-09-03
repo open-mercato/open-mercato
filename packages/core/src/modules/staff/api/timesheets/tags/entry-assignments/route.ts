@@ -14,6 +14,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { parseScopedCommandInput } from '@open-mercato/shared/lib/api/scoped'
@@ -232,6 +233,10 @@ export async function POST(req: Request) {
   try {
     return await handle(req, staffTimeTagCommandIds.assignEntry, 'create')
   } catch (err) {
+    const interceptorRejection = getCommandInterceptorHttpRejection(err)
+    if (interceptorRejection) {
+      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
+    }
     return errorResponse(err, 'staff.timesheets.tags.entry-assignments.POST failed')
   }
 }
@@ -240,6 +245,10 @@ export async function DELETE(req: Request) {
   try {
     return await handle(req, staffTimeTagCommandIds.unassignEntry, 'delete')
   } catch (err) {
+    const interceptorRejection = getCommandInterceptorHttpRejection(err)
+    if (interceptorRejection) {
+      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
+    }
     return errorResponse(err, 'staff.timesheets.tags.entry-assignments.DELETE failed')
   }
 }

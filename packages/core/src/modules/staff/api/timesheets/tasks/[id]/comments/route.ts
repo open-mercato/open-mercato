@@ -36,6 +36,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -397,6 +398,10 @@ export async function POST(req: Request) {
     )
     return withOperationHeader(response, logEntry, result?.commentId ?? route.taskId)
   } catch (err) {
+    const interceptorRejection = getCommandInterceptorHttpRejection(err)
+    if (interceptorRejection) {
+      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
+    }
     return errorResponse(err, 'staff.timesheets.tasks.comments.POST failed')
   }
 }
@@ -425,6 +430,10 @@ export async function PUT(req: Request) {
 
     return withOperationHeader(NextResponse.json({ ok: true }), logEntry, input.id)
   } catch (err) {
+    const interceptorRejection = getCommandInterceptorHttpRejection(err)
+    if (interceptorRejection) {
+      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
+    }
     return errorResponse(err, 'staff.timesheets.tasks.comments.PUT failed')
   }
 }
@@ -453,6 +462,10 @@ export async function DELETE(req: Request) {
 
     return withOperationHeader(NextResponse.json({ ok: true }), logEntry, id)
   } catch (err) {
+    const interceptorRejection = getCommandInterceptorHttpRejection(err)
+    if (interceptorRejection) {
+      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
+    }
     return errorResponse(err, 'staff.timesheets.tasks.comments.DELETE failed')
   }
 }

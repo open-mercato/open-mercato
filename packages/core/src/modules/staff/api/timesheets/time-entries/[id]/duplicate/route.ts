@@ -42,6 +42,7 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { emitStaffEvent } from '../../../../../events'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import { StaffTimeEntry } from '../../../../../data/entities'
@@ -254,6 +255,10 @@ export async function POST(req: Request) {
   } catch (err) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
+    }
+    const interceptorRejection = getCommandInterceptorHttpRejection(err)
+    if (interceptorRejection) {
+      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
     }
     const { translate } = await resolveTranslations()
     if (err instanceof z.ZodError) {

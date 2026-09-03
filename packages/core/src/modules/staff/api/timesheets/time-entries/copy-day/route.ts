@@ -60,6 +60,7 @@ import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { emitStaffEvent } from '../../../../events'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import { StaffTimeEntry, StaffTimeEntryTag } from '../../../../data/entities'
@@ -403,12 +404,25 @@ export async function POST(req: Request) {
         // project soft-deleted, say. The day is a set of drafts, so one source
         // that cannot be copied is reported beside the locked ones instead of
         // discarding the copies that already landed.
+        //
+        // A command interceptor that refuses one source with an explicit status is
+        // that same per-source refusal, so it is reported here rather than in the
+        // route-level catch: this is the clause the rejection actually reaches, and
+        // aborting the day from it would strand the copies already committed. The
+        // batch contract carries no per-item status, so the interceptor's message
+        // travels on the skipped row instead of degrading to `null`.
+        const interceptorRejection = getCommandInterceptorHttpRejection(err)
+        const skippedError = interceptorRejection
+          ? String(interceptorRejection.body.error ?? '') || null
+          : isCrudHttpError(err)
+            ? String((err.body as { error?: unknown })?.error ?? '') || null
+            : null
         logger.warn('staff.timesheets.time-entries.copy-day source copy failed', { err, sourceId: entry.id })
         skipped.push({
           id: entry.id,
           reason: COPY_FAILED_REASON,
           lockedReportId: null,
-          error: isCrudHttpError(err) ? String((err.body as { error?: unknown })?.error ?? '') || null : null,
+          error: skippedError,
         })
       }
     }

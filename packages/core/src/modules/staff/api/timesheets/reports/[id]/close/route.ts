@@ -21,6 +21,7 @@ import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { STAFF_TIME_TRACKING_RESOURCE_KINDS } from '../../../../guards'
@@ -151,6 +152,10 @@ export async function POST(req: Request) {
   } catch (err) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
+    }
+    const interceptorRejection = getCommandInterceptorHttpRejection(err)
+    if (interceptorRejection) {
+      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
     }
     const { translate } = await resolveTranslations()
     if (err instanceof z.ZodError) {
