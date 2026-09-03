@@ -1,7 +1,7 @@
 "use client"
 import { createContext, useContext, useMemo, type PropsWithChildren } from 'react'
 import type { Locale } from './config'
-import { getSupportedLocales } from './locale-registry'
+import { getSupportedLocales } from './locale-set'
 
 export type Dict = Record<string, string>
 

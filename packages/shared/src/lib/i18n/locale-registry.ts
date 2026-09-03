@@ -1,33 +1,34 @@
-import { locales, type Locale } from './config'
+import { defaultLocale, locales, type Locale } from './config'
 import { invalidateDictionaryCache } from './dictionary-cache'
 import { isValidIso639 } from './iso639'
 import { createLogger } from '../logger'
+import {
+  addRegisteredLocale,
+  clearRegisteredLocaleSet,
+  getSupportedLocales,
+  normalizeLocaleCode,
+} from './locale-set'
 
-const logger = createLogger('shared').child({ component: 'i18n-locale-registry' })
-
-// Registration pattern for publishable packages.
-// Use globalThis to survive tsx/esbuild module duplication where the same file
-// can be loaded as multiple module instances when mixing dynamic and static
-// imports. The registry and the dictionary cache it invalidates must stay
-// coherent across those instances. Mirrors `../modules/registry.ts` and
-// `./dictionary-cache.ts`.
-const GLOBAL_KEY = '__openMercatoI18nLocaleRegistry__'
-
-type LocaleRegistryGlobalScope = typeof globalThis & {
-  [GLOBAL_KEY]?: Set<string>
+// Constructed lazily rather than at module scope: a module-level factory call is
+// a side effect no bundler can drop, which would pin this whole module — and the
+// logger facade behind it — into any bundle that merely imports one of its
+// tree-shakeable exports.
+let cachedLogger: ReturnType<typeof createLogger> | null = null
+function logger() {
+  if (!cachedLogger) cachedLogger = createLogger('shared').child({ component: 'i18n-locale-registry' })
+  return cachedLogger
 }
 
-function getRegistered(): Set<string> {
-  const globalScope = globalThis as LocaleRegistryGlobalScope
-  if (!globalScope[GLOBAL_KEY]) {
-    globalScope[GLOBAL_KEY] = new Set<string>()
-  }
-  return globalScope[GLOBAL_KEY]
-}
-
-function normalizeLocaleCode(value: string): string {
-  return value.trim().toLowerCase().replace(/_/g, '-')
-}
+// The read side lives in `./locale-set`, which has no dependencies beyond
+// `./config` so client bundles can import it without pulling in the logger, the
+// ISO 639 table or the dictionary cache. Re-exported here so `locale-registry`
+// remains the one import path callers need to know about.
+export {
+  getSupportedLocales,
+  isSupportedLocale,
+  getRegisteredLocales,
+  normalizeLocaleCode,
+} from './locale-set'
 
 /**
  * Register additional locales this application serves on top of the ones the
@@ -44,22 +45,19 @@ function normalizeLocaleCode(value: string): string {
  * re-registering the shipped locales is a no-op.
  */
 export function registerLocales(codes: readonly string[]): void {
-  const registered = getRegistered()
   let added = false
 
   for (const code of codes) {
     const normalized = normalizeLocaleCode(code)
     if (!normalized) continue
     if ((locales as readonly string[]).includes(normalized)) continue
-    if (registered.has(normalized)) continue
     // Region subtags (`pt-br`) are normalized but validated on their base code,
     // matching how `resolveSupportedLocale` folds a region down to its language.
     if (!isValidIso639(normalized.split('-')[0] ?? normalized)) {
-      logger.warn('Ignoring unknown locale code', { code })
+      logger().warn('Ignoring unknown locale code', { code })
       continue
     }
-    registered.add(normalized)
-    added = true
+    if (addRegisteredLocale(normalized)) added = true
   }
 
   // The dictionary a locale resolves to is derived from the supported set, so a
@@ -67,34 +65,9 @@ export function registerLocales(codes: readonly string[]): void {
   if (added) invalidateDictionaryCache()
 }
 
-/**
- * Every locale this application can serve: the platform baseline plus anything
- * registered by the app. The single runtime authority on the locale set — prefer
- * it over importing `locales` directly anywhere a user-supplied value is being
- * validated or a locale list is being rendered.
- */
-export function getSupportedLocales(): readonly Locale[] {
-  const registered = getRegistered()
-  if (registered.size === 0) return locales
-  return [...locales, ...registered] as Locale[]
-}
-
-/** True when `code` is a locale this application serves. */
-export function isSupportedLocale(code: string): boolean {
-  return (getSupportedLocales() as readonly string[]).includes(code)
-}
-
-/** Locales registered by the app, excluding the platform baseline. Test seam. */
-export function getRegisteredLocales(): readonly string[] {
-  return [...getRegistered()]
-}
-
 /** Drop every app-registered locale. Intended for tests. */
 export function clearRegisteredLocales(): void {
-  const registered = getRegistered()
-  if (registered.size === 0) return
-  registered.clear()
-  invalidateDictionaryCache()
+  if (clearRegisteredLocaleSet()) invalidateDictionaryCache()
 }
 
 /**
@@ -117,9 +90,18 @@ type ResolverGlobalScope = typeof globalThis & {
  * here, the same way `registerTranslationOverlayPlugin` inverts the dependency
  * for content translations. With nothing registered the served set is exactly
  * the process-local registry, which is today's behaviour.
+ *
+ * There is one slot: a second registration replaces the first. That is what
+ * makes an enterprise overlay able to take over the tenant lookup, so it is not
+ * an error, but it is warned about — silently losing the `translations` module's
+ * resolver to an accidental second call is otherwise undiagnosable.
  */
 export function registerSupportedLocalesResolver(resolver: SupportedLocalesResolver | null): void {
-  ;(globalThis as ResolverGlobalScope)[RESOLVER_GLOBAL_KEY] = resolver
+  const scope = globalThis as ResolverGlobalScope
+  if (resolver && scope[RESOLVER_GLOBAL_KEY]) {
+    logger().warn('Replacing an already-registered supported-locales resolver')
+  }
+  scope[RESOLVER_GLOBAL_KEY] = resolver
 }
 
 /**
@@ -142,10 +124,19 @@ export async function resolveSupportedLocalesForRequest(): Promise<readonly Loca
     if (!configured || configured.length === 0) return available
 
     const selected = new Set(configured.map(normalizeLocaleCode))
-    const served = available.filter((locale) => selected.has(locale))
-    return served.length > 0 ? served : available
+    if (!available.some((locale) => selected.has(locale))) return available
+
+    // `detectLocale` falls back to `defaultLocale` whenever neither the cookie
+    // nor Accept-Language matches, so the default has to stay servable. Without
+    // this, a tenant selecting only `['pl','de']` renders an English page whose
+    // own switcher does not list English: a blank Select trigger, no checked row
+    // in the profile menu, and no way for the user to get back.
+    selected.add(defaultLocale)
+    // Filtering `available` rather than mapping the selection preserves the
+    // platform's locale ordering instead of the tenant's.
+    return available.filter((locale) => selected.has(locale))
   } catch (err) {
-    logger.warn('Failed to resolve tenant supported locales; serving the full set', { err })
+    logger().warn('Failed to resolve tenant supported locales; serving the full set', { err })
     return available
   }
 }

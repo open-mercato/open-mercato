@@ -19,7 +19,19 @@ const SHIPPED_LOCALE_LABELS: Record<string, ShippedLocaleLabel> = {
   ko: { key: 'common.languages.korean', native: '한국어' },
 }
 
+// `resolveLocaleLabel` is called once per option per render of every language
+// switcher, and constructing an `Intl.DisplayNames` is not free. The answer for
+// a given code never changes within a process.
+const intlDisplayNames = new Map<string, string | undefined>()
+
 function resolveIntlDisplayName(locale: string): string | undefined {
+  if (intlDisplayNames.has(locale)) return intlDisplayNames.get(locale)
+  const resolved = computeIntlDisplayName(locale)
+  intlDisplayNames.set(locale, resolved)
+  return resolved
+}
+
+function computeIntlDisplayName(locale: string): string | undefined {
   try {
     // Ask for the language's name in its own language, so a switcher reads the
     // way a speaker of that language expects it to.

@@ -179,5 +179,89 @@ describe('locale registry', () => {
 
       await expect(resolveSupportedLocalesForRequest()).resolves.toEqual(['en', 'pl', 'es', 'de', 'ko'])
     })
+
+    describe('keeping the default locale servable', () => {
+      // `detectLocale` falls back to `defaultLocale` whenever neither the cookie
+      // nor Accept-Language matches. If the served set could exclude it, the page
+      // would render a language its own switcher does not list.
+      it('keeps the default locale in a selection that omits it', async () => {
+        registerSupportedLocalesResolver(async () => ['pl', 'de'])
+
+        await expect(resolveSupportedLocalesForRequest()).resolves.toEqual(['en', 'pl', 'de'])
+      })
+
+      it('keeps the platform ordering when it adds the default back', async () => {
+        registerSupportedLocalesResolver(async () => ['ko', 'de'])
+
+        await expect(resolveSupportedLocalesForRequest()).resolves.toEqual(['en', 'de', 'ko'])
+      })
+
+      it('does not duplicate the default locale when the selection includes it', async () => {
+        registerSupportedLocalesResolver(async () => ['en', 'pl'])
+
+        await expect(resolveSupportedLocalesForRequest()).resolves.toEqual(['en', 'pl'])
+      })
+
+      it('does not resurrect the default from a selection that matches nothing servable', async () => {
+        // An entirely unservable selection is a typo, not an opinion: the full
+        // set is the right answer, not a one-entry set containing only `en`.
+        registerSupportedLocalesResolver(async () => ['cs', 'fr'])
+
+        await expect(resolveSupportedLocalesForRequest()).resolves.toEqual(['en', 'pl', 'es', 'de', 'ko'])
+      })
+
+      it('always contains a locale `detectLocale` is allowed to return', async () => {
+        registerLocales(['cs'])
+        registerSupportedLocalesResolver(async () => ['pl', 'cs'])
+
+        const served = await resolveSupportedLocalesForRequest()
+
+        expect(served).toContain(defaultLocale)
+      })
+    })
+  })
+
+  describe('array identity', () => {
+    // `useSupportedLocales()` hands this array straight to callers, so a fresh
+    // identity on every call re-fires any `useEffect`/`useMemo` depending on it.
+    it('is stable across calls once a locale is registered', () => {
+      registerLocales(['cs'])
+
+      expect(getSupportedLocales()).toBe(getSupportedLocales())
+    })
+
+    it('changes identity when the set actually changes', () => {
+      const before = getSupportedLocales()
+      registerLocales(['cs'])
+
+      expect(getSupportedLocales()).not.toBe(before)
+    })
+
+    it('returns to the `locales` instance after clearing', () => {
+      registerLocales(['cs'])
+      clearRegisteredLocales()
+
+      expect(getSupportedLocales()).toBe(locales)
+    })
+  })
+
+  describe('isSupportedLocale normalization', () => {
+    // `registerLocales` normalizes what it stores, so the membership test has to
+    // normalize what it is asked about or the two disagree.
+    it('accepts a shipped locale regardless of case and padding', () => {
+      expect(isSupportedLocale('EN')).toBe(true)
+      expect(isSupportedLocale('  pl  ')).toBe(true)
+    })
+
+    it('accepts the canonical BCP-47 form of a registered region locale', () => {
+      registerLocales(['pt_BR'])
+
+      expect(isSupportedLocale('pt-BR')).toBe(true)
+      expect(isSupportedLocale('pt-br')).toBe(true)
+    })
+
+    it('still rejects a locale nobody registered', () => {
+      expect(isSupportedLocale('CS')).toBe(false)
+    })
   })
 })

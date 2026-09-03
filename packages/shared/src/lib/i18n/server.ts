@@ -68,7 +68,14 @@ export async function detectLocale(options?: DetectLocaleOptions): Promise<Local
   } catch {
     // next/headers not available (CLI context)
   }
-  return defaultLocale
+  // The caller may have narrowed the set past the default locale, and returning
+  // a locale outside the served set would render a page whose own language
+  // switcher does not offer the language it is written in.
+  // `resolveSupportedLocalesForRequest` keeps `defaultLocale` in the set for
+  // exactly this reason; the `supported[0]` arm covers a caller that narrowed by
+  // hand and did not.
+  if (supported.includes(defaultLocale)) return defaultLocale
+  return supported[0] ?? defaultLocale
 }
 
 export async function loadDictionary(locale: Locale): Promise<Dict> {

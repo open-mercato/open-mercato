@@ -1,5 +1,5 @@
 import type { Locale } from './config'
-import { getSupportedLocales } from './locale-registry'
+import { getSupportedLocales } from './locale-set'
 
 function normalizeLocaleToken(value: string): string {
   return value.trim().toLowerCase().replace(/_/g, '-')

@@ -91,7 +91,20 @@ document the same reason: tsx/esbuild can load one file as several module instan
   invalidates the dictionary cache, idempotent, and **warns rather than throws** on an unknown
   code so one bad entry cannot take an app down at boot.
 - `getSupportedLocales()` — the platform baseline plus registered extras. Returns the `locales`
-  array itself when nothing is registered, so the zero-config path allocates nothing.
+  array itself when nothing is registered, so the zero-config path allocates nothing, and memoizes
+  the merged array otherwise so its identity is stable between mutations (`useSupportedLocales()`
+  hands it straight to callers, and a fresh array per render would re-fire any `useEffect`
+  depending on it).
+- `isSupportedLocale(code)` — normalizes its argument the same way `registerLocales` normalizes
+  what it stores, so the two cannot disagree about `pt-BR` vs `pt-br`.
+
+The read side (`getSupportedLocales`, `isSupportedLocale`, `getRegisteredLocales`,
+`normalizeLocaleCode`) lives in a separate `locale-set.ts` whose only import is `./config`, and
+`locale-registry.ts` re-exports it so callers still have one import path. The split is what keeps
+`context.tsx` — a `"use client"` module — from dragging the logger facade, the dictionary cache and
+the ISO 639 table into every route that mounts `I18nProvider`: `locale-registry.ts` constructs its
+logger lazily rather than at module scope for the same reason, since a module-level factory call is
+a side effect no bundler can drop.
 
 `locales` and `defaultLocale` keep their names, types and values. Consumers that validate user
 input moved from the static array to `getSupportedLocales()`: `resolveSupportedLocale`,
@@ -140,6 +153,19 @@ Intersecting rather than replacing means a code configured but with no dictionar
 it can never reach a language switcher, so a typo in the settings screen cannot strand a tenant
 in a broken UI. An empty intersection falls back to the full set for the same reason, and the
 resolver never throws — it runs in the root layout, where a failure would take down every page.
+
+`defaultLocale` is always kept in a non-empty served set. `detectLocale` falls back to it whenever
+neither the cookie nor `Accept-Language` matches, so a served set that excluded it would render a
+page in a language the page's own switcher does not offer — a blank `Select` trigger, no checked
+row in the profile menu, and no way for the user to get back. A selection that matches *nothing*
+servable is treated as a typo rather than an opinion and still falls back to the full set, so the
+default is not resurrected into a one-entry set. `detectLocale` re-checks its own fallback against
+the set it was handed, so a caller that narrows by hand cannot reintroduce the same hole.
+
+Because this repurposes an **existing** persisted setting — until now it drove only the
+content-translation editor — the upgrade note for it is a standalone, load-bearing heading with a
+pre-upgrade instruction, not a footnote on a "no action required" entry. Tenants who narrowed the
+selection for content-translation reasons would otherwise silently lose UI languages on deploy.
 
 ### 6. Dictionary fallback
 
@@ -277,7 +303,8 @@ baseline now receives the default-locale dictionary as a base layer. This cannot
 |---|----------|----------|------|------------|----------|
 | 1 | `Locale` accidentally degrades to `string` in a later refactor, silently deleting exhaustiveness everywhere | High | `packages/shared` | `config.typecheck.tsx` asserts `Locale` is mutually assignable with the five-member union and **not** with `string`; `locale-augmentation.test.ts` compiles fixtures with the real compiler | Low |
 | 2 | Types claim a locale the running app never registered (declaration merging applies to *installed*, not *enabled*, packages — a documented Fastify pitfall) | Medium | app typecheck | The runtime registry is the sole authority; every validation point calls `getSupportedLocales()`/`isSupportedLocale()` rather than trusting the type | Low |
-| 3 | A tenant configures a locale with no dictionary and strands its users | Medium | `translations` | The served set is intersected with what is servable; an empty intersection falls back to the full set | Low |
+| 3 | A tenant configures a locale with no dictionary and strands its users | Medium | `translations` | The served set is intersected with what is servable; an empty intersection falls back to the full set; `defaultLocale` is always kept servable so the rendered locale is always selectable | Low |
+| 3b | An existing tenant that narrowed `translations.supported_locales` for the content editor silently loses UI languages on upgrade | High | `translations` | Standalone UPGRADE_NOTES heading with an explicit pre-upgrade review instruction; `defaultLocale` guarantee bounds the worst case | Medium |
 | 4 | The tenant-config read fails or is slow in the root layout, breaking every page | High | root layout | The resolver is wrapped in try/catch at two levels and falls back to the full set; `ModuleConfigService` caches 60s with tag invalidation; the read is skipped entirely for anonymous requests | Low |
 | 5 | A module-scope snapshot of the locale set rejects a later-registered locale for the process lifetime | Medium | `/api/auth/locale` | Both the `Set` and the zod enum were replaced with per-request evaluation | Low |
 | 6 | Rendered language labels change for existing locales | Medium | `packages/ui`, `packages/checkout` | The shipped five keep hand-written labels (measured: `Intl` returns lowercase `español`/`polski`); `locale-label.test.ts` pins all five in both the translator and no-translator modes | Low |
