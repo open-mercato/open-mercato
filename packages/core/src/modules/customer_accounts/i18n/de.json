@@ -274,6 +274,7 @@
   "customer_accounts.domainMapping.tls.diagnostics.title": "SSL certificate issue",
   "customer_accounts.domainMapping.tls.retryButton": "Retry SSL",
   "customer_accounts.domainMapping.verifyNow": "Check Now",
+  "customer_accounts.errors.emailAlreadyExists": "Es existiert bereits ein Konto mit dieser E-Mail-Adresse",
   "customer_accounts.invitation.email.body": "Use this secure invitation link to create your password and access the customer portal.",
   "customer_accounts.invitation.email.cta": "Accept invitation",
   "customer_accounts.invitation.email.hint": "This invitation link expires in 72 hours. If you did not expect this invitation, you can ignore this email.",

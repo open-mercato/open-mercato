@@ -11,6 +11,7 @@ import { CustomerSessionService } from '@open-mercato/core/modules/customer_acco
 import { CustomerRbacService } from '@open-mercato/core/modules/customer_accounts/services/customerRbacService'
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
 import { getClientIp } from '@open-mercato/shared/lib/ratelimit/helpers'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
 
@@ -41,7 +42,11 @@ export async function POST(req: Request) {
     )
   } catch (error) {
     if (error instanceof CustomerInvitationEmailConflictError) {
-      return NextResponse.json({ ok: false, error: 'An account with this email address already exists' }, { status: 409 })
+      const { translate } = await resolveTranslations()
+      return NextResponse.json({
+        ok: false,
+        error: translate('customer_accounts.errors.emailAlreadyExists', 'An account with this email address already exists'),
+      }, { status: 409 })
     }
     throw error
   }

@@ -1,3 +1,4 @@
+import { UniqueConstraintViolationException } from '@mikro-orm/core'
 import { EntityManager } from '@mikro-orm/postgresql'
 import { hash } from 'bcryptjs'
 import {
@@ -7,7 +8,7 @@ import {
   CustomerRole,
 } from '@open-mercato/core/modules/customer_accounts/data/entities'
 import { generateSecureToken, hashToken } from '@open-mercato/core/modules/customer_accounts/lib/tokenGenerator'
-import { hashForLookup } from '@open-mercato/shared/lib/encryption/aes'
+import { hashForLookup, lookupHashCandidates } from '@open-mercato/shared/lib/encryption/aes'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 const BCRYPT_COST = 10
@@ -15,7 +16,7 @@ const INVITATION_TTL_MS = 72 * 60 * 60 * 1000 // 72 hours
 
 export class CustomerInvitationEmailConflictError extends Error {
   constructor(public readonly email: string) {
-    super(`An account with the email address ${email} already exists`)
+    super('[internal] An account with this email address already exists')
     this.name = 'CustomerInvitationEmailConflictError'
   }
 }
@@ -170,12 +171,14 @@ export class CustomerInvitationService {
     // index only applies to non-deleted rows), but an active account with the
     // same email is a genuine conflict — fail with a domain error here instead
     // of letting the DB unique-constraint violation surface as a raw 500.
+    // The lookup matches both hash formats: rows written before the keyed digest
+    // still carry the legacy hash, and the partial index cannot relate the two.
     const existingActiveUser = await findOneWithDecryption(
       this.em,
       CustomerUser,
       {
         tenantId: invitation.tenantId,
-        emailHash,
+        emailHash: { $in: lookupHashCandidates(invitation.email) },
         deletedAt: null,
       } as any,
       undefined,
@@ -232,7 +235,18 @@ export class CustomerInvitationService {
     // Mark invitation as accepted
     invitation.acceptedAt = new Date()
 
-    await this.em.flush()
+    // The guard above is only the friendly fast path: it and this write are
+    // separated by a bcrypt hash and a role query, so two concurrent accepts can
+    // both pass it. The partial unique index is the real authority — translate
+    // its violation onto the same domain error so both paths answer 409.
+    try {
+      await this.em.flush()
+    } catch (error) {
+      if (error instanceof UniqueConstraintViolationException) {
+        throw new CustomerInvitationEmailConflictError(invitation.email)
+      }
+      throw error
+    }
     return { user, invitation }
   }
 }
