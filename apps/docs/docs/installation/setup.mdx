@@ -77,6 +77,8 @@ Follow these steps after the [prerequisites](./prerequisites) are in place:
    yarn install-skills
    ```
    `yarn install` does not install agent skills. This command installs the repo's committed local-tier skills together with the full shared [open-mercato/skills](https://github.com/open-mercato/skills) collection (`om-code-review`, `om-auto-review-pr`, `om-auto-fix-pr`, `om-merge-buddy`, and others) into the gitignored `.agents/skills/` directory. Run it once per clone/worktree if you plan to use Codex, Claude Code, Cursor, or another supported coding agent; re-run it any time to refresh the collection. See [`.ai/skills/README.md`](https://github.com/open-mercato/open-mercato/blob/develop/.ai/skills/README.md) for the tier system and `--list`/`--clean` flags. A Docker equivalent, `yarn docker:install-skills`, is documented in [Docker Wrapper Commands](#docker-wrapper-commands).
+
+   This step is intentionally manual and is deliberately **not** wired into `yarn install` or a `postinstall` hook: it downloads an external collection over the network, and contributors who do not use an AI coding agent should not pay that cost on every install.
 5. **Copy the environment template**
    ```bash
    cp apps/mercato/.env.example apps/mercato/.env

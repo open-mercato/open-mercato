@@ -40,3 +40,19 @@ test('setup docs and README reference real install-skills scripts', async () => 
     'README.md AI-engineering section must reference the repo-specific `yarn install-skills` command',
   );
 });
+
+// #5773 also asks the docs to say that the manual step is a deliberate design decision, not an
+// oversight, so nobody "fixes" it by wiring the network-bound install into every `yarn install`.
+test('setup docs record that the skill install is intentionally not a postinstall hook', async () => {
+  const setupDoc = await readFile(setupDocUrl, 'utf8');
+  assert.match(
+    setupDoc,
+    /postinstall/,
+    'setup.mdx must name `postinstall` when explaining why the skill install stays manual',
+  );
+  assert.match(
+    setupDoc,
+    /(intentionally|deliberately)[^.]*\bmanual\b|\bmanual\b[^.]*(intentionally|deliberately)/,
+    'setup.mdx must state that keeping the skill install manual is intentional',
+  );
+});
