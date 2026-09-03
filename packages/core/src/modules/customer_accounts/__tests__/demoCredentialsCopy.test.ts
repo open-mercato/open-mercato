@@ -44,7 +44,7 @@ describe('customer_accounts demo credential copy (regression for issue #3198)', 
 
   it('users page banner fallback copy matches the seeded example password', () => {
     const page = fs.readFileSync(
-      path.join(moduleDir, 'backend', 'customer_accounts', 'users', 'page.tsx'),
+      path.join(moduleDir, 'backend', 'customer_accounts', 'users', 'PortalUsersPageClient.tsx'),
       'utf8',
     )
     const match = page.match(

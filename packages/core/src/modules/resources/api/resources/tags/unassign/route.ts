@@ -18,6 +18,7 @@ import {
   type ResourcesResourceTagAssignmentInput,
 } from '../../../../data/validators'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 
 const logger = createLogger('resources').child({ component: 'tags' })
 
@@ -111,6 +112,10 @@ export async function POST(req: Request) {
   } catch (err) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
+    }
+    const interceptorRejection = getCommandInterceptorHttpRejection(err)
+    if (interceptorRejection) {
+      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
     }
     const { translate } = await resolveTranslations()
     logger.error('Tag unassign failed', { err })
