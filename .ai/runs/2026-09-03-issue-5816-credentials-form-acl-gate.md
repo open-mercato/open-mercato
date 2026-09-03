@@ -61,5 +61,11 @@ The integration detail page must stop offering an editable credentials form and 
 
 ### Phase 3: Finalize
 
-- [ ] 3.1 Post the comprehensive resume summary comment on PR #5843
-- [ ] 3.2 Update the PR body to `Status: complete`, promote the draft with `mark-pr-ready`, reconfirm the label set, and release the `in-progress` lock
+- [x] 3.1 Post the comprehensive resume summary comment on PR #5843 — 98b858f8a (comment #5522660102)
+- [x] 3.2 Update the PR body to `Status: complete`, promote the draft with `mark-pr-ready`, reconfirm the label set, and release the `in-progress` lock — 98b858f8a
+
+### Follow-ups this run deliberately did not do
+
+- The "Check health" action on the same page is ungated in the same way (`POST /api/integrations/{id}/health` returns `403` for a viewer without `integrations.manage`, per #5816's evidence table). Out of scope for #5816's stated expectation; wants its own issue.
+- The feature-check hook now exists in three near-identical copies (`useWebhookFeatureAccess`, `useWmsInventoryMutationAccess`, `useIntegrationCredentialsFeatureAccess`). Extracting a shared `useFeatureAccess(features)` helper pairs naturally with the health-action fix above.
+- Two untested branches in the credentials gate: the in-flight spinner, and the fail-closed path where `/api/auth/feature-check` rejects outright.
