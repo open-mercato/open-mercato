@@ -81,5 +81,6 @@ acceptance box in issue #5656 and matching the pattern PR #5643 established on t
 
 ### Phase 3: Validation and review
 
-- [ ] 3.1 Run the full `validation.commands` gate green
-- [ ] 3.2 Run the authoritative `om-auto-review-pr --autofix` pass and land any resulting fixes
+- [x] 3.1 Run the full `validation.commands` gate green — d8fb7450 (gate run; three packages fail for pre-existing environment reasons documented in the resume summary)
+- [x] 3.2 Run the authoritative `om-auto-review-pr --autofix` pass and land any resulting fixes — d8fb7450
+- [x] Post-review fix: inline the 14 vestigial `const current<X>Id = <x>Id` aliases the removed callbacks left behind — d8fb7450
