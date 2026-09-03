@@ -458,6 +458,7 @@
   "customers.changelog.previous": "이전",
   "customers.changelog.showing": "전체 {{total}}건 중 {{shown}}건 표시",
   "customers.changelog.showingWithPeriod": "전체 {{total}}건 중 {{shown}}건 표시 · 최근 {{days}}일",
+  "customers.changelog.source.agent": "Agent",
   "customers.changelog.source.api": "API",
   "customers.changelog.source.system": "시스템",
   "customers.changelog.source.ui": "UI",
@@ -2866,5 +2867,8 @@
   "customers.workPlan.customerTodos.table.state.empty": "고객 관련 작업이 아직 없습니다.",
   "customers.workPlan.customerTodos.table.state.noMatches": "필터와 일치하는 작업이 없습니다.",
   "customers.workPlan.customerTodos.table.title": "고객 관련 작업",
+  "customers.workflows.commands.companies.update": "Update company",
+  "customers.workflows.commands.deals.update": "Update deal",
+  "customers.workflows.commands.people.update": "Update person",
   "notifications.categories.customers": "고객"
 }

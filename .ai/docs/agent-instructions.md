@@ -37,16 +37,19 @@ file; long-form procedure, tables of options and worked examples move into a ref
 ## Where to run validation commands
 
 Decide once per gate sequence, then record the chosen runner in your output (e.g.
-`Runner: docker (docker-compose.fullapp.dev.yml)` or `Runner: local`):
+`Runner: docker (starters/docker/compose.fullapp.dev.yml)` or `Runner: local`):
 
 - If `DOCKER_COMPOSE_FILE` is set, use Docker mode with that file.
-- Otherwise probe, in order, `docker-compose.*dev*.local.yml` (sorted),
-  `docker-compose.fullapp.dev.yml`, `docker-compose.fullapp.yml` with
-  `docker compose -f <file> ps --status running -q app`; the first file with a running `app`
-  container wins → Docker mode.
+- Otherwise probe, in order, `starters/docker/compose.*dev*.local.yml` (sorted), legacy root
+  `docker-compose.*dev*.local.yml` (sorted), `starters/docker/compose.fullapp.dev.yml`,
+  `starters/docker/compose.fullapp.yml` with
+  `docker compose --project-directory . -f <file> ps --status running -q app`; the first file
+  with a running `app` container wins → Docker mode.
 - None running → local mode (`yarn …` on the host).
 
-In Docker mode replace each `yarn X` with `node scripts/docker-exec.mjs X`.
+In Docker mode replace each `yarn X` with `node scripts/docker-exec.mjs X`. Always pass
+`--project-directory .` (repo root) with any `-f starters/docker/...` compose command — it
+anchors `.env` interpolation and relative paths at the repo root.
 
 ## Boundary labels
 

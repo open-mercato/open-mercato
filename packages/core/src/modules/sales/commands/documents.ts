@@ -5451,11 +5451,55 @@ const updateQuoteCommand: CommandHandler<
   },
 };
 
+/**
+ * Output contracts for the order commands, consumed by the workflows context
+ * ledger through `commandRegistry.outputSchemaOf`.
+ *
+ * `sales.orders.update` genuinely returns the mutated `SalesOrder` entity, not
+ * an id — so the schema describes the entity's own scalar columns. It is a
+ * curated subset, not the whole entity: relation properties (`channel`,
+ * `shippingMethod`, `lines`) are ORM references that do not survive the JSON
+ * context column, and the jsonb snapshot blobs carry no pickable shape. Zod
+ * objects do not claim exhaustiveness, so naming a subset stays honest while
+ * keeping the variable picker readable.
+ */
+const orderEntityOutputSchema = z.object({
+  id: z.string().uuid(),
+  organizationId: z.string().uuid(),
+  tenantId: z.string().uuid(),
+  orderNumber: z.string(),
+  channelId: z.string().uuid().nullable().optional(),
+  customerEntityId: z.string().uuid().nullable().optional(),
+  currencyCode: z.string(),
+  status: z.string().nullable().optional(),
+  statusEntryId: z.string().uuid().nullable().optional(),
+  fulfillmentStatus: z.string().nullable().optional(),
+  paymentStatus: z.string().nullable().optional(),
+  subtotalNetAmount: z.string(),
+  subtotalGrossAmount: z.string(),
+  discountTotalAmount: z.string(),
+  taxTotalAmount: z.string(),
+  grandTotalNetAmount: z.string(),
+  grandTotalGrossAmount: z.string(),
+  paidTotalAmount: z.string(),
+  outstandingAmount: z.string(),
+  lineItemCount: z.number(),
+  placedAt: z.date().nullable().optional(),
+  dueAt: z.date().nullable().optional(),
+  createdAt: z.date(),
+  updatedAt: z.date(),
+});
+
+const orderUpdateOutputSchema = z.object({ order: orderEntityOutputSchema });
+
+const orderIdOutputSchema = z.object({ orderId: z.string().uuid() });
+
 const updateOrderCommand: CommandHandler<
   DocumentUpdateInput,
   { order: SalesOrder }
 > = {
   id: "sales.orders.update",
+  outputSchema: orderUpdateOutputSchema,
   async prepare(input, ctx) {
     const parsed = documentUpdateSchema.parse(input ?? {});
     const em = ctx.container.resolve("em") as EntityManager;
@@ -5700,6 +5744,7 @@ const createOrderCommand: CommandHandler<
   { orderId: string; warnings?: OrderPaymentLedgerWarning[] }
 > = {
   id: "sales.orders.create",
+  outputSchema: orderIdOutputSchema,
   async execute(rawInput, ctx) {
     const generator = ctx.container.resolve(
       "salesDocumentNumberGenerator",
@@ -6143,6 +6188,7 @@ const deleteOrderCommand: CommandHandler<
   { orderId: string }
 > = {
   id: "sales.orders.delete",
+  outputSchema: orderIdOutputSchema,
   async prepare(input, ctx) {
     const id = requireId(input, "Order id is required");
     const em = ctx.container.resolve("em") as EntityManager;

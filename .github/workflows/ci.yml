@@ -25,6 +25,43 @@ env:
   # Keep build-time and runtime onboarding config aligned so the browser
   # integration suite can exercise the self-service verification flow.
   SELF_SERVICE_ONBOARDING_ENABLED: 'true'
+  # ── Enterprise modules: MUST be set at BUILD time, not just at test time ────
+  # `apps/mercato/src/modules.ts` reads these four flags to decide which
+  # enterprise modules enter `enabledModules`. That decision is consumed by
+  # `yarn generate` in the `prepare` job, which bakes the module registry into
+  # `.mercato/generated/` — and `yarn build:app` compiles that registry into the
+  # Next.js output every integration shard boots. Setting the flags only on the
+  # `ephemeral-integration` job is TOO LATE: the registry is already frozen, so
+  # the app under test contains no enterprise routes.
+  #
+  # The failure mode is deliberately misleading. Spec discovery
+  # (packages/cli/src/lib/testing/integration-discovery.ts) keys enterprise
+  # overlay specs off OM_ENABLE_ENTERPRISE_MODULES alone, so the runner happily
+  # DISCOVERS the enterprise suites while the app it drives has none of the code
+  # they test — every request 404s and the suite fails for a reason that looks
+  # nothing like the cause.
+  #
+  # Set workflow-wide so `prepare` (generate + build:app) and
+  # `ephemeral-integration` (runtime) can never diverge. Do NOT move these back
+  # to a single job. All four are required — the umbrella flag alone does not
+  # enable sso/security/agent_orchestrator.
+  OM_ENABLE_ENTERPRISE_MODULES: 'true'
+  OM_ENABLE_ENTERPRISE_MODULES_SSO: 'true'
+  OM_ENABLE_ENTERPRISE_MODULES_SECURITY: 'true'
+  OM_ENABLE_ENTERPRISE_MODULES_AGENTS: 'true'
+  # turbo 2.x defaults to `envMode: "strict"`, and turbo.json declares only
+  # `globalEnv: ["NODE_ENV"]`. Both `yarn generate` and `yarn build:app` run
+  # through `turbo run`, so in strict mode turbo STRIPS every OM_* variable
+  # above before the task process starts — the workflow env would be silently
+  # discarded and the registry generated with zero enterprise modules.
+  # `loose` passes the full environment through to tasks.
+  #
+  # Caveat worth knowing: loose mode changes only what tasks can SEE, not what
+  # turbo hashes. These flags are still absent from the cache key, so a cached
+  # `build` produced before this change can in principle be restored. Declaring
+  # them in turbo.json `globalEnv` would fix both passthrough and hashing and is
+  # the better long-term fix; it is deliberately left out of this change.
+  TURBO_ENV_MODE: 'loose'
   # NEXT_PUBLIC_* values are inlined by Next.js at build time, so this MUST be
   # workflow-wide: `prepare` builds the app once (`yarn build:app`) and every
   # `ephemeral-integration` shard reuses that artifact. Declaring it only on
@@ -791,9 +828,13 @@ jobs:
       matrix:
         shard: ${{ fromJson(needs.prepare.outputs.shard_matrix) }}
     env:
-      OM_ENABLE_ENTERPRISE_MODULES: 'true'
-      OM_ENABLE_ENTERPRISE_MODULES_SSO: 'true'
-      OM_ENABLE_ENTERPRISE_MODULES_SECURITY: 'true'
+      # OM_ENABLE_ENTERPRISE_MODULES{,_SSO,_SECURITY,_AGENTS} are set at the
+      # WORKFLOW level (top of this file), not here. They were job-level until
+      # the build/runtime split was found: `prepare` never saw them, so the app
+      # these shards boot was built without any enterprise module while this job
+      # still discovered the enterprise specs. Keeping a second copy here would
+      # re-create the two-sources-of-truth problem — read the workflow-level
+      # block before changing enterprise flags.
       # TC-DOCUMENTS-017 owns a disposable loopback collaboration sidecar on
       # the same ephemeral database. The separate documents-multi-instance job
       # proves the Redis-backed two-sidecar path.

@@ -1,10 +1,21 @@
+# Backwards-compatibility duplicate of starters/docker/compose.fullapp.dev.yml — the canonical file
+# lives there; edit that one. scripts/__tests__/root-compose-backcompat.test.mjs
+# enforces byte equality with the source.
+
 # Full stack with app in dev mode: mounted source + yarn dev (watch).
-# Usage: docker compose -f docker-compose.fullapp.dev.yml up --build
+# Usage: docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml up --build
 
 services:
   opencode:
     build:
       context: ./docker/opencode
+      args:
+        # OpenCode is pre-installed in this published base image (see
+        # docker/opencode/BASE_IMAGE.md); the local build only COPYs project
+        # files, so it needs no proxy-hostile network — the FROM pull goes
+        # through the container engine's trust (OS certificate store).
+        # Override to pin a different pushed base tag.
+        OPENCODE_BASE_IMAGE: ${OPENCODE_BASE_IMAGE:-docker.io/openmercatocom/open-mercato-opencode:1.18.3}
     image: opencode-mvp
     container_name: mercato-opencode-${DEPLOY_ENV:-local}
     restart: unless-stopped
@@ -46,6 +57,16 @@ services:
       MCP_SERVER_API_KEY_FILE: /run/mcp-shared/mcp-api-key
     volumes:
       - mcp_shared:/run/mcp-shared:ro
+      # File-defined agents (delivery model A — dev bind-mount). The generator
+      # emits these from `agents/<id>/` dirs; OpenCode loads them on new sessions
+      # (no guaranteed hot-reload — restart this service after `yarn generate`).
+      - ./docker/opencode/agents:/home/opencode/.config/opencode/agents:ro
+      # Native OpenCode skills (Phase 3). Generated from `agents/<id>/skills/`;
+      # loaded on new sessions (restart this service after `yarn generate`).
+      - ./docker/opencode/skills:/home/opencode/.config/opencode/skills:ro
+      # Corporate CA bundle for pulled images (entrypoint exports
+      # SSL_CERT_FILE/NODE_EXTRA_CA_CERTS when certs are present).
+      - ./docker/opencode/certs:/run/om-certs:ro
     ports:
       - "${OPENCODE_PORT:-4096}:4096"
     depends_on:
@@ -159,9 +180,9 @@ services:
   # To run the bundled Traefik in dev, layer the prod-default overlay plus the
   # dev overlay (the dev overlay flips ACME to LE staging so iteration does
   # not burn LE production rate limits):
-  #   docker compose -f docker-compose.fullapp.dev.yml \
-  #     -f docker-compose.fullapp.traefik.yml \
-  #     -f docker-compose.fullapp.traefik.dev.yml up --build
+  #   docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml \
+  #     -f starters/docker/compose.fullapp.traefik.yml \
+  #     -f starters/docker/compose.fullapp.traefik.dev.yml up --build
 
   # One-shot: raise the shared WSL2/Linux kernel's inotify limits before the
   # app starts watching. Turbopack watches the whole repo via inotify and does
@@ -192,13 +213,17 @@ services:
     build:
       context: .
       target: dev
+      args:
+        # Optional internal Alpine mirror for proxy-blocked corporate networks
+        # (empty = official CDN; see the Dockerfile builder stage comment).
+        - ALPINE_MIRROR=${ALPINE_MIRROR:-}
     image: open-mercato/app:${DEPLOY_ENV:-local}-dev
     # Without a restart policy the app stays down after a daemon/host reboot
     # while mcp and opencode (restart: unless-stopped) wait on it forever.
     restart: unless-stopped
     user: "0"
     command: ["/bin/sh", "/app/docker/scripts/dev-entrypoint.sh"]
-    # Traefik labels live in docker-compose.fullapp.traefik.yml — opt-in only.
+    # Traefik labels live in compose.fullapp.traefik.yml — opt-in only.
     volumes:
       - .:/app
       - app_node_modules:/app/node_modules
@@ -300,7 +325,8 @@ services:
       OM_INIT_SUPERADMIN_EMAIL: ${OM_INIT_SUPERADMIN_EMAIL:-}
       OM_INIT_SUPERADMIN_PASSWORD: ${OM_INIT_SUPERADMIN_PASSWORD:-password}
       SSO_DEV_SEED: ${SSO_DEV_SEED:-true}
-      SSO_DEV_ISSUER: ${SSO_DEV_ISSUER:-http://mercato-keycloak-local:8080/realms/open-mercato}
+      # Service DNS, not the container_name: survives DEPLOY_ENV != local.
+      SSO_DEV_ISSUER: ${SSO_DEV_ISSUER:-http://keycloak:8080/realms/open-mercato}
       SSO_DEV_CLIENT_ID: ${SSO_DEV_CLIENT_ID:-open-mercato-app}
       SSO_DEV_CLIENT_SECRET: ${SSO_DEV_CLIENT_SECRET:-}
       SSO_DEV_ALLOWED_DOMAINS: ${SSO_DEV_ALLOWED_DOMAINS:-example.com}
@@ -409,6 +435,7 @@ services:
   redis:
     image: redis:7-alpine
     container_name: mercato-redis-${DEPLOY_ENV:-local}
+    restart: unless-stopped
     # ports not exposed - only accessible within docker network
     volumes:
       - ./docker/redis/redis.conf:/usr/local/etc/redis/redis.conf
@@ -428,8 +455,8 @@ services:
     restart: unless-stopped
     command: start-dev
     environment:
-      KEYCLOAK_ADMIN: admin
-      KEYCLOAK_ADMIN_PASSWORD: admin
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
     ports:
       - "${KEYCLOAK_PORT:-8080}:8080"
     healthcheck:

@@ -6,7 +6,7 @@ import type { QueryEngine, QueryOptions, Where, Sort } from '@open-mercato/share
 import { normalizeExportFormat, serializeExport, defaultExportFilename, ensureColumns } from '@open-mercato/shared/lib/crud/exporters'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { resolveOrganizationScope, getSelectedOrganizationFromRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
-import { SYSTEM_ENTITY_RECORDS_BLOCKED_CODE, isOrmBackedSystemEntityId } from '@open-mercato/shared/lib/data/engine'
+import { SYSTEM_ENTITY_RECORDS_BLOCKED_CODE } from '@open-mercato/shared/lib/data/engine'
 import { parseBooleanToken, parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { parseCommaSeparatedList } from '@open-mercato/shared/lib/string'
 import { setRecordCustomFields } from '../lib/helpers'
@@ -14,72 +14,28 @@ import { CustomFieldValue } from '../data/entities'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { assertEntityAclForRequest, getDeclaredCustomEntityRestriction } from '../lib/entityAcl'
+import { assertEntityAclForRequest } from '../lib/entityAcl'
+import { classifyRecordsEntity } from '../lib/entityClassification'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+
+// Kept exported from this path: the classifier used to be private to this file
+// and the workflows task-visibility resolver reuses it, so both callers share
+// one precedence chain instead of growing a second, drifting copy.
+export {
+  classifyRecordsEntity,
+  isDeclaredCustomEntity,
+  loadDeclaredCustomEntities,
+  findScopedCustomEntity,
+} from '../lib/entityClassification'
+export type {
+  RecordsEntityScope,
+  RecordsEntityKind,
+  RecordsEntityClassification,
+} from '../lib/entityClassification'
 
 const logger = createLogger('entities').child({ component: 'records' })
 
-type RecordsEntityScope = { tenantId: string | null; organizationId: string | null }
-
-// Resolve the CustomEntity registration that applies to THIS caller, most-specific
-// first (org+tenant → tenant-global → instance-global), mirroring the overlay
-// precedence used by the entity-definitions list. Scoping matters because the
-// row's `access_restricted` flag is a security control: an unscoped lookup could
-// read another tenant's row for a colliding entityId (e.g. `user:vendors`) and
-// mis-decide the restriction. Returns null when the caller's scope has no row.
-async function findScopedCustomEntity(em: any, CustomEntity: any, entityId: string, scope: RecordsEntityScope) {
-  const { tenantId, organizationId } = scope
-  const candidates: Array<Record<string, unknown>> = [
-    { entityId, organizationId, tenantId },
-    { entityId, organizationId: null, tenantId },
-    { entityId, organizationId: null, tenantId: null },
-  ]
-  const seen = new Set<string>()
-  for (const where of candidates) {
-    const key = JSON.stringify(where)
-    if (seen.has(key)) continue
-    seen.add(key)
-    const row = await em.findOne(CustomEntity as any, where)
-    if (row) return row
-  }
-  return null
-}
-
 const CUSTOM_ENTITY_RECORD_RESOURCE_KIND = 'entities.record'
-
-type RecordsEntityKind = 'system' | 'custom' | 'unknown'
-
-// `restricted` is meaningful only when `kind === 'custom'`; it drives the
-// per-entity ACL gate in `assertEntityAclForRequest`.
-type RecordsEntityClassification = { kind: RecordsEntityKind; restricted: boolean }
-
-// This surface manages doc-storage records, which exist for CUSTOM entities only.
-// Module-declared ids backed by a registered ORM table are system entities — their
-// records live in their own module tables/APIs, and stray doc rows for them poisoned
-// read-path classification platform-wide (#2939) — so they are rejected outright. The
-// previous fallback that classified an entity by the mere presence of
-// `custom_entities_storage` rows is gone: within the allowed set, declaration (ce.ts)
-// or an active `custom_entities` registration is authoritative.
-async function classifyRecordsEntity(em: any, entityId: string, scope: RecordsEntityScope): Promise<RecordsEntityClassification> {
-  if (isOrmBackedSystemEntityId(em, entityId)) return { kind: 'system', restricted: false }
-  const declaredRestriction = getDeclaredCustomEntityRestriction(entityId)
-  if (declaredRestriction !== undefined) return { kind: 'custom', restricted: declaredRestriction }
-  try {
-    const { CustomEntity } = await import('../data/entities')
-    // Restriction is decided from the row that applies to THIS caller's scope so
-    // a colliding entityId in another tenant can't flip the flag.
-    const scoped = await findScopedCustomEntity(em, CustomEntity, entityId, scope)
-    if (scoped) return { kind: 'custom', restricted: (scoped as any).accessRestricted === true }
-    // No in-scope registration: preserve the historical custom-vs-unknown
-    // classification (any registration row — active or soft-deleted — proves the
-    // id is custom; records persist beyond soft delete, TC-ENTITIES-006). A row
-    // outside the caller's scope never marks the entity restricted for them, and
-    // the record query is itself tenant/org-scoped, so this cannot leak data.
-    const anyRow = await em.findOne(CustomEntity as any, { entityId })
-    if (anyRow) return { kind: 'custom', restricted: false }
-  } catch {}
-  return { kind: 'unknown', restricted: false }
-}
 
 function systemEntityRecordsRejection(entityId: string) {
   return NextResponse.json(

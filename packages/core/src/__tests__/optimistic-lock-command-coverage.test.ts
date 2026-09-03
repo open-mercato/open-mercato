@@ -61,8 +61,22 @@ const COMMAND_GUARD_ALLOWLIST: Record<string, string> = {
     'OSS-only — weekly availability rule-set edit (sibling of the allowlisted availability-date-specific site) added on develop; OSS floor guards concurrent edits. Enterprise record_locks migration deferred.',
   'packages/core/src/modules/messages/api/[id]/route.ts':
     'OSS-only — draft update/send (PATCH) + delete (DELETE) of messages.message enforce the synchronous OSS updated_at floor in the hand-written route (no makeCrudRoute decorator); the 409 surfaces on the shared conflict banner (#3260). Enterprise record_locks migration deferred.',
+  'packages/core/src/modules/workflows/api/tasks/[id]/reassign/route.ts':
+    'OSS-only — task reassignment is an administrative one-shot move of ownership (workflows.user_task), gated on `workflows.tasks.reassign` and already refused for a terminal task; `UserTask` is not in the curated editable-entity list and the coverage guard only matches PUT/PATCH/DELETE, so the synchronous OSS floor is what makes the stale-modal race a structured 409 at all. Enterprise record_locks migration deferred.',
   'packages/core/src/modules/messages/commands/actions.ts':
     'OSS-only — message action execute (messages.message) enforces the synchronous OSS updated_at floor before the terminal-action claim; the action also has its own actionTaken idempotency guard. Enterprise record_locks migration deferred.',
+  // agent_orchestrator (enterprise) — terminal one-shot state transitions, not
+  // collaborative merge-dialog edit surfaces; the synchronous updated_at floor
+  // guards the stale-modal race on each. Promoting them to the
+  // enforceCommandOptimisticLockWithGuards seam is a follow-up.
+  'packages/enterprise/src/modules/agent_orchestrator/commands/corrections.ts':
+    'Exempt — evalCases.approve is a one-shot draft→approved transition guarded on updated_at (re-approve is idempotent, non-draft rejects with 409); the sync floor covers the stale-modal race. record_locks seam migration deferred.',
+  'packages/enterprise/src/modules/agent_orchestrator/commands/dispose.ts':
+    'Exempt — proposal dispose guards the HUMAN dispose path on updated_at only (the auto/threshold path holds no client token and cannot race a stale modal); pending→terminal is a one-shot transition with an idempotent same-verdict re-dispose. record_locks seam migration deferred.',
+  'packages/enterprise/src/modules/agent_orchestrator/commands/grants.ts':
+    'Exempt — delegation-grant revoke guards updated_at against the caller-supplied expectedUpdatedAt (re-revoke is idempotent, gone-record maps to structured 409); a one-shot revocation, not a collaborative edit surface. record_locks seam migration deferred.',
+  'packages/enterprise/src/modules/agent_orchestrator/api/agents/[id]/settings/route.ts':
+    'Exempt — per-agent icon setting write guards the AgentSetting row on its own updated_at only when a row already exists (first write has nothing to conflict with); a single-admin cosmetic config surface, not a collaborative merge-dialog target, so the sync floor covers the stale-form race. record_locks seam migration deferred.',
   'packages/core/src/modules/devices/api/deviceOps.ts':
     'OSS-only — user-device rename/deactivate mutates a per-owner device row (devices.user_device), not a shared collaborative-edit surface; the OSS floor covers the same-user two-tab race. Enterprise record_locks migration deferred.',
   'packages/core/src/modules/notifications/api/types/route.ts':

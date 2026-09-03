@@ -2575,6 +2575,7 @@
       "galleryCoverage": "composite-not-direct",
       "galleryItemIds": [
         "buttons/button",
+        "buttons/icon-button",
         "inputs/select",
         "inputs/compact-select",
         "inputs/checkbox",
@@ -2624,6 +2625,7 @@
       "galleryCoverage": "composite-not-direct",
       "galleryItemIds": [
         "buttons/button",
+        "buttons/icon-button",
         "inputs/select",
         "inputs/compact-select",
         "inputs/checkbox",

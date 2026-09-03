@@ -7,8 +7,8 @@ import { fileURLToPath } from 'node:url'
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 
 const COMPOSE_FILES = [
-  'docker-compose.fullapp.dev.yml',
-  'docker-compose.fullapp.yml',
+  'starters/docker/compose.fullapp.dev.yml',
+  'starters/docker/compose.fullapp.yml',
   'packages/create-app/template/docker-compose.fullapp.dev.yml',
   'packages/create-app/template/docker-compose.fullapp.yml',
 ]

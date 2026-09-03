@@ -458,6 +458,7 @@
   "customers.changelog.previous": "Anterior",
   "customers.changelog.showing": "Showing {{shown}} of {{total}} entries",
   "customers.changelog.showingWithPeriod": "Showing {{shown}} of {{total}} entries · last {{days}} days",
+  "customers.changelog.source.agent": "Agente",
   "customers.changelog.source.api": "API",
   "customers.changelog.source.system": "System",
   "customers.changelog.source.ui": "UI",
@@ -2866,5 +2867,8 @@
   "customers.workPlan.customerTodos.table.state.empty": "Aún no hay tareas de clientes.",
   "customers.workPlan.customerTodos.table.state.noMatches": "Ninguna tarea coincide con tus filtros.",
   "customers.workPlan.customerTodos.table.title": "Tareas relacionadas con clientes",
+  "customers.workflows.commands.companies.update": "Actualizar empresa",
+  "customers.workflows.commands.deals.update": "Actualizar oportunidad",
+  "customers.workflows.commands.people.update": "Actualizar persona",
   "notifications.categories.customers": "Clientes"
 }

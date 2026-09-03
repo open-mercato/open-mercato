@@ -6,6 +6,7 @@ export type ActionLogExecutionState = 'done' | 'undoing' | 'undone' | 'failed' |
 @Entity({ tableName: 'action_logs' })
 @Index({ name: 'action_logs_tenant_idx', properties: ['tenantId', 'createdAt'] })
 @Index({ name: 'action_logs_actor_idx', properties: ['actorUserId', 'createdAt'] })
+@Index({ name: 'action_logs_obo_idx', properties: ['onBehalfOfUserId'] })
 @Index({ name: 'action_logs_resource_idx', properties: ['tenantId', 'resourceKind', 'resourceId', 'createdAt'] })
 @Index({ name: 'action_logs_parent_resource_idx', properties: ['tenantId', 'parentResourceKind', 'parentResourceId', 'createdAt'] })
 @Index({ name: 'action_logs_action_type_idx', properties: ['tenantId', 'organizationId', 'actionType', 'createdAt'] })
@@ -25,6 +26,17 @@ export class ActionLog {
 
   @Property({ name: 'actor_user_id', type: 'uuid', nullable: true })
   actorUserId: string | null = null
+
+  /**
+   * The human (or system) principal an agent acted on behalf of. Null for direct
+   * human/system/api actions; set to the invoking human's `auth.User` id when the
+   * actor (`actorUserId`) is an agent principal running under `runAs` with
+   * `sourceKey = 'agent'`. FK id → `auth.User` (no cross-module ORM relation).
+   * Additive, nullable, indexed (`action_logs_obo_idx`); existing rows default null
+   * so no existing audit reader breaks (Agent Identity & On-Behalf-Of, Wave 4 P2).
+   */
+  @Property({ name: 'on_behalf_of_user_id', type: 'uuid', nullable: true })
+  onBehalfOfUserId: string | null = null
 
   @Property({ name: 'command_id', type: 'text' })
   commandId!: string

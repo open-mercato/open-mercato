@@ -1,4 +1,5 @@
 import { glob } from 'glob'
+import { copyFileSync, mkdirSync } from 'node:fs'
 import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { buildPackage } from '../../scripts/build-package.mjs'
@@ -48,4 +49,19 @@ if (generatedEntryPoints.length > 0) {
     outdir: 'dist/generated',
     rewriteOptions,
   })
+}
+
+// Copy authored markdown assets (e.g. agent skill SKILL.md files) into dist so
+// they are present in built/published packages — esbuild only emits JS. Mirrors
+// the shared builder's JSON copy. Runtime loaders read these via import.meta.url.
+const markdownAssets = await glob('src/**/*.md', {
+  cwd: packageDir,
+  ignore: ['**/node_modules/**', '**/__tests__/**', '**/AGENTS.md', '**/CLAUDE.md', '**/README.md', '**/DEMO.md', '**/STANDALONE.md'],
+  absolute: true,
+})
+const srcRoot = join(packageDir, 'src')
+for (const asset of markdownAssets) {
+  const destPath = join(distDir, relative(srcRoot, asset))
+  mkdirSync(dirname(destPath), { recursive: true })
+  copyFileSync(asset, destPath)
 }

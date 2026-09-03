@@ -717,6 +717,7 @@
   "catalog.variants.validation.gtinChecksum": "The barcode does not match the selected identifier type.",
   "catalog.widgets.productSeo.groupDescription": "Optimize product titles and descriptions before publishing.",
   "catalog.widgets.productSeo.groupLabel": "Product SEO Helper",
+  "catalog.workflows.commands.products.update": "Update product",
   "customers~catalog.errors.id_required": "Record identifier is required.",
   "customers~catalog.errors.organization_required": "Organization context is required.",
   "customers~catalog.errors.tenant_required": "Tenant context is required.",

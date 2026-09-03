@@ -1,0 +1,69 @@
+import { NextResponse } from 'next/server'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { z } from 'zod'
+import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { AgentProcessRun } from '../../../data/entities'
+import { readProcessRunOutcome } from '../../../lib/tasks/outcome'
+import { resolveOutcomeHref } from '../../../lib/tasks/outcomeLink'
+
+/** What the UI polls (or SSE-refetches) after the async 202 from `/tasks/:id/run`. */
+export const metadata = {
+  GET: { requireAuth: true, requireFeatures: ['agent_orchestrator.processes.view'] },
+}
+
+const errorSchema = z.object({ error: z.string() })
+
+type RouteContext = { params: Promise<{ id: string }> }
+
+export async function GET(req: Request, ctx: RouteContext) {
+  const auth = await getAuthFromRequest(req)
+  if (!auth?.tenantId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const { id } = await ctx.params
+  if (!z.string().uuid().safeParse(id).success) {
+    return NextResponse.json({ error: 'Task run not found' }, { status: 404 })
+  }
+
+  const scope = { tenantId: auth.tenantId, organizationId: auth.orgId ?? undefined }
+  const decryptionScope = { tenantId: auth.tenantId, organizationId: auth.orgId ?? null }
+  const container = await createRequestContainer()
+  const em = (container.resolve('em') as EntityManager).fork()
+
+  const taskRun = await findOneWithDecryption(
+    em,
+    AgentProcessRun,
+    { id, ...scope },
+    undefined,
+    decryptionScope,
+  )
+  if (!taskRun) return NextResponse.json({ error: 'Task run not found' }, { status: 404 })
+
+  // The outcome's owning module is resolved server-side and may legitimately be
+  // absent — a null href tells the client to render the label snapshot alone.
+  const outcome = readProcessRunOutcome(taskRun)
+  return NextResponse.json({
+    taskRun,
+    outcomeHref: outcome ? resolveOutcomeHref(outcome) : null,
+  })
+}
+
+export const openApi: OpenApiRouteDoc = {
+  tag: 'Agent Orchestrator',
+  summary: 'Get process run detail',
+  methods: {
+    GET: {
+      summary: 'Get one process run',
+      description:
+        'Returns the process-run ledger row (status, target ids, decrypted input, failure reason). Org-scoped; gated by agent_orchestrator.processes.view.',
+      responses: [{ status: 200, description: 'Task run detail' }],
+      errors: [
+        { status: 401, description: 'Unauthorized', schema: errorSchema },
+        { status: 403, description: 'Missing agent_orchestrator.processes.view', schema: errorSchema },
+        { status: 404, description: 'Unknown task run id', schema: errorSchema },
+      ],
+    },
+  },
+}

@@ -2,12 +2,22 @@
 
 import { useState, useEffect } from 'react'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@open-mercato/ui/primitives/dialog'
+import {
+  Drawer,
+  DrawerBody,
+  DrawerContent,
+  DrawerDescription,
+  DrawerFooter,
+  DrawerHeader,
+  DrawerTitle,
+} from '@open-mercato/ui/primitives/drawer'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Plus, Loader2, AlertCircle } from 'lucide-react'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { InlineRuleEditor, type InlineRuleEditorSavedRule } from '@open-mercato/core/modules/business_rules/components/InlineRuleEditor'
 
 const logger = createLogger('workflows')
 
@@ -59,6 +69,12 @@ export interface BusinessRulesSelectorProps {
 
   /** Custom search placeholder */
   searchPlaceholder?: string
+
+  /**
+   * Hide the inline "New rule" affordance. The inline editor is on by default
+   * (#4236) so an author never has to leave the Studio to author a rule.
+   */
+  disableInlineCreate?: boolean
 }
 
 /**
@@ -85,11 +101,14 @@ export function BusinessRulesSelector({
   onlyEnabled = false,
   emptyMessage,
   searchPlaceholder = 'Search by name, ID, type, category, or description...',
+  disableInlineCreate = false,
 }: BusinessRulesSelectorProps) {
+  const t = useT()
   const [businessRules, setBusinessRules] = useState<BusinessRule[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
+  const [isInlineEditorOpen, setIsInlineEditorOpen] = useState(false)
 
   // Fetch business rules on mount
   useEffect(() => {
@@ -98,7 +117,7 @@ export function BusinessRulesSelector({
     }
   }, [isOpen])
 
-  const fetchBusinessRules = async () => {
+  const fetchBusinessRules = async (): Promise<BusinessRule[]> => {
     setLoading(true)
     setError(null)
     try {
@@ -124,7 +143,9 @@ export function BusinessRulesSelector({
 
       if (response.ok) {
         const data = await response.json()
-        setBusinessRules(data.items || [])
+        const items: BusinessRule[] = data.items || []
+        setBusinessRules(items)
+        return items
       } else {
         let errorMessage = `Failed to load business rules (${response.status})`
         try {
@@ -149,6 +170,15 @@ export function BusinessRulesSelector({
       setError(errorMessage)
     } finally {
       setLoading(false)
+    }
+    return []
+  }
+
+  const handleInlineRuleSaved = async (saved: InlineRuleEditorSavedRule) => {
+    const refreshed = await fetchBusinessRules()
+    const created = refreshed.find((rule) => rule.ruleId === saved.ruleId)
+    if (created) {
+      handleSelect(created)
     }
   }
 
@@ -183,12 +213,17 @@ export function BusinessRulesSelector({
   const filteredRules = getFilteredRules()
 
   return (
-    <Dialog open={isOpen} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-5xl max-h-[85vh] flex flex-col">
-        <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>{description}</DialogDescription>
-        </DialogHeader>
+    <>
+    <Drawer open={isOpen} onOpenChange={(next) => { if (!next) handleClose() }}>
+      <DrawerContent
+        data-testid="workflow-business-rules-selector-drawer"
+        className="w-full max-w-none sm:w-3/5"
+        closeAriaLabel={t('workflows.selectors.businessRule.close')}
+      >
+        <DrawerHeader>
+          <DrawerTitle>{title}</DrawerTitle>
+          <DrawerDescription>{description}</DrawerDescription>
+        </DrawerHeader>
 
         {/* Search Input */}
         <div className="px-6">
@@ -203,7 +238,7 @@ export function BusinessRulesSelector({
         </div>
 
         {/* Rules List */}
-        <div className="flex-1 overflow-y-auto px-6 py-4 min-h-[400px]">
+        <DrawerBody className="py-4">
           {loading ? (
             <div className="flex flex-col items-center justify-center py-12">
               <Loader2 className="h-12 w-12 animate-spin text-primary mb-4" />
@@ -320,18 +355,37 @@ export function BusinessRulesSelector({
               </div>
             </>
           )}
-        </div>
+        </DrawerBody>
 
-        <DialogFooter>
+        <DrawerFooter>
+          {!disableInlineCreate && (
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => setIsInlineEditorOpen(true)}
+            >
+              <Plus className="size-4 mr-1" />
+              {t('workflows.businessRules.newRule')}
+            </Button>
+          )}
           <Button
             type="button"
             variant="outline"
             onClick={handleClose}
           >
-            Cancel
+            {t('common.cancel', 'Cancel')}
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </DrawerFooter>
+      </DrawerContent>
+    </Drawer>
+    {!disableInlineCreate && (
+      <InlineRuleEditor
+        open={isInlineEditorOpen}
+        onOpenChange={setIsInlineEditorOpen}
+        defaultEntityType={filterEntityType}
+        onSaved={handleInlineRuleSaved}
+      />
+    )}
+    </>
   )
 }

@@ -86,6 +86,7 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'api_keys', from: '@open-mercato/core' },
   { id: 'devices', from: '@open-mercato/core' },
   { id: 'dictionaries', from: '@open-mercato/core' },
+  { id: 'seeds', from: '@open-mercato/core' },
   { id: 'content', from: '@open-mercato/content' },
   { id: 'onboarding', from: '@open-mercato/onboarding' },
   { id: 'api_docs', from: '@open-mercato/core' },
@@ -115,6 +116,8 @@ export const enabledModules: ModuleEntry[] = [
   // Fans out to `devices` tokens and sends through the `communication_channels` hub.
   { id: 'push_notifications', from: '@open-mercato/core' },
   { id: 'ai_assistant', from: '@open-mercato/ai-assistant' },
+  // agent_orchestrator moved to the enterprise catalog — enabled below behind
+  // OM_ENABLE_ENTERPRISE_MODULES + OM_ENABLE_ENTERPRISE_MODULES_AGENTS.
   { id: 'translations', from: '@open-mercato/core' },
   { id: 'scheduler', from: '@open-mercato/scheduler' },
   { id: 'inbox_ops', from: '@open-mercato/core' },
@@ -189,6 +192,7 @@ if (parseBooleanWithDefault(process.env.OM_ENABLE_STORAGE_S3, false)) {
 const enterpriseModulesEnabled = parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES, false)
 const enterpriseSsoEnabled = parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES_SSO, false)
 const enterpriseSecurityEnabled = parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES_SECURITY, false)
+const enterpriseAgentsEnabled = parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES_AGENTS, false)
 
 if (enterpriseModulesEnabled) {
   enabledModules.push(
@@ -203,4 +207,12 @@ if (enterpriseModulesEnabled && enterpriseSsoEnabled) {
 
 if (enterpriseModulesEnabled && enterpriseSecurityEnabled) {
   enabledModules.push({ id: 'security', from: '@open-mercato/enterprise' })
+}
+
+if (enterpriseModulesEnabled && enterpriseAgentsEnabled) {
+  enabledModules.push({ id: 'agent_orchestrator', from: '@open-mercato/enterprise' })
+  // Example app module: shows how to declare an Agent Orchestrator agent from a
+  // brand-new module (see apps/mercato/src/modules/agent_examples/README.md).
+  // It imports the orchestrator SDK, so it is only enabled alongside it.
+  enabledModules.push({ id: 'agent_examples', from: '@app' })
 }

@@ -216,6 +216,22 @@
       },
       "note": "Brand lime + yellow — theme-invariant (no .dark override). Brand violet is themed (see below + .dark)."
     },
+    "brand-lime-foreground": {
+      "kind": "color",
+      "light": "#1f2a12",
+      "dark": null,
+      "hex": {
+        "light": "#1f2a12",
+        "dark": "#1f2a12"
+      },
+      "themeInvariant": true,
+      "themeAlias": "color-brand-lime-foreground",
+      "figma": {
+        "name": "brand/lime-foreground",
+        "type": "COLOR"
+      },
+      "note": "Foreground for text/icons placed on the brand-lime surface — dark, theme-invariant (the lime stays light in both themes)."
+    },
     "brand-linkedin": {
       "kind": "color",
       "light": "#0A66C2",
@@ -261,6 +277,21 @@
         "type": "COLOR"
       }
     },
+    "brand-violet-soft": {
+      "kind": "color",
+      "light": "oklch(0.95 0.03 293)",
+      "dark": "oklch(0.3 0.06 293)",
+      "hex": {
+        "light": "#efebff",
+        "dark": "#2f2749"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-brand-violet-soft",
+      "figma": {
+        "name": "brand/violet-soft",
+        "type": "COLOR"
+      }
+    },
     "brand-x": {
       "kind": "color",
       "light": "#000000",
@@ -289,7 +320,8 @@
       "figma": {
         "name": "brand/yellow",
         "type": "COLOR"
-      }
+      },
+      "note": "Brand yellow — mid stop of the OM brand gradient (lime -> yellow -> violet), theme-invariant."
     },
     "card": {
       "kind": "color",

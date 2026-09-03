@@ -1,3 +1,4 @@
+import { asValue } from 'awilix'
 import type { BootstrapData } from './types'
 import type { AppDiRegistrar } from '../di/container'
 import { findAppRoot, type AppRoot } from './appResolver'
@@ -494,6 +495,21 @@ async function compileAndImport(
 
 
 /**
+ * Registers an app-owned generated value on the request container.
+ *
+ * The app registers these statically from `src/di.ts`, which `createRequestContainer`
+ * reaches through the `@/` alias — and that alias only exists under the bundler.
+ * A CLI or MCP process runs plain Node, so the import fails, the failure is
+ * swallowed, and the value is simply absent with no diagnostic. Routing it through
+ * a registrar built from the same generated file keeps both processes in step.
+ */
+function appValueRegistrar(key: string, value: unknown): BootstrapData['diRegistrars'][number] {
+  return (container) => {
+    container.register({ [key]: asValue(value) })
+  }
+}
+
+/**
  * Load a generated registry that older apps may not have generated yet.
  *
  * An absent source file is the supported compatibility case and resolves to
@@ -623,6 +639,7 @@ async function loadBootstrapDataWithActiveEsbuild(appRoot?: string): Promise<Boo
     diModule,
     searchModule,
     commandLoadersModule,
+    webResearchModule,
     commandInterceptorsModule,
     workflowsModule,
   ] = await Promise.all([
@@ -631,6 +648,9 @@ async function loadBootstrapDataWithActiveEsbuild(appRoot?: string): Promise<Boo
     compileAndImport(path.join(generatedDir, 'di.generated.ts')),
     loadOptionalGeneratedModule(path.join(generatedDir, 'search.generated.ts'), { searchModuleConfigs: [] }),
     loadOptionalGeneratedModule(path.join(generatedDir, 'command-loaders.generated.ts'), { commandLoaderEntries: [] }),
+    loadOptionalGeneratedModule(path.join(generatedDir, 'web-research-adapters.generated.ts'), {
+      webResearchAdapterEntries: [],
+    }),
     loadOptionalGeneratedModule(path.join(generatedDir, 'command-interceptors.generated.ts'), {
       commandInterceptorEntries: [],
     }),
@@ -640,7 +660,10 @@ async function loadBootstrapDataWithActiveEsbuild(appRoot?: string): Promise<Boo
   return {
     modules: modulesModule.modules as BootstrapData['modules'],
     entities: entitiesModule.entities as BootstrapData['entities'],
-    diRegistrars: diModule.diRegistrars as BootstrapData['diRegistrars'],
+    diRegistrars: [
+      ...(diModule.diRegistrars as BootstrapData['diRegistrars']),
+      appValueRegistrar('webResearchAdapterEntries', webResearchModule.webResearchAdapterEntries ?? []),
+    ],
     entityIds: entityIdsModule.E as BootstrapData['entityIds'],
     // Search configs are needed by workers for indexing
     searchModuleConfigs: (searchModule.searchModuleConfigs ?? []) as BootstrapData['searchModuleConfigs'],

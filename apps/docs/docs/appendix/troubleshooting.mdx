@@ -137,7 +137,7 @@ you may be connecting to a different PostgreSQL instance already bound to `local
 Start Docker PostgreSQL on a different host port and use the same port in `DATABASE_URL`:
 
 ```bash
-POSTGRES_PORT=55432 docker compose up -d postgres
+POSTGRES_PORT=55432 docker compose --project-directory . -f starters/docker/compose.infra.yml up -d postgres
 ```
 
 ```env

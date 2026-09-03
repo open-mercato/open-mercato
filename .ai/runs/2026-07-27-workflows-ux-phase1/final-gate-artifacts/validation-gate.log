@@ -1,0 +1,148 @@
+===== yarn build:packages =====
+EXIT=0
+[1m Tasks:    [32m[1m21 successful[0m, 21 total[0m
+[1mCached:    [1m20 cached[0m, 21 total[0m
+[1m  Time:    [1m3.505s[0m [0m
+
+===== yarn generate =====
+EXIT=0
+[1m Tasks:    [32m[1m1 successful[0m, 1 total[0m
+[1mCached:    [1m0 cached[0m, 1 total[0m
+[1m  Time:    [1m5.278s[0m [0m
+
+===== yarn build:packages =====
+EXIT=0
+[1m Tasks:    [32m[1m21 successful[0m, 21 total[0m
+[1mCached:    [1m21 cached[0m, 21 total[0m
+[1m  Time:    [1m178ms[0m [1m[38;2;18;45;128m>[0m[0;1m[1m[38;2;4;45;162m>[0m[0;1m[1m[38;2;1;45;194m>[0m[0;1m[1m[38;2;6;45;221m [0m[0;1m[1m[38;2;21;45;241mF[0m[0;1m[1m[38;2;44;45;252mU[0m[0;1m[1m[38;2;73;45;254mL[0m[0;1m[1m[38;2;106;45;247mL[0m[0;1m[1m[38;2;141;45;230m [0m[0;1m[1m[38;2;175;45;206mT[0m[0;1m[1m[38;2;205;45;176mU[0m[0;1m[1m[38;2;229;45;142mR[0m[0;1m[1m[38;2;246;45;107mB[0m[0;1m[1m[38;2;254;45;74mO[0m[0;1m[0m[0m
+
+===== yarn i18n:check-sync =====
+EXIT=0
+[2mFound 48 modules with translations
+[0m
+
+[32mAll translation files are in sync.[0m
+===== yarn i18n:check-usage =====
+EXIT=0
+
+[2mSkipped 456 dynamic t()/translate() calls (non-string-literal arguments)
+[0m
+Summary: [33m3779 unused keys (advisory)[0m
+===== yarn typecheck =====
+EXIT=0
+[1m Tasks:    [32m[1m21 successful[0m, 21 total[0m
+[1mCached:    [1m20 cached[0m, 21 total[0m
+[1m  Time:    [1m1.459s[0m [0m
+
+===== yarn test =====
+===== yarn test =====
+EXIT=FAIL
+[32m@open-mercato/core:test: [0m[0m[7m[1m[32m PASS [39m[22m[27m[0m [2msrc/modules/auth/api/__tests__/[22m[1musers-consents.route.test.ts[22m
+[32m@open-mercato/core:test: [0m
+[32m@open-mercato/core:test: [0m[1mSummary of all failing tests[22m
+[32m@open-mercato/core:test: [0m[0m[7m[1m[31m FAIL [39m[22m[27m[0m [2msrc/__tests__/[22m[1mexplicit-sort-comparators.test.ts[22m
+[32m@open-mercato/core:test: [0m[1m[31m  [1m● [22m[1msort/toSorted call sites use explicit comparators (#3620) › no production sort/toSorted call omits its comparator[39m[22m
+[32m@open-mercato/core:test: [0m
+[32m@open-mercato/core:test: [0m    [2mexpect([22m[31mreceived[39m[2m).[22mtoEqual[2m([22m[32mexpected[39m[2m) // deep equality[22m
+[32m@open-mercato/core:test: [0m
+[32m@open-mercato/core:test: [0m    [32m- Expected  - 1[39m
+[32m@open-mercato/core:test: [0m    [31m+ Received  + 3[39m
+[32m@open-mercato/core:test: [0m
+[32m@open-mercato/core:test: [0m    [32m- Array [][39m
+[32m@open-mercato/core:test: [0m    [31m+ Array [[39m
+[32m@open-mercato/core:test: [0m    [31m+   "packages/core/src/modules/workflows/lib/draft-restore.ts:27",[39m
+[32m@open-mercato/core:test: [0m    [31m+ ][39m
+[32m@open-mercato/core:test: [0m[2m[22m
+[32m@open-mercato/core:test: [0m[2m    [0m [90m 136 |[39m       }[22m
+[32m@open-mercato/core:test: [0m[2m     [90m 137 |[39m     }[22m
+[32m@open-mercato/core:test: [0m[2m    [31m[1m>[22m[2m[39m[90m 138 |[39m     expect(violations)[33m.[39mtoEqual([])[22m
+[32m@open-mercato/core:test: [0m[2m     [90m     |[39m                        [31m[1m^[22m[2m[39m[22m
+[32m@open-mercato/core:test: [0m[2m     [90m 139 |[39m   })[22m
+[32m@open-mercato/core:test: [0m[2m     [90m 140 |[39m })[22m
+[32m@open-mercato/core:test: [0m[2m     [90m 141 |[39m[0m[22m
+[32m@open-mercato/core:test: [0m[2m[22m
+[32m@open-mercato/core:test: [0m[2m      [2mat Object.<anonymous> ([22m[2m[0m[36msrc/__tests__/explicit-sort-comparators.test.ts[39m[0m[2m:138:24)[22m[2m[22m
+[32m@open-mercato/core:test: [0m
+[32m@open-mercato/core:test: [0m
+[32m@open-mercato/core:test: [0m[1mTest Suites: [22m[1m[31m1 failed[39m[22m, [1m[32m1058 passed[39m[22m, 1059 total
+[32m@open-mercato/core:test: [0m[1mTests:       [22m[1m[31m1 failed[39m[22m, [1m[32m8140 passed[39m[22m, 8141 total
+[32m@open-mercato/core:test: [0m[1mSnapshots:   [22m0 total
+[32m@open-mercato/core:test: [0m[1mTime:[22m        61.189 s
+[32m@open-mercato/core:test: [0m[2mRan all test suites[22m[2m.[22m
+[1m@open-mercato/core#test: [0m[31m[1m ERROR [0m [31m[1mcommand (/Users/pat-lewczuk/projects/open-mercato/2/open-mercato/.ai/tmp/om-auto-create-pr-loop/workflows-ux-phase1-20260727-072357/packages/core) /private/var/folders/5b/v__l5j8x7rb3nrsd24xr4p980000gn/T/xfs-7948495d/yarn run test exited (1)[0m
+
+[1m Tasks:    [32m[1m22 successful[0m, 23 total[0m
+[1mCached:    [1m0 cached[0m, 23 total[0m
+[1m  Time:    [1m1m25.952s[0m [0m
+[1mFailed:    [31m[1m@open-mercato/core#test[0m[0m
+
+[31;40m ERROR [0m [31;49mrun failed: command  exited (1)[0m
+===== yarn test (rerun after 8.3-review-fix) =====
+EXIT=0
+[1mCached:    [1m0 cached[0m, 23 total[0m
+[1m  Time:    [1m1m15.319s[0m [0m
+
+===== yarn build:app =====
+EXIT=FAIL
+[36m@open-mercato/app:build: [0m    ./packages/core/dist/modules/workflows/lib/activity-registry-bootstrap.js [Client Component Browser]
+[36m@open-mercato/app:build: [0m    ./packages/core/dist/modules/workflows/components/fields/useActivityTypeOptions.js [Client Component Browser]
+[36m@open-mercato/app:build: [0m    ./packages/core/dist/modules/workflows/components/TransitionsEditor.js [Client Component Browser]
+[36m@open-mercato/app:build: [0m    ./packages/core/dist/modules/workflows/backend/definitions/[id]/page.js [Client Component Browser]
+[36m@open-mercato/app:build: [0m    ./packages/core/dist/modules/workflows/backend/definitions/[id]/page.js [App Route]
+[36m@open-mercato/app:build: [0m    ./apps/mercato/.mercato/generated/modules.runtime.generated.ts [App Route]
+[36m@open-mercato/app:build: [0m    ./apps/mercato/src/app/api/docs/openapi/route.ts [App Route]
+[36m@open-mercato/app:build: [0m
+[36m@open-mercato/app:build: [0m  #7 [Client Component SSR]:
+[36m@open-mercato/app:build: [0m    ./packages/core/dist/modules/workflows/lib/activity-executor.js [Client Component SSR]
+[36m@open-mercato/app:build: [0m    ./packages/core/dist/modules/workflows/lib/activity-types.js [Client Component SSR]
+[36m@open-mercato/app:build: [0m    ./packages/core/dist/modules/workflows/lib/activity-registry-bootstrap.js [Client Component SSR]
+[36m@open-mercato/app:build: [0m    ./packages/core/dist/modules/workflows/components/fields/useActivityTypeOptions.js [Client Component SSR]
+[36m@open-mercato/app:build: [0m    ./packages/core/dist/modules/workflows/components/TransitionsEditor.js [Client Component SSR]
+[36m@open-mercato/app:build: [0m    ./packages/core/dist/modules/workflows/backend/definitions/[id]/page.js [Client Component SSR]
+[36m@open-mercato/app:build: [0m    ./packages/core/dist/modules/workflows/backend/definitions/[id]/page.js [App Route]
+[36m@open-mercato/app:build: [0m    ./apps/mercato/.mercato/generated/modules.runtime.generated.ts [App Route]
+[36m@open-mercato/app:build: [0m    ./apps/mercato/src/app/api/docs/openapi/route.ts [App Route]
+[36m@open-mercato/app:build: [0m
+[36m@open-mercato/app:build: [0m
+[36m@open-mercato/app:build: [0m    at <unknown> (https://nextjs.org/docs/messages/module-not-found)
+[36m@open-mercato/app:build: [0m[90m    ... collapsed 10 duplicate lines matching above 1 lines 10 times...[39m
+[1m@open-mercato/app#build: [0m[31m[1m ERROR [0m [31m[1mcommand (/Users/pat-lewczuk/projects/open-mercato/2/open-mercato/.ai/tmp/om-auto-create-pr-loop/workflows-ux-phase1-20260727-072357/apps/mercato) /private/var/folders/5b/v__l5j8x7rb3nrsd24xr4p980000gn/T/xfs-44c58940/yarn run build exited (1)[0m
+
+[1m Tasks:    [32m[1m0 successful[0m, 1 total[0m
+[1mCached:    [1m0 cached[0m, 1 total[0m
+[1m  Time:    [1m20.531s[0m [0m
+[1mFailed:    [31m[1m@open-mercato/app#build[0m[0m
+
+[31;40m ERROR [0m [31;49mrun failed: command  exited (1)[0m
+===== yarn test (final, post binding-seam) =====
+EXIT=FAIL
+[35m@open-mercato/events:test: [0mcache bypass, force executing [2mec9dfe31e7faef3f[0m
+[32m@open-mercato/content:test: [0mcache bypass, force executing [2meb7f42a36f61e47d[0m
+[33m@open-mercato/onboarding:test: [0mcache bypass, force executing [2m1536835f08973bc2[0m
+[34m@open-mercato/storage-s3:test: [0mcache bypass, force executing [2mf83c123a970656b7[0m
+[36m@open-mercato/gateway-stripe:test: [0mcache bypass, force executing [2maee81473b6d66eea[0m
+[35m@open-mercato/app:test: [0mcache bypass, force executing [2m2eb13c4479669805[0m
+[32m@open-mercato/core:test: [0mcache bypass, force executing [2m5cb4bac6ebf97ea7[0m
+[33m@open-mercato/checkout:test: [0mcache bypass, force executing [2mfa35ab5950fccdb1[0m
+[34m@open-mercato/ui:test: [0mcache bypass, force executing [2maf2987b471d544df[0m
+[36m@open-mercato/webhooks:test: [0mcache bypass, force executing [2m59bffca826b36286[0m
+[35m@open-mercato/queue:test: [0mcache bypass, force executing [2m2ef0300cbce453dc[0m
+[32mcreate-mercato-app:test: [0mcache bypass, force executing [2m256af2ee55009ed3[0m
+[33m@open-mercato/channel-imap:test: [0mcache bypass, force executing [2m578ec2f4985b5300[0m
+[34m@open-mercato/sync-akeneo:test: [0mcache bypass, force executing [2m2d6f2cf4933788ca[0m
+[36m@open-mercato/channel-gmail:test: [0mcache bypass, force executing [2m9ad06c94e1996484[0m
+[35m@open-mercato/search:test: [0mcache bypass, force executing [2ma798fb0933df8103[0m
+[32m@open-mercato/enterprise:test: [0mcache bypass, force executing [2m22f70092fcdf8e5e[0m
+[1m@open-mercato/cli#test: [0m[31m[1m ERROR [0m [31m[1mcommand (/Users/pat-lewczuk/projects/open-mercato/2/open-mercato/.ai/tmp/om-auto-create-pr-loop/workflows-ux-phase1-20260727-072357/packages/cli) /private/var/folders/5b/v__l5j8x7rb3nrsd24xr4p980000gn/T/xfs-5e83e6fa/yarn run test exited (1)[0m
+
+[1m Tasks:    [32m[1m4 successful[0m, 23 total[0m
+[1mCached:    [1m0 cached[0m, 23 total[0m
+[1m  Time:    [1m12.493s[0m [0m
+[1mFailed:    [31m[1m@open-mercato/cli#test[0m[0m
+
+[31;40m ERROR [0m [31;49mrun failed: command  exited (1)[0m
+===== yarn build:app (final, forced) =====
+EXIT=0
+[1mCached:    [1m0 cached[0m, 1 total[0m
+[1m  Time:    [1m1m8.395s[0m [0m
+

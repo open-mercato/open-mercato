@@ -717,6 +717,7 @@
   "catalog.variants.validation.gtinChecksum": "Kod kreskowy nie pasuje do wybranego typu identyfikatora.",
   "catalog.widgets.productSeo.groupDescription": "Zoptymalizuj tytuły i opisy produktów przed publikacją.",
   "catalog.widgets.productSeo.groupLabel": "Pomocnik SEO",
+  "catalog.workflows.commands.products.update": "Aktualizuj produkt",
   "customers~catalog.errors.id_required": "Identyfikator rekordu jest wymagany.",
   "customers~catalog.errors.organization_required": "Kontekst organizacji jest wymagany.",
   "customers~catalog.errors.tenant_required": "Kontekst tenanta jest wymagany.",

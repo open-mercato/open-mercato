@@ -79,12 +79,21 @@ The `x-api-key` should be an Open Mercato API key created in the backend admin (
 
 ### Step 4: Start Services
 
+The default hybrid dev mode needs just two commands — `yarn infra:up` starts OpenCode plus the infrastructure containers, and `yarn dev` runs the app **and** the MCP server on the host (provisioning the MCP API key into `.mercato/mcp-shared/mcp-api-key` automatically):
+
+```bash
+yarn infra:up
+yarn dev
+```
+
+To run the pieces individually instead:
+
 ```bash
 # Terminal 1: Start MCP development server
 yarn mcp:dev
 
 # Terminal 2: Start OpenCode container
-docker-compose up opencode
+docker compose --project-directory . -f starters/docker/compose.infra.yml up -d opencode
 
 # Terminal 3: Start Next.js app
 yarn dev
@@ -589,7 +598,7 @@ The AI will relay this message naturally to the user.
 
 ## Docker Configuration
 
-The OpenCode container is configured via `docker-compose.yml`. It reads environment variables from your `.env` file:
+The OpenCode container is configured via `starters/docker/compose.infra.yml`. It reads environment variables from your `.env` file:
 
 ```yaml
 services:
@@ -609,5 +618,5 @@ services:
 
 Start with:
 ```bash
-docker-compose up opencode
+docker compose --project-directory . -f starters/docker/compose.infra.yml up -d opencode
 ```

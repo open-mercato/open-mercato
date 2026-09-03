@@ -2,20 +2,55 @@
 
 import type { Node } from '@xyflow/react'
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@open-mercato/ui/primitives/dialog'
-import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Trash2 } from 'lucide-react'
 import { CrudForm, type CrudFormGroup, type CrudField, type CrudCustomFieldRenderProps } from '@open-mercato/ui/backend/CrudForm'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { JsonBuilder } from '@open-mercato/ui/backend/JsonBuilder'
+import { DurationInput } from '@open-mercato/ui/backend/inputs/DurationInput'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { FormFieldArrayEditor } from './fields/FormFieldArrayEditor'
-import { ActivityArrayEditor } from './fields/ActivityArrayEditor'
+import { ActivityArrayEditor, type ActivityTestContext } from './fields/ActivityArrayEditor'
+import { useActivityTypeOptions } from './fields/useActivityTypeOptions'
 import { MappingArrayEditor } from './fields/MappingArrayEditor'
 import { WorkflowSelectorField } from './fields/WorkflowSelectorField'
+import { RolesMultiSelect } from './fields/RolesMultiSelect'
 import { StartPreConditionsEditor } from './fields/StartPreConditionsEditor'
+import { AgentInvokeConfigField } from './fields/AgentInvokeConfigField'
+import { IfElseRoutesField, SwitchRoutesField } from './fields/BranchingRoutesEditor'
+import { RouteOrderEditor } from './fields/RouteOrderEditor'
+import { TemplateTextControl } from './fields/TemplateTextControl'
+import { TaskEntityBindingsField } from './fields/TaskEntityBindingsField'
+import { TaskAssignmentField } from './fields/TaskAssignmentField'
+import { TaskOnBreachField, TaskRemindersField } from './fields/TaskDeadlineFields'
+import { AgentReviewOnBreachField } from './fields/AgentReviewOnBreachField'
+import { TaskDecisionsField, TaskEditablePrefilledField } from './fields/TaskDecisionsField'
+import { TASK_PRIORITY_VALUES } from '../lib/task-inspector-config'
+import { AGENT_REVIEW_ASSIGNMENT_MODES } from '../lib/agent-review-inspector'
+import type { RouteOrderEntry } from '../lib/route-priority'
+import { ConditionBuilder } from '@open-mercato/core/modules/business_rules/components/ConditionBuilder'
+import type { GroupCondition } from '@open-mercato/core/modules/business_rules/components/utils/conditionValidation'
+import { InputDataPanel } from './InputDataPanel'
+import { InspectorPanel, type InspectorPanelVariant } from './InspectorPanel'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@open-mercato/ui/primitives/select'
 import { nodeToFormValues, formValuesToNodeUpdates, isJsonSchemaFormat, type NodeFormValues } from '../lib/nodeFormTransforms'
+import {
+  listStepTypeConversionTargets,
+  readUnmappedStepConfig,
+  type ConvertibleStepType,
+} from '../lib/step-type-conversion'
 import { sanitizeId } from '../lib/graph-utils'
+import { isBranchingNodeType } from '../lib/branching-routes'
+import type { BranchingRouteDraft, SwitchRoutesValue } from '../lib/branching-routes'
+import type { LedgerEntry } from '../lib/context-ledger'
+import type { PinnedSampleEnvelope } from '../lib/sample-resolver'
 
 /**
  * JsonConfigEditor - Custom field wrapper for JsonBuilder
@@ -30,12 +65,157 @@ function JsonConfigEditor({ value, setValue, disabled }: CrudCustomFieldRenderPr
   )
 }
 
+/**
+ * DurationCrudField - Custom field wrapper for DurationInput
+ */
+export function DurationCrudField({ id, value, setValue, disabled }: CrudCustomFieldRenderProps) {
+  return (
+    <DurationInput
+      id={id}
+      value={typeof value === 'string' ? value : ''}
+      onChange={setValue}
+      disabled={disabled}
+    />
+  )
+}
+
+/**
+ * RolesCrudField - Custom field wrapper for RolesMultiSelect
+ */
+export function RolesCrudField({ id, value, setValue, disabled }: CrudCustomFieldRenderProps) {
+  const roles = useMemo(
+    () => (Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : []),
+    [value],
+  )
+  return (
+    <RolesMultiSelect
+      id={id}
+      value={roles}
+      onChange={setValue}
+      disabled={disabled}
+    />
+  )
+}
+
+/**
+ * StepTypeConversionControl — "Change type…" (spec 4.5, #4237).
+ *
+ * Conversion is an action on the step, not a form value: it rewrites the node
+ * type and its data wholesale, so it runs through its own callback (with a
+ * confirmation on the page) instead of the CrudForm submit.
+ */
+function StepTypeConversionControl({
+  nodeType,
+  onConvert,
+}: {
+  nodeType: string | undefined
+  onConvert: (targetType: ConvertibleStepType) => void
+}) {
+  const t = useT()
+  const [targetType, setTargetType] = useState<string>('')
+  const targets = useMemo(() => listStepTypeConversionTargets(nodeType), [nodeType])
+
+  if (targets.length === 0) return null
+
+  return (
+    <div className="space-y-2">
+      <p className="text-sm text-muted-foreground">
+        {t(
+          'workflows.stepConversion.description',
+          'Keeps this step’s id, name, position and wiring. Configuration the new type cannot execute is parked under Unmapped configuration instead of being deleted.',
+        )}
+      </p>
+      <div className="flex items-center gap-2">
+        <Select value={targetType} onValueChange={setTargetType}>
+          <SelectTrigger className="w-64" aria-label={t('workflows.stepConversion.targetLabel', 'New step type')}>
+            <SelectValue placeholder={t('workflows.stepConversion.targetPlaceholder', 'Select a step type')} />
+          </SelectTrigger>
+          <SelectContent>
+            {targets.map((candidate) => (
+              <SelectItem key={candidate} value={candidate}>
+                {t(`workflows.nodeTypes.${candidate}`)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Button
+          type="button"
+          variant="outline"
+          disabled={!targetType}
+          onClick={() => {
+            if (targetType) onConvert(targetType as ConvertibleStepType)
+          }}
+        >
+          {t('workflows.stepConversion.action', 'Change type…')}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * UnmappedConfigDrawer — the quarantine made visible (spec 4.5). Read-only: the
+ * values are stored verbatim in the step metadata and are recovered by
+ * converting back, never edited in place.
+ */
+function UnmappedConfigDrawer({ value }: { value: Record<string, unknown> }) {
+  const t = useT()
+  return (
+    <details className="rounded-md border border-border bg-muted/30 p-3">
+      <summary className="cursor-pointer text-sm font-medium">
+        {t('workflows.stepConversion.unmapped.title', 'Unmapped configuration')}
+      </summary>
+      <p className="mt-2 text-xs text-muted-foreground">
+        {t(
+          'workflows.stepConversion.unmapped.description',
+          'Kept from an earlier type change. It is stored with the step but is not executed; change the step back to recover it.',
+        )}
+      </p>
+      <pre className="mt-2 max-h-64 overflow-auto rounded bg-background p-2 font-mono text-xs">
+        {JSON.stringify(value, null, 2)}
+      </pre>
+    </details>
+  )
+}
+
 export interface NodeEditDialogCrudFormProps {
   node: Node | null
   isOpen: boolean
   onClose: () => void
   onSave: (nodeId: string, updates: Partial<Node['data']>) => void
   onDelete?: (nodeId: string) => void
+  ledgerEntries?: LedgerEntry[]
+  definitionId?: string | null
+  samples?: Record<string, PinnedSampleEnvelope>
+  onPinSample?: (stepId: string, data: unknown) => void
+  onUnpinSample?: (stepId: string) => void
+  /**
+   * Outgoing routes of a branching step (IF_ELSE / SWITCH). The inspector edits
+   * transitions rather than step data, so the value round-trips through a
+   * dedicated callback instead of the node-update payload.
+   */
+  branchingRoutes?: SwitchRoutesValue
+  onSaveBranchingRoutes?: (nodeId: string, value: SwitchRoutesValue) => void
+  /**
+   * Outgoing routes of a NON-branching step, in evaluation order. Reordering the
+   * list derives the transition priorities (spec 4.4) — branching steps order
+   * their routes through their own case list instead.
+   */
+  routeOrder?: RouteOrderEntry[]
+  onSaveRouteOrder?: (nodeId: string, entries: RouteOrderEntry[]) => void
+  /**
+   * In-place step type conversion (spec 4.5). The page confirms the change and
+   * rewrites the node, because conversion replaces the node type and its data
+   * rather than producing a form value.
+   */
+  onConvertType?: (nodeId: string, targetType: ConvertibleStepType) => void
+  /**
+   * How the inspector is presented. Defaults to `overlay` so a caller that has
+   * not opted in keeps the modal shape it had.
+   */
+  variant?: InspectorPanelVariant
+  /** Widen the overlay Drawer to the metadata-drawer width — the step form is dense. */
+  wide?: boolean
 }
 
 /**
@@ -54,20 +234,40 @@ export interface NodeEditDialogCrudFormProps {
  * - automated: Activity type + activities array
  * - subWorkflow: Workflow selector + input/output mappings
  * - waitForSignal: Signal name + timeout
+ * - waitForTimer: Duration XOR wait-until timer configuration
+ * - waitForCondition: ConditionBuilder predicate + mandatory timeout policy
  * - decision: Basic fields only
  */
-export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete }: NodeEditDialogCrudFormProps) {
+export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete, ledgerEntries, definitionId, samples, onPinSample, onUnpinSample, branchingRoutes, onSaveBranchingRoutes, routeOrder, onSaveRouteOrder, onConvertType, variant = 'overlay', wide }: NodeEditDialogCrudFormProps) {
+  const t = useT()
+  const activityTypeOptions = useActivityTypeOptions()
   const [initialValues, setInitialValues] = useState<Partial<NodeFormValues>>({})
   const [showJsonSchemaWarning, setShowJsonSchemaWarning] = useState(false)
+
+  const activityTestContext = useMemo<ActivityTestContext | undefined>(() => {
+    if (!node || !onPinSample || !onUnpinSample) return undefined
+    const stepId = node.id
+    return {
+      definitionId: definitionId ?? null,
+      stepId,
+      pinnedSample: samples?.[stepId],
+      onPinSample: (data: unknown) => onPinSample(stepId, data),
+      onUnpinSample: () => onUnpinSample(stepId),
+    }
+  }, [node, definitionId, samples, onPinSample, onUnpinSample])
 
   // Load node data when dialog opens
   useEffect(() => {
     if (node && isOpen) {
       const values = nodeToFormValues(node)
-      setInitialValues(values)
+      setInitialValues(
+        isBranchingNodeType(node.type)
+          ? { ...values, branchingRoutes: branchingRoutes ?? { field: '', routes: [] } }
+          : { ...values, routeOrder: routeOrder ?? [] },
+      )
       setShowJsonSchemaWarning(isJsonSchemaFormat(node))
     }
-  }, [node, isOpen])
+  }, [node, isOpen, branchingRoutes, routeOrder])
 
   const handleSubmit = useCallback(async (values: Record<string, unknown>) => {
     if (!node) return
@@ -75,36 +275,33 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
     // Validate and sanitize step ID
     const sanitizedId = sanitizeId(node.id)
     if (sanitizedId !== node.id) {
-      if (typeof window !== 'undefined') {
-        window.alert(
-          `⚠️ Step ID was sanitized from "${node.id}" to "${sanitizedId}" to match schema requirements (lowercase letters, numbers, hyphens, and underscores only).`
-        )
-      }
+      flash(t('workflows.nodeEditor.stepIdSanitized', { from: node.id, to: sanitizedId }), 'warning')
     }
 
     try {
       const updates = formValuesToNodeUpdates(values as unknown as NodeFormValues, node)
       onSave(node.id, updates)
+      if (isBranchingNodeType(node.type) && onSaveBranchingRoutes) {
+        const routesValue = values.branchingRoutes as SwitchRoutesValue | undefined
+        onSaveBranchingRoutes(node.id, routesValue ?? { field: '', routes: [] })
+      } else if (onSaveRouteOrder) {
+        const entries = values.routeOrder as RouteOrderEntry[] | undefined
+        if (Array.isArray(entries) && entries.length > 0) onSaveRouteOrder(node.id, entries)
+      }
       onClose()
     } catch (error) {
-      // Error will be displayed in form (e.g., invalid JSON)
-      throw error
+      const message = error instanceof Error ? error.message : String(error)
+      throw new Error(t(message))
     }
-  }, [node, onSave, onClose])
+  }, [node, onSave, onSaveBranchingRoutes, onSaveRouteOrder, onClose, t])
 
   const handleDelete = useCallback(() => {
     if (!node || !onDelete) return
     onDelete(node.id)
   }, [node, onDelete])
 
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Escape') {
-      onClose()
-    }
-  }, [onClose])
-
   // Dynamic groups based on node type
-  const groups: CrudFormGroup[] = useMemo(() => {
+  const typeGroups: CrudFormGroup[] = useMemo(() => {
     if (!node) return []
 
     // End nodes are non-editable
@@ -117,7 +314,7 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
           component: () => (
             <Alert status="information">
               <AlertDescription>
-                End nodes cannot be edited. They mark the completion of the workflow.
+                {t('workflows.nodeEditor.endStepsNotEditable')}
               </AlertDescription>
             </Alert>
           ),
@@ -135,16 +332,16 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
           component: () => (
             <Alert status="information" className="mb-4">
               <AlertDescription>
-                Start nodes mark the beginning of the workflow. You can define pre-conditions that must pass before the workflow can be started.
+                {t('workflows.nodeEditor.startStepsInfo')}
               </AlertDescription>
             </Alert>
           ),
         },
         {
           id: 'preConditions',
-          title: 'Pre-Conditions',
+          title: t('workflows.transitions.preConditions'),
           column: 1,
-          description: 'Business rules that must pass before the workflow can start',
+          description: t('workflows.fieldEditors.preConditions.description'),
           fields: ['preConditions'],
         },
       ]
@@ -153,36 +350,92 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
     const baseGroups: CrudFormGroup[] = [
       {
         id: 'basic',
-        title: 'Basic Information',
+        title: t('workflows.form.groups.basic'),
         column: 1,
         fields: ['stepName', 'description', 'timeout'],
       },
     ]
 
-    // UserTask specific groups
+    // Route ordering (spec 4.4) only makes sense once a step has a choice to
+    // make. Branching steps order their routes through their own case list.
+    if (!isBranchingNodeType(node.type) && (routeOrder?.length ?? 0) > 1) {
+      baseGroups.push({
+        id: 'routeOrder',
+        title: t('workflows.routeOrder.groupTitle'),
+        column: 1,
+        description: t('workflows.routeOrder.groupDescription'),
+        fields: ['routeOrder'],
+      })
+    }
+
+    const advancedGroup: CrudFormGroup = {
+      id: 'advanced',
+      title: t('workflows.form.advancedConfiguration'),
+      column: 1,
+      description: t('workflows.form.descriptions.advancedConfig'),
+      fields: ['advancedConfig'],
+    }
+
+    // Error handling (spec section 5.9): what this step does when it fails and
+    // no error route is wired from its error handle.
+    const errorHandlingGroup: CrudFormGroup = {
+      id: 'errorHandling',
+      title: t('workflows.nodeEditor.groups.errorHandling', 'Error Handling'),
+      column: 1,
+      description: t(
+        'workflows.nodeEditor.groups.errorHandlingDescription',
+        'Applies when this step fails and no error route is wired from its error output handle.',
+      ),
+      fields: ['errorDirectiveMode', 'errorDirectiveFallbackValue'],
+    }
+
+    // UserTask: the five task-inspector sections of spec §6.1, in order —
+    // What / About what / Who / When / Decisions — followed by the step
+    // mechanics every node type shares. Each section is container-agnostic: it
+    // declares no width and assumes no modal chrome, so re-hosting the
+    // inspector in a docked rail is a re-parent rather than a rewrite.
     if (node.type === 'userTask') {
       return [
-        ...baseGroups,
         {
-          id: 'userTask',
-          title: 'User Task Configuration',
+          id: 'taskWhat',
+          title: t('workflows.tasks.inspector.what.title'),
           column: 1,
-          fields: ['assignedTo', 'assignedToRoles', 'formKey'],
+          fields: ['stepName', 'taskInstructions'],
         },
         {
-          id: 'formFields',
-          title: 'Form Fields',
+          id: 'taskAbout',
+          title: t('workflows.tasks.inspector.bindings.title'),
           column: 1,
-          description: 'Define the form structure for this user task',
-          fields: ['formFields'],
+          fields: ['taskEntityBindings'],
         },
         {
-          id: 'advanced',
-          title: 'Advanced Configuration',
+          id: 'taskWho',
+          title: t('workflows.tasks.inspector.who.title'),
           column: 1,
-          description: 'Additional JSON configuration (userTaskConfig, retryPolicy, etc.)',
-          fields: ['advancedConfig'],
+          fields: ['assignmentMode'],
         },
+        {
+          id: 'taskWhen',
+          title: t('workflows.tasks.inspector.when.title'),
+          column: 1,
+          fields: ['taskPriority', 'slaDuration', 'taskReminders', 'taskOnBreach'],
+        },
+        {
+          id: 'taskDecisions',
+          title: t('workflows.tasks.inspector.decisions.title'),
+          column: 1,
+          description: t('workflows.form.descriptions.formFields'),
+          fields: ['taskDecisions', 'formFields', 'taskEditablePrefilled', 'formKey'],
+        },
+        {
+          id: 'basic',
+          title: t('workflows.form.groups.basic'),
+          column: 1,
+          fields: ['description', 'timeout'],
+        },
+        ...baseGroups.slice(1),
+        errorHandlingGroup,
+        advancedGroup,
       ]
     }
 
@@ -192,24 +445,19 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
         ...baseGroups,
         {
           id: 'automated',
-          title: 'Automated Task Configuration',
+          title: t('workflows.nodeEditor.groups.automated'),
           column: 1,
           fields: ['activityType', 'activityId'],
         },
         {
           id: 'stepActivities',
-          title: 'Step Activities',
+          title: t('workflows.nodeEditor.groups.stepActivities'),
           column: 1,
-          description: 'Activities executed as part of this automated step',
+          description: t('workflows.nodeEditor.groups.stepActivitiesDescription'),
           fields: ['stepActivities'],
         },
-        {
-          id: 'advanced',
-          title: 'Advanced Configuration',
-          column: 1,
-          description: 'Additional JSON configuration (retryPolicy, etc.)',
-          fields: ['advancedConfig'],
-        },
+        errorHandlingGroup,
+        advancedGroup,
       ]
     }
 
@@ -219,24 +467,19 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
         ...baseGroups,
         {
           id: 'subWorkflow',
-          title: 'Sub-Workflow Configuration',
+          title: t('workflows.form.subWorkflowConfig'),
           column: 1,
           fields: ['subWorkflowId', 'subWorkflowVersion'],
         },
         {
           id: 'mappings',
-          title: 'Data Mappings',
+          title: t('workflows.nodeEditor.groups.mappings'),
           column: 1,
-          description: 'Map data between parent and sub-workflow',
+          description: t('workflows.nodeEditor.groups.mappingsDescription'),
           fields: ['inputMappings', 'outputMappings'],
         },
-        {
-          id: 'advanced',
-          title: 'Advanced Configuration',
-          column: 1,
-          description: 'Additional JSON configuration',
-          fields: ['advancedConfig'],
-        },
+        errorHandlingGroup,
+        advancedGroup,
       ]
     }
 
@@ -246,84 +489,356 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
         ...baseGroups,
         {
           id: 'signal',
-          title: 'Signal Configuration',
+          title: t('workflows.form.signalConfig'),
           column: 1,
           fields: ['signalName', 'signalTimeout'],
         },
+        advancedGroup,
+      ]
+    }
+
+    // WaitForTimer specific groups
+    if (node.type === 'waitForTimer') {
+      return [
         {
-          id: 'advanced',
-          title: 'Advanced Configuration',
+          id: 'basic',
+          title: t('workflows.form.groups.basic'),
           column: 1,
-          description: 'Additional JSON configuration',
-          fields: ['advancedConfig'],
+          fields: ['stepName', 'description'],
         },
+        {
+          id: 'timer',
+          title: t('workflows.nodeEditor.groups.timer'),
+          column: 1,
+          description: t('workflows.nodeEditor.groups.timerDescription'),
+          fields: ['timerDuration', 'timerUntil'],
+        },
+        advancedGroup,
+      ]
+    }
+
+    // WaitForCondition specific groups
+    if (node.type === 'waitForCondition') {
+      return [
+        {
+          id: 'basic',
+          title: t('workflows.form.groups.basic'),
+          column: 1,
+          fields: ['stepName', 'description'],
+        },
+        {
+          id: 'waitCondition',
+          title: t('workflows.nodeEditor.groups.waitCondition', 'Wait Condition'),
+          column: 1,
+          description: t(
+            'workflows.nodeEditor.groups.waitConditionDescription',
+            'The workflow pauses here until this condition over the run context becomes true. It is re-checked whenever the context is written and on a periodic poll.',
+          ),
+          fields: ['waitCondition'],
+        },
+        {
+          id: 'waitConditionTimeout',
+          title: t('workflows.nodeEditor.groups.waitConditionTimeout', 'Timeout Policy'),
+          column: 1,
+          description: t(
+            'workflows.nodeEditor.groups.waitConditionTimeoutDescription',
+            'A timeout is required so a condition that never becomes true cannot hang the run forever.',
+          ),
+          fields: ['waitConditionTimeout', 'waitConditionOnTimeout', 'waitConditionPollIntervalMs'],
+        },
+        advancedGroup,
+      ]
+    }
+
+    // InvokeAgent specific groups
+    if (node.type === 'invokeAgent') {
+      return [
+        ...baseGroups,
+        {
+          id: 'invokeAgent',
+          title: t('workflows.form.invokeAgent.sectionTitle'),
+          column: 1,
+          description: t('workflows.form.invokeAgent.sectionDescription'),
+          fields: ['agentConfig'],
+        },
+        // Review (spec §7.5): who dispositions the proposal this step raises,
+        // and by when. The same Who/When vocabulary the Task inspector authors
+        // (§6.1.3 / §6.1.4) — because the thing being authored IS a task.
+        {
+          id: 'agentReviewWho',
+          title: t('workflows.form.invokeAgent.review.whoTitle'),
+          column: 1,
+          description: t('workflows.form.invokeAgent.review.whoDescription'),
+          fields: ['reviewAssignmentMode'],
+        },
+        {
+          id: 'agentReviewWhen',
+          title: t('workflows.form.invokeAgent.review.whenTitle'),
+          column: 1,
+          description: t('workflows.form.invokeAgent.review.whenDescription'),
+          fields: ['reviewPriority', 'reviewDeadline', 'reviewReminders', 'reviewOnBreach'],
+        },
+        errorHandlingGroup,
+        advancedGroup,
+      ]
+    }
+
+    // Branching steps: the routes inspector edits the outgoing transitions
+    if (isBranchingNodeType(node.type)) {
+      return [
+        ...baseGroups,
+        {
+          id: 'branchingRoutes',
+          title: t('workflows.branching.groupTitle', 'Routes'),
+          column: 1,
+          description: t(
+            'workflows.branching.groupDescription',
+            'Routing happens on the outgoing transitions: each case is evaluated by priority, and the otherwise route runs when none matches.',
+          ),
+          fields: ['branchingRoutes'],
+        },
+        errorHandlingGroup,
+        advancedGroup,
       ]
     }
 
     // Decision and other types: just basic fields + advanced
     return [
       ...baseGroups,
-      {
-        id: 'advanced',
-        title: 'Advanced Configuration',
-        column: 1,
-        description: 'Additional JSON configuration',
-        fields: ['advancedConfig'],
-      },
+      advancedGroup,
     ]
-  }, [node])
+  }, [node, t])
+
+  // Quarantined config from an earlier type change, and the conversion control
+  // itself (spec 4.5). Both hang off every editable step type, after whatever
+  // that type's own inspector renders.
+  const unmappedConfig = useMemo(() => readUnmappedStepConfig(node?.data), [node])
+
+  const groups: CrudFormGroup[] = useMemo(() => {
+    if (!node) return []
+    const extras: CrudFormGroup[] = []
+    if (unmappedConfig) {
+      extras.push({
+        id: 'unmappedConfig',
+        column: 1,
+        bare: true,
+        component: () => <UnmappedConfigDrawer value={unmappedConfig} />,
+      })
+    }
+    if (onConvertType && listStepTypeConversionTargets(node.type).length > 0) {
+      extras.push({
+        id: 'changeType',
+        title: t('workflows.stepConversion.groupTitle', 'Change step type'),
+        column: 1,
+        bare: false,
+        component: () => (
+          <StepTypeConversionControl
+            nodeType={node.type}
+            onConvert={(targetType) => onConvertType(node.id, targetType)}
+          />
+        ),
+      })
+    }
+    return [...typeGroups, ...extras]
+  }, [node, typeGroups, unmappedConfig, onConvertType, t])
 
   // Define all possible form fields (only relevant ones are used based on groups)
   const fields: CrudField[] = useMemo(() => [
-    // Basic fields
-    {
-      id: 'stepName',
-      label: 'Step Name',
-      type: 'text',
-      placeholder: 'Enter step name',
-      required: true,
-      description: 'Display name for this step',
-    },
+    // Basic fields. A user task's title is the sentence the assignee reads, so
+    // it is pill-capable there (spec §6.1 "What") and a plain text input
+    // everywhere else.
+    node?.type === 'userTask'
+      ? {
+          id: 'stepName',
+          label: t('workflows.tasks.inspector.what.taskTitle'),
+          type: 'custom',
+          required: true,
+          component: (props) => (
+            <TemplateTextControl
+              id={props.id}
+              value={typeof props.value === 'string' ? props.value : ''}
+              onValueChange={props.setValue}
+              ledgerEntries={ledgerEntries}
+              placeholder={t('workflows.form.placeholders.stepName')}
+              disabled={props.disabled}
+              aria-label={t('workflows.tasks.inspector.what.taskTitle')}
+            />
+          ),
+        }
+      : {
+          id: 'stepName',
+          label: t('workflows.form.stepName'),
+          type: 'text',
+          placeholder: t('workflows.form.placeholders.stepName'),
+          required: true,
+          description: t('workflows.form.descriptions.stepName'),
+        },
     {
       id: 'description',
-      label: 'Description',
+      label: t('workflows.form.description'),
       type: 'textarea',
-      placeholder: 'Enter step description',
-      description: 'Optional description of what this step does',
+      placeholder: t('workflows.form.placeholders.description'),
+      description: t('workflows.form.descriptions.description'),
     },
     {
       id: 'timeout',
-      label: 'Timeout',
-      type: 'text',
-      placeholder: 'PT30S or 30000',
-      description: 'ISO 8601 duration (e.g., PT30S) or milliseconds',
+      label: t('workflows.form.timeout'),
+      type: 'custom',
+      description: t('workflows.form.descriptions.timeout'),
+      component: (props) => <DurationCrudField {...props} />,
     },
 
     // UserTask fields
     {
       id: 'assignedTo',
-      label: 'Assigned To',
+      label: t('workflows.form.assignedTo'),
       type: 'text',
-      placeholder: 'user@example.com or userId',
-      description: 'User email or ID to assign this task to',
+      placeholder: t('workflows.form.placeholders.userId'),
+      description: t('workflows.form.descriptions.assignedTo'),
     },
     {
       id: 'assignedToRoles',
-      label: 'Assigned To Roles',
-      type: 'text',
-      placeholder: 'admin, manager',
-      description: 'Comma-separated list of roles that can claim this task',
+      label: t('workflows.form.assignedToRoles'),
+      type: 'custom',
+      description: t('workflows.form.descriptions.assignedToRoles'),
+      component: (props) => <RolesCrudField {...props} />,
     },
     {
       id: 'formKey',
-      label: 'Form Key',
+      label: t('workflows.form.formKey'),
       type: 'text',
-      placeholder: 'approval_form',
-      description: 'Optional form key for external form rendering',
+      placeholder: t('workflows.form.placeholders.formKey'),
+      description: t('workflows.form.descriptions.formKey'),
+    },
+    {
+      id: 'slaDuration',
+      label: t('workflows.tasks.inspector.when.deadline'),
+      type: 'custom',
+      description: t('workflows.nodeEditor.slaDurationDescription'),
+      component: (props) => <DurationCrudField {...props} />,
+    },
+
+    // Task inspector sections (spec §6.1)
+    {
+      id: 'taskInstructions',
+      label: t('workflows.tasks.inspector.what.instructions'),
+      type: 'custom',
+      component: (props) => (
+        <TemplateTextControl
+          id={props.id}
+          value={typeof props.value === 'string' ? props.value : ''}
+          onValueChange={props.setValue}
+          ledgerEntries={ledgerEntries}
+          placeholder={t('workflows.tasks.inspector.what.instructionsPlaceholder')}
+          disabled={props.disabled}
+          multiline
+          aria-label={t('workflows.tasks.inspector.what.instructions')}
+        />
+      ),
+    },
+    {
+      id: 'taskEntityBindings',
+      label: t('workflows.tasks.inspector.bindings.label'),
+      type: 'custom',
+      component: (props) => <TaskEntityBindingsField {...props} ledgerEntries={ledgerEntries} />,
+    },
+    {
+      id: 'assignmentMode',
+      label: t('workflows.tasks.inspector.who.label'),
+      type: 'custom',
+      component: (props) => (
+        <TaskAssignmentField
+          {...props}
+          ledgerEntries={ledgerEntries}
+          portalAudience={{ assigneeKind: 'taskAssigneeKind', entityBindings: 'taskEntityBindings' }}
+        />
+      ),
+    },
+    {
+      id: 'taskPriority',
+      label: t('workflows.tasks.inspector.when.priority'),
+      type: 'select',
+      options: TASK_PRIORITY_VALUES.map((priority) => ({
+        value: priority,
+        label: t(`workflows.tasks.inspector.when.priorities.${priority}`),
+      })),
+    },
+    {
+      id: 'taskReminders',
+      label: t('workflows.tasks.inspector.when.reminders'),
+      type: 'custom',
+      component: (props) => <TaskRemindersField {...props} />,
+    },
+    {
+      id: 'taskOnBreach',
+      label: t('workflows.tasks.inspector.when.onBreach'),
+      type: 'custom',
+      component: (props) => <TaskOnBreachField {...props} routeOrder={routeOrder} />,
+    },
+    // Invoke Agent — Review (spec §7.5). The assignment tabs and the reminder
+    // control are the SAME components the Task inspector renders, pointed at
+    // this section's own field ids; only the breach action set differs, because
+    // a disposition deadline escalates and never decides.
+    {
+      id: 'reviewAssignmentMode',
+      label: t('workflows.tasks.inspector.who.label'),
+      type: 'custom',
+      component: (props) => (
+        <TaskAssignmentField
+          {...props}
+          ledgerEntries={ledgerEntries}
+          modes={AGENT_REVIEW_ASSIGNMENT_MODES}
+          fieldIds={{
+            assignedTo: 'reviewAssignedTo',
+            assignedToRoles: 'reviewAssignedToRoles',
+            assignmentRule: 'reviewAssignmentRule',
+          }}
+        />
+      ),
+    },
+    {
+      id: 'reviewPriority',
+      label: t('workflows.tasks.inspector.when.priority'),
+      type: 'select',
+      options: TASK_PRIORITY_VALUES.map((priority) => ({
+        value: priority,
+        label: t(`workflows.tasks.inspector.when.priorities.${priority}`),
+      })),
+    },
+    {
+      id: 'reviewDeadline',
+      label: t('workflows.tasks.inspector.when.deadline'),
+      type: 'custom',
+      description: t('workflows.form.invokeAgent.review.deadlineDescription'),
+      component: (props) => <DurationCrudField {...props} />,
+    },
+    {
+      id: 'reviewReminders',
+      label: t('workflows.tasks.inspector.when.reminders'),
+      type: 'custom',
+      component: (props) => <TaskRemindersField {...props} />,
+    },
+    {
+      id: 'reviewOnBreach',
+      label: t('workflows.tasks.inspector.when.onBreach'),
+      type: 'custom',
+      component: (props) => <AgentReviewOnBreachField {...props} />,
+    },
+    {
+      id: 'taskDecisions',
+      label: t('workflows.tasks.inspector.decisions.label'),
+      type: 'custom',
+      component: (props) => <TaskDecisionsField {...props} routeOrder={routeOrder} />,
+    },
+    {
+      id: 'taskEditablePrefilled',
+      label: t('workflows.tasks.inspector.decisions.editablePrefilled'),
+      type: 'custom',
+      component: (props) => <TaskEditablePrefilledField {...props} />,
     },
     {
       id: 'formFields',
-      label: 'Form Fields',
+      label: t('workflows.nodeEditor.groups.formFields'),
       type: 'custom',
       component: (props) => (
         <FormFieldArrayEditor
@@ -337,70 +852,64 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
     // Automated fields
     {
       id: 'activityType',
-      label: 'Activity Type',
+      label: t('workflows.form.activityType'),
       type: 'select',
-      options: [
-        { value: 'SEND_EMAIL', label: 'Send Email' },
-        { value: 'CALL_API', label: 'Call API' },
-        { value: 'UPDATE_ENTITY', label: 'Update Entity' },
-        { value: 'EMIT_EVENT', label: 'Emit Event' },
-        { value: 'CALL_WEBHOOK', label: 'Call Webhook' },
-        { value: 'EXECUTE_FUNCTION', label: 'Execute Function' },
-        { value: 'WAIT', label: 'Wait' },
-      ],
-      description: 'Type of activity to execute',
+      options: activityTypeOptions,
+      description: t('workflows.nodeEditor.activityTypeDescription'),
     },
     {
       id: 'activityId',
-      label: 'Activity ID',
+      label: t('workflows.form.activityId'),
       type: 'text',
-      placeholder: 'send_welcome_email',
-      description: 'Unique identifier for this activity',
+      placeholder: t('workflows.form.placeholders.activityId'),
+      description: t('workflows.nodeEditor.activityIdDescription'),
     },
     {
       id: 'stepActivities',
-      label: 'Step Activities',
+      label: t('workflows.nodeEditor.groups.stepActivities'),
       type: 'custom',
-      component: (props) => <ActivityArrayEditor {...props} value={props.value as any} />,
+      component: (props) => <ActivityArrayEditor {...props} value={props.value as any} ledgerEntries={ledgerEntries} testContext={activityTestContext} />,
     },
 
     // SubWorkflow fields
     {
       id: 'subWorkflowId',
-      label: 'Sub-Workflow',
+      label: t('workflows.form.workflowToInvoke'),
       type: 'custom',
       component: (props) => <WorkflowSelectorField {...props} value={props.value as any} />,
     },
     {
       id: 'subWorkflowVersion',
-      label: 'Version',
+      label: t('workflows.form.version'),
       type: 'number',
-      placeholder: '1',
-      description: 'Specific version of the sub-workflow to invoke',
+      placeholder: t('workflows.form.placeholders.version'),
+      description: t('workflows.form.descriptions.subWorkflowVersion'),
     },
     {
       id: 'inputMappings',
-      label: 'Input Mappings',
+      label: t('workflows.nodeEditor.inputMappings'),
       type: 'custom',
       component: (props) => (
         <MappingArrayEditor
           {...props}
           value={props.value as any}
-          label="Input Mappings"
-          description="Map parent workflow data to sub-workflow input"
+          label={t('workflows.nodeEditor.inputMappings')}
+          description={t('workflows.form.descriptions.inputMapping')}
+          variablePicker
+          ledgerEntries={ledgerEntries}
         />
       ),
     },
     {
       id: 'outputMappings',
-      label: 'Output Mappings',
+      label: t('workflows.nodeEditor.outputMappings'),
       type: 'custom',
       component: (props) => (
         <MappingArrayEditor
           {...props}
           value={props.value as any}
-          label="Output Mappings"
-          description="Map sub-workflow output back to parent workflow"
+          label={t('workflows.nodeEditor.outputMappings')}
+          description={t('workflows.form.descriptions.outputMapping')}
         />
       ),
     },
@@ -408,103 +917,248 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
     // WaitForSignal fields
     {
       id: 'signalName',
-      label: 'Signal Name',
+      label: t('workflows.form.signalName'),
       type: 'text',
-      placeholder: 'approval_received',
-      description: 'Name of the signal to wait for',
+      placeholder: t('workflows.form.placeholders.signalName'),
+      description: t('workflows.form.descriptions.signalName'),
     },
     {
       id: 'signalTimeout',
-      label: 'Signal Timeout',
-      type: 'text',
-      placeholder: 'PT5M',
-      description: 'How long to wait for the signal (ISO 8601 duration)',
+      label: t('workflows.nodeEditor.signalTimeout'),
+      type: 'custom',
+      description: t('workflows.form.descriptions.signalTimeout'),
+      component: (props) => <DurationCrudField {...props} />,
+    },
+
+    // WaitForTimer fields
+    {
+      id: 'timerDuration',
+      label: t('workflows.activities.waitDuration'),
+      type: 'custom',
+      description: t('workflows.nodeEditor.timerDurationDescription'),
+      component: (props) => <DurationCrudField {...props} />,
+    },
+    {
+      id: 'timerUntil',
+      label: t('workflows.activities.waitUntil'),
+      type: 'datetime',
+      minDate: new Date(),
+      description: t('workflows.nodeEditor.timerUntilDescription'),
+    },
+
+    // Error directive fields (spec section 5.9)
+    {
+      id: 'errorDirectiveMode',
+      label: t('workflows.form.errorDirective.mode', 'On failure'),
+      type: 'select',
+      options: [
+        { value: 'fail', label: t('workflows.form.errorDirective.modeFail', 'Fail the instance (default)') },
+        {
+          value: 'continueWithFallback',
+          label: t('workflows.form.errorDirective.modeContinue', 'Continue with a fallback value'),
+        },
+        {
+          value: 'failureQueue',
+          label: t('workflows.form.errorDirective.modeQueue', 'Send to the failure queue'),
+        },
+      ],
+      description: t(
+        'workflows.form.descriptions.errorDirectiveMode',
+        'Fail the instance, continue with a fallback value written to the run context under this step id, or park the run for triage.',
+      ),
+    },
+    {
+      id: 'errorDirectiveFallbackValue',
+      label: t('workflows.form.errorDirective.fallbackValue', 'Fallback value (JSON)'),
+      type: 'textarea',
+      placeholder: '{ "ok": false }',
+      description: t(
+        'workflows.form.descriptions.errorDirectiveFallbackValue',
+        'JSON value used when the directive is "Continue with a fallback value". Typed against this step output contract; leave empty to continue without writing anything.',
+      ),
+    },
+
+    // WaitForCondition fields
+    {
+      id: 'waitCondition',
+      label: '',
+      type: 'custom',
+      component: (props) => (
+        <ConditionBuilder
+          value={(props.value as GroupCondition | null) ?? null}
+          onChangeAction={(next: GroupCondition) => props.setValue(next)}
+          entityType="workflow:wait_condition"
+        />
+      ),
+    },
+    {
+      id: 'waitConditionTimeout',
+      label: t('workflows.form.waitCondition.timeout', 'Timeout'),
+      type: 'custom',
+      description: t('workflows.form.descriptions.waitConditionTimeout', 'How long to wait before the timeout policy applies. Required.'),
+      component: (props) => <DurationCrudField {...props} />,
+    },
+    {
+      id: 'waitConditionOnTimeout',
+      label: t('workflows.form.waitCondition.onTimeout', 'On timeout'),
+      type: 'select',
+      options: [
+        { value: 'FAIL', label: t('workflows.form.waitCondition.onTimeoutFail', 'Fail the step') },
+        { value: 'CONTINUE', label: t('workflows.form.waitCondition.onTimeoutContinue', 'Continue with timedOut') },
+      ],
+      description: t(
+        'workflows.form.descriptions.waitConditionOnTimeout',
+        'Fail the step, or continue with "timedOut" set so an outgoing route can branch on it.',
+      ),
+    },
+    {
+      id: 'waitConditionPollIntervalMs',
+      label: t('workflows.form.waitCondition.pollIntervalMs', 'Poll interval (ms)'),
+      type: 'number',
+      placeholder: '30000',
+      description: t(
+        'workflows.form.descriptions.waitConditionPollIntervalMs',
+        'Optional backstop poll interval between 5000 and 3600000 ms, and never longer than the timeout. Defaults to 30000.',
+      ),
+    },
+
+    // InvokeAgent configuration
+    {
+      id: 'agentConfig',
+      label: '',
+      type: 'custom',
+      component: (props) => (
+        <AgentInvokeConfigField {...props} value={props.value as any} ledgerEntries={ledgerEntries} />
+      ),
+    },
+    {
+      id: 'routeOrder',
+      label: '',
+      type: 'custom',
+      component: (props) => (
+        <RouteOrderEditor
+          id={props.id}
+          value={props.value as RouteOrderEntry[] | undefined}
+          setValue={props.setValue}
+          disabled={props.disabled}
+        />
+      ),
+    },
+    {
+      id: 'branchingRoutes',
+      label: '',
+      type: 'custom',
+      component: (props) => {
+        const routesValue = (props.value as SwitchRoutesValue | undefined) ?? { field: '', routes: [] }
+        if (node?.type === 'switch') {
+          return (
+            <SwitchRoutesField
+              id={props.id}
+              value={routesValue}
+              setValue={props.setValue}
+              disabled={props.disabled}
+              ledgerEntries={ledgerEntries}
+            />
+          )
+        }
+        return (
+          <IfElseRoutesField
+            id={props.id}
+            value={routesValue.routes}
+            setValue={(routes: BranchingRouteDraft[]) => props.setValue({ ...routesValue, routes })}
+            disabled={props.disabled}
+          />
+        )
+      },
     },
 
     // Advanced configuration
     {
       id: 'advancedConfig',
-      label: 'Advanced Configuration (JSON)',
+      label: t('workflows.form.advancedConfiguration'),
       type: 'custom',
-      description: 'Additional JSON configuration merged with the step data',
+      description: t('workflows.form.descriptions.advancedConfig'),
       component: (props) => <JsonConfigEditor {...props} />,
     },
 
     // Start node pre-conditions
     {
       id: 'preConditions',
-      label: 'Pre-Conditions',
+      label: t('workflows.transitions.preConditions'),
       type: 'custom',
-      description: 'Business rules that must pass before the workflow can start',
+      description: t('workflows.fieldEditors.preConditions.description'),
       component: (props) => <StartPreConditionsEditor {...props} value={props.value as any} />,
     },
-  ], [showJsonSchemaWarning])
+  ], [activityTypeOptions, showJsonSchemaWarning, ledgerEntries, activityTestContext, node?.type, routeOrder, t])
 
   if (!isOpen || !node) return null
 
-  const nodeType = node.type || 'unknown'
-  const nodeTypeLabel = nodeType.charAt(0).toUpperCase() + nodeType.slice(1).replace(/([A-Z])/g, ' $1')
+  const nodeTypeLabel = t(`workflows.nodeTypes.${node.type || 'automated'}`)
 
   const canDelete = !!onDelete
 
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent
-        className="sm:max-w-7xl max-h-[90vh] overflow-hidden flex flex-col !p-0 [&_.grid]:!grid-cols-1"
-        onKeyDown={handleKeyDown}
-      >
-        <DialogHeader className="flex-shrink-0 p-6 pb-4 border-b border-border/70">
-          <div className="flex items-center gap-2 mb-2">
-            <DialogTitle>Edit Step</DialogTitle>
-            <Badge variant="secondary" className="text-xs">
-              {nodeTypeLabel}
-            </Badge>
-          </div>
-          <div className="space-y-1">
-            <DialogDescription>
-              Configure step properties and behavior
-            </DialogDescription>
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <span className="font-medium">ID:</span>
-              <code className="px-1.5 py-0.5 rounded bg-muted font-mono">{node.id}</code>
-            </div>
-          </div>
-        </DialogHeader>
+    <InspectorPanel
+      open={isOpen}
+      onClose={onClose}
+      variant={variant}
+      wide={wide}
+      title={t('workflows.nodeEditor.title')}
+      typeLabel={nodeTypeLabel}
+      description={t('workflows.nodeEditor.description')}
+      recordId={node.id}
+    >
+      {/* JSON Schema Conversion Warning */}
+      {showJsonSchemaWarning && (
+        <Alert variant="info" className="mb-4">
+          <AlertDescription className="text-xs">
+            {t('workflows.nodeEditor.jsonSchemaFormat')}
+          </AlertDescription>
+        </Alert>
+      )}
 
-        <div className="flex-1 overflow-y-auto min-h-0 px-6">
-          {/* JSON Schema Conversion Warning */}
-          {showJsonSchemaWarning && (
-            <Alert status="information" className="mb-4">
-              <AlertDescription className="text-xs">
-                This form uses JSON Schema format. Fields have been converted for visual editing.
-                When you save, it will be converted to the simplified format. To preserve the original JSON Schema,
-                edit it in the &#34;Advanced Configuration (JSON)&#34; section.
-              </AlertDescription>
-            </Alert>
-          )}
-
+      {/* Wide drawer: the ledger is a sticky right column so a field can be
+          dragged onto any parameter no matter how far the form is scrolled. The
+          narrow docked rail keeps the old stacked-and-folded layout (a side
+          column would leave no room for the form). */}
+      <div className={wide ? 'flex gap-6' : undefined}>
+        <div className={wide ? 'min-w-0 flex-1' : undefined}>
+          {/* Remount when the inspected step changes. CrudForm preserves fields
+              the author already edited across `initialValues` changes, which
+              would leak an unsaved edit from the previous step onto this one —
+              the key forces a fresh mount. */}
           <CrudForm
+            key={node.id}
+            density="compact"
             fields={fields}
             groups={groups}
             initialValues={initialValues}
             onSubmit={handleSubmit}
             embedded={true}
-            submitLabel="Save Step"
+            submitLabel={t('workflows.form.saveStep')}
             extraActions={
               canDelete ? (
                 <Button
                   type="button"
-                  variant="destructive"
+                  variant="destructive-outline"
                   onClick={handleDelete}
                 >
                   <Trash2 className="size-4 mr-2" />
-                  Delete Step
+                  {t('workflows.form.deleteStep')}
                 </Button>
               ) : undefined
             }
           />
         </div>
-      </DialogContent>
-    </Dialog>
+        <div className={wide ? 'sticky top-0 w-96 shrink-0 self-start' : 'mt-4'}>
+          <InputDataPanel
+            entries={ledgerEntries}
+            stepId={node.id}
+            samples={samples}
+            defaultCollapsed={!wide}
+          />
+        </div>
+      </div>
+    </InspectorPanel>
   )
 }

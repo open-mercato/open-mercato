@@ -717,6 +717,7 @@
   "catalog.variants.validation.gtinChecksum": "Der Barcode passt nicht zum gewählten Identifikatortyp.",
   "catalog.widgets.productSeo.groupDescription": "Optimiere Produkttitel und -beschreibungen vor der Veröffentlichung.",
   "catalog.widgets.productSeo.groupLabel": "Produkt-SEO-Helfer",
+  "catalog.workflows.commands.products.update": "Produkt aktualisieren",
   "customers~catalog.errors.id_required": "Datensatzkennung ist erforderlich.",
   "customers~catalog.errors.organization_required": "Organisationskontext ist erforderlich.",
   "customers~catalog.errors.tenant_required": "Mandantenkontext ist erforderlich.",

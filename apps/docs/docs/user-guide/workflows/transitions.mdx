@@ -330,6 +330,70 @@ By default, if an activity fails, the workflow stops. You can override this:
 }
 ```
 
+### Error Routes
+
+A transition can be marked as an **error route** with `"kind": "error"`. It is only ever taken when its source step *fails* — normal routing ignores it entirely — so adding one can never change the happy path.
+
+```json
+{
+  "transitionId": "charge-failed",
+  "fromStepId": "charge_card",
+  "toStepId": "notify_finance",
+  "kind": "error",
+  "trigger": "auto"
+}
+```
+
+When an error route is followed, the failure is published into the run context under the reserved key `__error`, so the recovery path can read what went wrong. In the Studio, steps that can fail grow an **error output handle** and error routes render as red dashed lines with a warning icon.
+
+### Error Directives
+
+When a step fails and has **no** error route wired, its `errorDirective` decides what happens:
+
+| Mode | Effect |
+|------|--------|
+| `fail` | The workflow fails. This is the default and what happens when no directive is set. |
+| `continueWithFallback` | The run carries on. The step itself stays FAILED — the history is not rewritten — and `fallbackValue` is written into the context under the failing step's id. |
+| `failureQueue` | The run is **parked** rather than failed: it is paused and flagged as needing attention, so it can be resumed after somebody fixes the cause. Because it is suspended and not terminated, compensation does not run. |
+
+```json
+{
+  "stepId": "charge_card",
+  "stepType": "AUTOMATED",
+  "errorDirective": { "mode": "continueWithFallback", "fallbackValue": { "charged": false } }
+}
+```
+
+### Workflow-Level Error Handler
+
+As a last resort, a definition can declare one `errorHandler` — exactly one of two forms:
+
+```json
+{ "errorHandler": { "stepId": "cleanup" } }
+```
+
+Jumps to a step inside the same workflow, with `__error` in context. A step never jumps to itself.
+
+```json
+{ "errorHandler": { "workflowId": "ops.incident-triage", "version": 2 } }
+```
+
+Starts another workflow as a catch-all, with the failed step id, the error and a snapshot of the context as its input. It is scheduled *before* compensation runs, so the snapshot describes the failure rather than the cleanup, and it still runs when compensation itself throws. Catch-all handlers do not nest: a handler workflow that fails does not trigger another one.
+
+The order is always: a wired **error route** first, then the step's **directive**, then the workflow-level **handler**, then plain failure.
+
+## Routes on the Canvas
+
+Routes carry their configuration on their face, so a decision is readable without opening anything:
+
+- A **condition chip** shows the condition summary; clicking it opens the condition editor.
+- **Activity chips** show the activities that run when the route is taken; clicking one opens the activity list. You can drag an action from the palette straight onto a route to append it.
+- An unconditioned route is labelled **otherwise**.
+- Chips cap at three per route with a `+N` badge for the rest, and below a zoom threshold they collapse to a labelled row of dots — that is what keeps a large flow readable.
+- **Compensation ghosts** are an optional overlay (the **Compensation** toolbar button, off by default): dashed reverse-direction lines showing the undo work a failure would walk back through. They are a view only — they are not part of the definition and cannot be edited or deleted.
+
+Route **priority** is edited by dragging a step's outgoing routes into the order you want them tried, rather than by typing numbers; the numeric priority is derived from that order. Decision steps (`IF_ELSE`, `SWITCH`) get the same ordering through their case list instead, so there is only ever one control for it.
+
 ## Next Steps
 
 - [**Configure activities**](./activities) to perform actions during transitions

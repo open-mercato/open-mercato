@@ -10,7 +10,7 @@ Windows Subsystem for Linux 2 (WSL2) lets you run a real Ubuntu environment dire
 
 :::info Prerequisites
 - Windows 10 version 2004 (Build 19041) or later, or Windows 11
-- At least 16 GB of RAM recommended (8 GB minimum)
+- At least 16 GB of RAM recommended (8 GB minimum for the infra-only compose with the app running natively; the full containerized stack needs 12 GB minimum)
 - Virtualisation enabled in BIOS/UEFI (usually on by default on modern hardware)
 :::
 
@@ -224,10 +224,10 @@ Install [Docker Desktop for Windows](https://docs.docker.com/desktop/setup/insta
 After Docker Desktop is running, `docker` and `docker compose` are available inside WSL2 without any additional installation. Start all services from the repository root:
 
 ```bash
-docker compose up -d
+yarn infra:up
 ```
 
-Verify: `docker compose ps` — all three services (postgres, redis, meilisearch) should be `Up`.
+Verify: `docker compose --project-directory . -f starters/docker/compose.infra.yml ps` — all three services (postgres, redis, meilisearch) should be `Up`.
 
 ### Option B — Docker Engine natively inside WSL2
 
@@ -271,7 +271,7 @@ Then restart WSL (`wsl --shutdown` from PowerShell). After that, Docker starts a
 Start all services:
 
 ```bash
-docker compose up -d
+yarn infra:up
 ```
 
 ---

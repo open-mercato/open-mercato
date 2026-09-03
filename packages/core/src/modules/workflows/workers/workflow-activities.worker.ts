@@ -11,18 +11,13 @@
 import type { QueuedJob, JobContext, WorkerMeta } from '@open-mercato/queue'
 import type { WorkflowActivityJob } from '../lib/activity-queue-types'
 import type { EntityManager } from '@mikro-orm/core'
+import type { EntityManager as PostgreSqlEntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import { WorkflowInstance } from '../data/entities'
 import { logWorkflowEvent } from '../lib/event-logger'
-import {
-  executeSendEmail,
-  executeCallApi,
-  executeEmitEvent,
-  executeUpdateEntity,
-  executeCallWebhook,
-  executeFunction,
-} from '../lib/activity-executor'
+import { executeRegistryActivity } from '../lib/activity-worker-handler'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { handleInvokeAgentJob, resumeParentAfterSubWorkflow } from '../lib/activity-worker-handler'
 
 const logger = createLogger('workflows').child({ component: 'activity-worker' })
 
@@ -86,6 +81,89 @@ export default async function handle(
     return
   }
 
+  // Condition jobs (kind: 'condition') are the durability backstop for
+  // WAIT_FOR_CONDITION steps: they re-evaluate the predicate and enforce the
+  // absolute deadline carried on the payload. A waiter already resumed by the
+  // event-driven context-write path makes this a no-op.
+  if (payload.kind === 'condition') {
+    logger.debug('Evaluating wait condition', {
+      instanceId: payload.workflowInstanceId,
+      stepInstanceId: payload.stepInstanceId,
+      attempt: payload.attempt,
+      jobId: ctx.jobId,
+    })
+    const { evaluateWaitCondition } = await import('../lib/condition-handler')
+    await evaluateWaitCondition(em, container, {
+      instanceId: payload.workflowInstanceId,
+      stepInstanceId: payload.stepInstanceId,
+      branchInstanceId: payload.branchInstanceId,
+      deadlineAt: payload.deadlineAt,
+      attempt: payload.attempt,
+      tenantId: payload.tenantId,
+      organizationId: payload.organizationId,
+      userId: payload.userId,
+    })
+    return
+  }
+
+  // Task SLA jobs (kind: 'task_sla') fire a reminder or the deadline breach for
+  // a USER_TASK. The deadline travels absolute on the payload, and the handler
+  // is idempotent, so an at-least-once delivery still breaches exactly once.
+  if (payload.kind === 'task_sla') {
+    logger.debug('Running task SLA job', {
+      instanceId: payload.workflowInstanceId,
+      userTaskId: payload.userTaskId,
+      phase: payload.phase,
+      jobId: ctx.jobId,
+    })
+    const { runTaskSlaJob } = await import('../lib/task-sla')
+    await runTaskSlaJob(em, container, {
+      userTaskId: payload.userTaskId,
+      stepInstanceId: payload.stepInstanceId,
+      workflowInstanceId: payload.workflowInstanceId,
+      branchInstanceId: payload.branchInstanceId,
+      phase: payload.phase,
+      deadlineAt: payload.deadlineAt,
+      tenantId: payload.tenantId,
+      organizationId: payload.organizationId,
+      userId: payload.userId,
+    })
+    return
+  }
+
+  // Invoke-agent jobs (kind: 'invoke_agent') run an INVOKE_AGENT step's agent
+  // OUTSIDE the workflow transaction (this worker has its own connection), then
+  // resume the parked step via the proposal-ready signal. This is what keeps a
+  // failing/cross-process agent run from aborting the workflow transaction.
+  /**
+   * @deprecated Drain bridge for the `workflow-invoke-agent` queue cutover.
+   * `executeInvokeAgent` now enqueues to the dedicated 'workflow-invoke-agent'
+   * queue; this branch only drains invoke_agent jobs enqueued before the
+   * cutover deploy. Retained for >=1 minor version per BACKWARD_COMPATIBILITY.md;
+   * removal is tracked in RELEASE_NOTES.md.
+   */
+  if (payload.kind === 'invoke_agent') {
+    await handleInvokeAgentJob(em, container, payload)
+    return
+  }
+
+  // Resume-parent jobs (kind: 'resume_subworkflow_parent') resume a parent
+  // instance parked on a SUB_WORKFLOW step after its child terminated. The
+  // resume runs on this worker's own connection, after the child txn committed.
+  if (payload.kind === 'resume_subworkflow_parent') {
+    await resumeParentAfterSubWorkflow(em, container, payload)
+    return
+  }
+
+  // Workflow-level error handler jobs (kind: 'workflow_error_handler') start the
+  // definition's catch-all handler workflow for a failed instance, on this
+  // worker's own connection — never inside the transaction that failed.
+  if (payload.kind === 'workflow_error_handler') {
+    const { runWorkflowErrorHandler } = await import('../lib/error-handler')
+    await runWorkflowErrorHandler(em, container, payload)
+    return
+  }
+
   logger.debug('Processing activity', {
     activityId: payload.activityId,
     activityType: payload.activityType,
@@ -118,43 +196,18 @@ export default async function handle(
       userId: payload.userId,
     }
 
-    // Execute activity by type
-    const executeActivityByType = async (signal?: AbortSignal) => {
-      switch (payload.activityType) {
-        case 'SEND_EMAIL':
-          return await executeSendEmail(payload.activityConfig, activityContext, container)
-        case 'CALL_API':
-          return await executeCallApi(
-            em,
-            payload.activityConfig,
-            activityContext,
-            container,
-            signal
-          )
-        case 'EMIT_EVENT':
-          return await executeEmitEvent(payload.activityConfig, activityContext, container)
-        case 'UPDATE_ENTITY':
-          return await executeUpdateEntity(
-            em,
-            payload.activityConfig,
-            activityContext,
-            container
-          )
-        case 'CALL_WEBHOOK':
-          return await executeCallWebhook(payload.activityConfig, activityContext, { signal })
-        case 'EXECUTE_FUNCTION':
-          return await executeFunction(payload.activityConfig, activityContext, container)
-        case 'WAIT':
-          // Delay already handled by queue's delayMs — return success immediately
-          return { waited: true }
-        default:
-          throw new Error(`Unsupported activity type: ${payload.activityType}`)
-      }
-    }
+    // Execute the activity through the shared registry dispatch (lookup,
+    // async-capability gate, executeAsync ?? execute preference).
+    const executeActivityByType = async (signal?: AbortSignal) =>
+      executeRegistryActivity(payload, activityContext, {
+        em: em as PostgreSqlEntityManager,
+        container,
+        signal,
+      })
 
     // Execute with optional timeout. AbortController aborts in-flight fetches
     // when the timeout wins the race, preventing phantom executions.
-    let result: any
+    let result: unknown
     if (payload.timeoutMs && payload.timeoutMs > 0) {
       const abortController = new AbortController()
       const timeoutId = setTimeout(() => {

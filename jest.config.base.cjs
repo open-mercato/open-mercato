@@ -25,4 +25,12 @@ module.exports = {
   // Recycle a worker once its heap bloats past this, instead of letting it
   // grow toward V8's default ceiling for the whole run.
   workerIdleMemoryLimit: '512MB',
+  // Jest's 5s default measures scheduler contention here, not the code under
+  // test. The fan-out above deliberately keeps (turbo concurrency × maxWorkers)
+  // processes busy, so on a loaded CI runner a logically instant test can sit
+  // unscheduled for seconds — and the victim is whichever suite happens to be
+  // running, which is why this surfaced in a different package on each CI pass.
+  // `core` and `ui` already pinned this value for the same reason; the base is
+  // where it belongs so every package inherits it.
+  testTimeout: 30000,
 }

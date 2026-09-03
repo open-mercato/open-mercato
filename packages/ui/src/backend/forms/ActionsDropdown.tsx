@@ -19,11 +19,30 @@ export type ActionItem = {
   disabled?: boolean
   /** Show a loading spinner instead of the icon */
   loading?: boolean
+  /** Render the item in the destructive token (e.g. Delete, Clear) */
+  destructive?: boolean
 }
 
+/** A visual divider between groups of items. */
+export type ActionSeparator = {
+  /** Optional key; falls back to the array index */
+  id?: string
+  separator: true
+}
+
+/** A muted uppercase section label grouping the items beneath it. */
+export type ActionHeader = {
+  /** Optional key; falls back to the array index */
+  id?: string
+  /** The section label text */
+  header: string
+}
+
+export type ActionMenuEntry = ActionItem | ActionSeparator | ActionHeader
+
 export type ActionsDropdownProps = {
-  /** Items to render inside the dropdown */
-  items: ActionItem[]
+  /** Items to render inside the dropdown (may include separators) */
+  items: ActionMenuEntry[]
   /** Button label (default: translated 'Actions') */
   label?: string
   /** Trigger style */
@@ -32,6 +51,18 @@ export type ActionsDropdownProps = {
   ariaLabel?: string
   /** Button size (default: 'sm') */
   size?: 'sm' | 'default'
+  /** Extra classes for the trigger button (e.g. to match a dense toolbar row) */
+  triggerClassName?: string
+  /**
+   * Leading icon inside the label-mode trigger. Defaults to `Zap`; pass a
+   * component to override, or `false` to render just the label + chevron.
+   */
+  triggerIcon?: React.ComponentType<{ className?: string }> | false
+  /**
+   * Render a small warning dot on the trigger — for when an item inside the
+   * menu needs attention (e.g. required fields still blank).
+   */
+  attention?: boolean
 }
 
 export function ActionsDropdown({
@@ -40,6 +71,9 @@ export function ActionsDropdown({
   triggerMode = 'label',
   ariaLabel,
   size = 'sm',
+  triggerClassName,
+  triggerIcon,
+  attention = false,
 }: ActionsDropdownProps) {
   const t = useT()
   const [open, setOpen] = React.useState(false)
@@ -133,7 +167,7 @@ export function ActionsDropdown({
         type="button"
         variant="outline"
         size={size}
-        className={triggerMode === 'icon' ? 'px-2' : undefined}
+        className={`${triggerMode === 'icon' ? 'px-2 ' : ''}${triggerClassName ?? ''}`.trim() || undefined}
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label={resolvedAriaLabel}
@@ -150,11 +184,21 @@ export function ActionsDropdown({
         ) : (
           <>
             {resolvedLabel}
-            <Zap className="size-4 ml-1" />
+            {triggerIcon === false
+              ? null
+              : triggerIcon
+                ? React.createElement(triggerIcon, { className: 'size-4 ml-1' })
+                : <Zap className="size-4 ml-1" />}
             <ChevronDown className={`size-3.5 transition-transform duration-150 ${open ? 'rotate-180' : ''}`} />
           </>
         )}
       </Button>
+      {attention && (
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute right-0.5 top-0.5 size-2 rounded-full bg-status-warning-icon ring-2 ring-background"
+        />
+      )}
       {open && anchorRect && createPortal(
         <div
           ref={menuRef}
@@ -168,7 +212,26 @@ export function ActionsDropdown({
             transform: `translate(-100%, ${direction === 'down' ? '0' : '-100%'})`,
           }}
         >
-          {items.map((item) => {
+          {items.map((item, index) => {
+            if ('header' in item) {
+              return (
+                <div
+                  key={item.id ?? `header-${index}`}
+                  className="px-2 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                >
+                  {item.header}
+                </div>
+              )
+            }
+            if ('separator' in item) {
+              return (
+                <div
+                  key={item.id ?? `separator-${index}`}
+                  role="separator"
+                  className="my-1 h-px bg-border"
+                />
+              )
+            }
             const Icon = item.icon
             return (
               <Button
@@ -176,7 +239,11 @@ export function ActionsDropdown({
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="w-full justify-start h-auto min-h-8 py-1.5 whitespace-normal text-left leading-snug"
+                className={`w-full justify-start h-auto min-h-8 py-1.5 whitespace-normal text-left leading-snug${
+                  item.destructive
+                    ? ' text-destructive hover:text-destructive hover:bg-destructive/10 focus-visible:text-destructive'
+                    : ''
+                }`}
                 role="menuitem"
                 disabled={item.disabled}
                 onClick={() => {

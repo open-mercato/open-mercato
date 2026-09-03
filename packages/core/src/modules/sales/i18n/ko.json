@@ -1488,5 +1488,6 @@
   "sales.widgets.newQuotes.settings.last24h": "지난 24시간",
   "sales.widgets.newQuotes.settings.last30d": "지난 30일",
   "sales.widgets.newQuotes.settings.last7d": "지난 7일",
-  "sales.widgets.newQuotes.settings.pageSize": "견적 수"
+  "sales.widgets.newQuotes.settings.pageSize": "견적 수",
+  "sales.workflows.commands.orders.update": "Update sales order"
 }

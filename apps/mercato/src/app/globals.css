@@ -56,6 +56,10 @@ TODO: Fix that latter to have reference by the package names
   --color-chart-3: var(--chart-3);
   --color-chart-2: var(--chart-2);
   --color-chart-1: var(--chart-1);
+  /* Named chart palette (.ai/ds-rules.md - Data Visualization). The unnamed
+     chart-1..5 scale was registered here but the NAMED tokens never were, so
+     the documented utilities (`bg-chart-blue`, `text-chart-violet`, ...) were
+     silently producing no rule at all. */
   --color-chart-blue: var(--chart-blue);
   --color-chart-emerald: var(--chart-emerald);
   --color-chart-amber: var(--chart-amber);
@@ -144,8 +148,10 @@ TODO: Fix that latter to have reference by the package names
 
   /* ═══ Design System: Brand Colors ═══ */
   --color-brand-violet: var(--brand-violet);
+  --color-brand-violet-soft: var(--brand-violet-soft);
   --color-brand-lime: var(--brand-lime);
   --color-brand-yellow: var(--brand-yellow);
+  --color-brand-lime-foreground: var(--brand-lime-foreground);
 
   /* ═══ Design System: Social Brand Colors (theme-invariant) ═══ */
   --color-brand-apple: var(--brand-apple);
@@ -203,7 +209,10 @@ TODO: Fix that latter to have reference by the package names
   --radius: 0.625rem;
   /* Brand lime + yellow — theme-invariant (no .dark override). Brand violet is themed (see below + .dark). */
   --brand-lime: #B4F372;
+  /* Brand yellow — mid stop of the OM brand gradient (lime -> yellow -> violet), theme-invariant. */
   --brand-yellow: #EEFB63;
+  /* Foreground for text/icons placed on the brand-lime surface — dark, theme-invariant (the lime stays light in both themes). */
+  --brand-lime-foreground: #1f2a12;
   /* Focus ring tokens (Figma dual-shadow spec — opt-in via .focus-ring-fancy) */
   --focus-ring-inner: rgba(255, 255, 255, 1);
   --focus-ring-outer: rgba(153, 160, 174, 0.16);
@@ -224,6 +233,7 @@ TODO: Fix that latter to have reference by the package names
   --primary: oklch(0.205 0 0);
   --primary-foreground: oklch(0.985 0 0);
   --brand-violet: #BC9AFF;
+  --brand-violet-soft: oklch(0.95 0.03 293);
   --brand-violet-foreground: #0C0C0C;
   --primary-hover: oklch(0.145 0 0);
   /* Accent indigo — used for selection controls (checkbox, radio, switch) */
@@ -365,6 +375,7 @@ TODO: Fix that latter to have reference by the package names
   --primary: oklch(0.922 0 0);
   --primary-foreground: oklch(0.205 0 0);
   --brand-violet: #BC9AFF;
+  --brand-violet-soft: oklch(0.3 0.06 293);
   --brand-violet-foreground: #0C0C0C;
   --primary-hover: oklch(0.85 0 0);
   /* Accent indigo — slightly lighter in dark mode for contrast */

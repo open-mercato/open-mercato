@@ -1,4 +1,8 @@
 import { test, expect, type APIRequestContext, type Locator, type Page, type Request } from '@playwright/test'
+import {
+  openWorkflowDetailsDrawer,
+  openWorkflowStudio,
+} from '@open-mercato/core/helpers/integration/workflowsUi'
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth'
 import { getAuthToken, apiRequest } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import {
@@ -125,12 +129,15 @@ test.describe('TC-LOCK-OSS-044: workflows definition + custom-entity optimistic-
       )
 
       await login(page, 'admin')
-      await page.goto(`/backend/definitions/${definitionId}`)
-
-      // The edit page is a CrudForm; it captures `updatedAt` at load. The
-      // workflow name renders as a plain text input.
-      const nameInput = page.locator('[data-crud-field-id="workflowName"] input').first()
-      await expect(nameInput).toBeVisible({ timeout: 15_000 })
+      // The form editor is retired: the Studio is the only editor, and it
+      // captures `updatedAt` at load. Definition metadata lives in the details
+      // Drawer, and the name is a plain `Input#workflowName` — there is no
+      // `data-crud-field-id` on definition metadata any more (that attribute
+      // survives only inside the step/route inspectors).
+      await openWorkflowStudio(page, definitionId)
+      const drawer = await openWorkflowDetailsDrawer(page)
+      const nameInput = drawer.locator('#workflowName')
+      await expect(nameInput).toBeEditable({ timeout: 15_000 })
 
       // Advance updated_at out-of-band → the browser form now holds a stale token.
       await bumpDefinition(page.request, token, definitionId, `QA Lock 044 bumped ${stamp}`)
@@ -157,10 +164,10 @@ test.describe('TC-LOCK-OSS-044: workflows definition + custom-entity optimistic-
       )
 
       await login(page, 'admin')
-      await page.goto(`/backend/definitions/${definitionId}`)
-
-      const nameInput = page.locator('[data-crud-field-id="workflowName"] input').first()
-      await expect(nameInput).toBeVisible({ timeout: 15_000 })
+      await openWorkflowStudio(page, definitionId)
+      const drawer = await openWorkflowDetailsDrawer(page)
+      const nameInput = drawer.locator('#workflowName')
+      await expect(nameInput).toBeEditable({ timeout: 15_000 })
 
       const putPromise = page.waitForResponse(
         (response) =>

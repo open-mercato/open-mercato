@@ -1,3 +1,4 @@
+import type { ZodTypeAny } from 'zod'
 import type { CommandHandler } from './types'
 import { createLogger } from '../logger'
 
@@ -76,6 +77,16 @@ class CommandRegistry {
 
   has(id: string): boolean {
     return this.handlers.has(id) || this.loadersById.has(id)
+  }
+
+  /**
+   * Returns the `outputSchema` declared by an already-registered handler, or
+   * `null` when the handler declares none. Sync over registered handlers only:
+   * it never triggers lazy loaders, so a handler that is known but not yet
+   * loaded also yields `null` — call `load(id)` first when that matters.
+   */
+  outputSchemaOf(id: string): ZodTypeAny | null {
+    return this.get(id)?.outputSchema ?? null
   }
 
   /**

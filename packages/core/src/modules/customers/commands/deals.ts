@@ -1,3 +1,4 @@
+import { z } from 'zod'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import {
@@ -55,6 +56,8 @@ import { canonicalDealStatus, isClosedDealStatus } from '../lib/dealStatus'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('customers')
+
+const dealCommandOutputSchema = z.object({ dealId: z.string().uuid() })
 
 const DEAL_ENTITY_ID = 'customers:customer_deal'
 const dealCrudIndexer: CrudIndexerConfig<CustomerDeal> = {
@@ -537,6 +540,7 @@ async function syncDealCompanies(
 
 const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
   id: 'customers.deals.create',
+  outputSchema: dealCommandOutputSchema,
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(dealCreateSchema, rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
@@ -740,6 +744,7 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
 
 const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
   id: 'customers.deals.update',
+  outputSchema: dealCommandOutputSchema,
   async prepare(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(dealUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()

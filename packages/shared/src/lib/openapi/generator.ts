@@ -17,7 +17,7 @@ type PathParamInfo = {
 
 type ParameterLocation = 'query' | 'path' | 'header'
 
-type JsonSchema = Record<string, unknown>
+export type JsonSchema = Record<string, unknown>
 
 type SchemaConversionContext = {
   memo: WeakMap<ZodTypeAny, JsonSchema>
@@ -258,7 +258,7 @@ function extractZodDescription(schema?: ZodTypeAny): string | undefined {
   return undefined
 }
 
-function zodToJsonSchema(schema?: ZodTypeAny, ctx?: SchemaConversionContext): JsonSchema | undefined {
+export function zodToJsonSchema(schema?: ZodTypeAny, ctx?: SchemaConversionContext): JsonSchema | undefined {
   if (!schema) return undefined
   const context: SchemaConversionContext = ctx ?? { memo: new WeakMap<ZodTypeAny, JsonSchema>() }
 
@@ -823,7 +823,7 @@ function buildResponses(
         : {
             content: {
               [mediaType]: {
-                schema: schema ?? { type: 'object' },
+                schema: schema ?? { type: 'object', description: 'Schema not declared' },
                 ...(example !== undefined ? { example } : {}),
               },
             },

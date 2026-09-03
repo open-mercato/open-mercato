@@ -2,9 +2,14 @@ import { test, expect, type Page } from '@playwright/test'
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth'
 import { getAuthToken, apiRequest } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import {
+  createWorkflowDefinitionFixture,
   deleteWorkflowDefinitionIfExists,
   cancelWorkflowInstanceIfExists,
 } from '@open-mercato/core/modules/core/__integration__/helpers/workflowsFixtures'
+import {
+  openWorkflowTriggersDialog,
+  workflowStepNodes,
+} from '@open-mercato/core/helpers/integration/workflowsUi'
 
 async function fillText(page: Page, locator: ReturnType<Page['locator']>, value: string): Promise<void> {
   await locator.fill('')
@@ -43,93 +48,73 @@ async function findInstanceIdByWorkflowId(
   return body?.data?.[0]?.id ?? null
 }
 
-async function createMinimalDefinitionViaUi(
+/**
+ * Open the definition in the Studio through the list's row action.
+ *
+ * The form editor is retired (spec section 10), so `Edit` is the single editor
+ * entry and it lands on `/backend/definitions/visual-editor?id=<uuid>`, where
+ * the triggers editor is opened from the START node's trigger cap.
+ */
+async function openDefinitionInStudioViaRowAction(
   page: Page,
   workflowId: string,
   workflowName: string,
 ): Promise<void> {
-  await page.goto('/backend/definitions/create')
-  await expect(page).toHaveURL(/\/backend\/definitions\/create/)
-
-  await fillText(page, page.getByPlaceholder('checkout_workflow'), workflowId)
-  await fillText(page, page.getByPlaceholder('Enter a descriptive workflow name'), workflowName)
-
-  const addStepBtn = page.getByRole('button', { name: /^add step$/i })
-  await addStepBtn.click()
-  await fillText(page, page.locator('#step-0-id'), 'start')
-  await fillText(page, page.locator('#step-0-name'), 'Start')
-  // Radix Select helpers
-  const pickRadix = async (triggerId: string, optionLabel: string | RegExp) => {
-    await page.locator(`#${triggerId}`).click()
-    const opt = typeof optionLabel === 'string'
-      ? page.getByRole('option', { name: optionLabel, exact: true })
-      : page.getByRole('option', { name: optionLabel })
-    await opt.first().click()
-  }
-  await pickRadix('step-0-type', 'Start')
-
-  await addStepBtn.click()
-  await fillText(page, page.locator('#step-1-id'), 'end')
-  await fillText(page, page.locator('#step-1-name'), 'End')
-  await pickRadix('step-1-type', 'End')
-
-  await page.getByRole('button', { name: /^add transition$/i }).click()
-  await fillText(page, page.locator('#transition-0-id'), 'start-to-end')
-  await fillText(page, page.locator('#transition-0-name'), 'Auto advance')
-  await pickRadix('transition-0-from', /^start$/i)
-  await pickRadix('transition-0-to', /^end$/i)
-
-  await page.getByRole('button', { name: /^create workflow$/i }).first().click()
-  await expect(page).toHaveURL(/\/backend\/definitions(\?|$|\/)/, { timeout: 15_000 })
-}
-
-async function openDefinitionDetailViaRowAction(page: Page, workflowId: string): Promise<void> {
+  await page.goto('/backend/definitions')
   const searchBox = page.getByPlaceholder(/search/i).first()
   if (await searchBox.isVisible().catch(() => false)) {
     await fillText(page, searchBox, workflowId)
     await searchBox.press('Enter').catch(() => undefined)
   }
 
-  const row = page.getByRole('row').filter({ hasText: workflowId })
+  // The list's "Workflow ID" column is gone — the id now lives in a portaled
+  // hover tooltip on the name, so it is never inside the row element. The
+  // search above still narrows by id, so the name identifies our row alone.
+  const row = page.getByRole('row').filter({ hasText: workflowName })
   await expect(row).toBeVisible({ timeout: 10_000 })
   await row.getByRole('button', { name: /open actions/i }).hover()
   await page.getByRole('menuitem', { name: /^edit$/i }).first().click()
-  await expect(page).toHaveURL(/\/backend\/definitions\/[0-9a-f-]{36}/i, { timeout: 15_000 })
+  await expect(page).toHaveURL(/\/backend\/definitions\/visual-editor\?id=[0-9a-f-]{36}/i, { timeout: 15_000 })
+  await expect(workflowStepNodes(page).first()).toBeVisible({ timeout: 15_000 })
 }
 
+/**
+ * Add one event trigger through the focused Triggers modal.
+ *
+ * Triggers are no longer a section of the definition drawer: the Studio routes
+ * them through `TriggersDialog`, opened from the START node's trigger cap, and
+ * the modal hosts the inline `TriggersEditor` — "Add Trigger" appends a row and
+ * expands it in place, so there is no nested create dialog and no `Create`
+ * button. The row's field ids are minted at runtime, hence the row-scoped
+ * locators.
+ *
+ * The event field is the declared-event picker (`EventPatternInput`, TC-WF-001's
+ * subject): a `role="combobox"` that carries no id and commits on selection /
+ * Enter / blur rather than per keystroke, so the typed pattern is confirmed
+ * with Enter before the editor's working copy holds it.
+ */
 async function addEventTriggerViaUi(page: Page, triggerName: string, eventPattern: string): Promise<void> {
-  await page.getByRole('button', { name: /^add trigger$/i }).click()
+  await openWorkflowTriggersDialog(page)
 
-  const dialog = page.getByRole('dialog')
-  await expect(dialog).toBeVisible()
+  const dialog = page.getByTestId('workflow-triggers-dialog')
+  await dialog.getByRole('button', { name: /^add trigger$/i }).click()
 
-  await fillText(page, dialog.locator('#trigger-name'), triggerName)
+  const row = dialog.getByTestId('trigger-row').last()
+  await expect(row).toBeVisible({ timeout: 5_000 })
+  await fillText(page, row.locator('input[id$="-name"]'), triggerName)
 
-  // EventPatternInput wraps ComboboxInput, which keeps its own internal state
-  // and only propagates to the parent when confirmSelection runs (synchronously
-  // on Enter; via a 200ms setTimeout on blur). Playwright's fill() + Tab path
-  // is racy against the blur timer in compiled production builds, so type the
-  // value with real keystrokes, press Enter to attempt synchronous commit, and
-  // then click another field to force a real blur — both paths are needed
-  // because Enter alone can fire with a stale `input` closure when keystrokes
-  // arrive faster than React can re-render handleKeyDown.
-  const patternInput = dialog.getByPlaceholder('sales.orders.updated')
-  await patternInput.click()
-  await patternInput.pressSequentially(eventPattern, { delay: 20 })
+  const patternInput = row.getByRole('combobox')
+  await fillText(page, patternInput, eventPattern)
   await patternInput.press('Enter')
-  await dialog.locator('#trigger-name').click()
 
-  const createButton = dialog.getByRole('button', { name: /^create$/i })
-  await expect(createButton).toBeEnabled({ timeout: 5_000 })
-  await createButton.click()
+  // The row's collapsed header echoes both values from the editor's committed
+  // state, so seeing them there proves `onChange` reached the dialog's working
+  // copy before Save reads it.
+  await expect(row.getByText(triggerName, { exact: true }).first()).toBeVisible({ timeout: 5_000 })
+  await expect(row.locator('code', { hasText: eventPattern }).first()).toBeVisible({ timeout: 5_000 })
+
+  await dialog.getByRole('button', { name: /^save triggers$/i }).click()
   await expect(dialog).toBeHidden({ timeout: 5_000 })
-
-  // Wait for the trigger card itself (containing the unique triggerName) to
-  // render. This guarantees the parent's onChange fired and the next page-
-  // level Update Workflow submit will see the trigger in state — without it,
-  // we race the React state update.
-  await expect(page.getByText(triggerName, { exact: true }).first()).toBeVisible({ timeout: 5_000 })
-  await expect(page.locator('code', { hasText: eventPattern }).first()).toBeVisible({ timeout: 5_000 })
 }
 
 /**
@@ -138,10 +123,12 @@ async function addEventTriggerViaUi(page: Page, triggerName: string, eventPatter
  * The admin UI does not expose a direct "Start Instance" button, so we route the
  * execution path through an event trigger (`customers.person.created`) — which is
  * still the most UI-real way to exercise a workflow end-to-end:
- *   1. Create a START → END definition via the Create form
- *   2. Open it via the list row action
+ *   1. Seed a START → END definition through the definitions API (fixture setup —
+ *      the form editor that used to author it is retired, and the Studio's own
+ *      authoring path is covered by TC-WF-007)
+ *   2. Open it in the Studio via the list row action
  *   3. Add a `customers.person.created` trigger through the triggers dialog
- *   4. Submit the edit form to persist the trigger
+ *   4. Save the definition to persist the trigger
  *   5. Create a Person via the CRM UI — this fires `customers.person.created`
  *   6. Navigate to `/backend/instances`, filter by our workflowId, and assert that
  *      the auto-started instance appears and reaches a terminal state.
@@ -165,20 +152,36 @@ test.describe('TC-WF-008: Event-triggered workflow runs end-to-end via UI', () =
     try {
       token = await getAuthToken(request, 'admin')
 
+      await createWorkflowDefinitionFixture(request, token, {
+        workflowId,
+        workflowName,
+        description: 'Integration test: event-triggered workflow runs end-to-end',
+        version: 1,
+        enabled: true,
+        definition: {
+          steps: [
+            { stepId: 'start', stepName: 'Start', stepType: 'START' },
+            { stepId: 'end', stepName: 'End', stepType: 'END' },
+          ],
+          transitions: [
+            { transitionId: 'start_to_end', fromStepId: 'start', toStepId: 'end', trigger: 'auto', priority: 100 },
+          ],
+        },
+      })
+
       await login(page, 'admin')
-      await createMinimalDefinitionViaUi(page, workflowId, workflowName)
-      await openDefinitionDetailViaRowAction(page, workflowId)
+      await openDefinitionInStudioViaRowAction(page, workflowId, workflowName)
 
       await addEventTriggerViaUi(page, triggerName, 'customers.person.created')
 
-      // Persist the trigger by submitting the definition edit form.
-      // Asserting both the redirect AND the workflow row appearing in the list
-      // confirms the PUT finished and the page navigated successfully — without
-      // this we could proceed to person creation against a stale UI state.
-      await page.getByRole('button', { name: /^update workflow$/i }).first().click()
-      await expect(page).toHaveURL(/\/backend\/definitions(\?|$|\/)/, { timeout: 15_000 })
-      await expect(page.getByRole('row').filter({ hasText: workflowId }).first())
-        .toBeVisible({ timeout: 10_000 })
+      // Persist the trigger with the Studio's Save. The editor stays on the
+      // canvas after saving, so the confirmation is the success flash rather
+      // than a redirect; the server-side assertion below is what actually
+      // proves the PUT landed before we fire the event. The Triggers modal has
+      // closed by now, so the header's Update is the only one on the page.
+      await page.getByRole('button', { name: 'Update', exact: true }).click()
+      await expect(page.getByText(/workflow updated successfully/i).first())
+        .toBeVisible({ timeout: 15_000 })
 
       // Verify the trigger actually persisted server-side before continuing.
       // Without this assertion the test races event-bus pickup vs. the slow
@@ -252,6 +255,11 @@ test.describe('TC-WF-008: Event-triggered workflow runs end-to-end via UI', () =
       // `entityId` is rendered in the Context JSON panel on the instance page.
       // Matching on that id ties this completed instance to our specific
       // person creation rather than any concurrent run.
+      //
+      // The run detail is Flow / Timeline / Context / Raw now (spec §8.3) and
+      // lands on Flow, so the Context panel is not mounted until its tab is
+      // selected — the id is genuinely absent from the landing view, not late.
+      await page.getByRole('tab', { name: /^context$/i }).click()
       await expect(page.getByText(personEntityId!, { exact: false }).first())
         .toBeVisible({ timeout: 10_000 })
     } finally {

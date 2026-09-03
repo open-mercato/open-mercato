@@ -2,32 +2,36 @@
 
 import * as React from 'react'
 import { extensionPoints } from '@open-mercato/core/modules/workflows/extension-points'
-import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@open-mercato/ui/primitives/tooltip'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { ErrorMessage } from '@open-mercato/ui/backend/detail'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@open-mercato/ui/primitives/dialog'
+import { ConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
+import { hasFeature } from '@open-mercato/shared/security/features'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
-import { Trash2 } from 'lucide-react'
+import { TemplateGalleryDialog, type WorkflowTemplateGalleryItem } from '../../components/TemplateGalleryDialog'
+import { buildVisualEditorHref, WORKFLOW_STUDIO_CREATE_HREF } from '../../lib/visual-editor-navigation'
+import {
+  P95DurationCell,
+  RunsCell,
+  SuccessRateCell,
+  TaskSlaCell,
+  useDefinitionMetrics,
+} from '../../components/DefinitionMetricsCells'
+import type { WorkflowRollupWindowKey } from '../../lib/metrics/definition-metrics'
 
 type WorkflowDefinitionSource = 'code' | 'code_override' | 'user'
 
@@ -91,8 +95,16 @@ export default function WorkflowDefinitionsListPage() {
   const t = useT()
   const router = useRouter()
   const queryClient = useQueryClient()
+  const { payload } = useBackendChrome()
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const [deleteTarget, setDeleteTarget] = React.useState<{ id: string; name: string; updatedAt: string | null } | null>(null)
+  const [showTemplateGallery, setShowTemplateGallery] = React.useState(false)
+
+  const handleTemplateSelect = React.useCallback((template: WorkflowTemplateGalleryItem | null) => {
+    router.push(template
+      ? `${WORKFLOW_STUDIO_CREATE_HREF}?template=${encodeURIComponent(template.id)}`
+      : WORKFLOW_STUDIO_CREATE_HREF)
+  }, [router])
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['workflow-definitions', 'list', filterValues, page],
@@ -127,6 +139,22 @@ export default function WorkflowDefinitionsListPage() {
       return response?.data || []
     },
   })
+
+  // Spec §8.5 operations KPIs. One batched request for the ids on this page, so
+  // paging costs one extra call rather than one per row, and a failure degrades
+  // the four columns to dashes instead of taking the list down. Columns are
+  // hidden — not dashed — without the feature: a permanently empty column reads
+  // as "this process has no runs", which is a different and wrong claim.
+  const canViewMetrics = hasFeature(payload?.grantedFeatures, 'workflows.metrics.view')
+  const visibleWorkflowIds = React.useMemo(
+    () => (canViewMetrics ? (data ?? []).map((definition) => definition.workflowId) : []),
+    [data, canViewMetrics],
+  )
+  const metricsWindow: WorkflowRollupWindowKey = '7d'
+  const { byWorkflowId: metricsByWorkflowId, isLoading: metricsLoading } = useDefinitionMetrics(
+    visibleWorkflowIds,
+    metricsWindow,
+  )
 
   const handleDelete = (id: string, workflowName: string, updatedAt: string | null) => {
     setDeleteTarget({ id, name: workflowName, updatedAt })
@@ -255,42 +283,54 @@ export default function WorkflowDefinitionsListPage() {
 
   const columns: ColumnDef<WorkflowDefinition>[] = [
     {
-      id: 'workflowId',
-      header: t('workflows.fields.workflowId'),
-      accessorKey: 'workflowId',
-      meta: { truncate: false },
-      cell: ({ row }) => (
-        <span className="font-mono text-sm">{row.original.workflowId}</span>
-      ),
-    },
-    {
       id: 'workflowName',
       header: t('workflows.fields.workflowName'),
       accessorKey: 'workflowName',
       meta: { truncate: false },
-      cell: ({ row }) => (
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="font-medium">{row.original.workflowName}</span>
-            {row.original.source === 'code' && (
-              <Badge variant="secondary">{t('workflows.source.code')}</Badge>
-            )}
-            {row.original.source === 'code_override' && (
-              <Badge variant="outline">{t('workflows.source.code_override')}</Badge>
+      // The Workflow ID column and the inline description were dropped — the row
+      // was three lines tall. Both now live in a hover tooltip on the name.
+      cell: ({ row }) => {
+        const nameBlock = (
+          <div className="cursor-default">
+            <div className="flex items-center gap-2">
+              <span className="font-medium">{row.original.workflowName}</span>
+              {row.original.source === 'code' && (
+                <Badge variant="secondary">{t('workflows.source.code')}</Badge>
+              )}
+              {row.original.source === 'code_override' && (
+                <Badge variant="outline">{t('workflows.source.code_override')}</Badge>
+              )}
+            </div>
+            {row.original.metadata?.category && (
+              <div className="text-xs text-muted-foreground mt-0.5">
+                {row.original.metadata.category}
+              </div>
             )}
           </div>
-          {row.original.description && (
-            <div className="text-xs text-muted-foreground">
-              {row.original.description}
-            </div>
-          )}
-          {row.original.metadata?.category && (
-            <div className="text-xs text-muted-foreground mt-0.5">
-              {row.original.metadata.category}
-            </div>
-          )}
-        </div>
-      ),
+        )
+        if (!row.original.workflowId && !row.original.description) return nameBlock
+        return (
+          <TooltipProvider delayDuration={200}>
+            <Tooltip>
+              <TooltipTrigger asChild>{nameBlock}</TooltipTrigger>
+              <TooltipContent
+                side="right"
+                align="start"
+                variant="light"
+                size="lg"
+                className="max-w-md space-y-1"
+              >
+                <div className="font-mono text-xs">{row.original.workflowId}</div>
+                {row.original.description ? (
+                  <p className="text-xs text-muted-foreground whitespace-pre-wrap">
+                    {row.original.description}
+                  </p>
+                ) : null}
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        )
+      },
     },
     {
       id: 'version',
@@ -341,6 +381,51 @@ export default function WorkflowDefinitionsListPage() {
         )
       },
     },
+    ...(canViewMetrics
+      ? ([
+          {
+            id: 'metricsRuns',
+            header: t('workflows.metrics.columns.runs'),
+            meta: { truncate: false },
+            cell: ({ row }) => (
+              <RunsCell item={metricsByWorkflowId.get(row.original.workflowId)} loading={metricsLoading} />
+            ),
+          },
+          {
+            id: 'metricsSuccessRate',
+            header: t('workflows.metrics.columns.successRate'),
+            meta: { truncate: false },
+            cell: ({ row }) => (
+              <SuccessRateCell
+                item={metricsByWorkflowId.get(row.original.workflowId)}
+                loading={metricsLoading}
+              />
+            ),
+          },
+          {
+            id: 'metricsP95Duration',
+            header: t('workflows.metrics.columns.p95Duration'),
+            meta: { truncate: false },
+            cell: ({ row }) => (
+              <P95DurationCell
+                item={metricsByWorkflowId.get(row.original.workflowId)}
+                loading={metricsLoading}
+              />
+            ),
+          },
+          {
+            id: 'metricsTaskSla',
+            header: t('workflows.metrics.columns.taskSla'),
+            meta: { truncate: false },
+            cell: ({ row }) => (
+              <TaskSlaCell
+                item={metricsByWorkflowId.get(row.original.workflowId)}
+                loading={metricsLoading}
+              />
+            ),
+          },
+        ] as ColumnDef<WorkflowDefinition>[])
+      : []),
     {
       id: 'createdAt',
       header: t('workflows.fields.createdAt'),
@@ -356,16 +441,13 @@ export default function WorkflowDefinitionsListPage() {
       cell: ({ row }) => {
         const isCodeOnly = row.original.source === 'code'
         const items = [
+          // The form editor is retired (spec §10), so Edit and "Edit visually"
+          // are the same destination now — one entry, pointing at the Studio.
           {
             id: 'edit',
             label: isCodeOnly ? t('common.view') : t('common.edit'),
-            href: `/backend/definitions/${row.original.id}`,
+            href: buildVisualEditorHref(row.original.id),
           },
-          ...(!isCodeOnly ? [{
-            id: 'edit-visual',
-            label: t('workflows.actions.editVisually'),
-            href: `/backend/definitions/visual-editor?id=${row.original.id}`,
-          }] : []),
           ...(!isCodeOnly ? [{
             id: row.original.enabled ? 'disable' : 'enable',
             label: row.original.enabled ? t('common.disable') : t('common.enable'),
@@ -413,15 +495,11 @@ export default function WorkflowDefinitionsListPage() {
           title={t('workflows.list.title')}
           actions={(
             <div className="flex items-center gap-2">
-              <Button asChild variant="outline">
-                <Link href="/backend/definitions/visual-editor">
-                  {t('workflows.actions.createVisual')}
-                </Link>
-              </Button>
-              <Button asChild>
-                <Link href="/backend/definitions/create">
-                  {t('workflows.actions.create')}
-                </Link>
+              {/* One create entry since the form editor retired (spec §10): the
+                  gallery offers a blank canvas alongside the templates, and both
+                  land in the Studio. */}
+              <Button onClick={() => setShowTemplateGallery(true)}>
+                {t('workflows.actions.create')}
               </Button>
             </div>
           )}
@@ -431,38 +509,40 @@ export default function WorkflowDefinitionsListPage() {
           filterValues={filterValues}
           onFiltersApply={handleFiltersApply}
           onFiltersClear={handleFiltersClear}
-          onRowClick={(row) => router.push(`/backend/definitions/visual-editor?id=${row.id}`)}
+          onRowClick={(row) => router.push(buildVisualEditorHref(row.id))}
           perspective={{
             tableId: extensionPoints.hosts.definitionsTable.tableId,
           }}
           emptyState={(
             <ListEmptyState
               entityName={t('workflows.list.title')}
-              createHref="/backend/definitions/create"
+              onCreate={() => setShowTemplateGallery(true)}
               createLabel={t('workflows.actions.create')}
             />
           )}
           pagination={{ page, pageSize, total, totalPages, totalIsCapped, onPageChange: setPage }}
         />
-        <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
-          <DialogContent className="sm:max-w-md">
-            <DialogHeader>
-              <DialogTitle>{t('workflows.confirm.deleteTitle')}</DialogTitle>
-              <DialogDescription>
-                {t('workflows.confirm.delete', { name: deleteTarget?.name ?? '' })}
-              </DialogDescription>
-            </DialogHeader>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setDeleteTarget(null)}>
-                {t('common.cancel')}
-              </Button>
-              <Button variant="destructive-solid" onClick={confirmDelete}>
-                <Trash2/>
-                {t('common.delete')}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        <TemplateGalleryDialog
+          open={showTemplateGallery}
+          onOpenChange={setShowTemplateGallery}
+          onSelect={handleTemplateSelect}
+        />
+        {/* Deleting a definition is a yes/no interruption that must block, so it
+            stays a confirmation in the shared ConfirmDialog rather than a rail.
+            Mounted only with a target: the body names the record, and there is
+            no record to name while the list is idle. */}
+        {deleteTarget ? (
+          <ConfirmDialog
+            open
+            onOpenChange={(open) => { if (!open) setDeleteTarget(null) }}
+            title={t('workflows.confirm.deleteTitle')}
+            text={t('workflows.confirm.delete', { name: deleteTarget.name })}
+            confirmText={t('common.delete')}
+            cancelText={t('common.cancel')}
+            variant="destructive"
+            onConfirm={confirmDelete}
+          />
+        ) : null}
       </PageBody>
     </Page>
   )

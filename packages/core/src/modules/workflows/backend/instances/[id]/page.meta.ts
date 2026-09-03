@@ -1,6 +1,6 @@
 export const metadata = {
   requireAuth: true,
-  requireFeatures: ['workflows.view_instances'],
+  requireFeatures: ['workflows.instances.view'],
   pageTitle: 'Workflow Instance Details',
   pageTitleKey: 'workflows.instances.singular',
   breadcrumb: [

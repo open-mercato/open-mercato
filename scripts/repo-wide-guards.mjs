@@ -228,6 +228,17 @@ export const REPO_WIDE_GUARDS = [
     ],
   },
   {
+    workspace: '@open-mercato/enterprise',
+    workspaceDir: 'packages/enterprise',
+    jestConfig: 'jest.config.cjs',
+    tests: [
+      {
+        path: 'src/modules/agent_orchestrator/__tests__/agent-taxonomy-rename.test.ts',
+        scans: 'packages/core/src/modules/workflows plus the orchestrator module — retired `informative`/`actionable` wire values after the taxonomy rename',
+      },
+    ],
+  },
+  {
     workspace: '@open-mercato/app',
     workspaceDir: 'apps/mercato',
     jestConfig: 'jest.config.cjs',
@@ -261,6 +272,10 @@ export const REPO_WIDE_GUARDS = [
  * Each entry needs a reason, so the next person can tell "already covered" from "forgotten".
  */
 export const CROSS_PACKAGE_EXCEPTIONS = [
+  {
+    path: 'packages/cli/src/lib/generators/__tests__/agent-files-extension.test.ts',
+    reason: 'Reads nothing outside packages/cli — every `packages/...` literal is joined against a per-test mkdtemp fixture root, never the repo.',
+  },
   {
     path: 'packages/create-app/src/lib/apply-starter-preset.test.ts',
     reason: 'Already unfiltered — the "Check create-app template parity" CI step runs the whole create-mercato-app suite (#3779).',

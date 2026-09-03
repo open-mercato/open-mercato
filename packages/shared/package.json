@@ -117,6 +117,7 @@
     "@types/html-to-text": "^9.0.4",
     "@types/sanitize-html": "^2.16.1",
     "dotenv": "^17.4.2",
+    "gpt-tokenizer": "^3.4.0",
     "html-to-text": "^10.0.0",
     "pino": "^10.3.1",
     "rate-limiter-flexible": "^11.2.0",

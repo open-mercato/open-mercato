@@ -5,17 +5,20 @@ description: Step-by-step guide to building your first workflow in Open Mercato
 
 # Creating Workflows
 
-This guide walks you through creating a workflow from scratch using the visual editor. By the end, you'll have a working approval workflow that routes requests through human reviewers.
+This guide walks you through creating a workflow from scratch in the Studio — the visual editor. By the end, you'll have a working approval workflow that routes requests through human reviewers.
 
 ## Getting Started
 
 1. Navigate to the **Workflows** section in the backend interface
-2. Click **Create Workflow** or the **New Workflow** button
-3. Choose your editor:
-   - **Visual Editor**: Drag-and-drop interface with a graphical canvas (recommended for most users)
-   - **Form Editor**: Text-based configuration for advanced users
+2. Click **Create Workflow** — the template gallery opens
+3. Pick a starting point:
+   - **A template**: Ready-made flows (order approval, lead-to-install, task escalation, webhook integration) you can preview and then adapt
+   - **Blank canvas**: the gallery's *Blank* card starts you on an empty canvas
 
-For this guide, we'll use the Visual Editor.
+Either way you land in the Studio. It is the only workflow editor — the old
+form editor has been retired (see [The Studio is the only editor](#the-studio-is-the-only-editor)).
+
+For this guide, we'll start from a blank canvas.
 
 ![Workflow visual editor showing a sales order approval flow](/screenshots/open-mercato-workflows-visual-editor.png)
 
@@ -95,16 +98,14 @@ Let's send an email notification when the request is approved:
 4. Configure the activity:
    - **Activity Type**: "SEND_EMAIL"
    - **Activity Name**: "Notify Requester"
-   - **Config**:
-     ```json
-     {
-       "to": "{{context.requesterEmail}}",
-       "subject": "Your request has been approved",
-       "body": "Your purchase request for {{context.itemName}} has been approved."
-     }
-     ```
+   - Fill in the type-specific form fields:
+     - **To**: `{{context.requesterEmail}}`
+     - **Subject**: `Your request has been approved`
+     - **Body**: `Your purchase request for {{context.itemName}} has been approved.`
 
-> 💡 **Tip**: Use `{{context.fieldName}}` to insert workflow data into activity configurations.
+Each activity type shows its own form fields. If you need to paste or fine-tune raw configuration, expand the **Advanced** (JSON) section on the activity.
+
+> 💡 **Tip**: Use `{{context.fieldName}}` to insert workflow data into activity configurations. Invalid configuration is flagged as a non-blocking warning when you save.
 
 [**Learn more about activities →**](./activities)
 
@@ -120,22 +121,126 @@ Let's send an email notification when the request is approved:
 
 Your workflow is now live and ready to accept new instances.
 
-## Using the Form Editor
+### Draft Autosave
 
-The form editor provides a JSON-based interface for defining workflows. It's useful for:
+While you edit, the editor autosaves your work as a personal draft every few seconds. Drafts never change the published definition — only clicking **Save** does. If you leave and come back with unsaved changes, a banner offers to **Restore draft** or **Discard** it; if someone else saved the definition in the meantime, the banner says so before you restore. A successful save removes the draft.
 
-- Copy-pasting workflow definitions
-- Version control and code reviews
-- Bulk editing multiple steps
+## Declaring Workflow Inputs (Context Panel)
 
-To use the form editor:
+The definition panel has a collapsible **Context** section where you declare the inputs your workflow expects — each with a name, a type (`text`, `number`, `boolean`, `select`, `date`), an optional label, a required flag, and options for selects.
 
-1. Click the **Form Editor** tab
-2. Edit the JSON structure directly
-3. Follow the same schema as the visual editor generates
-4. Click **Save** to apply changes
+Declared inputs power the rest of the editor: they appear in the variable picker at every step with their types, required inputs are shown as always available, and optional ones carry a *maybe* marker. Declaring inputs is optional, but workflows with a declared context are far easier to configure and test.
 
-For most users, the visual editor is more intuitive. Switch to the form editor when you need precise control over the JSON structure.
+## Starting a Workflow from an Event
+
+The definition panel's **Triggers** section starts a workflow automatically when something happens elsewhere in the system.
+
+- **Event pattern** — pick the event from the list of events the application declares, or type a pattern with `*` as a wildcard (`sales.orders.*`).
+- **Filter conditions** — narrow which occurrences count. When the chosen event declares a payload shape, the condition builder offers its **payload paths and types** instead of asking you to type them; wildcards and events without a declared payload fall back to free text with a note saying so.
+- **Context mapping** — copy values out of the event payload into the new instance's starting context. Source paths come from the same typed list, and the mapped keys then appear in the variable picker at every step, so a triggered workflow is not a black box.
+- **Debounce** — wait this many milliseconds so a burst of similar events starts one workflow instead of many. Empty means start immediately.
+- **Max concurrent instances** — cap how many instances this trigger may have running at once; events past the cap are skipped. Empty means no limit.
+
+## The Variable Picker
+
+Every configuration field that accepts `{{ }}` templates — activity config inputs, mapping value cells, and trigger expressions — has a variable picker button. It opens a popover listing exactly what is available in context at that point in the workflow:
+
+- Entries are **grouped by source** (workflow inputs, trigger data, activity outputs, user-task form fields, signals, and so on)
+- Each entry shows a **type badge** (`text`, `number`, `boolean`, `select`, `date`, `object`, or `unknown` when the engine cannot know the shape)
+- Entries that are only present on some paths through the workflow carry a **maybe** marker — guard against their absence before relying on them
+- When a sample is available for the step, the entry shows its sample value
+
+Clicking an entry inserts `{{path}}` at the cursor.
+
+### Unresolved Reference Warnings
+
+The **Problems** panel warns when an expression references context that nothing in the workflow produces — a typo in a path, or a reference to an output of a step that never runs before this one. These are **warnings, never blockers**: the definition still saves, because the editor cannot always prove a value will be absent at runtime.
+
+## Testing a Step
+
+You can dry-run a single activity without executing the workflow. Open an activity's configuration and use the **Test step** panel:
+
+1. The editor builds a sample context for the step — from your pinned sample if you have one, otherwise from the last test output, otherwise from typed placeholders
+2. Running the test interpolates the config against that context and shows the resolved values plus the activity's output preview
+3. Side-effecting activities never actually execute — they return a simulated "would do" result (for example, `wouldSendTo` for an email) or a structured refusal when the activity cannot be safely simulated
+4. **Pin as sample** stores the test output as the step's sample so the picker and future tests reuse it
+
+Testing steps requires the *Test workflow definition steps* permission.
+
+:::warning Samples are stored as-is
+Pinned samples are saved inside the workflow definition **without redaction or encryption** and are visible to anyone who can view the definition. Do not pin real customer data or secrets — use representative fake values instead.
+:::
+
+## The Input Data Panel
+
+Alongside every step and route inspector sits an **Input data** panel: the same grouped listing the variable picker shows, docked next to the fields you are filling in. It lists what is in context at that point, with type badges, *maybe* markers, and sample values where one is available.
+
+Every row is draggable **and** clickable:
+
+- **Drag** a row onto any template-capable field and the path is inserted at the caret, in that field's own notation (mapping cells get the bare path, template fields get `{{path}}`)
+- **Click** a row and it is inserted the same way — drag is an enhancement, never the only way in, so the keyboard path is unaffected
+
+## Editing on the Canvas
+
+The Studio is a real editor, not a read-only diagram:
+
+- **Undo / redo** — `Cmd/Ctrl+Z` and `Cmd/Ctrl+Shift+Z` cover every canvas edit: adding, deleting, connecting, re-targeting, converting, pasting, moving and tidying, plus inspector saves. The stack holds 100 entries and survives opening and closing panels and dialogs. Text fields in the workflow-details panel are deliberately not on this stack — they have normal input undo. Restoring a draft, loading a template or clearing the canvas resets it.
+- **Copy, paste and duplicate** — select one or more steps and use `Cmd/Ctrl+C` / `Cmd/Ctrl+V` / `Cmd/Ctrl+D`. The clipboard carries a portable JSON subgraph, so a fragment can travel between workflows and in and out of the [Code view](#the-code-view). Pasting always creates new step and route ids, so it can never merge into or collide with the original. Only routes whose *both* ends are inside the selection travel with it. If the browser blocks clipboard access, the editor falls back to an in-page buffer and tells you.
+- **Drag from the palette** — drag a step onto empty canvas to place it under the cursor, or drop it **onto a route** to splice it in between that route's endpoints. Dropping an **action** onto a route appends it to that route's activities. Clicking a palette entry still appends a step, which is what keeps the palette usable from the keyboard.
+- **Re-target a route** — drag a route's endpoint onto another step. The route keeps its name, condition, priority and activities; only the endpoint changes. Invalid targets (a self-loop, a duplicate route, an error route moved onto a step that cannot fail, anything that would break parallel branches) snap back with the reason stated.
+- **Change a step's type** — the step inspector has a **Change type…** control. The step keeps its id, name, position and wiring; configuration the new type genuinely shares is carried over; anything the new type cannot execute is parked in a read-only **Unmapped configuration** drawer on the step and flagged in Problems. Nothing is deleted, so converting back recovers it. START and END cannot be converted.
+- **Notes and groups** — add markdown sticky notes and named, collapsible group frames to explain a flow. They are documentation only: they are stored in the definition's editor metadata, never executed, and never affect validation or routing.
+- **Icons** — the workflow's icon is picked from a searchable icon grid instead of typed as a name. An icon name that is not in the grid is still stored as you typed it.
+
+### Manual Layout Wins
+
+New steps are laid out automatically, but once you move a card, that position is yours: it is saved with the definition and survives reloads, drafts and saves. The **Auto-arrange** button is the one action that re-lays the whole canvas. A drag is saved once, when you drop it — not on every frame.
+
+## Keyboard and the Command Palette
+
+Every canvas operation is reachable without a mouse.
+
+- **`Cmd/Ctrl+K`** opens the command palette: undo/redo, delete, copy/paste/duplicate, add any step type, add a note or group, jump to any step, Auto-arrange, every panel toggle, Validate, Start instance and Save. Commands that cannot run right now are shown **disabled with their shortcut**, never hidden.
+- **`Enter`** opens the inspector for the selected step or route, **`Delete`**/**`Backspace`** deletes it, and the **arrow keys** nudge it (hold `Shift` for a coarser step).
+- **`F`** toggles focus mode. Inside any dialog, `Cmd/Ctrl+Enter` submits and `Escape` cancels.
+- All of these are suppressed while you are typing in a field or a dialog is open — except `Cmd/Ctrl+K`, which is deliberately always available, because it is the way out of any focus.
+
+Steps announce themselves as *type, name and status*, and status is never signalled by colour alone: every state pairs its colour with its own icon and a text label.
+
+## The Code View
+
+The **Code** button opens the definition JSON alongside the canvas.
+
+- What you read is exactly what a Save would store — it is assembled from the same payload builder the Save button uses, not a separate rendering.
+- **Copy JSON** copies the whole definition; **Paste steps** pastes a subgraph copied from the canvas, using the same clipboard format.
+- The panel repeats the Problems list, so the schema view and the canvas can never disagree about what is wrong.
+
+The Code view is **read-only** in this release: you cannot type into it, and the canvas remains the source of truth. Two-way editing with live error highlighting is planned for a later phase.
+
+## Validation and Saving
+
+Validation runs as you edit, and every issue appears in two places: as a badge on the step or route it belongs to, and as a row in the **Problems** panel that you can click to jump straight to it. Errors block a save; warnings never do.
+
+If a save cannot go through, it says so:
+
+- **Validation errors** open the Problems panel with the full list and state how many errors there are. Nothing is sent, and your edits stay exactly where they are.
+- **A rejection from the server** shows the server's own message. Again, your edits stay on the canvas — you never lose work to a failed save.
+- **A conflicting edit** by someone else surfaces the standard conflict bar with a refresh action.
+
+### Editing a Workflow That Is Running
+
+Instances keep executing the exact definition version they started on, and the engine re-reads that record as they advance. So if you change the **structure** of a definition — add or remove steps, change a step's type, re-wire or re-target routes, change fork/join wiring — while instances are still running, the save is refused with a banner explaining how many instances are affected.
+
+The banner's **Create version** button mints the next version and applies your edit there, so running instances finish on the old version and new runs start on the new one. Labels, positions, activity configuration, conditions, priorities, triggers and metadata are not structural and always save in place. Draft autosave is never blocked — work in progress is always saveable.
+
+## The Studio Is the Only Editor
+
+The old **form editor** has been retired. Everything it did now lives in two places:
+
+- **The inspectors** took over structured editing — every step, route and trigger is edited in a validated form, with an *Advanced (JSON)* escape hatch on activity configuration.
+- **The [Code view](#the-code-view)** took over reading and bulk copy/paste of the raw definition.
+
+Existing links keep working: `/backend/definitions/create` and `/backend/definitions/<id>` now forward to the Studio with the same permissions as before. They will be kept for at least one minor release, so bookmarks and any deep links you have saved do not break.
 
 ## Best Practices
 
@@ -163,10 +268,11 @@ For most users, the visual editor is more intuitive. Switch to the form editor w
 
 Before going live:
 
-1. Create a test instance with sample data
-2. Complete each step manually to verify behavior
-3. Check the execution timeline for errors
-4. Review email notifications and API calls in the monitoring view
+1. Dry-run individual activities with the [Test step panel](#testing-a-step)
+2. Create a test instance with sample data
+3. Complete each step manually to verify behavior
+4. Check the execution timeline for errors
+5. Review email notifications and API calls in the monitoring view
 
 [**Learn more about monitoring →**](./monitoring)
 

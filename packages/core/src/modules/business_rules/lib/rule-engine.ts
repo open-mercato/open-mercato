@@ -54,6 +54,14 @@ export interface RuleEngineContext {
   organizationId: string
   executedBy?: string
   dryRun?: boolean
+  /**
+   * Evaluate the conditions but do NOT run the rule's success/failure actions.
+   *
+   * `dryRun` is deliberately not that flag: it only suppresses the execution
+   * LOG, so a caller that must produce no side effects (the workflows dry-run
+   * path, spec section 8.2) needs this one.
+   */
+  skipActions?: boolean
   [key: string]: any
 }
 
@@ -250,6 +258,8 @@ export interface DirectRuleExecutionContext {
   organizationId: string
   executedBy?: string
   dryRun?: boolean
+  /** See `RuleEngineContext.skipActions`. */
+  skipActions?: boolean
   // Optional for logging (falls back to rule's entityType)
   entityType?: string
   entityId?: string
@@ -288,6 +298,8 @@ export interface RuleIdExecutionContext {
   organizationId: string
   executedBy?: string
   dryRun?: boolean
+  /** See `RuleEngineContext.skipActions`. */
+  skipActions?: boolean
   entityType?: string
   entityId?: string
   eventType?: string
@@ -516,7 +528,7 @@ export async function executeSingleRule(
 
       let actionsExecuted: ActionExecutionOutcome | null = null
 
-      if (actions && Array.isArray(actions) && actions.length > 0) {
+      if (actions && Array.isArray(actions) && actions.length > 0 && !context.skipActions) {
         // Build action context
         const actionContext: ActionContext = {
           ...evalContext,
@@ -762,6 +774,7 @@ export async function executeRuleById(
     organizationId: context.organizationId,
     executedBy: context.executedBy,
     dryRun: context.dryRun,
+    skipActions: context.skipActions,
   }
 
   // Execute via existing executeSingleRule
@@ -873,6 +886,7 @@ export async function executeRuleByRuleId(
     organizationId: context.organizationId,
     executedBy: context.executedBy,
     dryRun: context.dryRun,
+    skipActions: context.skipActions,
   }
 
   // Execute via existing executeSingleRule
