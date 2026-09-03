@@ -85,10 +85,19 @@ jest.mock('@open-mercato/ui/backend/utils/customFieldForms', () => ({
 import IntegrationDetailPage from '../page'
 
 const NO_PERMISSION_MESSAGE = 'You do not have permission to manage credentials for this integration.'
+const SAVE_ACTION_LABEL = 'Save credentials'
 
 const dict = {
   'integrations.detail.credentials.noPermission': NO_PERMISSION_MESSAGE,
+  'integrations.detail.credentials.save': SAVE_ACTION_LABEL,
   'integrations.detail.credentials.secretConfigured': 'Configured. Enter a new value to replace it.',
+}
+
+// The Save action is a FormHeader button rendered outside the credentials <form>,
+// so asserting on the form alone would not catch it leaking to an unprivileged viewer.
+function findSaveAction(container: HTMLElement): HTMLButtonElement | null {
+  return Array.from(container.querySelectorAll('button'))
+    .find((button) => button.textContent?.trim() === SAVE_ACTION_LABEL) ?? null
 }
 
 const integrationDetail = {
@@ -175,6 +184,7 @@ describe('Integration credentials — permission gate (#5816)', () => {
 
     expect(container.querySelector('form')).toBeNull()
     expect(container.querySelector('[data-crud-field-id="secretKey"]')).toBeNull()
+    expect(findSaveAction(container)).toBeNull()
   })
 
   it('renders the editable credentials form for a viewer with integrations.credentials.manage', async () => {
@@ -191,5 +201,6 @@ describe('Integration credentials — permission gate (#5816)', () => {
 
     expect(container.querySelector('[data-crud-field-id="secretKey"]')).not.toBeNull()
     expect(container).not.toHaveTextContent(NO_PERMISSION_MESSAGE)
+    expect(findSaveAction(container)).not.toBeNull()
   })
 })
