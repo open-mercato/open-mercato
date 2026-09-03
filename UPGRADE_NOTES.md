@@ -24,6 +24,62 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.7.0 → 0.7.1 (unreleased)
 
+### `Locale` is now derived from an augmentable `LocaleRegistry` (no action required)
+
+`Locale` in `@open-mercato/shared/lib/i18n/config` used to be a closed union literal. It is now
+derived from an interface:
+
+```ts
+export interface LocaleRegistry { en: true; pl: true; es: true; de: true; ko: true }
+export type Locale = keyof LocaleRegistry & string
+```
+
+**Nothing changes for an application that does not opt in.** Unaugmented, `Locale` resolves to
+exactly `'en' | 'pl' | 'es' | 'de' | 'ko'` — the same assignability, the same exhaustiveness. Your
+existing `Record<Locale, T>` maps and `switch` statements keep compiling and keep failing when a
+member is missing. `locales` and `defaultLocale` are unchanged in name, type, value and order, and
+no new language is shipped. `detectLocale()` and `I18nProvider` each gained one **optional**
+parameter, so existing call sites are unaffected.
+
+**Action for module authors: none.** This entry exists because `Locale` is a published type and
+its *shape* changed even though its meaning did not.
+
+**To serve a language Open Mercato does not ship**, you no longer need to patch `node_modules`.
+Three steps, all in your own app:
+
+1. Widen the type from any file in your app's source tree:
+
+   ```ts
+   declare module '@open-mercato/shared/lib/i18n/config' {
+     interface LocaleRegistry { cs: true }
+   }
+   ```
+
+2. Register it at runtime, next to your `registerAppDictionaryLoader` call:
+
+   ```ts
+   import { registerLocales } from '@open-mercato/shared/lib/i18n/server'
+
+   registerLocales(['cs'])
+   ```
+
+3. Add `src/i18n/cs.json` and a `case 'cs':` arm in your app dictionary loader. Any key you have
+   not translated falls back to the default locale rather than rendering a raw key, so a partial
+   dictionary is a valid starting point.
+
+Note that the type layer is advisory: declaration merging applies when a package is *installed*,
+not when it is *enabled*, so the runtime registry — not the type — is what actually decides which
+locales are served.
+
+**Tenant administrators** can now also narrow the served set from Settings → Module Configs →
+Translations (feature `translations.manage_locales`). That screen already existed but only drove
+the content-translation editor; it now also drives the UI language switcher. A selection is
+intersected with the locales the app can actually serve, so a code with no dictionary behind it
+can never reach the switcher.
+
+Full reasoning: `.ai/specs/2026-09-03-extensible-locale-set.md`.
+
+
 ### Sales line `discount_amount` is now read as a line total, and the percentage wins (#3757)
 
 `sales_order_lines.discount_amount` and `sales_quote_lines.discount_amount` have always been

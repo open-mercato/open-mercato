@@ -1,14 +1,19 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { locales, type Locale } from '@open-mercato/shared/lib/i18n/config'
+import type { Locale } from '@open-mercato/shared/lib/i18n/config'
+import { isSupportedLocale } from '@open-mercato/shared/lib/i18n/locale-registry'
 import { resolveForcedLocale } from '@open-mercato/shared/lib/i18n/locale'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { sanitizeRedirectPath } from '@open-mercato/core/modules/auth/lib/safeRedirect'
 import { getAppBaseUrl } from '@open-mercato/shared/lib/url'
 
-const supportedLocales = new Set<Locale>(locales)
-const localeSchema = z.object({ locale: z.enum(locales as [Locale, ...Locale[]]) })
+// Resolved per request, not at module scope: an app or tenant may register a
+// locale after this module is first imported, and a snapshot taken at import
+// time would reject it for the lifetime of the process.
+const localeSchema = z.object({
+  locale: z.string().refine(isSupportedLocale, { message: 'Unsupported locale' }),
+})
 const localeQuerySchema = localeSchema.extend({
   redirect: z.string().optional(),
 })
@@ -27,7 +32,7 @@ export async function POST(req: Request) {
   }
   try {
     const { locale } = await req.json()
-    if (typeof locale !== 'string' || !supportedLocales.has(locale as Locale)) {
+    if (typeof locale !== 'string' || !isSupportedLocale(locale)) {
       return NextResponse.json({ error: t('api.errors.invalidLocale', 'Invalid locale') }, { status: 400 })
     }
     const res = NextResponse.json({ ok: true })
@@ -45,7 +50,7 @@ export async function GET(req: Request) {
   }
   const url = new URL(req.url)
   const locale = url.searchParams.get('locale')
-  if (!locale || !supportedLocales.has(locale as Locale)) {
+  if (!locale || !isSupportedLocale(locale)) {
     return NextResponse.json({ error: t('api.errors.invalidLocale', 'Invalid locale') }, { status: 400 })
   }
   const baseUrl = getAppBaseUrl(req)

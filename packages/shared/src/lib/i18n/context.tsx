@@ -1,6 +1,7 @@
 "use client"
 import { createContext, useContext, useMemo, type PropsWithChildren } from 'react'
 import type { Locale } from './config'
+import { getSupportedLocales } from './locale-registry'
 
 export type Dict = Record<string, string>
 
@@ -17,6 +18,12 @@ export type I18nContextValue = {
   t: TranslateFn
   /** True when the locale is pinned via `OM_FORCE_LOCALE`; UI should hide switchers. */
   localeLocked: boolean
+  /**
+   * Every locale this app serves. Resolved on the server (where the app
+   * registry and any tenant configuration are readable) and handed to the
+   * client, because a client bundle cannot see either.
+   */
+  supportedLocales: readonly Locale[]
 }
 
 const I18N_CONTEXT_KEY = '__openMercatoI18nContext'
@@ -48,10 +55,13 @@ function format(template: string, params?: TranslateParams) {
   })
 }
 
-export function I18nProvider({ children, locale, dict, localeLocked = false }: PropsWithChildren<{ locale: Locale; dict: Dict; localeLocked?: boolean }>) {
+export function I18nProvider({ children, locale, dict, localeLocked = false, supportedLocales }: PropsWithChildren<{ locale: Locale; dict: Dict; localeLocked?: boolean; supportedLocales?: readonly Locale[] }>) {
   const value = useMemo<I18nContextValue>(() => ({
     locale,
     localeLocked,
+    // Falls back to the process-local registry so a provider mounted without the
+    // prop (tests, standalone renders) behaves exactly as it did before.
+    supportedLocales: supportedLocales ?? getSupportedLocales(),
     t: (key, fallbackOrParams, params) => {
       let fallback: string | undefined
       let resolvedParams: TranslateParams | undefined
@@ -66,7 +76,7 @@ export function I18nProvider({ children, locale, dict, localeLocked = false }: P
       const template = dict[key] ?? fallback ?? key
       return format(template, resolvedParams)
     },
-  }), [locale, dict, localeLocked])
+  }), [locale, dict, localeLocked, supportedLocales])
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>
 }
 
@@ -101,6 +111,16 @@ export function useLocale() {
 export function useOptionalLocale(): Locale | undefined {
   const ctx = useContext(I18nContext)
   return ctx?.locale
+}
+
+/**
+ * Every locale this app serves, for rendering a language picker. Falls back to
+ * the process-local registry outside a provider so callers can render
+ * unconditionally.
+ */
+export function useSupportedLocales(): readonly Locale[] {
+  const ctx = useContext(I18nContext)
+  return ctx?.supportedLocales ?? getSupportedLocales()
 }
 
 /**
