@@ -482,7 +482,8 @@ For packages that must not depend on `@open-mercato/telemetry` (see S2, "Emittin
 |---|---|
 | `withTelemetrySpan(name, fn, options?)` | runs `fn` inside a span via the active bridge; `fn` runs untraced when telemetry is off |
 | `captureTelemetryTrace()` | active trace as a carrier for `links`, or `undefined` when nothing is active |
-| Types: `TelemetrySpan`, `TelemetrySpanOptions`, `TelemetrySpanAttributes`, `TelemetrySpanKind`, `TelemetryTraceCarrier`, `TelemetryRuntime` | |
+| `TelemetryRuntime.recordHistogram?` | optional metric bridge for packages that cannot depend on telemetry; absent while telemetry is off or when an older bootstrap is active |
+| Types: `TelemetrySpan`, `TelemetrySpanOptions`, `TelemetrySpanAttributes`, `TelemetryMetricLabels`, `TelemetrySpanKind`, `TelemetryTraceCarrier`, `TelemetryRuntime` | |
 
 ### HTTP API contracts
 
@@ -492,7 +493,7 @@ This package adds **no API routes**. It augments existing HTTP surfaces with spa
 
 See **S4 — Activation and configuration**. All variables are documented in `packages/telemetry/README.md`.
 
-### Backward compatibility
+### Migration & Backward Compatibility
 
 Per the **Backward Compatibility Contract** in root `AGENTS.md`:
 
@@ -503,6 +504,7 @@ Per the **Backward Compatibility Contract** in root `AGENTS.md`:
 | `SpanOptions` (2026-08-11) | new **optional** `root?` / `links?` fields | ✓ ADDITIVE — omitting them preserves today's behavior exactly; a custom `TelemetryProvider` that ignores them degrades to "not a root", never breaks |
 | `Span` / `TelemetrySpan` (2026-08-13) | new **optional** `updateName?(name)` method | ✓ ADDITIVE — declared optional so a third-party provider or an older bootstrap still satisfies the interface; callers invoke it as `span.updateName?.(…)` and degrade to the original span name |
 | `TelemetryRuntime` (2026-08-11) | new **optional** `withSpan?` method on the shared bridge | ✓ ADDITIVE — declared optional so an older bootstrap still satisfies the interface; `withTelemetrySpan` falls back to running `fn` untraced |
+| `TelemetryRuntime` (2026-08-30) | new **optional** `recordHistogram?` method on the shared bridge | ✓ ADDITIVE — declared optional so older bootstraps remain compatible; callers use optional chaining and telemetry-off deployments remain no-ops |
 | `DataSyncAdapter.streamImport/streamExport` (2026-08-11) | **unchanged** — the engine now drives the returned iterator explicitly | adapters need no changes; closing follows the language's own `IteratorClose` rules, keeping generator `finally` semantics identical to `for await` (regression-tested) |
 | Trace topology for telemetry-on consumers (2026-08-11) | sync work moves from inside the trigger's trace to per-batch traces linked back to it | intended fix, but visible in saved dashboards/views — noted in `UPGRADE_NOTES.md` |
 | Import paths | new package — STABLE from day 1 | alias re-export from `@open-mercato/shared/lib/telemetry` if the boundary is later moved |
@@ -609,8 +611,8 @@ All tests run in the existing jest suites (`yarn workspace … test`) — no net
 - **No cross-module ORM relationships**: package adds no entities; queue/event additions are payload-only and additive.
 - **Env-driven config**, no hardcoded vendor endpoints; backend is a pure OTLP env swap.
 - **No raw `fetch`** in module code: the package's outbound instrumentation wraps undici at the global level only.
-- **Backward Compatibility Contract**: all surfaces reviewed in API Contracts → Backward compatibility. No surface broken; queue/event payload extensions are additive, as are the later `SpanOptions.root`/`links` fields and the optional `TelemetryRuntime.withSpan` bridge method.
-- **Touched outside this package** (reviewer awareness): `packages/shared/src/lib/telemetry/runtime.ts` (bridge gains optional `withSpan` + `withTelemetrySpan`/`captureTelemetryTrace` helpers) and `packages/core/src/modules/data_sync/lib/{sync-engine,batch-stream}.ts` (per-batch root spans; adapter contract unchanged).
+- **Backward Compatibility Contract**: all surfaces reviewed in API Contracts → Migration & Backward Compatibility. No surface broken; queue/event payload extensions are additive, as are the later `SpanOptions.root`/`links` fields and the optional `TelemetryRuntime.withSpan` / `recordHistogram` bridge methods.
+- **Touched outside this package** (reviewer awareness): `packages/shared/src/lib/telemetry/runtime.ts` (bridge gains optional `withSpan` and `recordHistogram` methods plus `withTelemetrySpan`/`captureTelemetryTrace` helpers), `packages/shared/src/lib/crud/enricher-runner.ts` (low-cardinality duration histogram), and `packages/core/src/modules/data_sync/lib/{sync-engine,batch-stream}.ts` (per-batch root spans; adapter contract unchanged).
 - **PII hygiene**: don't-emit posture, `pg` param capture disabled + regression-tested, non-Error objects never serialized, exact-token-key masking, and provider-boundary redaction. (No AI instrumentation in this PR; the AI follow-up MUST force prompt/completion recording off.)
 - **AGENTS.md guidance**: Phase 1 ships `packages/telemetry/AGENTS.md` describing logger usage, span naming conventions, and the metric-label cardinality rule (R4).
 - **Module decoupling**: package never imports from `packages/core/src/modules/*`. Modules opt in by importing the facade.
@@ -635,6 +637,7 @@ Touched areas (cross-package wiring, for reviewer awareness):
 
 ## Changelog
 
+- **2026-08-30 (response-enricher performance telemetry)** — Added the optional `TelemetryRuntime.recordHistogram` bridge so shared infrastructure can emit low-cardinality metrics without taking a dependency on `@open-mercato/telemetry`. The response-enricher runner uses it for `om.enricher.duration` (seconds, labeled only by `enricher.id`); telemetry-off and older-runtime paths remain no-ops.
 - **2026-08-03 (review follow-up: provider reachability and adoption hardening)** — Restored the exported custom-provider extension point without weakening default-unloaded behavior: an explicitly imported bootstrap can register a provider whose name matches `TELEMETRY_BACKEND` and call `initTelemetry()`, while unregistered/unknown names remain a hard no-op in standard hosts. The telemetry env parser now reuses the shared built-in-backend guard as its source of truth, and provider resolution degrades safely instead of throwing on future registry drift. Documented that `TELEMETRY_TRUST_INBOUND_TRACE=false` also disables richer `bullmq-otel` spans in favor of the dedicated queue carrier. Fixed the `mercato telemetry init` legacy `/nextjs` import migration to splice the array before changing import text, with regression coverage.
 - **2026-07-24 (unified logger, secure/default-unloaded carryover hardening)** — Rebased the implementation on the canonical shared logger introduced by #4003. Removed telemetry's duplicate Pino/logger facade and `TELEMETRY_LOG_*` controls; a process-wide shared-logger extension now adds trace context and one remote sink under the existing `OM_LOG_*` gate. Added a `globalThis` shared telemetry runtime bridge so API, queue, worker, and CLI code do not statically import telemetry; Next/app/CLI/worker hosts dynamically import only after an explicit supported `TELEMETRY_BACKEND`, and `nextjs-config` isolates build-time externals from runtime code. Explicit off is absolute and cannot be overridden by a custom `noop` provider. Security hardening: arbitrary thrown objects are no longer JSON-stringified, exact `token` keys are masked without clobbering `token_count`, provider-boundary redaction covers logs/spans/metrics, and both standard + backup inbound trace headers require `TELEMETRY_TRUST_INBOUND_TRACE=true`. The async BullMQ integration uses the dedicated carrier unless trusted global propagation is explicitly enabled. App/template/codemod/docs/tests were updated in lockstep; telemetry version aligned to `0.6.6`.
 - **2026-04-29** — Initial draft (spec-only). No code yet.
