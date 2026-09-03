@@ -30,7 +30,9 @@ export type SearchResultPresenter = {
    *
    * For an entity-type label, add a `search.entityType.<module>.<entity>` translation key
    * instead: every search surface already renders one next to the result title, so a badge
-   * carrying the same word would render it twice. For per-record detail (a status, a
+   * carrying the same word would render it twice. Declare that key in your own module's
+   * `i18n/*.json` — dictionaries are merged flat across modules, so a `search.*` key
+   * contributed by any module resolves normally. For per-record detail (a status, a
    * counterparty, a date), put the value in `subtitle`, which is rendered.
    */
   badge?: string

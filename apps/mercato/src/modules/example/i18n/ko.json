@@ -499,5 +499,6 @@
   "example.workPlan.nav.group": "작업 계획",
   "integrations.marketplace.filters.category": "카테고리",
   "notifications.categories.demo": "데모",
-  "notifications.categories.example": "예제"
+  "notifications.categories.example": "예제",
+  "search.entityType.example.todo": "할 일"
 }

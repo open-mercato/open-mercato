@@ -499,5 +499,6 @@
   "example.workPlan.nav.group": "Work plan",
   "integrations.marketplace.filters.category": "Category",
   "notifications.categories.demo": "Demo",
-  "notifications.categories.example": "Examples"
+  "notifications.categories.example": "Examples",
+  "search.entityType.example.todo": "Todo"
 }

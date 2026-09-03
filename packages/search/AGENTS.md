@@ -333,8 +333,10 @@ interface SearchResultPresenter {
   /**
    * @deprecated Never rendered by any search UI; slated for removal in 0.9.0.
    * Do not populate it. For an entity-type label add a
-   * `search.entityType.<module>.<entity>` key, which all three surfaces do render;
-   * for per-record detail use `subtitle`.
+   * `search.entityType.<module>.<entity>` key in your own module's `i18n/*.json`
+   * (dictionaries merge flat, so a `search.*` key resolves from any module), which
+   * all three surfaces do render; for per-record detail use `subtitle`.
+   * `VectorResultPresenter.badge` is deprecated on the same terms.
    */
   badge?: string
 }

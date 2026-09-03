@@ -499,5 +499,6 @@
   "example.workPlan.nav.group": "Plan pracy",
   "integrations.marketplace.filters.category": "Category",
   "notifications.categories.demo": "Demo",
-  "notifications.categories.example": "Przyk\u0142ady"
+  "notifications.categories.example": "Przyk\u0142ady",
+  "search.entityType.example.todo": "Zadanie"
 }
