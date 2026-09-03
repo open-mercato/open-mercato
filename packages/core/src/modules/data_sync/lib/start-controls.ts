@@ -1,6 +1,13 @@
 import type { DataSyncAdapter, DataSyncStartControl } from './adapter'
 
-export const DATA_SYNC_START_CONTROLS: readonly DataSyncStartControl[] = ['fullSync', 'batchSize']
+/**
+ * Keyed by the union rather than listed, so adding a control to
+ * {@link DataSyncStartControl} fails to compile here instead of silently
+ * dropping out of the resolution loop and the client-side read.
+ */
+const START_CONTROL_KEYS: Record<DataSyncStartControl, true> = { fullSync: true, batchSize: true }
+
+export const DATA_SYNC_START_CONTROLS = Object.keys(START_CONTROL_KEYS) as readonly DataSyncStartControl[]
 
 export type StartControlApplicability = Record<DataSyncStartControl, boolean>
 

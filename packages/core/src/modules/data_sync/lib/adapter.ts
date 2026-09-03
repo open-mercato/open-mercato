@@ -275,21 +275,31 @@ export interface DataSyncAdapter {
    */
   persistsSharedCursor?(entityType: string): boolean
   /**
-   * Whether a manual-start control is meaningful for this entity type. Only an
-   * explicit `false` removes a control, so an adapter that declares nothing —
-   * or returns nothing — keeps today's form exactly.
+   * Whether a control on the Data Sync dashboard's "Run once now" card is
+   * meaningful for this entity type. Only an explicit `false` removes a
+   * control, so an adapter that declares nothing — or returns nothing — keeps
+   * today's form exactly.
    *
    * Return `false` for an entity type where the operator's choice reaches the
    * adapter and changes nothing observable: an entity type whose cursor carries
    * identity, so an inherited cursor is discarded and the run starts from the
    * top whichever way `fullSync` is set; or one whose paging the source fixes,
-   * so `batchSize` is read and ignored. The dashboard then omits the control
-   * rather than offering a switch whose "no effect" an operator cannot tell
-   * apart from "it worked".
+   * so `batchSize` is read and ignored. That card then omits the control rather
+   * than offering a switch whose "no effect" an operator cannot tell apart from
+   * "it worked".
    *
    * Core cannot infer this — it does not know what an entity type does with the
    * values it is handed. The adapter does, and this is the channel for saying
    * so.
+   *
+   * SCOPE: the "Run once now" card only. It does NOT gate the recurring-schedule
+   * switch on the same page, nor the per-entity-type "Full" switch on the
+   * integration settings tab — whose row-level run posts that schedule's own
+   * `fullSync` to the same run API. An adapter that declares `fullSync`
+   * inapplicable still sees those, and `buildDefaultScheduleState` may pre-set
+   * them to `true`. Harmless by construction, since the adapter has said the
+   * value does not matter, but do not read this predicate as covering every
+   * place a run can be started.
    *
    * This governs what the dashboard OFFERS, not what the API accepts:
    * `POST /api/data_sync/run` keeps honouring both fields, so a client that
