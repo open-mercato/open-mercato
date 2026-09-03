@@ -10,8 +10,9 @@ import {
 } from '@open-mercato/shared/lib/crud/custom-field-definition-index'
 import { type Kysely, type Transaction, sql } from 'kysely'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { resolveSearchConfig } from '@open-mercato/shared/lib/search/config'
 import { replaceSearchTokensForRecord, deleteSearchTokensForRecord } from './search-tokens'
-import { attachAggregateSearchField } from './document'
+import { attachAggregateSearchField, rebuildAggregateSearchField } from './document'
 
 const logger = createLogger('query_index').child({ component: 'indexer' })
 
@@ -400,12 +401,20 @@ export async function reindexSearchTokensForRecord(
       dekKeyCache,
     )
   })()
+  // Rebuilt on the decrypted document: the aggregate stored in `entity_indexes` was
+  // composed from the row as it sits at rest, so for every encryption-mapped field it
+  // holds ciphertext no user query can ever match (#5625). The config is resolved once
+  // here because `resolveSearchConfig` re-parses the environment on every call.
+  const searchDoc = rebuildAggregateSearchField(await tokenDoc, {
+    entityType: args.entityType,
+    config: resolveSearchConfig(),
+  })
   await replaceSearchTokensForRecord(db, {
     entityType: args.entityType,
     recordId: args.recordId,
     organizationId: args.organizationId ?? null,
     tenantId: args.tenantId ?? null,
-    doc: await tokenDoc,
+    doc: searchDoc,
   }, { trx: args.trx })
 }
 

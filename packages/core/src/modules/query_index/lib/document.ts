@@ -83,6 +83,15 @@ function collectAggregateSearchValues(
   return []
 }
 
+/**
+ * Composes the aggregate search field on `doc`, in place, and returns it.
+ *
+ * When no field survives the blocklist the aggregate key is **removed** rather than left
+ * alone, so a document that already carries one cannot keep a stale value. No entity in
+ * this repository has a `search_text` column, so a freshly built document never reaches
+ * the call with the key already set; the removal only matters on the recomputation path
+ * (`rebuildAggregateSearchField`), where the incoming value was composed from ciphertext.
+ */
 export function attachAggregateSearchField(
   doc: Record<string, unknown>,
   options: AggregateSearchOptions = {},
@@ -104,9 +113,32 @@ export function attachAggregateSearchField(
 
   if (parts.length > 0) {
     doc[AGGREGATE_SEARCH_FIELD] = parts.join('\n')
+  } else {
+    // Recomputing must never leave an earlier aggregate behind: when this runs on a
+    // decrypted copy of a stored document, the value already sitting under the key was
+    // built from the encrypted-at-rest one and would otherwise survive as ciphertext.
+    delete doc[AGGREGATE_SEARCH_FIELD]
   }
 
   return doc
+}
+
+/**
+ * Recomputes the aggregate on a shallow copy of `doc`.
+ *
+ * Search tokens are built from the *decrypted* index document, while the document
+ * persisted in `entity_indexes` stays encrypted at rest. The aggregate composed during
+ * document build therefore concatenates ciphertext for every field an encryption map
+ * covers, and `decryptIndexDocForSearch` cannot repair it because `search_text` is on no
+ * map (#5625). Token writers call this on the decrypted document so the aggregate is
+ * tokenized from the same plaintext a user actually searches for; the copy keeps the
+ * caller's stored document untouched.
+ */
+export function rebuildAggregateSearchField(
+  doc: Record<string, unknown>,
+  options: AggregateSearchOptions = {},
+): Record<string, unknown> {
+  return attachAggregateSearchField({ ...doc }, options)
 }
 
 export function buildIndexDocument(
