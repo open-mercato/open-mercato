@@ -111,6 +111,7 @@ interface DataSyncAdapter {
   getInitialCursor?(input: { entityType: string; scope: TenantScope }): Promise<string | null>
   getMapping(input: { entityType: string; scope: TenantScope }): Promise<DataMapping>
   persistsSharedCursor?(entityType: string): boolean
+  supportsStartControl?(control: 'fullSync' | 'batchSize', entityType: string): boolean
   validateConnection?(input: {
     entityType: string
     credentials: Record<string, unknown>
@@ -189,6 +190,39 @@ untouched dashboard form would — never an empty object. Write your adapter
 against the defaults, not against `undefined`. A default that violates its own
 declaration skips the scheduled run with a logged error instead of starting it
 with a half-applied set.
+
+### Start controls
+
+The dashboard's "Run once now" card also renders two controls the framework owns
+— **Run as full sync** and **Batch size**. Whether either is meaningful for an
+entity type is adapter knowledge, so an adapter may declare it per entity type:
+
+```typescript
+supportsStartControl: (control, entityType) =>
+  !(control === 'fullSync' && entityType.endsWith('.backfill')),
+```
+
+Only an explicit `false` removes a control; an adapter that declares nothing —
+or returns nothing — keeps today's form exactly. Return `false` where the
+operator's choice reaches the adapter and changes nothing observable: an entity
+type whose cursor carries identity, so an inherited cursor is discarded and the
+run starts from the top whichever way `fullSync` is set; or one whose paging the
+source fixes, so `batchSize` is read and ignored.
+
+`api/options.ts` evaluates the predicate across `supportedEntities` and ships the
+result as `startControls` — a **sparse** map, so an entity type with no
+restriction is omitted and an adapter that declares nothing serializes to `{}`.
+`lib/start-controls.ts` owns both halves (`resolveStartControlMap` server-side,
+`applicableStartControls` in the dashboard); a predicate that throws is treated
+as *applies*, because the options route resolves every registered adapter in one
+response.
+
+**This governs what the dashboard offers, never what the API accepts.**
+`POST /api/data_sync/run` keeps honouring both fields, so a client posting
+`fullSync: true` still gets a `null` start cursor whatever the adapter declares.
+Do not derive applicability from `persistsSharedCursor` — where a cursor is
+stored and whether restarting from scratch is meaningful are independent facts,
+and both belong to the adapter to state.
 
 If the sync provider needs bootstrap credentials, mappings, locales, channels, or other default sync settings after a fresh install, implement a provider-owned env preset flow:
 
