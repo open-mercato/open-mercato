@@ -147,6 +147,10 @@ function resolveCachePurgeRequest(args: ParsedArgs): CachePurgeRequest {
   )
 }
 
+export function isCacheHelpFlag(arg: string): boolean {
+  return arg === 'help' || arg === '--help' || arg === '-h'
+}
+
 function printCacheHelp() {
   console.log('🧹 Cache CLI')
   console.log('')
@@ -360,11 +364,16 @@ const help: ModuleCli = {
 
 const cacheCommand: ModuleCli = {
   command: 'cache',
+  // Prints subcommand-aware help itself, so the dispatcher must forward --help/-h here.
+  handlesHelp: true,
   async run(rest) {
     const [subcommand, ...subRest] = rest
     const args = parseArgs(subRest)
 
-    if (!subcommand || subcommand === 'help' || subcommand === '--help' || subcommand === '-h') {
+    // `handlesHelp` makes this command responsible for the guarantee the dispatcher gives
+    // everywhere else, so a help flag anywhere wins over the subcommand — otherwise
+    // `configs cache purge --help` would purge the cache it was only asked to describe.
+    if (!subcommand || rest.some(isCacheHelpFlag)) {
       printCacheHelp()
       return
     }
