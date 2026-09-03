@@ -94,8 +94,7 @@ export default function BundleConfigPage({ params }: BundleConfigPageProps) {
   })
 
   const load = React.useCallback(async () => {
-    const currentBundleId = bundleId
-    if (!currentBundleId) {
+    if (!bundleId) {
       setError(t('integrations.detail.loadError'))
       setIsLoading(false)
       return
@@ -104,7 +103,7 @@ export default function BundleConfigPage({ params }: BundleConfigPageProps) {
     setError(null)
     setIsNotFound(false)
     const call = await apiCall<BundleDetail>(
-      `/api/integrations/${encodeURIComponent(currentBundleId)}`,
+      `/api/integrations/${encodeURIComponent(bundleId)}`,
       undefined,
       { fallback: null },
     )
@@ -124,7 +123,7 @@ export default function BundleConfigPage({ params }: BundleConfigPageProps) {
       secretFieldsConfigured?: SecretFieldsConfigured
       updatedAt?: string | null
     }>(
-      `/api/integrations/${encodeURIComponent(currentBundleId)}/credentials`,
+      `/api/integrations/${encodeURIComponent(bundleId)}/credentials`,
       undefined,
       { fallback: null },
     )
@@ -134,7 +133,7 @@ export default function BundleConfigPage({ params }: BundleConfigPageProps) {
     }
     if (credCall.ok && credCall.result?.credentials) {
       const next = { ...credCall.result.credentials }
-      if (currentBundleId === 'storage_s3') {
+      if (bundleId === 'storage_s3') {
         const authMode = next.authMode
         if (authMode !== 'access_keys' && authMode !== 'ambient') {
           const hasKeys = Boolean(next.accessKeyId || next.secretAccessKey)
@@ -152,8 +151,7 @@ export default function BundleConfigPage({ params }: BundleConfigPageProps) {
   React.useEffect(() => { void load() }, [load])
 
   const handleSaveCredentials = React.useCallback(async () => {
-    const currentBundleId = bundleId
-    if (!currentBundleId) return
+    if (!bundleId) return
     setIsSavingCreds(true)
     try {
       const savePayload = buildCredentialSavePayload(
@@ -162,19 +160,19 @@ export default function BundleConfigPage({ params }: BundleConfigPageProps) {
         secretFieldsConfigured,
       )
       const call = await runMutation({
-        mutationPayload: { bundleId: currentBundleId, ...savePayload },
+        mutationPayload: { bundleId, ...savePayload },
         context: {
           formId: mutationContextId,
           operation: 'update',
           actionId: 'save-credentials',
           resourceKind: 'integrations.bundle',
-          resourceId: currentBundleId,
-          bundleId: currentBundleId,
+          resourceId: bundleId,
+          bundleId,
           retryLastMutation,
         },
         operation: () => withScopedApiRequestHeaders(
           buildOptimisticLockHeader(credentialsUpdatedAt),
-          () => apiCall(`/api/integrations/${encodeURIComponent(currentBundleId)}/credentials`, {
+          () => apiCall(`/api/integrations/${encodeURIComponent(bundleId)}/credentials`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(savePayload),

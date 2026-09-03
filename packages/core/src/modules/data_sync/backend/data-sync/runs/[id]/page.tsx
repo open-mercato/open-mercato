@@ -137,15 +137,14 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
   }, [t])
 
   const loadRun = React.useCallback(async () => {
-    const currentRunId = runId
-    if (!currentRunId) {
+    if (!runId) {
       setError(t('data_sync.runs.detail.loadError'))
       setIsLoading(false)
       return
     }
     setIsNotFound(false)
     const call = await apiCall<SyncRunDetail>(
-      `/api/data_sync/runs/${encodeURIComponent(currentRunId)}`,
+      `/api/data_sync/runs/${encodeURIComponent(runId)}`,
       undefined,
       { fallback: null },
     )
@@ -166,11 +165,10 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
   }, [loadParameterLabels, runId, t])
 
   const loadLogs = React.useCallback(async (page?: number) => {
-    const currentRunId = runId
-    if (!currentRunId) return
+    if (!runId) return
     const targetPage = page ?? logsPageRef.current
     setIsLoadingLogs(true)
-    const params = new URLSearchParams({ runId: currentRunId, pageSize: String(LOG_PAGE_SIZE), page: String(targetPage) })
+    const params = new URLSearchParams({ runId, pageSize: String(LOG_PAGE_SIZE), page: String(targetPage) })
     const call = await apiCall<{ items: LogEntry[]; total?: number }>(
       `/api/integrations/logs?${params.toString()}`,
       undefined,
@@ -244,18 +242,17 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
   }, [loadLogs, loadRun])
 
   const handleCancel = React.useCallback(async () => {
-    const currentRunId = runId
-    if (!currentRunId) return
+    if (!runId) return
     const call = await runMutation({
       // optimistic-lock-exempt: run lifecycle action endpoint (cancel), not a concurrent record edit
-      operation: () => apiCall(`/api/data_sync/runs/${encodeURIComponent(currentRunId)}/cancel`, {
+      operation: () => apiCall(`/api/data_sync/runs/${encodeURIComponent(runId)}/cancel`, {
         method: 'POST',
       }, { fallback: null }),
-      mutationPayload: { runId: currentRunId },
+      mutationPayload: { runId },
       context: {
         operation: 'update',
         actionId: 'cancel-sync-run',
-        runId: currentRunId,
+        runId,
       },
     })
     if (call.ok) {
@@ -267,20 +264,19 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
   }, [runId, runMutation, t, loadRun])
 
   const handleRetry = React.useCallback(async () => {
-    const currentRunId = runId
-    if (!currentRunId) return
+    if (!runId) return
     const call = await runMutation({
       // optimistic-lock-exempt: starts a new retry run (create), not a concurrent record edit
-      operation: () => apiCall<{ id: string }>(`/api/data_sync/runs/${encodeURIComponent(currentRunId)}/retry`, {
+      operation: () => apiCall<{ id: string }>(`/api/data_sync/runs/${encodeURIComponent(runId)}/retry`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ fromBeginning: false }),
       }, { fallback: null }),
-      mutationPayload: { runId: currentRunId, fromBeginning: false },
+      mutationPayload: { runId, fromBeginning: false },
       context: {
         operation: 'create',
         actionId: 'retry-sync-run',
-        runId: currentRunId,
+        runId,
       },
     })
     if (call.ok && call.result) {
