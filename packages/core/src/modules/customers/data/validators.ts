@@ -165,25 +165,33 @@ export const companyUpdateSchema = z
   })
   .merge(companyCreateSchema.partial())
 
+// Every field below whose `CustomerDeal` column is `nullable: true` accepts
+// `null`, meaning "clear it". `customers.deals.update` was already written for
+// that (`if (parsed.x !== undefined) record.x = parsed.x ?? null`); only the
+// schema stood in the way, and for the two coercing fields it did something
+// worse than reject. `z.coerce.number()` turns `null` into `0` and
+// `z.coerce.date()` turns it into the epoch, so a client that read a deal with
+// no value set and wrote the record straight back zeroed `value_amount` and
+// backdated `expected_close_at` to 1970, silently, under a 200. `ownerUserId`
+// already carried `.nullable()` because the bulk owner-update worker hit the
+// reject half of this (TC-CRM-069); the other nullable columns needed the same.
 export const dealCreateSchema = scopedSchema.extend({
   title: z.string().min(1).max(200),
-  description: z.string().max(DEAL_DESCRIPTION_MAX_LENGTH).optional(),
+  description: z.string().max(DEAL_DESCRIPTION_MAX_LENGTH).optional().nullable(),
+  // NOT nullable: `status` is `default 'open'` and non-null on the entity.
   status: z.string().max(50).optional(),
-  pipelineStage: z.string().max(100).optional(),
-  pipelineId: uuid().optional(),
-  pipelineStageId: uuid().optional(),
-  valueAmount: z.coerce.number().min(0).optional(),
-  valueCurrency: z.string().min(3).max(3).optional(),
-  probability: z.number().min(0).max(100).optional(),
-  expectedCloseAt: z.coerce.date().optional(),
-  // Nullable: the bulk owner-update worker passes `null` to clear ownership.
-  // Without `.nullable()`, dealUpdateSchema.parse({ ownerUserId: null }) throws
-  // ZodError "expected string, received null" inside the queue worker (TC-CRM-069).
+  pipelineStage: z.string().max(100).optional().nullable(),
+  pipelineId: uuid().optional().nullable(),
+  pipelineStageId: uuid().optional().nullable(),
+  valueAmount: z.coerce.number().min(0).optional().nullable(),
+  valueCurrency: z.string().min(3).max(3).optional().nullable(),
+  probability: z.number().min(0).max(100).optional().nullable(),
+  expectedCloseAt: z.coerce.date().optional().nullable(),
   ownerUserId: uuid().optional().nullable(),
-  source: z.string().max(150).optional(),
-  closureOutcome: z.enum(['won', 'lost']).optional(),
-  lossReasonId: uuid().optional(),
-  lossNotes: z.string().max(4000).optional(),
+  source: z.string().max(150).optional().nullable(),
+  closureOutcome: z.enum(['won', 'lost']).optional().nullable(),
+  lossReasonId: uuid().optional().nullable(),
+  lossNotes: z.string().max(4000).optional().nullable(),
   companyIds: z.array(uuid()).optional(),
   personIds: z.array(uuid()).optional(),
   primaryPersonEntityId: uuid().nullable().optional(),
@@ -233,11 +241,17 @@ export const activityCreateSchema = scopedSchema.extend({
     .nullable(),
 })
 
+// `entityId` is deliberately omitted. An interaction's owning entity is fixed at
+// creation — the canonical `interactionUpdateSchema` has no such field and
+// `customers.interactions.update` reads the entity off the stored record — so an
+// update carrying one used to validate, get dropped by `mapActivityUpdateInput`,
+// and still answer `200 {"ok":true}`. The route names it in `immutableFields`,
+// which turns that into a 400 saying the field cannot be changed.
 export const activityUpdateSchema = z
   .object({
     id: uuid(),
   })
-  .merge(activityCreateSchema.partial())
+  .merge(activityCreateSchema.omit({ entityId: true }).partial())
 
 export const commentCreateSchema = scopedSchema.extend({
   entityId: uuid(),

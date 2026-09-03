@@ -9,6 +9,8 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fields'
+import { guardWriteBody, withIgnoredFieldsReport } from '@open-mercato/shared/lib/crud/write-payload'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
   runCrudMutationGuardAfterSuccess,
@@ -63,6 +65,15 @@ const activityUpdateBodySchema = activityUpdateSchema.omit({
   organizationId: true,
   tenantId: true,
 }).passthrough()
+
+// This handler predates `makeCrudRoute`, so it does not inherit the factory's
+// write guard. It applies the same one directly.
+//
+// `entityId` is immutable: `interactionUpdateSchema` declares no such field and
+// `customers.interactions.update` reads the owning entity off the stored record,
+// so there is no re-parent path. It used to be accepted and ignored, which
+// reported success for a move that never happened.
+const ACTIVITY_WRITE_GUARD = { immutableFields: ['entityId'] } as const
 
 const activityDeleteBodySchema = z.object({
   id: z.string().uuid(),
@@ -645,7 +656,22 @@ export async function PUT(request: Request): Promise<Response> {
       return await legacyAdaptersDisabledResponse()
     }
     const body = await readJsonSafe<Record<string, unknown>>(request, {})
-    const parsed = activityUpdateBodySchema.parse(body)
+    // Guard before parsing: the schema is `.passthrough()` and the command input
+    // below is hand-built from a fixed field list, so a key that is neither
+    // writable nor rejected would vanish behind a `200 {"ok":true}`. Custom-field
+    // keys are split out first so the guard never sees them.
+    const { base: guardBase } = splitCustomFieldPayload(body)
+    const guarded = guardWriteBody(activityUpdateBodySchema, guardBase, ACTIVITY_WRITE_GUARD)
+    const ignoredFields = guarded.ignoredFields
+    // Apply the renames onto the ORIGINAL body rather than parsing the guard's
+    // copy: the guard never saw the custom-field keys, and `customFields` and
+    // `customValues` must reach the command exactly as the caller sent them.
+    const guardedBody: Record<string, unknown> = { ...body }
+    for (const alias of guarded.aliased) {
+      guardedBody[alias.to] = guardedBody[alias.from]
+      delete guardedBody[alias.from]
+    }
+    const parsed = activityUpdateBodySchema.parse(guardedBody)
     const guardUserId = resolveGuardUserId(auth)
     const guardResult = await validateCrudMutationGuard(container, {
       tenantId: auth.tenantId,
@@ -674,6 +700,12 @@ export async function PUT(request: Request): Promise<Response> {
         body: parsed.body ?? undefined,
         occurredAt: parsed.occurredAt ?? undefined,
         status: parsed.occurredAt ? 'done' : undefined,
+        // Forwarded because `activityUpdateSchema` declares all three and the
+        // canonical interaction update accepts them, deriving `scheduledAt` from
+        // `date`+`time`. They were validated here and then left out of this input.
+        date: parsed.date ?? undefined,
+        time: parsed.time ?? undefined,
+        phoneNumber: parsed.phoneNumber ?? undefined,
         dealId: parsed.dealId ?? undefined,
         authorUserId: parsed.authorUserId ?? undefined,
         appearanceIcon: parsed.appearanceIcon ?? undefined,
@@ -699,7 +731,7 @@ export async function PUT(request: Request): Promise<Response> {
 
     return withAdapterHeaders(
       withOperationMetadata(
-        NextResponse.json({ ok: true }),
+        NextResponse.json(withIgnoredFieldsReport({ ok: true }, { ignoredFields })),
         logEntry,
         { resourceKind: 'customers.activity', resourceId: parsed.id },
       ),

@@ -83,6 +83,7 @@ Specs awaiting implementation or partially complete. Focus here for actionable w
 | [SPEC-067](implemented/SPEC-067-2026-03-17-cli-standalone-app-support.md) | 2026-03-17 | CLI Standalone App Support | CLI tooling support for standalone app development |
 | [SPEC-068](SPEC-068-2026-03-02-use-case-examples-framework.md) | 2026-03-02 | Use-Case Examples Framework | `create-mercato-app --example` pattern for bootstrapping use-case solutions |
 | [SPEC-069](implemented/2026-02-23-core-timesheets.md) | 2026-02-23 | Core Timesheets Functionality | Core timesheets functionality in the `staff` module with My Timesheets, Projects, and phase-based approvals/policies |
+| [Write Payload Guard](2026-08-26-write-payload-silent-field-drop.md) | 2026-08-26 | CRUD Write Payloads: Stop Accepting Fields and Discarding Them (partial) | Write payloads are aliased, reported or rejected, so a `200` no longer hides a discarded field. Partial: 6 bespoke customers handlers have yet to adopt the guard |
 | [Checkout](2026-03-19-checkout-simple-checkout.md) | 2026-03-19 | Simple Checkout | Checkout flow specification for Phase B |
 | [Checkout Wireframes](2026-03-19-checkout-simple-checkout-wireframes.md) | 2026-03-19 | Simple Checkout Wireframes | Companion wireframes for the Simple Checkout spec |
 | [Registry](implemented/2026-03-20-decentralize-module-registry-generator.md) | 2026-03-20 | Decentralize Module Registry Generator | CLI refactoring for decentralized module registry generation |
