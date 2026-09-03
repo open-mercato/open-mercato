@@ -26,6 +26,7 @@ import {
 } from '../openapi'
 import { CUSTOMER_INTERACTION_ENTITY_ID } from '../../lib/interactionCompatibility'
 import { applyEmailVisibilityFilter } from '../../lib/visibilityFilter'
+import { listGrantsForViewer, listSharedChannelIds } from '../../lib/conversationShares'
 import { resolveEncryptedSortPage } from './encryptedSortPage'
 import { resolveCanonicalActivityTargetId } from '../../lib/legacyActivityBridge'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
@@ -183,6 +184,10 @@ type InteractionListRow = {
   participants: Array<{ userId?: string; name?: string; email?: string; status?: string }> | null
   reminder_minutes: number | null
   visibility: string | null
+  /** MessageChannelLink id — the email-card enricher cannot resolve a link without it. */
+  external_message_id: string | null
+  /** Denormalized channel — the shared-team-mailbox arm keys on this, not on the author. */
+  channel_id: string | null
   linked_entities: Array<{ id: string; type: string; label: string }> | null
   guest_permissions: { canInviteOthers?: boolean; canModify?: boolean; canSeeList?: boolean } | null
   pinned: boolean
@@ -315,6 +320,12 @@ const INTERACTION_LIST_COLUMNS = [
   'participants',
   'reminder_minutes',
   'visibility',
+  // Required by `interactionEmailCardEnricher`: without `external_message_id` it
+  // cannot resolve the MessageChannelLink at all, and without `channel_id` the
+  // shared-team-mailbox arm of `isEmailHiddenFrom` can never match, so a teammate
+  // silently loses the email-card actions on a mailbox they may legitimately read.
+  'external_message_id',
+  'channel_id',
   'linked_entities',
   'guest_permissions',
   'pinned',
@@ -469,6 +480,16 @@ export async function GET(req: Request) {
     // viewer to null so they never gain the author bypass and only see shared
     // emails (fail-closed). Mirrors counts/people/activities routes.
     const viewerUserId = auth.isApiKey ? null : (auth.sub ?? null)
+    // Conversation shares that widen this caller's email access. Unscoped surface,
+    // so this is the capped variant (see SHARE_ARM_MAX).
+    const emailShareScope = {
+      tenantId: auth.tenantId as string,
+      organizationId: selectedOrganizationId,
+    }
+    const [emailShareGrants, emailSharedChannelIds] = await Promise.all([
+      listGrantsForViewer(em, emailShareScope, viewerUserId),
+      listSharedChannelIds(em, emailShareScope, viewerUserId),
+    ])
     const encryptionService = resolveTenantEncryptionService(em)
     // Encrypted sort columns can't use SQL keyset ordering on ciphertext, so an
     // encrypted sort field takes a bounded candidate-scan + in-memory-sort path
@@ -499,6 +520,8 @@ export async function GET(req: Request) {
       candidateQuery = applyEmailVisibilityFilter(candidateQuery as any, {
         currentUserId: viewerUserId,
         userFeatures: callerUserFeatures,
+        sharedConversations: emailShareGrants,
+        sharedChannelIds: emailSharedChannelIds,
       })
       const cap = resolveEncryptedSortMaxRows()
       if (cap !== null) {
@@ -544,6 +567,8 @@ export async function GET(req: Request) {
         pageQuery = applyEmailVisibilityFilter(pageQuery as any, {
           currentUserId: viewerUserId,
           userFeatures: callerUserFeatures,
+          sharedConversations: emailShareGrants,
+          sharedChannelIds: emailSharedChannelIds,
         })
         pageQuery = pageQuery.where('id', 'in', pageIds)
         const rawPageRows = await pageQuery.execute() as InteractionListRow[]
@@ -577,6 +602,8 @@ export async function GET(req: Request) {
       rowsQuery = applyEmailVisibilityFilter(rowsQuery as any, {
         currentUserId: viewerUserId,
         userFeatures: callerUserFeatures,
+        sharedConversations: emailShareGrants,
+        sharedChannelIds: emailSharedChannelIds,
       })
 
       rowsQuery = rowsQuery.orderBy(sql`${sql.raw(sortSql)} ${sql.raw(sortDir)}`).orderBy('id', sortDir)
@@ -666,6 +693,8 @@ export async function GET(req: Request) {
       participants: row.participants ?? null,
       reminderMinutes: row.reminder_minutes ?? null,
       visibility: row.visibility ?? null,
+      externalMessageId: row.external_message_id ?? null,
+      channelId: row.channel_id ?? null,
       linkedEntities: row.linked_entities ?? null,
       guestPermissions: row.guest_permissions ?? null,
       pinned: row.pinned ?? false,

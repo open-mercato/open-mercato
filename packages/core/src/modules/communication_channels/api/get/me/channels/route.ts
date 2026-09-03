@@ -93,6 +93,10 @@ function serialize(channel: CommunicationChannel, adapterRegistry: ChannelAdapte
     displayName: channel.displayName,
     externalIdentifier: channel.externalIdentifier ?? null,
     isPrimary: channel.isPrimary,
+    /** Shared team mailbox flag; drives the profile-page share toggle. */
+    visibility: channel.visibility === 'shared' ? 'shared' : 'private',
+    /** Required so the share toggle can send the optimistic-lock header. */
+    updatedAt: channel.updatedAt?.toISOString?.() ?? null,
     isActive: channel.isActive,
     status: channel.status,
     lastError: channel.lastError ?? null,

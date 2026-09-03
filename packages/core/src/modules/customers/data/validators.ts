@@ -789,6 +789,23 @@ export const labelUnassignCommandSchema = scopedSchema.extend({
 export type LabelAssignCommandInput = z.infer<typeof labelAssignCommandSchema>
 export type LabelUnassignCommandInput = z.infer<typeof labelUnassignCommandSchema>
 
+/**
+ * Set (or clear) the caller's own email-conversation share for one Person.
+ *
+ * Deliberately carries NO owner field: the command derives the owner from the
+ * authenticated actor, so there is no request shape that could share another
+ * user's mailbox.
+ */
+export const emailConversationShareSetCommandSchema = scopedSchema.extend({
+  personEntityId: uuid(),
+  shared: z.boolean(),
+  expectedUpdatedAt: z.string().min(1).nullable().optional(),
+})
+
+export type EmailConversationShareSetCommandInput = z.infer<
+  typeof emailConversationShareSetCommandSchema
+>
+
 export const personCompanyLinkCreateSchema = scopedSchema.extend({
   personEntityId: uuid(),
   companyEntityId: uuid(),
