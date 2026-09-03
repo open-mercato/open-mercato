@@ -12,11 +12,16 @@ import { LockMode } from '@mikro-orm/core'
 import { StaffTimeEntry, StaffTimeEntrySegment } from '../../../../../../data/entities'
 import { staffTimeEntrySegmentUpdateSchema } from '../../../../../../data/validators'
 import { getStaffMemberByUserId } from '../../../../../../lib/staffMemberResolver'
+import { emitStaffEvent } from '../../../../../../events'
+import { runTimesheetInterceptors } from '../../../../_shared/withTimesheetInterceptors'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import {
-  resolveUserFeatures,
+  STAFF_TIME_TRACKING_RESOURCE_KINDS,
   runStaffMutationGuardAfterSuccess,
   runStaffMutationGuards,
 } from '../../../../../guards'
+
+const logger = createLogger('staff').child({ component: 'api/timesheets/time-entries/segments' })
 
 const routeMetadata = {
   PATCH: { requireAuth: true, requireFeatures: ['staff.timesheets.manage_own'] },
@@ -52,17 +57,26 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ error: 'Invalid payload' }, { status: 400 })
   }
 
-  const parsed = staffTimeEntrySegmentUpdateSchema.safeParse({ ...rawBody, id: ids.segmentId })
-  if (!parsed.success) {
-    return NextResponse.json({ error: 'Invalid payload', details: parsed.error.flatten() }, { status: 400 })
-  }
-
   const container = await createRequestContainer()
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
   const tenantId = scope?.tenantId ?? auth.tenantId ?? null
   const organizationId = scope?.selectedId ?? auth.orgId ?? null
   if (!tenantId || !organizationId) {
     return NextResponse.json({ error: 'Missing tenant or organization scope.' }, { status: 400 })
+  }
+
+  const interceptors = await runTimesheetInterceptors({
+    request: req,
+    method: 'PATCH',
+    scope: { container, userId: auth.sub, tenantId, organizationId },
+    body: rawBody,
+  })
+  if (!interceptors.ok) return interceptors.response
+  const { session } = interceptors
+
+  const parsed = staffTimeEntrySegmentUpdateSchema.safeParse({ ...session.body, id: ids.segmentId })
+  if (!parsed.success) {
+    return NextResponse.json({ error: 'Invalid payload', details: parsed.error.flatten() }, { status: 400 })
   }
 
   const em = (container.resolve('em') as EntityManager).fork()
@@ -96,14 +110,13 @@ export async function PATCH(req: Request) {
       tenantId,
       organizationId,
       userId: auth.sub ?? '',
-      resourceKind: 'staff.timesheets.time_entry_segment',
+      resourceKind: STAFF_TIME_TRACKING_RESOURCE_KINDS.timeEntrySegment,
       resourceId: segment.id,
       operation: 'update',
       requestMethod: req.method,
       requestHeaders: req.headers,
       mutationPayload: parsed.data as unknown as Record<string, unknown>,
     },
-    resolveUserFeatures(auth),
   )
   if (!guardResult.ok) {
     return NextResponse.json(
@@ -166,7 +179,7 @@ export async function PATCH(req: Request) {
       tenantId,
       organizationId,
       userId: auth.sub ?? '',
-      resourceKind: 'staff.timesheets.time_entry_segment',
+      resourceKind: STAFF_TIME_TRACKING_RESOURCE_KINDS.timeEntrySegment,
       resourceId: updatedSegment.id,
       operation: 'update',
       requestMethod: req.method,
@@ -174,7 +187,16 @@ export async function PATCH(req: Request) {
     })
   }
 
-  return NextResponse.json({
+  void emitStaffEvent('staff.timesheets.time_entry_segment.updated', {
+    id: updatedSegment.id,
+    timeEntryId: updatedSegment.timeEntryId,
+    tenantId,
+    organizationId,
+  }, { persistent: true }).catch((err) => {
+    logger.error('staff.timesheets emit time_entry_segment.updated failed', { err })
+  })
+
+  return session.respond(200, {
     ok: true,
     item: {
       id: updatedSegment.id,

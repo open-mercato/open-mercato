@@ -107,7 +107,7 @@ function EditHeader({
             &larr; {resolvedBackLabel}
           </Link>
         ) : null}
-        {title ? <div className="text-base font-medium">{title}</div> : null}
+        {title ? <h1 className="text-base font-medium">{title}</h1> : null}
       </div>
       {actionsContent ?? (actions ? <FormActionButtons {...actions} /> : null)}
     </div>

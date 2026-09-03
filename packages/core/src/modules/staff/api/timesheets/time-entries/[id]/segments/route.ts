@@ -15,11 +15,13 @@ import { StaffTimeEntry, StaffTimeEntrySegment } from '../../../../../data/entit
 import { staffTimeEntrySegmentCreateSchema } from '../../../../../data/validators'
 import { getStaffMemberByUserId } from '../../../../../lib/staffMemberResolver'
 import {
-  resolveUserFeatures,
+  STAFF_TIME_TRACKING_RESOURCE_KINDS,
   runStaffMutationGuardAfterSuccess,
   runStaffMutationGuards,
 } from '../../../../guards'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { emitStaffEvent } from '../../../../../events'
+import { runTimesheetInterceptors } from '../../../_shared/withTimesheetInterceptors'
 
 const logger = createLogger('staff')
 
@@ -76,10 +78,18 @@ export async function POST(req: Request) {
       throw new CrudHttpError(403, { error: translate('staff.timesheets.errors.notOwner', 'You can only manage your own time entries.') })
     }
 
-    const body = await readJsonSafe(req, {})
+    const interceptors = await runTimesheetInterceptors({
+      request: req,
+      method: 'POST',
+      scope: { container, userId: auth.sub, tenantId, organizationId },
+      body: await readJsonSafe<Record<string, unknown>>(req, {}),
+    })
+    if (!interceptors.ok) return interceptors.response
+    const { session } = interceptors
+
     const input = parseScopedCommandInput(
       staffTimeEntrySegmentCreateSchema,
-      { ...body, timeEntryId: entryId },
+      { ...session.body, timeEntryId: entryId },
       {
         container,
         auth,
@@ -97,14 +107,13 @@ export async function POST(req: Request) {
         tenantId,
         organizationId,
         userId: auth.sub ?? '',
-        resourceKind: 'staff.timesheets.time_entry_segment',
+        resourceKind: STAFF_TIME_TRACKING_RESOURCE_KINDS.timeEntrySegment,
         resourceId: entry.id,
         operation: 'create',
         requestMethod: req.method,
         requestHeaders: req.headers,
         mutationPayload: input as unknown as Record<string, unknown>,
       },
-      resolveUserFeatures(auth),
     )
     if (!guardResult.ok) {
       return NextResponse.json(
@@ -148,7 +157,7 @@ export async function POST(req: Request) {
         tenantId,
         organizationId,
         userId: auth.sub ?? '',
-        resourceKind: 'staff.timesheets.time_entry_segment',
+        resourceKind: STAFF_TIME_TRACKING_RESOURCE_KINDS.timeEntrySegment,
         resourceId: segment.id,
         operation: 'create',
         requestMethod: req.method,
@@ -156,17 +165,23 @@ export async function POST(req: Request) {
       })
     }
 
-    return NextResponse.json(
-      {
-        id: segment.id,
-        timeEntryId: segment.timeEntryId,
-        startedAt: segment.startedAt,
-        endedAt: segment.endedAt ?? null,
-        segmentType: segment.segmentType,
-        createdAt: segment.createdAt,
-      },
-      { status: 201 },
-    )
+    void emitStaffEvent('staff.timesheets.time_entry_segment.created', {
+      id: segment.id,
+      timeEntryId: segment.timeEntryId,
+      tenantId,
+      organizationId,
+    }, { persistent: true }).catch((err) => {
+      logger.error('staff.timesheets emit time_entry_segment.created failed', { err })
+    })
+
+    return session.respond(201, {
+      id: segment.id,
+      timeEntryId: segment.timeEntryId,
+      startedAt: segment.startedAt,
+      endedAt: segment.endedAt ?? null,
+      segmentType: segment.segmentType,
+      createdAt: segment.createdAt,
+    })
   } catch (err) {
     if (err instanceof CrudHttpError) {
       return NextResponse.json(err.body, { status: err.status })

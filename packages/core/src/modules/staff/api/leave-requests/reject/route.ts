@@ -11,7 +11,6 @@ import { parseScopedCommandInput } from '@open-mercato/shared/lib/api/scoped'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { staffLeaveRequestDecisionSchema, type StaffLeaveRequestDecisionInput } from '../../../data/validators'
 import {
-  resolveUserFeatures,
   runStaffMutationGuardAfterSuccess,
   runStaffMutationGuards,
 } from '../../guards'
@@ -65,7 +64,6 @@ export async function POST(req: Request) {
         requestHeaders: req.headers,
         mutationPayload: input,
       },
-      resolveUserFeatures(auth),
     )
     if (!guardResult.ok) {
       return NextResponse.json(

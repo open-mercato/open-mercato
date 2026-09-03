@@ -83,6 +83,11 @@ export function LookupSelect({
   const [query, setQuery] = React.useState('')
   const [items, setItems] = React.useState<LookupSelectItem[]>(options ?? [])
   const [loading, setLoading] = React.useState(false)
+  // Escape collapses the list without clearing the selection. Derived state is not
+  // enough here: Escape empties the query but the fetched `items` linger, so the
+  // list would stay open and the collapsed summary — the branch that keeps a raw
+  // record id out of the DOM (TC-EUDR-013) — would never render.
+  const [collapsed, setCollapsed] = React.useState(false)
   const [hasTyped, setHasTyped] = React.useState(defaultOpen)
   const [error, setError] = React.useState<string | null>(null)
   const [fetchKey, setFetchKey] = React.useState(0)
@@ -187,6 +192,7 @@ export function LookupSelect({
       event.stopPropagation()
       setQuery('')
       setActiveIndex(-1)
+      setCollapsed(true)
     }
   }, [activeIndex, items, isInteractiveItem, listboxVisible, moveActiveIndex, onChange, query])
   React.useEffect(() => {
@@ -230,6 +236,34 @@ export function LookupSelect({
     }
   }, [query, shouldSearch, fetchKey])
 
+  const [selectedItem, setSelectedItem] = React.useState<LookupSelectItem | null>(null)
+
+  React.useEffect(() => {
+    if (!value) {
+      setSelectedItem(null)
+      return
+    }
+    const match = items.find((item) => item.id === value)
+    if (match) setSelectedItem(match)
+  }, [items, value])
+
+  /*
+   * The collapsed summary is opt-in: only a consumer that supplies
+   * `selectedHintLabel` asks this component to display the selection, so
+   * consumers rendering their own selected-value label keep their layout and
+   * never get a second summary. A resolver that falls back to the id
+   * (`known.get(id) ?? id`) is treated as unresolved and falls through to the
+   * title of the item that was actually fetched — a record id must never reach
+   * the DOM as a label.
+   */
+  const collapsedSelectionLabel = React.useMemo(() => {
+    if (!value || !selectedHintLabel) return null
+    const hinted = selectedHintLabel(value)
+    if (hinted && hinted !== value) return hinted
+    const fetchedTitle = selectedItem && selectedItem.id === value ? selectedItem.title : null
+    return fetchedTitle && fetchedTitle !== value ? fetchedTitle : null
+  }, [selectedHintLabel, selectedItem, value])
+
   return (
     <div className="space-y-3">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
@@ -241,6 +275,7 @@ export function LookupSelect({
             onChange={(event) => {
               setQuery(event.target.value)
               setHasTyped(true)
+              setCollapsed(false)
             }}
             onKeyDown={handleInputKeyDown}
             placeholder={resolvedSearchPlaceholder}
@@ -254,7 +289,17 @@ export function LookupSelect({
         </div>
         {actionSlot && !disabled ? <div className="sm:self-start">{actionSlot}</div> : null}
       </div>
-      {shouldSearch ? (
+      {/*
+       * `shouldSearch` decides whether to FETCH; this decides whether to RENDER a
+       * list. They differ for a set value whose lookup comes back empty: develop's
+       * #5248 work needs the list (and its selected option) whenever items exist,
+       * while the collapsed summary — which keeps a selection visible after the
+       * search box reverts to its placeholder, and keeps a raw record id out of the
+       * DOM (TC-EUDR-013) — is only reachable when they do not. Falling through on
+       * an empty result satisfies both. A non-empty query still renders the list so
+       * its spinner and empty-state are reachable while the user is searching.
+       */}
+      {shouldSearch && !collapsed && (items.length > 0 || query.trim().length > 0) ? (
         <div className="space-y-2">
           {loading || loadingProp ? (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -356,6 +401,33 @@ export function LookupSelect({
               {resolvedClearLabel}
             </Button>
           ) : null}
+        </div>
+      ) : collapsedSelectionLabel ? (
+        /*
+         * The visible input is the *search box*, not a value display: once the
+         * list closes it shows its placeholder again, so a selection made and
+         * then collapsed left the control looking empty even though the form
+         * held the id. `selectedHintLabel` existed for exactly this and was
+         * never rendered.
+         */
+        <div
+          className="flex items-center justify-between gap-3 rounded-lg border border-input bg-muted/40 px-3 py-2"
+          data-testid="lookup-select-selected"
+        >
+          <span className="truncate text-sm font-medium text-foreground">
+            {collapsedSelectionLabel}
+          </span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="shrink-0 gap-1 text-sm font-normal"
+            disabled={disabled}
+            onClick={() => onChange(null)}
+          >
+            <X className="h-4 w-4" />
+            {resolvedClearLabel}
+          </Button>
         </div>
       ) : hasTyped ? (
         <p className="text-xs text-muted-foreground">

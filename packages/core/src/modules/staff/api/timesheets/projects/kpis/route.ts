@@ -15,6 +15,10 @@ import {
   computePmProjectsKpis,
 } from '../../../../lib/timesheets-projects/computeProjectsKpis'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import {
+  readSearchParamsRecord,
+  runTimesheetInterceptors,
+} from '../../_shared/withTimesheetInterceptors'
 
 const logger = createLogger('staff')
 
@@ -76,6 +80,15 @@ export async function GET(req: Request) {
       })
     }
 
+    const interceptors = await runTimesheetInterceptors({
+      request: req,
+      method: 'GET',
+      scope: { container, userId: auth.sub, tenantId, organizationId },
+      query: readSearchParamsRecord(req.url),
+    })
+    if (!interceptors.ok) return interceptors.response
+    const { session } = interceptors
+
     const em = container.resolve('em') as EntityManager
     const rbac = container.resolve('rbacService') as RbacService
     const isPm = await rbac.userHasAllFeatures(auth.sub, [MANAGE_FEATURE], {
@@ -98,7 +111,7 @@ export async function GET(req: Request) {
         organizationId,
         callerStaffMemberId: staffMember?.id ?? null,
       })
-      return NextResponse.json(result, { status: 200 })
+      return session.respond(200, result)
     }
 
     if (!staffMember) {
@@ -116,7 +129,7 @@ export async function GET(req: Request) {
       organizationId,
       staffMemberId: staffMember.id,
     })
-    return NextResponse.json(result, { status: 200 })
+    return session.respond(200, result)
   } catch (err) {
     if (err instanceof CrudHttpError) {
       return NextResponse.json(err.body, { status: err.status })

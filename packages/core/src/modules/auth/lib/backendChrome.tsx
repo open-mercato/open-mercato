@@ -186,6 +186,7 @@ const defaultGroupOrder = [
   'wms.nav.group',
   'resources.nav.group',
   'staff.nav.group',
+  'staff.time_tracking.nav.group',
   'entities.nav.group',
   'directory.nav.group',
   'attachments.nav.group',

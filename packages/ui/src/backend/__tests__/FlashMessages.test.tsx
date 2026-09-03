@@ -77,6 +77,21 @@ describe('FlashMessages', () => {
     expect(badge?.getAttribute('data-status')).toBe('success')
   })
 
+  it('renders a single toast when several hosts mount it on the same page', () => {
+    renderWithProviders(
+      <>
+        <FlashMessages />
+        <FlashMessages />
+      </>,
+    )
+
+    act(() => {
+      flash('Project team updated.', 'success')
+    })
+
+    expect(screen.getAllByText('Project team updated.')).toHaveLength(1)
+  })
+
   it('auto-dismisses programmatic flashes', () => {
     renderWithProviders(<FlashMessages />)
 
