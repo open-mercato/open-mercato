@@ -377,10 +377,10 @@ export default function UsersListPage() {
   )
   const columns = React.useMemo<ColumnDef<Row>[]>(() => {
     const base: ColumnDef<Row>[] = [
-      { accessorKey: 'email', header: 'Email' },
+      { accessorKey: 'email', header: t('auth.users.list.columns.email', 'Email') },
       { accessorKey: 'name', header: t('auth.users.list.columns.name', 'Display name') },
-      { accessorKey: 'organizationName', header: 'Organization' },
-      { accessorKey: 'roles', header: 'Roles', cell: ({ row }) => (row.original.roles || []).join(', ') },
+      { accessorKey: 'organizationName', header: t('auth.users.list.columns.organization', 'Organization') },
+      { accessorKey: 'roles', header: t('auth.users.list.columns.roles', 'Roles'), cell: ({ row }) => (row.original.roles || []).join(', ') },
       {
         accessorKey: 'isConfirmed',
         header: t('auth.users.list.columns.status', 'Status'),
@@ -392,7 +392,7 @@ export default function UsersListPage() {
       },
     ]
     if (showTenantColumn) {
-      base.splice(1, 0, { accessorKey: 'tenantName', header: 'Tenant' })
+      base.splice(1, 0, { accessorKey: 'tenantName', header: t('auth.users.list.columns.tenant', 'Tenant') })
     }
     return base
   }, [showTenantColumn, t])
