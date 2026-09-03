@@ -292,11 +292,17 @@ export function AclEditor({
     !isSuperAdmin &&
     hasOrganizationRestriction &&
     granted.length === 0
+  // A role ACL is persisted verbatim, so its empty scope really is a deny-all. A
+  // per-user override without a single feature is not persisted at all — the API
+  // clears the row instead of writing an empty scope — so warning there would
+  // claim a permission loss that never happens.
+  const denyAllOrganizationsWouldPersist = kind === 'role' || granted.length > 0
   const showDenyAllOrganizationsWarning =
     (kind === 'role' || overrideEnabled) &&
     canEditOrganizations &&
     !isSuperAdmin &&
-    isDenyAllOrganizations
+    isDenyAllOrganizations &&
+    denyAllOrganizationsWouldPersist
   const organizationScopeSummary = isDenyAllOrganizations
     ? t('auth.acl.organizationsScopeCurrent.none', 'Current scope: no organizations.')
     : organizations && organizations.length > 0

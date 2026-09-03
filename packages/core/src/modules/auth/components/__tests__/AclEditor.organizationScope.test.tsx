@@ -22,7 +22,7 @@ const ORGANIZATIONS = [
   { id: 'org-2', name: 'Berlin' },
 ]
 
-function mockApi(aclOrganizations: string[] | null) {
+function mockApi(aclOrganizations: string[] | null, aclFeatures: string[] = ['catalog.view']) {
   apiCallMock.mockImplementation(async (url: string) => {
     const ok = { ok: true, status: 200, response: new Response() }
     if (url === '/api/auth/features') {
@@ -42,7 +42,7 @@ function mockApi(aclOrganizations: string[] | null) {
       result: {
         hasCustomAcl: true,
         isSuperAdmin: false,
-        features: ['catalog.view'],
+        features: aclFeatures,
         organizations: aclOrganizations,
       },
     }
@@ -57,6 +57,18 @@ function renderEditor(onChange?: (data: AclData) => void) {
       canEditOrganizations
       currentUserIsSuperAdmin
       onChange={onChange}
+    />,
+    { locale: 'en', dict: enDict },
+  )
+}
+
+function renderUserEditor() {
+  return renderWithProviders(
+    <AclEditor
+      kind="user"
+      targetId="user-1"
+      canEditOrganizations
+      currentUserIsSuperAdmin
     />,
     { locale: 'en', dict: enDict },
   )
@@ -148,6 +160,38 @@ describe('AclEditor organization scope (#5642)', () => {
       expect(summary()).toBe(enDict['auth.acl.organizationsScopeCurrent.all'])
     })
     expect(onSubmit).not.toHaveBeenCalled()
+  })
+
+  it('warns on a per-user override that grants a feature while the organization scope is empty', async () => {
+    mockApi([])
+    renderUserEditor()
+
+    await screen.findByLabelText('Warsaw')
+
+    expect(summary()).toBe(enDict['auth.acl.organizationsScopeCurrent.none'])
+    expect(denyAllWarning()).toBeInTheDocument()
+  })
+
+  // With no feature left the API clears the override row instead of writing the empty
+  // scope, so the deny-all outcome the banner describes never happens (#5642 follow-up).
+  it('stays quiet on a featureless per-user override, where an empty scope clears the row', async () => {
+    mockApi([], [])
+    renderUserEditor()
+
+    await screen.findByLabelText('Warsaw')
+
+    expect(summary()).toBe(enDict['auth.acl.organizationsScopeCurrent.none'])
+    expect(denyAllWarning()).not.toBeInTheDocument()
+  })
+
+  it('still warns on a featureless role whose organization scope is empty', async () => {
+    mockApi([], [])
+    renderEditor()
+
+    await screen.findByLabelText('Warsaw')
+
+    expect(summary()).toBe(enDict['auth.acl.organizationsScopeCurrent.none'])
+    expect(denyAllWarning()).toBeInTheDocument()
   })
 
   it('keeps the scope hint from claiming that an empty selection means all organizations', () => {
