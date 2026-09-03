@@ -135,9 +135,12 @@ POST /api/catalog/products/bulk-create        POST /api/catalog/categories/bulk-
         │      per-row side effect runs as      │      { skipDerivedRebuild: true }
         │      it does on the single-row path   │
         │   3. pre-resolve distinct tax rates / │   3. pre-resolve pre-existing parent ids
-        │      option schemas / UOM into the    │      + batch-fetch existing slugs into
-        │      job-scoped memo cache            │      the job-scoped memo cache
-        │   4. loop rows: durable checkpoint,   │   4. loop rows: durable checkpoint,
+        │      option schemas / UOM into the    │      into the job-scoped memo cache;
+        │      job-scoped memo cache; + batch   │      + batch natural-key pre-fetch
+        │      natural-key pre-fetch (in-memory │      (slugs, in-memory only)
+        │      only, never persisted)           │
+        │   4. loop rows: durable checkpoint    │   4. loop rows: durable checkpoint
+        │      (constant-size meta),            │      (+ bounded createdRefIds),
         │      commandBus.execute(              │      resolve parentRef → parentId,
         │        'catalog.products.create',     │      commandBus.execute(
         │        { skipCacheInvalidation })     │        'catalog.categories.create',
