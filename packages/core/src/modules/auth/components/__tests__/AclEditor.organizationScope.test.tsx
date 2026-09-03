@@ -113,7 +113,7 @@ describe('AclEditor organization scope (#5642)', () => {
 
     fireEvent.click(warsaw)
     await waitFor(() => {
-      expect(summary()).toBe('Current scope: 1 selected organization(s).')
+      expect(summary()).toBe(enDict['auth.acl.organizationsScopeCurrent.selected'].replace('{count}', '1'))
     })
     expect(denyAllWarning()).not.toBeInTheDocument()
 
