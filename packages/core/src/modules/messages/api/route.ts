@@ -22,6 +22,7 @@ import {
   composeSourceHintSchema,
   resolveComposeSourceChannelType,
 } from '../lib/composeSourceChannelType'
+import { resolveMessageActionData } from '../lib/actions'
 import { MESSAGE_ATTACHMENT_ENTITY_ID } from '../lib/constants'
 import { getMessageType } from '../lib/message-types-registry'
 import { validateMessageObjectsForType } from '../lib/object-validation'
@@ -382,7 +383,7 @@ export async function GET(req: Request) {
         if (!message) return null
         const body = typeof message.body === 'string' ? message.body : ''
         const bodyPreview = body.substring(0, 150) + (body.length > 150 ? '...' : '')
-        const actionData = message.actionData ?? null
+        const actionData = resolveMessageActionData(message)
         return {
           ...(senderMetaById.get(row.sender_user_id)
             ? {
