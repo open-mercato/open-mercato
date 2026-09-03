@@ -1,4 +1,5 @@
 {
+  "search.entityType.warranty_claims.warranty_claim": "Reclamo de garantía",
   "warranty_claims.ai.apply": "Aplicar",
   "warranty_claims.ai.assess.attachment": "Adjunto",
   "warranty_claims.ai.assess.attachmentsError": "No se pudieron cargar los adjuntos de la línea.",

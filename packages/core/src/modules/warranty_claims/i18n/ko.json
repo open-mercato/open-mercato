@@ -1,4 +1,5 @@
 {
+  "search.entityType.warranty_claims.warranty_claim": "보증 클레임",
   "warranty_claims.ai.apply": "적용",
   "warranty_claims.ai.assess.attachment": "첨부파일",
   "warranty_claims.ai.assess.attachmentsError": "라인 첨부파일을 불러오지 못했습니다.",
