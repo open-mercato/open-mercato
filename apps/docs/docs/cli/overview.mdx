@@ -27,7 +27,7 @@ A help invocation is always a no-op: it never runs the command it is asking abou
 
 ### Documenting Your Own Module Commands
 
-A [`ModuleCli`](./module-add) descriptor in your module's `cli.ts` takes two optional fields that control this behavior:
+A `ModuleCli` descriptor in your module's `cli.ts` — the same shape [`mercato module add`](./module-add) registers for you — takes two optional fields that control this behavior:
 
 ```typescript
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
@@ -45,6 +45,8 @@ export default cli
 
 - **`help?: string`** – usage text the dispatcher prints under the generic `Usage: mercato <module> <command> [args]` line. Omit it and the dispatcher still prints the usage line plus the module's command list, so help works with no work on your part.
 - **`handlesHelp?: boolean`** – set this when your `run()` parses `--help`/`-h` itself and prints richer usage than a single string can carry. The dispatcher then forwards the flag through instead of intercepting it. [`mercato configs cache`](./configs-cache) uses this. It is also the escape hatch if your command means something other than "help" by `-h`.
+
+  Opting out moves the guarantee above onto your command: the dispatcher no longer stands between a help flag and your `run()`, so **your** handler must answer it before doing any work — including when the flag follows a subcommand, as in `configs cache purge --help`. Check for it across the whole argument list rather than only in the first position, or a help request lands on the destructive path you were describing.
 
 ## Workflow Cheat Sheet
 
