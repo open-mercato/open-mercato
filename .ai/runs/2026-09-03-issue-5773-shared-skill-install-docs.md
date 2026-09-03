@@ -73,5 +73,6 @@ Merging this PR must make the shared `open-mercato/skills` bootstrap (`yarn inst
 
 ### Phase 4: Review and finalization
 
-- [ ] 4.1 Run the authoritative `om-auto-review-pr {prNumber} --autofix` pass the interrupted chain never completed, and land any actionable findings as new commits
-- [ ] 4.2 Post the resume summary comment, normalize labels, flip the PR body to `Status: complete`, promote the draft to ready, and release the `in-progress` lock
+- [x] 4.1 Run the authoritative `om-auto-review-pr {prNumber} --autofix` pass the interrupted chain never completed, and land any actionable findings as new commits — approvable verdict, no blockers; a formal GitHub approval is impossible because the automation authors this PR, so the merge still needs a human reviewer
+- [x] Post-review fix: cover the monorepo (macOS/Linux/Windows tabs) and WSL2 fresh-clone bootstrap flows with the agent-skills step, and extend the docs guard to every fresh-clone guide — 2cc665883
+- [x] 4.2 Post the resume summary comment, normalize labels, flip the PR body to `Status: complete`, promote the draft to ready, and release the `in-progress` lock
