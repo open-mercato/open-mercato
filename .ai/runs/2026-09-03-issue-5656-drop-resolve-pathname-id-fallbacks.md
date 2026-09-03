@@ -75,9 +75,9 @@ acceptance box in issue #5656 and matching the pattern PR #5643 established on t
 
 ### Phase 2: Close out the issue's acceptance criteria
 
-- [ ] 2.1 Verify no `resolvePathnameId` or equivalent positional pathname id parsing remains under `packages/*/src/modules/**/backend/**`
-- [ ] 2.2 Verify each of the three pages resolves a missing id into its translated not-found/error state rather than an endless spinner, and that a test covers it
-- [ ] 2.3 Merge `origin/develop` into the PR branch so the validation gate and CI reflect the real merge target
+- [x] 2.1 Verify no `resolvePathnameId` or equivalent positional pathname id parsing remains under `packages/*/src/modules/**/backend/**` — 64f0542a (verification only, no code change needed)
+- [x] 2.2 Verify each of the three pages resolves a missing id into its translated not-found/error state rather than an endless spinner, and that a test covers it — 64f0542a (verification only, no code change needed)
+- [x] 2.3 Merge `origin/develop` into the PR branch so the validation gate and CI reflect the real merge target — b03b1357
 
 ### Phase 3: Validation and review
 
