@@ -4,9 +4,8 @@ const DEFAULT_SEPARATORS: LocaleNumberSeparators = { group: ',', decimal: '.' }
 const separatorCache = new Map<string, LocaleNumberSeparators>()
 
 const UNICODE_MINUS_SIGNS = /[−‒–—]/g
-const WHITESPACE = /\s/g
-const WHITESPACE_ONLY = /^\s+$/
-const APOSTROPHE_GROUP_SEPARATORS = /['’ʼ]/g
+const GROUP_LIKE_CHARACTER = /[\s'’ʼ]/
+const GROUP_LIKE_SEPARATOR_IN_POSITION = /(\d)[\s'’ʼ](?=\d{3}(?!\d))/g
 const NORMALIZED_NUMBER = /^[+-]?(\d+(\.\d*)?|\.\d+)(e[+-]?\d+)?$/i
 
 /**
@@ -48,9 +47,14 @@ function isValidGrouping(integerPart: string, separator: string): boolean {
  * number, never a silent `0`, so callers can tell "unparseable" apart from "zero".
  *
  * Both `,` and `.` are accepted as the decimal separator whichever way the locale runs, because
- * users type the shape their keyboard offers. When only one of them appears and it is the
- * locale's GROUP separator, it is read as grouping only where the digits form valid groups of
- * three (`1.234` under `pl-PL` is 1234) and as a decimal point otherwise (`110.70` is 110.7).
+ * users type the shape their keyboard offers. A SINGLE `,` or `.` is therefore always the decimal
+ * point, in every locale: `1.500` is 1.5 under `de-DE` just as it is under `en-US`. Reading a lone
+ * separator as grouping instead would turn `1.500` into 1500 with no visible cue — a silent 1000×
+ * on a money field, and three- and four-decimal unit prices are ordinary here. Grouping is
+ * recognized only where it is unambiguous: at least two separators (`1.234.567`), or a whitespace
+ * or apostrophe separator standing in a valid group-of-three position (`1 234,56`, `1’234.5`).
+ * Whitespace and apostrophes anywhere else are not absorbed — `1 2` is rejected rather than read
+ * as 12 — so a mistyped or pasted value surfaces as an error instead of a different number.
  *
  * Use it only on strings a user typed. Values arriving from an API or the database are already
  * numbers and MUST NOT go through it.
@@ -60,14 +64,12 @@ export function parseLocaleNumber(input: string | null | undefined, locale?: str
   const trimmed = input.trim()
   if (!trimmed) return null
 
-  const { group, decimal } = resolveLocaleNumberSeparators(locale)
-  let candidate = trimmed
-    .replace(UNICODE_MINUS_SIGNS, '-')
-    .replace(WHITESPACE, '')
-    .replace(APOSTROPHE_GROUP_SEPARATORS, '')
-  if (group && !WHITESPACE_ONLY.test(group) && group !== ',' && group !== '.') {
-    candidate = candidate.split(group).join('')
+  const { group } = resolveLocaleNumberSeparators(locale)
+  let candidate = trimmed.replace(UNICODE_MINUS_SIGNS, '-')
+  if (group && group !== ',' && group !== '.' && !GROUP_LIKE_CHARACTER.test(group)) {
+    candidate = candidate.split(group).join(' ')
   }
+  candidate = candidate.replace(GROUP_LIKE_SEPARATOR_IN_POSITION, '$1')
   if (!candidate) return null
 
   const hasComma = candidate.includes(',')
@@ -78,10 +80,7 @@ export function parseLocaleNumber(input: string | null | undefined, locale?: str
   } else if (hasComma || hasDot) {
     const separator = hasComma ? ',' : '.'
     const segments = candidate.split(separator)
-    const isLocaleGroupSeparator = separator === group && separator !== decimal
-    const readAsGrouping =
-      segments.length > 2 || (isLocaleGroupSeparator && /^\d{3}$/.test(segments[1]))
-    decimalSeparator = readAsGrouping ? null : separator
+    decimalSeparator = segments.length > 2 ? null : separator
   }
 
   const groupSeparator = decimalSeparator

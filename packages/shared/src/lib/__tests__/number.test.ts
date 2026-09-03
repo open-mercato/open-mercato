@@ -70,11 +70,27 @@ describe('parseLocaleNumber', () => {
     expect(parseLocaleNumber('1’234.5', 'de-CH')).toBe(1234.5)
   })
 
-  it('reads a lone locale group separator as grouping only when the digits group by three', () => {
-    expect(parseLocaleNumber('1.234', 'de-DE')).toBe(1234)
+  it('reads a lone separator as the decimal point, never as grouping', () => {
+    // A dot-grouping locale reading `1.500` as 1500 is a silent 1000x on a money field,
+    // and three- and four-decimal unit prices are ordinary here.
+    expect(parseLocaleNumber('1.500', 'de-DE')).toBe(1.5)
+    expect(parseLocaleNumber('2.500', 'es')).toBe(2.5)
     expect(parseLocaleNumber('1.23', 'de-DE')).toBe(1.23)
-    expect(parseLocaleNumber('1,234', 'en-US')).toBe(1234)
+    expect(parseLocaleNumber('1,500', 'en-US')).toBe(1.5)
     expect(parseLocaleNumber('1,23', 'en-US')).toBe(1.23)
+  })
+
+  it('recognizes grouping only where it is unambiguous', () => {
+    expect(parseLocaleNumber('1.234.567', 'de-DE')).toBe(1234567)
+    expect(parseLocaleNumber('1,234,567', 'en-US')).toBe(1234567)
+    expect(parseLocaleNumber('1 234', 'de-DE')).toBe(1234)
+    expect(parseLocaleNumber('1’234', 'de-CH')).toBe(1234)
+  })
+
+  it('does not absorb whitespace or apostrophes outside a valid grouping position', () => {
+    expect(parseLocaleNumber('1 2', 'en-US')).toBeNull()
+    expect(parseLocaleNumber("1'2", 'pl-PL')).toBeNull()
+    expect(parseLocaleNumber('1 2345', 'fr-FR')).toBeNull()
   })
 
   it('handles signs, blank fractions and exponent notation', () => {
