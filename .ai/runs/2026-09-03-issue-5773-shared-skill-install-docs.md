@@ -65,11 +65,11 @@ Merging this PR must make the shared `open-mercato/skills` bootstrap (`yarn inst
 
 ### Phase 2: Close the remaining acceptance criterion
 
-- [ ] 2.1 State explicitly in `setup.mdx` that keeping the skill install manual is a deliberate design decision and not part of `yarn install`/`postinstall`, and extend the docs test to pin that intent so the sentence cannot silently disappear
+- [x] 2.1 State explicitly in `setup.mdx` that keeping the skill install manual is a deliberate design decision and not part of `yarn install`/`postinstall`, and extend the docs test to pin that intent so the sentence cannot silently disappear — fac85a7cb
 
 ### Phase 3: Validation
 
-- [ ] 3.1 Run the docs validation gate for this docs-only change (`yarn workspace open-mercato-docs test` — full Docusaurus build plus every docs test, including the new one) and re-read the diff for scope creep
+- [x] 3.1 Run the docs validation gate for this docs-only change (`yarn workspace open-mercato-docs test` — full Docusaurus build plus every docs test, including the new one) and re-read the diff for scope creep — 18/18 tests pass, Docusaurus build succeeds; the one broken-anchor warning on `/installation/wsl2` is pre-existing and untouched by this branch
 
 ### Phase 4: Review and finalization
 
