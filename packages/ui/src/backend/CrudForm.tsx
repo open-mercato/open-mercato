@@ -75,7 +75,7 @@ import { loadGeneratedFieldRegistrations } from './fields/registry'
 import type { CustomFieldDefDto, CustomFieldDefinitionsPayload, CustomFieldsetDto } from './utils/customFieldDefs'
 import { isDefVisible } from './utils/customFieldDefs'
 import { buildFormFieldsFromCustomFields, buildFormFieldFromCustomFieldDef } from './utils/customFieldForms'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useOptionalLocale } from '@open-mercato/shared/lib/i18n/context'
 import { TagsInput } from './inputs/TagsInput'
 import { ComboboxInput } from './inputs/ComboboxInput'
 import { format } from 'date-fns/format'
@@ -96,6 +96,7 @@ import { useInjectionSpotEvents, InjectionSpot, useInjectionWidgets } from './in
 import { dispatchBackendMutationError } from './injection/mutationEvents'
 import { VersionHistoryAction } from './version-history/VersionHistoryAction'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
+import { parseLocaleNumber, resolveLocaleNumberSeparators } from '@open-mercato/shared/lib/number'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { useInjectionDataWidgets } from './injection/useInjectionDataWidgets'
@@ -4031,14 +4032,23 @@ function NumberInput({
   autoFocus?: boolean
   onSubmit?: () => void
 }) {
+  const locale = useOptionalLocale()
   const serializedValue = value !== undefined && value !== null ? String(value) : ''
   const [local, setLocal] = React.useState<string>(serializedValue)
   const isFocusedRef = React.useRef(false)
+  // Users type the separator the surrounding UI displays, which follows the application
+  // locale — `110,70` under Polish. `Number()` only ever accepted `.` (issue #5552).
+  const parse = React.useCallback(
+    (raw: string): number | undefined => {
+      if (raw === '') return undefined
+      return parseLocaleNumber(raw, locale) ?? undefined
+    },
+    [locale],
+  )
   const commitIfChanged = React.useCallback(() => {
     if (local === serializedValue) return
-    const numValue = local === '' ? undefined : Number(local)
-    onChange(numValue)
-  }, [local, onChange, serializedValue])
+    onChange(parse(local))
+  }, [local, onChange, parse, serializedValue])
   
   React.useEffect(() => {
     // Only sync from props when not focused to avoid caret jumps
@@ -4050,17 +4060,31 @@ function NumberInput({
   const handleChange = React.useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const next = e.target.value
     setLocal(next)
-    const numValue = next === '' ? undefined : Number(next)
-    onChange(numValue)
-  }, [onChange])
+    onChange(parse(next))
+  }, [onChange, parse])
 
   const handleKeyDown = React.useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       commitIfChanged()
       onSubmit?.()
+      return
     }
-  }, [commitIfChanged, onSubmit])
+    // A text input has no native spinner, so keep the step affordance the previous
+    // type="number" field offered.
+    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      e.preventDefault()
+      // Binary floating point puts 8.2 - 1 at 7.199999999999999; the native spinner
+      // re-serialized against the step rather than committing that to form state.
+      const base = parse(local) ?? 0
+      const stepped = Number((base + (e.key === 'ArrowUp' ? 1 : -1)).toFixed(10))
+      // The box must keep showing the separator the rest of the UI displays, which is
+      // the application locale's — not the dot String() always emits (issue #5552).
+      const { decimal } = resolveLocaleNumberSeparators(locale)
+      setLocal(decimal === '.' ? String(stepped) : String(stepped).replace('.', decimal))
+      onChange(stepped)
+    }
+  }, [commitIfChanged, local, locale, onChange, onSubmit, parse])
   
   const handleFocus = React.useCallback(() => {
     isFocusedRef.current = true
@@ -4072,8 +4096,15 @@ function NumberInput({
   }, [commitIfChanged])
   
   return (
+    // type="text" rather than type="number": the browser sanitizes a type="number" value
+    // against the BROWSER locale, so it discards the separator the app locale displays
+    // before React ever sees it (issue #5552). inputMode keeps the mobile numeric keypad.
     <Input
-      type="number"
+      type="text"
+      inputMode="decimal"
+      // A text input is eligible for autofill and spellcheck; a number field is not.
+      autoComplete="off"
+      spellCheck={false}
       placeholder={placeholder}
       value={local}
       onChange={handleChange}
