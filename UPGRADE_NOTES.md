@@ -916,6 +916,44 @@ Customers now exposes the scoped `GET /api/customers/activity-types` catalog and
 
 The optional `example` module demonstrates a fixed-behavior `visit` type. Its Meeting label patch requires `OM_EXAMPLE_CALENDAR_DEMO_OVERRIDES=true`; Example preserves every built-in type with either flag value. Missing Staff, Resources, or Planner modules show a warning and skip only the absent integration checks. Visit names each unavailable subject and distinguishes working-hour failures from scoped overlapping bookings of any Customers event type, including recurrence; editing excludes the current interaction. An empty custom-fieldset configuration preserves existing interaction custom-field writes. See the [calendar event-type guide](apps/docs/docs/framework/modules/calendar-event-types.mdx) and the [source specification PR](https://github.com/open-mercato/open-mercato/pull/6687).
 
+### Planner availability replace endpoints honour the declared `timezone`; unresolvable zones are deprecated (#5868)
+
+`POST /api/planner/availability-weekly` and `POST /api/planner/availability-date-specific` used
+to build every `DTSTART` with the host process's local clock and ignore the required
+`timezone` field (#5862). They now anchor each wall-clock time in the declared IANA zone, so
+for a non-UTC zone the stored instant moves by that zone's offset. Rows written before the
+upgrade are not re-anchored; they stay offset from newly written rows until they are replaced.
+On DST days a wall time the zone skips moves forward by the gap, a repeated one takes its
+earlier occurrence, and a full-day block spans local midnight to the next local midnight (23
+or 25 hours instead of a fixed 24).
+
+A recurring window now keeps its local end time on DST days. The weekly save anchors each
+window on a week whose exact length matches the requested local length (the previous week
+when the upcoming one spans a transition), so `DURATION` is always the local length. The
+zone-aware expander (`getMergedAvailabilityWindows` with `respectTimezone`) now ends each
+occurrence at its local end time instead of adding `DURATION` as an exact span. Existing
+weekly and daily rows are therefore 1 hour shorter or longer on DST-transition days only:
+Sunday 00:00–08:00 in `Europe/Warsaw` ends at 08:00 local on every Sunday, rather than at
+09:00 on the spring-forward Sunday and at 07:00 on the fallback Sunday.
+
+Saving the weekly schedule replaces every weekly row, so legacy weekly rows go away on the next
+save. A date-specific save only replaces rows whose start falls on the saved date *in the
+rule's own zone*, and a legacy row can fall on the neighbouring day there — a full-day block in a
+negative-offset zone such as `America/New_York` (stored `T000000Z`, which is the previous day
+locally), or a late window in a large positive-offset zone such as `Pacific/Auckland`. Re-saving
+the intended date then leaves the legacy row in place on the adjacent date; clear it there.
+
+Because `timezone` now decides the stored instant, a value the runtime cannot resolve (a typo
+such as `Europe/Warszawa`, or `UTC+2`) is anchored to UTC and logged as a `[deprecated]`
+warning. The request schemas (`plannerAvailabilityWeeklyReplaceSchema`,
+`plannerAvailabilityDateSpecificReplaceSchema`) still accept it for now, so the request
+contract is unchanged. A future minor release will reject it with `400`.
+
+**Action for API callers:** send a valid IANA zone name (anything `Intl.DateTimeFormat`
+accepts, e.g. `Europe/Warsaw`, `UTC`, `Etc/GMT+2`). Look for
+`Unresolvable availability timezone` warnings in the `planner` logs to find callers that will
+start failing.
+
 ### `reviveSnapshotSeed` throws on an unparsable snapshot date; `extractUndoPayload` can revive dates (#6336)
 
 `reviveSnapshotSeed` (`@open-mercato/shared/lib/commands/redo`) now delegates to the new
