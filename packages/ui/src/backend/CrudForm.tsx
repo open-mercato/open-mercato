@@ -96,7 +96,7 @@ import { useInjectionSpotEvents, InjectionSpot, useInjectionWidgets } from './in
 import { dispatchBackendMutationError } from './injection/mutationEvents'
 import { VersionHistoryAction } from './version-history/VersionHistoryAction'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
-import { parseLocaleNumber } from '@open-mercato/shared/lib/number'
+import { parseLocaleNumber, resolveLocaleNumberSeparators } from '@open-mercato/shared/lib/number'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { useInjectionDataWidgets } from './injection/useInjectionDataWidgets'
@@ -4074,11 +4074,17 @@ function NumberInput({
     // type="number" field offered.
     if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
       e.preventDefault()
-      const stepped = (parse(local) ?? 0) + (e.key === 'ArrowUp' ? 1 : -1)
-      setLocal(String(stepped))
+      // Binary floating point puts 8.2 - 1 at 7.199999999999999; the native spinner
+      // re-serialized against the step rather than committing that to form state.
+      const base = parse(local) ?? 0
+      const stepped = Number((base + (e.key === 'ArrowUp' ? 1 : -1)).toFixed(10))
+      // The box must keep showing the separator the rest of the UI displays, which is
+      // the application locale's — not the dot String() always emits (issue #5552).
+      const { decimal } = resolveLocaleNumberSeparators(locale)
+      setLocal(decimal === '.' ? String(stepped) : String(stepped).replace('.', decimal))
       onChange(stepped)
     }
-  }, [commitIfChanged, local, onChange, onSubmit, parse])
+  }, [commitIfChanged, local, locale, onChange, onSubmit, parse])
   
   const handleFocus = React.useCallback(() => {
     isFocusedRef.current = true

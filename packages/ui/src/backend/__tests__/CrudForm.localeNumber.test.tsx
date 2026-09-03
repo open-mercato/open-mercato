@@ -114,7 +114,7 @@ describe('CrudForm number fields accept the locale decimal separator (issue #555
     expect(input.value).toBe('110,70')
   })
 
-  it('steps the value with the arrow keys, replacing the spinner a text input has no native version of', async () => {
+  it('steps the value with the arrow keys, writing back the separator the locale displays', async () => {
     const onSubmit = jest.fn()
     const { container } = renderNumberForm('pl', onSubmit)
     const input = amountInput(container)
@@ -125,11 +125,35 @@ describe('CrudForm number fields accept the locale decimal separator (issue #555
     await act(async () => {
       fireEvent.keyDown(input, { key: 'ArrowUp' })
     })
-    expect(input.value).toBe('5.5')
+    // A dot here would contradict the separator the rest of the Polish UI shows, which is
+    // the complaint issue #5552 opened with.
+    expect(input.value).toBe('5,5')
 
     await act(async () => {
       fireEvent.keyDown(input, { key: 'ArrowDown' })
     })
-    expect(input.value).toBe('4.5')
+    expect(input.value).toBe('4,5')
+  })
+
+  it('does not commit a binary floating point artifact when stepping', async () => {
+    const onSubmit = jest.fn()
+    const { container } = renderNumberForm('pl', onSubmit)
+    const input = amountInput(container)
+
+    await act(async () => {
+      fireEvent.change(input, { target: { value: '8,2' } })
+    })
+    await act(async () => {
+      fireEvent.keyDown(input, { key: 'ArrowDown' })
+    })
+    // 8.2 - 1 is 7.199999999999999 in binary floating point, and onChange puts whatever
+    // this commits straight into the submitted form value.
+    expect(input.value).toBe('7,2')
+
+    await act(async () => {
+      fireEvent.submit(container.querySelector('form') as HTMLFormElement)
+    })
+    await waitFor(() => expect(onSubmit).toHaveBeenCalled())
+    expect(onSubmit.mock.calls[0][0].amount).toBe(7.2)
   })
 })
