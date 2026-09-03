@@ -347,7 +347,7 @@ export async function PUT(req: Request) {
     return NextResponse.json({
       error: translate(
         'auth.acl.organizationWarning',
-        'Organization restrictions are saved only when at least one feature override is selected. Add a feature or enable a module wildcard before saving.',
+        'Organization restrictions require at least one feature override. Add a feature or module wildcard, or clear the organization scope before saving.',
       ),
     }, { status: 400 })
   }
@@ -475,7 +475,7 @@ export const openApi: OpenApiRouteDoc = {
     },
     PUT: {
       summary: 'Update user ACL',
-      description: 'Updates a per-user ACL override. Omitted super admin, feature, and organization fields preserve their stored values. An organization-scoped non-super-admin override requires at least one feature grant.',
+      description: 'Updates a per-user ACL override. Omitted super admin, feature, and organization fields preserve their stored values. Authorization evaluates the merged ACL, so a partial request returns 403 when a preserved grant is outside the actor\'s grantable ACL. An organization-scoped non-super-admin override requires at least one feature grant.',
       requestBody: {
         contentType: 'application/json',
         schema: putSchema,

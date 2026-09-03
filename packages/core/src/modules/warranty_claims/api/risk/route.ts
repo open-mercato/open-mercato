@@ -39,6 +39,7 @@ type RiskRouteContext = {
   tenantId: string
   organizationId: string
   scope: WarrantyClaimScope
+  translate: (key: string, fallback?: string) => string
   em: EntityManager
 }
 
@@ -63,6 +64,7 @@ async function resolveRiskContext(req: Request): Promise<RiskRouteContext> {
     tenantId: auth.tenantId,
     organizationId,
     scope: { tenantId: auth.tenantId, organizationId },
+    translate,
     em,
   }
 }
@@ -72,7 +74,7 @@ export async function GET(req: Request) {
     const context = await resolveRiskContext(req)
     const url = new URL(req.url)
     const query = querySchema.parse(Object.fromEntries(url.searchParams))
-    const claim = await requireScopedClaim(context.em, query.claimId, context.scope)
+    const claim = await requireScopedClaim(context.em, query.claimId, context.scope, {}, context.translate('warranty_claims.errors.notFound', 'Claim not found.'))
     const lines = await findWithDecryption(
       context.em,
       WarrantyClaimLine,
