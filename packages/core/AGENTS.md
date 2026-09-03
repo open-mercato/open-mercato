@@ -657,7 +657,7 @@ Run `yarn generate` or rely on `predev`/`prebuild`.
 
 ## Response Enrichers
 
-Response enrichers let a module add computed fields to another module's CRUD API responses (similar to GraphQL Federation).
+Response enrichers add computed fields to other modules' CRUD API responses.
 
 ### Creating an Enricher
 
@@ -668,7 +668,7 @@ import type { ResponseEnricher } from '@open-mercato/shared/lib/crud/response-en
 
 const myEnricher: ResponseEnricher = {
   id: 'mymodule.customer-metrics',
-  targetEntity: 'customers.person',     // entity to enrich
+  targetEntity: 'customers.person',     // use '*' for all; context.targetEntity stays concrete
   features: ['mymodule.view'],           // required ACL features
   priority: 10,                          // higher runs first
   timeout: 2000,                         // ms, default 2000
