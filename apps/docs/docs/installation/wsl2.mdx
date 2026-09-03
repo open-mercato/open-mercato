@@ -76,7 +76,7 @@ wsl
 :::note networkingMode=mirrored
 `networkingMode=mirrored` is available in WSL 2.0+ (bundled with Windows 11 22H2 and later). With it enabled, `localhost` inside WSL2 resolves directly to the Windows host — so a PostgreSQL instance running on Windows port 5432 is reachable as `localhost:5432` from WSL2 without any extra configuration.
 
-If you are on Windows 10 or an older WSL build, omit that line and use the [Windows host IP approach](#connecting-wsl2-to-a-windows-hosted-database) described later.
+If you are on Windows 10 or an older WSL build, omit that line and use the [Windows host IP approach](#9-connecting-wsl2-to-a-windows-hosted-database) described later.
 :::
 
 ---
@@ -381,6 +381,7 @@ For best performance, clone the repository inside the WSL2 filesystem (`~/projec
 
 ```bash
 yarn install
+yarn install-skills   # optional — only if you use an AI coding agent
 
 yarn build:packages
 yarn generate
@@ -390,6 +391,8 @@ yarn initialize
 ```
 
 `yarn initialize` runs migrations, seeds roles, provisions an admin user, and loads demo CRM data. Add `--no-examples` to skip demo content. The admin credentials are printed at the end.
+
+`yarn install` does not install agent skills — `yarn install-skills` is a separate, intentionally manual step that fetches the shared [open-mercato/skills](https://github.com/open-mercato/skills) collection into the gitignored `.agents/skills/` directory. Skip it if you do not use an AI coding agent; see [Develop setup steps](./setup#develop-setup-steps-recommended) for the full explanation.
 
 ---
 

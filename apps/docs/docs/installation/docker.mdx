@@ -119,7 +119,10 @@ yarn docker:db:migrate
 yarn docker:lint
 yarn docker:typecheck
 yarn docker:test
+yarn docker:install-skills # optional — only if you use an AI coding agent
 ```
+
+`yarn docker:install-skills` is the container equivalent of `yarn install-skills`: nothing in the Docker setup installs agent skills for you, so run it once per clone if you plan to use Codex, Claude Code, Cursor, or another supported coding agent. It fetches the shared [open-mercato/skills](https://github.com/open-mercato/skills) collection into the gitignored `.agents/skills/` directory. Skip it otherwise; see [Develop setup steps](./setup#develop-setup-steps-recommended) for the full explanation.
 
 Restart the app service and tail logs:
 

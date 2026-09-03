@@ -127,6 +127,7 @@ openssl rand -hex 32
 
 ```bash
 yarn install
+yarn install-skills   # optional — only if you use an AI coding agent
 
 yarn build:packages
 yarn generate
@@ -136,6 +137,8 @@ yarn initialize
 ```
 
 `yarn initialize` runs migrations, seeds roles, provisions an admin user, and loads demo CRM data. Add `--no-examples` to skip demo content. The admin credentials are printed at the end.
+
+`yarn install` does not install agent skills — `yarn install-skills` is a separate, intentionally manual step that fetches the shared [open-mercato/skills](https://github.com/open-mercato/skills) collection into the gitignored `.agents/skills/` directory. Skip it if you do not use Codex, Claude Code, Cursor, or another supported coding agent; see [Develop setup steps](./setup#develop-setup-steps-recommended) for the full explanation.
 
 ---
 
@@ -272,6 +275,7 @@ openssl rand -hex 32
 
 ```bash
 yarn install
+yarn install-skills   # optional — only if you use an AI coding agent
 
 yarn build:packages
 yarn generate
@@ -279,6 +283,8 @@ yarn build:packages
 
 yarn initialize
 ```
+
+`yarn install` does not install agent skills — `yarn install-skills` is a separate, intentionally manual step that fetches the shared [open-mercato/skills](https://github.com/open-mercato/skills) collection into the gitignored `.agents/skills/` directory. Skip it if you do not use an AI coding agent; see [Develop setup steps](./setup#develop-setup-steps-recommended) for the full explanation.
 
 ---
 
@@ -489,6 +495,7 @@ REDIS_URL=redis://localhost:6379
 
 ```powershell
 yarn install
+yarn install-skills   # optional — only if you use an AI coding agent
 
 yarn build:packages
 yarn generate
@@ -496,6 +503,8 @@ yarn build:packages
 
 yarn initialize
 ```
+
+`yarn install` does not install agent skills — `yarn install-skills` is a separate, intentionally manual step that fetches the shared [open-mercato/skills](https://github.com/open-mercato/skills) collection into the gitignored `.agents/skills/` directory. Skip it if you do not use an AI coding agent; see [Develop setup steps](./setup#develop-setup-steps-recommended) for the full explanation.
 
 :::tip
 `yarn build:packages` must run **twice** — once before `yarn generate` and once after — so the generated scripts are compiled before `yarn initialize` runs.
