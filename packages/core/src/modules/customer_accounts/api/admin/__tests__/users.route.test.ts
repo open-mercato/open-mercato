@@ -3,6 +3,7 @@ import {
   CustomerRole,
   CustomerUserRole,
 } from '@open-mercato/core/modules/customer_accounts/data/entities'
+import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 
 const mockGetAuth = jest.fn()
 const mockRbac = { userHasAllFeatures: jest.fn() }
@@ -216,6 +217,75 @@ describe('admin /api/customer_accounts/admin/users — GET listing', () => {
     expect(body.total).toBe(1)
     const junctionCalls = mockEmFind.mock.calls.filter((call) => call[0] === CustomerUserRole)
     expect(junctionCalls.length).toBeGreaterThanOrEqual(1)
+  })
+})
+
+describe('admin /api/customer_accounts/admin/users — GET organization column (#5575)', () => {
+  const orgAlpha = { id: '44444444-4444-4444-8444-444444444444', name: 'Alpha Org' }
+  const orgBeta = { id: '55555555-5555-4555-8555-555555555555', name: 'Beta Org' }
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockGetAuth.mockResolvedValue({ sub: adminId, tenantId, orgId })
+    mockRbac.userHasAllFeatures.mockResolvedValue(true)
+  })
+
+  it('returns organizationId and the resolved organizationName for every user in one batched query', async () => {
+    const users = [
+      makeUser('u1', { organizationId: orgAlpha.id }),
+      makeUser('u2', { organizationId: orgBeta.id }),
+      makeUser('u3', { organizationId: orgAlpha.id }),
+    ]
+    mockEmFindAndCount.mockResolvedValue([users, users.length])
+    mockEmFind.mockImplementation(async (entity: unknown) => {
+      if (entity === Organization) return [orgAlpha, orgBeta]
+      return []
+    })
+
+    const res = await GET(buildRequest())
+    const body = await res.json()
+
+    expect(res.status).toBe(200)
+    const organizationByUser = Object.fromEntries(
+      body.items.map((item: any) => [item.id, { id: item.organizationId, name: item.organizationName }]),
+    )
+    expect(organizationByUser.u1).toEqual({ id: orgAlpha.id, name: 'Alpha Org' })
+    expect(organizationByUser.u2).toEqual({ id: orgBeta.id, name: 'Beta Org' })
+    expect(organizationByUser.u3).toEqual({ id: orgAlpha.id, name: 'Alpha Org' })
+
+    const organizationCalls = mockEmFind.mock.calls.filter((call) => call[0] === Organization)
+    expect(organizationCalls).toHaveLength(1)
+    expect(organizationCalls[0][1]).toMatchObject({
+      id: { $in: [orgAlpha.id, orgBeta.id] },
+      tenant: tenantId,
+      deletedAt: null,
+    })
+  })
+
+  it('falls back to a null organizationName when the organization cannot be resolved', async () => {
+    mockEmFindAndCount.mockResolvedValue([[makeUser('u1', { organizationId: orgAlpha.id })], 1])
+    mockEmFind.mockResolvedValue([])
+
+    const res = await GET(buildRequest())
+    const body = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(body.items[0]).toMatchObject({
+      organizationId: orgAlpha.id,
+      organizationName: null,
+    })
+  })
+
+  it('never queries organizations when no user on the page carries one', async () => {
+    mockEmFindAndCount.mockResolvedValue([[makeUser('u1')], 1])
+    mockEmFind.mockResolvedValue([])
+
+    const res = await GET(buildRequest())
+    const body = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(body.items[0]).toMatchObject({ organizationId: null, organizationName: null })
+    expect(mockEmFind.mock.calls.filter((call) => call[0] === Organization)).toHaveLength(0)
   })
 })
 

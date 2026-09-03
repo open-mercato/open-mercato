@@ -10,6 +10,7 @@
   "customer_accounts.admin.columns.email": "E-mail",
   "customer_accounts.admin.columns.emailVerified": "Zweryfikowany",
   "customer_accounts.admin.columns.lastLogin": "Ostatnie logowanie",
+  "customer_accounts.admin.columns.organization": "Organizacja",
   "customer_accounts.admin.columns.roles": "Role",
   "customer_accounts.admin.columns.status": "Status",
   "customer_accounts.admin.confirm.delete": "Usunąć użytkownika \"{{name}}\"?",
