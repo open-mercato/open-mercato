@@ -56,6 +56,20 @@ i.e. **8 bytes of headroom**, with no warning before the cliff.
    modules without an `AGENTS.md` surface — which is the behaviour the request actually asks for.
    A reasonless allowlist entry is a config error (exit 2), not a silent suppression.
 
+## Deviations from the plan
+
+- **Step 2.2 does not warn per chain.** The plan said "for the root file and each chain". Chains
+  turned out to be fully covered already: the existing report prints each chain's total, its
+  over-budget delta and its ratchet drift, so a second advisory line saying the same thing in
+  different units would be noise. Chains instead gained an estimated-token figure on their existing
+  report line, and the warning is limited to the root file (against its own hard limit) and to
+  individual files (against the tools table). The step title is kept verbatim per the Progress
+  convention.
+- **Step 3.1 gained a collapse rule.** First discovery run produced 71 findings, ~20 of which were
+  single-module packages such as `packages/webhooks/src/modules/webhooks`, whose package-level
+  `AGENTS.md` already *is* the module's sheet. A package shipping exactly one module is therefore
+  treated as that module, which cut the real gap list to 53.
+
 ## Risks
 
 - Changing `analyze()`'s return shape could break the `--json` consumers. Mitigated by adding keys
