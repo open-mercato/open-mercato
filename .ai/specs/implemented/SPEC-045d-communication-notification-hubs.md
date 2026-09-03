@@ -13,6 +13,22 @@ Introduces the `communication_channels` hub: a single platform-owned bridge betw
 
 **Zero coupling principle**: the Messages module's data model and core API routes are never modified. All bridging happens through new hub entities, response enrichers, and event subscribers. The single agreed exception — for parity with all other UMES consumers — is that the Messages module's detail and list pages register a small number of widget-injection spots (no behavior change, just `<InjectionPoint id="…" />` placements). This is in-scope for SPEC-045d Phase 1 and documented in § 9.
 
+### Corrective inbound materialization contract (2026-08-15, #5137)
+
+Inbound channel content is already delivered before it reaches the hub. The hub therefore
+records it through `messages.messages.record_ingested`, never through the authored
+`messages.messages.compose` command. The record input carries source identity, a stable
+idempotency key, scope, and `recordedByUserId`; it cannot carry `sendViaEmail`, `isDraft`, or
+another delivery target. Recording still preserves threading, recipients, objects,
+attachments, and query indexing, but it does not emit `messages.message.sent`; it emits
+`messages.message.ingested` to notify organization-scoped internal recipients without email
+delivery.
+
+Outbound user-authored channel messages continue to use compose with explicit
+`sendViaEmail: false`, followed by exactly one communication-channel delivery job. The
+frozen sent event remains available to authored-send consumers, while the Messages email
+subscriber ignores those channel sends because their persisted delivery intent is false.
+
 ---
 
 ## Prerequisites & Cross-Spec Dependencies

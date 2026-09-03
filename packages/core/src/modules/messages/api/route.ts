@@ -476,8 +476,7 @@ export async function POST(req: Request) {
     ...(sourceChannelType ? { sourceChannelType } : {}),
   })
 
-  const isPublicVisibility = input.visibility === 'public'
-  const sendViaEmail = isPublicVisibility ? true : input.sendViaEmail
+  const sendViaEmail = input.sendViaEmail ?? input.visibility === 'public'
   if (sendViaEmail && !(await canUseMessageEmailFeature(ctx, scope))) {
     return Response.json({ error: 'Missing feature: messages.email' }, { status: 403 })
   }

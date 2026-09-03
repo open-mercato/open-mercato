@@ -99,6 +99,18 @@ async function resolveMessageScope(
   )
 }
 
+function normalizeEmail(value: string | null | undefined): string | null {
+  const normalized = value?.trim().toLowerCase()
+  return normalized ? normalized : null
+}
+
+function isSendableMessage(message: Message): boolean {
+  return message.sendViaEmail === true
+    && message.isDraft === false
+    && message.status === 'sent'
+    && message.deletedAt == null
+}
+
 export async function claimRecipientDelivery(
   em: EntityManager,
   payload: SendMessageEmailToRecipientJob,
@@ -110,6 +122,7 @@ export async function claimRecipientDelivery(
       messageId: payload.messageId,
       recipientUserId: payload.recipientUserId,
       emailSentAt: null,
+      deletedAt: null,
     },
     {
       emailSentAt: claimTimestamp,
@@ -153,6 +166,10 @@ export async function claimExternalDelivery(
       tenantId: payload.tenantId,
       organizationId: payload.organizationId ?? null,
       externalEmailSentAt: null,
+      sendViaEmail: true,
+      isDraft: false,
+      status: 'sent',
+      deletedAt: null,
     },
     {
       externalEmailSentAt: claimTimestamp,
@@ -197,23 +214,24 @@ export default async function handle(
     logger.error('Message not found', { messageId: payload.messageId })
     return
   }
-
-  const objects = await em.find(MessageObject, { messageId: message.id })
-  const attachments = await getMessageEmailAttachments(
-    em,
-    message.id,
-    message.organizationId ?? null,
-    message.tenantId
-  )
-  const sender = await resolveSender(em, message)
+  if (!isSendableMessage(message)) return
 
   if (payload.type === 'external') {
+    if (normalizeEmail(payload.email) !== normalizeEmail(message.externalEmail)) return
     const externalClaimTimestamp = await claimExternalDelivery(em, payload)
     if (!externalClaimTimestamp) {
       return
     }
 
     try {
+      const objects = await em.find(MessageObject, { messageId: message.id })
+      const attachments = await getMessageEmailAttachments(
+        em,
+        message.id,
+        message.organizationId ?? null,
+        message.tenantId,
+      )
+      const sender = await resolveSender(em, message)
       await sendMessageEmailToExternal({
         message,
         email: payload.email,
@@ -254,6 +272,7 @@ export default async function handle(
   const recipientRecord = await em.findOne(MessageRecipient, {
     messageId: payload.messageId,
     recipientUserId: payload.recipientUserId,
+    deletedAt: null,
   })
   if (!recipientRecord) {
     logger.error('Recipient row not found', { messageId: payload.messageId, recipientUserId: payload.recipientUserId })
@@ -269,30 +288,31 @@ export default async function handle(
     return
   }
 
-  const recipientUser = await findOneWithDecryption(
-    em,
-    User,
-    {
-      id: payload.recipientUserId,
-      tenantId: message.tenantId,
-      deletedAt: null,
-    },
-    undefined,
-    { tenantId: message.tenantId, organizationId: message.organizationId ?? null }
-  )
-
-  const recipientEmail = recipientUser?.email?.trim()
-  if (!recipientEmail) {
-    await releaseRecipientClaim(
-      em,
-      payload,
-      recipientClaimTimestamp,
-      'Recipient has no email address',
-    )
-    return
-  }
-
+  let recipientEmail: string | undefined
   try {
+    const recipientUser = await findOneWithDecryption(
+      em,
+      User,
+      {
+        id: payload.recipientUserId,
+        tenantId: message.tenantId,
+        deletedAt: null,
+      },
+      undefined,
+      { tenantId: message.tenantId, organizationId: message.organizationId ?? null }
+    )
+    recipientEmail = recipientUser?.email?.trim()
+    if (!recipientEmail) {
+      throw new Error('Recipient has no email address')
+    }
+    const objects = await em.find(MessageObject, { messageId: message.id })
+    const attachments = await getMessageEmailAttachments(
+      em,
+      message.id,
+      message.organizationId ?? null,
+      message.tenantId,
+    )
+    const sender = await resolveSender(em, message)
     await sendMessageEmailToRecipient({
       em,
       message,

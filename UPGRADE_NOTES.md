@@ -225,6 +225,38 @@ for callers that relied on the old shape:
 
 `PUT /api/auth/roles/acl` already behaved this way and is unchanged.
 
+### Message visibility no longer overrides explicit email-delivery intent (#5137)
+
+`messages.messages.compose`, draft sending, replies, and forwards now preserve an explicit
+`sendViaEmail: false` even when the message visibility is `public`. `POST /api/messages`
+keeps the previous public-message default only when `sendViaEmail` is omitted. Module code
+that wants email delivery must therefore pass `sendViaEmail: true` explicitly when calling a
+message command directly.
+
+The exported `ComposeMessageInput.sendViaEmail` field is now optional, so direct command
+callers must handle `undefined`; the generated OpenAPI schema no longer declares a default.
+The public `POST /api/messages` route still applies its public-message default only when the
+field is omitted.
+
+Compatibility bridges remain available through 0.7.x: the deprecated
+`UseMessageComposeResult.isComposePublicVisibility` property and the
+`messages.sendViaEmailForcedPublic` locale key. External modules should derive the former
+from `variant` and `visibility`, and remove references to the legacy locale key before 0.8.0.
+
+Code that records a message which already exists in an external channel must use the new
+`messages.messages.record_ingested` command instead of
+`messages.messages.compose`. The record command requires source identity, an idempotency
+key, scope, and a technical `recordedByUserId`; it rejects draft and delivery controls and
+does not emit `messages.message.sent`. It emits `messages.message.ingested` for in-app
+notifications to organization-scoped internal recipients. Use the lower-level
+`messages.messages.record_existing`
+command only for silent imports that must not notify recipients. The existing sent event ID
+remains unchanged for authored sends.
+
+Email queue workers now re-read persisted message state and fail closed unless the message
+is sent, non-draft, undeleted, and still has `sendViaEmail === true`; external targets must
+also match the persisted normalized address.
+
 ### Passkey MFA verification requires a real WebAuthn assertion (#3852)
 
 `PasskeyProvider.verify()` used to accept a second payload shape — `{ credentialId, challenge }` — beside the genuine `{ response }` assertion, and approved it by string comparison. Both compared values are public: `prepareChallenge()` returns the credential id and the challenge to the caller, and `GET /api/security/mfa/methods` discloses `providerMetadata.credentialId`. A third shape needed even less: with no prepared challenge at all, only the disclosed credential id was compared. Anyone who could reach the verify step for a session therefore passed the passkey second factor with no authenticator private key and no signature, in both login-time MFA and passkey-as-sudo step-up.
@@ -256,7 +288,7 @@ Effective mitigations, strongest first:
     ORDER BY created_at;
    ```
 
-   Then reset each affected user with `POST /api/security/users/{id}/mfa/reset` and have them re-enroll through the browser ceremony. Communicate the reset in advance: for users whose only method is a passkey it is a lockout until they re-enroll.
+    Then reset each affected user with `POST /api/security/users/{id}/mfa/reset` and have them re-enroll through the browser ceremony. Communicate the reset in advance: for users whose only method is a passkey it is a lockout until they re-enroll.
 3. If a full re-enrollment is not feasible, at minimum reset the passkey methods of users who hold `security.mfa.manage` or an admin role, since those are the accounts a forged credential is worth targeting.
 
 ### Standalone apps gain deterministic design-system and i18n checks

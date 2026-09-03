@@ -16,6 +16,34 @@ The Messages module provides an internal messaging system with support for:
 
 ---
 
+## Corrective delivery contract (2026-08-15, #5137)
+
+- Visibility controls who can see a message; `sendViaEmail` controls transport. Authored
+  commands persist and emit the resolved boolean without deriving it from visibility.
+- `POST /api/messages` defaults an omitted delivery flag to `true` for public messages for
+  compatibility, while preserving an explicit `false`.
+- `messages.messages.record_existing` is the strict internal materialization command for
+  inbound or imported messages. It requires source identity and idempotency, always records
+  a sent, non-draft, non-delivering message, and never emits `messages.message.sent`.
+- `messages.messages.record_ingested` wraps that strict command for newly ingested external
+  messages. It emits `messages.message.ingested`, which creates in-app notifications for
+  internal recipients without entering an email-delivery flow.
+- Communication-channel live delivery uses `communication_channels.message.ingest_inbound`,
+  while operator-triggered history backfills use `communication_channels.message.import_inbound`.
+  The latter materializes through `record_existing`, so imported history does not notify recipients.
+- In-app notification creation and email job creation are separate persistent subscribers.
+  The email worker independently revalidates current persisted intent, state, scope, and
+  target before calling a provider.
+- `messages.message.sent` remains the frozen authored-send event. Existing-message ingest
+  suppresses the formerly incorrect emission rather than renaming or replacing the event.
+
+Regression coverage includes HTTP omitted-versus-false behavior, compose and draft
+transitions, strict record-command validation and idempotency, inbound consumer routing,
+subscriber isolation, worker fail-closed checks, and single channel delivery for
+`sendAsUser`.
+
+---
+
 ## Use Cases
 
 | ID | Actor | Use Case | Description | Priority |
