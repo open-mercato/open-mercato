@@ -144,6 +144,31 @@ describe('SyncRunDetailPage logs pagination', () => {
   })
 })
 
+describe('SyncRunDetailPage route id resolution', () => {
+  it('loads the run using the id from the params prop', async () => {
+    mockApiResponses(0)
+    renderWithProviders(<SyncRunDetailPage params={{ id: 'run-1' }} />)
+
+    await waitFor(() =>
+      expect(apiCallMock).toHaveBeenCalledWith(
+        '/api/data_sync/runs/run-1',
+        undefined,
+        { fallback: null },
+      ),
+    )
+  })
+
+  it('shows an error and issues no request when the id is missing', async () => {
+    mockApiResponses(0)
+    renderWithProviders(<SyncRunDetailPage params={{}} />)
+
+    await waitFor(() => {
+      expect(screen.getByText('data_sync.runs.detail.loadError')).toBeInTheDocument()
+    })
+    expect(apiCallMock).not.toHaveBeenCalled()
+  })
+})
+
 describe('SyncRunDetailPage log payload rendering', () => {
   function mockApiResponsesWithLogs(items: Array<Record<string, unknown>>) {
     apiCallMock.mockImplementation(async (url: string) => {

@@ -1,6 +1,6 @@
 "use client"
 import * as React from 'react'
-import { usePathname, useRouter } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { Card, CardHeader, CardTitle, CardContent } from '@open-mercato/ui/primitives/card'
@@ -87,28 +87,15 @@ function formatEtaSeconds(seconds: number): string {
 
 type SyncRunDetailPageProps = {
   params?: {
-    id?: string | string[]
+    id?: string
   }
-}
-
-function resolveRouteId(value: string | string[] | undefined): string | undefined {
-  if (Array.isArray(value)) return value[0]
-  return value
-}
-
-function resolvePathnameId(pathname: string): string | undefined {
-  const parts = pathname.split('/').filter(Boolean)
-  const runId = parts.at(-1)
-  if (!runId || runId === 'runs' || runId === 'data-sync') return undefined
-  return decodeURIComponent(runId)
 }
 
 const LOG_PAGE_SIZE = 50
 
 export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
-  const pathname = usePathname()
   const router = useRouter()
-  const runId = resolveRouteId(params?.id) ?? resolvePathnameId(pathname)
+  const runId = params?.id
   const t = useT()
   const { runMutation } = useGuardedMutation<Record<string, unknown>>({
     contextId: 'data_sync.runDetail',
@@ -128,14 +115,6 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
   // options list is fetched once per integration rather than on every progress
   // event that re-reads the run.
   const parameterLabelsIntegrationRef = React.useRef<string | null>(null)
-
-  const resolveCurrentRunId = React.useCallback(() => {
-    return runId ?? (
-      typeof window !== 'undefined'
-        ? resolvePathnameId(window.location.pathname)
-        : undefined
-    )
-  }, [runId])
 
   // The run row stores machine keys. Resolve the adapter's declared labels so a
   // past run reads as "Start id" rather than "startId"; keys the adapter no
@@ -158,15 +137,14 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
   }, [t])
 
   const loadRun = React.useCallback(async () => {
-    const currentRunId = resolveCurrentRunId()
-    if (!currentRunId) {
+    if (!runId) {
       setError(t('data_sync.runs.detail.loadError'))
       setIsLoading(false)
       return
     }
     setIsNotFound(false)
     const call = await apiCall<SyncRunDetail>(
-      `/api/data_sync/runs/${encodeURIComponent(currentRunId)}`,
+      `/api/data_sync/runs/${encodeURIComponent(runId)}`,
       undefined,
       { fallback: null },
     )
@@ -184,14 +162,13 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
     if (call.result.parameters && Object.keys(call.result.parameters).length > 0) {
       void loadParameterLabels(call.result.integrationId)
     }
-  }, [loadParameterLabels, resolveCurrentRunId, t])
+  }, [loadParameterLabels, runId, t])
 
   const loadLogs = React.useCallback(async (page?: number) => {
-    const currentRunId = resolveCurrentRunId()
-    if (!currentRunId) return
+    if (!runId) return
     const targetPage = page ?? logsPageRef.current
     setIsLoadingLogs(true)
-    const params = new URLSearchParams({ runId: currentRunId, pageSize: String(LOG_PAGE_SIZE), page: String(targetPage) })
+    const params = new URLSearchParams({ runId, pageSize: String(LOG_PAGE_SIZE), page: String(targetPage) })
     const call = await apiCall<{ items: LogEntry[]; total?: number }>(
       `/api/integrations/logs?${params.toString()}`,
       undefined,
@@ -204,7 +181,7 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
       setLogsPage(targetPage)
     }
     setIsLoadingLogs(false)
-  }, [resolveCurrentRunId])
+  }, [runId])
 
   React.useEffect(() => {
     void loadRun()
@@ -265,18 +242,17 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
   }, [loadLogs, loadRun])
 
   const handleCancel = React.useCallback(async () => {
-    const currentRunId = resolveCurrentRunId()
-    if (!currentRunId) return
+    if (!runId) return
     const call = await runMutation({
       // optimistic-lock-exempt: run lifecycle action endpoint (cancel), not a concurrent record edit
-      operation: () => apiCall(`/api/data_sync/runs/${encodeURIComponent(currentRunId)}/cancel`, {
+      operation: () => apiCall(`/api/data_sync/runs/${encodeURIComponent(runId)}/cancel`, {
         method: 'POST',
       }, { fallback: null }),
-      mutationPayload: { runId: currentRunId },
+      mutationPayload: { runId },
       context: {
         operation: 'update',
         actionId: 'cancel-sync-run',
-        runId: currentRunId,
+        runId,
       },
     })
     if (call.ok) {
@@ -285,23 +261,22 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
     } else {
       flash(t('data_sync.runs.detail.cancelError'), 'error')
     }
-  }, [resolveCurrentRunId, runMutation, t, loadRun])
+  }, [runId, runMutation, t, loadRun])
 
   const handleRetry = React.useCallback(async () => {
-    const currentRunId = resolveCurrentRunId()
-    if (!currentRunId) return
+    if (!runId) return
     const call = await runMutation({
       // optimistic-lock-exempt: starts a new retry run (create), not a concurrent record edit
-      operation: () => apiCall<{ id: string }>(`/api/data_sync/runs/${encodeURIComponent(currentRunId)}/retry`, {
+      operation: () => apiCall<{ id: string }>(`/api/data_sync/runs/${encodeURIComponent(runId)}/retry`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ fromBeginning: false }),
       }, { fallback: null }),
-      mutationPayload: { runId: currentRunId, fromBeginning: false },
+      mutationPayload: { runId, fromBeginning: false },
       context: {
         operation: 'create',
         actionId: 'retry-sync-run',
-        runId: currentRunId,
+        runId,
       },
     })
     if (call.ok && call.result) {
@@ -310,7 +285,7 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
     } else {
       flash(buildRetryFailureMessage(call.result as RetryFailureBody | null, t), 'error')
     }
-  }, [resolveCurrentRunId, router, runMutation, t])
+  }, [runId, router, runMutation, t])
 
   if (isLoading) return <Page><PageBody><LoadingMessage label={t('data_sync.runs.detail.title')} /></PageBody></Page>
   if (isNotFound) {
