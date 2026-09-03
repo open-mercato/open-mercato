@@ -1,9 +1,6 @@
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
-import { llmProviderRegistry } from '@open-mercato/shared/lib/ai/llm-provider-registry'
+import { llmProviderRegistry } from './llm-registry'
 import type { LlmProvider } from '@open-mercato/shared/lib/ai/llm-provider'
-// Side-effect: ensures the registry is populated with built-in adapters
-// and OpenAI-compatible presets before this module's getters run.
-import './llm-bootstrap'
 
 // Types
 //

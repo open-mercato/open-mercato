@@ -3,10 +3,12 @@ import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { getCustomerAuthFromRequest, type CustomerAuthContext } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import type { CustomerAuthContext } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { WarrantyClaim, WarrantyClaimLine } from '../../../../data/entities'
 import { loadPortalOwnedClaim } from '../../../../lib/portalClaimAccess'
+import { resolveLinkedCustomerAuth } from '../../../../lib/portalAuthGuard'
 
 export const metadata = {
   GET: { requireAuth: false },
@@ -40,13 +42,9 @@ async function resolveClaimId(ctx: RouteContext): Promise<string | null> {
 }
 
 async function resolvePortalContext(req: Request): Promise<PortalContext | Response> {
-  const auth = await getCustomerAuthFromRequest(req)
-  if (!auth) {
-    return NextResponse.json({ ok: false, error: 'warranty_claims.errors.unauthorized' }, { status: 401 })
-  }
-  if (!auth.customerEntityId) {
-    return NextResponse.json({ ok: false, error: 'warranty_claims.errors.customerAccountNotLinked' }, { status: 403 })
-  }
+  const authOrResponse = await resolveLinkedCustomerAuth(req)
+  if (authOrResponse instanceof Response) return authOrResponse
+  const auth = authOrResponse
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
   return {
@@ -108,9 +106,10 @@ export async function GET(req: Request, ctx: RouteContext) {
   const contextOrResponse = await resolvePortalContext(req)
   if (contextOrResponse instanceof Response) return contextOrResponse
   const context = contextOrResponse
+  const { translate } = await resolveTranslations()
   const claimId = await resolveClaimId(ctx)
   if (!claimId) {
-    return NextResponse.json({ ok: false, error: 'warranty_claims.errors.notFound' }, { status: 404 })
+    return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.notFound', 'Claim not found.') }, { status: 404 })
   }
   const scope = { tenantId: context.tenantId, organizationId: context.organizationId }
   const claim = await loadPortalOwnedClaim(
@@ -123,7 +122,7 @@ export async function GET(req: Request, ctx: RouteContext) {
     claimId,
   )
   if (!claim) {
-    return NextResponse.json({ ok: false, error: 'warranty_claims.errors.notFound' }, { status: 404 })
+    return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.notFound', 'Claim not found.') }, { status: 404 })
   }
   const lines = await findWithDecryption(
     context.em,

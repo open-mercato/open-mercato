@@ -1,6 +1,6 @@
 /// <reference path="./ai-agents-generated.d.ts" />
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import { llmProviderRegistry } from '@open-mercato/shared/lib/ai/llm-provider-registry'
+import { llmProviderRegistry } from './llm-registry'
 import type { AiAgentDefinition, AiAgentExtension, AiAgentSuggestion } from './ai-agent-definition'
 import {
   applyAgentOverrideMap,
