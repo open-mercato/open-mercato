@@ -598,7 +598,7 @@ describe('DealDetailPage', () => {
     })
   })
 
-  it('updates linked people inline without reloading the full deal detail payload', async () => {
+  it('refreshes the deal after a people change so its lock token stays current', async () => {
     activeTabParam = 'people'
 
     renderWithProviders(<DealDetailPage params={{ id: 'deal-123' }} />)
@@ -616,13 +616,16 @@ describe('DealDetailPage', () => {
       })
     })
 
+    // The deal is re-read after the save: `updated_at` is the optimistic-lock token this
+    // write sends, and the server now advances it whenever the links change. Without the
+    // refresh the next save in this tab would 409 against the version it just superseded.
+    // That reload also carries the refreshed people list, so no separate lookup is issued.
     await waitFor(() => {
-      expect(readApiResultOrThrowMock).toHaveBeenCalledWith(
-        '/api/customers/people?ids=person-2&pageSize=1',
-      )
+      expect(detailRequestCount).toBe(2)
     })
-
-    expect(detailRequestCount).toBe(1)
+    expect(readApiResultOrThrowMock).not.toHaveBeenCalledWith(
+      '/api/customers/people?ids=person-2&pageSize=1',
+    )
   })
 
   it('defaults the activity target to the primary linked person when one is flagged (#4376)', async () => {

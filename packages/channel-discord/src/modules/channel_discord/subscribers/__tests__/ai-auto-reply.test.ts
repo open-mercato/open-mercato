@@ -25,7 +25,10 @@ jest.mock('@open-mercato/ai-assistant', () => ({ runAiAgentObject: jest.fn() }),
 
 import handler from '../ai-auto-reply'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { composeMessageSchema } from '@open-mercato/core/modules/messages/data/validators'
+import { listNonEmailSenderChannelTypes } from '@open-mercato/core/modules/messages/lib/channel-sender-identity'
 import { CHANNEL_DISCORD_AUTO_REPLY_AGENT_ID } from '../../ai-agents'
+import { DISCORD_CHANNEL_TYPE } from '../../lib/channel-identity'
 import { CHANNEL_DISCORD_AI_PROPOSAL_MESSAGE_TYPE } from '../../message-types'
 
 const findOne = findOneWithDecryption as unknown as jest.Mock
@@ -149,6 +152,45 @@ describe('channel_discord ai-auto-reply subscriber — routing', () => {
     expect(args.input.parentMessageId).toBe('thread-1')
     expect(args.input.visibility).toBe('public')
     expect(args.input.isDraft).toBe(false)
+  })
+
+  /**
+   * #5601. Every test above asserted the subscriber's *decision* to send and
+   * stopped at the command-bus boundary, so all of them stayed green while no
+   * automatic reply was ever delivered: the composed payload named no channel
+   * type, `channelTypeRequiresExternalEmail` fails closed on an absent one, and
+   * the hub demanded an address a Discord sender does not have.
+   *
+   * The payload is therefore checked against the hub's REAL `composeMessageSchema`
+   * rather than against a hand-written expectation — the same validator the
+   * command runs, so this fails for the reason production failed.
+   */
+  it('composes a payload the hub’s own validator accepts, with no address anywhere', async () => {
+    const threadId = '5a1c6f4e-0f2a-4d0b-9d31-6a2c6f2b9f01'
+    findOne
+      .mockResolvedValueOnce(channelRow())
+      .mockResolvedValueOnce({ ...messageRow('What are your opening hours?'), threadId })
+    const { ctx, commandBus } = makeCtx({ aiPresent: true })
+
+    await handler(basePayload, ctx)
+
+    const [, args] = commandBus.execute.mock.calls[0]
+    expect(args.input.sourceChannelType).toBe('discord')
+    expect(args.input.externalEmail).toBeUndefined()
+
+    const parsed = composeMessageSchema.safeParse(args.input)
+    expect(
+      parsed.success ? [] : parsed.error.issues.map((issue) => issue.path.join('.')),
+    ).toEqual([])
+  })
+
+  /**
+   * The waiver is the hub's to grant, not the caller's: `'discord'` has to be a
+   * type `NON_EMAIL_SENDER_CHANNEL_TYPES` positively recognizes. Asserting the
+   * literal alone would still pass if that list ever dropped the entry.
+   */
+  it('names a channel type the hub actually recognizes as address-free', () => {
+    expect(listNonEmailSenderChannelTypes()).toContain(DISCORD_CHANNEL_TYPE)
   })
 
   it('runs the agent under a real service principal, never features: [] and never super-admin', async () => {
