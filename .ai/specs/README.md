@@ -144,6 +144,7 @@ Fully implemented and deployed. Canonical files live in [`implemented/`](impleme
 
 | SPEC | Date | Title | Description |
 | --- | --- | --- | --- |
+| [Omnibus Price Tracking](implemented/2026-06-30-omnibus-price-tracking.md) | 2026-06-30 | Omnibus Price Tracking (EU 2019/2161) | Append-only `CatalogPriceHistoryEntry` log with DB immutability trigger plus a `catalogOmnibusService` that resolves the prior reference price (lowest in the lookback window) with same-row net/gross, promotion-anchored windows, EU gating, and member-state derogations; read APIs, settings-route config, CLI backfill, and an immutable sales-line snapshot. Supersedes the intent of SPEC-033 |
 | [SPEC-001](implemented/SPEC-001-2026-01-21-ui-reusable-components.md) | 2026-01-21 | UI Reusable Components | Library of reusable UI components and patterns |
 | [SPEC-002](implemented/SPEC-002-2026-01-23-messages-module.md) | 2026-01-23 | Messages Module | Internal messaging and communication system |
 | [SPEC-003](implemented/SPEC-003-2026-01-23-notifications-module.md) | 2026-01-23 | Notifications Module | User notification system with multiple channels |

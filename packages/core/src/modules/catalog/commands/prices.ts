@@ -32,6 +32,12 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
 import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { invalidateOmnibusCache, recordPriceHistoryEntry } from '../lib/omnibus'
+import type { PriceHistorySnapshot, PriceSnapshot } from '../lib/omnibus'
+import type { CatalogPriceHistoryChangeType } from '../data/types'
+
+const logger = createLogger('catalog')
 
 const priceCrudEvents: CrudEventsConfig = {
   module: 'catalog',
@@ -44,39 +50,90 @@ const priceCrudEvents: CrudEventsConfig = {
   }),
 }
 
-type PriceSnapshot = {
-  id: string
-  variantId: string | null
-  productId: string | null
-  offerId: string | null
-  organizationId: string
-  tenantId: string
-  currencyCode: string
-  priceKindId: string
-  priceKindCode: string
-  kind: string
-  minQuantity: number
-  maxQuantity: number | null
-  unitPriceNet: string | null
-  unitPriceGross: string | null
-  taxRate: string | null
-  taxAmount: string | null
-  channelId: string | null
-  userId: string | null
-  userGroupId: string | null
-  customerId: string | null
-  customerGroupId: string | null
-  metadata: Record<string, unknown> | null
-  startsAt: string | null
-  endsAt: string | null
-  createdAt: string
-  updatedAt: string
-  custom: Record<string, unknown> | null
-}
-
 type PriceUndoPayload = {
   before?: PriceSnapshot | null
   after?: PriceSnapshot | null
+}
+
+type ContainerLike = { resolve: (name: string) => unknown }
+
+function resolveOptionalCache(container: ContainerLike): { deleteByTags(tags: string[]): Promise<number> } | null {
+  try {
+    const cache = container.resolve('cache')
+    return cache && typeof (cache as { deleteByTags?: unknown }).deleteByTags === 'function'
+      ? (cache as { deleteByTags(tags: string[]): Promise<number> })
+      : null
+  } catch {
+    return null
+  }
+}
+
+function toPriceHistorySnapshot(
+  record: CatalogProductPrice,
+  refs: {
+    productId: string | null
+    variantId: string | null
+    offerId: string | null
+    priceKindId: string
+    priceKindCode: string
+  },
+): PriceHistorySnapshot {
+  return {
+    id: record.id,
+    productId: refs.productId,
+    variantId: refs.variantId,
+    offerId: refs.offerId,
+    organizationId: record.organizationId,
+    tenantId: record.tenantId,
+    currencyCode: record.currencyCode,
+    priceKindId: refs.priceKindId,
+    priceKindCode: refs.priceKindCode,
+    minQuantity: record.minQuantity,
+    maxQuantity: record.maxQuantity ?? null,
+    unitPriceNet: record.unitPriceNet ?? null,
+    unitPriceGross: record.unitPriceGross ?? null,
+    taxRate: record.taxRate ?? null,
+    taxAmount: record.taxAmount ?? null,
+    channelId: record.channelId ?? null,
+    startsAt: record.startsAt ? record.startsAt.toISOString() : null,
+    endsAt: record.endsAt ? record.endsAt.toISOString() : null,
+  }
+}
+
+// Best-effort by design: the compliance log must never abort a price write. Recording runs on a
+// forked EntityManager after the price flush, and both the write and the cache invalidation are
+// isolated so a failure in either is logged rather than propagated. The gap that leaves is
+// closed by the next mutation on the same price or by `omnibus:backfill`.
+async function recordPriceHistorySafely(
+  em: EntityManager,
+  container: ContainerLike,
+  snapshot: PriceHistorySnapshot,
+  changeType: CatalogPriceHistoryChangeType,
+  opts?: { announce?: boolean },
+): Promise<void> {
+  try {
+    await recordPriceHistoryEntry(em.fork(), snapshot, changeType, 'api', opts)
+  } catch (err) {
+    logger.error('Failed to record Omnibus price history entry', {
+      priceId: snapshot.id,
+      changeType,
+      err,
+    })
+  }
+  try {
+    await invalidateOmnibusCache(resolveOptionalCache(container), {
+      tenantId: snapshot.tenantId,
+      organizationId: snapshot.organizationId,
+      productId: snapshot.productId,
+      variantId: snapshot.variantId,
+    })
+  } catch (err) {
+    logger.error('Failed to invalidate Omnibus cache after price write', {
+      priceId: snapshot.id,
+      changeType,
+      err,
+    })
+  }
 }
 
 const PRICE_CHANGE_KEYS = [
@@ -397,6 +454,19 @@ const createPriceCommand: CommandHandler<PriceCreateInput, { priceId: string }> 
     })
     em.persist(record)
     await em.flush()
+    await recordPriceHistorySafely(
+      em,
+      ctx.container,
+      toPriceHistorySnapshot(record, {
+        productId: productEntity ? productEntity.id : null,
+        variantId: variant ? variant.id : null,
+        offerId: offer ? offer.id : null,
+        priceKindId: priceKind.id,
+        priceKindCode: priceKind.code,
+      }),
+      'create',
+      { announce: (rawInput as Record<string, unknown>).announce === true },
+    )
     await setCustomFieldsIfAny({
       dataEngine: ctx.container.resolve('dataEngine'),
       entityId: E.catalog.catalog_product_price,
@@ -452,6 +522,7 @@ const createPriceCommand: CommandHandler<PriceCreateInput, { priceId: string }> 
     ensureOrganizationScope(ctx, record.organizationId)
     em.remove(record)
     await em.flush()
+    await recordPriceHistorySafely(em, ctx.container, after, 'undo')
     const resetValues = buildCustomFieldResetMap(undefined, after.custom ?? undefined)
     if (Object.keys(resetValues).length) {
       await setCustomFieldsIfAny({
@@ -696,6 +767,19 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
       record.endsAt = parsed.endsAt ?? null
     }
     await em.flush()
+    await recordPriceHistorySafely(
+      em,
+      ctx.container,
+      toPriceHistorySnapshot(record, {
+        productId: targetProduct ? targetProduct.id : null,
+        variantId: targetVariant ? targetVariant.id : null,
+        offerId: targetOffer ? targetOffer.id : null,
+        priceKindId: targetPriceKind.id,
+        priceKindCode: targetPriceKind.code,
+      }),
+      'update',
+      { announce: (rawInput as Record<string, unknown>).announce === true },
+    )
     if (custom && Object.keys(custom).length) {
       await setCustomFieldsIfAny({
         dataEngine: ctx.container.resolve('dataEngine'),
@@ -792,6 +876,7 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
     ensureOrganizationScope(ctx, before.organizationId)
     applyPriceSnapshot(em, record, before)
     await em.flush()
+    await recordPriceHistorySafely(em, ctx.container, before, 'undo')
     const resetValues = buildCustomFieldResetMap(
       before.custom ?? undefined,
       after?.custom ?? undefined
@@ -838,6 +923,9 @@ const deletePriceCommand: CommandHandler<
 
     em.remove(record)
     await em.flush()
+    if (snapshot) {
+      await recordPriceHistorySafely(em, ctx.container, snapshot, 'delete')
+    }
     if (snapshot?.custom && Object.keys(snapshot.custom).length) {
       const resetValues = buildCustomFieldResetMap(snapshot.custom, undefined)
       if (Object.keys(resetValues).length) {
@@ -924,6 +1012,7 @@ const deletePriceCommand: CommandHandler<
     ensureOrganizationScope(ctx, before.organizationId)
     applyPriceSnapshot(em, record, before)
     await em.flush()
+    await recordPriceHistorySafely(em, ctx.container, before, 'undo')
     if (before.custom && Object.keys(before.custom).length) {
       await setCustomFieldsIfAny({
         dataEngine: ctx.container.resolve('dataEngine'),

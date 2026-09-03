@@ -173,6 +173,8 @@ export type ProductFormValues = {
   containsLithiumBattery: boolean;
   launchAt: string;
   endOfLifeAt: string;
+  omnibusExempt: boolean;
+  firstListedAt: string;
   availableFrom: string;
   availableUntil: string;
   minOrderQty: string;
@@ -301,6 +303,8 @@ export const productFormSchema = z
     containsLithiumBattery: z.boolean().optional(),
     launchAt: z.string().optional(),
     endOfLifeAt: z.string().optional(),
+    omnibusExempt: z.boolean().optional(),
+    firstListedAt: z.string().optional(),
     availableFrom: z.string().optional(),
     availableUntil: z.string().optional(),
     minOrderQty: optionalBoundedIntegerInput(1, 100000000),
@@ -405,6 +409,8 @@ export const BASE_INITIAL_VALUES: ProductFormValues = {
   containsLithiumBattery: false,
   launchAt: "",
   endOfLifeAt: "",
+  omnibusExempt: false,
+  firstListedAt: "",
   availableFrom: "",
   availableUntil: "",
   minOrderQty: "",
@@ -466,6 +472,8 @@ export const buildComplianceProductPayload = (
   containsLithiumBattery: values.containsLithiumBattery === true,
   launchAt: complianceDateOrNull(values.launchAt),
   endOfLifeAt: complianceDateOrNull(values.endOfLifeAt),
+  omnibusExempt: values.omnibusExempt === true,
+  firstListedAt: complianceDateOrNull(values.firstListedAt),
   availableFrom: complianceDateOrNull(values.availableFrom),
   availableUntil: complianceDateOrNull(values.availableUntil),
   minOrderQty: compliancePositiveIntOrNull(values.minOrderQty),
@@ -496,6 +504,8 @@ export type ComplianceFormValues = Pick<
   | "containsLithiumBattery"
   | "launchAt"
   | "endOfLifeAt"
+  | "omnibusExempt"
+  | "firstListedAt"
   | "availableFrom"
   | "availableUntil"
   | "minOrderQty"
@@ -553,6 +563,8 @@ export const complianceFormValuesFromApiRecord = (
     ),
     launchAt: dateInput(pick("launch_at", "launchAt")),
     endOfLifeAt: dateInput(pick("end_of_life_at", "endOfLifeAt")),
+    omnibusExempt: boolWithDefault(pick("omnibus_exempt", "omnibusExempt"), false),
+    firstListedAt: dateInput(pick("first_listed_at", "firstListedAt")),
     availableFrom: dateInput(pick("available_from", "availableFrom")),
     availableUntil: dateInput(pick("available_until", "availableUntil")),
     minOrderQty: numStr(pick("min_order_qty", "minOrderQty")),

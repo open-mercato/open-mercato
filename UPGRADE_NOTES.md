@@ -197,6 +197,29 @@ The query object is now built by `buildQueryParams` from `@open-mercato/shared/l
 
 **Action for module authors:** audit your own list-route schemas for filter params that clients may repeat. Where a param is genuinely multi-valued, widen it to `z.union([z.string(), z.array(z.string())])` (or `z.array(z.string())`) and normalize it with `toQueryValueList`. Where it is genuinely single-valued, no change is needed — a repeated occurrence should be rejected. No route URL, HTTP method, response field, `makeCrudRoute` signature, options type, or database column changes, so `BACKWARD_COMPATIBILITY.md` §2, §3 and §7 are not violated.
 
+### Omnibus price tracking adds `catalog.settings.view`, which existing tenants must be granted (#5192)
+
+EU Omnibus (2019/2161) price tracking introduces two additive ACL features, `catalog.settings.view` and `catalog.price_history.view`, and makes `catalog.settings.manage` depend on the former. `GET /api/catalog/settings` returns the new `omnibus` configuration block **only** to callers holding `catalog.settings.view`, and `PUT` rejects an `omnibus` key from a caller who could not read it back.
+
+New tenants receive the grants from `setup.ts` `defaultRoleFeatures`. Existing tenants do not: until the grants are synchronized, the Omnibus settings panel renders against a response with no `omnibus` key and the admin sees an empty panel with nothing explaining why.
+
+**Action for existing tenants:** synchronize role ACLs after deployment, then restart application instances so their in-process ACL caches load the new grants:
+
+```bash
+yarn mercato auth sync-role-acls
+```
+
+Tenant-created roles are not modified by this command — grant `catalog.settings.view` to any custom role that should administer Omnibus configuration.
+
+Separately, the reference price is resolved against recorded price history, so a tenant enabling Omnibus on an existing catalog must seed a baseline first. `PUT /api/catalog/settings` refuses to enable it otherwise, returning `422 backfill_required_before_enable`:
+
+```bash
+yarn mercato catalog omnibus:backfill --org <organizationId> --tenant <tenantId> --all-channels
+```
+
+The backfill is idempotent: a re-run skips every price that already has history.
+
+
 ## 0.6.7 → 0.7.0 (2026-08-26)
 
 ### `PUT /api/auth/users/acl` merges omitted fields instead of clearing them (#5493)
