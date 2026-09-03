@@ -32,6 +32,19 @@ const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url))
 const DEFAULT_ROOT = path.resolve(SCRIPT_DIR, '..')
 const BASELINE_RELATIVE_PATH = 'scripts/agents-md-budget.baseline.json'
 const INSTRUCTION_FILE = 'AGENTS.md'
+const DEFAULT_WARN_AT_PERCENT = 90
+const TOKEN_UNITS = new Set(['bytes', 'tokens'])
+
+/**
+ * Bytes per token. A deliberate estimate, not a tokenizer: every other scanner under
+ * `scripts/` is dependency-free and deterministic, and a token figure is only ever used to
+ * raise a warning, never to fail the build. Anything derived from this is labelled "est.".
+ */
+const ESTIMATED_BYTES_PER_TOKEN = 4
+
+export function estimateTokens(bytes) {
+  return Math.ceil(bytes / ESTIMATED_BYTES_PER_TOKEN)
+}
 
 function parseArgs(argv) {
   const options = { root: DEFAULT_ROOT, updateBaseline: false, json: false }
@@ -62,7 +75,50 @@ function readBaseline(root) {
   if (!baseline.chains || typeof baseline.chains !== 'object') {
     throw new Error(`${BASELINE_RELATIVE_PATH} must define a chains object`)
   }
+  validateWarnAtPercent(baseline)
+  validateTools(baseline)
   return { baseline, baselinePath }
+}
+
+/**
+ * `warnAtPercent` and `tools` are optional so a baseline written before advisory warnings
+ * existed still loads: an absent `tools` table simply yields no tool evaluations, and the
+ * blocking rules keep working untouched.
+ */
+function validateWarnAtPercent(baseline) {
+  if (baseline.warnAtPercent === undefined) return
+  const percent = baseline.warnAtPercent
+  if (typeof percent !== 'number' || !Number.isFinite(percent) || percent <= 0 || percent > 100) {
+    throw new Error(`${BASELINE_RELATIVE_PATH} warnAtPercent must be a number in (0, 100]`)
+  }
+}
+
+function validateTools(baseline) {
+  if (baseline.tools === undefined) return
+  if (typeof baseline.tools !== 'object' || baseline.tools === null || Array.isArray(baseline.tools)) {
+    throw new Error(`${BASELINE_RELATIVE_PATH} tools must be an object keyed by tool name`)
+  }
+  for (const [name, tool] of Object.entries(baseline.tools)) {
+    if (typeof tool !== 'object' || tool === null) {
+      throw new Error(`${BASELINE_RELATIVE_PATH} tools.${name} must be an object`)
+    }
+    if (!TOKEN_UNITS.has(tool.unit)) {
+      throw new Error(`${BASELINE_RELATIVE_PATH} tools.${name}.unit must be "bytes" or "tokens"`)
+    }
+    if (typeof tool.limit !== 'number' || !Number.isFinite(tool.limit) || tool.limit <= 0) {
+      throw new Error(`${BASELINE_RELATIVE_PATH} tools.${name}.limit must be a positive number`)
+    }
+    if (typeof tool.source !== 'string' || tool.source.trim() === '') {
+      throw new Error(
+        `${BASELINE_RELATIVE_PATH} tools.${name}.source must cite where the limit comes from ` +
+          '(a vendor doc, or an explicit note that it is a project policy budget)',
+      )
+    }
+  }
+}
+
+export function warnAtPercentOf(baseline) {
+  return baseline.warnAtPercent ?? DEFAULT_WARN_AT_PERCENT
 }
 
 function fileBytes(absolutePath) {
