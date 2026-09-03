@@ -339,7 +339,7 @@ Each phase ships a working, independently useful capability.
 To be completed at implementation. The gate for each phase:
 
 - `yarn generate`, `yarn build:packages`, `yarn typecheck`, `yarn lint`, `yarn test` clean; `yarn build:app` clean for the phase that touches i18n.
-- Every step's listed test present and passing, with the numeric criteria in Phase 1 step 4, the durable-checkpoint tests in Phase 1 step 2, and the null-key resume tests in Phase 1 step 7 / Phase 2 step 13 treated as blocking, not advisory.
+- Every step's listed test present and passing. Five are **blocking, not advisory**, because each is the direct guard on a decision an earlier revision of this spec got wrong: the numeric memo criteria in Phase 1 step 4; the durable-checkpoint tests in Phase 1 step 2; the **`meta` size-budget test** in Phase 1 step 2 (V19 — it fails the moment per-row-growing data returns to `meta`); the null-key resume tests in Phase 1 step 7 / Phase 2 step 13; and the **interrupted-tree resume test** in Phase 2 step 12 (Resolved Assumption #15 — the tree tests and the resume tests each pass while the combination fails).
 - `BACKWARD_COMPATIBILITY.md` re-checked against the two new optional fields, the new optional `updateProgress` argument, and the flag-gated command behavior; no deprecation protocol triggered.
 - No hard-coded user-facing strings (`yarn i18n:check-hardcoded`); both job types' `name`/`description` locale entries present and resolved server-side.
 
