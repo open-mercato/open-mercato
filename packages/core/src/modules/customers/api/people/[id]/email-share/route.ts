@@ -21,6 +21,7 @@ import {
   canShareConversation,
   listSharesForPerson,
 } from '../../../../lib/conversationShares'
+import { invalidatePersonDetailCache } from '../../../../lib/personDetailCacheTags'
 
 export const metadata = {
   path: '/customers/people/[id]/email-share',
@@ -235,7 +236,7 @@ export async function PUT(req: Request, context: RouteContext): Promise<Response
   // The person-detail cache is tagged on customers resources only, and this write
   // lands in a different table, so the interaction collection tags are invalidated
   // explicitly or a teammate would keep seeing the pre-share view until TTL.
-  await invalidatePersonInteractionCache(container, tenantId, organizationId)
+  await invalidatePersonDetailCache(container, tenantId, organizationId)
 
   return NextResponse.json({ ok: true, changed: result.changed, shared: body.shared })
 }
@@ -265,25 +266,6 @@ async function resolveUserNames(
     /* best effort — the badge falls back to a generic label without a name */
   }
   return names
-}
-
-async function invalidatePersonInteractionCache(
-  container: { resolve: (name: string) => unknown },
-  tenantId: string,
-  organizationId: string | null,
-): Promise<void> {
-  try {
-    const cache = container.resolve('cache') as
-      | { invalidateTags?: (tags: string[]) => Promise<void> }
-      | undefined
-    if (!cache?.invalidateTags) return
-    await cache.invalidateTags([
-      `customers.interaction:collection:${tenantId}:${organizationId ?? 'null'}`,
-      `customers.person:collection:${tenantId}:${organizationId ?? 'null'}`,
-    ])
-  } catch {
-    /* best effort — a stale cached page is a TTL-bounded annoyance, not a leak */
-  }
 }
 
 export const openApi = {

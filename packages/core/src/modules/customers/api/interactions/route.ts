@@ -184,6 +184,10 @@ type InteractionListRow = {
   participants: Array<{ userId?: string; name?: string; email?: string; status?: string }> | null
   reminder_minutes: number | null
   visibility: string | null
+  /** MessageChannelLink id — the email-card enricher cannot resolve a link without it. */
+  external_message_id: string | null
+  /** Denormalized channel — the shared-team-mailbox arm keys on this, not on the author. */
+  channel_id: string | null
   linked_entities: Array<{ id: string; type: string; label: string }> | null
   guest_permissions: { canInviteOthers?: boolean; canModify?: boolean; canSeeList?: boolean } | null
   pinned: boolean
@@ -316,6 +320,12 @@ const INTERACTION_LIST_COLUMNS = [
   'participants',
   'reminder_minutes',
   'visibility',
+  // Required by `interactionEmailCardEnricher`: without `external_message_id` it
+  // cannot resolve the MessageChannelLink at all, and without `channel_id` the
+  // shared-team-mailbox arm of `isEmailHiddenFrom` can never match, so a teammate
+  // silently loses the email-card actions on a mailbox they may legitimately read.
+  'external_message_id',
+  'channel_id',
   'linked_entities',
   'guest_permissions',
   'pinned',
@@ -683,6 +693,8 @@ export async function GET(req: Request) {
       participants: row.participants ?? null,
       reminderMinutes: row.reminder_minutes ?? null,
       visibility: row.visibility ?? null,
+      externalMessageId: row.external_message_id ?? null,
+      channelId: row.channel_id ?? null,
       linkedEntities: row.linked_entities ?? null,
       guestPermissions: row.guest_permissions ?? null,
       pinned: row.pinned ?? false,

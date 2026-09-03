@@ -1,6 +1,6 @@
 # CRM Conversation Shared Visibility
 
-> **Status:** READY FOR IMPLEMENTATION. The Open Questions gate is closed — see § Gate Decisions.
+> **Status:** IMPLEMENTED. The Open Questions gate is closed — see § Gate Decisions. Q1 and Q3 were **reopened and re-decided on 2026-08-28**; read those rows before assuming the original answers still hold.
 > Readiness audit: [`analysis/ANALYSIS-2026-08-25-crm-channel-shared-visibility.md`](analysis/ANALYSIS-2026-08-25-crm-channel-shared-visibility.md). Every Critical and High finding in that audit is addressed by a numbered Step below.
 
 ## 📝 TLDR
@@ -13,9 +13,9 @@ Answers are derived from the implementation brief's own wording plus the audit's
 
 | # | Question | Decision | Rationale |
 |---|---|---|---|
-| **Q1** | One spec or split (channel-level + conversation-level)? | **Conversation-level only. No `communication_channels.visibility` column.** | The brief's operative sentence is "the owner of a specific channel be able to switch **a conversation for a specific PeopleCustomer entity** into public". A channel-wide flag is not required to satisfy it, and adding one carries audit BC #3 / R8 (a `DEFAULT 'private'` column addition silently un-shares every existing tenant-wide WhatsApp/Slack/push channel on deploy). Dropping it removes that hazard entirely. A channel-wide flag remains an additive follow-up. |
+| **Q1** | One spec or split (channel-level + conversation-level)? | **REOPENED 2026-08-28 → both.** Conversation-level *and* a `communication_channels.visibility` column. | Originally decided conversation-level-only, on the belief that a team mailbox could be approximated by connecting the mailbox tenant-wide. **That belief was wrong for email**: `connect/credentials` (IMAP) and `oauth/[provider]/initiate` (Gmail) both hardcode `userId: auth.sub`, and `connect/tenant-credentials` — the only route producing `user_id IS NULL` — is push-only (FCM/APNs/Expo) per its own OpenAPI summary and the `connect_tenant_channel` ACL comment. There was therefore **no mechanism at any level** to run a genuine team mailbox, which makes the channel flag a substantive capability rather than the redundant convenience Q1 first assumed. The **R8 hazard that motivated the original NO is mitigated, not ignored**: the column addition is followed *in the same migration* by `UPDATE communication_channels SET visibility='shared' WHERE user_id IS NULL`, so every existing tenant-wide push channel keeps its shared status on deploy. `set-channel-visibility.test.ts` pins the tenant-scoped-channel refusal. |
 | **Q2** | Retroactivity of a flip | **Retroactive and reversible, by read-time derivation.** A share row widens what the read filter admits; no row is ever rewritten. | Option (b) write-time backfill is a privacy one-way door (audit R4: un-sharing cannot distinguish owner-shared from flip-shared rows) and leaves the query index stale (R6). Option (c) forward-only makes the feature useless — sharing a conversation that shows no history does not hand anything over. Read-time derivation gets retroactivity *and* lossless undo. |
-| **Q3** | Unit of a shared conversation | **Person × mailbox owner** — every email between that Person and that owner's personal mailbox(es), present and future. | The brief's grammar puts the channel on the *actor* ("the owner of a specific channel") and the Person on the *object* ("a conversation for a specific PeopleCustomer entity"). Keying the share on `(person, owner_user_id)` matches that, and matches the column the privacy rule already keys on (`customer_interactions.author_user_id`), so the existing covering index serves the new predicate unchanged — no `channel_id` denormalisation, no four-table join, no backfill (audit finding #5, R10 avoided). **Accepted trade-off:** an owner with two personal mailboxes shares both for that Person. This is the coherent unit (a half-shared conversation is a worse UX than a whole one) and is refinable additively later — the share table can gain a nullable `channel_id` without a contract break. |
+| **Q3** | Unit of a shared conversation | **Person × mailbox owner** for the conversation grant (unchanged). **REOPENED 2026-08-28:** the channel flag additionally requires a denormalised `customer_interactions.channel_id`. | The conversation grant still keys on `(person, owner_user_id)`, reusing `customer_interactions_email_visibility_idx` with no schema change — that decision stands. But the *channel* flag cannot reuse it: an owner with one shared and one private mailbox has the **same `author_user_id` on both**, so an author-keyed rule would expose the private one. Channel sharing therefore denormalises `channel_id`, written at ingestion and backfilled once via the only available chain (`message_channel_links` carries no channel id): `external_message_id → message_channel_links.id`, `.external_conversation_id → external_conversations.id`, `.channel_id`. This is audit finding #5's own recommendation, accepted here rather than avoided. `TC-CRM-EMAIL-VISIBILITY-004` pins the two-mailbox leak case: the sibling private mailbox must stay hidden and the private-email count must land on 1, not 0. |
 | **Q4** | Who may flip; does un-sharing claw back | **Owner-only. No admin escalation. Un-sharing fully claws back.** | The implementation brief says "only the owner can toggle". Per audit finding #2 / R3, the two reserved features (`customers.email.view_private`, `communication_channels.admin`) are **already granted tenant-wide** via `admin: ['customers.*']` and explicit grants, so activating either as the Q4 mechanism would retroactively expose every private email in every tenant. This spec activates **neither**; both stay inert, and a test asserts it. Because sharing is derived at read time, revoking is instant and complete. |
 
 ---
@@ -89,7 +89,12 @@ Indexes:
 - `customer_email_conversation_shares_lookup_idx` — `(tenant_id, organization_id, person_entity_id) WHERE deleted_at IS NULL` (Person-page read).
 - `customer_email_conversation_shares_owner_idx` — `(tenant_id, owner_user_id) WHERE deleted_at IS NULL` (the "conversations I have shared" read).
 
-Migration is a single additive `CREATE TABLE` + indexes in `customers/migrations/`, plus `migrations/.snapshot-open-mercato.json` updated in the same commit. No column is added to and no row is rewritten in any existing table. Per lesson `duplicate-migration-creation-causes-initialize-failures`, check `customers/migrations/` for overlapping DDL before generating, and keep only this module's SQL.
+The channel flag adds two more pieces:
+
+- **`communication_channels.visibility`** — `text NOT NULL DEFAULT 'private'`. Made explicit rather than inferred from `user_id`, so a *personal* mailbox can be team-visible without surrendering owner-only management. The migration follows the column add with `UPDATE … SET visibility='shared' WHERE user_id IS NULL` **in the same file**, so existing tenant-wide push channels keep working.
+- **`customer_interactions.channel_id`** — `uuid null`, written at ingestion and backfilled once via the `message_channel_links` → `external_conversations` chain, plus a partial index on `(channel_id, entity_id)` for email rows. Required because the channel arm must key on the channel, not the author (see Q3). Unresolvable rows stay `NULL`, which every predicate treats as *not shared*.
+
+Both are additive column adds. Migrations are a single additive `CREATE TABLE` + indexes for the share table
 
 ## 📝 API Contracts
 
@@ -109,8 +114,8 @@ New route `customers/api/people/[id]/email-share/route.ts`, mirroring the struct
 - Wires the mutation-guard registry per `packages/core/AGENTS.md` § API Routes (operation `update`), and exports `openApi`.
 
 Response-shape additions (all **optional** fields, fail-closed absent ⇒ today's behaviour, per audit BC #6/#7):
-- `GET /api/customers/people/{id}/email-threads` — each thread gains `sharedVia?: 'message' | 'conversation'` and `sharedByUserName?: string`.
-- `EmailCardWidgetData` gains `sharedVia?: 'message' | 'conversation'`. `currentVisibility` keeps its exact present meaning; a teammate reading a conversation-shared email is shown the state, **not** a toggle that would 404.
+- `GET /api/communication_channels/me/channels` — each channel gains `visibility` and `updatedAt` (the latter so the toggle can send the optimistic-lock header).
+- `EmailCardWidgetData` is **unchanged**: `currentVisibility` keeps its exact present meaning, and a teammate reading a shared email is shown the state, **not** a toggle that would 404. The `sharedVia` / `sharedByUserName` fields Step 11 originally proposed were **not** added — see Step 11.
 
 ## 📝 UI/UX
 
@@ -154,10 +159,10 @@ Audited against all 13 contract surfaces in `BACKWARD_COMPATIBILITY.md`.
 | Surface | Change | Classification |
 |---|---|---|
 | **2. Types / 3. Signatures** | `EmailVisibilityMikroFilter` narrows from `{ $or?: … }` to an opaque `FilterQuery<CustomerInteraction>`. All four callers are in-repo and converted in the same commit. `ApplyEmailVisibilityFilterOptions` and `BuildPersonEmailThreadsOptions` gain **optional** `sharedConversations` with a fail-closed default (absent ⇒ today's strict owner-only behaviour), matching the `userFeatures` precedent. | Breaking-shape but fully in-repo → **allowed with same-commit caller update**. `@deprecated` alias `EmailVisibilityMikroFilter` retained as a type alias for one minor per the deprecation protocol. |
-| **5. Event IDs** | **New** id `customers.email.conversation_visibility_changed` (`clientBroadcast: true`). The existing `customers.email.visibility_changed` payload is **not** touched — its required `interactionId` stays required (audit BC #4). | Additive. |
-| **7. API route URLs** | New `GET`/`PUT /api/customers/people/{id}/email-share`. Existing routes unchanged; the 404 masking on the per-message route is preserved verbatim. | Additive. |
-| **8. DB schema** | One new table + three indexes. No existing column added, altered, or rewritten. | Additive. |
-| **10. ACL feature IDs** | **New** `customers.email.share_conversation`, granted to `admin` (via the existing `customers.*` wildcard) and added explicitly to `employee` in `defaultRoleFeatures`, then synced with `yarn mercato auth sync-role-acls`. `customers.email.view_private` and `communication_channels.admin` stay **inert**. | Additive. |
+| **5. Event IDs** | **New** ids `customers.email.conversation_visibility_changed` and `communication_channels.channel.visibility_changed`. The customers event is **audit-only, not `clientBroadcast`** — its payload names a Person and a mailbox owner with no recipient hint, so broadcasting would tell the whole tenant audience that user X had a private conversation with Person P. The existing `customers.email.visibility_changed` payload is **not** touched — its required `interactionId` stays required (audit BC #4). | Additive. |
+| **7. API route URLs** | New `GET`/`PUT /api/customers/people/{id}/email-share` **and `PUT /api/communication_channels/channels/{id}/visibility`** (owner-only, 404-masked, optimistic-locked; mirrors `set-primary`). Existing routes unchanged; the 404 masking on the per-message route is preserved verbatim. | Additive. |
+| **8. DB schema** | One new table + three indexes (`customer_email_conversation_shares`), **plus two additive columns**: `communication_channels.visibility` (`NOT NULL DEFAULT 'private'`, with the same-migration `UPDATE … WHERE user_id IS NULL`) and `customer_interactions.channel_id` (nullable, backfilled, with a partial index). Both are additive column adds; no existing column is altered or dropped, and no `visibility` value on `customer_interactions` is ever rewritten. | Additive. |
+| **10. ACL feature IDs** | **New** `customers.email.share_conversation` **and `communication_channels.share_own_channel`** (owner-scoped by construction — the write derives the owner from the actor, so the wildcard grant admins hold is not an escalation), granted to `admin` (via the existing `customers.*` wildcard) and added explicitly to `employee` in `defaultRoleFeatures`, then synced with `yarn mercato auth sync-role-acls`. `customers.email.view_private` and `communication_channels.admin` stay **inert**. | Additive. |
 | **6. Widget spot IDs** | `EmailCardWidgetData` gains optional `sharedVia`. `currentVisibility` semantics unchanged. | Additive. |
 | 1, 4, 9, 11, 12, 13 | Auto-discovery, import paths, DI keys, notification ids, CLI, generated files — no change beyond `yarn generate`. | n/a |
 
@@ -181,7 +186,7 @@ Audited against all 13 contract surfaces in `BACKWARD_COMPATIBILITY.md`.
 - [ ] **Step 8 — Add the commands and the API route.** Undoable `customers.email_conversation_share.set` command emitting the new event and invalidating `customers.interaction` cache tags. Route `api/people/[id]/email-share/route.ts` with `GET`/`PUT` per § API Contracts: owner-only by construction, mutation-guard registry wired (operation `update`), optimistic locking, 404 masking, `openApi` export.
 - [ ] **Step 9 — Widen the shared predicates.** Add optional `sharedConversations: Array<{ personEntityId: string; ownerUserId: string }>` to `ApplyEmailVisibilityFilterOptions`; emit the extra nested-`$or` / `eb.or` arm matching `(entity_id, author_user_id)`. Absent ⇒ byte-identical to today (fail closed).
 - [ ] **Step 10 — Wire the share lookup into every read path.** `personEmailThreads.ts`, `api/people/[id]/route.ts`, `api/companies/[id]/route.ts`, `api/activities/route.ts`, `api/interactions/route.ts`, `api/interactions/counts/route.ts`, and both enrichers. Person-scoped paths pass the single relevant tuple; unscoped paths use `listSharesForViewer`.
-- [ ] **Step 11 — Add the response fields.** `sharedVia` / `sharedByUserName` on the email-threads payload and `sharedVia` on `EmailCardWidgetData` — optional only.
+- [x] **Step 11 — SUPERSEDED.** Originally: add `sharedVia` / `sharedByUserName` to the `/email-threads` payload and `sharedVia` to `EmailCardWidgetData`. **Delivered differently:** the teammate-facing "Shared by {name}" affordance reads from the dedicated `GET /email-share` response (`sharedBy[]`, with resolved user names) instead. Same user-visible outcome, two fewer frozen contract surfaces touched. Neither identifier exists in the shipped code, and § API Contracts / § Integration Test Coverage no longer assert them. A per-message `sharedVia` provenance badge remains a genuinely additive follow-up.
 - [ ] **Step 12 — Build the Emails-tab control.** Share switch + confirm dialog (`Cmd/Ctrl+Enter` / `Escape`), "Shared by {name}" badge with semantic status tokens, `useGuardedMutation` + `surfaceRecordConflict`. No hardcoded strings, no arbitrary Tailwind values.
 - [ ] **Step 13 — Add i18n keys** under `customers.email.conversationShare.*` to all five locale files (`en`, `pl`, `de`, `es`, `ko`). Run `yarn i18n:check-sync` and `yarn i18n:check-usage`.
 - [ ] **Step 14 — Unit tests.** Extend `lib/__tests__/visibilityFilter.test.ts`: kysely and MikroORM predicates agree on a shared row matrix (with and without shares); a non-`$or` arm survives; the v1 owner-only filter still ignores caller features including `customers.*` and `*` (asserts R3).
@@ -200,6 +205,9 @@ Audited against all 13 contract surfaces in `BACKWARD_COMPATIBILITY.md`.
 | `GET /api/customers/activities` | Deprecated surface honours the share. |
 | Person page private-email count | Drops to 0 for a teammate once the conversation is shared (R2). |
 | Inbound ingestion | Reply threaded onto a shared conversation is visible to the teammate without a new share (R6). |
+| `PUT /api/communication_channels/channels/{id}/visibility` | Owner flips their own channel (200, idempotent on repeat); non-owner refused (404/403); admin holding `communication_channels.admin` refused; tenant-scoped channel refused; stale `updatedAt` → 409. |
+| Channel share, retroactive + reversible (`TC-CRM-EMAIL-VISIBILITY-004`) | Teammate gains mail sent BEFORE the flip on both `/email-threads` and `/interactions`; loses it on revert; owner keeps their own throughout. |
+| **Two-mailbox leak canary** (`-004`) | One owner, two private mailboxes, only one shared: the sibling stays hidden on both surfaces and the private-email count lands on **1, not 0**. This is the case an author-keyed predicate would leak. |
 | UI (Playwright) | Owner toggles the switch, confirms the dialog, teammate reloads and reads the thread with the "Shared by" badge; owner toggles off and the teammate's view empties. |
 
 ## 📝 Prior Specs Reviewed
@@ -212,6 +220,8 @@ Audited against all 13 contract surfaces in `BACKWARD_COMPATIBILITY.md`.
 | [`enterprise/2026-07-08-gdpr-data-erasure.md`](enterprise/2026-07-08-gdpr-data-erasure.md) | GDPR surface; reconciled in § Risks R5, with a post-implementation follow-up. |
 
 ## 📝 Changelog
+
+| 2026-08-28 | **Q1 and Q3 reopened and re-decided** after review of PR open-mercato#5756. Q1's original "no channel column" rested on a workaround that does not exist for email (tenant-wide connect is push-only), so the channel flag is in scope; its R8 hazard is mitigated by the same-migration `UPDATE … WHERE user_id IS NULL` rather than avoided. Q3 keeps `(person, owner)` for the conversation grant but accepts the `channel_id` denormalisation for the channel flag, because both mailboxes of one owner share an `author_user_id`. § Data Model, § API Contracts, § Migration & BC (surfaces 5, 7, 8, 10) and § Integration Test Coverage updated; Step 11 marked superseded. |
 
 | Date | Change |
 |---|---|

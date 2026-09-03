@@ -45,7 +45,8 @@ import { buildEmailVisibilityMikroFilter } from '../../../lib/visibilityFilter'
 import { listGrantsForViewerOnPerson, listSharedChannelIds } from '../../../lib/conversationShares'
 import { resolveCustomerDetailTenantScope } from '../../../lib/detailTenantScope'
 import { runWithCacheTenant } from '@open-mercato/cache'
-import { buildCollectionTags, canonicalizeResourceTag, isCrudCacheEnabled, resolveCrudCache } from '@open-mercato/shared/lib/crud/cache'
+import { isCrudCacheEnabled, resolveCrudCache } from '@open-mercato/shared/lib/crud/cache'
+import { buildPersonDetailCacheTags } from '../../../lib/personDetailCacheTags'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('customers')
@@ -71,15 +72,6 @@ const paramsSchema = z.object({
 // personCompanyLink) produce the SAME tag the command bus deletes on
 // write/undo/redo — otherwise the cache would never be invalidated for them.
 const PERSON_DETAIL_TTL_MS = 60_000
-const PERSON_DETAIL_TAG_RESOURCES = [
-  'customers.person',
-  'customers.address',
-  'customers.tagAssignment',
-  'customers.labelAssignment',
-  'customers.personCompanyLink',
-  'customers.interaction',
-  'customers.activity',
-] as const
 
 function buildPersonDetailCacheKey(params: {
   personId: string
@@ -106,14 +98,6 @@ function buildPersonDetailCacheKey(params: {
   ].join(':')
 }
 
-function buildPersonDetailCacheTags(tenantId: string | null, organizationId: string | null): string[] {
-  const tags: string[] = []
-  for (const resource of PERSON_DETAIL_TAG_RESOURCES) {
-    const canonical = canonicalizeResourceTag(resource) ?? resource
-    tags.push(...buildCollectionTags(canonical, tenantId, [organizationId]))
-  }
-  return tags
-}
 
 function parseIncludeParams(request: Request): Set<string> {
   const url = new URL(request.url)

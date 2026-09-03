@@ -22,7 +22,6 @@ import { Label } from '@open-mercato/ui/primitives/label'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { KbdShortcut } from '@open-mercato/ui/primitives/kbd'
 import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
-import { RowActions, type RowActionItem } from '@open-mercato/ui/backend/RowActions'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
@@ -85,7 +84,6 @@ export default function ProfileCommunicationChannelsPage() {
   const [reloadKey, setReloadKey] = React.useState(0)
   const [importChannel, setImportChannel] = React.useState<ChannelRow | null>(null)
   const [disconnectChannel, setDisconnectChannel] = React.useState<ChannelRow | null>(null)
-  const [connectOpen, setConnectOpen] = React.useState(false)
   const { runMutation, retryLastMutation } = useGuardedMutation<ChannelMutationContext>({
     contextId: PROFILE_CHANNELS_MUTATION_CONTEXT_ID,
     blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
@@ -380,29 +378,60 @@ export default function ProfileCommunicationChannelsPage() {
       {
         header: t('communication_channels.profile.columns.primary', 'Primary'),
         accessorKey: 'isPrimary',
-        // Status only — "Set as primary" lives in the row actions menu.
         cell: ({ row }) =>
           row.original.isPrimary ? (
             <Tag variant="success" dot>
               {t('communication_channels.profile.primary', 'Primary')}
             </Tag>
           ) : (
-            <span className="text-xs text-muted-foreground">—</span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => void onSetPrimary(row.original.id)}
+              aria-label={t('communication_channels.profile.actions.setPrimary', 'Set as primary')}
+            >
+              {t('communication_channels.profile.actions.setPrimary', 'Set as primary')}
+            </Button>
           ),
       },
       {
         header: t('communication_channels.profile.columns.sharing', 'Team access'),
         accessorKey: 'visibility',
-        // Status only — the share/unshare flip lives in the row actions menu.
+        // Only email ingestion writes customer_interactions, so on an SMS or push
+        // channel a share would flip the flag and flash success while changing
+        // nothing anyone can observe. Offer it for email channels only.
         cell: ({ row }) =>
-          row.original.visibility === 'shared' ? (
-            <Tag variant="info" dot>
-              {t('communication_channels.profile.share.shared', 'Shared')}
-            </Tag>
+          row.original.channelType !== 'email' ? (
+            <span className="text-xs text-muted-foreground">—</span>
+          ) : row.original.visibility === 'shared' ? (
+            <div className="flex items-center gap-2">
+              <Tag variant="info" dot>
+                {t('communication_channels.profile.share.shared', 'Shared')}
+              </Tag>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => void onSetVisibility(row.original, false)}
+              >
+                {t('communication_channels.profile.share.makePrivate', 'Make private')}
+              </Button>
+            </div>
           ) : (
-            <span className="text-xs text-muted-foreground">
-              {t('communication_channels.profile.share.private', 'Only you')}
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">
+                {t('communication_channels.profile.share.private', 'Only you')}
+              </span>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => void onSetVisibility(row.original, true)}
+              >
+                {t('communication_channels.profile.share.shareCta', 'Share with team')}
+              </Button>
+            </div>
           ),
       },
       {
@@ -438,18 +467,8 @@ export default function ProfileCommunicationChannelsPage() {
                 </Tag>
               )
             }
-            // The "why is there no Poll now action?" explanation used to live on
-            // the disabled Sync button's aria-label. That button is gone, so the
-            // reason moves here rather than being lost.
             return (
-              <Tag
-                variant="success"
-                dot
-                title={t(
-                  'communication_channels.profile.actions.pollNowPushDriven',
-                  'This channel is push-driven — inbound messages arrive over the provider connection, so polling does not apply.',
-                )}
-              >
+              <Tag variant="success" dot>
                 {t('communication_channels.push.status.pushDriven', 'Push-driven')}
               </Tag>
             )
@@ -463,9 +482,21 @@ export default function ProfileCommunicationChannelsPage() {
           }
           if (ps === 'failed') {
             return (
-              <Tag variant="error" dot title={errorTitle}>
-                {t('communication_channels.push.status.failed', 'Push failed — using polling')}
-              </Tag>
+              <div className="flex items-center gap-2">
+                <Tag variant="error" dot>
+                  {t('communication_channels.push.status.failed', 'Push failed — using polling')}
+                </Tag>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void onRegisterPush(row.original.id)}
+                  aria-label={t('communication_channels.push.button.reregister', 'Re-register push')}
+                  title={errorTitle}
+                >
+                  {t('communication_channels.push.button.reregister', 'Re-register push')}
+                </Button>
+              </div>
             )
           }
           // null or 'inactive' — the provider can register push but has not yet.
@@ -473,11 +504,22 @@ export default function ProfileCommunicationChannelsPage() {
           // push-driven one nothing is delivering inbound at all, so claiming
           // "Polling only" would repeat the defect this issue is about (#4980).
           return (
-            <span className="text-xs text-muted-foreground">
-              {row.original.supportsRealtimePush
-                ? t('communication_channels.push.status.notRegistered', 'Push not registered')
-                : t('communication_channels.push.status.inactive', 'Polling only')}
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">
+                {row.original.supportsRealtimePush
+                  ? t('communication_channels.push.status.notRegistered', 'Push not registered')
+                  : t('communication_channels.push.status.inactive', 'Polling only')}
+              </span>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => void onRegisterPush(row.original.id)}
+                aria-label={t('communication_channels.push.button.reregister', 'Re-register push')}
+              >
+                {t('communication_channels.push.button.reregister', 'Re-register push')}
+              </Button>
+            </div>
           )
         },
       },
@@ -490,91 +532,89 @@ export default function ProfileCommunicationChannelsPage() {
             : '—',
       },
       {
-        id: 'actions',
-        header: t('communication_channels.profile.columns.actions', 'Actions'),
-        // Every per-row action lives here rather than as its own column. The
-        // table previously carried five action columns, which pushed the row past
-        // the viewport and clipped the trailing buttons.
-        //
-        // `RowActionItem` has no disabled state, so an unavailable action is
-        // OMITTED rather than greyed out. The reason stays visible in the row: the
-        // Status and Push columns already say why a channel cannot be polled or
-        // needs reconnecting.
+        id: 'importHistory',
+        header: t('communication_channels.profile.columns.importHistory', 'History'),
         cell: ({ row }) => {
-          const channel = row.original
-          const items: RowActionItem[] = []
-
-          if (!channel.isPrimary) {
-            items.push({
-              id: 'set-primary',
-              label: t('communication_channels.profile.actions.setPrimary', 'Set as primary'),
-              onSelect: () => { void onSetPrimary(channel.id) },
-            })
-          }
-
-          items.push(
-            channel.visibility === 'shared'
-              ? {
-                  id: 'make-private',
-                  label: t('communication_channels.profile.share.makePrivate', 'Make private'),
-                  onSelect: () => { void onSetVisibility(channel, false) },
-                }
-              : {
-                  id: 'share-with-team',
-                  label: t('communication_channels.profile.share.shareCta', 'Share with team'),
-                  onSelect: () => { void onSetVisibility(channel, true) },
-                },
+          const eligible =
+            row.original.isActive &&
+            row.original.status === 'connected' &&
+            row.original.channelType === 'email'
+          const label = t('communication_channels.profile.actions.importHistory', 'Import history')
+          return (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setImportChannel(row.original)}
+              disabled={!eligible}
+              aria-label={label}
+            >
+              {label}
+            </Button>
           )
-
-          // Offered only when the adapter can register push AND it is not already
-          // active — re-registering a healthy subscription is a no-op.
-          if (channel.supportsPushRegistration && channel.pushStatus !== 'active') {
-            items.push({
-              id: 'register-push',
-              label: t('communication_channels.push.button.reregister', 'Re-register push'),
-              onSelect: () => { void onRegisterPush(channel.id) },
-            })
-          }
-
-          // Same eligibility the History column enforced.
-          if (channel.isActive && channel.status === 'connected' && channel.channelType === 'email') {
-            items.push({
-              id: 'import-history',
-              label: t('communication_channels.profile.actions.importHistory', 'Import history'),
-              onSelect: () => setImportChannel(channel),
-            })
-          }
-
-          // Same eligibility the Sync column enforced: allowed from 'connected'
-          // AND 'error' (so a stuck channel can be recovered without a
-          // reconnect), never for a push-driven channel the worker skips.
+        },
+      },
+      {
+        id: 'pollNow',
+        header: t('communication_channels.profile.columns.pollNow', 'Sync'),
+        cell: ({ row }) => {
+          // Allowed from 'connected' AND 'error' — the latter lets the user
+          // recover a stuck channel without disconnecting + reconnecting.
+          // 'requires_reauth' and 'disconnected' are owned by other flows.
+          // A push-driven channel is never polled by the worker, so offering the
+          // action at all would promise a sync that cannot happen (#4980).
+          const pushDriven = row.original.supportsRealtimePush
           const pollable =
-            channel.isActive &&
-            !channel.supportsRealtimePush &&
-            (channel.status === 'connected' || channel.status === 'error')
-          if (pollable) {
-            items.push({
-              id: 'poll-now',
-              label:
-                channel.status === 'error'
-                  ? t('communication_channels.profile.actions.retryPoll', 'Retry')
-                  : t('communication_channels.profile.actions.pollNow', 'Poll now'),
-              onSelect: () => { void onPollNow(channel.id) },
-            })
-          }
-
-          items.push({
-            id: 'disconnect',
-            label: t('communication_channels.profile.actions.disconnect', 'Disconnect'),
-            destructive: true,
-            onSelect: () => setDisconnectChannel(channel),
-          })
-
-          return <RowActions items={items} />
+            row.original.isActive &&
+            !pushDriven &&
+            (row.original.status === 'connected' || row.original.status === 'error')
+          const label =
+            row.original.status === 'error'
+              ? t('communication_channels.profile.actions.retryPoll', 'Retry')
+              : t('communication_channels.profile.actions.pollNow', 'Poll now')
+          const disabledReason = pushDriven
+            ? t(
+                'communication_channels.profile.actions.pollNowPushDriven',
+                'This channel is push-driven — inbound messages arrive over the provider connection, so polling does not apply.',
+              )
+            : undefined
+          const button = (
+            <Button
+              type="button"
+              variant={row.original.status === 'error' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => void onPollNow(row.original.id)}
+              disabled={!pollable}
+              aria-label={disabledReason ? `${label} — ${disabledReason}` : label}
+            >
+              {label}
+            </Button>
+          )
+          // A disabled button does not receive hover events in every browser, so
+          // the explanation lives on a wrapper the pointer can still reach.
+          return disabledReason ? <span title={disabledReason}>{button}</span> : button
+        },
+      },
+      {
+        id: 'disconnect',
+        header: t('communication_channels.profile.columns.disconnect', 'Connection'),
+        cell: ({ row }) => {
+          const label = t('communication_channels.profile.actions.disconnect', 'Disconnect')
+          return (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setDisconnectChannel(row.original)}
+              aria-label={label}
+            >
+              {label}
+            </Button>
+          )
         },
       },
     ],
-    [onSetPrimary, onSetVisibility, onPollNow, onRegisterPush, setImportChannel, setDisconnectChannel, t],
+    [onSetPrimary, onSetVisibility, onPollNow, onRegisterPush, t],
   )
 
   return (
@@ -592,21 +632,13 @@ export default function ProfileCommunicationChannelsPage() {
               )}
             </p>
           </div>
-          {/* One entry point instead of one button per provider.
-              
-              The provider list is open-ended — channel-gmail and channel-imap
-              inject here in this repo, but any channel-* package (Discord, and
-              third-party ones) can too — so the header grew a button per
-              installed provider and eventually overflowed. Collecting them
-              behind a single "Connect" keeps the header fixed-width however many
-              providers are installed.
-              
-              The injected widgets are rendered unchanged inside the dialog, so
-              the UMES contract is untouched and no provider package needs to
-              know about this. */}
-          <Button type="button" onClick={() => setConnectOpen(true)}>
-            {t('communication_channels.profile.connect.button', 'Connect')}
-          </Button>
+          {/* Provider connect entry points injected by each channel-* package
+              (channel-gmail, channel-imap) via UMES. */}
+          <InjectionSpot
+            spotId={extensionPoints.hosts.profileConnect.spotId}
+            context={{ reload: () => setReloadKey((k) => k + 1) }}
+            data={{}}
+          />
         </header>
 
         {reauthRows.length > 0 ? (
@@ -649,44 +681,6 @@ export default function ProfileCommunicationChannelsPage() {
             setReloadKey((k) => k + 1)
           }}
         />
-        <Dialog open={connectOpen} onOpenChange={setConnectOpen}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>
-                {t('communication_channels.profile.connect.dialogTitle', 'Connect a channel')}
-              </DialogTitle>
-              <DialogDescription>
-                {t(
-                  'communication_channels.profile.connect.dialogDescription',
-                  'Choose a provider. Outbound messages will come from your own account, and inbound messages land in your unified inbox.',
-                )}
-              </DialogDescription>
-            </DialogHeader>
-
-            {/* Each channel-* package contributes its own control here. They are
-                rendered as-is: `items-stretch` makes them fill the dialog width
-                so they read as a provider list rather than a button cluster.
-                
-                Note: a provider whose control opens its own dialog (IMAP asks for
-                credentials) stacks that dialog above this one. Radix layers them
-                correctly, but the tidier end state is for providers to expose a
-                headless "begin connect" action instead of a self-contained
-                button+dialog — that is a change to the widget contract in every
-                channel-* package, not to this host. */}
-            <div className="flex flex-col items-stretch gap-2 py-2">
-              <InjectionSpot
-                spotId={extensionPoints.hosts.profileConnect.spotId}
-                context={{
-                  reload: () => {
-                    setConnectOpen(false)
-                    setReloadKey((k) => k + 1)
-                  },
-                }}
-                data={{}}
-              />
-            </div>
-          </DialogContent>
-        </Dialog>
         {ConfirmDialogElement}
       </PageBody>
     </Page>

@@ -17,6 +17,8 @@ import { canShareConversation } from '../lib/conversationShares'
 
 const RESOURCE_KIND = 'customers.email_conversation_share'
 
+const POSTGRES_UNIQUE_VIOLATION = '23505'
+
 type ShareSnapshot = {
   id: string
   personEntityId: string
@@ -171,10 +173,22 @@ const setEmailConversationShareCommand: CommandHandler<
         sharedByUserId: ownerUserId,
       } as never) as CustomerEmailConversationShare
 
-      await withAtomicFlush(em, [() => { em.persist(created) }], {
-        transaction: true,
-        label: 'customers.email_conversation_shares.set',
-      })
+      try {
+        await withAtomicFlush(em, [() => { em.persist(created) }], {
+          transaction: true,
+          label: 'customers.email_conversation_shares.set',
+        })
+      } catch (err) {
+        // `loadOwnShare` -> `em.create` is a read-then-write with no lock, and
+        // `customer_email_conv_shares_uq` is UNIQUE (tenant, person, owner) WHERE
+        // deleted_at IS NULL. Two concurrent PUT {shared:true} both read "no row"
+        // and both insert; the loser hits the constraint. The end state the caller
+        // asked for is already true, and the route's openApi documents this
+        // operation as idempotent — so converge instead of surfacing a 500.
+        if ((err as { code?: string } | null)?.code !== POSTGRES_UNIQUE_VIOLATION) throw err
+        const winner = await loadOwnShare(em.fork(), parsed, ownerUserId)
+        return { shareId: winner?.id ?? null, changed: false }
+      }
 
       await emitShareEvent(parsed, ownerUserId, true)
       return { shareId: created.id, changed: true }

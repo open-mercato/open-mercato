@@ -87,7 +87,11 @@ const events = [
   // ── Email integration (2026-05-27) ────────────────────────────────────────
   { id: 'customers.email.linked', label: 'Email Linked To Person', entity: 'email_link', category: 'lifecycle', clientBroadcast: true },
   { id: 'customers.email.visibility_changed', label: 'Email Visibility Changed', entity: 'email_link', category: 'lifecycle', clientBroadcast: true },
-  { id: 'customers.email.conversation_visibility_changed', label: 'Email Conversation Visibility Changed', entity: 'email_conversation_share', category: 'lifecycle', clientBroadcast: true },
+  // Audit only, deliberately NOT clientBroadcast: the payload names a Person and
+  // a mailbox owner with no recipient hint, so the SSE bridge would fan it out to
+  // the whole tenant/org audience — telling every connected client that user X had
+  // a private conversation with Person P, on the UN-share edge especially.
+  { id: 'customers.email.conversation_visibility_changed', label: 'Email Conversation Visibility Changed', entity: 'email_conversation_share', category: 'lifecycle' },
 ] as const
 
 export const eventsConfig = createModuleEvents({

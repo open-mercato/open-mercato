@@ -223,22 +223,24 @@ export async function listSharedChannelIds(
     })) as unknown as Array<{ id?: string; userId?: string | null }>
     if (!Array.isArray(rows)) return []
 
-    const ids: string[] = []
-    for (const row of rows) {
-      if (!row || typeof row.id !== 'string' || !row.id) continue
-      // Own channels add nothing — the author arm already admits their rows.
-      if (row.userId === viewerUserId) continue
-      ids.push(row.id)
-    }
-
-    if (ids.length > SHARED_CHANNEL_ARM_MAX) {
+    // Check truncation against the RAW row count, before own channels are filtered
+    // out. Testing the filtered list would only warn when the caller happens to own
+    // none of the overflow, which is the wrong condition.
+    if (rows.length > SHARED_CHANNEL_ARM_MAX) {
       logger.warn('[internal] shared channel ids truncated for read predicate', {
         tenantId: scope.tenantId,
         organizationId: scope.organizationId,
         limit: SHARED_CHANNEL_ARM_MAX,
-        dropped: ids.length - SHARED_CHANNEL_ARM_MAX,
+        dropped: rows.length - SHARED_CHANNEL_ARM_MAX,
       })
-      return ids.slice(0, SHARED_CHANNEL_ARM_MAX)
+    }
+
+    const ids: string[] = []
+    for (const row of rows.slice(0, SHARED_CHANNEL_ARM_MAX)) {
+      if (!row || typeof row.id !== 'string' || !row.id) continue
+      // Own channels add nothing — the author arm already admits their rows.
+      if (row.userId === viewerUserId) continue
+      ids.push(row.id)
     }
     return ids
   } catch {

@@ -123,23 +123,6 @@ function renderCell(columnId: string, row: ChannelRow) {
   return render(<>{cell({ row: { original: row } })}</>)
 }
 
-/**
- * Render the row-actions cell, open the menu, and return its item labels.
- *
- * The per-row actions moved out of dedicated columns into a single dropdown, so
- * the #4980 invariants below now assert PRESENCE/ABSENCE of a menu item instead
- * of enabled/disabled state on a column button. `RowActionItem` has no disabled
- * state, so an unavailable action is omitted.
- */
-function openRowActions(row: ChannelRow): string[] {
-  renderCell('actions', row)
-  const trigger = screen.getByRole('button', { name: 'Open actions' })
-  act(() => {
-    trigger.click()
-  })
-  return screen.getAllByRole('menuitem').map((item) => item.textContent?.trim() ?? '')
-}
-
 async function mountPage() {
   capturedColumns = []
   apiCallMock.mockResolvedValue({ ok: true, result: { items: [] } } as never)
@@ -188,64 +171,44 @@ describe('profile communication channels — push column and poll action', () =>
   })
 
   it('keeps the Gmail re-register affordance intact', () => {
-    const row = buildRow({
-      providerKey: 'gmail',
-      supportsRealtimePush: false,
-      supportsPushRegistration: true,
-    })
+    renderCell(
+      'pushStatus',
+      buildRow({ providerKey: 'gmail', supportsRealtimePush: false, supportsPushRegistration: true }),
+    )
 
     // Gmail is hub-polled, so "Polling only" is the truthful idle label there.
-    renderCell('pushStatus', row)
     expect(screen.getByText('Polling only')).toBeInTheDocument()
-
-    // The affordance itself now lives in the row-actions menu.
-    expect(openRowActions(row)).toContain('Re-register push')
+    expect(screen.getByRole('button', { name: 'Re-register push' })).toBeInTheDocument()
   })
 
   it('does not claim polling for a registerable push provider that the hub never polls', () => {
     // A provider that both declares realtimePush and can register push has no
     // polling fallback at all — the idle state must not say "Polling only".
-    const row = buildRow({
-      providerKey: 'future-webhook',
-      supportsRealtimePush: true,
-      supportsPushRegistration: true,
-    })
+    renderCell(
+      'pushStatus',
+      buildRow({ providerKey: 'future-webhook', supportsRealtimePush: true, supportsPushRegistration: true }),
+    )
 
-    renderCell('pushStatus', row)
     expect(screen.getByText('Push not registered')).toBeInTheDocument()
     expect(screen.queryByText('Polling only')).not.toBeInTheDocument()
-
-    expect(openRowActions(row)).toContain('Re-register push')
+    expect(screen.getByRole('button', { name: 'Re-register push' })).toBeInTheDocument()
   })
 
-  it('omits "Poll now" for a push-driven channel the hub never polls', () => {
-    // Previously a disabled button carrying the reason in its aria-label. The
-    // action is now absent entirely, which is the same guarantee: the UI never
-    // offers a sync that cannot happen. The reason stays on screen via the Push
-    // column, asserted by the two tests above.
-    expect(openRowActions(buildRow({}))).not.toContain('Poll now')
+  it('disables "Poll now" for a push-driven channel and explains why', () => {
+    renderCell('pollNow', buildRow({}))
+
+    const button = screen.getByRole('button', { name: /Poll now/ })
+    expect(button).toBeDisabled()
+    expect(button.getAttribute('aria-label')).toMatch(/polling does not apply/i)
   })
 
-  it('offers "Poll now" for a hub-polled channel', () => {
-    const labels = openRowActions(
+  it('leaves "Poll now" enabled for a hub-polled channel', () => {
+    renderCell(
+      'pollNow',
       buildRow({ providerKey: 'imap', supportsRealtimePush: false, pollIntervalSeconds: 300 }),
     )
-    expect(labels).toContain('Poll now')
-  })
 
-  it('offers "Retry" instead of "Poll now" when a hub-polled channel is in error', () => {
-    // The Sync column used to swap the label (and variant) on error so a stuck
-    // channel could be recovered without a reconnect; the menu keeps that.
-    const labels = openRowActions(
-      buildRow({ providerKey: 'imap', supportsRealtimePush: false, status: 'error' }),
-    )
-    expect(labels).toContain('Retry')
-    expect(labels).not.toContain('Poll now')
-  })
-
-  it('always offers Disconnect, and offers Set as primary only when not primary', () => {
-    expect(openRowActions(buildRow({ isPrimary: false }))).toEqual(
-      expect.arrayContaining(['Set as primary', 'Disconnect']),
-    )
+    const button = screen.getByRole('button', { name: 'Poll now' })
+    expect(button).toBeEnabled()
   })
 })
