@@ -120,6 +120,12 @@ function validateTools(baseline) {
     if (typeof tool.limit !== 'number' || !Number.isFinite(tool.limit) || tool.limit <= 0) {
       throw new Error(`${BASELINE_RELATIVE_PATH} tools.${name}.limit must be a positive number`)
     }
+    if (tool.enforced !== undefined && typeof tool.enforced !== 'boolean') {
+      throw new Error(
+        `${BASELINE_RELATIVE_PATH} tools.${name}.enforced must be a boolean — a non-boolean would ` +
+          'silently downgrade a real hard limit to "policy budget" in the report',
+      )
+    }
     if (typeof tool.source !== 'string' || tool.source.trim() === '') {
       throw new Error(
         `${BASELINE_RELATIVE_PATH} tools.${name}.source must cite where the limit comes from ` +
@@ -211,9 +217,12 @@ function describeUsage(evaluation) {
 }
 
 /**
- * Directories expected to carry their own `AGENTS.md`: every workspace package, and every module
- * under a package's or app's `src/modules`. A module that ships without one leaves an agent with
- * nothing but the root routing table, which is the gap this check closes for NEW modules.
+ * Directories expected to carry their own `AGENTS.md`: every package under `packages/`, and every
+ * module under a package's or app's `src/modules`. A module that ships without one leaves an agent
+ * with nothing but the root routing table, which is the gap this check closes for NEW modules.
+ *
+ * `apps/*` are deliberately not owners themselves — `apps/mercato` is boilerplate for user apps and
+ * `apps/docs` is a docs site — but their modules are, so an app module still needs its own sheet.
  */
 export function discoverInstructionOwners(root) {
   const owners = []
@@ -497,6 +506,10 @@ function main() {
   if (options.updateBaseline) {
     writeBaseline(baselinePath, baseline, result)
     console.log(formatReport(baseline, result))
+    // Re-recording the ratchet is exactly when someone is looking at these files, so the advisory
+    // findings belong in that output too rather than only in a plain run.
+    const warningReport = formatWarnings(result, options.strict)
+    if (warningReport) console.log(warningReport)
     console.log(`Baseline re-recorded in ${BASELINE_RELATIVE_PATH}.`)
     if (result.rootBytes > baseline.rootMaxBytes) {
       console.error(`Root ${INSTRUCTION_FILE} is still over the hard limit — the baseline does not waive it.`)

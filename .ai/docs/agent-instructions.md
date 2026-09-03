@@ -46,9 +46,12 @@ These print on every run and never change the exit code. `yarn agents:check-budg
   table. The chain ratchet only measures four representative chains, so before this every other
   file could grow without limit; `packages/search/AGENTS.md` is 90% of Codex's entire budget on
   its own, and an agent started there loses almost the whole root harness.
-- **`coverage`** — a workspace package, or a module under `src/modules`, that has no `AGENTS.md`
-  and no entry in `scripts/agents-md-coverage-allowlist.json`. A package shipping exactly one
-  module is treated as that module, since its package-level sheet is already the module's guidance.
+- **`coverage`** — a package under `packages/`, or a module under a package's or app's
+  `src/modules`, that has no `AGENTS.md` and no entry in
+  `scripts/agents-md-coverage-allowlist.json`. A package shipping exactly one module is treated as
+  that module, since its package-level sheet is already the module's guidance. The `apps/*`
+  directories are not owners themselves — `apps/mercato` is boilerplate for user apps — but their
+  modules are.
 - **`coverage-allowlist-stale`** — an allowlist entry whose directory has since gained an
   `AGENTS.md`, or which no longer exists. Drop it so the gap cannot silently reopen.
 

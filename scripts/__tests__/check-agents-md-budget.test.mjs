@@ -70,6 +70,9 @@ test('fails when the root AGENTS.md exceeds the root limit', () => {
   const result = runChecker(fixture)
   assert.equal(result.status, 1)
   assert.match(result.stderr, /over the 100-byte root limit/)
+  // The headroom warning is suppressed once the hard limit is already breached: the blocking
+  // failure says the same thing louder, and repeating it as advice would read as a second problem.
+  assert.doesNotMatch(result.stdout, /root-headroom/)
   fs.rmSync(fixture, { recursive: true, force: true })
 })
 
@@ -162,6 +165,27 @@ test('rejects a tool limit that does not cite where it came from', () => {
   const result = runChecker(fixture)
   assert.equal(result.status, 2)
   assert.match(result.stderr, /tools\.demo\.source must cite where the limit comes from/)
+  fs.rmSync(fixture, { recursive: true, force: true })
+})
+
+test('rejects a non-boolean enforced flag rather than silently downgrading the limit', () => {
+  const fixture = makeFixture({
+    rootBytes: 10,
+    nestedBytes: 10,
+    baselineNestedBytes: 10,
+    tools: { demo: { unit: 'bytes', limit: 200, enforced: 'true', source: 'fixture' } },
+  })
+  const result = runChecker(fixture)
+  assert.equal(result.status, 2)
+  assert.match(result.stderr, /tools\.demo\.enforced must be a boolean/)
+  fs.rmSync(fixture, { recursive: true, force: true })
+})
+
+test('--update-baseline still surfaces the advisory findings', () => {
+  const fixture = makeFixture({ rootBytes: 95, nestedBytes: 10, baselineNestedBytes: 10, warnAtPercent: 90 })
+  const result = runChecker(fixture, ['--update-baseline'])
+  assert.equal(result.status, 0, result.stderr)
+  assert.match(result.stdout, /\[root-headroom\]/)
   fs.rmSync(fixture, { recursive: true, force: true })
 })
 
