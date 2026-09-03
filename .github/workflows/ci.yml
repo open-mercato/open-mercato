@@ -641,6 +641,11 @@ jobs:
       - name: Check agent instruction budget
         # The root AGENTS.md must fit Codex's default 32 KiB project-instruction budget,
         # and the already-oversized root-to-module chains may only shrink (#4484).
+        #
+        # Deliberately the NON-strict variant: headroom, per-file size and module-coverage
+        # findings print here but do not fail the build (#5866). Swap in
+        # `yarn agents:check-budget:ci` to make them blocking — the criterion for doing so is
+        # in .ai/docs/agent-instructions.md § "Escalating the advisory findings".
         run: yarn agents:check-budget
 
       - name: Checking types
