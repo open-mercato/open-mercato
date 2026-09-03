@@ -81,6 +81,8 @@ i.e. **8 bytes of headroom**, with no warning before the cliff.
 
 ## Progress
 
+PR: #5867
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Baseline schema and tool limits
