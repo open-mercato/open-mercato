@@ -48,6 +48,6 @@ Ship the already-implemented fix for #5652 (hardcoded English column headers on 
 
 ### Phase 3: Finalize the PR
 
-- [ ] 3.1 Post the comprehensive resume summary comment
-- [ ] 3.2 Normalize labels per QA outcome; keep `review` pipeline label (self-approval still blocked) unless QA fails
-- [ ] 3.3 Release the `in-progress` lock
+- [x] 3.1 Post the comprehensive resume summary comment — https://github.com/open-mercato/open-mercato/pull/5842#issuecomment-5522669548
+- [x] 3.2 Normalize labels per QA outcome; keep `review` pipeline label (self-approval still blocked) unless QA fails — kept `review` + `needs-qa`, added `screenshots` for the attached UI evidence, preserved `bug` / `priority-medium` / `risk-low` (scope and blast radius unchanged: no production code changed on this resume)
+- [x] 3.3 Release the `in-progress` lock — released at the end of the resume, together with the draft→ready promotion and the disposable QA environment teardown
