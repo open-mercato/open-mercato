@@ -119,8 +119,16 @@ function isAbortError(error: unknown): boolean {
 // coverage snapshots, logs item failures and writes the operational log, and a coverage refresh over
 // a large query index is slow enough that a per-read timer left that window unheartbeated (#5370).
 // The generator body does not start until the first `next()`, so a stream nobody consumes still arms
-// nothing, and every way out of the loop — drain, early close, a throwing read, a throwing consumer —
-// runs the `finally` below, so the timer is never left ticking past the stream.
+// nothing. Every way out of `forEachBatch` — drain, early close, a throwing read, a throwing consumer —
+// either completes this generator or calls `return()` on it, so the `finally` below always clears the
+// timer. That last part is a property of the consumer rather than of this helper: a consumer that
+// abandoned the generator mid-`yield` without closing it would leak the interval, which the old
+// per-read arming could not do. Any new consumer must honour `IteratorClose`.
+//
+// Every callback on this timer MUST use a forked EntityManager. The window now covers the consumer
+// body, where `commitBatchProgress` holds the shared EM inside `em.begin()`/`em.commit()`, so a tick
+// that read on the shared EM would issue a query into that open transaction and interleave with its
+// UnitOfWork — the shape `packages/core/AGENTS.md` bans and `withAtomicFlush` cannot guard against.
 async function* withHeartbeat<T>(source: AsyncIterable<T>, tick: () => void, intervalMs: number): AsyncGenerator<T, void, undefined> {
   const iterator = source[Symbol.asyncIterator]()
   const timer = setInterval(tick, intervalMs)

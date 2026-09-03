@@ -822,6 +822,8 @@ describe('progress service', () => {
 
   it('isCancellationRequested — returns true when cancelRequestedAt is set for matching tenant', async () => {
     const em = buildEm()
+    const forkEm = buildForkEm()
+    em.fork.mockReturnValue(forkEm)
     const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
 
     const job = {
@@ -836,11 +838,30 @@ describe('progress service', () => {
 
     expect(result).toBe(true)
     expect(mockFindOneWithDecryption).toHaveBeenCalledWith(
-      em,
+      forkEm,
       expect.anything(),
       expect.objectContaining({ id: 'job-1', tenantId: baseCtx.tenantId }),
       detached
     )
+  })
+
+  // The sync engine polls this from the same keepalive timer that heartbeats, and that timer
+  // spans the per-batch consumer body — where `commitBatchProgress` holds the shared EM inside
+  // `em.begin()`/`em.commit()`. An unawaited poll on that EM would issue a SELECT into the open
+  // transaction and interleave with its UnitOfWork, which is the failure `withAtomicFlush` cannot
+  // guard against because its phase model assumes nothing else touches the EM (#5370).
+  it('isCancellationRequested — reads on a forked EM so timer polling never joins a producer transaction', async () => {
+    const em = buildEm()
+    const forkEm = buildForkEm()
+    em.fork.mockReturnValue(forkEm)
+    mockFindOneWithDecryption.mockResolvedValue(null)
+
+    const service = createProgressService(em as never, { emit: jest.fn() })
+    await service.isCancellationRequested('job-1', baseCtx.tenantId)
+
+    expect(em.fork).toHaveBeenCalledTimes(1)
+    expect(mockFindOneWithDecryption.mock.calls[0][0]).toBe(forkEm)
+    expect(mockFindOneWithDecryption.mock.calls[0][0]).not.toBe(em)
   })
 
   it('isCancellationRequested — bypasses the identity map so worker polling sees fresh state', async () => {
@@ -857,6 +878,8 @@ describe('progress service', () => {
 
   it('isCancellationRequested — returns false when job belongs to a different tenant', async () => {
     const em = buildEm()
+    const forkEm = buildForkEm()
+    em.fork.mockReturnValue(forkEm)
     const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
 
     mockFindOneWithDecryption.mockResolvedValue(null)
@@ -866,7 +889,7 @@ describe('progress service', () => {
 
     expect(result).toBe(false)
     expect(mockFindOneWithDecryption).toHaveBeenCalledWith(
-      em,
+      forkEm,
       expect.anything(),
       expect.objectContaining({ id: 'job-1', tenantId: 'other-tenant-id' }),
       detached
@@ -1110,6 +1133,8 @@ describe('progress service — worker lifecycle organization scoping (#3284)', (
 
   it('isCancellationRequested — scopes the lookup by organizationId when provided', async () => {
     const em = buildEm()
+    const forkEm = buildForkEm()
+    em.fork.mockReturnValue(forkEm)
     mockFindOneWithDecryption.mockResolvedValue({ id: 'job-1', cancelRequestedAt: new Date() } as unknown as ProgressJob)
 
     const service = createProgressService(em as never, { emit: jest.fn() })
@@ -1117,7 +1142,7 @@ describe('progress service — worker lifecycle organization scoping (#3284)', (
 
     expect(result).toBe(true)
     expect(mockFindOneWithDecryption).toHaveBeenCalledWith(
-      em,
+      forkEm,
       expect.anything(),
       expect.objectContaining({ id: 'job-1', tenantId: orgCtx.tenantId, organizationId: orgCtx.organizationId }),
       detached
