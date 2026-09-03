@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { TransitionClaimInput, WarrantyClaimStatus } from '../../../../../data/validators'
@@ -23,16 +24,16 @@ export async function POST(req: Request, ctx: PortalClaimActionRouteContext) {
   const contextOrResponse = await resolvePortalActionContext(req)
   if (contextOrResponse instanceof Response) return contextOrResponse
   const context = contextOrResponse
+  const { translate } = await resolveTranslations()
   const claimId = await resolvePortalClaimId(ctx)
   if (!claimId) {
-    return NextResponse.json({ ok: false, error: 'warranty_claims.errors.notFound' }, { status: 404 })
+    return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.notFound', 'Claim not found.') }, { status: 404 })
   }
   const claim = await loadOwnedClaim(context, claimId)
   if (!claim) {
-    return NextResponse.json({ ok: false, error: 'warranty_claims.errors.notFound' }, { status: 404 })
+    return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.notFound', 'Claim not found.') }, { status: 404 })
   }
   if (!PORTAL_WITHDRAWABLE_STATUSES.has(claim.status)) {
-    const { translate } = await resolveTranslations()
     return NextResponse.json(
       { ok: false, error: translate('warranty_claims.errors.invalidTransition', 'That status change is not allowed.') },
       { status: 400 },
@@ -60,6 +61,10 @@ export async function POST(req: Request, ctx: PortalClaimActionRouteContext) {
   } catch (err) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
+    }
+    const interceptorRejection = getCommandInterceptorHttpRejection(err)
+    if (interceptorRejection) {
+      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
     }
     throw err
   }
