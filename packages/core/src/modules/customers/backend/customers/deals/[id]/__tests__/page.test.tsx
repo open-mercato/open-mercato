@@ -204,6 +204,29 @@ jest.mock('../../../../../components/detail/DealLinkedEntitiesTab', () => ({
   ),
 }))
 
+jest.mock('../../../../../components/detail/DealPeopleSection', () => ({
+  DealPeopleSection: ({
+    selectedIds,
+    onSaveSelection,
+  }: {
+    selectedIds: string[]
+    onSaveSelection: (next: string[]) => void
+  }) => (
+    <div>
+      <div>People</div>
+      <button type="button" onClick={() => onSaveSelection(['person-2'])}>
+        manage-people-links
+      </button>
+      <button
+        type="button"
+        onClick={() => onSaveSelection(selectedIds.filter((id) => id !== 'person-1'))}
+      >
+        unlink-person-1
+      </button>
+    </div>
+  ),
+}))
+
 jest.mock('../../../../../components/detail/PipelineStepper', () => ({
   PipelineStepper: ({ footer }: { footer?: React.ReactNode }) => <div>pipeline{footer}</div>,
 }))

@@ -34,6 +34,7 @@ type PersonAdapterOptions = {
   selectedEmptyHint: string
   confirmButtonLabel: string
   excludeLinkedCompanyId?: string
+  excludeLinkedDealId?: string
   excludeIds?: string[]
   defaultAvatarIcon?: React.ReactNode
   pageSize?: number
@@ -256,6 +257,9 @@ export function createPersonLinkAdapter(
     }
     if (options.excludeLinkedCompanyId) {
       params.set('excludeLinkedCompanyId', options.excludeLinkedCompanyId)
+    }
+    if (options.excludeLinkedDealId) {
+      params.set('excludeLinkedDealId', options.excludeLinkedDealId)
     }
     const payload = await readApiResultOrThrow<Record<string, unknown>>(
       `/api/customers/people?${params.toString()}`,
