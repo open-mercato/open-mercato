@@ -100,9 +100,6 @@ function applyExportCounters(batch: ExportBatch): SyncCounterDelta {
 // the per-interval round-trips for the whole life of a run.
 const HEARTBEAT_TICK_MS = (STALE_JOB_TIMEOUT_SECONDS * 1000) / 4
 
-// Runs `tick` on an interval only while the source iterator is pending, so heartbeats
-// stop the moment the producer dies and genuinely stale jobs still get swept. The outer
-// finally closes the adapter generator on early exits (cancellation, ownership conflict).
 // Our own abort, as opposed to a failure that merely coincided with one. Adapters are told to
 // return rather than throw, but `signal.throwIfAborted()` and an aborted `fetch` both surface as
 // this, and either is a cancellation rather than a fault.
@@ -116,21 +113,33 @@ function isAbortError(error: unknown): boolean {
   return typeof error === 'object' && error !== null && (error as { name?: unknown }).name === 'AbortError'
 }
 
+// The interval is armed once and spans the whole iteration, the `yield` included, rather than being
+// restarted around each `next()`. Producing a batch is not the only thing that can outlast the stale
+// sweep: the consumer body between `yield` and the next `next()` commits batch progress, refreshes
+// coverage snapshots, logs item failures and writes the operational log, and a coverage refresh over
+// a large query index is slow enough that a per-read timer left that window unheartbeated (#5370).
+// The generator body does not start until the first `next()`, so a stream nobody consumes still arms
+// nothing. Every way out of `forEachBatch` — drain, early close, a throwing read, a throwing consumer —
+// either completes this generator or calls `return()` on it, so the `finally` below always clears the
+// timer. That last part is a property of the consumer rather than of this helper: a consumer that
+// abandoned the generator mid-`yield` without closing it would leak the interval, which the old
+// per-read arming could not do. Any new consumer must honour `IteratorClose`.
+//
+// Every callback on this timer MUST use a forked EntityManager. The window now covers the consumer
+// body, where `commitBatchProgress` holds the shared EM inside `em.begin()`/`em.commit()`, so a tick
+// that read on the shared EM would issue a query into that open transaction and interleave with its
+// UnitOfWork — the shape `packages/core/AGENTS.md` bans and `withAtomicFlush` cannot guard against.
 async function* withHeartbeat<T>(source: AsyncIterable<T>, tick: () => void, intervalMs: number): AsyncGenerator<T, void, undefined> {
   const iterator = source[Symbol.asyncIterator]()
+  const timer = setInterval(tick, intervalMs)
   try {
     while (true) {
-      const timer = setInterval(tick, intervalMs)
-      let result: IteratorResult<T>
-      try {
-        result = await iterator.next()
-      } finally {
-        clearInterval(timer)
-      }
+      const result = await iterator.next()
       if (result.done) return
       yield result.value
     }
   } finally {
+    clearInterval(timer)
     await iterator.return?.()
   }
 }
@@ -205,8 +214,10 @@ export function createSyncEngine(deps: EngineDeps) {
 
   // Rides the heartbeat timer, which is the only thing that runs while the adapter is still
   // producing a batch — the engine's own cancellation check sits in the batch handler and is
-  // reached only after a yield. Swallows its own errors because it runs on a timer, where an
-  // unhandled rejection is fatal, and stops polling once it has aborted.
+  // reached only after a yield. Since that timer now spans the consumer body too, a cancel is
+  // also observed during the per-batch bookkeeping rather than waiting out the next read.
+  // Swallows its own errors because it runs on a timer, where an unhandled rejection is fatal,
+  // and stops polling once it has aborted.
   function makeCancellationTick(progressJobId: string | null | undefined, scope: SyncScope, controller: AbortController): () => void {
     if (!progressJobId) return () => {}
     let inFlight = false

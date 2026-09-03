@@ -611,10 +611,16 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
     },
 
     async isCancellationRequested(jobId, tenantId, organizationId) {
+      // Forked EM, for the same reason touchJobHeartbeat forks: this is polled from the
+      // keepalive timer, which spans the producer's own transactional writes on the shared
+      // EM, so an unawaited poll would issue a SELECT into an open em.begin()/em.commit()
+      // window and interleave with its UnitOfWork. Every caller only reads the flag, so a
+      // fork costs nothing and no caller depends on joining an ambient transaction.
+      //
       // disableIdentityMap forces a fresh read: a managed copy of the job in this
       // EntityManager (loaded by updateProgress) must never mask a cancellation
       // requested from another process.
-      const job = await findOneWithDecryption(em, ProgressJob, {
+      const job = await findOneWithDecryption(em.fork(), ProgressJob, {
         id: jobId,
         tenantId,
         ...(organizationId ? { organizationId } : {}),
