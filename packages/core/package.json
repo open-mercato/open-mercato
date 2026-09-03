@@ -8,6 +8,7 @@
     "build": "node build.mjs",
     "watch": "node watch.mjs",
     "test": "jest --config jest.config.cjs",
+    "test:tz": "cross-env TZ=Pacific/Auckland jest --config jest.config.cjs",
     "typecheck": "tsc --noEmit"
   },
   "imports": {
@@ -270,6 +271,7 @@
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "chance": "^1.1.13",
+    "cross-env": "^10.1.0",
     "jest": "^30.4.2",
     "jest-environment-jsdom": "^30.4.1",
     "react": "19.2.8",

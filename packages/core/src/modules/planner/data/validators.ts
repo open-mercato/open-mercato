@@ -69,11 +69,27 @@ const dateSpecificWindowSchema = z.object({
 
 const dateSpecificDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 
+/**
+ * The replace endpoints anchor `DTSTART` in this zone, so an unresolvable value
+ * would persist a UTC-anchored instant under a label nothing can resolve —
+ * permanently mis-anchored and indistinguishable from a correctly written row.
+ * Reject at the boundary; the read path still degrades unknown stored zones to
+ * UTC so legacy rows cannot turn a read into a 500.
+ */
+const resolvableTimeZoneSchema = z.string().min(1).refine((value) => {
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: value })
+    return true
+  } catch {
+    return false
+  }
+}, { message: 'Unknown IANA time zone' })
+
 export const plannerAvailabilityWeeklyReplaceSchema = z.object({
   ...scopedCreateFields,
   subjectType: availabilitySubjectSchema,
   subjectId: z.string().uuid(),
-  timezone: z.string().min(1),
+  timezone: resolvableTimeZoneSchema,
   windows: z.array(weeklyWindowSchema).default([]),
 })
 
@@ -83,7 +99,7 @@ export const plannerAvailabilityDateSpecificReplaceSchema = z.object({
   ...scopedCreateFields,
   subjectType: availabilitySubjectSchema,
   subjectId: z.string().uuid(),
-  timezone: z.string().min(1),
+  timezone: resolvableTimeZoneSchema,
   date: dateSpecificDateSchema.optional(),
   dates: z.array(dateSpecificDateSchema).optional(),
   windows: z.array(dateSpecificWindowSchema).default([]),
