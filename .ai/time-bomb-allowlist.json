@@ -16,6 +16,10 @@
     {
       "match": "packages/core/src/modules/business_rules/data/__tests__/validators.test.ts:213",
       "reason": "createBusinessRuleSchema compares effectiveTo relative to effectiveFrom (both literals), never to now; stays valid regardless of the clock."
+    },
+    {
+      "match": "packages/core/src/modules/planner/commands/__tests__/availability-timezone-invariance.test.ts:452",
+      "reason": "Pins the save time to the week before the 2027-03-28 Warsaw spring-forward via jest.useFakeTimers({ now }); the DST date must be fixed and the clock is frozen, so the literal is never compared to the real now. 'until' in the nearby comment is prose, not a validity assertion."
     }
   ]
 }

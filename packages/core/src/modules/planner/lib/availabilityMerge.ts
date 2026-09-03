@@ -148,7 +148,7 @@ function expandZonedRule(rule: AvailabilityRuleLike, parsed: ParsedRule, range: 
   while (wall.getTime() <= range.end.getTime() + DAY_MS && remaining > 0) {
     const start = zonedWallToInstant(wall, timezone)
     if (start && !shouldExcludeOccurrence(start, rule.exdates, timezone)) {
-      const end = new Date(start.getTime() + duration)
+      const end = zonedWallToInstant(new Date(wall.getTime() + duration), timezone) ?? new Date(start.getTime() + duration)
       if (end > range.start && start < range.end) windows.push({ start, end, ruleId: rule.id })
     }
     wall = new Date(wall.getTime() + step)
