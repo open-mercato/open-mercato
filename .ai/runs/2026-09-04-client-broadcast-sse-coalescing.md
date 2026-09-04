@@ -55,16 +55,16 @@ Give the event bus opt-in coalescing of **browser** deliveries for `clientBroadc
 
 ### Phase 1: Coalescing mechanism
 
-- [ ] 1.1 Declare the field and the reader
-- [ ] 1.2 Reject the unsafe declaration combination
-- [ ] 1.3 Add the coalescer module
-- [ ] 1.4 Wire the coalescer into bus.emit
-- [ ] 1.5 Scope isolation in the coalescing key
-- [ ] 1.6 Shutdown flush
-- [ ] 1.7 Env knob and .env.example
+- [x] 1.1 Declare the field and the reader — e3b0e3754
+- [x] 1.2 Reject the unsafe declaration combination — e3b0e3754
+- [x] 1.3 Add the coalescer module — e3b0e3754
+- [x] 1.4 Wire the coalescer into bus.emit — e3b0e3754
+- [x] 1.5 Scope isolation in the coalescing key — e3b0e3754
+- [x] 1.6 Shutdown flush — e3b0e3754
+- [x] 1.7 Env knob and .env.example — e3b0e3754
 
 ### Phase 2: First consumers and documentation
 
-- [ ] 2.1 Opt the catalog product events in
-- [ ] 2.2 Bulk-writer guard test
-- [ ] 2.3 Documentation
+- [x] 2.1 Opt the catalog product events in — d15ce68dd
+- [x] 2.2 Bulk-writer guard test — d15ce68dd
+- [x] 2.3 Documentation — d15ce68dd
