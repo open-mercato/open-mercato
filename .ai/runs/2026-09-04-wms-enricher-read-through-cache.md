@@ -139,22 +139,22 @@ be computed safely.
 
 ### Phase 1: Make the read-through enricher cache additive-delta safe
 
-- [ ] 1.1 Cache additive enrichment deltas in the list path of the enricher runner
-- [ ] 1.2 Cache additive enrichment deltas in the single-record path of the enricher runner
-- [ ] 1.3 Unit-test the delta cache: hit, miss, non-additive fail-closed, partial-map miss
+- [x] 1.1 Cache additive enrichment deltas in the list path of the enricher runner — 8b820948d
+- [x] 1.2 Cache additive enrichment deltas in the single-record path of the enricher runner — 8b820948d
+- [x] 1.3 Unit-test the delta cache: hit, miss, non-additive fail-closed, partial-map miss — 8b820948d
 
 ### Phase 2: Adopt the cache on the three WMS inventory enrichers
 
-- [ ] 2.1 Add shared WMS enricher cache tag constants and declare the cache blocks
-- [ ] 2.2 Unit-test that a second enrichment within the TTL performs no cross-module reads
+- [x] 2.1 Add shared WMS enricher cache tag constants and declare the cache blocks — ad99b3331
+- [x] 2.2 Unit-test that a second enrichment within the TTL performs no cross-module reads — ad99b3331
 
 ### Phase 3: Invalidate the tags from every WMS write surface
 
-- [ ] 3.1 Add the shared invalidation helper and the WMS/catalog event subscribers
-- [ ] 3.2 Invalidate directly from the sales-order warehouse assignment commands
-- [ ] 3.3 Unit-test the subscriber and the command-side invalidation
+- [x] 3.1 Add the shared invalidation helper and the WMS/catalog event subscribers — ad99b3331
+- [x] 3.2 Invalidate directly from the sales-order warehouse assignment commands — ad99b3331
+- [x] 3.3 Unit-test the subscriber and the command-side invalidation — ad99b3331
 
 ### Phase 4: Integration coverage and the full validation gate
 
-- [ ] 4.1 Extend the catalog products list integration test for post-invalidation freshness
-- [ ] 4.2 Run the full validation gate and fix any fallout
+- [x] 4.1 Extend the catalog products list integration test for post-invalidation freshness — TC-WMS-STOCK-COL-004
+- [x] 4.2 Run the full validation gate and fix any fallout — green
