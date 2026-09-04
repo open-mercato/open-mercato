@@ -13,6 +13,7 @@ import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/op
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 
 const logger = createLogger('translations').child({ component: 'entity-translations' })
 
@@ -226,6 +227,10 @@ export async function PUT(req: Request, ctx: { params?: { entityType?: string; e
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
+    const interceptorRejection = getCommandInterceptorHttpRejection(err)
+    if (interceptorRejection) {
+      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
+    }
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: 'Validation failed', details: err.issues }, { status: 400 })
     }
@@ -330,6 +335,10 @@ export async function DELETE(req: Request, ctx: { params?: { entityType?: string
   } catch (err) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
+    }
+    const interceptorRejection = getCommandInterceptorHttpRejection(err)
+    if (interceptorRejection) {
+      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
     }
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: 'Invalid parameters', details: err.issues }, { status: 400 })

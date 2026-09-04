@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import MyTimesheetsPage from '../page'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 
@@ -219,12 +219,18 @@ describe('MyTimesheetsPage — duration entry (#4846)', () => {
 
   it('stops counting a cell in the totals once its pending value becomes invalid', async () => {
     const inputs = await renderGrid()
+    // Scope to the totals row. An unscoped `getAllByText('2')` also matches the grid's
+    // day-of-month labels (`<div className="text-xs">{date.getDate()}</div>`), so it passed
+    // for the wrong reason whenever the rendered week excluded the 2nd — and failed outright
+    // whenever it included it, which is roughly one week in four.
+    const totalsRow = () => screen.getByText('Daily Total').closest('tr') as HTMLElement
+
     typeAndBlur(inputs[0], '2')
-    await waitFor(() => expect(screen.getAllByText('2').length).toBeGreaterThan(0))
+    await waitFor(() => expect(within(totalsRow()).getAllByText('2').length).toBeGreaterThan(0))
 
     typeAndBlur(inputs[0], 'abc')
     await waitFor(() => expect(inputs[0]).toHaveAttribute('aria-invalid', 'true'))
-    expect(screen.queryAllByText('2')).toHaveLength(0)
+    expect(within(totalsRow()).queryAllByText('2')).toHaveLength(0)
   })
 
   it('names every duration cell after its own project and date', async () => {
@@ -280,5 +286,79 @@ describe('MyTimesheetsPage — duration entry (#4846)', () => {
     expect(
       screen.getAllByText('Enter hours (8 or 1.5), h:mm (1:30) or minutes (90m). Max 24h per day.').length,
     ).toBeGreaterThan(0)
+  })
+})
+
+function describingNodesFor(input: HTMLInputElement): HTMLElement[] {
+  const ids = (input.getAttribute('aria-describedby') ?? '').split(' ').filter(Boolean)
+  return ids.flatMap((id) => {
+    const node = document.getElementById(id)
+    return node ? [node] : []
+  })
+}
+
+function describedTextFor(input: HTMLInputElement): string[] {
+  return describingNodesFor(input).map((node) => node.textContent ?? '')
+}
+
+function alertNodeFor(input: HTMLInputElement): HTMLElement | undefined {
+  return describingNodesFor(input).find((node) => node.getAttribute('role') === 'alert')
+}
+
+describe('MyTimesheetsPage — duration error accessibility (#5507)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    stubApiRoutes()
+  })
+
+  it('describes every cell with the accepted duration formats, not only a native tooltip', async () => {
+    const inputs = await renderGrid()
+
+    expect(describedTextFor(inputs[0])).toContain(
+      'Enter hours (8 or 1.5), h:mm (1:30) or minutes (90m). Max 24h per day.',
+    )
+  })
+
+  it('exposes the out-of-range reason to assistive tech instead of hiding it in the title attribute', async () => {
+    const inputs = await renderGrid()
+    typeAndBlur(inputs[0], '30')
+
+    await waitFor(() => expect(inputs[0]).toHaveAttribute('aria-invalid', 'true'))
+    const message = 'Maximum 24h per day. Use 1:30 or 90m for shorter entries.'
+    expect(describedTextFor(inputs[0])).toContain(message)
+    expect(alertNodeFor(inputs[0])).toHaveTextContent(message)
+  })
+
+  it('exposes the unparseable-input reason the same way', async () => {
+    const inputs = await renderGrid()
+    typeAndBlur(inputs[0], 'abc')
+
+    await waitFor(() => expect(inputs[0]).toHaveAttribute('aria-invalid', 'true'))
+    expect(describedTextFor(inputs[0])).toContain(
+      'Unrecognised duration. Use 8, 1.5, 1:30, 90m or 1h 30m.',
+    )
+  })
+
+  it('describes only the offending cell, leaving its neighbours announced as valid', async () => {
+    const inputs = await renderGrid()
+    typeAndBlur(inputs[0], 'abc')
+
+    await waitFor(() => expect(inputs[0]).toHaveAttribute('aria-invalid', 'true'))
+    expect(alertNodeFor(inputs[1])).toBeUndefined()
+    expect(describedTextFor(inputs[1])).not.toContain(
+      'Unrecognised duration. Use 8, 1.5, 1:30, 90m or 1h 30m.',
+    )
+  })
+
+  it('withdraws the announced error once the cell is corrected', async () => {
+    const inputs = await renderGrid()
+    typeAndBlur(inputs[0], 'abc')
+    await waitFor(() => expect(alertNodeFor(inputs[0])).toBeDefined())
+    const errorId = (alertNodeFor(inputs[0]) as HTMLElement).id
+
+    typeAndBlur(inputs[0], '1:30')
+    await waitFor(() => expect(inputs[0]).not.toHaveAttribute('aria-invalid', 'true'))
+    expect(alertNodeFor(inputs[0])).toBeUndefined()
+    expect(document.getElementById(errorId)).toBeNull()
   })
 })

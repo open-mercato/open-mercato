@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/shared",
-  "version": "0.6.7",
+  "version": "0.7.0",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
@@ -51,6 +51,10 @@
     "./lib/events/patterns": {
       "types": "./src/lib/events/patterns.ts",
       "default": "./dist/lib/events/patterns.js"
+    },
+    "./lib/db/duplicateEntityClassNames": {
+      "types": "./src/lib/db/duplicateEntityClassNames.ts",
+      "default": "./dist/lib/db/duplicateEntityClassNames.js"
     },
     "./lib/data/consistency": {
       "types": "./src/lib/data/consistency.ts",
@@ -110,8 +114,10 @@
     "@mikro-orm/decorators": "^7.1.8",
     "@mikro-orm/postgresql": "^7.1.8",
     "@open-mercato/cache": "workspace:*",
+    "@types/html-to-text": "^9.0.4",
     "@types/sanitize-html": "^2.16.1",
     "dotenv": "^17.4.2",
+    "html-to-text": "^10.0.0",
     "pino": "^10.3.1",
     "rate-limiter-flexible": "^11.2.0",
     "re2js": "2.8.6",

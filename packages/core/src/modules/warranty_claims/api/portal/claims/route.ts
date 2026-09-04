@@ -5,12 +5,14 @@ import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { runRouteMutationGuards, type RouteMutationGuardResult } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import { getCustomerAuthFromRequest, type CustomerAuthContext } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
+import type { CustomerAuthContext } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
+import { resolveLinkedCustomerAuth } from '../../../lib/portalAuthGuard'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { WarrantyClaim, WarrantyClaimLine } from '../../../data/entities'
 import {
@@ -153,13 +155,9 @@ function serializePortalClaim(claim: WarrantyClaim, lines: WarrantyClaimLine[]) 
 }
 
 async function resolvePortalContext(req: Request): Promise<PortalContext | Response> {
-  const auth = await getCustomerAuthFromRequest(req)
-  if (!auth) {
-    return NextResponse.json({ ok: false, error: 'warranty_claims.errors.unauthorized' }, { status: 401 })
-  }
-  if (!auth.customerEntityId) {
-    return NextResponse.json({ ok: false, error: 'warranty_claims.errors.customerAccountNotLinked' }, { status: 403 })
-  }
+  const authOrResponse = await resolveLinkedCustomerAuth(req)
+  if (authOrResponse instanceof Response) return authOrResponse
+  const auth = authOrResponse
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
   const commandAuth: NonNullable<AuthContext> = {
@@ -264,6 +262,7 @@ async function validatePortalOrderOwnership(
   context: PortalContext,
   input: PortalIntakeInput,
 ): Promise<OrderValidationResult | Response> {
+  const { translate } = await resolveTranslations()
   const orderLineIds = Array.from(new Set(input.lines.flatMap((line) => line.orderLineId ? [line.orderLineId] : [])))
   const orderLinesById = await loadOwnedOrderLines(context, orderLineIds)
   const orderIds = new Set<string>()
@@ -273,7 +272,7 @@ async function validatePortalOrderOwnership(
   let resolvedOrder = input.orderId ? (ordersById.get(input.orderId) ?? null) : null
   if (input.orderId) {
     if (!resolvedOrder) {
-      return NextResponse.json({ ok: false, error: 'warranty_claims.errors.orderNotOwned' }, { status: 404 })
+      return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.orderNotOwned', 'Order not found.') }, { status: 404 })
     }
   }
 
@@ -282,10 +281,9 @@ async function validatePortalOrderOwnership(
     const resolvedLine = orderLinesById.get(line.orderLineId)
     const lineOrder = resolvedLine ? ordersById.get(resolvedLine.orderId) : null
     if (!resolvedLine || !lineOrder) {
-      return NextResponse.json({ ok: false, error: 'warranty_claims.errors.orderLineMismatch' }, { status: 404 })
+      return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.orderLineMismatch', 'Order line does not belong to the selected order') }, { status: 404 })
     }
     if (resolvedOrder && lineOrder.id !== resolvedOrder.id) {
-      const { translate } = await resolveTranslations()
       return NextResponse.json(
         { ok: false, error: translate('warranty_claims.errors.orderLineMismatch', 'Order line does not belong to the selected order') },
         { status: 400 },
@@ -337,7 +335,8 @@ export async function GET(req: Request) {
     serialNumber: url.searchParams.get('serialNumber') ?? undefined,
   })
   if (!query.success) {
-    return NextResponse.json({ ok: false, error: 'warranty_claims.errors.invalidInput' }, { status: 400 })
+    const { translate } = await resolveTranslations()
+    return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.invalidInput', 'Invalid input') }, { status: 400 })
   }
   const { page, pageSize, search, status, stateGroup, serialNumber } = query.data
   const where = buildPortalOwnedClaimWhere(context)
@@ -415,15 +414,16 @@ export async function POST(req: Request) {
   const contextOrResponse = await resolvePortalContext(req)
   if (contextOrResponse instanceof Response) return contextOrResponse
   const context = contextOrResponse
+  const { translate } = await resolveTranslations()
   let body: unknown
   try {
     body = await req.json()
   } catch {
-    return NextResponse.json({ ok: false, error: 'warranty_claims.errors.invalidInput' }, { status: 400 })
+    return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.invalidInput', 'Invalid input') }, { status: 400 })
   }
   const parsed = portalIntakeInputSchema.safeParse(body)
   if (!parsed.success) {
-    return NextResponse.json({ ok: false, error: 'warranty_claims.errors.invalidInput' }, { status: 400 })
+    return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.invalidInput', 'Invalid input') }, { status: 400 })
   }
   const ownership = await validatePortalOrderOwnership(context, parsed.data)
   if (ownership instanceof Response) return ownership
@@ -487,7 +487,7 @@ export async function POST(req: Request) {
     )
     const claimId = createResult.result?.claimId
     if (typeof claimId !== 'string') {
-      return NextResponse.json({ ok: false, error: 'warranty_claims.errors.save_failed' }, { status: 500 })
+      return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.save_failed', 'Failed to save warranty claim.') }, { status: 500 })
     }
     try {
       await commandBus.execute<{ id: string; actorCustomerId: string }, { claimId: string }>(
@@ -518,6 +518,10 @@ export async function POST(req: Request) {
   } catch (err) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
+    }
+    const interceptorRejection = getCommandInterceptorHttpRejection(err)
+    if (interceptorRejection) {
+      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
     }
     throw err
   }

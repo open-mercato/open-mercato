@@ -55,6 +55,9 @@ jest.mock('../LineItemDialog', () => ({
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => (_key: string, fallback?: string) => fallback ?? _key,
+  // ItemsSection formats money in the app locale, so the mock pins it rather than letting the
+  // component fall back to the runner's default (#5105).
+  useLocale: () => 'en-US',
 }))
 
 jest.mock('@open-mercato/shared/lib/frontend/useOrganizationScope', () => ({

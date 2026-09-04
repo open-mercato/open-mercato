@@ -42,7 +42,31 @@ export async function isChannelSeedingAvailable(
 export async function seedConnectedChannel(
   request: APIRequestContext,
   token: string,
-  input: { displayName?: string; externalIdentifier?: string } = {},
+  input: {
+    displayName?: string;
+    externalIdentifier?: string;
+    /**
+     * `chat` connects the non-email stub instead: a channel whose senders carry
+     * an opaque handle and no address, and whose `externalIdentifier` is NULL —
+     * the shape a real Discord/Slack channel has. Use it for anything asserting
+     * the hub's sender-identity contract (#4975); the default `email` flavor
+     * cannot prove it, because it can only ever supply email-shaped data.
+     */
+    providerFlavor?: 'email' | 'chat';
+    /**
+     * Relabel the connected stub channel's `provider_key`. Provider packages own
+     * routes that filter on their own key, and a real channel for those providers
+     * cannot be connected in CI (the Discord adapter validates its bot token
+     * against the live API), so without this a provider-scoped listing can only
+     * be asserted against an empty result — the assertion that stayed green
+     * through #5602.
+     *
+     * The row is relabelled, nothing is registered: do not drive an outbound send
+     * through a relabelled channel, because delivery would resolve the real
+     * provider's adapter.
+     */
+    labelAsProviderKey?: string;
+  } = {},
 ): Promise<string> {
   const response = await apiRequest(request, 'POST', TEST_SEED_PATH, {
     token,
@@ -115,6 +139,63 @@ export async function seedInboundMessage(
  * Best-effort delete of a seeded channel via the owner-scoped DELETE route.
  * Safe to call with a null id in `finally`.
  */
+/**
+ * Ingest an inbound chat message through the REAL `ingest_inbound_message`
+ * command: the stub adapter normalizes the frame and the hub composes the
+ * platform message via `messages.messages.compose`.
+ *
+ * Unlike {@link seedInboundMessage}, nothing here is short-circuited — no row is
+ * inserted behind the compose path — so a hub contract the provider cannot
+ * satisfy fails the test instead of hiding behind seeded data. That bypass is
+ * exactly why CI was green while every real inbound Discord message was rejected
+ * (#4975).
+ *
+ * The sender is identified only by `senderIdentifier` (a Discord snowflake, a
+ * Slack member id, …). There is deliberately no way to pass an address.
+ */
+export async function ingestInboundChatMessage(
+  request: APIRequestContext,
+  token: string,
+  input: {
+    channelId: string;
+    senderIdentifier: string;
+    senderDisplayName?: string;
+    body?: string;
+    externalMessageId: string;
+    externalConversationId: string;
+  },
+): Promise<{
+  status: string;
+  messageId: string | null;
+  conversationId: string | null;
+  channelLinkId: string | null;
+  channelType: string | null;
+}> {
+  const response = await apiRequest(request, 'POST', TEST_SEED_PATH, {
+    token,
+    data: { action: 'ingest-inbound', ...input },
+  });
+  expect(
+    response.status(),
+    'POST /api/communication_channels/test-seed (ingest-inbound) should return 201 — ' +
+      'a non-201 here means the hub rejected a sender with no email address',
+  ).toBe(201);
+  const body = await readJsonSafe<{
+    status?: string;
+    messageId?: string | null;
+    conversationId?: string | null;
+    channelLinkId?: string | null;
+    channelType?: string | null;
+  }>(response);
+  return {
+    status: body?.status ?? 'unknown',
+    messageId: body?.messageId ?? null,
+    conversationId: body?.conversationId ?? null,
+    channelLinkId: body?.channelLinkId ?? null,
+    channelType: body?.channelType ?? null,
+  };
+}
+
 export async function deleteChannelIfExists(
   request: APIRequestContext,
   token: string | null,

@@ -1,6 +1,7 @@
 // @ts-nocheck
 
 import { randomUUID } from "crypto";
+import { isDeepStrictEqual } from "node:util";
 import { z } from "zod";
 import { registerCommand } from "@open-mercato/shared/lib/commands";
 import type { CommandHandler } from "@open-mercato/shared/lib/commands";
@@ -129,6 +130,11 @@ import {
   type SalesLineCalculationResult,
   type SalesDocumentCalculationResult,
 } from "../lib/types";
+import {
+  mapOrderLineEntityToSnapshot,
+  mapQuoteLineEntityToSnapshot,
+  resolveUpsertDiscountFields,
+} from "../lib/lineSnapshots";
 import { loadShippedQuantityByLine } from "../lib/shipments/snapshots";
 import { resolveDictionaryEntryValue, resolveCachedDictionaryEntryValue } from "../lib/dictionaries";
 import type { CacheStrategy } from "@open-mercato/cache";
@@ -584,6 +590,11 @@ const addressSnapshotSchema = z
   .nullable()
   .optional();
 
+// Mirrors the create schema's `decimal({ min: 0 })` (data/validators.ts). `null`
+// comes first in the union below because the coercion accepts it — `Number(null)`
+// is 0 — and would turn a clear into a written zero.
+const exchangeRateSchema = z.coerce.number().min(0);
+
 export const documentUpdateSchema = z
   .object({
     id: z.string().uuid(),
@@ -602,6 +613,13 @@ export const documentUpdateSchema = z
     orderNumber: z.string().trim().min(1).max(191).optional(),
     quoteNumber: z.string().trim().min(1).max(191).optional(),
     currencyCode: currencyCodeSchema.optional(),
+    // Order-only columns — SalesQuote declares none of them. Declared here
+    // because the create schema declares them and a caller reusing its create
+    // payload on an update otherwise lost them silently; `applyDocumentUpdate`
+    // rejects each with a 400 on a quote rather than dropping it.
+    exchangeRate: z.union([z.null(), exchangeRateSchema]).optional(),
+    paymentStatusEntryId: z.string().uuid().nullable().optional(),
+    fulfillmentStatusEntryId: z.string().uuid().nullable().optional(),
     channelId: z.string().uuid().nullable().optional(),
     statusEntryId: z.string().uuid().nullable().optional(),
     placedAt: z.union([dateOnlySchema, z.null()]).optional(),
@@ -633,6 +651,9 @@ export const documentUpdateSchema = z
       input.expectedDeliveryAt !== undefined ||
       input.channelId !== undefined ||
       input.statusEntryId !== undefined ||
+      input.exchangeRate !== undefined ||
+      input.paymentStatusEntryId !== undefined ||
+      input.fulfillmentStatusEntryId !== undefined ||
       input.shippingAddressId !== undefined ||
       input.billingAddressId !== undefined ||
       input.customerEntityId !== undefined ||
@@ -1198,6 +1219,19 @@ async function applyDocumentUpdate({
   if (typeof input.currencyCode === "string") {
     entity.currencyCode = input.currencyCode;
   }
+  // Orders only — SalesQuote has no exchange_rate column, so the field is
+  // rejected rather than ignored for the same reason as internalNotes above.
+  if (kind === "quote" && input.exchangeRate !== undefined) {
+    throw new CrudHttpError(400, {
+      error: translate(
+        "sales.quotes.exchange_rate_unsupported",
+        "Exchange rate is not available on quotes.",
+      ),
+    });
+  }
+  if (kind === "order" && input.exchangeRate !== undefined) {
+    (entity as SalesOrder).exchangeRate = toNumericString(input.exchangeRate);
+  }
   if (input.channelId !== undefined) {
     if (input.channelId === null) {
       entity.channelId = null;
@@ -1241,6 +1275,62 @@ async function applyDocumentUpdate({
     }
     (entity as any).statusEntryId = input.statusEntryId ?? null;
     (entity as any).status = statusValue;
+  }
+  // Orders only — SalesQuote has neither the entry-id nor the derived text
+  // column for payment and fulfillment status, so both are rejected on a quote.
+  if (kind === "quote" && input.paymentStatusEntryId !== undefined) {
+    throw new CrudHttpError(400, {
+      error: translate(
+        "sales.quotes.payment_status_unsupported",
+        "Payment status is not available on quotes.",
+      ),
+    });
+  }
+  if (kind === "order" && input.paymentStatusEntryId !== undefined) {
+    const paymentStatusValue = await resolveDictionaryEntryValue(
+      em,
+      input.paymentStatusEntryId,
+      { tenantId },
+    );
+    if (input.paymentStatusEntryId && !paymentStatusValue) {
+      throw new CrudHttpError(400, {
+        error: translate(
+          "sales.documents.detail.statusInvalid",
+          "Selected status could not be found.",
+        ),
+      });
+    }
+    // Both columns, like the statusEntryId branch above and like order create:
+    // moving the id without its derived text leaves a self-contradicting row.
+    (entity as SalesOrder).paymentStatusEntryId =
+      input.paymentStatusEntryId ?? null;
+    (entity as SalesOrder).paymentStatus = paymentStatusValue;
+  }
+  if (kind === "quote" && input.fulfillmentStatusEntryId !== undefined) {
+    throw new CrudHttpError(400, {
+      error: translate(
+        "sales.quotes.fulfillment_status_unsupported",
+        "Fulfillment status is not available on quotes.",
+      ),
+    });
+  }
+  if (kind === "order" && input.fulfillmentStatusEntryId !== undefined) {
+    const fulfillmentStatusValue = await resolveDictionaryEntryValue(
+      em,
+      input.fulfillmentStatusEntryId,
+      { tenantId },
+    );
+    if (input.fulfillmentStatusEntryId && !fulfillmentStatusValue) {
+      throw new CrudHttpError(400, {
+        error: translate(
+          "sales.documents.detail.statusInvalid",
+          "Selected status could not be found.",
+        ),
+      });
+    }
+    (entity as SalesOrder).fulfillmentStatusEntryId =
+      input.fulfillmentStatusEntryId ?? null;
+    (entity as SalesOrder).fulfillmentStatus = fulfillmentStatusValue;
   }
   if (input.placedAt !== undefined) {
     if (input.placedAt === null) {
@@ -2885,68 +2975,6 @@ function buildCalculationContext(params: {
   };
 }
 
-function mapOrderLineEntityToSnapshot(line: SalesOrderLine): SalesLineSnapshot {
-  return {
-    id: line.id,
-    lineNumber: line.lineNumber,
-    kind: line.kind,
-    productId: line.productId ?? null,
-    productVariantId: line.productVariantId ?? null,
-    name: line.name ?? null,
-    description: line.description ?? null,
-    comment: line.comment ?? null,
-    quantity: toNumeric(line.quantity),
-    quantityUnit: line.quantityUnit ?? null,
-    normalizedQuantity: toNumeric(line.normalizedQuantity ?? line.quantity),
-    normalizedUnit: line.normalizedUnit ?? line.quantityUnit ?? null,
-    uomSnapshot: line.uomSnapshot ? cloneJson(line.uomSnapshot) : null,
-    currencyCode: line.currencyCode,
-    unitPriceNet: toNumeric(line.unitPriceNet),
-    unitPriceGross: toNumeric(line.unitPriceGross),
-    discountAmount: toNumeric(line.discountAmount),
-    discountPercent: toNumeric(line.discountPercent),
-    taxRate: toNumeric(line.taxRate),
-    taxAmount: toNumeric(line.taxAmount),
-    totalNetAmount: toNumeric(line.totalNetAmount),
-    totalGrossAmount: toNumeric(line.totalGrossAmount),
-    configuration: line.configuration ? cloneJson(line.configuration) : null,
-    promotionCode: line.promotionCode ?? null,
-    metadata: line.metadata ? cloneJson(line.metadata) : null,
-    customFieldSetId: line.customFieldSetId ?? null,
-  };
-}
-
-function mapQuoteLineEntityToSnapshot(line: SalesQuoteLine): SalesLineSnapshot {
-  return {
-    id: line.id,
-    lineNumber: line.lineNumber,
-    kind: line.kind,
-    productId: line.productId ?? null,
-    productVariantId: line.productVariantId ?? null,
-    name: line.name ?? null,
-    description: line.description ?? null,
-    comment: line.comment ?? null,
-    quantity: toNumeric(line.quantity),
-    quantityUnit: line.quantityUnit ?? null,
-    normalizedQuantity: toNumeric(line.normalizedQuantity ?? line.quantity),
-    normalizedUnit: line.normalizedUnit ?? line.quantityUnit ?? null,
-    uomSnapshot: line.uomSnapshot ? cloneJson(line.uomSnapshot) : null,
-    currencyCode: line.currencyCode,
-    unitPriceNet: toNumeric(line.unitPriceNet),
-    unitPriceGross: toNumeric(line.unitPriceGross),
-    discountAmount: toNumeric(line.discountAmount),
-    discountPercent: toNumeric(line.discountPercent),
-    taxRate: toNumeric(line.taxRate),
-    taxAmount: toNumeric(line.taxAmount),
-    totalNetAmount: toNumeric(line.totalNetAmount),
-    totalGrossAmount: toNumeric(line.totalGrossAmount),
-    configuration: line.configuration ? cloneJson(line.configuration) : null,
-    promotionCode: line.promotionCode ?? null,
-    metadata: line.metadata ? cloneJson(line.metadata) : null,
-    customFieldSetId: line.customFieldSetId ?? null,
-  };
-}
-
 function mapOrderAdjustmentToDraft(
   adjustment: SalesOrderAdjustment,
 ): SalesAdjustmentDraft {
@@ -3003,6 +3031,13 @@ async function emitTotalsCalculated(
   await eventBus.emitEvent("sales.document.totals.calculated", payload);
 }
 
+function isStoredRowSourcedLine(line: DocumentLineCreateInput): boolean {
+  return (
+    (line as Pick<SalesLineSnapshot, "discountAmountFromStoredRow">)
+      .discountAmountFromStoredRow === true
+  );
+}
+
 function createLineSnapshotFromInput(
   line: DocumentLineCreateInput,
   lineNumber: number,
@@ -3034,6 +3069,16 @@ function createLineSnapshotFromInput(
     unitPriceNet: line.unitPriceNet ?? null,
     unitPriceGross: line.unitPriceGross ?? null,
     discountAmount: line.discountAmount ?? null,
+    // Several callers re-run an already-mapped snapshot through here — the line
+    // upsert and delete paths rebuild every line of the document, not just the
+    // one being edited. Those inputs already carry a line total from a stored
+    // row, so their origin must survive rather than be overwritten with the
+    // caller default, or the untouched lines get re-inflated by quantity on
+    // every write. Exactly one of the two origin fields is ever set, which is
+    // the invariant the calculation engine relies on.
+    ...(isStoredRowSourcedLine(line)
+      ? { discountAmountFromStoredRow: true }
+      : { discountAmountBasis: line.discountAmountBasis ?? "unit" }),
     discountPercent: line.discountPercent ?? null,
     taxRate: line.taxRate ?? null,
     taxAmount: line.taxAmount ?? null,
@@ -3732,6 +3777,15 @@ function buildDocumentUpdateChangeKeys(kind: SalesDocumentKind, input: DocumentU
     if (input.internalNotes !== undefined) keys.add("internalNotes");
     if (input.placedAt !== undefined) keys.add("placedAt");
     if (input.expectedDeliveryAt !== undefined) keys.add("expectedDeliveryAt");
+    if (input.exchangeRate !== undefined) keys.add("exchangeRate");
+    if (input.paymentStatusEntryId !== undefined) {
+      keys.add("paymentStatusEntryId");
+      keys.add("paymentStatus");
+    }
+    if (input.fulfillmentStatusEntryId !== undefined) {
+      keys.add("fulfillmentStatusEntryId");
+      keys.add("fulfillmentStatus");
+    }
   }
   if (
     input.shippingAddressId !== undefined ||
@@ -7173,8 +7227,11 @@ const orderLineUpsertCommand: CommandHandler<
         order.currencyCode,
       unitPriceNet: unitPriceNet ?? 0,
       unitPriceGross: unitPriceGross ?? unitPriceNet ?? 0,
-      discountAmount:
-        parsed.discountAmount ?? existingSnapshot?.discountAmount ?? 0,
+      ...resolveUpsertDiscountFields(
+        parsed.discountAmount,
+        parsed.discountAmountBasis,
+        existingSnapshot,
+      ),
       discountPercent:
         parsed.discountPercent ?? existingSnapshot?.discountPercent ?? 0,
       taxRate: taxRate ?? 0,
@@ -7667,8 +7724,11 @@ const quoteLineUpsertCommand: CommandHandler<
         quote.currencyCode,
       unitPriceNet: unitPriceNet ?? 0,
       unitPriceGross: unitPriceGross ?? unitPriceNet ?? 0,
-      discountAmount:
-        parsed.discountAmount ?? existingSnapshot?.discountAmount ?? 0,
+      ...resolveUpsertDiscountFields(
+        parsed.discountAmount,
+        parsed.discountAmountBasis,
+        existingSnapshot,
+      ),
       discountPercent:
         parsed.discountPercent ?? existingSnapshot?.discountPercent ?? 0,
       taxRate: taxRate ?? 0,
@@ -9104,6 +9164,88 @@ const createInvoiceCommand: CommandHandler<
   },
 };
 
+const invoiceUpdateChangeKeys = [
+  "invoiceNumber",
+  "statusEntryId",
+  "status",
+  "issueDate",
+  "dueDate",
+  "currencyCode",
+  "subtotalNetAmount",
+  "subtotalGrossAmount",
+  "discountTotalAmount",
+  "taxTotalAmount",
+  "grandTotalNetAmount",
+  "grandTotalGrossAmount",
+  "paidTotalAmount",
+  "outstandingAmount",
+  "metadata",
+] as const;
+
+function toAuditISOString(value: unknown): string | null {
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value.toISOString();
+  }
+  if (typeof value === "string") {
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+  }
+  return null;
+}
+
+function auditValuesEqual(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true;
+  if (left instanceof Date || right instanceof Date) {
+    const leftIso = toAuditISOString(left);
+    const rightIso = toAuditISOString(right);
+    return leftIso !== null && rightIso !== null && leftIso === rightIso;
+  }
+  return isDeepStrictEqual(left, right);
+}
+
+function buildAuditChanges(
+  before: Record<string, unknown>,
+  after: Record<string, unknown>,
+  keys: readonly string[],
+): Record<string, { from: unknown; to: unknown }> {
+  const changedKeys = keys.filter((key) => !auditValuesEqual(before[key], after[key]));
+  return buildChanges(before, after, changedKeys);
+}
+
+function selectInvoiceUpdateChangeKeys(
+  input: z.infer<typeof invoiceUpdateSchema>,
+): Array<(typeof invoiceUpdateChangeKeys)[number]> {
+  return invoiceUpdateChangeKeys.filter((key) =>
+    key === "status"
+      ? input.statusEntryId !== undefined
+      : input[key as keyof z.infer<typeof invoiceUpdateSchema>] !== undefined,
+  );
+}
+
+function applyInvoiceHeaderUpdate(
+  invoice: SalesInvoice,
+  input: z.infer<typeof invoiceUpdateSchema>,
+  resolvedStatus: string | null | undefined,
+): void {
+  if (input.invoiceNumber !== undefined) invoice.invoiceNumber = input.invoiceNumber;
+  if (input.statusEntryId !== undefined) {
+    invoice.statusEntryId = input.statusEntryId;
+    invoice.status = resolvedStatus ?? null;
+  }
+  if (input.issueDate !== undefined) invoice.issueDate = input.issueDate;
+  if (input.dueDate !== undefined) invoice.dueDate = input.dueDate;
+  if (input.currencyCode !== undefined) invoice.currencyCode = input.currencyCode;
+  if (input.subtotalNetAmount !== undefined) invoice.subtotalNetAmount = toNumericString(input.subtotalNetAmount);
+  if (input.subtotalGrossAmount !== undefined) invoice.subtotalGrossAmount = toNumericString(input.subtotalGrossAmount);
+  if (input.discountTotalAmount !== undefined) invoice.discountTotalAmount = toNumericString(input.discountTotalAmount);
+  if (input.taxTotalAmount !== undefined) invoice.taxTotalAmount = toNumericString(input.taxTotalAmount);
+  if (input.grandTotalNetAmount !== undefined) invoice.grandTotalNetAmount = toNumericString(input.grandTotalNetAmount);
+  if (input.grandTotalGrossAmount !== undefined) invoice.grandTotalGrossAmount = toNumericString(input.grandTotalGrossAmount);
+  if (input.paidTotalAmount !== undefined) invoice.paidTotalAmount = toNumericString(input.paidTotalAmount);
+  if (input.outstandingAmount !== undefined) invoice.outstandingAmount = toNumericString(input.outstandingAmount);
+  if (input.metadata !== undefined) invoice.metadata = input.metadata;
+}
+
 const updateInvoiceCommand: CommandHandler<
   z.infer<typeof invoiceUpdateSchema>,
   { invoiceId: string }
@@ -9132,29 +9274,12 @@ const updateInvoiceCommand: CommandHandler<
       deletedAt: null,
     });
 
-    const changes = buildChanges(invoice, parsed, [
-      "invoiceNumber",
-      "statusEntryId",
-      "status",
-      "issueDate",
-      "dueDate",
-      "currencyCode",
-      "subtotalNetAmount",
-      "subtotalGrossAmount",
-      "discountTotalAmount",
-      "taxTotalAmount",
-      "grandTotalNetAmount",
-      "grandTotalGrossAmount",
-      "paidTotalAmount",
-      "outstandingAmount",
-      "metadata",
-    ]);
-
+    let resolvedStatus: string | null | undefined;
     if (parsed.statusEntryId !== undefined) {
-      invoice.status = await resolveDictionaryEntryValue(em, parsed.statusEntryId ?? null, { tenantId: invoice.tenantId });
+      resolvedStatus = await resolveDictionaryEntryValue(em, parsed.statusEntryId ?? null, { tenantId: invoice.tenantId });
     }
 
-    Object.assign(invoice, changes);
+    applyInvoiceHeaderUpdate(invoice, parsed, resolvedStatus);
     invoice.updatedAt = new Date();
     await em.flush();
 
@@ -9190,11 +9315,18 @@ const updateInvoiceCommand: CommandHandler<
     const em = (ctx.container.resolve("em") as EntityManager).fork();
     return loadInvoiceSnapshot(em, result.invoiceId);
   },
-  buildLog: async ({ result, snapshots }) => {
+  buildLog: async ({ input, result, snapshots }) => {
     const before = snapshots.before as InvoiceGraphSnapshot | undefined;
     const after = snapshots.after as InvoiceGraphSnapshot | undefined;
     if (!after) return null;
     const { translate } = await resolveTranslations();
+    const changes = before
+      ? buildAuditChanges(
+          before.invoice as unknown as Record<string, unknown>,
+          after.invoice as unknown as Record<string, unknown>,
+          selectInvoiceUpdateChangeKeys(input),
+        )
+      : {};
     return {
       actionLabel: translate("sales.audit.invoices.update", "Update invoice"),
       resourceKind: "sales.invoice",
@@ -9203,6 +9335,7 @@ const updateInvoiceCommand: CommandHandler<
       organizationId: after.invoice.organizationId,
       snapshotBefore: before,
       snapshotAfter: after,
+      changes: Object.keys(changes).length ? changes : null,
       payload: {
         undo: { before, after } satisfies InvoiceUndoPayload,
       },
@@ -9611,6 +9744,52 @@ const createCreditMemoCommand: CommandHandler<
   },
 };
 
+const creditMemoUpdateChangeKeys = [
+  "creditMemoNumber",
+  "statusEntryId",
+  "status",
+  "reason",
+  "issueDate",
+  "currencyCode",
+  "subtotalNetAmount",
+  "subtotalGrossAmount",
+  "taxTotalAmount",
+  "grandTotalNetAmount",
+  "grandTotalGrossAmount",
+  "metadata",
+] as const;
+
+function selectCreditMemoUpdateChangeKeys(
+  input: z.infer<typeof creditMemoUpdateSchema>,
+): Array<(typeof creditMemoUpdateChangeKeys)[number]> {
+  return creditMemoUpdateChangeKeys.filter((key) =>
+    key === "status"
+      ? input.statusEntryId !== undefined
+      : input[key as keyof z.infer<typeof creditMemoUpdateSchema>] !== undefined,
+  );
+}
+
+function applyCreditMemoHeaderUpdate(
+  creditMemo: SalesCreditMemo,
+  input: z.infer<typeof creditMemoUpdateSchema>,
+  resolvedStatus: string | null | undefined,
+): void {
+  if (input.creditMemoNumber !== undefined) creditMemo.creditMemoNumber = input.creditMemoNumber;
+  if (input.statusEntryId !== undefined) {
+    creditMemo.statusEntryId = input.statusEntryId;
+    creditMemo.status = resolvedStatus ?? null;
+  }
+  if (input.reason !== undefined) creditMemo.reason = input.reason;
+  if (input.issueDate !== undefined) creditMemo.issueDate = input.issueDate;
+  if (input.currencyCode !== undefined) creditMemo.currencyCode = input.currencyCode;
+  if (input.subtotalNetAmount !== undefined) creditMemo.subtotalNetAmount = toNumericString(input.subtotalNetAmount);
+  if (input.subtotalGrossAmount !== undefined) creditMemo.subtotalGrossAmount = toNumericString(input.subtotalGrossAmount);
+  if (input.taxTotalAmount !== undefined) creditMemo.taxTotalAmount = toNumericString(input.taxTotalAmount);
+  if (input.grandTotalNetAmount !== undefined) creditMemo.grandTotalNetAmount = toNumericString(input.grandTotalNetAmount);
+  if (input.grandTotalGrossAmount !== undefined) creditMemo.grandTotalGrossAmount = toNumericString(input.grandTotalGrossAmount);
+  if (input.metadata !== undefined) creditMemo.metadata = input.metadata;
+}
+
 const updateCreditMemoCommand: CommandHandler<
   z.infer<typeof creditMemoUpdateSchema>,
   { creditMemoId: string }
@@ -9639,26 +9818,12 @@ const updateCreditMemoCommand: CommandHandler<
       deletedAt: null,
     });
 
-    const changes = buildChanges(creditMemo, parsed, [
-      "creditMemoNumber",
-      "statusEntryId",
-      "status",
-      "reason",
-      "issueDate",
-      "currencyCode",
-      "subtotalNetAmount",
-      "subtotalGrossAmount",
-      "taxTotalAmount",
-      "grandTotalNetAmount",
-      "grandTotalGrossAmount",
-      "metadata",
-    ]);
-
+    let resolvedStatus: string | null | undefined;
     if (parsed.statusEntryId !== undefined) {
-      creditMemo.status = await resolveDictionaryEntryValue(em, parsed.statusEntryId ?? null, { tenantId: creditMemo.tenantId });
+      resolvedStatus = await resolveDictionaryEntryValue(em, parsed.statusEntryId ?? null, { tenantId: creditMemo.tenantId });
     }
 
-    Object.assign(creditMemo, changes);
+    applyCreditMemoHeaderUpdate(creditMemo, parsed, resolvedStatus);
     creditMemo.updatedAt = new Date();
     await em.flush();
 
@@ -9694,11 +9859,18 @@ const updateCreditMemoCommand: CommandHandler<
     const em = (ctx.container.resolve("em") as EntityManager).fork();
     return loadCreditMemoSnapshot(em, result.creditMemoId);
   },
-  buildLog: async ({ result, snapshots }) => {
+  buildLog: async ({ input, result, snapshots }) => {
     const before = snapshots.before as CreditMemoGraphSnapshot | undefined;
     const after = snapshots.after as CreditMemoGraphSnapshot | undefined;
     if (!after) return null;
     const { translate } = await resolveTranslations();
+    const changes = before
+      ? buildAuditChanges(
+          before.creditMemo as unknown as Record<string, unknown>,
+          after.creditMemo as unknown as Record<string, unknown>,
+          selectCreditMemoUpdateChangeKeys(input),
+        )
+      : {};
     return {
       actionLabel: translate("sales.audit.credit_memos.update", "Update credit memo"),
       resourceKind: "sales.credit_memo",
@@ -9707,6 +9879,7 @@ const updateCreditMemoCommand: CommandHandler<
       organizationId: after.creditMemo.organizationId,
       snapshotBefore: before,
       snapshotAfter: after,
+      changes: Object.keys(changes).length ? changes : null,
       payload: {
         undo: { before, after } satisfies CreditMemoUndoPayload,
       },

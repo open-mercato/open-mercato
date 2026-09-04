@@ -43,6 +43,7 @@ type SuggestionsRouteContext = {
   tenantId: string
   organizationId: string
   scope: WarrantyClaimScope
+  translate: (key: string, fallback?: string) => string
   em: EntityManager
 }
 
@@ -79,6 +80,7 @@ async function resolveSuggestionsContext(req: Request): Promise<SuggestionsRoute
     tenantId: auth.tenantId,
     organizationId,
     scope: { tenantId: auth.tenantId, organizationId },
+    translate,
     em,
   }
 }
@@ -88,7 +90,7 @@ export async function GET(req: Request) {
     const context = await resolveSuggestionsContext(req)
     const url = new URL(req.url)
     const query = querySchema.parse(Object.fromEntries(url.searchParams))
-    const claim = await requireScopedClaim(context.em, query.claimId, context.scope)
+    const claim = await requireScopedClaim(context.em, query.claimId, context.scope, {}, context.translate('warranty_claims.errors.notFound', 'Claim not found.'))
     if (claim.claimType !== 'warranty' || (claim.status !== 'resolved' && claim.status !== 'closed')) {
       return NextResponse.json({ ok: true, result: { claimId: claim.id, suggestions: [] } })
     }

@@ -60,6 +60,7 @@ import { AddressEditor, type AddressEditorDraft } from '@open-mercato/core/modul
 import { useSalesChannelsEnabled } from '../useSalesChannelsEnabled'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { SalesOrderDraftLines, createSalesOrderLineDraft, type SalesOrderLineDraft } from './SalesOrderDraftLines'
+import { normalizeAddressDraft } from './normalizeAddressDraft'
 
 const logger = createLogger('sales')
 
@@ -435,29 +436,6 @@ function parseCustomerOptions(items: unknown[], kind: 'person' | 'company'): Cus
   return parsed
 }
 
-function normalizeAddressDraft(draft?: AddressDraft | null): Record<string, unknown> | null {
-  if (!draft) return null
-  const normalized: Record<string, unknown> = {}
-  const assign = (key: keyof AddressDraft, target: string) => {
-    const value = draft[key]
-    if (typeof value === 'string' && value.trim().length) normalized[target] = value.trim()
-    if (typeof value === 'boolean') normalized[target] = value
-  }
-  assign('name', 'name')
-  assign('purpose', 'purpose')
-  assign('companyName', 'companyName')
-  assign('addressLine1', 'addressLine1')
-  assign('addressLine2', 'addressLine2')
-  assign('buildingNumber', 'buildingNumber')
-  assign('flatNumber', 'flatNumber')
-  assign('city', 'city')
-  assign('region', 'region')
-  assign('postalCode', 'postalCode')
-  assign('country', 'country')
-  assign('isPrimary', 'isPrimary')
-  return Object.keys(normalized).length ? normalized : null
-}
-
 type DocumentNumberFieldProps = CrudCustomFieldRenderProps & { t: Translator }
 
 type BillingAddressSectionFieldProps = CrudCustomFieldRenderProps & {
@@ -655,6 +633,8 @@ function BillingAddressSectionField({ values, setFormValue, t, addressesLoading,
                 t={t}
                 onChange={(next) => updateValue('billingAddressDraft', next)}
                 hidePrimaryToggle
+                showPhoneField
+                showTaxIdField
               />
               <SwitchField
                 containerClassName="col-span-2"
@@ -1267,6 +1247,8 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
                   t={t}
                   onChange={(next) => updateValue('shippingAddressDraft', next)}
                   hidePrimaryToggle
+                  showPhoneField
+                  showTaxIdField
                 />
                 <SwitchField
                   containerClassName="col-span-2"
@@ -1311,6 +1293,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
       id: 'lines',
       label: '',
       type: 'custom',
+      rendersOwnError: true,
       component: ({ value, error, values, setValue }) => values?.documentKind === 'order' ? (
         <SalesOrderDraftLines
           currencyCode={typeof values.currencyCode === 'string' ? values.currencyCode : defaultCurrency}

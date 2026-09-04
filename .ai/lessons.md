@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 136 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 140 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -70,6 +70,7 @@ This catalog indexes 136 focused lessons. Route the task first, then read only r
 - [Normalize raw SQL result types before JSON responses](lessons/normalize-raw-sql-result-types-before-json-responses.md) — area:module-data; module:platform; topic:testing,type-normalization
 - [JSON column defaults, twice-parsed command inputs, and scale-padded numerics](lessons/orm-json-defaults-double-parsed-inputs-and-numeric-padding.md) — area:module-data,debugging; module:eudr; topic:database-migrations,command-pattern,generated-files
 - [Organization-scoped routes must resolve request selection and reject invalid explicit writes](lessons/organization-scoped-routes-must-resolve-request-selection.md) — area:module-data,integration,debugging; module:entities,directory,auth; topic:data-scoping,access-control,route-coverage
+- [Empty collection scopes need an explicit semantic predicate](lessons/empty-collection-scopes-need-an-explicit-semantic-predicate.md) — area:backend-ui,module-data,testing; module:auth; topic:access-control,data-scoping,route-coverage
 - [PostgreSQL partial unique indexes are not constraints](lessons/postgresql-partial-unique-indexes-are-not-constraints.md) — area:module-data,debugging; module:platform; topic:data-integrity,data-scoping,testing
 - [Preserve Turbopack compiler cache during greenfield dev warmup](lessons/preserve-turbopack-compiler-cache-during-greenfield-dev.md) — area:module-data,architecture,debugging; module:cache,auth,create_app; topic:dev-runtime,runtime-startup,template-sync
 - [Projection updates that change indexed parent fields must emit query-index upserts](lessons/projection-updates-that-change-indexed-parent-fields.md) — area:module-data,debugging; module:query_index,customers,events; topic:command-pattern,events,filters
@@ -95,6 +96,7 @@ This catalog indexes 136 focused lessons. Route the task first, then read only r
 
 ### backend-ui
 
+- [Write-only secret editors need explicit unchanged intent and separate form state](lessons/write-only-secret-editors-need-explicit-unchanged-intent.md) — area:backend-ui,integration,testing; module:integrations,ui; topic:data-integrity,ui-components,testing
 - [Always propagate structured conflict payload from `onBeforeSave` blockers](lessons/always-propagate-structured-conflict-payload-from.md) — area:backend-ui,umes,debugging; module:ui; topic:concurrency,optimistic-locking,ui-components
 - [Async edit selects must be hydrated as value-plus-options](lessons/async-edit-selects-must-be-hydrated-as-value-plus.md) — area:backend-ui,integration,testing; module:checkout,entities,ui; topic:custom-fields,filters,testing
 - [Async select controls must not treat synthetic empty changes as user clears](lessons/async-select-controls-must-not-treat-synthetic-empty.md) — area:backend-ui,testing,module-data; module:ui,catalog,events; topic:command-pattern,events,testing
@@ -165,12 +167,14 @@ This catalog indexes 136 focused lessons. Route the task first, then read only r
 
 - [Determine super-admin via the immutable `isSuperAdmin` flag, never by role name](lessons/determine-super-admin-via-the-immutable-issuperadmin.md) — area:testing,module-data,debugging; module:auth,events; topic:access-control,command-pattern,data-scoping
 - [Enqueue then stamp](lessons/enqueue-then-stamp.md) — area:testing; module:events; topic:events,workers
-- [Integration routing tests must establish the route they claim to cover](lessons/integration-routing-tests-must-establish-the-route-they-claim-to-cover.md) — area:testing,integration,debugging; module:search,query_index; topic:async-indexing,query-index,route-coverage
+- [Integration routing tests must establish the route they claim to cover](lessons/integration-routing-tests-must-establish-the-route-they-claim-to-cover.md) — area:testing,integration,debugging; module:search,query_index; topic:async-indexing,polling,query-index,route-coverage
 - [Keep executable integration tests module-local](lessons/keep-executable-integration-tests-module-local.md) — area:testing,module-data; module:platform; topic:module-boundaries,package-runtime,testing
 - [Meilisearch container healthchecks must probe IPv4 explicitly](lessons/meilisearch-container-healthchecks-must-probe-ipv4.md) — area:testing,architecture; module:search,create_app; topic:network-security,package-runtime,runtime-startup
 - [Restart stale UI previews after package edits](lessons/restart-stale-ui-previews-after-package-edits.md) — area:testing,debugging; module:create_app,ui; topic:package-runtime,testing
 - [Root-level tsx workflow entrypoints must avoid top-level await](lessons/root-level-tsx-workflow-entrypoints-must-avoid-top-level-await.md) — area:testing; module:create_app; topic:package-runtime,testing
 - [Scope Playwright `testIgnore` entries to project root absolute paths](lessons/scope-playwright-testignore-entries-to-project-root.md) — area:testing,integration; module:platform; topic:data-scoping,testing,type-normalization
+- [Tests asserting `Intl` output must pin the locale and the calendar date](lessons/tests-asserting-intl-output-must-pin-locale-and-date.md) — area:testing,debugging,backend-ui; module:platform; topic:testing,i18n,ui-components
+- [Toggling Playwright request interception strands in-flight requests](lessons/toggling-playwright-request-interception-strands-in.md) — area:testing,debugging,integration; module:platform,example,create_app; topic:testing,template-sync,dev-runtime
 - [Use cryptographic randomness in auth-adjacent test helpers](lessons/use-cryptographic-randomness-in-auth-adjacent-test.md) — area:testing,integration,module-data; module:auth,cache,communication_channels; topic:data-scoping,generated-files,filters
 - [Use the bundled Node runtime for sandboxed macOS verification](lessons/use-the-bundled-node-runtime-for-sandboxed-macos.md) — area:testing,debugging; module:platform,create_app; topic:testing,node-runtime
 - [When a task brief requires Playwright coverage, unit tests are not a substitute](lessons/when-a-task-brief-requires-playwright-coverage-unit.md) — area:testing; module:events,search; topic:events,module-boundaries,testing
