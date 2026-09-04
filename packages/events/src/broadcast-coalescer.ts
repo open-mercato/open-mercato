@@ -90,13 +90,23 @@ async function onWindowClosed(key: string, intervalMs: number): Promise<void> {
   const suppressed = entry.suppressed
   entry.pending = null
   entry.suppressed = 0
-  // Re-arm before dispatching so a burst still in flight keeps its window.
-  entry.timer = armTimer(key, intervalMs)
+  entry.timer = null
 
   await runDispatch(pending, key)
   if (suppressed > 0) {
     logger.debug('Coalesced browser deliveries', { key, suppressed })
   }
+
+  // Re-arm only AFTER the dispatch settles, so one key never has two deliveries
+  // in flight. Re-arming first would let a slow pg_notify roundtrip overlap the
+  // next window and land an older payload last — the exact staleness coalescing
+  // exists to prevent. As a side effect the window self-extends under load,
+  // which is the right behavior for a throttle. Submissions arriving during the
+  // dispatch still queue on the entry, which is still in the map.
+  const current = entries.get(key)
+  if (!current) return
+  if (current.pending) current.timer = armTimer(key, intervalMs)
+  else entries.delete(key)
 }
 
 /**

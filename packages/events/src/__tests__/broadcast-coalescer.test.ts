@@ -93,6 +93,30 @@ describe('broadcast coalescer', () => {
     expect(delivered).toEqual(['leading', 'tail'])
   })
 
+  it('never runs two deliveries of one key concurrently, so an older payload cannot land last', async () => {
+    const started: string[] = []
+    const finished: string[] = []
+
+    const slowDispatch = (label: string, durationMs: number) => async () => {
+      started.push(label)
+      await wait(durationMs)
+      finished.push(label)
+    }
+
+    // Leading edge takes far longer than one window, so a naive re-arm would fire
+    // the next flush while it is still in flight.
+    await submitBroadcast('key', slowDispatch('first', INTERVAL_MS * 3), { intervalMs: INTERVAL_MS })
+    await submitBroadcast('key', slowDispatch('second', 0), { intervalMs: INTERVAL_MS })
+
+    await wait(INTERVAL_MS * 6)
+
+    expect(started).toEqual(['first', 'second'])
+    expect(finished).toEqual(['first', 'second'])
+    // 'second' must not have started before 'first' completed.
+    expect(started.indexOf('second')).toBeGreaterThanOrEqual(0)
+    expect(finished.indexOf('first')).toBeLessThan(finished.indexOf('second'))
+  })
+
   it('forgets a key once its burst ends, so pending state stays bounded', async () => {
     const delivered: string[] = []
     await submitBroadcast('key', async () => { delivered.push('first') }, { intervalMs: INTERVAL_MS })
