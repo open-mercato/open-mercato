@@ -51,13 +51,13 @@ Give `CrudForm` hosts one additive, optional prop — `hiddenGroupIds?: readonly
 
 ### Phase 1: The `hiddenGroupIds` mechanism
 
-- [ ] 1.1 Declare the prop on CrudFormProps
-- [ ] 1.2 Filter resolvedGroupsForLayout at the chokepoint
-- [ ] 1.3 Add the all-hidden layout guard
-- [ ] 1.4 Exclude hidden-only fields from the validation gates
+- [x] 1.1 Declare the prop on CrudFormProps — ba17abe2e
+- [x] 1.2 Filter resolvedGroupsForLayout at the chokepoint — ba17abe2e
+- [x] 1.3 Add the all-hidden layout guard — ba17abe2e
+- [x] 1.4 Exclude hidden-only fields from the validation gates — ba17abe2e
 
 ### Phase 2: Coverage and documentation
 
-- [ ] 2.1 Unit coverage for hidden groups
-- [ ] 2.2 Customers company-form example test
-- [ ] 2.3 Document the prop in packages/ui/AGENTS.md
+- [x] 2.1 Unit coverage for hidden groups — c5a28c361
+- [x] 2.2 Customers company-form example test — 83f273572
+- [x] 2.3 Document the prop (landed in apps/docs — the packages/ui AGENTS.md chain is over budget and may only shrink) — 83f273572
