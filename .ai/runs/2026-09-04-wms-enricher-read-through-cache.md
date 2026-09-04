@@ -137,6 +137,8 @@ be computed safely.
 
 ## Progress
 
+PR: #5894
+
 ### Phase 1: Make the read-through enricher cache additive-delta safe
 
 - [x] 1.1 Cache additive enrichment deltas in the list path of the enricher runner — 8b820948d
