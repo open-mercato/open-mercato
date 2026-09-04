@@ -113,6 +113,25 @@ Records whose indexed text contains none of these characters produce byte-identi
 
 **Action for module authors:** none, unless you persisted `tokenizeText` output outside `search_tokens`. If you did, recompute it; comparing a stored pre-fix token against a freshly computed one will not match for affected text.
 
+### The company create form publishes `crud-form:customers.company`, not the entity-derived spot (#5875)
+
+`packages/core/src/modules/customers/backend/customers/companies/create/page.tsx` rendered its `CrudForm` without an `injectionSpotId`. `CrudForm` therefore fell back to deriving the injection host from the first entry of `entityIds`, which on that page is `E.customers.customer_entity`, so the create form published `crud-form:customers.customer_entity` (and its `crud-form:customers.customer_entity:fields` child). The company **edit** surface passes the module's declared host explicitly, so the two surfaces of the same logical form addressed different spots and a widget registered against the declared company host reached editing but never creation. The create page now passes `injectionSpotId={extensionPoints.hosts.companyForm.spotId}`, so both surfaces publish `crud-form:customers.company` and its `:fields` child.
+
+No spot id was renamed or removed from the platform, and `CrudForm`'s fallback resolution is unchanged. The entity-derived id also still resolves on the **people** create page, which lists the same `customer_entity` first — the change is scoped to the company create form alone.
+
+The practical consequence is that a widget which relied on the entity-derived id to reach *company* creation no longer renders there. This affected shipped example code: the `example` module aliases `example.injection.customer-priority-field` onto `crud-form:customers.customer_entity:fields`, so that person-oriented field was reaching the company create form as a side effect of two pages sharing one fallback id. It no longer does, which is the intended end state.
+
+**Action for module authors:** if one of your widgets targets `crud-form:customers.customer_entity` or `crud-form:customers.customer_entity:fields` and you want it on the company create form, add the canonical key alongside your existing one in your `widgets/injection-table.ts` — the same consumer-side aliasing that `packages/core/src/modules/customer_accounts/widgets/injection-table.ts` already uses to map one widget onto both `customers.company` and `crud-form:customers.company`:
+
+```ts
+export const injectionTable: ModuleInjectionTable = {
+  'crud-form:customers.customer_entity:fields': [myWidget],
+  'crud-form:customers.company:fields': [myWidget],
+}
+```
+
+Keep the old key if you also target the people create form, which still resolves it. Widgets already registered against `crud-form:customers.company` need no change and now additionally render during company creation — including the `customer_accounts` portal-users group, which finds no `recordId` in create mode and renders its empty state.
+
 ### `AlertDescription` renders a `<div>` instead of a `<p>` (#5487)
 
 `AlertDescription` from `@open-mercato/ui/primitives/alert` rendered a `<p>`, which may only contain phrasing content. Every caller that nested a paragraph, a list, or any other block element inside it therefore produced invalid HTML: the browser's parser closed the paragraph early, the resulting DOM stopped matching what React rendered on the server, and hydration failed with `In HTML, <p> cannot be a descendant of <p>`. Eleven call sites across `ui`, `ai-assistant`, `core`, `enterprise`, and `scheduler` were nesting block children this way. The primitive now renders a `<div>` with the same `text-sm leading-5` classes, which removes the whole class of bug at once.
