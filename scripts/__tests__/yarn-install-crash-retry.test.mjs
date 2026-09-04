@@ -39,18 +39,24 @@ function withStub(body) {
   }
 }
 
-// Writes an executable stub that prints `lines` and exits `exitCode`. When
+// Writes an executable stub that replays `lines` verbatim and exits `exitCode`. When
 // `succeedFromAttempt` is set, the stub counts its invocations and succeeds from that
 // attempt onwards, which is how a transient failure is modelled.
+//
+// The fixture is written to a sidecar file and replayed with `cat` rather than built
+// into a series of `echo` statements: the real crash output contains backticks (around
+// `onCancel`), which bash would expand as command substitution inside a double-quoted
+// echo, silently dropping the very text the fixture exists to reproduce.
 function writeStub(dir, { lines, exitCode, succeedFromAttempt }) {
   const stubPath = path.join(dir, 'stub.sh')
   const counterPath = path.join(dir, 'attempts')
-  const printed = lines.map((line) => `echo ${JSON.stringify(line)}`).join('\n')
+  const outputPath = path.join(dir, 'output.txt')
   const gate =
     succeedFromAttempt === undefined
       ? ''
       : `if [ "$attempts" -ge ${succeedFromAttempt} ]; then echo "YN0000: Done"; exit 0; fi\n`
 
+  fs.writeFileSync(outputPath, `${lines.join('\n')}\n`)
   fs.writeFileSync(
     stubPath,
     [
@@ -58,7 +64,7 @@ function writeStub(dir, { lines, exitCode, succeedFromAttempt }) {
       `attempts=$(cat ${JSON.stringify(counterPath)} 2>/dev/null || echo 0)`,
       'attempts=$((attempts + 1))',
       `echo "$attempts" > ${JSON.stringify(counterPath)}`,
-      gate + printed,
+      `${gate}cat ${JSON.stringify(outputPath)}`,
       `exit ${exitCode}`,
     ].join('\n'),
     { mode: 0o755 }
@@ -91,6 +97,15 @@ test('the install wrapper retries a yarn-internal crash and succeeds on the reru
       'a crash inside yarn is transient — the wrapper must rerun it rather than failing a required job'
     )
     assert.equal(readAttempts(), 2, 'the wrapper must rerun the command exactly once after the crash')
+
+    // Guards the fixture itself: the crash message contains backticks, so a stub built
+    // from `echo "..."` would have had bash expand them away and this suite would have
+    // been asserting against output the real failure never produced.
+    assert.match(
+      result.stdout,
+      /Error: The `onCancel` handler was attached after the promise settled\./,
+      'the stub must replay the reported crash verbatim, backticks included'
+    )
   })
 })
 
