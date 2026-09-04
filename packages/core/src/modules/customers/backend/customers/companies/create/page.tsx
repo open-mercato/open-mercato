@@ -10,6 +10,7 @@ import { E } from '#generated/entities.ids.generated'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { extensionPoints } from '@open-mercato/core/modules/customers/extension-points'
 import {
   buildCompanyPayload,
   createCompanyFormFields,
@@ -38,6 +39,7 @@ export default function CreateCompanyPage() {
           fields={fields}
           groups={groups}
           initialValues={{ addresses: [] as CompanyFormValues['addresses'] }}
+          injectionSpotId={extensionPoints.hosts.companyForm.spotId}
           entityIds={[E.customers.customer_entity, E.customers.customer_company_profile]}
           submitLabel={t('customers.companies.form.submit')}
           cancelHref={returnTo ?? '/backend/customers/companies'}
