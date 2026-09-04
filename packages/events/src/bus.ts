@@ -117,7 +117,10 @@ function buildBroadcastCoalesceKey(event: string, options?: EmitOptions): string
       if (trimmed) organizationScopes.add(trimmed)
     }
   }
-  return `${event}::${tenantId}::${Array.from(organizationScopes).sort().join(',')}`
+  // Sorted so a multi-organization audience keys identically however the caller
+  // ordered it, and explicitly comparator-ed per the #3620 guard.
+  const sortedScopes = Array.from(organizationScopes).sort((left, right) => left.localeCompare(right))
+  return `${event}::${tenantId}::${sortedScopes.join(',')}`
 }
 
 function getGlobalEventTaps(): Set<GlobalEventTap> {
