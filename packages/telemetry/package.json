@@ -1,6 +1,7 @@
 {
   "name": "@open-mercato/telemetry",
   "version": "0.7.0",
+  "license": "MIT",
   "description": "Vendor-neutral spans, metrics, and error reporting backed by a pluggable OTLP provider. Off by default; the telemetry runtime is loaded only when explicitly enabled.",
   "type": "module",
   "main": "./dist/index.js",
