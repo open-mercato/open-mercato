@@ -195,10 +195,16 @@ function registerProducerShutdownHook(): void {
 }
 
 /**
- * Deliver the tail of any in-flight coalesced burst on a graceful stop, so
- * shutting a worker down mid-import does not leave browsers a window behind.
- * Registered independently of the producer hook: coalescing is in play whether
- * or not this process ever opened an async producer queue.
+ * Deliver the tail of any in-flight coalesced burst on the way out, so stopping
+ * a worker mid-import does not leave browsers a window behind. Registered
+ * independently of the producer hook: coalescing is in play whether or not this
+ * process ever opened an async producer queue.
+ *
+ * `beforeExit` matters as much as the signals here. The trailing timer is
+ * unref'd so a pending browser delivery never holds a process open, which means
+ * a short-lived emitter — a CLI import, a one-shot script — reaches a natural
+ * exit with the tail still queued and no signal ever fired. `beforeExit` runs
+ * exactly when the loop has drained, which is precisely that case.
  */
 function registerBroadcastCoalescerShutdownHook(): void {
   if ((globalThis as Record<string, unknown>)[BROADCAST_COALESCER_SHUTDOWN_KEY]) return
@@ -207,6 +213,7 @@ function registerBroadcastCoalescerShutdownHook(): void {
   }
   process.once('SIGTERM', shutdown)
   process.once('SIGINT', shutdown)
+  process.once('beforeExit', shutdown)
   ;(globalThis as Record<string, unknown>)[BROADCAST_COALESCER_SHUTDOWN_KEY] = true
 }
 

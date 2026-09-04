@@ -134,6 +134,25 @@ describe('event bus browser-delivery coalescing', () => {
     }
   })
 
+  it('flushes the tail on a natural exit as well as on a signal', async () => {
+    const registered: string[] = []
+    const onceSpy = jest.spyOn(process, 'once').mockImplementation(function (this: NodeJS.Process, event: string) {
+      registered.push(event)
+      return this
+    } as never)
+
+    try {
+      delete (globalThis as Record<string, unknown>).__openMercatoBroadcastCoalescerShutdown__
+      createEventBus({ resolve, queueStrategy: 'local' })
+    } finally {
+      onceSpy.mockRestore()
+    }
+
+    // The trailing timer is unref'd, so a CLI that emits and exits normally never
+    // sees a signal — beforeExit is the hook that saves its tail.
+    expect(registered).toEqual(expect.arrayContaining(['SIGTERM', 'SIGINT', 'beforeExit']))
+  })
+
   it('restores per-record browser delivery when the interval is disabled', async () => {
     process.env.OM_BROADCAST_COALESCE_INTERVAL_MS = '0'
     const bus = createEventBus({ resolve, queueStrategy: 'local' })
