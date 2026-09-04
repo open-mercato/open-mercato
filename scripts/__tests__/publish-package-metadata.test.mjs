@@ -8,6 +8,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const rootDir = path.resolve(__dirname, '../..')
 const packagesDir = path.join(rootDir, 'packages')
 const expectedRepositoryUrl = 'https://github.com/open-mercato/open-mercato'
+const defaultLicense = 'MIT'
+const licenseExceptions = new Map([['enterprise', 'SEE LICENSE IN LICENSE.md']])
 
 async function readPackageJson(packageDir) {
   const packageJsonPath = path.join(packagesDir, packageDir, 'package.json')
@@ -32,6 +34,26 @@ test('publishable packages declare repository metadata required by publish-packa
 
     if (packageJson.repository?.directory !== packagePath) {
       failures.push(`${packagePath}: repository.directory must be ${packagePath}`)
+    }
+  }
+
+  assert.deepEqual(failures, [])
+})
+
+test('publishable packages declare an SPDX license consumers can classify', async () => {
+  const packageDirs = await readdir(packagesDir, { withFileTypes: true })
+  const failures = []
+
+  for (const entry of packageDirs) {
+    if (!entry.isDirectory()) continue
+
+    const packageJson = await readPackageJson(entry.name)
+    if (packageJson.private === true) continue
+
+    const packagePath = `packages/${entry.name}`
+    const expectedLicense = licenseExceptions.get(entry.name) ?? defaultLicense
+    if (packageJson.license !== expectedLicense) {
+      failures.push(`${packagePath}: license must be ${expectedLicense}, got ${packageJson.license ?? '(none)'}`)
     }
   }
 
