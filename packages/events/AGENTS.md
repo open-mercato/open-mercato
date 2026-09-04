@@ -185,6 +185,20 @@ useAppEvent('mymod.entity.created', (event) => {
 - `isBroadcastEvent(eventId)` checks if an event has `clientBroadcast: true`
 - The `useEventBridge()` hook must be mounted once in the app shell to start receiving events
 
+### Coalescing browser deliveries (bulk writers)
+
+Every emit of a `clientBroadcast: true` event costs a serialized `pg_notify` roundtrip plus a tenant-wide SSE fan-out, so a bulk writer pays both once per record. Declare `broadcastCoalescing: true` to bound that:
+
+```typescript
+{ id: 'mymod.entity.created', label: 'Created', clientBroadcast: true, broadcastCoalescing: true },
+```
+
+- Only the **browser** half coalesces. Inline subscribers, webhooks, workflow triggers and the queue still receive one event per record — the domain event is untouched.
+- Within `OM_BROADCAST_COALESCE_INTERVAL_MS` (default 250, `0` disables process-wide) only the newest payload per `(event, tenant, organization)` reaches the SSE bridges. The first emit of a burst goes out immediately, and a trailing flush is **always** armed, so the last emit is delivered and a DataTable never ends a burst stale.
+- **When to declare it:** only when browser consumers react to the fact that something changed (a list refetch), never to each occurrence. A consumer that must see every record — a per-record toast, a running tally — MUST NOT have its event opted in; suppressed payloads are dropped, not merged.
+- MUST NOT combine with `crossProcessBroadcast` — delaying private coordination would let another process serve stale data. `createModuleEvents` throws on that declaration, and on `broadcastCoalescing` without a browser sink.
+- `isCoalescedBroadcastEvent(eventId)` reports the resolved decision. `progress.job.updated` keeps its own service-local throttle (`OM_PROGRESS_BROADCAST_MIN_INTERVAL_MS`) and is not affected.
+
 ### Private cross-process coordination
 
 Use `crossProcessBroadcast: true` for server-to-server invalidation or coordination that must cross process boundaries but must not be exposed through browser SSE. The event bus publishes both `clientBroadcast` and `crossProcessBroadcast` events to the cross-process bridge, while the DOM Event Bridge delivers only `clientBroadcast` events. Do not use `clientBroadcast` merely to reach another server process when the payload contains record-scoped identifiers or activity that the organization-level SSE audience cannot authorize.
