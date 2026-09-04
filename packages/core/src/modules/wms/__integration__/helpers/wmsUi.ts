@@ -105,6 +105,10 @@ export async function fillCombobox(
   await expect(input).toBeEnabled({ timeout: 10_000 })
   await input.click()
 
+  // Focusing an empty combobox already fires an unfiltered `loadSuggestions('')`, so a
+  // `waitForResponse` armed here would resolve on that call and say nothing about the query
+  // we are about to type. Keep it only as a first-paint hint; the option wait below is what
+  // the selection actually depends on.
   const suggestionsResponse = options?.suggestionsApiPath
     ? page
         .waitForResponse(
@@ -128,33 +132,19 @@ export async function fillCombobox(
   // `role="option"`, so a `role="button"` lookup never matches them.
   const suggestionInDropdown = page.getByRole('option', { name: suggestionPattern }).first()
 
-  const hasDropdownSuggestion = await suggestionInDropdown
-    .isVisible({ timeout: 2_000 })
-    .catch(() => false)
+  // Wait for the option assertively instead of probing with a swallowed timeout. A slow
+  // suggestions round trip on a loaded runner must fail here, naming this field, rather than
+  // fall through to a best-effort keyboard path that can leave the field uncommitted and
+  // surface as an unrelated missing-flash assertion much later in the spec.
+  // No reopen guard: typing keeps the list open (`ComboboxInput` renders it whenever the field
+  // is touched and non-empty), and nothing between the fill and this wait closes it. A guard
+  // for a state that cannot occur is the same false reassurance this fix removes.
+  await expect(suggestionInDropdown).toBeVisible({ timeout: 15_000 })
+  await suggestionInDropdown.click()
 
-  if (hasDropdownSuggestion) {
-    await suggestionInDropdown.click()
-  } else {
-    await input.press('ArrowDown')
-    const selectedWithKeyboard = await input
-      .inputValue()
-      .then((current) => current.trim().toLowerCase() === value.trim().toLowerCase())
-      .catch(() => false)
-    if (!selectedWithKeyboard) {
-      await input.press('Enter')
-    }
-    const resolvedValue = await input.inputValue()
-    if (resolvedValue.trim().toLowerCase() !== value.trim().toLowerCase()) {
-      // `Enter` closed the list without committing a value, so the options are gone.
-      // `ArrowDown` on a closed combobox reopens it, which is what makes the wait below
-      // resolvable instead of a guaranteed timeout.
-      await input.press('ArrowDown')
-      const fallbackSuggestion = page.getByRole('option', { name: suggestionPattern }).first()
-      await expect(fallbackSuggestion).toBeVisible({ timeout: 10_000 })
-      await fallbackSuggestion.click()
-    }
-  }
-
+  // Only meaningful because it follows a real option click: a combobox renders the picked
+  // option's label, so display text matching the typed query proves nothing on its own --
+  // typed-but-unselected text reads identically until blur discards it.
   await expect(input).toHaveValue(value, { timeout: 5_000 })
   await input.press('Tab')
 
