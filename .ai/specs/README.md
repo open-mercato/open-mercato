@@ -49,6 +49,7 @@ Specs awaiting implementation or partially complete. Focus here for actionable w
 
 | SPEC | Date | Title | Description |
 | --- | --- | --- | --- |
+| [Extensible Locale Set](2026-09-03-extensible-locale-set.md) | 2026-09-03 | Extensible Locale Set | Makes the served locale set extensible without patching `@open-mercato/*` — `Locale` derives from an augmentable `LocaleRegistry`, a `globalThis` registry owns the runtime set, and the existing tenant `translations.supported_locales` setting now drives the UI language switcher; unextended apps keep today's five locales, default and labels exactly |
 | [SPEC-008](SPEC-008-2026-01-27-product-quality-widget.md) | 2026-01-27 | Product Quality Widget | Dashboard widget for tracking products with missing images/descriptions |
 | [SPEC-012](implemented/SPEC-012-2026-01-27-ai-assistant-schema-discovery.md) | 2026-01-27 | AI Assistant Schema Discovery | Entity schema extraction and OpenAPI integration for MCP tools |
 | [SPEC-018](implemented/SPEC-018-2026-02-05-safe-entity-flush.md) | 2026-02-05 | Atomic Phased Flush | `withAtomicFlush` — N-phase flush pipeline with optional transactions to prevent UoW data loss and partial commits |

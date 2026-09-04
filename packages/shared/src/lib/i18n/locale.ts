@@ -1,4 +1,5 @@
-import { locales, type Locale } from './config'
+import type { Locale } from './config'
+import { getSupportedLocales } from './locale-set'
 
 function normalizeLocaleToken(value: string): string {
   return value.trim().toLowerCase().replace(/_/g, '-')
@@ -10,12 +11,13 @@ export function resolveSupportedLocale(value: string | null | undefined): Locale
   const normalized = normalizeLocaleToken(value)
   if (!normalized) return null
 
-  if (locales.includes(normalized as Locale)) {
+  const supported = getSupportedLocales()
+  if (supported.includes(normalized as Locale)) {
     return normalized as Locale
   }
 
   const baseLocale = normalized.split('-')[0]
-  if (baseLocale && locales.includes(baseLocale as Locale)) {
+  if (baseLocale && supported.includes(baseLocale as Locale)) {
     return baseLocale as Locale
   }
 

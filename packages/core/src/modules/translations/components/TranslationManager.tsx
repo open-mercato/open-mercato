@@ -4,6 +4,7 @@ import * as React from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
+import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Tabs, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { ComboboxInput } from '@open-mercato/ui/backend/inputs'
@@ -17,7 +18,7 @@ import { useCustomFieldDefs } from '@open-mercato/ui/backend/utils/customFieldDe
 import { Save, Plus, X } from 'lucide-react'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { locales as defaultLocales } from '@open-mercato/shared/lib/i18n/config'
+import { defaultLocale, locales as defaultLocales } from '@open-mercato/shared/lib/i18n/config'
 import { ISO_639_1, isValidIso639, getIso639Label } from '@open-mercato/shared/lib/i18n/iso639'
 import { formatEntityLabel, buildEntityListUrl, getRecordLabel, resolveBaseValue } from '../lib/helpers'
 import { resolveFieldList } from '../lib/resolve-field-list'
@@ -48,15 +49,27 @@ type TranslationsResponse = {
   updatedAt?: string
 }
 
+type TranslationLocales = {
+  /** The tenant's stored selection: which locales content can be translated into. */
+  locales: string[]
+  /** Which of those the admin UI itself can be rendered in. Resolved on the server. */
+  servable: string[]
+}
+
 function useTranslationLocales() {
-  return useQuery<string[]>({
+  return useQuery<TranslationLocales>({
     queryKey: ['translation-locales'],
     queryFn: async () => {
-      const res = await apiCall<{ locales: string[] }>('/api/translations/locales')
-      if (!res.ok) return [...defaultLocales]
-      return Array.isArray(res.result?.locales) && res.result.locales.length > 0
+      const res = await apiCall<TranslationLocales>('/api/translations/locales')
+      const fallback = { locales: [...defaultLocales], servable: [...defaultLocales] }
+      if (!res.ok) return fallback
+      const locales = Array.isArray(res.result?.locales) && res.result.locales.length > 0
         ? res.result.locales
         : [...defaultLocales]
+      const servable = Array.isArray(res.result?.servable) && res.result.servable.length > 0
+        ? res.result.servable
+        : [...defaultLocales]
+      return { locales, servable }
     },
     staleTime: 60_000,
   })
@@ -85,7 +98,10 @@ export function TranslationManager({
   const entityType = isEmbedded ? (propEntityType ?? '') : selectedEntityType
   const recordId = isEmbedded ? (propRecordId ?? '') : selectedRecordId
 
-  const { data: locales = [...defaultLocales] } = useTranslationLocales()
+  const { data: localeData } = useTranslationLocales()
+  // Memoized: `locales` feeds effect dependency lists below, and a fresh array
+  // on every render while the query is still loading would re-fire them.
+  const locales = React.useMemo(() => localeData?.locales ?? [...defaultLocales], [localeData])
 
   React.useEffect(() => {
     if (locales.length > 0 && (!activeLocale || !locales.includes(activeLocale))) {
@@ -572,7 +588,9 @@ export function TranslationManager({
 export function LocaleManager() {
   const t = useT()
   const queryClient = useQueryClient()
-  const { data: locales = [], isLoading } = useTranslationLocales()
+  const { data: localeData, isLoading } = useTranslationLocales()
+  const locales = React.useMemo(() => localeData?.locales ?? [], [localeData])
+  const servable = React.useMemo(() => localeData?.servable ?? [], [localeData])
   const [newLocale, setNewLocale] = React.useState('')
 
   const { runMutation, retryLastMutation } = useGuardedMutation<{
@@ -603,7 +621,10 @@ export function LocaleManager() {
       })
     },
     onSuccess: (result) => {
-      queryClient.setQueryData(['translation-locales'], result)
+      queryClient.setQueryData<TranslationLocales>(['translation-locales'], (previous) => ({
+        locales: result,
+        servable: previous?.servable ?? [],
+      }))
       flash(t('translations.locales.flash.saved', 'Locales updated'), 'success')
     },
     onError: () => {
@@ -611,12 +632,24 @@ export function LocaleManager() {
     },
   })
 
+  // A locale the app has no dictionary for can be translated into, but the admin
+  // UI can never be shown in it — `resolveSupportedLocalesForRequest` intersects
+  // the selection with what the app serves. Saying so at the point of action is
+  // what keeps the successful-looking add honest.
+  const contentOnlyLabel = t('translations.locales.contentOnly', 'Content only')
+  const isServable = React.useCallback(
+    (code: string) => servable.includes(code.toLowerCase()),
+    [servable],
+  )
+
   const availableLocales = React.useMemo(
     () => ISO_639_1.filter((entry) => !locales.includes(entry.code)).map((entry) => ({
       value: entry.code,
-      label: `${entry.code.toUpperCase()} — ${entry.label}`,
+      label: isServable(entry.code)
+        ? `${entry.code.toUpperCase()} — ${entry.label}`
+        : `${entry.code.toUpperCase()} — ${entry.label} (${contentOnlyLabel})`,
     })),
-    [locales],
+    [locales, isServable, contentOnlyLabel],
   )
 
   const addLocale = () => {
@@ -628,6 +661,10 @@ export function LocaleManager() {
 
   const removeLocale = (locale: string) => {
     if (locales.length <= 1) return
+    // The default locale stays servable whatever the selection says
+    // (`resolveSupportedLocalesForRequest` re-adds it), so letting it be removed
+    // here would leave the chip list claiming something untrue.
+    if (locale === defaultLocale) return
     mutation.mutate(locales.filter((l) => l !== locale))
   }
 
@@ -640,33 +677,48 @@ export function LocaleManager() {
       <div className="space-y-1">
         <h3 className="text-lg font-semibold">{t('translations.locales.title', 'Supported locales')}</h3>
         <p className="text-sm text-muted-foreground">
-          {t('translations.locales.description', 'Configure which locales are available for translations. Add ISO language codes (e.g. fr, it, ja, zh).')}
+          {t('translations.locales.description', 'Which languages content can be translated into. A language the application ships an interface for is also offered in the admin language switcher; the rest are available for content only.')}
         </p>
       </div>
 
       <div className="flex flex-wrap gap-2">
-        {locales.map((locale) => (
-          <span
-            key={locale}
-            className="inline-flex items-center gap-1.5 rounded-full border bg-muted/50 px-3 py-1 text-sm font-medium"
-            title={getIso639Label(locale) ?? locale}
-          >
-            {locale.toUpperCase()}{getIso639Label(locale) ? ` — ${getIso639Label(locale)}` : ''}
-            {locales.length > 1 && (
-              <IconButton
-                variant="ghost"
-                size="xs"
-                fullRadius
-                aria-label={t('translations.locales.remove', 'Remove {{locale}}', { locale: getIso639Label(locale) ?? locale.toUpperCase() })}
-                title={t('translations.locales.remove', 'Remove {{locale}}', { locale: getIso639Label(locale) ?? locale.toUpperCase() })}
-                onClick={() => removeLocale(locale)}
-                disabled={mutation.isPending}
-              >
-                <X className="h-3 w-3" />
-              </IconButton>
-            )}
-          </span>
-        ))}
+        {locales.map((locale) => {
+          const localeLabel = getIso639Label(locale) ?? locale.toUpperCase()
+          const isDefault = locale === defaultLocale
+          const removeLabel = t('translations.locales.remove', 'Remove {{locale}}', { locale: localeLabel })
+          const defaultLabel = t(
+            'translations.locales.alwaysServed',
+            '{{locale}} is the default language and is always served, so it cannot be removed.',
+            { locale: localeLabel },
+          )
+          return (
+            <span
+              key={locale}
+              className="inline-flex items-center gap-1.5 rounded-full border bg-muted px-3 py-1 text-sm font-medium"
+              title={getIso639Label(locale) ?? locale}
+            >
+              {locale.toUpperCase()}{getIso639Label(locale) ? ` — ${getIso639Label(locale)}` : ''}
+              {!isServable(locale) && (
+                <Badge variant="outline" size="sm" title={t('translations.locales.contentOnlyHint', 'The application ships no interface for this language, so it is available for content translations only.')}>
+                  {contentOnlyLabel}
+                </Badge>
+              )}
+              {locales.length > 1 && (
+                <IconButton
+                  variant="ghost"
+                  size="xs"
+                  fullRadius
+                  aria-label={isDefault ? defaultLabel : removeLabel}
+                  title={isDefault ? defaultLabel : removeLabel}
+                  onClick={() => removeLocale(locale)}
+                  disabled={mutation.isPending || isDefault}
+                >
+                  <X className="h-3 w-3" />
+                </IconButton>
+              )}
+            </span>
+          )
+        })}
       </div>
 
       <div className="flex gap-2 items-center">
@@ -674,11 +726,12 @@ export function LocaleManager() {
           <ComboboxInput
             value={newLocale}
             onChange={setNewLocale}
-            placeholder={t('translations.locales.addPlaceholder', 'Search language...')}
+            placeholder={t('translations.locales.addPlaceholder', 'e.g. fr, it, ja...')}
             suggestions={availableLocales}
             resolveLabel={(value) => {
               const label = getIso639Label(value)
-              return label ? `${value.toUpperCase()} — ${label}` : value.toUpperCase()
+              const base = label ? `${value.toUpperCase()} — ${label}` : value.toUpperCase()
+              return isServable(value) ? base : `${base} (${contentOnlyLabel})`
             }}
           />
         </div>
