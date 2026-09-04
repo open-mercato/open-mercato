@@ -445,9 +445,9 @@ export class BasicQueryEngine implements QueryEngine {
       ? await this.searchAvailability().hasTokens(String(entity), opts.tenantId ?? null, orgScope)
       : false
     const searchActive = searchEnabled && hasSearchTokens
-    // Opt-in via OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS (default false: the pre-existing
-    // rewrite-everything behavior is kept). When enabled, base-column like/ilike is rerouted
-    // through search tokens ONLY for encrypted columns, where
+    // Gated on OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS (default true since #5803; set it to
+    // false to restore the pre-existing rewrite-everything behavior). When enabled, base-column
+    // like/ilike is rerouted through search tokens ONLY for encrypted columns, where
     // ILIKE against ciphertext cannot match. On a plaintext column SQL ILIKE is exact, and the token
     // rewrite silently changes the result set: tokenization splits on non-alphanumerics and drops
     // tokens shorter than minTokenLength, so a document-number search like "ZK 1/2026" degrades to

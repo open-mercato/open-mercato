@@ -113,6 +113,33 @@ describe('OM_SEARCH_FIELD_BLOCKLIST parsing', () => {
   })
 })
 
+describe('OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS', () => {
+  const originalValue = process.env.OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS
+
+  afterEach(() => {
+    if (originalValue === undefined) {
+      delete process.env.OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS
+    } else {
+      process.env.OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS = originalValue
+    }
+  })
+
+  // #5803: with the rewrite applied to plaintext columns, a list search for `2026-08` came back
+  // with the `2026-01` row, because both tokenize to {202, 2026}. Applying the declared predicate
+  // is the default; the env var only exists to opt back out.
+  it('defaults to on so a declared ilike on a plaintext column is applied as written', () => {
+    delete process.env.OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS
+
+    expect(resolveSearchConfig().useIlikeForNonEncryptedFields).toBe(true)
+  })
+
+  it('can be switched off to restore the legacy rewrite for every column', () => {
+    process.env.OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS = 'false'
+
+    expect(resolveSearchConfig().useIlikeForNonEncryptedFields).toBe(false)
+  })
+})
+
 describe('search token limits', () => {
   const variableNames = [
     'OM_SEARCH_MAX_FIELD_CHARS',

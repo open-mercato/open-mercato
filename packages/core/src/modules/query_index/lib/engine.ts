@@ -525,6 +525,8 @@ export class HybridQueryEngine implements QueryEngine {
         searchConfig.useIlikeForNonEncryptedFields === true &&
         sourceSearchFilters.some((filter) => !String(filter.field).startsWith('cf:'))
       ) {
+        // Gated on OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS (default true since #5803; set it
+        // to false to restore the pre-existing rewrite-everything behavior).
         // `ignoreRuntimeHealth` asks the on-disk question -- a column holds ciphertext even while
         // the KMS is down -- so an outage keeps encrypted columns on the token path (#4622).
         // `organizationId: null` is deliberate, not an omission: the service then unions in every

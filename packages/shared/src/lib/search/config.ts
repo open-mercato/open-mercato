@@ -11,10 +11,19 @@ export type SearchConfig = {
   /**
    * When true, a like/ilike on a PLAINTEXT base column runs as exact SQL ILIKE instead of being
    * rewritten into an approximate search-token match; encrypted columns always keep the token
-   * path (ILIKE against ciphertext cannot match). Off by default: token matching can be faster
-   * than an unanchored ILIKE, which may need a full scan without a trigram index — but it is
-   * approximate (fragments under minTokenLength vanish, so `ZK 1/2026` degrades to its year and
-   * an all-short term drops the predicate). Flip it on when list search must be exact.
+   * path (ILIKE against ciphertext cannot match).
+   *
+   * On by default since #5803: the rewrite is lossy in a way that silently returns the WRONG
+   * record rather than merely extra ones. Tokenization splits on non-alphanumerics and drops
+   * fragments under minTokenLength, so `2026-08` and `2026-01` both reduce to {202, 2026} and a
+   * picker offers the neighbouring period; a term that tokenizes to nothing (`08`) drops the
+   * predicate entirely and matches every row. A declared containment predicate must be applied as
+   * declared on a column the engine can actually read.
+   *
+   * Set `OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS=false` to restore the legacy
+   * rewrite-everything behavior — worth doing when list search over a large plaintext text column
+   * relies on token matching being word-order independent, or when an unanchored ILIKE without a
+   * trigram index is slower than the token lookup.
    */
   useIlikeForNonEncryptedFields?: boolean
   blocklistedFields: string[]
@@ -121,7 +130,7 @@ export function resolveSearchConfig(): SearchConfig {
     enablePartials: parseBoolean(process.env.OM_SEARCH_ENABLE_PARTIAL, true),
     hashAlgorithm: parseHashAlgorithm(process.env.OM_SEARCH_HASH_ALGO),
     storeRawTokens: parseBoolean(process.env.OM_SEARCH_STORE_RAW_TOKENS, false),
-    useIlikeForNonEncryptedFields: parseBoolean(process.env.OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS, false),
+    useIlikeForNonEncryptedFields: parseBoolean(process.env.OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS, true),
     blocklistedFields: blocklist.global,
     entityBlocklistedFields: blocklist.byEntity,
     maxFieldChars: parseNumber(process.env.OM_SEARCH_MAX_FIELD_CHARS, DEFAULT_SEARCH_MAX_FIELD_CHARS, 0),

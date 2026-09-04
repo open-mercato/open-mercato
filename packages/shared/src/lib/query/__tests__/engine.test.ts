@@ -1302,11 +1302,11 @@ describe('BasicQueryEngine entity-extension joins', () => {
 })
 
 describe('BasicQueryEngine like/ilike routing by column encryption', () => {
-  // The gate is opt-in: OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS defaults to false and the
-  // legacy rewrite-everything behavior stays. These cases flip it on; the last one pins the
-  // default off.
+  // The gate is on by default since #5803, so these cases run with no env var set at all and
+  // therefore pin the shipped default; the last one flips it off and pins the legacy
+  // rewrite-everything behavior that the escape hatch still has to deliver.
   beforeEach(() => {
-    process.env.OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS = 'true'
+    delete process.env.OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS
   })
   afterEach(() => {
     delete process.env.OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS
@@ -1433,8 +1433,70 @@ describe('BasicQueryEngine like/ilike routing by column encryption', () => {
     expect(applySearchTokensSpy).toHaveBeenCalled()
   })
 
-  test('with the flag off (default) the token rewrite is kept even for plaintext columns', () => {
-    delete process.env.OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS
+  // #5803: the reported regression. `2026-08` and `2026-01` tokenize to the identical set
+  // {202, 2026} because the fragment that tells them apart is shorter than minTokenLength, so the
+  // token rewrite answered a search for one period with the other one. The declared predicate has
+  // to reach SQL verbatim for the exact row to come back at all.
+  test('a search term whose distinguishing fragment is dropped by the tokenizer still reaches SQL verbatim', async () => {
+    const fakeDb = createFakeKysely({
+      accounting_periods: [],
+      search_tokens: [{ one: 1 }],
+      'information_schema.tables': [{ table_name: 'search_tokens' }],
+      'information_schema.columns': [
+        { table_name: 'accounting_periods', column_name: 'tenant_id' },
+        { table_name: 'accounting_periods', column_name: 'period_code' },
+      ],
+    })
+    const engine = new BasicQueryEngine(
+      {} as any,
+      () => fakeDb as any,
+      () => ({ getEncryptedFieldNames: async () => [] }) as any,
+    )
+    const applySearchTokensSpy = jest.spyOn(engine as any, 'applySearchTokens')
+
+    await engine.query('accounting:accounting_period', {
+      tenantId: 't1',
+      fields: ['id'],
+      filters: { period_code: { $ilike: '%2026-08%' } },
+      page: { page: 1, pageSize: 10 },
+    })
+
+    expect(applySearchTokensSpy).not.toHaveBeenCalled()
+    const baseCall = fakeDb._calls.find((b: any) => b._ops.table === 'accounting_periods')
+    expect(baseCall).toBeTruthy()
+    const ilikeWhere = baseCall._ops.wheres.some(
+      (w: any) => Array.isArray(w) && String(w[0]).includes('period_code') && w[1] === 'ilike' && w[2] === '%2026-08%',
+    )
+    expect(ilikeWhere).toBe(true)
+  })
+
+  // #5803: `08` tokenizes to nothing at all, and the token path answered that with "no predicate"
+  // -- every row in the table. A filter that matches everything is never the honest reading of a
+  // declared containment predicate.
+  test('a term too short to tokenize filters instead of being dropped', async () => {
+    const fakeDb = fakeDbWithTokens()
+    const engine = new BasicQueryEngine(
+      {} as any,
+      () => fakeDb as any,
+      () => ({ getEncryptedFieldNames: async () => [] }) as any,
+    )
+
+    await engine.query('customers:customer_entity', {
+      tenantId: 't1',
+      fields: ['id'],
+      filters: { display_name: { $ilike: '%08%' } },
+      page: { page: 1, pageSize: 10 },
+    })
+
+    const baseCall = fakeDb._calls.find((b: any) => b._ops.table === 'customer_entities')
+    const ilikeWhere = baseCall._ops.wheres.some(
+      (w: any) => Array.isArray(w) && String(w[0]).includes('display_name') && w[1] === 'ilike' && w[2] === '%08%',
+    )
+    expect(ilikeWhere).toBe(true)
+  })
+
+  test('with the flag explicitly off the token rewrite is kept even for plaintext columns', () => {
+    process.env.OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS = 'false'
     const fakeDb = fakeDbWithTokens()
     const engine = new BasicQueryEngine(
       {} as any,
