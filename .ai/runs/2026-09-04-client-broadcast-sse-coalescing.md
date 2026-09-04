@@ -51,6 +51,8 @@ Give the event bus opt-in coalescing of **browser** deliveries for `clientBroadc
 
 ## Progress
 
+PR: #5896
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Coalescing mechanism
