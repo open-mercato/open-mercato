@@ -77,7 +77,7 @@ Prerequisites for the fulltext path to actually drain: `QUEUE_STRATEGY=async` + 
 
 ### A.4 Configuration surface
 
-Six env vars (`packages/shared/src/lib/search/config.ts`) are **token/Postgres-only** — none affect fulltext or vector:
+Seven env vars (`packages/shared/src/lib/search/config.ts`) are **token/Postgres-only** — none affect fulltext or vector:
 
 | Env var | Default | Controls |
 |---|---|---|
@@ -87,6 +87,7 @@ Six env vars (`packages/shared/src/lib/search/config.ts`) are **token/Postgres-o
 | `OM_SEARCH_HASH_ALGO` | `sha256` | Token hash algorithm (`sha1`/`md5` accepted). |
 | `OM_SEARCH_STORE_RAW_TOKENS` | `false` | Stores plaintext token alongside the hash — **security-sensitive** (plaintext of otherwise-hashed values). |
 | `OM_SEARCH_FIELD_BLOCKLIST` | `[]` (+ built-in `password,token,secret,hash`) | Extra field names excluded from tokenization. |
+| `OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS` | `true` | Applies a declared base-column `like`/`ilike` on a **plaintext** column as exact SQL ILIKE; only encryption-map columns are rerouted through tokens. Set to `false` to restore the legacy rewrite for every column (#5803). |
 
 Fulltext/vector are configured by a **disjoint** set: `MEILISEARCH_HOST` / `MEILISEARCH_API_KEY` / `MEILISEARCH_INDEX_PREFIX`, `SEARCH_EXCLUDE_ENCRYPTED_FIELDS`, embedding-provider vars (`OPENAI_API_KEY`, Ollama), and `QUEUE_STRATEGY` / `REDIS_URL`. (`OM_SEARCH_DEBUG` is read in query_index, not `config.ts`.)
 

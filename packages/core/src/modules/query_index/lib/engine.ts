@@ -533,7 +533,8 @@ export class HybridQueryEngine implements QueryEngine {
         // organization's map (`fetchAllOrganizationFieldNames`), so a field any org encrypts stays
         // on the token path -- a wider set fails safe. Passing the request's org instead would
         // silently break encrypted-column search for orgs without their own map. That union is an
-        // UNCACHED `encryption_maps` read, one extra round-trip per searched list request.
+        // uncached `encryption_maps` read, which `resolveEncryptedLikeFieldSet` memoizes per
+        // (entity, tenant) behind a short TTL so it costs one round-trip per minute, not per request.
         try {
           const encryptionService = this.getEncryptionService()
           const readEncryptedFieldNames = encryptionService?.getEncryptedFieldNames?.bind(encryptionService)

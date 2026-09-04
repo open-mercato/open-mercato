@@ -457,8 +457,9 @@ export class BasicQueryEngine implements QueryEngine {
     // `organizationId: null` is deliberate, not an omission: the service then unions in every
     // organization's map (`fetchAllOrganizationFieldNames`), so a field any org encrypts stays on
     // the token path -- a wider set fails safe. Passing the request's org instead would silently
-    // break encrypted-column search for orgs without their own map. That union is an UNCACHED
-    // `encryption_maps` read, one extra round-trip per searched list request. `null` means
+    // break encrypted-column search for orgs without their own map. That union is an uncached
+    // `encryption_maps` read, which `resolveEncryptedLikeFieldSet` memoizes per (entity, tenant)
+    // behind a short TTL so it costs one round-trip per minute rather than one per request. `null` means
     // the encryption service could not answer at all; keep the pre-existing rewrite-everything
     // behavior then, because guessing "plaintext" would turn encrypted-column search into an
     // ILIKE-on-ciphertext that matches nothing.
