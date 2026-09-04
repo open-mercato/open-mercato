@@ -13,7 +13,7 @@ jest.mock('@open-mercato/events/bridge', () => ({
   CROSS_PROCESS_EVENT_INSTANCE_ID: 'test-instance',
 }))
 
-import { isBroadcastEvent, isCoalescedBroadcastEvent, setGlobalEventBus } from '@open-mercato/shared/modules/events'
+import { getGlobalEventBus, isBroadcastEvent, isCoalescedBroadcastEvent, setGlobalEventBus } from '@open-mercato/shared/modules/events'
 import { createEventBus, registerGlobalEventTap } from '@open-mercato/events/bus'
 import { resetBroadcastCoalescerForTests } from '@open-mercato/events/broadcast-coalescer'
 import catalogEventsConfig from '../events'
@@ -28,6 +28,7 @@ function wait(ms: number): Promise<void> {
 describe('catalog product broadcast coalescing', () => {
   const resolve = ((name: string) => name) as never
   const originalInterval = process.env.OM_BROADCAST_COALESCE_INTERVAL_MS
+  const originalBus = getGlobalEventBus()
   let unregisterTap: (() => void) | null = null
 
   beforeEach(() => {
@@ -39,7 +40,9 @@ describe('catalog product broadcast coalescing', () => {
     unregisterTap?.()
     unregisterTap = null
     resetBroadcastCoalescerForTests()
-    setGlobalEventBus(null as never)
+    // Restore whatever the worker had rather than nulling the global: another
+    // suite sharing this worker would otherwise emit into a bus that is gone.
+    if (originalBus) setGlobalEventBus(originalBus)
     if (originalInterval === undefined) delete process.env.OM_BROADCAST_COALESCE_INTERVAL_MS
     else process.env.OM_BROADCAST_COALESCE_INTERVAL_MS = originalInterval
   })
