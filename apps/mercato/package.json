@@ -39,6 +39,7 @@
     "@open-mercato/channel-fcm": "workspace:*",
     "@open-mercato/channel-gmail": "workspace:*",
     "@open-mercato/channel-imap": "workspace:*",
+    "@open-mercato/channel-ms365": "workspace:*",
     "@open-mercato/checkout": "workspace:*",
     "@open-mercato/cli": "workspace:*",
     "@open-mercato/content": "workspace:*",
