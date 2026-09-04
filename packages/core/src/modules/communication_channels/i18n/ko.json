@@ -89,6 +89,7 @@
   "communication_channels.profile.connect.imap": "IMAP 연결",
   "communication_channels.profile.connect.imapTitle": "IMAP 메일함 연결",
   "communication_channels.profile.connect.mailboxAlreadyConnected": "이 메일함은 이미 다른 제공업체를 통해 연결되어 있습니다. 다른 제공업체로 다시 연결하려면 먼저 연결을 해제하세요.",
+  "communication_channels.profile.connect.ms365": "Microsoft 365 연결",
   "communication_channels.profile.connect.notConfigured": "이 제공업체는 아직 구성되지 않았습니다. 메일함을 연결하기 전에 관리자에게 통합에서 OAuth 클라이언트 ID와 시크릿을 추가하도록 요청하세요.",
   "communication_channels.profile.connect.oauthFailed": "OAuth 연결을 시작할 수 없습니다.",
   "communication_channels.profile.connect.save": "연결",
