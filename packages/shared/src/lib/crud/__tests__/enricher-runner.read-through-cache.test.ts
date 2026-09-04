@@ -155,6 +155,66 @@ describe('enricher runner read-through cache', () => {
     expect(second.items[0]._demo).toEqual({ stock: 9 })
   })
 
+  it('caches the delta of an enricher that mutates the records in place', async () => {
+    // The contract does not forbid in-place mutation. Comparing a mutated
+    // record against itself would produce an empty delta, so the cache would
+    // then serve unenriched records for the rest of the TTL.
+    const { cache } = createCache()
+    const enrichMany = jest.fn((records: Record_[]) => {
+      for (const record of records) {
+        record._demo = { stock: 11 }
+      }
+      return records
+    })
+    register(defineEnricher(enrichMany))
+
+    const first = await applyResponseEnrichers(
+      [{ id: 'a', name: 'first' }],
+      TARGET,
+      createContext(cache),
+    )
+    expect(first.items[0]._demo).toEqual({ stock: 11 })
+    expect(cache.set).toHaveBeenCalledTimes(1)
+
+    const second = await applyResponseEnrichers(
+      [{ id: 'a', name: 'first' }],
+      TARGET,
+      createContext(cache),
+    )
+
+    expect(enrichMany).toHaveBeenCalledTimes(1)
+    expect(second.items[0]._demo).toEqual({ stock: 11 })
+  })
+
+  it('caches an empty delta when the enricher genuinely adds nothing', async () => {
+    const { cache } = createCache()
+    const enrichMany = jest.fn((records: Record_[]) => records)
+    register(defineEnricher(enrichMany))
+
+    const items = [{ id: 'a', name: 'unchanged' }]
+    await applyResponseEnrichers(items, TARGET, createContext(cache))
+    expect(cache.set).toHaveBeenCalledTimes(1)
+
+    const second = await applyResponseEnrichers(items, TARGET, createContext(cache))
+    expect(enrichMany).toHaveBeenCalledTimes(1)
+    expect(second.items[0]).toEqual({ id: 'a', name: 'unchanged' })
+  })
+
+  it('does not let a cache hit mutate the caller\'s input records', async () => {
+    const { cache } = createCache()
+    register(
+      defineEnricher((records) => records.map((record) => ({ ...record, _demo: { stock: 8 } }))),
+    )
+
+    await applyResponseEnrichers([{ id: 'a' }], TARGET, createContext(cache))
+
+    const input = [{ id: 'a' }]
+    const second = await applyResponseEnrichers(input, TARGET, createContext(cache))
+
+    expect(second.items[0]._demo).toEqual({ stock: 8 })
+    expect(input[0]).toEqual({ id: 'a' })
+  })
+
   it('never touches the cache for an enricher that did not opt in', async () => {
     const { cache } = createCache()
     const enrichMany = jest.fn((records: Record_[]) =>

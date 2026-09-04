@@ -327,11 +327,15 @@ export async function applyResponseEnrichers<T extends Record<string, unknown>>(
       const recordIds = currentItems.map((item) => extractRecordId(item))
       const shouldUseCache = enricher.cache?.strategy === 'read-through'
       const cacheKey = shouldUseCache ? buildCacheKey(enricher, context, 'many', recordIds) : null
-      const inputItems = currentItems
+      // Snapshot BEFORE enrichment: the contract does not forbid an enricher
+      // from mutating the records it was handed, and comparing a mutated record
+      // against itself would yield an empty delta — caching "this enricher adds
+      // nothing" and serving unenriched records for the rest of the TTL.
+      const inputItems = shouldUseCache ? currentItems.map((item) => ({ ...item })) : currentItems
       if (shouldUseCache && cacheKey) {
         const cached = await readEnricherCache<unknown>(cache, cacheKey)
         if (isEnricherCacheEnvelope(cached)) {
-          const merged = applyCacheEnvelope(cached, inputItems)
+          const merged = applyCacheEnvelope(cached, currentItems)
           if (merged) {
             currentItems = merged
             enrichedBy.push(enricher.id)
@@ -432,11 +436,12 @@ export async function applyResponseEnricherToRecord<T extends Record<string, unk
       const recordId = extractRecordId(currentRecord)
       const shouldUseCache = enricher.cache?.strategy === 'read-through'
       const cacheKey = shouldUseCache ? buildCacheKey(enricher, context, 'one', [recordId]) : null
-      const inputRecord = currentRecord
+      // Snapshot before enrichment — see the list path for why.
+      const inputRecord = shouldUseCache ? ({ ...currentRecord } as T) : currentRecord
       if (shouldUseCache && cacheKey) {
         const cached = await readEnricherCache<unknown>(cache, cacheKey)
         if (isEnricherCacheEnvelope(cached)) {
-          const merged = applyCacheEnvelope(cached, [inputRecord])
+          const merged = applyCacheEnvelope(cached, [currentRecord])
           if (merged) {
             currentRecord = merged[0]
             enrichedBy.push(enricher.id)
