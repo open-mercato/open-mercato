@@ -366,6 +366,24 @@ export type CrudFormProps<TValues extends Record<string, unknown>> = {
   entityIds?: string[]
   // Optional grouped layout rendered in two responsive columns (1 on mobile).
   groups?: CrudFormGroup[]
+  /**
+   * Hide the groups whose `CrudFormGroup.id` appears in this list, so a host can
+   * omit built-in cards without rebuilding the whole `groups` array.
+   *
+   * Presentation-only: hidden groups are removed before layout, so they reserve
+   * no column space and contribute no header, sortable entry, collapsible state
+   * or validation focus target. Fields that live only in a hidden group keep
+   * their current values and are still submitted unchanged — hiding a group
+   * never clears data. A `required` field that lives only in a hidden group is
+   * skipped by the built-in required check (mirroring `visibleWhen`), but a
+   * host-supplied zod `schema` is NOT bypassed: do not hide a group whose
+   * fields the schema requires unless defaults supply them.
+   *
+   * Ids that match no declared group are ignored (dev-only warning). Strictly
+   * additive: when the prop is absent or empty the form behaves exactly as
+   * before.
+   */
+  hiddenGroupIds?: readonly string[]
   // Loading state for the entire form (e.g., when loading record data)
   isLoading?: boolean
   loadingMessage?: string
@@ -464,6 +482,10 @@ function readByDotPath(source: Record<string, unknown> | undefined, path: string
 // Guard against them so a declared field id such as `__proto__.polluted` can
 // never reach into Object.prototype (prototype-pollution hardening).
 const PROTO_POLLUTING_KEYS = new Set(['__proto__', 'prototype', 'constructor'])
+
+// Shared empty set so forms that pass no `hiddenGroupIds` keep a stable identity
+// across renders and never invalidate the memos that depend on it.
+const EMPTY_HIDDEN_GROUP_IDS: ReadonlySet<string> = new Set<string>()
 
 function isProtoPollutingKey(key: string): boolean {
   return PROTO_POLLUTING_KEYS.has(key)
@@ -730,6 +752,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   entityId,
   entityIds,
   groups,
+  hiddenGroupIds,
   isLoading = false,
   loadingMessage,
   customEntity = false,
@@ -1812,6 +1835,51 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     return hidden
   }, [fields, values])
 
+  // Joined key so a host passing a fresh array literal each render does not
+  // invalidate every memo that depends on the resolved set.
+  const hiddenGroupIdsKey = (hiddenGroupIds ?? []).join('\0')
+  const hiddenGroupIdSet = React.useMemo(
+    () => (hiddenGroupIdsKey ? new Set(hiddenGroupIdsKey.split('\0')) : EMPTY_HIDDEN_GROUP_IDS),
+    [hiddenGroupIdsKey],
+  )
+
+  const placedCustomFieldIds = React.useMemo(() => {
+    const placed = new Set<string>()
+    for (const other of (groups ?? [])) {
+      if (other.kind === 'customFields' || !other.fields) continue
+      for (const entry of other.fields) {
+        if (typeof entry === 'string') placed.add(entry)
+        else if (entry && typeof (entry as CrudField).id === 'string') placed.add((entry as CrudField).id)
+      }
+    }
+    return placed
+  }, [groups])
+
+  // Field ids that appear in a hidden group and in no visible one. Those controls
+  // are never rendered, so gating submit on them would strand the user with an
+  // error they cannot reach — the same reason `hiddenBaseFieldIds` exists for
+  // `visibleWhen`. A field shared with a visible group stays validated.
+  const hiddenGroupFieldIds = React.useMemo(() => {
+    if (hiddenGroupIdSet.size === 0) return EMPTY_HIDDEN_GROUP_IDS
+    const groupFieldIds = (group: CrudFormGroup): string[] => {
+      if (group.kind === 'customFields') {
+        return cfFields.filter((field) => !placedCustomFieldIds.has(field.id)).map((field) => field.id)
+      }
+      return (group.fields ?? []).map((entry) => (typeof entry === 'string' ? entry : entry.id))
+    }
+    const hidden = new Set<string>()
+    const visible = new Set<string>()
+    for (const group of groups ?? []) {
+      const target = hiddenGroupIdSet.has(group.id) ? hidden : visible
+      for (const fieldId of groupFieldIds(group)) target.add(fieldId)
+    }
+    for (const definition of injectedFieldDefinitions) {
+      if (definition.group && hiddenGroupIdSet.has(definition.group)) hidden.add(definition.id)
+    }
+    for (const fieldId of visible) hidden.delete(fieldId)
+    return hidden
+  }, [cfFields, groups, hiddenGroupIdSet, injectedFieldDefinitions, placedCustomFieldIds])
+
   const hiddenInjectedFieldIds = React.useMemo(() => {
     const hidden = new Set<string>()
     for (const definition of injectedFieldDefinitions) {
@@ -1903,6 +1971,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     const field = fieldById.get(fieldId)
     if (!field || field.disabled) return
     if (hiddenBaseFieldIds.has(fieldId) || hiddenInjectedFieldIds.has(fieldId)) return
+    if (hiddenGroupFieldIds.has(fieldId)) return
     if (!everEditedFieldIdsRef.current.has(fieldId)) return
 
     const nextValues = sourceValues ?? valuesRef.current
@@ -2012,6 +2081,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     fieldById,
     formReadOnly,
     hiddenBaseFieldIds,
+    hiddenGroupFieldIds,
     hiddenInjectedFieldIds,
     injectedFieldIdSet,
     mapDefsForValidation,
@@ -2086,12 +2156,35 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   }, [groups, injectedFieldDefinitions])
 
   const shouldAutoGroup = (!groupsWithInjectedFields || groupsWithInjectedFields.length === 0) && injectionGroupCards.length > 0
-  const resolvedGroupsForLayout = React.useMemo(() => {
+  const declaredGroupsForLayout = React.useMemo(() => {
     const baseGroups = groupsWithInjectedFields && groupsWithInjectedFields.length ? groupsWithInjectedFields : []
     const autoGroup = shouldAutoGroup ? [{ id: '__auto-fields__', fields: allFields }] as CrudFormGroup[] : []
     return [...(baseGroups.length ? baseGroups : autoGroup), ...injectionGroupCards]
   }, [allFields, groupsWithInjectedFields, injectionGroupCards, shouldAutoGroup])
-  const useGroupedLayout = resolvedGroupsForLayout.length > 0
+
+  // Hiding is applied at this single chokepoint: the grouped layout, the sortable
+  // order, collapsible auto-expand, the autofocus scan and both column renders all
+  // derive from `resolvedGroupsForLayout`, so filtering here keeps hidden groups
+  // out of every one of them without threading a flag through each call site.
+  const resolvedGroupsForLayout = React.useMemo(() => {
+    if (hiddenGroupIdSet.size === 0) return declaredGroupsForLayout
+    return declaredGroupsForLayout.filter((group) => !hiddenGroupIdSet.has(group.id))
+  }, [declaredGroupsForLayout, hiddenGroupIdSet])
+
+  React.useEffect(() => {
+    if (process.env.NODE_ENV === 'production' || hiddenGroupIdSet.size === 0) return
+    const declaredIds = new Set(declaredGroupsForLayout.map((group) => group.id))
+    for (const hiddenId of hiddenGroupIdSet) {
+      if (!declaredIds.has(hiddenId)) {
+        logger.warn('hiddenGroupIds names a group that does not exist on this form', { groupId: hiddenId })
+      }
+    }
+  }, [declaredGroupsForLayout, hiddenGroupIdSet])
+
+  // Keep the grouped layout when hiding emptied a non-empty set of groups.
+  // Falling back to `resolvedGroupsForLayout.length > 0` alone would drop into the
+  // ungrouped branch and render every field flat — the opposite of hiding them.
+  const useGroupedLayout = resolvedGroupsForLayout.length > 0 || declaredGroupsForLayout.length > 0
 
   // Sortable group order
   const defaultGroupIds = React.useMemo(() => resolvedGroupsForLayout.map((g) => g.id), [resolvedGroupsForLayout])
@@ -2128,18 +2221,6 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     () => (injectionWidgets ?? []).filter((widget) => (widget.placement?.kind ?? 'stack') === 'stack'),
     [injectionWidgets],
   )
-
-  const placedCustomFieldIds = React.useMemo(() => {
-    const placed = new Set<string>()
-    for (const other of (groups ?? [])) {
-      if (other.kind === 'customFields' || !other.fields) continue
-      for (const entry of other.fields) {
-        if (typeof entry === 'string') placed.add(entry)
-        else if (entry && typeof (entry as CrudField).id === 'string') placed.add((entry as CrudField).id)
-      }
-    }
-    return placed
-  }, [groups])
 
   const resolveGroupFields = React.useCallback((g: CrudFormGroup): CrudField[] => {
     if (g.kind === 'customFields') {
@@ -2791,6 +2872,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       if (!field.required) continue
       if (field.disabled) continue
       if (hiddenBaseFieldIds.has(field.id) || hiddenInjectedFieldIds.has(field.id)) continue
+      if (hiddenGroupFieldIds.has(field.id)) continue
       const v = values[field.id]
       const isArray = Array.isArray(v)
       const isString = typeof v === 'string'
