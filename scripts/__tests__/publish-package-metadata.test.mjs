@@ -53,7 +53,7 @@ test('publishable packages declare an SPDX license consumers can classify', asyn
     const packagePath = `packages/${entry.name}`
     const expectedLicense = licenseExceptions.get(entry.name) ?? defaultLicense
     if (packageJson.license !== expectedLicense) {
-      failures.push(`${packagePath}: license must be ${expectedLicense}, got ${packageJson.license ?? '(none)'}`)
+      failures.push(`${packagePath}: license must be ${expectedLicense}, got ${packageJson.license || '(none)'}`)
     }
   }
 
