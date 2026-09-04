@@ -24,6 +24,26 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.7.0 → 0.7.1 (unreleased)
 
+### Currencies adds opt-in official NBP average rates
+
+The `currencies` module now provides the explicit-only `nbp_average` provider for NBP
+tables A and B. It persists official `average` rates as foreign-currency-to-PLN values and
+stores the NBP publication number in the nullable `exchange_rates.external_reference` column.
+The migration is additive and existing `NBP` table-C buy/sell behavior is unchanged.
+
+**Action for consumers:** existing unfiltered `ExchangeRateService` calls retain their
+default-provider behavior. To request an official rate, call it with
+`options: { provider: 'nbp_average', rateType: 'average' }`. Enable the separate
+`nbp_average` fetch configuration only for organizations that should ingest these rates.
+`externalReference` is provider-owned provenance and is deliberately read-only in manual
+exchange-rate create/update payloads. The machine-readable `nbp_average` source is intentional;
+the existing `NBP` and `Raiffeisen Bank Polska` source values remain frozen legacy spellings.
+
+`POST /api/currencies/fetch-rates` now validates its request body strictly. The optional `date`
+must be a complete RFC 3339 timestamp rather than a date-only string, duplicate or empty provider
+names are rejected, and unknown request properties return `400`. Update callers that previously
+sent date-only values such as `2026-08-24` to send `2026-08-24T00:00:00.000Z`.
+
 ### Sales line `discount_amount` is now read as a line total, and the percentage wins (#3757)
 
 `sales_order_lines.discount_amount` and `sales_quote_lines.discount_amount` have always been

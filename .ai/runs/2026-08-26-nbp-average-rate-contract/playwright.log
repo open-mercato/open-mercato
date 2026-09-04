@@ -1,0 +1,146 @@
+2026-08-26T14:50:59Z local ephemeral runner http://127.0.0.1:5001
+Command: OM_INTEGRATION_MODULES=currencies BASE_URL=http://127.0.0.1:5001 DATABASE_URL=<ephemeral> PW_CAPTURE_SCREENSHOTS=1 yarn test:integration
+Result: 44 passed, 1 skipped, 0 failed (45 tests; 47.2s).
+Targeted evidence: TC-CUR-015-nbp-average-rate-contract passed (1 test; 10.9s) and captured provider-card plus average-rate publication-reference UI evidence.
+◇ injected env (105) from apps/mercato/.env // tip: ⌁ auth for agents [www.vestauth.com]
+╔═══════════════════════╗
+║  🧩 Open Mercato CLI  ║
+╚═══════════════════════╝
+
+🚀 Running test:integration
+[integration] Running Playwright suite...
+[integration] Checking whether an existing ephemeral environment can be reused...
+[integration] Auto-detected Docker context: unix:///Users/kamil-nowak/.orbstack/run/docker.sock
+[integration] Build cache disabled: source files changed since last build.
+[integration] Ephemeral database ready at localhost:32901
+[integration] Initializing application data (includes migrations)...
+[integration] Initializing application data... 2s elapsed, ~43s left
+[integration] Initializing application data... 4s elapsed, ~41s left
+[integration] Initializing application data... 6s elapsed, ~39s left
+[integration] Initializing application data... 8s elapsed, ~37s left
+[integration] Initializing application data... 10s elapsed, ~35s left
+[integration] Initializing application data... 12s elapsed, ~33s left
+[integration] Initializing application data... 14s elapsed, ~31s left
+[integration] Initializing application data... 16s elapsed, ~29s left
+[integration] Initializing application data... 18s elapsed, ~27s left
+[integration] Initializing application data... 20s elapsed, ~25s left
+[integration] Initializing application data... 22s elapsed, ~23s left
+[integration] Initializing application data... 24s elapsed, ~21s left
+[integration] Initializing application data... 26s elapsed, ~19s left
+[integration] Initializing application data completed in 26s.
+[integration] Build artifacts missing, stale, or out of date; rebuilding artifacts.
+[integration] Building packages...
+[integration] Building packages completed in 1s.
+[integration] Regenerating module artifacts...
+[integration] Regenerating module artifacts... 2s elapsed, ~6s left
+[integration] Regenerating module artifacts... 4s elapsed, ~4s left
+[integration] Regenerating module artifacts... 6s elapsed, ~2s left
+[integration] Regenerating module artifacts completed in 7s.
+[integration] Rebuilding packages after generation...
+[integration] Rebuilding packages after generation completed in 1s.
+[integration] Building application...
+[integration] Reset Next build output directory at /Users/kamil-nowak/Documents/work/development/tracecore/open-mercato/.ai/cezar/worktrees/33090f46-379f-4568-b581-54dd45f6f6ee/apps/mercato/.mercato/next.
+[integration] Building application... 2s elapsed, ~74s left
+[integration] Building application... 4s elapsed, ~72s left
+[integration] Building application... 6s elapsed, ~70s left
+[integration] Building application... 8s elapsed, ~68s left
+[integration] Building application... 10s elapsed, ~66s left
+[integration] Building application... 12s elapsed, ~64s left
+[integration] Building application... 14s elapsed, ~62s left
+[integration] Building application... 16s elapsed, ~60s left
+[integration] Building application... 18s elapsed, ~58s left
+[integration] Building application... 20s elapsed, ~56s left
+[integration] Building application... 22s elapsed, ~54s left
+[integration] Building application... 24s elapsed, ~52s left
+[integration] Building application... 26s elapsed, ~50s left
+[integration] Building application... 28s elapsed, ~48s left
+[integration] Building application... 30s elapsed, ~46s left
+[integration] Building application... 32s elapsed, ~44s left
+[integration] Building application... 34s elapsed, ~42s left
+[integration] Building application... 36s elapsed, ~40s left
+[integration] Building application... 38s elapsed, ~38s left
+[integration] Building application... 40s elapsed, ~36s left
+[integration] Building application... 42s elapsed, ~34s left
+[integration] Building application... 44s elapsed, ~32s left
+[integration] Building application... 46s elapsed, ~30s left
+[integration] Building application... 48s elapsed, ~28s left
+[integration] Building application... 50s elapsed, ~26s left
+[integration] Building application... 52s elapsed, ~24s left
+[integration] Building application... 54s elapsed, ~22s left
+[integration] Building application completed in 55s.
+[integration] Starting application on http://127.0.0.1:5001...
+[integration] Waiting for application readiness... 2s elapsed, ~88s left
+[integration] Waiting for application readiness... 4s elapsed, ~86s left
+[integration] Waiting for application readiness completed in 4s.
+[integration] Application is ready at http://127.0.0.1:5001
+[integration] Ensuring Playwright Chromium is installed...
+Removing unused browser at /Users/kamil-nowak/Library/Caches/ms-playwright/chromium-1217
+Removing unused browser at /Users/kamil-nowak/Library/Caches/ms-playwright/chromium_headless_shell-1217
+◇ injected env (0) from apps/mercato/.env // tip: ⌘ override existing { override: true }
+
+Running 46 tests using 1 worker
+
+  ✓   1 apps/mercato/src/modules/example/__integration__/TC-EXAMPLE-015-specialized-registries.spec.ts:226:3 › TC-EXAMPLE-015: the nine specialized registries have real local callers › resolves and executes the credential-free integration, payment, shipping, and currency identities (334ms)
+  ✓   2 apps/mercato/src/modules/example/__integration__/TC-EXAMPLE-015-specialized-registries.spec.ts:309:3 › TC-EXAMPLE-015: the nine specialized registries have real local callers › token search and live deterministic pgvector indexing preserve Todo organization scope (567ms)
+{"level":30,"time":1788554286543,"pid":75008,"hostname":"MacBook-Pro-Kamil-2.local","name":"shared","component":"orm","poolMin":2,"poolMax":20,"poolIdleTimeout":10000,"poolAcquireTimeout":15000,"idleSessionTimeoutMs":30000,"idleInTransactionTimeoutMs":30000,"nodeEnv":"production","msg":"Pool config"}
+{"level":40,"time":1788554286613,"pid":75008,"hostname":"MacBook-Pro-Kamil-2.local","name":"push_notifications","provider":"apns","env":"OM_PUSH_FAKE_PROVIDERS","msg":"apns push adapter is running in FAKE mode (OM_PUSH_FAKE_PROVIDERS is set): messages are recorded, NOT delivered. This must never be set in production."}
+{"level":40,"time":1788554286613,"pid":75008,"hostname":"MacBook-Pro-Kamil-2.local","name":"push_notifications","provider":"expo","env":"OM_PUSH_FAKE_PROVIDERS","msg":"expo push adapter is running in FAKE mode (OM_PUSH_FAKE_PROVIDERS is set): messages are recorded, NOT delivered. This must never be set in production."}
+{"level":40,"time":1788554286613,"pid":75008,"hostname":"MacBook-Pro-Kamil-2.local","name":"push_notifications","provider":"fcm","env":"OM_PUSH_FAKE_PROVIDERS","msg":"fcm push adapter is running in FAKE mode (OM_PUSH_FAKE_PROVIDERS is set): messages are recorded, NOT delivered. This must never be set in production."}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 🚨 Using derived tenant encryption keys (Vault unavailable / no DEK)
+ Source: TENANT_DATA_ENCRYPTION_FALLBACK_KEY
+ Secret fingerprint (sha256, truncated): c7eabc7b8d9e7cd0
+ Persist this secret securely. Without it, encrypted tenant data cannot be recovered after restart.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{"level":40,"time":1788554286614,"pid":75008,"hostname":"MacBook-Pro-Kamil-2.local","name":"shared","component":"kms","secretFingerprint":"c7eabc7b8d9e7cd0","msg":"Using derived tenant encryption keys (Vault unavailable / no DEK)"}
+{"level":30,"time":1788554286615,"pid":75008,"hostname":"MacBook-Pro-Kamil-2.local","name":"shared","component":"orm","max":20,"min":0,"idleTimeoutMillis":10000,"connectionTimeoutMillis":15000,"msg":"pg pool created with options"}
+  ✓   3 apps/mercato/src/modules/example/__integration__/TC-EXAMPLE-015-specialized-registries.spec.ts:453:3 › TC-EXAMPLE-015: the nine specialized registries have real local callers › one persisted scoped Todo event remains one workflow instance after the queued delivery is drained (8.4s)
+  ✓   4 packages/core/src/modules/currencies/__integration__/TC-CUR-001.spec.ts:11:3 › TC-CUR-001: Currency CRUD via API › should create, update, read, and delete a currency (154ms)
+  ✓   5 packages/core/src/modules/currencies/__integration__/TC-CUR-002.spec.ts:14:3 › TC-CUR-002: Exchange Rate CRUD via API › should create, read, and delete an exchange rate (131ms)
+  ✓   6 packages/core/src/modules/currencies/__integration__/TC-CUR-003.spec.ts:10:3 › TC-CUR-003: Currency Fetch Config CRUD via API › should create, read, and delete a fetch config (42ms)
+  ✓   7 packages/core/src/modules/currencies/__integration__/TC-CUR-004.spec.ts:18:3 › TC-CUR-004: Set Base Currency from UI › should set a non-base currency as base from the currencies list view (6.9s)
+  ✓   8 packages/core/src/modules/currencies/__integration__/TC-CUR-005.spec.ts:31:3 › TC-CUR-005: currencies.manage RBAC gate › view-only user lists currencies but cannot create, update, or delete (446ms)
+  ✓   9 packages/core/src/modules/currencies/__integration__/TC-CUR-006.spec.ts:27:3 › TC-CUR-006: currencies.rates.manage RBAC gate › rates-view user lists exchange rates but cannot create, update, or delete (460ms)
+  ✓  10 packages/core/src/modules/currencies/__integration__/TC-CUR-007.spec.ts:21:3 › TC-CUR-007: exchange-rate validation boundaries › rejects self-reference and invalid rate values, accepts a valid rate (163ms)
+  ✓  11 packages/core/src/modules/currencies/__integration__/TC-CUR-008.spec.ts:39:3 › TC-CUR-008: fetch-rates endpoint › triggers provider sync and updates the Custom config sync metadata (61ms)
+  ✓  12 packages/core/src/modules/currencies/__integration__/TC-CUR-009.spec.ts:34:3 › TC-CUR-009: currency options endpoint › filters options by search term and limit and honors includeInactive (283ms)
+  ✓  13 packages/core/src/modules/currencies/__integration__/TC-CUR-010.spec.ts:49:3 › TC-CUR-010: cross-organization currency isolation › a currency in org B is invisible to an org A user and vice versa (442ms)
+  ✓  14 packages/core/src/modules/currencies/__integration__/TC-CUR-011.spec.ts:40:3 › TC-CUR-011: currency active flag and soft delete › isActive filtering and DELETE soft-delete behave as the route defines (116ms)
+  ✓  15 packages/core/src/modules/currencies/__integration__/TC-CUR-012.spec.ts:63:3 › TC-CUR-012: Currency & exchange-rate Delete routes through the guarded mutation › currency list Delete routes through the guard and surfaces the failure flash (1.2s)
+  ✓  16 packages/core/src/modules/currencies/__integration__/TC-CUR-012.spec.ts:127:3 › TC-CUR-012: Currency & exchange-rate Delete routes through the guarded mutation › exchange-rate list Delete routes through the guard and surfaces the failure flash (6.4s)
+  ✓  17 packages/core/src/modules/currencies/__integration__/TC-CUR-013.spec.ts:34:3 › TC-CUR-013: Currency-fetching provider toggle routes through the guarded mutation › toggling a provider on flashes "Provider enabled" and persists via the guarded PUT (890ms)
+  ✓  18 packages/core/src/modules/currencies/__integration__/TC-CUR-014-command-scope.spec.ts:79:3 › TC-CUR-014: command CRUD tenant scope (#3804) › blocks a tenant admin from creating, updating, or deleting foreign currency data (465ms)
+  ✓  19 packages/core/src/modules/currencies/__integration__/TC-CUR-015-inactive-currency-rates.spec.ts:70:3 › TC-CUR-015: rate fetching ignores the isActive flag › a deactivated currency still gets rates stored for both legs of its pair (85ms)
+◇ injected env (0) from apps/mercato/.env // tip: ◈ encrypted .env [www.dotenvx.com]
+  ✓  20 packages/core/src/modules/currencies/__integration__/TC-CUR-015-nbp-average-rate-contract.spec.ts:46:3 › TC-CUR-015: NBP average-rate contract › shows separate NBP providers and an average row with its publication reference (1.1s)
+  ✓  21 packages/core/src/modules/currencies/__integration__/TC-CUR-ATOMIC-001.spec.ts:56:3 › TC-CUR-ATOMIC-001: base-currency writes are atomic › switching the base currency demotes the previous base in one transaction (180ms)
+  ✓  22 packages/core/src/modules/currencies/__integration__/TC-CUR-ATOMIC-001.spec.ts:107:3 › TC-CUR-ATOMIC-001: base-currency writes are atomic › rejecting a duplicate currency code leaves no partial row (66ms)
+  ✓  23 packages/core/src/modules/currencies/__integration__/TC-CUR-ATOMIC-VERIFY.spec.ts:98:3 › TC-CUR-ATOMIC-VERIFY: atomic refactor is backward-compatible and data-safe › field fidelity: every create field round-trips, and an update persists (93ms)
+  ✓  24 packages/core/src/modules/currencies/__integration__/TC-CUR-ATOMIC-VERIFY.spec.ts:171:3 › TC-CUR-ATOMIC-VERIFY: atomic refactor is backward-compatible and data-safe › isBase enforcement: creating a new base demotes the previous base (168ms)
+  ✓  25 packages/core/src/modules/currencies/__integration__/TC-CUR-ATOMIC-VERIFY.spec.ts:227:3 › TC-CUR-ATOMIC-VERIFY: atomic refactor is backward-compatible and data-safe › undo round-trip: CREATE undo removes the row, UPDATE undo restores prior values (159ms)
+  ✓  26 packages/core/src/modules/currencies/__integration__/TC-CUR-CRUDFORM-001.spec.ts:23:3 › TC-CUR-CRUDFORM-001: Currency CrudForm persists every field on create + update › round-trips all scalar fields through the currencies CRUD route (76ms)
+  ✓  27 packages/core/src/modules/currencies/__integration__/TC-CUR-REDO-409.spec.ts:78:3 › TC-CUR-REDO-409: redo keeps the original id; duplicate create returns 409 › redo of currencies.create restores the SAME id (no orphaned original) (111ms)
+  ✓  28 packages/core/src/modules/currencies/__integration__/TC-CUR-REDO-409.spec.ts:110:3 › TC-CUR-REDO-409: redo keeps the original id; duplicate create returns 409 › redo of exchange_rates.create restores the SAME id (216ms)
+  ✓  29 packages/core/src/modules/currencies/__integration__/TC-CUR-REDO-409.spec.ts:152:3 › TC-CUR-REDO-409: redo keeps the original id; duplicate create returns 409 › duplicate currency code create returns 409 (56ms)
+  ✓  30 packages/core/src/modules/currencies/__integration__/TC-CUR-REDO-409.spec.ts:171:3 › TC-CUR-REDO-409: redo keeps the original id; duplicate create returns 409 › duplicate exchange rate (pair+date+source) create returns 409 (139ms)
+  ✓  31 packages/core/src/modules/currencies/__integration__/TC-CURR-2453.spec.ts:80:3 › TC-CURR-2453: base-currency update persists scalar changes through the interleaved read › updating the base currency with isBase:true + scalar changes persists the scalars (not just 200) (144ms)
+  ✓  32 packages/core/src/modules/currencies/__integration__/TC-LOCK-OSS-040.spec.ts:32:3 › TC-LOCK-OSS-040: currency edit optimistic-lock conflict bar › stale currency edit shows the conflict bar; clean edit does not (1.3s)
+  ✓  33 packages/core/src/modules/currencies/__integration__/TC-LOCK-OSS-040.spec.ts:67:3 › TC-LOCK-OSS-040: currency edit optimistic-lock conflict bar › clean single-tab currency save does not raise a false-positive conflict bar (1.1s)
+  ✓  34 packages/core/src/modules/currencies/__integration__/TC-LOCK-OSS-045.spec.ts:111:3 › TC-LOCK-OSS-045: conflict-bar UX suite (currencies) › UX-01: bar is visible with title "Record changed" (1.3s)
+  ✓  35 packages/core/src/modules/currencies/__integration__/TC-LOCK-OSS-045.spec.ts:129:3 › TC-LOCK-OSS-045: conflict-bar UX suite (currencies) › UX-02: Refresh button is present and clears/refetches the bar (1.3s)
+  ✓  36 packages/core/src/modules/currencies/__integration__/TC-LOCK-OSS-045.spec.ts:150:3 › TC-LOCK-OSS-045: conflict-bar UX suite (currencies) › UX-03: bar persists and does not auto-vanish after a wait (5.3s)
+  ✓  37 packages/core/src/modules/currencies/__integration__/TC-LOCK-OSS-045.spec.ts:168:3 › TC-LOCK-OSS-045: conflict-bar UX suite (currencies) › UX-04: navigating to an unrelated route auto-clears the bar (1.4s)
+  ✓  38 packages/core/src/modules/currencies/__integration__/TC-LOCK-OSS-045.spec.ts:186:3 › TC-LOCK-OSS-045: conflict-bar UX suite (currencies) › UX-05: Dismiss (X) clears the bar (1.3s)
+  ✓  39 packages/core/src/modules/currencies/__integration__/TC-LOCK-OSS-045.spec.ts:203:3 › TC-LOCK-OSS-045: conflict-bar UX suite (currencies) › UX-06: de locale renders the translated bar title, not the en string or raw token (1.3s)
+  ✓  40 packages/core/src/modules/currencies/__integration__/TC-LOCK-OSS-045.spec.ts:239:3 › TC-LOCK-OSS-045: conflict-bar UX suite (currencies) › UX-07: 409 body has optimistic_lock_conflict code + currentUpdatedAt + expectedUpdatedAt (119ms)
+  ✓  41 packages/core/src/modules/currencies/__integration__/TC-LOCK-OSS-046.spec.ts:52:3 › TC-LOCK-OSS-046: optimistic-lock negative / additive contract › NEG-01: a header-less PUT and DELETE always succeed (no 409) (92ms)
+  ✓  42 packages/core/src/modules/currencies/__integration__/TC-LOCK-OSS-046.spec.ts:90:3 › TC-LOCK-OSS-046: optimistic-lock negative / additive contract › NEG-05: back-to-back PUTs with a refreshed token both succeed (no false 409) (135ms)
+  ✓  43 packages/core/src/modules/currencies/__integration__/TC-LOCK-OSS-046.spec.ts:136:3 › TC-LOCK-OSS-046: optimistic-lock negative / additive contract › NEG-04: the v1 companies detail route is not the live single-Save editor (942ms)
+  ✓  44 packages/core/src/modules/currencies/__integration__/TC-UNDO-001-currencies.spec.ts:27:3 › TC-UNDO-001 currencies undo/redo › currencies CRUD commands restore scalar state on undo/redo (264ms)
+  ✓  45 packages/core/src/modules/currencies/__integration__/TC-UNDO-001-currencies.spec.ts:50:3 › TC-UNDO-001 currencies undo/redo › exchange rates CRUD commands restore scalar state on undo/redo (288ms)
+  -  46 packages/core/src/modules/currencies/__integration__/TC-UNDO-001-currencies.spec.ts:76:8 › TC-UNDO-001 currencies undo/redo › duplicate exchange-rate create returns 409 instead of 500 — #2506
+
+  1 skipped
+  45 passed (57.5s)
+[integration] Screenshot capture is enabled (override with --screenshots / --no-screenshots)
+⏱️ Done in 159406ms

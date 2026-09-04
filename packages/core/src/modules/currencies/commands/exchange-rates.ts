@@ -40,6 +40,7 @@ type ExchangeRateSnapshot = {
   date: string
   source: string
   type: string | null
+  externalReference: string | null
   isActive: boolean
   createdAt: string
   updatedAt: string
@@ -68,6 +69,7 @@ async function loadExchangeRateSnapshot(
     date: record.date.toISOString(),
     source: record.source,
     type: record.type ?? null,
+    externalReference: record.externalReference ?? null,
     isActive: !!record.isActive,
     createdAt: record.createdAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
@@ -137,6 +139,7 @@ const createExchangeRateCommand: CommandHandler<ExchangeRateCreateInput, { excha
       date: parsed.date,
       source: parsed.source,
       type: parsed.type ?? null,
+      externalReference: null,
       isActive: parsed.isActive !== false,
       createdAt: now,
       updatedAt: now,
@@ -334,6 +337,7 @@ const updateExchangeRateCommand: CommandHandler<ExchangeRateUpdateInput, { excha
       date: new Date(before.date),
       source: before.source,
       type: before.type,
+      externalReference: before.externalReference,
       isActive: before.isActive,
       updatedAt: new Date(),
     })
