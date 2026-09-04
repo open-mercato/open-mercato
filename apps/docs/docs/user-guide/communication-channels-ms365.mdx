@@ -1,0 +1,126 @@
+---
+title: Set up Microsoft 365
+description: Administrator guide — register the Entra ID app, save its credentials in Open Mercato, and let users connect their Microsoft 365 / Exchange Online mailboxes through Microsoft Graph.
+sidebar_label: Microsoft 365
+---
+
+# Set up Microsoft 365
+
+This is the **administrator** guide for enabling Microsoft 365 (Exchange Online / Outlook work and school mailboxes) in Open Mercato. You register the Entra ID application **once per workspace**; after that, each user connects their own mailbox from their profile page (see the [Communication Channels](communication-channels.mdx) end-user guide).
+
+Open Mercato talks to the mailbox through **Microsoft Graph**, not IMAP/SMTP, so it works even when your tenant has disabled legacy protocols and authenticated SMTP. Inbound mail arrives by **polling** the Inbox (every ~5 minutes by default); outbound mail is sent through Graph and lands in the user's Sent Items automatically.
+
+:::info Who connects what
+The Client ID / Secret you create here is **tenant-wide** — one Entra app serves every user in the workspace. Individual users never see it; they just click **Connect Microsoft 365**.
+:::
+
+## Prerequisites
+
+- Access to the [Microsoft Entra admin center](https://entra.microsoft.com/) with permission to register applications (or an admin who can grant consent for you).
+- Admin access to Open Mercato → **Integrations**.
+- Your Open Mercato base URL, e.g. `https://app.example.com` (or `http://localhost:3000` for local dev — Entra accepts plain `http://localhost` redirect URIs).
+- Users' mailboxes must be licensed for Exchange Online.
+
+---
+
+## Part 1 — Register the application in Entra ID
+
+### 1. Create the app registration
+
+1. Entra admin center → **Identity → Applications → App registrations → New registration**.
+2. **Name**: anything, e.g. `Open Mercato Mail`.
+3. **Supported account types**: choose *Accounts in any organizational directory* (multi-tenant) unless you only ever want your own directory. This choice must match the **Directory (tenant) ID** you enter in Part 2:
+   - *Any organizational directory* ↔ tenant `organizations` (default) or your directory GUID
+   - *Single tenant* ↔ your directory GUID
+   - *… and personal Microsoft accounts* ↔ tenant `common` (only if you really want Outlook.com / Hotmail mailboxes)
+4. **Redirect URI**: platform **Web**, value
+   `https://<your-open-mercato-host>/api/communication_channels/oauth/ms365/callback`
+   It must match byte-for-byte what Open Mercato sends, so make sure `APP_URL` (or the forwarded host behind your proxy) is your public URL.
+5. Click **Register**. Note the **Application (client) ID** and the **Directory (tenant) ID** on the Overview page.
+
+### 2. Add the Graph permissions
+
+**API permissions → Add a permission → Microsoft Graph → Delegated permissions** and add:
+
+| Permission | Why |
+|---|---|
+| `Mail.ReadWrite` | read the Inbox, create drafts, move messages to Deleted Items |
+| `Mail.Send` | send the drafts Open Mercato creates |
+| `User.Read` | resolve the mailbox address and display name after consent |
+| `offline_access` | receive a refresh token so the channel keeps working without re-login |
+| `openid`, `email`, `profile` | sign-in claims used as a fallback identity |
+
+If your tenant blocks user consent, click **Grant admin consent for &lt;tenant&gt;** so users are not stopped by an *"Approval required"* screen.
+
+### 3. Create a client secret
+
+**Certificates & secrets → Client secrets → New client secret**. Copy the secret **Value** immediately (the *Secret ID* is not what you need). Pick an expiry that matches your rotation policy — when it expires, every connect and token refresh fails until you save a new one in Open Mercato.
+
+---
+
+## Part 2 — Register the credentials in Open Mercato
+
+In Open Mercato: **Integrations → Microsoft 365 → Credentials** (or **Configure**).
+
+| Field | Value |
+|---|---|
+| **Application (client) ID** | From Part 1, step 1 |
+| **Client secret** | The secret *value* from Part 1, step 3 |
+| **Directory (tenant) ID** | **Leave blank** for `organizations` (work/school accounts from any directory; personal accounts rejected). Enter your directory GUID to restrict to your own directory, or `common` to also allow personal Microsoft accounts. |
+| **OAuth scopes** | **Leave blank** — the defaults match the permissions above. `offline_access` is always added. |
+
+Save. The Microsoft 365 integration should now show **Healthy** (this only confirms the client config is well-formed; per-user tokens are validated on connect).
+
+:::tip "This provider is not configured yet" on connect?
+That error means the Client ID / Secret are not saved (or were saved under a different organization). Re-open **Integrations → Microsoft 365 → Credentials**, confirm the fields are filled, and save again while scoped to the workspace your users belong to.
+:::
+
+---
+
+## Part 3 — Connect a mailbox
+
+Each user: **Profile → My communication channels → Connect Microsoft 365** → sign in with the work or school account → accept the permissions.
+
+Once connected the channel shows **Connected**, and new Inbox mail appears within the polling interval. Replies sent from Open Mercato are threaded on the original message and saved to the user's Sent Items by Exchange.
+
+### What gets synced
+
+- **Inbox only.** Mail in other folders (or rules that move mail out of the Inbox before Open Mercato polls) is not picked up.
+- **From connect time onward.** Nothing older is imported automatically. Use **Import history** on the channel to back-fill up to a year of Inbox mail, optionally limited to known CRM contacts.
+- A message *moved* into the Inbox later, whose received date is older than the channel's sync point, is skipped by polling. **Import history** covers it.
+
+---
+
+## Troubleshooting
+
+### Channel flips to **Needs reconnection**
+
+The refresh token was revoked or expired — a password change, an admin revoking the app, MFA policy changes, or 90 days without use. The user clicks **Reconnect** on the channel row and signs in again.
+
+### `AADSTS50020` / *"User account from identity provider does not exist in tenant"*
+
+The user signed in with an account that the **Directory (tenant) ID** does not allow — typically a personal Microsoft account while the tenant is `organizations`, or an account from another directory while the tenant is pinned to your GUID. Either sign in with the right account or widen the tenant setting.
+
+### `AADSTS65001` / *"The user or administrator has not consented"*
+
+User consent is disabled in the directory. Grant admin consent in Entra (Part 1, step 2) and connect again.
+
+### *"Microsoft 365 mailbox is not accessible (MailboxNotEnabledForRESTAPI)"*
+
+The mailbox has no Exchange Online licence, is on-premises (hybrid without a cloud mailbox), or Graph access is disabled for it. Assign a licence / move the mailbox to Exchange Online.
+
+### Redirect URI mismatch (`AADSTS50011`)
+
+The callback URL Open Mercato sends does not match the one registered in Entra. Check `APP_URL` / reverse-proxy headers and that the registered URI is exactly `https://<host>/api/communication_channels/oauth/ms365/callback`.
+
+### Sovereign clouds (US Government, China)
+
+Set `OM_CHANNEL_MS365_LOGIN_BASE_URL` (e.g. `https://login.microsoftonline.us`) and `OM_CHANNEL_MS365_GRAPH_BASE_URL` (e.g. `https://graph.microsoft.us/v1.0`) on the app and workers.
+
+---
+
+## Related
+
+- [Communication Channels — end-user guide](communication-channels.mdx)
+- [Set up Gmail](communication-channels-gmail.mdx)
+- [Set up IMAP + SMTP](communication-channels-imap.mdx)
