@@ -136,14 +136,9 @@ export async function fillCombobox(
   // suggestions round trip on a loaded runner must fail here, naming this field, rather than
   // fall through to a best-effort keyboard path that can leave the field uncommitted and
   // surface as an unrelated missing-flash assertion much later in the spec.
-  const dropdownClosed = await input
-    .getAttribute('aria-expanded')
-    .then((expanded) => expanded !== 'true')
-    .catch(() => false)
-  if (dropdownClosed) {
-    // `ArrowDown` on a closed combobox reopens it, so the wait below is resolvable.
-    await input.press('ArrowDown')
-  }
+  // No reopen guard: typing keeps the list open (`ComboboxInput` renders it whenever the field
+  // is touched and non-empty), and nothing between the fill and this wait closes it. A guard
+  // for a state that cannot occur is the same false reassurance this fix removes.
   await expect(suggestionInDropdown).toBeVisible({ timeout: 15_000 })
   await suggestionInDropdown.click()
 
