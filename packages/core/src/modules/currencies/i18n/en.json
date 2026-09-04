@@ -26,9 +26,9 @@
   "currencies.fetch.provider_disabled": "Provider disabled",
   "currencies.fetch.provider_enabled": "Provider enabled",
   "currencies.fetch.provider_nbp": "NBP (National Bank of Poland)",
-  "currencies.fetch.provider_nbp_description": "NBP table C buy/sell rates",
   "currencies.fetch.provider_nbp_average": "NBP average rates",
   "currencies.fetch.provider_nbp_average_description": "Official average rates from NBP tables A and B",
+  "currencies.fetch.provider_nbp_description": "NBP table C buy/sell rates",
   "currencies.fetch.provider_raiffeisen": "Raiffeisen Bank Poland",
   "currencies.fetch.provider_raiffeisen_description": "4 major currencies (EUR, USD, CHF, GBP) with buy/sell rates",
   "currencies.fetch.sync_error": "Failed to fetch rates",
@@ -158,8 +158,8 @@
   "exchangeRates.list.filters.type": "Rate Type",
   "exchangeRates.list.searchPlaceholder": "Search exchange rates",
   "exchangeRates.list.title": "Exchange Rates",
-  "exchangeRates.list.type.buy": "Buy",
   "exchangeRates.list.type.average": "Average",
+  "exchangeRates.list.type.buy": "Buy",
   "exchangeRates.list.type.sell": "Sell",
   "exchangeRates.page.title": "Exchange Rates"
 }

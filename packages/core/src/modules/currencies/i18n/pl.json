@@ -26,9 +26,9 @@
   "currencies.fetch.provider_disabled": "Dostawca wyłączony",
   "currencies.fetch.provider_enabled": "Dostawca włączony",
   "currencies.fetch.provider_nbp": "NBP (Narodowy Bank Polski)",
-  "currencies.fetch.provider_nbp_description": "Kursy kupna/sprzedaży z tabeli C NBP",
   "currencies.fetch.provider_nbp_average": "Średnie kursy NBP",
   "currencies.fetch.provider_nbp_average_description": "Oficjalne średnie kursy z tabel A i B NBP",
+  "currencies.fetch.provider_nbp_description": "Kursy kupna/sprzedaży z tabeli C NBP",
   "currencies.fetch.provider_raiffeisen": "Raiffeisen Bank Polska",
   "currencies.fetch.provider_raiffeisen_description": "4 główne waluty (EUR, USD, CHF, GBP) z kursami kupna/sprzedaży",
   "currencies.fetch.sync_error": "Nie udało się pobrać kursów",
@@ -158,8 +158,8 @@
   "exchangeRates.list.filters.type": "Typ kursu",
   "exchangeRates.list.searchPlaceholder": "Szukaj kursów wymiany",
   "exchangeRates.list.title": "Kursy Wymiany",
-  "exchangeRates.list.type.buy": "Kupno",
   "exchangeRates.list.type.average": "Średni",
+  "exchangeRates.list.type.buy": "Kupno",
   "exchangeRates.list.type.sell": "Sprzedaż",
   "exchangeRates.page.title": "Kursy Wymiany"
 }

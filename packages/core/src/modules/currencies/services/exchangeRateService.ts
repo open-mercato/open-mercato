@@ -229,7 +229,7 @@ export class ExchangeRateService {
    */
   private validateDate(date: Date): void {
     if (!(date instanceof Date) || !Number.isFinite(date.getTime())) {
-      throw new Error('Exchange rate date must be a valid date')
+      throw new Error('[internal] Exchange rate date must be a valid date')
     }
     const now = new Date()
     const normalizedNow = new Date(now)
@@ -263,7 +263,7 @@ export class ExchangeRateService {
 
   private validateCurrencyCodes(fromCode: string, toCode: string): void {
     if (!/^[A-Z]{3}$/.test(fromCode) || !/^[A-Z]{3}$/.test(toCode)) {
-      throw new Error('Currency codes must be three-letter ISO codes')
+      throw new Error('[internal] Currency codes must be three-letter ISO codes')
     }
     if (fromCode === toCode) throw new Error('Cannot get exchange rate for the same currency')
   }
@@ -273,19 +273,19 @@ export class ExchangeRateService {
   ): Required<Pick<RateSelectionOptions, 'maxDaysBack' | 'autoFetch'>> & Pick<RateSelectionOptions, 'provider' | 'rateType'> {
     const maxDaysBack = options?.maxDaysBack ?? 30
     if (!Number.isInteger(maxDaysBack) || maxDaysBack < 0 || maxDaysBack > 366) {
-      throw new Error('maxDaysBack must be an integer from 0 through 366')
+      throw new Error('[internal] maxDaysBack must be an integer from 0 through 366')
     }
     const autoFetch = options?.autoFetch ?? true
-    if (typeof autoFetch !== 'boolean') throw new Error('autoFetch must be a boolean')
+    if (typeof autoFetch !== 'boolean') throw new Error('[internal] autoFetch must be a boolean')
 
     const provider = options?.provider
     const normalizedProvider = provider === undefined ? undefined : provider.trim()
     if (provider !== undefined && (!normalizedProvider || !this.rateFetchingService.hasProvider(normalizedProvider))) {
-      throw new Error('provider must name a registered rate provider')
+      throw new Error('[internal] provider must name a registered rate provider')
     }
     const rateType = options?.rateType
     if (rateType !== undefined && !['buy', 'sell', 'average'].includes(rateType)) {
-      throw new Error('rateType must be buy, sell, or average')
+      throw new Error('[internal] rateType must be buy, sell, or average')
     }
     return { maxDaysBack, autoFetch, provider: normalizedProvider, rateType }
   }

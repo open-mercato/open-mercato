@@ -26,9 +26,9 @@
   "currencies.fetch.provider_disabled": "제공업체 비활성화됨",
   "currencies.fetch.provider_enabled": "제공업체 활성화됨",
   "currencies.fetch.provider_nbp": "NBP (폴란드 국립은행)",
-  "currencies.fetch.provider_nbp_description": "NBP 표 C의 매수/매도 환율",
   "currencies.fetch.provider_nbp_average": "NBP 평균 환율",
   "currencies.fetch.provider_nbp_average_description": "NBP 표 A와 B의 공식 평균 환율",
+  "currencies.fetch.provider_nbp_description": "NBP 표 C의 매수/매도 환율",
   "currencies.fetch.provider_raiffeisen": "라이파이젠 은행 폴란드",
   "currencies.fetch.provider_raiffeisen_description": "매수/매도 환율이 포함된 4개 주요 통화 (EUR, USD, CHF, GBP)",
   "currencies.fetch.sync_error": "환율 가져오기에 실패했습니다",
@@ -158,8 +158,8 @@
   "exchangeRates.list.filters.type": "환율 유형",
   "exchangeRates.list.searchPlaceholder": "환율 검색",
   "exchangeRates.list.title": "환율",
-  "exchangeRates.list.type.buy": "매수",
   "exchangeRates.list.type.average": "평균",
+  "exchangeRates.list.type.buy": "매수",
   "exchangeRates.list.type.sell": "매도",
   "exchangeRates.page.title": "환율"
 }

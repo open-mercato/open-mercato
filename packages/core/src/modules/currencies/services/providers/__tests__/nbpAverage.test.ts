@@ -87,6 +87,26 @@ describe('NBPAverageRateProvider', () => {
       .rejects.toThrow('table B request failed')
   })
 
+  it('rejects a publication number that does not identify the returned table', async () => {
+    const invalidTable = table('A', [{ code: 'EUR', mid: 4.2531 }])
+    invalidTable[0].no = '163/B/NBP/2026'
+    fetchMock.mockResolvedValueOnce(response(200, invalidTable))
+    fetchMock.mockResolvedValueOnce(response(404))
+
+    await expect(new NBPAverageRateProvider().fetchRates(date, scope, new Set(['PLN', 'EUR'])))
+      .rejects.toThrow('table A publication number is invalid')
+  })
+
+  it('rejects an effective date that differs from the requested calendar date', async () => {
+    const invalidTable = table('A', [{ code: 'EUR', mid: 4.2531 }])
+    invalidTable[0].effectiveDate = '2026-08-23'
+    fetchMock.mockResolvedValueOnce(response(200, invalidTable))
+    fetchMock.mockResolvedValueOnce(response(404))
+
+    await expect(new NBPAverageRateProvider().fetchRates(date, scope, new Set(['PLN', 'EUR'])))
+      .rejects.toThrow('effective date does not match the requested date')
+  })
+
   it('does not call NBP when PLN is not active for the scope', async () => {
     const rates = await new NBPAverageRateProvider().fetchRates(date, scope, new Set(['EUR']))
 

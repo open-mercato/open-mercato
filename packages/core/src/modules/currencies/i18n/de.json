@@ -26,9 +26,9 @@
   "currencies.fetch.provider_disabled": "Anbieter deaktiviert",
   "currencies.fetch.provider_enabled": "Anbieter aktiviert",
   "currencies.fetch.provider_nbp": "NBP (Polnische Nationalbank)",
-  "currencies.fetch.provider_nbp_description": "Kauf-/Verkaufskurse aus NBP-Tabelle C",
   "currencies.fetch.provider_nbp_average": "NBP-Durchschnittskurse",
   "currencies.fetch.provider_nbp_average_description": "Offizielle Durchschnittskurse aus den NBP-Tabellen A und B",
+  "currencies.fetch.provider_nbp_description": "Kauf-/Verkaufskurse aus NBP-Tabelle C",
   "currencies.fetch.provider_raiffeisen": "Raiffeisen Bank Polen",
   "currencies.fetch.provider_raiffeisen_description": "4 Hauptwährungen (EUR, USD, CHF, GBP) mit Kauf-/Verkaufskursen",
   "currencies.fetch.sync_error": "Fehler beim Abrufen der Kurse",
@@ -158,8 +158,8 @@
   "exchangeRates.list.filters.type": "Kursart",
   "exchangeRates.list.searchPlaceholder": "Wechselkurse durchsuchen",
   "exchangeRates.list.title": "Wechselkurse",
-  "exchangeRates.list.type.buy": "Ankauf",
   "exchangeRates.list.type.average": "Durchschnitt",
+  "exchangeRates.list.type.buy": "Ankauf",
   "exchangeRates.list.type.sell": "Verkauf",
   "exchangeRates.page.title": "Wechselkurse"
 }

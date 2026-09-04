@@ -200,9 +200,11 @@ describe('CurrencyFetchingConfig', () => {
       runMutationMock.mockClear()
       fireEvent.click(screen.getByRole('button', { name: 'currencies.fetch.fetch_now' }))
       await waitFor(() => expect(runMutationMock).toHaveBeenCalled())
-      expect(runMutationMock.mock.calls.some(
+      const fetchCalls = runMutationMock.mock.calls.filter(
         ([request]) => request?.context?.resourceKind === 'currencies.fetch_rates',
-      )).toBe(true)
+      )
+      expect(fetchCalls).toHaveLength(1)
+      expect(fetchCalls[0]?.[0]?.mutationPayload).toEqual({ providers: ['NBP'] })
     })
 
     it('routes auto-initialized provider creation through the guarded mutation', async () => {

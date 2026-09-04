@@ -26,9 +26,9 @@
   "currencies.fetch.provider_disabled": "Proveedor deshabilitado",
   "currencies.fetch.provider_enabled": "Proveedor habilitado",
   "currencies.fetch.provider_nbp": "NBP (Banco Nacional de Polonia)",
-  "currencies.fetch.provider_nbp_description": "Tipos de compra/venta de la tabla C del NBP",
   "currencies.fetch.provider_nbp_average": "Tipos medios del NBP",
   "currencies.fetch.provider_nbp_average_description": "Tipos medios oficiales de las tablas A y B del NBP",
+  "currencies.fetch.provider_nbp_description": "Tipos de compra/venta de la tabla C del NBP",
   "currencies.fetch.provider_raiffeisen": "Raiffeisen Bank Polonia",
   "currencies.fetch.provider_raiffeisen_description": "4 monedas principales (EUR, USD, CHF, GBP) con tipos de compra/venta",
   "currencies.fetch.sync_error": "Error al obtener tipos",
@@ -158,8 +158,8 @@
   "exchangeRates.list.filters.type": "Tipo de tasa",
   "exchangeRates.list.searchPlaceholder": "Buscar tipos de cambio",
   "exchangeRates.list.title": "Tipos de Cambio",
-  "exchangeRates.list.type.buy": "Compra",
   "exchangeRates.list.type.average": "Promedio",
+  "exchangeRates.list.type.buy": "Compra",
   "exchangeRates.list.type.sell": "Venta",
   "exchangeRates.page.title": "Tipos de Cambio"
 }

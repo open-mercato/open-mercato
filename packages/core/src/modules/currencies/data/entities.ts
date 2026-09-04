@@ -1,5 +1,5 @@
 import { Entity, Index, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
-import type { RateType } from '../services/providers/base'
+import type { RateType } from './validators'
 
 @Entity({ tableName: 'currencies' })
 @Index({

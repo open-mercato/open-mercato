@@ -1,4 +1,6 @@
-export type RateType = 'buy' | 'sell' | 'average'
+import type { RateType } from '../../data/validators'
+
+export type { RateType } from '../../data/validators'
 
 export type ProviderSelectionMode = 'default' | 'explicit'
 

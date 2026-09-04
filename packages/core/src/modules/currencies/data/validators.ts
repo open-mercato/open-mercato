@@ -27,7 +27,8 @@ const sourceSchema = z
   .transform(s => s.trim())
 
 // Rate type validation schema
-const rateTypeSchema = z.enum(['buy', 'sell', 'average']).nullable().optional()
+export const rateTypeSchema = z.enum(['buy', 'sell', 'average']).nullable().optional()
+export type RateType = NonNullable<z.infer<typeof rateTypeSchema>>
 
 // Currency validators
 export const currencyCreateSchema = z.object({

@@ -4,12 +4,7 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
-import { getAllMutationGuardInstances } from '@open-mercato/shared/lib/crud/mutation-guard-store'
-import {
-  bridgeLegacyGuard,
-  runMutationGuards,
-  type MutationGuard,
-} from '@open-mercato/shared/lib/crud/mutation-guard-registry'
+import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { RateFetchingService } from '../../services/rateFetchingService'
 import { CurrencyFetchConfig } from '../../data/entities'
@@ -26,36 +21,9 @@ const fetchRatesRequestSchema = z.object({
     .refine((providers) => new Set(providers).size === providers.length, 'Providers must be unique')
     .optional(),
 }).strict()
+const fetchRatesGuardedRequestSchema = fetchRatesRequestSchema.strip()
 
 type FetchRatesRequest = z.infer<typeof fetchRatesRequestSchema>
-
-function userFeatures(auth: unknown): string[] {
-  const features = (auth as { features?: unknown }).features
-  return Array.isArray(features)
-    ? features.filter((feature): feature is string => typeof feature === 'string')
-    : []
-}
-
-async function runAfterSuccessCallbacks(
-  callbacks: Array<{ guard: MutationGuard; metadata: Record<string, unknown> | null }>,
-  input: { tenantId: string; organizationId: string; userId: string; requestHeaders: Headers },
-): Promise<void> {
-  for (const callback of callbacks) {
-    if (!callback.guard.afterSuccess) continue
-    try {
-      await callback.guard.afterSuccess({
-        ...input,
-        resourceKind: 'currencies.fetch_rates',
-        resourceId: 'currencies.fetch_rates',
-        operation: 'update',
-        requestMethod: 'POST',
-        metadata: callback.metadata,
-      })
-    } catch (err) {
-      logger.warn('Mutation guard afterSuccess callback failed', { err })
-    }
-  }
-}
 
 export async function POST(req: NextRequest) {
   const auth = await getAuthFromRequest(req)
@@ -76,27 +44,26 @@ export async function POST(req: NextRequest) {
 
   const container = await createRequestContainer()
   try {
-    const legacyGuard = bridgeLegacyGuard(container)
-    const guardResult = await runMutationGuards(
-      [...getAllMutationGuardInstances(), ...(legacyGuard ? [legacyGuard] : [])],
-      {
+    const guardResult = await runRouteMutationGuards({
+      container,
+      req,
+      auth: {
         tenantId: auth.tenantId,
         organizationId: auth.orgId,
         userId: auth.sub,
+      },
+      input: {
         resourceKind: 'currencies.fetch_rates',
         resourceId: null,
-        operation: 'update',
-        requestMethod: 'POST',
-        requestHeaders: req.headers,
+        operation: 'custom',
         mutationPayload: parsed.data,
       },
-      { userFeatures: userFeatures(auth) },
-    )
+    })
     if (!guardResult.ok) {
-      return NextResponse.json(guardResult.errorBody, { status: guardResult.errorStatus })
+      return guardResult.response
     }
     const guardedInput = guardResult.modifiedPayload
-      ? fetchRatesRequestSchema.safeParse({ ...parsed.data, ...guardResult.modifiedPayload })
+      ? fetchRatesGuardedRequestSchema.safeParse({ ...parsed.data, ...guardResult.modifiedPayload })
       : { success: true as const, data: parsed.data }
     if (!guardedInput.success) {
       return NextResponse.json({ error: 'Invalid fetch-rates request' }, { status: 400 })
@@ -148,12 +115,7 @@ export async function POST(req: NextRequest) {
     }
 
     await em.flush()
-    await runAfterSuccessCallbacks(guardResult.afterSuccessCallbacks, {
-      tenantId: auth.tenantId,
-      organizationId: auth.orgId,
-      userId: auth.sub,
-      requestHeaders: req.headers,
-    })
+    await guardResult.runAfterSuccess()
     return NextResponse.json(result)
   } catch (err) {
     logger.error('Fetch rates request failed', { err })
@@ -207,6 +169,7 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 400, description: 'Bad request', schema: errorSchema },
         { status: 401, description: 'Unauthorized', schema: errorSchema },
+        { status: 422, description: 'Blocked by a mutation guard', schema: errorSchema },
         { status: 500, description: 'Internal server error', schema: fetchRatesResponseSchema },
       ],
     },

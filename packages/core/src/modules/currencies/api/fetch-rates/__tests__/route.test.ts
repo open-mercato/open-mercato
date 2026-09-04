@@ -7,9 +7,8 @@ const fetchRatesForDate = jest.fn()
 const find = jest.fn()
 const flush = jest.fn()
 const dispose = jest.fn()
-const runMutationGuards = jest.fn()
-const getAllMutationGuardInstances = jest.fn()
-const bridgeLegacyGuard = jest.fn()
+const runAfterSuccess = jest.fn()
+const runRouteMutationGuards = jest.fn()
 
 const container = {
   resolve: jest.fn((name: string) => {
@@ -29,17 +28,11 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
     sub: 'user-1',
     tenantId,
     orgId,
-    features: ['currencies.fetch.manage'],
   })),
 }))
 
-jest.mock('@open-mercato/shared/lib/crud/mutation-guard-store', () => ({
-  getAllMutationGuardInstances: () => getAllMutationGuardInstances(),
-}))
-
-jest.mock('@open-mercato/shared/lib/crud/mutation-guard-registry', () => ({
-  bridgeLegacyGuard: () => bridgeLegacyGuard(),
-  runMutationGuards: (...args: unknown[]) => runMutationGuards(...args),
+jest.mock('@open-mercato/shared/lib/crud/route-mutation-guard', () => ({
+  runRouteMutationGuards: (...args: unknown[]) => runRouteMutationGuards(...args),
 }))
 
 jest.mock('@open-mercato/core/modules/currencies/data/entities', () => ({
@@ -66,13 +59,11 @@ describe('POST /api/currencies/fetch-rates', () => {
       byProvider: { nbp_average: { count: 1 } },
       errors: [],
     })
-    getAllMutationGuardInstances.mockReturnValue([])
-    bridgeLegacyGuard.mockReturnValue(null)
-    runMutationGuards.mockImplementation(async (_guards, context) => ({
+    runAfterSuccess.mockResolvedValue(undefined)
+    runRouteMutationGuards.mockResolvedValue({
       ok: true,
-      modifiedPayload: context.mutationPayload,
-      afterSuccessCallbacks: [],
-    }))
+      runAfterSuccess,
+    })
   })
 
   it('uses per-method manage metadata', () => {
@@ -96,15 +87,16 @@ describe('POST /api/currencies/fetch-rates', () => {
     }) as never)
 
     expect(response.status).toBe(200)
-    expect(runMutationGuards).toHaveBeenCalledWith(
-      [],
-      expect.objectContaining({
-        operation: 'update',
+    expect(runRouteMutationGuards).toHaveBeenCalledWith({
+      container,
+      req: expect.any(Request),
+      auth: { userId: 'user-1', tenantId, organizationId: orgId },
+      input: expect.objectContaining({
+        operation: 'custom',
         resourceKind: 'currencies.fetch_rates',
         mutationPayload: { date: '2026-08-24T00:00:00.000Z', providers: ['nbp_average'] },
       }),
-      { userFeatures: ['currencies.fetch.manage'] },
-    )
+    })
     expect(fetchRatesForDate).toHaveBeenCalledWith(
       new Date('2026-08-24T00:00:00.000Z'),
       { tenantId, organizationId: orgId },
@@ -113,10 +105,10 @@ describe('POST /api/currencies/fetch-rates', () => {
   })
 
   it('uses the mutation guard payload after it changes the selected provider', async () => {
-    runMutationGuards.mockResolvedValue({
+    runRouteMutationGuards.mockResolvedValue({
       ok: true,
-      modifiedPayload: { providers: ['nbp_average'] },
-      afterSuccessCallbacks: [],
+      modifiedPayload: { providers: ['nbp_average'], guardAuditId: 'ignored' },
+      runAfterSuccess,
     })
 
     const response = await POST(request({ providers: ['NBP'] }) as never)
@@ -129,21 +121,34 @@ describe('POST /api/currencies/fetch-rates', () => {
     )
   })
 
+  it('returns a guard rejection without calling the service', async () => {
+    runRouteMutationGuards.mockResolvedValue({
+      ok: false,
+      errorStatus: 422,
+      errorBody: { error: 'Blocked by policy' },
+      response: Response.json({ error: 'Blocked by policy' }, { status: 422 }),
+    })
+
+    const response = await POST(request({ providers: ['nbp_average'] }) as never)
+
+    expect(response.status).toBe(422)
+    await expect(response.json()).resolves.toEqual({ error: 'Blocked by policy' })
+    expect(fetchRatesForDate).not.toHaveBeenCalled()
+  })
+
   it('runs after-success callbacks only after the committed flush', async () => {
-    const afterSuccess = jest.fn()
-    runMutationGuards.mockResolvedValue({
+    runRouteMutationGuards.mockResolvedValue({
       ok: true,
       modifiedPayload: { providers: ['nbp_average'] },
-      afterSuccessCallbacks: [{ guard: { afterSuccess }, metadata: { source: 'test' } }],
+      runAfterSuccess,
     })
 
     const response = await POST(request({ providers: ['nbp_average'] }) as never)
 
     expect(response.status).toBe(200)
     expect(flush).toHaveBeenCalled()
-    expect(afterSuccess).toHaveBeenCalledWith(expect.objectContaining({
-      resourceKind: 'currencies.fetch_rates',
-      operation: 'update',
-    }))
+    expect(runAfterSuccess).toHaveBeenCalledTimes(1)
+    expect(flush.mock.invocationCallOrder[0])
+      .toBeLessThan(runAfterSuccess.mock.invocationCallOrder[0])
   })
 })
