@@ -493,12 +493,6 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
     payload: EventPayload,
     options?: EmitOptions
   ): Promise<void> {
-    // Private coordination always requires trusted envelope scope and module
-    // provenance. Legacy declared browser events may promote their typed scope
-    // for raw EventBus compatibility; tenant-managed workflow adapters pass
-    // authoritative scope in options, which always wins over payload values.
-    const crossProcessOptions = resolveCrossProcessEmitOptions(event, payload, options)
-
     const runGlobalTaps = async (): Promise<void> => {
       const taps = getGlobalEventTaps()
       for (const tap of taps) {
@@ -510,7 +504,15 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
       }
     }
 
+    // Resolved at call time, never hoisted. Private coordination always requires
+    // trusted envelope scope and module provenance. Legacy declared browser events
+    // may promote their typed scope for raw EventBus compatibility; tenant-managed
+    // workflow adapters pass authoritative scope in options, which always wins over
+    // payload values. Computing it lazily keeps the non-coalesced path resolving
+    // scope at exactly the point it always did — after inline delivery — so an
+    // event that did not opt in cannot observe this change at all.
     const publishToOtherProcesses = async (): Promise<void> => {
+      const crossProcessOptions = resolveCrossProcessEmitOptions(event, payload, options)
       if (
         !isCrossProcessBroadcastEvent(event)
         || !hasTrustedTenantScope(crossProcessOptions)
@@ -531,7 +533,7 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
     const coalesceBrowserDelivery = isCoalescedBroadcastEvent(event)
     if (coalesceBrowserDelivery) {
       await submitBroadcast(
-        buildBroadcastCoalesceKey(event, crossProcessOptions ?? options),
+        buildBroadcastCoalesceKey(event, resolveCrossProcessEmitOptions(event, payload, options) ?? options),
         async () => {
           await runGlobalTaps()
           await publishToOtherProcesses()
