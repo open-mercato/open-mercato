@@ -1867,14 +1867,23 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       }
       return (group.fields ?? []).map((entry) => (typeof entry === 'string' ? entry : entry.id))
     }
+    const declaredGroups = groups ?? []
     const hidden = new Set<string>()
     const visible = new Set<string>()
-    for (const group of groups ?? []) {
+    for (const group of declaredGroups) {
       const target = hiddenGroupIdSet.has(group.id) ? hidden : visible
       for (const fieldId of groupFieldIds(group)) target.add(fieldId)
     }
+    // Mirror the injection fallback in `groupsWithInjectedFields`: a definition
+    // whose target group does not exist is appended to the last declared group,
+    // so it is hidden exactly when that fallback group is.
+    const declaredGroupIds = new Set(declaredGroups.map((group) => group.id))
+    const fallbackGroupId = declaredGroups[declaredGroups.length - 1]?.id
     for (const definition of injectedFieldDefinitions) {
-      if (definition.group && hiddenGroupIdSet.has(definition.group)) hidden.add(definition.id)
+      const targetGroupId = definition.group && declaredGroupIds.has(definition.group)
+        ? definition.group
+        : fallbackGroupId
+      if (targetGroupId && hiddenGroupIdSet.has(targetGroupId)) hidden.add(definition.id)
     }
     for (const fieldId of visible) hidden.delete(fieldId)
     return hidden
@@ -2181,10 +2190,10 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     }
   }, [declaredGroupsForLayout, hiddenGroupIdSet])
 
-  // Keep the grouped layout when hiding emptied a non-empty set of groups.
-  // Falling back to `resolvedGroupsForLayout.length > 0` alone would drop into the
+  // Keyed off the DECLARED groups, not the filtered ones: testing
+  // `resolvedGroupsForLayout.length > 0` would drop a fully-hidden form into the
   // ungrouped branch and render every field flat — the opposite of hiding them.
-  const useGroupedLayout = resolvedGroupsForLayout.length > 0 || declaredGroupsForLayout.length > 0
+  const useGroupedLayout = declaredGroupsForLayout.length > 0
 
   // Sortable group order
   const defaultGroupIds = React.useMemo(() => resolvedGroupsForLayout.map((g) => g.id), [resolvedGroupsForLayout])

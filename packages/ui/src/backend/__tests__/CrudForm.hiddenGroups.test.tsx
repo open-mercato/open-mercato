@@ -5,6 +5,7 @@ jest.setTimeout(15000)
 // stable id. Hiding is presentation-only — the fields of a hidden group keep their
 // values and are still submitted, so a smaller form can never silently clear data.
 let injectedGroupWidgets: unknown[] = []
+let injectedFieldWidgets: Array<{ fields: unknown[] }> = []
 const fetchCustomFieldFormStructureMock = jest.fn()
 const buildFormFieldFromCustomFieldDefMock = jest.fn()
 
@@ -22,7 +23,7 @@ jest.mock('../injection/InjectionSpot', () => ({
 }))
 jest.mock('../injection/useInjectionDataWidgets', () => ({
   __esModule: true,
-  useInjectionDataWidgets: () => ({ widgets: [], isLoading: false, error: null }),
+  useInjectionDataWidgets: () => ({ widgets: injectedFieldWidgets, isLoading: false, error: null }),
 }))
 jest.mock('../utils/customFieldForms', () => ({
   __esModule: true,
@@ -99,6 +100,7 @@ function submitForm(container: HTMLElement) {
 describe('CrudForm hiddenGroupIds', () => {
   afterEach(() => {
     injectedGroupWidgets = []
+    injectedFieldWidgets = []
     fetchCustomFieldFormStructureMock.mockReset()
     buildFormFieldFromCustomFieldDefMock.mockReset()
   })
@@ -210,6 +212,45 @@ describe('CrudForm hiddenGroupIds', () => {
       expect(container.querySelector('[data-testid="portal-users-widget"]')).toBeNull()
       // the rest of the form is untouched
       expect(fieldIds(container)).toEqual(['name', 'legalName', 'note'])
+    })
+
+    it('does not gate submit on an injected field that fell back into a hidden group', async () => {
+      // A definition whose target group does not exist is appended to the LAST
+      // declared group; when that group is hidden the field renders nowhere, so
+      // it must not block submit either.
+      injectedFieldWidgets = [
+        {
+          fields: [
+            {
+              id: 'injectedOnly',
+              label: 'Injected only',
+              type: 'text',
+              group: 'no-such-group',
+              required: true,
+            },
+          ],
+        },
+      ]
+      const onSubmit = jest.fn()
+
+      const { container } = renderForm({
+        formFields: [fields[0]],
+        formGroups: [
+          { id: 'details', title: 'Details', column: 1, fields: ['name'] },
+          { id: 'profile', title: 'Profile', column: 1, fields: [] },
+        ],
+        formInitialValues: { name: 'Acme' },
+        hiddenGroupIds: ['profile'],
+        onSubmit,
+      })
+
+      await waitFor(() => {
+        expect(fieldIds(container)).not.toContain('injectedOnly')
+      })
+
+      submitForm(container)
+
+      await waitFor(() => expect(onSubmit).toHaveBeenCalled())
     })
 
     it('hides a customFields group card together with its resolved custom fields', async () => {
