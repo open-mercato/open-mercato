@@ -130,7 +130,14 @@ jest.mock('@open-mercato/ui/backend/inputs', () => ({
       {externalError ? <p>{externalError}</p> : null}
     </div>
   ),
-  SwitchableMarkdownInput: () => null,
+  SwitchableMarkdownInput: ({ disableMarkdown, value }: { disableMarkdown?: boolean; value: string }) => (
+    <textarea
+      aria-label="Description"
+      data-disable-markdown={disableMarkdown ? 'true' : 'false'}
+      value={value}
+      readOnly
+    />
+  ),
 }))
 
 jest.mock('../schedule', () => ({
@@ -261,6 +268,56 @@ describe('ScheduleActivityDialog', () => {
     ).not.toThrow()
 
     expect(screen.getByText('Update activity')).toBeInTheDocument()
+  })
+
+  it('renders an ingested email body as plain text instead of Markdown (#5903)', () => {
+    // Plain-text email bodies routinely contain `<address>` and `<url>` tokens,
+    // which are invalid MDX, so the Markdown editor must not be used for them.
+    const emailBody = 'Sender <sender@example.com>\n<https://example.com/>'
+    mockScheduleState = createScheduleState({
+      activityType: 'email' as const,
+      title: 'Email subject',
+      description: emailBody,
+    })
+
+    renderWithProviders(
+      <ScheduleActivityDialog
+        open
+        onClose={() => undefined}
+        entityId="person-1"
+        entityType="person"
+        editData={{
+          id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+          interactionType: 'email',
+          title: 'Email subject',
+          body: emailBody,
+        }}
+      />,
+    )
+
+    const description = screen.getByLabelText('Description') as HTMLTextAreaElement
+    expect(description.dataset.disableMarkdown).toBe('true')
+    expect(description.value).toBe(emailBody)
+  })
+
+  it('keeps the Markdown editor for note descriptions', () => {
+    mockScheduleState = createScheduleState({
+      activityType: 'note' as const,
+      title: 'My note',
+      description: '**bold**',
+    })
+
+    renderWithProviders(
+      <ScheduleActivityDialog
+        open
+        onClose={() => undefined}
+        entityId="deal-1"
+        entityType="deal"
+      />,
+    )
+
+    const description = screen.getByLabelText('Description') as HTMLTextAreaElement
+    expect(description.dataset.disableMarkdown).toBe('false')
   })
 
   it('shows Save note button when creating a new note activity', () => {
