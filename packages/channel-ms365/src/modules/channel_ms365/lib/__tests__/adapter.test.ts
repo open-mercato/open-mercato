@@ -130,6 +130,26 @@ describe('Ms365ChannelAdapter wiring', () => {
     expect(native.content.bodyFormat).toBe('html')
   })
 
+  it('convertOutbound passes the hub channel metadata through as metadata for sendMessage', async () => {
+    // deliver-outbound-message calls convertOutbound({ channelMetadata }) and then
+    // sendMessage({ metadata: converted.metadata }); recipients must survive that hop.
+    const channelMetadata = {
+      to: ['bob@example.com'],
+      cc: ['carol@example.com'],
+      subject: 'Hello',
+      references: ['<ref@example.com>'],
+      omThreadToken: 'tok',
+      thread_id: 'outbound:abc',
+    }
+    const native = await getMs365ChannelAdapter().convertOutbound({
+      body: 'plain body',
+      bodyFormat: 'text',
+      channelMetadata,
+    })
+    expect(native.metadata).toEqual(channelMetadata)
+    expect(native.content.raw).toEqual(channelMetadata)
+  })
+
   it('verifyWebhook returns an unhandled event and getStatus a sent placeholder', async () => {
     const adapter = getMs365ChannelAdapter()
     const webhook = await adapter.verifyWebhook({ rawBody: '', headers: {}, credentials: {}, scope })

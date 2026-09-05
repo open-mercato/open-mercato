@@ -223,19 +223,26 @@ class Ms365ChannelAdapter implements ChannelAdapter {
   }
 
   async convertOutbound(input: ConvertOutboundInput): Promise<ChannelNativeContent> {
-    // The hub calls this before it knows the recipients (test-send passes them
-    // only on `sendMessage.metadata`), so shape the body here and defer the
-    // RFC2822 assembly — which needs From/To — to `sendMessage`.
+    // Shape the body here and defer the RFC2822 assembly — which needs
+    // From/To — to `sendMessage`. Recipients may be absent at this point
+    // (test-send passes them only on `sendMessage.metadata`), so no recipient
+    // check happens here. The hub's delivery path, however, feeds this result's
+    // `metadata` straight into `sendMessage.metadata`, so the channel metadata
+    // (`to`/`cc`/`bcc`/`subject`/`references`/`omThreadToken`/...) MUST be
+    // passed through — dropping it made every hub-routed send fail with
+    // "requires at least one recipient".
     const html = input.bodyFormat === 'html' ? input.body : undefined
     const text = input.bodyFormat === 'html' ? htmlToText(input.body) : input.body
+    const passthrough = { ...(input.channelMetadata ?? {}) }
     return {
       content: {
         text,
         html,
         bodyFormat: input.bodyFormat,
         attachments: input.attachments,
-        raw: { ...(input.channelMetadata ?? {}) },
+        raw: passthrough,
       },
+      metadata: passthrough,
     }
   }
 
