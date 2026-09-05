@@ -38,6 +38,75 @@ yarn mercato auth sync-role-acls
 The sync is idempotent and does not revoke existing grants or create roles. No database
 migration is needed; in particular, permissions are not granted by matching a mutable role
 name in SQL.
+### Sales line `discount_amount` is now read as a line total, and the percentage wins (#3757)
+
+`sales_order_lines.discount_amount` and `sales_quote_lines.discount_amount` have always been
+*written* as the discount for the whole line, but the totals engine read them back as a
+per-**unit** rate. Every recalculation therefore multiplied the discount by the line quantity
+again, so on a discounted line with `quantity > 1` the stored discount grew on each pass —
+`12.75 → 38.25 → 114.75 → 255` on the reported 3 × 85.00 line — until it equalled the line's
+whole subtotal and the line's net collapsed to `0` while its gross stayed correct.
+
+The column's meaning is now normative (a **line total**, net, quantity-inclusive) and the read
+path was corrected to match. The full reasoning is in
+`.ai/specs/2026-08-07-sales-line-discount-amount-contract.md`.
+
+**Three behaviour changes affect callers of `/api/sales/orders`, `/api/sales/quotes`,
+`/api/sales/order-lines` and `/api/sales/quote-lines`.** All three follow from the new
+precedence rule: when `discount_percent` is set and non-zero it wins, and a stored
+`discount_amount` of `0` counts as *absent* rather than as a suppressing value.
+
+| you send | before | now |
+|---|---|---|
+| a percent **and** a different amount | the amount won | **the percent wins** — your amount is dropped |
+| only `discountAmount`, onto a line whose stored `discount_percent` is non-zero | the amount won | **the inherited percent wins** — your amount is dropped, with nothing in your own request to warn you |
+| `discountPercent: 12` together with `discountAmount: 0` | no discount was applied | **the 12% is applied** |
+
+**The third row is the dangerous one, and it is different in kind from the other two.** It
+*inverts* behaviour rather than dropping a value. `discountAmount: 0` used to be a working way
+to suppress a percentage, and sending it is exactly the workaround an integration would have
+built to defend itself against this very defect — quite possibly while already netting the
+discount out of the unit price it sends. Such an integration will now discount **twice**, and
+the resulting totals are larger, not smaller, so it fails in the direction nobody notices.
+Audit for `discountAmount: 0` before upgrading.
+
+For the first two rows the migration is mechanical: **send `discountPercent: 0` alongside your
+explicit amount** and it will be honoured.
+
+#### Keeping an explicit amount, and the new `discountAmountBasis`
+
+A supplied `discountAmount` is still interpreted **per unit** by default, so no existing caller
+has to change how it computes the value. An optional `discountAmountBasis: 'unit' | 'line'` was
+added to the order and quote line request schemas; omitting it reproduces today's documented
+meaning exactly. Send `'line'` when the amount you are posting is already the whole line's
+discount:
+
+```jsonc
+// 60 units at 50.00 net, discounting 300.00 across the line
+{ "quantity": 60, "unitPriceNet": 50.00, "discountAmount": 5.00 }                            // per unit — 300.00 total
+{ "quantity": 60, "unitPriceNet": 50.00, "discountAmount": 300.00, "discountAmountBasis": "line" }
+```
+
+The field is additive and is never persisted or returned; it only describes how an input is
+read. `sales_invoice_lines.discount_amount` is unaffected — invoice lines never pass through the
+calculation engine, so no basis field was added to the invoice schema.
+
+#### Existing data
+
+Recalculation now *changes* totals on documents whose rows are currently wrong, and it does so
+on the next write to each document rather than at deploy time. Two of the three affected row
+shapes repair themselves, because they still carry the percentage the discount derives from:
+
+- `discount_amount = 0` with `discount_percent > 0` (the discount was dropped) — **heals**.
+- `discount_amount` inflated with `discount_percent > 0` — **heals**, the amount is re-derived.
+- `discount_amount` inflated with **no** percentage — **does not heal.** Nothing in the row
+  records how many times it was multiplied. An opt-in operator repair tool is tracked in #5641;
+  until then, `discount_amount := max(unit_price_net × quantity − total_net_amount, 0)`
+  recovers the correct value wherever the persisted `total_net_amount` is trustworthy.
+
+Affected rows are self-detecting without instrumentation: a supplied `totalGrossAmount` is kept
+verbatim while net is recomputed, so any line whose `total_net_amount × (1 + taxRate)` diverges
+materially from `total_gross_amount` is a candidate, with undiscounted lines as the baseline.
 
 ### Search tokens fold `ł`, `ø`, `đ` and friends — affected records need a reindex (#5666)
 

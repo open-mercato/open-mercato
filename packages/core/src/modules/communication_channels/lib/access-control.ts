@@ -60,6 +60,34 @@ export function channelOrgScopeWhereFromFilter(
 }
 
 /**
+ * Ownership fragment for LISTING channels — the SQL-layer twin of
+ * {@link assertCanAccessChannel}.
+ *
+ * Routes have historically hardcoded one of the two halves of the rule: the
+ * admin channel list narrows to `user_id IS NULL`, the profile list narrows to
+ * `user_id = <caller>`. A provider-scoped listing needs both, because which half
+ * a channel falls into is decided by the connect flow the provider offers, not
+ * by the listing. Hardcoding `userId: null` is what made the Discord AI
+ * auto-reply panel structurally empty (#5602): every route the product exposes
+ * for connecting a Discord bot writes `user_id = auth.sub`, so the filter
+ * excluded the only channels that can exist.
+ *
+ * The clause admits exactly what the assert allows and nothing more — shared
+ * channels, plus the caller's own personal ones. It grants no admin bypass, in
+ * line with v1 strict owner-only: a personal mailbox stays invisible to everyone
+ * but its owner. An anonymous caller (no user id) sees shared channels only.
+ *
+ * Spread into a MikroORM `where`, or nest under `$and` when another fragment in
+ * the same query already claims `$or` (`channelOrgScopeWhereFromFilter` does).
+ */
+export function channelOwnerScopeWhere(
+  currentUserId: string | null | undefined,
+): Record<string, unknown> {
+  if (!currentUserId) return { userId: null }
+  return { $or: [{ userId: null }, { userId: currentUserId }] }
+}
+
+/**
  * Throws when the caller may not access a specific channel. Returns silently
  * when access is allowed.
  *
