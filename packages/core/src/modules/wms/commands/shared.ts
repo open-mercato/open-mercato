@@ -9,6 +9,8 @@ import {
   InventoryReservation,
   Warehouse,
   WarehouseZone,
+  Site,
+  SiteWarehouseRole,
 } from '../data/entities'
 
 export function ensureTenantScope(ctx: CommandRuntimeContext, tenantId: string): void {
@@ -64,6 +66,9 @@ export const warehouseZoneCrudIndexer: CrudIndexerConfig<WarehouseZone> = {
 export const warehouseCrudIndexer: CrudIndexerConfig<Warehouse> = {
   entityType: E.wms.warehouse,
 }
+
+export const siteCrudIndexer: CrudIndexerConfig<Site> = { entityType: E.wms.site }
+export const siteWarehouseRoleCrudIndexer: CrudIndexerConfig<SiteWarehouseRole> = { entityType: E.wms.site_warehouse_role }
 
 export const inventoryBalanceCrudEvents: CrudEventsConfig<InventoryBalance> = {
   module: 'wms',

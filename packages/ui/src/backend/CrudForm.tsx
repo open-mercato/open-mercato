@@ -369,6 +369,7 @@ export type CrudFormProps<TValues extends Record<string, unknown>> = {
   // Loading state for the entire form (e.g., when loading record data)
   isLoading?: boolean
   loadingMessage?: string
+  contentMinHeight?: 'default' | 'none'
   // User-defined entity mode: all fields are custom, use bare keys (no cf_)
   customEntity?: boolean
   // Embedded mode hides outer chrome; useful for inline sections
@@ -732,6 +733,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   groups,
   isLoading = false,
   loadingMessage,
+  contentMinHeight = 'default',
   customEntity = false,
   embedded = false,
   hideFooterActions = false,
@@ -3695,7 +3697,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           isLoading={isLoading}
           loadingMessage={resolvedLoadingMessage}
           spinnerSize="md"
-          className={embedded ? 'min-h-[1px]' : 'min-h-[400px]'}
+          className={embedded || contentMinHeight === 'none' ? 'min-h-[1px]' : 'min-h-[400px]'}
         >
           {wrapFormBody(
             <form id={formId} onSubmit={handleSubmit} className={`space-y-4 ${dialogFormPadding}`}>
@@ -3777,7 +3779,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
         isLoading={isLoading}
         loadingMessage={resolvedLoadingMessage}
         spinnerSize="md"
-        className={embedded ? 'min-h-[1px]' : 'min-h-[400px]'}
+        className={embedded || contentMinHeight === 'none' ? 'min-h-[1px]' : 'min-h-[400px]'}
       >
         {wrapFormBody(
           <div>

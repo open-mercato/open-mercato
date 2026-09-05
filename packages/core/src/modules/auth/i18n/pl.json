@@ -301,6 +301,7 @@
   "auth.acl.features.wms.manage_inventory": "Zarządzaj profilami zapasów i stanami magazynowymi",
   "auth.acl.features.wms.manage_locations": "Zarządzaj lokalizacjami magazynowymi",
   "auth.acl.features.wms.manage_reservations": "Zarządzaj rezerwacjami zapasów",
+  "auth.acl.features.wms.manage_sites": "Zarządzaj zakładami i rolami magazynów",
   "auth.acl.features.wms.manage_warehouses": "Zarządzaj magazynami",
   "auth.acl.features.wms.manage_zones": "Zarządzaj strefami magazynowymi",
   "auth.acl.features.wms.receive_inventory": "Przyjmuj zapasy do magazynu",

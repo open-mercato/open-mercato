@@ -102,8 +102,35 @@ function buildLotPresenter(
   return { title, subtitle, icon: 'package-search', badge: label }
 }
 
+function buildSitePresenter(t: TranslateFn, record: Record<string, unknown>): SearchResultPresenter {
+  const label = t('wms.search.badge.site', 'Site')
+  return { title: pickString(record.name, record.code, record.id) ?? label, subtitle: pickString(record.code) ?? undefined, icon: 'factory', badge: label }
+}
+
 export const searchConfig: SearchModuleConfig = {
   entities: [
+    {
+      entityId: E.wms.site,
+      aclFeatures: ['wms.view'],
+      enabled: true,
+      priority: 8,
+      buildSource: async (ctx) => {
+        const { t } = await resolveTranslations()
+        const lines: string[] = []
+        appendLine(lines, 'Name', ctx.record.name)
+        appendLine(lines, 'Code', ctx.record.code)
+        return buildIndexSource(ctx, buildSitePresenter(t, ctx.record), lines)
+      },
+      formatResult: async (ctx) => {
+        const { t } = await resolveTranslations()
+        return buildSitePresenter(t, ctx.record)
+      },
+      resolveUrl: async (ctx) => {
+        const id = pickString(ctx.record.id)
+        return id ? `${WMS_ROOT_URL}/sites/${encodeURIComponent(id)}` : `${WMS_ROOT_URL}/sites`
+      },
+      fieldPolicy: { searchable: ['name', 'code'] },
+    },
     {
       entityId: E.wms.warehouse,
       aclFeatures: ['wms.view'],

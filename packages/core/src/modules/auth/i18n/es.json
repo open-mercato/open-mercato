@@ -301,6 +301,7 @@
   "auth.acl.features.wms.manage_inventory": "Manage inventory profiles and stock state",
   "auth.acl.features.wms.manage_locations": "Manage warehouse locations",
   "auth.acl.features.wms.manage_reservations": "Manage inventory reservations",
+  "auth.acl.features.wms.manage_sites": "Gestionar sitios y roles de almacén",
   "auth.acl.features.wms.manage_warehouses": "Manage warehouses",
   "auth.acl.features.wms.manage_zones": "Manage warehouse zones",
   "auth.acl.features.wms.receive_inventory": "Receive inbound inventory",
