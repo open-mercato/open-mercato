@@ -20,6 +20,7 @@ import {
   type SearchTokenProbeQueryBuilder,
 } from '../search/availability'
 import { tokenizeText } from '../search/tokenize'
+import { buildContainmentPatterns } from '../search/containment'
 import { fieldNameCandidates } from './encrypted-sort'
 import { isTenantDataEncryptionEnabled } from '../encryption/toggles'
 import { runBeforeQueryPipeline, runAfterQueryPipeline, type QueryExtensionContext } from './query-extension-runner'
@@ -615,6 +616,24 @@ export class BasicQueryEngine implements QueryEngine {
             field: fieldName,
             value,
           })
+        }
+      }
+      // A PLAINTEXT column the gate above kept off the token path: apply the declared containment
+      // once per word so the token subquery's word-order-independent matching survives the reroute
+      // (#5803 / TC-RESO-009). Chained `where`s ARE the AND the token `having count(distinct)` did.
+      if (
+        (op === 'like' || op === 'ilike') &&
+        typeof value === 'string' &&
+        searchActive &&
+        fieldName &&
+        encryptedLikeFields !== null &&
+        !isEncryptedLikeField(encryptedLikeFields, fieldName)
+      ) {
+        const patterns = buildContainmentPatterns(value)
+        if (patterns.length > 1) {
+          let next = builder
+          for (const pattern of patterns) next = this.applyColumnOp(next, column, op, pattern)
+          return next
         }
       }
       return this.applyColumnOp(builder, column, op, value)

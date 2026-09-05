@@ -1327,7 +1327,15 @@ describe('BasicQueryEngine like/ilike routing by column encryption', () => {
     ],
   })
 
-  test('a plaintext base column keeps exact SQL ILIKE even when tokens are available', async () => {
+  const ilikePatternsFor = (fakeDb: any, table: string, column: string): string[] => {
+    const baseCall = fakeDb._calls.find((b: any) => b._ops.table === table)
+    if (!baseCall) return []
+    return baseCall._ops.wheres
+      .filter((w: any) => Array.isArray(w) && String(w[0]).includes(column) && w[1] === 'ilike')
+      .map((w: any) => String(w[2]))
+  }
+
+  test('a plaintext base column runs as SQL ILIKE even when tokens are available', async () => {
     const fakeDb = fakeDbWithTokens()
     const engine = new BasicQueryEngine(
       {} as any,
@@ -1344,12 +1352,33 @@ describe('BasicQueryEngine like/ilike routing by column encryption', () => {
     })
 
     expect(applySearchTokensSpy).not.toHaveBeenCalled()
-    const baseCall = fakeDb._calls.find((b: any) => b._ops.table === 'customer_entities')
-    expect(baseCall).toBeTruthy()
-    const ilikeWhere = baseCall._ops.wheres.some(
-      (w: any) => Array.isArray(w) && String(w[0]).includes('display_name') && w[1] === 'ilike' && w[2] === '%ZK 1/2026%',
+    // Multi-word terms are ANDed per word rather than matched as one literal substring -- see the
+    // TC-RESO-009 case below for why that distinction is the whole point of the reroute.
+    expect(ilikePatternsFor(fakeDb, 'customer_entities', 'display_name')).toEqual(['%ZK%', '%1/2026%'])
+  })
+
+  // #5803 regression guard, reported by CI on the first shape of this fix. The token subquery
+  // matched a value carrying EVERY token in any order with anything in between, so
+  // `?search=Warehouse <stamp>` matched `Warehouse A <stamp>`; TC-RESO-009 pins that as required
+  // behavior. One verbatim `ILIKE '%Warehouse <stamp>%'` would not match -- the `A ` sits between
+  // the words -- so the reroute has to AND one containment predicate per word to be a fix rather
+  // than a trade of one broken search for another.
+  test('a multi-word term matches words in order-independent positions, as the token path did', async () => {
+    const fakeDb = fakeDbWithTokens()
+    const engine = new BasicQueryEngine(
+      {} as any,
+      () => fakeDb as any,
+      () => ({ getEncryptedFieldNames: async () => [] }) as any,
     )
-    expect(ilikeWhere).toBe(true)
+
+    await engine.query('customers:customer_entity', {
+      tenantId: 't1',
+      fields: ['id'],
+      filters: { display_name: { $ilike: '%Warehouse 1757%' } },
+      page: { page: 1, pageSize: 10 },
+    })
+
+    expect(ilikePatternsFor(fakeDb, 'customer_entities', 'display_name')).toEqual(['%Warehouse%', '%1757%'])
   })
 
   test('an encrypted base column still routes through search tokens', async () => {
