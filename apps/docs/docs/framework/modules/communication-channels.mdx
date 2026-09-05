@@ -5,12 +5,13 @@ description: Architecture, OAuth setup, environment variables, deploy runbook, a
 
 # Communications Hub
 
-The Communications Hub (`communication_channels`) bridges external chat and email channels (Slack, WhatsApp, Gmail, IMAP+SMTP) into the **Messages** module, and routes mobile push through the same `ChannelAdapter` contract. Each provider ships as a separate workspace package; the hub itself stays adapter-agnostic.
+The Communications Hub (`communication_channels`) bridges external chat and email channels (Slack, WhatsApp, Gmail, Microsoft 365, IMAP+SMTP) into the **Messages** module, and routes mobile push through the same `ChannelAdapter` contract. Each provider ships as a separate workspace package; the hub itself stays adapter-agnostic.
 
 Three message providers ship today, all `channelScope: 'user'`:
 
 - `@open-mercato/channel-imap` — credential-based IMAP polling + SMTP send
 - `@open-mercato/channel-gmail` — Gmail OAuth2 + History API polling + `gmail.users.messages.send`
+- `@open-mercato/channel-ms365` — Microsoft 365 / Exchange Online via Entra ID OAuth2 + Microsoft Graph Inbox delta polling + draft-from-MIME send
 - `@open-mercato/channel-discord` — Discord bot: REST outbound, real-time inbound over a
   provider-owned Gateway (WebSocket) worker, and an Ed25519-signed Interactions endpoint. The first
   non-email provider, and the first with `capabilities.recipientFormat: 'provider-native'` and
@@ -30,7 +31,7 @@ For the end-user perspective see the [Communication Channels user guide](../../u
 ## Overview
 
 - **Hub**: `packages/core/src/modules/communication_channels/`
-- **Providers**: `packages/channel-{imap,gmail}/` (email), `packages/channel-discord/` (chat) and `packages/channel-{fcm,apns,expo}/` (push)
+- **Providers**: `packages/channel-{imap,gmail,ms365}/` (email), `packages/channel-discord/` (chat) and `packages/channel-{fcm,apns,expo}/` (push)
 - **Module entry**: enable with `{ id: 'communication_channels', from: '@open-mercato/core' }` plus one entry per provider you want active in `apps/mercato/src/modules.ts`.
 - **Specs**: [`.ai/specs/implemented/SPEC-045d-communication-notification-hubs.md`](#) (hub contract) and [`.ai/specs/2026-05-21-email-integration-foundation.md`](#) (email providers + per-user surfaces).
 
@@ -46,12 +47,12 @@ For the end-user perspective see the [Communication Channels user guide](../../u
    │          │  ChannelThreadMapping + MessageReaction      │          │
    │          └──────────────────────────────────────────────┘          │
    ▼                                                                    ▼
-┌──────────┐  ┌──────────┐                                         ┌────────┐
-│ channel- │  │ channel- │   …  (future: channel-slack,            │ Messages │
-│  imap    │  │  gmail   │       channel-whatsapp, etc.)           │ module   │
-│  (basic  │  │  (OAuth) │                                         └────────┘
-│   auth)  │  │          │
-└──────────┘  └──────────┘
+┌──────────┐  ┌──────────┐  ┌──────────┐                           ┌────────┐
+│ channel- │  │ channel- │  │ channel- │   …  (future: channel-   │ Messages │
+│  imap    │  │  gmail   │  │  ms365   │       slack, -whatsapp)  │ module   │
+│  (basic  │  │  (OAuth) │  │  (OAuth  │                           └────────┘
+│   auth)  │  │          │  │  +Graph) │
+└──────────┘  └──────────┘  └──────────┘
 ```
 
 Each provider exports a `ChannelAdapter` from `@open-mercato/core/modules/communication_channels/lib/adapter`. The hub's registry validates capability/method consistency at registration time (so an adapter that declares `capabilities.deleteMessage: true` without implementing `deleteMessage()` throws on boot).

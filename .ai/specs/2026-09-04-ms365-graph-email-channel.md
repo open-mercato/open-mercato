@@ -211,15 +211,17 @@ BOOTSTRAP
   GET /me/mailFolders/inbox/messages/delta
       ?$select=id,internetMessageId,receivedDateTime,isDraft,conversationId
       &$filter=receivedDateTime ge {floor}
-  drain nextLink pages until deltaLink (nothing is normalized)
-  state := { deltaLink, receivedWatermark: floor, lastSyncedAt }
-  return { messages: [], hasMore: false }            // no back-fill, as Gmail
+  state := { receivedWatermark: floor }
+  the first page is ingested like any other page (INCREMENTAL / CONTINUE below);
+  further initial pages resume through nextLink on the following ticks
 
   Why the 2-minute overlap: a mail received a second before the delta token is
   minted is neither in a `receivedDateTime ge now` initial page nor in any later
-  change page (it never changes again). Filtering from `now - 2 min` and letting
-  the watermark rule re-read that window on the first incremental tick closes
-  the race; the hub dedups by message id.
+  change page (it never changes again). Filtering from `now - 2 min` and
+  ingesting those pages closes the race; the price is importing at most two
+  minutes of already-present mail on connect (the hub dedups by message id).
+  Beyond that window there is deliberately no back-fill on connect (Gmail
+  parity); operators use Import history.
 
 INCREMENTAL / CONTINUE
   GET {deltaLink | nextLink}
@@ -244,9 +246,13 @@ Invariants (carried over from the Gmail L3 rule in the reliability spec):
 - A `$value` fetch that returns `404` (message deleted between delta and fetch) is skipped, not
   fatal.
 - `410 Gone` (`syncStateNotFound`, `resyncRequired`, `syncStateInvalid`) ⇒ re-bootstrap with
-  `$filter=receivedDateTime ge {receivedWatermark}` and **ingest** that page (unlike the first
-  connect) so mail received while the token was dead is still picked up. The watermark is never
-  moved backwards.
+  `$filter=receivedDateTime ge {receivedWatermark}` (same ingest path as the first connect) so
+  mail received while the token was dead is still picked up. The watermark is never moved
+  backwards.
+- **Retry policy**: only `GET`/`DELETE` are retried (429/5xx/timeouts, bounded, `Retry-After`
+  honoured). `POST`s (`createDraft`, `/send`, `/move`) are never re-issued because they are not
+  idempotent; a lost `/send` response is resolved by reading the draft's state instead (see
+  Outbound).
 - `429` ⇒ throw `GraphApiError` with `transient: true` and `status: 429`; the hub's classifier
   retries with backoff. `Retry-After` is surfaced in the error for logging.
 - `401` ⇒ throw with the `requires_reauth` sentinel; the hub flips the channel and emits
@@ -292,8 +298,12 @@ result: { externalMessageId: internetMessageId, conversationId, status: 'sent',
 - Reply threading: `In-Reply-To` / `References` from `channelMetadata` are written into the MIME as
   today for Gmail; Exchange also threads on them and assigns the `conversationId`.
 - `401` ⇒ `{ status: 'failed', error: 'requires_reauth' }` (sentinel, same as Gmail).
-- If the draft was created but `/send` fails permanently, the adapter deletes the draft
-  (best-effort) so the user's Drafts folder does not accumulate orphans.
+- When `/send` throws for any other reason, the adapter first reads the draft's state
+  (`GET /me/messages/{id}?$select=isDraft,sentDateTime`; immutable ids keep the id across the
+  send). `isDraft: false` means the send went through and the response was lost ⇒ report `sent`
+  (no duplicate from the hub's retry). Otherwise: a permanent failure deletes the still-existing
+  draft (best-effort, no orphans in Drafts) and both permanent and transient failures are
+  reported as `failed` with the Graph error code.
 - Attachments: `fileSharing: false` in phase 1 (same as Gmail/IMAP — the shared converter does not
   stitch attachment bytes yet). Re-enable together with the other providers.
 
@@ -674,6 +684,18 @@ None block implementation; defaults apply unless the maintainer objects in revie
   dev-mode Turbopack compile of the backend UI peaks at ~8 GB, so the Docker VM needs ≥ 16 GB
   when it also hosts another stack. Not verified: an end-to-end consent + mail round-trip against
   a real Entra tenant (requires an app registration).
+
+### 2026-09-05 — Review fixes (PR #5898, `om-auto-review-pr`)
+
+- Blockers: `auth.acl.features.channel_ms365.*` + `auth.acl.modules.channel_ms365` added to the
+  five auth locale files (repo-wide ACL catalog guard); `@open-mercato/channel-ms365` added to
+  `scripts/package-peer-deps-allowlist.json`.
+- Majors: Graph client no longer retries non-idempotent `POST`s; a failed `/send` is verified via
+  the draft's `isDraft` state before being reported (prevents duplicate sends); `ConsistencyLevel:
+  eventual` is now a real request header on the `$count` import query.
+- Minors/nits: the bootstrap overlap window is now actually ingested (the earlier drain-only path
+  could not re-read it), the framework doc lists the provider, `resourcenotfound` dropped from the
+  permanent-403 set (Graph returns it with 404).
 
 ### 2026-09-04 — First live run against a real Entra tenant
 
