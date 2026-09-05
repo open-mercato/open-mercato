@@ -68,6 +68,7 @@ function emptyGraph(): GraphMailClient {
     findMessageIdByInternetMessageId: async () => null,
     createDraftFromMime: async () => ({ id: 'draft-1', internetMessageId: '<sent-1@contoso.com>', conversationId: 'conv-1' }),
     sendDraft: async () => undefined,
+    getMessageState: async (_auth, id) => ({ id, isDraft: true }),
     deleteMessage: async () => undefined,
     moveMessage: async () => undefined,
   }
@@ -322,34 +323,53 @@ describe('Ms365ChannelAdapter.fetchHistory', () => {
     })
   }
 
-  it('bootstrap: seeds the delta link and watermark from a short overlap window without ingesting', async () => {
+  it('bootstrap: starts the delta from a 2-minute overlap floor and ingests only mail inside that window', async () => {
     const started: Array<{ receivedSince?: Date; pageSize?: number }> = []
     const mimeFetches: string[] = []
+    const recent = new Date(Date.now() - 30_000).toISOString()
     setGraphMailClient({
       ...emptyGraph(),
       startInboxDelta: async (_auth, input) => {
         started.push(input)
-        return { value: [{ id: 'old-1', receivedDateTime: '2026-09-04T09:59:30Z' }], nextLink: 'https://graph.microsoft.com/v1.0/next?1' }
+        return {
+          value: [
+            { id: 'stale-1', receivedDateTime: '2026-01-01T00:00:00Z' },
+            { id: 'recent-1', receivedDateTime: recent },
+          ],
+          deltaLink: 'https://graph.microsoft.com/v1.0/delta?$deltatoken=seed',
+        }
       },
-      continueDelta: async () => ({ value: [], deltaLink: 'https://graph.microsoft.com/v1.0/delta?$deltatoken=seed' }),
       getMessageMime: async (_auth, id) => {
         mimeFetches.push(id)
-        return buildRawMime(id)
+        return buildRawMime(`${id}@example.com`)
       },
     })
     const before = Date.now()
     const page = await fetchHistory({}, 25)
-    expect(page.messages).toHaveLength(0)
-    expect(page.hasMore).toBe(false)
-    expect(mimeFetches).toHaveLength(0)
     expect(started[0].pageSize).toBe(25)
     const since = started[0].receivedSince!.getTime()
     expect(before - since).toBeGreaterThanOrEqual(2 * 60_000 - 1000)
     expect(before - since).toBeLessThan(2 * 60_000 + 5000)
+    expect(mimeFetches).toEqual(['recent-1'])
+    expect(page.messages.map((m) => m.externalMessageId)).toEqual(['recent-1@example.com'])
+    expect(page.hasMore).toBe(false)
     const state = decodeCursor(page.nextCursor)
     expect(state.deltaLink).toContain('$deltatoken=seed')
-    expect(state.receivedWatermark).toBe(new Date(since).toISOString())
     expect(state.nextLink).toBeUndefined()
+    expect(new Date(String(state.receivedWatermark)).getTime()).toBe(new Date(recent).getTime())
+  })
+
+  it('bootstrap: a multi-page initial drain resumes through nextLink on the following tick', async () => {
+    setGraphMailClient({
+      ...emptyGraph(),
+      startInboxDelta: async () => ({ value: [], nextLink: 'https://graph.microsoft.com/v1.0/next?boot=2' }),
+    })
+    const first = await fetchHistory({})
+    expect(first.hasMore).toBe(true)
+    const state = decodeCursor(first.nextCursor)
+    expect(state.nextLink).toContain('boot=2')
+    expect(state.deltaLink).toBeUndefined()
+    expect(typeof state.receivedWatermark).toBe('string')
   })
 
   it('incremental: ingests only new non-draft items at or after the watermark and advances the cursor', async () => {
@@ -623,6 +643,38 @@ describe('Ms365ChannelAdapter.sendMessage', () => {
     })
     expect(result.status).toBe('failed')
     expect(result.error).toBe('requires_reauth')
+    expect(deleted).toHaveLength(0)
+  })
+
+  it('reports sent when the /send response was lost but Graph shows the draft as sent', async () => {
+    const deleted: string[] = []
+    const result = await send({
+      sendDraft: async () => {
+        throw new GraphApiError('timed out', 599, 'request timed out')
+      },
+      getMessageState: async (_auth, id) => ({ id, isDraft: false, sentDateTime: '2026-09-04T20:00:00Z' }),
+      deleteMessage: async (_auth, id) => {
+        deleted.push(id)
+      },
+    })
+    expect(result.status).toBe('sent')
+    expect(result.externalMessageId).toBe('sent-1@contoso.com')
+    expect(deleted).toHaveLength(0)
+    expect(loggerWarn).toHaveBeenCalled()
+  })
+
+  it('reports a transient send failure without deleting the still-unsent draft', async () => {
+    const deleted: string[] = []
+    const result = await send({
+      sendDraft: async () => {
+        throw new GraphApiError('throttled', 429, 'TooManyRequests')
+      },
+      getMessageState: async (_auth, id) => ({ id, isDraft: true }),
+      deleteMessage: async (_auth, id) => {
+        deleted.push(id)
+      },
+    })
+    expect(result.status).toBe('failed')
     expect(deleted).toHaveLength(0)
   })
 

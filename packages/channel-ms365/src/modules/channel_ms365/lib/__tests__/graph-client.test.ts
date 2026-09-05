@@ -220,7 +220,31 @@ describe('FetchGraphMailClient', () => {
     expect(url.searchParams.get('$orderby')).toBe('receivedDateTime desc')
     expect(url.searchParams.get('$top')).toBe('10')
     expect(url.searchParams.get('$count')).toBe('true')
-    expect(recorded[0].headers.Prefer).toContain('ConsistencyLevel=eventual')
+    expect(recorded[0].headers.ConsistencyLevel).toBe('eventual')
+    expect(recorded[0].headers.Prefer).toBe('IdType="ImmutableId"')
     expect(page.count).toBe(7)
+  })
+
+  it('never retries a POST, even on a transient status', async () => {
+    const recorded = installFetch([
+      { status: 503, body: JSON.stringify({ error: { code: 'ServiceUnavailable', message: 'try later' } }) },
+      { status: 201, body: JSON.stringify({ id: 'never-reached' }) },
+    ])
+    await expect(getGraphMailClient().createDraftFromMime(auth, Buffer.from('Subject: x\r\n\r\nbody'))).rejects.toMatchObject({
+      status: 503,
+      transient: true,
+    })
+    expect(recorded).toHaveLength(1)
+  })
+
+  it('reads a message state and maps 404 to null', async () => {
+    const recorded = installFetch([
+      { status: 200, body: JSON.stringify({ id: 'm1', isDraft: false, sentDateTime: '2026-09-04T20:00:00Z' }) },
+      { status: 404, body: JSON.stringify({ error: { code: 'ErrorItemNotFound', message: 'gone' } }) },
+    ])
+    const client = getGraphMailClient()
+    expect(await client.getMessageState(auth, 'm1')).toMatchObject({ id: 'm1', isDraft: false })
+    expect(recorded[0].url.searchParams.get('$select')).toBe('id,isDraft,sentDateTime')
+    expect(await client.getMessageState(auth, 'm2')).toBeNull()
   })
 })
