@@ -9,12 +9,29 @@ export type SearchConfig = {
   hashAlgorithm: 'sha256' | 'sha1' | 'md5'
   storeRawTokens: boolean
   /**
-   * When true, a like/ilike on a PLAINTEXT base column runs as exact SQL ILIKE instead of being
-   * rewritten into an approximate search-token match; encrypted columns always keep the token
-   * path (ILIKE against ciphertext cannot match). Off by default: token matching can be faster
-   * than an unanchored ILIKE, which may need a full scan without a trigram index — but it is
-   * approximate (fragments under minTokenLength vanish, so `ZK 1/2026` degrades to its year and
-   * an all-short term drops the predicate). Flip it on when list search must be exact.
+   * When true, a like/ilike on a PLAINTEXT base column runs as SQL ILIKE — one containment
+   * predicate per word of the term, ANDed — instead of being rewritten into an approximate
+   * search-token match; encrypted columns always keep the token path (ILIKE against ciphertext
+   * cannot match).
+   *
+   * On by default since #5803: the rewrite is lossy in a way that silently returns the WRONG
+   * record rather than merely extra ones. Tokenization splits on non-alphanumerics and drops
+   * fragments under minTokenLength, so `2026-08` and `2026-01` both reduce to {202, 2026} and a
+   * picker offers the neighbouring period; a term that tokenizes to nothing (`08`) drops the
+   * predicate entirely and matches every row. A declared containment predicate must be applied as
+   * declared on a column the engine can actually read.
+   *
+   * Per-word ANDing (see lib/search/containment) is what keeps this a strict improvement rather
+   * than a trade: the token subquery matched a value carrying every token in any order with
+   * anything between them, so `?search=Warehouse 1757` must keep matching `Warehouse A 1757`. A
+   * single verbatim `ILIKE '%Warehouse 1757%'` would not, and TC-RESO-009 pins that as required
+   * behavior.
+   *
+   * Set `OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS=false` to restore the legacy
+   * rewrite-everything behavior — worth doing when an unanchored ILIKE without a trigram index is
+   * slower on a large plaintext text column than the token lookup, or when a deployment wants the
+   * token index's prefix matching (`?search=ware` matching `Warehouse` when `enablePartials` is on,
+   * which literal containment gives only where the fragment really is a substring).
    */
   useIlikeForNonEncryptedFields?: boolean
   blocklistedFields: string[]
@@ -121,7 +138,7 @@ export function resolveSearchConfig(): SearchConfig {
     enablePartials: parseBoolean(process.env.OM_SEARCH_ENABLE_PARTIAL, true),
     hashAlgorithm: parseHashAlgorithm(process.env.OM_SEARCH_HASH_ALGO),
     storeRawTokens: parseBoolean(process.env.OM_SEARCH_STORE_RAW_TOKENS, false),
-    useIlikeForNonEncryptedFields: parseBoolean(process.env.OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS, false),
+    useIlikeForNonEncryptedFields: parseBoolean(process.env.OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS, true),
     blocklistedFields: blocklist.global,
     entityBlocklistedFields: blocklist.byEntity,
     maxFieldChars: parseNumber(process.env.OM_SEARCH_MAX_FIELD_CHARS, DEFAULT_SEARCH_MAX_FIELD_CHARS, 0),
