@@ -733,6 +733,17 @@ export function ScheduleActivityDialog({
               value={state.description}
               onChange={state.setDescription}
               isMarkdownEnabled={state.markdownEnabled}
+              // Email bodies are plain text from other mail clients, not Markdown; `<address>`
+              // or `<url>` tokens in them break the MDX editor (#5903).
+              disableMarkdown={state.activityType === 'email'}
+              // The plain textarea defaults to 3 hidden-overflow rows, which
+              // would cut off quoted replies; give email bodies room and a scrollbar.
+              rows={state.activityType === 'email' ? 8 : undefined}
+              textareaClassName={
+                state.activityType === 'email'
+                  ? 'w-full resize-y overflow-y-auto rounded-lg border border-muted-foreground/20 bg-background px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring'
+                  : undefined
+              }
               height={120}
               placeholder={t('customers.schedule.descriptionPlaceholder', 'Add details...')}
             />
