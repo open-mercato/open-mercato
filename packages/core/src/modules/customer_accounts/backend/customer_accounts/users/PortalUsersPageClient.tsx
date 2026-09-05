@@ -41,6 +41,7 @@ type UsersResponse = {
   items?: UserRow[]
   total?: number
   totalPages?: number
+  totalIsCapped?: boolean
 }
 
 function formatDate(value: string | null | undefined, fallback: string): string {
@@ -228,9 +229,10 @@ function CreateUserDialog({
 
 export type PortalUsersPageClientProps = {
   portalOrigin: string
+  portalOrgSlug?: string | null
 }
 
-export function PortalUsersPageClient({ portalOrigin }: PortalUsersPageClientProps) {
+export function PortalUsersPageClient({ portalOrigin, portalOrgSlug = null }: PortalUsersPageClientProps) {
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const t = useT()
   const router = useRouter()
@@ -239,6 +241,7 @@ export function PortalUsersPageClient({ portalOrigin }: PortalUsersPageClientPro
   const [pageSize] = React.useState(50)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [search, setSearch] = React.useState('')
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const [isLoading, setIsLoading] = React.useState(true)
@@ -318,6 +321,7 @@ export function PortalUsersPageClient({ portalOrigin }: PortalUsersPageClientPro
         setRows(items)
         setTotal(typeof payload?.total === 'number' ? payload.total : items.length)
         setTotalPages(typeof payload?.totalPages === 'number' ? payload.totalPages : 1)
+        setTotalIsCapped(payload?.totalIsCapped === true)
       } catch (err) {
         if (!cancelled) {
           const message = err instanceof Error ? err.message : t('customer_accounts.admin.error.loadUsers', 'Failed to load customer users')
@@ -518,17 +522,19 @@ export function PortalUsersPageClient({ portalOrigin }: PortalUsersPageClientPro
                 {t('customer_accounts.admin.portalInfo.openConfiguration', 'Open Configuration')}
               </Link>
             </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              asChild
-            >
-              <a href={buildPortalRootUrl(portalOrigin)} target="_blank" rel="noopener noreferrer">
-                <Globe className="size-4" />
-                {t('customer_accounts.admin.portalInfo.open', 'Open Portal')}
-              </a>
-            </Button>
+            {portalOrgSlug ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                asChild
+              >
+                <a href={buildPortalRootUrl(portalOrigin, portalOrgSlug)} target="_blank" rel="noopener noreferrer">
+                  <Globe className="size-4" />
+                  {t('customer_accounts.admin.portalInfo.open', 'Open Portal')}
+                </a>
+              </Button>
+            ) : null}
           </div>
         </div>
       </div>
@@ -582,7 +588,7 @@ export function PortalUsersPageClient({ portalOrigin }: PortalUsersPageClientPro
             ]}
           />
         )}
-        pagination={{ page, pageSize, total, totalPages, onPageChange: setPage }}
+        pagination={{ page, pageSize, total, totalPages, totalIsCapped, onPageChange: setPage }}
         isLoading={isLoading}
       />
       <CreateUserDialog

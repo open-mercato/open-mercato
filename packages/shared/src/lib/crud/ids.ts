@@ -1,4 +1,5 @@
 import type { Where } from '@open-mercato/shared/lib/query/types'
+import { toQueryValueList } from './query-params'
 
 export const MAX_IDS_PER_REQUEST = 200
 
@@ -43,21 +44,23 @@ function readExistingIds(filter: unknown): string[] | null {
 }
 
 export function parseIdsParam(raw: unknown, maxIds: number = MAX_IDS_PER_REQUEST): string[] {
-  if (typeof raw !== 'string' || raw.trim().length === 0) return []
+  const values = toQueryValueList(raw)
+  if (values.length === 0) return []
   const safeMax = Number.isFinite(maxIds) && maxIds > 0 ? Math.floor(maxIds) : MAX_IDS_PER_REQUEST
-  const parsed = normalizeIdList(raw.split(','))
+  const parsed = normalizeIdList(values)
   return parsed.slice(0, safeMax)
 }
 
 /**
- * Whether an `?ids=` param was supplied at all (a non-empty string), regardless
- * of whether any value survived UUID validation. Lets a caller tell "no ids
- * filter requested" apart from "ids filter requested but every value was
- * malformed" — the latter must match nothing, not fall back to the full list
- * (#4143 Finding 3).
+ * Whether an `?ids=` param was supplied at all (a non-empty string, or repeated
+ * `?ids=` occurrences), regardless of whether any value survived UUID
+ * validation. Lets a caller tell "no ids filter requested" apart from "ids
+ * filter requested but every value was malformed" — the latter must match
+ * nothing, not fall back to the full list (#4143 Finding 3).
  */
 export function isIdsParamProvided(raw: unknown): boolean {
-  return typeof raw === 'string' && raw.trim().length > 0
+  const occurrences = Array.isArray(raw) ? raw : [raw]
+  return occurrences.some((value) => typeof value === 'string' && value.trim().length > 0)
 }
 
 export function mergeIdFilter<Fields extends Record<string, unknown>>(

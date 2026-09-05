@@ -582,9 +582,6 @@ const createStatementCommand: CommandHandler<ScopedStatementCreateInput, Stateme
     if (parsed.status !== undefined && parsed.status !== 'draft') {
       throw new CrudHttpError(400, { error: 'eudr.errors.invalidTransition' })
     }
-    if (parsed.referenceIssuedAt !== undefined) {
-      throw new CrudHttpError(400, { error: 'eudr.errors.referenceIssuedAtImmutable' })
-    }
 
     const entityManager = (ctx.container.resolve('em') as EntityManager).fork()
     let record!: EudrDueDiligenceStatement

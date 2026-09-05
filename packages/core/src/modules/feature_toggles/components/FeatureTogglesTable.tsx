@@ -81,7 +81,7 @@ export function FeatureTogglesTable() {
   const { data: featureTogglesData, isLoading } = useQuery({
     queryKey: ['feature_toggles', queryParams],
     queryFn: async () => {
-      const call = await apiCall<{ items: Row[]; total: number; totalPages: number; page: number; pageSize: number; isSuperAdmin?: boolean }>(
+      const call = await apiCall<{ items: Row[]; total: number; totalPages: number; totalIsCapped?: boolean; page: number; pageSize: number; isSuperAdmin?: boolean }>(
         `/api/feature_toggles/global${queryParams ? `?${queryParams}` : ''}`,
       )
       if (!call.ok) {
@@ -222,6 +222,7 @@ export function FeatureTogglesTable() {
         pageSize: featureTogglesData?.pageSize ?? 25,
         total: featureTogglesData?.total ?? 0,
         totalPages: featureTogglesData?.totalPages ?? 0,
+        totalIsCapped: featureTogglesData?.totalIsCapped === true,
         onPageChange: handlePageChange,
       }}
       rowActions={(row) => (

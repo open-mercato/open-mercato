@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { extensionPoints } from '@open-mercato/core/modules/customers/extension-points'
 import Link from 'next/link'
-import { Building2, UserSearch, Users } from 'lucide-react'
+import { Building2, FileText, Hash, UserSearch, Users } from 'lucide-react'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
@@ -12,7 +12,7 @@ import { AttachmentsSection, ErrorMessage, LoadingMessage, NotesSection, RecordN
 import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from '@open-mercato/ui/backend/injection/recordContext'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
-import { CollapsibleZoneLayout } from '@open-mercato/ui/backend/crud/CollapsibleZoneLayout'
+import { CollapsibleZoneLayout, type ZoneSectionDescriptor } from '@open-mercato/ui/backend/crud/CollapsibleZoneLayout'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { E } from '#generated/entities.ids.generated'
@@ -57,6 +57,10 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
   const pathname = usePathname()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const detailTranslator = React.useMemo(() => createTranslatorWithFallback(t), [t])
+  const zoneSections = React.useMemo<ZoneSectionDescriptor[]>(() => [
+    { id: 'details', icon: FileText, label: t('customers.people.detail.deals.form.details', 'Deal details') },
+    { id: 'custom', icon: Hash, label: t('customers.people.detail.deals.form.customFields', 'Custom fields') },
+  ], [t])
 
   const { data, setData, isLoading, error, isNotFound, loadData } = useDealData(id)
   const [isDirty, setIsDirty] = React.useState(false)
@@ -194,7 +198,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     data,
     setData,
     runMutationWithContext,
-    onRefresh: () => { void loadData() },
+    onRefresh: () => loadData(),
   })
 
   const { isStageSaving, handleStageChange } = useDealPipeline({
@@ -664,6 +668,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
               pageType="deal-detail-v3"
               entityName={dealName}
               isDirty={isDirty}
+              sections={zoneSections}
               zone1DefaultWidth="540px"
               zone1={zone1Content}
               zone2={zone2Content}
