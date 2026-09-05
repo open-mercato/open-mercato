@@ -273,7 +273,7 @@ Both list APIs set `disableListCache: true`, matching current WMS configuration 
 
 ## Backend UI and ACL
 
-Add `wms.manage_sites` to `wms/acl.ts`, grant it to `admin` through `setup.ts`, preserve `wms.*` wildcard behavior, and run the existing ACL sync mechanism for installed tenants. `employee` retains read-only access through `wms.view`.
+Add `wms.manage_sites` to `wms/acl.ts`, grant it to `admin` and the declared WMS supervisor role through `setup.ts`, preserve `wms.*` wildcard behavior, and run the existing ACL sync mechanism for installed tenants. `employee` retains read-only access through `wms.view`.
 
 Backend routes:
 
@@ -340,6 +340,8 @@ No provider, bootstrap registry, global context, or app-shell import is added. A
 The feature is additive: new tables, routes, commands, ACL, events, pages, and generated registrations. Existing warehouse semantics and APIs remain unchanged. The Site table is created with `is_active default true`; callers may still explicitly create a Site with `isActive: false`.
 
 The initialization asymmetry is intentional. A tenant initialized after this feature receives the `MAIN` Site, primary `MAIN` Warehouse, and default `finished_goods` mapping only when all scoped WMS topology tables are empty. An existing tenant with any WMS topology receives no inferred Site or mapping and must configure Sites explicitly; neither the schema migrations nor later setup runs backfill or reclassify that tenant's existing warehouses.
+
+WMS role grants use the standard module ACL propagation path. New tenants receive the declared WMS role features from `setup.defaultRoleFeatures`; for existing tenants, run `yarn mercato seed:defaults` followed by `yarn mercato auth sync-role-acls` after deployment. The sync is additive and idempotent, preserves existing custom grants, and does not create roles. No SQL migration may grant `wms.manage_sites` by matching a mutable role name.
 
 The migration must:
 
@@ -421,7 +423,7 @@ This is the remaining-work checklist for P1.2. Do not mark an item complete mere
 
 - [x] Run `yarn db:generate` as a no-op schema-diff check; retain only the intended WMS migrations and verify the WMS snapshot.
 - [x] Run `yarn generate` and verify generated registrations resolve without manual edits.
-- [x] Backfill the additive `wms.manage_sites` ACL grant for existing WMS Supervisor roles with an idempotent data migration.
+- [x] Roll out the additive `wms.manage_sites` grant for existing tenants through `defaultRoleFeatures` and the idempotent `auth sync-role-acls` command; no role-name-based data migration is used.
 - [ ] Record passing results for `yarn workspace @open-mercato/core test`, `yarn workspace @open-mercato/core build`, `yarn test:integration`, `yarn typecheck`, and `yarn i18n:check-hardcoded` using one chosen local-or-Docker runner.
 
   Local runner evidence from 2026-08-29: generation, package/application builds, typecheck, lint, i18n checks, focused core/CLI tests, and all 15 required WMS Sites integration tests pass. The repository-wide gate remains unchecked because the full local Windows run still has unrelated path/locale portability failures in Attachments, Warranty Claims, and Queue; the two WMS failures it initially exposed were fixed and their targeted assertions pass.
@@ -596,6 +598,7 @@ The following are separate capabilities, not unfinished work inside P1.2:
 - 2026-08-29: Recorded local validation evidence. All affected WMS/CLI/UI tests and 15 required integration tests pass; the full repository gate remains open only for unrelated Windows-specific Attachments, Warranty Claims, and Queue failures.
 - 2026-08-29: Closed the independent final-review findings: capture demoted defaults inside the locked transaction, preserve the exactly-one-default invariant when undo restores the only mapping, allow cleanup of assignments whose Warehouse was soft-deleted, preserve per-record organization scope through custom-field decoration without changing the JSON shape, and extend browser coverage for mapping promotion, conflict, deletion, and load errors.
 - 2026-09-02: Addressed PR review follow-up: aligned extension hosts with their real mounting components, kept warehouse-role mappings closed to custom fields with an explicit localized API error, removed the duplicate Site row action, documented page-local sorting as an accepted limitation, and made the new-versus-existing tenant initialization asymmetry explicit.
+- 2026-09-05: Replaced the role-name-based WMS ACL migration with the standard `defaultRoleFeatures` and `auth sync-role-acls` rollout path for new and existing tenants.
 
 ### Review — 2026-08-13
 

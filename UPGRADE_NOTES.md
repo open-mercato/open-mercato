@@ -24,6 +24,21 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.7.0 → 0.7.1 (unreleased)
 
+### WMS Site-management permissions use the standard ACL sync path
+
+The WMS `supervisor` role now receives `wms.manage_sites` through the module's declared
+`setup.defaultRoleFeatures`, as it does for new tenants. Existing tenants must ensure the
+WMS roles exist and then sync the additive default grants after deployment:
+
+```bash
+yarn mercato seed:defaults
+yarn mercato auth sync-role-acls
+```
+
+The sync is idempotent and does not revoke existing grants or create roles. No database
+migration is needed; in particular, permissions are not granted by matching a mutable role
+name in SQL.
+
 ### Search tokens fold `ł`, `ø`, `đ` and friends — affected records need a reindex (#5666)
 
 The search tokenizer in `@open-mercato/shared/lib/search/tokenize` normalized text with NFKD followed by combining-mark stripping. That folds every diacritic composed of a base letter plus a mark (`ą`, `ó`, `ś`, `ż`, `ć`, `ü`, `é`), but a number of Latin letters are atomic codepoints with no decomposition at all — `ł`/`Ł`, `ø`/`Ø`, `đ`/`Đ`, `ð`/`Ð`, `þ`/`Þ`, `ħ`/`Ħ`, `ı`, `ĸ`, `ŋ`/`Ŋ`, `ŧ`/`Ŧ`, the `æ`/`œ` ligatures and `ß`. Those survived normalization and were then eaten by the token splitter, which treats any non-`[a-z0-9]` character as a separator. `Łukasz` indexed as `ukasz`, `Łódź` as `odz`, `Zażółć` was cut mid-word to `zazo`, and `Guðmundsdóttir` was split into `gu` and `mundsdottir`. Because the same function runs on both sides, an affected record was unreachable from the diacritic spelling *and* from the ASCII one. The tokenizer now applies an explicit fold for those letters, so `Łukasz` and `lukasz` produce the same token — and therefore the same hash — from either side. The fold runs *after* NFKD and mark stripping, which additionally covers the characters that decompose into one of those letters rather than being one — `ǿ` (U+01FF → `ø` + combining acute), `ǽ`, `ǣ` and `ℏ` among them.
