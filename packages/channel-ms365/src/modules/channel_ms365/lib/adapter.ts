@@ -69,9 +69,10 @@ const REQUIRES_REAUTH = 'requires_reauth'
  * How far back the bootstrap delta looks. A mail received a second before the
  * delta token is minted is neither in a `receivedDateTime ge now` initial page
  * nor in any later change page (it never changes again), so a zero-width
- * bootstrap would lose it. Two minutes of overlap closes that race at the cost
- * of ingesting at most two minutes of already-present mail on connect; the
- * hub dedups by message id.
+ * bootstrap would lose it. The initial pages are therefore filtered from
+ * `now - overlap` AND ingested (not just drained), which closes that race at
+ * the cost of importing at most two minutes of already-present mail on
+ * connect; the hub dedups by message id.
  */
 const BOOTSTRAP_OVERLAP_MS = 2 * 60_000
 
@@ -89,7 +90,6 @@ const PERMANENT_ACCESS_ERROR_CODES = new Set([
   'erroraccessdenied',
   'mailboxnotenabledforrestapi',
   'errorinvaliduser',
-  'resourcenotfound',
 ])
 
 type ImportCursor = {
@@ -169,16 +169,32 @@ class Ms365ChannelAdapter implements ChannelAdapter {
     try {
       await api.sendDraft(auth, draftId)
     } catch (error) {
-      if (!(error instanceof GraphApiError && (error.status === 401 || error.transient))) {
-        // Permanent send failure: remove the draft so the user's Drafts folder
-        // does not accumulate orphans. Best-effort — the send already failed.
-        try {
-          await api.deleteMessage(auth, draftId)
-        } catch (cleanupError) {
-          logger.warn('failed to delete orphaned draft after send failure', { err: cleanupError })
-        }
+      if (error instanceof GraphApiError && error.status === 401) {
+        return failedSendResult(error, 'Microsoft 365 send failed')
       }
-      return failedSendResult(error, 'Microsoft 365 send failed')
+      // `/send` is not retried (non-idempotent). The request may still have
+      // gone through with its response lost (timeout, 5xx after commit), and
+      // with immutable ids the draft keeps its id once sent — so ask Graph
+      // before reporting a failure that would make the hub send a duplicate.
+      const state = await api.getMessageState(auth, draftId).catch(() => undefined)
+      const alreadySent = state !== undefined && state !== null && state.isDraft === false
+      if (!alreadySent) {
+        const draftStillExists = state !== null
+        const permanent = !(error instanceof GraphApiError && error.transient)
+        if (permanent && draftStillExists) {
+          // Permanent send failure: remove the draft so the user's Drafts folder
+          // does not accumulate orphans. Best-effort — the send already failed.
+          try {
+            await api.deleteMessage(auth, draftId)
+          } catch (cleanupError) {
+            logger.warn('failed to delete orphaned draft after send failure', { err: cleanupError })
+          }
+        }
+        return failedSendResult(error, 'Microsoft 365 send failed')
+      }
+      logger.warn('Microsoft Graph send response was lost but the draft was sent; reporting success', {
+        graphMessageId: draftId,
+      })
     }
 
     const externalMessageId = stripAngleBrackets(internetMessageId) ?? stripAngleBrackets(nativeMeta.messageId) ?? draftId
@@ -379,7 +395,7 @@ class Ms365ChannelAdapter implements ChannelAdapter {
         logger.warn('Microsoft Graph delta token expired; re-syncing Inbox from watermark', {
           receivedWatermark: state.receivedWatermark,
         })
-        return this.bootstrapDelta(api, auth, pageSize, state.receivedWatermark, accountIdentifier, { ingest: true })
+        return this.bootstrapDelta(api, auth, pageSize, state.receivedWatermark, accountIdentifier)
       }
       throw toHubError(error)
     }
@@ -486,10 +502,14 @@ class Ms365ChannelAdapter implements ChannelAdapter {
   }
 
   /**
-   * Start a fresh Inbox delta. Without `ingest`, only the cursor is seeded
-   * (first connect: no back-fill beyond the overlap window). With `ingest`
-   * (re-sync after an expired token) every item since the watermark is
-   * normalized so nothing received while the token was dead is lost.
+   * Start a fresh Inbox delta from a floor and ingest its first page like any
+   * other page (later pages resume through `nextLink` on subsequent ticks).
+   *
+   * - First connect: the floor is `now - BOOTSTRAP_OVERLAP_MS`, so at most two
+   *   minutes of already-present mail are imported (dedup at the hub) and the
+   *   race with mail received while the token is minted is closed.
+   * - Re-sync after an expired token (`410`): the floor is the persisted
+   *   watermark, so nothing received while the token was dead is lost.
    */
   private async bootstrapDelta(
     api: GraphMailClient,
@@ -497,7 +517,6 @@ class Ms365ChannelAdapter implements ChannelAdapter {
     pageSize: number,
     previousWatermark: string | undefined,
     accountIdentifier: string,
-    options: { ingest?: boolean } = {},
   ): Promise<HistoryPage> {
     const previous = parseIsoDate(previousWatermark)
     const floor = previous ?? new Date(Date.now() - BOOTSTRAP_OVERLAP_MS)
@@ -509,25 +528,6 @@ class Ms365ChannelAdapter implements ChannelAdapter {
     }
     const seededState: Ms365ChannelState = {
       receivedWatermark: floor.toISOString(),
-    }
-    if (!options.ingest) {
-      // First connect: walk to the deltaLink without normalizing so the channel
-      // starts from "now" (the overlap window is re-read on the first
-      // incremental tick through the watermark rule).
-      let current = page
-      while (!current.deltaLink && current.nextLink) {
-        try {
-          current = await api.continueDelta(auth, current.nextLink, pageSize)
-        } catch (error) {
-          throw toHubError(error)
-        }
-      }
-      const nextState: Ms365ChannelState = {
-        ...seededState,
-        deltaLink: current.deltaLink,
-        lastSyncedAt: new Date().toISOString(),
-      }
-      return { messages: [], nextCursor: encodeCursor(nextState), hasMore: false }
     }
     return this.ingestDeltaPage(api, auth, page, seededState, accountIdentifier)
   }

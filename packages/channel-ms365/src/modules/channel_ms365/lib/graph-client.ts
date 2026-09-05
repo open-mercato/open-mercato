@@ -71,6 +71,13 @@ export interface GraphDraftResult {
   conversationId?: string
 }
 
+/** Minimal message state used to verify whether a draft was actually sent. */
+export interface GraphMessageState {
+  id: string
+  isDraft?: boolean
+  sentDateTime?: string
+}
+
 export interface GraphMailClient {
   startInboxDelta(auth: GraphAuth, input: GraphStartDeltaInput): Promise<GraphDeltaPage>
   continueDelta(auth: GraphAuth, link: string, pageSize?: number): Promise<GraphDeltaPage>
@@ -80,6 +87,12 @@ export interface GraphMailClient {
   findMessageIdByInternetMessageId(auth: GraphAuth, internetMessageId: string): Promise<string | null>
   createDraftFromMime(auth: GraphAuth, mime: Buffer): Promise<GraphDraftResult>
   sendDraft(auth: GraphAuth, messageId: string): Promise<void>
+  /**
+   * Read a message's draft/sent state; `null` when it no longer exists. With
+   * immutable ids the draft keeps its id after `/send`, so this tells whether
+   * a send whose response was lost actually went out.
+   */
+  getMessageState(auth: GraphAuth, messageId: string): Promise<GraphMessageState | null>
   deleteMessage(auth: GraphAuth, messageId: string): Promise<void>
   moveMessage(auth: GraphAuth, messageId: string, destinationId: string): Promise<void>
 }
@@ -150,8 +163,21 @@ type RequestOptions = {
   contentType?: string
   /** Extra `Prefer` directives merged with the always-on immutable-id one. */
   prefer?: string[]
+  /** Additional plain request headers (e.g. `ConsistencyLevel`). */
+  extraHeaders?: Record<string, string>
   /** `'json'` (default) parses the body; `'buffer'` returns raw bytes. */
   responseType?: 'json' | 'buffer' | 'none'
+}
+
+/**
+ * Only idempotent verbs are retried. A `POST` (create draft, send, move) whose
+ * response was lost may already have taken effect; re-issuing it would create
+ * an orphan draft, hit a consumed draft (404 → misreported as a permanent
+ * failure), or move twice. Callers verify state instead (see
+ * `getMessageState`).
+ */
+function isRetryable(method: RequestOptions['method']): boolean {
+  return method === 'GET' || method === 'DELETE'
 }
 
 class FetchGraphMailClient implements GraphMailClient {
@@ -210,7 +236,9 @@ class FetchGraphMailClient implements GraphMailClient {
     if (input.includeCount) url.searchParams.set('$count', 'true')
     const page = await this.requestJson<GraphRawListPage>(auth, url, {
       method: 'GET',
-      prefer: input.includeCount ? ['ConsistencyLevel=eventual'] : undefined,
+      // `$count=true` on a filtered/ordered mail query is an advanced query and
+      // requires the standalone `ConsistencyLevel: eventual` header.
+      extraHeaders: input.includeCount ? { ConsistencyLevel: 'eventual' } : undefined,
     })
     return toListPage(page)
   }
@@ -254,6 +282,18 @@ class FetchGraphMailClient implements GraphMailClient {
     await this.requestJson<undefined>(auth, url, { method: 'POST', responseType: 'none' })
   }
 
+  async getMessageState(auth: GraphAuth, messageId: string): Promise<GraphMessageState | null> {
+    const url = new URL(`${this.baseUrl()}/me/messages/${encodeURIComponent(messageId)}`)
+    url.searchParams.set('$select', 'id,isDraft,sentDateTime')
+    try {
+      const state = await this.requestJson<GraphMessageState>(auth, url, { method: 'GET' })
+      return state && typeof state.id === 'string' ? state : null
+    } catch (error) {
+      if (error instanceof GraphApiError && error.status === 404) return null
+      throw error
+    }
+  }
+
   async deleteMessage(auth: GraphAuth, messageId: string): Promise<void> {
     const url = new URL(`${this.baseUrl()}/me/messages/${encodeURIComponent(messageId)}`)
     await this.requestJson<undefined>(auth, url, { method: 'DELETE', responseType: 'none' })
@@ -287,13 +327,15 @@ class FetchGraphMailClient implements GraphMailClient {
     const headers: Record<string, string> = {
       Authorization: `Bearer ${auth.accessToken}`,
       Prefer: [IMMUTABLE_ID_PREFER, ...(options.prefer ?? [])].join(', '),
+      ...(options.extraHeaders ?? {}),
     }
     if (options.body !== undefined) {
       headers['Content-Type'] = options.contentType ?? 'application/json'
     }
+    const maxRetries = isRetryable(options.method) ? GRAPH_MAX_RETRIES : 0
     let attempt = 0
     let lastError: GraphApiError | null = null
-    while (attempt <= GRAPH_MAX_RETRIES) {
+    while (attempt <= maxRetries) {
       let res: Response
       try {
         res = await fetchWithTimeout(url.toString(), {
@@ -311,7 +353,7 @@ class FetchGraphMailClient implements GraphMailClient {
           599,
           'request timed out',
         )
-        if (attempt === GRAPH_MAX_RETRIES) throw timeoutError
+        if (attempt === maxRetries) throw timeoutError
         lastError = timeoutError
         await sleep(computeBackoff(attempt))
         attempt += 1
@@ -337,7 +379,7 @@ class FetchGraphMailClient implements GraphMailClient {
         detail,
         { code: parsed.code, retryAfterMs },
       )
-      if (!apiError.transient || attempt === GRAPH_MAX_RETRIES) {
+      if (!apiError.transient || attempt === maxRetries) {
         throw apiError
       }
       lastError = apiError
