@@ -104,4 +104,22 @@ export default [
   //   files: ['packages/core/src/modules/audit_logs/backend/**/*.{ts,tsx}'],
   //   rules: { 'om-ds/require-empty-state': 'error', 'om-ds/require-status-badge': 'error' },
   // },
+  // channel_ms365 (2026-09-04): new module, no baseline debt — strict from day one
+  // (.ai/specs/2026-07-05-ds-lint-ci-escalation-and-alert-migration.md, Workstream 2).
+  {
+    files: ['packages/channel-ms365/src/**/*.tsx'],
+    ignores: ['**/__tests__/**', '**/*.generated.*'],
+    linterOptions,
+    languageOptions,
+    plugins,
+    rules: {
+      'om-ds/no-hardcoded-status-colors': 'error',
+      'om-ds/no-legacy-alert-variant': 'error',
+      'om-ds/no-raw-table': 'error',
+      'om-ds/require-empty-state': 'error',
+      'om-ds/require-loading-state': 'error',
+      'om-ds/require-page-wrapper': 'error',
+      'om-ds/require-status-badge': 'error',
+    },
+  },
 ]

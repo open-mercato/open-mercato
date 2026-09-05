@@ -27,6 +27,7 @@ COPY packages/channel-expo/package.json ./packages/channel-expo/
 COPY packages/channel-fcm/package.json ./packages/channel-fcm/
 COPY packages/channel-gmail/package.json ./packages/channel-gmail/
 COPY packages/channel-imap/package.json ./packages/channel-imap/
+COPY packages/channel-ms365/package.json ./packages/channel-ms365/
 COPY packages/checkout/package.json ./packages/checkout/
 COPY packages/cli/package.json ./packages/cli/
 COPY packages/content/package.json ./packages/content/
@@ -104,6 +105,7 @@ COPY packages/channel-expo/package.json ./packages/channel-expo/
 COPY packages/channel-fcm/package.json ./packages/channel-fcm/
 COPY packages/channel-gmail/package.json ./packages/channel-gmail/
 COPY packages/channel-imap/package.json ./packages/channel-imap/
+COPY packages/channel-ms365/package.json ./packages/channel-ms365/
 COPY packages/checkout/package.json ./packages/checkout/
 COPY packages/cli/package.json ./packages/cli/
 COPY packages/content/package.json ./packages/content/
@@ -231,6 +233,7 @@ COPY --from=builder /app/packages/channel-expo/package.json ./packages/channel-e
 COPY --from=builder /app/packages/channel-fcm/package.json ./packages/channel-fcm/
 COPY --from=builder /app/packages/channel-gmail/package.json ./packages/channel-gmail/
 COPY --from=builder /app/packages/channel-imap/package.json ./packages/channel-imap/
+COPY --from=builder /app/packages/channel-ms365/package.json ./packages/channel-ms365/
 COPY --from=builder /app/packages/checkout/package.json ./packages/checkout/
 COPY --from=builder /app/packages/cli/package.json ./packages/cli/
 COPY --from=builder /app/packages/content/package.json ./packages/content/
