@@ -68,6 +68,37 @@ export const agentProposalSchema = z.object({
 export type AgentProposalPayload = z.infer<typeof agentProposalSchema>
 
 /**
+ * One file an artifact-producing agent made. It references a captured
+ * `agent_run_artifacts` row rather than carrying bytes: the file plane already
+ * stores, hashes and encrypts them, and a second copy in the run output would be
+ * an unencrypted one.
+ */
+export const agentArtifactRefSchema = z.object({
+  /** FK id → agent_run_artifacts; absent when capture is still in flight. */
+  artifactId: z.string().uuid().nullable().optional(),
+  fileName: z.string().min(1).max(300),
+  mimeType: z.string().min(1).max(150).nullable().optional(),
+  /** The agent's own words about the file. */
+  caption: z.string().max(2000).nullable().optional(),
+})
+export type AgentArtifactRef = z.infer<typeof agentArtifactRefSchema>
+
+/**
+ * What an agent PRODUCED, as opposed to what it found or what it proposes.
+ *
+ * A drafted email, a report, a generated document: it mutates nothing, so it is
+ * terminal like a research result rather than a decision anyone must dispose.
+ * The third kind exists because the other two describe it badly — folding a
+ * produced document into `data` loses the file plane, and folding it into a
+ * proposal invents a decision nobody was asked to make.
+ */
+export const agentArtifactResultSchema = z.object({
+  artifacts: z.array(agentArtifactRefSchema).min(1).max(20),
+  summary: z.string().max(PROPOSAL_RATIONALE_MAX).optional(),
+})
+export type AgentArtifactPayload = z.infer<typeof agentArtifactResultSchema>
+
+/**
  * The AgentResult union (the return contract). Generic helper so callers can
  * narrow `data`/`proposal` against their own agent `result.schema`.
  */
@@ -75,6 +106,7 @@ export function agentResultSchema(dataSchema: ZodTypeAny = z.unknown()) {
   return z.discriminatedUnion('kind', [
     z.object({ kind: z.literal('researcher'), data: dataSchema }),
     z.object({ kind: z.literal('proposal'), proposal: agentProposalSchema }),
+    z.object({ kind: z.literal('artifact'), ...agentArtifactResultSchema.shape }),
   ])
 }
 
@@ -82,6 +114,7 @@ export const baseAgentResultSchema = agentResultSchema()
 export type AgentResult<T = unknown> =
   | { kind: 'researcher'; data: T }
   | { kind: 'proposal'; proposal: AgentProposalPayload }
+  | ({ kind: 'artifact' } & AgentArtifactPayload)
 
 /**
  * What an agent is FOR. An AUTHORING fact declared on the agent definition —

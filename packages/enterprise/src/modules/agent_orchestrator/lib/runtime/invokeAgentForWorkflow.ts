@@ -66,6 +66,13 @@ export type InvokeAgentForWorkflowOutcome =
    * nobody can make, and routes onto the researcher outcome handle.
    */
   | { kind: 'none_proposed'; proposalId: string; payload: unknown }
+  /**
+   * The agent PRODUCED something — a draft, a report, a generated document.
+   * Terminal like `researcher` and routed onto the same governance handle: it
+   * mutates nothing, so there is no decision for anyone to dispose. The workflow
+   * decides what the files are for.
+   */
+  | { kind: 'artifact'; artifacts: unknown[]; summary?: string }
 
 /**
  * One agent's declared OUTCOME contract, as the workflows context ledger needs
@@ -149,6 +156,14 @@ export class AgentWorkflowBridgeService implements AgentWorkflowBridge {
       return { kind: 'researcher', data: result.data }
     }
 
+    if (result.kind === 'artifact') {
+      return {
+        kind: 'artifact',
+        artifacts: result.artifacts,
+        ...(result.summary ? { summary: result.summary } : {}),
+      }
+    }
+
     if (!topLevelRunId) {
       throw new Error('[internal] agent run id was never reported')
     }
@@ -199,6 +214,9 @@ export class AgentWorkflowBridgeService implements AgentWorkflowBridge {
     await ensureAgentsLoaded()
     const contracts: AgentOutcomeContractSnapshot[] = []
     for (const entry of listAgentEntries()) {
+      // An artifact agent has no per-agent OUTCOME to type, so it contributes no
+      // contract rather than a fixed one dressed up as its own.
+      if (entry.resultKind === 'artifact') continue
       const schema = resolveAgentOutcomeZod(entry)
       if (!schema) continue
       contracts.push({ agentId: entry.id, resultKind: entry.resultKind, schema })

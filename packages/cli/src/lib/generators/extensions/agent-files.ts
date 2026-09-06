@@ -59,8 +59,9 @@ type DiscoveredAgent = {
   label: string
   description: string
   instructions: string
-  resultKind: 'researcher' | 'proposal'
-  outcomeSchema: Record<string, unknown>
+  resultKind: 'researcher' | 'proposal' | 'artifact'
+  /** Absent for `kind: artifact`, whose result envelope is fixed. */
+  outcomeSchema?: Record<string, unknown>
   /** OUTCOME.md prose after the JSON-Schema fence — injected into the agent prompt. */
   outcomeProse: string
   /** Effective allowlist: AGENT.md tools ∪ skill-contributed read-only tools. */
@@ -213,12 +214,12 @@ function parseAgentMarkdown(raw: string): AgentFrontmatter | null {
   return meta
 }
 
-function parseOutcomeKind(frontmatterBlock: string): 'researcher' | 'proposal' | null {
+function parseOutcomeKind(frontmatterBlock: string): 'researcher' | 'proposal' | 'artifact' | null {
   for (const line of frontmatterBlock.split('\n')) {
     const match = /^kind:\s*(.*)$/.exec(line.trim())
     if (!match) continue
     const value = stripQuotes(match[1])
-    if (value === 'researcher' || value === 'proposal') return value
+    if (value === 'researcher' || value === 'proposal' || value === 'artifact') return value
     return null
   }
   return null
@@ -226,14 +227,22 @@ function parseOutcomeKind(frontmatterBlock: string): 'researcher' | 'proposal' |
 
 function parseOutcomeMarkdown(
   raw: string,
-): { kind: 'researcher' | 'proposal'; schema: Record<string, unknown>; prose: string } | null {
+): {
+  kind: 'researcher' | 'proposal' | 'artifact'
+  schema?: Record<string, unknown>
+  prose: string
+} | null {
   const frontmatterMatch = FRONTMATTER_RE.exec(raw)
   if (!frontmatterMatch) return null
   const [, frontmatterBlock, body] = frontmatterMatch
   const kind = parseOutcomeKind(frontmatterBlock)
   if (!kind) return null
   const fenceMatch = JSON_FENCE_RE.exec(body)
-  if (!fenceMatch) return null
+  // An artifact agent declares no schema — its envelope is the fixed file list —
+  // so its whole OUTCOME.md is guidance.
+  if (!fenceMatch) {
+    return kind === 'artifact' ? { kind, prose: body.trim() } : null
+  }
   let parsed: unknown
   try {
     parsed = JSON.parse(fenceMatch[1])
@@ -598,7 +607,7 @@ function discoverSubAgents(agentDir: string): DiscoveredAgent[] {
     if (!outcome) {
       throw new Error(`[internal] malformed OUTCOME.md at ${dir}: missing kind or JSON-Schema block`)
     }
-    assertOutcomeSchemaSupported(outcome.schema, dir)
+    if (outcome.schema) assertOutcomeSchemaSupported(outcome.schema, dir)
     if (outcome.kind !== 'researcher') {
       throw new Error(
         `[internal] sub-agent at ${dir} must be researcher (kind: researcher); only the primary proposes`,
@@ -920,15 +929,35 @@ function renderOpenCodeAgentFile(agent: DiscoveredAgent): string {
   // (otherwise it guesses and learns the shape only from validation errors). Keep
   // in sync with lib/sdk/defineFileAgent.ts renderOutcomeSection.
   const outcomeTarget = agent.resultKind === 'proposal' ? 'the `proposal` object' : 'the `data` object'
-  const outcomeSection = [
-    '## Outcome contract',
-    `Your result MUST match this JSON Schema (${outcomeTarget}). Pass it as the \`outcome\` argument of the submit_outcome tool, as a JSON object (not a string):`,
-    '',
-    '```json',
-    JSON.stringify(agent.outcomeSchema, null, 2),
-    '```',
-    ...(agent.outcomeProse ? ['', agent.outcomeProse] : []),
-  ].join('\n')
+  const outcomeSection =
+    agent.resultKind === 'artifact'
+      ? [
+          '## Outcome contract',
+          "Write the files you produce into the run's `out/` directory, then pass this shape as the `outcome` argument of the submit_outcome tool:",
+          '',
+          '```json',
+          JSON.stringify(
+            {
+              artifacts: [
+                { fileName: 'report.pdf', mimeType: 'application/pdf', caption: 'What this file is' },
+              ],
+              summary: 'One sentence about what you produced.',
+            },
+            null,
+            2,
+          ),
+          '```',
+          ...(agent.outcomeProse ? ['', agent.outcomeProse] : []),
+        ].join('\n')
+      : [
+          '## Outcome contract',
+          `Your result MUST match this JSON Schema (${outcomeTarget}). Pass it as the \`outcome\` argument of the submit_outcome tool, as a JSON object (not a string):`,
+          '',
+          '```json',
+          JSON.stringify(agent.outcomeSchema, null, 2),
+          '```',
+          ...(agent.outcomeProse ? ['', agent.outcomeProse] : []),
+        ].join('\n')
   const body = [
     agent.instructions.trim(),
     ...(subAgentSection ? [subAgentSection] : []),
@@ -981,7 +1010,7 @@ function renderDescriptor(agent: DiscoveredAgent, indent: string): string {
     `${indent}  description: ${JSON.stringify(agent.description)},`,
     `${indent}  instructions: ${JSON.stringify(agent.instructions)},`,
     `${indent}  resultKind: ${JSON.stringify(agent.resultKind)},`,
-    `${indent}  outcomeSchema: ${JSON.stringify(agent.outcomeSchema)},`,
+    ...(agent.outcomeSchema ? [`${indent}  outcomeSchema: ${JSON.stringify(agent.outcomeSchema)},`] : []),
     `${indent}  tools: ${JSON.stringify(agent.tools)},`,
     `${indent}  skills: ${JSON.stringify(agent.skills)},`,
     `${indent}  subAgents: ${JSON.stringify(agent.subAgents)},`,
@@ -1047,7 +1076,7 @@ export type FileAgentDescriptor = {
   description: string
   instructions: string
   resultKind: OutcomeKind
-  outcomeSchema: JsonSchemaNode
+  outcomeSchema?: JsonSchemaNode
   tools: string[]
   skills: string[]
   subAgents: string[]
@@ -1123,7 +1152,7 @@ export function createAgentFilesExtension(): GeneratorExtension {
       if (!outcome) {
         throw new Error(`[internal] malformed OUTCOME.md at ${dir}: missing kind or JSON-Schema block`)
       }
-      assertOutcomeSchemaSupported(outcome.schema, dir)
+      if (outcome.schema) assertOutcomeSchemaSupported(outcome.schema, dir)
       // The id is the registry/dup key AND the OpenCode `agent` message field —
       // constrain it to a safe charset (module.entity-style: lowercase alnum + . _ -).
       if (!/^[a-z0-9][a-z0-9._-]*$/.test(agent.id!)) {

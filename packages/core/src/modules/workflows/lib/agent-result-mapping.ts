@@ -18,11 +18,13 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 const logger = createLogger('workflows').child({ component: 'agent-result-mapping' })
 
 export type AgentResultEnvelope = {
-  kind: 'auto_approved' | 'researcher' | 'user_task' | 'none_proposed'
+  kind: 'auto_approved' | 'researcher' | 'user_task' | 'none_proposed' | 'artifact'
   agentId?: string
   proposalId?: string
   proposalPayload?: unknown
   data?: unknown
+  /** Set for an `artifact` result: the files the run produced, by reference. */
+  artifacts?: unknown[]
 }
 
 function getNestedValue(obj: any, path: string): any {
@@ -58,11 +60,16 @@ export function mapAgentResultToContext(
 
   const source = {
     kind: envelope.kind,
-    disposition: envelope.kind === 'researcher' ? 'researcher' : envelope.kind,
+    // `artifact` reports as `researcher` here for the same reason it routes onto
+    // that handle: the disposition vocabulary describes DECISIONS, and producing
+    // a file is not one. The `kind` above still says what actually came back.
+    disposition:
+      envelope.kind === 'researcher' || envelope.kind === 'artifact' ? 'researcher' : envelope.kind,
     agentId: envelope.agentId,
     proposalId: envelope.proposalId,
     proposalPayload: envelope.proposalPayload,
     data: envelope.data,
+    artifacts: envelope.artifacts,
   }
 
   const result: Record<string, any> = {}

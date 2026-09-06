@@ -1396,6 +1396,10 @@ type AgentWorkflowBridgeLike = {
     | { kind: 'user_task'; proposalId: string }
     // The agent proposed nothing: terminal like `researcher`, never parked.
     | { kind: 'none_proposed'; proposalId: string; payload: unknown }
+    // The agent PRODUCED files. Terminal and non-mutating, so it routes onto the
+    // same governance handle as a research result: the five outcome handles are a
+    // vocabulary of DECISIONS, and "it made a document" is not one of them.
+    | { kind: 'artifact'; artifacts: unknown[]; summary?: string }
   >
 }
 
@@ -1486,6 +1490,9 @@ export async function executeInvokeAgent(
     })
     if (outcome.kind === 'researcher') {
       return { kind: 'researcher', agentId, data: outcome.data }
+    }
+    if (outcome.kind === 'artifact') {
+      return { kind: 'artifact', agentId, artifacts: outcome.artifacts, summary: outcome.summary }
     }
     if (outcome.kind === 'auto_approved' || outcome.kind === 'none_proposed') {
       return { kind: outcome.kind, agentId, proposalId: outcome.proposalId, proposalPayload: outcome.payload }

@@ -11,11 +11,28 @@ Two vocabularies, deliberately separate — conflating them is what this spec se
 | Vocabulary | Where it lives | Values |
 |---|---|---|
 | **`agentType`** — an AUTHORING declaration: what the agent is FOR | `defineAgent({ agentType })` → `AgentRegistryEntry.agentType` → `agent_runs.agent_type` (nullable) | `researcher` · `decision_maker` · `action` |
-| **`resultKind`** — the RUNTIME fact: what came back | `defineAgent({ result: { kind } })`, OUTCOME.md frontmatter, `agent_runs.result_kind` | `researcher` (`{ kind, data }`) · `proposal` (`{ kind, proposal }`) |
+| **`resultKind`** — the RUNTIME fact: what came back | `defineAgent({ result: { kind } })`, OUTCOME.md frontmatter, `agent_runs.result_kind` | `researcher` (`{ kind, data }`) · `proposal` (`{ kind, proposal }`) · `artifact` (`{ kind, artifacts[], summary? }`) |
 
 - The two MAY disagree — a `decision_maker` that found nothing returns a researcher-shaped result. That is a finding, not a crash; never assert equality between them.
 - `agentType` is NOT structural: `decision_maker` and `action` return the SAME `{ options[], rationale? }` envelope. What the type buys is a property an agent has BEFORE it runs — listable, filterable, and assertable in an eval.
 - **`researcher`/`proposal` replaced `informative`/`actionable` everywhere, wire values included** — the workflow outcome handle (`outcome:researcher`), the disposition envelope kind, `agent_runs.result_kind`, and OUTCOME.md `kind:`. `actionable` did NOT split into the two proposing types: a runtime result kind cannot know an authoring fact, so ONE kind means "a proposal came back". `__tests__/agent-taxonomy-rename.test.ts` fails if either retired word reappears as a wire value.
+
+### The three result kinds
+
+`researcher` enriches the workflow's context, `proposal` states an intent someone
+disposes, `artifact` PRODUCES a file. All three are typed results the WORKFLOW decides
+what to do with — an agent never writes to workflow state itself, which is what keeps
+parallel branches safe.
+
+- **`artifact` has a FIXED envelope** and its OUTCOME.md declares NO JSON block: the same
+  shape describes a drafted email and a risk report, so a per-agent schema would only let
+  two agents disagree about what an artifact is. The bytes live in the `agent_run_artifacts`
+  file plane (stored, hashed, encrypted); the result carries references.
+- **`artifact` routes onto the `researcher` outcome handle**, like `none_proposed`. The five
+  handles are a vocabulary of DECISIONS; producing a document is not one, and a sixth handle
+  would fan every agent node on the canvas to say nothing new about governance.
+- `agentType` is unchanged and still the AUTHORING declaration — an `action` agent may
+  perfectly well return an artifact.
 
 ### Action vocabulary
 

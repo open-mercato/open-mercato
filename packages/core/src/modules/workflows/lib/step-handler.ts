@@ -728,9 +728,10 @@ async function handleAutomatedStep(
       }
     }
 
-    // Inline-resolved agent result (auto_approved / researcher): surface the
-    // disposition into context (top-level, matching the human-path signal merge)
-    // so the outgoing transition can branch (effector vs skip) uniformly.
+    // Inline-resolved agent result (auto_approved / researcher / artifact):
+    // surface the disposition into context (top-level, matching the human-path
+    // signal merge) so the outgoing transition can branch (effector vs skip)
+    // uniformly.
     const inlineAgent = results.find(
       (r) => r.output && typeof (r.output as any).kind === 'string' && 'agentId' in (r.output as any),
     )
@@ -746,6 +747,7 @@ async function handleAutomatedStep(
           proposalId: out.proposalId,
           proposalPayload: out.proposalPayload,
           data: out.data,
+          artifacts: out.artifacts,
         },
         agentActivity?.config?.outputMapping,
       )
@@ -757,7 +759,12 @@ async function handleAutomatedStep(
               agentProposalId: out.proposalId,
               proposalPayload: out.proposalPayload,
             }
-          : null)
+          : out.kind === 'artifact'
+            ? {
+                disposition: 'researcher',
+                [`${stepInstance.stepId}_agent`]: { artifacts: out.artifacts, summary: out.summary },
+              }
+            : null)
       // Outcome routing (spec 7.2): record which of the five fixed disposition
       // kinds this step resolved to under an ENGINE-OWNED context key. The
       // executor routes on this marker alone — never on the author-visible

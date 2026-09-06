@@ -118,7 +118,7 @@ type QueueRow = {
   agentLabel: string
   /** Tenant-configured agent icon (lucide name) + kind for the avatar glyph. */
   agentIcon: string | null
-  agentResultKind: 'researcher' | 'proposal'
+  agentResultKind: 'researcher' | 'proposal' | 'artifact'
   claim: string
   proposes: string
   /** Humanized primary action type — the bounded filter vocabulary. */

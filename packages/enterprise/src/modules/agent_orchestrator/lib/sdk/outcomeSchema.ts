@@ -1,4 +1,5 @@
 import { z, type ZodTypeAny } from 'zod'
+import { agentArtifactResultSchema } from '../../data/validators'
 
 /**
  * Narrow runtime type for the JSON-Schema subset OUTCOME.md may declare. This is
@@ -21,7 +22,7 @@ export type JsonSchemaNode = {
   const?: string | number | boolean
 }
 
-export type OutcomeKind = 'researcher' | 'proposal'
+export type OutcomeKind = 'researcher' | 'proposal' | 'artifact'
 
 /**
  * Thrown when OUTCOME.md declares a JSON-Schema keyword outside the supported
@@ -159,11 +160,27 @@ export function jsonSchemaToZod(schema: JsonSchemaNode): ZodTypeAny {
  * feeds the runtime, so all downstream validation/persistence works unchanged:
  *   researcher ⇒ z.object({ kind: z.literal('researcher'), data: <schema> })
  *   proposal  ⇒ z.object({ kind: z.literal('proposal'),  proposal: <schema> })
+ *   artifact  ⇒ the FIXED artifact envelope; the declared schema is ignored
+ *
+ * An artifact result has nothing per-agent to type: what came back is a list of
+ * files the run's own file plane captured, and the same shape describes a drafted
+ * email and a risk report. Accepting a schema and then ignoring it would be worse
+ * than either taking one or refusing one, so an artifact OUTCOME.md declares no
+ * JSON block at all (`parseOutcomeMarkdown` makes it optional for this kind).
  */
-export function compileOutcome(input: { kind: OutcomeKind; schema: JsonSchemaNode }): {
+export function compileOutcome(input: { kind: OutcomeKind; schema?: JsonSchemaNode }): {
   kind: OutcomeKind
   resultSchema: ZodTypeAny
 } {
+  if (input.kind === 'artifact') {
+    return {
+      kind: input.kind,
+      resultSchema: z.object({ kind: z.literal('artifact'), ...agentArtifactResultSchema.shape }),
+    }
+  }
+  if (!input.schema) {
+    throw new UnsupportedOutcomeSchemaError(`the "${input.kind}" outcome kind requires a JSON schema`)
+  }
   const inner = jsonSchemaToZod(input.schema)
   const resultSchema =
     input.kind === 'researcher'

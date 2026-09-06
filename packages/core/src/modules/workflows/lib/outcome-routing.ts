@@ -211,6 +211,11 @@ export function resolveAgentOutcomeHandling(
  * `none_proposed` — an agent that looked and had nothing to propose — takes the
  * `researcher` handle, which is exactly what that route means. It is NOT
  * `rejected`: nothing was offered for a human to decline.
+ *
+ * `artifact` — an agent that PRODUCED a file — takes it for the same reason. The
+ * five handles are a vocabulary of DECISIONS; making a document is not one, and
+ * adding a sixth handle for it would fan every agent node on the canvas to say
+ * nothing new about governance.
  */
 const DISPOSITION_TO_OUTCOME: Record<string, AgentOutcomeKind> = {
   auto_approved: 'approved',
@@ -218,6 +223,7 @@ const DISPOSITION_TO_OUTCOME: Record<string, AgentOutcomeKind> = {
   edited: 'approved',
   researcher: 'researcher',
   none_proposed: 'researcher',
+  artifact: 'researcher',
   rejected: 'rejected',
   guardrail_blocked: 'guardrailBlocked',
   guardrailBlocked: 'guardrailBlocked',

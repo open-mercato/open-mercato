@@ -48,7 +48,7 @@ export type FileAgentDescriptor = {
   description: string
   instructions: string
   resultKind: OutcomeKind
-  outcomeSchema: JsonSchemaNode
+  outcomeSchema?: JsonSchemaNode
   tools: string[]
   skills: string[]
   subAgents: string[]

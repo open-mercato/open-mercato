@@ -51,8 +51,11 @@ export type LoadedSkillContent = {
 export type LoadedFileAgent = {
   /** runtime: 'opencode'; schema = compiled OUTCOME resultSchema. */
   entry: AgentRegistryEntry
-  /** Raw JSON-Schema subset from OUTCOME.md (plain data for the committed manifest). */
-  outcomeSchema: JsonSchemaNode
+  /**
+   * Raw JSON-Schema subset from OUTCOME.md (plain data for the committed
+   * manifest). Absent for `kind: artifact`, whose envelope is fixed.
+   */
+  outcomeSchema?: JsonSchemaNode
   /** OUTCOME.md kind. */
   resultKind: OutcomeKind
   /** Rendered OpenCode agent .md (frontmatter + body). */
@@ -90,7 +93,13 @@ const JSON_FENCE_RE = /```json\s*\n([\s\S]*?)\n```/
 
 type OutcomeDescriptor = {
   kind: OutcomeKind
-  schema: JsonSchemaNode
+  /**
+   * Absent for `kind: artifact`, which has a FIXED envelope: what came back is
+   * the file list the run's own artifact plane captured, and it is the same shape
+   * for a drafted email and a risk report. Declaring a schema that nothing reads
+   * would be worse than declaring none.
+   */
+  schema?: JsonSchemaNode
   /** Human guidance after the JSON-Schema fence — injected into the agent prompt. */
   prose: string
 }
@@ -100,7 +109,7 @@ function parseOutcomeKind(frontmatterBlock: string): OutcomeKind | null {
     const match = /^kind:\s*(.*)$/.exec(line.trim())
     if (!match) continue
     const value = match[1].trim().replace(/^['"]/, '').replace(/['"]$/, '').trim()
-    if (value === 'researcher' || value === 'proposal') return value
+    if (value === 'researcher' || value === 'proposal' || value === 'artifact') return value
     return null
   }
   return null
@@ -114,7 +123,10 @@ function parseOutcomeMarkdown(raw: string): OutcomeDescriptor | null {
   const kind = parseOutcomeKind(frontmatterBlock)
   if (!kind) return null
   const fenceMatch = JSON_FENCE_RE.exec(body)
-  if (!fenceMatch) return null
+  // An artifact agent declares no schema, so its whole OUTCOME.md is guidance.
+  if (!fenceMatch) {
+    return kind === 'artifact' ? { kind, prose: body.trim() } : null
+  }
   let parsed: unknown
   try {
     parsed = JSON.parse(fenceMatch[1])
@@ -131,7 +143,25 @@ function parseOutcomeMarkdown(raw: string): OutcomeDescriptor | null {
  * shape it must submit (otherwise it guesses and only learns the shape from
  * submit_outcome's validation errors). Shows the JSON-Schema + the OUTCOME.md prose.
  */
-function renderOutcomeSection(kind: OutcomeKind, schema: JsonSchemaNode, prose: string): string {
+function renderOutcomeSection(kind: OutcomeKind, schema: JsonSchemaNode | undefined, prose: string): string {
+  if (kind === 'artifact') {
+    return [
+      '## Outcome contract',
+      'Write the files you produce into the run\'s `out/` directory, then pass this shape as the `outcome` argument of the submit_outcome tool:',
+      '',
+      '```json',
+      JSON.stringify(
+        {
+          artifacts: [{ fileName: 'report.pdf', mimeType: 'application/pdf', caption: 'What this file is' }],
+          summary: 'One sentence about what you produced.',
+        },
+        null,
+        2,
+      ),
+      '```',
+      ...(prose ? ['', prose] : []),
+    ].join('\n')
+  }
   const target = kind === 'proposal' ? 'the `proposal` object' : 'the `data` object'
   const schemaJson = JSON.stringify(schema, null, 2)
   return [
@@ -274,7 +304,7 @@ function renderOpenCodeAgentFile(args: {
   subAgentIds?: string[]
   /** The OUTCOME contract — injected into the prompt so the agent sees its exact shape. */
   outcomeKind: OutcomeKind
-  outcomeSchema: JsonSchemaNode
+  outcomeSchema?: JsonSchemaNode
   outcomeProse: string
   /** File-plane opt-in (#12). When set + `OM_OPENCODE_FILES_ENABLED`, grants sandbox-scoped write/edit/read. */
   files?: FileAgentFilesConfig

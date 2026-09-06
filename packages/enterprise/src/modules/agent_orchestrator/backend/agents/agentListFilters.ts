@@ -26,7 +26,7 @@ export type AgentFilterableRow = {
   id: string
   label: string
   description: string
-  resultKind: 'researcher' | 'proposal'
+  resultKind: 'researcher' | 'proposal' | 'artifact'
   /** The DECLARED type; null when the agent declares none. */
   agentType: AgentType | null
   runtime: AgentRuntime

@@ -27,6 +27,11 @@ import type { AgentRegistryEntry } from './defineAgent'
 const OUTCOME_PROPERTY: Record<AgentRegistryEntry['resultKind'], string> = {
   researcher: 'data',
   proposal: 'proposal',
+  // An artifact result carries a FIXED reference list, not a per-agent shape, so
+  // there is no OUTCOME to type — `artifacts` is the same for every agent that
+  // produces files, and advertising it as an agent-specific contract would be a
+  // guess dressed as a declaration.
+  artifact: '',
 }
 
 function shapeOf(schema: unknown): Record<string, ZodTypeAny> | undefined {

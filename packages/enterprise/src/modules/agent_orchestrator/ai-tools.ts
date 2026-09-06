@@ -126,7 +126,15 @@ const delegateAgentTool: AiToolDefinition = {
         // counted as production traffic in the agent's metric rollups.
         ...(delegatedSource ? { source: delegatedSource } : {}),
       })
-      const data = result.kind === 'researcher' ? result.data : result.proposal
+      // Whatever the sub-agent produced, handed back verbatim under its own key:
+      // the orchestrator reads a finding, an intent and a file list differently,
+      // and flattening them here would make them indistinguishable.
+      const data =
+        result.kind === 'researcher'
+          ? result.data
+          : result.kind === 'proposal'
+            ? result.proposal
+            : { artifacts: result.artifacts, summary: result.summary }
       return { ok: true as const, agentId, data }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)

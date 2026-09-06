@@ -1,6 +1,13 @@
 import type { AwilixContainer } from 'awilix'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import { type AgentResult, type AgentProposalPayload, type AgentType, type GuardResults } from '../../data/validators'
+import {
+  agentArtifactResultSchema,
+  type AgentResult,
+  type AgentProposalPayload,
+  type AgentType,
+  type GuardResults,
+} from '../../data/validators'
+import type { AgentResultKind } from '../sdk/defineAgent'
 import { normalizeProposalEnvelope } from '../../data/proposalEnvelope'
 import { withAuditedCommand } from '../identity/agentWriteScope'
 
@@ -196,7 +203,7 @@ export async function completeRun(
   input: {
     runId: string
     output: AgentResult
-    resultKind: 'researcher' | 'proposal'
+    resultKind: AgentResultKind
     /** Proposal confidence for proposal results; researcher runs have no confidence semantics. */
     confidence?: number | null
   } & RunUsageStamp,
@@ -207,7 +214,7 @@ export async function completeRun(
         runId: string
         status: 'ok'
         output: AgentResult
-        resultKind: 'researcher' | 'proposal'
+        resultKind: AgentResultKind
         confidence?: number | null
       } & RunUsageStamp,
       { runId: string }
@@ -280,13 +287,23 @@ export async function createProposal(
  * the literal `kind` discriminator.
  */
 export function shapeResult(
-  resultKind: 'researcher' | 'proposal',
+  resultKind: AgentResultKind,
   data: unknown,
   agentId?: string,
 ): AgentResult {
   const record = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>
   if (resultKind === 'researcher') {
     return { kind: 'researcher', data: 'data' in record ? record.data : data }
+  }
+  if (resultKind === 'artifact') {
+    // The file plane already stored, hashed and encrypted the bytes; what the
+    // result carries is a reference list. A malformed one is an EMPTY list rather
+    // than a throw — the run produced files either way, and the schema validation
+    // that runs next is the place to refuse them.
+    const parsed = agentArtifactResultSchema.safeParse(record)
+    return parsed.success
+      ? { kind: 'artifact', artifacts: parsed.data.artifacts, ...(parsed.data.summary ? { summary: parsed.data.summary } : {}) }
+      : { kind: 'artifact', artifacts: [] }
   }
   // An agent's OUTCOME schema is authored per agent and may still declare the
   // pre-envelope `{ actions, confidence, rationale }` shape. Lifting it here — by the
