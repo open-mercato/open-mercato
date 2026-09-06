@@ -96,9 +96,9 @@ describe('agent_orchestrator sort + search (consistency pass Phase 3)', () => {
       for (const field of Object.values(TRACES_HEADER_SORT_FIELDS)) {
         expect(runsRoute).toContain(`${field}:`)
       }
-      const processesRoute = read('api/processes/route.ts')
+      const executionsRoute = read('api/executions/route.ts')
       for (const field of Object.values(PROCESS_HEADER_SORT_FIELDS)) {
-        expect(processesRoute).toContain(`${field}:`)
+        expect(executionsRoute).toContain(`${field}:`)
       }
     })
   })

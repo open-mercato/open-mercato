@@ -55,8 +55,8 @@ describe('agent_orchestrator encryption maps', () => {
   const registered = collectRegisteredEntities()
 
   it('declares at least the entities this module is known to encrypt', () => {
-    expect(registered.has('agent_orchestrator:agent_process_definition')).toBe(true)
-    expect(registered.has('agent_orchestrator:agent_process_run')).toBe(true)
+    expect(registered.has('agent_orchestrator:process_definition')).toBe(true)
+    expect(registered.has('agent_orchestrator:process_instance')).toBe(true)
     expect(defaultEncryptionMaps.length).toBeGreaterThan(0)
   })
 
@@ -79,9 +79,26 @@ describe('agent_orchestrator encryption maps', () => {
         typeof field === 'string' ? field : field.field,
       )
 
-    expect(fieldsOf('agent_orchestrator:agent_process_definition')).toEqual(['input_defaults'])
-    expect(fieldsOf('agent_orchestrator:agent_process_run')).toEqual(['input', 'failure_reason'])
-    expect(byEntityId.has('agent_orchestrator:agent_task_definition')).toBe(false)
-    expect(byEntityId.has('agent_orchestrator:agent_task_run')).toBe(false)
+    expect(fieldsOf('agent_orchestrator:process_definition')).toEqual(['input_defaults'])
+    // The execution read model absorbed what the deleted run ledger carried, so
+    // its map must have absorbed the ledger's columns too — `input` and
+    // `failure_reason` alongside the projection's own `subject_title`.
+    expect(fieldsOf('agent_orchestrator:process_instance')).toEqual([
+      'input',
+      'failure_reason',
+      'subject_title',
+    ])
+    // Every retired entity id is gone: an `entityId` left behind on a renamed
+    // entity persists its columns in PLAINTEXT while existing rows become
+    // undecryptable, and nothing but this test would notice.
+    for (const retired of [
+      'agent_orchestrator:agent_task_definition',
+      'agent_orchestrator:agent_task_run',
+      'agent_orchestrator:agent_process_definition',
+      'agent_orchestrator:agent_process_run',
+      'agent_orchestrator:agent_process',
+    ]) {
+      expect(byEntityId.has(retired)).toBe(false)
+    }
   })
 })

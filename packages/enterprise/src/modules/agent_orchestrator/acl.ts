@@ -4,8 +4,12 @@
 export const features = [
   { id: 'agent_orchestrator.agents.view', title: 'View agents and runs', module: 'agent_orchestrator' },
   {
+    // The Playground gate. Deliberately SEPARATE from `processes.run`: running
+    // one agent directly is a development, eval and diagnostics capability, and
+    // granting it is not the same decision as letting someone start durable
+    // business work.
     id: 'agent_orchestrator.agents.run',
-    title: 'Run agents (playground)',
+    title: 'Run agents directly (Playground, evals, diagnostics)',
     module: 'agent_orchestrator',
     dependsOn: ['agent_orchestrator.agents.view'],
   },

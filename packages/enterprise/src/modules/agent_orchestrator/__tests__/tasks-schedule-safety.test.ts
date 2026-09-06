@@ -8,7 +8,7 @@ import {
 import { withScheduleSemanticChecks } from '../lib/tasks/scheduleValidation'
 import { metadata as featuresMetadata } from '../api/features/route'
 import {
-  WORKFLOW_TARGET_PREFILL_FEATURES,
+  WORKFLOW_PREFILL_FEATURES,
   listTimeZones,
   parseGrantedFeaturesText,
   resolveFeaturePrefill,
@@ -18,16 +18,16 @@ import {
 const MODULE_ROOT = path.join(__dirname, '..')
 const LOCALES = ['en', 'es', 'de', 'pl'] as const
 
-const baseTask = {
+const baseDefinition = {
   name: 'Nightly digest',
-  targetType: 'agent' as const,
-  targetAgentId: 'deals.lead_triage',
+  workflowMode: 'single_agent' as const,
+  singleAgent: { agentId: 'deals.lead_triage', onResult: { alwaysAsk: true as const } },
 }
 
 const createWithSemantics = withScheduleSemanticChecks(processDefinitionCreateSchema)
 
 const withSchedule = (cron: string, timezone?: string) => ({
-  ...baseTask,
+  ...baseDefinition,
   triggers: [{ kind: 'schedule' as const, cron, ...(timezone ? { timezone } : {}) }],
 })
 
@@ -48,9 +48,9 @@ describe('schedule semantic validation (route layer)', () => {
   })
 
   it('leaves schedule-less definitions untouched', () => {
-    expect(createWithSemantics.safeParse(baseTask).success).toBe(true)
+    expect(createWithSemantics.safeParse(baseDefinition).success).toBe(true)
     expect(
-      createWithSemantics.safeParse({ ...baseTask, triggers: [{ kind: 'manual' }] }).success,
+      createWithSemantics.safeParse({ ...baseDefinition, triggers: [{ kind: 'manual' }] }).success,
     ).toBe(true)
   })
 })
@@ -91,19 +91,18 @@ describe('formHelpers — permissions picker logic', () => {
     expect(parseGrantedFeaturesText(undefined)).toEqual([])
   })
 
-  it('prefills the workflow least-privilege floor only for empty workflow targets', () => {
-    expect(resolveFeaturePrefill('workflow', [])).toEqual([...WORKFLOW_TARGET_PREFILL_FEATURES])
-    expect(resolveFeaturePrefill('workflow', ['x.view'])).toBeNull()
-    expect(resolveFeaturePrefill('agent', [])).toBeNull()
+  it('prefills the least-privilege floor only when nothing is granted yet', () => {
+    expect(resolveFeaturePrefill([])).toEqual([...WORKFLOW_PREFILL_FEATURES])
+    expect(resolveFeaturePrefill(['x.view'])).toBeNull()
   })
 
   it('prefill floor uses real core workflows feature ids', () => {
-    expect(WORKFLOW_TARGET_PREFILL_FEATURES).toEqual(['workflows.instances.view', 'workflows.instances.create'])
+    expect(WORKFLOW_PREFILL_FEATURES).toEqual(['workflows.instances.view', 'workflows.instances.create'])
     const aclSource = fs.readFileSync(
       path.join(MODULE_ROOT, '..', '..', '..', '..', 'core', 'src', 'modules', 'workflows', 'acl.ts'),
       'utf8',
     )
-    for (const feature of WORKFLOW_TARGET_PREFILL_FEATURES) {
+    for (const feature of WORKFLOW_PREFILL_FEATURES) {
       expect(aclSource).toContain(`'${feature}'`)
     }
   })

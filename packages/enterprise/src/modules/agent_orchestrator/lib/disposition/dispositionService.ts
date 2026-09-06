@@ -2,7 +2,7 @@ import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import { AgentProposal } from '../../data/entities'
+import { AgentGuardrailCheck, AgentProposal, AgentSpan } from '../../data/entities'
 import type { AutoDispositionBlock, ProposalOption } from '../../data/validators'
 import { normalizeProposalEnvelope, rankProposalOptions } from '../../data/proposalEnvelope'
 import type {
@@ -10,21 +10,27 @@ import type {
   DisposeProposalCommandResult,
 } from '../../commands/dispose'
 import { invalidateAgentProposalCache } from '../crudCache'
+import { resolveTenantAutoApprovalPolicy } from './tenantAutoApprovalPolicy'
+import {
+  autoApprovable,
+  evaluateAutoApproval,
+  type AutoApprovalDecision,
+  type DispositionOnResult,
+  type TenantAutoApprovalPolicy,
+} from './autoApprovalPolicy'
 
 const logger = createLogger('agent_orchestrator').child({ component: 'disposition-service' })
 
 /**
- * Disposition config carried verbatim from the area-02 Invoke Agent node's
- * `onResult`. `alwaysAsk` always routes to a human; otherwise a confidence
- * threshold plus an optional separation MARGIN gates auto-approval.
+ * Disposition config carried verbatim from the INVOKE_AGENT node's `onResult`.
  *
  * `autoApproveMargin` is optional here (not just defaulted in the zod schema)
  * because a queue job enqueued before the field existed carries no value —
- * absent means `0`, which is exactly today's rule.
+ * absent means `0`, which is exactly the historic rule.
+ *
+ * Re-exported from the policy layer, which owns the decision this feeds.
  */
-export type DispositionOnResult =
-  | { autoApproveThreshold: number; autoApproveMargin?: number }
-  | { alwaysAsk: true }
+
 
 /**
  * The Invoke Agent node's Review section (spec §7.5), already resolved by the
@@ -63,49 +69,8 @@ export interface DispositionService {
   ): Promise<DispositionOutcome>
 }
 
-export type AutoApprovalDecision =
-  | { kind: 'approve'; option: ProposalOption }
-  | { kind: 'review'; block: AutoDispositionBlock | null }
-
-/**
- * Threshold AND margin.
- *
- * The `alwaysAsk` short-circuit is FIRST and is load-bearing: dropping it makes every
- * `alwaysAsk: true` node start auto-approving, which is the worst regression this
- * module can produce. The `typeof confidence !== 'number'` guard is equally
- * load-bearing — a missing confidence fails closed to a human, never to approval.
- *
- * The margin exists because a 0.81/0.80 split under an 0.8 threshold is the agent
- * saying it cannot tell its top two options apart; reading that as certainty is how
- * an auto-approved wrong answer happens. It defaults to 0, which preserves today's
- * rule exactly — a `.default()` that changed behaviour without anyone asking would be
- * the opposite of opt-in.
- */
-export function evaluateAutoApproval(
-  options: readonly ProposalOption[],
-  onResult: DispositionOnResult,
-): AutoApprovalDecision {
-  if ('alwaysAsk' in onResult) return { kind: 'review', block: null }
-  if (options.length === 0) return { kind: 'review', block: null }
-  const ranked = rankProposalOptions(options)
-  const [top, runnerUp] = ranked
-  if (typeof top.confidence !== 'number') return { kind: 'review', block: null }
-  if (top.confidence < onResult.autoApproveThreshold) return { kind: 'review', block: null }
-  const margin = onResult.autoApproveMargin ?? 0
-  if (runnerUp && top.confidence - (runnerUp.confidence ?? 0) < margin) {
-    return { kind: 'review', block: 'near_tie' }
-  }
-  return { kind: 'approve', option: top }
-}
-
-/** The option auto-approval would run, or null when a human must decide. */
-export function autoApprovable(
-  options: readonly ProposalOption[],
-  onResult: DispositionOnResult,
-): ProposalOption | null {
-  const decision = evaluateAutoApproval(options, onResult)
-  return decision.kind === 'approve' ? decision.option : null
-}
+export type { AutoApprovalDecision, DispositionOnResult }
+export { autoApprovable, evaluateAutoApproval }
 
 /**
  * MVP DispositionService — a thin DI service called INLINE by the area-02
@@ -146,11 +111,57 @@ export class DispositionServiceImpl implements DispositionService {
     if (options.length === 0) {
       return { kind: 'none_proposed', proposalId: proposal.id }
     }
-    const decision = evaluateAutoApproval(options, onResult)
+    const decision = evaluateAutoApproval({
+      options,
+      onResult,
+      ...(await this.resolvePolicyEvidence(proposal)),
+    })
     if (decision.kind === 'approve') {
       return this.autoApprove(proposal, decision.option)
     }
     return this.raiseUserTask(proposal, ctx, decision.block)
+  }
+
+  /**
+   * The run-level evidence the policy weighs beside the model's own confidence.
+   *
+   * Every read here is best-effort and fails CLOSED in the direction that matters:
+   * a guardrail table we cannot read reports `guardrailsPassed: false` (an
+   * unreadable safety check is not a passed one), while an unreadable tenant
+   * policy falls back to the conservative default rather than to "allow
+   * everything".
+   */
+  private async resolvePolicyEvidence(proposal: AgentProposal): Promise<{
+    guardrailsPassed: boolean
+    traceComplete: boolean
+    tenantPolicy: TenantAutoApprovalPolicy
+  }> {
+    const em = (this.container.resolve('em') as EntityManager).fork()
+    const scope = { tenantId: proposal.tenantId, organizationId: proposal.organizationId }
+
+    let guardrailsPassed = false
+    let traceComplete = false
+    try {
+      const [blocked, spanCount] = await Promise.all([
+        em.count(AgentGuardrailCheck, { ...scope, agentRunId: proposal.runId, result: 'block' }),
+        em.count(AgentSpan, { ...scope, agentRunId: proposal.runId }),
+      ])
+      guardrailsPassed = blocked === 0
+      // A run that left no trace at all cannot be audited after the fact, and an
+      // unauditable mutation is exactly what auto-approval must not produce.
+      traceComplete = spanCount > 0
+    } catch (error) {
+      logger.warn('auto-approval evidence unavailable; holding the proposal for a human', {
+        proposalId: proposal.id,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+
+    return {
+      guardrailsPassed,
+      traceComplete,
+      tenantPolicy: await resolveTenantAutoApprovalPolicy(this.container, proposal.tenantId),
+    }
   }
 
   private async autoApprove(

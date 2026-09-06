@@ -1,8 +1,8 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { ProcessDefinition, AgentProcessRun } from '../data/entities'
+import { ProcessDefinition, ProcessInstance } from '../data/entities'
 import type { ProcessTrigger } from '../data/validators'
 
-import handle from '../subscribers/task-event-trigger'
+import handle from '../subscribers/process-event-trigger'
 
 const TENANT = '11111111-1111-4111-8111-111111111111'
 const ORG = '22222222-2222-4222-8222-222222222222'
@@ -29,6 +29,12 @@ function createFakeEm() {
     }
     if (expected && typeof expected === 'object' && '$in' in (expected as Row)) {
       return (expected as { $in: unknown[] }).$in.includes(actual)
+    }
+    // The concurrency probe asks for executions that have NOT terminated: the
+    // status vocabulary is the projection's derived one, so "still going" is
+    // everything outside the terminal set rather than a single 'running' value.
+    if (expected && typeof expected === 'object' && '$nin' in (expected as Row)) {
+      return !(expected as { $nin: unknown[] }).$nin.includes(actual)
     }
     return (actual ?? null) === expected
   }
@@ -113,16 +119,16 @@ function makeCtx(em: EntityManager, executeMock: jest.Mock, eventName: string) {
   }
 }
 
-describe('task-event-trigger subscriber (declared triggers list)', () => {
-  it('enqueues a run for a matching event with mapped input and event provenance', async () => {
+describe('process-event-trigger subscriber (declared triggers list)', () => {
+  it('starts an execution for a matching event with mapped input and event provenance', async () => {
     const { em, storeFor } = createFakeEm()
     seed(storeFor)
-    const execute = jest.fn(async () => ({ result: { processRunId: 'x' } }))
+    const execute = jest.fn(async () => ({ result: { executionId: 'x' } }))
 
     await handle({ id: 'claim-9', status: 'open' }, makeCtx(em, execute, 'claims.claim.reported'))
 
     expect(execute).toHaveBeenCalledWith(
-      'agent_orchestrator.processes.enqueueRun',
+      'agent_orchestrator.processes.startExecution',
       expect.objectContaining({
         input: expect.objectContaining({
           processDefinitionId: TASK_ID,
@@ -136,7 +142,7 @@ describe('task-event-trigger subscriber (declared triggers list)', () => {
   it('still matches a trailing-wildcard pattern (containment on the derived candidates)', async () => {
     const { em, storeFor, executed } = createFakeEm()
     seed(storeFor, { eventPattern: 'claims.*' })
-    const execute = jest.fn(async () => ({ result: { processRunId: 'x' } }))
+    const execute = jest.fn(async () => ({ result: { executionId: 'x' } }))
 
     await handle({ id: 'claim-9' }, makeCtx(em, execute, 'claims.claim.reported'))
 
@@ -147,10 +153,10 @@ describe('task-event-trigger subscriber (declared triggers list)', () => {
 
   it('never fires for excluded prefixes (incl. its own module → no recursion)', async () => {
     const { em, storeFor } = createFakeEm()
-    seed(storeFor, { eventPattern: 'agent_orchestrator.process_run.started' })
+    seed(storeFor, { eventPattern: 'agent_orchestrator.process.execution.started' })
     const execute = jest.fn()
 
-    await handle({}, makeCtx(em, execute, 'agent_orchestrator.process_run.started'))
+    await handle({}, makeCtx(em, execute, 'agent_orchestrator.process.execution.started'))
     await handle({}, makeCtx(em, execute, 'workflows.instance.completed'))
     await handle({}, makeCtx(em, execute, 'queue.job.enqueued'))
 
@@ -179,10 +185,10 @@ describe('task-event-trigger subscriber (declared triggers list)', () => {
     expect(execute).not.toHaveBeenCalled()
   })
 
-  it('respects maxConcurrentInstances against running ledger rows', async () => {
+  it('respects maxConcurrentInstances against executions that have not terminated', async () => {
     const { em, storeFor } = createFakeEm()
     seed(storeFor, { config: { maxConcurrentInstances: 1 } })
-    storeFor(AgentProcessRun).push({
+    storeFor(ProcessInstance).push({
       id: 'running-1',
       processDefinitionId: TASK_ID,
       organizationId: ORG,
@@ -194,10 +200,10 @@ describe('task-event-trigger subscriber (declared triggers list)', () => {
     expect(execute).not.toHaveBeenCalled()
   })
 
-  it('debounces against a recent run carrying the same event provenance', async () => {
+  it('debounces against a recent execution carrying the same event provenance', async () => {
     const { em, storeFor } = createFakeEm()
     seed(storeFor, { config: { debounceMs: 60_000 } })
-    storeFor(AgentProcessRun).push({
+    storeFor(ProcessInstance).push({
       id: 'recent-1',
       processDefinitionId: TASK_ID,
       organizationId: ORG,

@@ -11,13 +11,23 @@ import {
   readProcessOutcome,
 } from '../lib/tasks/outcome'
 import { resolveOutcomeHref, type OutcomeModuleLike } from '../lib/tasks/outcomeLink'
-import { resolveWorkflowProcessRun } from '../lib/tasks/resolveWorkflowProcessRun'
+import { readSquashMigrationSql } from './helpers/squashMigration'
+
+jest.mock('../events', () => ({ emitAgentOrchestratorEvent: jest.fn(async () => {}) }))
+
+// Imported after the mock so the projection's own emit is inert here.
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { recomputeProcessInstance } = require('../lib/processes/processProjection') as
+  typeof import('../lib/processes/processProjection')
 
 /**
- * Phase 4 of the triggered process model — the OPTIONAL outcome a completed run
- * produced (`.ai/specs/enterprise/agent-orchestrator/2026-08-11-triggered-process-model.md`
+ * The OPTIONAL outcome a completed BUSINESS EXECUTION produced
+ * (`.ai/specs/enterprise/agent-orchestrator/2026-09-06-business-process-workflow-unification.md`
  * §Outcome), and the soft-optional link resolution that degrades to its label
  * snapshot when the owning module is absent.
+ *
+ * It belongs to the execution's completion, never to a single agent run: at the
+ * moment an agent finishes, a proposal's record does not exist yet.
  */
 
 const MODULE_ROOT = path.join(__dirname, '..')
@@ -140,41 +150,50 @@ describe('resolving the link soft-optionally', () => {
   })
 })
 
-type FakeRun = {
+type FakeExecution = {
   id: string
-  status: 'running' | 'completed' | 'failed'
+  status: string
   workflowInstanceId: string
   tenantId: string
   organizationId: string
-  processDefinitionId: string
-  targetType: string
+  processDefinitionId: string | null
   completedAt: Date | null
   failureReason: string | null
   outcomeType: string | null
   outcomeId: string | null
   outcomeLabel: string | null
+  openedAt: Date
+  lastActivityAt: Date
 }
 
-function fakeRun(overrides: Partial<FakeRun> = {}): FakeRun {
+function fakeExecution(overrides: Partial<FakeExecution> = {}): FakeExecution {
   return {
-    id: 'run-1',
+    id: 'execution-1',
     status: 'running',
     workflowInstanceId: 'instance-1',
     tenantId: 'tenant-1',
     organizationId: 'org-1',
     processDefinitionId: 'def-1',
-    targetType: 'workflow',
     completedAt: null,
     failureReason: null,
     outcomeType: null,
     outcomeId: null,
     outcomeLabel: null,
+    openedAt: new Date('2026-09-06T09:00:00.000Z'),
+    lastActivityAt: new Date('2026-09-06T09:00:00.000Z'),
     ...overrides,
   }
 }
 
-function fakeEm(run: FakeRun | null) {
-  return { findOne: jest.fn().mockResolvedValue(run), flush: jest.fn().mockResolvedValue(undefined) }
+/** No proposals, no runs — the projection under test here is the terminal stamp. */
+function fakeEm(execution: FakeExecution | null) {
+  return {
+    find: jest.fn().mockResolvedValue([]),
+    findOne: jest.fn().mockResolvedValue(execution),
+    create: jest.fn(),
+    persist: jest.fn(),
+    flush: jest.fn().mockResolvedValue(undefined),
+  }
 }
 
 function fakeResolver(instance: unknown) {
@@ -186,111 +205,106 @@ function fakeResolver(instance: unknown) {
   }
 }
 
-const PAYLOAD = { id: 'instance-1', tenantId: 'tenant-1', organizationId: 'org-1' }
+const SCOPE = { tenantId: 'tenant-1', organizationId: 'org-1' }
 
 describe('the outcome is written ON COMPLETION, and is nullable', () => {
-  it('stamps the three columns from the completed instance’s declared outcome', async () => {
-    const run = fakeRun()
-    const em = fakeEm(run)
-    const resolver = fakeResolver({ tenantId: 'tenant-1', organizationId: 'org-1', context: { outcome: OUTCOME } })
-    await resolveWorkflowProcessRun(em as never, PAYLOAD, 'completed', undefined, resolver as never)
-    expect(run.status).toBe('completed')
-    expect(run.outcomeType).toBe('claims:claim')
-    expect(run.outcomeId).toBe('claim-9')
-    expect(run.outcomeLabel).toBe('CASE-2026-04417')
+  it('stamps the three columns from the completed instance\u2019s declared outcome', async () => {
+    const execution = fakeExecution()
+    const resolver = fakeResolver({ ...SCOPE, context: { outcome: OUTCOME } })
+    await recomputeProcessInstance(fakeEm(execution) as never, SCOPE, 'instance-1', {
+      terminal: 'completed',
+      resolver: resolver as never,
+    })
+    expect(execution.status).toBe('completed')
+    expect(execution.outcomeType).toBe('claims:claim')
+    expect(execution.outcomeId).toBe('claim-9')
+    expect(execution.outcomeLabel).toBe('CASE-2026-04417')
   })
 
   it('leaves the columns NULL when the process produced nothing — a valid completion', async () => {
-    const run = fakeRun()
-    const em = fakeEm(run)
-    const resolver = fakeResolver({ tenantId: 'tenant-1', organizationId: 'org-1', context: { findings: 3 } })
-    await resolveWorkflowProcessRun(em as never, PAYLOAD, 'completed', undefined, resolver as never)
-    expect(run.status).toBe('completed')
-    expect(run.outcomeType).toBeNull()
-    expect(run.outcomeId).toBeNull()
-    expect(run.outcomeLabel).toBeNull()
+    const execution = fakeExecution()
+    const resolver = fakeResolver({ ...SCOPE, context: { findings: 3 } })
+    await recomputeProcessInstance(fakeEm(execution) as never, SCOPE, 'instance-1', {
+      terminal: 'completed',
+      resolver: resolver as never,
+    })
+    expect(execution.status).toBe('completed')
+    expect(execution.outcomeType).toBeNull()
+    expect(execution.outcomeId).toBeNull()
+    expect(execution.outcomeLabel).toBeNull()
   })
 
-  it('writes NO outcome on a failed run — nothing was produced', async () => {
-    const run = fakeRun()
-    const em = fakeEm(run)
-    const resolver = fakeResolver({ tenantId: 'tenant-1', organizationId: 'org-1', context: { outcome: OUTCOME } })
-    await resolveWorkflowProcessRun(em as never, PAYLOAD, 'failed', undefined, resolver as never)
-    expect(run.status).toBe('failed')
-    expect(run.outcomeType).toBeNull()
+  it('writes NO outcome on a failed execution — nothing was produced', async () => {
+    const execution = fakeExecution()
+    const resolver = fakeResolver({ ...SCOPE, context: { outcome: OUTCOME } })
+    await recomputeProcessInstance(fakeEm(execution) as never, SCOPE, 'instance-1', {
+      terminal: 'failed',
+      failureReason: 'step blew up',
+      resolver: resolver as never,
+    })
+    expect(execution.status).toBe('failed')
+    expect(execution.outcomeType).toBeNull()
+    expect(execution.failureReason).toBe('step blew up')
   })
 
   it('completes with no outcome when the `workflows` peer is absent — never throws', async () => {
-    const run = fakeRun()
-    const em = fakeEm(run)
+    const execution = fakeExecution()
     const absent = { resolve: jest.fn(() => { throw new Error('[internal] module not registered') }) }
-    await resolveWorkflowProcessRun(em as never, PAYLOAD, 'completed', undefined, absent as never)
-    expect(run.status).toBe('completed')
-    expect(run.outcomeType).toBeNull()
-    await resolveWorkflowProcessRun(em as never, PAYLOAD, 'completed', undefined, null)
-    expect(run.outcomeType).toBeNull()
+    await recomputeProcessInstance(fakeEm(execution) as never, SCOPE, 'instance-1', {
+      terminal: 'completed',
+      resolver: absent as never,
+    })
+    expect(execution.status).toBe('completed')
+    expect(execution.outcomeType).toBeNull()
+
+    const second = fakeExecution()
+    await recomputeProcessInstance(fakeEm(second) as never, SCOPE, 'instance-1', { terminal: 'completed' })
+    expect(second.outcomeType).toBeNull()
   })
 
-  it('refuses an instance whose own scope does not match the run’s', async () => {
-    const run = fakeRun()
-    const em = fakeEm(run)
+  it('refuses an instance whose own scope does not match the execution\u2019s', async () => {
+    const execution = fakeExecution()
     const foreign = fakeResolver({ tenantId: 'tenant-2', organizationId: 'org-1', context: { outcome: OUTCOME } })
-    await resolveWorkflowProcessRun(em as never, PAYLOAD, 'completed', undefined, foreign as never)
-    expect(run.status).toBe('completed')
-    expect(run.outcomeType).toBeNull()
+    await recomputeProcessInstance(fakeEm(execution) as never, SCOPE, 'instance-1', {
+      terminal: 'completed',
+      resolver: foreign as never,
+    })
+    expect(execution.status).toBe('completed')
+    expect(execution.outcomeType).toBeNull()
   })
 
-  it('is idempotent — a redelivered event never re-stamps a terminal run', async () => {
-    const run = fakeRun({ status: 'completed', outcomeType: 'claims:claim', outcomeId: 'claim-1' })
-    const em = fakeEm(run)
-    const resolver = fakeResolver({ tenantId: 'tenant-1', organizationId: 'org-1', context: { outcome: OUTCOME } })
-    await resolveWorkflowProcessRun(em as never, PAYLOAD, 'completed', undefined, resolver as never)
-    expect(run.outcomeId).toBe('claim-1')
-    expect(em.flush).not.toHaveBeenCalled()
+  it('is idempotent — a redelivered event never re-stamps an already terminal execution', async () => {
+    const execution = fakeExecution({
+      status: 'completed',
+      outcomeType: 'claims:claim',
+      outcomeId: 'claim-1',
+      completedAt: new Date('2026-09-06T09:30:00.000Z'),
+    })
+    const resolver = fakeResolver({ ...SCOPE, context: { outcome: OUTCOME } })
+    await recomputeProcessInstance(fakeEm(execution) as never, SCOPE, 'instance-1', {
+      terminal: 'completed',
+      resolver: resolver as never,
+    })
+    // The terminal latch means the stamp happens once, on the transition.
+    expect(execution.outcomeId).toBe('claim-1')
+    expect(execution.completedAt).toEqual(new Date('2026-09-06T09:30:00.000Z'))
   })
 })
 
-describe('the executor writes the agent target’s declared outcome', () => {
-  const source = fs.readFileSync(path.join(MODULE_ROOT, 'workers', 'task-run-executor.ts'), 'utf8')
+describe('the squashed migration carries the outcome columns', () => {
+  const migration = readSquashMigrationSql()
 
-  it('reads it off a researcher result only — a proposal has produced nothing yet', () => {
-    expect(source).toContain("result.kind === 'researcher' ? declaredOutcomeOf(result.data) : null")
-  })
-
-  it('stamps the columns only on a COMPLETED run', () => {
-    expect(source).toContain("if (outcome.status === 'completed' && outcome.produced)")
-  })
-})
-
-describe('the Phase 4 migration', () => {
-  const migrationsDir = path.join(MODULE_ROOT, 'migrations')
-  const migration = fs.readFileSync(
-    path.join(migrationsDir, 'Migration20260811180000_agent_orchestrator.ts'),
-    'utf8',
-  )
-
-  it('adds the three nullable columns and drops them again', () => {
-    expect(migration).toContain(
-      `alter table "agent_process_runs" add "outcome_type" varchar(150) null, add "outcome_id" varchar(200) null, add "outcome_label" varchar(200) null;`,
-    )
-    expect(migration).toContain(`drop column "outcome_type"`)
-  })
-
-  it('is its OWN file — the three committed migrations are untouched', () => {
-    for (const committed of [
-      'Migration20260811150000_agent_orchestrator.ts',
-      'Migration20260811160000_agent_orchestrator.ts',
-      'Migration20260811170000_agent_orchestrator.ts',
-    ]) {
-      expect(fs.readFileSync(path.join(migrationsDir, committed), 'utf8')).not.toContain('outcome_')
-    }
+  it('declares all three as nullable on the execution read model', () => {
+    expect(migration).toContain('"outcome_type" varchar(150) null')
+    expect(migration).toContain('"outcome_id" varchar(200) null')
+    expect(migration).toContain('"outcome_label" varchar(200) null')
   })
 
   it('ships the regenerated snapshot alongside it, with every column nullable', () => {
     const snapshot = JSON.parse(
-      fs.readFileSync(path.join(migrationsDir, '.snapshot-open-mercato.json'), 'utf8'),
+      fs.readFileSync(path.join(MODULE_ROOT, 'migrations', '.snapshot-open-mercato.json'), 'utf8'),
     ) as { tables: Array<{ name: string; columns: Record<string, { type: string; nullable: boolean }> }> }
-    const table = snapshot.tables.find((one) => one.name === 'agent_process_runs')
+    const table = snapshot.tables.find((one) => one.name === 'process_instances')
     expect(table?.columns.outcome_type).toMatchObject({ type: 'varchar(150)', nullable: true })
     expect(table?.columns.outcome_id).toMatchObject({ type: 'varchar(200)', nullable: true })
     expect(table?.columns.outcome_label).toMatchObject({ type: 'varchar(200)', nullable: true })
@@ -305,7 +319,7 @@ describe('the outcome is never an ORM relation, and never encrypted-by-omission'
     expect(block).not.toContain('OneToOne')
   })
 
-  it('keeps the reference PLAINTEXT, like agent_processes.subject_label', () => {
+  it('keeps the reference PLAINTEXT, like process_instances.subject_label', () => {
     const encryption = fs.readFileSync(path.join(MODULE_ROOT, 'encryption.ts'), 'utf8')
     expect(encryption).not.toContain('outcome_label')
     expect(encryption).not.toContain('outcome_type')

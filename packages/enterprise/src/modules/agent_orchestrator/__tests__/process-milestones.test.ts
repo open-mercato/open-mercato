@@ -4,231 +4,244 @@ import path from 'node:path'
 import {
   PROCESS_MILESTONES_MAX,
   processDefinitionCreateSchema,
-  processDefinitionUpdateSchema,
   processMilestoneSchema,
+  processMilestoneReachedSchema,
   processMilestonesSchema,
   type ProcessMilestone,
+  type ProcessMilestoneReached,
 } from '../data/validators'
 import {
+  appendMilestoneReached,
   buildMilestoneStages,
   collectMilestoneIssues,
   moveMilestone,
   orderedMilestones,
+  parseMilestonesReached,
   parseProcessMilestones,
   withSequentialOrder,
 } from '../lib/tasks/milestones'
+import { readSquashMigrationSql } from './helpers/squashMigration'
 
 const MODULE_ROOT = path.join(__dirname, '..')
 const LOCALES = ['en', 'es', 'de', 'pl', 'ko'] as const
 
 /**
- * Phase 3 of the triggered process model — the authored, ordered business
- * stages of a process, plus the drift diagnostic that keeps their step mapping
- * honest (`.ai/specs/enterprise/agent-orchestrator/2026-08-11-triggered-process-model.md`).
+ * Milestones as BUSINESS EVENTS
+ * (`.ai/specs/enterprise/agent-orchestrator/2026-09-06-business-process-workflow-unification.md` §6).
+ *
+ * The predecessor model bound each milestone to one `stepId`, which made "the
+ * stage reached after the parallel join" unexpressible and let a step rename
+ * silently break the mapping. The definition now declares a VOCABULARY, the
+ * workflow announces a key when a step carrying it completes, and the execution
+ * records what was announced.
  */
 
 const WORKFLOW_BASE = {
   name: 'Case intake',
-  targetType: 'workflow' as const,
-  targetWorkflowId: 'claims.intake',
+  workflowMode: 'workflow' as const,
+  workflowId: 'claims.intake',
 }
 
-const AGENT_BASE = {
+const SINGLE_AGENT_BASE = {
   name: 'Lead triage',
-  targetType: 'agent' as const,
-  targetAgentId: 'deals.lead_triage',
+  workflowMode: 'single_agent' as const,
+  singleAgent: { agentId: 'deals.lead_triage', onResult: { alwaysAsk: true as const } },
 }
 
 function milestone(overrides: Partial<ProcessMilestone> = {}): ProcessMilestone {
-  return { id: 'ms-1', label: 'Case assessed', stepId: 'assess_claim', order: 0, ...overrides }
+  return { key: 'case_assessed', label: 'Case assessed', order: 0, ...overrides }
+}
+
+function reached(key: string, at = '2026-09-06T10:00:00.000Z'): ProcessMilestoneReached {
+  return { key, at }
 }
 
 describe('processMilestoneSchema', () => {
   it('round-trips the stored shape', () => {
-    const stored = milestone({ id: 'ms-7', label: 'Payout approved', stepId: 'approve_payout', order: 3 })
+    const stored = milestone({ key: 'payout_approved', label: 'Payout approved', order: 3 })
     expect(processMilestoneSchema.parse(stored)).toEqual(stored)
   })
 
+  it('carries NO stepId — a milestone is not an alias for a step', () => {
+    const parsed = processMilestoneSchema.parse({ ...milestone(), stepId: 'assess_claim' })
+    expect('stepId' in parsed).toBe(false)
+  })
+
   it('requires every field — a milestone with no label has nothing to show a reader', () => {
-    expect(processMilestoneSchema.safeParse({ id: 'ms-1', stepId: 'assess_claim', order: 0 }).success).toBe(false)
+    expect(processMilestoneSchema.safeParse({ key: 'case_assessed', order: 0 }).success).toBe(false)
     expect(processMilestoneSchema.safeParse({ ...milestone(), label: '' }).success).toBe(false)
-    expect(processMilestoneSchema.safeParse({ ...milestone(), stepId: '' }).success).toBe(false)
+    expect(processMilestoneSchema.safeParse({ ...milestone(), key: '' }).success).toBe(false)
     expect(processMilestoneSchema.safeParse({ ...milestone(), order: -1 }).success).toBe(false)
+  })
+
+  it('bounds the key to the vocabulary a workflow step can name', () => {
+    expect(processMilestoneSchema.safeParse({ ...milestone(), key: 'Case Assessed' }).success).toBe(false)
+    expect(processMilestoneSchema.safeParse({ ...milestone(), key: 'case-assessed' }).success).toBe(false)
+    expect(processMilestoneSchema.safeParse({ ...milestone(), key: 'case_assessed_2' }).success).toBe(true)
   })
 
   it('bounds the list at 50 entries', () => {
     const full = Array.from({ length: PROCESS_MILESTONES_MAX }, (_, index) =>
-      milestone({ id: `ms-${index}`, stepId: `step_${index}`, order: index }),
+      milestone({ key: `stage_${index}`, order: index }),
     )
     expect(processMilestonesSchema.safeParse(full).success).toBe(true)
-    const overflow = [...full, milestone({ id: 'ms-overflow', stepId: 'step_overflow', order: 50 })]
-    expect(processMilestonesSchema.safeParse(overflow).success).toBe(false)
+    expect(processMilestonesSchema.safeParse([...full, milestone({ key: 'one_too_many' })]).success).toBe(false)
   })
 
-  it('rejects two milestones sharing an id', () => {
-    const clash = [milestone(), milestone({ label: 'Payout approved', stepId: 'approve_payout', order: 1 })]
-    const result = processMilestonesSchema.safeParse(clash)
-    expect(result.success).toBe(false)
-    if (!result.success) expect(result.error.issues[0]?.path).toEqual([1, 'id'])
+  it('rejects a duplicate key — two stages sharing one collapse into one row', () => {
+    const duplicated = [milestone({ key: 'assessed', order: 0 }), milestone({ key: 'assessed', order: 1 })]
+    expect(processMilestonesSchema.safeParse(duplicated).success).toBe(false)
   })
 })
 
-describe('milestones apply to workflow targets only', () => {
-  it('rejects milestones on an agent-targeted definition — a validation error, not a silent no-op', () => {
-    const create = processDefinitionCreateSchema.safeParse({ ...AGENT_BASE, milestones: [milestone()] })
-    expect(create.success).toBe(false)
-    if (!create.success) expect(create.error.issues[0]?.path).toEqual(['milestones'])
+describe('milestones are declarable in BOTH modes', () => {
+  // The predecessor model refused them on an agent target because it had no
+  // steps to map onto. Nothing maps onto a step any more, so the restriction had
+  // no reason to survive: a single-agent process announces stages too.
+  const milestones = [milestone()]
 
-    const update = processDefinitionUpdateSchema.safeParse({
-      id: '11111111-1111-4111-8111-111111111111',
-      ...AGENT_BASE,
-      milestones: [milestone()],
-    })
-    expect(update.success).toBe(false)
-    if (!update.success) expect(update.error.issues[0]?.path).toEqual(['milestones'])
+  it('accepts them on a workflow-backed process', () => {
+    expect(processDefinitionCreateSchema.safeParse({ ...WORKFLOW_BASE, milestones }).success).toBe(true)
   })
 
-  it('accepts an EMPTY list on an agent target — the absence is not an error', () => {
-    expect(processDefinitionCreateSchema.safeParse({ ...AGENT_BASE, milestones: [] }).success).toBe(true)
-    expect(processDefinitionCreateSchema.safeParse(AGENT_BASE).success).toBe(true)
-  })
-
-  it('accepts milestones on a workflow target', () => {
-    expect(
-      processDefinitionCreateSchema.safeParse({ ...WORKFLOW_BASE, milestones: [milestone()] }).success,
-    ).toBe(true)
+  it('accepts them on a single-agent process', () => {
+    expect(processDefinitionCreateSchema.safeParse({ ...SINGLE_AGENT_BASE, milestones }).success).toBe(true)
   })
 })
 
-describe('the drift diagnostic', () => {
-  const declared = new Set(['assess_claim', 'approve_payout'])
-
-  it('warns on a milestone naming a step the workflow no longer declares — and it stays SAVEABLE', () => {
-    const milestones = [
-      milestone(),
-      milestone({ id: 'ms-2', label: 'Fraud reviewed', stepId: 'review_fraud', order: 1 }),
-    ]
-    const issues = collectMilestoneIssues({ milestones, knownStepIds: declared })
-    expect(issues).toHaveLength(1)
-    // A warning, never an error: a definition mid-edit must stay saveable.
-    expect(issues[0].severity).toBe('warning')
-    expect(issues[0].nodeId).toBe('review_fraud')
-    expect(issues[0].message).toContain('review_fraud')
-    expect(issues[0].message).toContain('Fraud reviewed')
-
-    // ...and the same definition still validates, so the save is never blocked.
-    expect(
-      processDefinitionCreateSchema.safeParse({ ...WORKFLOW_BASE, milestones }).success,
-    ).toBe(true)
+describe('parseProcessMilestones', () => {
+  it('drops unparseable entries rather than throwing', () => {
+    const parsed = parseProcessMilestones([milestone(), { key: 'x' }, 'nonsense'])
+    expect(parsed).toEqual([milestone()])
   })
 
-  it('reports nothing when every milestone maps to a declared step', () => {
-    const milestones = [
-      milestone(),
-      milestone({ id: 'ms-2', label: 'Payout approved', stepId: 'approve_payout', order: 1 }),
-    ]
-    expect(collectMilestoneIssues({ milestones, knownStepIds: declared })).toEqual([])
-  })
-
-  it('stays silent when the step list could not be resolved — "unknown" is not "missing"', () => {
-    expect(
-      collectMilestoneIssues({ milestones: [milestone({ stepId: 'gone' })], knownStepIds: null }),
-    ).toEqual([])
-  })
-
-  it('routes its message through the same key+fallback seam core workflows uses', () => {
-    const issues = collectMilestoneIssues({
-      milestones: [milestone({ stepId: 'gone' })],
-      knownStepIds: declared,
-      translate: (key, _fallback, params) => `${key}|${params.stepId}`,
-    })
-    expect(issues[0].message).toBe(
-      'agent_orchestrator.processDefinitions.milestones.problems.unknownStep|gone',
-    )
-  })
-})
-
-describe('milestone readers', () => {
-  it('parses the stored column tolerantly and drops unusable entries', () => {
-    const parsed = parseProcessMilestones([milestone(), { id: 'broken' }, null, 'nope'])
-    expect(parsed).toHaveLength(1)
-    expect(parsed[0].stepId).toBe('assess_claim')
+  it('reads a non-array column as an empty list', () => {
     expect(parseProcessMilestones(null)).toEqual([])
-    expect(parseProcessMilestones(undefined)).toEqual([])
-  })
-
-  it('orders by the authored order, not by array position', () => {
-    const shuffled = [
-      milestone({ id: 'c', label: 'Third', stepId: 'third', order: 2 }),
-      milestone({ id: 'a', label: 'First', stepId: 'first', order: 0 }),
-      milestone({ id: 'b', label: 'Second', stepId: 'second', order: 1 }),
-    ]
-    expect(orderedMilestones(shuffled).map((one) => one.label)).toEqual(['First', 'Second', 'Third'])
-  })
-
-  it('renumbers on reorder so a saved list can never carry gaps or ties', () => {
-    const list = [
-      milestone({ id: 'a', label: 'First', stepId: 'first', order: 0 }),
-      milestone({ id: 'b', label: 'Second', stepId: 'second', order: 1 }),
-      milestone({ id: 'c', label: 'Third', stepId: 'third', order: 2 }),
-    ]
-    const moved = moveMilestone(list, 2, 0)
-    expect(moved.map((one) => one.id)).toEqual(['c', 'a', 'b'])
-    expect(moved.map((one) => one.order)).toEqual([0, 1, 2])
-    expect(moveMilestone(list, 0, 0)).toBe(list)
-    expect(moveMilestone(list, 0, 5)).toBe(list)
-    expect(withSequentialOrder([milestone({ order: 9 })])[0].order).toBe(0)
-  })
-
-  it('builds the business stage list with the run resolved to one of its own stages', () => {
-    const list = [
-      milestone({ id: 'a', label: 'Reported', stepId: 'report', order: 0 }),
-      milestone({ id: 'b', label: 'Assessed', stepId: 'assess_claim', order: 1 }),
-      milestone({ id: 'c', label: 'Paid', stepId: 'pay', order: 2 }),
-    ]
-    expect(buildMilestoneStages(list, 'assess_claim').map((stage) => stage.state)).toEqual([
-      'done',
-      'current',
-      'upcoming',
-    ])
-    // A terminal process shows no phantom "current" stage.
-    expect(buildMilestoneStages(list, 'assess_claim', { terminal: true }).every((s) => s.state === 'done')).toBe(true)
-    // A step no milestone names never guesses a position.
-    expect(buildMilestoneStages(list, 'unmapped_step').every((s) => s.state === 'upcoming')).toBe(true)
-    expect(buildMilestoneStages(list, 'report')[0].label).toBe('Reported')
+    expect(parseProcessMilestones({ key: 'x' })).toEqual([])
   })
 })
 
-describe('the Phase 3 migration', () => {
-  const migrationsDir = path.join(MODULE_ROOT, 'migrations')
-  const migration = fs.readFileSync(
-    path.join(migrationsDir, 'Migration20260811170000_agent_orchestrator.ts'),
-    'utf8',
-  )
+describe('ordering helpers', () => {
+  const list = [
+    milestone({ key: 'decided', label: 'Decided', order: 2 }),
+    milestone({ key: 'reported', label: 'Reported', order: 0 }),
+    milestone({ key: 'assessed', label: 'Assessed', order: 1 }),
+  ]
 
-  it('adds the column with the specified jsonb default', () => {
-    expect(migration).toContain(
-      `alter table "agent_process_definitions" add "milestones" jsonb null default '[]';`,
-    )
-    expect(migration).toContain(`alter table "agent_process_definitions" drop column "milestones";`)
+  it('orders by the stored rank', () => {
+    expect(orderedMilestones(list).map((one) => one.key)).toEqual(['reported', 'assessed', 'decided'])
   })
 
-  it('is its OWN file — the two committed migrations are untouched', () => {
-    for (const committed of [
-      'Migration20260811150000_agent_orchestrator.ts',
-      'Migration20260811160000_agent_orchestrator.ts',
-    ]) {
-      expect(fs.readFileSync(path.join(migrationsDir, committed), 'utf8')).not.toContain('milestones')
-    }
+  it('renumbers to array position so a saved list carries no gaps', () => {
+    expect(withSequentialOrder(list).map((one) => one.order)).toEqual([0, 1, 2])
+  })
+
+  it('moves and renumbers; an out-of-range index is a no-op', () => {
+    expect(moveMilestone(orderedMilestones(list), 0, 2).map((one) => one.key)).toEqual([
+      'assessed',
+      'decided',
+      'reported',
+    ])
+    expect(moveMilestone(list, 0, 9)).toBe(list)
+    expect(moveMilestone(list, -1, 0)).toBe(list)
+  })
+})
+
+describe('the reached list', () => {
+  it('round-trips the stored shape and tolerates junk', () => {
+    expect(processMilestoneReachedSchema.parse(reached('assessed'))).toEqual(reached('assessed'))
+    expect(parseMilestonesReached([reached('assessed'), { key: 'no_timestamp' }])).toEqual([
+      reached('assessed'),
+    ])
+    expect(parseMilestonesReached(null)).toEqual([])
+  })
+
+  it('is idempotent per key — a retried step must not make the narrative stutter', () => {
+    const first = appendMilestoneReached([], reached('assessed', '2026-09-06T10:00:00.000Z'))
+    const again = appendMilestoneReached(first, reached('assessed', '2026-09-06T11:00:00.000Z'))
+    expect(again).toBe(first)
+    expect(again).toHaveLength(1)
+    // The FIRST arrival wins: when a stage was reached is a fact about the
+    // execution, not about how many times the event was redelivered.
+    expect(again[0].at).toBe('2026-09-06T10:00:00.000Z')
+  })
+
+  it('appends a genuinely new key in emission order', () => {
+    const list = appendMilestoneReached(appendMilestoneReached([], reached('assessed')), reached('decided'))
+    expect(list.map((one) => one.key)).toEqual(['assessed', 'decided'])
+  })
+})
+
+describe('collectMilestoneIssues', () => {
+  const declared = [milestone({ key: 'assessed', label: 'Assessed', order: 0 })]
+
+  it('warns about a declared key no step emits — a stage that can never arrive', () => {
+    const issues = collectMilestoneIssues({ milestones: declared, emittedKeys: new Set(['decided']) })
+    expect(issues).toHaveLength(1)
+    expect(issues[0].severity).toBe('warning')
+    expect(issues[0].message).toContain('Assessed')
+    expect(issues[0].message).toContain('assessed')
+  })
+
+  it('reports nothing when the workflow emits the key', () => {
+    expect(collectMilestoneIssues({ milestones: declared, emittedKeys: new Set(['assessed']) })).toEqual([])
+  })
+
+  it('reports NOTHING when the workflow could not be resolved — unknown is not missing', () => {
+    expect(collectMilestoneIssues({ milestones: declared, emittedKeys: null })).toEqual([])
+  })
+
+  it('never escalates past a warning — a definition mid-edit must stay saveable', () => {
+    const issues = collectMilestoneIssues({ milestones: declared, emittedKeys: new Set<string>() })
+    expect(issues.every((issue) => issue.severity === 'warning')).toBe(true)
+  })
+})
+
+describe('buildMilestoneStages', () => {
+  const list = [
+    milestone({ key: 'reported', label: 'Reported', order: 0 }),
+    milestone({ key: 'assessed', label: 'Assessed', order: 1 }),
+    milestone({ key: 'decided', label: 'Decided', order: 2 }),
+  ]
+
+  it('marks every announced stage done, whichever order they arrived in', () => {
+    const stages = buildMilestoneStages(list, [reached('assessed'), reached('reported')])
+    expect(stages.map((one) => one.state)).toEqual(['done', 'done', 'current'])
+    expect(stages[0].at).toBe('2026-09-06T10:00:00.000Z')
+  })
+
+  it('leaves everything upcoming when the execution has announced nothing', () => {
+    expect(buildMilestoneStages(list, []).every((one) => one.state === 'upcoming')).toBe(true)
+  })
+
+  it('marks no stage current once the execution is terminal', () => {
+    const stages = buildMilestoneStages(list, [reached('reported')], { terminal: true })
+    expect(stages.map((one) => one.state)).toEqual(['done', 'upcoming', 'upcoming'])
+  })
+
+  it('is not confused by a stage the workflow announced but nobody declared', () => {
+    const stages = buildMilestoneStages(list, [reached('reported'), reached('never_declared')])
+    expect(stages.map((one) => one.key)).toEqual(['reported', 'assessed', 'decided'])
+  })
+})
+
+describe('the squashed migration', () => {
+  const migration = readSquashMigrationSql()
+
+  it('creates the vocabulary column on the definition and the reached list on the execution', () => {
+    expect(migration).toContain(`"milestones" jsonb null default '[]'`)
+    expect(migration).toContain(`"milestones_reached" jsonb null default '[]'`)
   })
 
   it('ships the regenerated snapshot alongside it', () => {
     const snapshot = JSON.parse(
-      fs.readFileSync(path.join(migrationsDir, '.snapshot-open-mercato.json'), 'utf8'),
+      fs.readFileSync(path.join(MODULE_ROOT, 'migrations', '.snapshot-open-mercato.json'), 'utf8'),
     ) as { tables: Array<{ name: string; columns: Record<string, { type: string; default: string | null }> }> }
-    const table = snapshot.tables.find((one) => one.name === 'agent_process_definitions')
-    expect(table?.columns.milestones?.type).toBe('jsonb')
-    expect(table?.columns.milestones?.default).toBe(`'[]'`)
+    const definitions = snapshot.tables.find((one) => one.name === 'process_definitions')
+    expect(definitions?.columns.milestones?.type).toBe('jsonb')
+    expect(definitions?.columns.milestones?.default).toBe(`'[]'`)
+    const instances = snapshot.tables.find((one) => one.name === 'process_instances')
+    expect(instances?.columns.milestones_reached?.type).toBe('jsonb')
   })
 })
 
@@ -236,28 +249,26 @@ describe('i18n coverage for the milestone editor', () => {
   const requiredKeys = [
     'agent_orchestrator.process.milestonesTitle',
     'agent_orchestrator.process.stagesObservedTitle',
-    'agent_orchestrator.processDefinitions.form.errors.milestonesAgentTarget',
     'agent_orchestrator.processDefinitions.milestones.add',
-    'agent_orchestrator.processDefinitions.milestones.agentTargetHint',
     'agent_orchestrator.processDefinitions.milestones.cap',
     'agent_orchestrator.processDefinitions.milestones.description',
     'agent_orchestrator.processDefinitions.milestones.empty',
     'agent_orchestrator.processDefinitions.milestones.error',
+    'agent_orchestrator.processDefinitions.milestones.key',
+    'agent_orchestrator.processDefinitions.milestones.keyPlaceholder',
     'agent_orchestrator.processDefinitions.milestones.label',
     'agent_orchestrator.processDefinitions.milestones.labelPlaceholder',
     'agent_orchestrator.processDefinitions.milestones.moveDown',
     'agent_orchestrator.processDefinitions.milestones.moveUp',
+    'agent_orchestrator.processDefinitions.milestones.problems.neverEmitted',
     'agent_orchestrator.processDefinitions.milestones.problems.rowHint',
     'agent_orchestrator.processDefinitions.milestones.problems.stillSaveable',
     'agent_orchestrator.processDefinitions.milestones.problems.title',
-    'agent_orchestrator.processDefinitions.milestones.problems.unknownStep',
     'agent_orchestrator.processDefinitions.milestones.remove',
     'agent_orchestrator.processDefinitions.milestones.save',
     'agent_orchestrator.processDefinitions.milestones.saved',
-    'agent_orchestrator.processDefinitions.milestones.step',
-    'agent_orchestrator.processDefinitions.milestones.stepPlaceholder',
-    'agent_orchestrator.processDefinitions.milestones.stepsLoading',
-    'agent_orchestrator.processDefinitions.milestones.stepsUnresolved',
+    'agent_orchestrator.processDefinitions.milestones.emittedLoading',
+    'agent_orchestrator.processDefinitions.milestones.emittedUnresolved',
     'agent_orchestrator.processDefinitions.milestones.title',
   ]
 
@@ -269,8 +280,8 @@ describe('i18n coverage for the milestone editor', () => {
       expect(catalog[key]).toBeTruthy()
     }
     expect(catalog['agent_orchestrator.processDefinitions.milestones.cap']).toContain('{max}')
-    const unknownStep = catalog['agent_orchestrator.processDefinitions.milestones.problems.unknownStep']
-    expect(unknownStep).toContain('{label}')
-    expect(unknownStep).toContain('{stepId}')
+    const neverEmitted = catalog['agent_orchestrator.processDefinitions.milestones.problems.neverEmitted']
+    expect(neverEmitted).toContain('{label}')
+    expect(neverEmitted).toContain('{key}')
   })
 })

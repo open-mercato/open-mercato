@@ -32,6 +32,7 @@ import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { formatRelativeAge } from '../../../components/types'
 import { useCoalescedReload } from '../../../components/useCoalescedReload'
+import { PROCESS_STATUS_LABEL_KEY, type ProcessInstanceStatus } from '../../../components/processTypes'
 import {
   processMilestonesSchema,
   processSingleAgentSchema,
@@ -684,7 +685,7 @@ export default function ProcessDefinitionsPage() {
           return (
             <span className="inline-flex items-center gap-1.5">
               <StatusBadge variant={lastExecutionVariant[last.status] ?? 'neutral'}>
-                {t(`agent_orchestrator.process.status.${last.status}`)}
+                {t(PROCESS_STATUS_LABEL_KEY[last.status as ProcessInstanceStatus] ?? last.status)}
               </StatusBadge>
               {age ? <span className="text-xs tabular-nums text-muted-foreground">{age}</span> : null}
             </span>

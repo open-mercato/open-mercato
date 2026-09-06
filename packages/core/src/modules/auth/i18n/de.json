@@ -14,7 +14,7 @@
   "auth.acl.deps.orphaned.title": "Entfernung einer Berechtigung, die andere gewährte Berechtigungen benötigen:",
   "auth.acl.deps.unknown.title": "Einige deklarierte Abhängigkeiten passen zu keiner bekannten Berechtigung:",
   "auth.acl.features.agent_orchestrator.agents.manage": "Manage agent presentation settings",
-  "auth.acl.features.agent_orchestrator.agents.run": "Run agents (playground)",
+  "auth.acl.features.agent_orchestrator.agents.run": "Run agents directly (Playground, evals, diagnostics)",
   "auth.acl.features.agent_orchestrator.agents.view": "View agents and runs",
   "auth.acl.features.agent_orchestrator.context.read": "View agent context bundles",
   "auth.acl.features.agent_orchestrator.eval.export": "Export the agent eval-case set",

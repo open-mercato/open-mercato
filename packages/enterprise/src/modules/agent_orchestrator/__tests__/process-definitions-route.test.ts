@@ -2,19 +2,17 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { metadata as definitionDetailMeta } from '../backend/processes/definitions/[id]/page.meta'
-import { metadata as bridgeMeta } from '../backend/agentic-tasks/page.meta'
 
-// Route invariants for the triggered process model (spec 2026-08-11 §Frontend
-// architecture contract), carrying forward the P0-1 rollout invariant (spec
+// Route invariants, carrying forward the P0-1 rollout invariant (spec
 // 2026-07-12-ux-p0-hotfixes §1):
 //
 //  - core `workflows` owns /backend/tasks — this module must never claim it;
 //  - definitions are authored at /backend/processes/definitions, a LITERAL
 //    sibling of the dynamic /backend/processes/[id], which the registry's
 //    specificity sort resolves first;
-//  - /backend/processes keeps listing the running-process PROJECTION. The two
-//    are deliberately separate routes, not one tabbed page;
-//  - the retired /backend/agentic-tasks path stays as a guarded bridge.
+//  - /backend/processes keeps listing running EXECUTIONS. The two are
+//    deliberately separate routes, not one tabbed page — they answer "what is
+//    happening now" versus "what can happen".
 describe('agent_orchestrator process-definitions route invariant', () => {
   const moduleRoot = path.resolve(__dirname, '..')
   const exists = (rel: string) => fs.existsSync(path.join(moduleRoot, rel))
@@ -29,7 +27,7 @@ describe('agent_orchestrator process-definitions route invariant', () => {
     expect(exists('backend/tasks')).toBe(false)
   })
 
-  it('keeps the running-process projection on its own route', () => {
+  it('keeps the running-execution list on its own route', () => {
     expect(exists('backend/processes/page.tsx')).toBe(true)
     expect(exists('backend/processes/[id]/page.tsx')).toBe(true)
   })
@@ -43,12 +41,7 @@ describe('agent_orchestrator process-definitions route invariant', () => {
     expect(listCrumb?.href).toBe('/backend/processes/definitions')
   })
 
-  it('keeps the retired /backend/agentic-tasks path as a nav-hidden, still-guarded bridge', () => {
-    expect(exists('backend/agentic-tasks/page.tsx')).toBe(true)
-    expect(exists('backend/agentic-tasks/[id]/page.tsx')).toBe(true)
-    expect(bridgeMeta.navHidden).toBe(true)
-    expect(bridgeMeta.requireFeatures).toEqual(['agent_orchestrator.processes.view'])
-    const bridge = fs.readFileSync(path.join(moduleRoot, 'backend/agentic-tasks/page.tsx'), 'utf8')
-    expect(bridge).toContain('PROCESS_DEFINITIONS_HREF')
+  it('drops the retired /backend/agentic-tasks bridge — nothing was ever published behind it', () => {
+    expect(exists('backend/agentic-tasks')).toBe(false)
   })
 })

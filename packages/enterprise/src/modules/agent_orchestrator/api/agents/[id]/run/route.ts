@@ -283,12 +283,12 @@ export async function POST(req: Request, ctx: RouteContext) {
 
 export const openApi: OpenApiRouteDoc = {
   tag: 'Agent Orchestrator',
-  summary: 'Run an agent (playground)',
+  summary: 'Run an agent (Playground — engineering primitive)',
   methods: {
     POST: {
-      summary: 'Run an agent',
+      summary: 'Run one agent directly (Playground, evals, diagnostics)',
       description:
-        'Runs the agent in object mode under the caller scope, persists an AgentRun (and an AgentProposal for proposal results), and returns the typed AgentResult plus additive sibling fields: `runId` (the persisted AgentRun id) and `proposalId` (the newest AgentProposal created by the run, null for researcher runs).',
+        'An ENGINEERING primitive, not a business-orchestration one. It runs a single agent synchronously and returns what it produced; it has no retry, no wait states, no signals, no cancellation and no durable business lifecycle, because an AgentRun records an agent execution rather than a business process. Use it for the Playground, development, evals, diagnostics and sub-agent invocation. To start durable business work — from an integration, a schedule, an event or by hand — call POST /processes/{id}/executions and observe agent_orchestrator.process.execution.* instead; a caller coupled to an agent id cannot be refactored around. Runs the agent in object mode under the caller scope, persists an AgentRun (and an AgentProposal for proposal results), and returns the typed AgentResult plus additive sibling fields: `runId` (the persisted AgentRun id) and `proposalId` (the newest AgentProposal created by the run, null for researcher runs).',
       requestBody: {
         contentType: 'application/json',
         schema: agentRunRequestSchema,

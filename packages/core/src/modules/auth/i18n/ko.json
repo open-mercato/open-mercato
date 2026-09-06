@@ -14,7 +14,7 @@
   "auth.acl.deps.orphaned.title": "다른 부여된 권한에 필요한 권한을 제거하고 있습니다:",
   "auth.acl.deps.unknown.title": "일부 선언된 종속성이 알려진 권한과 일치하지 않습니다:",
   "auth.acl.features.agent_orchestrator.agents.manage": "Manage agent presentation settings",
-  "auth.acl.features.agent_orchestrator.agents.run": "Run agents (playground)",
+  "auth.acl.features.agent_orchestrator.agents.run": "Run agents directly (Playground, evals, diagnostics)",
   "auth.acl.features.agent_orchestrator.agents.view": "View agents and runs",
   "auth.acl.features.agent_orchestrator.context.read": "View agent context bundles",
   "auth.acl.features.agent_orchestrator.eval.export": "Export the agent eval-case set",

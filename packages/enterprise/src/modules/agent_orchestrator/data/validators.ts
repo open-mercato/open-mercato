@@ -9,6 +9,17 @@ import { AGENT_TAG_MAX_LENGTH, AGENT_TAGS_MAX_COUNT } from './agentTags'
 export const proposedActionSchema = z.object({
   type: z.string().min(1),
   payload: z.record(z.string(), z.unknown()),
+  /**
+   * How much damage this action does if it is wrong — one of the inputs the
+   * auto-approval policy weighs alongside confidence.
+   *
+   * DECLARED by the agent, never inferred from `type`: guessing "delete" is
+   * high-risk from a substring gets the interesting cases exactly backwards — a
+   * `notify` that emails ten thousand customers is not low risk, and a
+   * `deleteDraft` is not high. Absent means `medium`, the conservative reading of
+   * "nobody said".
+   */
+  risk: z.enum(['low', 'medium', 'high']).optional(),
 })
 export type ProposedAction = z.infer<typeof proposedActionSchema>
 
@@ -228,7 +239,13 @@ export type ProposalDispositionValue = (typeof proposalDispositionValues)[number
  * OPERATOR's reason — writing a machine reason there corrupts the override signal
  * the correction flywheel and evals read.
  */
-export const autoDispositionBlockValues = ['near_tie'] as const
+export const autoDispositionBlockValues = [
+  'near_tie',
+  'risk',
+  'guardrail',
+  'trace_incomplete',
+  'policy',
+] as const
 export const autoDispositionBlockSchema = z.enum(autoDispositionBlockValues)
 export type AutoDispositionBlock = z.infer<typeof autoDispositionBlockSchema>
 

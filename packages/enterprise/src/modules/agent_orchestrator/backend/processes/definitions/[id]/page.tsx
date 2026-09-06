@@ -27,6 +27,7 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { formatDateTime } from '../../../../components/types'
+import { PROCESS_STATUS_LABEL_KEY, type ProcessInstanceStatus } from '../../../../components/processTypes'
 import {
   processSingleAgentSchema,
   type ProcessMilestone,
@@ -352,8 +353,8 @@ export default function ProcessDefinitionDetailPage({ params }: { params?: { id?
         accessorKey: 'status',
         header: t('agent_orchestrator.processDefinitions.runs.col.status'),
         cell: ({ row }) => (
-          <StatusBadge variant={statusVariant[row.original.status]}>
-            {t(`agent_orchestrator.processDefinitions.runs.status.${row.original.status}`)}
+          <StatusBadge variant={statusVariant[row.original.status] ?? 'neutral'}>
+            {t(PROCESS_STATUS_LABEL_KEY[row.original.status as ProcessInstanceStatus] ?? row.original.status)}
           </StatusBadge>
         ),
       },

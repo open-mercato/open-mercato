@@ -14,7 +14,7 @@
   "auth.acl.deps.orphaned.title": "Eliminando un permiso que otros permisos otorgados necesitan:",
   "auth.acl.deps.unknown.title": "Algunas dependencias declaradas no coinciden con ningún permiso conocido:",
   "auth.acl.features.agent_orchestrator.agents.manage": "Manage agent presentation settings",
-  "auth.acl.features.agent_orchestrator.agents.run": "Run agents (playground)",
+  "auth.acl.features.agent_orchestrator.agents.run": "Run agents directly (Playground, evals, diagnostics)",
   "auth.acl.features.agent_orchestrator.agents.view": "View agents and runs",
   "auth.acl.features.agent_orchestrator.context.read": "View agent context bundles",
   "auth.acl.features.agent_orchestrator.eval.export": "Export the agent eval-case set",

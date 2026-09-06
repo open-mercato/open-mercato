@@ -12,7 +12,7 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { eventsConfig } from '../events'
-import { attachLastRunProjection } from '../api/process-definitions/route'
+import { attachLastExecutionProjection } from '../api/processes/route'
 
 const MODULE_ROOT = path.resolve(__dirname, '..')
 
@@ -38,9 +38,9 @@ describe('run lifecycle broadcast flags (Area 1)', () => {
       'agent_orchestrator.proposal.disposed',
       'agent_orchestrator.proposal.ready',
       'agent_orchestrator.guardrail.tripped',
-      'agent_orchestrator.process_run.started',
-      'agent_orchestrator.process_run.completed',
-      'agent_orchestrator.process_run.failed',
+      'agent_orchestrator.process.execution.started',
+      'agent_orchestrator.process.execution.completed',
+      'agent_orchestrator.process.execution.failed',
       'agent_orchestrator.process.updated',
     ]) {
       expect(eventById(id).clientBroadcast).toBe(true)
@@ -53,7 +53,7 @@ describe('run lifecycle broadcast flags (Area 1)', () => {
   })
 })
 
-describe('tasks list last_run projection', () => {
+describe('process list last_execution projection', () => {
   const scope = { tenantId: 'tenant-1', organizationId: 'org-1' }
 
   function makeEm(rows: Array<Record<string, unknown>>, calls: unknown[][] = []) {
@@ -67,7 +67,7 @@ describe('tasks list last_run projection', () => {
     } as never
   }
 
-  it('attaches the newest run per definition and null when none exists', async () => {
+  it('attaches the newest execution per definition and null when none exists', async () => {
     const finished = new Date('2026-07-12T10:00:00Z')
     const items: Array<Record<string, unknown>> = [
       { id: 'task-a', name: 'A' },
@@ -76,22 +76,22 @@ describe('tasks list last_run projection', () => {
     const em = makeEm([
       { process_definition_id: 'task-a', status: 'failed', completed_at: finished },
     ])
-    await attachLastRunProjection(em, scope, items)
-    expect(items[0].last_run).toEqual({ status: 'failed', finished_at: finished.toISOString() })
-    expect(items[1].last_run).toBeNull()
+    await attachLastExecutionProjection(em, scope, items)
+    expect(items[0].last_execution).toEqual({ status: 'failed', completed_at: finished.toISOString() })
+    expect(items[1].last_execution).toBeNull()
   })
 
-  it('keeps finished_at null for a still-running last run', async () => {
+  it('keeps completed_at null for an execution still in flight', async () => {
     const items: Array<Record<string, unknown>> = [{ id: 'task-a' }]
     const em = makeEm([{ process_definition_id: 'task-a', status: 'running', completed_at: null }])
-    await attachLastRunProjection(em, scope, items)
-    expect(items[0].last_run).toEqual({ status: 'running', finished_at: null })
+    await attachLastExecutionProjection(em, scope, items)
+    expect(items[0].last_execution).toEqual({ status: 'running', completed_at: null })
   })
 
   it('scopes the grouped query by tenant and organization', async () => {
     const calls: unknown[][] = []
     const items: Array<Record<string, unknown>> = [{ id: 'task-a' }]
-    await attachLastRunProjection(makeEm([], calls), scope, items)
+    await attachLastExecutionProjection(makeEm([], calls), scope, items)
     expect(calls).toHaveLength(1)
     const [sql, params] = calls[0] as [string, unknown[]]
     expect(sql).toContain('distinct on (process_definition_id)')
@@ -106,7 +106,7 @@ describe('tasks list last_run projection', () => {
 
   it('skips the query entirely for an empty page', async () => {
     const calls: unknown[][] = []
-    await attachLastRunProjection(makeEm([], calls), scope, [])
+    await attachLastExecutionProjection(makeEm([], calls), scope, [])
     expect(calls).toHaveLength(0)
   })
 })
@@ -128,12 +128,12 @@ describe('page subscriptions (source invariants)', () => {
     expect(source).toContain('useCoalescedReload')
   })
 
-  it('process-definitions list subscribes task_run.* and renders the Last-run column', () => {
+  it('process list subscribes process.execution.* and renders the last-execution column', () => {
     const source = readSource('backend/processes/definitions/page.tsx')
-    expect(source).toContain("useAppEvent('agent_orchestrator.process_run.*'")
+    expect(source).toContain("useAppEvent('agent_orchestrator.process.execution.*'")
     expect(source).toContain('useCoalescedReload')
-    expect(source).toContain('agent_orchestrator.processDefinitions.list.col.lastRun')
-    expect(source).toContain('agent_orchestrator.processDefinitions.list.lastRunNever')
+    expect(source).toContain('agent_orchestrator.processDefinitions.list.col.lastExecution')
+    expect(source).toContain('agent_orchestrator.processDefinitions.list.lastExecutionNever')
   })
 
   it('caseload listens to guardrail.tripped (the flag has a consumer)', () => {
@@ -141,11 +141,11 @@ describe('page subscriptions (source invariants)', () => {
     expect(source).toContain("useAppEvent('agent_orchestrator.guardrail.tripped'")
   })
 
-  it('the Last-run i18n keys exist in all four locales', () => {
-    for (const locale of ['en', 'es', 'de', 'pl']) {
+  it('the last-execution i18n keys exist in every locale', () => {
+    for (const locale of ['en', 'es', 'de', 'pl', 'ko']) {
       const catalog = JSON.parse(readSource(`i18n/${locale}.json`)) as Record<string, string>
-      expect(catalog['agent_orchestrator.processDefinitions.list.col.lastRun']).toBeTruthy()
-      expect(catalog['agent_orchestrator.processDefinitions.list.lastRunNever']).toBeTruthy()
+      expect(catalog['agent_orchestrator.processDefinitions.list.col.lastExecution']).toBeTruthy()
+      expect(catalog['agent_orchestrator.processDefinitions.list.lastExecutionNever']).toBeTruthy()
     }
   })
 })

@@ -1,8 +1,9 @@
 /**
  * @jest-environment jsdom
  *
- * The milestone editor island: reordering, the step picker, and the drift
- * warning it renders without ever blocking a save.
+ * The milestone editor island: reordering, the key suggestions read back from
+ * the bound workflow, and the drift warning it renders without ever blocking a
+ * save.
  */
 
 import { fireEvent, screen, waitFor } from '@testing-library/react'
@@ -20,12 +21,17 @@ const apiCallMock = apiCall as jest.Mock
 const t: TranslateFn = (key) => key
 
 const MILESTONES: ProcessMilestone[] = [
-  { id: 'a', label: 'Reported', stepId: 'report', order: 0 },
-  { id: 'b', label: 'Assessed', stepId: 'assess_claim', order: 1 },
-  { id: 'c', label: 'Paid', stepId: 'pay', order: 2 },
+  { key: 'reported', label: 'Reported', order: 0 },
+  { key: 'assessed', label: 'Assessed', order: 1 },
+  { key: 'paid', label: 'Paid', order: 2 },
 ]
 
-function respondWithSteps(stepIds: string[]) {
+/**
+ * The workflow as the definitions API returns it. A milestone key is what a STEP
+ * announces, so the editor reads the keys off the steps rather than the step ids
+ * themselves — the whole point of the model is that the two are different things.
+ */
+function respondWithEmittedKeys(keys: Array<string | null>) {
   apiCallMock.mockResolvedValue({
     ok: true,
     status: 200,
@@ -33,7 +39,12 @@ function respondWithSteps(stepIds: string[]) {
       data: [
         {
           workflowId: 'claims.intake',
-          definition: { steps: stepIds.map((stepId) => ({ stepId, stepName: `Step ${stepId}` })) },
+          definition: {
+            steps: keys.map((milestone, index) => ({
+              stepId: `step_${index}`,
+              ...(milestone ? { milestone } : {}),
+            })),
+          },
         },
       ],
     },
@@ -45,13 +56,12 @@ function respondWithSteps(stepIds: string[]) {
 function renderEditor(
   value: ProcessMilestone[],
   onChange: (next: ProcessMilestone[]) => void,
-  overrides: { targetType?: 'agent' | 'workflow'; workflowId?: string | null } = {},
+  overrides: { workflowId?: string | null } = {},
 ) {
   renderWithProviders(
     <MilestoneEditor
       value={value}
       onChange={onChange}
-      targetType={overrides.targetType ?? 'workflow'}
       workflowId={overrides.workflowId === undefined ? 'claims.intake' : overrides.workflowId}
       t={t}
     />,
@@ -60,7 +70,7 @@ function renderEditor(
 
 beforeEach(() => {
   apiCallMock.mockReset()
-  respondWithSteps(['report', 'assess_claim', 'pay'])
+  respondWithEmittedKeys(['reported', 'assessed', 'paid'])
 })
 
 describe('milestone editor', () => {
@@ -92,7 +102,7 @@ describe('milestone editor', () => {
     expect((moveDown[2] as HTMLButtonElement).disabled).toBe(true)
   })
 
-  it('offers the workflow steps to the picker and adds a milestone at the end', async () => {
+  it('suggests the keys the workflow emits and adds a milestone at the end', async () => {
     const onChange = jest.fn()
     renderEditor(MILESTONES, onChange)
 
@@ -102,11 +112,19 @@ describe('milestone editor', () => {
     const next = onChange.mock.calls[0][0] as ProcessMilestone[]
     expect(next).toHaveLength(4)
     expect(next[3].order).toBe(3)
-    expect(next[3].id).toBeTruthy()
+    // A new row starts blank: the key is a business identifier the author chooses
+    // and the workflow must literally emit, never a generated id.
+    expect(next[3].key).toBe('')
   })
 
-  it('warns about a milestone whose step the workflow no longer declares, without blocking anything', async () => {
-    respondWithSteps(['report', 'pay'])
+  it('ignores steps that announce no milestone — a step is not a milestone', async () => {
+    respondWithEmittedKeys(['reported', null, null])
+    renderEditor(MILESTONES, jest.fn())
+    await waitFor(() => expect(document.querySelectorAll('datalist option')).toHaveLength(1))
+  })
+
+  it('warns about a declared key no step emits, without blocking anything', async () => {
+    respondWithEmittedKeys(['reported', 'paid'])
     renderEditor(MILESTONES, jest.fn())
 
     await waitFor(() =>
@@ -125,13 +143,13 @@ describe('milestone editor', () => {
     ).toHaveLength(3)
   })
 
-  it('reports nothing when the workflow steps could not be resolved', async () => {
+  it('reports nothing when the workflow could not be resolved — unknown is not missing', async () => {
     apiCallMock.mockResolvedValue({ ok: false, status: 403, result: {}, response: {}, cacheStatus: null })
     renderEditor(MILESTONES, jest.fn())
 
     await waitFor(() =>
       expect(
-        screen.getByText('agent_orchestrator.processDefinitions.milestones.stepsUnresolved'),
+        screen.getByText('agent_orchestrator.processDefinitions.milestones.emittedUnresolved'),
       ).toBeTruthy(),
     )
     expect(
@@ -139,15 +157,14 @@ describe('milestone editor', () => {
     ).toBeNull()
   })
 
-  it('refuses to author milestones on an agent target and never asks for steps', async () => {
-    renderEditor([], jest.fn(), { targetType: 'agent', workflowId: null })
+  it('still authors milestones with no workflow bound, and asks nothing', async () => {
+    // A single-agent process has no workflow id until the definition is saved, and
+    // the vocabulary is authored on the PROCESS — so the editor stays usable.
+    renderEditor([], jest.fn(), { workflowId: null })
 
     expect(
-      screen.getByText('agent_orchestrator.processDefinitions.milestones.agentTargetHint'),
+      screen.getByText('agent_orchestrator.processDefinitions.milestones.add'),
     ).toBeTruthy()
-    expect(
-      screen.queryByText('agent_orchestrator.processDefinitions.milestones.add'),
-    ).toBeNull()
     await waitFor(() => expect(apiCallMock).not.toHaveBeenCalled())
   })
 })

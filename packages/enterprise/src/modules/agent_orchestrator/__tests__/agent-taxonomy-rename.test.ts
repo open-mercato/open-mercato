@@ -1,6 +1,7 @@
 import { describe, test, expect } from '@jest/globals'
 import fs from 'node:fs'
 import path from 'node:path'
+import { readSquashMigrationSql } from './helpers/squashMigration'
 
 /**
  * The `informative` → `researcher` rename (spec
@@ -86,10 +87,7 @@ describe('no retired wire value survives the rename', () => {
 // here, so the rewrite is carried into the squash verbatim and is still asserted
 // below, unchanged.
 describe('the graph-edge migration (carried into the squash)', () => {
-  const sql = fs.readFileSync(
-    path.join(MODULE_DIR, 'migrations', 'Migration20260811150000_agent_orchestrator.ts'),
-    'utf8',
-  )
+  const sql = readSquashMigrationSql()
 
   test('declares the nullable agent_type column on agent_runs', () => {
     expect(sql).toContain('"agent_type" varchar(20) null')

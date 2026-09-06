@@ -38,27 +38,99 @@ effective = (listWorkflowSafeCommands() ∪ workflowActivityTypes()) ∩ agent.a
 - `auto_disposition_block: 'near_tie'` MUST be EXPLAINED wherever the proposal renders (queue pane, proposal card, trace) — silence reads as "the threshold simply was not met". `disposition_by` is `rule:threshold` for an auto-approval, so render that as a rule, not as a user id.
 - An operator EDIT applies to the SELECTED option only (`deriveActionEdits(payload, selectedOptionId)` → `replaceOptionActions`); every other option, both rationales and the confidences survive verbatim, because an override is a training signal only while the rest of the agent's testimony does.
 
-## The Process Model (spec `2026-08-11-triggered-process-model.md`)
+## The Process Model (spec `2026-09-06-business-process-workflow-unification.md`)
 
-One domain concept, three records — do not reintroduce the "task vs process" split this spec removed.
+**One durable execution, one lifecycle owner: `WorkflowInstance`.** The module used to
+ship two execution engines — an `AgentProcessRun` lifecycle beside the workflow
+instance's, and a `target_type = 'agent'` path that skipped the engine entirely — and
+every awkward thing in it followed from that split. Do not reintroduce either.
 
 | Record | Table | What it is |
 |---|---|---|
-| `AgentProcessDefinition` | `agent_process_definitions` | **Authored**: what CAN happen |
-| `AgentProcessRun` | `agent_process_runs` | **Instance**: one entry into it |
-| `AgentProcess` | `agent_processes` | **Projection**: rebuilt from events, NOT renamed, still the read model |
+| `ProcessDefinition` | `process_definitions` | **Authored**: what CAN happen. Points at a `WorkflowDefinition`; never restates its execution semantics |
+| `WorkflowInstance` | core `workflows` | **THE execution.** The only lifecycle owner: status, retry, waiting, cancellation, context |
+| `ProcessInstance` | `process_instances` | **Projection**: the business-facing read model of one instance. Decides nothing |
 
-- **Two routes, not one tabbed page.** `/backend/processes` lists running processes (the projection); `/backend/processes/definitions` authors definitions. They answer "what is happening now" versus "what can happen". `/backend/agentic-tasks` is a nav-hidden, still-RBAC-guarded bridge redirect for one release.
-- **`encryption.ts` keys `defaultEncryptionMaps` by a PLAIN STRING `entityId` that nothing type-checks.** Rename an entity or a column without moving its map entry and `input`, `input_defaults` and `failure_reason` silently persist in PLAINTEXT while existing rows become undecryptable — in green CI. `__tests__/encryption-map-entity-ids.test.ts` resolves every entry against the ORM metadata; keep it passing rather than deleting the failing row.
-- **Migrations are SQUASHED, not stacked** (`Migration20260811150000`): one current-state create-schema file regenerated from `data/entities.ts`. Regenerate the file AND `.snapshot-open-mercato.json` together; never run `db:migrate` to quiet the generator. Data rewrites that touch CORE `workflows` tables cannot be absorbed by a create-table and are carried over verbatim, `to_regclass`-guarded.
-- **Triggers are ONE declared list** (`agent_process_definitions.triggers` jsonb, `processTriggerSchema`, `.max(20)`): `schedule` | `event` | `manual`. The event arm's `config` persists ARRAYS of typed objects (`filterConditions: [{field,operator,value?}]`, `contextMapping: [{targetKey,sourceExpression,defaultValue?}]`) — NOT maps; modelling them as `z.record` drops every stored config. Read the column through `lib/tasks/triggers.ts`, never `JSON.parse` by hand.
-- **A definition with no `manual` trigger CANNOT be started by hand** — `POST /process-definitions/:id/run` 403s, and the trigger's own `requireFeatures` is checked on top of `processes.run`. `AgentProcessRun.triggered_by` is jsonb `{ kind, ref? }` recording WHICH trigger fired.
-- **The event dispatcher probes the GIN index, it does not scan.** `candidateEventPatterns(eventName)` enumerates the exact id plus every trailing-wildcard prefix that could match, and each is one `triggers @> '[{"kind":"event","eventPattern":…}]'` containment probe against `agent_process_definitions_triggers_gin` (`jsonb_path_ops`). `matchesEventPattern` is re-applied in memory as the correctness backstop.
-- **Milestones are AUTHORED business stages**, `agent_process_definitions.milestones` jsonb (`processMilestoneSchema`, `.max(50)`, `{ id, label, stepId, order }`), read through `lib/tasks/milestones.ts` and never `JSON.parse`d by hand. The `label` lives on the DEFINITION, not on the step, so renaming a step does not change what a business reader sees — and the `stepId` mapping can DRIFT. `collectMilestoneIssues` reports a milestone naming a step the workflow no longer declares as a **warning** in the `WorkflowValidationIssue` shape core `workflows` already emits (`lib/collect-validation-issues.ts`), never an error: a definition mid-edit must stay saveable. An unresolvable step list (peer absent, no permission) reports NOTHING — "unknown" is not "missing".
-- **Milestones are WORKFLOW-target only.** Declaring them on an agent-targeted definition is a validation error (`agentProcessDefinition{Create,Update}Schema`), not a silent no-op; switching a stored definition to an agent target clears the list. `/backend/processes/:id` renders the authored labels in authored order and falls back to the raw observed step ids only when none are declared.
-- **The outcome is OPTIONAL BY DECISION** — `agent_process_runs.outcome_type`/`outcome_id`/`outcome_label`, all nullable, written on completion and read through `lib/tasks/outcome.ts`. A research or monitoring process produces nothing and is a perfectly valid completed run, so an absent outcome is NEVER a missing write. It is FK-id + snapshot: no FK, no ORM relation, and the `label` is a SNAPSHOT so the reference stays readable when the owning module is gone. Plaintext like `agent_processes.subject_label` (a reference), not encrypted like `subject_title` (free text). It is part of run completion and is deliberately **NOT independently undoable** — do not invent an undo for it.
-- **Nothing derives an outcome; the terminating source DECLARES one** under an `outcome` key — the finished workflow instance's final context, or a researcher agent result's `data`. A `proposal` result declares none: at run completion nothing exists yet, because the effector creates the record after disposition.
-- **The outcome LINK is resolved server-side and soft-optionally.** `lib/tasks/outcomeLink.ts` reads the `<module>:<entity>` prefix and matches the owning module's OWN declared `/backend/**/[id]` route through a local `tryResolve` over `tryGetModules()`, in try/catch. Absent module, unbootstrapped registry or no matching route ⇒ `null` href ⇒ the label snapshot renders as plain text. Never guess a URL. The API returns the columns plus `outcome_href`; the client never resolves it (the module registry is server-only). The WRITE path's peer lookup is the DI form: `resolve('workflowExecutor')` in try/catch.
+- **Every process points at a workflow.** There is no agent target. Choosing **Single
+  agent** in the form MATERIALIZES a real `START → INVOKE_AGENT → END`
+  `WorkflowDefinition` (`lib/processes/materializeAgentWorkflow.ts`) through core's
+  `workflowDefinitionAuthoring` DI service — a normal row, visible and editable in the
+  Studio, stamped `metadata.generatedBy`. The simple UX survives; the second engine does
+  not. The generated workflow is the SINGLE source of truth for its own agent config and
+  grant: the definition stores no copy, and the form reads both back from it.
+- **Execution identity belongs to the WORKFLOW.** Core provisions the least-privilege
+  principal from `WorkflowDefinition.grantedFeatures`; this module provisions none of its
+  own (`lib/tasks/executionPrincipal.ts` and the `task:<id>` principals are gone).
+  `ProcessInstance.triggeredBy` records the INVOKER — provenance, never an ACL identity.
+  *Permission to start a process ≠ the permission set the process runs with.*
+- **`ProcessInstance.status` is DERIVED** (`lib/processes/processProjection.ts`) and is
+  never independently transitioned. The only status this worker may write is a terminal
+  failure BEFORE any instance exists. There is exactly one authoritative status in the
+  system and it lives on `workflow_instances`.
+- **Two routes, not one tabbed page.** `/backend/processes` lists running executions;
+  `/backend/processes/definitions` authors definitions. They answer "what is happening
+  now" versus "what can happen".
+- **Idempotency is claimed BEFORE the workflow exists.** `processes.startExecution`
+  inserts the `ProcessInstance` row (with `workflow_instance_id` still null) and the
+  partial-unique `process_instances_idempotency_uq` rejects the loser — so one
+  `(definition, key)` can never produce two `WorkflowInstance`s, however many callers
+  race. The worker then starts the one durable execution.
+- **`encryption.ts` keys `defaultEncryptionMaps` by a PLAIN STRING `entityId` that nothing
+  type-checks.** Rename an entity or a column without moving its map entry and `input`,
+  `input_defaults`, `failure_reason` and `subject_title` silently persist in PLAINTEXT
+  while existing rows become undecryptable, in green CI.
+  `__tests__/encryption-map-entity-ids.test.ts` resolves every entry against the ORM
+  metadata; keep it passing rather than deleting the failing row.
+- **Migrations are SQUASHED, not stacked**: one current-state create-schema file
+  regenerated from `data/entities.ts`. Regenerate the file AND
+  `.snapshot-open-mercato.json` together; never run `db:migrate` to quiet the generator.
+  Data rewrites that touch CORE `workflows` tables cannot be absorbed by a create-table
+  and are carried over verbatim, `to_regclass`-guarded. Tests resolve the squash by shape
+  (`__tests__/helpers/squashMigration.ts`), never by filename.
+- **Triggers are ONE declared list** (`process_definitions.triggers` jsonb,
+  `processTriggerSchema`, `.max(20)`): `schedule` | `event` | `manual`. Every kind
+  converges on `agent_orchestrator.processes.startExecution`, which ends in
+  `workflowExecutor.startWorkflow`. **Triggers start PROCESSES, never agents.** The event
+  arm's `config` persists ARRAYS of typed objects (`filterConditions: [{field,operator,value?}]`,
+  `contextMapping: [{targetKey,sourceExpression,defaultValue?}]`) — NOT maps; modelling
+  them as `z.record` drops every stored config. Read the column through
+  `lib/tasks/triggers.ts`, never `JSON.parse` by hand.
+- **A definition with no `manual` trigger CANNOT be started by hand** —
+  `POST /processes/:id/executions` 403s, and the trigger's own `requireFeatures` is
+  checked on top of `processes.run`.
+- **The event dispatcher probes the GIN index, it does not scan.**
+  `candidateEventPatterns(eventName)` enumerates the exact id plus every trailing-wildcard
+  prefix that could match, and each is one `triggers @> '[{"kind":"event","eventPattern":…}]'`
+  containment probe against `process_definitions_triggers_gin` (`jsonb_path_ops`).
+  `matchesEventPattern` is re-applied in memory as the correctness backstop.
+- **Milestones are BUSINESS EVENTS, never step aliases.** The definition declares a
+  VOCABULARY (`process_definitions.milestones` jsonb — `{ key, label, order }`), a
+  workflow step declares `milestone: '<key>'` in its config, the engine emits
+  `workflows.instance.milestone_reached` when that step completes, and
+  `process_instances.milestones_reached` records what was announced (idempotent per key).
+  That indirection is the point: a stage can be reached after a `PARALLEL_JOIN`, after a
+  retry, or after ten steps, and renaming a step cannot change what a business reader
+  sees. `collectMilestoneIssues` reports a declared key no step emits as a **warning** in
+  the `WorkflowValidationIssue` shape core already emits — never an error, because a
+  definition mid-edit must stay saveable — and reports NOTHING when the workflow cannot be
+  resolved, because "unknown" is not "missing". Read through `lib/tasks/milestones.ts`,
+  never `JSON.parse` by hand.
+- **The outcome is OPTIONAL BY DECISION** — `process_instances.outcome_type`/`outcome_id`/
+  `outcome_label`, all nullable, stamped ONCE on the terminal transition and read through
+  `lib/tasks/outcome.ts`. A research or monitoring process produces nothing and is a
+  perfectly valid completion, so an absent outcome is NEVER a missing write. It belongs to
+  the BUSINESS EXECUTION's completion, never to a single agent run: when an agent finishes,
+  a proposal's record does not exist yet. FK-id + snapshot: no FK, no ORM relation, and the
+  `label` is a SNAPSHOT so the reference stays readable when the owning module is gone.
+  Plaintext like `subject_label`, not encrypted like the free-text `subject_title`.
+  Deliberately **NOT independently undoable** — do not invent an undo for it.
+- **Nothing derives an outcome; the terminating source DECLARES one** under an `outcome`
+  key in the finished workflow instance's final context.
+- **The outcome LINK is resolved server-side and soft-optionally.**
+  `lib/tasks/outcomeLink.ts` reads the `<module>:<entity>` prefix and matches the owning
+  module's OWN declared `/backend/**/[id]` route through a local `tryResolve` over
+  `tryGetModules()`, in try/catch. Absent module, unbootstrapped registry or no matching
+  route ⇒ `null` href ⇒ the label snapshot renders as plain text. Never guess a URL.
 
 ## Runtime Selection
 
@@ -128,8 +200,8 @@ yarn generate   # then, for file agents: docker compose --project-directory . -f
 
 `data/entities.ts` — all rows scoped by `tenantId` + `organizationId`. Cross-module links are FK ids only (no ORM relations across modules).
 
-- **AgentRun** (`agent_runs`) — immutable audit of one execution (`running → ok|error`). MUST carry `agentId`, `resultKind`; `agent_type` records the DECLARED type and is NULLABLE (runs predating the declaration, and agents that make none, have none); `parentRunId` links nested in-process sub-agents; `proposalId`/`processId`/`stepId` link disposition + workflow.
-- **AgentProposal** (`agent_proposals`) — the proposal envelope: `payload` is `{ options[], rationale? }`, N ranked alternatives of which a disposition selects AT MOST one (`selected_option_id`). MUST track disposition (`pending → auto_approved|approved|edited|rejected`); an EMPTY option set is stamped `none_proposed` at creation and is never operator-settable. `auto_disposition_block` (`near_tie`) records why a threshold-clearing auto-approval was held for a human — never `disposition_reason`, which is the operator's. Applied only via effector command.
+- **AgentRun** (`agent_runs`) — immutable audit of ONE AGENT EXECUTION (`running → ok|error`). It answers "what did the agent do", never "what stage is the business process at". MUST carry `agentId`, `resultKind`; `agent_type` records the DECLARED type and is NULLABLE (runs predating the declaration, and agents that make none, have none); `parentRunId` links nested in-process sub-agents; `proposalId` links the disposition. **`(workflowInstanceId, stepId, invocationId)` IS the invocation's identity** and a partial-unique index enforces it — a caller finds the run it caused by naming it, never by asking for the newest run since a timestamp, which cannot tell two concurrent runs of the same agent apart. All three are null together for a Playground or eval run.
+- **AgentProposal** (`agent_proposals`) — the proposal envelope: `payload` is `{ options[], rationale? }`, N ranked alternatives of which a disposition selects AT MOST one (`selected_option_id`). MUST track disposition (`pending → auto_approved|approved|edited|rejected`); an EMPTY option set is stamped `none_proposed` at creation and is never operator-settable. `auto_disposition_block` (`near_tie` | `risk` | `guardrail` | `trace_incomplete` | `policy`) records WHICH POLICY GATE held a threshold-clearing auto-approval for a human — never `disposition_reason`, which is the operator's. Applied only via effector command.
 - **AgentSpan** (`agent_spans`) / **AgentToolCall** (`agent_tool_calls`) — append-only OTel-GenAI trace tree. Full payloads offload to S3; rows keep redacted summaries.
 - **AgentCorrection** (`agent_corrections`) — append-only flywheel entry. MUST record `action` (`edit|reject|override|answer`) + mandatory `reason`.
 - **AgentEvalCase** (`agent_eval_cases`) — regression case (`draft → approved → archived`), sourced from a correction or golden run. Editable.
@@ -142,14 +214,14 @@ yarn generate   # then, for file agents: docker compose --project-directory . -f
 - **AgentPrincipal** (`agent_principals`) — links an agent to a non-interactive `auth.User` (`kind='agent'`) + scoped `auth.Role`. `credentialMode` ∈ `internal|oauth_client|authmd`; live partial-unique on (org, agent).
 - **AgentDelegationGrant** (`agent_delegation_grants`) — external agent's revocable OAuth/ID-JAG grant. Revocation denies every minted token on its NEXT request, not at expiry.
 - **AgentRunSession** (`agent_run_sessions`) — DB-backed cross-process correlation (runner ↔ `mcp:serve-http`). An in-process Map does NOT work across processes.
-- **AgentProcessDefinition** (`agent_process_definitions`) — the AUTHORED half of a process: name, `target_type` (`agent|workflow`), `input_schema`/`input_defaults`, `granted_features`, `triggers` (jsonb, GIN-indexed), `milestones` (jsonb, workflow targets only), `enabled`. User-editable → `updated_at` optimistic locking. Runs under its OWN auto-provisioned `AgentPrincipal` (`execution_principal_id`, synthetic agent id `task:<id>` — a persisted key deliberately NOT renamed), never the triggering user.
-- **AgentProcessRun** (`agent_process_runs`) — one execution of a definition (`running → completed|failed`), system-transitioned, unified across both target types. FK `process_definition_id`; `triggered_by` jsonb `{ kind, ref? }`; nullable `outcome_type`/`outcome_id`/`outcome_label` (FK-id + snapshot, never a relation); partial-unique on (org, definition, idempotency_key).
+- **ProcessDefinition** (`process_definitions`) — the AUTHORED business definition: name, `workflow_id` (REQUIRED — a process with no workflow has no engine), `input_schema`/`input_defaults`, `outcome_schema`, `triggers` (jsonb, GIN-indexed), `milestones` (the declared VOCABULARY), `ui_metadata`, `enabled`. User-editable → `updated_at` optimistic locking. It carries NO execution identity: the bound workflow owns `grantedFeatures` and the principal core provisions from it.
+- **ProcessInstance** (`process_instances`) — the business-facing READ MODEL of one `WorkflowInstance`, and nothing more. Live partial-unique on `(tenant, org, workflow_instance_id)` — the 1:1 that makes it a projection rather than a second execution record — plus partial-unique on `(org, process_definition_id, idempotency_key)`, the business-execution lock. `process_definition_id` is NULLABLE: an instance started from the Studio still projects, it simply has no business definition above it. `status` is DERIVED and never independently transitioned. `triggered_by` jsonb `{ kind, ref? }` is the INVOKER, never an ACL identity. `milestones_reached` is the one field accumulated rather than recomputed, because a milestone is an event that HAPPENED.
 
 ## Lifecycle: run → disposition → effector
 
 1. Caller (playground, `INVOKE_AGENT` workflow step, or trace adapter) invokes `agentRuntime.run()`; `persistence.ts` opens an `AgentRun` and resolves the caller ACL.
 2. Runtime executes (in-process object mode or OpenCode); `guardrailService` runs input/output checks; the typed `AgentResult` is validated against the agent's OUTCOME schema.
-3. For `proposal`, an `AgentProposal` is persisted; `DispositionService` gates it (auto-approve vs `USER_TASK`).
+3. For `proposal`, an `AgentProposal` is persisted; `DispositionService` gates it through the auto-approval POLICY (`lib/disposition/autoApprovalPolicy.ts`). **Confidence is evidence, not authorization** — the policy answers the tenant switch, the guardrail verdict, trace completeness and the leading option's action risk BEFORE it looks at the model's own opinion, and the `auto_disposition_block` column records which gate held a threshold-clearing proposal.
 4. On approval, the effector (`executeProposal.ts`) maps proposed actions → commands and runs them via the command bus; the workflow instance resumes via `proposal.ready`.
 
 ## File Agents — the `agents/<id>/` convention
@@ -190,7 +262,7 @@ agents/<agent_id>/
 | Route | Method | Feature | When to use |
 |-------|--------|---------|-------------|
 | `/agents`, `/agents/:id` | GET | `agents.view` | List registry / agent detail (incl. resolved skills; `tokenUsage` for file agents) |
-| `/agents/:id/run` | POST | `agents.run` | Playground run → typed `AgentResult` |
+| `/agents/:id/run` | POST | `agents.run` | **Playground / evals / diagnostics ONLY.** An engineering primitive: one agent, synchronously, with no retry, waits, signals, cancellation or durable lifecycle. Never a business-execution API — a caller coupled to an agent id cannot be refactored around |
 | `/agents/:id/metrics` | GET | `trace.view` | KPI tiles |
 | `/runs`, `/runs/:id` | GET | `trace.view` | Run list/detail (filters: agent, status, eval-fail, low-confidence) |
 | `/proposals` | GET | `proposals.view` | Caseload list |
@@ -200,9 +272,9 @@ agents/<agent_id>/
 | `/eval-cases[/:id/approve][/export]`, `/eval-assertions` | CRUD | `eval.manage` / `eval.export` | Manage + export eval cases/assertions |
 | `/context-bundles` | GET | `context.read` | Inspect TDCR bundles |
 | `/guardrail-checks` | GET | `guardrail.read` | Inspect guardrail audit |
-| `/process-definitions`, `/process-definitions/:id` | CRUD | `processes.view` / `processes.manage` | Author process definitions; optimistic-locked on `updated_at` |
-| `/process-definitions/:id/run` | POST | `processes.run` | Start a run BY HAND — 403 without a declared `manual` trigger; always async, `202 { processRunId }` |
-| `/process-runs`, `/process-runs/:id` | GET | `processes.view` | Unified run ledger across agent and workflow targets |
+| `/processes`, `/processes/:id` | CRUD | `processes.view` / `processes.manage` | Author process definitions; optimistic-locked on `updated_at` |
+| `/processes/:id/executions` | POST | `processes.run` | **The external contract.** Start one business execution — 403 without a declared `manual` trigger; always async, `202 { executionId }` |
+| `/executions`, `/executions/:id` | GET | `processes.view` | The ONE business-execution surface: derived status, milestones reached, proposals, outcome |
 | `/identity/well-known`, `/identity/token`, `/identity/agent/auth` | GET/POST | public / no-user-auth | OAuth discovery, client-credentials, ID-JAG |
 | `/identity/grants/:id/revoke` | POST | `identity.manage` | Revoke a delegation grant |
 
@@ -233,7 +305,7 @@ Override per deployment with `RATE_LIMIT_{PREFIX}_{POINTS,DURATION,BLOCK_DURATIO
 
 ## Backend Cockpit (`backend/`)
 
-`overview` (KPI tiles + needs-attention queue), `agents` + `agents/:id` (registry with runtime tags), `playground`, `caseload` + `caseload/:proposalId` (operator dispose flow), `processes` + `processes/:id` (running-process projection), `processes/definitions` + `processes/definitions/:id` (definition authoring), `traces` + `traces/:id` (span/tool-call tree, nav-hidden), `audit` (nav-hidden), `agentic-tasks` (nav-hidden bridge redirect). Components: `ProposalCard`, `ProposalFacts` (Caseload facts grid + reasoning, FACTS.json-driven with generic fallback), `SkillDrawer`, `TraceView`.
+`overview` (KPI tiles + needs-attention queue), `agents` + `agents/:id` (registry with runtime tags), `playground`, `caseload` + `caseload/:proposalId` (operator dispose flow), `processes` + `processes/:id` (running executions — the read model), `processes/definitions` + `processes/definitions/:id` (definition authoring), `traces` + `traces/:id` (span/tool-call tree, nav-hidden), `audit` (nav-hidden). Components: `ProposalCard`, `ProposalFacts` (Caseload facts grid + reasoning, FACTS.json-driven with generic fallback), `SkillDrawer`, `TraceView`.
 
 ### Operator tags + registry filters
 
@@ -250,7 +322,8 @@ Agents are code/file-defined and global, so a tenant's own taxonomy lives in `ag
 - Generator: `packages/cli/src/lib/generators/extensions/agent-files.ts` (scans `agents/<id>/`, fails on malformed dirs, emits the manifest + `docker/opencode/{agents,skills}/`). The CLI cannot import `@open-mercato/core`, so it reimplements the tiny parsers — keep them in sync.
 - Runner + dispatch: `lib/runtime/agentRuntime.ts`, `lib/runtime/openCodeAgentRunner.ts` (per-run session token, `agent: <name>`, poll/SSE-idle, one corrective nudge then fail-closed), `lib/runtime/agentRunSessionStore.ts`, `lib/runtime/persistence.ts`, `lib/runtime/executeProposal.ts` (effector), `lib/runtime/invokeAgentForWorkflow.ts` (workflow bridge), `lib/runtime/runContext.ts` (AsyncLocalStorage parent-run trace).
 - Sandbox: `lib/runtime/sandboxedScript.ts` reuses the ai-assistant `isolated-vm` sandbox (no fs/net/require/process, 30s cap).
-- Overlays: `lib/disposition/`, `lib/identity/`, `lib/guardrails/`, `lib/context/`, `lib/trace/`, `lib/eval/`, `lib/metrics/`.
+- Overlays: `lib/disposition/` (incl. the auto-approval POLICY), `lib/identity/`, `lib/guardrails/`, `lib/context/`, `lib/trace/`, `lib/eval/`, `lib/metrics/`.
+- Business process: `lib/processes/materializeAgentWorkflow.ts` (the generated single-agent workflow), `lib/processes/processProjection.ts` (the execution read model), `lib/tasks/{triggers,milestones,outcome,outcomeLink,schedule}.ts` (client-safe readers), `commands/processes.ts` (the one start command), `workers/process-execution-starter.ts` (starts the one durable execution).
 
 ## Structure
 
@@ -259,9 +332,9 @@ agent_orchestrator/
 ├── ai-agents.ts ai-tools.ts ai-skills.ts   # in-process agents + MCP tools + skill registry
 ├── di.ts acl.ts events.ts setup.ts encryption.ts index.ts
 ├── data/{entities.ts,validators.ts}
-├── lib/{sdk,runtime,disposition,identity,guardrails,context,trace,eval,metrics}/
-├── api/{agents,runs,proposals,trace,corrections,eval-cases,eval-assertions,context-bundles,guardrail-checks,identity}/
-├── backend/{overview,agents,playground,caseload,traces,audit}/
+├── lib/{sdk,runtime,disposition,processes,tasks,identity,guardrails,context,trace,eval,metrics}/
+├── api/{agents,runs,proposals,processes,executions,trace,corrections,eval-cases,eval-assertions,context-bundles,guardrail-checks,identity}/
+├── backend/{overview,agents,playground,caseload,processes,traces,audit}/
 ├── components/  commands/  workers/  migrations/  i18n/
 ├── agents/<id>/  skills/  examples/  generated/file-agents.generated.ts
 └── __tests__/  __integration__/

@@ -14,7 +14,7 @@
   "auth.acl.deps.orphaned.title": "Usuwasz uprawnienie wymagane przez inne przyznane uprawnienia:",
   "auth.acl.deps.unknown.title": "Niektóre zadeklarowane zależności nie pasują do żadnego znanego uprawnienia:",
   "auth.acl.features.agent_orchestrator.agents.manage": "Zarządzaj ustawieniami prezentacji agentów",
-  "auth.acl.features.agent_orchestrator.agents.run": "Uruchamiaj agentów (playground)",
+  "auth.acl.features.agent_orchestrator.agents.run": "Uruchamiaj agentów bezpośrednio (Playground, ewaluacje, diagnostyka)",
   "auth.acl.features.agent_orchestrator.agents.view": "Wyświetl agentów i uruchomienia",
   "auth.acl.features.agent_orchestrator.context.read": "Wyświetl pakiety kontekstu agentów",
   "auth.acl.features.agent_orchestrator.eval.export": "Eksportuj zestaw przypadków ewaluacji agentów",

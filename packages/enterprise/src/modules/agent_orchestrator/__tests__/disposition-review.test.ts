@@ -63,7 +63,19 @@ function makeService(execute = jest.fn<(...args: unknown[]) => Promise<unknown>>
   const container = {
     resolve: (token: string) => {
       if (token === 'commandBus') return { execute }
-      if (token === 'em') return { fork: () => ({ nativeUpdate }) }
+      // A run that passed its guardrails and left a trace, under the default
+      // tenant policy — the gates the auto-approval policy answers BEFORE it
+      // looks at confidence. Their own coverage lives in auto-approval-policy.
+      if (token === 'em') {
+        return {
+          fork: () => ({
+            nativeUpdate,
+            count: async (entity: unknown) =>
+              ((entity as { name?: string })?.name ?? '') === 'AgentGuardrailCheck' ? 0 : 1,
+          }),
+        }
+      }
+      if (token === 'moduleConfigService') return { getRecord: async () => null }
       throw new Error(`Unexpected DI token in test: ${token}`)
     },
   }

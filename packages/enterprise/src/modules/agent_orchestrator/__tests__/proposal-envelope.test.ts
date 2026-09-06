@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { readSquashMigrationSql } from './helpers/squashMigration'
 import { describe, test, expect } from '@jest/globals'
 import { agentProposalSchema, proposalOptionSchema } from '../data/validators'
 import {
@@ -176,10 +177,7 @@ describe('reading and editing one option', () => {
 // those tables belong to another module — and is carried into the squash
 // verbatim, still asserted here unchanged.
 describe('the envelope columns and the outputMapping rewrite survive the squash', () => {
-  const sql = fs.readFileSync(
-    path.join(__dirname, '..', 'migrations', 'Migration20260811150000_agent_orchestrator.ts'),
-    'utf8',
-  )
+  const sql = readSquashMigrationSql()
 
   test('declares both columns', () => {
     expect(sql).toContain('"selected_option_id" varchar(100) null')

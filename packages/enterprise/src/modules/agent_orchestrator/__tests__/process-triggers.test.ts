@@ -1,6 +1,7 @@
 /** @jest-environment node */
 import fs from 'node:fs'
 import path from 'node:path'
+import { readSquashMigrationSql } from './helpers/squashMigration'
 import {
   PROCESS_TRIGGERS_MAX,
   processDefinitionCreateSchema,
@@ -89,8 +90,8 @@ describe('processTriggerSchema — the persisted shape survives the collapse', (
 describe('invalid cron is rejected at SAVE, not at fire time', () => {
   const base = {
     name: 'Nightly digest',
-    targetType: 'agent' as const,
-    targetAgentId: 'deals.lead_triage',
+    workflowMode: 'single_agent' as const,
+    singleAgent: { agentId: 'deals.lead_triage', onResult: { alwaysAsk: true as const } },
   }
   const createWithSemantics = withScheduleSemanticChecks(processDefinitionCreateSchema)
 
@@ -202,55 +203,28 @@ describe('processRunTriggeredBySchema', () => {
   })
 })
 
-describe('the Phase 2 migration', () => {
-  const migration = fs.readFileSync(
-    path.join(MODULE_ROOT, 'migrations', 'Migration20260811160000_agent_orchestrator.ts'),
-    'utf8',
-  )
+describe('the squashed migration', () => {
+  const migration = readSquashMigrationSql()
 
-  it('synthesizes a manual trigger on EVERY existing definition', () => {
-    // Without this backfill, gating `/run` on a declared manual trigger
-    // silently removes run-now from every definition that predates Phase 2.
-    const backfill = migration.slice(migration.indexOf("'kind', 'manual'"))
-    expect(backfill).toContain(`where not ("triggers" @> '[{"kind":"manual"}]'::jsonb)`)
-    // Scoped by nothing else: no target-type, schedule or enabled predicate may
-    // narrow it, or some definitions would come out un-runnable.
-    expect(backfill.slice(0, backfill.indexOf(';'))).not.toContain('target_type')
-    expect(backfill.slice(0, backfill.indexOf(';'))).not.toContain('schedule_cron')
-  })
-
-  it('reads the retired columns and table BEFORE dropping them', () => {
-    const scheduleRead = migration.indexOf('coalesce("schedule_timezone"')
-    const eventRead = migration.indexOf('from "agent_task_event_triggers"')
-    const manualBackfill = migration.indexOf("'kind', 'manual'")
-    const dropColumns = migration.indexOf('drop column "schedule_cron"')
-    const dropTable = migration.indexOf('drop table if exists "agent_task_event_triggers"')
-    expect(scheduleRead).toBeGreaterThan(-1)
-    expect(dropColumns).toBeGreaterThan(scheduleRead)
-    expect(dropColumns).toBeGreaterThan(eventRead)
-    expect(dropColumns).toBeGreaterThan(manualBackfill)
-    expect(dropTable).toBeGreaterThan(eventRead)
-  })
-
-  it('carries the event config across verbatim rather than stripping nulls', () => {
-    expect(migration).toContain(`'config', "config"`)
-    // `jsonb_strip_nulls` recurses, so it would also delete a filter
-    // condition's explicit `value: null` — a silent config change.
-    expect(migration).not.toContain('jsonb_strip_nulls(')
-  })
-
-  it('converts the legacy triggered_by string instead of a bare ::jsonb cast', () => {
-    const cast = migration.slice(migration.indexOf('alter column "triggered_by" type jsonb'))
-    expect(cast).toContain(`like 'event:%'`)
-    expect(cast).toContain(`like 'user:%'`)
-    expect(cast).toContain(`like 'api_key:%'`)
-    expect(cast).toContain(`like 'schedule:%'`)
+  it('creates the declared-trigger column with its jsonb default', () => {
+    expect(migration).toContain(`"triggers" jsonb null default '[]'`)
   })
 
   it('creates the GIN index the containment probe needs', () => {
+    // The event dispatcher probes this index rather than scanning enabled
+    // definitions, so losing it turns every domain event into a table scan.
     expect(migration).toContain(
-      `create index "agent_process_definitions_triggers_gin" on "agent_process_definitions" using gin ("triggers" jsonb_path_ops)`,
+      `create index "process_definitions_triggers_gin" on "process_definitions" using gin ("triggers" jsonb_path_ops)`,
     )
+  })
+
+  it('records provenance as jsonb on the execution, never as a legacy string', () => {
+    expect(migration).toContain('"triggered_by" jsonb null')
+  })
+
+  it('leaves nothing of the retired trigger table or schedule columns behind', () => {
+    expect(migration).not.toContain('agent_task_event_triggers')
+    expect(migration).not.toContain('"schedule_cron"')
   })
 })
 

@@ -1,7 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { ProcessDefinition, AgentProcessRun } from '../data/entities'
+import { ProcessDefinition, ProcessInstance } from '../data/entities'
 
 jest.mock('../events', () => ({
   emitAgentOrchestratorEvent: jest.fn(async () => {}),
@@ -16,7 +16,7 @@ jest.mock('../lib/queue', () => {
   }
 })
 
-import { enqueueProcessRunCommand, resolveProcessRunInput } from '../commands/tasks'
+import { startProcessExecutionCommand, resolveProcessInput } from '../commands/processes'
 import { emitAgentOrchestratorEvent } from '../events'
 
 const TENANT = '11111111-1111-4111-8111-111111111111'
@@ -89,12 +89,9 @@ function seedDefinition(storeFor: (entity: unknown) => Array<Record<string, unkn
     tenantId: TENANT,
     organizationId: ORG,
     name: 'Health check',
-    targetType: 'agent',
-    targetAgentId: 'deals.health_check',
-    targetWorkflowId: null,
+    workflowId: 'process_deals_health_check',
     inputDefaults: { threshold: 5 },
     inputSchema: null,
-    executionPrincipalId: '55555555-5555-4555-8555-555555555555',
     triggers: [{ kind: 'manual', requireFeatures: [] }],
     enabled: true,
     deletedAt: null,
@@ -102,7 +99,7 @@ function seedDefinition(storeFor: (entity: unknown) => Array<Record<string, unkn
   })
 }
 
-describe('agent_orchestrator.processes.enqueueRun', () => {
+describe('agent_orchestrator.processes.startExecution', () => {
   beforeEach(() => {
     enqueueMock.mockClear()
     ;(emitAgentOrchestratorEvent as jest.Mock).mockClear()
@@ -115,56 +112,80 @@ describe('agent_orchestrator.processes.enqueueRun', () => {
     triggeredBy: { kind: 'manual' as const, ref: '66666666-6666-4666-8666-666666666666' },
   }
 
-  it('creates a running task run, merges input defaults, emits started, and enqueues', async () => {
+  it('records the execution, merges input defaults, emits started, and enqueues', async () => {
     const { em, storeFor } = createFakeEm()
     seedDefinition(storeFor)
 
-    const result = await enqueueProcessRunCommand.execute(
+    const result = await startProcessExecutionCommand.execute(
       { ...baseInput, input: { dealId: 'deal-1' } },
       makeCtx(em),
     )
 
     expect(result.deduplicated).toBe(false)
-    const runs = storeFor(AgentProcessRun)
-    expect(runs).toHaveLength(1)
-    expect(runs[0].status).toBe('running')
-    expect(runs[0].input).toEqual({ threshold: 5, dealId: 'deal-1' })
-    expect(runs[0].triggeredBy).toEqual(baseInput.triggeredBy)
-    expect(enqueueMock).toHaveBeenCalledWith({ processRunId: result.processRunId })
+    const executions = storeFor(ProcessInstance)
+    expect(executions).toHaveLength(1)
+    expect(executions[0].status).toBe('running')
+    expect(executions[0].input).toEqual({ threshold: 5, dealId: 'deal-1' })
+    expect(executions[0].triggeredBy).toEqual(baseInput.triggeredBy)
+    // The workflow is not started HERE — the row claims the idempotency key
+    // first, and the worker starts the one durable execution.
+    expect(executions[0].workflowInstanceId).toBeUndefined()
+    expect(enqueueMock).toHaveBeenCalledWith({ executionId: result.executionId })
     expect(emitAgentOrchestratorEvent).toHaveBeenCalledWith(
-      'agent_orchestrator.process_run.started',
+      'agent_orchestrator.process.execution.started',
       expect.objectContaining({ processDefinitionId: TASK_ID, organizationId: ORG }),
       { persistent: true },
     )
   })
 
-  it('dedupes on the idempotency key without a second run or enqueue', async () => {
+  it('one idempotency key produces ONE execution, and therefore one workflow instance', async () => {
     const { em, storeFor } = createFakeEm()
     seedDefinition(storeFor)
 
-    const first = await enqueueProcessRunCommand.execute(
+    const first = await startProcessExecutionCommand.execute(
       { ...baseInput, idempotencyKey: 'retry-safe-1' },
       makeCtx(em),
     )
-    const second = await enqueueProcessRunCommand.execute(
+    const second = await startProcessExecutionCommand.execute(
       { ...baseInput, idempotencyKey: 'retry-safe-1' },
       makeCtx(em),
     )
 
-    expect(second.processRunId).toBe(first.processRunId)
+    expect(second.executionId).toBe(first.executionId)
     expect(second.deduplicated).toBe(true)
-    expect(storeFor(AgentProcessRun)).toHaveLength(1)
+    expect(storeFor(ProcessInstance)).toHaveLength(1)
+    // The enqueue is what would start a workflow, so a second one is a second
+    // instance — the exact thing the key exists to prevent.
     expect(enqueueMock).toHaveBeenCalledTimes(1)
   })
 
-  it('404s a cross-org task id without creating anything', async () => {
+  it('scopes the key to its definition — the same key on another process is another execution', async () => {
+    const { em, storeFor } = createFakeEm()
+    const OTHER_DEFINITION = '77777777-7777-4777-8777-777777777777'
+    seedDefinition(storeFor)
+    seedDefinition(storeFor, { id: OTHER_DEFINITION, name: 'Other' })
+
+    const first = await startProcessExecutionCommand.execute(
+      { ...baseInput, idempotencyKey: 'shared-key' },
+      makeCtx(em),
+    )
+    const second = await startProcessExecutionCommand.execute(
+      { ...baseInput, processDefinitionId: OTHER_DEFINITION, idempotencyKey: 'shared-key' },
+      makeCtx(em),
+    )
+
+    expect(second.executionId).not.toBe(first.executionId)
+    expect(storeFor(ProcessInstance)).toHaveLength(2)
+  })
+
+  it('404s a cross-org definition id without creating anything', async () => {
     const { em, storeFor } = createFakeEm()
     seedDefinition(storeFor, { organizationId: OTHER_ORG })
 
-    await expect(enqueueProcessRunCommand.execute(baseInput, makeCtx(em))).rejects.toMatchObject({
+    await expect(startProcessExecutionCommand.execute(baseInput, makeCtx(em))).rejects.toMatchObject({
       status: 404,
     })
-    expect(storeFor(AgentProcessRun)).toHaveLength(0)
+    expect(storeFor(ProcessInstance)).toHaveLength(0)
     expect(enqueueMock).not.toHaveBeenCalled()
   })
 
@@ -172,10 +193,10 @@ describe('agent_orchestrator.processes.enqueueRun', () => {
     const { em, storeFor } = createFakeEm()
     seedDefinition(storeFor, { triggers: [{ kind: 'schedule', cron: '0 7 * * *', timezone: 'UTC', enabled: true }] })
 
-    await expect(enqueueProcessRunCommand.execute(baseInput, makeCtx(em))).rejects.toMatchObject({
+    await expect(startProcessExecutionCommand.execute(baseInput, makeCtx(em))).rejects.toMatchObject({
       status: 403,
     })
-    expect(storeFor(AgentProcessRun)).toHaveLength(0)
+    expect(storeFor(ProcessInstance)).toHaveLength(0)
     expect(enqueueMock).not.toHaveBeenCalled()
   })
 
@@ -183,19 +204,19 @@ describe('agent_orchestrator.processes.enqueueRun', () => {
     const { em, storeFor } = createFakeEm()
     seedDefinition(storeFor, { triggers: [{ kind: 'schedule', cron: '0 7 * * *', timezone: 'UTC', enabled: true }] })
 
-    const result = await enqueueProcessRunCommand.execute(
+    const result = await startProcessExecutionCommand.execute(
       { ...baseInput, triggeredBy: { kind: 'schedule' as const } },
       makeCtx(em),
     )
-    expect(result.status).toBe('running')
-    expect(storeFor(AgentProcessRun)[0].triggeredBy).toEqual({ kind: 'schedule' })
+    expect(result.deduplicated).toBe(false)
+    expect(storeFor(ProcessInstance)[0].triggeredBy).toEqual({ kind: 'schedule' })
   })
 
-  it('409s a disabled task', async () => {
+  it('409s a disabled definition', async () => {
     const { em, storeFor } = createFakeEm()
     seedDefinition(storeFor, { enabled: false })
 
-    await expect(enqueueProcessRunCommand.execute(baseInput, makeCtx(em))).rejects.toMatchObject({
+    await expect(startProcessExecutionCommand.execute(baseInput, makeCtx(em))).rejects.toMatchObject({
       status: 409,
     })
   })
@@ -213,24 +234,24 @@ describe('agent_orchestrator.processes.enqueueRun', () => {
 
     let caught: unknown
     try {
-      await enqueueProcessRunCommand.execute({ ...baseInput, input: { claimId: 42 } }, makeCtx(em))
+      await startProcessExecutionCommand.execute({ ...baseInput, input: { claimId: 42 } }, makeCtx(em))
     } catch (error) {
       caught = error
     }
     expect(caught).toBeInstanceOf(CrudHttpError)
     expect((caught as CrudHttpError).status).toBe(400)
-    expect(storeFor(AgentProcessRun)).toHaveLength(0)
+    expect(storeFor(ProcessInstance)).toHaveLength(0)
 
     await expect(
-      enqueueProcessRunCommand.execute({ ...baseInput, input: { claimId: 'CLM-9' } }, makeCtx(em)),
-    ).resolves.toMatchObject({ status: 'running' })
+      startProcessExecutionCommand.execute({ ...baseInput, input: { claimId: 'CLM-9' } }, makeCtx(em)),
+    ).resolves.toMatchObject({ deduplicated: false })
   })
 })
 
-describe('resolveProcessRunInput', () => {
-  it('merges run input over defaults (input wins per key)', () => {
+describe('resolveProcessInput', () => {
+  it('merges start input over defaults (input wins per key)', () => {
     const definition = { inputDefaults: { a: 1, b: 2 } } as unknown as ProcessDefinition
-    expect(resolveProcessRunInput(definition, { b: 3 })).toEqual({ a: 1, b: 3 })
-    expect(resolveProcessRunInput({ inputDefaults: null } as unknown as ProcessDefinition, undefined)).toEqual({})
+    expect(resolveProcessInput(definition, { b: 3 })).toEqual({ a: 1, b: 3 })
+    expect(resolveProcessInput({ inputDefaults: null } as unknown as ProcessDefinition, undefined)).toEqual({})
   })
 })

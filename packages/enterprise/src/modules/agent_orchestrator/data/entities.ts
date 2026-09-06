@@ -1038,8 +1038,18 @@ export class AgentDelegationGrant {
 export type AgentProposalDisposition =
   | 'pending' | 'auto_approved' | 'approved' | 'edited' | 'rejected' | 'none_proposed'
 
-/** Why an auto-approval that cleared its threshold was still routed to a human. */
-export type AgentProposalAutoDispositionBlock = 'near_tie'
+/**
+ * Why an auto-approval that cleared its threshold was still routed to a human —
+ * the gate the policy layer answered `review` on (`lib/disposition/autoApprovalPolicy.ts`).
+ * Recorded ONLY when the proposal cleared what it was measured against and was
+ * held anyway; a proposal that simply did not clear needs no explanation.
+ */
+export type AgentProposalAutoDispositionBlock =
+  | 'near_tie'
+  | 'risk'
+  | 'guardrail'
+  | 'trace_incomplete'
+  | 'policy'
 
 export type AgentProposalSource = 'runtime' | 'eval'
 

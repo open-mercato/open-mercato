@@ -10,24 +10,36 @@ import {
 } from '../lib/tasks/eventTriggerMatch'
 
 describe('processDefinitionCreateSchema', () => {
-  const base = { name: 'Deal health check', targetType: 'agent' as const }
+  const singleAgent = { agentId: 'deals.health_check', onResult: { alwaysAsk: true as const } }
+  const base = { name: 'Deal health check', workflowMode: 'single_agent' as const }
 
-  it('requires a target agent id for agent targets', () => {
+  it('requires the agent that single-agent mode generates its workflow from', () => {
     expect(processDefinitionCreateSchema.safeParse(base).success).toBe(false)
-    expect(
-      processDefinitionCreateSchema.safeParse({ ...base, targetAgentId: 'deals.health_check' }).success,
-    ).toBe(true)
+    expect(processDefinitionCreateSchema.safeParse({ ...base, singleAgent }).success).toBe(true)
   })
 
-  it('requires a target workflow id for workflow targets', () => {
+  it('requires an existing workflow id in workflow mode', () => {
     expect(
-      processDefinitionCreateSchema.safeParse({ name: 'X', targetType: 'workflow' }).success,
+      processDefinitionCreateSchema.safeParse({ name: 'X', workflowMode: 'workflow' }).success,
     ).toBe(false)
     expect(
       processDefinitionCreateSchema.safeParse({
         name: 'X',
-        targetType: 'workflow',
-        targetWorkflowId: 'claims_resolution',
+        workflowMode: 'workflow',
+        workflowId: 'claims_resolution',
+      }).success,
+    ).toBe(true)
+  })
+
+  it('accepts milestones in BOTH modes — a milestone is a business event, not a step', () => {
+    const milestones = [{ key: 'analysis_completed', label: 'Analysis completed', order: 0 }]
+    expect(processDefinitionCreateSchema.safeParse({ ...base, singleAgent, milestones }).success).toBe(true)
+    expect(
+      processDefinitionCreateSchema.safeParse({
+        name: 'X',
+        workflowMode: 'workflow',
+        workflowId: 'claims_resolution',
+        milestones,
       }).success,
     ).toBe(true)
   })
@@ -36,7 +48,7 @@ describe('processDefinitionCreateSchema', () => {
     const withCron = (cron: string) =>
       processDefinitionCreateSchema.safeParse({
         ...base,
-        targetAgentId: 'a',
+        singleAgent,
         triggers: [{ kind: 'schedule', cron }],
       })
     expect(withCron('0 7 * * *').success).toBe(true)
