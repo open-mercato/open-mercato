@@ -235,7 +235,7 @@ function applyRunFields(run: AgentRun, payload: TraceIngest): void {
   if (payload.status) run.status = payload.status as AgentRunStatus
   if (payload.agentVersion !== undefined) run.agentVersion = payload.agentVersion
   if (payload.model !== undefined) run.model = payload.model
-  if (payload.processId !== undefined) run.processId = payload.processId ?? null
+  if (payload.workflowInstanceId !== undefined) run.workflowInstanceId = payload.workflowInstanceId ?? null
   if (payload.stepId !== undefined) run.stepId = payload.stepId ?? null
   if (payload.proposalId !== undefined) run.proposalId = payload.proposalId ?? null
   if (payload.confidence !== undefined) run.confidence = payload.confidence

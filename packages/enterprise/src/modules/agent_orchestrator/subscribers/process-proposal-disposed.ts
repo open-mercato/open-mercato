@@ -1,5 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { recomputeFromEvent } from '../lib/processes/agentProcessProjection'
+import { recomputeFromEvent } from '../lib/processes/processProjection'
 
 /**
  * Process projection (spec 2026-06-25): every disposition verdict (rule or
@@ -8,7 +8,7 @@ import { recomputeFromEvent } from '../lib/processes/agentProcessProjection'
 export const metadata = {
   event: 'agent_orchestrator.proposal.disposed',
   persistent: true,
-  id: 'agent_orchestrator:agent-process-proposal-disposed',
+  id: 'agent_orchestrator:process-proposal-disposed',
 }
 
 export default async function handle(

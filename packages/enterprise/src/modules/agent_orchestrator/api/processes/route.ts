@@ -1,145 +1,433 @@
 import { z } from 'zod'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
-import { buildIlikeTerm } from '@open-mercato/shared/lib/db/buildIlikeTerm'
-import { AgentProcess } from '../../data/entities'
-import { processListQuerySchema } from '../../data/validators'
+import type { CrudCtx } from '@open-mercato/shared/lib/crud/factory'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { ProcessDefinition } from '../../data/entities'
+import {
+  processDefinitionCreateSchema,
+  processDefinitionListQuerySchema,
+  processDefinitionUpdateSchema,
+  processMilestoneSchema,
+  processSingleAgentSchema,
+  processTriggerSchema,
+  type ProcessDefinitionCreateInput,
+  type ProcessDefinitionUpdateInput,
+  type ProcessSingleAgent,
+} from '../../data/validators'
+import { emitAgentOrchestratorEvent } from '../../events'
+import { orderedMilestones } from '../../lib/tasks/milestones'
+import {
+  generatedWorkflowId,
+  materializeSingleAgentWorkflow,
+  readWorkflowFacts,
+  removeGeneratedWorkflow,
+} from '../../lib/processes/materializeAgentWorkflow'
+import { syncProcessSchedule } from '../../lib/tasks/schedule'
+import { withScheduleSemanticChecks } from '../../lib/tasks/scheduleValidation'
 import {
   createAgentOrchestratorCrudOpenApi,
   createPagedListResponseSchema,
+  defaultCreateResponseSchema,
+  defaultOkResponseSchema,
 } from '../openapi'
 
-// PascalCases to the MikroORM class `AgentProcess` → real table `agent_processes`
-// via ORM metadata (mirrors the proposals route's naming note).
-const ENTITY_TYPE = 'agent_orchestrator:agent_process'
+const logger = createLogger('agent_orchestrator').child({ component: 'processes-api' })
 
-// Pre-Phase-B degradations (spec 2026-06-25): `needs_decision` is status-driven
-// (assignment signals are not emitted by workflows yet), and the high-value
-// threshold is a fixed default until it becomes a tenant setting.
-const NEEDS_DECISION_STATUSES = ['waiting_on_you', 'question_open', 'docs_requested', 'fraud_hold']
-const HIGH_VALUE_MINOR = 4_000_000
-const STUCK_MS = 24 * 60 * 60 * 1000
+const ENTITY_TYPE = 'agent_orchestrator:process_definition'
+
+// Route-layer semantic schedule validation (real cron parse via the scheduler)
+// on top of the client-safe shape schemas — see lib/tasks/scheduleValidation.ts.
+const createSchemaWithSemantics = withScheduleSemanticChecks(processDefinitionCreateSchema)
+const updateSchemaWithSemantics = withScheduleSemanticChecks(processDefinitionUpdateSchema)
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['agent_orchestrator.processes.view'] },
+  POST: { requireAuth: true, requireFeatures: ['agent_orchestrator.processes.manage'] },
+  PUT: { requireAuth: true, requireFeatures: ['agent_orchestrator.processes.manage'] },
+  DELETE: { requireAuth: true, requireFeatures: ['agent_orchestrator.processes.manage'] },
 }
 
 export const metadata = routeMetadata
 
-const crud = makeCrudRoute<never, never, z.infer<typeof processListQuerySchema>>({
+function requireScope(ctx: CrudCtx): { tenantId: string; organizationId: string } {
+  const organizationId = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
+  const tenantId = ctx.auth?.tenantId ?? null
+  if (!organizationId || !tenantId) {
+    throw new CrudHttpError(400, { error: '[internal] organization and tenant context required' })
+  }
+  return { tenantId, organizationId }
+}
+
+/**
+ * Binds the definition to a workflow, generating one when the author chose the
+ * single-agent shortcut, then syncs the declared schedules.
+ *
+ * Execution identity travels WITH the workflow: `grantedFeatures` is applied to
+ * the workflow definition, which is where core provisions the least-privilege
+ * principal every run acts as. This module deliberately provisions none of its
+ * own any more — one process, one workflow, one execution identity.
+ *
+ * Runs after create AND after update; both are idempotent, which makes a
+ * previously failed sync self-healing on the next edit.
+ */
+async function bindWorkflowAndSchedule(
+  entity: ProcessDefinition,
+  ctx: CrudCtx,
+  input: {
+    workflowMode: 'single_agent' | 'workflow'
+    /**
+     * NOT stored on the definition: the generated workflow is the source of
+     * truth for it, and a second copy here is how the two drift. It travels on
+     * the write payload only, which the CRUD factory hands back on `ctx.input`.
+     */
+    singleAgent?: ProcessSingleAgent | null
+    grantedFeatures?: string[]
+  },
+): Promise<void> {
+  if (input.workflowMode === 'single_agent') {
+    const singleAgent = input.singleAgent
+    if (!singleAgent) {
+      throw new CrudHttpError(400, { error: 'Single-agent process requires an agent' })
+    }
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const result = await materializeSingleAgentWorkflow(ctx.container, em, {
+      processDefinitionId: entity.id,
+      processName: entity.name,
+      description: entity.description,
+      singleAgent,
+      milestoneKeys: orderedMilestones(entity.milestones ?? []).map((milestone) => milestone.key),
+      grantedFeatures: input.grantedFeatures ?? [],
+      enabled: entity.enabled,
+      tenantId: entity.tenantId,
+      organizationId: entity.organizationId,
+      actorUserId: ctx.auth?.sub ?? null,
+    })
+    if (!result.ok) {
+      throw new CrudHttpError(result.reason === 'workflows_unavailable' ? 503 : 409, {
+        error:
+          result.reason === 'workflows_unavailable'
+            ? 'The workflows module is unavailable, so the process workflow could not be generated.'
+            : 'A workflow with the generated id already exists and is owned by someone else.',
+      })
+    }
+    if (entity.workflowId !== result.workflowId) {
+      const row = await em.findOne(ProcessDefinition, { id: entity.id })
+      if (row) {
+        row.workflowId = result.workflowId
+        await em.flush()
+      }
+      entity.workflowId = result.workflowId
+    }
+  }
+
+  await syncProcessSchedule(ctx.container, entity)
+}
+
+/**
+ * Attach a `last_execution: { status, completed_at } | null` projection to each
+ * list item — one grouped query (`distinct on (process_definition_id)`, newest by
+ * created_at) over the page's ids, tenant/org-scoped. Read-only enrichment for the
+ * list's health column; no schema change.
+ */
+export async function attachLastExecutionProjection(
+  em: EntityManager,
+  scope: { tenantId: string; organizationId: string },
+  items: Array<Record<string, unknown>>,
+): Promise<void> {
+  const ids = items
+    .map((item) => (typeof item.id === 'string' ? item.id : null))
+    .filter((id): id is string => !!id)
+  if (ids.length === 0) return
+  // Scalar placeholders only — an array binding through the ORM's raw-execute
+  // layer gets expanded per element, so `= any(?)` reaches Postgres as a bare
+  // uuid where an array literal is expected ("malformed array literal").
+  const idPlaceholders = ids.map(() => '?').join(', ')
+  let rows: Array<{ process_definition_id: string; status: string; completed_at: Date | string | null }> = []
+  try {
+    rows = (await em.getConnection().execute(
+      `select distinct on (process_definition_id)
+         process_definition_id, status, completed_at
+       from process_instances
+       where process_definition_id in (${idPlaceholders}) and tenant_id = ? and organization_id = ?
+       order by process_definition_id, created_at desc`,
+      [...ids, scope.tenantId, scope.organizationId],
+    )) as Array<{ process_definition_id: string; status: string; completed_at: Date | string | null }>
+  } catch (err) {
+    // The last-execution column is a cosmetic enrichment — it must never take the
+    // whole list down. Fail soft: log and render the list without it.
+    logger.warn('process definitions last-execution projection failed', {
+      error: err instanceof Error ? err.message : String(err),
+    })
+    rows = []
+  }
+  const byDefinition = new Map(rows.map((row) => [row.process_definition_id, row]))
+  for (const item of items) {
+    const row = typeof item.id === 'string' ? byDefinition.get(item.id) : undefined
+    item.last_execution = row
+      ? {
+          status: row.status,
+          completed_at:
+            row.completed_at instanceof Date
+              ? row.completed_at.toISOString()
+              : row.completed_at ?? null,
+        }
+      : null
+  }
+}
+
+/**
+ * Attaches what the BOUND WORKFLOW knows about each definition: whether it is one
+ * this process generated, the agent config inside it, and the execution grant.
+ *
+ * None of it is stored on the definition. The workflow is the single source of
+ * truth for its own graph and its own execution identity, so the form reads them
+ * back from there — a shadow copy here would silently drift the moment someone
+ * edited the workflow in the Studio.
+ */
+export async function attachWorkflowFacts(
+  container: CrudCtx['container'],
+  em: EntityManager,
+  scope: { tenantId: string; organizationId: string },
+  items: Array<Record<string, unknown>>,
+): Promise<void> {
+  const workflowIds = Array.from(
+    new Set(
+      items
+        .map((item) => (typeof item.workflow_id === 'string' ? item.workflow_id : null))
+        .filter((id): id is string => !!id),
+    ),
+  )
+  const facts = await readWorkflowFacts(container, em, { ...scope, workflowIds })
+  for (const item of items) {
+    const id = typeof item.id === 'string' ? item.id : null
+    const workflowId = typeof item.workflow_id === 'string' ? item.workflow_id : null
+    const fact = workflowId ? facts.get(workflowId) : undefined
+    // The MODE is derivable without reading anything: a definition bound to the
+    // workflow id it would generate is in single-agent mode.
+    item.workflow_mode = id && workflowId === generatedWorkflowId(id) ? 'single_agent' : 'workflow'
+    item.single_agent = fact?.singleAgent ?? null
+    item.granted_features = fact?.grantedFeatures ?? []
+  }
+}
+
+const crud = makeCrudRoute<
+  ProcessDefinitionCreateInput,
+  ProcessDefinitionUpdateInput,
+  z.infer<typeof processDefinitionListQuerySchema>
+>({
   metadata: routeMetadata,
   orm: {
-    entity: AgentProcess,
+    entity: ProcessDefinition,
     idField: 'id',
     orgField: 'organizationId',
     tenantField: 'tenantId',
+    softDeleteField: 'deletedAt',
   },
   indexer: { entityType: ENTITY_TYPE },
   list: {
-    schema: processListQuerySchema,
+    schema: processDefinitionListQuerySchema,
     entityId: ENTITY_TYPE,
+    defaultSort: { field: 'created_at', dir: 'desc' },
     fields: [
       'id',
-      'process_id',
+      'name',
+      'description',
       'workflow_id',
-      'workflow_version',
-      'subject_type',
-      'subject_id',
-      'subject_label',
-      'subject_title',
-      'subject_value_minor',
-      'subject_fraud',
-      'subject_facets',
-      'status',
-      'current_stage',
-      'agent_ids',
-      'cost_minor',
-      'currency',
-      'run_count',
-      'pending_proposal_count',
-      'assignee_user_id',
-      'team_id',
-      'waiting_since',
-      'opened_at',
-      'last_activity_at',
+      'input_defaults',
+      'input_schema',
+      'outcome_schema',
+      'triggers',
+      'milestones',
+      'ui_metadata',
+      'enabled',
       'organization_id',
       'tenant_id',
       'created_at',
       'updated_at',
     ],
     sortFieldMap: {
-      age: 'opened_at',
-      openedAt: 'opened_at',
-      cost: 'cost_minor',
-      value: 'subject_value_minor',
-      lastActivity: 'last_activity_at',
-      status: 'status',
+      name: 'name',
+      enabled: 'enabled',
       createdAt: 'created_at',
       updatedAt: 'updated_at',
     },
-    defaultSort: { field: 'created_at', dir: 'desc' },
     buildFilters: async (query) => {
       const filters: Record<string, unknown> = {}
       if (query.id) filters.id = { $eq: query.id }
-      if (query.processId) filters.process_id = { $eq: query.processId }
-      if (query.status) filters.status = { $eq: query.status }
-      if (query.subjectType) filters.subject_type = { $eq: query.subjectType }
-      if (query.q) filters.subject_label = { $ilike: buildIlikeTerm(query.q.trim()) }
-      switch (query.scope) {
-        case 'needs_decision':
-          filters.status = { $in: NEEDS_DECISION_STATUSES }
-          break
-        case 'stuck_24h':
-          filters.waiting_since = { $lte: new Date(Date.now() - STUCK_MS).toISOString() }
-          break
-        case 'high_value':
-          filters.subject_value_minor = { $gte: HIGH_VALUE_MINOR }
-          break
-        case 'fraud_flagged':
-          filters.subject_fraud = { $eq: true }
-          break
-        default:
-          break
-      }
+      if (query.workflowId) filters.workflow_id = { $eq: query.workflowId }
+      if (typeof query.enabled === 'boolean') filters.enabled = { $eq: query.enabled }
       return filters
+    },
+  },
+  create: {
+    schema: createSchemaWithSemantics,
+    mapToEntity: (input, ctx) => {
+      const scope = requireScope(ctx)
+      return {
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        name: input.name,
+        description: input.description ?? null,
+        // In single-agent mode the real id is stamped by the after-hook once the
+        // workflow exists; a placeholder here would be a workflow nothing can start.
+        workflowId: input.workflowMode === 'workflow' ? (input.workflowId as string) : '',
+        inputDefaults: input.inputDefaults ?? null,
+        inputSchema: input.inputSchema ?? null,
+        outcomeSchema: input.outcomeSchema ?? null,
+        triggers: input.triggers ?? [],
+        milestones: input.milestones ?? [],
+        uiMetadata: input.uiMetadata ?? null,
+        enabled: input.enabled ?? true,
+        createdBy: ctx.auth?.sub ?? null,
+      }
+    },
+    response: (entity) => ({ id: String((entity as { id: string }).id) }),
+  },
+  update: {
+    schema: updateSchemaWithSemantics,
+    getId: (input) => input.id,
+    applyToEntity: (entity, input) => {
+      const row = entity as ProcessDefinition
+      if (input.name !== undefined) row.name = input.name
+      if (input.description !== undefined) row.description = input.description ?? null
+      if (input.workflowMode === 'workflow' && input.workflowId) row.workflowId = input.workflowId
+      if (input.inputDefaults !== undefined) row.inputDefaults = input.inputDefaults ?? null
+      if (input.inputSchema !== undefined) row.inputSchema = input.inputSchema ?? null
+      if (input.outcomeSchema !== undefined) row.outcomeSchema = input.outcomeSchema ?? null
+      if (input.triggers !== undefined) row.triggers = input.triggers
+      if (input.milestones !== undefined) row.milestones = input.milestones
+      if (input.uiMetadata !== undefined) row.uiMetadata = input.uiMetadata ?? null
+      if (input.enabled !== undefined) row.enabled = input.enabled
+    },
+    response: (entity) => {
+      const updatedAt = (entity as ProcessDefinition).updatedAt
+      return {
+        ok: true,
+        updatedAt: updatedAt instanceof Date ? updatedAt.toISOString() : null,
+      }
+    },
+  },
+  del: { idFrom: 'query', softDelete: true },
+  hooks: {
+    afterList: async (payload, ctx) => {
+      const organizationId = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
+      const tenantId = ctx.auth?.tenantId ?? null
+      const items = Array.isArray((payload as { items?: unknown }).items)
+        ? ((payload as { items: Array<Record<string, unknown>> }).items)
+        : []
+      if (!organizationId || !tenantId || items.length === 0) return
+      const em = (ctx.container.resolve('em') as EntityManager).fork()
+      await attachLastExecutionProjection(em, { tenantId, organizationId }, items)
+      await attachWorkflowFacts(ctx.container, em, { tenantId, organizationId }, items)
+    },
+    afterCreate: async (entity, ctx) => {
+      const row = entity as ProcessDefinition
+      await bindWorkflowAndSchedule(row, ctx, {
+        workflowMode: ctx.input.workflowMode,
+        singleAgent: ctx.input.singleAgent,
+        grantedFeatures: ctx.input.grantedFeatures,
+      })
+      await emitAgentOrchestratorEvent('agent_orchestrator.process_definition.created', {
+        id: row.id,
+        name: row.name,
+        workflowId: row.workflowId,
+        tenantId: row.tenantId,
+        organizationId: row.organizationId,
+      }, { persistent: true })
+    },
+    afterUpdate: async (entity, ctx) => {
+      const row = entity as ProcessDefinition
+      await bindWorkflowAndSchedule(row, ctx, {
+        workflowMode: ctx.input.workflowMode,
+        singleAgent: ctx.input.singleAgent,
+        grantedFeatures: ctx.input.grantedFeatures,
+      })
+      await emitAgentOrchestratorEvent('agent_orchestrator.process_definition.updated', {
+        id: row.id,
+        name: row.name,
+        workflowId: row.workflowId,
+        tenantId: row.tenantId,
+        organizationId: row.organizationId,
+      }, { persistent: true })
+    },
+    afterDelete: async (id, ctx) => {
+      const em = (ctx.container.resolve('em') as EntityManager).fork()
+      const row = await em.findOne(ProcessDefinition, { id })
+      if (!row) return
+      await syncProcessSchedule(ctx.container, row)
+      // Only a workflow THIS definition generated is removed; a hand-authored one
+      // outlives the process that pointed at it.
+      await removeGeneratedWorkflow(ctx.container, em, {
+        processDefinitionId: row.id,
+        workflowId: row.workflowId,
+        tenantId: row.tenantId,
+        organizationId: row.organizationId,
+      })
+      await emitAgentOrchestratorEvent('agent_orchestrator.process_definition.deleted', {
+        id: row.id,
+        tenantId: row.tenantId,
+        organizationId: row.organizationId,
+      }, { persistent: true })
     },
   },
 })
 
 export const GET = crud.GET
+export const POST = crud.POST
+export const PUT = crud.PUT
+export const DELETE = crud.DELETE
 
-const processListItemSchema = z.object({
+const processDefinitionListItemSchema = z.object({
   id: z.string().uuid(),
-  process_id: z.string().uuid(),
-  workflow_id: z.string().nullable().optional(),
-  workflow_version: z.string().nullable().optional(),
-  subject_type: z.string().nullable().optional(),
-  subject_id: z.string().nullable().optional(),
-  subject_label: z.string().nullable().optional(),
-  subject_title: z.string().nullable().optional(),
-  subject_value_minor: z.number().nullable().optional(),
-  subject_fraud: z.boolean().nullable().optional(),
-  subject_facets: z.unknown().nullable().optional(),
-  status: z.string(),
-  current_stage: z.string().nullable().optional(),
-  agent_ids: z.array(z.string()).nullable().optional(),
-  cost_minor: z.number().nullable().optional(),
-  currency: z.string().nullable().optional(),
-  run_count: z.number().nullable().optional(),
-  pending_proposal_count: z.number().nullable().optional(),
-  assignee_user_id: z.string().uuid().nullable().optional(),
-  team_id: z.string().uuid().nullable().optional(),
-  waiting_since: z.string().nullable().optional(),
-  opened_at: z.string().nullable().optional(),
-  last_activity_at: z.string().nullable().optional(),
+  name: z.string(),
+  description: z.string().nullable().optional(),
+  workflow_id: z.string(),
+  input_defaults: z.unknown().nullable().optional(),
+  input_schema: z.unknown().nullable().optional(),
+  outcome_schema: z.unknown().nullable().optional(),
+  triggers: z.array(processTriggerSchema).nullable().optional(),
+  milestones: z.array(processMilestoneSchema).nullable().optional(),
+  ui_metadata: z.unknown().nullable().optional(),
+  enabled: z.boolean().optional(),
   organization_id: z.string().uuid().nullable().optional(),
   tenant_id: z.string().uuid().nullable().optional(),
   created_at: z.string().nullable().optional(),
   updated_at: z.string().nullable().optional(),
+  last_execution: z
+    .object({ status: z.string(), completed_at: z.string().nullable() })
+    .nullable()
+    .optional(),
+  /** Derived, not stored: `single_agent` when the bound workflow is the one this definition generates. */
+  workflow_mode: z.enum(['single_agent', 'workflow']).optional(),
+  /** Read back from the generated workflow — the source of truth for it. Null once the workflow has been extended by hand. */
+  single_agent: processSingleAgentSchema.nullable().optional(),
+  /** The bound workflow's execution grant, read back from it. */
+  granted_features: z.array(z.string()).nullable().optional(),
 })
 
 export const openApi = createAgentOrchestratorCrudOpenApi({
-  resourceName: 'Process',
+  resourceName: 'ProcessDefinition',
   pluralName: 'Processes',
-  querySchema: processListQuerySchema,
-  listResponseSchema: createPagedListResponseSchema(processListItemSchema),
+  querySchema: processDefinitionListQuerySchema,
+  listResponseSchema: createPagedListResponseSchema(processDefinitionListItemSchema),
+  create: {
+    schema: processDefinitionCreateSchema,
+    responseSchema: defaultCreateResponseSchema,
+    description:
+      'Creates a process definition. Every process points at a workflow: `workflowMode: "workflow"` binds an existing one, `"single_agent"` generates a real START → INVOKE_AGENT → END workflow owned by this definition and editable in the Studio. `grantedFeatures` is applied to that workflow, which owns the least-privilege execution identity every run acts as. Registers a scheduler job for each declared `{ kind: "schedule" }` trigger.',
+  },
+  update: {
+    schema: processDefinitionUpdateSchema,
+    responseSchema: defaultOkResponseSchema,
+    description:
+      'Updates a process definition (optimistic-locked on updatedAt). Regenerates the bound workflow in single-agent mode and re-syncs every declared schedule trigger.',
+  },
+  del: {
+    schema: z.object({ id: z.string().uuid() }),
+    responseSchema: defaultOkResponseSchema,
+    description:
+      'Soft-deletes a process definition, unregisters every schedule it registered, and removes the workflow it generated (a hand-authored workflow is left alone).',
+  },
 })

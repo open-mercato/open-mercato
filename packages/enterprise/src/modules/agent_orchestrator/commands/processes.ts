@@ -5,16 +5,16 @@ import { z } from 'zod'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { AgentProcessDefinition, AgentProcessRun } from '../data/entities'
+import { ProcessDefinition, ProcessInstance } from '../data/entities'
 import { emitAgentOrchestratorEvent } from '../events'
-import { AGENT_ORCHESTRATOR_PROCESS_RUN_QUEUE, getAgentOrchestratorQueue } from '../lib/queue'
+import { AGENT_ORCHESTRATOR_PROCESS_EXECUTION_QUEUE, getAgentOrchestratorQueue } from '../lib/queue'
 import { jsonSchemaToZod, type JsonSchemaNode } from '../lib/sdk/outcomeSchema'
 import { processRunTriggeredBySchema } from '../data/validators'
 import { allowsManualEntry } from '../lib/tasks/triggers'
 
-const logger = createLogger('agent_orchestrator').child({ command: 'process-definitions' })
+const logger = createLogger('agent_orchestrator').child({ command: 'processes' })
 
-const enqueueProcessRunSchema = z.object({
+const startProcessExecutionSchema = z.object({
   tenantId: z.string().uuid(),
   organizationId: z.string().uuid(),
   processDefinitionId: z.string().uuid(),
@@ -25,17 +25,17 @@ const enqueueProcessRunSchema = z.object({
   /** WHICH declared trigger fired: `{ kind, ref? }` (see `processRunTriggeredBySchema`). */
   triggeredBy: processRunTriggeredBySchema,
 })
-export type EnqueueProcessRunInput = z.infer<typeof enqueueProcessRunSchema>
+export type StartProcessExecutionInput = z.infer<typeof startProcessExecutionSchema>
 
-export type EnqueueProcessRunResult = { processRunId: string; status: 'running'; deduplicated: boolean }
+export type StartProcessExecutionResult = { executionId: string; deduplicated: boolean }
 
 /**
- * Validates run input against the definition's optional `inputSchema` (the
+ * Validates start input against the definition's optional `inputSchema` (the
  * OUTCOME JSON-Schema subset, compiled to Zod). An uncompilable schema is a
  * definition-config error, not a caller error — logged and skipped so a bad
  * schema can never brick an otherwise valid definition.
  */
-function validateAgainstInputSchema(definition: AgentProcessDefinition, input: Record<string, unknown>): void {
+function validateAgainstInputSchema(definition: ProcessDefinition, input: Record<string, unknown>): void {
   if (!definition.inputSchema || typeof definition.inputSchema !== 'object') return
   let compiled
   try {
@@ -56,9 +56,9 @@ function validateAgainstInputSchema(definition: AgentProcessDefinition, input: R
   }
 }
 
-/** Merge run-time input over the definition's defaults (input wins per key). */
-export function resolveProcessRunInput(
-  definition: AgentProcessDefinition,
+/** Merge start input over the definition's defaults (input wins per key). */
+export function resolveProcessInput(
+  definition: ProcessDefinition,
   input: Record<string, unknown> | undefined,
 ): Record<string, unknown> {
   const defaults =
@@ -69,23 +69,31 @@ export function resolveProcessRunInput(
 }
 
 /**
- * The single `/run` side effect all four trigger sources converge on: dedupe on
- * the idempotency key, insert the `AgentProcessRun(status='running')` ledger row,
- * emit `process_run.started` (clientBroadcast), and enqueue `{ processRunId }` onto
- * the always-async `agent-process-runs` queue. NOT undoable — triggering a run is
- * an action; mistakes are corrected through the underlying proposal/instance
- * disposition paths (spec §Commands & Events).
+ * The single side effect every trigger source converges on — manual, schedule,
+ * event and the external executions API alike. It does NOT start a workflow
+ * itself: it claims the idempotency key, records the business-facing execution
+ * row, and enqueues. The worker then starts the one and only durable execution,
+ * the `WorkflowInstance`.
+ *
+ * Claiming the key here rather than in the worker is what makes idempotency real:
+ * the partial unique index on `(organization_id, process_definition_id,
+ * idempotency_key)` rejects the losing insert BEFORE any workflow exists, so one
+ * key can never produce two instances no matter how many callers race.
+ *
+ * NOT undoable — starting an execution is an action; mistakes are corrected
+ * through the workflow instance's own cancellation and the proposal disposition
+ * paths.
  */
-export const enqueueProcessRunCommand: CommandHandler<EnqueueProcessRunInput, EnqueueProcessRunResult> = {
-  id: 'agent_orchestrator.processes.enqueueRun',
+export const startProcessExecutionCommand: CommandHandler<StartProcessExecutionInput, StartProcessExecutionResult> = {
+  id: 'agent_orchestrator.processes.startExecution',
   async execute(rawInput, ctx) {
-    const input = enqueueProcessRunSchema.parse(rawInput)
+    const input = startProcessExecutionSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const scope = { tenantId: input.tenantId, organizationId: input.organizationId }
 
     const definition = await findOneWithDecryption(
       em,
-      AgentProcessDefinition,
+      ProcessDefinition,
       { id: input.processDefinitionId, ...scope, deletedAt: null },
       undefined,
       scope,
@@ -99,69 +107,70 @@ export const enqueueProcessRunCommand: CommandHandler<EnqueueProcessRunInput, En
         error: 'This process declares no manual trigger — add one to start it by hand.',
       })
     }
-    if (!definition.executionPrincipalId) {
-      throw new CrudHttpError(409, { error: 'Process definition has no execution principal yet — retry shortly' })
-    }
 
-    const resolvedInput = resolveProcessRunInput(definition, input.input)
+    const resolvedInput = resolveProcessInput(definition, input.input)
     validateAgainstInputSchema(definition, resolvedInput)
 
     if (input.idempotencyKey) {
-      const existing = await em.findOne(AgentProcessRun, {
+      const existing = await em.findOne(ProcessInstance, {
         organizationId: input.organizationId,
         processDefinitionId: definition.id,
         idempotencyKey: input.idempotencyKey,
       })
-      if (existing) {
-        return { processRunId: existing.id, status: 'running', deduplicated: true }
-      }
+      if (existing) return { executionId: existing.id, deduplicated: true }
     }
 
-    const run = em.create(AgentProcessRun, {
+    const now = new Date()
+    const execution = em.create(ProcessInstance, {
       tenantId: input.tenantId,
       organizationId: input.organizationId,
       processDefinitionId: definition.id,
-      targetType: definition.targetType,
-      targetAgentId: definition.targetAgentId ?? null,
-      targetWorkflowId: definition.targetWorkflowId ?? null,
+      workflowId: definition.workflowId,
       status: 'running',
       input: resolvedInput,
       sourceEntityType: input.sourceEntityType ?? null,
       sourceEntityId: input.sourceEntityId ?? null,
       triggeredBy: input.triggeredBy,
       idempotencyKey: input.idempotencyKey ?? null,
-      startedAt: new Date(),
+      openedAt: now,
+      lastActivityAt: now,
     })
-    em.persist(run)
+    em.persist(execution)
     try {
       await em.flush()
     } catch (error) {
       // Two racing calls with the same idempotency key: the partial unique index
       // rejects the losing insert — return the winner's row instead of erroring.
       if (input.idempotencyKey) {
-        const winner = await em.findOne(AgentProcessRun, {
+        const winner = await em.findOne(ProcessInstance, {
           organizationId: input.organizationId,
           processDefinitionId: definition.id,
           idempotencyKey: input.idempotencyKey,
         })
-        if (winner) return { processRunId: winner.id, status: 'running', deduplicated: true }
+        if (winner) return { executionId: winner.id, deduplicated: true }
       }
       throw error
     }
 
-    await emitAgentOrchestratorEvent('agent_orchestrator.process_run.started', {
-      id: run.id,
-      processDefinitionId: definition.id,
-      targetType: run.targetType,
-      triggeredBy: run.triggeredBy,
-      tenantId: run.tenantId,
-      organizationId: run.organizationId,
-    }, { persistent: true })
+    await emitAgentOrchestratorEvent(
+      'agent_orchestrator.process.execution.started',
+      {
+        id: execution.id,
+        processDefinitionId: definition.id,
+        workflowId: definition.workflowId,
+        triggeredBy: execution.triggeredBy,
+        tenantId: execution.tenantId,
+        organizationId: execution.organizationId,
+      },
+      { persistent: true },
+    )
 
-    await getAgentOrchestratorQueue(AGENT_ORCHESTRATOR_PROCESS_RUN_QUEUE).enqueue({ processRunId: run.id })
+    await getAgentOrchestratorQueue(AGENT_ORCHESTRATOR_PROCESS_EXECUTION_QUEUE).enqueue({
+      executionId: execution.id,
+    })
 
-    return { processRunId: run.id, status: 'running', deduplicated: false }
+    return { executionId: execution.id, deduplicated: false }
   },
 }
 
-registerCommand(enqueueProcessRunCommand)
+registerCommand(startProcessExecutionCommand)

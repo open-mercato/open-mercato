@@ -667,6 +667,20 @@ export const workflowStepSchema = z.object({
   preConditions: z.array(startPreConditionSchema).optional(),
   // What happens when this step fails and no error route is wired (spec 5.9).
   errorDirective: stepErrorDirectiveSchema.optional(),
+  /**
+   * The BUSINESS milestone this step announces when it completes.
+   *
+   * An annotation rather than a step type, deliberately: a milestone is not a
+   * step, and modelling it as one would make "the stage reached after the join"
+   * unexpressible without a no-op node between the join and whatever follows it.
+   * Any step can carry one — an AUTOMATED step, a PARALLEL_JOIN, a USER_TASK —
+   * and the engine emits `workflows.instance.milestone_reached` on completion.
+   *
+   * The key belongs to a vocabulary the consuming module declares; this module
+   * only bounds its shape. A key nobody declares is a warning THERE, never an
+   * error here — the engine emits what the author wrote.
+   */
+  milestone: z.string().min(1).max(100).regex(/^[a-z0-9_]+$/, 'Milestone key must contain only lowercase letters, digits and underscores').optional(),
   // Visual-editor node coordinate persisted in the jsonb definition so a saved
   // graph re-opens exactly as the author arranged it. Additive/optional — legacy
   // and code-authored definitions omit it and auto-arrange on load.

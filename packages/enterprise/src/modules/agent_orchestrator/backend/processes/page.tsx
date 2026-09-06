@@ -64,7 +64,7 @@ function listPath(
     params.set('sortField', sort.field)
     params.set('sortDir', sort.dir)
   }
-  return `/api/agent_orchestrator/processes?${params.toString()}`
+  return `/api/agent_orchestrator/executions?${params.toString()}`
 }
 
 export default function ProcessesListPage() {

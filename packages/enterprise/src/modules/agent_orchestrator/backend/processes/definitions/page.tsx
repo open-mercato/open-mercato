@@ -34,8 +34,10 @@ import { formatRelativeAge } from '../../../components/types'
 import { useCoalescedReload } from '../../../components/useCoalescedReload'
 import {
   processMilestonesSchema,
+  processSingleAgentSchema,
   processTriggersSchema,
   type ProcessMilestone,
+  type ProcessSingleAgent,
   type ProcessTrigger,
 } from '../../../data/validators'
 import { parseProcessTriggers, scheduleTriggers, eventTriggers, manualTrigger } from '../../../lib/tasks/triggers'
@@ -48,41 +50,54 @@ import {
   unknownFeatureIds,
 } from './formHelpers'
 
-const ENTITY_ID = 'agent_orchestrator:agent_process_definition'
+const ENTITY_ID = 'agent_orchestrator:process_definition'
 
-type ProcessRunStatus = 'running' | 'completed' | 'failed'
+type ProcessLastExecution = { status: string; completedAt: string | null }
 
-type ProcessLastRun = { status: ProcessRunStatus; finishedAt: string | null }
-
-const lastRunVariant: StatusMap<ProcessRunStatus> = {
+/**
+ * The execution status is DERIVED from the workflow instance, so the vocabulary is
+ * the projection's, not a ledger's. An unknown value renders neutral rather than
+ * being coerced into one of these — a status this list does not know is not a
+ * failure.
+ */
+const lastExecutionVariant: StatusMap<string> = {
   running: 'info',
+  waiting_on_you: 'warning',
+  question_open: 'warning',
+  docs_requested: 'warning',
+  fraud_hold: 'warning',
+  auto_completing: 'info',
+  auto_completed: 'success',
   completed: 'success',
   failed: 'error',
+  cancelled: 'neutral',
 }
 
-function mapLastRun(raw: unknown): ProcessLastRun | null {
+function mapLastExecution(raw: unknown): ProcessLastExecution | null {
   if (!raw || typeof raw !== 'object') return null
   const record = raw as Record<string, unknown>
   const status = record.status
-  if (status !== 'running' && status !== 'completed' && status !== 'failed') return null
-  const finished = record.finished_at ?? record.finishedAt
-  return { status, finishedAt: typeof finished === 'string' ? finished : null }
+  if (typeof status !== 'string') return null
+  const completed = record.completed_at ?? record.completedAt
+  return { status, completedAt: typeof completed === 'string' ? completed : null }
 }
 
 type ProcessDefinitionRow = {
   id: string
   name: string
   description: string | null
-  targetType: 'agent' | 'workflow'
-  targetAgentId: string | null
-  targetWorkflowId: string | null
+  /** Derived from the bound workflow id, not stored — see the list route. */
+  workflowMode: 'single_agent' | 'workflow'
+  workflowId: string | null
+  /** Read back from the generated workflow; null once it has been extended by hand. */
+  singleAgent: ProcessSingleAgent | null
   inputDefaults: unknown
   inputSchema: unknown
   grantedFeatures: string[]
   triggers: ProcessTrigger[]
   milestones: ProcessMilestone[]
   enabled: boolean
-  lastRun: ProcessLastRun | null
+  lastExecution: ProcessLastExecution | null
   updatedAt: string | null
 }
 
@@ -90,9 +105,10 @@ type FormValues = {
   id?: string
   name: string
   description?: string
-  targetType: 'agent' | 'workflow'
-  targetAgentId?: string
-  targetWorkflowId?: string
+  workflowMode: 'single_agent' | 'workflow'
+  agentId?: string
+  workflowId?: string
+  autoApproveThreshold?: string
   inputDefaultsJson?: string
   inputSchemaJson?: string
   grantedFeaturesText?: string
@@ -100,6 +116,25 @@ type FormValues = {
   milestones: ProcessMilestone[]
   enabled: boolean
   updatedAt?: string | null
+}
+
+/**
+ * The disposition rule a single-agent process runs with, as one choice instead of
+ * a threshold plus a margin plus a boolean. `ask` is the safe default: a process
+ * that mutates the domain without anyone looking is a decision, not a default.
+ */
+const AUTO_APPROVE_CHOICES = ['ask', '0.8', '0.9', '0.95'] as const
+
+function parseOnResult(threshold: string | undefined): ProcessSingleAgent['onResult'] {
+  if (!threshold || threshold === 'ask') return { alwaysAsk: true }
+  const value = Number.parseFloat(threshold)
+  if (!Number.isFinite(value)) return { alwaysAsk: true }
+  return { autoApproveThreshold: value, autoApproveMargin: 0 }
+}
+
+function formatOnResult(onResult: ProcessSingleAgent['onResult'] | undefined): string {
+  if (!onResult || 'alwaysAsk' in onResult) return 'ask'
+  return String(onResult.autoApproveThreshold)
 }
 
 function readString(record: Record<string, unknown>, ...keys: string[]): string {
@@ -114,13 +149,15 @@ function mapRow(item: Record<string, unknown>): ProcessDefinitionRow | null {
   const id = readString(item, 'id')
   if (!id) return null
   const grantedRaw = item.granted_features ?? item.grantedFeatures
+  const singleAgentRaw = item.single_agent ?? item.singleAgent
+  const parsedSingleAgent = singleAgentRaw ? processSingleAgentSchema.safeParse(singleAgentRaw) : null
   return {
     id,
     name: readString(item, 'name'),
     description: typeof item.description === 'string' ? item.description : null,
-    targetType: readString(item, 'target_type', 'targetType') === 'workflow' ? 'workflow' : 'agent',
-    targetAgentId: readString(item, 'target_agent_id', 'targetAgentId') || null,
-    targetWorkflowId: readString(item, 'target_workflow_id', 'targetWorkflowId') || null,
+    workflowMode: readString(item, 'workflow_mode', 'workflowMode') === 'single_agent' ? 'single_agent' : 'workflow',
+    workflowId: readString(item, 'workflow_id', 'workflowId') || null,
+    singleAgent: parsedSingleAgent?.success ? parsedSingleAgent.data : null,
     inputDefaults: item.input_defaults ?? item.inputDefaults ?? null,
     inputSchema: item.input_schema ?? item.inputSchema ?? null,
     grantedFeatures: Array.isArray(grantedRaw)
@@ -129,7 +166,7 @@ function mapRow(item: Record<string, unknown>): ProcessDefinitionRow | null {
     triggers: parseProcessTriggers(item.triggers),
     milestones: parseProcessMilestones(item.milestones),
     enabled: (item.enabled ?? true) !== false,
-    lastRun: mapLastRun(item.last_run ?? item.lastRun),
+    lastExecution: mapLastExecution(item.last_execution ?? item.lastExecution),
     updatedAt: readString(item, 'updated_at', 'updatedAt') || null,
   }
 }
@@ -174,17 +211,17 @@ function FeaturesPickerField({
     () => parseGrantedFeaturesText(typeof value === 'string' ? value : ''),
     [value],
   )
-  const targetType = values?.targetType === 'workflow' ? ('workflow' as const) : ('agent' as const)
+  const workflowMode = values?.workflowMode === 'single_agent' ? ('single_agent' as const) : ('workflow' as const)
 
   React.useEffect(() => {
     if (isEdit || prefilledRef.current) return
-    const prefill = resolveFeaturePrefill(targetType, features)
+    const prefill = resolveFeaturePrefill(features)
     if (prefill) {
       prefilledRef.current = true
       setValue(prefill.join('\n'))
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [targetType])
+  }, [workflowMode])
 
   const unknown = React.useMemo(
     () => new Set(unknownFeatureIds(features, catalog.map((item) => item.id))),
@@ -262,7 +299,7 @@ function FeaturesPickerField({
           })}
         </div>
       ) : null}
-      {targetType === 'workflow' && features.length === 0 ? (
+      {features.length === 0 ? (
         <div
           role="status"
           className="flex items-start gap-2 rounded-md border border-status-warning-border bg-status-warning-bg px-3 py-2 text-xs text-status-warning-text"
@@ -340,7 +377,7 @@ export default function ProcessDefinitionsPage() {
     if (!opts?.silent) setIsLoading(true)
     setError(null)
     const call = await apiCall<{ items?: Array<Record<string, unknown>> }>(
-      '/api/agent_orchestrator/process-definitions?pageSize=100',
+      '/api/agent_orchestrator/processes?pageSize=100',
       undefined,
       { fallback: { items: [] } },
     )
@@ -364,7 +401,7 @@ export default function ProcessDefinitionsPage() {
   const coalescedReload = useCoalescedReload(
     React.useCallback(() => { void load({ silent: true }) }, [load]),
   )
-  useAppEvent('agent_orchestrator.process_run.*', () => {
+  useAppEvent('agent_orchestrator.process.execution.*', () => {
     coalescedReload()
   })
 
@@ -428,12 +465,13 @@ export default function ProcessDefinitionsPage() {
     try {
       await withScopedApiRequestHeaders(
         buildOptimisticLockHeader(row.updatedAt),
-        () => updateCrud('agent_orchestrator/process-definitions', {
+        () => updateCrud('agent_orchestrator/processes', {
           id: row.id,
           name: row.name,
-          targetType: row.targetType,
-          targetAgentId: row.targetAgentId ?? undefined,
-          targetWorkflowId: row.targetWorkflowId ?? undefined,
+          workflowMode: row.workflowMode,
+          workflowId: row.workflowId ?? undefined,
+          singleAgent: row.singleAgent ?? undefined,
+          grantedFeatures: row.grantedFeatures,
           triggers: row.triggers,
           enabled: next,
         }),
@@ -452,9 +490,10 @@ export default function ProcessDefinitionsPage() {
         .object({
           name: z.string().min(1, 'agent_orchestrator.processDefinitions.form.errors.nameRequired'),
           description: z.string().optional(),
-          targetType: z.enum(['agent', 'workflow']),
-          targetAgentId: z.string().optional(),
-          targetWorkflowId: z.string().optional(),
+          workflowMode: z.enum(['single_agent', 'workflow']),
+          agentId: z.string().optional(),
+          workflowId: z.string().optional(),
+          autoApproveThreshold: z.string().optional(),
           inputDefaultsJson: z.string().optional(),
           inputSchemaJson: z.string().optional(),
           grantedFeaturesText: z.string().optional(),
@@ -463,14 +502,20 @@ export default function ProcessDefinitionsPage() {
           enabled: z.boolean(),
         })
         .superRefine((data, ctx) => {
-          // Milestones map to workflow steps, so declaring them on an
-          // agent-targeted definition is an ERROR, not a silent no-op - the
-          // same rule the server-side create/update schemas enforce.
-          if (data.targetType !== 'workflow' && data.milestones.length > 0) {
+          // Every process points at a workflow: name one, or name the agent the
+          // generated one runs. The server-side schema enforces the same rule.
+          if (data.workflowMode === 'single_agent' && !data.agentId?.trim()) {
             ctx.addIssue({
               code: z.ZodIssueCode.custom,
-              path: ['milestones'],
-              message: 'agent_orchestrator.processDefinitions.form.errors.milestonesAgentTarget',
+              path: ['agentId'],
+              message: 'agent_orchestrator.processDefinitions.form.errors.agentRequired',
+            })
+          }
+          if (data.workflowMode === 'workflow' && !data.workflowId?.trim()) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ['workflowId'],
+              message: 'agent_orchestrator.processDefinitions.form.errors.workflowRequired',
             })
           }
           // Invalid cron is rejected AT SAVE, not discovered at fire time. The
@@ -491,31 +536,47 @@ export default function ProcessDefinitionsPage() {
       { id: 'name', label: t('agent_orchestrator.processDefinitions.form.name'), type: 'text', required: true },
       { id: 'description', label: t('agent_orchestrator.processDefinitions.form.description'), type: 'textarea' },
       {
-        id: 'targetType',
-        label: t('agent_orchestrator.processDefinitions.form.targetType'),
+        id: 'workflowMode',
+        label: t('agent_orchestrator.processDefinitions.form.workflowMode'),
         type: 'select',
+        description: t('agent_orchestrator.processDefinitions.form.workflowModeHint'),
         options: [
-          { value: 'agent', label: t('agent_orchestrator.processDefinitions.target.agent') },
-          { value: 'workflow', label: t('agent_orchestrator.processDefinitions.target.workflow') },
+          { value: 'single_agent', label: t('agent_orchestrator.processDefinitions.mode.singleAgent') },
+          { value: 'workflow', label: t('agent_orchestrator.processDefinitions.mode.workflow') },
         ],
       },
       {
-        id: 'targetAgentId',
-        label: t('agent_orchestrator.processDefinitions.form.targetAgent'),
+        id: 'agentId',
+        label: t('agent_orchestrator.processDefinitions.form.agent'),
         type: 'combobox',
+        description: t('agent_orchestrator.processDefinitions.form.agentHint'),
         options: agents,
         seedOptions: agents,
         allowCustomValues: true,
-        visibleWhen: { field: 'targetType', equals: 'agent' },
+        visibleWhen: { field: 'workflowMode', equals: 'single_agent' },
       },
       {
-        id: 'targetWorkflowId',
-        label: t('agent_orchestrator.processDefinitions.form.targetWorkflow'),
+        id: 'autoApproveThreshold',
+        label: t('agent_orchestrator.processDefinitions.form.autoApprove'),
+        type: 'select',
+        description: t('agent_orchestrator.processDefinitions.form.autoApproveHint'),
+        visibleWhen: { field: 'workflowMode', equals: 'single_agent' },
+        options: AUTO_APPROVE_CHOICES.map((choice) => ({
+          value: choice,
+          label:
+            choice === 'ask'
+              ? t('agent_orchestrator.processDefinitions.form.autoApproveAsk')
+              : t('agent_orchestrator.processDefinitions.form.autoApproveAt', undefined, { threshold: choice }),
+        })),
+      },
+      {
+        id: 'workflowId',
+        label: t('agent_orchestrator.processDefinitions.form.workflow'),
         type: 'combobox',
         options: workflows,
         seedOptions: workflows,
         allowCustomValues: true,
-        visibleWhen: { field: 'targetType', equals: 'workflow' },
+        visibleWhen: { field: 'workflowMode', equals: 'workflow' },
       },
       {
         id: 'inputDefaultsJson',
@@ -557,13 +618,11 @@ export default function ProcessDefinitionsPage() {
         label: t('agent_orchestrator.processDefinitions.milestones.title'),
         type: 'custom',
         description: t('agent_orchestrator.processDefinitions.milestones.description'),
-        visibleWhen: { field: 'targetType', equals: 'workflow' },
         component: ({ value, values, setValue }) => (
           <MilestoneEditor
             value={Array.isArray(value) ? (value as ProcessMilestone[]) : []}
             onChange={(next) => setValue(next)}
-            targetType={values?.targetType === 'workflow' ? 'workflow' : 'agent'}
-            workflowId={typeof values?.targetWorkflowId === 'string' ? values.targetWorkflowId : null}
+            workflowId={typeof values?.workflowId === 'string' ? values.workflowId : null}
             t={t}
           />
         ),
@@ -588,16 +647,20 @@ export default function ProcessDefinitionsPage() {
         ),
       },
       {
-        accessorKey: 'targetType',
-        header: t('agent_orchestrator.processDefinitions.list.col.target'),
+        accessorKey: 'workflowMode',
+        header: t('agent_orchestrator.processDefinitions.list.col.runs'),
         cell: ({ row }) => {
-          const isAgent = row.original.targetType === 'agent'
-          const Icon = isAgent ? Bot : WorkflowIcon
-          const target = isAgent ? row.original.targetAgentId : row.original.targetWorkflowId
+          // Both modes run a workflow; what differs is who wrote it. Naming the
+          // agent for a generated one is what the reader actually wants to know.
+          const isSingleAgent = row.original.workflowMode === 'single_agent'
+          const Icon = isSingleAgent ? Bot : WorkflowIcon
+          const label = isSingleAgent
+            ? row.original.singleAgent?.agentId ?? row.original.workflowId
+            : row.original.workflowId
           return (
             <span className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-0.5 text-xs font-medium text-foreground">
               <Icon className="size-3.5 shrink-0 text-muted-foreground" />
-              <span className="truncate font-mono">{target ?? '—'}</span>
+              <span className="truncate font-mono">{label ?? '—'}</span>
             </span>
           )
         },
@@ -609,19 +672,19 @@ export default function ProcessDefinitionsPage() {
         cell: ({ row }) => <TriggerSummary triggers={row.original.triggers} t={t} />,
       },
       {
-        accessorKey: 'lastRun',
-        header: t('agent_orchestrator.processDefinitions.list.col.lastRun'),
+        accessorKey: 'lastExecution',
+        header: t('agent_orchestrator.processDefinitions.list.col.lastExecution'),
         enableSorting: false,
         cell: ({ row }) => {
-          const lastRun = row.original.lastRun
-          if (!lastRun) {
-            return <span className="text-xs text-muted-foreground">{t('agent_orchestrator.processDefinitions.list.lastRunNever')}</span>
+          const last = row.original.lastExecution
+          if (!last) {
+            return <span className="text-xs text-muted-foreground">{t('agent_orchestrator.processDefinitions.list.lastExecutionNever')}</span>
           }
-          const age = formatRelativeAge(lastRun.finishedAt)
+          const age = formatRelativeAge(last.completedAt)
           return (
             <span className="inline-flex items-center gap-1.5">
-              <StatusBadge variant={lastRunVariant[lastRun.status]}>
-                {t(`agent_orchestrator.processDefinitions.runs.status.${lastRun.status}`)}
+              <StatusBadge variant={lastExecutionVariant[last.status] ?? 'neutral'}>
+                {t(`agent_orchestrator.process.status.${last.status}`)}
               </StatusBadge>
               {age ? <span className="text-xs tabular-nums text-muted-foreground">{age}</span> : null}
             </span>
@@ -657,15 +720,17 @@ export default function ProcessDefinitionsPage() {
     return {
       name: values.name,
       description: values.description?.trim() ? values.description.trim() : undefined,
-      targetType: values.targetType,
-      targetAgentId: values.targetType === 'agent' ? values.targetAgentId : undefined,
-      targetWorkflowId: values.targetType === 'workflow' ? values.targetWorkflowId : undefined,
+      workflowMode: values.workflowMode,
+      workflowId: values.workflowMode === 'workflow' ? values.workflowId : undefined,
+      singleAgent:
+        values.workflowMode === 'single_agent' && values.agentId
+          ? { agentId: values.agentId, onResult: parseOnResult(values.autoApproveThreshold) }
+          : undefined,
       inputDefaults,
       inputSchema,
       grantedFeatures,
       triggers: values.triggers ?? [],
-      // An agent target has no steps to map, so the list is never sent for one.
-      milestones: values.targetType === 'workflow' ? values.milestones ?? [] : [],
+      milestones: values.milestones ?? [],
       enabled: values.enabled,
     }
   }
@@ -677,9 +742,10 @@ export default function ProcessDefinitionsPage() {
           id: editing!.id,
           name: editing!.name,
           description: editing!.description ?? undefined,
-          targetType: editing!.targetType,
-          targetAgentId: editing!.targetAgentId ?? undefined,
-          targetWorkflowId: editing!.targetWorkflowId ?? undefined,
+          workflowMode: editing!.workflowMode,
+          agentId: editing!.singleAgent?.agentId ?? undefined,
+          workflowId: editing!.workflowId ?? undefined,
+          autoApproveThreshold: formatOnResult(editing!.singleAgent?.onResult),
           inputDefaultsJson: editing!.inputDefaults ? JSON.stringify(editing!.inputDefaults, null, 2) : '',
           inputSchemaJson: editing!.inputSchema ? JSON.stringify(editing!.inputSchema, null, 2) : '',
           grantedFeaturesText: editing!.grantedFeatures.join('\n'),
@@ -689,7 +755,8 @@ export default function ProcessDefinitionsPage() {
           updatedAt: editing!.updatedAt,
         }
       : {
-          targetType: 'agent',
+          workflowMode: 'single_agent',
+          autoApproveThreshold: 'ask',
           // A new definition can be started by hand unless the author says
           // otherwise — the same default the manual-trigger backfill gives every
           // definition that predates this phase.
@@ -716,21 +783,15 @@ export default function ProcessDefinitionsPage() {
               cancelHref="/backend/processes/definitions"
               disableOptimisticLock
               onSubmit={async (values) => {
-                const targetId = values.targetType === 'agent' ? values.targetAgentId : values.targetWorkflowId
-                if (!targetId?.trim()) {
-                  const message = t('agent_orchestrator.processDefinitions.form.errors.targetRequired')
-                  const fieldId = values.targetType === 'agent' ? 'targetAgentId' : 'targetWorkflowId'
-                  throw createCrudFormError(message, { [fieldId]: message })
-                }
                 const body = buildBody(values)
                 try {
                   if (isEdit) {
                     await withScopedApiRequestHeaders(
                       buildOptimisticLockHeader(editing!.updatedAt),
-                      () => updateCrud('agent_orchestrator/process-definitions', { id: editing!.id, ...body }),
+                      () => updateCrud('agent_orchestrator/processes', { id: editing!.id, ...body }),
                     )
                   } else {
-                    await createCrud('agent_orchestrator/process-definitions', body)
+                    await createCrud('agent_orchestrator/processes', body)
                   }
                 } catch (err) {
                   if (surfaceRecordConflict(err, t)) return
@@ -820,7 +881,7 @@ export default function ProcessDefinitionsPage() {
                       try {
                         await withScopedApiRequestHeaders(
                           buildOptimisticLockHeader(row.updatedAt),
-                          () => deleteCrud('agent_orchestrator/process-definitions', row.id),
+                          () => deleteCrud('agent_orchestrator/processes', row.id),
                         )
                         flash(t('agent_orchestrator.processDefinitions.flash.deleted'), 'success')
                         await load({ silent: true })

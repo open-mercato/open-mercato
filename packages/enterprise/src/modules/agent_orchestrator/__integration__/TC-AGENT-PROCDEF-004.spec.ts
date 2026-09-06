@@ -15,7 +15,7 @@ import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixt
  * nothing depends on seeded or demo data.
  */
 
-const DEFINITIONS = '/api/agent_orchestrator/process-definitions'
+const DEFINITIONS = '/api/agent_orchestrator/processes'
 
 type Milestone = { id: string; label: string; stepId: string; order: number }
 type DefinitionDetail = { id?: string; milestones?: Milestone[] | null; updatedAt?: string | null }

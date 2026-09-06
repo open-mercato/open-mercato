@@ -16,9 +16,21 @@ export type AgentRunCtx = {
   tenantId: string
   organizationId: string
   userId: string
-  /** Set for workflow-originated runs (area 02) → stamped onto the AgentProposal; null for the playground. */
-  processId?: string
+  /**
+   * WHICH agent invocation this run is, for workflow-originated runs (`INVOKE_AGENT`).
+   *
+   * `(workflowInstanceId, stepId, invocationId)` is the invocation's identity and
+   * a partial unique index enforces it. Correlation is always an explicit
+   * identifier: a caller that needed to find the run it had just caused used to
+   * ask for "the newest run for this agent since T", which cannot tell two
+   * concurrent runs of the same agent apart.
+   *
+   * All three are absent together for a Playground or eval run, which belongs to
+   * no workflow and correlates to nothing.
+   */
+  workflowInstanceId?: string
   stepId?: string
+  invocationId?: string
   /**
    * Parent run id when this run is a nested sub-agent delegation (Phase 4 trace).
    * Additive + optional: top-level runs leave it undefined. The in-process
@@ -143,9 +155,10 @@ export async function createRun(
     stampExternalRunIdFromId?: boolean
     /** Declared model id (e.g. `anthropic/claude-sonnet-4-5`); null when the agent uses the tenant default. */
     model?: string | null
-    /** Workflow process instance + step this run belongs to (INVOKE_AGENT); links the run to the process in traces. */
-    processId?: string | null
+    /** The invocation this run IS (INVOKE_AGENT): instance + step + attempt. */
+    workflowInstanceId?: string | null
     stepId?: string | null
+    invocationId?: string | null
     /** `eval` marks a replay so it never skews the agent's production metrics. */
     source?: 'runtime' | 'eval'
     /** The agent's declared type (authoring fact); null when it declares none. */
@@ -247,7 +260,7 @@ export async function createProposal(
     runId: string
     payload: AgentProposalPayload
     confidence: number | null
-    processId: string | null
+    workflowInstanceId: string | null
     stepId: string | null
     /** Output-phase guardrail verdict checks attached at creation (Phase 1). */
     guardResults?: GuardResults | null

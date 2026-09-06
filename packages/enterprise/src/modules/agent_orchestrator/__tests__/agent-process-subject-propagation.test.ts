@@ -59,7 +59,7 @@ const INPUT = {
   organizationId: ORG,
   agentId: 'claims.intake',
   runId: RUN_ID,
-  processId: PROCESS,
+  workflowInstanceId: PROCESS,
   stepId: 'intake',
   payload: { options: [], rationale: 'ok' },
 }
@@ -90,7 +90,7 @@ describe('subject propagation — INVOKE_AGENT subject → proposal.created payl
     })
     expect(emitAgentOrchestratorEvent).toHaveBeenCalledWith(
       'agent_orchestrator.proposal.created',
-      expect.objectContaining({ processId: PROCESS, subject: SUBJECT }),
+      expect.objectContaining({ workflowInstanceId: PROCESS, subject: SUBJECT }),
       { persistent: true },
     )
   })

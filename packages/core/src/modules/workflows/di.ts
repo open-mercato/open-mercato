@@ -19,6 +19,7 @@ import * as timerHandler from './lib/timer-handler'
 import * as conditionHandler from './lib/condition-handler'
 import * as taskHandler from './lib/task-handler'
 import * as workInboxService from './lib/work-inbox/service'
+import { createWorkflowDefinitionAuthoring } from './lib/owned-definition'
 import { registerWorkInboxSources } from './lib/work-inbox/provider'
 import { userTaskWorkInboxSource, WORKFLOWS_MODULE_ID } from './lib/work-inbox/user-task-source'
 
@@ -61,5 +62,8 @@ export function register(container: AwilixContainer): void {
     conditionHandler: asFunction(() => conditionHandler).scoped(),
     taskHandler: asFunction(() => taskHandler).scoped(),
     workInboxService: asFunction(() => workInboxService).scoped(),
+    // Lets another module own a real workflow definition instead of building a
+    // second executor for its simple case — see lib/owned-definition.ts.
+    workflowDefinitionAuthoring: asFunction(() => createWorkflowDefinitionAuthoring(container)).scoped(),
   })
 }

@@ -14,7 +14,7 @@ import {
   type AgentProposalDisposition,
   type AgentSpanKind,
 } from './data/entities'
-import { recomputeAgentProcess } from './lib/processes/agentProcessProjection'
+import { recomputeProcessInstance } from './lib/processes/processProjection'
 import { runEvalGate } from './lib/eval/evalGate'
 
 function parseArgs(args: string[]): Record<string, string> {
@@ -28,14 +28,15 @@ function parseArgs(args: string[]): Record<string, string> {
 }
 
 /**
- * Rebuilds the `agent_processes` read-model from the module's own proposals +
- * runs (process projection spec, 2026-06-25): every distinct
- * `(tenant, org, processId)` with agent activity is recomputed through the same
- * idempotent upsert the event subscribers use, so re-running is a no-op. Used
- * for first rollout and drift repair. Terminal statuses latched from prior
- * `workflows.instance.*` events are preserved on existing rows; rows created
- * fresh here re-derive from agent data alone (tier A) until the next lifecycle
- * event arrives.
+ * Rebuilds the `process_instances` read model from the module's own proposals +
+ * runs: every distinct `(tenant, org, workflowInstanceId)` with agent activity is
+ * recomputed through the same idempotent upsert the event subscribers use, so
+ * re-running is a no-op. Used for first rollout and drift repair.
+ *
+ * It is a PROJECTION, which is what makes a full rebuild safe: nothing here
+ * decides a lifecycle. Terminal statuses latched from prior `workflows.instance.*`
+ * events are preserved on existing rows; rows created fresh here re-derive from
+ * agent data alone until the next lifecycle event arrives.
  *
  *   yarn mercato agent_orchestrator rebuild-processes [--tenant <tenantId>]
  */
@@ -50,36 +51,36 @@ const rebuildProcesses: ModuleCli = {
     const [proposalKeys, runKeys] = await Promise.all([
       em.find(
         AgentProposal,
-        { ...tenantFilter, processId: { $ne: null }, deletedAt: null },
-        { fields: ['id', 'tenantId', 'organizationId', 'processId'] },
+        { ...tenantFilter, workflowInstanceId: { $ne: null }, deletedAt: null },
+        { fields: ['id', 'tenantId', 'organizationId', 'workflowInstanceId'] },
       ),
       em.find(
         AgentRun,
-        { ...tenantFilter, processId: { $ne: null }, deletedAt: null },
-        { fields: ['id', 'tenantId', 'organizationId', 'processId'] },
+        { ...tenantFilter, workflowInstanceId: { $ne: null }, deletedAt: null },
+        { fields: ['id', 'tenantId', 'organizationId', 'workflowInstanceId'] },
       ),
     ])
 
-    const seen = new Map<string, { tenantId: string; organizationId: string; processId: string }>()
+    const seen = new Map<string, { tenantId: string; organizationId: string; workflowInstanceId: string }>()
     for (const row of [...proposalKeys, ...runKeys]) {
-      if (!row.processId) continue
-      const key = `${row.tenantId}:${row.organizationId}:${row.processId}`
+      if (!row.workflowInstanceId) continue
+      const key = `${row.tenantId}:${row.organizationId}:${row.workflowInstanceId}`
       if (!seen.has(key)) {
         seen.set(key, {
           tenantId: row.tenantId,
           organizationId: row.organizationId,
-          processId: row.processId,
+          workflowInstanceId: row.workflowInstanceId,
         })
       }
     }
 
-    console.log(`Rebuilding ${seen.size} agent process projection row(s)…`)
+    console.log(`Rebuilding ${seen.size} process execution projection row(s)…`)
     let rebuilt = 0
     for (const scope of seen.values()) {
-      const result = await recomputeAgentProcess(
+      const result = await recomputeProcessInstance(
         em.fork(),
         { tenantId: scope.tenantId, organizationId: scope.organizationId },
-        scope.processId,
+        scope.workflowInstanceId,
       )
       if (result) rebuilt += 1
     }
@@ -320,8 +321,8 @@ const seedDemo: ModuleCli = {
         const completedAt = isRunning ? null : new Date(createdAt.getTime() + latencyMs)
         const confidence = spec.kind === 'proposal' ? randomBetween(55, 97) / 100 : null
         const evalScore = isError || isRunning ? null : randomBetween(72, 99) / 100
-        const processId = spec.withProcess && !isRunning ? randomUUID() : null
-        if (processId) processIds.add(processId)
+        const workflowInstanceId = spec.withProcess && !isRunning ? randomUUID() : null
+        if (workflowInstanceId) processIds.add(workflowInstanceId)
         const rationaleIndex = spec.rationales.length > 0 ? index % spec.rationales.length : 0
         const rationale = spec.rationales.length > 0 ? spec.rationales[rationaleIndex] : undefined
         const actionPayload = spec.stageByRationale
@@ -333,8 +334,8 @@ const seedDemo: ModuleCli = {
           tenantId: tenantId!,
           organizationId: organizationId!,
           agentId: spec.id,
-          processId,
-          stepId: processId ? 'assess' : null,
+          workflowInstanceId,
+          stepId: workflowInstanceId ? 'assess' : null,
           runtime: spec.runtime,
           model: spec.model,
           agentVersion: 'v1',
@@ -399,8 +400,8 @@ const seedDemo: ModuleCli = {
             organizationId: organizationId!,
             agentId: spec.id,
             runId: run.id,
-            processId,
-            stepId: processId ? 'assess' : null,
+            workflowInstanceId,
+            stepId: workflowInstanceId ? 'assess' : null,
             payload: {
               actions: [{ type: spec.actionType, payload: actionPayload }],
               confidence,
@@ -420,8 +421,8 @@ const seedDemo: ModuleCli = {
               id: randomUUID(),
               tenantId: tenantId!,
               organizationId: organizationId!,
-              processId,
-              stepId: processId ? 'assess' : null,
+              workflowInstanceId,
+              stepId: workflowInstanceId ? 'assess' : null,
               agentRunId: run.id,
               proposalId: proposal.id,
               correctedByUserId: operatorUserId,
@@ -511,11 +512,11 @@ const seedDemo: ModuleCli = {
     }
 
     let processTotal = 0
-    for (const processId of processIds) {
-      const result = await recomputeAgentProcess(
+    for (const workflowInstanceId of processIds) {
+      const result = await recomputeProcessInstance(
         em.fork(),
         { tenantId: tenantId!, organizationId: organizationId! },
-        processId,
+        workflowInstanceId,
       )
       if (result) processTotal += 1
     }

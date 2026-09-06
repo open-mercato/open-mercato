@@ -254,7 +254,7 @@ export const proposalListQuerySchema = z
     pageSize: z.coerce.number().min(1).max(100).default(50),
     id: z.string().uuid().optional(),
     agentId: z.string().optional(),
-    processId: z.string().uuid().optional(),
+    workflowInstanceId: z.string().uuid().optional(),
     disposition: proposalDispositionFilter.optional(),
     sortField: z.string().optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
@@ -333,7 +333,7 @@ export const traceIngestSchema = z.object({
   agentVersion: z.string().optional(),
   model: z.string().optional(),
   status: z.enum(['running', 'ok', 'error', 'cancelled']).optional(),
-  processId: z.string().uuid().nullable().optional(),
+  workflowInstanceId: z.string().uuid().nullable().optional(),
   stepId: z.string().nullable().optional(),
   proposalId: z.string().uuid().nullable().optional(),
   confidence: z.number().optional(),
@@ -768,7 +768,7 @@ export const contextBundleListQuerySchema = z
     pageSize: z.coerce.number().min(1).max(100).default(50),
     id: z.string().uuid().optional(),
     agentRunId: z.string().uuid().optional(),
-    processId: z.string().uuid().optional(),
+    workflowInstanceId: z.string().uuid().optional(),
     capability: z.string().optional(),
     sortField: z.string().optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
@@ -1038,13 +1038,7 @@ export const idJagAssertionClaimsSchema = z.object({
 })
 export type IdJagAssertionClaims = z.infer<typeof idJagAssertionClaimsSchema>
 
-// ── Process definitions + runs (spec 2026-08-11) ─────────────────────────────
-
-export const agentProcessTargetType = z.enum(['agent', 'workflow'])
-export type AgentProcessTargetTypeInput = z.infer<typeof agentProcessTargetType>
-
-export const agentProcessRunStatus = z.enum(['running', 'completed', 'failed'])
-export type AgentProcessRunStatusInput = z.infer<typeof agentProcessRunStatus>
+// ── Process definitions + executions (spec 2026-09-06) ───────────────────────
 
 /**
  * 5- or 6-field cron expression SHAPE gate. Semantic validation (does this
@@ -1172,48 +1166,65 @@ export const PROCESS_TRIGGERS_MAX = 20
 export const processTriggersSchema = z.array(processTriggerSchema).max(PROCESS_TRIGGERS_MAX)
 
 /**
- * A business-facing stage of a process — `agent_process_definitions.milestones`
- * jsonb. The `label` is AUTHORED here rather than read from the workflow step,
- * so renaming a step no longer changes what a business reader sees. The cost of
- * that is drift: `stepId` can name a step the workflow no longer declares, which
- * `collectMilestoneIssues` reports as a WARNING (never an error — a definition
- * mid-edit must stay saveable).
+ * A business-facing stage of a process — the `process_definitions.milestones`
+ * VOCABULARY. A milestone is a business EVENT a workflow emits (a step declares
+ * `milestone: '<key>'` in its advanced config), never an alias for a step: it
+ * carries no `stepId`, so a stage can be reached after a parallel join, after a
+ * retry, or after ten steps, and renaming a step cannot change what a business
+ * reader sees. A declared key that no step in the bound workflow emits is a
+ * WARNING (`collectMilestoneIssues`), never an error — a definition mid-edit must
+ * stay saveable.
  */
 export const processMilestoneSchema = z.object({
-  id: z.string().min(1).max(100),
-  /** Business-facing, authored here — never read from the step. */
+  /** Stable business key, e.g. `analysis_completed`. Matched against emitted events. */
+  key: z.string().min(1).max(100).regex(/^[a-z0-9_]+$/, 'Use lowercase letters, digits and underscores'),
+  /** Business-facing, authored here — never read from a step. */
   label: z.string().min(1).max(200),
-  /** The workflow step it maps to (`WorkflowStep.stepId`). */
-  stepId: z.string().min(1).max(150),
   order: z.number().int().min(0).max(1000),
 })
 export type ProcessMilestone = z.infer<typeof processMilestoneSchema>
 
-/** Storage bound on the authored stage list (spec §Data models). */
+/** Storage bound on the declared stage vocabulary. */
 export const PROCESS_MILESTONES_MAX = 50
 
 export const processMilestonesSchema = z
   .array(processMilestoneSchema)
   .max(PROCESS_MILESTONES_MAX)
   .superRefine((milestones, ctx) => {
-    // Two milestones sharing an id collapse into one row in every keyed
-    // renderer and make a reorder ambiguous — reject rather than silently drop.
+    // Two milestones sharing a key collapse into one row in every keyed renderer
+    // and make a reorder ambiguous — reject rather than silently drop.
     const seen = new Set<string>()
     milestones.forEach((milestone, index) => {
-      if (seen.has(milestone.id)) {
+      if (seen.has(milestone.key)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          path: [index, 'id'],
-          message: 'Duplicate milestone id',
+          path: [index, 'key'],
+          message: 'Duplicate milestone key',
         })
       }
-      seen.add(milestone.id)
+      seen.add(milestone.key)
     })
   })
 
 /**
- * Why a run happened — `agent_process_runs.triggered_by` jsonb. `ref` is the
- * user id (manual), the event name (event), or absent (schedule).
+ * One milestone an execution actually reached —
+ * `process_instances.milestones_reached` jsonb, appended from the workflow's
+ * `milestone_reached` events. `data` is whatever the emitting step attached; it
+ * is display evidence, never execution state.
+ */
+export const processMilestoneReachedSchema = z.object({
+  key: z.string().min(1).max(100),
+  at: z.string().datetime(),
+  data: z.record(z.string(), z.unknown()).nullable().optional(),
+})
+export type ProcessMilestoneReached = z.infer<typeof processMilestoneReachedSchema>
+
+export const processMilestonesReachedSchema = z.array(processMilestoneReachedSchema).max(PROCESS_MILESTONES_MAX)
+
+/**
+ * Why an execution was entered — `process_instances.triggered_by` jsonb. `ref` is
+ * the user id (manual), the event name (event), or absent (schedule). This is the
+ * INVOKER identity: provenance only, never an ACL identity.
  */
 export const processRunTriggeredBySchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('schedule'), ref: z.string().min(1).max(200).optional() }),
@@ -1225,11 +1236,12 @@ export const processRunTriggeredBySchema = z.discriminatedUnion('kind', [
 export type ProcessRunTriggeredBy = z.infer<typeof processRunTriggeredBySchema>
 
 /**
- * WHAT a completed run produced — the `agent_process_runs.outcome_*` columns.
+ * WHAT a completed execution produced — the `process_instances.outcome_*` columns.
  *
  * OPTIONAL BY DECISION: a research or monitoring process produces nothing and
  * stays a perfectly valid process, so the whole outcome is nullable rather than
- * a required completion field.
+ * a required completion field. It belongs to the BUSINESS execution's completion,
+ * never to a single agent run.
  *
  * FK-id + snapshot per `packages/core/AGENTS.md` § Cross-Module Coupling: `id`
  * references the produced record by value, `label` is a SNAPSHOT so the
@@ -1240,78 +1252,104 @@ export type ProcessRunTriggeredBy = z.infer<typeof processRunTriggeredBySchema>
  * accept whatever a producing module declares. Link resolution reads the
  * `<module>:<entity>` prefix and simply declines to link when there is none.
  */
-export const processRunOutcomeSchema = z.object({
+export const processOutcomeSchema = z.object({
   /** Entity id of the produced record, e.g. `claims:claim`. */
   type: z.string().min(1).max(150),
   id: z.string().min(1).max(200),
   label: z.string().min(1).max(200).optional(),
 })
-export type ProcessRunOutcome = z.infer<typeof processRunOutcomeSchema>
+export type ProcessOutcome = z.infer<typeof processOutcomeSchema>
 
-const taskTargetShape = {
+/**
+ * How a definition's workflow is authored. `single_agent` materializes a real
+ * `START → INVOKE_AGENT → END` workflow definition owned by this process;
+ * `workflow` binds one the user authored in the Studio. Both end in exactly one
+ * `WorkflowDefinition` — the mode only records who wrote it, so the form knows
+ * whether it may regenerate.
+ */
+export const processWorkflowModeSchema = z.enum(['single_agent', 'workflow'])
+export type ProcessWorkflowMode = z.infer<typeof processWorkflowModeSchema>
+
+/**
+ * The INVOKE_AGENT config a `single_agent` definition materializes. Mirrors core's
+ * `invokeAgentConfigSchema` (no cross-module import) and is NOT persisted on the
+ * definition: the generated workflow is the single source of truth for it, and the
+ * form reads it back from there.
+ */
+export const processSingleAgentSchema = z.object({
+  agentId: z.string().min(1).max(150),
+  onResult: z.union([
+    z.object({
+      autoApproveThreshold: z.number().min(0).max(1),
+      autoApproveMargin: z.number().min(0).max(1).default(0),
+    }),
+    z.object({ alwaysAsk: z.literal(true) }),
+  ]),
+  outputMapping: z.record(z.string(), z.string()).nullable().optional(),
+})
+export type ProcessSingleAgent = z.infer<typeof processSingleAgentSchema>
+
+const processDefinitionShape = {
   name: z.string().min(1).max(255),
   description: z.string().max(4000).nullable().optional(),
-  targetType: agentProcessTargetType,
-  targetAgentId: z.string().min(1).max(150).nullable().optional(),
-  targetWorkflowId: z.string().min(1).max(150).nullable().optional(),
+  /**
+   * How the bound workflow is authored. `single_agent` requires `singleAgent`
+   * and generates the workflow; `workflow` requires an existing `workflowId`.
+   */
+  workflowMode: processWorkflowModeSchema.default('workflow'),
+  /** `WorkflowDefinition.workflowId`. Required in `workflow` mode; generated in `single_agent` mode. */
+  workflowId: z.string().min(1).max(150).nullable().optional(),
+  singleAgent: processSingleAgentSchema.nullable().optional(),
   inputDefaults: z.record(z.string(), z.unknown()).nullable().optional(),
-  /** JSON-Schema restricted to the OUTCOME-compatible subset; compiled lazily at /run time. */
+  /** JSON-Schema restricted to the OUTCOME-compatible subset; compiled lazily at start time. */
   inputSchema: z.record(z.string(), z.unknown()).nullable().optional(),
+  /** JSON-Schema describing the business outcome a completed execution produces. */
+  outcomeSchema: z.record(z.string(), z.unknown()).nullable().optional(),
+  /**
+   * The least-privilege features the bound workflow executes with. Writable ONLY
+   * for a workflow this definition generated — a hand-authored workflow owns its
+   * own grant and the form shows it read-only.
+   */
   grantedFeatures: z.array(z.string().min(1).max(200)).max(200).optional(),
   triggers: processTriggersSchema.optional(),
   milestones: processMilestonesSchema.optional(),
+  uiMetadata: z.record(z.string(), z.unknown()).nullable().optional(),
   enabled: z.boolean().optional(),
 }
 
-function requireTargetPointer(data: { targetType: 'agent' | 'workflow'; targetAgentId?: string | null; targetWorkflowId?: string | null }): boolean {
-  return data.targetType === 'agent' ? !!data.targetAgentId : !!data.targetWorkflowId
+type ProcessDefinitionShapeInput = {
+  workflowMode: ProcessWorkflowMode
+  workflowId?: string | null
+  singleAgent?: ProcessSingleAgent | null
 }
 
 /**
- * Milestones map to workflow steps, and an agent-targeted process has no steps
- * to map. Declaring them there is a VALIDATION ERROR rather than a silent
- * no-op — a stage list nobody can ever reach reads as a configured one.
+ * Every process points at a workflow — that is the whole model. In `workflow`
+ * mode the caller names one; in `single_agent` mode the agent config is what the
+ * generated workflow is built FROM, so it is the required half instead.
  */
-function milestonesRequireWorkflowTarget(data: {
-  targetType: 'agent' | 'workflow'
-  milestones?: ProcessMilestone[]
-}): boolean {
-  return data.targetType === 'workflow' || (data.milestones?.length ?? 0) === 0
+function requiresWorkflowPointer(data: ProcessDefinitionShapeInput): boolean {
+  return data.workflowMode === 'single_agent' ? !!data.singleAgent : !!data.workflowId
 }
 
-const MILESTONES_ON_AGENT_TARGET_MESSAGE =
-  'Milestones map to workflow steps and cannot be declared on an agent-targeted process'
+const WORKFLOW_POINTER_MESSAGE =
+  'A process must point at a workflow: choose an agent (single-agent mode) or an existing workflow'
 
-export const agentProcessDefinitionCreateSchema = z
-  .object(taskTargetShape)
-  .refine(requireTargetPointer, {
-    message: 'Target id is required for the selected target type',
-    path: ['targetAgentId'],
-  })
-  .refine(milestonesRequireWorkflowTarget, {
-    message: MILESTONES_ON_AGENT_TARGET_MESSAGE,
-    path: ['milestones'],
-  })
-export type AgentProcessDefinitionCreateInput = z.infer<typeof agentProcessDefinitionCreateSchema>
+export const processDefinitionCreateSchema = z
+  .object(processDefinitionShape)
+  .refine(requiresWorkflowPointer, { message: WORKFLOW_POINTER_MESSAGE, path: ['workflowId'] })
+export type ProcessDefinitionCreateInput = z.infer<typeof processDefinitionCreateSchema>
 
-export const agentProcessDefinitionUpdateSchema = z
-  .object({ id: z.string().uuid(), ...taskTargetShape })
-  .refine(requireTargetPointer, {
-    message: 'Target id is required for the selected target type',
-    path: ['targetAgentId'],
-  })
-  .refine(milestonesRequireWorkflowTarget, {
-    message: MILESTONES_ON_AGENT_TARGET_MESSAGE,
-    path: ['milestones'],
-  })
-export type AgentProcessDefinitionUpdateInput = z.infer<typeof agentProcessDefinitionUpdateSchema>
+export const processDefinitionUpdateSchema = z
+  .object({ id: z.string().uuid(), ...processDefinitionShape })
+  .refine(requiresWorkflowPointer, { message: WORKFLOW_POINTER_MESSAGE, path: ['workflowId'] })
+export type ProcessDefinitionUpdateInput = z.infer<typeof processDefinitionUpdateSchema>
 
-export const agentProcessDefinitionListQuerySchema = z
+export const processDefinitionListQuerySchema = z
   .object({
     id: z.string().uuid().optional(),
-    targetType: agentProcessTargetType.optional(),
-    /** Narrows to the definitions authored for one workflow — the milestone lookup the process detail page makes. */
-    targetWorkflowId: z.string().min(1).max(150).optional(),
+    /** Narrows to the definitions bound to one workflow — the milestone lookup the execution detail makes. */
+    workflowId: z.string().min(1).max(150).optional(),
     enabled: z.coerce.boolean().optional(),
     search: z.string().max(200).optional(),
     page: z.coerce.number().int().min(1).default(1),
@@ -1320,42 +1358,25 @@ export const agentProcessDefinitionListQuerySchema = z
     sortDir: z.enum(['asc', 'desc']).optional(),
   })
   .passthrough()
-export type AgentProcessDefinitionListQuery = z.infer<typeof agentProcessDefinitionListQuerySchema>
+export type ProcessDefinitionListQuery = z.infer<typeof processDefinitionListQuerySchema>
 
-/** `POST /process-definitions/:id/run` request body — always async, returns 202 + processRunId. */
-export const agentProcessRunRequestSchema = z.object({
+/** `POST /processes/:id/executions` request body — always async, returns 202 + executionId. */
+export const processExecutionStartSchema = z.object({
   input: z.record(z.string(), z.unknown()).optional(),
   idempotencyKey: z.string().min(1).max(200).optional(),
   sourceEntityType: z.string().min(1).max(100).optional(),
   sourceEntityId: z.string().uuid().optional(),
 })
-export type AgentProcessRunRequest = z.infer<typeof agentProcessRunRequestSchema>
+export type ProcessExecutionStartRequest = z.infer<typeof processExecutionStartSchema>
 
-export const agentProcessRunListQuerySchema = z
-  .object({
-    id: z.string().uuid().optional(),
-    processDefinitionId: z.string().uuid().optional(),
-    status: agentProcessRunStatus.optional(),
-    /** Narrows to the run behind one workflow instance — the outcome lookup the process detail page makes. */
-    workflowInstanceId: z.string().uuid().optional(),
-    sourceEntityType: z.string().max(100).optional(),
-    sourceEntityId: z.string().uuid().optional(),
-    page: z.coerce.number().int().min(1).default(1),
-    pageSize: z.coerce.number().int().min(1).max(100).default(50),
-    sortField: z.string().optional(),
-    sortDir: z.enum(['asc', 'desc']).optional(),
-  })
-  .passthrough()
-export type AgentProcessRunListQuery = z.infer<typeof agentProcessRunListQuerySchema>
-
-// ── Process subject & caseload projection (spec 2026-06-25) ──────────────────
+// ── Execution subject & caseload projection (spec 2026-06-25) ────────────────
 
 /**
  * The `subject` descriptor a workflow's INVOKE_AGENT node declares (static or
  * `{{context.*}}`-interpolated) — "what business record this process is about".
  * Travels via event payloads / transient run ctx only; never a run/proposal column.
  */
-export const agentProcessSubjectSchema = z
+export const processSubjectSchema = z
   .object({
     subjectType: z.string().min(1).max(100).nullable().optional(),
     subjectId: z.string().min(1).max(200).nullable().optional(),
@@ -1368,9 +1389,9 @@ export const agentProcessSubjectSchema = z
     facets: z.record(z.string(), z.unknown()).nullable().optional(),
   })
   .passthrough()
-export type AgentProcessSubject = z.infer<typeof agentProcessSubjectSchema>
+export type ProcessSubject = z.infer<typeof processSubjectSchema>
 
-export const agentProcessStatusSchema = z.enum([
+export const processInstanceStatusSchema = z.enum([
   'running', 'waiting_on_you', 'question_open', 'docs_requested', 'fraud_hold',
   'auto_completing', 'auto_completed', 'completed', 'failed', 'cancelled',
 ])
@@ -1380,21 +1401,29 @@ export const processListScopeSchema = z.enum([
 ])
 export type ProcessListScope = z.infer<typeof processListScopeSchema>
 
-export const processListQuerySchema = z
+/**
+ * `GET /executions` — the one business-execution surface, replacing the split
+ * between the old run ledger and the projection list.
+ */
+export const processExecutionListQuerySchema = z
   .object({
     page: z.coerce.number().min(1).default(1),
     pageSize: z.coerce.number().min(1).max(100).default(50),
     id: z.string().uuid().optional(),
-    processId: z.string().uuid().optional(),
+    /** Narrows to the execution behind one workflow instance. */
+    workflowInstanceId: z.string().uuid().optional(),
+    processDefinitionId: z.string().uuid().optional(),
     scope: processListScopeSchema.optional(),
-    status: agentProcessStatusSchema.optional(),
+    status: processInstanceStatusSchema.optional(),
     subjectType: z.string().max(100).optional(),
+    sourceEntityType: z.string().max(100).optional(),
+    sourceEntityId: z.string().uuid().optional(),
     q: z.string().max(200).optional(),
     sortField: z.string().optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
   })
   .passthrough()
-export type ProcessListQuery = z.infer<typeof processListQuerySchema>
+export type ProcessExecutionListQuery = z.infer<typeof processExecutionListQuerySchema>
 
 // Per-agent presentation settings (agent_settings). `icon` is a stable lucide
 // name from the canonical vocabulary; `null` clears it back to the type/initials

@@ -1,5 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { recomputeFromEvent } from '../lib/processes/agentProcessProjection'
+import { recomputeFromEvent } from '../lib/processes/processProjection'
 
 /**
  * Process projection Phase B (spec 2026-06-25): `workflows.instance.started`
@@ -11,7 +11,7 @@ import { recomputeFromEvent } from '../lib/processes/agentProcessProjection'
 export const metadata = {
   event: 'workflows.instance.started',
   persistent: true,
-  id: 'agent_orchestrator:agent-process-workflow-started',
+  id: 'agent_orchestrator:process-workflow-started',
 }
 
 export default async function handle(
@@ -22,7 +22,7 @@ export default async function handle(
   const record = (payload ?? {}) as Record<string, unknown>
   await recomputeFromEvent(
     em,
-    { ...record, processId: record.id },
+    { ...record, workflowInstanceId: record.id },
     {
       createIfMissing: false,
       stageHint: typeof record.stepId === 'string' ? record.stepId : null,

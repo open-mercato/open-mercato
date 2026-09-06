@@ -5,74 +5,65 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { AgentProcess } from '../../../data/entities'
+import { ProcessDefinition } from '../../../data/entities'
 
 /**
- * Process-detail header read (spec 2026-06-25): the single `AgentProcess`
- * projection row. `:id` accepts EITHER the workflow instance id (`processId` —
- * what runs/proposals and the trace inspector's "Open process" carry) OR the
- * projection row's own id. Org-scoped — cross-org ids return 404, never the row.
- * `subject_title` decrypts via findOneWithDecryption. The detail page composes
- * this with the existing `GET /proposals?processId=…` + `GET /runs/:id` reads
- * for the timeline.
+ * Process-definition detail for the edit form and detail page: the row, including
+ * `updatedAt` for the optimistic-lock header, the bound `workflowId`, the declared
+ * `triggers` list and the milestone vocabulary. Org-scoped — cross-org ids 404,
+ * never the row.
+ *
+ * `grantedFeatures` is deliberately NOT here: execution identity is a property of
+ * the bound WORKFLOW definition, which owns the grant and the least-privilege
+ * principal core provisions from it. The form reads it from there.
  */
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['agent_orchestrator.processes.view'] },
 }
 
-const idSchema = z.string().uuid()
+const errorSchema = z.object({ error: z.string() })
 
 type RouteContext = { params: Promise<{ id: string }> }
-
-const errorSchema = z.object({ error: z.string() })
 
 export async function GET(req: Request, ctx: RouteContext) {
   const auth = await getAuthFromRequest(req)
   if (!auth?.tenantId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { id } = await ctx.params
-  const parsedId = idSchema.safeParse(id)
-  if (!parsedId.success) return NextResponse.json({ error: 'Process not found' }, { status: 404 })
+  if (!z.string().uuid().safeParse(id).success) {
+    return NextResponse.json({ error: 'Process definition not found' }, { status: 404 })
+  }
 
   const scope = { tenantId: auth.tenantId, organizationId: auth.orgId ?? undefined }
   const decryptionScope = { tenantId: auth.tenantId, organizationId: auth.orgId ?? null }
   const container = await createRequestContainer()
   const em = (container.resolve('em') as EntityManager).fork()
 
-  const byProcessId = await findOneWithDecryption(
+  const definition = await findOneWithDecryption(
     em,
-    AgentProcess,
-    { processId: parsedId.data, ...scope, deletedAt: null },
+    ProcessDefinition,
+    { id, ...scope, deletedAt: null },
     undefined,
     decryptionScope,
   )
-  const process =
-    byProcessId ??
-    (await findOneWithDecryption(
-      em,
-      AgentProcess,
-      { id: parsedId.data, ...scope, deletedAt: null },
-      undefined,
-      decryptionScope,
-    ))
-  if (!process) return NextResponse.json({ error: 'Process not found' }, { status: 404 })
+  if (!definition) return NextResponse.json({ error: 'Process definition not found' }, { status: 404 })
 
-  return NextResponse.json({ process })
+  return NextResponse.json({ definition })
 }
 
 export const openApi: OpenApiRouteDoc = {
   tag: 'Agent Orchestrator',
-  summary: 'Get an agent process projection row',
+  summary: 'Get process definition detail',
   methods: {
     GET: {
-      summary: 'Get the process-detail header projection',
+      summary: 'Get a process definition with its declared triggers',
       description:
-        'Returns the AgentProcess read-model row for a workflow process. Accepts the workflow instance id (processId) or the projection row id. Org-scoped; gated by agent_orchestrator.processes.view.',
-      responses: [{ status: 200, description: 'Process projection row' }],
+        'Returns the process definition including updatedAt for optimistic locking, the bound workflowId, the declared triggers list (schedule / event / manual) and the milestone vocabulary. Org-scoped; gated by agent_orchestrator.processes.view.',
+      responses: [{ status: 200, description: 'Process definition detail' }],
       errors: [
         { status: 401, description: 'Unauthorized', schema: errorSchema },
         { status: 403, description: 'Missing agent_orchestrator.processes.view', schema: errorSchema },
-        { status: 404, description: 'Unknown process id', schema: errorSchema },
+        { status: 404, description: 'Unknown process definition id', schema: errorSchema },
       ],
     },
   },

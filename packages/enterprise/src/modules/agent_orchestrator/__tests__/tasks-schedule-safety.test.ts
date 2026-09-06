@@ -2,7 +2,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import {
-  agentProcessDefinitionCreateSchema,
+  processDefinitionCreateSchema,
   isValidIanaTimeZone,
 } from '../data/validators'
 import { withScheduleSemanticChecks } from '../lib/tasks/scheduleValidation'
@@ -24,7 +24,7 @@ const baseTask = {
   targetAgentId: 'deals.lead_triage',
 }
 
-const createWithSemantics = withScheduleSemanticChecks(agentProcessDefinitionCreateSchema)
+const createWithSemantics = withScheduleSemanticChecks(processDefinitionCreateSchema)
 
 const withSchedule = (cron: string, timezone?: string) => ({
   ...baseTask,
@@ -33,7 +33,7 @@ const withSchedule = (cron: string, timezone?: string) => ({
 
 describe('schedule semantic validation (route layer)', () => {
   it('rejects shape-valid cron garbage the token regex accepts', () => {
-    const shapeOnly = agentProcessDefinitionCreateSchema.safeParse(withSchedule('foo bar baz qux quux'))
+    const shapeOnly = processDefinitionCreateSchema.safeParse(withSchedule('foo bar baz qux quux'))
     expect(shapeOnly.success).toBe(true)
 
     const semantic = createWithSemantics.safeParse(withSchedule('foo bar baz qux quux'))
@@ -57,12 +57,12 @@ describe('schedule semantic validation (route layer)', () => {
 
 describe('timezone validation (shared schema)', () => {
   it('rejects non-IANA values like "Warsaw"', () => {
-    const result = agentProcessDefinitionCreateSchema.safeParse(withSchedule('0 7 * * 1', 'Warsaw'))
+    const result = processDefinitionCreateSchema.safeParse(withSchedule('0 7 * * 1', 'Warsaw'))
     expect(result.success).toBe(false)
   })
 
   it('accepts "Europe/Warsaw"', () => {
-    expect(agentProcessDefinitionCreateSchema.safeParse(withSchedule('0 7 * * 1', 'Europe/Warsaw')).success).toBe(true)
+    expect(processDefinitionCreateSchema.safeParse(withSchedule('0 7 * * 1', 'Europe/Warsaw')).success).toBe(true)
   })
 
   it('isValidIanaTimeZone matches the schema behavior', () => {

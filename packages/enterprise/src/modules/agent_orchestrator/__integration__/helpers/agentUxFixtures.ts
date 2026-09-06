@@ -14,7 +14,7 @@ import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
 export type AgentProcessSeed = {
   tenantId: string
   organizationId: string
-  processId?: string
+  workflowInstanceId?: string
   status?: string
   subjectType?: string | null
   subjectLabel?: string | null
@@ -23,19 +23,19 @@ export type AgentProcessSeed = {
 /** Inserts one agent_processes projection row; returns its process id. */
 export async function insertAgentProcessFixture(seed: AgentProcessSeed): Promise<string> {
   const id = randomUUID()
-  const processId = seed.processId ?? randomUUID()
+  const workflowInstanceId = seed.workflowInstanceId ?? randomUUID()
   const now = new Date()
   await withClient(async (client) => {
     await client.query(
       `insert into agent_processes (
-         id, tenant_id, organization_id, process_id, status, subject_type, subject_label,
+         id, tenant_id, organization_id, workflow_instance_id, status, subject_type, subject_label,
          run_count, pending_proposal_count, opened_at, last_activity_at, created_at, updated_at
        ) values ($1, $2, $3, $4, $5, $6, $7, 1, 0, $8, $8, $8, $8)`,
       [
         id,
         seed.tenantId,
         seed.organizationId,
-        processId,
+        workflowInstanceId,
         seed.status ?? 'running',
         seed.subjectType ?? 'deal',
         seed.subjectLabel ?? 'TC-AGENT-UX',
@@ -43,7 +43,7 @@ export async function insertAgentProcessFixture(seed: AgentProcessSeed): Promise
       ],
     )
   })
-  return processId
+  return workflowInstanceId
 }
 
 export async function deleteAgentProcessesForOrganization(organizationId: string | null): Promise<void> {

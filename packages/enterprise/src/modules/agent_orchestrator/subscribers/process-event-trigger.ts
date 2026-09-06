@@ -1,6 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import { AgentProcessDefinition, AgentProcessRun } from '../data/entities'
+import { ProcessDefinition, ProcessInstance } from '../data/entities'
 import { parseProcessTriggers, eventTriggers } from '../lib/tasks/triggers'
 import {
   candidateEventPatterns,
@@ -10,26 +10,27 @@ import {
 } from '../lib/tasks/eventTriggerMatch'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
-const logger = createLogger('agent_orchestrator').child({ subscriber: 'task-event-trigger' })
+const logger = createLogger('agent_orchestrator').child({ subscriber: 'process-event-trigger' })
 
 /**
  * Wildcard subscriber evaluating the `{ kind: 'event' }` entries of
- * `agent_process_definitions.triggers` (triggered process model Phase 2 — the
- * retired `agent_task_event_triggers` table collapsed into that jsonb).
- * Matching triggers enqueue a run through the same `processes.enqueueRun`
- * command every other trigger source uses, with
- * `triggeredBy: { kind: 'event', ref: <eventPattern> }`.
+ * `process_definitions.triggers`.
+ *
+ * A trigger starts a PROCESS, never an agent: a match runs the same
+ * `processes.startExecution` command every other trigger source uses, with
+ * `triggeredBy: { kind: 'event', ref: <eventPattern> }`, and that command ends in
+ * exactly one `WorkflowInstance`.
  */
 export const metadata = {
   event: '*',
   persistent: true,
-  id: 'agent_orchestrator:task-event-trigger',
+  id: 'agent_orchestrator:process-event-trigger',
 }
 
 /**
  * Internal/system events that must never trigger processes. `agent_orchestrator.`
- * is excluded to prevent recursion storms: a process run emits process_run.* events
- * which would otherwise re-match a broad trigger and loop.
+ * is excluded to prevent recursion storms: an execution emits process.execution.*
+ * events which would otherwise re-match a broad trigger and loop.
  */
 const EXCLUDED_EVENT_PREFIXES = [
   'query_index.',
@@ -40,14 +41,14 @@ const EXCLUDED_EVENT_PREFIXES = [
   'agent_orchestrator.',
 ]
 
-/** How many recent runs the debounce window inspects before giving up on a match. */
+/** How many recent executions the debounce window inspects before giving up on a match. */
 const DEBOUNCE_SCAN_LIMIT = 20
 
 type DefinitionIdRow = { id: string }
 
 /**
  * The definitions whose declared triggers CAN match this event, narrowed by
- * jsonb containment so the `agent_process_definitions_triggers_gin` index does
+ * jsonb containment so the `process_definitions_triggers_gin` index does
  * the work. `candidateEventPatterns` enumerates the exact id plus every
  * trailing-wildcard pattern that could match it, so wildcards are index-served
  * too and no scan over enabled definitions is needed.
@@ -61,7 +62,7 @@ async function findCandidateDefinitionIds(
   const containment = patterns.map(() => '"triggers" @> ?::jsonb').join(' or ')
   const params = patterns.map((pattern) => JSON.stringify([{ kind: 'event', eventPattern: pattern }]))
   const rows = (await em.getConnection().execute(
-    `select "id" from "agent_process_definitions"
+    `select "id" from "process_definitions"
      where "tenant_id" = ? and "organization_id" = ? and "enabled" = true and "deleted_at" is null
        and (${containment})`,
     [scope.tenantId, scope.organizationId, ...params],
@@ -116,7 +117,7 @@ export default async function handle(
   if (candidateIds.length === 0) return
 
   const definitions = await em.find(
-    AgentProcessDefinition,
+    ProcessDefinition,
     { id: { $in: candidateIds }, ...scope, enabled: true, deletedAt: null },
     { orderBy: { createdAt: 'asc' } },
   )
@@ -140,7 +141,7 @@ export default async function handle(
 
     if (config.debounceMs && config.debounceMs > 0) {
       const recent = await em.find(
-        AgentProcessRun,
+        ProcessInstance,
         {
           processDefinitionId: definition.id,
           organizationId,
@@ -148,18 +149,18 @@ export default async function handle(
         },
         { limit: DEBOUNCE_SCAN_LIMIT, orderBy: { createdAt: 'desc' } },
       )
-      const debounced = recent.some((run) => {
-        const source = run.triggeredBy
+      const debounced = recent.some((execution) => {
+        const source = execution.triggeredBy
         return !!source && source.kind === 'event' && source.ref === trigger.eventPattern
       })
       if (debounced) continue
     }
 
     if (config.maxConcurrentInstances && config.maxConcurrentInstances > 0) {
-      const runningCount = await em.count(AgentProcessRun, {
+      const runningCount = await em.count(ProcessInstance, {
         processDefinitionId: definition.id,
         organizationId,
-        status: 'running',
+        status: { $nin: ['completed', 'auto_completed', 'failed', 'cancelled'] },
       })
       if (runningCount >= config.maxConcurrentInstances) continue
     }
@@ -175,7 +176,7 @@ export default async function handle(
       organizationIds: [organizationId],
     }
     try {
-      await commandBus.execute('agent_orchestrator.processes.enqueueRun', {
+      await commandBus.execute('agent_orchestrator.processes.startExecution', {
         input: {
           tenantId,
           organizationId,
@@ -186,7 +187,7 @@ export default async function handle(
         ctx: commandCtx,
       })
     } catch (error) {
-      logger.error('event-triggered process enqueue failed', {
+      logger.error('event-triggered process start failed', {
         processDefinitionId: definition.id,
         eventPattern: trigger.eventPattern,
         eventName,

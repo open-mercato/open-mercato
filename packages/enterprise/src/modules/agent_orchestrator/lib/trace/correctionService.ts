@@ -52,7 +52,7 @@ export type RecordCorrectionInput = {
   organizationId: string
   proposalId: string
   agentRunId?: string | null
-  processId?: string | null
+  workflowInstanceId?: string | null
   stepId?: string | null
   agentDefinitionId: string
   correctedByUserId: string
@@ -86,7 +86,7 @@ export async function recordCorrection(
   const correction = em.create(AgentCorrection, {
     tenantId: input.tenantId,
     organizationId: input.organizationId,
-    processId: input.processId ?? null,
+    workflowInstanceId: input.workflowInstanceId ?? null,
     stepId: input.stepId ?? null,
     agentRunId: input.agentRunId ?? null,
     proposalId: input.proposalId,

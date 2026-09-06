@@ -40,6 +40,16 @@ const events = [
   { id: 'workflows.instance.cancelled', label: 'Workflow Cancelled', category: 'lifecycle', clientBroadcast: true },
   { id: 'workflows.instance.paused', label: 'Workflow Paused', category: 'lifecycle', clientBroadcast: true },
   { id: 'workflows.instance.resumed', label: 'Workflow Resumed', category: 'lifecycle', clientBroadcast: true },
+  /**
+   * A BUSINESS milestone the run announced — emitted when a step carrying a
+   * `milestone` annotation completes.
+   *
+   * It is deliberately not a step event. A milestone can be announced after a
+   * parallel join, after a retry, or after ten steps, and a consumer reading the
+   * business narrative must never have to know which. `milestoneKey` is the
+   * business vocabulary; `stepId` rides along for the trace, not for matching.
+   */
+  { id: 'workflows.instance.milestone_reached', label: 'Workflow Milestone Reached', category: 'lifecycle', clientBroadcast: true },
 
   // User Task Events
   { id: 'workflows.task.assigned', label: 'Task Assigned', entity: 'task', category: 'lifecycle' },

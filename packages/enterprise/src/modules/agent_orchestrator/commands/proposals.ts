@@ -15,7 +15,7 @@ const createAgentProposalSchema = z.object({
   runId: z.string().uuid(),
   payload: agentProposalSchema,
   confidence: z.number().nullable().optional(),
-  processId: z.string().uuid().nullable().optional(),
+  workflowInstanceId: z.string().uuid().nullable().optional(),
   stepId: z.string().nullable().optional(),
   /** Output-phase guardrail verdict checks (Phase 1). Null when guardrails are off. */
   guardResults: guardResultsSchema.nullable().optional(),
@@ -41,7 +41,7 @@ const createAgentProposalCommand: CommandHandler<CreateAgentProposalInput, { pro
       runId: input.runId,
       payload: input.payload,
       confidence: input.confidence ?? null,
-      processId: input.processId ?? null,
+      workflowInstanceId: input.workflowInstanceId ?? null,
       stepId: input.stepId ?? null,
       guardResults: input.guardResults ?? null,
       source: input.source ?? 'runtime',
@@ -68,7 +68,7 @@ const createAgentProposalCommand: CommandHandler<CreateAgentProposalInput, { pro
       source: proposal.source,
       // How many mutually-exclusive alternatives the agent offered (additive).
       optionCount: input.payload.options.length,
-      processId: proposal.processId,
+      workflowInstanceId: proposal.workflowInstanceId,
       stepId: proposal.stepId,
       subject: getProcessSubject() ?? null,
       tenantId: proposal.tenantId,

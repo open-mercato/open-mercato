@@ -42,22 +42,24 @@ const events = [
   // Identity overlay (Wave 4 Phase 4) — an external agent self-registered via the
   // ID-JAG / auth.md flow (issuer-signed assertion → scoped principal + grant).
   { id: 'agent_orchestrator.agent_principal.registered', label: 'Agent Principal Registered (ID-JAG)', entity: 'agent_principal', category: 'lifecycle', clientBroadcast: true },
-  // Triggered process model (spec 2026-08-11). `process_run.*` stay
-  // clientBroadcast so the definition detail page's run-history table
-  // live-updates after the async 202.
+  // Business-process ↔ workflow unification (spec 2026-09-06). The
+  // `process.execution.*` trio is the EXTERNAL business-execution contract: a
+  // caller integrating with a process subscribes to these and never to
+  // `run.*`, which is internal agent telemetry. clientBroadcast so the
+  // executions list live-updates after the async 202.
   { id: 'agent_orchestrator.process_definition.created', label: 'Process Definition Created', entity: 'process_definition', category: 'crud' },
   { id: 'agent_orchestrator.process_definition.updated', label: 'Process Definition Updated', entity: 'process_definition', category: 'crud' },
   { id: 'agent_orchestrator.process_definition.deleted', label: 'Process Definition Deleted', entity: 'process_definition', category: 'crud' },
-  { id: 'agent_orchestrator.process_run.started', label: 'Process Run Started', entity: 'process_run', category: 'lifecycle', clientBroadcast: true },
-  { id: 'agent_orchestrator.process_run.completed', label: 'Process Run Completed', entity: 'process_run', category: 'lifecycle', clientBroadcast: true },
-  { id: 'agent_orchestrator.process_run.failed', label: 'Process Run Failed', entity: 'process_run', category: 'lifecycle', clientBroadcast: true },
-  // No `task_event_trigger.*` events: Phase 2 collapsed the sibling table into
+  { id: 'agent_orchestrator.process.execution.started', label: 'Process Execution Started', entity: 'process_execution', category: 'lifecycle', clientBroadcast: true },
+  { id: 'agent_orchestrator.process.execution.completed', label: 'Process Execution Completed', entity: 'process_execution', category: 'lifecycle', clientBroadcast: true },
+  { id: 'agent_orchestrator.process.execution.failed', label: 'Process Execution Failed', entity: 'process_execution', category: 'lifecycle', clientBroadcast: true },
+  // No `task_event_trigger.*` events: the sibling trigger table collapsed into
   // the definition's `triggers` jsonb, so a trigger edit IS a definition update
   // and is announced by `process_definition.updated`.
-  // Process projection (spec 2026-06-25). Emitted after every projection upsert
-  // (clientBroadcast) so the open Processes list refetches the changed row.
+  // Execution projection echo. Emitted after every projection upsert
+  // (clientBroadcast) so the open Executions list refetches the changed row.
   // excludeFromTriggers: it is a derived read-model echo, not a domain fact.
-  { id: 'agent_orchestrator.process.updated', label: 'Agent Process Projection Updated', entity: 'process', category: 'lifecycle', clientBroadcast: true, excludeFromTriggers: true },
+  { id: 'agent_orchestrator.process.updated', label: 'Process Execution Projection Updated', entity: 'process_execution', category: 'lifecycle', clientBroadcast: true, excludeFromTriggers: true },
   // Live run progress (per tool call). clientBroadcast so a UI trigger can show
   // step-by-step progress while a synchronous run is in flight (the run POST does
   // not return until the run finishes). Payload: { runId, agentId, tenantId,

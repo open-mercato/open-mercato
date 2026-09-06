@@ -36,7 +36,7 @@ const crud = makeCrudRoute<never, never, z.infer<typeof proposalListQuerySchema>
       'id',
       'agent_id',
       'run_id',
-      'process_id',
+      'workflow_instance_id',
       'step_id',
       'payload',
       'confidence',
@@ -56,7 +56,7 @@ const crud = makeCrudRoute<never, never, z.infer<typeof proposalListQuerySchema>
       agentId: 'agent_id',
       confidence: 'confidence',
       disposition: 'disposition',
-      processId: 'process_id',
+      workflowInstanceId: 'workflow_instance_id',
       createdAt: 'created_at',
       updatedAt: 'updated_at',
     },
@@ -74,7 +74,7 @@ const crud = makeCrudRoute<never, never, z.infer<typeof proposalListQuerySchema>
       const filters: Record<string, unknown> = { source: { $eq: 'runtime' } }
       if (query.id) filters.id = { $eq: query.id }
       if (query.agentId) filters.agent_id = { $eq: query.agentId }
-      if (query.processId) filters.process_id = { $eq: query.processId }
+      if (query.workflowInstanceId) filters.workflow_instance_id = { $eq: query.workflowInstanceId }
       if (query.disposition) {
         const dispositions = query.disposition.split(',')
         filters.disposition = dispositions.length > 1 ? { $in: dispositions } : { $eq: dispositions[0] }
@@ -90,7 +90,7 @@ const proposalListItemSchema = z.object({
   id: z.string().uuid(),
   agent_id: z.string(),
   run_id: z.string().uuid(),
-  process_id: z.string().uuid().nullable().optional(),
+  workflow_instance_id: z.string().uuid().nullable().optional(),
   step_id: z.string().nullable().optional(),
   payload: z.unknown(),
   confidence: z.number().nullable().optional(),

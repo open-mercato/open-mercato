@@ -110,7 +110,7 @@ describe('dispose command — cached list reads', () => {
       organizationId: ORG,
       runId: RUN_ID,
       agentId: 'deals.health_check',
-      processId: null,
+      workflowInstanceId: null,
       stepId: null,
       disposition: 'pending',
       dispositionBy: null,

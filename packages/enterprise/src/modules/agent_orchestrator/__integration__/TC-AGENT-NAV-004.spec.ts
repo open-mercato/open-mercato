@@ -86,11 +86,11 @@ test.describe('TC-AGENT-NAV-004: process detail review-in-caseload CTA', () => {
         name: 'QA TC-AGENT-NAV-004',
       })
 
-      const processId = randomUUID()
+      const workflowInstanceId = randomUUID()
       await insertAgentProcessFixture({
         tenantId: tenantId!,
         organizationId: orgId!,
-        processId,
+        workflowInstanceId,
         status: 'waiting_on_you',
         subjectLabel: `TC-NAV-004 ${stamp}`,
       })
@@ -105,14 +105,14 @@ test.describe('TC-AGENT-NAV-004: process detail review-in-caseload CTA', () => {
           agentId: AGENT_ID,
           runId,
           disposition: 'pending' as const,
-          processId,
+          workflowInstanceId,
           stepId: 'review',
           createdAt,
         },
       ])
 
       await loginAs(page, email, password)
-      await page.goto(`/backend/processes/${encodeURIComponent(processId)}`, { waitUntil: 'domcontentloaded' })
+      await page.goto(`/backend/processes/${encodeURIComponent(workflowInstanceId)}`, { waitUntil: 'domcontentloaded' })
 
       // Header CTA (status waiting_on_you) and the pending step panel both link
       // to the decision; the auto-selected first step IS the pending proposal.

@@ -147,7 +147,7 @@ function baseInput(overrides: Partial<{ budget: number }> = {}) {
     tenantId: TENANT,
     organizationId: ORG,
     agentRunId: RUN_ID,
-    processId: null,
+    workflowInstanceId: null,
     stepId: null,
     capability: CAPABILITY,
     budget: overrides.budget ?? 4000,

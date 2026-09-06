@@ -180,8 +180,9 @@ export class OpenCodeAgentRunner {
       runtime: 'opencode',
       externalRunId: session.id,
       model: entry.defaultModel ?? null,
-      processId: ctx.processId ?? null,
+      workflowInstanceId: ctx.workflowInstanceId ?? null,
       stepId: ctx.stepId ?? null,
+      invocationId: ctx.invocationId ?? null,
       agentType: entry.agentType ?? null,
     })
 
@@ -365,7 +366,7 @@ export class OpenCodeAgentRunner {
           runId,
           payload: result.proposal,
           confidence: deriveEnvelopeConfidence(result.proposal),
-          processId: ctx.processId ?? null,
+          workflowInstanceId: ctx.workflowInstanceId ?? null,
           stepId: ctx.stepId ?? null,
         })
       }

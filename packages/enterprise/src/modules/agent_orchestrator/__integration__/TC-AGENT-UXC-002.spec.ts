@@ -43,7 +43,7 @@ test.describe('TC-AGENT-UXC-002: tasks list last-run health', () => {
 
     try {
       // Seed a task owned by the admin org (API create resolves the scope).
-      const createResponse = await apiRequest(request, 'POST', '/api/agent_orchestrator/process-definitions', {
+      const createResponse = await apiRequest(request, 'POST', '/api/agent_orchestrator/processes', {
         token,
         data: {
           name: taskName,
@@ -63,7 +63,7 @@ test.describe('TC-AGENT-UXC-002: tasks list last-run health', () => {
       const listResponse = await apiRequest(
         request,
         'GET',
-        `/api/agent_orchestrator/process-definitions?id=${encodeURIComponent(taskId!)}&page=1&pageSize=1`,
+        `/api/agent_orchestrator/processes?id=${encodeURIComponent(taskId!)}&page=1&pageSize=1`,
         { token },
       )
       const listBody = await readJsonSafe<{ items?: Array<Record<string, unknown>> }>(listResponse)
@@ -99,7 +99,7 @@ test.describe('TC-AGENT-UXC-002: tasks list last-run health', () => {
       const runResponse = await apiRequest(
         request,
         'POST',
-        `/api/agent_orchestrator/process-definitions/${encodeURIComponent(taskId!)}/run`,
+        `/api/agent_orchestrator/processes/${encodeURIComponent(taskId!)}/run`,
         { token, data: { input: {} } },
       )
       expect(runResponse.status(), 'run-now must be accepted asynchronously').toBe(202)
@@ -108,7 +108,7 @@ test.describe('TC-AGENT-UXC-002: tasks list last-run health', () => {
     } finally {
       if (taskId) {
         await deleteAgentProcessRunsByProcessDefinitionIds([taskId]).catch(() => {})
-        await apiRequest(request, 'DELETE', `/api/agent_orchestrator/process-definitions?id=${encodeURIComponent(taskId)}`, { token }).catch(() => {})
+        await apiRequest(request, 'DELETE', `/api/agent_orchestrator/processes?id=${encodeURIComponent(taskId)}`, { token }).catch(() => {})
       }
     }
   })

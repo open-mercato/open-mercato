@@ -1,6 +1,14 @@
 # The Triggered Process Model (W1)
 
-**Date:** 2026-08-11 · **Status:** implemented (all four phases; see Changelog)
+**Date:** 2026-08-11 · **Status:** superseded by [`2026-09-06-business-process-workflow-unification.md`](./2026-09-06-business-process-workflow-unification.md)
+
+> **Superseded 2026-09-06.** The rename this spec landed stands; its three-record model does
+> not. `AgentProcessRun` held a second execution lifecycle beside `WorkflowInstance`, and
+> `target_type = 'agent'` let a process bypass the workflow engine entirely. Both are removed
+> by the unification spec, which also turns milestones from step aliases into workflow-emitted
+> business events. Read that spec first; this one is kept for the history of how the
+> task/process split was closed.
+
 **Umbrella:** [`2026-08-10-pre-release-remediation-plan.md`](./2026-08-10-pre-release-remediation-plan.md) — workstream W1
 **Companion:** [`2026-08-11-agent-taxonomy.md`](./2026-08-11-agent-taxonomy.md) (W2) owns the proposal envelope this consumes.
 **Ordering:** independent in scope; W2 carries its own migration rather than folding into this squash, so neither waits on the other. If W2 lands first, this squash absorbs its columns.

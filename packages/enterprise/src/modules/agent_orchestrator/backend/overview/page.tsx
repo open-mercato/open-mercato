@@ -39,7 +39,7 @@ type ListResponse = { items?: Array<Record<string, unknown>>; total?: number }
 type Sla = 'breach' | 'risk' | 'ok'
 type Verb = 'do' | 'review'
 type TrustRow = { id: string; label: string; icon: string | null; resultKind: 'researcher' | 'proposal'; runs: number; overridePct: number | null; status: Health }
-type StuckRow = { id: string; processId: string | null; claim: string; agentLabel: string; waitingMin: number | null; waitingFor: Verb; sla: Sla }
+type StuckRow = { id: string; workflowInstanceId: string | null; claim: string; agentLabel: string; waitingMin: number | null; waitingFor: Verb; sla: Sla }
 type AgentWindowMetrics = { totalRuns: number; overrideRate: number | null; disposedProposals: number }
 
 const statusVariant: StatusMap<Health> = { good: 'success', watch: 'warning', poor: 'error', new: 'neutral' }
@@ -304,7 +304,7 @@ export default function AgentFleetOverviewPage() {
         const waitingMin = minutesAgo(proposal.createdAt)
         return {
           id: proposal.id,
-          processId: proposal.processId,
+          workflowInstanceId: proposal.workflowInstanceId,
           claim,
           agentLabel: agentLabels.get(proposal.agentId) || proposal.agentId || '—',
           waitingMin,
@@ -457,12 +457,12 @@ export default function AgentFleetOverviewPage() {
                         >
                           <TableCell className="font-mono text-xs text-foreground">{row.claim}</TableCell>
                           <TableCell>
-                            {row.processId ? (
+                            {row.workflowInstanceId ? (
                               <button
                                 type="button"
                                 onClick={(event) => {
                                   event.stopPropagation()
-                                  router.push(`/backend/processes/${encodeURIComponent(row.processId!)}`)
+                                  router.push(`/backend/processes/${encodeURIComponent(row.workflowInstanceId!)}`)
                                 }}
                                 className="inline-flex items-center gap-1 text-xs font-medium text-brand-violet transition-opacity hover:opacity-80"
                               >

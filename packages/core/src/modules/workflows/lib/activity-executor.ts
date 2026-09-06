@@ -1375,8 +1375,14 @@ type AgentWorkflowBridgeLike = {
       tenantId: string
       organizationId: string
       userId?: string
-      processId: string
+      workflowInstanceId: string
       stepId: string
+      /**
+       * The step-attempt id. With the instance and the step it IS this
+       * invocation's identity, so the run it produces can be correlated by name
+       * rather than by "the newest run for this agent since now".
+       */
+      invocationId?: string
       // Optional interpolated business-record descriptor (invokeAgentConfigSchema.subject).
       subject?: unknown
       // Optional already-resolved Review section (spec 7.5) — who reviews the
@@ -1469,8 +1475,11 @@ export async function executeInvokeAgent(
         tenantId: context.workflowInstance.tenantId,
         organizationId: context.workflowInstance.organizationId,
         userId: effectiveUserId,
-        processId: context.workflowInstance.id,
+        workflowInstanceId: context.workflowInstance.id,
         stepId,
+        // The step-attempt row id: a retry enters the step again and mints a new
+        // one, so it names THIS attempt and no other.
+        ...(context.stepInstanceId ? { invocationId: context.stepInstanceId } : {}),
         ...(subject ? { subject } : {}),
         ...(dispositionReview ? { review: dispositionReview } : {}),
       },

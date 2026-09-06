@@ -105,7 +105,7 @@ export function buildAgentDispositionWhere(
   }
 
   if (query.workflowInstanceId) {
-    where.processId = query.workflowInstanceId
+    where.workflowInstanceId = query.workflowInstanceId
   }
 
   return where as FilterQuery<AgentProposal>
@@ -145,7 +145,7 @@ export function toAgentDispositionRow(proposal: AgentProposal, now: Date): WorkI
       proposalId: proposal.id,
       agentId: proposal.agentId,
       runId: proposal.runId,
-      processId: proposal.processId ?? null,
+      workflowInstanceId: proposal.workflowInstanceId ?? null,
       stepId: proposal.stepId ?? null,
       confidence: proposal.confidence ?? null,
     },

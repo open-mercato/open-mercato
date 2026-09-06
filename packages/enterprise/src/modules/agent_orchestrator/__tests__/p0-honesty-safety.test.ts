@@ -51,7 +51,7 @@ describe('agent_orchestrator P0 honesty & safety invariants', () => {
     const source = read('backend/processes/definitions/page.tsx')
     expect(source).toContain("useConfirmDialog")
     const confirmIndex = source.indexOf("processDefinitions.confirmDelete.title")
-    const deleteIndex = source.indexOf("deleteCrud('agent_orchestrator/process-definitions'")
+    const deleteIndex = source.indexOf("deleteCrud('agent_orchestrator/processes'")
     expect(confirmIndex).toBeGreaterThan(-1)
     expect(deleteIndex).toBeGreaterThan(confirmIndex)
   })

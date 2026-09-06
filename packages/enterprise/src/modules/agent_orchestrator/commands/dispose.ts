@@ -180,7 +180,7 @@ const disposeProposalCommand: CommandHandler<DisposeProposalCommandInput, Dispos
     const originalProposalPayload = proposal.payload
     const correctionRunId = proposal.runId
     const correctionAgentId = proposal.agentId
-    const correctionProcessId = proposal.processId ?? null
+    const correctionProcessId = proposal.workflowInstanceId ?? null
     const correctionStepId = proposal.stepId ?? null
 
     // 3a. The selected option must be one the AGENT actually offered. Checked against
@@ -290,7 +290,7 @@ const disposeProposalCommand: CommandHandler<DisposeProposalCommandInput, Dispos
         dispositionBy: nextDispositionBy,
         // Which alternative the verdict selected (additive; null on a reject).
         selectedOptionId: proposal.selectedOptionId ?? null,
-        processId: proposal.processId,
+        workflowInstanceId: proposal.workflowInstanceId,
         stepId: proposal.stepId,
         tenantId: proposal.tenantId,
         organizationId: proposal.organizationId,
@@ -311,7 +311,7 @@ const disposeProposalCommand: CommandHandler<DisposeProposalCommandInput, Dispos
             organizationId: input.organizationId,
             proposalId: proposal.id,
             agentRunId: correctionRunId,
-            processId: correctionProcessId,
+            workflowInstanceId: correctionProcessId,
             stepId: correctionStepId,
             agentDefinitionId: correctionAgentId,
             correctedByUserId: actorUserId,
@@ -352,10 +352,10 @@ const disposeProposalCommand: CommandHandler<DisposeProposalCommandInput, Dispos
     // area-02 executor proceeded inline without ever parking — no signal to send,
     // and no `proposal.ready` emitted. Human verdicts on a workflow-originated
     // proposal emit `proposal.ready` and deliver the resume signal.
-    if (!isAuto && !input.skipResume && proposal.processId) {
+    if (!isAuto && !input.skipResume && proposal.workflowInstanceId) {
       await resumeWorkflowForProposal(container, em, {
         proposalId: proposal.id,
-        processId: proposal.processId,
+        workflowInstanceId: proposal.workflowInstanceId,
         stepId: proposal.stepId ?? null,
         disposition: proposal.disposition,
         proposalPayload: proposal.payload,

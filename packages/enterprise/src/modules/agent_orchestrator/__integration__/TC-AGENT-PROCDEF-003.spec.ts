@@ -18,8 +18,8 @@ import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixt
  * definitions the database already carries and asserts only about them.
  */
 
-const DEFINITIONS = '/api/agent_orchestrator/process-definitions'
-const RUNS = '/api/agent_orchestrator/process-runs'
+const DEFINITIONS = '/api/agent_orchestrator/processes'
+const RUNS = '/api/agent_orchestrator/executions'
 
 type DefinitionListItem = { id?: string; name?: string; triggers?: unknown }
 type RunListItem = { id?: string; triggered_by?: { kind?: string; ref?: string } | null }

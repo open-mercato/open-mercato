@@ -1,6 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { recomputeFromEvent } from '../lib/processes/agentProcessProjection'
-import type { AgentProcessSubject } from '../data/validators'
+import { recomputeFromEvent } from '../lib/processes/processProjection'
+import type { ProcessSubject } from '../data/validators'
 
 /**
  * Process projection (spec 2026-06-25): a new proposal creates/refreshes the
@@ -11,7 +11,7 @@ import type { AgentProcessSubject } from '../data/validators'
 export const metadata = {
   event: 'agent_orchestrator.proposal.created',
   persistent: true,
-  id: 'agent_orchestrator:agent-process-proposal-created',
+  id: 'agent_orchestrator:process-proposal-created',
 }
 
 export default async function handle(
@@ -22,7 +22,7 @@ export default async function handle(
   const record = (payload ?? {}) as Record<string, unknown>
   const subject =
     record.subject && typeof record.subject === 'object'
-      ? (record.subject as AgentProcessSubject)
+      ? (record.subject as ProcessSubject)
       : null
   await recomputeFromEvent(em, record, { subject })
 }

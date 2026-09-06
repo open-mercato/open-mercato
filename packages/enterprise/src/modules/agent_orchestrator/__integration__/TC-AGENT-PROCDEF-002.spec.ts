@@ -25,7 +25,7 @@ import { getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integrat
  * `finally`; nothing depends on seeded or demo data.
  */
 
-const DEFINITIONS = '/api/agent_orchestrator/process-definitions'
+const DEFINITIONS = '/api/agent_orchestrator/processes'
 
 test.describe('TC-AGENT-PROCDEF-002: processes.{view,manage,run} gate the definition surface', () => {
   test('view lists but cannot edit; manage edits; run starts', async ({ request }) => {
@@ -158,7 +158,7 @@ test.describe('TC-AGENT-PROCDEF-002: processes.{view,manage,run} gate the defini
       const runsResponse = await apiRequest(
         request,
         'GET',
-        `/api/agent_orchestrator/process-runs?processDefinitionId=${encodeURIComponent(definitionId!)}`,
+        `/api/agent_orchestrator/executions?processDefinitionId=${encodeURIComponent(definitionId!)}`,
         { token: runnerToken },
       )
       expect(runsResponse.status(), 'processes.view reads the run ledger').toBe(200)

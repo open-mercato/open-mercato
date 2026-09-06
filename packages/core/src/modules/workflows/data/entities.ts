@@ -193,10 +193,27 @@ export interface WorkflowEditorMetadata {
   [key: string]: unknown
 }
 
+/**
+ * Marks a definition another module AUTHORED and keeps in sync, rather than a
+ * human writing it in the Studio.
+ *
+ * It changes nothing about how the definition executes — a generated workflow is
+ * an ordinary workflow, visible and editable like any other. What it records is
+ * WHO regenerates it, so the owning module knows which row is its own and the
+ * editor can warn that a hand edit may be overwritten on the owner's next save.
+ */
+export interface WorkflowGeneratedBy {
+  /** Owning module id, e.g. `agent_orchestrator`. */
+  module: string
+  /** The owner's own record id (a process definition id, say). */
+  ownerId: string
+}
+
 export interface WorkflowMetadata {
   tags?: string[]
   category?: string
   icon?: string
+  generatedBy?: WorkflowGeneratedBy
   // Forward-compatibility guard (spec section 5.8): the lowest engine version
   // able to execute this definition. Engines older than the declared version
   // refuse to instantiate it instead of misexecuting unknown capabilities.

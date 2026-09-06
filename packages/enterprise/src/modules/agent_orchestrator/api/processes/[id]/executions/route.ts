@@ -9,26 +9,37 @@ import { validateCrudMutationGuard, runCrudMutationGuardAfterSuccess } from '@op
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { agentProcessRunRequestSchema } from '../../../../data/validators'
-import { AgentProcessDefinition } from '../../../../data/entities'
+import { processExecutionStartSchema } from '../../../../data/validators'
+import { ProcessDefinition } from '../../../../data/entities'
 import { manualTrigger, parseProcessTriggers } from '../../../../lib/tasks/triggers'
-import type { EnqueueProcessRunInput, EnqueueProcessRunResult } from '../../../../commands/tasks'
+import type {
+  StartProcessExecutionInput,
+  StartProcessExecutionResult,
+} from '../../../../commands/processes'
 
 /**
- * Start a process run BY HAND — always async (`202 { processRunId, status:
- * 'running' }`). Callable by a human session or an ApiKey bearer whose role
- * grants `agent_orchestrator.processes.run`, and only when the definition
- * DECLARES a `{ kind: 'manual' }` trigger (403 otherwise): hand-starting is a
- * declared capability rather than an ambient one. Provenance is recorded as
- * `{ kind: 'manual', ref: <userId> }`, while execution always happens under the
- * definition's own execution principal in the queue worker.
+ * Start one business execution — always async (`202 { executionId }`).
+ *
+ * This is the external contract: a caller asks a PROCESS to run and gets back an
+ * execution id to poll or subscribe to. It never exposes an agent, a runtime or a
+ * workflow step, so the process can be re-implemented underneath without breaking
+ * the integration.
+ *
+ * Callable by a human session or an ApiKey bearer whose role grants
+ * `agent_orchestrator.processes.run`, and only when the definition DECLARES a
+ * `{ kind: 'manual' }` trigger (403 otherwise): hand-starting is a declared
+ * capability rather than an ambient one.
+ *
+ * `{ kind: 'manual', ref: <userId> }` records the INVOKER. It is provenance and
+ * never an ACL identity — the run executes under the bound workflow definition's
+ * own least-privilege principal, whoever started it.
  */
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['agent_orchestrator.processes.run'] },
 }
 
 const errorSchema = z.object({ error: z.string() })
-const acceptedSchema = z.object({ processRunId: z.string().uuid(), status: z.literal('running') })
+const acceptedSchema = z.object({ executionId: z.string().uuid() })
 
 type RouteContext = { params: Promise<{ id: string }> }
 
@@ -45,7 +56,7 @@ export async function POST(req: Request, ctx: RouteContext) {
   }
 
   const body = await readJsonSafe(req, {})
-  const parsed = agentProcessRunRequestSchema.safeParse(body)
+  const parsed = processExecutionStartSchema.safeParse(body)
   if (!parsed.success) {
     return NextResponse.json(
       { error: 'Validation failed', fieldErrors: parsed.error.flatten().fieldErrors },
@@ -56,12 +67,12 @@ export async function POST(req: Request, ctx: RouteContext) {
   const container = await createRequestContainer()
 
   // Fail-closed single-org attribution (same rule as the playground run route):
-  // a task run must land in exactly one organization's ledger/caseload.
+  // an execution must land in exactly one organization's ledger/caseload.
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
   const organizationId = scope?.selectedId ?? auth.orgId ?? null
   if (!organizationId) {
     return NextResponse.json(
-      { error: 'Select a single organization before starting a process run.' },
+      { error: 'Select a single organization before starting a process.' },
       { status: 400 },
     )
   }
@@ -71,7 +82,7 @@ export async function POST(req: Request, ctx: RouteContext) {
   // command re-checks it — this is the surface that also enforces the trigger's
   // own `requireFeatures`, which only a request-scoped RBAC lookup can answer.
   const em = (container.resolve('em') as EntityManager).fork()
-  const definition = await em.findOne(AgentProcessDefinition, {
+  const definition = await em.findOne(ProcessDefinition, {
     id,
     tenantId: auth.tenantId,
     organizationId,
@@ -109,7 +120,7 @@ export async function POST(req: Request, ctx: RouteContext) {
     tenantId: auth.tenantId,
     organizationId,
     userId: auth.sub,
-    resourceKind: 'agent_orchestrator.agent_process_run',
+    resourceKind: 'agent_orchestrator.process_execution',
     resourceId: id,
     operation: 'custom',
     requestMethod: 'POST',
@@ -133,10 +144,10 @@ export async function POST(req: Request, ctx: RouteContext) {
   // is which principal id the provenance ref carries.
   const triggeredBy = { kind: 'manual' as const, ref: auth.sub }
 
-  let result: EnqueueProcessRunResult
+  let result: StartProcessExecutionResult
   try {
-    const executed = await commandBus.execute<EnqueueProcessRunInput, EnqueueProcessRunResult>(
-      'agent_orchestrator.processes.enqueueRun',
+    const executed = await commandBus.execute<StartProcessExecutionInput, StartProcessExecutionResult>(
+      'agent_orchestrator.processes.startExecution',
       {
         input: {
           tenantId: auth.tenantId,
@@ -162,7 +173,7 @@ export async function POST(req: Request, ctx: RouteContext) {
       tenantId: auth.tenantId,
       organizationId,
       userId: auth.sub,
-      resourceKind: 'agent_orchestrator.agent_process_run',
+      resourceKind: 'agent_orchestrator.process_execution',
       resourceId: id,
       operation: 'custom',
       requestMethod: 'POST',
@@ -171,21 +182,18 @@ export async function POST(req: Request, ctx: RouteContext) {
     })
   }
 
-  return NextResponse.json(
-    { processRunId: result.processRunId, status: 'running' as const },
-    { status: 202 },
-  )
+  return NextResponse.json({ executionId: result.executionId }, { status: 202 })
 }
 
 export const openApi: OpenApiRouteDoc = {
   tag: 'Agent Orchestrator',
-  summary: 'Start a process run',
+  summary: 'Start a business execution',
   methods: {
     POST: {
-      summary: 'Start a process run by hand (always async)',
+      summary: 'Start one execution of this process (always async)',
       description:
-        'Requires the definition to declare a { kind: "manual" } trigger (403 otherwise) plus any features that trigger names. Validates input against the definition inputSchema when set, dedupes on idempotencyKey, inserts an AgentProcessRun with triggeredBy { kind: "manual", ref: <userId> } and enqueues execution. Returns 202 immediately; observe completion via the process_run.* events or GET /process-runs/:id. Gated by agent_orchestrator.processes.run (session or API key).',
-      responses: [{ status: 202, description: 'Run accepted', schema: acceptedSchema }],
+        'Requires the definition to declare a { kind: "manual" } trigger (403 otherwise) plus any features that trigger names. Validates input against the definition inputSchema when set, dedupes on idempotencyKey so one key can never produce two executions, and starts the bound workflow. Returns 202 with the executionId immediately; observe completion via the agent_orchestrator.process.execution.* events or GET /executions/:id. Gated by agent_orchestrator.processes.run (session or API key).',
+      responses: [{ status: 202, description: 'Execution accepted', schema: acceptedSchema }],
       errors: [
         { status: 400, description: 'Validation failed (body or inputSchema)', schema: errorSchema },
         { status: 401, description: 'Unauthorized', schema: errorSchema },

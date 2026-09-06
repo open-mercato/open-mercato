@@ -89,7 +89,7 @@ describe('audit page (backend/audit/page.tsx)', () => {
     expect(source).toContain('audit.log.serverPaginatedNote')
   })
 
-  it('gates the open-process row action on a real processId', () => {
-    expect(source).not.toContain('row.processId ?? row.id')
+  it('gates the open-process row action on a real workflowInstanceId', () => {
+    expect(source).not.toContain('row.workflowInstanceId ?? row.id')
   })
 })

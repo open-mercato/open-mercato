@@ -1,6 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { JobContext, QueuedJob } from '@open-mercato/queue'
-import { AgentPrincipal, AgentRun, AgentProcessDefinition, AgentProcessRun } from '../data/entities'
+import { AgentPrincipal, AgentRun, ProcessDefinition, AgentProcessRun } from '../data/entities'
 
 jest.mock('../events', () => ({
   emitAgentOrchestratorEvent: jest.fn(async () => {}),
@@ -88,7 +88,7 @@ function makeContainer(em: EntityManager, registrations: Registrations) {
 }
 
 function seed(storeFor: (entity: unknown) => Array<Record<string, unknown>>, runOverrides: Record<string, unknown> = {}) {
-  storeFor(AgentProcessDefinition).push({
+  storeFor(ProcessDefinition).push({
     id: TASK_ID,
     tenantId: TENANT,
     organizationId: ORG,

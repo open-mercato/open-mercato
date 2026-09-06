@@ -21,7 +21,7 @@ const ROW_ID = '55555555-5555-4555-8555-555555555555'
 
 const ROW = {
   id: ROW_ID,
-  processId: PROCESS,
+  workflowInstanceId: PROCESS,
   tenantId: TENANT,
   organizationId: ORG,
   subjectLabel: 'CASE-2026-04417',
@@ -30,7 +30,7 @@ const ROW = {
 }
 
 function makeRequest(id: string) {
-  return new Request(`http://localhost/api/agent_orchestrator/processes/${id}`)
+  return new Request(`http://localhost/api/agent_orchestrator/executions/${id}`)
 }
 
 async function setup(rowByProcessId: unknown, rowById: unknown = null) {
@@ -40,7 +40,7 @@ async function setup(rowByProcessId: unknown, rowById: unknown = null) {
   ;(getAuthFromRequest as jest.Mock).mockResolvedValue({ sub: 'user', tenantId: TENANT, orgId: ORG })
   ;(findOneWithDecryption as jest.Mock).mockImplementation(
     async (_em: unknown, _entity: unknown, where: Record<string, unknown>) => {
-      if ('processId' in where) return rowByProcessId
+      if ('workflowInstanceId' in where) return rowByProcessId
       return rowById
     },
   )
@@ -59,19 +59,19 @@ describe('processes routes — ACL gates', () => {
   })
 })
 
-describe('GET /api/agent_orchestrator/processes/:id', () => {
+describe('GET /api/agent_orchestrator/executions/:id', () => {
   beforeEach(() => jest.clearAllMocks())
 
-  it('resolves by workflow processId (the id runs/proposals carry)', async () => {
+  it('resolves by workflow workflowInstanceId (the id runs/proposals carry)', async () => {
     const { findOneWithDecryption } = await setup(ROW)
     const res = await getProcessDetail(makeRequest(PROCESS), {
       params: Promise.resolve({ id: PROCESS }),
     })
     expect(res.status).toBe(200)
     const body = await res.json()
-    expect(body.process).toMatchObject({ processId: PROCESS, subjectLabel: 'CASE-2026-04417' })
+    expect(body.process).toMatchObject({ workflowInstanceId: PROCESS, subjectLabel: 'CASE-2026-04417' })
     expect(findOneWithDecryption.mock.calls[0][2]).toMatchObject({
-      processId: PROCESS,
+      workflowInstanceId: PROCESS,
       tenantId: TENANT,
       deletedAt: null,
     })

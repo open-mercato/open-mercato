@@ -19,8 +19,8 @@ type ProposalsResponse = { items?: Array<Record<string, unknown>> }
 type RunsResponse = { items?: Array<Record<string, unknown>> }
 
 export type AgentTimelineProps = {
-  /** The workflow instance id used to scope proposals (`?processId=`). */
-  processId: string
+  /** The workflow instance id used to scope proposals (`?workflowInstanceId=`). */
+  workflowInstanceId: string
 }
 
 /**
@@ -29,7 +29,7 @@ export type AgentTimelineProps = {
  * uses `StatusBadge`/status tokens only (never the legacy `bg-blue-100` classes
  * the current monitor uses — Boy-Scout rule).
  */
-export function AgentTimeline({ processId }: AgentTimelineProps) {
+export function AgentTimeline({ workflowInstanceId }: AgentTimelineProps) {
   const t = useT()
   const agentIcons = useAgentIconMap()
   const [proposals, setProposals] = React.useState<ProposalView[]>([])
@@ -46,7 +46,7 @@ export function AgentTimeline({ processId }: AgentTimelineProps) {
       setError(null)
       try {
         const call = await apiCall<ProposalsResponse>(
-          `/api/agent_orchestrator/proposals?processId=${encodeURIComponent(processId)}&pageSize=100`,
+          `/api/agent_orchestrator/proposals?workflowInstanceId=${encodeURIComponent(workflowInstanceId)}&pageSize=100`,
           undefined,
           { fallback: { items: [] } },
         )
@@ -90,11 +90,11 @@ export function AgentTimeline({ processId }: AgentTimelineProps) {
         if (!cancelled) setIsLoading(false)
       }
     }
-    if (processId) load()
+    if (workflowInstanceId) load()
     return () => {
       cancelled = true
     }
-  }, [processId, t])
+  }, [workflowInstanceId, t])
 
   const openDrawer = React.useCallback((run: RunView | null) => {
     setDrawerRun(run)

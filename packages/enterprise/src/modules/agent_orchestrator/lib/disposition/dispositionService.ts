@@ -39,7 +39,7 @@ export type DispositionCtx = {
   tenantId: string
   organizationId: string
   userId?: string
-  processId: string
+  workflowInstanceId: string
   stepId: string
   /**
    * Who reviews this proposal and by when, authored on the agent node. Absent
@@ -238,7 +238,7 @@ export class DispositionServiceImpl implements DispositionService {
       const em = (this.container.resolve('em') as EntityManager).fork()
 
       const created = await dispositionTask.createAgentDispositionTask(em, this.container, {
-        workflowInstanceId: ctx.processId,
+        workflowInstanceId: ctx.workflowInstanceId,
         stepId: ctx.stepId,
         proposalId: proposal.id,
         agentId: proposal.agentId,
@@ -256,7 +256,7 @@ export class DispositionServiceImpl implements DispositionService {
     } catch (error) {
       logger.warn('USER_TASK not created (workflows peer absent?)', {
         proposalId: proposal.id,
-        processId: ctx.processId,
+        workflowInstanceId: ctx.workflowInstanceId,
         error: error instanceof Error ? error.message : String(error),
       })
       return `pending:${proposal.id}`

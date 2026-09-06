@@ -1,6 +1,6 @@
 import {
-  agentProcessDefinitionCreateSchema,
-  agentProcessRunRequestSchema,
+  processDefinitionCreateSchema,
+  processExecutionStartSchema,
   processTriggerSchema,
 } from '../data/validators'
 import {
@@ -9,22 +9,22 @@ import {
   matchesEventPattern,
 } from '../lib/tasks/eventTriggerMatch'
 
-describe('agentProcessDefinitionCreateSchema', () => {
+describe('processDefinitionCreateSchema', () => {
   const base = { name: 'Deal health check', targetType: 'agent' as const }
 
   it('requires a target agent id for agent targets', () => {
-    expect(agentProcessDefinitionCreateSchema.safeParse(base).success).toBe(false)
+    expect(processDefinitionCreateSchema.safeParse(base).success).toBe(false)
     expect(
-      agentProcessDefinitionCreateSchema.safeParse({ ...base, targetAgentId: 'deals.health_check' }).success,
+      processDefinitionCreateSchema.safeParse({ ...base, targetAgentId: 'deals.health_check' }).success,
     ).toBe(true)
   })
 
   it('requires a target workflow id for workflow targets', () => {
     expect(
-      agentProcessDefinitionCreateSchema.safeParse({ name: 'X', targetType: 'workflow' }).success,
+      processDefinitionCreateSchema.safeParse({ name: 'X', targetType: 'workflow' }).success,
     ).toBe(false)
     expect(
-      agentProcessDefinitionCreateSchema.safeParse({
+      processDefinitionCreateSchema.safeParse({
         name: 'X',
         targetType: 'workflow',
         targetWorkflowId: 'claims_resolution',
@@ -34,7 +34,7 @@ describe('agentProcessDefinitionCreateSchema', () => {
 
   it('rejects malformed cron expressions and accepts 5-field ones', () => {
     const withCron = (cron: string) =>
-      agentProcessDefinitionCreateSchema.safeParse({
+      processDefinitionCreateSchema.safeParse({
         ...base,
         targetAgentId: 'a',
         triggers: [{ kind: 'schedule', cron }],
@@ -46,12 +46,12 @@ describe('agentProcessDefinitionCreateSchema', () => {
   })
 })
 
-describe('agentProcessRunRequestSchema', () => {
+describe('processExecutionStartSchema', () => {
   it('accepts an empty body and rejects a non-uuid sourceEntityId', () => {
-    expect(agentProcessRunRequestSchema.safeParse({}).success).toBe(true)
-    expect(agentProcessRunRequestSchema.safeParse({ sourceEntityId: 'claim-1' }).success).toBe(false)
+    expect(processExecutionStartSchema.safeParse({}).success).toBe(true)
+    expect(processExecutionStartSchema.safeParse({ sourceEntityId: 'claim-1' }).success).toBe(false)
     expect(
-      agentProcessRunRequestSchema.safeParse({
+      processExecutionStartSchema.safeParse({
         input: { claimId: 'x' },
         idempotencyKey: 'settle-2026-07-12',
         sourceEntityType: 'claims:claim',

@@ -1,6 +1,12 @@
 import { OptionalProps } from '@mikro-orm/core'
 import { Entity, Index, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
-import type { AgentType, ProcessMilestone, ProcessRunTriggeredBy, ProcessTrigger } from './validators'
+import type {
+  AgentType,
+  ProcessMilestone,
+  ProcessMilestoneReached,
+  ProcessRunTriggeredBy,
+  ProcessTrigger,
+} from './validators'
 
 export type AgentRunStatus = 'running' | 'ok' | 'error' | 'cancelled'
 
@@ -23,6 +29,14 @@ export type AgentToolCallStatus = 'ok' | 'error'
   expression:
     `create index "agent_runs_eval_failed_idx" on "agent_runs" ("organization_id", "created_at") where "eval_passed" = false`,
 })
+// One run per agent invocation, stated as an identity rather than guessed from
+// creation time. Partial so Playground/eval runs — which correlate to nothing —
+// are unconstrained.
+@Index({
+  name: 'agent_runs_invocation_uq',
+  expression:
+    `create unique index "agent_runs_invocation_uq" on "agent_runs" ("workflow_instance_id", "step_id", "invocation_id") where "workflow_instance_id" is not null and "step_id" is not null and "invocation_id" is not null`,
+})
 export class AgentRun {
   [OptionalProps]?:
     | 'source'
@@ -32,8 +46,9 @@ export class AgentRun {
     | 'agentType'
     | 'errorMessage'
     | 'parentRunId'
-    | 'processId'
+    | 'workflowInstanceId'
     | 'stepId'
+    | 'invocationId'
     | 'proposalId'
     | 'agentVersion'
     | 'model'
@@ -90,13 +105,28 @@ export class AgentRun {
   @Property({ name: 'parent_run_id', type: 'uuid', nullable: true })
   parentRunId?: string | null
 
-  // ── Trace correlation (additive; trace-eval overlay) ───────────────────────
-  /** FK id → workflows process instance (no cross-module ORM relation). */
-  @Property({ name: 'process_id', type: 'uuid', nullable: true })
-  processId?: string | null
+  // ── Execution correlation ──────────────────────────────────────────────────
+  /**
+   * WHICH agent invocation this run is, stated explicitly.
+   *
+   * `(workflowInstanceId, stepId, invocationId)` is the identity of one agent
+   * invocation and the unique key below enforces it. Before this triple existed,
+   * a caller found the run it had just caused with "the newest run for this agent
+   * created since T" — a temporal lookup that cannot tell two concurrent runs of
+   * the same agent apart. Correlation is always an explicit identifier.
+   *
+   * All three are nullable together: a Playground or eval run belongs to no
+   * workflow and correlates to nothing.
+   */
+  @Property({ name: 'workflow_instance_id', type: 'uuid', nullable: true })
+  workflowInstanceId?: string | null
 
   @Property({ name: 'step_id', type: 'varchar', length: 100, nullable: true })
   stepId?: string | null
+
+  /** The step's attempt id — distinguishes a retry from the run it retried. */
+  @Property({ name: 'invocation_id', type: 'varchar', length: 100, nullable: true })
+  invocationId?: string | null
 
   /** FK id → agent_proposals (orchestration). */
   @Property({ name: 'proposal_id', type: 'uuid', nullable: true })
@@ -355,7 +385,7 @@ export type CorrectionAction = 'edit' | 'reject' | 'override' | 'answer'
 @Index({ name: 'agent_corrections_run_idx', properties: ['agentRunId'] })
 @Index({ name: 'agent_corrections_proposal_idx', properties: ['proposalId'] })
 export class AgentCorrection {
-  [OptionalProps]?: 'processId' | 'stepId' | 'agentRunId' | 'correctedValue' | 'evalCaseId' | 'createdAt'
+  [OptionalProps]?: 'workflowInstanceId' | 'stepId' | 'agentRunId' | 'correctedValue' | 'evalCaseId' | 'createdAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -366,8 +396,9 @@ export class AgentCorrection {
   @Property({ name: 'organization_id', type: 'uuid' })
   organizationId!: string
 
-  @Property({ name: 'process_id', type: 'uuid', nullable: true })
-  processId?: string | null
+  /** FK id → workflows instance (no cross-module ORM relation). */
+  @Property({ name: 'workflow_instance_id', type: 'uuid', nullable: true })
+  workflowInstanceId?: string | null
 
   @Property({ name: 'step_id', type: 'varchar', length: 100, nullable: true })
   stepId?: string | null
@@ -1018,7 +1049,7 @@ export type AgentProposalSource = 'runtime' | 'eval'
 @Index({ name: 'agent_proposals_org_disposition_created_idx', properties: ['organizationId', 'disposition', 'createdAt'] })
 export class AgentProposal {
   [OptionalProps]?: 'source' | 'disposition' | 'dispositionBy' | 'dispositionReason'
-    | 'processId' | 'stepId' | 'userTaskId' | 'confidence' | 'guardResults' | 'createdAt'
+    | 'workflowInstanceId' | 'stepId' | 'userTaskId' | 'confidence' | 'guardResults' | 'createdAt'
     | 'updatedAt' | 'deletedAt' | 'selectedOptionId' | 'autoDispositionBlock'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
@@ -1036,8 +1067,9 @@ export class AgentProposal {
   @Property({ name: 'run_id', type: 'uuid' })
   runId!: string
 
-  @Property({ name: 'process_id', type: 'uuid', nullable: true })
-  processId?: string | null
+  /** FK id → workflows instance (no cross-module ORM relation). */
+  @Property({ name: 'workflow_instance_id', type: 'uuid', nullable: true })
+  workflowInstanceId?: string | null
 
   @Property({ name: 'step_id', type: 'varchar', length: 100, nullable: true })
   stepId?: string | null
@@ -1121,13 +1153,13 @@ export class AgentProposal {
  *
  * `routedSources`/`prunedSources`/`sources`/`redactionApplied` jsonb shapes are
  * enforced by Zod in data/validators.ts (`contextBundleRoutedSourcesSchema` etc.).
- * Other modules referenced by FK id only (agentRunId, processId).
+ * Other modules referenced by FK id only (agentRunId, workflowInstanceId).
  */
 @Entity({ tableName: 'agent_context_bundles' })
 @Index({ name: 'agent_context_bundles_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
 @Index({ name: 'agent_context_bundles_run_idx', properties: ['agentRunId'] })
 export class AgentContextBundle {
-  [OptionalProps]?: 'processId' | 'stepId' | 'prunedSources' | 'redactionApplied' | 'payloadRef' | 'createdAt'
+  [OptionalProps]?: 'workflowInstanceId' | 'stepId' | 'prunedSources' | 'redactionApplied' | 'payloadRef' | 'createdAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -1143,8 +1175,9 @@ export class AgentContextBundle {
   agentRunId!: string
 
   /** FK id → workflows process instance (null for standalone runs). */
-  @Property({ name: 'process_id', type: 'uuid', nullable: true })
-  processId?: string | null
+  /** FK id → workflows instance (no cross-module ORM relation). */
+  @Property({ name: 'workflow_instance_id', type: 'uuid', nullable: true })
+  workflowInstanceId?: string | null
 
   @Property({ name: 'step_id', type: 'varchar', length: 100, nullable: true })
   stepId?: string | null
@@ -1188,46 +1221,48 @@ export class AgentContextBundle {
   createdAt: Date = new Date()
 }
 
-export type AgentProcessTargetType = 'agent' | 'workflow'
-export type AgentProcessRunStatus = 'running' | 'completed' | 'failed'
-
 /**
- * The AUTHORED half of a process (triggered process model spec, 2026-08-11): a
- * named, permissioned pointer at either a single agent or a `workflows`
- * definition, entered manually / via API key / on a schedule / by a domain
- * event. Its runtime counterpart is `AgentProcessRun`; `AgentProcess` remains
- * the separate event-rebuilt projection and is NOT renamed by this spec.
+ * The AUTHORED business definition of a process (business-process ↔ workflow
+ * unification spec, 2026-09-06): what the process is FOR. It POINTS AT a
+ * `workflows` definition and never restates its execution semantics — sequence,
+ * retry, timers, waits, signals, branches and failure handling all belong to the
+ * workflow, which is the single lifecycle owner of every execution.
+ *
+ * There is deliberately no agent target. A single-agent process materializes a
+ * real `START → INVOKE_AGENT → END` workflow definition instead
+ * (`lib/processes/materializeAgentWorkflow.ts`), so one engine runs everything
+ * and the user can grow the process by editing it in the Studio.
+ *
+ * Execution identity is likewise NOT here: the bound `WorkflowDefinition` owns
+ * `grantedFeatures` and the least-privilege `auth` principal core provisions from
+ * it. `ProcessInstance.triggeredBy` records the INVOKER, which is provenance and
+ * never an ACL identity — permission to start a process is not the permission set
+ * the process runs with.
  *
  * User-editable → carries `updated_at` for optimistic locking (default ON).
- * Every definition executes under its own auto-provisioned `AgentPrincipal`
- * (`executionPrincipalId`, synthetic agent id `task:<id>` — a persisted
- * principal key, deliberately NOT renamed), never as the triggering user.
  */
-@Entity({ tableName: 'agent_process_definitions' })
-@Index({ name: 'agent_process_definitions_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
-@Index({ name: 'agent_process_definitions_target_idx', properties: ['organizationId', 'targetType'] })
-// The event dispatcher's lookup moved from an indexed column on the retired
-// `agent_task_event_triggers` table to a containment probe over this jsonb
+@Entity({ tableName: 'process_definitions' })
+@Index({ name: 'process_definitions_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+@Index({ name: 'process_definitions_workflow_idx', properties: ['organizationId', 'workflowId'] })
+// The event dispatcher's lookup is a containment probe over this jsonb
 // (`triggers @> '[{"kind":"event","eventPattern":"claims.claim.reported"}]'`).
 // `jsonb_path_ops` is the smaller, faster opclass and supports exactly the `@>`
 // operator that probe uses. Declared via `@Index({ expression })` so
-// `db:generate` stays aware of it (precedent: `agent_process_runs_idempotency_uq`).
+// `db:generate` stays aware of it.
 @Index({
-  name: 'agent_process_definitions_triggers_gin',
+  name: 'process_definitions_triggers_gin',
   expression:
-    `create index "agent_process_definitions_triggers_gin" on "agent_process_definitions" using gin ("triggers" jsonb_path_ops)`,
+    `create index "process_definitions_triggers_gin" on "process_definitions" using gin ("triggers" jsonb_path_ops)`,
 })
-export class AgentProcessDefinition {
+export class ProcessDefinition {
   [OptionalProps]?:
     | 'description'
-    | 'targetAgentId'
-    | 'targetWorkflowId'
     | 'inputDefaults'
     | 'inputSchema'
-    | 'executionPrincipalId'
-    | 'grantedFeatures'
+    | 'outcomeSchema'
     | 'triggers'
     | 'milestones'
+    | 'uiMetadata'
     | 'enabled'
     | 'createdBy'
     | 'createdAt'
@@ -1249,66 +1284,60 @@ export class AgentProcessDefinition {
   @Property({ name: 'description', type: 'text', nullable: true })
   description?: string | null
 
-  @Property({ name: 'target_type', type: 'varchar', length: 20 })
-  targetType!: AgentProcessTargetType
-
-  /** Stable registry `agentId` when targetType='agent'. */
-  @Property({ name: 'target_agent_id', type: 'varchar', length: 150, nullable: true })
-  targetAgentId?: string | null
-
-  /** `WorkflowDefinition.workflowId` when targetType='workflow' (FK id only, no ORM relation). */
-  @Property({ name: 'target_workflow_id', type: 'varchar', length: 150, nullable: true })
-  targetWorkflowId?: string | null
+  /**
+   * `WorkflowDefinition.workflowId` — FK id only, never an ORM relation. REQUIRED:
+   * a business process with no workflow has no execution engine, which is the
+   * exact split this model removes.
+   */
+  @Property({ name: 'workflow_id', type: 'varchar', length: 150 })
+  workflowId!: string
 
   /** Default input merged under the run-time input; encrypted (encryption.ts). */
   @Property({ name: 'input_defaults', type: 'jsonb', nullable: true })
   inputDefaults?: unknown | null
 
-  /** Optional JSON-Schema (OUTCOME-compatible subset) validating `/run` input. */
+  /** Optional JSON-Schema (OUTCOME-compatible subset) validating start input. */
   @Property({ name: 'input_schema', type: 'jsonb', nullable: true })
   inputSchema?: unknown | null
 
   /**
-   * FK id → agent_principals; the task's dedicated execution identity. Nullable
-   * only for the instant between the insert and the afterCreate provisioning
-   * hook — never null for a task the UI can run.
+   * Optional JSON-Schema describing the BUSINESS outcome a completed execution
+   * produces. Documentation and validation of `ProcessInstance.outcome_*`, not a
+   * completion requirement: a research or monitoring process produces nothing and
+   * completes perfectly validly.
    */
-  @Property({ name: 'execution_principal_id', type: 'uuid', nullable: true })
-  executionPrincipalId?: string | null
+  @Property({ name: 'outcome_schema', type: 'jsonb', nullable: true })
+  outcomeSchema?: unknown | null
 
   /**
-   * The exact least-privilege feature set granted to the execution principal's
-   * role. Stored on the definition so the detail page can audit it and updates
-   * can diff without reading auth.RoleAcl cross-module.
-   */
-  @Property({ name: 'granted_features', type: 'jsonb', nullable: true })
-  grantedFeatures?: string[] | null
-
-  /**
-   * The declared entry points (`ProcessTrigger[]`, `.max(20)`): `schedule` (the
-   * retired `schedule_cron`/`schedule_timezone`/`schedule_enabled` columns),
-   * `event` (the retired `agent_task_event_triggers` rows, every field intact),
-   * and `manual` — which makes hand-starting a declared capability rather than
-   * an undocumented one. A definition with no `manual` trigger 403s on `/run`.
+   * The declared entry points (`ProcessTrigger[]`, `.max(20)`): `schedule`,
+   * `event` and `manual` — which makes hand-starting a declared capability rather
+   * than an undocumented one. A definition with no `manual` trigger 403s on the
+   * start route. Every kind converges on ONE command that starts a workflow.
    */
   @Property({ name: 'triggers', type: 'jsonb', nullable: true, default: '[]' })
   triggers?: ProcessTrigger[] | null
 
   /**
-   * The authored, ordered business stages (`ProcessMilestone[]`, `.max(50)`):
-   * what a business reader sees instead of the Studio's step graph. Each entry
-   * maps a `label` authored HERE onto a workflow `stepId`, so renaming a step
-   * does not change the reader's vocabulary — and the mapping can drift, which
-   * `collectMilestoneIssues` surfaces as a warning. WORKFLOW targets only: an
-   * agent-targeted definition has no steps to map and the validator rejects it.
+   * The declared milestone VOCABULARY (`ProcessMilestone[]`, `.max(50)`):
+   * `{ key, label, order }`. A milestone is a business EVENT the workflow emits
+   * (a step declares `milestone: '<key>'` in its advanced config), NOT an alias
+   * for a step — so a stage can be reached after a parallel join, after a retry,
+   * or after ten steps, and the business reader never learns there were branches.
+   * A declared key no step emits is a WARNING, never an error: a definition
+   * mid-edit must stay saveable.
    */
   @Property({ name: 'milestones', type: 'jsonb', nullable: true, default: '[]' })
   milestones?: ProcessMilestone[] | null
 
+  /** Optional presentation hints (icon, accent, column preferences). Display only. */
+  @Property({ name: 'ui_metadata', type: 'jsonb', nullable: true })
+  uiMetadata?: unknown | null
+
   @Property({ name: 'enabled', type: 'boolean', default: true })
   enabled: boolean = true
 
-  /** FK id → auth.users; the admin who created the task. */
+  /** FK id → auth.users; the admin who created the definition. */
   @Property({ name: 'created_by', type: 'uuid', nullable: true })
   createdBy?: string | null
 
@@ -1322,143 +1351,8 @@ export class AgentProcessDefinition {
   deletedAt?: Date | null
 }
 
-/**
- * One execution of an `AgentProcessDefinition` — the unified, shallow run ledger
- * across both target types (the deep trace stays in agent_runs / workflow
- * instances). System-transitioned (`running → completed|failed`), no user edit
- * form → exempt from the optimistic-lock UI surface, mirroring `AgentRun`.
- * Target pointers are denormalized so history survives definition edits.
- */
-@Entity({ tableName: 'agent_process_runs' })
-@Index({ name: 'agent_process_runs_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
-@Index({ name: 'agent_process_runs_definition_idx', properties: ['processDefinitionId', 'createdAt'] })
-@Index({ name: 'agent_process_runs_source_idx', properties: ['sourceEntityType', 'sourceEntityId'] })
-@Index({
-  name: 'agent_process_runs_idempotency_uq',
-  expression:
-    `create unique index "agent_process_runs_idempotency_uq" on "agent_process_runs" ("organization_id", "process_definition_id", "idempotency_key") where "idempotency_key" is not null`,
-})
-export class AgentProcessRun {
-  [OptionalProps]?:
-    | 'status'
-    | 'targetAgentId'
-    | 'targetWorkflowId'
-    | 'agentRunId'
-    | 'workflowInstanceId'
-    | 'sourceEntityType'
-    | 'sourceEntityId'
-    | 'triggeredBy'
-    | 'idempotencyKey'
-    | 'startedAt'
-    | 'completedAt'
-    | 'failureReason'
-    | 'outcomeType'
-    | 'outcomeId'
-    | 'outcomeLabel'
-    | 'createdAt'
-    | 'updatedAt'
-
-  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
-  id!: string
-
-  @Property({ name: 'tenant_id', type: 'uuid' })
-  tenantId!: string
-
-  @Property({ name: 'organization_id', type: 'uuid' })
-  organizationId!: string
-
-  /** FK id → agent_process_definitions. */
-  @Property({ name: 'process_definition_id', type: 'uuid' })
-  processDefinitionId!: string
-
-  /** Denormalized snapshot at trigger time. */
-  @Property({ name: 'target_type', type: 'varchar', length: 20 })
-  targetType!: AgentProcessTargetType
-
-  @Property({ name: 'target_agent_id', type: 'varchar', length: 150, nullable: true })
-  targetAgentId?: string | null
-
-  @Property({ name: 'target_workflow_id', type: 'varchar', length: 150, nullable: true })
-  targetWorkflowId?: string | null
-
-  @Property({ name: 'status', type: 'varchar', length: 20, default: 'running' })
-  status: AgentProcessRunStatus = 'running'
-
-  /** FK id → agent_runs (agent target). */
-  @Property({ name: 'agent_run_id', type: 'uuid', nullable: true })
-  agentRunId?: string | null
-
-  /** FK id → workflows instance (workflow target). */
-  @Property({ name: 'workflow_instance_id', type: 'uuid', nullable: true })
-  workflowInstanceId?: string | null
-
-  /** The resolved input actually used; encrypted (encryption.ts). */
-  @Property({ name: 'input', type: 'jsonb' })
-  input!: unknown
-
-  /** Correlates to the triggering business record for cross-module launches. */
-  @Property({ name: 'source_entity_type', type: 'varchar', length: 100, nullable: true })
-  sourceEntityType?: string | null
-
-  @Property({ name: 'source_entity_id', type: 'uuid', nullable: true })
-  sourceEntityId?: string | null
-
-  /**
-   * WHICH declared trigger fired: `{ kind: 'schedule' }`, `{ kind: 'event', ref:
-   * <eventPattern> }`, `{ kind: 'manual', ref: <userId> }`. Provenance only,
-   * never an ACL identity — the run always executes under the definition's own
-   * execution principal.
-   */
-  @Property({ name: 'triggered_by', type: 'jsonb', nullable: true })
-  triggeredBy?: ProcessRunTriggeredBy | null
-
-  @Property({ name: 'idempotency_key', type: 'varchar', length: 200, nullable: true })
-  idempotencyKey?: string | null
-
-  @Property({ name: 'started_at', type: Date, nullable: true })
-  startedAt?: Date | null
-
-  @Property({ name: 'completed_at', type: Date, nullable: true })
-  completedAt?: Date | null
-
-  /** May echo malformed input on validation failure; encrypted (encryption.ts). */
-  @Property({ name: 'failure_reason', type: 'text', nullable: true })
-  failureReason?: string | null
-
-  /**
-   * WHAT the run produced, written on completion — entity id of the resulting
-   * record (`claims:claim`), its id, and a LABEL SNAPSHOT.
-   *
-   * Nullable BY DECISION, not by omission: a research or monitoring process
-   * produces nothing and stays valid, so an absent outcome is a normal
-   * completion rather than a missing write.
-   *
-   * FK-id + snapshot per `packages/core/AGENTS.md` § Cross-Module Coupling —
-   * `outcome_label` keeps the reference readable when the module that owns the
-   * record is absent, and this is NEVER a cross-module ORM relation. Read
-   * through `lib/tasks/outcome.ts`, never by touching the columns by hand.
-   *
-   * Plaintext, mirroring `agent_processes.subject_label`: this is a record
-   * reference, not the free-text `subject_title` that entry encrypts.
-   */
-  @Property({ name: 'outcome_type', type: 'varchar', length: 150, nullable: true })
-  outcomeType?: string | null
-
-  @Property({ name: 'outcome_id', type: 'varchar', length: 200, nullable: true })
-  outcomeId?: string | null
-
-  @Property({ name: 'outcome_label', type: 'varchar', length: 200, nullable: true })
-  outcomeLabel?: string | null
-
-  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
-  createdAt: Date = new Date()
-
-  @Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date() })
-  updatedAt: Date = new Date()
-}
-
-/** Derived display status of an `AgentProcess` (spec §Status derivation — first match wins). */
-export type AgentProcessStatus =
+/** Derived display status of a `ProcessInstance` (first match wins — see `deriveProcessStatus`). */
+export type ProcessInstanceStatus =
   | 'running'
   | 'waiting_on_you'
   | 'question_open'
@@ -1471,36 +1365,59 @@ export type AgentProcessStatus =
   | 'cancelled'
 
 /**
- * Read-model projection: ONE row per `(tenant, org, processId)` — the indexable
- * backing of the Processes cockpit list/detail-header (process subject & caseload
- * projection spec, 2026-06-25). NOT a source of truth: the `workflows` instance
- * stays authoritative; this row is derived from agent + workflow lifecycle events
- * by an idempotent recompute-from-source subscriber service and is fully
- * rebuildable via the `rebuild-processes` CLI backfill. Filter-driving subject
- * facets (`subject_type`/`subject_value_minor`/`subject_fraud`) are deliberately
- * PLAINTEXT typed columns (SQL-filterable); only the free-text `subject_title` is
- * encrypted (encryption.ts). Other modules referenced by FK id only.
+ * The business-facing READ MODEL of one execution — ONE row per
+ * `WorkflowInstance`. It is a PROJECTION and decides nothing: the workflow
+ * instance is the single lifecycle owner, and every field here is recomputed
+ * from that instance, this module's own run/proposal rows and the milestone
+ * events, by an idempotent recompute-from-source service
+ * (`lib/processes/processProjection.ts`, rebuildable via the
+ * `rebuild-processes` CLI).
+ *
+ * `status` is DERIVED. There is deliberately no second status column in the
+ * system: the predecessor model kept one here and another on the deleted
+ * `agent_process_runs` ledger, and the two could disagree on redelivery, on a
+ * crash between the writes, or while an instance parked at a USER_TASK.
+ *
+ * The row is created BEFORE the instance exists (the start command writes it,
+ * then the worker starts the workflow and stamps `workflow_instance_id`), which
+ * is what lets the business-execution idempotency key live here: the partial
+ * unique index below is the lock that makes one key produce exactly one
+ * `WorkflowInstance`, no matter how many callers race.
+ *
+ * Filter-driving subject facets (`subject_type`/`subject_value_minor`/
+ * `subject_fraud`) are deliberately PLAINTEXT typed columns (SQL-filterable);
+ * only the free-text `subject_title` and the `input`/`failure_reason` pair are
+ * encrypted (encryption.ts). Other modules are referenced by FK id only.
  */
-// One LIVE projection per (tenant, org, process) is enforced by a partial unique
-// index (`agent_processes_org_process_uq`) over live rows (`WHERE deleted_at IS
-// NULL`), declared via `@Index({ expression })` so `db:generate` stays aware of
-// it (precedent: `agent_process_runs_idempotency_uq`, `agent_runs_eval_failed_idx`).
-@Entity({ tableName: 'agent_processes' })
-@Index({ name: 'agent_processes_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
-@Index({ name: 'agent_processes_status_idx', properties: ['organizationId', 'status', 'lastActivityAt'] })
-@Index({ name: 'agent_processes_value_idx', properties: ['organizationId', 'subjectValueMinor'] })
+@Entity({ tableName: 'process_instances' })
+@Index({ name: 'process_instances_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+@Index({ name: 'process_instances_status_idx', properties: ['organizationId', 'status', 'lastActivityAt'] })
+@Index({ name: 'process_instances_value_idx', properties: ['organizationId', 'subjectValueMinor'] })
+@Index({ name: 'process_instances_definition_idx', properties: ['processDefinitionId', 'createdAt'] })
+@Index({ name: 'process_instances_source_idx', properties: ['sourceEntityType', 'sourceEntityId'] })
+// One LIVE projection per (tenant, org, workflow instance) — the 1:1 that makes
+// this a projection rather than a second execution record.
 @Index({
-  name: 'agent_processes_org_process_uq',
+  name: 'process_instances_workflow_instance_uq',
   expression:
-    `create unique index "agent_processes_org_process_uq" on "agent_processes" ("tenant_id", "organization_id", "process_id") where "deleted_at" is null`,
+    `create unique index "process_instances_workflow_instance_uq" on "process_instances" ("tenant_id", "organization_id", "workflow_instance_id") where "deleted_at" is null and "workflow_instance_id" is not null`,
 })
-export class AgentProcess {
-  [OptionalProps]?: 'workflowId' | 'workflowVersion'
+// The BUSINESS-EXECUTION idempotency lock: one (definition, key) can never
+// produce two executions, and therefore never two workflow instances.
+@Index({
+  name: 'process_instances_idempotency_uq',
+  expression:
+    `create unique index "process_instances_idempotency_uq" on "process_instances" ("organization_id", "process_definition_id", "idempotency_key") where "idempotency_key" is not null`,
+})
+export class ProcessInstance {
+  [OptionalProps]?: 'processDefinitionId' | 'workflowInstanceId' | 'workflowId' | 'workflowVersion'
+    | 'triggeredBy' | 'idempotencyKey' | 'input' | 'sourceEntityType' | 'sourceEntityId'
     | 'subjectType' | 'subjectId' | 'subjectLabel' | 'subjectTitle' | 'subjectFacets'
     | 'subjectValueMinor' | 'subjectFraud'
-    | 'status' | 'currentStage' | 'agentIds' | 'costMinor' | 'currency'
+    | 'status' | 'currentStage' | 'milestonesReached' | 'agentIds' | 'costMinor' | 'currency'
     | 'runCount' | 'pendingProposalCount'
-    | 'assigneeUserId' | 'teamId' | 'waitingSince' | 'lastActivityAt'
+    | 'outcomeType' | 'outcomeId' | 'outcomeLabel' | 'failureReason'
+    | 'assigneeUserId' | 'teamId' | 'waitingSince' | 'lastActivityAt' | 'completedAt'
     | 'createdAt' | 'updatedAt' | 'deletedAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
@@ -1512,15 +1429,52 @@ export class AgentProcess {
   @Property({ name: 'organization_id', type: 'uuid' })
   organizationId!: string
 
-  /** FK id → workflows instance; NOT an ORM relation. Unique per (tenant, org) over live rows. */
-  @Property({ name: 'process_id', type: 'uuid' })
-  processId!: string
+  /**
+   * FK id → `workflows` instance; NOT an ORM relation. Nullable only for the
+   * window between the start command's insert and the worker stamping the
+   * started instance — never null for an execution that is actually running.
+   */
+  @Property({ name: 'workflow_instance_id', type: 'uuid', nullable: true })
+  workflowInstanceId?: string | null
 
+  /**
+   * FK id → process_definitions. NULLABLE BY DESIGN: an instance started
+   * directly from the workflow Studio still projects here, it simply has no
+   * business definition above it.
+   */
+  @Property({ name: 'process_definition_id', type: 'uuid', nullable: true })
+  processDefinitionId?: string | null
+
+  /** Denormalized workflow identity, so history survives a definition edit. */
   @Property({ name: 'workflow_id', type: 'varchar', length: 200, nullable: true })
   workflowId?: string | null
 
   @Property({ name: 'workflow_version', type: 'varchar', length: 50, nullable: true })
   workflowVersion?: string | null
+
+  /**
+   * WHICH declared trigger started it: `{ kind: 'schedule' }`, `{ kind: 'event',
+   * ref: <eventPattern> }`, `{ kind: 'manual', ref: <userId> }`. The INVOKER
+   * identity — provenance only, NEVER an ACL identity. The execution identity is
+   * the bound workflow definition's own least-privilege principal.
+   */
+  @Property({ name: 'triggered_by', type: 'jsonb', nullable: true })
+  triggeredBy?: ProcessRunTriggeredBy | null
+
+  /** Business-execution idempotency key; unique per (org, definition) — see the index above. */
+  @Property({ name: 'idempotency_key', type: 'varchar', length: 200, nullable: true })
+  idempotencyKey?: string | null
+
+  /** The resolved start input (defaults merged under the caller's); encrypted (encryption.ts). */
+  @Property({ name: 'input', type: 'jsonb', nullable: true })
+  input?: unknown | null
+
+  /** Correlates to the triggering business record for cross-module launches. */
+  @Property({ name: 'source_entity_type', type: 'varchar', length: 100, nullable: true })
+  sourceEntityType?: string | null
+
+  @Property({ name: 'source_entity_id', type: 'uuid', nullable: true })
+  sourceEntityId?: string | null
 
   // ── Subject (the business record this process is about) ────────────────────
   /** e.g. 'Motor' — TYPE column + filter. Plaintext: must be SQL-queryable. */
@@ -1536,8 +1490,8 @@ export class AgentProcess {
   subjectLabel?: string | null
 
   /**
-   * Free-text, person-readable subject — the ONLY encrypted subject field
-   * (encryption.ts → `agent_orchestrator:agent_process`). Never SQL-filtered.
+   * Free-text, person-readable subject — encrypted (encryption.ts →
+   * `agent_orchestrator:process_instance`). Never SQL-filtered.
    */
   @Property({ name: 'subject_title', type: 'varchar', length: 300, nullable: true })
   subjectTitle?: string | null
@@ -1556,12 +1510,21 @@ export class AgentProcess {
 
   // ── Derived display + aggregates ────────────────────────────────────────────
   @Property({ name: 'status', type: 'varchar', length: 30, default: 'running' })
-  status: AgentProcessStatus = 'running'
+  status: ProcessInstanceStatus = 'running'
 
   @Property({ name: 'current_stage', type: 'varchar', length: 100, nullable: true })
   currentStage?: string | null
 
-  /** Distinct agent ids that have run under this process (AGENTS column). */
+  /**
+   * The business milestones this execution has reached, in emission order
+   * (`ProcessMilestoneReached[]`). Appended from the workflow's
+   * `milestone_reached` events, idempotent per key — the business narrative,
+   * carrying no step ids at all.
+   */
+  @Property({ name: 'milestones_reached', type: 'jsonb', nullable: true, default: '[]' })
+  milestonesReached?: ProcessMilestoneReached[] | null
+
+  /** Distinct agent ids that have run under this execution (AGENTS column). */
   @Property({ name: 'agent_ids', type: 'jsonb', nullable: true })
   agentIds?: string[] | null
 
@@ -1577,20 +1540,52 @@ export class AgentProcess {
   @Property({ name: 'pending_proposal_count', type: 'integer', default: 0 })
   pendingProposalCount: number = 0
 
-  // ── Routing / SLA (mirrored from workflows for fast filtering; Phase B) ─────
+  // ── Outcome (what the BUSINESS execution produced) ──────────────────────────
+  /**
+   * Written when the workflow instance terminates, from the outcome the
+   * terminating source DECLARED under its context `outcome` key. Nothing derives
+   * one.
+   *
+   * Nullable BY DECISION, not by omission: a research or monitoring process
+   * produces nothing and stays a valid completion, so an absent outcome is
+   * NEVER a missing write.
+   *
+   * FK-id + snapshot per `packages/core/AGENTS.md` § Cross-Module Coupling —
+   * `outcome_label` keeps the reference readable when the module that owns the
+   * record is absent, and this is NEVER a cross-module ORM relation. Read
+   * through `lib/tasks/outcome.ts`, never by touching the columns by hand.
+   * Plaintext, like `subject_label`: a record reference, not free text.
+   */
+  @Property({ name: 'outcome_type', type: 'varchar', length: 150, nullable: true })
+  outcomeType?: string | null
+
+  @Property({ name: 'outcome_id', type: 'varchar', length: 200, nullable: true })
+  outcomeId?: string | null
+
+  @Property({ name: 'outcome_label', type: 'varchar', length: 200, nullable: true })
+  outcomeLabel?: string | null
+
+  /** May echo malformed input on validation failure; encrypted (encryption.ts). */
+  @Property({ name: 'failure_reason', type: 'text', nullable: true })
+  failureReason?: string | null
+
+  // ── Routing / SLA (mirrored from workflows for fast filtering) ──────────────
   @Property({ name: 'assignee_user_id', type: 'uuid', nullable: true })
   assigneeUserId?: string | null
 
   @Property({ name: 'team_id', type: 'uuid', nullable: true })
   teamId?: string | null
 
-  /** When the process entered a human-waiting state (Stuck >24h filter). */
+  /** When the execution entered a human-waiting state (Stuck >24h filter). */
   @Property({ name: 'waiting_since', type: Date, nullable: true })
   waitingSince?: Date | null
 
-  /** First observed agent activity for the process (AGE column). */
+  /** When the execution was entered (AGE column). */
   @Property({ name: 'opened_at', type: Date })
   openedAt!: Date
+
+  @Property({ name: 'completed_at', type: Date, nullable: true })
+  completedAt?: Date | null
 
   @Property({ name: 'last_activity_at', type: Date, onCreate: () => new Date() })
   lastActivityAt: Date = new Date()

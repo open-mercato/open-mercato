@@ -138,7 +138,7 @@ function seed(storeFor: (entity: unknown) => Array<Record<string, unknown>>) {
     organizationId: ORG,
     runId: RUN_ID,
     agentId: 'deals.health_check',
-    processId: null,
+    workflowInstanceId: null,
     stepId: null,
     disposition: 'pending',
     dispositionBy: null,

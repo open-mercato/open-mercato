@@ -31,7 +31,7 @@ type AuditRow = {
   disposition: Disposition
   operator: string | null
   reason: string | null
-  processId: string | null
+  workflowInstanceId: string | null
 }
 
 const dispositionVariant: StatusMap<Disposition> = {
@@ -148,7 +148,7 @@ export default function AgentAuditPage() {
           disposition: dispositionOf(fieldOf(proposal, 'disposition') || 'pending'),
           operator: fieldOf(proposal, 'disposition_by', 'dispositionBy') || null,
           reason: fieldOf(proposal, 'disposition_reason', 'dispositionReason') || null,
-          processId: fieldOf(proposal, 'process_id', 'processId') || null,
+          workflowInstanceId: fieldOf(proposal, 'workflow_instance_id', 'workflowInstanceId') || null,
         }
       })
       setRows(built)
@@ -335,13 +335,13 @@ export default function AgentAuditPage() {
               perspective={{ tableId: 'agent_orchestrator.audit.list', align: 'right' }}
               onRowClick={(row) => router.push(`/backend/caseload/${encodeURIComponent(row.id)}`)}
               rowActions={(row) =>
-                row.processId ? (
+                row.workflowInstanceId ? (
                   <Button
                     type="button"
                     variant="ghost"
                     size="sm"
                     title={t('agent_orchestrator.proposal.openProcess', 'Open process')}
-                    onClick={() => router.push(`/backend/processes/${encodeURIComponent(row.processId!)}`)}
+                    onClick={() => router.push(`/backend/processes/${encodeURIComponent(row.workflowInstanceId!)}`)}
                   >
                     <Workflow className="size-4" />
                     <span className="sr-only">{t('agent_orchestrator.proposal.openProcess', 'Open process')}</span>

@@ -1,14 +1,14 @@
 /** @jest-environment node */
 import fs from 'node:fs'
 import path from 'node:path'
-import { processRunOutcomeSchema, type ProcessRunOutcome } from '../data/validators'
+import { processOutcomeSchema, type ProcessOutcome } from '../data/validators'
 import {
   declaredOutcomeOf,
   outcomeDisplayLabel,
   outcomeEntityName,
   outcomeModuleId,
   parseDeclaredOutcome,
-  readProcessRunOutcome,
+  readProcessOutcome,
 } from '../lib/tasks/outcome'
 import { resolveOutcomeHref, type OutcomeModuleLike } from '../lib/tasks/outcomeLink'
 import { resolveWorkflowProcessRun } from '../lib/tasks/resolveWorkflowProcessRun'
@@ -32,49 +32,49 @@ const CLAIMS_MODULE: OutcomeModuleLike = {
   ],
 }
 
-const OUTCOME: ProcessRunOutcome = { type: 'claims:claim', id: 'claim-9', label: 'CASE-2026-04417' }
+const OUTCOME: ProcessOutcome = { type: 'claims:claim', id: 'claim-9', label: 'CASE-2026-04417' }
 
 jest.mock('../events', () => ({ emitAgentOrchestratorEvent: jest.fn().mockResolvedValue(undefined) }))
 
-describe('processRunOutcomeSchema', () => {
+describe('processOutcomeSchema', () => {
   it('round-trips the persisted shape', () => {
-    expect(processRunOutcomeSchema.parse(OUTCOME)).toEqual(OUTCOME)
+    expect(processOutcomeSchema.parse(OUTCOME)).toEqual(OUTCOME)
   })
 
   it('makes the LABEL optional — the snapshot is a nicety, the reference is not', () => {
-    expect(processRunOutcomeSchema.safeParse({ type: 'claims:claim', id: 'claim-9' }).success).toBe(true)
-    expect(processRunOutcomeSchema.safeParse({ type: 'claims:claim' }).success).toBe(false)
-    expect(processRunOutcomeSchema.safeParse({ id: 'claim-9' }).success).toBe(false)
+    expect(processOutcomeSchema.safeParse({ type: 'claims:claim', id: 'claim-9' }).success).toBe(true)
+    expect(processOutcomeSchema.safeParse({ type: 'claims:claim' }).success).toBe(false)
+    expect(processOutcomeSchema.safeParse({ id: 'claim-9' }).success).toBe(false)
   })
 
   it('bounds every field to its column width', () => {
-    expect(processRunOutcomeSchema.safeParse({ ...OUTCOME, type: 'x'.repeat(151) }).success).toBe(false)
-    expect(processRunOutcomeSchema.safeParse({ ...OUTCOME, id: 'x'.repeat(201) }).success).toBe(false)
-    expect(processRunOutcomeSchema.safeParse({ ...OUTCOME, label: 'x'.repeat(201) }).success).toBe(false)
+    expect(processOutcomeSchema.safeParse({ ...OUTCOME, type: 'x'.repeat(151) }).success).toBe(false)
+    expect(processOutcomeSchema.safeParse({ ...OUTCOME, id: 'x'.repeat(201) }).success).toBe(false)
+    expect(processOutcomeSchema.safeParse({ ...OUTCOME, label: 'x'.repeat(201) }).success).toBe(false)
   })
 
   it('does NOT pattern-bound `type` — storage accepts whatever a producing module declares', () => {
-    expect(processRunOutcomeSchema.safeParse({ type: 'legacy-claim', id: 'claim-9' }).success).toBe(true)
+    expect(processOutcomeSchema.safeParse({ type: 'legacy-claim', id: 'claim-9' }).success).toBe(true)
   })
 })
 
 describe('reading the columns', () => {
   it('reads both the ORM casing and the raw list projection', () => {
-    expect(readProcessRunOutcome({ outcomeType: 'claims:claim', outcomeId: 'claim-9', outcomeLabel: 'CASE-1' }))
+    expect(readProcessOutcome({ outcomeType: 'claims:claim', outcomeId: 'claim-9', outcomeLabel: 'CASE-1' }))
       .toEqual({ type: 'claims:claim', id: 'claim-9', label: 'CASE-1' })
-    expect(readProcessRunOutcome({ outcome_type: 'claims:claim', outcome_id: 'claim-9' }))
+    expect(readProcessOutcome({ outcome_type: 'claims:claim', outcome_id: 'claim-9' }))
       .toEqual({ type: 'claims:claim', id: 'claim-9' })
   })
 
   it('returns null for a run that produced nothing — the normal case, not an error', () => {
-    expect(readProcessRunOutcome(null)).toBeNull()
-    expect(readProcessRunOutcome({})).toBeNull()
-    expect(readProcessRunOutcome({ outcomeType: null, outcomeId: null, outcomeLabel: null })).toBeNull()
+    expect(readProcessOutcome(null)).toBeNull()
+    expect(readProcessOutcome({})).toBeNull()
+    expect(readProcessOutcome({ outcomeType: null, outcomeId: null, outcomeLabel: null })).toBeNull()
   })
 
   it('treats a half-written pair as no outcome at all', () => {
-    expect(readProcessRunOutcome({ outcomeType: 'claims:claim' })).toBeNull()
-    expect(readProcessRunOutcome({ outcomeId: 'claim-9' })).toBeNull()
+    expect(readProcessOutcome({ outcomeType: 'claims:claim' })).toBeNull()
+    expect(readProcessOutcome({ outcomeId: 'claim-9' })).toBeNull()
   })
 
   it('shows the label snapshot in preference to the raw id', () => {

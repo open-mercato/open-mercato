@@ -1,5 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { AgentProcess, AgentProposal, AgentRun } from '../data/entities'
+import { ProcessInstance, AgentProposal, AgentRun } from '../data/entities'
 
 jest.mock('../events', () => ({
   emitAgentOrchestratorEvent: jest.fn(async () => {}),
@@ -7,9 +7,9 @@ jest.mock('../events', () => ({
 
 import {
   deriveProcessStatus,
-  recomputeAgentProcess,
+  recomputeProcessInstance,
   recomputeFromEvent,
-} from '../lib/processes/agentProcessProjection'
+} from '../lib/processes/processProjection'
 import { emitAgentOrchestratorEvent } from '../events'
 
 const TENANT = '11111111-1111-4111-8111-111111111111'
@@ -74,7 +74,7 @@ function seedRun(
     tenantId: TENANT,
     organizationId: ORG,
     agentId: 'claims.intake',
-    processId: PROCESS,
+    workflowInstanceId: PROCESS,
     stepId: 'intake',
     costMinor: 40,
     currency: 'PLN',
@@ -94,7 +94,7 @@ function seedProposal(
     organizationId: ORG,
     agentId: 'claims.intake',
     runId: RUN_A,
-    processId: PROCESS,
+    workflowInstanceId: PROCESS,
     stepId: 'intake',
     disposition: 'pending',
     createdAt: new Date('2026-07-10T09:00:10Z'),
@@ -174,7 +174,7 @@ describe('deriveProcessStatus — precedence table (first match wins)', () => {
   })
 })
 
-describe('recomputeAgentProcess — idempotent upsert', () => {
+describe('recomputeProcessInstance — idempotent upsert', () => {
   beforeEach(() => jest.clearAllMocks())
 
   it('creates exactly one row with subject, agents, cost, openedAt; recompute updates it', async () => {
@@ -182,7 +182,7 @@ describe('recomputeAgentProcess — idempotent upsert', () => {
     seedRun(storeFor)
     seedProposal(storeFor)
 
-    const first = await recomputeAgentProcess(em, SCOPE, PROCESS, {
+    const first = await recomputeProcessInstance(em, SCOPE, PROCESS, {
       subject: {
         subjectType: 'Motor',
         subjectLabel: 'CASE-2026-04417',
@@ -192,10 +192,10 @@ describe('recomputeAgentProcess — idempotent upsert', () => {
       },
     })
     expect(first).not.toBeNull()
-    const rows = storeFor(AgentProcess)
+    const rows = storeFor(ProcessInstance)
     expect(rows).toHaveLength(1)
     expect(rows[0]).toMatchObject({
-      processId: PROCESS,
+      workflowInstanceId: PROCESS,
       tenantId: TENANT,
       organizationId: ORG,
       subjectType: 'Motor',
@@ -211,7 +211,7 @@ describe('recomputeAgentProcess — idempotent upsert', () => {
     expect((rows[0].openedAt as Date).toISOString()).toBe('2026-07-10T09:00:00.000Z')
     expect(emitAgentOrchestratorEvent).toHaveBeenCalledWith(
       'agent_orchestrator.process.updated',
-      expect.objectContaining({ processId: PROCESS, tenantId: TENANT, organizationId: ORG }),
+      expect.objectContaining({ workflowInstanceId: PROCESS, tenantId: TENANT, organizationId: ORG }),
     )
 
     // A second run + replayed recompute updates the SAME row (no duplicate) and
@@ -224,9 +224,9 @@ describe('recomputeAgentProcess — idempotent upsert', () => {
       createdAt: new Date('2026-07-10T09:05:00Z'),
       updatedAt: new Date('2026-07-10T09:05:05Z'),
     })
-    const second = await recomputeAgentProcess(em, SCOPE, PROCESS)
+    const second = await recomputeProcessInstance(em, SCOPE, PROCESS)
     expect(second?.processRowId).toBe(first?.processRowId)
-    expect(storeFor(AgentProcess)).toHaveLength(1)
+    expect(storeFor(ProcessInstance)).toHaveLength(1)
     expect(rows[0]).toMatchObject({
       runCount: 2,
       costMinor: 65,
@@ -240,10 +240,10 @@ describe('recomputeAgentProcess — idempotent upsert', () => {
     const { em, storeFor } = createFakeEm()
     seedRun(storeFor)
     seedProposal(storeFor)
-    await recomputeAgentProcess(em, SCOPE, PROCESS)
-    await recomputeAgentProcess(em, SCOPE, PROCESS)
-    await recomputeAgentProcess(em, SCOPE, PROCESS)
-    const rows = storeFor(AgentProcess)
+    await recomputeProcessInstance(em, SCOPE, PROCESS)
+    await recomputeProcessInstance(em, SCOPE, PROCESS)
+    await recomputeProcessInstance(em, SCOPE, PROCESS)
+    const rows = storeFor(ProcessInstance)
     expect(rows).toHaveLength(1)
     expect(rows[0]).toMatchObject({ runCount: 1, pendingProposalCount: 1 })
   })
@@ -252,21 +252,21 @@ describe('recomputeAgentProcess — idempotent upsert', () => {
     const { em, storeFor } = createFakeEm()
     seedRun(storeFor)
     seedProposal(storeFor, { disposition: 'auto_approved' })
-    await recomputeAgentProcess(em, SCOPE, PROCESS, { terminal: 'completed' })
-    expect(storeFor(AgentProcess)[0].status).toBe('auto_completed')
+    await recomputeProcessInstance(em, SCOPE, PROCESS, { terminal: 'completed' })
+    expect(storeFor(ProcessInstance)[0].status).toBe('auto_completed')
 
-    await recomputeAgentProcess(em, SCOPE, PROCESS)
-    expect(storeFor(AgentProcess)[0].status).toBe('auto_completed')
+    await recomputeProcessInstance(em, SCOPE, PROCESS)
+    expect(storeFor(ProcessInstance)[0].status).toBe('auto_completed')
   })
 
   it('createIfMissing:false never creates rows (non-agent workflows stay invisible)', async () => {
     const { em, storeFor } = createFakeEm()
-    const result = await recomputeAgentProcess(em, SCOPE, PROCESS, {
+    const result = await recomputeProcessInstance(em, SCOPE, PROCESS, {
       createIfMissing: false,
       terminal: 'completed',
     })
     expect(result).toBeNull()
-    expect(storeFor(AgentProcess)).toHaveLength(0)
+    expect(storeFor(ProcessInstance)).toHaveLength(0)
   })
 
   it('waitingSince tracks the oldest pending proposal and clears when disposed', async () => {
@@ -278,53 +278,53 @@ describe('recomputeAgentProcess — idempotent upsert', () => {
       organizationId: ORG,
       agentId: 'claims.intake',
       runId: RUN_A,
-      processId: PROCESS,
+      workflowInstanceId: PROCESS,
       stepId: 'intake',
       disposition: 'pending',
       createdAt: new Date('2026-07-10T10:00:00Z'),
       updatedAt: new Date('2026-07-10T10:00:00Z'),
     }
     storeFor(AgentProposal).push(proposal)
-    await recomputeAgentProcess(em, SCOPE, PROCESS)
-    expect((storeFor(AgentProcess)[0].waitingSince as Date).toISOString()).toBe(
+    await recomputeProcessInstance(em, SCOPE, PROCESS)
+    expect((storeFor(ProcessInstance)[0].waitingSince as Date).toISOString()).toBe(
       '2026-07-10T10:00:00.000Z',
     )
 
     proposal.disposition = 'approved'
-    await recomputeAgentProcess(em, SCOPE, PROCESS)
-    expect(storeFor(AgentProcess)[0].waitingSince).toBeNull()
+    await recomputeProcessInstance(em, SCOPE, PROCESS)
+    expect(storeFor(ProcessInstance)[0].waitingSince).toBeNull()
   })
 })
 
 describe('recomputeFromEvent — payload plumbing', () => {
   beforeEach(() => jest.clearAllMocks())
 
-  it('skips payloads without scope or processId', async () => {
+  it('skips payloads without scope or workflowInstanceId', async () => {
     const { em, storeFor } = createFakeEm()
-    expect(await recomputeFromEvent(em, { processId: PROCESS })).toBeNull()
+    expect(await recomputeFromEvent(em, { workflowInstanceId: PROCESS })).toBeNull()
     expect(await recomputeFromEvent(em, { tenantId: TENANT, organizationId: ORG })).toBeNull()
-    expect(storeFor(AgentProcess)).toHaveLength(0)
+    expect(storeFor(ProcessInstance)).toHaveLength(0)
   })
 
-  it('resolves processId from the run row for run-keyed events (org-scoped)', async () => {
+  it('resolves workflowInstanceId from the run row for run-keyed events (org-scoped)', async () => {
     const { em, storeFor } = createFakeEm()
     seedRun(storeFor)
     seedProposal(storeFor)
     const result = await recomputeFromEvent(
       em,
       { id: RUN_A, tenantId: TENANT, organizationId: ORG },
-      { resolveProcessIdFromRunId: RUN_A },
+      { resolveInstanceIdFromRunId: RUN_A },
     )
     expect(result).not.toBeNull()
-    expect(storeFor(AgentProcess)[0]).toMatchObject({ processId: PROCESS })
+    expect(storeFor(ProcessInstance)[0]).toMatchObject({ workflowInstanceId: PROCESS })
 
     // Cross-org run id resolves nothing — no projection write.
     const crossOrg = await recomputeFromEvent(
       em,
       { id: RUN_A, tenantId: TENANT, organizationId: OTHER_ORG },
-      { resolveProcessIdFromRunId: RUN_A },
+      { resolveInstanceIdFromRunId: RUN_A },
     )
     expect(crossOrg).toBeNull()
-    expect(storeFor(AgentProcess)).toHaveLength(1)
+    expect(storeFor(ProcessInstance)).toHaveLength(1)
   })
 })

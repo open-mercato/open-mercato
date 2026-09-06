@@ -1022,12 +1022,12 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
                           </PopoverContent>
                         </Popover>
                       ) : null}
-                      {run.processId ? (
+                      {run.workflowInstanceId ? (
                         <SimpleTooltip side="bottom" content={t('agent_orchestrator.traces.detail.openProcessTooltip', 'Open the workflow run that started this agent')}>
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => router.push(`/backend/processes/${encodeURIComponent(run.processId!)}`)}
+                            onClick={() => router.push(`/backend/processes/${encodeURIComponent(run.workflowInstanceId!)}`)}
                           >
                             <Workflow className="size-4" />
                             {t('agent_orchestrator.proposal.openProcess')}

@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import {
   PROCESS_TRIGGERS_MAX,
-  agentProcessDefinitionCreateSchema,
+  processDefinitionCreateSchema,
   processRunTriggeredBySchema,
   processTriggerSchema,
   processTriggersSchema,
@@ -92,12 +92,12 @@ describe('invalid cron is rejected at SAVE, not at fire time', () => {
     targetType: 'agent' as const,
     targetAgentId: 'deals.lead_triage',
   }
-  const createWithSemantics = withScheduleSemanticChecks(agentProcessDefinitionCreateSchema)
+  const createWithSemantics = withScheduleSemanticChecks(processDefinitionCreateSchema)
 
   it('rejects shape-valid cron garbage on the schedule arm', () => {
     const garbage = { ...base, triggers: [{ kind: 'schedule' as const, cron: 'foo bar baz qux quux' }] }
     // The client-safe schema gates only the SHAPE...
-    expect(agentProcessDefinitionCreateSchema.safeParse(garbage).success).toBe(true)
+    expect(processDefinitionCreateSchema.safeParse(garbage).success).toBe(true)
     // ...the route-layer semantic check is what stops the save.
     const result = createWithSemantics.safeParse(garbage)
     expect(result.success).toBe(false)

@@ -89,7 +89,7 @@ describe('agents detail autonomy control (source invariants)', () => {
 
 describe('mapProcessListRow null-honesty', () => {
   const BASE = {
-    process_id: '33333333-3333-4333-8333-333333333333',
+    workflow_instance_id: '33333333-3333-4333-8333-333333333333',
     status: 'in_progress',
     agent_ids: [],
   }

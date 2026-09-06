@@ -90,7 +90,7 @@ function makeProposal(overrides: Partial<AgentProposal> = {}): AgentProposal {
   proposal.organizationId = ORG_ID
   proposal.agentId = 'invoice-triage'
   proposal.runId = '11111111-2222-4333-8444-eeeeeeeeeeee'
-  proposal.processId = '11111111-2222-4333-8444-ffffffffffff'
+  proposal.workflowInstanceId = '11111111-2222-4333-8444-ffffffffffff'
   proposal.stepId = 'review'
   proposal.payload = { total: 10 }
   proposal.source = 'runtime'
@@ -155,7 +155,7 @@ describe('the query', () => {
       makeScope(),
     ) as Record<string, unknown>
 
-    expect(where.processId).toBe('process-1')
+    expect(where.workflowInstanceId).toBe('process-1')
   })
 
   test('the listing pages through the ORM and reports the true total', async () => {

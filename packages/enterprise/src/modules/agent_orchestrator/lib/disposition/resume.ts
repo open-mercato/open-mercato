@@ -8,7 +8,7 @@ const logger = createLogger('agent_orchestrator').child({ component: 'dispositio
 
 export type ResumeWorkflowForProposalInput = {
   proposalId: string
-  processId: string
+  workflowInstanceId: string
   stepId: string | null
   disposition: AgentProposalDisposition
   proposalPayload?: unknown
@@ -20,11 +20,11 @@ export type ResumeWorkflowForProposalInput = {
 /**
  * Human-path resume seam (area 03 → area 02).
  *
- * Emits the `agent_orchestrator.proposal.ready { processId, stepId, proposalId }`
+ * Emits the `agent_orchestrator.proposal.ready { workflowInstanceId, stepId, proposalId }`
  * audit/broadcast event, then delivers the resume signal to the parked workflow
  * instance via the workflows module's `sendSignal`. Area 02's `WAIT_FOR_SIGNAL`
  * keys on `signalName = 'agent_orchestrator.proposal.ready'` and matches the
- * parked instance by `processId`; the merged `disposition`/`payload` lands in
+ * parked instance by `workflowInstanceId`; the merged `disposition`/`payload` lands in
  * `WorkflowInstance.context` so the downstream effector reads the approved
  * (possibly edited) payload. A `rejected` proposal resumes too — the workflow
  * definition's effector transition condition (`disposition ∈ {auto_approved,
@@ -45,7 +45,7 @@ export async function resumeWorkflowForProposal(
   await emitAgentOrchestratorEvent(
     'agent_orchestrator.proposal.ready',
     {
-      processId: input.processId,
+      workflowInstanceId: input.workflowInstanceId,
       stepId: input.stepId,
       proposalId: input.proposalId,
       tenantId: input.tenantId,
@@ -59,7 +59,7 @@ export async function resumeWorkflowForProposal(
       '@open-mercato/core/modules/workflows/lib/signal-handler'
     )) as typeof import('@open-mercato/core/modules/workflows/lib/signal-handler')
     await signalHandler.sendSignal(em, container, {
-      instanceId: input.processId,
+      instanceId: input.workflowInstanceId,
       signalName: 'agent_orchestrator.proposal.ready',
       payload: {
         proposalId: input.proposalId,
@@ -73,7 +73,7 @@ export async function resumeWorkflowForProposal(
     })
   } catch (error) {
     logger.warn('proposal.ready resume signal not delivered', {
-      processId: input.processId,
+      workflowInstanceId: input.workflowInstanceId,
       proposalId: input.proposalId,
       error: error instanceof Error ? error.message : String(error),
     })

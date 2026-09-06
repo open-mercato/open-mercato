@@ -1,5 +1,5 @@
 import { tryGetModules } from '@open-mercato/shared/lib/modules/registry'
-import { outcomeEntityName, outcomeModuleId, type ProcessRunOutcome } from './outcome'
+import { outcomeEntityName, outcomeModuleId, type ProcessOutcome } from './outcome'
 
 /**
  * Resolves the backend record route for a run outcome — the "link where the
@@ -77,7 +77,7 @@ function recordRouteFor(owner: OutcomeModuleLike, entity: string): string | null
  * that would 404.
  */
 export function resolveOutcomeHref(
-  outcome: ProcessRunOutcome,
+  outcome: ProcessOutcome,
   modules?: OutcomeModuleLike[] | null,
 ): string | null {
   const moduleId = outcomeModuleId(outcome.type)

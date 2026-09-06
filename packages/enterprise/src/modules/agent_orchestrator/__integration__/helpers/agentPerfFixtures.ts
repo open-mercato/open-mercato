@@ -36,7 +36,7 @@ export type AgentProposalSeed = {
   runId: string
   disposition?: 'pending' | 'auto_approved' | 'approved' | 'edited' | 'rejected'
   confidence?: number | null
-  processId?: string | null
+  workflowInstanceId?: string | null
   stepId?: string | null
   /** Guardrail verdicts (`guard_results` jsonb) — drives the row risk chip + undo window. */
   guardResults?: Array<{ kind: string; result: 'pass' | 'warn' | 'block' }> | null
@@ -125,14 +125,14 @@ export async function insertAgentProposalFixtures(rows: AgentProposalSeed[]): Pr
           row.payload !== undefined ? JSON.stringify(row.payload) : SEED_PAYLOAD,
           row.confidence ?? null,
           row.disposition ?? 'pending',
-          row.processId ?? null,
+          row.workflowInstanceId ?? null,
           row.stepId ?? null,
           row.guardResults ? JSON.stringify(row.guardResults) : null,
           row.createdAt,
         )
       })
       await client.query(
-        `insert into agent_proposals (id, tenant_id, organization_id, agent_id, run_id, payload, confidence, disposition, process_id, step_id, guard_results, created_at, updated_at)
+        `insert into agent_proposals (id, tenant_id, organization_id, agent_id, run_id, payload, confidence, disposition, workflow_instance_id, step_id, guard_results, created_at, updated_at)
          values ${tuples.join(', ')}`,
         params,
       )

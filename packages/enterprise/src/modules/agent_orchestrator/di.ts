@@ -18,9 +18,8 @@ import {
   AgentContextBundle,
   AgentPrincipal,
   AgentDelegationGrant,
-  AgentProcessDefinition,
-  AgentProcessRun,
-  AgentProcess,
+  ProcessDefinition,
+  ProcessInstance,
 } from './data/entities'
 import { provisionAgentPrincipal, resolveAgentPrincipal } from './lib/identity/agentPrincipalService'
 import {
@@ -87,9 +86,8 @@ export function register(container: AppContainer) {
     AgentContextBundle: asValue(AgentContextBundle),
     AgentPrincipal: asValue(AgentPrincipal),
     AgentDelegationGrant: asValue(AgentDelegationGrant),
-    AgentProcessDefinition: asValue(AgentProcessDefinition),
-    AgentProcessRun: asValue(AgentProcessRun),
-    AgentProcess: asValue(AgentProcess),
+    ProcessDefinition: asValue(ProcessDefinition),
+    ProcessInstance: asValue(ProcessInstance),
     // Identity overlay (Wave 4, Phase 1): provisions a non-interactive agent
     // `User` (kind='agent') + a scoped `Role` so every internal-agent write is
     // attributed to a concrete actor id. Idempotent + org-scoped. The bound

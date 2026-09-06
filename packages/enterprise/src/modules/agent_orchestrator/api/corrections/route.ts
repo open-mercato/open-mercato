@@ -75,7 +75,7 @@ export async function POST(req: Request) {
           organizationId: auth.orgId,
           proposalId: proposal.id,
           agentRunId: proposal.runId,
-          processId: proposal.processId ?? null,
+          workflowInstanceId: proposal.workflowInstanceId ?? null,
           stepId: proposal.stepId ?? null,
           agentDefinitionId: proposal.agentId,
           correctedByUserId: auth.sub,

@@ -1,11 +1,11 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { recomputeFromEvent } from '../lib/processes/agentProcessProjection'
+import { recomputeFromEvent } from '../lib/processes/processProjection'
 
-/** Process projection Phase B (spec 2026-06-25): cancelled instance → `cancelled`. */
+/** Terminal resolution: a cancelled instance → `cancelled`. */
 export const metadata = {
   event: 'workflows.instance.cancelled',
   persistent: true,
-  id: 'agent_orchestrator:agent-process-workflow-cancelled',
+  id: 'agent_orchestrator:process-workflow-cancelled',
 }
 
 export default async function handle(
@@ -16,7 +16,7 @@ export default async function handle(
   const record = (payload ?? {}) as Record<string, unknown>
   await recomputeFromEvent(
     em,
-    { ...record, processId: record.id },
+    { ...record, workflowInstanceId: record.id },
     { createIfMissing: false, terminal: 'cancelled' },
   )
 }

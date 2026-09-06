@@ -49,12 +49,12 @@ const ingestTraceCommand: CommandHandler<IngestTraceCommandInput, IngestTraceRes
     const evalResult = await evaluateRun(em, scope, result.runId)
 
     // Additive (process projection spec): make run-cost rollups joinable to a
-    // process. The upserted run row is the source; payload-carried processId
+    // process. The upserted run row is the source; payload-carried workflowInstanceId
     // (when the trace POST includes one) was already stamped by ingestTrace.
     const ingestedRun = await em.findOne(
       AgentRun,
       { id: result.runId, ...scope },
-      { fields: ['id', 'processId'] },
+      { fields: ['id', 'workflowInstanceId'] },
     )
 
     await emitAgentOrchestratorEvent(
@@ -63,7 +63,7 @@ const ingestTraceCommand: CommandHandler<IngestTraceCommandInput, IngestTraceRes
         id: result.runId,
         agentId: input.payload.agentId,
         runtime: input.payload.runtime,
-        processId: ingestedRun?.processId ?? null,
+        workflowInstanceId: ingestedRun?.workflowInstanceId ?? null,
         created: result.created,
         spansAppended: result.spansAppended,
         toolCallsAppended: result.toolCallsAppended,

@@ -109,7 +109,7 @@ test.describe('TC-AGENT-UX-P0-004: inbox pager and disabled process actions', ()
           createdAt: new Date(base + index * 60_000),
         })),
       )
-      const processId = await insertAgentProcessFixture({
+      const workflowInstanceId = await insertAgentProcessFixture({
         tenantId: tenantId!,
         organizationId: orgId!,
         subjectLabel: `TC-UX-P0-004 ${stamp}`,
@@ -136,7 +136,7 @@ test.describe('TC-AGENT-UX-P0-004: inbox pager and disabled process actions', ()
       // all, which is the stronger statement of the two: a case action nobody
       // can perform yet should not be on the page. The coming-soon note renders
       // under exactly the same flag, so it is the witness.
-      await page.goto(`/backend/processes/${encodeURIComponent(processId)}`, { waitUntil: 'domcontentloaded' })
+      await page.goto(`/backend/processes/${encodeURIComponent(workflowInstanceId)}`, { waitUntil: 'domcontentloaded' })
       const previewUi = page.getByText(/pause, reassign, take over/i)
       const previewUiEnabled = await previewUi.isVisible().catch(() => false)
       for (const name of [/pause/i, /reassign/i, /take over/i]) {

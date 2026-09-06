@@ -97,7 +97,7 @@ describe('runAs propagation (Wave 4 P2)', () => {
         agentId: AGENT_ID,
         input: {},
         onResult: { alwaysAsk: true },
-        ctx: { tenantId: TENANT, organizationId: ORG, userId: HUMAN, processId: 'p1', stepId: 's1' },
+        ctx: { tenantId: TENANT, organizationId: ORG, userId: HUMAN, workflowInstanceId: 'p1', stepId: 's1' },
       })
 
       expect(runCalls).toHaveLength(1)
@@ -110,7 +110,7 @@ describe('runAs propagation (Wave 4 P2)', () => {
         agentId: AGENT_ID,
         input: {},
         onResult: { alwaysAsk: true },
-        ctx: { tenantId: TENANT, organizationId: ORG, userId: HUMAN, processId: 'p1', stepId: 's1' },
+        ctx: { tenantId: TENANT, organizationId: ORG, userId: HUMAN, workflowInstanceId: 'p1', stepId: 's1' },
       })
 
       expect(runCalls).toHaveLength(1)
@@ -131,7 +131,7 @@ describe('runAs propagation (Wave 4 P2)', () => {
         agentId: AGENT_ID,
         input: {},
         onResult: { alwaysAsk: true },
-        ctx: { tenantId: TENANT, organizationId: ORG, userId: HUMAN, processId: 'p1', stepId: 's1' },
+        ctx: { tenantId: TENANT, organizationId: ORG, userId: HUMAN, workflowInstanceId: 'p1', stepId: 's1' },
       })
 
       expect(runCalls[0].runAs).toBeUndefined()

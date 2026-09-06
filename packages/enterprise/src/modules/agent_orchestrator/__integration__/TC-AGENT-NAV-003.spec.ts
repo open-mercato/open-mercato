@@ -19,9 +19,9 @@ import {
 import { deleteAgentProcessesForOrganization, insertAgentProcessFixture } from './helpers/agentUxFixtures'
 
 /**
- * TC-AGENT-NAV-003: Overview stuck queue "Open process" is processId-gated.
+ * TC-AGENT-NAV-003: Overview stuck queue "Open process" is workflowInstanceId-gated.
  * Source: spec .ai/specs/enterprise/agent-orchestrator/2026-07-12-ux-navigation-pass.md
- * (§3 processId-gated "Open process", Integration Test Coverage).
+ * (§3 workflowInstanceId-gated "Open process", Integration Test Coverage).
  *
  * A workflow-born pending proposal's row navigates to the REAL process detail
  * (the old code pushed the proposal id, landing on the degraded banner); a
@@ -87,12 +87,12 @@ test.describe('TC-AGENT-NAV-003: overview open-process gating', () => {
         name: 'QA TC-AGENT-NAV-003',
       })
 
-      const processId = randomUUID()
+      const workflowInstanceId = randomUUID()
       const subjectLabel = `TC-NAV-003 ${stamp}`
       await insertAgentProcessFixture({
         tenantId: tenantId!,
         organizationId: orgId!,
-        processId,
+        workflowInstanceId,
         status: 'waiting_on_you',
         subjectLabel,
       })
@@ -110,7 +110,7 @@ test.describe('TC-AGENT-NAV-003: overview open-process gating', () => {
           agentId: AGENT_ID,
           runId: workflowRunId,
           disposition: 'pending' as const,
-          processId,
+          workflowInstanceId,
           createdAt: olderAt,
         },
         {
@@ -141,7 +141,7 @@ test.describe('TC-AGENT-NAV-003: overview open-process gating', () => {
       const openProcess = workflowRow.getByRole('button', { name: /open process/i })
       await expect(openProcess).toBeVisible()
       await openProcess.click()
-      await expect(page).toHaveURL(new RegExp(`/backend/processes/${processId}`), { timeout: 10_000 })
+      await expect(page).toHaveURL(new RegExp(`/backend/processes/${workflowInstanceId}`), { timeout: 10_000 })
       await expect(
         page.getByText(subjectLabel).first(),
         'the link must land on the REAL projection-backed process detail',

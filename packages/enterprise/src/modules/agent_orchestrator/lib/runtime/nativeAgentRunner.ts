@@ -109,8 +109,9 @@ export class NativeAgentRunner {
       runtime: 'native',
       stampExternalRunIdFromId: true,
       model: entry.defaultModel ?? null,
-      processId: ctx.processId ?? null,
+      workflowInstanceId: ctx.workflowInstanceId ?? null,
       stepId: ctx.stepId ?? null,
+      invocationId: ctx.invocationId ?? null,
       agentType: entry.agentType ?? null,
     })
 
@@ -142,7 +143,7 @@ export class NativeAgentRunner {
           tenantId: ctx.tenantId,
           organizationId: ctx.organizationId,
           agentRunId: runId,
-          processId: ctx.processId ?? null,
+          workflowInstanceId: ctx.workflowInstanceId ?? null,
           stepId: ctx.stepId ?? null,
           capability: agentId,
           budget: DEFAULT_CONTEXT_TOKEN_BUDGET,
@@ -255,7 +256,7 @@ export class NativeAgentRunner {
     }
 
     // Live agent-action telemetry (workflows spec Phase 2). When this run is a
-    // workflow INVOKE_AGENT step (`ctx.processId` present) and an event bus is
+    // workflow INVOKE_AGENT step (`ctx.workflowInstanceId` present) and an event bus is
     // resolvable, emit a coarse `workflows.agent.action` per AI-SDK step so the
     // run view can show what the agent is doing WHILE it runs. Best-effort and
     // fully isolated: it never touches agent execution or the parked-step resume,
@@ -263,7 +264,7 @@ export class NativeAgentRunner {
     // non-workflow (e.g. chat) runs. Steps + tool calls only — token-level
     // streaming is deliberately out of scope (the tool loop uses generateText).
     const buildAgentActionEmitter = (): ((event: unknown) => Promise<void>) | null => {
-      const instanceId = ctx.processId
+      const instanceId = ctx.workflowInstanceId
       if (!instanceId || !ctx.tenantId) return null
       let eventBus:
         | { emitEvent: (event: string, payload: Record<string, unknown>) => Promise<void> }
@@ -535,7 +536,7 @@ export class NativeAgentRunner {
         runId,
         payload: result.proposal,
         confidence: deriveEnvelopeConfidence(result.proposal),
-        processId: ctx.processId ?? null,
+        workflowInstanceId: ctx.workflowInstanceId ?? null,
         stepId: ctx.stepId ?? null,
         guardResults,
       })

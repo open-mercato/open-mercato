@@ -3,8 +3,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import {
   PROCESS_MILESTONES_MAX,
-  agentProcessDefinitionCreateSchema,
-  agentProcessDefinitionUpdateSchema,
+  processDefinitionCreateSchema,
+  processDefinitionUpdateSchema,
   processMilestoneSchema,
   processMilestonesSchema,
   type ProcessMilestone,
@@ -75,11 +75,11 @@ describe('processMilestoneSchema', () => {
 
 describe('milestones apply to workflow targets only', () => {
   it('rejects milestones on an agent-targeted definition — a validation error, not a silent no-op', () => {
-    const create = agentProcessDefinitionCreateSchema.safeParse({ ...AGENT_BASE, milestones: [milestone()] })
+    const create = processDefinitionCreateSchema.safeParse({ ...AGENT_BASE, milestones: [milestone()] })
     expect(create.success).toBe(false)
     if (!create.success) expect(create.error.issues[0]?.path).toEqual(['milestones'])
 
-    const update = agentProcessDefinitionUpdateSchema.safeParse({
+    const update = processDefinitionUpdateSchema.safeParse({
       id: '11111111-1111-4111-8111-111111111111',
       ...AGENT_BASE,
       milestones: [milestone()],
@@ -89,13 +89,13 @@ describe('milestones apply to workflow targets only', () => {
   })
 
   it('accepts an EMPTY list on an agent target — the absence is not an error', () => {
-    expect(agentProcessDefinitionCreateSchema.safeParse({ ...AGENT_BASE, milestones: [] }).success).toBe(true)
-    expect(agentProcessDefinitionCreateSchema.safeParse(AGENT_BASE).success).toBe(true)
+    expect(processDefinitionCreateSchema.safeParse({ ...AGENT_BASE, milestones: [] }).success).toBe(true)
+    expect(processDefinitionCreateSchema.safeParse(AGENT_BASE).success).toBe(true)
   })
 
   it('accepts milestones on a workflow target', () => {
     expect(
-      agentProcessDefinitionCreateSchema.safeParse({ ...WORKFLOW_BASE, milestones: [milestone()] }).success,
+      processDefinitionCreateSchema.safeParse({ ...WORKFLOW_BASE, milestones: [milestone()] }).success,
     ).toBe(true)
   })
 })
@@ -118,7 +118,7 @@ describe('the drift diagnostic', () => {
 
     // ...and the same definition still validates, so the save is never blocked.
     expect(
-      agentProcessDefinitionCreateSchema.safeParse({ ...WORKFLOW_BASE, milestones }).success,
+      processDefinitionCreateSchema.safeParse({ ...WORKFLOW_BASE, milestones }).success,
     ).toBe(true)
   })
 

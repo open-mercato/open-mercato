@@ -139,7 +139,7 @@ function baseInput(extra: Record<string, unknown> = {}) {
     tenantId: TENANT,
     organizationId: ORG,
     agentRunId: RUN_ID,
-    processId: null,
+    workflowInstanceId: null,
     stepId: null,
     capability: CAPABILITY,
     budget: 4000,

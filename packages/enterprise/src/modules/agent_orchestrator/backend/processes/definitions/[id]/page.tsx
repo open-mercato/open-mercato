@@ -27,24 +27,31 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { formatDateTime } from '../../../../components/types'
-import type { ProcessMilestone, ProcessRunTriggeredBy, ProcessTrigger } from '../../../../data/validators'
+import {
+  processSingleAgentSchema,
+  type ProcessMilestone,
+  type ProcessRunTriggeredBy,
+  type ProcessSingleAgent,
+  type ProcessTrigger,
+} from '../../../../data/validators'
 import { manualTrigger, parseProcessTriggers, scheduleTriggers } from '../../../../lib/tasks/triggers'
 import { parseProcessMilestones } from '../../../../lib/tasks/milestones'
-import { readProcessRunOutcome, type ProcessRunOutcome } from '../../../../lib/tasks/outcome'
-import { ProcessOutcome } from '../../../../components/ProcessOutcome'
+import { readProcessOutcome, type ProcessOutcome } from '../../../../lib/tasks/outcome'
+import { ProcessOutcomeLink } from '../../../../components/ProcessOutcomeLink'
 import { TriggerEditor, invalidScheduleIndexes } from '../TriggerEditor'
 import { MilestoneEditor } from '../MilestoneEditor'
-
-type ProcessRunStatus = 'running' | 'completed' | 'failed'
+import { generatedWorkflowId } from '../../../../lib/processes/materializeAgentWorkflow'
 
 type ProcessDefinitionDetail = {
   id: string
   name: string
   description: string | null
-  targetType: 'agent' | 'workflow'
-  targetAgentId: string | null
-  targetWorkflowId: string | null
+  /** Every process points at a workflow; the mode only records who authored it. */
+  workflowMode: 'single_agent' | 'workflow'
+  workflowId: string | null
+  singleAgent: ProcessSingleAgent | null
   inputDefaults: unknown
+  /** The BOUND WORKFLOW's execution grant, read back from it — not stored here. */
   grantedFeatures: string[]
   triggers: ProcessTrigger[]
   milestones: ProcessMilestone[]
@@ -52,25 +59,36 @@ type ProcessDefinitionDetail = {
   updatedAt: string | null
 }
 
-type ProcessRunRow = {
+type ProcessExecutionRow = {
   id: string
-  status: ProcessRunStatus
+  status: string
   triggeredBy: ProcessRunTriggeredBy | null
-  agentRunId: string | null
   workflowInstanceId: string | null
   failureReason: string | null
-  /** What the run produced. Null on a research or monitoring process — optional by decision. */
-  outcome: ProcessRunOutcome | null
+  /** What the execution produced. Null on a research or monitoring process — optional by decision. */
+  outcome: ProcessOutcome | null
   /** Resolved server-side; null when the owning module is absent from this deployment. */
   outcomeHref: string | null
   createdAt: string | null
   completedAt: string | null
 }
 
-const statusVariant: StatusMap<ProcessRunStatus> = {
+/**
+ * The execution status is DERIVED from the workflow instance, so an unknown value
+ * renders neutral rather than being coerced — a status this page does not know is
+ * not a failure.
+ */
+const statusVariant: StatusMap<string> = {
   running: 'info',
+  waiting_on_you: 'warning',
+  question_open: 'warning',
+  docs_requested: 'warning',
+  fraud_hold: 'warning',
+  auto_completing: 'info',
+  auto_completed: 'success',
   completed: 'success',
   failed: 'error',
+  cancelled: 'neutral',
 }
 
 function asString(value: unknown): string | null {
@@ -81,13 +99,16 @@ function mapDetail(raw: Record<string, unknown>): ProcessDefinitionDetail | null
   const id = asString(raw.id)
   if (!id) return null
   const granted = raw.grantedFeatures ?? raw.granted_features
+  const workflowId = asString(raw.workflowId) ?? asString(raw.workflow_id)
+  const singleAgentRaw = raw.singleAgent ?? raw.single_agent
+  const parsedSingleAgent = singleAgentRaw ? processSingleAgentSchema.safeParse(singleAgentRaw) : null
   return {
     id,
     name: asString(raw.name) ?? id,
     description: asString(raw.description),
-    targetType: raw.targetType === 'workflow' || raw.target_type === 'workflow' ? 'workflow' : 'agent',
-    targetAgentId: asString(raw.targetAgentId) ?? asString(raw.target_agent_id),
-    targetWorkflowId: asString(raw.targetWorkflowId) ?? asString(raw.target_workflow_id),
+    workflowMode: workflowId === generatedWorkflowId(id) ? 'single_agent' : 'workflow',
+    workflowId,
+    singleAgent: parsedSingleAgent?.success ? parsedSingleAgent.data : null,
     inputDefaults: raw.inputDefaults ?? raw.input_defaults ?? null,
     grantedFeatures: Array.isArray(granted)
       ? granted.filter((value): value is string => typeof value === 'string')
@@ -109,18 +130,16 @@ function mapTriggeredBy(raw: unknown): ProcessRunTriggeredBy | null {
   return kind === 'event' ? { kind, ref: ref ?? '' } : { kind, ref }
 }
 
-function mapRun(raw: Record<string, unknown>): ProcessRunRow | null {
+function mapRun(raw: Record<string, unknown>): ProcessExecutionRow | null {
   const id = asString(raw.id)
   if (!id) return null
-  const statusRaw = asString(raw.status)
   return {
     id,
-    status: statusRaw === 'completed' ? 'completed' : statusRaw === 'failed' ? 'failed' : 'running',
+    status: asString(raw.status) ?? 'running',
     triggeredBy: mapTriggeredBy(raw.triggered_by ?? raw.triggeredBy),
-    agentRunId: asString(raw.agent_run_id) ?? asString(raw.agentRunId),
     workflowInstanceId: asString(raw.workflow_instance_id) ?? asString(raw.workflowInstanceId),
     failureReason: asString(raw.failure_reason) ?? asString(raw.failureReason),
-    outcome: readProcessRunOutcome(raw),
+    outcome: readProcessOutcome(raw),
     outcomeHref: asString(raw.outcome_href) ?? asString(raw.outcomeHref),
     createdAt: asString(raw.created_at) ?? asString(raw.createdAt),
     completedAt: asString(raw.completed_at) ?? asString(raw.completedAt),
@@ -136,7 +155,7 @@ export default function ProcessDefinitionDetailPage({ params }: { params?: { id?
   const [task, setTask] = React.useState<ProcessDefinitionDetail | null>(null)
   const [triggerDraft, setTriggerDraft] = React.useState<ProcessTrigger[]>([])
   const [milestoneDraft, setMilestoneDraft] = React.useState<ProcessMilestone[]>([])
-  const [runs, setRuns] = React.useState<ProcessRunRow[]>([])
+  const [runs, setRuns] = React.useState<ProcessExecutionRow[]>([])
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [runOpen, setRunOpen] = React.useState(false)
@@ -151,16 +170,16 @@ export default function ProcessDefinitionDetailPage({ params }: { params?: { id?
   })
 
   const loadDetail = React.useCallback(async () => {
-    const call = await apiCall<{ task?: Record<string, unknown> }>(
-      `/api/agent_orchestrator/process-definitions/${encodeURIComponent(taskId)}`,
+    const call = await apiCall<{ definition?: Record<string, unknown> }>(
+      `/api/agent_orchestrator/processes/${encodeURIComponent(taskId)}`,
       undefined,
       { fallback: {} },
     )
-    if (!call.ok || !call.result?.task) {
+    if (!call.ok || !call.result?.definition) {
       setError(t('agent_orchestrator.processDefinitions.detail.error'))
       return false
     }
-    const detail = mapDetail(call.result.task)
+    const detail = mapDetail(call.result.definition)
     setTask(detail)
     setTriggerDraft(detail?.triggers ?? [])
     setMilestoneDraft(detail?.milestones ?? [])
@@ -169,7 +188,7 @@ export default function ProcessDefinitionDetailPage({ params }: { params?: { id?
 
   const loadRuns = React.useCallback(async () => {
     const call = await apiCall<{ items?: Array<Record<string, unknown>> }>(
-      `/api/agent_orchestrator/process-runs?processDefinitionId=${encodeURIComponent(taskId)}&pageSize=50`,
+      `/api/agent_orchestrator/executions?processDefinitionId=${encodeURIComponent(taskId)}&pageSize=50`,
       undefined,
       { fallback: { items: [] } },
     )
@@ -177,7 +196,7 @@ export default function ProcessDefinitionDetailPage({ params }: { params?: { id?
     setRuns(
       (Array.isArray(call.result?.items) ? call.result.items : [])
         .map(mapRun)
-        .filter((row): row is ProcessRunRow => !!row),
+        .filter((row): row is ProcessExecutionRow => !!row),
     )
   }, [taskId])
 
@@ -195,7 +214,7 @@ export default function ProcessDefinitionDetailPage({ params }: { params?: { id?
     return () => { cancelled = true }
   }, [taskId, loadDetail, loadRuns])
 
-  useAppEvent('agent_orchestrator.process_run.*', () => {
+  useAppEvent('agent_orchestrator.process.execution.*', () => {
     void loadRuns()
   })
 
@@ -226,7 +245,7 @@ export default function ProcessDefinitionDetailPage({ params }: { params?: { id?
     try {
       await runMutation({
         operation: () =>
-          apiCallOrThrow(`/api/agent_orchestrator/process-definitions/${encodeURIComponent(taskId)}/run`, {
+          apiCallOrThrow(`/api/agent_orchestrator/processes/${encodeURIComponent(taskId)}/run`, {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify(parsed ? { input: parsed } : {}),
@@ -261,12 +280,13 @@ export default function ProcessDefinitionDetailPage({ params }: { params?: { id?
           withScopedApiRequestHeaders(
             buildOptimisticLockHeader(task.updatedAt),
             () =>
-              updateCrud('agent_orchestrator/process-definitions', {
+              updateCrud('agent_orchestrator/processes', {
                 id: task.id,
                 name: task.name,
-                targetType: task.targetType,
-                targetAgentId: task.targetAgentId ?? undefined,
-                targetWorkflowId: task.targetWorkflowId ?? undefined,
+                workflowMode: task.workflowMode,
+                workflowId: task.workflowId ?? undefined,
+                singleAgent: task.singleAgent ?? undefined,
+                grantedFeatures: task.grantedFeatures,
                 triggers: triggerDraft,
               }),
           ),
@@ -300,12 +320,13 @@ export default function ProcessDefinitionDetailPage({ params }: { params?: { id?
           withScopedApiRequestHeaders(
             buildOptimisticLockHeader(task.updatedAt),
             () =>
-              updateCrud('agent_orchestrator/process-definitions', {
+              updateCrud('agent_orchestrator/processes', {
                 id: task.id,
                 name: task.name,
-                targetType: task.targetType,
-                targetAgentId: task.targetAgentId ?? undefined,
-                targetWorkflowId: task.targetWorkflowId ?? undefined,
+                workflowMode: task.workflowMode,
+                workflowId: task.workflowId ?? undefined,
+                singleAgent: task.singleAgent ?? undefined,
+                grantedFeatures: task.grantedFeatures,
                 milestones: milestoneDraft,
               }),
           ),
@@ -325,7 +346,7 @@ export default function ProcessDefinitionDetailPage({ params }: { params?: { id?
     }
   }, [milestoneBusy, task, milestoneDraft, runMutation, retryLastMutation, taskId, t, loadDetail])
 
-  const runColumns = React.useMemo<ColumnDef<ProcessRunRow>[]>(
+  const runColumns = React.useMemo<ColumnDef<ProcessExecutionRow>[]>(
     () => [
       {
         accessorKey: 'status',
@@ -369,7 +390,7 @@ export default function ProcessDefinitionDetailPage({ params }: { params?: { id?
         header: t('agent_orchestrator.processDefinitions.runs.col.outcome'),
         cell: ({ row }) =>
           row.original.outcome ? (
-            <ProcessOutcome outcome={row.original.outcome} href={row.original.outcomeHref} t={t} />
+            <ProcessOutcomeLink outcome={row.original.outcome} href={row.original.outcomeHref} t={t} />
           ) : (
             <span className="text-xs text-muted-foreground">—</span>
           ),
@@ -380,20 +401,6 @@ export default function ProcessDefinitionDetailPage({ params }: { params?: { id?
         cell: ({ row }) => {
           if (row.original.failureReason) {
             return <span className="truncate text-xs text-status-error-text">{row.original.failureReason}</span>
-          }
-          if (row.original.agentRunId) {
-            return (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={(event) => {
-                  event.stopPropagation()
-                  router.push(`/backend/traces/${encodeURIComponent(row.original.agentRunId!)}`)
-                }}
-              >
-                {t('agent_orchestrator.processDefinitions.runs.openTrace')}
-              </Button>
-            )
           }
           if (row.original.workflowInstanceId) {
             return (
@@ -452,8 +459,10 @@ export default function ProcessDefinitionDetailPage({ params }: { params?: { id?
     )
   }
 
-  const TargetIcon = task.targetType === 'agent' ? Bot : WorkflowIcon
-  const targetId = task.targetType === 'agent' ? task.targetAgentId : task.targetWorkflowId
+  const TargetIcon = task.workflowMode === 'single_agent' ? Bot : WorkflowIcon
+  const targetId = task.workflowMode === 'single_agent'
+    ? task.singleAgent?.agentId ?? task.workflowId
+    : task.workflowId
   const schedules = scheduleTriggers(task.triggers)
   // Run-now mirrors the server gate exactly: no declared manual trigger, no
   // hand-start (the route 403s), so the button must not promise one.
@@ -461,7 +470,7 @@ export default function ProcessDefinitionDetailPage({ params }: { params?: { id?
 
   // API trigger facts — the primary machine entry point for process definitions.
   // `origin` resolves client-side only, so the snippet shows the real host.
-  const apiPath = `/api/agent_orchestrator/process-definitions/${task.id}/run`
+  const apiPath = `/api/agent_orchestrator/processes/${task.id}/executions`
   const apiUrl = `${origin}${apiPath}`
   const inputExample =
     task.inputDefaults && typeof task.inputDefaults === 'object' && !Array.isArray(task.inputDefaults)
@@ -604,7 +613,7 @@ export default function ProcessDefinitionDetailPage({ params }: { params?: { id?
           </div>
         </section>
 
-        {task.targetType === 'workflow' ? (
+        {true ? (
           <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="min-w-0">
@@ -637,8 +646,7 @@ export default function ProcessDefinitionDetailPage({ params }: { params?: { id?
               <MilestoneEditor
                 value={milestoneDraft}
                 onChange={setMilestoneDraft}
-                targetType={task.targetType}
-                workflowId={task.targetWorkflowId}
+                workflowId={task.workflowId}
                 disabled={milestoneBusy}
                 t={t}
               />
@@ -654,7 +662,7 @@ export default function ProcessDefinitionDetailPage({ params }: { params?: { id?
               description={t('agent_orchestrator.processDefinitions.runs.emptyDescription')}
             />
           ) : (
-            <DataTable<ProcessRunRow> columns={runColumns} data={runs} sortable />
+            <DataTable<ProcessExecutionRow> columns={runColumns} data={runs} sortable />
           )}
         </section>
 

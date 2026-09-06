@@ -5,16 +5,16 @@
  * the projection + routes land — spec
  * `.ai/specs/enterprise/agent-orchestrator/next/2026-06-25-agent-process-subject-and-caseload-projection.md`
  * (Owner: Patryk Lewczuk · Status: Not started):
- *   - `process` ← GET /api/agent_orchestrator/processes/:id  (the `AgentProcess` row)
- *   - `steps`   ← GET /api/agent_orchestrator/proposals?processId=… (+ /runs/:id for detail)
+ *   - `process` ← GET /api/agent_orchestrator/executions/:id  (the `ProcessInstance` row)
+ *   - `steps`   ← GET /api/agent_orchestrator/proposals?workflowInstanceId=… (+ /runs/:id for detail)
  *   - `stages`  ← workflow definition steps; the current one is marked via `process.currentStage`
  *
  * The backend projection does not exist yet, so the page renders a clearly-badged
  * sample. No new entities — pure read projections.
  */
 
-/** Mirrors `AgentProcessStatus` (spec §Data Models → status derivation). */
-export type AgentProcessStatus =
+/** Mirrors `ProcessInstanceStatus` (spec §Data Models → status derivation). */
+export type ProcessInstanceStatus =
   | 'running'
   | 'waiting_on_you'
   | 'question_open'
@@ -28,15 +28,15 @@ export type AgentProcessStatus =
 
 export type ProcessStateTone = 'neutral' | 'info' | 'success' | 'warning' | 'error'
 
-/** Non-filterable display extras (spec: `AgentProcess.subjectFacets` jsonb). */
+/** Non-filterable display extras (spec: `ProcessInstance.subjectFacets` jsonb). */
 export type ProcessSubjectFacets = {
   subjectParty?: string | null
   ownerLabel?: string | null
 }
 
-/** Mirrors the `AgentProcess` projection row (GET /api/agent_orchestrator/processes/:id). */
+/** Mirrors the `ProcessInstance` projection row (GET /api/agent_orchestrator/executions/:id). */
 export type ProcessProjection = {
-  processId: string
+  workflowInstanceId: string
   workflowId: string | null
   workflowVersion: string | null
   subjectType: string | null
@@ -46,7 +46,7 @@ export type ProcessProjection = {
   subjectValueMinor: number | null
   subjectFraud: boolean | null
   subjectFacets: ProcessSubjectFacets | null
-  status: AgentProcessStatus
+  status: ProcessInstanceStatus
   currentStage: string | null
   agentIds: string[]
   costMinor: number | null
@@ -61,7 +61,7 @@ export type ProcessProjection = {
 }
 
 /** Maps a process status → state-pill tone (shared by the list + detail). */
-export const PROCESS_STATUS_TONE: Record<AgentProcessStatus, ProcessStateTone> = {
+export const PROCESS_STATUS_TONE: Record<ProcessInstanceStatus, ProcessStateTone> = {
   running: 'info',
   waiting_on_you: 'warning',
   question_open: 'info',
@@ -75,7 +75,7 @@ export const PROCESS_STATUS_TONE: Record<AgentProcessStatus, ProcessStateTone> =
 }
 
 /** Maps a process status → its i18n label key (shared by the list + detail). */
-export const PROCESS_STATUS_LABEL_KEY: Record<AgentProcessStatus, string> = {
+export const PROCESS_STATUS_LABEL_KEY: Record<ProcessInstanceStatus, string> = {
   running: 'agent_orchestrator.process.status.running',
   waiting_on_you: 'agent_orchestrator.process.status.waitingOnYou',
   question_open: 'agent_orchestrator.process.status.questionOpen',
@@ -88,14 +88,14 @@ export const PROCESS_STATUS_LABEL_KEY: Record<AgentProcessStatus, string> = {
   cancelled: 'agent_orchestrator.process.status.cancelled',
 }
 
-/** One row of the Processes list (a denormalized AgentProcess projection row). */
+/** One row of the Processes list (a denormalized ProcessInstance projection row). */
 export type ProcessListRow = {
   id: string
   subjectType: string
   subjectLabel: string
   subjectTitle: string
   currentStage: string
-  status: AgentProcessStatus
+  status: ProcessInstanceStatus
   agentIds: string[]
   /** Nullable by honesty (data-honesty spec §3.7): unknown renders `—`, never a fake 0/epoch. */
   costMinor: number | null
@@ -171,7 +171,7 @@ function isoAgo(ms: number): string {
 }
 
 /**
- * A neutral sample case, shaped as a real `AgentProcess` projection +
+ * A neutral sample case, shaped as a real `ProcessInstance` projection +
  * proposal/run timeline. Rendered when no live process data is available so the
  * screen is fully reviewable.
  */
@@ -179,7 +179,7 @@ export function buildSampleProcess(reference: string): ProcessView {
   return {
     isSample: true,
     process: {
-      processId: reference,
+      workflowInstanceId: reference,
       workflowId: 'case_adjudication_v1',
       workflowVersion: '1',
       subjectType: 'Case',
@@ -428,7 +428,7 @@ export function buildSampleProcess(reference: string): ProcessView {
 /**
  * Sample Processes list — one row per case-anchored process.
  * The first row matches the detail sample (`CASE-2026-04417`). Until the
- * `AgentProcess` projection + list route land (Patryk's spec #11), the list is
+ * `ProcessInstance` projection + list route land (Patryk's spec #11), the list is
  * sample-driven; every row deep-links into the (sample) Process detail.
  */
 export function buildSampleProcessList(): ProcessListRow[] {
@@ -544,24 +544,24 @@ const PROCESS_STATUSES: ReadonlySet<string> = new Set([
   'auto_completing', 'auto_completed', 'completed', 'failed', 'cancelled',
 ])
 
-function processStatus(value: unknown): AgentProcessStatus {
+function processStatus(value: unknown): ProcessInstanceStatus {
   return typeof value === 'string' && PROCESS_STATUSES.has(value)
-    ? (value as AgentProcessStatus)
+    ? (value as ProcessInstanceStatus)
     : 'running'
 }
 
 /**
- * Maps one `GET /api/agent_orchestrator/processes` (or `/processes/:id`) row to
+ * Maps one `GET /api/agent_orchestrator/executions` (or `/processes/:id`) row to
  * the `ProcessProjection` view. Snake_case/camelCase tolerant, null-safe: a
- * process without a subject still renders by processId/workflow name (spec's
+ * process without a subject still renders by workflowInstanceId/workflow name (spec's
  * honest degradation), never crashes.
  */
 export function mapProcessProjection(item: Record<string, unknown>): ProcessProjection | null {
-  const processId = str(item.process_id) ?? str(item.processId)
-  if (!processId) return null
+  const workflowInstanceId = str(item.workflow_instance_id) ?? str(item.workflowInstanceId)
+  if (!workflowInstanceId) return null
   const agentIdsRaw = (item.agent_ids ?? item.agentIds) as unknown
   return {
-    processId,
+    workflowInstanceId,
     workflowId: str(item.workflow_id) ?? str(item.workflowId),
     workflowVersion: str(item.workflow_version) ?? str(item.workflowVersion),
     subjectType: str(item.subject_type) ?? str(item.subjectType),
@@ -588,14 +588,14 @@ export function mapProcessProjection(item: Record<string, unknown>): ProcessProj
   }
 }
 
-/** Maps a projection row to one Processes-list row (subject-less rows degrade to processId/workflow name). */
+/** Maps a projection row to one Processes-list row (subject-less rows degrade to workflowInstanceId/workflow name). */
 export function mapProcessListRow(item: Record<string, unknown>): ProcessListRow | null {
   const projection = mapProcessProjection(item)
   if (!projection) return null
   return {
-    id: projection.processId,
+    id: projection.workflowInstanceId,
     subjectType: projection.subjectType ?? '—',
-    subjectLabel: projection.subjectLabel ?? projection.processId.slice(0, 8).toUpperCase(),
+    subjectLabel: projection.subjectLabel ?? projection.workflowInstanceId.slice(0, 8).toUpperCase(),
     subjectTitle: projection.subjectTitle ?? projection.workflowId ?? '',
     currentStage: projection.currentStage ?? '—',
     status: projection.status,

@@ -13,6 +13,7 @@ import { EntityManager } from '@mikro-orm/core'
 import {
   WorkflowInstance,
   WorkflowBranchInstance,
+  WorkflowDefinition,
   StepInstance,
   UserTask,
   WorkflowEvent,
@@ -178,6 +179,49 @@ export async function enterStep(
  * @param stepInstance - Step instance to exit
  * @param outputData - Optional output data from step execution
  */
+/**
+ * Announces the BUSINESS milestone a completing step carries, if it carries one.
+ *
+ * Resolved here rather than plumbed through every `exitStep` caller because a
+ * milestone must be announced from EVERY completion path — the inline advance,
+ * a signal resume, a task completion, a timer, a condition wake, a parallel
+ * branch — and a per-caller argument would silently miss whichever path was
+ * added next. Both reads are by primary key and the executor already loaded both
+ * rows, so in practice they resolve from the identity map rather than the
+ * database.
+ *
+ * Best-effort by construction: a step that completed HAS completed, and a failure
+ * to announce that fact must never undo it.
+ */
+async function emitStepMilestone(em: EntityManager, stepInstance: StepInstance): Promise<void> {
+  try {
+    const instance = await em.findOne(WorkflowInstance, { id: stepInstance.workflowInstanceId })
+    if (!instance) return
+    const definition = await em.findOne(WorkflowDefinition, { id: instance.definitionId })
+    const stepDef = definition?.definition?.steps?.find((step: any) => step.stepId === stepInstance.stepId)
+    const milestoneKey = typeof stepDef?.milestone === 'string' ? stepDef.milestone : null
+    if (!milestoneKey) return
+    await emitWorkflowsEvent(
+      'workflows.instance.milestone_reached',
+      {
+        instanceId: instance.id,
+        workflowId: instance.workflowId,
+        milestoneKey,
+        // For the trace only. A consumer matches on `milestoneKey`; matching on
+        // the step is exactly the coupling the milestone model removes.
+        stepId: stepInstance.stepId,
+        occurredAt: new Date().toISOString(),
+        data: stepInstance.outputData ?? null,
+        tenantId: instance.tenantId,
+        organizationId: instance.organizationId,
+      },
+      { persistent: true },
+    )
+  } catch {
+    // ignore — announcing a milestone can never fail a step that completed
+  }
+}
+
 export async function exitStep(
   em: EntityManager,
   stepInstance: StepInstance,
@@ -214,6 +258,8 @@ export async function exitStep(
     tenantId: stepInstance.tenantId,
     organizationId: stepInstance.organizationId,
   })
+
+  await emitStepMilestone(em, stepInstance)
 }
 
 /**

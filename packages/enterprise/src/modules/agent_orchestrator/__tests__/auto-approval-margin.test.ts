@@ -142,7 +142,7 @@ describe('DispositionService applies the rule', () => {
     return { service: new DispositionServiceImpl(container as never), execute, nativeUpdate }
   }
 
-  const ctx = { tenantId: TENANT_ID, organizationId: ORG_ID, processId: PROCESS_ID, stepId: 'agent_step' }
+  const ctx = { tenantId: TENANT_ID, organizationId: ORG_ID, workflowInstanceId: PROCESS_ID, stepId: 'agent_step' }
 
   beforeEach(() => {
     jest.clearAllMocks()

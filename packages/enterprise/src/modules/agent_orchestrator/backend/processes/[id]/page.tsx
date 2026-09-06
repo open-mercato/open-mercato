@@ -32,13 +32,12 @@ import {
   type ProposalView,
   type RunView,
 } from '../../../components/types'
-import type { ProcessMilestone } from '../../../data/validators'
-import { buildMilestoneStages, parseProcessMilestones } from '../../../lib/tasks/milestones'
-import { readProcessRunOutcome, type ProcessRunOutcome } from '../../../lib/tasks/outcome'
-import { ProcessOutcome } from '../../../components/ProcessOutcome'
+import type { MilestoneStage } from '../../../lib/tasks/milestones'
+import type { ProcessOutcome } from '../../../lib/tasks/outcome'
+import { ProcessOutcomeLink } from '../../../components/ProcessOutcomeLink'
 import {
   mapProcessProjection,
-  type AgentProcessStatus,
+  type ProcessInstanceStatus,
   type ProcessActorKind,
   type ProcessDetailSectionKind,
   type ProcessProjection,
@@ -57,8 +56,8 @@ const STATE_DOT: Record<ProcessStateTone, string> = {
   error: 'bg-status-error-text',
 }
 
-// Maps AgentProcessStatus → state pill tone + i18n label (spec status derivation).
-const STATUS_TONE: Record<AgentProcessStatus, ProcessStateTone> = {
+// Maps ProcessInstanceStatus → state pill tone + i18n label (spec status derivation).
+const STATUS_TONE: Record<ProcessInstanceStatus, ProcessStateTone> = {
   running: 'info',
   waiting_on_you: 'warning',
   question_open: 'info',
@@ -71,7 +70,7 @@ const STATUS_TONE: Record<AgentProcessStatus, ProcessStateTone> = {
   cancelled: 'neutral',
 }
 
-const STATUS_LABEL_KEY: Record<AgentProcessStatus, string> = {
+const STATUS_LABEL_KEY: Record<ProcessInstanceStatus, string> = {
   running: 'agent_orchestrator.process.status.running',
   waiting_on_you: 'agent_orchestrator.process.status.waitingOnYou',
   question_open: 'agent_orchestrator.process.status.questionOpen',
@@ -370,11 +369,11 @@ export default function ProcessDetailPage({ params }: { params?: { id?: string }
   const t = useT()
   const locale = useLocale()
   const router = useRouter()
-  const processId = params?.id ?? ''
+  const workflowInstanceId = params?.id ?? ''
 
   const [projection, setProjection] = React.useState<ProcessProjection | null>(null)
-  const [milestones, setMilestones] = React.useState<ProcessMilestone[]>([])
-  const [outcome, setOutcome] = React.useState<{ value: ProcessRunOutcome; href: string | null } | null>(null)
+  const [milestoneStages, setMilestoneStages] = React.useState<MilestoneStage[]>([])
+  const [outcome, setOutcome] = React.useState<{ value: ProcessOutcome; href: string | null } | null>(null)
   const [degraded, setDegraded] = React.useState(false)
   const [proposals, setProposals] = React.useState<ProposalView[]>([])
   const [runsById, setRunsById] = React.useState<Map<string, RunView>>(new Map())
@@ -386,14 +385,22 @@ export default function ProcessDetailPage({ params }: { params?: { id?: string }
     async function load() {
       setIsLoading(true)
       setError(null)
+      // ONE read for the whole business view. The execution endpoint already
+      // composes the projection, the milestones it reached against the declared
+      // vocabulary, and the outcome with its resolved href — three round trips
+      // that used to be made here, and three chances for them to disagree.
       const [headerCall, proposalsCall] = await Promise.all([
-        apiCall<{ process?: Record<string, unknown> }>(
-          `/api/agent_orchestrator/processes/${encodeURIComponent(processId)}`,
+        apiCall<{
+          execution?: Record<string, unknown>
+          milestones?: MilestoneStage[]
+          outcome?: (ProcessOutcome & { href: string | null }) | null
+        }>(
+          `/api/agent_orchestrator/executions/${encodeURIComponent(workflowInstanceId)}`,
           undefined,
           { fallback: {} },
         ),
         apiCall<ListResponse>(
-          `/api/agent_orchestrator/proposals?processId=${encodeURIComponent(processId)}&pageSize=100&sortField=createdAt&sortDir=asc`,
+          `/api/agent_orchestrator/proposals?workflowInstanceId=${encodeURIComponent(workflowInstanceId)}&pageSize=100&sortField=createdAt&sortDir=asc`,
           undefined,
           { fallback: { items: [] } },
         ),
@@ -404,8 +411,8 @@ export default function ProcessDetailPage({ params }: { params?: { id?: string }
         .map((row) => mapProposal(row))
         .filter((row): row is ProposalView => !!row)
 
-      const header = headerCall.ok && headerCall.result?.process
-        ? mapProcessProjection(headerCall.result.process)
+      const header = headerCall.ok && headerCall.result?.execution
+        ? mapProcessProjection(headerCall.result.execution)
         : null
 
       if (!header && proposalRows.length === 0) {
@@ -417,7 +424,7 @@ export default function ProcessDetailPage({ params }: { params?: { id?: string }
       // Header degradation (spec): no projection row yet → render the process by
       // its id from activity data alone, clearly hinted, instead of failing.
       const fallbackHeader: ProcessProjection = {
-        processId,
+        workflowInstanceId,
         workflowId: null,
         workflowVersion: null,
         subjectType: null,
@@ -444,42 +451,18 @@ export default function ProcessDetailPage({ params }: { params?: { id?: string }
       setDegraded(!header)
       setProposals(proposalRows)
 
-      // The business-facing stage names: authored on the process definition for
-      // this workflow, so they survive a step being renamed in the Studio. No
-      // definition, or none carrying milestones, keeps the observed-step-id
-      // stepper below.
-      const workflowId = (header ?? fallbackHeader).workflowId
-      if (workflowId) {
-        const definitionsCall = await apiCall<ListResponse>(
-          `/api/agent_orchestrator/process-definitions?targetWorkflowId=${encodeURIComponent(workflowId)}&pageSize=5`,
-          undefined,
-          { fallback: { items: [] } },
-        )
-        if (cancelled) return
-        const authored = (definitionsCall.ok ? definitionsCall.result?.items ?? [] : [])
-          .map((row) => parseProcessMilestones(row.milestones))
-          .find((list) => list.length > 0)
-        setMilestones(authored ?? [])
-      }
+      // The business narrative: the declared stages, with the ones the workflow
+      // actually announced marked done. An execution whose process declares none
+      // falls back to the observed-step stepper below.
+      setMilestoneStages(Array.isArray(headerCall.result?.milestones) ? headerCall.result.milestones : [])
 
-      // What this process PRODUCED. Optional by decision — a research or
-      // monitoring process produces nothing — so an empty answer renders
-      // nothing at all rather than an empty row. The href comes resolved from
-      // the server; null means the owning module is absent and the label
-      // snapshot is all a reader gets.
-      const runCall = await apiCall<ListResponse>(
-        `/api/agent_orchestrator/process-runs?workflowInstanceId=${encodeURIComponent(processId)}&pageSize=1`,
-        undefined,
-        { fallback: { items: [] } },
-      )
-      if (cancelled) return
-      const runRow = (runCall.ok ? runCall.result?.items ?? [] : [])[0] ?? null
-      const producedOutcome = runRow ? readProcessRunOutcome(runRow) : null
-      setOutcome(
-        producedOutcome
-          ? { value: producedOutcome, href: typeof runRow?.outcome_href === 'string' ? runRow.outcome_href : null }
-          : null,
-      )
+      // What this execution PRODUCED, as the endpoint resolved it. Optional by
+      // decision — a research or monitoring process produces nothing — so an
+      // absent outcome renders nothing at all rather than an empty row. A null
+      // href means the owning module is absent from this deployment and the
+      // label snapshot is all a reader gets.
+      const produced = headerCall.result?.outcome ?? null
+      setOutcome(produced ? { value: produced, href: produced.href ?? null } : null)
 
       const runIds = Array.from(new Set(proposalRows.map((p) => p.runId))).filter(Boolean)
       if (runIds.length > 0) {
@@ -499,11 +482,11 @@ export default function ProcessDetailPage({ params }: { params?: { id?: string }
       }
       if (!cancelled) setIsLoading(false)
     }
-    if (processId) void load()
+    if (workflowInstanceId) void load()
     return () => {
       cancelled = true
     }
-  }, [processId, t])
+  }, [workflowInstanceId, t])
 
   const steps = React.useMemo(
     () => buildSteps(proposals, runsById, t),
@@ -574,13 +557,14 @@ export default function ProcessDetailPage({ params }: { params?: { id?: string }
   // on a completed/failed/cancelled case.
   const isTerminal = ['auto_completed', 'completed', 'failed', 'cancelled'].includes(process.status)
   /**
-   * The business-facing milestone view: named stages in authored order. Falls
-   * back to the raw step ids the activity observed when no milestone is
-   * declared, so a process without them reads exactly as it did before.
+   * The business-facing milestone view: the declared stages, with what the
+   * workflow announced marked done. Falls back to the raw step ids the activity
+   * observed when the process declares none, so an execution without a milestone
+   * vocabulary still reads as a sequence.
    */
   const stageRows: Array<{ key: string; label: string; state: StageState }> =
-    milestones.length > 0
-      ? buildMilestoneStages(milestones, process.currentStage, { terminal: isTerminal })
+    milestoneStages.length > 0
+      ? milestoneStages
       : stages.map((stage, index) => ({
           ...stage,
           state: isTerminal
@@ -622,11 +606,11 @@ export default function ProcessDetailPage({ params }: { params?: { id?: string }
               <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                 {process.subjectType ?? t('agent_orchestrator.process.list.title')}{' '}
                 <span className="font-semibold text-foreground">
-                  {process.subjectLabel ?? process.processId.slice(0, 8).toUpperCase()}
+                  {process.subjectLabel ?? process.workflowInstanceId.slice(0, 8).toUpperCase()}
                 </span>
               </p>
               <h1 className="mt-1 text-2xl font-bold tracking-tight text-foreground">
-                {process.subjectTitle ?? process.workflowId ?? process.processId}
+                {process.subjectTitle ?? process.workflowId ?? process.workflowInstanceId}
               </h1>
             </div>
             <div className="flex flex-col items-end gap-1.5">
@@ -703,7 +687,7 @@ export default function ProcessDetailPage({ params }: { params?: { id?: string }
                   {t('agent_orchestrator.process.factOutcome')}
                 </p>
                 <p className="mt-0.5">
-                  <ProcessOutcome outcome={outcome.value} href={outcome.href} t={t} />
+                  <ProcessOutcomeLink outcome={outcome.value} href={outcome.href} t={t} />
                 </p>
               </div>
             ) : null}
@@ -713,7 +697,7 @@ export default function ProcessDetailPage({ params }: { params?: { id?: string }
             <div className="mt-5 border-t border-border pt-4">
               <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                 {t(
-                  milestones.length > 0
+                  milestoneStages.length > 0
                     ? 'agent_orchestrator.process.milestonesTitle'
                     : 'agent_orchestrator.process.stagesObservedTitle',
                 )}

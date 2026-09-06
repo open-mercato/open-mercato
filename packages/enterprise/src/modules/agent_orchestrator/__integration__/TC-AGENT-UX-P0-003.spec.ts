@@ -48,7 +48,7 @@ test.describe('TC-AGENT-UX-P0-003: delete confirmations', () => {
     expect(agentId, 'at least one registered agent is required').toBeTruthy()
 
     try {
-      const taskResponse = await apiRequest(request, 'POST', '/api/agent_orchestrator/process-definitions', {
+      const taskResponse = await apiRequest(request, 'POST', '/api/agent_orchestrator/processes', {
         token,
         data: {
           name: taskName,
@@ -88,7 +88,7 @@ test.describe('TC-AGENT-UX-P0-003: delete confirmations', () => {
 
       let sawDelete = false
       page.on('request', (req) => {
-        if (req.method() === 'DELETE' && req.url().includes('agent_orchestrator/process-definitions')) sawDelete = true
+        if (req.method() === 'DELETE' && req.url().includes('agent_orchestrator/processes')) sawDelete = true
       })
 
       await taskRow.getByRole('button').last().click()
@@ -137,7 +137,7 @@ test.describe('TC-AGENT-UX-P0-003: delete confirmations', () => {
       ).toHaveCount(0)
     } finally {
       if (taskId) {
-        await apiRequest(request, 'DELETE', `/api/agent_orchestrator/process-definitions?id=${encodeURIComponent(taskId)}`, { token }).catch(() => {})
+        await apiRequest(request, 'DELETE', `/api/agent_orchestrator/processes?id=${encodeURIComponent(taskId)}`, { token }).catch(() => {})
       }
       if (assertionId) {
         await apiRequest(request, 'DELETE', `/api/agent_orchestrator/eval-assertions?id=${encodeURIComponent(assertionId)}`, { token }).catch(() => {})

@@ -2,7 +2,7 @@ import * as React from 'react'
 import Link from 'next/link'
 import { ArrowUpRight, Package } from 'lucide-react'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
-import { outcomeDisplayLabel, type ProcessRunOutcome } from '../lib/tasks/outcome'
+import { outcomeDisplayLabel, type ProcessOutcome } from '../lib/tasks/outcome'
 
 /**
  * What a completed process run PRODUCED (spec `2026-08-11-triggered-process-model.md`
@@ -14,12 +14,12 @@ import { outcomeDisplayLabel, type ProcessRunOutcome } from '../lib/tasks/outcom
  * the reference stays readable without the owning module, so it renders as
  * plain text rather than a link that would 404.
  */
-export function ProcessOutcome({
+export function ProcessOutcomeLink({
   outcome,
   href,
   t,
 }: {
-  outcome: ProcessRunOutcome
+  outcome: ProcessOutcome
   href: string | null
   t: TranslateFn
 }) {

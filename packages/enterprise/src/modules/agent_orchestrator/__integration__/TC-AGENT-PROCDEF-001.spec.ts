@@ -8,7 +8,7 @@ import {
 } from '@open-mercato/core/helpers/integration/authFixtures'
 
 /**
- * TC-AGENT-PROCDEF-001 — `/api/agent_orchestrator/process-definitions` CRUD,
+ * TC-AGENT-PROCDEF-001 — `/api/agent_orchestrator/processes` CRUD,
  * tenant/organization scoping, and the optimistic-lock 409.
  *
  * Source: `.ai/specs/enterprise/agent-orchestrator/2026-08-11-triggered-process-model.md`
@@ -19,7 +19,7 @@ import {
  * depends on seeded or demo data.
  */
 
-const DEFINITIONS = '/api/agent_orchestrator/process-definitions'
+const DEFINITIONS = '/api/agent_orchestrator/processes'
 const OPTIMISTIC_LOCK_HEADER = 'x-om-ext-optimistic-lock-expected-updated-at'
 const STALE_EXPECTED_AT = '2020-01-01T00:00:00.000Z'
 

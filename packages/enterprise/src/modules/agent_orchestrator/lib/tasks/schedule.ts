@@ -1,12 +1,12 @@
 import { createHash } from 'node:crypto'
 import type { AwilixContainer } from 'awilix'
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import type { AgentProcessDefinition } from '../../data/entities'
+import type { ProcessDefinition } from '../../data/entities'
 import { PROCESS_TRIGGERS_MAX } from '../../data/validators'
-import { AGENT_ORCHESTRATOR_PROCESS_RUN_QUEUE } from '../queue'
+import { AGENT_ORCHESTRATOR_PROCESS_EXECUTION_QUEUE } from '../queue'
 import { parseProcessTriggers, scheduleTriggers } from './triggers'
 
-const logger = createLogger('agent_orchestrator').child({ component: 'task-schedule' })
+const logger = createLogger('agent_orchestrator').child({ component: 'process-schedule' })
 
 /** Mirrors the @open-mercato/scheduler ScheduleRegistration field names (see setup.ts). */
 type SchedulerServiceLike = {
@@ -31,15 +31,14 @@ type SchedulerServiceLike = {
 }
 
 /**
- * `scheduled_jobs.id` is a uuid — hash the stable task key into one (same trick
- * as setup.ts). `slot` is the schedule trigger's position in the definition's
- * declared list; slot 0 keeps the pre-Phase-2 key so a definition that already
- * had a cron keeps its registered job instead of orphaning it.
+ * `scheduled_jobs.id` is a uuid — hash the stable definition key into one (same
+ * trick as setup.ts). `slot` is the schedule trigger's position in the
+ * definition's declared list.
  */
-export function taskScheduleUuid(processDefinitionId: string, slot = 0): string {
+export function processScheduleUuid(processDefinitionId: string, slot = 0): string {
   const key = slot === 0
-    ? `agent_orchestrator:task:${processDefinitionId}`
-    : `agent_orchestrator:task:${processDefinitionId}:${slot}`
+    ? `agent_orchestrator:process:${processDefinitionId}`
+    : `agent_orchestrator:process:${processDefinitionId}:${slot}`
   const hex = createHash('sha256').update(key).digest('hex')
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`
 }
@@ -61,44 +60,45 @@ function resolveScheduler(container: AwilixContainer): SchedulerServiceLike | nu
  * the scheduler module is a safe no-op; failures log loudly but never abort the
  * mutation that triggered the sync.
  */
-export async function syncProcessSchedule(container: AwilixContainer, task: AgentProcessDefinition): Promise<void> {
+export async function syncProcessSchedule(container: AwilixContainer, definition: ProcessDefinition): Promise<void> {
   const scheduler = resolveScheduler(container)
   if (!scheduler) return
-  const live = !task.deletedAt && task.enabled
+  const live = !definition.deletedAt && definition.enabled
   const schedules = live
-    ? scheduleTriggers(parseProcessTriggers(task.triggers)).filter((trigger) => trigger.enabled)
+    ? scheduleTriggers(parseProcessTriggers(definition.triggers)).filter((trigger) => trigger.enabled)
     : []
   try {
     for (let slot = 0; slot < schedules.length; slot += 1) {
       const trigger = schedules[slot]
       await scheduler.register({
-        id: taskScheduleUuid(task.id, slot),
+        id: processScheduleUuid(definition.id, slot),
         name: schedules.length > 1
-          ? `Process definition: ${task.name} (${slot + 1})`
-          : `Process definition: ${task.name}`,
-        description: `Scheduled trigger for process definition ${task.id}.`,
+          ? `Process definition: ${definition.name} (${slot + 1})`
+          : `Process definition: ${definition.name}`,
+        description: `Scheduled trigger for process definition ${definition.id}.`,
         scopeType: 'organization',
-        organizationId: task.organizationId,
-        tenantId: task.tenantId,
+        organizationId: definition.organizationId,
+        tenantId: definition.tenantId,
         scheduleType: 'cron',
         scheduleValue: trigger.cron,
         timezone: trigger.timezone,
         targetType: 'queue',
-        targetQueue: AGENT_ORCHESTRATOR_PROCESS_RUN_QUEUE,
+        targetQueue: AGENT_ORCHESTRATOR_PROCESS_EXECUTION_QUEUE,
         // The scheduler enqueues this payload directly; the worker recognizes
-        // the schedule shape and creates the AgentProcessRun row itself.
-        targetPayload: { scheduledProcessDefinitionId: task.id, scheduleId: taskScheduleUuid(task.id, slot) },
+        // the schedule shape and starts the execution through the same command
+        // every other trigger source uses.
+        targetPayload: { scheduledProcessDefinitionId: definition.id, scheduleId: processScheduleUuid(definition.id, slot) },
         sourceType: 'module',
         sourceModule: 'agent_orchestrator',
         isEnabled: true,
       })
     }
     for (let slot = schedules.length; slot < PROCESS_TRIGGERS_MAX; slot += 1) {
-      await scheduler.unregister(taskScheduleUuid(task.id, slot))
+      await scheduler.unregister(processScheduleUuid(definition.id, slot))
     }
   } catch (error) {
-    logger.warn('task schedule sync failed', {
-      processDefinitionId: task.id,
+    logger.warn('process schedule sync failed', {
+      processDefinitionId: definition.id,
       scheduleCount: schedules.length,
       error: error instanceof Error ? error.message : String(error),
     })

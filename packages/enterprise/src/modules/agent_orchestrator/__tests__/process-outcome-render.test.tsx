@@ -19,7 +19,7 @@ const apiCallMock = apiCall as jest.Mock
 const PROCESS_ID = '11111111-1111-4111-8111-111111111111'
 
 const PROJECTION = {
-  process_id: PROCESS_ID,
+  workflow_instance_id: PROCESS_ID,
   workflow_id: 'claims.intake',
   subject_type: 'Motor',
   subject_label: 'CASE-2026-04417',
@@ -45,8 +45,8 @@ function runRow(overrides: Record<string, unknown> = {}) {
 function mockApi(runs: Array<Record<string, unknown>>) {
   apiCallMock.mockImplementation(async (url: string) => {
     const ok = (result: unknown) => ({ ok: true, status: 200, result, response: {}, cacheStatus: null })
-    if (url.startsWith('/api/agent_orchestrator/processes/')) return ok({ process: PROJECTION })
-    if (url.startsWith('/api/agent_orchestrator/process-runs')) return ok({ items: runs })
+    if (url.startsWith('/api/agent_orchestrator/executions/')) return ok({ process: PROJECTION })
+    if (url.startsWith('/api/agent_orchestrator/executions')) return ok({ items: runs })
     return ok({ items: [] })
   })
 }
@@ -114,7 +114,7 @@ describe('the process outcome', () => {
     await renderPage()
     const urls = apiCallMock.mock.calls.map(([url]) => url as string)
     expect(urls).toContain(
-      `/api/agent_orchestrator/process-runs?workflowInstanceId=${PROCESS_ID}&pageSize=1`,
+      `/api/agent_orchestrator/executions?workflowInstanceId=${PROCESS_ID}&pageSize=1`,
     )
   })
 })

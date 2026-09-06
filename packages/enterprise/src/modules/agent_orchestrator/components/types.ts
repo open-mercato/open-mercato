@@ -12,7 +12,7 @@ export type ProposalView = {
   id: string
   agentId: string
   runId: string
-  processId: string | null
+  workflowInstanceId: string | null
   stepId: string | null
   payload: unknown
   confidence: number | null
@@ -113,7 +113,7 @@ export type RunView = {
   flaggedAt: string | null
   contextRouting: unknown
   /** FK id → workflows process instance (drives "Open process"). */
-  processId: string | null
+  workflowInstanceId: string | null
 }
 
 export type SpanView = {
@@ -373,7 +373,7 @@ export function mapProposal(item: Record<string, unknown>): ProposalView | null 
     id,
     agentId,
     runId,
-    processId: asString(item.process_id) ?? asString(item.processId),
+    workflowInstanceId: asString(item.workflow_instance_id) ?? asString(item.workflowInstanceId),
     stepId: asString(item.step_id) ?? asString(item.stepId),
     payload: item.payload ?? null,
     confidence: asNumber(item.confidence),
@@ -426,7 +426,7 @@ export function mapRun(item: Record<string, unknown>): RunView | null {
     completedAt: asString(item.completed_at) ?? asString(item.completedAt),
     flaggedAt: asString(item.flagged_at) ?? asString(item.flaggedAt),
     contextRouting: item.context_routing ?? item.contextRouting ?? null,
-    processId: asString(item.process_id) ?? asString(item.processId),
+    workflowInstanceId: asString(item.workflow_instance_id) ?? asString(item.workflowInstanceId),
   }
 }
 

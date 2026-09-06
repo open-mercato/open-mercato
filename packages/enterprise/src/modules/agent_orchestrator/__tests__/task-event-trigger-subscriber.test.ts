@@ -1,5 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { AgentProcessDefinition, AgentProcessRun } from '../data/entities'
+import { ProcessDefinition, AgentProcessRun } from '../data/entities'
 import type { ProcessTrigger } from '../data/validators'
 
 import handle from '../subscribers/task-event-trigger'
@@ -48,7 +48,7 @@ function createFakeEm() {
           const wanted = patternParams.map(
             (raw) => (JSON.parse(raw) as Array<{ eventPattern: string }>)[0].eventPattern,
           )
-          return storeFor(AgentProcessDefinition)
+          return storeFor(ProcessDefinition)
             .filter(
               (row) =>
                 row.tenantId === tenantId &&
@@ -78,7 +78,7 @@ function createFakeEm() {
 }
 
 function seed(storeFor: (entity: unknown) => Row[], trigger: Partial<ProcessTrigger> = {}, definition: Row = {}) {
-  storeFor(AgentProcessDefinition).push({
+  storeFor(ProcessDefinition).push({
     id: TASK_ID,
     tenantId: TENANT,
     organizationId: ORG,
@@ -165,7 +165,7 @@ describe('task-event-trigger subscriber (declared triggers list)', () => {
     await handle({ id: 'c', status: 'closed' }, makeCtx(em, execute, 'claims.claim.reported'))
     expect(execute).not.toHaveBeenCalled()
 
-    storeFor(AgentProcessDefinition)[0].enabled = false
+    storeFor(ProcessDefinition)[0].enabled = false
     await handle({ id: 'c', status: 'open' }, makeCtx(em, execute, 'claims.claim.reported'))
     expect(execute).not.toHaveBeenCalled()
   })

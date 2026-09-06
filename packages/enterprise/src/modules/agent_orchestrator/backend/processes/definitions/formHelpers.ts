@@ -4,14 +4,20 @@
  * vocabulary). Client-safe and dependency-free — the cron SEMANTIC check lives
  * in `@open-mercato/scheduler`'s `validateCronExpression`, imported by the page
  * itself.
+ *
+ * The granted features authored here belong to the BOUND WORKFLOW, which owns the
+ * least-privilege principal every run acts as. This module provisions no execution
+ * identity of its own.
  */
 
 /**
- * Least-privilege floor a WORKFLOW-target definition needs to start and observe its
- * own instances (ids verified against core `workflows` acl.ts). Agent-target
- * agent-target definitions legitimately run with an empty grant set.
+ * Least-privilege floor every process needs to start and observe its own workflow
+ * instances (ids verified against core `workflows` acl.ts).
+ *
+ * Every process runs a workflow now, so this is the floor for all of them — there
+ * is no longer an agent-only shape that legitimately runs with no grant at all.
  */
-export const WORKFLOW_TARGET_PREFILL_FEATURES = [
+export const WORKFLOW_PREFILL_FEATURES = [
   'workflows.instances.view',
   'workflows.instances.create',
 ] as const
@@ -30,17 +36,13 @@ export function parseGrantedFeaturesText(text: string | null | undefined): strin
 }
 
 /**
- * Returns the prefill feature list when switching to a workflow target with no
- * grants yet, null when nothing should change. The caller guards create-mode
- * and once-per-mount semantics.
+ * Returns the prefill feature list for a definition with no grants yet, null when
+ * nothing should change. The caller guards create-mode and once-per-mount
+ * semantics.
  */
-export function resolveFeaturePrefill(
-  targetType: 'agent' | 'workflow',
-  currentFeatures: string[],
-): string[] | null {
-  if (targetType !== 'workflow') return null
+export function resolveFeaturePrefill(currentFeatures: string[]): string[] | null {
   if (currentFeatures.length > 0) return null
-  return [...WORKFLOW_TARGET_PREFILL_FEATURES]
+  return [...WORKFLOW_PREFILL_FEATURES]
 }
 
 /**

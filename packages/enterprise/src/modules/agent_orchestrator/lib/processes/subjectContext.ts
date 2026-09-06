@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
-import type { AgentProcessSubject } from '../../data/validators'
+import type { ProcessSubject } from '../../data/validators'
 
 /**
  * Async-scoped binding of the process `subject` descriptor during an
@@ -13,11 +13,11 @@ import type { AgentProcessSubject } from '../../data/validators'
  * (the descriptor lands only on the `agent_processes` projection). Same pattern
  * as `runtime/rerunContext.ts` / `runtime/runContext.ts`.
  */
-const subjectStorage = new AsyncLocalStorage<AgentProcessSubject>()
+const subjectStorage = new AsyncLocalStorage<ProcessSubject>()
 
 /** Run `fn` with the INVOKE_AGENT node's subject descriptor bound. */
 export function withProcessSubject<T>(
-  subject: AgentProcessSubject | null,
+  subject: ProcessSubject | null,
   fn: () => Promise<T>,
 ): Promise<T> {
   if (!subject) return fn()
@@ -25,6 +25,6 @@ export function withProcessSubject<T>(
 }
 
 /** The in-flight run's subject descriptor, or undefined outside one. */
-export function getProcessSubject(): AgentProcessSubject | undefined {
+export function getProcessSubject(): ProcessSubject | undefined {
   return subjectStorage.getStore()
 }

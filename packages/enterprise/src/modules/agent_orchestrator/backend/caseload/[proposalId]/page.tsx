@@ -247,12 +247,12 @@ export default function AgentProposalDetailPage({ params }: { params?: { proposa
                 {t('agent_orchestrator.proposal.openTrace')}
               </Button>
             ) : null}
-            {proposal.processId ? (
+            {proposal.workflowInstanceId ? (
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={() => router.push(`/backend/processes/${encodeURIComponent(proposal.processId!)}`)}
+                onClick={() => router.push(`/backend/processes/${encodeURIComponent(proposal.workflowInstanceId!)}`)}
               >
                 {t('agent_orchestrator.proposal.openProcess')}
               </Button>

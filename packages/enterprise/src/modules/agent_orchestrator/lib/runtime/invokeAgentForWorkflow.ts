@@ -4,7 +4,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { AgentProposal } from '../../data/entities'
 import { ensureAgentsLoaded, listAgentEntries } from '../sdk/defineAgent'
 import { resolveAgentOutcomeZod } from '../sdk/agentOutcomeContract'
-import { agentProcessSubjectSchema, type AgentProcessSubject } from '../../data/validators'
+import { processSubjectSchema, type ProcessSubject } from '../../data/validators'
 import type { AgentRuntimeService } from './agentRuntime'
 import type { AgentRunAs } from './persistence'
 import { resolveAgentPrincipal } from '../identity/agentPrincipalService'
@@ -29,8 +29,14 @@ export type InvokeAgentForWorkflowArgs = {
     tenantId: string
     organizationId: string
     userId?: string
-    processId: string
+    workflowInstanceId: string
     stepId: string
+    /**
+     * The step's attempt id. With the instance and the step it IS this
+     * invocation's identity, which is what lets the run it produces be found by
+     * name instead of by creation time.
+     */
+    invocationId?: string
     /**
      * The INVOKE_AGENT node's already-interpolated `subject` descriptor (process
      * projection spec, 2026-06-25). Additive + optional: forwarded opaquely into
@@ -119,13 +125,22 @@ export class AgentWorkflowBridgeService implements AgentWorkflowBridge {
     // by workflow name with no business facets.
     const subject = this.parseSubject(ctx.subject)
 
+    // The run this call caused, learned from the run itself rather than guessed
+    // afterwards. `onRunPersisted` fires again for each nested sub-agent
+    // delegation, so only the FIRST invocation is the top-level run.
+    let topLevelRunId: string | null = null
+
     const result = await withProcessSubject(subject, () =>
       this.agentRuntime.run(agentId, input, {
         tenantId: ctx.tenantId,
         organizationId: ctx.organizationId,
         userId: ctx.userId ?? '',
-        processId: ctx.processId,
+        workflowInstanceId: ctx.workflowInstanceId,
         stepId: ctx.stepId,
+        invocationId: ctx.invocationId,
+        onRunPersisted: (runId) => {
+          if (!topLevelRunId) topLevelRunId = runId
+        },
         ...(runAs ? { runAs } : {}),
       }),
     )
@@ -134,21 +149,25 @@ export class AgentWorkflowBridgeService implements AgentWorkflowBridge {
       return { kind: 'researcher', data: result.data }
     }
 
+    if (!topLevelRunId) {
+      throw new Error('[internal] agent run id was never reported')
+    }
+
     const em = (this.container.resolve('em') as EntityManager).fork()
-    // `none_proposed` is stamped at creation for an empty option set, so the lookup
-    // must accept it too — otherwise the run that proposed nothing looks like a run
-    // whose proposal went missing.
-    const proposal = await em.findOne(
-      AgentProposal,
-      {
-        processId: ctx.processId,
-        stepId: ctx.stepId,
-        disposition: { $in: ['pending', 'none_proposed'] },
-        tenantId: ctx.tenantId,
-        organizationId: ctx.organizationId,
-      },
-      { orderBy: { createdAt: 'DESC' } },
-    )
+    // Correlated by the RUN that produced it, never by "the newest pending
+    // proposal on this step". Two invocations of the same step — a retry, a
+    // parallel branch, a concurrent instance — are indistinguishable to a
+    // temporal lookup, and it would dispose the wrong one.
+    //
+    // `none_proposed` is stamped at creation for an empty option set, so the
+    // lookup must accept it too: the run that proposed nothing is not a run whose
+    // proposal went missing.
+    const proposal = await em.findOne(AgentProposal, {
+      runId: topLevelRunId,
+      disposition: { $in: ['pending', 'none_proposed'] },
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
+    })
     if (!proposal) {
       throw new Error('[internal] agent proposal not found after run')
     }
@@ -157,7 +176,7 @@ export class AgentWorkflowBridgeService implements AgentWorkflowBridge {
       tenantId: ctx.tenantId,
       organizationId: ctx.organizationId,
       userId: ctx.userId,
-      processId: ctx.processId,
+      workflowInstanceId: ctx.workflowInstanceId,
       stepId: ctx.stepId,
       ...(ctx.review ? { review: ctx.review } : {}),
     })
@@ -187,9 +206,9 @@ export class AgentWorkflowBridgeService implements AgentWorkflowBridge {
     return contracts
   }
 
-  private parseSubject(raw: unknown): AgentProcessSubject | null {
+  private parseSubject(raw: unknown): ProcessSubject | null {
     if (!raw || typeof raw !== 'object') return null
-    const parsed = agentProcessSubjectSchema.safeParse(raw)
+    const parsed = processSubjectSchema.safeParse(raw)
     return parsed.success ? parsed.data : null
   }
 

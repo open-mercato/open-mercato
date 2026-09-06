@@ -30,7 +30,7 @@ const crud = makeCrudRoute<never, never, z.infer<typeof contextBundleListQuerySc
     fields: [
       'id',
       'agent_run_id',
-      'process_id',
+      'workflow_instance_id',
       'step_id',
       'capability',
       'routed_sources',
@@ -54,7 +54,7 @@ const crud = makeCrudRoute<never, never, z.infer<typeof contextBundleListQuerySc
       const filters: Record<string, unknown> = {}
       if (query.id) filters.id = { $eq: query.id }
       if (query.agentRunId) filters.agent_run_id = { $eq: query.agentRunId }
-      if (query.processId) filters.process_id = { $eq: query.processId }
+      if (query.workflowInstanceId) filters.workflow_instance_id = { $eq: query.workflowInstanceId }
       if (query.capability) filters.capability = { $eq: query.capability }
       return filters
     },
@@ -66,7 +66,7 @@ export const GET = crud.GET
 const contextBundleListItemSchema = z.object({
   id: z.string().uuid(),
   agent_run_id: z.string().uuid(),
-  process_id: z.string().uuid().nullable().optional(),
+  workflow_instance_id: z.string().uuid().nullable().optional(),
   step_id: z.string().nullable().optional(),
   capability: z.string(),
   routed_sources: z.unknown(),

@@ -64,28 +64,23 @@ export const defaultEncryptionMaps: ModuleEncryptionMap[] = [
     // with any entity rename, or these columns silently start persisting in
     // plaintext while existing rows become undecryptable. Guarded by
     // __tests__/encryption-map-entity-ids.test.ts.
-    entityId: 'agent_orchestrator:agent_process_definition',
+    entityId: 'agent_orchestrator:process_definition',
     fields: [
       { field: 'input_defaults' },
     ],
   },
   {
-    // The resolved input actually used by a process run, plus the failure reason
-    // (which may echo part of a malformed input back on validation failure).
-    // Same unchecked-string hazard as the definition entry above.
-    entityId: 'agent_orchestrator:agent_process_run',
+    // The execution read model carries the resolved start input, the failure
+    // reason (which may echo part of a malformed input back on validation
+    // failure), and the free-text person-readable subject title (e.g.
+    // "High-value case — settlement adjudication"). The filter-driving subject
+    // facets (subject_type/value/fraud) stay deliberate plaintext typed columns
+    // because they must be SQL-queryable. Same unchecked-string hazard as the
+    // definition entry above.
+    entityId: 'agent_orchestrator:process_instance',
     fields: [
       { field: 'input' },
       { field: 'failure_reason' },
-    ],
-  },
-  {
-    // The process projection's free-text, person-readable subject title (e.g.
-    // "High-value case — settlement adjudication"). The ONLY encrypted subject
-    // field: the filter-driving facets (subject_type/value/fraud) are deliberate
-    // plaintext typed columns because they must be SQL-queryable.
-    entityId: 'agent_orchestrator:agent_process',
-    fields: [
       { field: 'subject_title' },
     ],
   },

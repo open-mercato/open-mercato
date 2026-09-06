@@ -120,7 +120,7 @@ function baseInput(budget = 4000) {
     tenantId: TENANT,
     organizationId: ORG,
     agentRunId: RUN_ID,
-    processId: null,
+    workflowInstanceId: null,
     stepId: null,
     capability: CAPABILITY,
     budget,

@@ -1,7 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { AgentProcessDefinition, AgentProcessRun } from '../data/entities'
+import { ProcessDefinition, AgentProcessRun } from '../data/entities'
 
 jest.mock('../events', () => ({
   emitAgentOrchestratorEvent: jest.fn(async () => {}),
@@ -84,7 +84,7 @@ function makeCtx(em: EntityManager): CommandRuntimeContext {
 }
 
 function seedDefinition(storeFor: (entity: unknown) => Array<Record<string, unknown>>, overrides: Record<string, unknown> = {}) {
-  storeFor(AgentProcessDefinition).push({
+  storeFor(ProcessDefinition).push({
     id: TASK_ID,
     tenantId: TENANT,
     organizationId: ORG,
@@ -229,8 +229,8 @@ describe('agent_orchestrator.processes.enqueueRun', () => {
 
 describe('resolveProcessRunInput', () => {
   it('merges run input over defaults (input wins per key)', () => {
-    const definition = { inputDefaults: { a: 1, b: 2 } } as unknown as AgentProcessDefinition
+    const definition = { inputDefaults: { a: 1, b: 2 } } as unknown as ProcessDefinition
     expect(resolveProcessRunInput(definition, { b: 3 })).toEqual({ a: 1, b: 3 })
-    expect(resolveProcessRunInput({ inputDefaults: null } as unknown as AgentProcessDefinition, undefined)).toEqual({})
+    expect(resolveProcessRunInput({ inputDefaults: null } as unknown as ProcessDefinition, undefined)).toEqual({})
   })
 })
