@@ -471,6 +471,48 @@ describe('KanbanBoard', () => {
     expect(mockApiCallOrThrow).toHaveBeenCalledTimes(1)
   })
 
+  /**
+   * The tag's name lives behind a second request. Falling back to the id painted the
+   * raw uuid on the card until that request answered — the very "internal id where a
+   * name belongs" defect this PR fixed elsewhere.
+   */
+  describe('tag chips', () => {
+    const TAG_ID = '77777777-7777-4777-8777-777777777777'
+
+    function installBoardWithTag(tagsResponse: () => Promise<unknown>) {
+      tasksByStatus[BACKLOG_ID] = [baseTask({ tagIds: [TAG_ID] })]
+      const router = mockApiCall.getMockImplementation()!
+      mockApiCall.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).includes('/timesheets/tags')) return (await tagsResponse()) as never
+        return router(input, init)
+      })
+    }
+
+    it('draws no chip at all while the tag labels are still loading', async () => {
+      installBoardWithTag(() => new Promise(() => {}))
+      const { container } = renderBoard()
+
+      await waitFor(() => expect(cardIn(container, BACKLOG_ID, TASK_ID)).not.toBeNull())
+      expect(container.textContent).not.toContain(TAG_ID)
+    })
+
+    it('draws the chip once the label arrives, and never the id', async () => {
+      installBoardWithTag(async () => ok({ items: [{ id: TAG_ID, label: 'Pilne' }], total: 1 }))
+      const { container } = renderBoard()
+
+      await waitFor(() => expect(screen.getByText('Pilne')).toBeTruthy())
+      expect(container.textContent).not.toContain(TAG_ID)
+    })
+
+    it('skips a tag row that carries no label rather than falling back to its id', async () => {
+      installBoardWithTag(async () => ok({ items: [{ id: TAG_ID, label: '' }], total: 1 }))
+      const { container } = renderBoard()
+
+      await waitFor(() => expect(cardIn(container, BACKLOG_ID, TASK_ID)).not.toBeNull())
+      expect(container.textContent).not.toContain(TAG_ID)
+    })
+  })
+
   it('creates a task in place from the column quick-add, with that column status and no modal', async () => {
     const { container } = renderBoard()
     await waitFor(() => expect(cardIn(container, BACKLOG_ID, TASK_ID)).not.toBeNull())

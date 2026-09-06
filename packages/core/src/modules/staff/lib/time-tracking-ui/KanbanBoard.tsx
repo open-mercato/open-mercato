@@ -273,15 +273,21 @@ export function KanbanBoard({
 
   const tagQuery = useTagLabels(tagIds)
 
+  // A chip carries a tag's name or it is not drawn at all. The label lookup is a
+  // separate request from the card's own row, so falling back to the id painted a
+  // raw uuid on the card for as long as that request was in flight.
   const tagsByTaskId = React.useMemo(() => {
     const labels = tagQuery.data ?? new Map<string, string>()
     const map = new Map<string, KanbanTagOption[]>()
     for (const task of allTasks) {
       if (task.tagIds.length === 0) continue
-      map.set(
-        task.id,
-        task.tagIds.map((id) => ({ id, label: labels.get(id) ?? id })),
-      )
+      const named: KanbanTagOption[] = []
+      for (const id of task.tagIds) {
+        const label = labels.get(id)
+        if (label) named.push({ id, label })
+      }
+      if (named.length === 0) continue
+      map.set(task.id, named)
     }
     return map
   }, [allTasks, tagQuery.data])

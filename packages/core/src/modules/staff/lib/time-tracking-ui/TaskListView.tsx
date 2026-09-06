@@ -214,11 +214,17 @@ export function TaskListView({
                 </td>
                 <td className="px-3 py-2.5">
                   <span className="flex flex-wrap gap-1">
-                    {task.tagIds.map((tagId) => (
-                      <Badge key={tagId} variant="neutral" size="sm">
-                        {tagLabels.data?.get(tagId) ?? tagId}
-                      </Badge>
-                    ))}
+                    {task.tagIds.map((tagId) => {
+                      // Same rule as the board card: a tag whose label has not
+                      // arrived yet is skipped, never drawn as its raw id.
+                      const label = tagLabels.data?.get(tagId)
+                      if (!label) return null
+                      return (
+                        <Badge key={tagId} variant="neutral" size="sm">
+                          {label}
+                        </Badge>
+                      )
+                    })}
                   </span>
                 </td>
                 <td className="px-3 py-2.5 text-right font-semibold tabular-nums text-foreground">

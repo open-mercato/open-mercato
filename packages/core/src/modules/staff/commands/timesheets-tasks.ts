@@ -122,6 +122,22 @@ const taskCrudEvents: CrudEventsConfig<StaffTimeTask> = {
   }),
 }
 
+/**
+ * The resource tag the tasks CRUD route caches its list pages under —
+ * `makeCrudRoute` derives it from `events.module` + `events.entity`, so it is read
+ * from the same config here rather than restated.
+ *
+ * Commands executed straight from a route (the board's move endpoint) are
+ * invalidated by the command bus from the audit `resourceKind`, which for tasks is
+ * `staff.timesheets.task` — a different tag. Without this alias a drag left every
+ * cached page of the tasks list in place, so the board's refetch after a successful
+ * move was answered with the pre-move page: the card snapped back with no error,
+ * and the stale `updated_at` that page carried made the next move answer 409
+ * "changed by someone else" until the entry expired. `ENABLE_CRUD_API_CACHE` off
+ * hides it; the ephemeral QA and integration environments run with it on.
+ */
+const TASK_LIST_CACHE_RESOURCE = `${taskCrudEvents.module}.${taskCrudEvents.entity}`
+
 type Translate = (key: string, fallback: string) => string
 
 type TaskSnapshot = {
@@ -1039,6 +1055,10 @@ const statusChangeTaskCommand: CommandHandler<
       resourceId: before.id,
       tenantId: before.tenantId,
       organizationId: before.organizationId,
+      // Flushes the cached tasks list the board refetches right after the move,
+      // and again after an undo — the audit resourceKind above names a different
+      // tag. See TASK_LIST_CACHE_RESOURCE.
+      context: { cacheAliases: [TASK_LIST_CACHE_RESOURCE] },
       snapshotBefore: before,
       snapshotAfter: after,
       changes: buildChanges(

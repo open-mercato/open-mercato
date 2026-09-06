@@ -24,6 +24,33 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.7.0 → 0.7.1 (unreleased)
 
+### `yarn mercato auth sync-role-acls` now syncs **customer/portal** roles too (#5900)
+
+`setup.defaultCustomerRoleFeatures` — the way a module declares which portal features its
+pages need (`portal.time_reports.view`, and every other `portal.*` grant) — used to be merged
+into `CustomerRoleAcl` rows only during `customer_accounts.seedDefaults`, i.e. at tenant
+bootstrap. A module shipping a **new** portal page therefore never reached the `Buyer` and
+`Viewer` roles a tenant was already using: the page was not merely forbidden, it was invisible
+(the portal nav is RBAC-filtered), and someone had to grant the feature by hand for every
+tenant.
+
+`sync-role-acls` now runs the same idempotent, additive merge for customer roles after the
+staff ones, and reports what it granted. Run it once per upgrade, as you already do for staff
+features:
+
+```bash
+yarn mercato auth sync-role-acls
+```
+
+It only *adds* newly declared default grants to roles that already exist, never removes an
+operator's customizations, and never creates roles or ACL rows. `--tenant <tenantId>` still
+scopes it to one tenant. A deployment without the `customer_accounts` module is unaffected —
+the portal half is skipped and staff roles sync exactly as before.
+
+**Module authors:** declaring a portal feature in `setup.defaultCustomerRoleFeatures` is now
+enough for existing tenants to pick it up on the documented upgrade command; note the new
+grant in your own release notes so operators know to run it.
+
 ### Sales line `discount_amount` is now read as a line total, and the percentage wins (#3757)
 
 `sales_order_lines.discount_amount` and `sales_quote_lines.discount_amount` have always been

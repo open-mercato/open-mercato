@@ -152,7 +152,13 @@ export function useAssigneeNames(assigneeIds: readonly string[]) {
   })
 }
 
-/** Labels for the tags a surface is about to render. */
+/**
+ * Labels for the tags a surface is about to render.
+ *
+ * Only tags that actually have a label land in the map. A caller renders a chip
+ * for the ids it finds here and skips the rest, so a tag whose label has not
+ * arrived yet — or a row that carries none — is never drawn as its raw id.
+ */
 export function useTagLabels(tagIds: readonly string[]) {
   const scopeVersion = useOrganizationScopeVersion()
   const ids = React.useMemo(() => Array.from(new Set(tagIds)).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)), [tagIds])
@@ -169,7 +175,9 @@ export function useTagLabels(tagIds: readonly string[]) {
       for (const row of readItems(call.result)) {
         const id = readString(row, 'id')
         if (!id) continue
-        labels.set(id, readString(row, 'label') ?? id)
+        const label = readString(row, 'label')
+        if (!label) continue
+        labels.set(id, label)
       }
       return labels
     },
