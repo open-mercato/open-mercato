@@ -52,8 +52,8 @@ test.describe('TC-AGENT-UX-P0-003: delete confirmations', () => {
         token,
         data: {
           name: taskName,
-          targetType: 'agent',
-          targetAgentId: 'deals.health_check',
+          workflowMode: 'single_agent',
+          singleAgent: { agentId: 'deals.health_check', onResult: { alwaysAsk: true } },
           enabled: false,
         },
       })

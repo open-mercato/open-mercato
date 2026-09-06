@@ -24,6 +24,7 @@ import {
   readWorkflowFacts,
   removeGeneratedWorkflow,
 } from '../../lib/processes/materializeAgentWorkflow'
+import { authorizeProcessWorkflowGrant } from '../../lib/processes/workflowGrant'
 import { syncProcessSchedule } from '../../lib/tasks/schedule'
 import { withScheduleSemanticChecks } from '../../lib/tasks/scheduleValidation'
 import {
@@ -76,6 +77,8 @@ async function bindWorkflowAndSchedule(
   entity: ProcessDefinition,
   ctx: CrudCtx,
   input: {
+    /** The grant the bound workflow already carries, so a no-op change needs no gate. */
+    currentGrantedFeatures?: string[]
     workflowMode: 'single_agent' | 'workflow'
     /**
      * NOT stored on the definition: the generated workflow is the source of
@@ -86,6 +89,18 @@ async function bindWorkflowAndSchedule(
     grantedFeatures?: string[]
   },
 ): Promise<void> {
+  // Declaring what a workflow may DO is a privilege decision, and it does not
+  // come free with `processes.manage`. Core gates its own definitions API on
+  // `workflows.definitions.grant_features` plus a subset check against the
+  // saving user's own features; routing a grant through this module without the
+  // same gates would be a way to mint a principal holding features the author
+  // does not hold.
+  const grantFailure = await authorizeProcessWorkflowGrant(ctx, {
+    requested: input.grantedFeatures ?? [],
+    current: input.currentGrantedFeatures ?? [],
+  })
+  if (grantFailure) throw new CrudHttpError(grantFailure.status, grantFailure.body)
+
   if (input.workflowMode === 'single_agent') {
     const singleAgent = input.singleAgent
     if (!singleAgent) {
@@ -328,6 +343,9 @@ const crud = makeCrudRoute<
         workflowMode: ctx.input.workflowMode,
         singleAgent: ctx.input.singleAgent,
         grantedFeatures: ctx.input.grantedFeatures,
+        // A brand-new definition holds no grant yet, so every feature it asks
+        // for is a change and must be authorised.
+        currentGrantedFeatures: [],
       })
       await emitAgentOrchestratorEvent('agent_orchestrator.process_definition.created', {
         id: row.id,
@@ -339,10 +357,17 @@ const crud = makeCrudRoute<
     },
     afterUpdate: async (entity, ctx) => {
       const row = entity as ProcessDefinition
+      const em = (ctx.container.resolve('em') as EntityManager).fork()
+      const facts = await readWorkflowFacts(ctx.container, em, {
+        workflowIds: [row.workflowId].filter(Boolean),
+        tenantId: row.tenantId,
+        organizationId: row.organizationId,
+      })
       await bindWorkflowAndSchedule(row, ctx, {
         workflowMode: ctx.input.workflowMode,
         singleAgent: ctx.input.singleAgent,
         grantedFeatures: ctx.input.grantedFeatures,
+        currentGrantedFeatures: facts.get(row.workflowId)?.grantedFeatures ?? [],
       })
       await emitAgentOrchestratorEvent('agent_orchestrator.process_definition.updated', {
         id: row.id,

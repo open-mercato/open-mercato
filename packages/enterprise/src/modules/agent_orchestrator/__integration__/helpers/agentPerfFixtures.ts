@@ -179,13 +179,13 @@ export async function deleteAgentOrchestratorRowsForOrganization(
   })
 }
 
-export type AgentProcessRunSeed = {
+export type ProcessExecutionSeed = {
   tenantId: string
   organizationId: string
   processDefinitionId: string
-  targetType?: 'agent' | 'workflow'
-  targetAgentId?: string | null
-  status?: 'running' | 'completed' | 'failed'
+  workflowInstanceId?: string | null
+  /** The DERIVED projection vocabulary, not a ledger's own lifecycle. */
+  status?: string
   triggeredBy?: Record<string, unknown>
   createdAt: Date
   completedAt?: Date | null
@@ -193,26 +193,30 @@ export type AgentProcessRunSeed = {
 }
 
 /**
- * Inserts agent_process_runs ledger rows directly (no worker involved) — drives
- * the tasks list's Last-run projection in TC-AGENT-UXC-002.
+ * Inserts `process_instances` rows directly (no worker involved) — drives the
+ * process list's last-execution column in TC-AGENT-UXC-002.
+ *
+ * These are PROJECTION rows: the seed sets the derived `status` the list renders
+ * rather than transitioning any lifecycle, because the lifecycle owner is the
+ * workflow instance and there is deliberately no second one to drive.
  */
-export async function insertAgentProcessRunFixtures(rows: AgentProcessRunSeed[]): Promise<string[]> {
+export async function insertProcessExecutionFixtures(rows: ProcessExecutionSeed[]): Promise<string[]> {
   const ids = rows.map(() => randomUUID())
   await withClient(async (client) => {
     for (let index = 0; index < rows.length; index += 1) {
       const row = rows[index]
       await client.query(
-        `insert into agent_process_runs
-           (id, tenant_id, organization_id, process_definition_id, target_type, target_agent_id,
-            input, triggered_by, status, started_at, completed_at, failure_reason, created_at, updated_at)
-         values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9, $10, $11, $12, $10, $10)`,
+        `insert into process_instances
+           (id, tenant_id, organization_id, process_definition_id, workflow_instance_id,
+            input, triggered_by, status, opened_at, completed_at, failure_reason,
+            last_activity_at, created_at, updated_at)
+         values ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9, $10, $11, $9, $9, $9)`,
         [
           ids[index],
           row.tenantId,
           row.organizationId,
           row.processDefinitionId,
-          row.targetType ?? 'agent',
-          row.targetAgentId ?? null,
+          row.workflowInstanceId ?? null,
           SEED_PAYLOAD,
           JSON.stringify(row.triggeredBy ?? { kind: 'system', ref: 'integration-test' }),
           row.status ?? 'completed',
@@ -226,10 +230,10 @@ export async function insertAgentProcessRunFixtures(rows: AgentProcessRunSeed[])
   return ids
 }
 
-/** Hard-deletes agent_process_runs rows for the given task definitions (cleanup). */
-export async function deleteAgentProcessRunsByProcessDefinitionIds(ids: string[]): Promise<void> {
+/** Hard-deletes `process_instances` rows for the given process definitions (cleanup). */
+export async function deleteProcessExecutionsByProcessDefinitionIds(ids: string[]): Promise<void> {
   if (ids.length === 0) return
   await withClient(async (client) => {
-    await client.query('delete from agent_process_runs where process_definition_id = any($1::uuid[])', [ids])
+    await client.query('delete from process_instances where process_definition_id = any($1::uuid[])', [ids])
   })
 }

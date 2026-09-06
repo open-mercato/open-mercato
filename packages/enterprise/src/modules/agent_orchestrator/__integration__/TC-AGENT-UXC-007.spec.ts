@@ -24,8 +24,8 @@ test.describe('TC-AGENT-UXC-007: IANA timezone validation', () => {
         token,
         data: {
           name: `TC-UXC-007 invalid ${stamp}`,
-          targetType: 'agent',
-          targetAgentId: 'deals.health_check',
+          workflowMode: 'single_agent',
+          singleAgent: { agentId: 'deals.health_check', onResult: { alwaysAsk: true } },
           triggers: [{ kind: 'schedule', cron: '0 7 * * 1', timezone: 'Warsaw' }],
         },
       })
@@ -37,8 +37,8 @@ test.describe('TC-AGENT-UXC-007: IANA timezone validation', () => {
         token,
         data: {
           name: `TC-UXC-007 valid ${stamp}`,
-          targetType: 'agent',
-          targetAgentId: 'deals.health_check',
+          workflowMode: 'single_agent',
+          singleAgent: { agentId: 'deals.health_check', onResult: { alwaysAsk: true } },
           triggers: [{ kind: 'schedule', cron: '0 7 * * 1', timezone: 'Europe/Warsaw' }],
         },
       })

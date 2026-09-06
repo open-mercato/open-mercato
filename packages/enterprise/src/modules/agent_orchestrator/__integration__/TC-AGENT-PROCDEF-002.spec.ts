@@ -52,8 +52,8 @@ test.describe('TC-AGENT-PROCDEF-002: processes.{view,manage,run} gate the defini
 
     const editBody = {
       name: `${name} (edited)`,
-      targetType: 'agent' as const,
-      targetAgentId: 'deals.health_check',
+      workflowMode: 'single_agent' as const,
+      singleAgent: { agentId: 'deals.health_check', onResult: { alwaysAsk: true as const } },
       triggers,
       enabled: true,
     }
@@ -61,7 +61,7 @@ test.describe('TC-AGENT-PROCDEF-002: processes.{view,manage,run} gate the defini
     try {
       const createResponse = await apiRequest(request, 'POST', DEFINITIONS, {
         token: adminToken,
-        data: { name, targetType: 'agent', targetAgentId: 'deals.health_check', triggers, enabled: true },
+        data: { name, workflowMode: 'single_agent', singleAgent: { agentId: 'deals.health_check', onResult: { alwaysAsk: true } }, triggers, enabled: true },
       })
       expect(createResponse.status(), 'admin seeds the definition').toBe(201)
       definitionId = (await readJsonSafe<{ id?: string }>(createResponse))?.id ?? null
@@ -100,7 +100,7 @@ test.describe('TC-AGENT-PROCDEF-002: processes.{view,manage,run} gate the defini
       const forbiddenRun = await apiRequest(
         request,
         'POST',
-        `${DEFINITIONS}/${encodeURIComponent(definitionId!)}/run`,
+        `${DEFINITIONS}/${encodeURIComponent(definitionId!)}/executions`,
         { token: viewerToken, data: {} },
       )
       expect(forbiddenRun.status(), 'starting a run needs processes.run').toBe(403)
@@ -126,7 +126,7 @@ test.describe('TC-AGENT-PROCDEF-002: processes.{view,manage,run} gate the defini
       const stillForbiddenRun = await apiRequest(
         request,
         'POST',
-        `${DEFINITIONS}/${encodeURIComponent(definitionId!)}/run`,
+        `${DEFINITIONS}/${encodeURIComponent(definitionId!)}/executions`,
         { token: managerToken, data: {} },
       )
       expect(stillForbiddenRun.status(), 'manage does not imply run').toBe(403)
@@ -147,12 +147,12 @@ test.describe('TC-AGENT-PROCDEF-002: processes.{view,manage,run} gate the defini
       const acceptedRun = await apiRequest(
         request,
         'POST',
-        `${DEFINITIONS}/${encodeURIComponent(definitionId!)}/run`,
+        `${DEFINITIONS}/${encodeURIComponent(definitionId!)}/executions`,
         { token: runnerToken, data: {} },
       )
       expect(acceptedRun.status(), 'processes.run may start a run').toBe(202)
-      const accepted = await readJsonSafe<{ processRunId?: string; status?: string }>(acceptedRun)
-      expect(accepted?.processRunId, 'the 202 body carries processRunId').toBeTruthy()
+      const accepted = await readJsonSafe<{ executionId?: string; status?: string }>(acceptedRun)
+      expect(accepted?.executionId, 'the 202 body carries executionId').toBeTruthy()
       expect(accepted?.status).toBe('running')
 
       const runsResponse = await apiRequest(

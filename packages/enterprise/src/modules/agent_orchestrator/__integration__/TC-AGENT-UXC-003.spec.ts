@@ -44,8 +44,8 @@ test.describe('TC-AGENT-UXC-003: semantic cron validation + next-run preview', (
         token,
         data: {
           name: `TC-UXC-003 garbage ${stamp}`,
-          targetType: 'agent',
-          targetAgentId: 'deals.health_check',
+          workflowMode: 'single_agent',
+          singleAgent: { agentId: 'deals.health_check', onResult: { alwaysAsk: true } },
           triggers: [{ kind: 'schedule', cron: 'foo bar baz qux quux' }],
         },
       })
@@ -57,8 +57,8 @@ test.describe('TC-AGENT-UXC-003: semantic cron validation + next-run preview', (
         token,
         data: {
           name: `TC-UXC-003 valid ${stamp}`,
-          targetType: 'agent',
-          targetAgentId: 'deals.health_check',
+          workflowMode: 'single_agent',
+          singleAgent: { agentId: 'deals.health_check', onResult: { alwaysAsk: true } },
           triggers: [{ kind: 'schedule', cron: '0 7 * * 1', timezone: 'Europe/Warsaw' }],
         },
       })

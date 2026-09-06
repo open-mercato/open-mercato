@@ -26,7 +26,7 @@ import { deleteAgentProcessesForOrganization, insertAgentProcessFixture } from '
  * Seeds 25 pending proposals into a throwaway org: the inbox (primary decision
  * view) must show a "1–20 of 25" range label and reach the remaining 5 rows on
  * page 2 — before this fix it hard-capped at the first 20 with no affordance.
- * A seeded agent_processes row then backs the detail-page assertion that
+ * A seeded process_instances row then backs the detail-page assertion that
  * Pause/Reassign/Take-over render disabled (no success-flashing no-ops).
  */
 

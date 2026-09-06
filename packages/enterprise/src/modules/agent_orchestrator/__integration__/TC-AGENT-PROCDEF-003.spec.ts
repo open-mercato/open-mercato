@@ -8,7 +8,7 @@ import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixt
  * every pre-existing definition still startable by hand.
  *
  * Source: `.ai/specs/enterprise/agent-orchestrator/2026-08-11-triggered-process-model.md`
- * §Integration coverage (`POST /process-definitions/[id]/run`: 403 without a
+ * §Integration coverage (`POST /processes/[id]/executions`: 403 without a
  * declared manual trigger; `triggeredBy.kind === 'manual'` recorded) and
  * §Phasing step 6 (the backfill, "covered by an integration assertion, not left
  * to review").
@@ -59,34 +59,34 @@ test.describe('TC-AGENT-PROCDEF-003: manual entry is a declared capability', () 
     try {
       scheduleOnlyId = await createDefinition(request, token, {
         name: `TC-PROCDEF-003 schedule-only ${stamp}`,
-        targetType: 'agent',
-        targetAgentId: 'deals.health_check',
+        workflowMode: 'single_agent',
+        singleAgent: { agentId: 'deals.health_check', onResult: { alwaysAsk: true } },
         triggers: [{ kind: 'schedule', cron: '0 7 * * 1', timezone: 'UTC' }],
       })
 
       const denied = await apiRequest(
         request,
         'POST',
-        `${DEFINITIONS}/${encodeURIComponent(scheduleOnlyId)}/run`,
+        `${DEFINITIONS}/${encodeURIComponent(scheduleOnlyId)}/executions`,
         { token, data: {} },
       )
       expect(denied.status(), 'no declared manual trigger → 403, not a silent run').toBe(403)
 
       manualId = await createDefinition(request, token, {
         name: `TC-PROCDEF-003 manual ${stamp}`,
-        targetType: 'agent',
-        targetAgentId: 'deals.health_check',
+        workflowMode: 'single_agent',
+        singleAgent: { agentId: 'deals.health_check', onResult: { alwaysAsk: true } },
         triggers: [{ kind: 'manual' }],
       })
 
       const accepted = await apiRequest(
         request,
         'POST',
-        `${DEFINITIONS}/${encodeURIComponent(manualId)}/run`,
+        `${DEFINITIONS}/${encodeURIComponent(manualId)}/executions`,
         { token, data: {} },
       )
       expect(accepted.status(), 'a declared manual trigger → 202').toBe(202)
-      const runId = (await readJsonSafe<{ processRunId?: string }>(accepted))?.processRunId ?? null
+      const runId = (await readJsonSafe<{ executionId?: string }>(accepted))?.executionId ?? null
       expect(runId, 'the 202 body carries the run id').toBeTruthy()
 
       const runsResponse = await apiRequest(
@@ -108,7 +108,7 @@ test.describe('TC-AGENT-PROCDEF-003: manual entry is a declared capability', () 
   })
 
   test('every pre-existing definition kept run-now (the Phase 2 manual backfill)', async ({ request }) => {
-    // Gating `/run` on a declared manual trigger without backfilling one onto
+    // Gating the start route on a declared manual trigger without backfilling one onto
     // every existing definition would silently remove run-now from all of them.
     const token = await getAuthToken(request, 'admin')
     const response = await apiRequest(request, 'GET', `${DEFINITIONS}?pageSize=100`, { token })

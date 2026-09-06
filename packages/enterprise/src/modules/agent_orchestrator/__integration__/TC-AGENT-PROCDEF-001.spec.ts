@@ -61,7 +61,7 @@ test.describe('TC-AGENT-PROCDEF-001: process-definition CRUD, scoping and lockin
     try {
       const createResponse = await apiRequest(request, 'POST', DEFINITIONS, {
         token,
-        data: { name, targetType: 'agent', targetAgentId: 'deals.health_check', enabled: false },
+        data: { name, workflowMode: 'single_agent', singleAgent: { agentId: 'deals.health_check', onResult: { alwaysAsk: true } }, enabled: false },
       })
       expect(createResponse.status(), 'create returns 201').toBe(201)
       definitionId = (await readJsonSafe<{ id?: string }>(createResponse))?.id ?? null
@@ -79,9 +79,9 @@ test.describe('TC-AGENT-PROCDEF-001: process-definition CRUD, scoping and lockin
         { token },
       )
       expect(detailResponse.status(), 'detail returns 200').toBe(200)
-      const detail = await readJsonSafe<{ task?: { id?: string; updatedAt?: string } }>(detailResponse)
-      expect(detail?.task?.id).toBe(definitionId)
-      expect(detail?.task?.updatedAt, 'detail must return updatedAt').toBeTruthy()
+      const detail = await readJsonSafe<{ definition?: { id?: string; updatedAt?: string } }>(detailResponse)
+      expect(detail?.definition?.id).toBe(definitionId)
+      expect(detail?.definition?.updatedAt, 'detail must return updatedAt').toBeTruthy()
 
       const renamed = `${name} (edited)`
       const updateResponse = await apiRequest(request, 'PUT', DEFINITIONS, {
@@ -89,8 +89,8 @@ test.describe('TC-AGENT-PROCDEF-001: process-definition CRUD, scoping and lockin
         data: {
           id: definitionId,
           name: renamed,
-          targetType: 'agent',
-          targetAgentId: 'deals.health_check',
+          workflowMode: 'single_agent',
+          singleAgent: { agentId: 'deals.health_check', onResult: { alwaysAsk: true } },
           enabled: false,
         },
       })
@@ -131,8 +131,8 @@ test.describe('TC-AGENT-PROCDEF-001: process-definition CRUD, scoping and lockin
         selectedOrgId: otherOrgId,
         data: {
           name: `TC-PROCDEF-001 foreign ${stamp}`,
-          targetType: 'agent',
-          targetAgentId: 'deals.health_check',
+          workflowMode: 'single_agent',
+          singleAgent: { agentId: 'deals.health_check', onResult: { alwaysAsk: true } },
           enabled: false,
         },
       })
@@ -172,7 +172,7 @@ test.describe('TC-AGENT-PROCDEF-001: process-definition CRUD, scoping and lockin
     try {
       const createResponse = await apiRequest(request, 'POST', DEFINITIONS, {
         token,
-        data: { name, targetType: 'agent', targetAgentId: 'deals.health_check', enabled: false },
+        data: { name, workflowMode: 'single_agent', singleAgent: { agentId: 'deals.health_check', onResult: { alwaysAsk: true } }, enabled: false },
       })
       expect(createResponse.status()).toBe(201)
       definitionId = (await readJsonSafe<{ id?: string }>(createResponse))?.id ?? null
@@ -188,8 +188,8 @@ test.describe('TC-AGENT-PROCDEF-001: process-definition CRUD, scoping and lockin
         data: {
           id: definitionId,
           name: `${name} (stale)`,
-          targetType: 'agent',
-          targetAgentId: 'deals.health_check',
+          workflowMode: 'single_agent',
+          singleAgent: { agentId: 'deals.health_check', onResult: { alwaysAsk: true } },
           enabled: false,
         },
       })
@@ -213,8 +213,8 @@ test.describe('TC-AGENT-PROCDEF-001: process-definition CRUD, scoping and lockin
         data: {
           id: definitionId,
           name: `${name} (fresh)`,
-          targetType: 'agent',
-          targetAgentId: 'deals.health_check',
+          workflowMode: 'single_agent',
+          singleAgent: { agentId: 'deals.health_check', onResult: { alwaysAsk: true } },
           enabled: false,
         },
       })

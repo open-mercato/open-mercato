@@ -2,8 +2,8 @@ import { expect, test, type Page } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import {
-  deleteAgentProcessRunsByProcessDefinitionIds,
-  insertAgentProcessRunFixtures,
+  deleteProcessExecutionsByProcessDefinitionIds,
+  insertProcessExecutionFixtures,
 } from './helpers/agentPerfFixtures'
 
 /**
@@ -15,7 +15,7 @@ import {
  * Legs:
  * 1. Projection — a directly-seeded failed ledger row renders a "Failed"
  *    Last-run badge on the task's list row.
- * 2. Live — `POST /tasks/:id/run` (202, no worker needed) emits the
+ * 2. Live — `POST /processes/:id/executions` (202, no worker needed) emits the
  *    `task_run.started` clientBroadcast; the open list flips the badge to
  *    "Running" without any reload.
  */
@@ -47,8 +47,8 @@ test.describe('TC-AGENT-UXC-002: tasks list last-run health', () => {
         token,
         data: {
           name: taskName,
-          targetType: 'agent',
-          targetAgentId: 'deals.health_check',
+          workflowMode: 'single_agent',
+          singleAgent: { agentId: 'deals.health_check', onResult: { alwaysAsk: true } },
           // Leg 2 hand-starts this definition; without a declared `manual`
           // trigger /run 403s and no `task_run.started` is ever broadcast.
           triggers: [{ kind: 'manual' }],
@@ -72,14 +72,13 @@ test.describe('TC-AGENT-UXC-002: tasks list last-run health', () => {
       const organizationId = typeof row?.organization_id === 'string' ? row.organization_id : null
       expect(tenantId && organizationId, 'task row must expose its scope').toBeTruthy()
 
-      // Leg 1 — a failed ledger row from an hour ago drives the projection.
+      // Leg 1 — a failed execution from an hour ago drives the list column.
       const failedAt = new Date(Date.now() - 60 * 60_000)
-      await insertAgentProcessRunFixtures([
+      await insertProcessExecutionFixtures([
         {
           tenantId: tenantId!,
           organizationId: organizationId!,
           processDefinitionId: taskId!,
-          targetAgentId: 'deals.health_check',
           status: 'failed',
           createdAt: failedAt,
           completedAt: failedAt,
@@ -99,7 +98,7 @@ test.describe('TC-AGENT-UXC-002: tasks list last-run health', () => {
       const runResponse = await apiRequest(
         request,
         'POST',
-        `/api/agent_orchestrator/processes/${encodeURIComponent(taskId!)}/run`,
+        `/api/agent_orchestrator/processes/${encodeURIComponent(taskId!)}/executions`,
         { token, data: { input: {} } },
       )
       expect(runResponse.status(), 'run-now must be accepted asynchronously').toBe(202)
@@ -107,7 +106,7 @@ test.describe('TC-AGENT-UXC-002: tasks list last-run health', () => {
       await expect(taskRow.getByText('Running', { exact: true })).toBeVisible({ timeout: 30_000 })
     } finally {
       if (taskId) {
-        await deleteAgentProcessRunsByProcessDefinitionIds([taskId]).catch(() => {})
+        await deleteProcessExecutionsByProcessDefinitionIds([taskId]).catch(() => {})
         await apiRequest(request, 'DELETE', `/api/agent_orchestrator/processes?id=${encodeURIComponent(taskId)}`, { token }).catch(() => {})
       }
     }
