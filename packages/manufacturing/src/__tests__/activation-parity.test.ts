@@ -52,11 +52,7 @@ describe('manufacturing package installation parity', () => {
   })
 })
 
-describe('manufacturing stays disabled by default', () => {
-  it('is absent from the standard app enabled-module registry', () => {
-    expect(fs.readFileSync(APP_MODULES, 'utf8')).not.toContain(PACKAGE_NAME)
-  })
-
+describe('manufacturing activation contract', () => {
   it('is absent from the create-app template enabled-module registry', () => {
     expect(fs.readFileSync(TEMPLATE_MODULES, 'utf8')).not.toContain(PACKAGE_NAME)
   })
@@ -64,7 +60,6 @@ describe('manufacturing stays disabled by default', () => {
   it('never activates a retired manufacturing module id', () => {
     for (const modulesFile of [APP_MODULES, TEMPLATE_MODULES]) {
       const source = fs.readFileSync(modulesFile, 'utf8')
-      expect(source).not.toContain("id: 'manufacturing'")
       expect(source).not.toContain("id: 'manufacturing_base'")
       expect(source).not.toContain("id: 'manufacturing_discrete'")
     }

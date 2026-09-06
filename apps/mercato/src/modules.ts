@@ -100,6 +100,7 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'planner', from: '@open-mercato/core' },
   { id: 'resources', from: '@open-mercato/core' },
   { id: 'staff', from: '@open-mercato/core' },
+  { id: 'manufacturing', from: '@open-mercato/manufacturing' },
   { id: 'events', from: '@open-mercato/events' },
   { id: 'notifications', from: '@open-mercato/core' },
   { id: 'progress', from: '@open-mercato/core' },
