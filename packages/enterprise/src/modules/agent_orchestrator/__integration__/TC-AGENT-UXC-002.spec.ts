@@ -10,13 +10,13 @@ import {
  * TC-AGENT-UXC-002: the Agentic Tasks list shows last-run health and
  * live-updates it — no manual reload.
  * Source: spec .ai/specs/enterprise/agent-orchestrator/2026-07-12-ux-consistency-pass.md
- * (Area 1: `last_run` route projection + `task_run.*` subscription).
+ * (Area 1: the `last_execution` route projection + the `process.execution.*` subscription).
  *
  * Legs:
  * 1. Projection — a directly-seeded failed ledger row renders a "Failed"
  *    Last-run badge on the task's list row.
  * 2. Live — `POST /processes/:id/executions` (202, no worker needed) emits the
- *    `task_run.started` clientBroadcast; the open list flips the badge to
+ *    `process.execution.started` clientBroadcast; the open list flips the badge to
  *    "Running" without any reload.
  */
 
@@ -50,7 +50,7 @@ test.describe('TC-AGENT-UXC-002: tasks list last-run health', () => {
           workflowMode: 'single_agent',
           singleAgent: { agentId: 'deals.health_check', onResult: { alwaysAsk: true } },
           // Leg 2 hand-starts this definition; without a declared `manual`
-          // trigger /run 403s and no `task_run.started` is ever broadcast.
+          // trigger the start route 403s and no `process.execution.started` is broadcast.
           triggers: [{ kind: 'manual' }],
           enabled: true,
         },
@@ -92,7 +92,7 @@ test.describe('TC-AGENT-UXC-002: tasks list last-run health', () => {
       await expect(taskRow).toBeVisible({ timeout: 15_000 })
       await expect(taskRow.getByText('Failed', { exact: true })).toBeVisible({ timeout: 10_000 })
 
-      // Leg 2 — Run-now via API (always-async 202, emits task_run.started with
+      // Leg 2 — Run-now via API (always-async 202, emits process.execution.started with
       // clientBroadcast). The open list's coalesced subscription refetches the
       // projection: the newest ledger row is the running one. NO reload here.
       const runResponse = await apiRequest(

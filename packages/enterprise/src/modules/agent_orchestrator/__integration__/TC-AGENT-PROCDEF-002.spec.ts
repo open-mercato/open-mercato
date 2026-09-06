@@ -150,20 +150,28 @@ test.describe('TC-AGENT-PROCDEF-002: processes.{view,manage,run} gate the defini
         `${DEFINITIONS}/${encodeURIComponent(definitionId!)}/executions`,
         { token: runnerToken, data: {} },
       )
-      expect(acceptedRun.status(), 'processes.run may start a run').toBe(202)
+      expect(acceptedRun.status(), 'processes.run may start an execution').toBe(202)
       const accepted = await readJsonSafe<{ executionId?: string; status?: string }>(acceptedRun)
       expect(accepted?.executionId, 'the 202 body carries executionId').toBeTruthy()
-      expect(accepted?.status).toBe('running')
+      // The 202 carries an id and NOTHING else. A status here would be a claim
+      // the API cannot honestly make: the workflow that owns the lifecycle has
+      // not started yet, so any value would be this route's guess rather than
+      // the execution's state. Callers read it back from GET /executions/:id.
+      expect(accepted?.status, 'the 202 promises an id, never a status').toBeUndefined()
 
-      const runsResponse = await apiRequest(
+      const executionsResponse = await apiRequest(
         request,
         'GET',
         `/api/agent_orchestrator/executions?processDefinitionId=${encodeURIComponent(definitionId!)}`,
         { token: runnerToken },
       )
-      expect(runsResponse.status(), 'processes.view reads the run ledger').toBe(200)
-      const runs = await readJsonSafe<{ items?: Array<{ id?: string }> }>(runsResponse)
-      expect((runs?.items ?? []).length, 'the started run is listed').toBeGreaterThan(0)
+      expect(executionsResponse.status(), 'processes.view reads the executions').toBe(200)
+      const executions = await readJsonSafe<{ items?: Array<{ id?: string }> }>(executionsResponse)
+      expect((executions?.items ?? []).length, 'the started execution is listed').toBeGreaterThan(0)
+      expect(
+        (executions?.items ?? []).some((one) => one.id === accepted?.executionId),
+        'the listed execution is the one the 202 named',
+      ).toBe(true)
     } finally {
       if (definitionId) {
         await apiRequest(
