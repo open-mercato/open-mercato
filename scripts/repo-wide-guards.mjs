@@ -236,6 +236,10 @@ export const REPO_WIDE_GUARDS = [
         path: 'src/modules/agent_orchestrator/__tests__/agent-taxonomy-rename.test.ts',
         scans: 'packages/core/src/modules/workflows plus the orchestrator module — retired `informative`/`actionable` wire values after the taxonomy rename',
       },
+      {
+        path: 'src/modules/agent_orchestrator/__tests__/agent-run-invocation-identity.test.ts',
+        scans: 'packages/core/src/modules/workflows/lib — that the activity executor and the async worker both thread `invocationId` into the agent bridge, which is what gives an agent invocation an identity instead of a creation-time guess',
+      },
     ],
   },
   {
