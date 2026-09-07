@@ -218,7 +218,10 @@ The in-repo `example` module already registers both ids, so its priority field i
 
 This is purely additive: a spot that previously did not exist starts resolving. No existing widget changes host.
 
-**Known limitation.** Only the render-widget family is served on deal *creation*. The `crud-form:customers.deal:fields` child spot is still not rendered there, because injected field widgets persist their values through the `CrudForm` `onSave` injection-event lifecycle, which the hand-rolled create form does not implement — rendering those fields without it would silently discard operator input. Field widgets targeting `crud-form:customers.deal:fields` continue to work on the deal edit page. Deal creation gains full field-injection support only when that form is migrated onto `CrudForm`.
+**Known limitations, both a consequence of the create form not being a `CrudForm`.** Deal creation gains full parity only when that form is migrated onto `CrudForm`; until then:
+
+- **The `crud-form:customers.deal:fields` child spot is not rendered on create.** Injected field widgets persist their values through the `CrudForm` `onSave` injection-event lifecycle, which the hand-rolled form does not implement — rendering those fields without it would show an input that silently discards what the operator types. Field widgets targeting that spot continue to work on the deal edit page.
+- **`placement` metadata is not honored on create.** `CrudForm` wraps a `kind: 'group'` widget in a titled group card and routes it to column 1 or 2; the create form renders every widget for this spot in document order in the left-hand stack, using each widget's own markup. Give a widget you target at this host self-contained chrome if it must look the same on both surfaces.
 
 ## 0.6.7 → 0.7.0 (2026-08-26)
 

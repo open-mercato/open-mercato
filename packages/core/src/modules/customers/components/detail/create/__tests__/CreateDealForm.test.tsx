@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { z } from 'zod'
 import { CreateDealForm } from '../CreateDealForm'
 import { extensionPoints } from '../../../../extension-points'
@@ -194,7 +194,7 @@ describe('CreateDealForm injection host (#5882)', () => {
     expect(renderedDealFormSpot()).toBeDefined()
   })
 
-  it('gives the spot a create-mode context matching the one CrudForm publishes on edit', () => {
+  it('gives the spot a create-mode context in the shape CrudForm publishes', () => {
     render(<CreateDealForm returnTo="/backend/customers/deals" />)
 
     expect(renderedDealFormSpot()?.context).toEqual({
@@ -215,6 +215,22 @@ describe('CreateDealForm injection host (#5882)', () => {
     const context = renderedDealFormSpot()?.context as Record<string, unknown>
     expect(context.recordId).toBeUndefined()
     expect(context.operation).toBe('create')
+  })
+
+  it('gives the spot the form values and a setter, as CrudForm does on edit', () => {
+    render(<CreateDealForm returnTo="/backend/customers/deals" initialValues={{ title: 'Copperleaf renewal' }} />)
+
+    const spot = renderedDealFormSpot()
+    expect((spot?.data as Record<string, unknown>).title).toBe('Copperleaf renewal')
+
+    act(() => {
+      ;(spot?.onDataChange as (next: Record<string, unknown>) => void)({
+        ...(spot?.data as Record<string, unknown>),
+        title: 'Renamed by a widget',
+      })
+    })
+
+    expect(screen.getByLabelText('Deal title')).toHaveValue('Renamed by a widget')
   })
 })
 

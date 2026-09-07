@@ -197,10 +197,10 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
     [handleSubmit],
   )
 
-  // Mirrors the object `CrudForm` publishes to its own injection spot so a widget
-  // registered on `crud-form:customers.deal` reads the same context on create as on
-  // edit. `recordId` is intentionally absent — the deal does not exist yet, which is
-  // how record-scoped widgets detect create mode and render their empty state.
+  // Same shape `CrudForm` publishes to its own injection spot, so a widget registered on
+  // `crud-form:customers.deal` reads a familiar context on create as well as on edit.
+  // `recordId` is intentionally absent — the deal does not exist yet, which is how
+  // record-scoped widgets detect create mode and render their empty state.
   const injectionContext = React.useMemo(
     () => ({
       formId: CONTEXT_ID,
@@ -269,6 +269,8 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
           <InjectionSpot
             spotId={DEAL_FORM_SPOT_ID}
             context={injectionContext}
+            data={values}
+            onDataChange={(next) => setValues(next)}
             disabled={isSubmitting}
           />
         </div>
