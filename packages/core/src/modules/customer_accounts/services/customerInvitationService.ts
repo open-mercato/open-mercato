@@ -36,6 +36,35 @@ export function isCustomerInvitationAccountExistsError(error: unknown): boolean 
     && (error as { code?: unknown }).code === CUSTOMER_INVITATION_ACCOUNT_EXISTS_CODE
 }
 
+const CUSTOMER_USERS_EMAIL_UNIQUE_CONSTRAINT = 'customer_users_tenant_email_hash_uniq'
+const POSTGRES_UNIQUE_VIOLATION = '23505'
+
+/**
+ * The pre-insert lookup in {@link CustomerInvitationService.acceptInvitation} is a check-then-act,
+ * so two concurrent accepts for the same address (a double-submitted form, two invitations racing)
+ * can both pass it and let the second one reach the database. Recognising the resulting unique
+ * violation keeps that race on the same 409 answer instead of a 500. MikroORM wraps driver errors,
+ * so the original is inspected through `cause`/`previous` as well, again without `instanceof`.
+ */
+function isCustomerUserEmailUniqueViolation(error: unknown): boolean {
+  const candidates = [
+    error,
+    (error as { cause?: unknown } | null)?.cause,
+    (error as { previous?: unknown } | null)?.previous,
+  ]
+  return candidates.some((candidate) => {
+    if (typeof candidate !== 'object' || candidate === null) return false
+    const { code, constraint, message } = candidate as {
+      code?: unknown
+      constraint?: unknown
+      message?: unknown
+    }
+    if (code !== POSTGRES_UNIQUE_VIOLATION) return false
+    return constraint === CUSTOMER_USERS_EMAIL_UNIQUE_CONSTRAINT
+      || (typeof message === 'string' && message.includes(CUSTOMER_USERS_EMAIL_UNIQUE_CONSTRAINT))
+  })
+}
+
 export type CustomerInvitationRollbackState = {
   email: string
   token: string
@@ -245,7 +274,12 @@ export class CustomerInvitationService {
     // Mark invitation as accepted
     invitation.acceptedAt = new Date()
 
-    await this.em.flush()
+    try {
+      await this.em.flush()
+    } catch (error) {
+      if (isCustomerUserEmailUniqueViolation(error)) throw new CustomerInvitationAccountExistsError()
+      throw error
+    }
     return { user, invitation }
   }
 }

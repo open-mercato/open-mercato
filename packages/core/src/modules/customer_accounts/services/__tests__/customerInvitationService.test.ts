@@ -207,21 +207,23 @@ describe('CustomerInvitationService.acceptInvitation — existing portal account
 
   let mockEm: jest.Mocked<Pick<EntityManager, 'find' | 'findOne' | 'create' | 'persist' | 'flush'>>
   let service: CustomerInvitationService
-
-  const invitation = {
-    id: 'inv-existing-account',
-    email: 'taken@example.com',
-    tenantId,
-    organizationId,
-    customerEntityId: null,
-    roleIdsJson: [],
-    expiresAt: new Date(Date.now() + 60_000),
-    acceptedAt: null,
-    cancelledAt: null,
-  } as unknown as CustomerUserInvitation
+  let invitation: CustomerUserInvitation
 
   beforeEach(() => {
     jest.clearAllMocks()
+    // Rebuilt per test: acceptInvitation stamps `acceptedAt` on the way to the flush, which would
+    // make findByToken reject the invitation in every following test if the fixture were shared.
+    invitation = {
+      id: 'inv-existing-account',
+      email: 'taken@example.com',
+      tenantId,
+      organizationId,
+      customerEntityId: null,
+      roleIdsJson: [],
+      expiresAt: new Date(Date.now() + 60_000),
+      acceptedAt: null,
+      cancelledAt: null,
+    } as unknown as CustomerUserInvitation
     mockEm = {
       find: jest.fn(async () => []),
       findOne: jest.fn(),
@@ -275,6 +277,65 @@ describe('CustomerInvitationService.acceptInvitation — existing portal account
     expect(isCustomerInvitationAccountExistsError({ code: CUSTOMER_INVITATION_ACCOUNT_EXISTS_CODE })).toBe(true)
     expect(isCustomerInvitationAccountExistsError(new Error('boom'))).toBe(false)
     expect(isCustomerInvitationAccountExistsError(null)).toBe(false)
+  })
+
+  it('maps a concurrent insert losing the unique-constraint race onto the same conflict error', async () => {
+    ;(mockEm.findOne as jest.Mock).mockImplementation(async (entity: unknown) => {
+      if (entity === CustomerUserInvitation) return invitation
+      return null
+    })
+    ;(mockEm.flush as jest.Mock).mockRejectedValue(
+      Object.assign(new Error('insert into "customer_users" failed'), {
+        code: '23505',
+        constraint: 'customer_users_tenant_email_hash_uniq',
+      }),
+    )
+
+    await expect(service.acceptInvitation('raw-token', 'Secret123!', 'New User')).rejects.toMatchObject({
+      code: CUSTOMER_INVITATION_ACCOUNT_EXISTS_CODE,
+    })
+  })
+
+  it('recognises the unique violation when MikroORM wraps the driver error', async () => {
+    ;(mockEm.findOne as jest.Mock).mockImplementation(async (entity: unknown) => {
+      if (entity === CustomerUserInvitation) return invitation
+      return null
+    })
+    ;(mockEm.flush as jest.Mock).mockRejectedValue(
+      Object.assign(new Error('insert failed'), {
+        cause: Object.assign(new Error('duplicate key value violates unique constraint "customer_users_tenant_email_hash_uniq"'), {
+          code: '23505',
+        }),
+      }),
+    )
+
+    await expect(service.acceptInvitation('raw-token', 'Secret123!', 'New User')).rejects.toMatchObject({
+      code: CUSTOMER_INVITATION_ACCOUNT_EXISTS_CODE,
+    })
+  })
+
+  it('rethrows an unrelated flush failure untouched rather than reporting a conflict', async () => {
+    ;(mockEm.findOne as jest.Mock).mockImplementation(async (entity: unknown) => {
+      if (entity === CustomerUserInvitation) return invitation
+      return null
+    })
+    ;(mockEm.flush as jest.Mock).mockRejectedValue(new Error('connection terminated'))
+
+    await expect(service.acceptInvitation('raw-token', 'Secret123!', 'New User')).rejects.toThrow('connection terminated')
+  })
+
+  it('does not treat a unique violation on another constraint as an existing account', async () => {
+    ;(mockEm.findOne as jest.Mock).mockImplementation(async (entity: unknown) => {
+      if (entity === CustomerUserInvitation) return invitation
+      return null
+    })
+    const unrelated = Object.assign(new Error('duplicate key'), {
+      code: '23505',
+      constraint: 'customer_user_roles_pkey',
+    })
+    ;(mockEm.flush as jest.Mock).mockRejectedValue(unrelated)
+
+    await expect(service.acceptInvitation('raw-token', 'Secret123!', 'New User')).rejects.toBe(unrelated)
   })
 
   it('still creates the account when no user exists for the invited address', async () => {
