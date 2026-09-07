@@ -16,7 +16,7 @@
 - **Extensible by design**: other modules can register custom rule types, custom benefit types, evaluation middleware (before/after hooks), and custom admin configurator components — without modifying core promotions code.
 
 **Scope:**
-- Domain model: `Promotion`, `RuleGroup` (recursive tree), polymorphic `Rule` + 15 built-in rule types, polymorphic `Benefit` + 6 built-in benefit types, `Code`, `GeneratedCode`, `CodeReservation`, `CodeUsage`, `PromotionUsage` (per-order audit ledger + global spend tracking)
+- Domain model: `Promotion`, `RuleGroup` (recursive tree), polymorphic `Rule` + 15 built-in rule types, polymorphic `Benefit` + 6 built-in benefit types with an explicit application target (`order`/`line`/`unit`) and cart-wide quantity caps, `Code`, `GeneratedCode`, `CodeReservation`, `CodeUsage`, `PromotionUsage` (per-order audit ledger + global spend tracking)
 - Three-pass evaluation engine (boolean pass → benefit collection pass → effect resolution pass), product-page lightweight variant
 - Promotion ordering, cumulativity, and tag-based self-exclusion algorithm
 - Cart interaction REST API (apply-promotion, code lifecycle endpoints)
@@ -146,6 +146,7 @@ promotions/
 ├── lib/
 │   ├── evaluation-engine.ts          Three-pass recursive evaluator
 │   ├── rule-evaluators.ts            15 built-in rule evaluators
+│   ├── unit-selection.ts             Selector ordering + cart-wide quantity budget
 │   ├── effect-resolvers.ts           Benefit config → ResolvedEffect[] (owns all discount math)
 │   ├── product-page-engine.ts        Lightweight variant (product visibility)
 │   ├── code-service.ts               Code validation, reservation, usage
