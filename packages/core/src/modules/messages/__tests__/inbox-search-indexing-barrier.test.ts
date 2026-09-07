@@ -29,6 +29,11 @@ describe('TC-API-MSG-001 inbox indexing barrier', () => {
 
   it('varies the cache key across poll attempts so a cached pre-index miss cannot be replayed', () => {
     expect(source).not.toMatch(/folder=inbox[^`]*pageSize=\d+/)
-    expect(source).toContain('const pageSize = 20 + (attempt++ % 60)')
+    expect(source).toMatch(/const pageSize = [^\n]*attempt/)
+    expect(source).toContain('pageSize=${pageSize}')
+  })
+
+  it('buys enough test budget for the barriers to run to their timeout', () => {
+    expect(source).toContain('test.slow()')
   })
 })

@@ -79,7 +79,7 @@ async function pollInboxItem(
         return found !== undefined;
       },
       {
-        timeout: 15_000,
+        timeout: 8_000,
         message: `composed message ${messageId} should be listed by the inbox search once indexing settles`,
       },
     )
@@ -94,6 +94,9 @@ async function pollInboxItem(
  */
 test.describe('TC-API-MSG-001: Compose Message And Mark Read', () => {
   test('should compose for recipient, list in inbox, and mark as read on detail fetch', async ({ request }) => {
+    // Two indexing barriers can each spend up to 8s before failing, which would
+    // not fit the config's 20s per-test budget. Same reason TC-RESO-009 is slow.
+    test.slow();
     const adminToken = await getAuthToken(request, 'admin@acme.com', 'secret');
     const employeeToken = await getAuthToken(request, 'employee@acme.com', 'secret');
     const employeeId = decodeJwtSubject(employeeToken);
