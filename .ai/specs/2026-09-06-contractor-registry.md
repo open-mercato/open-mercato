@@ -440,8 +440,13 @@ or hard-require the consumer."
   and refreshes the badge.
 - Pending team confirmation: an "Approve contractor" guarded row
   action on the list, using `useGuardedMutation`, visible only for
-  contractors not yet approved — same interaction pattern as GL's
-  fiscal-period lock/unlock row action.
+  contractors not yet approved. **Correction (2026-09-07):** this is
+  a deliberate Phase-1 simplification, not a verified precedent — see
+  the Compliance Matrix note below. If `approveContractor` is
+  confirmed in scope, revisit against the workflow-engine pattern
+  (`defineWorkflow`/`USER_TASK`, as used by `sales.order-approval`)
+  before committing to `useGuardedMutation` for a real approve/reject
+  decision.
 
 ## Data Models
 
@@ -765,7 +770,7 @@ independently of AP, which does not yet exist.
 | `packages/core/AGENTS.md` → API Routes | All API route files MUST export `openApi` | Compliant | `api/openapi.ts` in File Manifest and Implementation Plan step 7, covering every route in this module |
 | `packages/core/AGENTS.md` → Encryption | GDPR/PII fields declared in `<module>/encryption.ts`, read via `findWithDecryption` | Compliant | `contractors:contractor` (name, address, contact, `nip`+`nipHash`) and `contractors:contractor_bank_account` (`account_number`) both declared |
 | `packages/queue/AGENTS.md` | Workers MUST be idempotent; MUST export `metadata: { queue, id?, concurrency? }` | Compliant | `verifyContractorRegistry.ts` follows the exact shape verified against `customers/workers/*.ts` |
-| `packages/ui/AGENTS.md` | `CrudForm`/`DataTable`; guarded row actions via `useGuardedMutation` | Compliant | Contractor list/create/edit use `CrudForm`+`DataTable`; the pending-confirmation "approve" row action follows the same guarded-row-action pattern already verified for GL's fiscal-period lock/unlock |
+| `packages/ui/AGENTS.md` | `CrudForm`/`DataTable`; guarded row actions via `useGuardedMutation` | Compliant | Contractor list/create/edit use `CrudForm`+`DataTable`. The pending-confirmation "approve" row action is drafted as a `useGuardedMutation` toggle — **corrected 2026-09-07:** this document originally claimed parity with "GL's fiscal-period lock/unlock row action," but that comparison doesn't hold: the repo's only implemented approve/reject precedent (`sales.order-approval`) uses a full workflow (`defineWorkflow`/`USER_TASK`), not a guarded row action. `useGuardedMutation` here is now flagged as an unverified Phase-1 shortcut, to revisit against the workflow-engine pattern if `approveContractor` is confirmed in scope, not cited as an already-proven pattern |
 | `BACKWARD_COMPATIBILITY.md` | Database schema additive-only | Compliant | Two new tables only |
 | `packages/core/AGENTS.md` → Cross-Module Coupling | Optional-peer sync calls resolve via a local `tryResolve` in `try/catch`; never a hard `requires`; upstream MUST NOT resolve the consumer | **Compliant (fixed this round)** | Originally designed as a plain HTTP route AP would call — an independent review caught this as the wrong mechanism (no degrade path if `contractors` is disabled). Corrected: `checkBankAccountWhitelist` is now also registered in `di.ts`; AP resolves it via `tryResolve`; the HTTP route is now scoped to this module's own UI only. See DI Registrar, Cross-module integration, Risks & Impact Review. |
 | Checklist § Performance | Every query pattern names its supporting index | **Compliant (fixed this round)** | Missing from the first draft of this expansion; added to Data Models for both entities' list/lookup filters. |
@@ -903,3 +908,21 @@ assumed this registry's existence.
   again.
 - Translated the full document from Polish to English (matching
   #5663's language) ahead of committing to git.
+
+### 2026-09-07 (cont. — approval-pattern citation corrected)
+
+- Cross-module verification while drafting Accounts Payable's own
+  invoice-approval design found this document's Compliance Matrix and
+  Backend Pages sections overclaiming: the "approve contractor" row
+  action was described as following "the same guarded-row-action
+  pattern already verified for GL's fiscal-period lock/unlock." That
+  citation doesn't hold — the repo's only implemented approve/reject
+  precedent (`sales.order-approval`) uses a full workflow engine
+  (`defineWorkflow`/`USER_TASK`), not `useGuardedMutation`; the GL
+  lock/unlock action is a simple reversible toggle, not a one-time
+  approve/reject decision, so it isn't the right comparison either.
+  Both sections corrected to flag `useGuardedMutation` here as an
+  unverified Phase-1 simplification instead of a proven pattern.
+  `approveContractor` remains pending team confirmation either way —
+  this changes only how its eventual mechanism is justified, not its
+  scope status.
