@@ -903,6 +903,22 @@ describe('CRUD Factory', () => {
     expect(mockDataEngine.emitOrmEntityEvent).not.toHaveBeenCalled()
   })
 
+  it('returns a 409 with the constraint name when a handler hits a foreign key violation', async () => {
+    setRecordCustomFields.mockImplementationOnce(async () => {
+      throw Object.assign(
+        new Error('update or delete on table "users" violates foreign key constraint "sidebar_variants_user_id_foreign" on table "sidebar_variants"'),
+        { code: '23503', constraint: 'sidebar_variants_user_id_foreign' },
+      )
+    })
+    const res = await route.POST(new Request('http://x/api/example/todos', { method: 'POST', body: JSON.stringify({ title: 'Referenced', is_done: true, cf_priority: 3 }), headers: { 'content-type': 'application/json' } }))
+    expect(res.status).toBe(409)
+    const body = await res.json()
+    expect(body.code).toBe('FOREIGN_KEY_VIOLATION')
+    expect(body.constraint).toBe('sidebar_variants_user_id_foreign')
+    expect(Object.values(db)).toHaveLength(0)
+    expect(mockDataEngine.emitOrmEntityEvent).not.toHaveBeenCalled()
+  })
+
   it('POST surfaces CRUD side-effect failures after custom field writes', async () => {
     mockDataEngine.emitOrmEntityEvent.mockImplementationOnce(async () => {
       throw new Error('index write failed')

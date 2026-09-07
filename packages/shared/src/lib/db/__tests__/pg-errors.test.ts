@@ -1,4 +1,4 @@
-import { isTransientDbError, isUniqueViolation } from '../pg-errors'
+import { isForeignKeyViolation, isTransientDbError, isUniqueViolation } from '../pg-errors'
 
 describe('isTransientDbError', () => {
   it('is true for the max_connections SQLSTATE', () => {
@@ -44,5 +44,26 @@ describe('isTransientDbError', () => {
     const uniqueErr = { code: '23505', message: 'duplicate key value violates unique constraint' }
     expect(isUniqueViolation(uniqueErr)).toBe(true)
     expect(isTransientDbError(uniqueErr)).toBe(false)
+  })
+})
+
+describe('isForeignKeyViolation', () => {
+  it('is true for the foreign_key_violation SQLSTATE', () => {
+    expect(isForeignKeyViolation({ code: '23503' })).toBe(true)
+  })
+
+  it('is true for ORM-wrapped messages that drop the SQLSTATE', () => {
+    expect(
+      isForeignKeyViolation(
+        new Error('update or delete on table "users" violates foreign key constraint "sidebar_variants_user_id_foreign" on table "sidebar_variants"'),
+      ),
+    ).toBe(true)
+  })
+
+  it('is false for unique violations, transient errors and non-DB errors', () => {
+    expect(isForeignKeyViolation({ code: '23505' })).toBe(false)
+    expect(isForeignKeyViolation({ code: '53300' })).toBe(false)
+    expect(isForeignKeyViolation(new Error('something unrelated broke'))).toBe(false)
+    expect(isForeignKeyViolation(null)).toBe(false)
   })
 })

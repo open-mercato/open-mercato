@@ -12,6 +12,20 @@ export function isUniqueViolation(err: unknown): boolean {
 }
 
 /**
+ * Detect a Postgres foreign-key violation (SQLSTATE 23503): the row is still
+ * referenced by a dependent table, or references a parent that does not exist.
+ * MikroORM copies `code` from the driver error onto its wrapper exception, so a
+ * single check covers raw pg errors and ORM-wrapped ones alike.
+ */
+export function isForeignKeyViolation(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false
+  const code = (err as { code?: string }).code
+  if (code === '23503') return true // Postgres foreign_key_violation
+  const message = (err as { message?: string }).message
+  return typeof message === 'string' && /violates foreign key constraint/i.test(message)
+}
+
+/**
  * Postgres SQLSTATEs for transient connection / availability failures — the
  * database (or its connection pool) is temporarily unreachable and the request
  * can succeed on retry. Deliberately scoped to connection/availability codes;

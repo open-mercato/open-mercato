@@ -34,7 +34,9 @@ import { User } from '../../data/entities'
 /**
  * Regression coverage for issue #2339 — the auth.users.delete cascade deleted
  * UserAcl/UserRole/Session/PasswordReset rows and then the user across five
- * sequential statements with no enclosing transaction. A failure mid-cascade
+ * sequential statements with no enclosing transaction. The cascade later grew
+ * UserSidebarPreference/SidebarVariant/UserConsent so a customised sidebar no
+ * longer trips the `users` FK and turns the delete into a 500. A failure mid-cascade
  * left orphaned ACL/role rows committed. The cascade now runs inside a single
  * `withAtomicFlush(..., { transaction: true })`, so a later failure rolls the
  * whole thing back.
@@ -112,7 +114,7 @@ describe('auth.users.delete atomic cascade (issue #2339)', () => {
     expect(calls.begin).toBe(1)
     expect(calls.commit).toBe(1)
     expect(calls.rollback).toBe(0)
-    expect(calls.nativeDelete).toBe(4)
+    expect(calls.nativeDelete).toBe(7)
     expect(dataEngine.deleteOrmEntity).toHaveBeenCalledTimes(1)
   })
 
@@ -133,8 +135,8 @@ describe('auth.users.delete atomic cascade (issue #2339)', () => {
     expect(calls.begin).toBe(1)
     expect(calls.commit).toBe(0)
     expect(calls.rollback).toBe(1)
-    // All four dependent-row deletes were attempted inside the transaction
+    // All seven dependent-row deletes were attempted inside the transaction
     // before the failing user delete, and are rolled back together.
-    expect(calls.nativeDelete).toBe(4)
+    expect(calls.nativeDelete).toBe(7)
   })
 })

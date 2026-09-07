@@ -15,7 +15,17 @@ import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { UniqueConstraintViolationException, LockMode } from '@mikro-orm/core'
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
-import { User, UserRole, Role, UserAcl, Session, PasswordReset } from '@open-mercato/core/modules/auth/data/entities'
+import {
+  User,
+  UserRole,
+  Role,
+  UserAcl,
+  Session,
+  PasswordReset,
+  UserSidebarPreference,
+  SidebarVariant,
+  UserConsent,
+} from '@open-mercato/core/modules/auth/data/entities'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { resolveOrganizationScope } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { E } from '#generated/entities.ids.generated'
@@ -358,6 +368,9 @@ const createUserCommand: CommandHandler<Record<string, unknown>, CreateUserResul
         await em.nativeDelete(UserRole, { user: userId })
         await em.nativeDelete(Session, { user: userId })
         await em.nativeDelete(PasswordReset, { user: userId })
+        await em.nativeDelete(UserSidebarPreference, { user: userId })
+        await em.nativeDelete(SidebarVariant, { user: userId })
+        await em.nativeDelete(UserConsent, { userId })
 
         if (snapshot?.custom && Object.keys(snapshot.custom).length) {
           const reset = buildCustomFieldResetMap(undefined, snapshot.custom)
@@ -931,6 +944,9 @@ const deleteUserCommand: CommandHandler<{ body?: Record<string, unknown>; query?
         await em.nativeDelete(UserRole, { user: id })
         await em.nativeDelete(Session, { user: id })
         await em.nativeDelete(PasswordReset, { user: id })
+        await em.nativeDelete(UserSidebarPreference, { user: id })
+        await em.nativeDelete(SidebarVariant, { user: id })
+        await em.nativeDelete(UserConsent, { userId: id })
         const removed = await de.deleteOrmEntity({
           entity: User,
           where: deleteWhere as FilterQuery<User>,

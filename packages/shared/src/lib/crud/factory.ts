@@ -75,7 +75,7 @@ import { parseExtensionHeaders } from '../umes/extension-headers'
 import { createGenericOptimisticLockReader } from './optimistic-lock'
 import { registerOptimisticLockReaderIfAbsent } from './optimistic-lock-store'
 import { createLogger } from '../logger'
-import { isTransientDbError } from '../db/pg-errors'
+import { isForeignKeyViolation, isTransientDbError } from '../db/pg-errors'
 import { getTelemetryRuntime } from '../telemetry/runtime'
 import { randomUUID } from 'node:crypto'
 
@@ -630,6 +630,25 @@ function handleError(err: unknown, request?: Request): Response {
     return json(
       { error: 'Service temporarily unavailable' },
       { status: 503, headers: { 'Retry-After': '2' } },
+    )
+  }
+
+  if (isForeignKeyViolation(err)) {
+    // A dependent row still references the record (or the payload points at a
+    // missing parent). That is a data-state conflict the caller can act on, not
+    // a server fault, so surface it as a 409 with the constraint for diagnosis.
+    const constraint = (err as { constraint?: string }).constraint
+    logger.warn('Foreign key violation during CRUD handler', {
+      message: err instanceof Error ? err.message : undefined,
+      constraint,
+    })
+    return json(
+      {
+        error: 'Record is still referenced by other data',
+        code: 'FOREIGN_KEY_VIOLATION',
+        ...(constraint ? { constraint } : {}),
+      },
+      { status: 409 },
     )
   }
 
