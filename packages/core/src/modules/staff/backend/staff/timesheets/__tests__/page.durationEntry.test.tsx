@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import MyTimesheetsPage from '../page'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 
@@ -141,6 +141,12 @@ function typeAndBlur(input: HTMLInputElement, value: string): void {
   fireEvent.blur(input, { target: { value } })
 }
 
+function rowFor(input: HTMLInputElement): HTMLTableRowElement {
+  const row = input.closest('tr')
+  if (!row) throw new Error('[internal] Expected duration input to be inside a table row')
+  return row
+}
+
 describe('MyTimesheetsPage — duration entry (#4846)', () => {
   beforeEach(() => {
     jest.clearAllMocks()
@@ -219,12 +225,13 @@ describe('MyTimesheetsPage — duration entry (#4846)', () => {
 
   it('stops counting a cell in the totals once its pending value becomes invalid', async () => {
     const inputs = await renderGrid()
+    const editedRow = rowFor(inputs[0])
     typeAndBlur(inputs[0], '2')
-    await waitFor(() => expect(screen.getAllByText('2').length).toBeGreaterThan(0))
+    await waitFor(() => expect(within(editedRow).getByText('2')).toBeInTheDocument())
 
     typeAndBlur(inputs[0], 'abc')
     await waitFor(() => expect(inputs[0]).toHaveAttribute('aria-invalid', 'true'))
-    expect(screen.queryAllByText('2')).toHaveLength(0)
+    expect(within(editedRow).queryByText('2')).not.toBeInTheDocument()
   })
 
   it('names every duration cell after its own project and date', async () => {
