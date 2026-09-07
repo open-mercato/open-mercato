@@ -74,7 +74,7 @@ Each view card shows:
 - "Default" badge if `isDefault`
 - Last updated date (relative: "2 hours ago", "yesterday")
 - Delete button (private only)
-- Active indicator (highlighted border when selected)
+- Active indicator (highlighted border when selected). The highlight is presentation only; the state itself is exposed as `data-active="true|false"` on the chip root and `aria-current="true"` on the chip's activate button, so tests, browser QA, and assistive technology read the active view without depending on the styling (issue #5846).
 
 ### 4. Quick View Switcher
 
