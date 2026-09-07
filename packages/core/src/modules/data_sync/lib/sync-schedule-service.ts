@@ -220,15 +220,13 @@ export function createSyncScheduleService(em: EntityManager, schedulerService?: 
 
         return row
       } catch (error: unknown) {
-        // The registration above is already durable, so a failing write would
-        // otherwise leave a live ScheduledJob pointing at a SyncSchedule row
-        // that was never persisted. Only a create can be compensated: it minted
-        // `scheduledJobId` in this call, so unregistering it cannot destroy a
-        // registration someone else owns. An update reuses an existing job the
-        // scheduler has already overwritten, and SchedulerServiceLike exposes no
-        // way to restore the previous registration — that asymmetry is
-        // deliberate and stays until the scheduler contract can roll an update
-        // back.
+        // The registration above is already durable, so a failed write would
+        // otherwise strand a live ScheduledJob pointing at a row that was never
+        // persisted. Only a create can be compensated: it minted scheduledJobId
+        // in this call, so unregistering it cannot destroy someone else's
+        // registration. An update reuses a job the scheduler has already
+        // overwritten and SchedulerServiceLike offers no way to restore the
+        // previous one, so it deliberately stays uncompensated.
         if (!existing) {
           try {
             await requireScheduler().unregister(scheduledJobId)
