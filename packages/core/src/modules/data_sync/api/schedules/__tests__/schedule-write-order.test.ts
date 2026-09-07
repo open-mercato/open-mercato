@@ -3,16 +3,14 @@
 const mockGetAuthFromRequest = jest.fn()
 
 const mockEm = {
-  create: jest.fn((_entityClass: unknown, data: Record<string, unknown>) => ({ ...data })),
+  create: jest.fn(),
   persist: jest.fn(),
-  flush: jest.fn(async () => undefined),
+  flush: jest.fn(),
 }
 
 const mockScheduler = {
-  register: jest.fn(async () => {
-    throw new Error('Failed to calculate next run time for schedule: some-id')
-  }),
-  unregister: jest.fn(async () => undefined),
+  register: jest.fn(),
+  unregister: jest.fn(),
 }
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
@@ -46,7 +44,7 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
 
 import { POST } from '../route'
 
-function request() {
+function request(scheduleValue = '3600') {
   return new Request('http://localhost/api/data_sync/schedules', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -55,7 +53,7 @@ function request() {
       entityType: 'customers.person',
       direction: 'import',
       scheduleType: 'interval',
-      scheduleValue: '3600',
+      scheduleValue,
       timezone: 'UTC',
       fullSync: false,
       isEnabled: true,
@@ -67,9 +65,22 @@ describe('data_sync schedule save write ordering', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     mockGetAuthFromRequest.mockResolvedValue({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' })
+    mockEm.create.mockImplementation((_entityClass: unknown, data: Record<string, unknown>) => ({
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+      ...data,
+    }))
+    mockEm.persist.mockImplementation(() => undefined)
+    mockEm.flush.mockImplementation(async () => undefined)
+    mockScheduler.register.mockImplementation(async () => undefined)
+    mockScheduler.unregister.mockImplementation(async () => undefined)
   })
 
   it('does not persist the schedule when the scheduler rejects an unparseable value', async () => {
+    mockScheduler.register.mockImplementation(async () => {
+      throw new Error('Failed to calculate next run time for schedule: some-id')
+    })
+
     const res = await POST(request())
 
     expect(res.status).toBe(422)
@@ -80,5 +91,51 @@ describe('data_sync schedule save write ordering', () => {
     expect(mockEm.create).not.toHaveBeenCalled()
     expect(mockEm.persist).not.toHaveBeenCalled()
     expect(mockEm.flush).not.toHaveBeenCalled()
+    expect(mockScheduler.unregister).not.toHaveBeenCalled()
+  })
+
+  it('registers the scheduled job before flushing the schedule row on the success path', async () => {
+    const res = await POST(request('1h'))
+
+    expect(res.status).toBe(201)
+    expect(mockScheduler.register).toHaveBeenCalledTimes(1)
+    expect(mockEm.flush).toHaveBeenCalledTimes(1)
+    expect(mockScheduler.register.mock.invocationCallOrder[0])
+      .toBeLessThan(mockEm.flush.mock.invocationCallOrder[0])
+    expect(mockScheduler.unregister).not.toHaveBeenCalled()
+  })
+
+  it('unregisters the scheduled job it just created when the schedule row fails to flush', async () => {
+    const flushError = new Error('could not serialize access due to concurrent update')
+    mockEm.flush.mockImplementation(async () => {
+      throw flushError
+    })
+
+    const res = await POST(request('1h'))
+
+    expect(res.status).toBe(422)
+    const body = await res.json()
+    expect(body.error).toBe(flushError.message)
+
+    const registeredJobId = mockScheduler.register.mock.calls[0][0].id
+    expect(mockScheduler.unregister).toHaveBeenCalledTimes(1)
+    expect(mockScheduler.unregister).toHaveBeenCalledWith(registeredJobId)
+  })
+
+  it('still surfaces the original write failure when the compensating unregister also fails', async () => {
+    const flushError = new Error('connection terminated unexpectedly')
+    mockEm.flush.mockImplementation(async () => {
+      throw flushError
+    })
+    mockScheduler.unregister.mockImplementation(async () => {
+      throw new Error('scheduler unavailable')
+    })
+
+    const res = await POST(request('1h'))
+
+    expect(res.status).toBe(422)
+    const body = await res.json()
+    expect(body.error).toBe(flushError.message)
+    expect(mockScheduler.unregister).toHaveBeenCalledTimes(1)
   })
 })

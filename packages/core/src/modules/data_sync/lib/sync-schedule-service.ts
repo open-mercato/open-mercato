@@ -3,7 +3,10 @@ import type { AwilixContainer } from 'awilix'
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { findAndCountWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { enforceCommandOptimisticLockWithGuards, enforceRecordGoneIsConflict } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { SyncSchedule } from '../data/entities'
+
+const logger = createLogger('data_sync').child({ component: 'sync-schedule-service' })
 
 type SyncScope = {
   organizationId: string
@@ -184,37 +187,63 @@ export function createSyncScheduleService(em: EntityManager, schedulerService?: 
         isEnabled: input.isEnabled,
       })
 
-      const row = existing ?? em.create(SyncSchedule, {
-        id,
-        integrationId: input.integrationId,
-        entityType: input.entityType,
-        direction: input.direction,
-        scheduleType: input.scheduleType,
-        scheduleValue: input.scheduleValue,
-        timezone: input.timezone,
-        fullSync: input.fullSync,
-        isEnabled: input.isEnabled,
-        organizationId: scope.organizationId,
-        tenantId: scope.tenantId,
-      })
+      try {
+        const row = existing ?? em.create(SyncSchedule, {
+          id,
+          integrationId: input.integrationId,
+          entityType: input.entityType,
+          direction: input.direction,
+          scheduleType: input.scheduleType,
+          scheduleValue: input.scheduleValue,
+          timezone: input.timezone,
+          fullSync: input.fullSync,
+          isEnabled: input.isEnabled,
+          organizationId: scope.organizationId,
+          tenantId: scope.tenantId,
+        })
 
-      row.integrationId = input.integrationId
-      row.entityType = input.entityType
-      row.direction = input.direction
-      row.scheduleType = input.scheduleType
-      row.scheduleValue = input.scheduleValue
-      row.timezone = input.timezone
-      row.fullSync = input.fullSync
-      row.isEnabled = input.isEnabled
-      row.scheduledJobId = scheduledJobId
+        row.integrationId = input.integrationId
+        row.entityType = input.entityType
+        row.direction = input.direction
+        row.scheduleType = input.scheduleType
+        row.scheduleValue = input.scheduleValue
+        row.timezone = input.timezone
+        row.fullSync = input.fullSync
+        row.isEnabled = input.isEnabled
+        row.scheduledJobId = scheduledJobId
 
-      if (!existing) {
-        em.persist(row)
+        if (!existing) {
+          em.persist(row)
+        }
+
+        await em.flush()
+
+        return row
+      } catch (error: unknown) {
+        // The registration above is already durable, so a failing write would
+        // otherwise leave a live ScheduledJob pointing at a SyncSchedule row
+        // that was never persisted. Only a create can be compensated: it minted
+        // `scheduledJobId` in this call, so unregistering it cannot destroy a
+        // registration someone else owns. An update reuses an existing job the
+        // scheduler has already overwritten, and SchedulerServiceLike exposes no
+        // way to restore the previous registration — that asymmetry is
+        // deliberate and stays until the scheduler contract can roll an update
+        // back.
+        if (!existing) {
+          try {
+            await requireScheduler().unregister(scheduledJobId)
+          } catch (compensationError: unknown) {
+            logger.error('Failed to unregister the scheduled job after a schedule write failure', {
+              scheduledJobId,
+              scheduleId: id,
+              organizationId: scope.organizationId,
+              tenantId: scope.tenantId,
+              err: compensationError,
+            })
+          }
+        }
+        throw error
       }
-
-      await em.flush()
-
-      return row
     },
 
     async deleteSchedule(
