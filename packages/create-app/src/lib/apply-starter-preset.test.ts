@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { resolvePreset, generateModulesTs, applyStarterPreset } from './apply-starter-preset.js'
+import type { ModuleEntry } from './starter-presets.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -340,7 +341,15 @@ test('every non-classic preset enables the modules the template topbar gates on'
 // keeps working. That silent failure is how issue #5897 escaped review — the baseline
 // `directory` branding page has always uploaded the organization logo that way.
 
-const CORE_MODULES_DIR = join(__dirname, '..', '..', '..', 'core', 'src', 'modules')
+const PACKAGES_DIR = join(__dirname, '..', '..', '..')
+
+// Every module a preset can enable lives at `packages/<pkg>/src/modules/<id>`, so the
+// owning package is derivable from the entry's `from` — scanning only `@open-mercato/core`
+// would leave a preset that enables an uploader from `search`, `events` or `ai-assistant`
+// unguarded.
+function moduleSourceDir(entry: ModuleEntry): string {
+  return join(PACKAGES_DIR, entry.from.replace('@open-mercato/', ''), 'src', 'modules', entry.id)
+}
 
 function collectSourceFiles(dir: string): string[] {
   const skipped = new Set(['__tests__', '__integration__', 'migrations', 'node_modules'])
@@ -358,16 +367,16 @@ function collectSourceFiles(dir: string): string[] {
 
 const attachmentUploaderCache = new Map<string, boolean>()
 
-function moduleUploadsToAttachments(moduleId: string): boolean {
-  const cached = attachmentUploaderCache.get(moduleId)
+function moduleUploadsToAttachments(entry: ModuleEntry): boolean {
+  const cached = attachmentUploaderCache.get(entry.id)
   if (cached !== undefined) return cached
-  const moduleDir = join(CORE_MODULES_DIR, moduleId)
+  const moduleDir = moduleSourceDir(entry)
   const uploads =
     existsSync(moduleDir) &&
     collectSourceFiles(moduleDir).some((file) =>
       readFileSync(file, 'utf-8').includes("'/api/attachments'"),
     )
-  attachmentUploaderCache.set(moduleId, uploads)
+  attachmentUploaderCache.set(entry.id, uploads)
   return uploads
 }
 
@@ -375,7 +384,7 @@ test('every non-classic preset enabling an attachment uploader also enables atta
   // The guard is only meaningful while a baseline module really does upload; assert that
   // premise so a future refactor turns this test red rather than vacuously green.
   assert.ok(
-    moduleUploadsToAttachments('directory'),
+    moduleUploadsToAttachments({ id: 'directory', from: '@open-mercato/core' }),
     'expected the directory branding page to upload the organization logo to /api/attachments',
   )
 
@@ -383,9 +392,9 @@ test('every non-classic preset enabling an attachment uploader also enables atta
     const modules = resolvePreset(presetId).modules
     const enabledIds = new Set(modules.map((m) => m.id))
     const uploaders = modules
-      .filter((m) => m.from === '@open-mercato/core' && m.id !== 'attachments')
-      .map((m) => m.id)
+      .filter((m) => m.id !== 'attachments')
       .filter(moduleUploadsToAttachments)
+      .map((m) => m.id)
     if (uploaders.length === 0) continue
     assert.ok(
       enabledIds.has('attachments'),
