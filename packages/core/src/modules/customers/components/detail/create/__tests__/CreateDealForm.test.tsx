@@ -5,8 +5,10 @@ import * as React from 'react'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { z } from 'zod'
 import { CreateDealForm } from '../CreateDealForm'
+import { extensionPoints } from '../../../../extension-points'
 
 const mockPush = jest.fn()
+const injectionSpotProps: Array<Record<string, unknown>> = []
 const mockCreateCrud = jest.fn()
 const mockRunMutation = jest.fn()
 let mockCustomDefinitions: Array<{
@@ -43,6 +45,13 @@ jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({
 
 jest.mock('@open-mercato/ui/backend/utils/crud', () => ({
   createCrud: (...args: unknown[]) => mockCreateCrud(...args),
+}))
+
+jest.mock('@open-mercato/ui/backend/injection/InjectionSpot', () => ({
+  InjectionSpot: (props: Record<string, unknown>) => {
+    injectionSpotProps.push(props)
+    return null
+  },
 }))
 
 jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({
@@ -165,12 +174,48 @@ jest.mock('../DealCustomAttributes', () => {
 })
 
 beforeEach(() => {
+  injectionSpotProps.length = 0
   mockCustomDefinitions = []
   mockPush.mockClear()
   mockCreateCrud.mockReset()
   mockCreateCrud.mockResolvedValue({ id: 'deal-1' })
   mockRunMutation.mockReset()
   mockRunMutation.mockImplementation(async ({ operation }: { operation: () => Promise<unknown> }) => operation())
+})
+
+const renderedDealFormSpot = () =>
+  injectionSpotProps.find((props) => props.spotId === extensionPoints.hosts.dealForm.spotId)
+
+describe('CreateDealForm injection host (#5882)', () => {
+  it('publishes the module\'s declared deal form spot so widgets reach the create surface', () => {
+    render(<CreateDealForm returnTo="/backend/customers/deals" />)
+
+    expect(extensionPoints.hosts.dealForm.spotId).toBe('crud-form:customers.deal')
+    expect(renderedDealFormSpot()).toBeDefined()
+  })
+
+  it('gives the spot a create-mode context matching the one CrudForm publishes on edit', () => {
+    render(<CreateDealForm returnTo="/backend/customers/deals" />)
+
+    expect(renderedDealFormSpot()?.context).toEqual({
+      formId: 'customers.deals.create',
+      entityId: 'customers:customer_deal',
+      resourceKind: 'customers.deal',
+      resourceId: undefined,
+      recordId: undefined,
+      isLoading: expect.any(Boolean),
+      pending: false,
+      operation: 'create',
+    })
+  })
+
+  it('leaves recordId absent so record-scoped widgets can detect create mode', () => {
+    render(<CreateDealForm returnTo="/backend/customers/deals" />)
+
+    const context = renderedDealFormSpot()?.context as Record<string, unknown>
+    expect(context.recordId).toBeUndefined()
+    expect(context.operation).toBe('create')
+  })
 })
 
 describe('CreateDealForm', () => {

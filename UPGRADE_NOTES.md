@@ -197,6 +197,29 @@ The query object is now built by `buildQueryParams` from `@open-mercato/shared/l
 
 **Action for module authors:** audit your own list-route schemas for filter params that clients may repeat. Where a param is genuinely multi-valued, widen it to `z.union([z.string(), z.array(z.string())])` (or `z.array(z.string())`) and normalize it with `toQueryValueList`. Where it is genuinely single-valued, no change is needed — a repeated occurrence should be rejected. No route URL, HTTP method, response field, `makeCrudRoute` signature, options type, or database column changes, so `BACKWARD_COMPATIBILITY.md` §2, §3 and §7 are not violated.
 
+### The person create form publishes `crud-form:customers.person`, not the derived `crud-form:customers.customer_entity` (#5882)
+
+The customers module declares one canonical CrudForm host per entity in `extension-points.ts`, but only the *edit* surfaces passed them. `backend/customers/people/create/page.tsx` rendered its `CrudForm` with `entityIds` and no `injectionSpotId`, so `CrudForm` fell back to deriving the spot from the **first** entity id and published `crud-form:customers.customer_entity` — an id the module never declared. The two surfaces of the same logical form therefore consulted different hosts, and a widget keyed on the declared `crud-form:customers.person` reached person *editing* only. The create page now passes `injectionSpotId={extensionPoints.hosts.personForm.spotId}`, read from the module's own declaration so the surfaces cannot drift apart again. The companion fix for deals is described below; companies were fixed the same way in #5881.
+
+Nothing is renamed or removed from a frozen surface: `entityIds` still drives custom-field resolution and the component-replacement handle, `CrudForm`'s fallback spot resolution is untouched, and no prop, API route, event or database column changes.
+
+**Action for module authors.** Binding the declared host means this page stops publishing the undeclared, fallback-derived `crud-form:customers.customer_entity` spot. If your module registers a widget or field widget against `crud-form:customers.customer_entity` (or its `:fields` child) in order to reach the person create form, add the canonical key to your `injection-table.ts`:
+
+```ts
+// widgets/injection-table.ts
+'crud-form:customers.person:fields': { widgetId: 'my_module.injection.my-field', priority: 40 },
+```
+
+The in-repo `example` module already registers both ids, so its priority field is unaffected. Note also that widgets already registered on `crud-form:customers.person` now render on the create form as well — `customer_accounts`' "Account Status" group is the shipped example. It reads `context.recordId`, finds none in create mode and renders its empty state, so a record-scoped widget of your own should guard on `recordId` the same way.
+
+### Deal creation publishes the declared `crud-form:customers.deal` host (#5882)
+
+`backend/customers/deals/create/page.tsx` renders the hand-rolled `CreateDealForm`, not a `CrudForm`, so no spot id was derived for it and `extensionPoints.hosts.dealForm` was unreachable during deal creation — the create surface published **no** injection host at all. `CreateDealForm` now mounts that declared spot itself, with a context matching the one `CrudForm` publishes on the edit page (`formId`, `entityId`, `resourceKind`, `operation: 'create'`, and no `recordId`).
+
+This is purely additive: a spot that previously did not exist starts resolving. No existing widget changes host.
+
+**Known limitation.** Only the render-widget family is served on deal *creation*. The `crud-form:customers.deal:fields` child spot is still not rendered there, because injected field widgets persist their values through the `CrudForm` `onSave` injection-event lifecycle, which the hand-rolled create form does not implement — rendering those fields without it would silently discard operator input. Field widgets targeting `crud-form:customers.deal:fields` continue to work on the deal edit page. Deal creation gains full field-injection support only when that form is migrated onto `CrudForm`.
+
 ## 0.6.7 → 0.7.0 (2026-08-26)
 
 ### `PUT /api/auth/users/acl` merges omitted fields instead of clearing them (#5493)

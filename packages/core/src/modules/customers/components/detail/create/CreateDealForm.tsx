@@ -8,9 +8,11 @@ import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { extensionPoints } from '../../../extension-points'
 import { dealFormSchema } from '../DealForm'
 import { createDictionarySelectLabels } from '../utils'
 import { DealSectionCard } from './DealSectionCard'
@@ -24,6 +26,12 @@ import { EMPTY_VALUES, type BaseValues } from './dealFormTypes'
 const CONTEXT_ID = 'customers.deals.create'
 const DEAL_ENTITY_ID = 'customers:customer_deal'
 const CUSTOM_FIELDS_MANAGE_HREF = `/backend/entities/system/${encodeURIComponent(DEAL_ENTITY_ID)}`
+
+// This form is hand-rolled rather than a `CrudForm`, so nothing derives the module's
+// declared deal form host for it. Without this the create surface publishes no injection
+// spot at all and `extensionPoints.hosts.dealForm` is reachable only on the edit page
+// (#5882). Read the id from the module's own declaration so the two surfaces cannot drift.
+const DEAL_FORM_SPOT_ID = extensionPoints.hosts.dealForm.spotId
 
 export type CreateDealFormProps = {
   returnTo: string
@@ -189,6 +197,24 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
     [handleSubmit],
   )
 
+  // Mirrors the object `CrudForm` publishes to its own injection spot so a widget
+  // registered on `crud-form:customers.deal` reads the same context on create as on
+  // edit. `recordId` is intentionally absent — the deal does not exist yet, which is
+  // how record-scoped widgets detect create mode and render their empty state.
+  const injectionContext = React.useMemo(
+    () => ({
+      formId: CONTEXT_ID,
+      entityId: DEAL_ENTITY_ID,
+      resourceKind: 'customers.deal',
+      resourceId: undefined,
+      recordId: undefined,
+      isLoading: !customFieldsLoaded,
+      pending: isSubmitting,
+      operation: 'create' as const,
+    }),
+    [customFieldsLoaded, isSubmitting],
+  )
+
   const cancelLabel = tr('customers.deals.create.cancel', 'Cancel')
   const submitLabel = tr('customers.deals.create.submit', 'Create deal')
   const submitDisabled = !customFieldsLoaded
@@ -237,6 +263,12 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
             companyIds={values.companyIds}
             onPeopleChange={(next) => patch({ personIds: next })}
             onCompaniesChange={(next) => patch({ companyIds: next })}
+            disabled={isSubmitting}
+          />
+
+          <InjectionSpot
+            spotId={DEAL_FORM_SPOT_ID}
+            context={injectionContext}
             disabled={isSubmitting}
           />
         </div>
