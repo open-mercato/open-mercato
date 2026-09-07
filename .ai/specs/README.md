@@ -205,6 +205,8 @@ Fully implemented and deployed. Canonical files live in [`implemented/`](impleme
 | [SPEC-066](implemented/SPEC-066-2026-03-15-official-modules-changesets-release-workflow.md) | 2026-03-15 | Official Modules Changesets Release Workflow | Changesets-based release workflow for official modules |
 | [Checkout Pay Links](implemented/2026-03-19-checkout-pay-links.md) | 2026-03-19 | Checkout Pay Links | Pay link generation and checkout flow (Phase A) |
 | [Checkout Wireframes](implemented/2026-03-19-checkout-pay-links-wireframes.md) | 2026-03-19 | Checkout Pay Links Wireframes | Companion wireframes for the Checkout Pay Links spec |
+| [Contractor Registry](2026-09-06-contractor-registry.md) | 2026-09-06 | Contractor Registry | Shared registry for contractor tax identity (NIP/GUS/VIES) and bank accounts, with mandatory live VAT-whitelist (Biała Lista) verification at every payment per Art. 96b — consumed by Accounts Payable and the future AR path; deliberately excludes CRM (stays in `customers`) and payment execution (stays in AP) |
+| [Contractor Registry — Implementation Guide](2026-09-06-contractor-registry-implementation-guide.md) | 2026-09-06 | Contractor Registry — Implementation Guide | Short build-order companion to the full spec: entity cheat sheet, one worked vendor-registration-to-payment flow, and the pitfalls (DI-resolvable whitelist check vs. HTTP-only, cache-never-shortcuts-live-check, unconditional NIP immutability) a developer implementing it needs to know upfront |
 
 ## Specification Structure
 
