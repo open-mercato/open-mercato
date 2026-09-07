@@ -82,6 +82,117 @@ the table is empty — retrofitting a hierarchy onto a chart of accounts
 that already has posted history is a much harder migration than
 shipping it from the start.
 
+**`LedgerAccountType` classifies additionally through a new reference
+entity, `LedgerAccountGroup`, seeded per tenant/organization — not a
+global table, not a hardcoded enum.** Driven by the platform brief:
+Phase 1 targets Poland, USA later, further markets as plugins.
+Poland's own "zespół" numbering (0–8) doesn't generalize — German
+SKR03/SKR04, French PCG, and US GAAP each use different classification
+schemes — so the mechanism needs to be identical everywhere while the
+dictionary of values varies per country. `LedgerAccountGroup`
+(`jurisdiction`, `code`, `name`) is tenant/org scoped like every other
+entity in this module: core `AGENTS.md` § Never states "Never expose
+cross-tenant data or omit tenant/organization scoping" — no entity may
+be a single table shared across tenants, reference data included.
+Seeded through `setup.ts`'s `seedDefaults` hook, the same mechanism
+`currencies` already uses for its own reference data
+(`currencies/setup.ts` → `seedDefaults` → `seedExampleCurrencies(ctx.em,
+{ tenantId, organizationId })`; `Currency` itself is tenant/org scoped,
+not global — corrects an earlier draft of this decision that
+mischaracterized it as unscoped). `LedgerAccountType` gets a nullable
+`accountGroupId` FK to it.
+
+**Phase 1 hardcodes `jurisdiction: 'PL'` — choosing a jurisdiction per
+tenant/organization is explicitly out of scope, deferred.**
+`seedDefaults` always seeds the Polish dictionary (zespoły 0–8) for
+every organization, with no selection logic. Picking the right
+jurisdiction per organization (not per tenant — `directory.Organization`
+already models a tree, so a single tenant's organizations could in
+principle span countries) has no existing mechanism anywhere in the
+system: `directory.Tenant`/`Organization` carry no country/locale
+field today, and the `country`/`countryCode` fields found elsewhere
+(`customers`, `sales`, `staff`, `wms`) describe addresses of
+counterparties, warehouses, and tax rates — not the accounting
+jurisdiction of the organization itself. Solving this would mean
+adding a field (e.g. `accountingJurisdiction`) to `directory.
+Organization`, a shared core entity `ledger` doesn't own — genuinely
+out of scope for Phase 1 (Poland-only), to be designed when USA/other-
+jurisdiction support is actually built. See Module Setup below for the
+resulting `seedDefaults` hook.
+
+**`accountGroupId` is immutable once any account of that type has
+posted entries — same guard as `normalBalance`.** Enforced by
+`updateLedgerAccountType`, same check as the `normalBalance` guard
+above. Changing a type's statutory group mid-year would break the
+consistency of historical ZSiO/balance-sheet reports.
+
+**`LedgerAccount` gets a self-referencing `parentAccountId` too —
+structural only, no logic reads it yet.** Multi-dimensional analytics
+(kontrahent, MPK/cost-centre, rachunek bankowy, środek trwały, waluta)
+can't be solved by one mechanism: a single `JournalEntryLine` can need
+more than one dimension at once (e.g. a counterparty on the credit
+line and a cost centre on the debit line of the same purchase). Two
+different concerns get two different homes. `parentAccountId` models
+the static, single-dimension Chart-of-Accounts hierarchy (e.g. `130
+Rachunki bieżące` → `130-1 mBank`, `010 Środki trwałe` → `010-1
+Samochody`) — the shape ZSiO and Balance calculation aggregate over.
+The contextual, multi-dimensional tagging is a separate, future
+mechanism (see Out of scope). Added now on the same logic as
+`parentAccountTypeId` above and `referenceType`/`referenceId`: cheap
+while the table is empty, and it unblocks the tree shape that Bank
+Management (`130-x`) and Fixed Assets (`010-x`) will need later.
+
+**`LedgerAccount.accountTypeId` is immutable once the account has
+posted entries — same class of guard as `normalBalance`/
+`accountGroupId` on `LedgerAccountType`.** `normalBalance` and
+`accountGroupId` live on the type, not on the account or on
+`JournalEntryLine`, so reassigning an account to a different type
+after it has posted history would silently reinterpret every one of
+its past entries (e.g. a DEBIT-normal account retroactively becoming
+CREDIT-normal). `updateLedgerAccount` rejects an `accountTypeId`
+change once the account has any posted `JournalEntryLine`, mirroring
+the existing `updateLedgerAccountType` guard one level up.
+
+**`JournalEntryLine` gets a nullable `contractorSnapshot` (`json`)
+column.** Resolved while designing `.ai/specs/2026-09-06-contractor-
+registry.md`: Accounts Payable needs a point-in-time copy of the
+counterparty's name, NIP, bank account and Biała Lista verification
+status at posting time, so a later correction to the contractor's
+current data never silently rewrites what a historical journal entry
+was posted against. This is a different mechanism from the future
+`journal_entry_line_dimension` table (see Out of scope) — a denormalized
+audit snapshot, not a queryable reporting dimension — and exists to
+avoid an audit gap between Accounts Payable shipping and the
+posting-rules/dimension engine being built later. Precedent for the
+column shape: `messages.Message.entity_snapshot` (`json`, nullable)
+already does the same point-in-time-copy job elsewhere in the
+codebase. Added now on the same empty-table logic as the two decisions
+above; nothing in this phase populates or reads it.
+
+**`JournalEntryLine` gets its own `organizationId`/`tenantId` columns,
+not just inherited scope through `journalEntryId`.** An earlier draft
+of this spec left `JournalEntryLine` without its own tenant/org
+columns, relying on a join through `journalEntryId` to `JournalEntry`
+for scoping. Checked against precedent: `sales.SalesInvoiceLine` — the
+same shape, a line under a parent document — carries its own
+`organization_id`/`tenant_id` despite also having a parent FK
+(`invoice_id`). The established convention in this codebase is that
+line/detail tables get their own scope columns, not just a derivable
+one through the parent; `JournalEntryLine` now matches it.
+
+**`contractorSnapshot` carries PII and MUST be declared in `ledger`'s
+own `encryption.ts`.** It duplicates the same NIP/name/bank-account
+data that `.ai/specs/2026-09-06-contractor-registry.md` already
+requires encrypting on the `Contractor` entity — denormalizing it onto
+`JournalEntryLine` doesn't reduce the sensitivity, so it needs its own
+`defaultEncryptionMaps` entry: `{ entityId: 'ledger:journal_entry_line',
+fields: [contractor_snapshot] }`. Whole-`json`-column encryption is
+already a precedented pattern in this codebase, not something new
+being invented here — `messages:message.action_data`/`action_result`
+(also `type: 'json'` columns) are declared exactly this way in
+`messages/encryption.ts`. Reads go through `findWithDecryption` /
+`findOneWithDecryption` like any other encrypted field.
+
 **`debit` and `credit` are separate columns on the line, not one
 `direction` enum plus an amount.** A single enum+amount column is
 marginally simpler to write, but every balance query then needs a
@@ -313,11 +424,21 @@ backfill.
   participates in the default-ON optimistic lock like `LedgerAccount`/
   `LedgerAccountType` (see Design decisions). No `Currency` entity —
   see Design decisions.
+- `LedgerAccountGroup` — `jurisdiction`, `code`, `name`, tenant/org
+  scoped like every other entity here (see Design decisions). Seeded
+  via `setup.ts`'s `seedDefaults` (Phase 1: `jurisdiction: 'PL'` only,
+  hardcoded — no jurisdiction-selection mechanism exists yet), not
+  user-editable through any command. No `updatedAt` — immutable,
+  system-seeded rows.
 - `LedgerAccountType` — `slug`, `name`, `normalBalance`
   (`DEBIT`/`CREDIT`), `parentAccountTypeId` (nullable, self-reference),
-  `updatedAt`.
-- `LedgerAccount` — `slug`, `accountTypeId`, tenant/org scoped,
-  `description`, `updatedAt`.
+  `accountGroupId` (nullable FK to `LedgerAccountGroup`, immutable
+  once any account of that type has posted entries — see Design
+  decisions), `updatedAt`.
+- `LedgerAccount` — `slug`, `accountTypeId` (immutable once the
+  account has posted entries — see Design decisions), `parentAccountId`
+  (nullable, self-reference — see Design decisions), tenant/org
+  scoped, `description`, `updatedAt`.
 - `JournalEntry` — `sequenceNumber` (`bigint`, unique per
   `(tenant_id, organization_id)`, allocated atomically — see Design
   decisions), `postedAt`,
@@ -327,7 +448,10 @@ backfill.
   tenant/org scoped. No `updatedAt` — append-only, immutable once
   posted (exempt from optimistic locking, see Design decisions).
 - `JournalEntryLine` — `journalEntryId`, `accountId`, `debit`,
-  `credit` (`numeric(19,4)`), `amountCurrency`. Same exemption as
+  `credit` (`numeric(19,4)`), `amountCurrency`,
+  `contractorSnapshot` (nullable `json` — see Design decisions),
+  `organizationId`, `tenantId` (own scope columns, not just inherited
+  via `journalEntryId` — see Design decisions). Same exemption as
   `JournalEntry`.
 
 ### Access Control (`acl.ts`)
@@ -362,15 +486,28 @@ defaultRoleFeatures: {
     'ledger.entries.view',
     'ledger.periods.view',
   ],
-}
+},
+
+async seedDefaults({ em, tenantId, organizationId }) {
+  // Seeds `LedgerAccountGroup` rows for jurisdiction 'PL' (zespoły
+  // 0-8) into this organization's scope. Hardcoded to 'PL' in Phase
+  // 1 — no jurisdiction-selection mechanism exists yet (see Design
+  // decisions).
+  await seedPolishAccountGroups(em, { tenantId, organizationId })
+},
 ```
 
 Employees get read access (viewing the chart of accounts, journal, and
 period status); posting, chart-of-accounts edits, and period
 locking/unlocking stay admin-only by default, consistent with the
-customers module's `admin: ['customers.*']` pattern. No
-`onTenantCreated`/`seedDefaults` hooks in Phase 1 — no default chart of
-accounts is seeded; tenants build their own.
+customers module's `admin: ['customers.*']` pattern.
+`onTenantCreated` still has no hook in Phase 1 — no default chart of
+accounts (`LedgerAccountType`/`LedgerAccount`) is seeded; tenants build
+their own. `seedDefaults` is the one exception: it seeds
+`LedgerAccountGroup` (system reference data, not the tenant's own
+chart of accounts) into every organization's scope, following the same
+convention `currencies/setup.ts` already uses for its own reference
+data.
 
 ### Migration (`migrations/`)
 
@@ -415,8 +552,11 @@ RETURNING next_value - 1`, storing the result on
 - `postJournalEntry` — validates the `FiscalPeriod` covering
   `postedAt` is not `isLocked` (rejects before any write), validates
   debit/credit balance, atomically allocates the next per-organization
-  `sequenceNumber`, persists entry + lines in one transaction.
-  Requires `ledger.entries.post`.
+  `sequenceNumber`, persists entry + lines in one transaction. Emits
+  `ledger.journal_entry.posted` (ephemeral) after commit — see Events
+  below; this is the only way other modules (e.g. Posting Rules
+  Engine) may react, per `packages/events/AGENTS.md`'s ban on direct
+  cross-module calls. Requires `ledger.entries.post`.
 - `reverseJournalEntry` — posts a new `REVERSAL` entry with inverted
   lines, referencing the original; does not mutate the original.
   Requires `ledger.entries.post`.
@@ -428,11 +568,25 @@ RETURNING next_value - 1`, storing the result on
   `ledger.periods.manage`.
 - `createLedgerAccount` / `updateLedgerAccount` — standard CRUD via
   `runCrudCommandWrite`, following the module's existing command
-  conventions. Requires `ledger.accounts.manage`.
+  conventions; `updateLedgerAccount` rejects an `accountTypeId` change
+  once the account has posted entries (the invariant the Testing
+  Strategy checks). Requires `ledger.accounts.manage`.
 - `createLedgerAccountType` / `updateLedgerAccountType` — standard
-  CRUD; `updateLedgerAccountType` rejects a `normalBalance` change
-  when any account of that type has posted entries (the invariant the
-  Testing Strategy checks). Requires `ledger.accounts.manage`.
+  CRUD; `updateLedgerAccountType` rejects a `normalBalance` or
+  `accountGroupId` change when any account of that type has posted
+  entries (the invariant the Testing Strategy checks). Requires
+  `ledger.accounts.manage`.
+
+### Events (`events.ts`)
+
+- `ledger.journal_entry.posted` — emitted by `postJournalEntry` after
+  the entry commits. Ephemeral (in-process, no retry) — matches the
+  "real-time UI updates" use case in `packages/events/AGENTS.md`, not
+  a durability guarantee. This module has no subscribers of its own;
+  it exists so a downstream module (e.g. Posting Rules Engine) can
+  react without `ledger` importing or resolving that module — `ledger`
+  stays fully generic and has no knowledge of zespoły, konto 490, or
+  any jurisdiction-specific concept.
 
 ### Queries / API
 
@@ -523,16 +677,35 @@ starts `false`; `postJournalEntry` rejects any entry whose `postedAt`
 falls within a locked period, before any write. `updatedAt` backs the
 optimistic lock on the lock/unlock actions.
 
+### LedgerAccountGroup
+
+Tenant/org scoped (`jurisdiction`, `code`, `name`) — not created or
+edited by tenants through any command; populated only by `setup.ts`'s
+`seedDefaults` hook. Phase 1 hardcodes `jurisdiction: 'PL'` for every
+organization (zespoły 0–8); choosing a jurisdiction per organization is
+explicitly deferred (see Design decisions) — adding another
+jurisdiction's dictionary later needs only new seed data, not a schema
+change.
+
 ### LedgerAccountType
 
 Hierarchical. `normalBalance` is required and immutable once any
 account of that type has posted entries — enforced by
 `updateLedgerAccountType`, which checks for posted `JournalEntryLine`
 rows against accounts of that type before allowing the change.
+`accountGroupId` (nullable FK to `LedgerAccountGroup`) carries the
+same immutability guard, for the same reason (see Design decisions).
 
 ### LedgerAccount
 
 One row per account; `slug` unique per (tenant, organization).
+`parentAccountId` (nullable, self-reference) models the Chart-of-
+Accounts hierarchy — e.g. a bank or fixed-asset account under its
+synthetic parent. Structural only this phase: nothing enforces or
+reads it yet (see Design decisions, Out of scope). `accountTypeId` is
+immutable once the account has posted entries — enforced by
+`updateLedgerAccount`, the same class of guard as `normalBalance`/
+`accountGroupId` on `LedgerAccountType` (see Design decisions).
 
 ### JournalEntry / JournalEntryLine
 
@@ -544,17 +717,33 @@ allocated atomically as part of the same transaction that inserts the
 entry, so a failed post never consumes a number (see Design
 decisions).
 
+`JournalEntryLine.contractorSnapshot` (nullable `json`) captures a
+point-in-time copy of the counterparty's name, NIP, bank account and
+Biała Lista verification status at posting time — see Design decisions
+and `.ai/specs/2026-09-06-contractor-registry.md`. Not populated by
+anything in this phase; it exists so Accounts Payable can write to it
+without a follow-up migration.
+
+`JournalEntryLine` carries its own `organizationId`/`tenantId`
+(matching `sales.SalesInvoiceLine`'s precedent — see Design decisions),
+not only the scope inherited through `journalEntryId`.
+
 ## Implementation Plan
 
 ### Phase 1: Posting engine
 
-1. Add `FiscalPeriod`, `LedgerAccountType`, `LedgerAccount`,
+1. Add `FiscalPeriod`, `LedgerAccountType`, `LedgerAccount`
+   (including the nullable, self-referencing `parentAccountId`),
    `JournalEntry` (including `sequenceNumber`), `JournalEntryLine`
+   (including the nullable `contractorSnapshot` `json` column)
    entities (with `updated_at` on the three editable ones) and their
    migration, including the deferred balance-check constraint trigger
    and the per-organization `journal_entry_sequence` counter table. No
    `Currency` entity — `JournalEntry.currencyId` is a plain FK-id
-   column to `currencies.Currency.id`.
+   column to `currencies.Currency.id`. Add `encryption.ts` declaring
+   `defaultEncryptionMaps` for `JournalEntryLine.contractorSnapshot`
+   (PII — see Design decisions) in the same step, since the column and
+   its encryption declaration ship together.
 2. Add `acl.ts` (six features) and `setup.ts` (`defaultRoleFeatures`
    for `admin`/`employee`); run `yarn mercato auth sync-role-acls`.
 3. Implement `postJournalEntry`, validating the covering fiscal
@@ -595,15 +784,18 @@ decisions).
 
 | File | Action | Purpose |
 | --- | --- | --- |
-| `data/entities.ts` | Create | `FiscalPeriod`, `LedgerAccountType`, `LedgerAccount`, `JournalEntry` (incl. `sequenceNumber`), `JournalEntryLine` |
+| `data/entities.ts` | Create | `FiscalPeriod`, `LedgerAccountGroup`, `LedgerAccountType` (incl. `accountGroupId`), `LedgerAccount` (incl. `parentAccountId`), `JournalEntry` (incl. `sequenceNumber`), `JournalEntryLine` (incl. `contractorSnapshot`) |
+| `lib/seeds.ts` | Create | `seedPolishAccountGroups(em, { tenantId, organizationId })` — seeds tenant/org-scoped `LedgerAccountGroup` rows for `jurisdiction: 'PL'` (zespoły 0–8), called from `setup.ts`'s `seedDefaults`; other jurisdictions added later as pure data |
+| `encryption.ts` | Create | `defaultEncryptionMaps` for `ledger:journal_entry_line.contractor_snapshot` (PII duplicated from Contractor Registry — see Design decisions) |
 | `migrations/MigrationXXXXXXXXXXXXXX.ts` | Create | Tables for the entities above plus the deferred balance-check constraint trigger and the per-organization `journal_entry_sequence` counter table |
 | `acl.ts` | Create | Six `ledger.*` features |
-| `setup.ts` | Create | `defaultRoleFeatures` for `admin`/`employee` |
+| `setup.ts` | Create | `defaultRoleFeatures` for `admin`/`employee`; `seedDefaults` seeding `LedgerAccountGroup` (jurisdiction `'PL'`, hardcoded) into each organization |
 | `commands/postJournalEntry.ts` | Create | Validate the covering period is unlocked, validate and persist a balanced journal entry, atomically allocating the next per-organization `sequenceNumber` |
+| `events.ts` | Create | Declares `ledger.journal_entry.posted` (ephemeral), emitted by `postJournalEntry` after commit |
 | `commands/reverseJournalEntry.ts` | Create | Post a linked reversal without mutating the original |
 | `commands/fiscalPeriods.ts` | Create | `createFiscalPeriod`, `lockFiscalPeriod` / `unlockFiscalPeriod` with optimistic-lock enforcement |
-| `commands/ledgerAccounts.ts` | Create | `createLedgerAccount` / `updateLedgerAccount` |
-| `commands/ledgerAccountTypes.ts` | Create | `createLedgerAccountType` / `updateLedgerAccountType` with the `normalBalance`-immutability guard |
+| `commands/ledgerAccounts.ts` | Create | `createLedgerAccount` / `updateLedgerAccount` with the `accountTypeId`-immutability guard |
+| `commands/ledgerAccountTypes.ts` | Create | `createLedgerAccountType` / `updateLedgerAccountType` with the `normalBalance`/`accountGroupId`-immutability guard |
 | `api/journal-entries/route.ts` | Create | `listJournalEntries`, paginated and filterable, read-only |
 | `api/accounts/route.ts` | Create | `LedgerAccount` CRUD (`makeCrudRoute`) |
 | `api/account-types/route.ts` | Create | `LedgerAccountType` CRUD (`makeCrudRoute`) |
@@ -640,9 +832,11 @@ decisions).
   organizations within a tenant).
 - Assert `referenceType`/`referenceId` persist correctly when
   provided, and remain null when omitted.
-- Assert `updateLedgerAccountType` rejects a `normalBalance` change
-  once an account of that type has posted entries, and allows it
-  beforehand.
+- Assert `updateLedgerAccountType` rejects a `normalBalance` or
+  `accountGroupId` change once an account of that type has posted
+  entries, and allows either beforehand.
+- Assert `updateLedgerAccount` rejects an `accountTypeId` change once
+  the account has posted entries, and allows it beforehand.
 - Assert `lockFiscalPeriod`/`unlockFiscalPeriod` and
   `updateLedgerAccount`/`updateLedgerAccountType` return a 409 with
   `OptimisticLockConflictBody` on a stale `updated_at`, and succeed
@@ -711,16 +905,47 @@ deploy independently of any other module.
   rachunkowości) are out of scope for this phase — they fall naturally
   out of a future Accounts Payable / Accounts Receivable module built
   on top of this engine, not out of the posting engine itself.
-- Multi-currency FX revaluation and reporting.
+- **Multi-dimensional posting tags (`journal_entry_line_dimension`).**
+  Contextual analytics — kontrahent, MPK/cost-centre, rachunek
+  bankowy, środek trwały, waluta — often apply more than one at a time
+  to the same line (e.g. a counterparty on the credit line and a cost
+  centre on the debit line of one purchase), so they can't be modelled
+  by `LedgerAccount.parentAccountId` alone without exploding the chart
+  of accounts into dead combinations. Needs a dedicated table
+  (`dimensionType`, `dimensionId`, FK to the line — many rows per
+  line) plus the posting-rule logic that uses it (e.g. reject a direct
+  post to an account that has children — only its analytic leaves are
+  postable). Ships together with the posting-rules/konto 490 engine in
+  a future spec, not here. Distinct from `JournalEntryLine.contractorSnapshot`
+  (see Design decisions): the snapshot is a denormalized, point-in-time
+  audit copy on the line itself; this table is the queryable,
+  structured reporting dimension used for per-MPK/per-kontrahent
+  summaries. The two coexist for different purposes once both exist.
+- **Multi-currency FX revaluation and reporting.** Scoped narrowly:
+  this is period-end revaluation of open foreign-currency balances to
+  a current rate (wycena bilansowa), not the transactional exchange-
+  rate difference realized when a foreign-currency document settles
+  at a different rate than it was booked at — that case is already
+  covered by `JournalEntry.currencyId`/`exchangeRate` (a normal
+  balanced posting with a realized-FX-gain/loss line) and needs no
+  change here. Revaluation is a scheduled, balance-level recompute —
+  a future Multi-Currency spec, not this posting engine.
 - Country-specific tax/compliance plugins.
 
-## Final Compliance Report — 2026-08-27 (updated 2026-09-03)
+## Final Compliance Report — 2026-08-27 (updated 2026-09-03, 2026-09-07)
 
 The 2026-09-01 update was a consistency pass reflecting the Fiscal
 Period / Balance calculation scope reduction; the 2026-09-03 update
 restores Fiscal Period (locking) to scope per stakeholder correction
 (see Changelog), leaving Balance calculation out. Neither was a full
-compliance audit rerun from scratch.
+compliance audit rerun from scratch. The 2026-09-07 update **is** a
+full re-verification: it accounts for everything added since 2026-09-03
+— `LedgerAccountGroup` (multi-country account classification),
+`LedgerAccount.accountTypeId`/`LedgerAccountType.accountGroupId`
+immutability guards, the new `events.ts` (`ledger.journal_entry.posted`),
+and `JournalEntryLine.organizationId`/`tenantId` — and catches two
+compliance issues introduced by this session's own earlier drafts
+before they could reach review (see Compliance Matrix and Changelog).
 
 ### AGENTS.md Files Reviewed
 
@@ -737,21 +962,23 @@ compliance audit rerun from scratch.
 | Rule Source | Rule | Status | Notes |
 | --- | --- | --- | --- |
 | `AGENTS.md` | No direct ORM relationships between modules | Compliant | No entity references another module's entity by ORM relation; `currencyId` and `referenceType`/`referenceId` are plain FK-id columns, fetched separately |
-| `AGENTS.md` | Filter by tenant/organization | Compliant | `FiscalPeriod`, `LedgerAccount`, `LedgerAccountType`, `JournalEntry` are all tenant/org scoped |
+| `AGENTS.md` | Filter by tenant/organization | Compliant | `FiscalPeriod`, `LedgerAccount`, `LedgerAccountType`, `LedgerAccountGroup`, `JournalEntry`, `JournalEntryLine` are all tenant/org scoped (`JournalEntryLine` carries its own columns, matching the `sales.SalesInvoiceLine` precedent, not only scope inherited via `journalEntryId`) |
 | `AGENTS.md` | Write operations via Command pattern | Compliant | All mutations go through `postJournalEntry`, `reverseJournalEntry`, `createFiscalPeriod`/`lockFiscalPeriod`/`unlockFiscalPeriod`, `createLedgerAccount`/`updateLedgerAccount`, `createLedgerAccountType`/`updateLedgerAccountType` |
 | `AGENTS.md` / core `AGENTS.md` | Declarative feature guards; `acl.ts` features synced to `setup.ts` `defaultRoleFeatures` | Compliant | `acl.ts` (six features across accounts/entries/periods) + `setup.ts` added (Architecture → Access Control / Module Setup); `yarn mercato auth sync-role-acls` in Implementation Plan step 2 |
 | Core `AGENTS.md` § Database Entities | User-editable entities MUST include `updated_at` for optimistic locking | Compliant | `FiscalPeriod`, `LedgerAccount`, `LedgerAccountType` have `updatedAt`; `CrudForm` auto-derives the lock header, `lockFiscalPeriod`/`unlockFiscalPeriod` call `enforceCommandOptimisticLock` explicitly. `JournalEntry`/`JournalEntryLine` are exempt (append-only) |
 | Root `AGENTS.md:164` / `.ai/qa/AGENTS.md` | New feature MUST list integration coverage for affected API paths, shipped in the same change | Compliant | Implementation Plan step 10 + Testing Strategy cover `journal-entries` list and `fiscal-periods` lock/unlock as integration tests |
 | `currencies/AGENTS.md` | MUST NOT reinvent currency/exchange-rate storage | Compliant | No `Currency` entity in this module; `currencyId` is an FK-id to the existing `currencies.Currency` |
 | `BACKWARD_COMPATIBILITY.md` | Database schema additive-only | Compliant | New tables only; no existing schema touched |
+| `packages/core/AGENTS.md` → Encryption | GDPR-relevant fields declared in `<module>/encryption.ts`, read via `findWithDecryption` | Compliant | `contractorSnapshot` (PII: name/NIP/bank account) declared in new `ledger/encryption.ts` — see Design decisions and File Manifest |
+| `packages/events/AGENTS.md` | Cross-module side effects only via declared events + subscribers; upstream module MUST NOT import/resolve a downstream consumer | Compliant | `ledger.journal_entry.posted` (ephemeral) declared in new `events.ts`; `ledger` has no subscribers of its own and no knowledge of any consumer (e.g. Posting Rules Engine) — see Architecture → Events |
 
 ### Internal Consistency Check
 
 | Check | Status | Notes |
 | --- | --- | --- |
 | Data models match architecture | Pass | Entities in Architecture and Data Models sections agree |
-| Commands defined for all mutations | Pass | Posting, reversal, fiscal-period create/lock/unlock, and account/type create+update all have commands, including `updateLedgerAccountType` |
-| Every Testing Strategy item has a corresponding implementation step | Pass | `normalBalance`-immutability test maps to `updateLedgerAccountType`; locked-period rejection maps to `postJournalEntry`; optimistic-lock tests map to period lock/unlock and account/type update commands |
+| Commands defined for all mutations | Pass | Posting, reversal, fiscal-period create/lock/unlock, and account/type create+update all have commands, including the `normalBalance`/`accountGroupId` guard on `updateLedgerAccountType` and the `accountTypeId` guard on `updateLedgerAccount` |
+| Every Testing Strategy item has a corresponding implementation step | Pass | `normalBalance`/`accountGroupId`-immutability test maps to `updateLedgerAccountType`; `accountTypeId`-immutability test maps to `updateLedgerAccount`; locked-period rejection maps to `postJournalEntry`; optimistic-lock tests map to period lock/unlock and account/type update commands |
 | User Stories match Implementation Plan | Pass | The accountant-facing chart-of-accounts and fiscal-period-locking stories have backend pages + API routes, not commands with no caller |
 | Risks cover all write operations | Pass | Balance integrity, tenant isolation, and migration risk addressed |
 | Scope cohesion | Pass | A fresh-context subagent verified the original five-piece scope (accounts, posting, periods, balance, reversal) as mutually dependent and independently deployable, with the `sales` integration excluded. The current scope (accounts, posting, periods, reversal) drops only balance calculation from that verified set — a strict subset cannot introduce coupling that wasn't already accounted for — so it inherits the same verdict as a logical consequence, not a fresh subagent pass |
@@ -762,7 +989,14 @@ None remaining. Prior findings from the `om-spec-writing` review (Currency
 duplication, missing ACL/`setup.ts`, missing optimistic locking, unresolved
 module name, User Stories/Implementation Plan mismatch, untestable
 `normalBalance` test, shallow compliance report, missing API Contracts
-section) are addressed above.
+section) are addressed above. Two additional issues surfaced and were
+fixed during the 2026-09-07 re-verification, both caught before this
+report was re-run: an earlier draft of `LedgerAccountGroup` described
+it as not tenant/org scoped (violates `AGENTS.md` § Never — see
+Changelog), and `JournalEntryLine` was missing its own
+`organizationId`/`tenantId` (found against the `sales.SalesInvoiceLine`
+precedent — see Changelog). Both are resolved in the current
+document.
 
 ### Verdict
 
@@ -771,14 +1005,24 @@ every finding from the `om-spec-writing` review is resolved and
 re-verified against the current document: `acl.ts`/`setup.ts` are
 concrete deliverables (Architecture → Access Control / Module Setup,
 Implementation Plan step 2), `FiscalPeriod`/`LedgerAccount`/
-`LedgerAccountType` carry `updated_at` with optimistic-lock
-enforcement wired into their commands and routes, `currencyId` is an
-FK-id to the existing `currencies` module with no duplicate `Currency`
-entity, `updateLedgerAccountType` makes the `normalBalance`-immutability
-test real, backend pages + API routes exist for every User Story that
-needs one, and a dedicated API Contracts section documents the unique
-endpoints (`journal-entries` list, `fiscal-periods` lock/unlock). No
-open questions remain.
+`LedgerAccountType`/`LedgerAccountGroup`/`JournalEntryLine` all carry
+correct tenant/org scoping, `updateLedgerAccountType` and
+`updateLedgerAccount` both make their respective immutability
+invariants (`normalBalance`/`accountGroupId`, `accountTypeId`) real,
+`currencyId` is an FK-id to the existing `currencies` module with no
+duplicate `Currency` entity, `ledger.journal_entry.posted` gives
+downstream modules a compliant way to react to postings without
+`ledger` importing or resolving them, backend pages + API routes exist
+for every User Story that needs one, and a dedicated API Contracts
+section documents the unique endpoints (`journal-entries` list,
+`fiscal-periods` lock/unlock). No open questions remain **within this
+document's own scope**. `LedgerAccountGroup`'s jurisdiction-selection
+mechanism (which jurisdiction a given organization seeds) is
+explicitly out of scope for Phase 1 (hardcoded to `PL`) and deferred
+by design, not an oversight — see Design decisions. Downstream specs
+that consume this module (Posting Rules Engine, in particular) carry
+their own, separate open design items; those do not block this
+document.
 
 ## Changelog
 
@@ -902,3 +1146,123 @@ open questions remain.
     the single invariant "`JournalEntry` is always immutable" instead
     of a period-state-dependent edit path. The rejected conditional
     pre-closure edit path is now a bullet in Alternatives considered.
+
+
+### 2026-09-06
+
+- Added `LedgerAccount.parentAccountId` (nullable, self-reference).
+  Resolves the "Rozróżnienie syntetyka/analityka jako osobny wymiar
+  raportowania" (HS-11) item from the Event Storming comparison. Split
+  the concern in two: `parentAccountId` models the static,
+  single-dimension Chart-of-Accounts hierarchy (synthetic → analytic,
+  e.g. `130` → `130-1 mBank`) and ships now, structural only, on the
+  same empty-table-is-cheaper-than-later logic already used for
+  `parentAccountTypeId`. The contextual, multi-dimensional tagging
+  (kontrahent/MPK/rachunek bankowy/środek trwały/waluta) is a
+  different mechanism (`journal_entry_line_dimension`), added to Out
+  of scope, and ships later together with the posting-rules/konto 490
+  engine. Updated Design decisions, Architecture → Entities, Data
+  Models, Implementation Plan, File Manifest, and Out of scope.
+
+
+### 2026-09-06 (cont.)
+
+- Clarified the "Multi-currency FX revaluation and reporting"
+  Out-of-scope bullet (HS: różnice kursowe, Event Storming Sekcja 04):
+  distinguishes transactional exchange-rate differences (already
+  buildable via `currencyId`/`exchangeRate`, no scope change) from
+  period-end balance revaluation (genuinely out of scope, future
+  Multi-Currency spec).
+- Resolved the posting-rules/konto 490 open item (HS-06): stays out
+  of #5663 as its own future spec (single-capability test — #5663
+  works standalone without it; it cannot work without #5663), but is
+  a hard prerequisite for Accounts Payable's *production* completeness
+  once AP ships, not for #5663 itself. Justification: the Event
+  Storming "Spójność P&L" rule (Sekcja 05 — both the 4xx and 5xx P&L
+  variants must return the same net result) requires the 4→5
+  reclassification engine whenever costs are recorded in zespół 4,
+  which AP will do. Sequenced immediately after AP, not blocking AP's
+  own build.
+
+
+### 2026-09-07
+
+- Added `JournalEntryLine.contractorSnapshot` (nullable `json`), a
+  point-in-time audit copy of the counterparty's name/NIP/bank
+  account/verification status at posting time. Resolved while
+  designing `.ai/specs/2026-09-06-contractor-registry.md` (new spec,
+  identified as a missing dependency of Accounts Payable's "Kontrahent
+  jest współdzieloną encją" decision). Avoids an audit gap between AP
+  shipping and the posting-rules/`journal_entry_line_dimension` engine
+  being built later; the Out-of-scope bullet for that table now notes
+  the two are distinct, complementary mechanisms. Updated Design
+  decisions, Architecture → Entities, Data Models, Implementation
+  Plan, File Manifest, and Out of scope.
+- Flagged and closed a compliance gap introduced by the field above:
+  it carries the same PII (name/NIP/bank account) as the `Contractor`
+  entity in `.ai/specs/2026-09-06-contractor-registry.md`, so it needs
+  its own `encryption.ts` declaration in the `ledger` module, following
+  the existing whole-json-column precedent
+  (`messages:message.action_data`/`action_result`). Added to Design
+  decisions, File Manifest, and the Compliance Matrix.
+- Added `LedgerAccountGroup` (new entity) and `LedgerAccountType.
+  accountGroupId` (nullable FK, immutable once posted). Resolved while
+  reviewing Posting Rules Engine's need to detect "zespół 4" postings
+  in real time: parsing a `slug`/account-number convention doesn't
+  generalize past Poland (SKR03, PCG, US GAAP use different schemes),
+  and the platform brief calls for Poland now, other jurisdictions
+  (USA, others) later as plugins. `LedgerAccountGroup` is system
+  reference data seeded per jurisdiction, not tenant-authored — Phase
+  1 seeds only `PL` (zespoły 0–8). Updated Design decisions,
+  Architecture → Entities, Data Models, Commands, Testing Strategy,
+  and File Manifest. Also updated
+  `.ai/specs/2026-09-06-posting-rules-engine.md`'s open item to point
+  at this new field instead of an undesigned slug convention.
+- Corrected `LedgerAccountGroup`'s scoping: an earlier draft of this
+  decision described it as "not tenant/org scoped" (a single table
+  shared across tenants) — this violates core `AGENTS.md` § Never
+  ("Never expose cross-tenant data or omit tenant/organization
+  scoping") and mischaracterized the `currencies` module precedent it
+  cited (`Currency` is itself tenant/org scoped, seeded per
+  tenant/organization via `setup.ts` → `seedDefaults`). Fixed:
+  `LedgerAccountGroup` is now tenant/org scoped like every other
+  entity in this module, seeded via the same `seedDefaults` mechanism.
+  Also flagged and explicitly deferred a new gap this exposed: no
+  mechanism exists anywhere in the system to select a tenant's/
+  organization's accounting jurisdiction (`directory.Tenant`/
+  `Organization` carry no country/locale field) — Phase 1 hardcodes
+  `jurisdiction: 'PL'` for every organization; solving jurisdiction
+  selection is deferred to when USA/other-jurisdiction support is
+  actually built, and will likely require a new field on
+  `directory.Organization` (a shared core entity `ledger` doesn't
+  own). Updated Design decisions, Architecture → Entities, Data
+  Models, Module Setup, File Manifest, and the Compliance Matrix.
+- Added `events.ts` declaring `ledger.journal_entry.posted` (ephemeral),
+  emitted by `postJournalEntry` after commit. Resolved while reviewing
+  Posting Rules Engine's implementation plan: nothing in this spec
+  declared any event, yet a downstream module reacting to every
+  posting is only possible through the platform's mandatory
+  event/subscriber mechanism (`packages/events/AGENTS.md` — direct
+  cross-module calls are forbidden in both directions). `ledger`
+  itself gains no dependency on any consumer — it just declares a
+  domain-lifecycle event about its own entity, the same shape as
+  every other module's `events.ts`. Updated Commands and added a new
+  Architecture → Events subsection, plus File Manifest.
+- Added `JournalEntryLine.organizationId`/`tenantId` (own scope
+  columns). Found while reviewing whether the Final Compliance Report
+  was still accurate: the tenant/org-scoping compliance row listed
+  every entity except `JournalEntryLine`, which relied only on a join
+  through `journalEntryId`. Checked against `sales.SalesInvoiceLine` —
+  the same "line under a parent document" shape — which carries its
+  own `organization_id`/`tenant_id` despite also having a parent FK;
+  `JournalEntryLine` now matches that established convention. Updated
+  Design decisions, Architecture → Entities, Data Models, and the
+  Compliance Matrix.
+- Added an `accountTypeId`-immutability guard to `updateLedgerAccount`,
+  mirroring the existing `normalBalance`/`accountGroupId` guard on
+  `updateLedgerAccountType`. Found while reviewing `LedgerAccount`:
+  `normalBalance`/`accountGroupId` live on the type, not the account
+  or `JournalEntryLine`, so reassigning an account's type after it has
+  posted history would silently reinterpret its past entries. Updated
+  Design decisions, Architecture → Entities, Data Models, Commands,
+  Testing Strategy, and File Manifest.
