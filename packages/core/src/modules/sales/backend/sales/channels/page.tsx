@@ -37,6 +37,7 @@ type ChannelsResponse = {
   items?: Array<Record<string, unknown>>
   total?: number
   totalPages?: number
+  totalIsCapped?: boolean
 }
 
 const PAGE_SIZE = 25
@@ -68,6 +69,7 @@ export default function SalesChannelsPage() {
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [sorting, setSorting] = React.useState<SortingState>([])
   const [search, setSearch] = React.useState('')
   const [isLoading, setLoading] = React.useState(true)
@@ -142,6 +144,7 @@ export default function SalesChannelsPage() {
       setRows(items.map(mapApiChannel))
       setTotal(typeof payload.total === 'number' ? payload.total : items.length)
       setTotalPages(typeof payload.totalPages === 'number' ? payload.totalPages : Math.max(1, Math.ceil(items.length / PAGE_SIZE)))
+      setTotalIsCapped(payload?.totalIsCapped === true)
     } catch (err) {
       logger.error('sales.channels.list', { err })
       flash(t('sales.channels.table.errors.load', 'Failed to load channels.'), 'error')
@@ -230,6 +233,7 @@ export default function SalesChannelsPage() {
             pageSize: PAGE_SIZE,
             total,
             totalPages,
+            totalIsCapped,
             onPageChange: setPage,
           }}
           refreshButton={{

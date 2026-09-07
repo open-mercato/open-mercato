@@ -23,6 +23,15 @@ import {
 } from './notificationRecipients'
 import { assertSafeNotificationHref, sanitizeNotificationActions } from './safeHref'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getNotificationType } from './notification-type-registry'
+import { getNotificationTypeOverrides, type NotificationTypeOverrides } from './typeOverrides'
+import { getNotificationDeliveryStrategies } from './deliveryStrategies'
+import { resolveEffectiveChannels } from './shouldDeliver'
+import {
+  createNotificationPreferenceService,
+  type NotificationPreferenceService,
+} from './notificationPreferenceService'
+import { inAppVisibleFilter, inAppVisibleSql, isInAppVisible } from './notificationVisibility'
 
 const logger = createLogger('notifications').child({ component: 'service' })
 
@@ -83,6 +92,7 @@ function applyNotificationContent(
   input: NotificationContentInput,
   recipientUserId: string,
   ctx: NotificationTenantContext,
+  channels: string[] | null,
 ) {
   const actions = sanitizeNotificationActions(input.actions)
   const linkHref = assertSafeNotificationHref(input.linkHref)
@@ -108,6 +118,7 @@ function applyNotificationContent(
   notification.sourceEntityId = input.sourceEntityId
   notification.linkHref = linkHref
   notification.groupKey = input.groupKey
+  notification.channels = channels
   notification.expiresAt = input.expiresAt ? new Date(input.expiresAt) : null
   notification.tenantId = ctx.tenantId
   notification.organizationId = normalizeOrgScope(ctx.organizationId)
@@ -149,16 +160,21 @@ async function emitNotificationSseEvents(
   eventBus: { emit: (event: string, payload: unknown) => Promise<void> },
   notifications: Notification[],
   ctx: NotificationServiceContext,
-  recipientUserIds: string[],
 ): Promise<void> {
+  // Live bell updates only for notifications actually delivered to the in-app channel; the others
+  // exist as records but must not bump anyone's badge/inbox.
+  const visible = notifications.filter((notification) => isInAppVisible(notification.channels))
+  if (visible.length === 0) return
+
+  const visibleRecipientUserIds = Array.from(new Set(visible.map((n) => n.recipientUserId)))
   await eventBus.emit(NOTIFICATION_SSE_EVENTS.BATCH_CREATED, {
     tenantId: ctx.tenantId,
     organizationId: normalizeOrgScope(ctx.organizationId),
-    recipientUserIds,
-    count: notifications.length,
+    recipientUserIds: visibleRecipientUserIds,
+    count: visible.length,
   })
 
-  for (const notification of notifications) {
+  for (const notification of visible) {
     await eventBus.emit(NOTIFICATION_SSE_EVENTS.CREATED, {
       tenantId: notification.tenantId,
       organizationId: notification.organizationId ?? null,
@@ -173,6 +189,7 @@ async function createOrRefreshNotification(
   input: NotificationContentInput,
   recipientUserId: string,
   ctx: NotificationTenantContext,
+  channels: string[] | null,
 ): Promise<Notification> {
   if (input.groupKey && input.groupKey.trim().length > 0) {
     const orgScope = normalizeOrgScope(ctx.organizationId) ?? 'global'
@@ -196,12 +213,12 @@ async function createOrRefreshNotification(
     })
 
     if (existing) {
-      applyNotificationContent(existing, input, recipientUserId, ctx)
+      applyNotificationContent(existing, input, recipientUserId, ctx, channels)
       return existing
     }
   }
 
-  return buildNotificationEntity(em, input, recipientUserId, ctx)
+  return buildNotificationEntity(em, input, recipientUserId, ctx, channels)
 }
 
 export interface NotificationServiceContext {
@@ -258,25 +275,94 @@ export interface NotificationServiceDeps {
 export function createNotificationService(deps: NotificationServiceDeps): NotificationService {
   const { em: rootEm, eventBus, commandBus, container } = deps
 
+  /**
+   * Resolves the authoritative delivery-channel set for one recipient at create time — the single
+   * gate that folds per-send target, per-type eligibility, registered strategies, and the
+   * recipient's per-channel preferences (`nonOptOut` bypasses opt-out). Stored on the row and
+   * replayed by the dispatcher; `in_app` membership also drives bell/inbox visibility.
+   *
+   * Returns `null` (⇒ "all channels", legacy behavior) when no delivery strategies are registered
+   * (e.g. a minimal bootstrap/test), so notifications never become silently undeliverable/invisible
+   * in an environment that simply hasn't wired the seam.
+   */
+  const resolveChannelsFor = async (
+    content: NotificationContentInput,
+    recipientUserId: string,
+    scopeCtx: NotificationServiceContext,
+    preferences: NotificationPreferenceService = createNotificationPreferenceService({ em: rootEm.fork() }),
+    typeOverrides?: NotificationTypeOverrides | null,
+  ): Promise<string[] | null> => {
+    const registeredChannels = getNotificationDeliveryStrategies().map((strategy) => strategy.id)
+    if (registeredChannels.length === 0) return null
+    // Treat an empty target as "no restriction" (all channels) rather than "no deliverable channel":
+    // a programmatic caller that computed an empty array should not silently black-hole the
+    // notification. The HTTP layer rejects an empty `channels` outright (see validators.ts).
+    const targetChannels = content.channels && content.channels.length > 0 ? content.channels : null
+    const overrides = typeOverrides === undefined
+      ? (await getNotificationTypeOverrides(rootEm.fork(), scopeCtx.tenantId, [content.type])).get(content.type) ?? null
+      : typeOverrides
+    return resolveEffectiveChannels({
+      typeId: content.type,
+      type: getNotificationType(content.type),
+      scope: { tenantId: scopeCtx.tenantId, userId: recipientUserId },
+      targetChannels,
+      registeredChannels,
+      preferences,
+      channelsOverride: overrides?.channels ?? null,
+      nonOptOutOverride: overrides?.nonOptOut ?? null,
+    })
+  }
+
+  /**
+   * Broadcast counterpart of {@link resolveChannelsFor}: resolves the channel set for every recipient
+   * up front, BEFORE the write transaction opens, reusing a single forked EM / preference service
+   * across the whole set. This keeps the preference reads out of the write transaction (matching
+   * `create`, which resolves before its transaction) and avoids one EM fork per recipient on large
+   * role/feature broadcasts.
+   */
+  const resolveChannelsForRecipients = async (
+    content: NotificationContentInput,
+    recipientUserIds: string[],
+    scopeCtx: NotificationServiceContext,
+  ): Promise<Array<{ recipientUserId: string; channels: string[] | null }>> => {
+    const preferences = createNotificationPreferenceService({ em: rootEm.fork() })
+    // Stored overrides are per-type (not per-recipient) — read once for the whole broadcast.
+    const typeOverrides =
+      (await getNotificationTypeOverrides(rootEm.fork(), scopeCtx.tenantId, [content.type])).get(content.type) ?? null
+    const resolved: Array<{ recipientUserId: string; channels: string[] | null }> = []
+    for (const recipientUserId of recipientUserIds) {
+      resolved.push({
+        recipientUserId,
+        channels: await resolveChannelsFor(content, recipientUserId, scopeCtx, preferences, typeOverrides),
+      })
+    }
+    return resolved
+  }
+
   return {
     async create(input, ctx) {
       const { recipientUserId, ...content } = input
+      const channels = await resolveChannelsFor(content, recipientUserId, ctx)
       const writeEm = rootEm.fork()
       const notification = await writeEm.transactional(async (tx) => {
         await assertNotificationRecipientsInScope(tx, [recipientUserId], ctx)
-        const entity = await createOrRefreshNotification(tx, content, recipientUserId, ctx)
+        const entity = await createOrRefreshNotification(tx, content, recipientUserId, ctx, channels)
         await tx.flush()
         return entity
       })
 
       await invalidateNotificationCache(container, ctx, 'created')
+      // Always emit the domain event (drives the deliver subscriber → push/email/…). Only bump the
+      // live in-app bell when this notification is actually visible in-app.
       await emitNotificationCreated(eventBus, notification, ctx)
-      await eventBus.emit(NOTIFICATION_SSE_EVENTS.CREATED, {
-        tenantId: notification.tenantId,
-        organizationId: notification.organizationId ?? null,
-        recipientUserId: notification.recipientUserId,
-        notification: toNotificationDto(notification),
-      })
+      if (isInAppVisible(notification.channels)) {
+        await eventBus.emit(NOTIFICATION_SSE_EVENTS.CREATED, {
+          tenantId: notification.tenantId,
+          organizationId: notification.organizationId ?? null,
+          recipientUserId: notification.recipientUserId,
+          notification: toNotificationDto(notification),
+        })
+      }
 
       return notification
     },
@@ -285,12 +371,13 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
       const recipientUserIds = Array.from(new Set(input.recipientUserIds))
       const { recipientUserIds: _recipientUserIds, ...content } = input
       const notifications: Notification[] = []
+      const resolved = await resolveChannelsForRecipients(content, recipientUserIds, ctx)
       const writeEm = rootEm.fork()
 
       await writeEm.transactional(async (tx) => {
         await assertNotificationRecipientsInScope(tx, recipientUserIds, ctx)
-        for (const recipientUserId of recipientUserIds) {
-          const notification = await createOrRefreshNotification(tx, content, recipientUserId, ctx)
+        for (const { recipientUserId, channels } of resolved) {
+          const notification = await createOrRefreshNotification(tx, content, recipientUserId, ctx, channels)
           notifications.push(notification)
         }
         await tx.flush()
@@ -298,7 +385,7 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
 
       await invalidateNotificationCache(container, ctx, 'created')
       await emitNotificationCreatedBatch(eventBus, notifications, ctx)
-      await emitNotificationSseEvents(eventBus, notifications, ctx, recipientUserIds)
+      await emitNotificationSseEvents(eventBus, notifications, ctx)
 
       return notifications
     },
@@ -315,11 +402,12 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
       const { roleId: _roleId, ...content } = input
       const notifications: Notification[] = []
       const uniqueRecipientUserIds = Array.from(new Set(recipientUserIds))
+      const resolved = await resolveChannelsForRecipients(content, uniqueRecipientUserIds, ctx)
       const writeEm = rootEm.fork()
 
       await writeEm.transactional(async (tx) => {
-        for (const recipientUserId of uniqueRecipientUserIds) {
-          const notification = await createOrRefreshNotification(tx, content, recipientUserId, ctx)
+        for (const { recipientUserId, channels } of resolved) {
+          const notification = await createOrRefreshNotification(tx, content, recipientUserId, ctx, channels)
           notifications.push(notification)
         }
         await tx.flush()
@@ -327,7 +415,7 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
 
       await invalidateNotificationCache(container, ctx, 'created')
       await emitNotificationCreatedBatch(eventBus, notifications, ctx)
-      await emitNotificationSseEvents(eventBus, notifications, ctx, uniqueRecipientUserIds)
+      await emitNotificationSseEvents(eventBus, notifications, ctx)
 
       return notifications
     },
@@ -422,11 +510,12 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
       } = input
       const notifications: Notification[] = []
       const uniqueRecipientUserIds = Array.from(new Set(authorizedRecipientUserIds))
+      const resolved = await resolveChannelsForRecipients(content, uniqueRecipientUserIds, ctx)
       const writeEm = rootEm.fork()
 
       await writeEm.transactional(async (tx) => {
-        for (const recipientUserId of uniqueRecipientUserIds) {
-          const notification = await createOrRefreshNotification(tx, content, recipientUserId, ctx)
+        for (const { recipientUserId, channels } of resolved) {
+          const notification = await createOrRefreshNotification(tx, content, recipientUserId, ctx, channels)
           notifications.push(notification)
         }
         await tx.flush()
@@ -434,7 +523,7 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
 
       await invalidateNotificationCache(container, ctx, 'created')
       await emitNotificationCreatedBatch(eventBus, notifications, ctx)
-      await emitNotificationSseEvents(eventBus, notifications, ctx, uniqueRecipientUserIds)
+      await emitNotificationSseEvents(eventBus, notifications, ctx)
 
       return notifications
     },
@@ -467,6 +556,12 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
           .where('recipient_user_id' as any, '=', ctx.userId as any)
           .where('tenant_id' as any, '=', ctx.tenantId)
           .where('status' as any, '=', 'unread')
+          // Only in-app-visible rows count toward the badge (see getUnreadCount),
+          // so "mark all as read" must scope to the SAME set — otherwise it flips
+          // push/email-only rows the user never saw and SSE-broadcasts a read for
+          // notifications that were never in the bell, inflating the returned
+          // count past what the badge showed.
+          .where(inAppVisibleSql() as any)
         if (ctx.organizationId) {
           chain = chain.where('organization_id' as any, '=', ctx.organizationId)
         }
@@ -707,7 +802,10 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
         recipientUserId: ctx.userId,
         tenantId: ctx.tenantId,
         status: 'unread',
-        ...buildNotificationReadScopeWhere(ctx),
+        $and: [
+          buildNotificationReadScopeWhere(ctx),
+          inAppVisibleFilter(),
+        ],
       })
     },
 
@@ -716,7 +814,10 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
       const filters: Record<string, unknown> = {
         recipientUserId: ctx.userId,
         tenantId: ctx.tenantId,
-        ...buildNotificationReadScopeWhere(ctx),
+        $and: [
+          buildNotificationReadScopeWhere(ctx),
+          inAppVisibleFilter(),
+        ],
       }
 
       if (since) {
@@ -732,7 +833,10 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
           recipientUserId: ctx.userId,
           tenantId: ctx.tenantId,
           status: 'unread',
-          ...buildNotificationReadScopeWhere(ctx),
+          $and: [
+            buildNotificationReadScopeWhere(ctx),
+            inAppVisibleFilter(),
+          ],
         }),
       ])
 

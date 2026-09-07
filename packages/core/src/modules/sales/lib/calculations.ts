@@ -77,6 +77,35 @@ function resolveAdjustmentAmounts(
   })
 }
 
+// `discount_amount` stores the discount for the WHOLE line, while
+// `discount_percent` records the operator's intent. The percentage therefore
+// wins whenever it is set: a stored amount is only ever its cached result, and
+// because the column is NOT NULL DEFAULT '0' a stored 0 cannot be told apart
+// from "no discount supplied" — so it counts as absent rather than as a
+// suppressing value. That is what makes recalculation idempotent, and what lets
+// a row whose amount the old engine dropped or re-inflated heal itself on the
+// next pass. Spec: .ai/specs/2026-08-07-sales-line-discount-amount-contract.md.
+function resolveLineDiscountTotal(
+  line: SalesLineSnapshot,
+  netSubtotalBeforeDiscount: number,
+  quantity: number,
+): number {
+  const percent = toNumber(line.discountPercent, 0)
+  if (line.discountPercent !== null && line.discountPercent !== undefined && percent !== 0) {
+    return (percent / 100) * netSubtotalBeforeDiscount
+  }
+
+  const amount = toNumber(line.discountAmount, 0)
+  if (line.discountAmount === null || line.discountAmount === undefined || amount === 0) return 0
+
+  // A snapshot rebuilt from a persisted row already holds a line total, so it
+  // is never multiplied out again. Anything else came from a caller and keeps
+  // the per-unit meaning the API has always documented unless the caller says
+  // otherwise.
+  if (line.discountAmountFromStoredRow === true) return amount
+  return line.discountAmountBasis === 'line' ? amount : amount * quantity
+}
+
 function buildBaseLineResult(line: SalesLineSnapshot): SalesLineCalculationResult {
   const quantity = Math.max(toNumber(line.quantity, 0), 0)
   const taxRate = toNumber(line.taxRate, 0) / 100
@@ -85,14 +114,11 @@ function buildBaseLineResult(line: SalesLineSnapshot): SalesLineCalculationResul
     (line.unitPriceGross !== null && line.unitPriceGross !== undefined
       ? toNumber(line.unitPriceGross) / (1 + taxRate)
       : 0)
-  const discountPerUnit =
-    line.discountAmount ??
-    (line.discountPercent !== null && line.discountPercent !== undefined
-      ? toNumber(line.discountPercent, 0) / 100 * toNumber(unitNet, 0)
-      : 0)
-
   const netSubtotalBeforeDiscount = toNumber(unitNet, 0) * quantity
-  const discountTotal = Math.min(Math.max(discountPerUnit * quantity, 0), netSubtotalBeforeDiscount)
+  const discountTotal = Math.min(
+    Math.max(resolveLineDiscountTotal(line, netSubtotalBeforeDiscount, quantity), 0),
+    netSubtotalBeforeDiscount,
+  )
   const netSubtotal = Math.max(netSubtotalBeforeDiscount - discountTotal, 0)
   const explicitTaxAmount = line.taxAmount !== null && line.taxAmount !== undefined
   let taxAmount = explicitTaxAmount

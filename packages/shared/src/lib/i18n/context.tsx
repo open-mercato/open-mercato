@@ -1,5 +1,5 @@
 "use client"
-import { createContext, useContext, useMemo, type ReactNode } from 'react'
+import { createContext, useContext, useMemo, type PropsWithChildren } from 'react'
 import type { Locale } from './config'
 
 export type Dict = Record<string, string>
@@ -48,7 +48,7 @@ function format(template: string, params?: TranslateParams) {
   })
 }
 
-export function I18nProvider({ children, locale, dict, localeLocked = false }: { children: ReactNode; locale: Locale; dict: Dict; localeLocked?: boolean }) {
+export function I18nProvider({ children, locale, dict, localeLocked = false }: PropsWithChildren<{ locale: Locale; dict: Dict; localeLocked?: boolean }>) {
   const value = useMemo<I18nContextValue>(() => ({
     locale,
     localeLocked,

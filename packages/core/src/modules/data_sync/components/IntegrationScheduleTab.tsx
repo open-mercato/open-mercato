@@ -23,6 +23,12 @@ import { Switch } from '@open-mercato/ui/primitives/switch'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { getSyncSummaryVariant } from '../lib/syncRunStatus'
+import type { RunParameter } from '../lib/adapter'
+import { getApplicableRunParameters } from '../lib/run-parameters'
+import {
+  buildDefaultRunParameterValues,
+  hasRequiredRunParameterWithoutDefault,
+} from './RunParameterFields'
 import {
   CalendarClock,
   Play,
@@ -40,6 +46,7 @@ type SyncOption = {
   runMode?: 'generic' | 'provider'
   canStartRun?: boolean
   supportedEntities: string[]
+  runParameters?: RunParameter[]
   hasCredentials: boolean
   isEnabled: boolean
 }
@@ -223,29 +230,35 @@ export function IntegrationScheduleTab(props: IntegrationScheduleTabProps) {
       return
     }
 
+    // This table has no room for a parameter form, so a row run submits the
+    // adapter's declared defaults. A parameter the operator must fill in has no
+    // default to send, so route them to the Data Sync dashboard instead of
+    // letting the run API reject the request.
+    const runParameters = getApplicableRunParameters(option?.runParameters, direction, entityType)
+    if (hasRequiredRunParameterWithoutDefault(runParameters)) {
+      flash(t('data_sync.integrationTab.parametersRequired', 'This run needs parameters. Start it from the Data Sync dashboard.'), 'error')
+      return
+    }
+
     setRunningKey(scheduleKey)
     try {
       const scheduleState = schedules[scheduleKey] ?? buildDefaultScheduleState(entityType)
+      const requestBody: Record<string, unknown> = {
+        integrationId: props.integrationId,
+        entityType,
+        direction,
+        fullSync: scheduleState.fullSync,
+        batchSize: 100,
+      }
+      if (runParameters.length > 0) requestBody.parameters = buildDefaultRunParameterValues(runParameters)
       const call = await runMutation({
         // optimistic-lock-exempt: starts a new sync run (create), not a concurrent record edit
         operation: () => apiCall<{ id: string }>('/api/data_sync/run', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            integrationId: props.integrationId,
-            entityType,
-            direction,
-            fullSync: scheduleState.fullSync,
-            batchSize: 100,
-          }),
+          body: JSON.stringify(requestBody),
         }, { fallback: null }),
-        mutationPayload: {
-          integrationId: props.integrationId,
-          entityType,
-          direction,
-          fullSync: scheduleState.fullSync,
-          batchSize: 100,
-        },
+        mutationPayload: requestBody,
         context: {
           operation: 'create',
           actionId: 'start-sync-run',
@@ -264,7 +277,7 @@ export function IntegrationScheduleTab(props: IntegrationScheduleTabProps) {
     } finally {
       setRunningKey(null)
     }
-  }, [option?.canStartRun, props.hasCredentials, props.integrationId, props.isEnabled, runMutation, schedules, t])
+  }, [option?.canStartRun, option?.runParameters, props.hasCredentials, props.integrationId, props.isEnabled, runMutation, schedules, t])
 
   const handleSaveSchedule = React.useCallback(async (entityType: string, direction: 'import' | 'export', scheduleKey: string) => {
     const scheduleState = schedules[scheduleKey] ?? buildDefaultScheduleState(entityType)

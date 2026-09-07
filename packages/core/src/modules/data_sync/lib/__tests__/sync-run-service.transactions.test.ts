@@ -143,7 +143,7 @@ describe('SyncRunService.commitBatchProgress — ownership fencing against a con
     mockLookups(run, { cursor: 'old-cursor' })
 
     const service = createSyncRunService(em as any)
-    await service.commitBatchProgress('run-1', { createdCount: 1, batchesCompleted: 1 }, 'new-cursor', SCOPE, 2)
+    await service.commitBatchProgress('run-1', { createdCount: 1, batchesCompleted: 1 }, 'new-cursor', SCOPE, { expectedBatchesCompleted: 2 })
 
     expect(em.nativeUpdate).toHaveBeenCalledWith(
       SyncRun,
@@ -167,7 +167,7 @@ describe('SyncRunService.commitBatchProgress — ownership fencing against a con
     mockLookups(run, null)
 
     const service = createSyncRunService(em as any)
-    await service.commitBatchProgress('run-1', { batchesCompleted: 1 }, 'first-cursor', SCOPE, 0)
+    await service.commitBatchProgress('run-1', { batchesCompleted: 1 }, 'first-cursor', SCOPE, { expectedBatchesCompleted: 0 })
 
     expect(em.nativeUpdate).toHaveBeenCalledWith(
       SyncRun,
@@ -185,7 +185,7 @@ describe('SyncRunService.commitBatchProgress — ownership fencing against a con
 
     const service = createSyncRunService(em as any)
     await expect(
-      service.commitBatchProgress('run-1', { createdCount: 1, batchesCompleted: 1 }, 'new-cursor', SCOPE, 2),
+      service.commitBatchProgress('run-1', { createdCount: 1, batchesCompleted: 1 }, 'new-cursor', SCOPE, { expectedBatchesCompleted: 2 }),
     ).rejects.toBeInstanceOf(SyncRunOwnershipConflictError)
 
     expect(em.rollback).toHaveBeenCalledTimes(1)
@@ -203,7 +203,7 @@ describe('SyncRunService.commitBatchProgress — ownership fencing against a con
 
     const service = createSyncRunService(em as any)
     await expect(
-      service.commitBatchProgress('run-1', { batchesCompleted: 1 }, 'repeated-cursor', SCOPE, 2),
+      service.commitBatchProgress('run-1', { batchesCompleted: 1 }, 'repeated-cursor', SCOPE, { expectedBatchesCompleted: 2 }),
     ).rejects.toBeInstanceOf(SyncRunOwnershipConflictError)
 
     expect(em.rollback).toHaveBeenCalledTimes(1)
@@ -216,7 +216,7 @@ describe('SyncRunService.commitBatchProgress — ownership fencing against a con
 
     const service = createSyncRunService(em as any)
     await expect(
-      service.commitBatchProgress('run-1', { createdCount: 1 }, 'new-cursor', SCOPE, 2),
+      service.commitBatchProgress('run-1', { createdCount: 1 }, 'new-cursor', SCOPE, { expectedBatchesCompleted: 2 }),
     ).rejects.toThrow(/must advance batchesCompleted/)
 
     expect(em.nativeUpdate).not.toHaveBeenCalled()

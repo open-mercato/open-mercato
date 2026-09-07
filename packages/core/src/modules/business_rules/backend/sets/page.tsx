@@ -35,6 +35,7 @@ type RuleSetsResponse = {
   items: RuleSet[]
   total: number
   totalPages: number
+  totalIsCapped?: boolean
 }
 
 export default function RuleSetsListPage() {
@@ -42,6 +43,7 @@ export default function RuleSetsListPage() {
   const [pageSize] = React.useState(20)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const t = useT()
   const router = useRouter()
   const queryClient = useQueryClient()
@@ -72,6 +74,7 @@ export default function RuleSetsListPage() {
       if (response) {
         setTotal(response.total || 0)
         setTotalPages(response.totalPages || 1)
+        setTotalIsCapped(response?.totalIsCapped === true)
       }
 
       return response?.items || []
@@ -258,7 +261,7 @@ export default function RuleSetsListPage() {
               createLabel={t('business_rules.sets.actions.create')}
             />
           )}
-          pagination={{ page, pageSize, total, totalPages, onPageChange: setPage }}
+          pagination={{ page, pageSize, total, totalPages, totalIsCapped, onPageChange: setPage }}
         />
       </PageBody>
       {ConfirmDialogElement}

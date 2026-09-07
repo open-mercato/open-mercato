@@ -12,7 +12,7 @@ import {
   StickyNote,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { KeyValueList, RecordCardShell, TagRow, statusToTagVariant } from './RecordCardShell'
 import type { ActivityRecordPayload } from './types'
 import { formatDate } from '../../utils/format'
@@ -33,12 +33,13 @@ export interface ActivityCardProps extends ActivityRecordPayload {}
 
 export function ActivityCard(props: ActivityCardProps) {
   const t = useT()
+  const locale = useLocale()
   const Icon = pickActivityIcon(props.type)
   const status = props.status
     ? { label: props.status, variant: statusToTagVariant(props.status) }
     : null
-  const dueDate = formatDate(props.dueDate)
-  const completedAt = formatDate(props.completedAt)
+  const dueDate = formatDate(props.dueDate, locale)
+  const completedAt = formatDate(props.completedAt, locale)
 
   const items = [
     props.type ? { label: t('ai_assistant.chat.records.fields.type', 'Type'), value: props.type } : null,

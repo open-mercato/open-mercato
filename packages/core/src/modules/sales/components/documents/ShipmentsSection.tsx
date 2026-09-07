@@ -10,7 +10,7 @@ import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/u
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import {
   emitSalesDocumentTotalsRefresh,
@@ -41,11 +41,11 @@ type SalesShipmentsSectionProps = {
   onAddComment?: (body: string) => Promise<void>
 }
 
-function formatDisplayDate(value: string | null | undefined): string | null {
+export function formatDisplayDate(value: string | null | undefined, locale?: string): string | null {
   if (!value) return null
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return null
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(date)
+  return new Intl.DateTimeFormat(locale, { dateStyle: 'medium' }).format(date)
 }
 
 const formatShipmentAddress = (metadata?: Record<string, unknown> | null): string | null => {
@@ -123,6 +123,7 @@ export function SalesShipmentsSection({
   onAddComment,
 }: SalesShipmentsSectionProps) {
   const t = useT()
+  const locale = useLocale()
   const { organizationId, tenantId } = useOrganizationScopeDetail()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const resolvedOrganizationId = organizationIdProp ?? organizationId ?? null
@@ -486,8 +487,8 @@ export function SalesShipmentsSection({
       ) : (
         <div className="grid gap-3 md:grid-cols-2">
           {shipments.map((shipment) => {
-            const shippedAt = formatDisplayDate(shipment.shippedAt)
-            const deliveredAt = formatDisplayDate(shipment.deliveredAt)
+            const shippedAt = formatDisplayDate(shipment.shippedAt, locale)
+            const deliveredAt = formatDisplayDate(shipment.deliveredAt, locale)
             const addressSummary = formatShipmentAddress(shipment.metadata)
             const statusLabel =
               shipment.statusLabel ??

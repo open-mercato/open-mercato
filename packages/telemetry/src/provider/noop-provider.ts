@@ -13,6 +13,7 @@ import type {
 export const NOOP_SPAN: Span = {
   setAttribute() {},
   setAttributes() {},
+  updateName() {},
   recordException() {},
   setStatus() {},
   end() {},

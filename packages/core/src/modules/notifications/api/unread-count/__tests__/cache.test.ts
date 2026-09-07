@@ -1,6 +1,7 @@
 /** @jest-environment node */
 
 import { createHash } from 'node:crypto'
+import { inAppVisibleFilter } from '../../../lib/notificationVisibility'
 
 const tenantId = '11111111-1111-4111-8111-111111111111'
 const orgId = '22222222-2222-4222-8222-222222222222'
@@ -105,9 +106,14 @@ describe('GET /api/notifications/unread-count caching', () => {
       recipientUserId: userId,
       tenantId,
       status: 'unread',
-      $or: [
-        { organizationId: { $in: [orgId] } },
-        { organizationId: null },
+      $and: [
+        {
+          $or: [
+            { organizationId: { $in: [orgId] } },
+            { organizationId: null },
+          ],
+        },
+        inAppVisibleFilter(),
       ],
     })
   })
@@ -185,6 +191,7 @@ describe('GET /api/notifications/unread-count caching', () => {
       recipientUserId: userId,
       tenantId,
       status: 'unread',
+      $and: [{}, inAppVisibleFilter()],
     })
   })
 
@@ -209,8 +216,8 @@ describe('GET /api/notifications/unread-count caching', () => {
     expect(count).toHaveBeenCalledWith(expect.anything(), {
       recipientUserId: userId,
       tenantId,
-      organizationId: null,
       status: 'unread',
+      $and: [{ organizationId: null }, inAppVisibleFilter()],
     })
   })
 

@@ -11,6 +11,7 @@ const mockEmitDataSyncEvent = jest.fn(async () => undefined)
 const mockRefreshCoverageSnapshot = jest.fn(async () => undefined)
 
 jest.mock('../adapter-registry', () => ({
+  ...jest.requireActual('../adapter-registry'),
   getDataSyncAdapter: (...args: unknown[]) => mockGetDataSyncAdapter(...args),
 }))
 
@@ -41,6 +42,7 @@ function createProgressService(): ProgressService {
   return {
     startJob: jest.fn(async () => undefined),
     isCancellationRequested: jest.fn(async () => false),
+    getJob: jest.fn(async () => null),
     updateProgress: jest.fn(async () => undefined),
     completeJob: jest.fn(async () => undefined),
     failJob: jest.fn(async () => undefined),
@@ -152,6 +154,9 @@ describe('data sync engine forwards run context to adapters', () => {
     expect(streamImport).toHaveBeenCalledWith(expect.objectContaining({
       entityType: 'customers.person',
       runId: 'run-import-1',
+      // A run with no persisted parameters still hands the adapter an object,
+      // matching the documented StreamImportInput.parameters contract.
+      parameters: {},
       mapping: {
         entityType: 'customers.person',
         matchStrategy: 'externalId',
@@ -309,6 +314,60 @@ describe('data sync engine forwards run context to adapters', () => {
     expect(streamExport).toHaveBeenCalledWith(expect.objectContaining({
       entityType: 'customers.person',
       runId: 'run-export-1',
+      parameters: {},
+    }))
+  })
+
+  it('forwards the run parameters persisted at launch to the import adapter', async () => {
+    const streamImport = jest.fn(async function* () {
+      yield {
+        items: [],
+        cursor: 'cursor-1',
+        hasMore: false,
+        batchIndex: 0,
+      }
+    })
+
+    mockGetDataSyncAdapter.mockReturnValue({
+      providerKey: 'sync_excel',
+      direction: 'import',
+      supportedEntities: ['customers.person'],
+      streamImport,
+      getMapping: jest.fn(async () => ({
+        entityType: 'customers.person',
+        matchStrategy: 'externalId',
+        fields: [],
+      })),
+    })
+
+    const engine = createSyncEngine({
+      em: {} as EntityManager,
+      syncRunService: createSyncRunService({
+        id: 'run-import-params',
+        integrationId: 'sync_excel',
+        entityType: 'customers.person',
+        direction: 'import',
+        status: 'pending',
+        cursor: null,
+        progressJobId: null,
+        parameters: { dryRun: true, startId: 900000 },
+      }),
+      integrationCredentialsService: {
+        resolve: jest.fn(async () => ({})),
+      } as unknown as CredentialsService,
+      integrationLogService: {
+        write: jest.fn(async () => undefined),
+      } as unknown as IntegrationLogService,
+      integrationStateService: {
+        upsert: jest.fn(async () => undefined),
+      } as any,
+      progressService: createProgressService(),
+    })
+
+    await engine.runImport('run-import-params', 100, createScope())
+
+    expect(streamImport).toHaveBeenCalledWith(expect.objectContaining({
+      parameters: { dryRun: true, startId: 900000 },
     }))
   })
 
@@ -440,7 +499,7 @@ describe('data sync engine forwards run context to adapters', () => {
       expect.objectContaining({ updatedCount: 1, batchesCompleted: 1 }),
       'checkpoint-2',
       createScope(),
-      4,
+      { expectedBatchesCompleted: 4, persistSharedCursor: true },
     )
   })
 })
@@ -518,7 +577,7 @@ describe('data sync engine fences cursor commits against a concurrent delivery',
 
     await buildEngine(syncRunService).runImport('run-chain', 100, createScope())
 
-    expect(commitBatchProgress.mock.calls.map((call) => [call[2], call[4]])).toEqual([
+    expect(commitBatchProgress.mock.calls.map((call) => [call[2], call[4]?.expectedBatchesCompleted])).toEqual([
       ['c1', 0],
       ['c2', 1],
     ])
@@ -551,7 +610,7 @@ describe('data sync engine fences cursor commits against a concurrent delivery',
 
     await buildEngine(syncRunService).runImport('run-repeat', 100, createScope())
 
-    expect(commitBatchProgress.mock.calls.map((call) => call[4])).toEqual([0, 1])
+    expect(commitBatchProgress.mock.calls.map((call) => call[4]?.expectedBatchesCompleted)).toEqual([0, 1])
   })
 
   it('yields the run instead of failing it when another worker already advanced it', async () => {

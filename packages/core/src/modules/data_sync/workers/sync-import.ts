@@ -7,6 +7,7 @@ import {
   DATA_SYNC_LOCK_DURATION_MS,
   DATA_SYNC_MAX_STALLED_COUNT,
 } from '../lib/queue-policy'
+import { failAbandonedRun } from '../lib/abandoned-run'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('data_sync').child({ component: 'sync-import' })
@@ -27,6 +28,9 @@ export const metadata: WorkerMeta = {
   concurrency: 5,
   lockDuration: DATA_SYNC_LOCK_DURATION_MS,
   maxStalledCount: DATA_SYNC_MAX_STALLED_COUNT,
+  // Declared on the worker, not on the enqueueing queue: the abandonment this reports is a worker
+  // restart, and the process that restarts never constructs the producer's queue instance.
+  onJobAbandoned: failAbandonedRun,
 }
 
 type HandlerContext = JobContext & {

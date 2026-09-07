@@ -63,6 +63,27 @@ export const upgradeActions: UpgradeActionDefinition[] = [
     },
   },
   {
+    id: 'devices.seed-push-token-encryption-map',
+    version: '0.6.6',
+    messageKey: 'configs.upgrades.devicesPushTokenEncryption.message',
+    ctaKey: 'configs.upgrades.devicesPushTokenEncryption.cta',
+    successKey: 'configs.upgrades.devicesPushTokenEncryption.success',
+    loadingKey: 'configs.upgrades.devicesPushTokenEncryption.loading',
+    // Encryption maps are seeded once at tenant creation (`entities seed-encryption`), so a tenant
+    // that predates the devices push-token feature has no `devices:user_device` map row. Without it
+    // `encryptEntityPayload` no-ops and `push_token` is written as PLAINTEXT (the map is a declaration
+    // of which fields to encrypt; the tenant DEK still drives the actual crypto, so seeding it is safe
+    // even when encryption is currently disabled — it only takes effect once encryption is on).
+    // Lazy-imported so configs stays decoupled from devices/entities (mirrors the customers action).
+    run: async ({ em, tenantId, organizationId }) => {
+      const [{ default: devicesEncryptionMaps }, { upsertEncryptionMapSpecs }] = await Promise.all([
+        import('@open-mercato/core/modules/devices/encryption'),
+        import('@open-mercato/core/modules/entities/cli'),
+      ])
+      await upsertEncryptionMapSpecs(em, tenantId, organizationId ?? null, devicesEncryptionMaps)
+    },
+  },
+  {
     id: 'customers.seed-interaction-statuses',
     version: '0.6.5',
     messageKey: 'customers.config.upgradeActions.interactionStatuses.message',

@@ -301,7 +301,7 @@ describe('customers deals map route', () => {
       'customers:customer_deal',
       expect.objectContaining({
         filters: expect.objectContaining({
-          status: { $in: ['open', 'win'] },
+          status: { $in: ['open', 'win', 'won'] },
           owner_user_id: { $in: [ownerUserId, userId] },
         }),
       }),
@@ -319,7 +319,7 @@ describe('customers deals map route', () => {
     expect(queryMock).toHaveBeenCalledWith(
       'customers:customer_deal',
       expect.objectContaining({
-        filters: expect.objectContaining({ status: { $in: ['open', 'win'] } }),
+        filters: expect.objectContaining({ status: { $in: ['open', 'win', 'won'] } }),
       }),
     )
   })

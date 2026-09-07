@@ -1,7 +1,7 @@
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { isEnforcementDeadlineOverdue } from '../services/MfaEnforcementService'
-import { readSecurityModuleConfig } from './security-config'
+import { emitMfaEmergencyBypassActiveWarning, readSecurityModuleConfig } from './security-config'
 
 const MFA_ENROLLMENT_PATH = '/backend/profile/security/mfa'
 const logger = createLogger('security').child({ component: 'mfa-enforcement-redirect' })
@@ -93,11 +93,20 @@ export async function resolveMfaEnrollmentRedirect(args: {
   if (!auth || typeof auth.sub !== 'string' || auth.sub.length === 0) return null
   if (auth.mfa_pending === true) return null
   if (isExemptPath(pathname)) return null
-  if (readSecurityModuleConfig().mfa.emergencyBypass) return null
+
+  const emergencyBypass = readSecurityModuleConfig().mfa.emergencyBypass
 
   const enforcementService = resolveEnforcementService(container)
   if (!enforcementService.service) {
     if (!canFailClosed(auth)) return null
+    if (emergencyBypass) {
+      emitMfaEmergencyBypassActiveWarning('mfa-enrollment-redirect bypassed', {
+        userId: auth.sub,
+        pathname,
+        reason: 'enforcement-service-unavailable',
+      })
+      return null
+    }
     logger.error('Unable to resolve MFA enforcement service; redirecting to enrollment', {
       err: enforcementService.error,
     })
@@ -111,9 +120,28 @@ export async function resolveMfaEnrollmentRedirect(args: {
     const deadlineState = resolveDeadlineRedirectState(compliance.deadline)
     if (!deadlineState.shouldRedirect) return null
 
+    if (emergencyBypass) {
+      emitMfaEmergencyBypassActiveWarning('mfa-enrollment-redirect bypassed', {
+        userId: auth.sub,
+        pathname,
+        enforced: compliance.enforced,
+        compliant: compliance.compliant,
+        overdue: deadlineState.overdue,
+      })
+      return null
+    }
+
     return createEnrollmentRedirect(pathname, deadlineState.overdue)
   } catch (error) {
     if (canFailClosed(auth)) {
+      if (emergencyBypass) {
+        emitMfaEmergencyBypassActiveWarning('mfa-enrollment-redirect bypassed', {
+          userId: auth.sub,
+          pathname,
+          reason: 'compliance-check-failed',
+        })
+        return null
+      }
       logger.error('Unable to verify MFA enforcement compliance; redirecting to enrollment', { err: error })
       return createEnrollmentRedirect(pathname)
     }

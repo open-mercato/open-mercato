@@ -3,6 +3,8 @@ import type { NotificationTypeDefinition } from '@open-mercato/shared/modules/no
 export const notificationTypes: NotificationTypeDefinition[] = [
   {
     type: 'auth.password_reset.requested',
+    // Ships without push — operators re-enable it per type from the Notification Delivery settings.
+    channels: ['in_app', 'email'],
     module: 'auth',
     titleKey: 'auth.notifications.passwordReset.requested.title',
     bodyKey: 'auth.notifications.passwordReset.requested.body',
@@ -22,6 +24,8 @@ export const notificationTypes: NotificationTypeDefinition[] = [
   },
   {
     type: 'auth.password_reset.completed',
+    // Ships without push — operators re-enable it per type from the Notification Delivery settings.
+    channels: ['in_app', 'email'],
     module: 'auth',
     titleKey: 'auth.notifications.passwordReset.completed.title',
     bodyKey: 'auth.notifications.passwordReset.completed.body',
@@ -32,11 +36,15 @@ export const notificationTypes: NotificationTypeDefinition[] = [
   },
   {
     type: 'auth.account.locked',
+    // Ships without push — operators re-enable it per type from the Notification Delivery settings.
+    channels: ['in_app', 'email'],
     module: 'auth',
     titleKey: 'auth.notifications.account.locked.title',
     bodyKey: 'auth.notifications.account.locked.body',
     icon: 'lock',
     severity: 'warning',
+    // Security alert — the user must not be able to silence it.
+    nonOptOut: true,
     actions: [
       {
         id: 'contact_support',
@@ -50,11 +58,15 @@ export const notificationTypes: NotificationTypeDefinition[] = [
   },
   {
     type: 'auth.login.new_device',
+    // Ships without push — operators re-enable it per type from the Notification Delivery settings.
+    channels: ['in_app', 'email'],
     module: 'auth',
     titleKey: 'auth.notifications.login.newDevice.title',
     bodyKey: 'auth.notifications.login.newDevice.body',
     icon: 'smartphone',
     severity: 'info',
+    // Security alert — the user must not be able to silence it.
+    nonOptOut: true,
     actions: [
       {
         id: 'view_sessions',
@@ -69,6 +81,8 @@ export const notificationTypes: NotificationTypeDefinition[] = [
   },
   {
     type: 'auth.role.assigned',
+    // Ships without push — operators re-enable it per type from the Notification Delivery settings.
+    channels: ['in_app', 'email'],
     module: 'auth',
     titleKey: 'auth.notifications.role.assigned.title',
     bodyKey: 'auth.notifications.role.assigned.body',
@@ -88,6 +102,8 @@ export const notificationTypes: NotificationTypeDefinition[] = [
   },
   {
     type: 'auth.role.revoked',
+    // Ships without push — operators re-enable it per type from the Notification Delivery settings.
+    channels: ['in_app', 'email'],
     module: 'auth',
     titleKey: 'auth.notifications.role.revoked.title',
     bodyKey: 'auth.notifications.role.revoked.body',

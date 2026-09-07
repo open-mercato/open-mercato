@@ -3,6 +3,7 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { isUnrestrictedOrganizationScope } from '@open-mercato/shared/lib/auth/organizationAccess'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import { createCustomersCrudOpenApi, createPagedListResponseSchema } from '../../openapi'
@@ -40,11 +41,30 @@ const MERGED_TASK_FETCH_CAP = 2000
 export async function GET(request: Request): Promise<Response> {
   const { translate } = await resolveTranslations()
   try {
-    const { auth, em, organizationIds, container, selectedOrganizationId } =
+    const { auth, em, organizationIds, container, selectedOrganizationId, scope } =
       await resolveCustomersRequestContext(request)
     const query = querySchema.parse(Object.fromEntries(new URL(request.url).searchParams))
     const flags = await resolveCustomerInteractionFeatureFlags(container, auth.tenantId)
     const exportAll = parseBooleanToken(query.all) === true
+    const isUnrestricted = isUnrestrictedOrganizationScope({
+      isSuperAdmin: auth.isSuperAdmin === true,
+      allowedOrganizationIds: scope?.allowedIds,
+    })
+    if (!isUnrestricted && (!organizationIds || organizationIds.length === 0)) {
+      logger.warn('customers.interactions.tasks.list collapsed organization scope', {
+        tenantId: auth.tenantId,
+        organizationIds,
+        selectedId: scope?.selectedId ?? null,
+        allowedIdsCount: scope?.allowedIds?.length ?? null,
+      })
+      return NextResponse.json({
+        items: [],
+        total: 0,
+        page: exportAll ? 1 : query.page,
+        pageSize: exportAll ? 0 : query.pageSize,
+        totalPages: 1,
+      })
+    }
     const search = normalizeTodoSearch(query.search)
     const queryEngine = container.resolve('queryEngine') as QueryEngine
 
@@ -59,6 +79,7 @@ export async function GET(request: Request): Promise<Response> {
           entityId: query.entityId,
           pagination: exportAll ? null : { page: query.page, pageSize: query.pageSize },
           searchText: search,
+          isUnrestricted,
         },
       )
       const total = canonical.total
@@ -80,6 +101,7 @@ export async function GET(request: Request): Promise<Response> {
     const [legacyRows, canonicalRows] = await Promise.all([
       listLegacyTodoRows(em, queryEngine, auth.tenantId, organizationIds, query.entityId, {
         limit: legacyWindow,
+        isUnrestricted,
       }),
       listCanonicalTodoRows(
         em,
@@ -91,6 +113,7 @@ export async function GET(request: Request): Promise<Response> {
           entityId: query.entityId,
           includeDeleted: true,
           limit: legacyWindow,
+          isUnrestricted,
         },
       ),
     ])

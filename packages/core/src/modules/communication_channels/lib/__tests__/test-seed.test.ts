@@ -1,5 +1,6 @@
 import {
   TEST_CHANNEL_SEEDING_ENV,
+  TEST_SEED_CHAT_PROVIDER_KEY,
   TEST_SEED_PROVIDER_KEY,
   ensureTestSeedAdapterRegistered,
   isTestChannelSeedingEnabled,
@@ -44,6 +45,43 @@ describe('communication_channels test-seed gate', () => {
       clearChannelAdapters()
       ensureTestSeedAdapterRegistered()
       expect(hasChannelAdapter(TEST_SEED_PROVIDER_KEY)).toBe(false)
+      expect(hasChannelAdapter(TEST_SEED_CHAT_PROVIDER_KEY)).toBe(false)
+    })
+
+    it('registers a non-email chat stub alongside the email one (#4975)', () => {
+      process.env[TEST_CHANNEL_SEEDING_ENV] = 'true'
+      clearChannelAdapters()
+      ensureTestSeedAdapterRegistered()
+      const adapter = getChannelAdapter(TEST_SEED_CHAT_PROVIDER_KEY)
+      expect(adapter).toBeDefined()
+      // The whole point: a stub whose channelType is NOT email, so a test can
+      // prove the hub accepts a sender that has no address instead of feeding
+      // it an invented one.
+      expect(adapter?.channelType).not.toBe('email')
+      expect(adapter?.capabilities.conversationHistory).toBe(false)
+    })
+
+    it('the chat stub normalizes a frame carrying no address at all', async () => {
+      process.env[TEST_CHANNEL_SEEDING_ENV] = 'true'
+      clearChannelAdapters()
+      ensureTestSeedAdapterRegistered()
+      const adapter = getChannelAdapter(TEST_SEED_CHAT_PROVIDER_KEY)
+
+      const normalized = await adapter!.normalizeInbound({
+        raw: {
+          externalMessageId: 'chat-message-1',
+          externalConversationId: 'chat-conversation-1',
+          senderIdentifier: '1499156851487539260',
+          senderDisplayName: 'Karol Kapsa',
+          body: 'hello from a guild channel',
+        },
+        eventType: 'message',
+        metadata: {},
+      })
+
+      expect(normalized.senderIdentifier).toBe('1499156851487539260')
+      expect(JSON.stringify(normalized)).not.toContain('@')
+      expect((normalized as { subject?: string }).subject).toBeUndefined()
     })
 
     it('registers a network-free email stub adapter when the gate is on', () => {

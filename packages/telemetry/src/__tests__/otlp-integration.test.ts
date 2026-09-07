@@ -102,6 +102,49 @@ describe('OtlpProvider (in-memory exporters)', () => {
     expect(parentSpanId(child as ReadableSpan)).toBe(parent?.spanContext().spanId)
   })
 
+  it('root: true starts a NEW trace instead of nesting under the active one', () => {
+    withSpan('long-job', () => withSpan('batch', () => undefined, { root: true }))
+    const spans = spanExporter.getFinishedSpans()
+    const job = spans.find((s) => s.name === 'long-job')
+    const batch = spans.find((s) => s.name === 'batch')
+    expect(job && batch).toBeTruthy()
+    expect(batch?.spanContext().traceId).not.toBe(job?.spanContext().traceId)
+    expect(parentSpanId(batch as ReadableSpan)).toBeUndefined()
+  })
+
+  it('links a rooted span back to the trace that caused it', () => {
+    let carrier: Record<string, string> = {}
+    withSpan('run', () => {
+      carrier = captureTraceContext()
+    })
+    const run = spanExporter.getFinishedSpans().find((s) => s.name === 'run')
+
+    withSpan('linked-batch', () => undefined, { root: true, links: [carrier] })
+    const batch = spanExporter.getFinishedSpans().find((s) => s.name === 'linked-batch')
+
+    expect(batch?.spanContext().traceId).not.toBe(run?.spanContext().traceId)
+    expect(batch?.links).toHaveLength(1)
+    expect(batch?.links[0]?.context.traceId).toBe(run?.spanContext().traceId)
+    expect(batch?.links[0]?.context.spanId).toBe(run?.spanContext().spanId)
+  })
+
+  it('drops empty and malformed link carriers instead of emitting invalid links', () => {
+    withSpan('unlinked', () => undefined, {
+      root: true,
+      links: [{}, { traceparent: 'not-a-traceparent' }],
+    })
+    const span = spanExporter.getFinishedSpans().find((s) => s.name === 'unlinked')
+    expect(span?.links).toHaveLength(0)
+  })
+
+  it('does not link a rooted span to its ambient parent when the carrier is empty', () => {
+    // Extraction must run against ROOT_CONTEXT: an empty carrier means "no
+    // link", never "link to whatever happens to be active here".
+    withSpan('ambient', () => withSpan('rooted', () => undefined, { root: true, links: [{}] }))
+    const rooted = spanExporter.getFinishedSpans().find((s) => s.name === 'rooted')
+    expect(rooted?.links).toHaveLength(0)
+  })
+
   it('inject() writes a valid W3C traceparent inside an active span', () => {
     let carrier: Record<string, string> = {}
     withSpan('producer', () => {

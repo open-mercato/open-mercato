@@ -19,6 +19,17 @@ import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { RotateCcw, XCircle } from 'lucide-react'
 import { getSyncRunStatusVariant } from '../../../../lib/syncRunStatus'
+import {
+  buildRetryFailureMessage,
+  resolveRunParameterText,
+  type RetryFailureBody,
+} from '../../../../components/RunParameterFields'
+
+type RunParameterDeclaration = {
+  key: string
+  label?: string
+  labelKey?: string
+}
 
 type SyncRunDetail = {
   id: string
@@ -33,6 +44,7 @@ type SyncRunDetail = {
   batchesCompleted: number
   lastError: string | null
   progressJobId: string | null
+  parameters: Record<string, unknown> | null
   progressJob: {
     id: string
     status: string
@@ -111,6 +123,11 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
   const [logsTotal, setLogsTotal] = React.useState(0)
   const [logsPage, setLogsPage] = React.useState(1)
   const logsPageRef = React.useRef(1)
+  const [parameterLabels, setParameterLabels] = React.useState<Record<string, string>>({})
+  // Declarations cannot change between two refreshes of the same run, so the
+  // options list is fetched once per integration rather than on every progress
+  // event that re-reads the run.
+  const parameterLabelsIntegrationRef = React.useRef<string | null>(null)
 
   const resolveCurrentRunId = React.useCallback(() => {
     return runId ?? (
@@ -119,6 +136,26 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
         : undefined
     )
   }, [runId])
+
+  // The run row stores machine keys. Resolve the adapter's declared labels so a
+  // past run reads as "Start id" rather than "startId"; keys the adapter no
+  // longer declares keep their raw form, which keeps historical runs readable.
+  const loadParameterLabels = React.useCallback(async (integrationId: string) => {
+    if (parameterLabelsIntegrationRef.current === integrationId) return
+    parameterLabelsIntegrationRef.current = integrationId
+    const call = await apiCall<{ items?: Array<{ integrationId: string; runParameters?: RunParameterDeclaration[] }> }>(
+      '/api/data_sync/options',
+      undefined,
+      { fallback: { items: [] } },
+    )
+    const declared = (call.result?.items ?? []).find((item) => item.integrationId === integrationId)?.runParameters ?? []
+    const labels: Record<string, string> = {}
+    for (const param of declared) {
+      const resolved = resolveRunParameterText(t, param.labelKey, param.label)
+      if (resolved) labels[param.key] = resolved
+    }
+    setParameterLabels(labels)
+  }, [t])
 
   const loadRun = React.useCallback(async () => {
     const currentRunId = resolveCurrentRunId()
@@ -144,7 +181,10 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
     }
     setRun(call.result)
     setIsLoading(false)
-  }, [resolveCurrentRunId, t])
+    if (call.result.parameters && Object.keys(call.result.parameters).length > 0) {
+      void loadParameterLabels(call.result.integrationId)
+    }
+  }, [loadParameterLabels, resolveCurrentRunId, t])
 
   const loadLogs = React.useCallback(async (page?: number) => {
     const currentRunId = resolveCurrentRunId()
@@ -268,7 +308,7 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
       flash(t('data_sync.runs.detail.retrySuccess'), 'success')
       router.push(`/backend/data-sync/runs/${encodeURIComponent(call.result.id)}`)
     } else {
-      flash(t('data_sync.runs.detail.retryError'), 'error')
+      flash(buildRetryFailureMessage(call.result as RetryFailureBody | null, t), 'error')
     }
   }, [resolveCurrentRunId, router, runMutation, t])
 
@@ -403,6 +443,26 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
             </CardContent>
           </Card>
         </div>
+
+        {run.parameters && Object.keys(run.parameters).length > 0 ? (
+          <Card>
+            <CardHeader>
+              <CardTitle>{t('data_sync.runs.detail.parameters', 'Run parameters')}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <dl className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {Object.entries(run.parameters).map(([key, value]) => (
+                  <div key={key} className="flex items-center justify-between gap-3 rounded-md border bg-card px-3 py-2 text-sm">
+                    <dt className="font-medium text-muted-foreground">{parameterLabels[key] ?? key}</dt>
+                    <dd className="font-mono text-foreground">
+                      {typeof value === 'boolean' ? String(value) : String(value ?? '')}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            </CardContent>
+          </Card>
+        ) : null}
 
         {run.lastError && (
           <Card className="border-status-error-border bg-status-error-bg">

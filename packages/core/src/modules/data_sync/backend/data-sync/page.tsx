@@ -44,6 +44,18 @@ import {
   ShieldCheck,
 } from 'lucide-react'
 import { getSyncRunStatusVariant, getSyncSummaryVariant } from '../../lib/syncRunStatus'
+import type { RunParameter } from '../../lib/adapter'
+import { getApplicableRunParameters } from '../../lib/run-parameters'
+import {
+  RunParameterFields,
+  buildDefaultRunParameterValues,
+  buildRetryFailureMessage,
+  buildRunFailureMessage,
+  buildRunParametersPayload,
+  type RetryFailureBody,
+  type RunFailureBody,
+  type RunParameterFormValue,
+} from '../../components/RunParameterFields'
 
 type SyncRunRow = {
   id: string
@@ -62,6 +74,7 @@ type ResponsePayload = {
   total: number
   page: number
   totalPages: number
+  totalIsCapped?: boolean
 }
 
 type SyncOption = {
@@ -73,6 +86,7 @@ type SyncOption = {
   runMode?: 'generic' | 'provider'
   canStartRun?: boolean
   supportedEntities: string[]
+  runParameters?: RunParameter[]
   hasCredentials: boolean
   isEnabled: boolean
   settingsPath: string
@@ -140,6 +154,7 @@ export default function SyncRunsDashboardPage() {
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [search, setSearch] = React.useState('')
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const [isLoading, setIsLoading] = React.useState(true)
@@ -149,6 +164,7 @@ export default function SyncRunsDashboardPage() {
   const [selectedDirection, setSelectedDirection] = React.useState<'import' | 'export'>('import')
   const [batchSize, setBatchSize] = React.useState('100')
   const [fullSync, setFullSync] = React.useState(false)
+  const [paramValues, setParamValues] = React.useState<Record<string, RunParameterFormValue>>({})
   const [scheduleEditor, setScheduleEditor] = React.useState<SyncScheduleEditorState>(() => buildDefaultScheduleState(''))
   const [isLoadingSchedule, setIsLoadingSchedule] = React.useState(false)
   const [isSavingSchedule, setIsSavingSchedule] = React.useState(false)
@@ -186,6 +202,7 @@ export default function SyncRunsDashboardPage() {
         setRows(Array.isArray(payload.items) ? payload.items : [])
         setTotal(payload.total || 0)
         setTotalPages(payload.totalPages || 1)
+        setTotalIsCapped(payload?.totalIsCapped === true)
         setIsLoading(false)
       }
     }
@@ -230,6 +247,27 @@ export default function SyncRunsDashboardPage() {
     () => selectedIntegration?.supportedEntities ?? [],
     [selectedIntegration],
   )
+
+  const runParameters = React.useMemo(
+    () => getApplicableRunParameters(
+      selectedIntegration?.runParameters,
+      selectedDirection,
+      // Pass the state through as-is. Before an entity is chosen it is '',
+      // which matches no `entityType` and so hides scoped parameters — the
+      // wanted outcome. Mapping '' to `undefined` would mean "skip entity
+      // scoping" and show every scoped parameter instead.
+      selectedEntityType,
+    ),
+    [selectedIntegration, selectedDirection, selectedEntityType],
+  )
+
+  React.useEffect(() => {
+    setParamValues(buildDefaultRunParameterValues(runParameters))
+  }, [runParameters])
+
+  const updateParamValue = React.useCallback((key: string, value: RunParameterFormValue) => {
+    setParamValues((current) => ({ ...current, [key]: value }))
+  }, [])
 
   React.useEffect(() => {
     if (!selectedIntegration) {
@@ -325,7 +363,7 @@ export default function SyncRunsDashboardPage() {
       flash(t('data_sync.runs.detail.retrySuccess'), 'success')
       setReloadToken((token) => token + 1)
     } else {
-      flash(t('data_sync.runs.detail.retryError'), 'error')
+      flash(buildRetryFailureMessage(call.result as RetryFailureBody | null, t), 'error')
     }
   }, [t])
 
@@ -352,27 +390,25 @@ export default function SyncRunsDashboardPage() {
       return
     }
 
+    const parameters = buildRunParametersPayload(runParameters, paramValues)
+    const requestBody: Record<string, unknown> = {
+      integrationId: selectedIntegration.integrationId,
+      entityType: selectedEntityType,
+      direction: selectedDirection,
+      batchSize: parsedBatchSize,
+      fullSync,
+    }
+    if (runParameters.length > 0) requestBody.parameters = parameters
+
     try {
       const call = await runMutation({
         // optimistic-lock-exempt: starts a new sync run (create), not a concurrent record edit
         operation: () => apiCall<{ id: string }>('/api/data_sync/run', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            integrationId: selectedIntegration.integrationId,
-            entityType: selectedEntityType,
-            direction: selectedDirection,
-            batchSize: parsedBatchSize,
-            fullSync,
-          }),
+          body: JSON.stringify(requestBody),
         }, { fallback: null }),
-        mutationPayload: {
-          integrationId: selectedIntegration.integrationId,
-          entityType: selectedEntityType,
-          direction: selectedDirection,
-          batchSize: parsedBatchSize,
-          fullSync,
-        },
+        mutationPayload: requestBody,
         context: {
           operation: 'create',
           actionId: 'start-sync-run',
@@ -381,7 +417,11 @@ export default function SyncRunsDashboardPage() {
       })
 
       if (!call.ok || !call.result?.id) {
-        flash((call.result as { error?: string } | null)?.error ?? t('data_sync.dashboard.start.error', 'Failed to start sync run'), 'error')
+        flash(buildRunFailureMessage(
+          call.result as RunFailureBody | null,
+          t('data_sync.dashboard.start.error', 'Failed to start sync run'),
+          t,
+        ), 'error')
         return
       }
 
@@ -392,7 +432,7 @@ export default function SyncRunsDashboardPage() {
       const message = error instanceof Error ? error.message : t('data_sync.dashboard.start.error', 'Failed to start sync run')
       flash(message, 'error')
     }
-  }, [batchSize, fullSync, router, runMutation, selectedDirection, selectedEntityType, selectedIntegration, t])
+  }, [batchSize, fullSync, paramValues, router, runMutation, runParameters, selectedDirection, selectedEntityType, selectedIntegration, t])
 
   const handleSaveSchedule = React.useCallback(async () => {
     if (!selectedIntegration || !selectedEntityType) return
@@ -784,6 +824,25 @@ export default function SyncRunsDashboardPage() {
                   </div>
                 </div>
 
+                {runParameters.length > 0 ? (
+                  <div className="mt-4 space-y-3">
+                    <div className="flex items-center gap-2">
+                      <Settings2 className="size-4 text-muted-foreground" />
+                      <h4 className="text-sm font-semibold">
+                        {t('data_sync.dashboard.start.parameters', 'Run parameters')}
+                      </h4>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {t('data_sync.dashboard.start.parametersHelp', 'Optional values this integration accepts for the manual run.')}
+                    </p>
+                    <RunParameterFields
+                      params={runParameters}
+                      values={paramValues}
+                      onChange={updateParamValue}
+                    />
+                  </div>
+                ) : null}
+
                 <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
                   <p className="text-xs text-muted-foreground">
                     {t('data_sync.dashboard.start.runNowFootnote', 'Manual runs show progress immediately and land on the run detail page after launch.')}
@@ -1009,7 +1068,7 @@ export default function SyncRunsDashboardPage() {
               }] : []),
             ]} />
           )}
-          pagination={{ page, pageSize: 20, total, totalPages, onPageChange: setPage }}
+          pagination={{ page, pageSize: 20, total, totalPages, totalIsCapped, onPageChange: setPage }}
           isLoading={isLoading}
         />
       </PageBody>

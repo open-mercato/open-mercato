@@ -5,6 +5,7 @@
   "audit_logs.resource_kind.staff.team_member_address": "Address",
   "audit_logs.resource_kind.staff.team_member_comment": "Comment",
   "audit_logs.resource_kind.staff.team_member_job_history": "Job History",
+  "notifications.categories.staff": "Staff",
   "staff.attendees.actions.add": "Add attendee",
   "staff.attendees.actions.delete": "Delete",
   "staff.attendees.actions.deleteConfirm": "Delete attendee \"{{name}}\"?",

@@ -45,6 +45,7 @@ const mockEm = {
   flush: jest.fn(async () => {}),
   transactional: jest.fn(async (work: (tx: any) => unknown) => work(mockEm)),
   find: jest.fn(),
+  count: jest.fn(async () => 0),
   getKysely: jest.fn(() => buildUsageKysely(0)),
 }
 
@@ -139,6 +140,8 @@ describe('attachments API', () => {
     mockEm.findOne.mockImplementation(defaultFindOneImpl)
     mockEm.find.mockReset()
     mockEm.find.mockResolvedValue([])
+    mockEm.count.mockReset()
+    mockEm.count.mockResolvedValue(0)
     mockExtractAttachmentContent.mockReset()
     delete process.env.OM_DEFAULT_ATTACHMENT_OCR_ENABLED
     delete process.env.OM_ATTACHMENT_MAX_UPLOAD_MB
@@ -542,6 +545,41 @@ describe('attachments API', () => {
       expect.any(Function),
       expect.objectContaining({ entityId: 'example:todo', recordId: 'r1' }),
       expect.any(Object),
+    )
+  })
+
+  it('pages with an unclamped offset and echoes the requested page (#5299)', async () => {
+    const { GET: list } = await loadHandlers()
+    mockEm.count.mockResolvedValue(5)
+    const req = new Request('http://x/api/attachments?entityId=example:todo&recordId=r1&page=2&pageSize=2')
+    const res = await list(req)
+    expect(res.status).toBe(200)
+    const payload = await res.json()
+    expect(payload).toEqual(expect.objectContaining({ total: 5, page: 2, pageSize: 2, totalPages: 3 }))
+    expect(mockEm.find).toHaveBeenCalledWith(
+      expect.any(Function),
+      expect.objectContaining({ entityId: 'example:todo', recordId: 'r1' }),
+      expect.objectContaining({ limit: 2, offset: 2 }),
+    )
+  })
+
+  it('serves an empty page past the end instead of clamping to the last one (#5299)', async () => {
+    const { GET: list } = await loadHandlers()
+    // Five records over a page size of two is three pages; page 7 is well past the end.
+    mockEm.count.mockResolvedValue(5)
+    const req = new Request('http://x/api/attachments?entityId=example:todo&recordId=r1&page=7&pageSize=2')
+    const res = await list(req)
+    expect(res.status).toBe(200)
+    const payload = await res.json()
+    expect(payload.items).toEqual([])
+    // The echoed page is what the caller asked for, not the clamped last page, so an
+    // incremental loader that pages while the page is full terminates instead of
+    // being served the last page forever.
+    expect(payload).toEqual(expect.objectContaining({ total: 5, page: 7, pageSize: 2, totalPages: 3 }))
+    expect(mockEm.find).toHaveBeenCalledWith(
+      expect.any(Function),
+      expect.objectContaining({ entityId: 'example:todo', recordId: 'r1' }),
+      expect.objectContaining({ limit: 2, offset: 12 }),
     )
   })
 

@@ -15,6 +15,12 @@ jest.mock('@open-mercato/core/generated/entities.ids.generated', () => ({
   },
 }))
 
+const mockRecalculateOrderTotalsForDisplay = jest.fn()
+
+jest.mock('../../commands/returns', () => ({
+  recalculateOrderTotalsForDisplay: (...args: unknown[]) => mockRecalculateOrderTotalsForDisplay(...args),
+}))
+
 import { MAX_IDS_PER_REQUEST } from '@open-mercato/shared/lib/crud/ids'
 import { buildDocumentCrudOptions } from '../documents/factory'
 import { SalesOrder, SalesQuote } from '../../data/entities'
@@ -333,6 +339,121 @@ describe('buildDocumentCrudOptions', () => {
       for (const column of detailOnlySnapshotColumns) {
         expect(gridFields).not.toContain(column)
       }
+    })
+  })
+  describe('afterList composition', () => {
+    beforeEach(() => {
+      mockRecalculateOrderTotalsForDisplay.mockReset()
+    })
+
+    const orderBinding = {
+      kind: 'order' as const,
+      entity: SalesOrder,
+      entityId: E.sales.sales_order,
+      numberField: 'orderNumber' as const,
+      createCommandId: 'sales.orders.create',
+      updateCommandId: 'sales.orders.update',
+      deleteCommandId: 'sales.orders.delete',
+      manageFeature: 'sales.orders.manage',
+      viewFeature: 'sales.orders.view',
+    }
+
+    // The channel-name resolution is appended to an afterList hook that already attaches tags.
+    // Assigning the hook instead of extending it would silently drop that work, so this pins
+    // that both still run off one list payload.
+    it('should still attach tags alongside the channel names', async () => {
+      const options = buildDocumentCrudOptions(orderBinding)
+      const channelId = '11111111-1111-4111-8111-111111111111'
+      const assignments = [
+        { documentId: 'doc-1', tag: { id: 'tag-1', label: 'Priority', color: '#fff' } },
+      ]
+      const channels = [{ id: channelId, name: 'Web shop', code: 'web-shop' }]
+      const entitiesSeen: string[] = []
+      const em = {
+        find: (entity: { name?: string }, where: Record<string, unknown>) => {
+          const name = entity?.name ?? ''
+          entitiesSeen.push(name)
+          if ('documentId' in where) return Promise.resolve(assignments)
+          const ids = ((where.id as { $in?: string[] })?.$in ?? []) as string[]
+          return Promise.resolve(channels.filter((channel) => ids.includes(channel.id)))
+        },
+      }
+      const ctx = {
+        container: { resolve: (token: string) => (token === 'em' ? em : null) },
+        auth: { tenantId: 'ten-1', orgId: 'org-1' },
+        selectedOrganizationId: 'org-1',
+      }
+      // Two items keeps the single-order totals branch out of this test; it needs a live container.
+      const payload = {
+        items: [
+          { id: 'doc-1', channelId },
+          { id: 'doc-2', channelId: null },
+        ] as Array<Record<string, unknown>>,
+      }
+
+      await options.hooks.afterList(payload, ctx as never)
+
+      expect(payload.items[0].tags).toEqual([{ id: 'tag-1', label: 'Priority', color: '#fff' }])
+      expect(payload.items[0].channelName).toBe('Web shop')
+      expect(entitiesSeen).toHaveLength(2)
+    })
+
+    it('keeps persisted totals when the response contains exactly one order (#5438)', async () => {
+      mockRecalculateOrderTotalsForDisplay.mockResolvedValue({
+        subtotalNetAmount: 549.9,
+        subtotalGrossAmount: 549.9,
+        discountTotalAmount: 45,
+        taxTotalAmount: 0,
+        shippingNetAmount: 24.9,
+        shippingGrossAmount: 24.9,
+        surchargeTotalAmount: 0,
+        grandTotalNetAmount: 549.9,
+        grandTotalGrossAmount: 549.9,
+        paidTotalAmount: 0,
+        refundedTotalAmount: 0,
+        outstandingAmount: 549.9,
+      })
+
+      const options = buildDocumentCrudOptions(orderBinding)
+      const em = {
+        find: jest.fn(async () => []),
+        fork: jest.fn(function fork(this: { find: unknown }) {
+          return this
+        }),
+      }
+      const ctx = {
+        container: { resolve: (token: string) => (token === 'em' ? em : null) },
+        auth: { tenantId: 'ten-1', orgId: 'org-1' },
+        selectedOrganizationId: 'org-1',
+      }
+      const payload = {
+        items: [
+          {
+            id: '11111111-1111-4111-8111-111111111111',
+            tenantId: 'ten-1',
+            organizationId: 'org-1',
+            grandTotalGrossAmount: 525,
+            outstandingAmount: 525,
+            subtotalGrossAmount: 570,
+            shippingGrossAmount: 0,
+            updatedAt: '2026-08-01T00:00:00.000Z',
+          },
+        ] as Array<Record<string, unknown>>,
+      }
+
+      await options.hooks.afterList(payload, ctx as never)
+
+      expect(mockRecalculateOrderTotalsForDisplay).not.toHaveBeenCalled()
+      expect(em.fork).not.toHaveBeenCalled()
+      expect(payload.items[0]).toEqual(
+        expect.objectContaining({
+          grandTotalGrossAmount: 525,
+          outstandingAmount: 525,
+          subtotalGrossAmount: 570,
+          shippingGrossAmount: 0,
+          updatedAt: '2026-08-01T00:00:00.000Z',
+        }),
+      )
     })
   })
 })

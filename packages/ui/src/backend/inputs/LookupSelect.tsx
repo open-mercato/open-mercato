@@ -116,8 +116,12 @@ export function LookupSelect({
     if (onReadyRef.current) onReadyRef.current({ setQuery })
   }, [setQuery])
 
-  const shouldSearch =
-    defaultOpen || query.trim().length >= minQuery || Boolean(value && (options?.length ?? 0) > 0)
+  // A set `value` always opens the list: it is the only place the selected row,
+  // its checkmark and the clear control render, so collapsing over a selection
+  // would hide it with no way to see or undo it. This used to also require an
+  // `options` prop, which left every caller that resolves its selection through
+  // `fetchItems` blind whenever minQuery kept the list shut.
+  const shouldSearch = defaultOpen || query.trim().length >= minQuery || Boolean(value)
 
   React.useEffect(() => {
     setActiveIndex(-1)
@@ -129,8 +133,8 @@ export function LookupSelect({
   )
 
   const isInteractiveItem = React.useCallback(
-    (item: LookupSelectItem) => !item.disabled || value === item.id,
-    [value],
+    (item: LookupSelectItem) => !disabled && (!item.disabled || value === item.id),
+    [disabled, value],
   )
 
   const moveActiveIndex = React.useCallback((direction: 1 | -1) => {
@@ -248,7 +252,7 @@ export function LookupSelect({
             aria-activedescendant={activeIndex >= 0 ? optionDomId(activeIndex) : undefined}
           />
         </div>
-        {actionSlot ? <div className="sm:self-start">{actionSlot}</div> : null}
+        {actionSlot && !disabled ? <div className="sm:self-start">{actionSlot}</div> : null}
       </div>
       {shouldSearch ? (
         <div className="space-y-2">
@@ -268,7 +272,7 @@ export function LookupSelect({
           >
             {items.map((item, index) => {
               const isSelected = value === item.id
-              const isInteractive = !item.disabled || isSelected
+              const isInteractive = isInteractiveItem(item)
               const isActive = index === activeIndex
               return (
                 <div
@@ -283,7 +287,7 @@ export function LookupSelect({
                     isActive && !isSelected ? 'border-foreground/20 bg-muted/30 shadow-sm' : null
                   )}
                   role="option"
-                  tabIndex={item.disabled ? -1 : 0}
+                  tabIndex={isInteractive ? 0 : -1}
                   onClick={() => {
                     if (!isInteractive) return
                     onChange(item.id)
@@ -296,8 +300,8 @@ export function LookupSelect({
                     }
                   }}
                   aria-selected={isSelected}
-                  aria-disabled={item.disabled && !isSelected ? true : undefined}
-                  title={isSelected ? resolvedSelectedLabel : resolvedSelectLabel}
+                  aria-disabled={isInteractive ? undefined : true}
+                  title={isSelected ? resolvedSelectedLabel : isInteractive ? resolvedSelectLabel : undefined}
                 >
                   {item.icon ? (
                     <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden [&>svg]:size-6 [&_svg]:text-muted-foreground">
@@ -340,7 +344,7 @@ export function LookupSelect({
               )
             })}
           </div>
-          {value ? (
+          {value && !disabled ? (
             <Button
               type="button"
               variant="ghost"

@@ -7,6 +7,7 @@ import { findAndCountWithDecryption } from '@open-mercato/shared/lib/encryption/
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { CommunicationChannel } from '../../../data/entities'
+import { channelOrgScopeWhereFromFilter } from '../../../lib/access-control'
 
 export const metadata = {
   path: '/communication_channels/channels',
@@ -58,7 +59,7 @@ export async function GET(req: Request): Promise<Response> {
   // one — admins included — can see another user's connected personal account.
   const where: Record<string, unknown> = {
     tenantId: auth.tenantId,
-    ...orgFilter.where,
+    ...channelOrgScopeWhereFromFilter(orgFilter),
     deletedAt: null,
     userId: null,
   }

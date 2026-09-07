@@ -7,6 +7,7 @@ export const metadata = {
   pageGroupKey: 'eudr.nav.group',
   navHidden: true,
   breadcrumb: [
+    { label: 'EUDR', labelKey: 'eudr.nav.module', href: '/backend/eudr' },
     { label: 'Plots', labelKey: 'eudr.nav.plots', href: '/backend/eudr/plots' },
     { label: 'Create', labelKey: 'eudr.plots.create.title' },
   ],

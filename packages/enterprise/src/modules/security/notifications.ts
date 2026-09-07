@@ -4,6 +4,7 @@ export const notificationTypes: NotificationTypeDefinition[] = [
   {
     type: 'security.password.changed',
     module: 'security',
+    channels: ['in_app', 'email'],
     titleKey: 'security.notifications.passwordChanged.title',
     bodyKey: 'security.notifications.passwordChanged.body',
     icon: 'key-round',
@@ -23,6 +24,7 @@ export const notificationTypes: NotificationTypeDefinition[] = [
   {
     type: 'security.mfa.enrolled',
     module: 'security',
+    channels: ['in_app', 'email'],
     titleKey: 'security.notifications.mfaEnrolled.title',
     bodyKey: 'security.notifications.mfaEnrolled.body',
     icon: 'shield-check',
@@ -42,6 +44,7 @@ export const notificationTypes: NotificationTypeDefinition[] = [
   {
     type: 'security.mfa.reset',
     module: 'security',
+    channels: ['in_app', 'email'],
     titleKey: 'security.notifications.mfaReset.title',
     bodyKey: 'security.notifications.mfaReset.body',
     icon: 'shield-alert',
@@ -61,6 +64,7 @@ export const notificationTypes: NotificationTypeDefinition[] = [
   {
     type: 'security.mfa.enforcement_deadline',
     module: 'security',
+    channels: ['in_app', 'email'],
     titleKey: 'security.notifications.enforcementDeadline.title',
     bodyKey: 'security.notifications.enforcementDeadline.bodyImmediate',
     icon: 'clock-3',

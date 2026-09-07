@@ -13,7 +13,7 @@ const CLI_ENTRY = join(PACKAGE_ROOT, 'src', 'index.ts')
 const TEMPLATE_EXAMPLE_DIR = join(PACKAGE_ROOT, 'template', 'src', 'modules', 'example')
 const CLI_SCAFFOLD_TIMEOUT_MS = 120_000
 const SKIPPED_MODULE_DIRS = new Set(['__tests__', '__integration__'])
-const PRESET_IDS = ['classic', 'empty', 'crm'] as const
+const PRESET_IDS = ['classic', 'empty', 'crm', 'wms'] as const
 
 function collectEmittableRelativeFiles(root: string, prefix = ''): string[] {
   return readdirSync(root).flatMap((entry) => {

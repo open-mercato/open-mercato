@@ -70,7 +70,7 @@ jest.mock('../profile-sections', () => ({
 jest.mock('@open-mercato/core/modules/auth/services/sidebarPreferencesService', () => ({
   applySidebarPreference: (groups: unknown) => groups,
   loadFirstRoleSidebarPreference: jest.fn(async () => null),
-  loadSidebarPreference: jest.fn(async () => null),
+  findSidebarPreference: jest.fn(async () => null),
 }))
 
 import { resolveBackendChromePayload } from '../backendChrome'

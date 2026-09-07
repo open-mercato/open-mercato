@@ -49,6 +49,23 @@ jest.mock('@open-mercato/shared/lib/api/context', () => ({
   resolveRequestContext: jest.fn(async () => ({ ctx })),
 }))
 
+// The notification routes derive the organization the same way every org-scoped write
+// does — resolveOrganizationScopeForRequest, which honors the selected-org cookie and
+// otherwise falls back to the caller's own account org. This mock returns what it yields
+// for a caller with no cookie, so the guard scope is auth.orgId.
+jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
+  resolveOrganizationScopeForRequest: jest.fn(async () => {
+    const scopeTenantId = ctx.auth?.tenantId || null
+    const scopeOrganizationId = scopeTenantId ? ctx.auth?.orgId ?? null : null
+    return {
+      selectedId: scopeOrganizationId,
+      filterIds: scopeOrganizationId ? [scopeOrganizationId] : null,
+      allowedIds: null,
+      tenantId: scopeTenantId,
+    }
+  }),
+}))
+
 jest.mock('../lib/notificationService', () => ({
   resolveNotificationService: jest.fn(() => serviceMock),
 }))

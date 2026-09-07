@@ -35,6 +35,7 @@ import { buildNotificationFromType } from '@open-mercato/core/modules/notificati
 import { resolveNotificationService } from '@open-mercato/core/modules/notifications/lib/notificationService'
 import notificationTypes from '@open-mercato/core/modules/auth/notifications'
 import { buildPasswordSchema } from '@open-mercato/shared/lib/auth/passwordPolicy'
+import { emitAuthEvent } from '@open-mercato/core/modules/auth/events'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
 import InviteUserEmail from '@open-mercato/core/modules/auth/emails/InviteUserEmail'
 import { INVITE_TOKEN_TTL_MS } from '@open-mercato/core/modules/auth/lib/inviteToken'
@@ -723,6 +724,27 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
       events: userCrudEvents,
       indexer: userCrudIndexer,
     })
+
+    if (hashed) {
+      const actorId = ctx.auth?.sub ? String(ctx.auth.sub) : null
+      // `system` covers a command invocation with no auth context and one running under
+      // `ctx.systemActor`. Without it those writes would be indistinguishable from an
+      // administrator setting someone else's password, which is exactly the case security
+      // alerting escalates on. Password writes that never reach this command — `mercato
+      // auth set-password`, tenant provisioning — set `passwordHash` directly and emit
+      // nothing, so a subscriber cannot treat this event as covering every credential change.
+      const changedBy = ctx.systemActor === true || !actorId
+        ? 'system'
+        : actorId === identifiers.id ? 'self' : 'admin'
+      void emitAuthEvent('auth.password.changed', {
+        id: identifiers.id,
+        tenantId: identifiers.tenantId,
+        organizationId: identifiers.organizationId,
+        changedBy,
+        changedById: actorId,
+        at: new Date().toISOString(),
+      }, { persistent: true }).catch(() => undefined)
+    }
 
     if (Array.isArray(parsed.roles) && rolesBefore) {
       const rolesAfter = await loadUserRoleNames(em, String(user.id))

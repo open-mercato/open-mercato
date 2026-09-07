@@ -43,6 +43,7 @@
   "demo.userTask.description": "This workflow is paused waiting for user input. Please complete the task below to continue.",
   "demo.userTask.dueLabel": "Due",
   "demo.userTask.title": "User Action Required",
+  "notifications.categories.workflows": "Workflows",
   "orderApproval.approveButton": "Approve",
   "orderApproval.approvedStatus": "Approved",
   "orderApproval.commentsLabel": "Comments",

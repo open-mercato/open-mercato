@@ -54,7 +54,7 @@ ${pc.bold('Arguments:')}
 ${pc.bold('Options:')}
   --app <name>       Bootstrap an official ready app from open-mercato/ready-app-<name>
   --app-url <url>    Bootstrap a ready app from a GitHub repository URL
-  --preset <id>      Starter preset: classic, empty, or crm (omit to choose interactively)
+  --preset <id>      Starter preset: classic, empty, crm, or wms (omit to choose interactively)
   --init-git         Initialize a local Git repository after scaffolding
   --no-init-git      Do not prompt for or initialize a local Git repository
   --agents <list>    Set up agent tooling non-interactively (skips the wizard):
@@ -72,6 +72,7 @@ ${pc.bold('Examples:')}
   npx create-mercato-app my-store --preset classic
   npx create-mercato-app my-store --preset empty
   npx create-mercato-app my-store --preset crm
+  npx create-mercato-app my-warehouse --preset wms
   npx create-mercato-app my-store --init-git
   npx create-mercato-app my-store --agents claude-code,codex
   npx create-mercato-app my-store --agents codex --experimental-hooks-validator
@@ -159,6 +160,7 @@ const PRESET_PROMPT_OPTIONS = [
   { number: '1', id: 'classic', label: 'Classic     (default)', hint: 'full demo-ready starter' },
   { number: '2', id: 'empty', label: 'Empty', hint: 'minimal builder-ready baseline' },
   { number: '3', id: 'crm', label: 'CRM', hint: 'minimal CRM starter' },
+  { number: '4', id: 'wms', label: 'WMS', hint: 'warehouse and inventory starter' },
 ] as const
 
 export function normalizePresetAnswer(answer: string): string {
@@ -171,7 +173,7 @@ export function normalizePresetAnswer(answer: string): string {
   ))
 
   if (!selected) {
-    throw new Error(`Unknown preset "${answer}". Choose classic, empty, or crm.`)
+    throw new Error(`Unknown preset "${answer}". Choose classic, empty, crm, or wms.`)
   }
 
   return selected.id

@@ -18,6 +18,76 @@ import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 export const ADMIN_FEATURE = 'communication_channels.admin'
 
 /**
+ * Org-scoping fragment for reading/managing channels.
+ *
+ * Tenant-wide channels are stored with `organization_id IS NULL` (the
+ * tenant-scoped push providers FCM/APNs/Expo do this deliberately — see
+ * `connect-credential-channel.ts`). They are visible and manageable from ANY
+ * org in the tenant, so a read scoped to the caller's selected org must also
+ * match the NULL rows; otherwise a channel connected while an admin had a
+ * non-null org would be invisible to every listing/detail query (and vice
+ * versa). Org-scoped channels (`organization_id = <org>`) stay scoped to their
+ * org.
+ *
+ * Spread the result into a MikroORM `where` object alongside `tenantId` etc.
+ */
+export function channelOrgScopeWhere(
+  orgId: string | null | undefined,
+): Record<string, unknown> {
+  return orgId
+    ? { $or: [{ organizationId: orgId }, { organizationId: null }] }
+    : { organizationId: null }
+}
+
+/**
+ * Same NULL-inclusive org scoping, expressed over a resolved
+ * `OrganizationScopeFilter` (`resolveOrganizationScopeFilter`) rather than a
+ * single org id.
+ *
+ * Read routes scope on the caller's *selected* organization (the
+ * `om_selected_org` cookie the top-bar switcher writes), not on the org baked
+ * into the session token (#5012) — that resolution yields a list of org ids, or
+ * `undefined` when the caller is unrestricted (super-admin viewing all orgs).
+ * An unrestricted caller sees every channel in the tenant, so the fragment is
+ * empty; a restricted one gets their orgs plus the tenant-wide (`NULL`) rows.
+ */
+export function channelOrgScopeWhereFromFilter(
+  filter: { organizationIds: string[] | undefined } | null | undefined,
+): Record<string, unknown> {
+  const organizationIds = filter?.organizationIds
+  if (!organizationIds || organizationIds.length === 0) return {}
+  return { $or: [{ organizationId: { $in: organizationIds } }, { organizationId: null }] }
+}
+
+/**
+ * Ownership fragment for LISTING channels — the SQL-layer twin of
+ * {@link assertCanAccessChannel}.
+ *
+ * Routes have historically hardcoded one of the two halves of the rule: the
+ * admin channel list narrows to `user_id IS NULL`, the profile list narrows to
+ * `user_id = <caller>`. A provider-scoped listing needs both, because which half
+ * a channel falls into is decided by the connect flow the provider offers, not
+ * by the listing. Hardcoding `userId: null` is what made the Discord AI
+ * auto-reply panel structurally empty (#5602): every route the product exposes
+ * for connecting a Discord bot writes `user_id = auth.sub`, so the filter
+ * excluded the only channels that can exist.
+ *
+ * The clause admits exactly what the assert allows and nothing more — shared
+ * channels, plus the caller's own personal ones. It grants no admin bypass, in
+ * line with v1 strict owner-only: a personal mailbox stays invisible to everyone
+ * but its owner. An anonymous caller (no user id) sees shared channels only.
+ *
+ * Spread into a MikroORM `where`, or nest under `$and` when another fragment in
+ * the same query already claims `$or` (`channelOrgScopeWhereFromFilter` does).
+ */
+export function channelOwnerScopeWhere(
+  currentUserId: string | null | undefined,
+): Record<string, unknown> {
+  if (!currentUserId) return { userId: null }
+  return { $or: [{ userId: null }, { userId: currentUserId }] }
+}
+
+/**
  * Throws when the caller may not access a specific channel. Returns silently
  * when access is allowed.
  *

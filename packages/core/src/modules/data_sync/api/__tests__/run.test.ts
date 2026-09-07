@@ -9,6 +9,7 @@ const mockStartDataSyncRun = jest.fn()
 const mockSyncRunService = {
   findRunningOverlap: jest.fn(),
   resolveCursor: jest.fn(),
+  resolveResumeCursor: jest.fn(),
 }
 
 const mockProgressService = {}
@@ -86,6 +87,7 @@ describe('data_sync run route', () => {
     mockIntegrationStateService.isEnabled.mockResolvedValue(true)
     mockSyncRunService.findRunningOverlap.mockResolvedValue(null)
     mockSyncRunService.resolveCursor.mockResolvedValue(null)
+    mockSyncRunService.resolveResumeCursor.mockResolvedValue(null)
     mockStartDataSyncRun.mockResolvedValue({
       run: { id: '11111111-1111-4111-8111-111111111111' },
       progressJob: { id: '22222222-2222-4222-8222-222222222222' },
@@ -142,6 +144,132 @@ describe('data_sync run route', () => {
       resourceKind: 'data_sync.run',
       resourceId: '11111111-1111-4111-8111-111111111111',
     }))
+  })
+
+  it('starts an incremental run from the shared cursor row by default', async () => {
+    mockSyncRunService.resolveCursor.mockResolvedValueOnce('shared-cursor')
+
+    await postHandler(new Request('http://localhost/api/data_sync/run', {
+      method: 'POST',
+      body: JSON.stringify({
+        integrationId: 'generic_sync',
+        entityType: 'customers.person',
+        direction: 'import',
+      }),
+    }))
+
+    expect(mockSyncRunService.resolveResumeCursor).not.toHaveBeenCalled()
+    expect(mockStartDataSyncRun).toHaveBeenCalledWith(expect.objectContaining({
+      input: expect.objectContaining({ cursor: 'shared-cursor' }),
+    }))
+  })
+
+  it('resumes from the most recent unfinished run when the adapter opted out of the shared cursor row', async () => {
+    mockGetDataSyncAdapter.mockReturnValueOnce({
+      providerKey: 'excel',
+      runMode: 'generic',
+      direction: 'import',
+      supportedEntities: ['customers.person'],
+      persistsSharedCursor: (entityType: string) => entityType !== 'customers.person',
+    })
+    mockSyncRunService.resolveResumeCursor.mockResolvedValueOnce('interrupted-run-cursor')
+
+    await postHandler(new Request('http://localhost/api/data_sync/run', {
+      method: 'POST',
+      body: JSON.stringify({
+        integrationId: 'generic_sync',
+        entityType: 'customers.person',
+        direction: 'import',
+      }),
+    }))
+
+    expect(mockSyncRunService.resolveCursor).not.toHaveBeenCalled()
+    expect(mockStartDataSyncRun).toHaveBeenCalledWith(expect.objectContaining({
+      input: expect.objectContaining({ cursor: 'interrupted-run-cursor' }),
+    }))
+  })
+
+  it('still starts a full run from a null cursor when fullSync is requested', async () => {
+    mockGetDataSyncAdapter.mockReturnValueOnce({
+      providerKey: 'excel',
+      runMode: 'generic',
+      direction: 'import',
+      supportedEntities: ['customers.person'],
+      persistsSharedCursor: () => false,
+    })
+
+    await postHandler(new Request('http://localhost/api/data_sync/run', {
+      method: 'POST',
+      body: JSON.stringify({
+        integrationId: 'generic_sync',
+        entityType: 'customers.person',
+        direction: 'import',
+        fullSync: true,
+      }),
+    }))
+
+    expect(mockSyncRunService.resolveCursor).not.toHaveBeenCalled()
+    expect(mockSyncRunService.resolveResumeCursor).not.toHaveBeenCalled()
+    expect(mockStartDataSyncRun).toHaveBeenCalledWith(expect.objectContaining({
+      input: expect.objectContaining({ cursor: null }),
+    }))
+  })
+
+  it('normalizes declared run parameters and forwards them to the run', async () => {
+    mockGetDataSyncAdapter.mockReturnValueOnce({
+      providerKey: 'excel',
+      runMode: 'generic',
+      direction: 'import',
+      supportedEntities: ['customers.person'],
+      runParameters: [
+        { key: 'dryRun', label: 'Dry run', type: 'boolean', defaultValue: false },
+        { key: 'startId', label: 'Start id', type: 'number', min: 0 },
+      ],
+    })
+
+    const response = await postHandler(new Request('http://localhost/api/data_sync/run', {
+      method: 'POST',
+      body: JSON.stringify({
+        integrationId: 'generic_sync',
+        entityType: 'customers.person',
+        direction: 'import',
+        parameters: { dryRun: 'true', startId: '42' },
+      }),
+    }))
+
+    expect(response.status).toBe(201)
+    expect(mockStartDataSyncRun).toHaveBeenCalledWith(expect.objectContaining({
+      input: expect.objectContaining({
+        parameters: { dryRun: true, startId: 42 },
+      }),
+    }))
+  })
+
+  it('rejects invalid run parameters with a 422', async () => {
+    mockGetDataSyncAdapter.mockReturnValueOnce({
+      providerKey: 'excel',
+      runMode: 'generic',
+      direction: 'import',
+      supportedEntities: ['customers.person'],
+      runParameters: [
+        { key: 'startId', label: 'Start id', type: 'number', min: 0 },
+      ],
+    })
+
+    const response = await postHandler(new Request('http://localhost/api/data_sync/run', {
+      method: 'POST',
+      body: JSON.stringify({
+        integrationId: 'generic_sync',
+        entityType: 'customers.person',
+        direction: 'import',
+        parameters: { startId: '-5' },
+      }),
+    }))
+
+    expect(response.status).toBe(422)
+    const body = await response.json()
+    expect(body.error).toBe('Invalid run parameters')
+    expect(mockStartDataSyncRun).not.toHaveBeenCalled()
   })
 
   it('short-circuits the run when the mutation guard blocks it', async () => {

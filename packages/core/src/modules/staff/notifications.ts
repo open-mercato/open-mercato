@@ -3,6 +3,8 @@ import type { NotificationTypeDefinition } from '@open-mercato/shared/modules/no
 export const notificationTypes: NotificationTypeDefinition[] = [
   {
     type: 'staff.leave_request.pending',
+    // Ships without push — operators re-enable it per type from the Notification Delivery settings.
+    channels: ['in_app', 'email'],
     module: 'staff',
     titleKey: 'staff.notifications.leaveRequest.pending.title',
     bodyKey: 'staff.notifications.leaveRequest.pending.body',
@@ -30,6 +32,8 @@ export const notificationTypes: NotificationTypeDefinition[] = [
   },
   {
     type: 'staff.leave_request.approved',
+    // Ships without push — operators re-enable it per type from the Notification Delivery settings.
+    channels: ['in_app', 'email'],
     module: 'staff',
     titleKey: 'staff.notifications.leaveRequest.approved.title',
     bodyKey: 'staff.notifications.leaveRequest.approved.body',
@@ -49,6 +53,8 @@ export const notificationTypes: NotificationTypeDefinition[] = [
   },
   {
     type: 'staff.leave_request.rejected',
+    // Ships without push — operators re-enable it per type from the Notification Delivery settings.
+    channels: ['in_app', 'email'],
     module: 'staff',
     titleKey: 'staff.notifications.leaveRequest.rejected.title',
     bodyKey: 'staff.notifications.leaveRequest.rejected.body',

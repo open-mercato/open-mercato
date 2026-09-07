@@ -24,13 +24,16 @@ class ConsoleSpan implements Span {
   private status: 'ok' | 'error' = 'ok'
   private readonly startedAt = Date.now()
 
-  constructor(private readonly name: string) {}
+  constructor(private name: string) {}
 
   setAttribute(key: string, value: string | number | boolean): void {
     this.attributes[key] = value
   }
   setAttributes(attributes: Record<string, string | number | boolean | undefined>): void {
     Object.assign(this.attributes, attributes)
+  }
+  updateName(name: string): void {
+    this.name = name
   }
   recordException(error: unknown): void {
     this.status = 'error'

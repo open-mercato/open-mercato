@@ -81,7 +81,7 @@ export async function createDealFixture(
     valueCurrency?: string;
     // Optional deal lifecycle fields — all valid on `dealCreateSchema`. Forwarded so KPI/summary
     // tests can seed won/lost/overdue/owned deals across quarters (see TC-CRM-082). `status` is a
-    // free-form dictionary value (e.g. 'open', 'in_progress', 'win', 'loose'); `expectedCloseAt`
+    // free-form dictionary value (e.g. 'open', 'in_progress', 'win', 'lost'); `expectedCloseAt`
     // accepts an ISO string (the schema coerces it to a Date); `closureOutcome` is 'won' | 'lost'.
     status?: string;
     expectedCloseAt?: string;

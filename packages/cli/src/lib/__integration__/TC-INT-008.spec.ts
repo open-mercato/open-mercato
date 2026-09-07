@@ -295,6 +295,15 @@ test.describe('TC-INT-008: CLI agentic init mirrors standalone scaffolding asset
     ensureCliBuilt()
   })
 
+  // dist/ is published, so a staging tree the build forgot to swap in would ship with the package —
+  // and a surviving agentic.previous would mean the swap never completed (#5104). beforeAll has run
+  // the real build, so this asserts the state a completed build leaves behind.
+  test('should leave no staging artifacts behind in dist', () => {
+    for (const leftover of ['agentic.staging', 'agentic.previous']) {
+      expect(fs.existsSync(path.join(cliDir, 'dist', leftover))).toBe(false)
+    }
+  })
+
   test('should run bootstrap-free and generate the shared, guide, and tool-specific agentic files', () => {
     const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'mercato-cli-agentic-'))
 

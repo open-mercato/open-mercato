@@ -8,6 +8,7 @@ import { computeDurationMinutes, type EditorFormState, type EditorKindConfig } f
 import { findEditorConflictItems } from '../../../lib/calendar/conflicts'
 import type { ConflictScope } from '../../../lib/calendar/preferences'
 import { mapInteractionToCalendarItem } from '../../../lib/calendar/mapItem'
+import { participantActorKey } from '../../../lib/calendar/participantIdentity'
 import { expandOccurrences } from '../../../lib/calendar/recurrence'
 import { getFetchWindow } from '../../../lib/calendar/range'
 import type { CalendarItem } from '../types'
@@ -72,7 +73,12 @@ export function useConflictProbe(
 ): string | null {
   const t = useT()
   const [conflict, setConflict] = React.useState<string | null>(null)
-  const participantsKey = form.participants.map((participant) => participant.userId).join(',')
+  // Keys on the canonical actor key, not the raw userId — an external guest has
+  // no userId, so a userId-only key never changes when guests are added or
+  // removed and the probe would keep reporting the previous attendee set.
+  const participantsKey = form.participants
+    .map((participant) => participantActorKey(participant) ?? '')
+    .join(',')
   React.useEffect(() => {
     if (!open || !form.date) {
       setConflict(null)

@@ -114,7 +114,7 @@ type InteractionSnapshot = {
     allDay: boolean | null
     recurrenceRule: string | null
     recurrenceEnd: Date | null
-    participants: Array<{ userId: string; name?: string; email?: string; status?: string }> | null
+    participants: Array<{ userId?: string; name?: string; email?: string; status?: string }> | null
     reminderMinutes: number | null
     visibility: string | null
     linkedEntities: Array<{ id: string; type: string; label: string }> | null

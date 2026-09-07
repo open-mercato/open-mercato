@@ -213,7 +213,7 @@ export async function GET(req: Request) {
   const currentPage = usePaging ? Math.max(1, page) : null
   const currentPageSize = usePaging ? pageSize : null
   const totalPages = usePaging && total !== null ? Math.max(1, Math.ceil(total / currentPageSize!)) : null
-  const pageOffset = usePaging ? (Math.min(currentPage!, totalPages!) - 1) * currentPageSize! : undefined
+  const pageOffset = usePaging ? (currentPage! - 1) * currentPageSize! : undefined
   const items = await findWithDecryption(
     em,
     Attachment,
@@ -256,7 +256,7 @@ export async function GET(req: Request) {
     ...(usePaging
       ? {
           total,
-          page: Math.min(currentPage!, totalPages!),
+          page: currentPage,
           pageSize: currentPageSize,
           totalPages,
         }

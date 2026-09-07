@@ -1,4 +1,5 @@
 {
+  "notifications.categories.webhooks": "웹훅",
   "webhooks.deliveries.actions.retry": "재시도",
   "webhooks.deliveries.actions.viewDetails": "상세 정보 보기",
   "webhooks.deliveries.autoRefreshHint": "이 페이지가 열려 있는 동안 전달 로그가 자동으로 새로고침됩니다.",
@@ -157,5 +158,6 @@
   "webhooks.nav.group": "통합",
   "webhooks.nav.title": "웹훅",
   "webhooks.notifications.delivery.failed.body": "웹훅 {webhookName}이(가) 이벤트 {eventType}을(를) 전달하지 못했습니다. {errorMessage}",
+  "webhooks.notifications.delivery.failed.label": "웹훅 전달 실패",
   "webhooks.notifications.delivery.failed.title": "{webhookName}의 웹훅 전달 실패"
 }

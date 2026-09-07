@@ -28,6 +28,7 @@ type EmailListResponse = {
   total?: number
   page?: number
   totalPages?: number
+  totalIsCapped?: boolean
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -42,6 +43,7 @@ export default function ProcessingLogPage() {
   const t = useT()
   const [items, setItems] = React.useState<EmailRow[]>([])
   const [total, setTotal] = React.useState(0)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [page, setPage] = React.useState(1)
   const [pageSize] = React.useState(25)
   const [statusFilter, setStatusFilter] = React.useState<string | undefined>()
@@ -65,6 +67,7 @@ export default function ProcessingLogPage() {
       if (result?.ok && result.result?.items) {
         setItems(result.result.items)
         setTotal(result.result.total || 0)
+        setTotalIsCapped(result.result.totalIsCapped === true)
       } else {
         setError(t('inbox_ops.log.load_failed', 'Failed to load processing log'))
       }
@@ -220,6 +223,7 @@ export default function ProcessingLogPage() {
                 pageSize,
                 total,
                 totalPages: Math.ceil(total / pageSize),
+                totalIsCapped,
                 onPageChange: setPage,
               }}
             />

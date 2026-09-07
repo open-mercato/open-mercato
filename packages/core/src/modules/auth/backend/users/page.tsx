@@ -351,7 +351,7 @@ export default function UsersListPage() {
   const { data: usersData, isLoading } = useQuery({
     queryKey: ['users', params, scopeVersion],
     queryFn: async () => {
-      const call = await apiCall<{ items: Row[]; total: number; totalPages: number; isSuperAdmin?: boolean }>(
+      const call = await apiCall<{ items: Row[]; total: number; totalPages: number; totalIsCapped?: boolean; isSuperAdmin?: boolean }>(
         `/api/auth/users?${params}`,
       )
       if (!call.ok) {
@@ -364,6 +364,7 @@ export default function UsersListPage() {
   const rows = usersData?.items || []
   const total = usersData?.total || 0
   const totalPages = usersData?.totalPages || 1
+  const totalIsCapped = usersData?.totalIsCapped === true
   const isSuperAdmin = !!usersData?.isSuperAdmin
   const rowsWithOrgNames: Row[] = React.useMemo(() => rows.map(row => ({
     ...row,
@@ -456,7 +457,7 @@ export default function UsersListPage() {
               { id: 'delete', label: t('common.delete', 'Delete'), destructive: true, onSelect: () => { void handleDelete(row) } },
             ]} />
           )}
-          pagination={{ page, pageSize: 50, total, totalPages, onPageChange: setPage }}
+          pagination={{ page, pageSize: 50, total, totalPages, totalIsCapped, onPageChange: setPage }}
           isLoading={isLoading}
         />
       </PageBody>

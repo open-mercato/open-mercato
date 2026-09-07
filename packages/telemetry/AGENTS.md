@@ -17,6 +17,14 @@ off by default. Spec:
   provider activates only after an explicit bootstrap registers the exact
   configured name and calls `initTelemetry()`.
 - Name spans `module.entity.action` (lowercase, dot-separated).
+- Root the repeating unit of a long-lived job (batch/page) with
+  `withSpan(name, fn, { root: true, links: [runCarrier] })`. Without it the whole
+  job inherits one sampling decision from its trigger — a blind spot below ratio
+  1.0, an unrenderable trace at 1.0. Always pair `root` with `links` so the chain
+  back to the trigger survives.
+- Emit spans from packages that must not depend on this one via
+  `withTelemetrySpan` / `captureTelemetryTrace` from
+  `@open-mercato/shared/lib/telemetry/runtime`, never a direct import.
 - Use semantic-convention metric/attribute names when available.
 - Keep metric labels low-cardinality. Tenant, organization, and user IDs belong
   on span attributes, never metric labels.

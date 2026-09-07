@@ -583,6 +583,9 @@ export class CommandBus {
     const organizationId =
       metadata.organizationId ?? options.ctx.selectedOrganizationId ?? options.ctx.auth?.orgId ?? null
     const actorUserId = metadata.actorUserId ?? options.ctx.auth?.sub ?? null
+    const systemActorContext = !actorUserId && options.ctx.systemActor === true
+      ? { systemActor: 'system:command' }
+      : null
     const payload: Record<string, unknown> = {
       tenantId: tenantId ?? undefined,
       organizationId: organizationId ?? undefined,
@@ -603,7 +606,11 @@ export class CommandBus {
       if ('snapshotBefore' in metadata && metadata.snapshotBefore !== undefined) payload.snapshotBefore = metadata.snapshotBefore
       if ('snapshotAfter' in metadata && metadata.snapshotAfter !== undefined) payload.snapshotAfter = metadata.snapshotAfter
       if ('changes' in metadata && metadata.changes !== undefined && metadata.changes !== null) payload.changes = metadata.changes
-      if ('context' in metadata && metadata.context !== undefined && metadata.context !== null) payload.context = metadata.context
+      if ('context' in metadata && metadata.context !== undefined && metadata.context !== null) {
+        payload.context = { ...(systemActorContext ?? {}), ...metadata.context }
+      } else if (systemActorContext) {
+        payload.context = systemActorContext
+      }
     }
 
     const redoEnvelope = wrapRedoPayload('commandPayload' in payload ? (payload.commandPayload as unknown) : undefined, options.input)
