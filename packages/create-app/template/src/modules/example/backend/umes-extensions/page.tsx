@@ -359,7 +359,7 @@ export default function UmesExtensionsPage() {
             </p>
           </div>
           <div className={`grid gap-1 ${hintClassName}`}>
-            <div className="font-medium text-amber-900 dark:text-amber-50">{t('example.umes.extensions.hintHeading', 'What should be visible and how it should work')}</div>
+            <div className="font-medium text-status-warning-text">{t('example.umes.extensions.hintHeading', 'What should be visible and how it should work')}</div>
             <div>{t('example.umes.extensions.phaseI.hint1', '1. The control widget should be visible — it proves the spot itself resolved.')}</div>
             <div>{t('example.umes.extensions.phaseI.hint2', '2. The disabled widget should never appear, including after hydration finishes.')}</div>
           </div>
