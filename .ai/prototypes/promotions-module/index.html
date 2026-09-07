@@ -51,21 +51,25 @@
 <div class="doc-toolbar">
   <strong style="font-size:0.875rem">Promotions Module — prototype</strong>
   <nav class="screen-nav" aria-label="Screens">
-    <a href="#s1">1 List (empty)</a>
-    <a href="#s2">2 List</a>
-    <a href="#s3">3 Delete</a>
-    <a href="#s4">4 Create</a>
+    <a href="#s1">1 List — empty</a>
+    <a href="#s2">2 List — populated</a>
+    <a href="#s3">3 Delete promotion</a>
+    <a href="#s4">4 Create promotion</a>
     <a href="#s5">5 Exclusions</a>
-    <a href="#s6">6 Electronics 20%</a>
-    <a href="#s7">7 BOGO</a>
-    <a href="#s8">8 Tiered</a>
-    <a href="#s9">9 Free shipping</a>
-    <a href="#s10">10 Extensions</a>
-    <a href="#s11">11 Group delete</a>
-    <a href="#s12">12 Codes (empty)</a>
-    <a href="#s13">13 Codes</a>
-    <a href="#s14">14 New code</a>
-    <a href="#s15">15 Code detail</a>
+    <a href="#s6">6 Whole-line discount</a>
+    <a href="#s7">7 First 5 pieces</a>
+    <a href="#s8">8 Which pieces</a>
+    <a href="#s9">9 Validation 422</a>
+    <a href="#s10">10 Buy 2 Get 1</a>
+    <a href="#s11">11 Tiered</a>
+    <a href="#s12">12 Free shipping</a>
+    <a href="#s13">13 Rule types</a>
+    <a href="#s14">14 Benefit types</a>
+    <a href="#s15">15 Delete sub-group</a>
+    <a href="#s16">16 Codes — empty</a>
+    <a href="#s17">17 Codes — populated</a>
+    <a href="#s18">18 Create code</a>
+    <a href="#s19">19 Code detail</a>
   </nav>
   <!-- prototype.js injects the review-mode controls. -->
   <button class="btn btn-outline btn-sm" id="theme-toggle" type="button">
@@ -81,16 +85,10 @@
     Interactive backend screens derived from <code class="t-mono">.ai/specs/SPEC-055-2026-02-23-promotions-module.md</code>.
     The shell, page scaffolding, DataTable chrome, and CrudForm layout mirror
     <code class="t-mono">packages/ui/src/backend/</code>; colors and spacing come from
-    <code class="t-mono">globals.css</code>. The rule-tree builder, promotion cards and tier rows have
-    no existing DS primitive — they are proposed compositions built only from DS tokens. Every screen
-    lists its requirement and user-story coverage. Cashier/cart (US-G) and storefront code-entry (US-H)
-    are non-UI/non-backend stories and are not represented here.
+    <code class="t-mono">globals.css</code>. Every screen lists its requirement and user-story coverage. Rebuilt against SPEC-055 v2.1.0, which gives every benefit an explicit application target and a shared set of quantity limits.
   </p>
 </header>
 
-<!-- ============================================================ -->
-<!-- 1. Promotions List — empty state -->
-<!-- ============================================================ -->
 <section class="screen" id="s1">
   <div class="screen-meta">
     <h2>1. Promotions list — empty state</h2>
@@ -108,7 +106,7 @@
           <div class="nav-group"><span>Promotions</span><svg><use href="#ic-chevron-down"/></svg></div>
           <div class="nav-items">
             <span class="nav-item active"><svg><use href="#ic-percent"/></svg> Promotions</span>
-            <a class="nav-item" href="#s12" data-goto="s12"><svg><use href="#ic-ticket"/></svg> Codes</a>
+            <a class="nav-item" href="#s16" data-goto="s16"><svg><use href="#ic-ticket"/></svg> Codes</a>
           </div>
         </nav>
       </aside>
@@ -143,9 +141,6 @@
   </div>
 </section>
 
-<!-- ============================================================ -->
-<!-- 2. Promotions List — populated, filters, pending drag-reorder -->
-<!-- ============================================================ -->
 <section class="screen" id="s2">
   <div class="screen-meta">
     <h2>2. Promotions list — populated, filtered, pending reorder</h2>
@@ -163,7 +158,7 @@
           <div class="nav-group"><span>Promotions</span><svg><use href="#ic-chevron-down"/></svg></div>
           <div class="nav-items">
             <span class="nav-item active"><svg><use href="#ic-percent"/></svg> Promotions</span>
-            <a class="nav-item" href="#s12" data-goto="s12"><svg><use href="#ic-ticket"/></svg> Codes</a>
+            <a class="nav-item" href="#s16" data-goto="s16"><svg><use href="#ic-ticket"/></svg> Codes</a>
           </div>
         </nav>
       </aside>
@@ -224,7 +219,7 @@
                   </div>
                   <div class="row">
                     <div class="order-step"><button aria-label="Move up"><svg><use href="#ic-arrow-up"/></svg></button><button aria-label="Move down"><svg><use href="#ic-arrow-down"/></svg></button></div>
-                    <button class="btn btn-outline btn-sm" data-goto="s8"><svg><use href="#ic-pencil"/></svg> Edit</button>
+                    <button class="btn btn-outline btn-sm" data-goto="s11"><svg><use href="#ic-pencil"/></svg> Edit</button>
                     <button class="btn btn-outline btn-sm" data-goto="s3"><svg><use href="#ic-trash"/></svg> Delete</button>
                   </div>
                 </div>
@@ -270,7 +265,7 @@
                   </div>
                   <div class="row">
                     <div class="order-step"><button aria-label="Move up"><svg><use href="#ic-arrow-up"/></svg></button><button aria-label="Move down"><svg><use href="#ic-arrow-down"/></svg></button></div>
-                    <button class="btn btn-outline btn-sm" data-goto="s7"><svg><use href="#ic-pencil"/></svg> Edit</button>
+                    <button class="btn btn-outline btn-sm" data-goto="s10"><svg><use href="#ic-pencil"/></svg> Edit</button>
                     <button class="btn btn-outline btn-sm" data-goto="s3"><svg><use href="#ic-trash"/></svg> Delete</button>
                   </div>
                 </div>
@@ -293,7 +288,7 @@
                   </div>
                   <div class="row">
                     <div class="order-step"><button aria-label="Move up"><svg><use href="#ic-arrow-up"/></svg></button><button aria-label="Move down"><svg><use href="#ic-arrow-down"/></svg></button></div>
-                    <button class="btn btn-outline btn-sm" data-goto="s9"><svg><use href="#ic-pencil"/></svg> Edit</button>
+                    <button class="btn btn-outline btn-sm" data-goto="s12"><svg><use href="#ic-pencil"/></svg> Edit</button>
                     <button class="btn btn-outline btn-sm" data-goto="s3"><svg><use href="#ic-trash"/></svg> Delete</button>
                   </div>
                 </div>
@@ -363,9 +358,6 @@
   </div>
 </section>
 
-<!-- ============================================================ -->
-<!-- 3. Delete confirmation dialog -->
-<!-- ============================================================ -->
 <section class="screen" id="s3">
   <div class="screen-meta">
     <h2>3. Delete confirmation — non-empty rule tree</h2>
@@ -383,7 +375,7 @@
           <div class="nav-group"><span>Promotions</span><svg><use href="#ic-chevron-down"/></svg></div>
           <div class="nav-items">
             <span class="nav-item active"><svg><use href="#ic-percent"/></svg> Promotions</span>
-            <a class="nav-item" href="#s12" data-goto="s12"><svg><use href="#ic-ticket"/></svg> Codes</a>
+            <a class="nav-item" href="#s16" data-goto="s16"><svg><use href="#ic-ticket"/></svg> Codes</a>
           </div>
         </nav>
       </aside>
@@ -424,9 +416,6 @@
   </div>
 </section>
 
-<!-- ============================================================ -->
-<!-- 4. Promotion create — blank form + empty tree -->
-<!-- ============================================================ -->
 <section class="screen" id="s4">
   <div class="screen-meta">
     <h2>4. Promotion create — blank form, empty rule tree</h2>
@@ -444,7 +433,7 @@
           <div class="nav-group"><span>Promotions</span><svg><use href="#ic-chevron-down"/></svg></div>
           <div class="nav-items">
             <a class="nav-item" href="#s1" data-goto="s1"><svg><use href="#ic-percent"/></svg> Promotions</a>
-            <a class="nav-item" href="#s12" data-goto="s12"><svg><use href="#ic-ticket"/></svg> Codes</a>
+            <a class="nav-item" href="#s16" data-goto="s16"><svg><use href="#ic-ticket"/></svg> Codes</a>
           </div>
         </nav>
       </aside>
@@ -533,9 +522,6 @@
   </div>
 </section>
 
-<!-- ============================================================ -->
-<!-- 5. Exclusions panel — Autumn Clearance -->
-<!-- ============================================================ -->
 <section class="screen" id="s5">
   <div class="screen-meta">
     <h2>5. Promotion edit — exclusions (exclude pharmaceuticals)</h2>
@@ -553,7 +539,7 @@
           <div class="nav-group"><span>Promotions</span><svg><use href="#ic-chevron-down"/></svg></div>
           <div class="nav-items">
             <a class="nav-item" href="#s1" data-goto="s1"><svg><use href="#ic-percent"/></svg> Promotions</a>
-            <a class="nav-item" href="#s12" data-goto="s12"><svg><use href="#ic-ticket"/></svg> Codes</a>
+            <a class="nav-item" href="#s16" data-goto="s16"><svg><use href="#ic-ticket"/></svg> Codes</a>
           </div>
         </nav>
       </aside>
@@ -628,11 +614,21 @@
                   <span class="rtree-benefits-label">Benefits</span>
                   <div class="rtree-card rtree-benefit-card">
                     <svg class="grip"><use href="#ic-grip"/></svg>
-                    <div class="rtree-card-fields">
-                      <select class="select"><option>Cart discount</option></select>
-                      <select class="select"><option>Percentage</option></select>
-                      <input class="input" value="30" style="width:5rem" /><span class="t-hint">excludes flagged items</span>
-                    </div>
+                      <div class="benefit-config">
+                        <div class="benefit-row"><select class="select"><option>Cart discount</option></select><select class="select"><option>Percentage</option></select><input class="input" value="30" style="width:5rem" /><span class="t-hint">excludes flagged items</span></div>
+                        <div class="benefit-row"><span class="benefit-row-label">Applies to</span>
+                      <div class="segmented" role="tablist" aria-label="Applies to">
+                        <button type="button" role="tab" aria-selected="true">Whole order</button>
+                        <button type="button" role="tab" aria-selected="false" disabled>Order line</button>
+                        <button type="button" role="tab" aria-selected="false" disabled>Each piece</button>
+                      </div>
+                        </div>
+                        <div class="benefit-row"><span class="benefit-row-label">Limits</span>
+                      <div class="benefit-limits benefit-limit-off"><span class="t-hint">Max pieces</span><input class="input" value="" placeholder="—"/><span class="t-hint">Max lines</span><input class="input" value="" placeholder="—"/><span class="t-hint">Step</span><input class="input" value="" placeholder="—"/><span class="t-hint">Max discount</span><input class="input" value="" placeholder="—"/></div>
+                        <span class="benefit-limit-note"><svg style="width:0.75rem;height:0.75rem"><use href="#ic-info"/></svg> Quantity limits do not apply to a whole-order benefit</span>
+                        </div>
+                        <div class="benefit-echo"><svg><use href="#ic-info"/></svg><span>A cart-level discount is applied once to the document, so it has no pieces to count — the quantity limits stay disabled.</span></div>
+                      </div>
                     <button class="icon-btn" aria-label="Delete benefit"><svg><use href="#ic-trash"/></svg></button>
                   </div>
                 </div>
@@ -658,9 +654,6 @@
   </div>
 </section>
 
-<!-- ============================================================ -->
-<!-- 6. Electronics 20% off -->
-<!-- ============================================================ -->
 <section class="screen" id="s6">
   <div class="screen-meta">
     <h2>6. Promotion edit — 20% off electronics</h2>
@@ -678,7 +671,7 @@
           <div class="nav-group"><span>Promotions</span><svg><use href="#ic-chevron-down"/></svg></div>
           <div class="nav-items">
             <a class="nav-item" href="#s1" data-goto="s1"><svg><use href="#ic-percent"/></svg> Promotions</a>
-            <a class="nav-item" href="#s12" data-goto="s12"><svg><use href="#ic-ticket"/></svg> Codes</a>
+            <a class="nav-item" href="#s16" data-goto="s16"><svg><use href="#ic-ticket"/></svg> Codes</a>
           </div>
         </nav>
       </aside>
@@ -751,13 +744,20 @@
                   <span class="rtree-benefits-label">Benefits</span>
                   <div class="rtree-card rtree-benefit-card">
                     <svg class="grip"><use href="#ic-grip"/></svg>
-                    <div class="rtree-card-fields">
-                      <select class="select"><option>Product discount</option></select>
-                      <select class="select"><option>Percentage</option></select>
-                      <input class="input" value="20" style="width:4.5rem" />
-                      <select class="select"><option>Selector: all</option></select>
-                      <span class="t-hint">Category: electronics</span>
-                    </div>
+                      <div class="benefit-config">
+                        <div class="benefit-row"><select class="select"><option>Product discount</option></select><select class="select"><option>Percentage</option></select><input class="input" value="20" style="width:4.5rem" /><span class="t-hint">Category: electronics</span></div>
+                        <div class="benefit-row"><span class="benefit-row-label">Applies to</span>
+                      <div class="segmented" role="tablist" aria-label="Applies to">
+                        <button type="button" role="tab" aria-selected="false">Whole order</button>
+                        <button type="button" role="tab" aria-selected="true">Order line</button>
+                        <button type="button" role="tab" aria-selected="false">Each piece</button>
+                      </div>
+                        </div>
+                        <div class="benefit-row"><span class="benefit-row-label">Limits</span>
+                      <div class="benefit-limits"><span class="t-hint">Max pieces</span><input class="input" value="" placeholder="—"/><span class="t-hint">Max lines</span><input class="input" value="" placeholder="—"/><span class="t-hint">Step</span><input class="input" value="" placeholder="—"/><span class="t-hint">Max discount</span><input class="input" value="" placeholder="—"/></div>
+                        </div>
+                        <div class="benefit-echo"><svg><use href="#ic-info"/></svg><span><b>20% off</b> every qualifying line, in full. No quantity limit set, so <b>Which pieces</b> stays hidden and every matching piece is covered.</span></div>
+                      </div>
                     <button class="icon-btn" aria-label="Delete benefit"><svg><use href="#ic-trash"/></svg></button>
                   </div>
                   <details><summary class="t-hint" style="cursor:pointer">Labels (en, pl)</summary>
@@ -789,12 +789,397 @@
   </div>
 </section>
 
-<!-- ============================================================ -->
-<!-- 7. Buy 2 Get 1 Free — nested sub-group -->
-<!-- ============================================================ -->
 <section class="screen" id="s7">
   <div class="screen-meta">
-    <h2>7. Promotion edit — Buy 2 Get 1 Free (nested sub-group)</h2>
+    <h2>7. Promotion edit — 20% off, first 5 pieces only</h2>
+    <p>Operator caps a clearance discount at the first five pieces across the whole cart, so a bulk order cannot drain the margin. US-J: limit the discount to the first N pieces.</p>
+    <div class="screen-refs"><span class="ref">§Data Models — Application target</span><span class="ref">§Data Models — Quantity caps</span><span class="ref">US-J</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/promotions/promo_cable-clearance</span></div>
+    <div class="app app-taller">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Open Mercato</span></div>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Search</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Promotions</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items">
+            <a class="nav-item" href="#s1" data-goto="s1"><svg><use href="#ic-percent"/></svg> Promotions</a>
+            <a class="nav-item" href="#s16" data-goto="s16"><svg><use href="#ic-ticket"/></svg> Codes</a>
+          </div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><a href="#s1" data-goto="s1" style="color:inherit;text-decoration:none">Promotions</a><svg><use href="#ic-chevron-right"/></svg><span class="here">Cable Clearance</span></div></div>
+          <div class="topbar-right"><div class="topbar-search"><svg><use href="#ic-search"/></svg> Search</div><button class="icon-btn" aria-label="Notifications"><svg><use href="#ic-bell"/></svg></button><span class="avatar">AN</span></div>
+        </header>
+        <main class="page">
+          <div class="form-head">
+            <a class="back-link" href="#s1" data-goto="s1"><svg><use href="#ic-chevron-left"/></svg> Back</a>
+            <span class="title">Cable Clearance — First 5 Pieces</span>
+          </div>
+
+          <div class="form-group">
+            <div class="title">Info</div>
+            <div class="form-grid form-grid-2">
+              <div class="field"><label>Name <span class="req">*</span></label><input class="input" value="Cable Clearance — First 5 Pieces" /></div>
+              <div class="field"><label>Order</label><input class="input" value="4" /></div>
+            </div>
+            <div class="form-grid form-grid-2">
+              <div class="field"><label>Starts at</label><div class="input-group"><input class="input" value="2026-09-01" /><span class="addon"><svg><use href="#ic-calendar"/></svg></span></div></div>
+              <div class="field"><label>Ends at</label><div class="input-group"><input class="input" value="2026-09-30" /><span class="addon"><svg><use href="#ic-calendar"/></svg></span></div></div>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <div class="title">Settings</div>
+            <div class="row-4 wrap">
+              <label class="row"><button class="switch" role="switch" aria-checked="true"></button><span class="t-label">Active</span></label>
+              <label class="row"><button class="switch" role="switch" aria-checked="true"></button><span class="t-label">Cumulative</span></label>
+            </div>
+            <div class="form-grid form-grid-2">
+              <div class="field"><label>Tags</label><div class="tag-input"><span class="tag-chip">clearance <button><svg><use href="#ic-x"/></svg></button></span><span class="tag-chip">accessories <button><svg><use href="#ic-x"/></svg></button></span></div></div>
+              <div class="field"><label>Excluded tags</label><div class="tag-input"><span class="t-hint">None</span></div></div>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <div class="title">Exclusions</div>
+            <div class="row-4 wrap">
+              <label class="row"><button class="check" role="checkbox" aria-checked="false"><svg><use href="#ic-check"/></svg></button><span class="t-body">Exclude medicine</span></label>
+              <label class="row"><button class="check" role="checkbox" aria-checked="false"><svg><use href="#ic-check"/></svg></button><span class="t-body">Exclude outlet items</span></label>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <div class="title">Rules &amp; Benefits</div>
+            <div class="rtree">
+              <div class="rtree-group" data-level="0">
+                <div class="rtree-head">
+                  <div class="rtree-op"><button aria-selected="true">AND</button><button aria-selected="false">OR</button></div>
+                  <div class="rtree-actions">
+                    <button class="btn btn-xs btn-rule-add"><svg><use href="#ic-plus"/></svg> Add rule</button>
+                    <button class="btn btn-xs btn-group-add"><svg><use href="#ic-layers"/></svg> Add sub-group</button>
+                    <button class="btn btn-xs btn-benefit-add"><svg><use href="#ic-plus"/></svg> Add benefit</button>
+                  </div>
+                </div>
+                <div class="rtree-card">
+                  <svg class="grip"><use href="#ic-grip"/></svg>
+                  <div class="rtree-card-fields">
+                    <select class="select"><option>Category</option></select>
+                    <input class="input" value="electronics" style="width:9rem" />
+                    <select class="select"><option>Qty ≥</option></select>
+                    <input class="input" value="1" style="width:4rem" />
+                  </div>
+                  <button class="icon-btn" aria-label="Delete rule"><svg><use href="#ic-trash"/></svg></button>
+                </div>
+                <div class="rtree-benefits">
+                  <span class="rtree-benefits-label">Benefits</span>
+                  <div class="rtree-card rtree-benefit-card">
+                    <svg class="grip"><use href="#ic-grip"/></svg>
+                      <div class="benefit-config">
+                        <div class="benefit-row"><select class="select"><option>Product discount</option></select><select class="select"><option>Percentage</option></select><input class="input" value="20" style="width:4.5rem" /><span class="t-hint">SKU: CBL-USBC-2M</span></div>
+                        <div class="benefit-row"><span class="benefit-row-label">Applies to</span><div class="segmented" role="tablist" aria-label="Applies to"><button type="button" role="tab" aria-selected="false">Whole order</button><button type="button" role="tab" aria-selected="false">Order line</button><button type="button" role="tab" aria-selected="true">Each piece</button></div></div>
+                        <div class="benefit-row"><span class="benefit-row-label">Limits</span><div class="benefit-limits"><span class="t-hint">Max pieces</span><input class="input" value="5" /><span class="t-hint">Max lines</span><input class="input" placeholder="—" /><span class="t-hint">Step</span><input class="input" placeholder="1" /><span class="t-hint">Max discount</span><input class="input" placeholder="—" /></div></div>
+                        <div class="benefit-row"><span class="benefit-row-label">Which pieces</span><select class="select" style="width:14rem"><option>First added (cart order)</option></select><span class="t-hint">required — a quantity limit is set</span></div>
+                        <div class="benefit-echo"><svg><use href="#ic-info"/></svg><span><b>20% off</b> — the <b>first 5 pieces</b> across the cart, in the order they were added. Later pieces on the same line stay at full price.</span></div>
+                      </div>
+                    <button class="icon-btn" aria-label="Delete benefit"><svg><use href="#ic-trash"/></svg></button>
+                  </div>
+                  <details><summary class="t-hint" style="cursor:pointer">Labels (en, pl)</summary>
+                    <div class="form-grid form-grid-2" style="margin-top:0.5rem">
+                      <div class="field"><label>en</label><input class="input" value="20% off electronics" /></div>
+                      <div class="field"><label>pl</label><input class="input" value="20% zniżki na elektronikę" /></div>
+                    </div>
+                  </details>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-foot">
+            <div class="actions">
+              <button class="btn btn-destructive-outline" data-goto="s3"><svg><use href="#ic-trash"/></svg> Delete</button>
+              <button class="btn btn-outline" data-goto="s2">Cancel</button>
+              <button class="btn btn-primary" data-goto="s2"><svg><use href="#ic-save"/></svg> Save</button>
+            </div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span><nav class="row-3"><span>Terms</span><span>Privacy</span></nav></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes"><div class="note"><b>1</b><span><strong>Max pieces</strong> counts across the <em>whole cart</em>, not per line — three lines of four pieces each yield five discounted pieces in total, not twelve. A buyer cannot loosen the cap by splitting the purchase across lines.</span></div><div class="note"><b>2</b><span>Because <strong>Each piece</strong> is selected, a line may be partially covered. Under <strong>Order line</strong> the same cap would apply to nothing at all: a line of eight cannot be split, and eight exceeds five.</span></div><div class="note"><b>3</b><span>The engine returns one <code class="t-mono">LINE_DISCOUNT</code> per line carrying <code class="t-mono">appliedQuantity</code> — never one effect per piece, so a 50-piece line does not fan out into 50 effects.</span></div></div>
+</section>
+
+<section class="screen" id="s8">
+  <div class="screen-meta">
+    <h2>8. Which pieces — selector open</h2>
+    <p>Operator chooses which pieces the limit buys. The field is required the moment a quantity limit exists, because “the first 5” and “the 5 most expensive” are different campaign costs.</p>
+    <div class="screen-refs"><span class="ref">§Data Models — selector values</span><span class="ref">§Amendment B.4</span><span class="ref">US-J</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/promotions/promo_cable-clearance</span></div>
+    <div class="app app-taller">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Open Mercato</span></div>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Search</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Promotions</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items">
+            <a class="nav-item" href="#s1" data-goto="s1"><svg><use href="#ic-percent"/></svg> Promotions</a>
+            <a class="nav-item" href="#s16" data-goto="s16"><svg><use href="#ic-ticket"/></svg> Codes</a>
+          </div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><a href="#s1" data-goto="s1" style="color:inherit;text-decoration:none">Promotions</a><svg><use href="#ic-chevron-right"/></svg><span class="here">Cable Clearance</span></div></div>
+          <div class="topbar-right"><div class="topbar-search"><svg><use href="#ic-search"/></svg> Search</div><button class="icon-btn" aria-label="Notifications"><svg><use href="#ic-bell"/></svg></button><span class="avatar">AN</span></div>
+        </header>
+        <main class="page">
+          <div class="form-head">
+            <a class="back-link" href="#s1" data-goto="s1"><svg><use href="#ic-chevron-left"/></svg> Back</a>
+            <span class="title">Cable Clearance — First 5 Pieces</span>
+          </div>
+
+          <div class="form-group">
+            <div class="title">Info</div>
+            <div class="form-grid form-grid-2">
+              <div class="field"><label>Name <span class="req">*</span></label><input class="input" value="Cable Clearance — First 5 Pieces" /></div>
+              <div class="field"><label>Order</label><input class="input" value="4" /></div>
+            </div>
+            <div class="form-grid form-grid-2">
+              <div class="field"><label>Starts at</label><div class="input-group"><input class="input" value="2026-09-01" /><span class="addon"><svg><use href="#ic-calendar"/></svg></span></div></div>
+              <div class="field"><label>Ends at</label><div class="input-group"><input class="input" value="2026-09-30" /><span class="addon"><svg><use href="#ic-calendar"/></svg></span></div></div>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <div class="title">Settings</div>
+            <div class="row-4 wrap">
+              <label class="row"><button class="switch" role="switch" aria-checked="true"></button><span class="t-label">Active</span></label>
+              <label class="row"><button class="switch" role="switch" aria-checked="true"></button><span class="t-label">Cumulative</span></label>
+            </div>
+            <div class="form-grid form-grid-2">
+              <div class="field"><label>Tags</label><div class="tag-input"><span class="tag-chip">clearance <button><svg><use href="#ic-x"/></svg></button></span><span class="tag-chip">accessories <button><svg><use href="#ic-x"/></svg></button></span></div></div>
+              <div class="field"><label>Excluded tags</label><div class="tag-input"><span class="t-hint">None</span></div></div>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <div class="title">Exclusions</div>
+            <div class="row-4 wrap">
+              <label class="row"><button class="check" role="checkbox" aria-checked="false"><svg><use href="#ic-check"/></svg></button><span class="t-body">Exclude medicine</span></label>
+              <label class="row"><button class="check" role="checkbox" aria-checked="false"><svg><use href="#ic-check"/></svg></button><span class="t-body">Exclude outlet items</span></label>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <div class="title">Rules &amp; Benefits</div>
+            <div class="rtree">
+              <div class="rtree-group" data-level="0">
+                <div class="rtree-head">
+                  <div class="rtree-op"><button aria-selected="true">AND</button><button aria-selected="false">OR</button></div>
+                  <div class="rtree-actions">
+                    <button class="btn btn-xs btn-rule-add"><svg><use href="#ic-plus"/></svg> Add rule</button>
+                    <button class="btn btn-xs btn-group-add"><svg><use href="#ic-layers"/></svg> Add sub-group</button>
+                    <button class="btn btn-xs btn-benefit-add"><svg><use href="#ic-plus"/></svg> Add benefit</button>
+                  </div>
+                </div>
+                <div class="rtree-card">
+                  <svg class="grip"><use href="#ic-grip"/></svg>
+                  <div class="rtree-card-fields">
+                    <select class="select"><option>Category</option></select>
+                    <input class="input" value="electronics" style="width:9rem" />
+                    <select class="select"><option>Qty ≥</option></select>
+                    <input class="input" value="1" style="width:4rem" />
+                  </div>
+                  <button class="icon-btn" aria-label="Delete rule"><svg><use href="#ic-trash"/></svg></button>
+                </div>
+                <div class="rtree-benefits">
+                  <span class="rtree-benefits-label">Benefits</span>
+                  <div class="rtree-card rtree-benefit-card">
+                    <svg class="grip"><use href="#ic-grip"/></svg>
+                      <div class="benefit-config">
+                        <div class="benefit-row"><select class="select"><option>Product discount</option></select><select class="select"><option>Percentage</option></select><input class="input" value="20" style="width:4.5rem" /><span class="t-hint">SKU: CBL-USBC-2M</span></div>
+                        <div class="benefit-row"><span class="benefit-row-label">Applies to</span><div class="segmented" role="tablist" aria-label="Applies to"><button type="button" role="tab" aria-selected="false">Whole order</button><button type="button" role="tab" aria-selected="false">Order line</button><button type="button" role="tab" aria-selected="true">Each piece</button></div></div>
+                        <div class="benefit-row"><span class="benefit-row-label">Limits</span><div class="benefit-limits"><span class="t-hint">Max pieces</span><input class="input" value="5" /><span class="t-hint">Max lines</span><input class="input" placeholder="—" /><span class="t-hint">Step</span><input class="input" placeholder="1" /><span class="t-hint">Max discount</span><input class="input" placeholder="—" /></div></div>
+                        <div class="benefit-row benefit-row-top"><span class="benefit-row-label">Which pieces</span><div class="rtree-type-combo" style="width:14rem"><input class="input" value="First added (cart order)" /><div class="rtree-type-list"><div class="rtree-type-group-label">Which pieces the limit buys</div><div class="rtree-type-option" aria-selected="true">First added (cart order)<span class="t-hint">the literal “first N”</span></div><div class="rtree-type-option">Cheapest first<span class="t-hint">lowest unit price</span></div><div class="rtree-type-option">Most expensive first<span class="t-hint">highest unit price</span></div><div class="rtree-type-group-label">Unavailable while a limit is set</div><div class="rtree-type-option" aria-disabled="true">Every qualifying piece<span class="t-hint">contradicts a limit</span></div><div class="rtree-type-option" aria-disabled="true">Nth piece by price<span class="t-hint">is its own limit</span></div></div></div></div>
+                        <div class="benefit-echo"><svg><use href="#ic-info"/></svg><span><b>20% off</b> — the <b>first 5 pieces</b> across the cart, in the order they were added.</span></div>
+                      </div>
+                    <button class="icon-btn" aria-label="Delete benefit"><svg><use href="#ic-trash"/></svg></button>
+                  </div>
+                  <details><summary class="t-hint" style="cursor:pointer">Labels (en, pl)</summary>
+                    <div class="form-grid form-grid-2" style="margin-top:0.5rem">
+                      <div class="field"><label>en</label><input class="input" value="20% off electronics" /></div>
+                      <div class="field"><label>pl</label><input class="input" value="20% zniżki na elektronikę" /></div>
+                    </div>
+                  </details>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-foot">
+            <div class="actions">
+              <button class="btn btn-destructive-outline" data-goto="s3"><svg><use href="#ic-trash"/></svg> Delete</button>
+              <button class="btn btn-outline" data-goto="s2">Cancel</button>
+              <button class="btn btn-primary" data-goto="s2"><svg><use href="#ic-save"/></svg> Save</button>
+            </div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span><nav class="row-3"><span>Terms</span><span>Privacy</span></nav></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes"><div class="note"><b>1</b><span>There is deliberately no default. A capped configuration saved without a selector is rejected 422 — see screen 9 — so this control cannot be skipped.</span></div><div class="note"><b>2</b><span><strong>Every qualifying piece</strong> and <strong>Nth piece by price</strong> are greyed rather than hidden: they are valid selectors, just not alongside a limit. Hiding them would leave the operator wondering where they went.</span></div><div class="note"><b>3</b><span>Ties break on cart line id, then piece index, so re-evaluating an unchanged cart selects exactly the same pieces.</span></div></div>
+</section>
+
+<section class="screen" id="s9">
+  <div class="screen-meta">
+    <h2>9. Validation — a quantity limit without a selector</h2>
+    <p>Operator saves a capped benefit without stating which pieces the limit buys, and a second benefit with a limit on a whole-order target. Both are refused at the write path.</p>
+    <div class="screen-refs"><span class="ref">§Data Models — Write-path rejections</span><span class="ref">TC-PROM-071</span><span class="ref">US-J</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/promotions/promo_cable-clearance</span></div>
+    <div class="app app-taller">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Open Mercato</span></div>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Search</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Promotions</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items">
+            <a class="nav-item" href="#s1" data-goto="s1"><svg><use href="#ic-percent"/></svg> Promotions</a>
+            <a class="nav-item" href="#s16" data-goto="s16"><svg><use href="#ic-ticket"/></svg> Codes</a>
+          </div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><a href="#s1" data-goto="s1" style="color:inherit;text-decoration:none">Promotions</a><svg><use href="#ic-chevron-right"/></svg><span class="here">Cable Clearance</span></div></div>
+          <div class="topbar-right"><div class="topbar-search"><svg><use href="#ic-search"/></svg> Search</div><button class="icon-btn" aria-label="Notifications"><svg><use href="#ic-bell"/></svg></button><span class="avatar">AN</span></div>
+        </header>
+        <main class="page">
+          <div class="form-head">
+            <a class="back-link" href="#s1" data-goto="s1"><svg><use href="#ic-chevron-left"/></svg> Back</a>
+            <span class="title">Cable Clearance — First 5 Pieces</span>
+          </div>
+
+          <div class="form-group">
+            <div class="title">Info</div>
+            <div class="form-grid form-grid-2">
+              <div class="field"><label>Name <span class="req">*</span></label><input class="input" value="Cable Clearance — First 5 Pieces" /></div>
+              <div class="field"><label>Order</label><input class="input" value="4" /></div>
+            </div>
+            <div class="form-grid form-grid-2">
+              <div class="field"><label>Starts at</label><div class="input-group"><input class="input" value="2026-09-01" /><span class="addon"><svg><use href="#ic-calendar"/></svg></span></div></div>
+              <div class="field"><label>Ends at</label><div class="input-group"><input class="input" value="2026-09-30" /><span class="addon"><svg><use href="#ic-calendar"/></svg></span></div></div>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <div class="title">Settings</div>
+            <div class="row-4 wrap">
+              <label class="row"><button class="switch" role="switch" aria-checked="true"></button><span class="t-label">Active</span></label>
+              <label class="row"><button class="switch" role="switch" aria-checked="true"></button><span class="t-label">Cumulative</span></label>
+            </div>
+            <div class="form-grid form-grid-2">
+              <div class="field"><label>Tags</label><div class="tag-input"><span class="tag-chip">clearance <button><svg><use href="#ic-x"/></svg></button></span><span class="tag-chip">accessories <button><svg><use href="#ic-x"/></svg></button></span></div></div>
+              <div class="field"><label>Excluded tags</label><div class="tag-input"><span class="t-hint">None</span></div></div>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <div class="title">Exclusions</div>
+            <div class="row-4 wrap">
+              <label class="row"><button class="check" role="checkbox" aria-checked="false"><svg><use href="#ic-check"/></svg></button><span class="t-body">Exclude medicine</span></label>
+              <label class="row"><button class="check" role="checkbox" aria-checked="false"><svg><use href="#ic-check"/></svg></button><span class="t-body">Exclude outlet items</span></label>
+            </div>
+          </div>
+
+          <div class="alert alert-error" style="margin-bottom:0.75rem"><svg><use href="#ic-warn"/></svg><div><div class="alert-title">2 benefits could not be saved</div><div class="t-body">Benefit 1 — <b>Which pieces</b> is required when a quantity limit is set. Benefit 2 — quantity limits cannot be set on a benefit that applies to the whole order.</div></div></div>
+          <div class="form-group">
+            <div class="title">Rules &amp; Benefits</div>
+            <div class="rtree">
+              <div class="rtree-group" data-level="0">
+                <div class="rtree-head">
+                  <div class="rtree-op"><button aria-selected="true">AND</button><button aria-selected="false">OR</button></div>
+                  <div class="rtree-actions">
+                    <button class="btn btn-xs btn-rule-add"><svg><use href="#ic-plus"/></svg> Add rule</button>
+                    <button class="btn btn-xs btn-group-add"><svg><use href="#ic-layers"/></svg> Add sub-group</button>
+                    <button class="btn btn-xs btn-benefit-add"><svg><use href="#ic-plus"/></svg> Add benefit</button>
+                  </div>
+                </div>
+                <div class="rtree-card">
+                  <svg class="grip"><use href="#ic-grip"/></svg>
+                  <div class="rtree-card-fields">
+                    <select class="select"><option>Category</option></select>
+                    <input class="input" value="electronics" style="width:9rem" />
+                    <select class="select"><option>Qty ≥</option></select>
+                    <input class="input" value="1" style="width:4rem" />
+                  </div>
+                  <button class="icon-btn" aria-label="Delete rule"><svg><use href="#ic-trash"/></svg></button>
+                </div>
+                <div class="rtree-benefits">
+                  <span class="rtree-benefits-label">Benefits</span>
+                  <div class="rtree-card rtree-benefit-card">
+                    <svg class="grip"><use href="#ic-grip"/></svg>
+                      <div class="benefit-config">
+                        <div class="benefit-row"><select class="select"><option>Product discount</option></select><select class="select"><option>Percentage</option></select><input class="input" value="20" style="width:4.5rem" /><span class="t-hint">SKU: CBL-USBC-2M</span></div>
+                        <div class="benefit-row"><span class="benefit-row-label">Applies to</span><div class="segmented" role="tablist" aria-label="Applies to"><button type="button" role="tab" aria-selected="false">Whole order</button><button type="button" role="tab" aria-selected="false">Order line</button><button type="button" role="tab" aria-selected="true">Each piece</button></div></div>
+                        <div class="benefit-row"><span class="benefit-row-label">Limits</span><div class="benefit-limits"><span class="t-hint">Max pieces</span><input class="input input-invalid" value="5" /><span class="t-hint">Max lines</span><input class="input" placeholder="—" /><span class="t-hint">Step</span><input class="input" placeholder="1" /><span class="t-hint">Max discount</span><input class="input" placeholder="—" /></div></div>
+                        <div class="benefit-row"><span class="benefit-row-label">Which pieces</span><select class="select input-invalid" style="width:14rem"><option>Select…</option></select><span class="field-error">Required when a quantity limit is set. “The first 5” and “the 5 most expensive” are different promotions.</span></div>
+                        <div class="benefit-echo"><svg><use href="#ic-info"/></svg><span>Incomplete — the limit has no selector, so the engine cannot decide which pieces it buys.</span></div>
+                      </div>
+                    <button class="icon-btn" aria-label="Delete benefit"><svg><use href="#ic-trash"/></svg></button>
+                  </div>
+                  <div class="rtree-card rtree-benefit-card">
+                    <svg class="grip"><use href="#ic-grip"/></svg>
+                    <div class="benefit-config">
+                      <div class="benefit-row"><select class="select"><option>Cart discount</option></select><select class="select"><option>Percentage</option></select><input class="input" value="10" style="width:4.5rem" /></div>
+                      <div class="benefit-row"><span class="benefit-row-label">Applies to</span><div class="segmented" role="tablist" aria-label="Applies to"><button type="button" role="tab" aria-selected="true">Whole order</button><button type="button" role="tab" aria-selected="false" disabled>Order line</button><button type="button" role="tab" aria-selected="false" disabled>Each piece</button></div></div>
+                      <div class="benefit-row"><span class="benefit-row-label">Limits</span><div class="benefit-limits"><span class="t-hint">Max pieces</span><input class="input input-invalid" value="3" /><span class="t-hint">Max lines</span><input class="input" placeholder="—" /><span class="t-hint">Step</span><input class="input" placeholder="1" /><span class="t-hint">Max discount</span><input class="input" value="50" /></div><span class="field-error">A whole-order benefit has no pieces to count — remove the limit or change the target.</span></div>
+                      <div class="benefit-echo"><svg><use href="#ic-warn"/></svg><span>Refused rather than ignored: accepting it would leave the admin UI showing a limit that never applies.</span></div>
+                    </div>
+                  </div>
+                  <details><summary class="t-hint" style="cursor:pointer">Labels (en, pl)</summary>
+                    <div class="form-grid form-grid-2" style="margin-top:0.5rem">
+                      <div class="field"><label>en</label><input class="input" value="20% off electronics" /></div>
+                      <div class="field"><label>pl</label><input class="input" value="20% zniżki na elektronikę" /></div>
+                    </div>
+                  </details>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-foot">
+            <div class="actions">
+              <button class="btn btn-destructive-outline" data-goto="s3"><svg><use href="#ic-trash"/></svg> Delete</button>
+              <button class="btn btn-outline" data-goto="s2">Cancel</button>
+              <button class="btn btn-primary" data-goto="s2"><svg><use href="#ic-save"/></svg> Save</button>
+            </div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span><nav class="row-3"><span>Terms</span><span>Privacy</span></nav></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes"><div class="note"><b>1</b><span>Both failures are 422 from the write path, not client-only guards — the same rejection protects the API, the AI tools and any importer, not just this form.</span></div><div class="note"><b>2</b><span>A quantity limit on a whole-order benefit is refused rather than ignored. Silently dropping it would leave the admin UI showing a cap that never applies.</span></div><div class="note"><b>3</b><span>The form should not normally reach this state — the selector is revealed and made required as soon as a limit is typed. This screen exists because an API client, an import, or a stale draft can still submit it.</span></div></div>
+</section>
+
+<section class="screen" id="s10">
+  <div class="screen-meta">
+    <h2>10. Promotion edit — Buy 2 Get 1 Free (nested sub-group)</h2>
     <p>Operator configures a BOGO offer: a sub-group scopes the trigger condition, with a buy_x_get_y benefit at group level. US-B: automatically grant the free product when the cart qualifies.</p>
     <div class="screen-refs"><span class="ref">§Data Models — Benefit (buy_x_get_y)</span><span class="ref">§UI/UX Rule Group Tree Builder</span><span class="ref">US-B</span></div>
   </div>
@@ -809,7 +1194,7 @@
           <div class="nav-group"><span>Promotions</span><svg><use href="#ic-chevron-down"/></svg></div>
           <div class="nav-items">
             <a class="nav-item" href="#s1" data-goto="s1"><svg><use href="#ic-percent"/></svg> Promotions</a>
-            <a class="nav-item" href="#s12" data-goto="s12"><svg><use href="#ic-ticket"/></svg> Codes</a>
+            <a class="nav-item" href="#s16" data-goto="s16"><svg><use href="#ic-ticket"/></svg> Codes</a>
           </div>
         </nav>
       </aside>
@@ -869,7 +1254,7 @@
                       <div class="rtree-actions">
                         <button class="btn btn-xs btn-rule-add"><svg><use href="#ic-plus"/></svg> Add rule</button>
                         <button class="btn btn-xs btn-duplicate"><svg><use href="#ic-copy"/></svg> Duplicate</button>
-                        <button class="btn btn-xs btn-node-delete" data-goto="s11"><svg><use href="#ic-trash"/></svg> Delete</button>
+                        <button class="btn btn-xs btn-node-delete" data-goto="s15"><svg><use href="#ic-trash"/></svg> Delete</button>
                       </div>
                     </div>
                     <div class="rtree-card">
@@ -888,12 +1273,21 @@
                   <span class="rtree-benefits-label">Benefits</span>
                   <div class="rtree-card rtree-benefit-card">
                     <svg class="grip"><use href="#ic-grip"/></svg>
-                    <div class="rtree-card-fields">
-                      <select class="select"><option>Buy X Get Y</option></select>
-                      <span class="t-hint">Trigger:</span><input class="input" value="SKN-CREAM-50" style="width:8rem" /><span class="t-hint">×2</span>
-                      <span class="t-hint">Reward:</span><input class="input" value="SKN-CREAM-50" style="width:8rem" /><span class="t-hint">×1</span>
-                      <select class="select"><option>100% off reward</option></select>
-                    </div>
+                      <div class="benefit-config">
+                        <div class="benefit-row"><select class="select"><option>Buy X Get Y</option></select><span class="t-hint">Trigger:</span><input class="input" value="SKN-CREAM-50" style="width:8rem" /><span class="t-hint">×2</span><span class="t-hint">Reward:</span><input class="input" value="SKN-CREAM-50" style="width:8rem" /><span class="t-hint">×1</span><select class="select"><option>100% off reward</option></select></div>
+                        <div class="benefit-row"><span class="benefit-row-label">Applies to</span>
+                      <div class="segmented" role="tablist" aria-label="Applies to">
+                        <button type="button" role="tab" aria-selected="false" disabled>Whole order</button>
+                        <button type="button" role="tab" aria-selected="false">Order line</button>
+                        <button type="button" role="tab" aria-selected="true">Each piece</button>
+                      </div>
+                        </div>
+                        <div class="benefit-row"><span class="benefit-row-label">Limits</span>
+                      <div class="benefit-limits"><span class="t-hint">Max pieces</span><input class="input" value="6" /><span class="t-hint">Max lines</span><input class="input" value="" placeholder="—"/><span class="t-hint">Step</span><input class="input" value="" placeholder="—"/><span class="t-hint">Max applications</span><input class="input" value="3" /></div>
+                        </div>
+                        <div class="benefit-row"><span class="benefit-row-label">Which pieces</span><select class="select" style="width:12rem"><option>First added (cart order)</option></select><span class="t-hint">required — a limit is set</span></div>
+                        <div class="benefit-echo"><svg><use href="#ic-info"/></svg><span>Buy 2 get 1 free, at most <b>3 times</b> and at most <b>6 free pieces</b>. An application the remaining piece budget cannot fund in full is not granted at all.</span></div>
+                      </div>
                     <button class="icon-btn" aria-label="Delete benefit"><svg><use href="#ic-trash"/></svg></button>
                   </div>
                   <details><summary class="t-hint" style="cursor:pointer">Labels (en, pl)</summary>
@@ -926,12 +1320,9 @@
   </div>
 </section>
 
-<!-- ============================================================ -->
-<!-- 8. Loyalty Spend Tiers — tiered discount -->
-<!-- ============================================================ -->
-<section class="screen" id="s8">
+<section class="screen" id="s11">
   <div class="screen-meta">
-    <h2>8. Promotion edit — tiered loyalty discount</h2>
+    <h2>11. Promotion edit — tiered loyalty discount</h2>
     <p>Operator configures spend tiers (€100 = 5%, €200 = 10%) so higher spenders are rewarded automatically. US-D.</p>
     <div class="screen-refs"><span class="ref">§Data Models — Benefit (tiered_discount)</span><span class="ref">US-D</span></div>
   </div>
@@ -946,7 +1337,7 @@
           <div class="nav-group"><span>Promotions</span><svg><use href="#ic-chevron-down"/></svg></div>
           <div class="nav-items">
             <a class="nav-item" href="#s1" data-goto="s1"><svg><use href="#ic-percent"/></svg> Promotions</a>
-            <a class="nav-item" href="#s12" data-goto="s12"><svg><use href="#ic-ticket"/></svg> Codes</a>
+            <a class="nav-item" href="#s16" data-goto="s16"><svg><use href="#ic-ticket"/></svg> Codes</a>
           </div>
         </nav>
       </aside>
@@ -1008,9 +1399,19 @@
                   <span class="rtree-benefits-label">Benefits</span>
                   <div class="rtree-card rtree-benefit-card">
                     <svg class="grip"><use href="#ic-grip"/></svg>
-                    <div class="rtree-card-fields" style="width:100%">
-                      <select class="select"><option>Tiered discount</option></select>
-                      <select class="select"><option>Scope: cart</option></select>
+                      <div class="benefit-config">
+                        <div class="benefit-row"><select class="select"><option>Tiered discount</option></select></div>
+                        <div class="benefit-row"><span class="benefit-row-label">Applies to</span>
+                      <div class="segmented" role="tablist" aria-label="Applies to">
+                        <button type="button" role="tab" aria-selected="true">Whole order</button>
+                        <button type="button" role="tab" aria-selected="false">Order line</button>
+                        <button type="button" role="tab" aria-selected="false">Each piece</button>
+                      </div>
+                        </div>
+                        <div class="benefit-row"><span class="benefit-row-label">Limits</span>
+                      <div class="benefit-limits benefit-limit-off"><span class="t-hint">Max pieces</span><input class="input" value="" placeholder="—"/><span class="t-hint">Max lines</span><input class="input" value="" placeholder="—"/><span class="t-hint">Step</span><input class="input" value="" placeholder="—"/><span class="t-hint">Max discount</span><input class="input" value="" placeholder="—"/></div>
+                        <span class="benefit-limit-note"><svg style="width:0.75rem;height:0.75rem"><use href="#ic-info"/></svg> Quantity limits do not apply to a whole-order benefit</span>
+                        </div>
                       <div style="width:100%">
                         <div class="tier-row">
                           <div class="field"><label class="t-hint">Threshold</label><input class="input" value="100.00" /></div>
@@ -1018,6 +1419,8 @@
                           <div class="field"><label class="t-hint">Value</label><input class="input" value="5" /></div>
                           <button class="icon-btn" aria-label="Remove tier"><svg><use href="#ic-trash"/></svg></button>
                         </div>
+                        <div class="benefit-echo"><svg><use href="#ic-info"/></svg><span>Tiers are measured against the cart total and the discount lands once on the document. Previously written as <code class="t-mono">Scope: cart</code>; the field is now the same <b>Applies to</b> control every benefit carries.</span></div>
+                      </div>
                         <div class="tier-row">
                           <div class="field"><label class="t-hint">Threshold</label><input class="input" value="200.00" /></div>
                           <div class="field"><label class="t-hint">Type</label><select class="select"><option>Percentage</option></select></div>
@@ -1052,12 +1455,9 @@
   </div>
 </section>
 
-<!-- ============================================================ -->
-<!-- 9. Free DPD Shipping over €50 -->
-<!-- ============================================================ -->
-<section class="screen" id="s9">
+<section class="screen" id="s12">
   <div class="screen-meta">
-    <h2>9. Promotion edit — free shipping over €50</h2>
+    <h2>12. Promotion edit — free shipping over €50</h2>
     <p>Operator scopes a free-shipping benefit to a specific delivery method above an order-value threshold. US-E.</p>
     <div class="screen-refs"><span class="ref">§Data Models — Benefit (delivery_discount)</span><span class="ref">US-E</span></div>
   </div>
@@ -1072,7 +1472,7 @@
           <div class="nav-group"><span>Promotions</span><svg><use href="#ic-chevron-down"/></svg></div>
           <div class="nav-items">
             <a class="nav-item" href="#s1" data-goto="s1"><svg><use href="#ic-percent"/></svg> Promotions</a>
-            <a class="nav-item" href="#s12" data-goto="s12"><svg><use href="#ic-ticket"/></svg> Codes</a>
+            <a class="nav-item" href="#s16" data-goto="s16"><svg><use href="#ic-ticket"/></svg> Codes</a>
           </div>
         </nav>
       </aside>
@@ -1142,13 +1542,21 @@
                   <span class="rtree-benefits-label">Benefits</span>
                   <div class="rtree-card rtree-benefit-card">
                     <svg style="width:1rem;height:1rem;color:var(--status-warning-text)"><use href="#ic-truck"/></svg>
-                    <div class="rtree-card-fields">
-                      <select class="select"><option>Delivery discount</option></select>
-                      <input class="input" value="dpd" style="width:6rem" />
-                      <select class="select"><option>Percentage</option></select>
-                      <input class="input" value="100" style="width:4.5rem" />
-                      <span class="t-hint">Scope: order</span>
-                    </div>
+                      <div class="benefit-config">
+                        <div class="benefit-row"><select class="select"><option>Delivery discount</option></select><input class="input" value="dpd" style="width:6rem" /><select class="select"><option>Percentage</option></select><input class="input" value="100" style="width:4.5rem" /></div>
+                        <div class="benefit-row"><span class="benefit-row-label">Applies to</span>
+                      <div class="segmented" role="tablist" aria-label="Applies to">
+                        <button type="button" role="tab" aria-selected="true">Whole order</button>
+                        <button type="button" role="tab" aria-selected="false" disabled>Order line</button>
+                        <button type="button" role="tab" aria-selected="false" disabled>Each piece</button>
+                      </div>
+                        </div>
+                        <div class="benefit-row"><span class="benefit-row-label">Limits</span>
+                      <div class="benefit-limits benefit-limit-off"><span class="t-hint">Max pieces</span><input class="input" value="" placeholder="—"/><span class="t-hint">Max lines</span><input class="input" value="" placeholder="—"/><span class="t-hint">Step</span><input class="input" value="" placeholder="—"/><span class="t-hint">Max discount</span><input class="input" value="" placeholder="—"/></div>
+                        <span class="benefit-limit-note"><svg style="width:0.75rem;height:0.75rem"><use href="#ic-info"/></svg> Quantity limits do not apply to a whole-order benefit</span>
+                        </div>
+                        <div class="benefit-echo"><svg><use href="#ic-info"/></svg><span>Free DPD shipping. A delivery discount is bounded by the delivery cost itself, so neither the quantity limits nor <b>Max discount</b> apply.</span></div>
+                      </div>
                     <button class="icon-btn" aria-label="Delete benefit"><svg><use href="#ic-trash"/></svg></button>
                   </div>
                 </div>
@@ -1174,12 +1582,9 @@
   </div>
 </section>
 
-<!-- ============================================================ -->
-<!-- 10. Extensions dropdown -->
-<!-- ============================================================ -->
-<section class="screen" id="s10">
+<section class="screen" id="s13">
   <div class="screen-meta">
-    <h2>10. Rule type dropdown — built-ins grouped with registered extensions</h2>
+    <h2>13. Rule type dropdown — built-ins grouped with registered extensions</h2>
     <p>Operator opens the rule-type combobox; extension-registered types (e.g. from an installed loyalty module) appear under a distinct "Extensions" group.</p>
     <div class="screen-refs"><span class="ref">§Extensibility — Client-Side Configurator Registry</span><span class="ref">§API — GET /api/promotions/extension-types</span></div>
   </div>
@@ -1194,7 +1599,7 @@
           <div class="nav-group"><span>Promotions</span><svg><use href="#ic-chevron-down"/></svg></div>
           <div class="nav-items">
             <a class="nav-item" href="#s1" data-goto="s1"><svg><use href="#ic-percent"/></svg> Promotions</a>
-            <a class="nav-item" href="#s12" data-goto="s12"><svg><use href="#ic-ticket"/></svg> Codes</a>
+            <a class="nav-item" href="#s16" data-goto="s16"><svg><use href="#ic-ticket"/></svg> Codes</a>
           </div>
         </nav>
       </aside>
@@ -1205,7 +1610,7 @@
         </header>
         <main class="page">
           <div class="form-head">
-            <a class="back-link" href="#s8" data-goto="s8"><svg><use href="#ic-chevron-left"/></svg> Back</a>
+            <a class="back-link" href="#s11" data-goto="s11"><svg><use href="#ic-chevron-left"/></svg> Back</a>
             <span class="title">Loyalty Spend Tiers — Rules &amp; Benefits</span>
           </div>
 
@@ -1264,12 +1669,134 @@
   </div>
 </section>
 
-<!-- ============================================================ -->
-<!-- 11. Sub-group delete confirmation -->
-<!-- ============================================================ -->
-<section class="screen" id="s11">
+<section class="screen" id="s14">
   <div class="screen-meta">
-    <h2>11. Sub-group delete confirmation</h2>
+    <h2>14. Benefit type — an extension that does not honour quantity limits</h2>
+    <p>Operator picks a benefit type registered by an installed loyalty module. The registry declares that it resolves its own effects, so the quantity limits are disabled rather than silently ignored.</p>
+    <div class="screen-refs"><span class="ref">§Extensibility — BenefitExtension</span><span class="ref">§API — GET /api/promotions/extension-types</span><span class="ref">US-K</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/promotions/promo_loyalty-autumn-boost</span></div>
+    <div class="app app-taller">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Open Mercato</span></div>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Search</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Promotions</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items">
+            <a class="nav-item" href="#s1" data-goto="s1"><svg><use href="#ic-percent"/></svg> Promotions</a>
+            <a class="nav-item" href="#s16" data-goto="s16"><svg><use href="#ic-ticket"/></svg> Codes</a>
+          </div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><a href="#s1" data-goto="s1" style="color:inherit;text-decoration:none">Promotions</a><svg><use href="#ic-chevron-right"/></svg><span class="here">Loyalty Autumn Boost</span></div></div>
+          <div class="topbar-right"><div class="topbar-search"><svg><use href="#ic-search"/></svg> Search</div><button class="icon-btn" aria-label="Notifications"><svg><use href="#ic-bell"/></svg></button><span class="avatar">AN</span></div>
+        </header>
+        <main class="page">
+          <div class="form-head">
+            <a class="back-link" href="#s1" data-goto="s1"><svg><use href="#ic-chevron-left"/></svg> Back</a>
+            <span class="title">Loyalty Autumn Boost</span>
+          </div>
+
+          <div class="form-group">
+            <div class="title">Info</div>
+            <div class="form-grid form-grid-2">
+              <div class="field"><label>Name <span class="req">*</span></label><input class="input" value="Loyalty Autumn Boost" /></div>
+              <div class="field"><label>Order</label><input class="input" value="7" /></div>
+            </div>
+            <div class="form-grid form-grid-2">
+              <div class="field"><label>Starts at</label><div class="input-group"><input class="input" value="2026-09-01" /><span class="addon"><svg><use href="#ic-calendar"/></svg></span></div></div>
+              <div class="field"><label>Ends at</label><div class="input-group"><input class="input" value="2026-09-30" /><span class="addon"><svg><use href="#ic-calendar"/></svg></span></div></div>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <div class="title">Settings</div>
+            <div class="row-4 wrap">
+              <label class="row"><button class="switch" role="switch" aria-checked="true"></button><span class="t-label">Active</span></label>
+              <label class="row"><button class="switch" role="switch" aria-checked="true"></button><span class="t-label">Cumulative</span></label>
+            </div>
+            <div class="form-grid form-grid-2">
+              <div class="field"><label>Tags</label><div class="tag-input"><span class="tag-chip">loyalty <button><svg><use href="#ic-x"/></svg></button></span><span class="tag-chip">autumn <button><svg><use href="#ic-x"/></svg></button></span></div></div>
+              <div class="field"><label>Excluded tags</label><div class="tag-input"><span class="t-hint">None</span></div></div>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <div class="title">Exclusions</div>
+            <div class="row-4 wrap">
+              <label class="row"><button class="check" role="checkbox" aria-checked="false"><svg><use href="#ic-check"/></svg></button><span class="t-body">Exclude medicine</span></label>
+              <label class="row"><button class="check" role="checkbox" aria-checked="false"><svg><use href="#ic-check"/></svg></button><span class="t-body">Exclude outlet items</span></label>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <div class="title">Rules &amp; Benefits</div>
+            <div class="rtree">
+              <div class="rtree-group" data-level="0">
+                <div class="rtree-head">
+                  <div class="rtree-op"><button aria-selected="true">AND</button><button aria-selected="false">OR</button></div>
+                  <div class="rtree-actions">
+                    <button class="btn btn-xs btn-rule-add"><svg><use href="#ic-plus"/></svg> Add rule</button>
+                    <button class="btn btn-xs btn-group-add"><svg><use href="#ic-layers"/></svg> Add sub-group</button>
+                    <button class="btn btn-xs btn-benefit-add"><svg><use href="#ic-plus"/></svg> Add benefit</button>
+                  </div>
+                </div>
+                <div class="rtree-card">
+                  <svg class="grip"><use href="#ic-grip"/></svg>
+                  <div class="rtree-card-fields">
+                    <select class="select"><option>Category</option></select>
+                    <input class="input" value="electronics" style="width:9rem" />
+                    <select class="select"><option>Qty ≥</option></select>
+                    <input class="input" value="1" style="width:4rem" />
+                  </div>
+                  <button class="icon-btn" aria-label="Delete rule"><svg><use href="#ic-trash"/></svg></button>
+                </div>
+                <div class="rtree-benefits">
+                  <span class="rtree-benefits-label">Benefits</span>
+                  <div class="rtree-card rtree-benefit-card">
+                    <svg class="grip"><use href="#ic-grip"/></svg>
+                      <div class="benefit-config">
+                        <div class="benefit-row benefit-row-top"><div class="rtree-type-combo" style="width:16rem"><input class="input" value="Loyalty points multiplier" /><div class="rtree-type-list"><div class="rtree-type-group-label">Built-in benefit types</div><div class="rtree-type-option">Product discount</div><div class="rtree-type-option">Cart discount</div><div class="rtree-type-option">Delivery discount</div><div class="rtree-type-option">Free product</div><div class="rtree-type-option">Buy X Get Y</div><div class="rtree-type-option">Tiered discount</div><div class="rtree-type-group-label">Extensions</div><div class="rtree-type-option" aria-selected="true">Loyalty points multiplier<span class="t-hint">loyalty · whole order only · limits not honoured</span></div><div class="rtree-type-option">Partner cashback<span class="t-hint">partners · order / line / piece · limits honoured</span></div></div></div></div>
+                        <div class="benefit-row"><span class="benefit-row-label">Applies to</span><div class="segmented" role="tablist" aria-label="Applies to"><button type="button" role="tab" aria-selected="true">Whole order</button><button type="button" role="tab" aria-selected="false" disabled>Order line</button><button type="button" role="tab" aria-selected="false" disabled>Each piece</button></div><span class="t-hint">the extension declares <code class="t-mono">supportedAppliesTo: ["order"]</code></span></div>
+                        <div class="benefit-row"><span class="benefit-row-label">Limits</span><div class="benefit-limits benefit-limit-off"><span class="t-hint">Max pieces</span><input class="input" placeholder="—" /><span class="t-hint">Max lines</span><input class="input" placeholder="—" /><span class="t-hint">Step</span><input class="input" placeholder="1" /><span class="t-hint">Max discount</span><input class="input" placeholder="—" /></div><span class="benefit-limit-note"><svg style="width:0.75rem;height:0.75rem"><use href="#ic-warn"/></svg> This extension resolves its own effects (<code class="t-mono">capsHonoured: false</code>)</span></div>
+                        <div class="benefit-echo"><svg><use href="#ic-info"/></svg><span>Multiplies loyalty points for the whole order. Core cannot cap an extension that ignores the selection it is handed, so the limits are disabled <b>up front</b> rather than accepted and quietly discarded.</span></div>
+                      </div>
+                    <button class="icon-btn" aria-label="Delete benefit"><svg><use href="#ic-trash"/></svg></button>
+                  </div>
+                  <details><summary class="t-hint" style="cursor:pointer">Labels (en, pl)</summary>
+                    <div class="form-grid form-grid-2" style="margin-top:0.5rem">
+                      <div class="field"><label>en</label><input class="input" value="20% off electronics" /></div>
+                      <div class="field"><label>pl</label><input class="input" value="20% zniżki na elektronikę" /></div>
+                    </div>
+                  </details>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-foot">
+            <div class="actions">
+              <button class="btn btn-destructive-outline" data-goto="s3"><svg><use href="#ic-trash"/></svg> Delete</button>
+              <button class="btn btn-outline" data-goto="s2">Cancel</button>
+              <button class="btn btn-primary" data-goto="s2"><svg><use href="#ic-save"/></svg> Save</button>
+            </div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span><nav class="row-3"><span>Terms</span><span>Privacy</span></nav></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes"><div class="note"><b>1</b><span>The dropdown is shown permanently open for review; in the real UI it opens on focus and filters as you type.</span></div><div class="note"><b>2</b><span><code class="t-mono">supportedAppliesTo</code>, <code class="t-mono">defaultAppliesTo</code> and <code class="t-mono">capsHonoured</code> come from <code class="t-mono">GET /api/promotions/extension-types</code>. Core never parses an extension's own config to learn what it applies to.</span></div><div class="note"><b>3</b><span>Contrast <strong>Partner cashback</strong> in the same group: it consumes the selection core hands it, so it offers all three targets and live limits.</span></div></div>
+</section>
+
+<section class="screen" id="s15">
+  <div class="screen-meta">
+    <h2>15. Sub-group delete confirmation</h2>
     <p>Deleting a sub-group that still has child rules or nested sub-groups requires confirmation; empty sub-groups, rules and benefits delete immediately without one.</p>
     <div class="screen-refs"><span class="ref">§UI/UX Rule Group Tree Builder — Deletion</span></div>
   </div>
@@ -1284,7 +1811,7 @@
           <div class="nav-group"><span>Promotions</span><svg><use href="#ic-chevron-down"/></svg></div>
           <div class="nav-items">
             <a class="nav-item" href="#s1" data-goto="s1"><svg><use href="#ic-percent"/></svg> Promotions</a>
-            <a class="nav-item" href="#s12" data-goto="s12"><svg><use href="#ic-ticket"/></svg> Codes</a>
+            <a class="nav-item" href="#s16" data-goto="s16"><svg><use href="#ic-ticket"/></svg> Codes</a>
           </div>
         </nav>
       </aside>
@@ -1312,8 +1839,8 @@
         <div class="modal-foot">
           <span class="t-hint">Sub-group · AND</span>
           <div class="row">
-            <button class="btn btn-outline" data-goto="s7">Cancel</button>
-            <button class="btn btn-destructive" data-goto="s7"><svg><use href="#ic-trash"/></svg> Delete sub-group</button>
+            <button class="btn btn-outline" data-goto="s10">Cancel</button>
+            <button class="btn btn-destructive" data-goto="s10"><svg><use href="#ic-trash"/></svg> Delete sub-group</button>
           </div>
         </div>
       </div>
@@ -1325,12 +1852,9 @@
   </div>
 </section>
 
-<!-- ============================================================ -->
-<!-- 12. Codes list — empty state -->
-<!-- ============================================================ -->
-<section class="screen" id="s12">
+<section class="screen" id="s16">
   <div class="screen-meta">
-    <h2>12. Promotional codes — empty state</h2>
+    <h2>16. Promotional codes — empty state</h2>
     <p>First run: no code templates exist yet for this tenant.</p>
     <div class="screen-refs"><span class="ref">§UI/UX Promotional Codes</span></div>
   </div>
@@ -1357,13 +1881,13 @@
         <main class="page">
           <div class="page-head">
             <div><h1 class="t-page-title">Promotional codes</h1><p>Static vouchers and dynamically generated code pools, managed independently of promotions.</p></div>
-            <div class="page-actions"><button class="btn btn-primary" data-goto="s14"><svg><use href="#ic-plus"/></svg> New code</button></div>
+            <div class="page-actions"><button class="btn btn-primary" data-goto="s18"><svg><use href="#ic-plus"/></svg> New code</button></div>
           </div>
           <div class="empty">
             <div class="empty-icon"><svg><use href="#ic-ticket"/></svg></div>
             <div class="t-card-title">No codes yet</div>
             <p class="t-hint" style="max-width:32ch;margin:0">Create a static voucher or a dynamic code pool, then link it into a promotion's rule tree with a Code rule.</p>
-            <button class="btn btn-primary btn-sm" data-goto="s14"><svg><use href="#ic-plus"/></svg> New code</button>
+            <button class="btn btn-primary btn-sm" data-goto="s18"><svg><use href="#ic-plus"/></svg> New code</button>
           </div>
         </main>
         <footer class="app-foot"><span>v1.0.0</span><nav class="row-3"><span>Terms</span><span>Privacy</span></nav></footer>
@@ -1372,12 +1896,9 @@
   </div>
 </section>
 
-<!-- ============================================================ -->
-<!-- 13. Codes list — populated -->
-<!-- ============================================================ -->
-<section class="screen" id="s13">
+<section class="screen" id="s17">
   <div class="screen-meta">
-    <h2>13. Promotional codes — populated</h2>
+    <h2>17. Promotional codes — populated</h2>
     <p>Static and dynamic code templates side by side; dynamic rows show generation progress. US-C: issue a one-time-use voucher for newsletter subscribers.</p>
     <div class="screen-refs"><span class="ref">§UI/UX Promotional Codes</span><span class="ref">US-C</span></div>
   </div>
@@ -1404,7 +1925,7 @@
         <main class="page">
           <div class="page-head">
             <div><h1 class="t-page-title">Promotional codes</h1><p>Static vouchers and dynamically generated code pools, managed independently of promotions.</p></div>
-            <div class="page-actions"><button class="btn btn-primary" data-goto="s14"><svg><use href="#ic-plus"/></svg> New code</button></div>
+            <div class="page-actions"><button class="btn btn-primary" data-goto="s18"><svg><use href="#ic-plus"/></svg> New code</button></div>
           </div>
 
           <div class="dt">
@@ -1423,23 +1944,23 @@
               <table class="table">
                 <thead><tr><th>Name</th><th>Type</th><th>Code</th><th>Usage</th><th>Progress</th><th>Active</th><th class="right">Actions</th></tr></thead>
                 <tbody>
-                  <tr class="clickable" data-goto="s15">
+                  <tr class="clickable" data-goto="s19">
                     <td><strong>Newsletter Welcome Voucher</strong></td>
                     <td><span class="badge badge-neutral"><svg><use href="#ic-tag"/></svg> Static</span></td>
                     <td class="t-mono">WELCOME15</td>
                     <td class="t-hint">342 used · limit 1 / customer</td>
                     <td><div class="progress" style="width:8rem"><span style="width:7%"></span></div></td>
                     <td><button class="switch" role="switch" aria-checked="true"></button></td>
-                    <td class="right"><div class="row-actions"><button class="icon-btn" aria-label="Edit" data-goto="s15"><svg><use href="#ic-pencil"/></svg></button><button class="icon-btn" aria-label="Delete"><svg><use href="#ic-trash"/></svg></button></div></td>
+                    <td class="right"><div class="row-actions"><button class="icon-btn" aria-label="Edit" data-goto="s19"><svg><use href="#ic-pencil"/></svg></button><button class="icon-btn" aria-label="Delete"><svg><use href="#ic-trash"/></svg></button></div></td>
                   </tr>
-                  <tr class="clickable" data-goto="s15">
+                  <tr class="clickable" data-goto="s19">
                     <td><strong>Summer 2026 Dynamic Pool</strong></td>
                     <td><span class="badge badge-info"><svg><use href="#ic-refresh"/></svg> Dynamic</span></td>
                     <td class="t-mono">SUMMER-••••••••</td>
                     <td class="t-hint">3,120 used · 1 / code</td>
                     <td><div class="col" style="gap:0.25rem"><div class="progress" style="width:8rem"><span style="width:64%"></span></div><span class="t-hint">6,420 / 10,000 generated</span></div></td>
                     <td><button class="switch" role="switch" aria-checked="true"></button></td>
-                    <td class="right"><div class="row-actions"><button class="btn btn-outline btn-xs">Generate</button><button class="icon-btn" aria-label="Edit" data-goto="s15"><svg><use href="#ic-pencil"/></svg></button></div></td>
+                    <td class="right"><div class="row-actions"><button class="btn btn-outline btn-xs">Generate</button><button class="icon-btn" aria-label="Edit" data-goto="s19"><svg><use href="#ic-pencil"/></svg></button></div></td>
                   </tr>
                 </tbody>
               </table>
@@ -1457,12 +1978,9 @@
   </div>
 </section>
 
-<!-- ============================================================ -->
-<!-- 14. Code create — static voucher -->
-<!-- ============================================================ -->
-<section class="screen" id="s14">
+<section class="screen" id="s18">
   <div class="screen-meta">
-    <h2>14. Code create — one-time voucher for newsletter subscribers</h2>
+    <h2>18. Code create — one-time voucher for newsletter subscribers</h2>
     <p>Operator issues a single-use-per-customer static voucher targeted at a specific audience. US-C.</p>
     <div class="screen-refs"><span class="ref">§Data Models — Code</span><span class="ref">US-C</span></div>
   </div>
@@ -1483,12 +2001,12 @@
       </aside>
       <div class="main">
         <header class="topbar">
-          <div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><a href="#s12" data-goto="s12" style="color:inherit;text-decoration:none">Codes</a><svg><use href="#ic-chevron-right"/></svg><span class="here">New</span></div></div>
+          <div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><a href="#s16" data-goto="s16" style="color:inherit;text-decoration:none">Codes</a><svg><use href="#ic-chevron-right"/></svg><span class="here">New</span></div></div>
           <div class="topbar-right"><div class="topbar-search"><svg><use href="#ic-search"/></svg> Search</div><button class="icon-btn" aria-label="Notifications"><svg><use href="#ic-bell"/></svg></button><span class="avatar">AN</span></div>
         </header>
         <main class="page">
           <div class="form-head">
-            <a class="back-link" href="#s12" data-goto="s12"><svg><use href="#ic-chevron-left"/></svg> Back</a>
+            <a class="back-link" href="#s16" data-goto="s16"><svg><use href="#ic-chevron-left"/></svg> Back</a>
             <span class="title">New code</span>
           </div>
 
@@ -1524,8 +2042,8 @@
 
           <div class="form-foot">
             <div class="actions">
-              <button class="btn btn-outline" data-goto="s12">Cancel</button>
-              <button class="btn btn-primary" data-goto="s13"><svg><use href="#ic-save"/></svg> Save</button>
+              <button class="btn btn-outline" data-goto="s16">Cancel</button>
+              <button class="btn btn-primary" data-goto="s17"><svg><use href="#ic-save"/></svg> Save</button>
             </div>
           </div>
         </main>
@@ -1539,12 +2057,9 @@
   </div>
 </section>
 
-<!-- ============================================================ -->
-<!-- 15. Code detail — generated codes modal -->
-<!-- ============================================================ -->
-<section class="screen" id="s15">
+<section class="screen" id="s19">
   <div class="screen-meta">
-    <h2>15. Code detail — dynamic pool with generated-codes modal</h2>
+    <h2>19. Code detail — dynamic pool with generated-codes modal</h2>
     <p>Operator reviews a dynamic code pool's generation progress and inspects individual generated codes.</p>
     <div class="screen-refs"><span class="ref">§UI/UX Promotional Codes — Code detail</span><span class="ref">§API — GET /api/codes/[id]/generated</span></div>
   </div>
@@ -1565,12 +2080,12 @@
       </aside>
       <div class="main">
         <header class="topbar">
-          <div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><a href="#s12" data-goto="s12" style="color:inherit;text-decoration:none">Codes</a><svg><use href="#ic-chevron-right"/></svg><span class="here">Summer 2026 Dynamic Pool</span></div></div>
+          <div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><a href="#s16" data-goto="s16" style="color:inherit;text-decoration:none">Codes</a><svg><use href="#ic-chevron-right"/></svg><span class="here">Summer 2026 Dynamic Pool</span></div></div>
           <div class="topbar-right"><div class="topbar-search"><svg><use href="#ic-search"/></svg> Search</div><button class="icon-btn" aria-label="Notifications"><svg><use href="#ic-bell"/></svg></button><span class="avatar">AN</span></div>
         </header>
         <main class="page">
           <div class="form-head">
-            <a class="back-link" href="#s12" data-goto="s12"><svg><use href="#ic-chevron-left"/></svg> Back</a>
+            <a class="back-link" href="#s16" data-goto="s16"><svg><use href="#ic-chevron-left"/></svg> Back</a>
             <span class="title">Summer 2026 Dynamic Pool</span>
           </div>
 
@@ -1597,7 +2112,7 @@
                 <label class="row"><button class="switch" role="switch" aria-checked="true"></button><span class="t-label">Active</span></label>
                 <div class="separator"></div>
                 <div class="t-hint">3,120 uses recorded</div>
-                <button class="btn btn-outline btn-sm" data-goto="s15"><svg><use href="#ic-list"/></svg> View generated codes</button>
+                <button class="btn btn-outline btn-sm" data-goto="s19"><svg><use href="#ic-list"/></svg> View generated codes</button>
               </div>
             </div>
           </div>
@@ -1605,8 +2120,8 @@
           <div class="form-foot">
             <div class="actions">
               <button class="btn btn-destructive-outline"><svg><use href="#ic-trash"/></svg> Delete</button>
-              <button class="btn btn-outline" data-goto="s12">Cancel</button>
-              <button class="btn btn-primary" data-goto="s13"><svg><use href="#ic-save"/></svg> Save</button>
+              <button class="btn btn-outline" data-goto="s16">Cancel</button>
+              <button class="btn btn-primary" data-goto="s17"><svg><use href="#ic-save"/></svg> Save</button>
             </div>
           </div>
         </main>
@@ -1628,7 +2143,7 @@
         </div>
         <div class="modal-foot">
           <span class="t-hint num">Showing 1 to 5 of 6,420 results</span>
-          <button class="btn btn-outline btn-sm" data-goto="s13">Close</button>
+          <button class="btn btn-outline btn-sm" data-goto="s17">Close</button>
         </div>
       </div>
     </div>

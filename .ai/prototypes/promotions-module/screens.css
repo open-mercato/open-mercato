@@ -603,3 +603,36 @@
   color: var(--brand-violet); background: color-mix(in srgb, var(--brand-violet) 14%, transparent);
   padding: 0.0625rem 0.5rem; border-radius: 9999px;
 }
+
+/* ── Benefit application target and quantity caps ────────────────────
+   SPEC-055 §Data Models → Application target / Quantity caps, and
+   §UI/UX "Every benefit card carries an Applies to segmented control".
+   No existing primitive composes a segmented control, a conditional
+   selector and a plain-language echo inside one tree card, so the
+   composition is proposed here and built from DS tokens only. */
+.benefit-config { display: flex; flex-direction: column; gap: 0.5rem; width: 100%; }
+.benefit-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.benefit-row-label {
+  font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--muted-foreground); min-width: 5.5rem;
+}
+.benefit-limits { display: flex; flex-wrap: wrap; align-items: center; gap: 0.375rem; }
+.benefit-limits .input { width: 4rem; }
+.benefit-limit-off { opacity: 0.45; pointer-events: none; }
+.benefit-echo {
+  display: flex; align-items: flex-start; gap: 0.375rem;
+  font-size: 0.75rem; line-height: 1.4; color: var(--muted-foreground);
+  border-top: 1px dashed var(--border); padding-top: 0.5rem; margin-top: 0.125rem;
+}
+.benefit-echo svg { width: 0.875rem; height: 0.875rem; flex: none; margin-top: 0.125rem; }
+.benefit-echo b { color: var(--foreground); font-weight: 600; }
+.segmented > button[disabled] { opacity: 0.4; cursor: not-allowed; }
+.benefit-limit-note {
+  display: inline-flex; align-items: center; gap: 0.25rem;
+  font-size: 0.6875rem; color: var(--muted-foreground);
+}
+.note strong { color: var(--foreground); font-weight: 600; }
+/* A permanently-open combobox list sits in normal flow so reviewers can see it
+   without clipping, which makes the row tall — align its label to the top. */
+.benefit-row-top { align-items: flex-start; }
+.benefit-row-top .benefit-row-label { padding-top: 0.5rem; }

@@ -91,6 +91,8 @@ A dedicated `promotions` module placed in `packages/core/src/modules/promotions/
 - **Cashier / Cart** wants to submit a cart context and receive a list of applicable benefits so that price calculations can be performed in the cart module
 - **Customer** wants to enter a promotional code so that their qualifying discount is applied to their cart
 - **Operator** wants to reorder promotions by drag-and-drop so that evaluation priority is immediately obvious and controllable
+- **Operator** wants to cap a discount at the first 5 pieces so that a promotion on a bulk-ordered product cannot drain the margin on a large cart (**US-J**)
+- **Operator** wants to state whether a benefit applies to the whole order, to a line, or to each piece so that the same "20% off" does not silently mean three different things (**US-K**)
 
 ---
 
