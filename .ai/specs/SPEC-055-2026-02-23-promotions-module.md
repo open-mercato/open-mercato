@@ -197,8 +197,12 @@ POST /api/promotions/evaluate  (or promotionsService.evaluate() in-process — A
   │   └─ If true:
   │       ├─ Pass 2: collectBenefits(rootGroup, parentChainValid=true) → NormalizedBenefit[]
   │       ├─ Pass 3: resolveEffects(benefits, context) → ResolvedEffect[]
-  │       │   └─ Each benefit config + cart context → concrete amounts (LINE_DISCOUNT,
-  │       │      CART_DISCOUNT, DELIVERY_DISCOUNT, ADD_FREE_ITEM). Math lives here only.
+  │       │   ├─ Each benefit config + cart context → concrete amounts (LINE_DISCOUNT,
+  │       │   │  CART_DISCOUNT, DELIVERY_DISCOUNT, ADD_FREE_ITEM). Math lives here only.
+  │       │   └─ Per benefit with a quantity cap: order qualifying units/lines by
+  │       │      `selector`, then spend a cart-wide budget of `max_quantity` units and
+  │       │      `max_lines` lines across them. The budget is per benefit invocation and
+  │       │      spans lines, so it is held in resolveEffects — not inside a per-line loop.
   │       ├─ applied_tags ← applied_tags ∪ promotion.tags
   │       └─ If !promotion.cumulative → BREAK
   │
@@ -240,6 +244,7 @@ NormalizedRule {
 
 NormalizedBenefit {
   type: string
+  appliesTo: "order" | "line" | "unit"
   config: Record<string, unknown>
 }
 ```
@@ -433,32 +438,81 @@ Table: `promotion_benefits`
 | `rule_group_id` | uuid FK → promotion_rule_groups | |
 | `promotion_id` | uuid FK → promotions | Denormalised |
 | `benefit_type` | text | Discriminator |
-| `config` | jsonb | Validated per `benefit_type` by Zod discriminated union in `data/validators.ts` |
+| `applies_to` | text | `order` \| `line` \| `unit` — the application target (see below). NOT NULL; the write path fills it from the benefit type's default when the operator does not choose one. |
+| `config` | jsonb | Validated per `benefit_type` by Zod discriminated union in `data/validators.ts`, intersected with the shared quantity-cap block below |
 | `sort_order` | integer | |
 | `created_at` | timestamptz | |
 | `updated_at` | timestamptz | |
 
+#### Application target (`applies_to`)
+
+Every benefit states what it is applied to. Before this field existed the target was implied by `benefit_type` and written down nowhere, which made "10% off, but only the first 5 pieces" inexpressible and left `cart` guessing how to map a resolved effect.
+
+`applies_to` is a **column, not a config field.** It decides the shape of the resolved effect and therefore how `cart` hands that effect to `salesCalculationService`; core must be able to read it for a benefit whose `config` schema core does not own (extension benefit types — see §Extensibility). A discriminator-independent value inside a discriminated union is also the one thing a Zod discriminated union models badly.
+
+| Value | Meaning | Resolved effect |
+|-------|---------|-----------------|
+| `order` | One effect against the document as a whole. Not attributable to any single line. | `CART_DISCOUNT`, `DELIVERY_DISCOUNT`, or `ADD_FREE_ITEM` |
+| `line` | Qualifying **lines** are discounted whole. Quantity caps consume entire lines: a line is either fully covered or not covered at all. | `LINE_DISCOUNT` with `appliedQuantity` equal to the line's full quantity |
+| `unit` | Qualifying **units** are discounted individually. Quantity caps consume units, so a line may be partially covered. | `LINE_DISCOUNT` with `appliedQuantity` ≤ the line's quantity |
+
+`ADD_FREE_ITEM` sits at `order` because a promotion-inserted line is not a discount *on* anything in the cart — it is a new line the promotion decided to add. `buy_x_get_y` is the one type that can emit either shape: a percentage or fixed reward discounts the reward line (`LINE_DISCOUNT`, hence its `line`/`unit` targets), while a 100%-off reward is emitted as `ADD_FREE_ITEM` regardless of the benefit's `applies_to`, because there is no existing line to attribute it to.
+
+`line` and `unit` produce the same effect *type*; they differ in whether a cap is allowed to split a line. That difference is the whole point: "20% off, max 5 pieces" on a cart holding one line of 8 means 5 discounted units under `unit`, and nothing at all under `line` (8 > 5, and a line cannot be split).
+
+**Allowed values per benefit type** — enforced in `data/validators.ts`, not merely documented:
+
+| `benefit_type` | Allowed `applies_to` | Default |
+|----------------|----------------------|---------|
+| `product_discount` | `line`, `unit` | `line` |
+| `cart_discount` | `order` | `order` |
+| `delivery_discount` | `order` | `order` |
+| `free_product` | `order` | `order` |
+| `buy_x_get_y` | `line`, `unit` | `unit` |
+| `tiered_discount` | `order`, `line`, `unit` | `order` |
+
+`tiered_discount` previously carried its own `scope` (`cart`\|`line`) and `delivery_discount` an undocumented `scope text` whose value set appeared nowhere in this document. Both are removed in favour of `applies_to`; `scope: 'cart'` reads as `applies_to: 'order'`.
+
+#### Quantity caps (shared config block)
+
+These three fields are validated by one shared Zod object intersected into every built-in benefit variant, so the same words mean the same thing on every benefit type. `product_discount`'s `pcs_limit` — one undefined sentence, and absent from `tiered_discount` — is replaced by `max_quantity`.
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `max_quantity` | int nullable | Maximum number of **units** the benefit may discount. Null = unbounded. Only meaningful when `applies_to` is `line` or `unit`. |
+| `max_lines` | int nullable | Maximum number of **lines** the benefit may touch. Null = unbounded. Only meaningful when `applies_to` is `line` or `unit`. |
+| `quantity_step` | int nullable | Units are consumed in whole blocks of this size; a remainder smaller than one block is not discounted. Null = 1. Expresses "discount applies per pair", the counterpart of Magento's `discount_step`. |
+
+**Counting basis — normative.** `max_quantity` and `max_lines` are counted **across the whole cart, per benefit invocation** — not per line, and not per satisfied rule. A cart holding three lines of the same product at four pieces each, against a benefit with `max_quantity: 5`, yields five discounted units in total (four on the first line, one on the second, none on the third under `applies_to: 'unit'`; four on the first line and nothing more under `applies_to: 'line'`, because covering a second whole line would need eight). Per-line counting was rejected because a buyer defeats it by splitting a purchase across lines — and with configurable products (engraving, B2B configurator output) the lines split on their own, so the cap would loosen for reasons unrelated to intent.
+
+**Cap ordering — normative.** `selector` (below) decides which units the budget is spent on, and it is **required whenever `max_quantity` or `max_lines` is set**; a config that caps without selecting is a 422 at the write path. There is deliberately no default: "the first 5 pieces" and "the 5 most expensive pieces" are different promotions with different costs, and silently picking one for the operator is how a campaign overspends. Within the chosen order, ties break on `cartLineId` ascending so evaluation is deterministic across retries.
+
+**Three orthogonal caps.** `max_quantity` bounds *how many units*, `max_discount` bounds *how much money* (§below), and `buy_x_get_y.max_applications` bounds *how many times the trigger fires*. They compose; whichever binds first wins. A benefit may set all three.
+
 **Config schemas per `benefit_type`:**
+
+Every variant below is intersected with the shared quantity-cap block (`max_quantity`, `max_lines`, `quantity_step`) described above; the fields listed here are the type-specific ones.
 
 | `benefit_type` | Config fields |
 |----------------|---------------|
-| `product_discount` | `sku` text nullable, `discount_type` text, `value` decimal string, `selector` text, `nth_position` int nullable, `pcs_limit` int nullable, `limit_to_category` text nullable, `excluded_producers` text[], `max_discount` decimal string nullable, `labels` Record\<locale, string\> |
+| `product_discount` | `sku` text nullable, `discount_type` text, `value` decimal string, `selector` text nullable, `nth_position` int nullable, `limit_to_category` text nullable, `excluded_producers` text[], `max_discount` decimal string nullable, `labels` Record\<locale, string\> |
 | `cart_discount` | `discount_type` text, `value` decimal string, `max_discount` decimal string nullable, `labels` Record\<locale, string\> |
-| `delivery_discount` | `delivery_method_code` text, `discount_type` text, `value` decimal string, `scope` text, `labels` Record\<locale, string\> |
+| `delivery_discount` | `delivery_method_code` text, `discount_type` text, `value` decimal string, `labels` Record\<locale, string\> |
 | `free_product` | `sku` text nullable, `category_slug` text nullable, `quantity` int, `labels` Record\<locale, string\> |
-| `buy_x_get_y` | `trigger_sku` text nullable, `trigger_category_slug` text nullable, `trigger_quantity` int, `reward_sku` text, `reward_quantity` int, `discount_type` text, `value` decimal string, `max_applications` int nullable, `max_discount` decimal string nullable, `labels` Record\<locale, string\> |
-| `tiered_discount` | `scope` text (`cart`\|`line`), `selector` text nullable (see selector values below), `limit_to_category` text nullable, `tiers` TierElement[], `max_discount` decimal string nullable, `labels` Record\<locale, string\> |
+| `buy_x_get_y` | `trigger_sku` text nullable, `trigger_category_slug` text nullable, `trigger_quantity` int, `reward_sku` text, `reward_quantity` int, `discount_type` text, `value` decimal string, `selector` text nullable, `max_applications` int nullable, `max_discount` decimal string nullable, `labels` Record\<locale, string\> |
+| `tiered_discount` | `selector` text nullable, `limit_to_category` text nullable, `tiers` TierElement[], `max_discount` decimal string nullable, `labels` Record\<locale, string\> |
 
-**`selector` values** (used in `product_discount` and `tiered_discount` configs):
+**`selector` values** — which qualifying units a capped benefit spends its budget on. Used by `product_discount`, `buy_x_get_y` and `tiered_discount`; **required whenever `max_quantity` or `max_lines` is set**, ignored otherwise.
 
 | Value | Meaning |
 |-------|---------|
-| `all` | Every qualifying item receives the benefit |
-| `cheapest` | Only the lowest unit-price qualifying item(s) |
-| `most_expensive` | Only the highest unit-price qualifying item(s) |
-| `nth` | Only the item at position `nth_position` (1-indexed) in ascending price order |
+| `all` | Every qualifying unit receives the benefit. Only valid with no quantity cap — `all` plus a cap is a contradiction and is rejected at the write path. |
+| `cart_order` | Units in cart order — the order lines were added to the cart, then unit index within a line. This is the value that means "the **first** N pieces". |
+| `cheapest` | Lowest unit price first |
+| `most_expensive` | Highest unit price first |
+| `nth` | Only the unit at position `nth_position` (1-indexed) in ascending price order. Mutually exclusive with `max_quantity`. |
 
-`pcs_limit` caps the total number of items that receive the discount regardless of `selector`.
+Under `applies_to: 'line'` the selector orders **lines** by the unit price of the line; under `applies_to: 'unit'` it orders **units**. Ties break on `cartLineId` ascending, then unit index, so a re-evaluation of an unchanged cart returns identical effects.
 
 `max_discount` (optional, decimal string) caps the total monetary discount produced by a single benefit invocation. The effect resolver in `lib/effect-resolvers.ts` applies the cap after computing the raw amount: `effectiveAmount = min(rawAmount, max_discount)`. The cap is expressed in the cart's operating currency. This allows operators to configure benefits such as "10% off the cart, but no more than $1000". Applies to `product_discount`, `cart_discount`, `buy_x_get_y`, and `tiered_discount`; not relevant for `delivery_discount` (naturally bounded by delivery cost) or `free_product`/`buy_x_get_y` free-item additions (no monetary amount computed).
 
@@ -665,15 +719,27 @@ Response:
       "effects": [
         {
           "type": "LINE_DISCOUNT",
+          "appliesTo": "line",            // whole line covered
           "targetSku": "PROD-001",        // resolved from benefit + cart item match
-          "amount": "-3.99",              // computed: 20% of unitPrice * quantity
+          "targetCartLineId": "uuid",
+          "lineQuantity": 1,
+          "appliedQuantity": 1,           // every unit on the line
+          "unitAmount": "-3.99",
+          "amount": "-3.99",              // unitAmount * appliedQuantity
+          "basis": "net",
           "currency": "USD",
           "label": { "en": "20% off electronics", "pl": "20% zniżki na elektronikę" }
         },
         {
           "type": "LINE_DISCOUNT",
+          "appliesTo": "unit",            // cap bit: only 5 of the 8 units
           "targetSku": "PROD-007",
-          "amount": "-11.98",
+          "targetCartLineId": "uuid",
+          "lineQuantity": 8,
+          "appliedQuantity": 5,           // max_quantity: 5, selector: cart_order
+          "unitAmount": "-2.40",
+          "amount": "-12.00",             // NOT unitAmount * lineQuantity
+          "basis": "net",
           "currency": "USD",
           "label": { "en": "20% off electronics", "pl": "20% zniżki na elektronikę" }
         }
@@ -713,14 +779,16 @@ Response:
 
 | Type | Required fields | Notes |
 |------|----------------|-------|
-| `LINE_DISCOUNT` | `targetSku`, `amount` (negative string), `currency` | One effect per affected line item; amount is the total row discount (not unit) |
+| `LINE_DISCOUNT` | `targetSku`, `targetCartLineId`, `appliesTo`, `lineQuantity`, `appliedQuantity`, `unitAmount`, `amount` (negative string), `basis`, `currency` | One effect per affected line item. `amount` is the total row discount; `appliedQuantity` states how many of the line's `lineQuantity` units it covers, and `unitAmount` the per-unit share. A capped benefit reports `appliedQuantity < lineQuantity` — see §Amendment B for why the consumer must not recompute `amount` from `unitAmount × lineQuantity`. |
 | `CART_DISCOUNT` | `amount` (negative string), `currency` | Flat or percentage discount applied against cart subtotal |
 | `DELIVERY_DISCOUNT` | `deliveryMethodCode`, `amount` (negative string), `currency` | Amount is the discount against delivery cost; may reduce to zero. For `percentage` discount types, the effect resolver computes the concrete amount using `deliveryCost` from the cart context — `deliveryCost` must be present in the request when a delivery method is selected. |
 | `ADD_FREE_ITEM` | `sku`, `quantity`, `reason` | Promotions resolves which SKU and how many; cart adds the line. `reason` is `FREE_PRODUCT` or `BUY_X_GET_Y` |
 
 **Invariants:**
 - `amount` is always a negative decimal string (the cart adds it; no sign confusion)
-- One `LINE_DISCOUNT` effect per SKU per promotion (effects for the same SKU from different promotions are separate entries in separate `appliedPromotions` objects)
+- One `LINE_DISCOUNT` effect per SKU per promotion (effects for the same SKU from different promotions are separate entries in separate `appliedPromotions` objects). A partially covered line stays **one** effect carrying `appliedQuantity` — the engine never emits one effect per unit, so a 50-unit line cannot fan out into 50 effects
+- `amount === unitAmount × appliedQuantity`, rounded once, to the currency's minor unit. `appliedQuantity ≥ 1` and `appliedQuantity ≤ lineQuantity`; an effect covering zero units is omitted, never returned with `amount: "0"`
+- `appliedQuantity === lineQuantity` whenever `appliesTo` is `line`; only `appliesTo: 'unit'` may report partial coverage
 - `ADD_FREE_ITEM` effects are decided entirely by the promotions engine — the cart must not compute which free item to add from raw benefit config
 - When `max_discount` is set on a benefit config, the effect resolver caps `|amount|` at `max_discount` before returning the effect — the resolved `amount` is always `≥ -max_discount`. The cap is applied per-benefit, not across the whole promotion.
 
@@ -868,6 +936,8 @@ Four panels in a single page (not tabs):
 - Group header: **AND/OR** pill toggle (left), action buttons (right): Add Rule (green), Add Sub-group (blue), Add Benefit (orange), Duplicate (purple, sub-groups only), Delete (red, sub-groups only)
 - Rules rendered as inline cards: type dropdown (filterable combobox), type-specific inline fields, delete (red icon)
 - Benefits rendered in a visually distinct zone at group bottom: orange divider with `BENEFITS` badge, each benefit is an inline card identical in layout to a rule card but orange-accented; includes collapsible Labels section (locale → string inputs)
+- Every benefit card carries an **Applies to** segmented control (Whole order / Order line / Each piece) restricted to the values the selected benefit type allows, and a **Limits** row (`max_quantity`, `max_lines`, `quantity_step`, `max_discount`). Choosing `Whole order` hides the quantity limits, which are meaningless there. Entering a quantity limit reveals the **Which pieces** selector (`cart_order` labelled *First added*, `cheapest`, `most_expensive`) and makes it required — the write path rejects a cap without a selector, so the form must not let the operator reach that state
+- The benefit card renders a one-line plain-language echo of the configured combination (*"20% off — the first 5 pieces across the cart, max $50"*), because `applies_to` + selector + three caps is precisely the combination operators mis-read
 - Drag-and-drop within tree is type-scoped (rules→rule containers, sub-groups→sub-group containers, benefits→benefit containers); cross-type drops disabled
 - Selecting a new rule type resets the data fields for that rule
 - Deletion: sub-groups with children show confirmation dialog; empty sub-groups, rules, and benefits delete immediately
@@ -936,10 +1006,25 @@ export interface BenefitExtension {
   description?: Record<string, string>
   configSchema: z.ZodSchema
   /**
+   * Application targets this benefit supports, and the one used when the
+   * operator does not choose. Core stores `applies_to` on the benefit row and
+   * validates it against this list — it never parses the extension's config to
+   * find out what the benefit applies to.
+   */
+  supportedAppliesTo: BenefitAppliesTo[]
+  defaultAppliesTo: BenefitAppliesTo
+  /**
    * Resolves the benefit into concrete ResolvedEffect[].
    * MUST be pure — no DB access, no side effects.
+   *
+   * Quantity caps are NOT applied for the extension. An extension that opts
+   * into `line`/`unit` targets receives the already-ordered, already-budgeted
+   * unit selection and is responsible only for pricing it — see
+   * `selectUnits(config, context)` exported from `lib/unit-selection.ts`.
+   * An extension that resolves effects itself without calling the helper is
+   * uncapped, and the extension-types endpoint reports it as such.
    */
-  resolve(config: unknown, context: CartContext): ResolvedEffect[]
+  resolve(config: unknown, context: CartContext, selection: UnitSelection): ResolvedEffect[]
 }
 
 export interface EvaluationMiddleware {
@@ -1144,6 +1229,7 @@ Extension rule evaluators receive the full context and should read from `context
 - No existing promotions data — clean migration, no backfill required
 - Cart-facing API is additive; existing cart/POS integrations are unaffected until they opt in
 - POS module (SPEC-022) deferred promotions to Phase 3 — this module enables that integration
+- The 2.1.0 amendment (`applies_to`, quantity caps, quantity-aware `LINE_DISCOUNT`) breaks no contract surface: `promotions` and `cart` are both unimplemented at the time of writing, so `promotion_benefits` has no rows to backfill and no external caller consumes a `ResolvedEffect` yet. It touches no shipped module — §B.6 maps line effects onto `SalesLineSnapshot` fields that `sales` already exposes, and §B.7 defers the `sales` change that would have been a contract surface
 
 ---
 
@@ -1154,8 +1240,8 @@ Extension rule evaluators receive the full context and should read from `context
 **Goal:** Operators can create, edit, and delete promotions with a full rule-benefit tree. Data persists correctly. All entities, migrations, and CRUD in place.
 
 1. Scaffold module: `index.ts`, `acl.ts`, `events.ts`, `setup.ts`, `di.ts`, `ce.ts`, `translations.ts`
-2. Write all MikroORM entities in `data/entities.ts` (Promotion, RuleGroup, Rule with `rule_type` + `config jsonb`, Benefit with `benefit_type` + `config jsonb`)
-3. Write Zod validators in `data/validators.ts` for all entities and API inputs
+2. Write all MikroORM entities in `data/entities.ts` (Promotion, RuleGroup, Rule with `rule_type` + `config jsonb`, Benefit with `benefit_type` + `applies_to` + `config jsonb`)
+3. Write Zod validators in `data/validators.ts` for all entities and API inputs, including the shared quantity-cap block (`max_quantity`, `max_lines`, `quantity_step`) intersected into every benefit variant, the per-type `applies_to` allow-list, and the two write-path rejections from §B.4 — a cap without a `selector`, and `selector: all` combined with a cap (`TC-PROM-062`)
 4. Generate and apply DB migration (`yarn db:generate && yarn db:migrate`)
 5. Implement `commands/promotions.ts` — create/update/delete with undo support, events, cache invalidation
 6. Implement `commands/rule-tree.ts` — atomic tree reconciliation command using `withAtomicFlush`
@@ -1166,8 +1252,9 @@ Extension rule evaluators receive the full context and should read from `context
 11. Build backend list page (`backend/promotions/page.tsx`) — card layout, drag-sort, filters, batch save
 12. Build promotion form pages (create + detail) — 4 panels, tag chip inputs
 13. Build `RuleGroupNode` recursive tree component with AND/OR toggle, action buttons, type dropdowns for all 15 rule types, benefit zone, drag-within-tree
-14. Run `npm run modules:prepare` and `yarn generate`
-15. Integration tests: promotion CRUD, tree save, order batch update
+14. Add the benefit card's **Applies to** segmented control, **Limits** row and conditional **Which pieces** selector (§UI/UX), wired so a capped benefit cannot be saved without a selector, plus the plain-language echo line
+15. Run `npm run modules:prepare` and `yarn generate`
+16. Integration tests: promotion CRUD, tree save, order batch update, `applies_to` persistence and the write-path rejections (`TC-PROM-062`, `TC-PROM-067`)
 
 ### Phase 2 — Evaluation Engine & Cart API
 
@@ -1175,13 +1262,14 @@ Extension rule evaluators receive the full context and should read from `context
 
 1. Implement `lib/evaluation-engine.ts` — three-pass recursive evaluator accepting `NormalizedPromotion[]`; MUST NOT depend on MikroORM entities or any DB access; applies deterministic ordering (`ORDER BY order ASC, id ASC`); currency eligibility check before Pass 1 (`eligibleCurrencies` vs `context.currency`); optimistic budget pre-check before Pass 1 (`totalDiscountGranted >= maxBudget`); Pass 3 calls effect resolvers with the cart context to compute final amounts
 2. Implement `lib/rule-evaluators.ts` — all 15 concrete rule evaluators with context key declarations; evaluators receive normalized `config` objects only
-3. Implement `lib/effect-resolvers.ts` — all 6 concrete effect resolvers; each resolver maps a `NormalizedBenefit` config + cart context to one or more `ResolvedEffect` objects with computed amounts and resolved SKUs; no math may live outside this file. Resolvers for `product_discount`, `cart_discount`, `buy_x_get_y`, and `tiered_discount` must apply `max_discount` capping after computing the raw amount: `effectiveAmount = min(rawAmount, config.max_discount ?? Infinity)`
-4. Implement `lib/tag-exclusion.ts` — promotion ordering + cumulativity + tag exclusion loop
-5. Implement `services/promotion-cache.ts` — tenant-scoped active promotions cache: fully eager-load all promotions with complete rule/benefit trees, aggregate `totalDiscountGranted` per promotion from `promotion_usages WHERE reverted_at IS NULL`, normalize entity graphs into `NormalizedPromotion[]` (mapping `promotion_rules`/`promotion_benefits` jsonb rows directly to `{ type, config }` shape, pre-sorting arrays by `sort_order`, deep-freezing in non-production builds), cache per key `promotions:active:{tenantId}:{organizationId}`; subscriber in `subscribers/invalidate-promotion-cache.ts` with broad invalidation on any `promotions.*` mutation event or usage event (`promotions.usage.registered`, `promotions.usage.reverted`)
-6. Implement `api/evaluate/route.ts` (was `api/cart/apply-promotion/route.ts` — Amendment §A.3) — full cart evaluation endpoint
-7. Implement `api/dynamic-labels/route.ts`, `api/free-products/route.ts`, `api/delivery-methods/route.ts`
-8. Implement `lib/product-page-engine.ts` — lightweight variant that evaluates active promotions against a list of SKUs; implement `api/product-page/route.ts` consuming it
-9. Integration tests: evaluation engine unit tests for each rule type with assertion that zero DB calls occur during evaluation; end-to-end apply-promotion API tests asserting `ResolvedEffect` amounts (not raw percentages), `ADD_FREE_ITEM` SKU resolution, cumulativity, tag exclusion, sub-group benefit collection; performance benchmark captured for ≥ 100 promotions
+3. Implement `lib/unit-selection.ts` — `selectUnits(benefit, context)` expands qualifying cart lines into an ordered unit (or line) sequence per `selector`, applies the deterministic tie-break, then spends the cart-wide `max_quantity` / `max_lines` / `quantity_step` budget and returns the selection. Held here rather than inside a per-line loop because the budget spans lines (§B.3); exported for extension benefit types (§Extensibility)
+4. Implement `lib/effect-resolvers.ts` — all 6 concrete effect resolvers; each resolver maps a `NormalizedBenefit` config + cart context to one or more `ResolvedEffect` objects with computed amounts and resolved SKUs; no math may live outside this file. Resolvers for `product_discount`, `cart_discount`, `buy_x_get_y`, and `tiered_discount` must apply `max_discount` capping after computing the raw amount: `effectiveAmount = min(rawAmount, config.max_discount ?? Infinity)`. Line-targeted resolvers consume the `selectUnits` result and emit one `LINE_DISCOUNT` per covered line carrying `appliesTo`, `lineQuantity`, `appliedQuantity` and `unitAmount` (§B.5), never one effect per unit
+5. Implement `lib/tag-exclusion.ts` — promotion ordering + cumulativity + tag exclusion loop
+6. Implement `services/promotion-cache.ts` — tenant-scoped active promotions cache: fully eager-load all promotions with complete rule/benefit trees, aggregate `totalDiscountGranted` per promotion from `promotion_usages WHERE reverted_at IS NULL`, normalize entity graphs into `NormalizedPromotion[]` (mapping `promotion_rules`/`promotion_benefits` jsonb rows directly to `{ type, config }` shape, pre-sorting arrays by `sort_order`, deep-freezing in non-production builds), cache per key `promotions:active:{tenantId}:{organizationId}`; subscriber in `subscribers/invalidate-promotion-cache.ts` with broad invalidation on any `promotions.*` mutation event or usage event (`promotions.usage.registered`, `promotions.usage.reverted`)
+7. Implement `api/evaluate/route.ts` (was `api/cart/apply-promotion/route.ts` — Amendment §A.3) — full cart evaluation endpoint
+8. Implement `api/dynamic-labels/route.ts`, `api/free-products/route.ts`, `api/delivery-methods/route.ts`
+9. Implement `lib/product-page-engine.ts` — lightweight variant that evaluates active promotions against a list of SKUs; implement `api/product-page/route.ts` consuming it
+10. Integration tests: evaluation engine unit tests for each rule type with assertion that zero DB calls occur during evaluation; end-to-end apply-promotion API tests asserting `ResolvedEffect` amounts (not raw percentages), `ADD_FREE_ITEM` SKU resolution, cumulativity, tag exclusion, sub-group benefit collection; performance benchmark captured for ≥ 100 promotions; cap and targeting behaviour per `TC-PROM-058`–`TC-PROM-061`, `TC-PROM-063`–`TC-PROM-065`, `TC-PROM-069`
 
 ### Phase 3 — Codes System
 
@@ -1363,6 +1451,16 @@ Integration tests for each phase following `.ai/qa/AGENTS.md`:
 | DI contract completeness | `PromotionsService` covers all 7 cart-facing operations (§A.2, fixed) |
 | Internal consistency of the `/api/cart/*` → `/api/promotions/*` rename | All references across the document updated (§A.3, fixed) |
 
+### Addendum — 2026-09-07 (Application target and quantity caps)
+
+| Requirement | Status |
+|---|---|
+| No cross-module coupling introduced | §B.6 maps line effects onto `SalesLineSnapshot` fields `sales` already exposes; §B.7 defers the `SalesAdjustmentDraft.lineId` change to its own spec rather than editing a shipped module from a promotions amendment |
+| No contract surface broken | Both `promotions` and `cart` are unimplemented; no rows to backfill, no external consumer of `ResolvedEffect` (§Migration & Compatibility) |
+| Validation at the application boundary | `applies_to` allow-list, the shared quantity-cap block and the two capped-config rejections are Zod-validated in `data/validators.ts` (Phase 1 step 3), not merely documented |
+| Determinism | Selector ordering has a specified tie-break (`cartLineId`, then unit index) so an unchanged cart re-evaluates identically (§B.4, `TC-PROM-064`) |
+| No hard-coded user-facing strings | The admin control's labels (*Whole order* / *Order line* / *Each piece*, *First added*) and the plain-language echo line route through `translations.ts` like every other benefit-card string |
+
 ### AGENTS.md Files Reviewed
 - `AGENTS.md` (root)
 - `packages/core/AGENTS.md`
@@ -1519,7 +1617,7 @@ A new built-in rule type `customer_group` matches against `customerGroupIds` usi
 |---|---|
 | `promotionId` | `promotionId` |
 | `label` (resolved for the locale) | `label` |
-| `type: 'LINE_DISCOUNT'` | `scope: 'line'` |
+| `type: 'LINE_DISCOUNT'` | `scope: 'line'` — **superseded by Amendment §B.6**: `sales` rejects a line-attributed adjustment draft today, so line effects travel on the line snapshot instead |
 | `type: 'CART_DISCOUNT' \| 'DELIVERY_DISCOUNT'` | `scope: 'order'` |
 | `amount` | `amountNet` **or** `amountGross` — see below |
 | code | `code` |
@@ -1571,6 +1669,107 @@ Reservation TTL is independent of and shorter than cart TTL. `cart`'s expiry swe
 
 ---
 
+## Amendment — 2026-09-07: Benefit application target and quantity caps
+
+> Normative over §*Data Models — Benefit*, §*Cart-Facing Endpoints — Resolved Effect Types*, and the `LINE_DISCOUNT` row of §A.5. The affected tables in the body of this spec have been updated in place; this section records why.
+
+### B.1 What was missing
+
+A benefit never stated what it was applied to. The target was implied by `benefit_type` and written down nowhere, so three questions an operator asks on day one had no answer in this document:
+
+1. *Is this discount on the whole order, on a line, or on each piece?* Implied per type, unqueryable, and invisible to `cart`, which has to map the effect without being told.
+2. *Can I cap it at the first 5 pieces?* `product_discount` carried `pcs_limit` described in a single sentence — "caps the total number of items that receive the discount regardless of `selector`" — that never said whether the count is per line, per cart, or per satisfied rule. `tiered_discount` had no such field at all.
+3. *Which 5 pieces?* `selector` orders only by price (`nth` is explicitly "1-indexed in ascending price order"), so "the first five" — the reading almost every operator intends — was not expressible at all.
+
+Two smaller defects fell out of the same hole. `tiered_discount` carried `scope: cart|line` while `product_discount` carried `pcs_limit`: the same business decision, split across two field names on two types. And `delivery_discount.scope` was declared `scope text` with its value set defined nowhere in this document — a field no implementer could have built.
+
+### B.2 `applies_to` is a column, not a config field
+
+The three targets are `order`, `line` and `unit`. `line` and `unit` differ in what a cap consumes: under `line` a cap spends whole lines and a line is covered entirely or not at all; under `unit` a cap spends individual units and a line may be partially covered. "20% off, max 5 pieces" against a single line of 8 therefore discounts 5 units under `unit` and nothing under `line` — a difference worth making the operator state.
+
+It is stored as a column rather than inside `config` for two reasons that outweigh the consistency cost of breaking the "everything type-specific lives in the JSONB" pattern. First, `applies_to` decides the shape of the resolved effect and therefore how `cart` hands it to `salesCalculationService`; core must read it for extension benefit types whose `config` schema core does not own. Second, a field common to every variant of a Zod discriminated union is exactly the field a discriminated union models badly — it would have to be repeated in six schemas and could drift in any of them.
+
+### B.3 The quantity budget is cart-wide and lives in Pass 3
+
+`max_quantity` and `max_lines` count **across the whole cart per benefit invocation**. Per-line counting was rejected: a buyer defeats it by splitting a purchase across lines, and with configurable products the lines split on their own, so the cap would loosen for reasons unrelated to intent. Per-application counting (the `buy_x_get_y.max_applications` model) was rejected for the general case because a cap that resets on every trigger rarely binds, which is indistinguishable from having no cap while looking like one in the admin UI.
+
+The consequence for the engine is structural, not cosmetic: a cart-wide budget cannot be enforced inside a per-line loop. `resolveEffects` orders every qualifying unit or line for the benefit first, then walks that order spending the budget. This is why the budget is drawn at Pass 3 in §*Evaluation Engine Data Flow* and not at the point where each line's amount is computed.
+
+### B.4 Ordering is configured, never defaulted
+
+`selector` is **required whenever `max_quantity` or `max_lines` is set**. There is deliberately no default. "The first 5 pieces" and "the 5 most expensive pieces" are different promotions with different costs against the same cart, and choosing silently for the operator is how a campaign overspends without anyone having decided anything. A capped config without a selector is a 422 at the write path, and the admin form must not let an operator reach that state.
+
+`cart_order` is added to the selector value set for the literal "first N added" reading. Ties break on `cartLineId` ascending then unit index, so re-evaluating an unchanged cart returns byte-identical effects — a property the cart relies on to avoid spurious total changes between two reads of the same basket.
+
+### B.5 `LINE_DISCOUNT` becomes quantity-aware
+
+The effect gains `appliesTo`, `lineQuantity`, `appliedQuantity` and `unitAmount` alongside the existing `amount`. A partially covered line stays **one** effect: emitting one effect per unit (the Sylius `OrderItemUnit` model) would have broken the existing "one `LINE_DISCOUNT` per SKU per promotion" invariant and turned a 50-unit line into 50 entries in every evaluation response.
+
+Without `appliedQuantity` the coverage is unrecoverable downstream. The cart cannot render *"5 of 8 pieces −20%"*, and a return of one piece has no basis on which to decide how much discount to reverse — the same total is consistent with 5 units at −2.40 and 8 units at −1.50.
+
+### B.6 Mapping into `sales` — supersedes the `LINE_DISCOUNT` row of §A.5
+
+§A.5 mapped `LINE_DISCOUNT` onto `SalesAdjustmentDraft` with `scope: 'line'`. That mapping does not work against the `sales` module as implemented:
+
+- `SalesAdjustmentDraft` (`packages/core/src/modules/sales/lib/types.ts`) has no line reference at all. `scope: 'line'` is accepted, but nothing on the draft says *which* line.
+- The persisted entities do have one — `SalesOrderAdjustment.order_line_id` and `SalesQuoteAdjustment.quote_line_id` — so the schema was never the obstacle.
+- The command path closes the gap in the other direction: `createAdjustmentDraftFromInput` in `packages/core/src/modules/sales/commands/documents.ts` throws `400 "Line-scoped adjustments are not supported yet."` when a line-scoped adjustment arrives *with* a line reference.
+
+So the §A.5 mapping either fails with a 400 or succeeds having silently detached the discount from its line. Neither is acceptable for a per-line, let alone per-unit, promotion.
+
+**Resolution.** Promotion effects split by target rather than travelling as one kind:
+
+| Effect | Carried as |
+|--------|-----------|
+| `LINE_DISCOUNT` (`appliesTo: 'line'` or `'unit'`) | `SalesLineSnapshot.discountAmount` on the matching line, with `discountAmountBasis: 'line'` |
+| `CART_DISCOUNT`, `DELIVERY_DISCOUNT` (`appliesTo: 'order'`) | `SalesAdjustmentDraft` with `scope: 'order'` — unchanged from §A.5 |
+| `ADD_FREE_ITEM` | A new zero-price line, unchanged from §A.5 |
+
+Three rules bind `cart` here, each of them a mispriced order if broken:
+
+1. **Always `discountAmountBasis: 'line'`, never `'unit'`.** `resolveLineDiscountTotal` in `sales/lib/calculations.ts` multiplies a `'unit'`-basis amount by the line's **full** quantity. A benefit covering 5 of 8 units at −2.40 submitted as `'unit'` yields a discount of 19.20 instead of 12.00 — the cap is silently discarded and the buyer is overpaid. Submitting the effect's `amount` (the total) with `'line'` basis is correct for full and partial coverage alike, so the safe rule is unconditional.
+2. **`discountAmount` is a positive magnitude on a net basis.** `sales` subtracts it from `unitPriceNet × quantity`. Effects are negative decimal strings, and `basis` may be `'gross'` when `CartContext.taxMode` is `'gross'` (§A.5). `cart` takes the absolute value, and converts a gross-basis amount to net before assigning it — a gross amount assigned unconverted is A-R1 reappearing through a different field.
+3. **Sum, then record.** `SalesLineSnapshot.discountAmount` is one scalar per line. Several cumulative promotions discounting the same line sum into it; per-promotion attribution does not survive the mapping.
+
+The cost of (3) is stated plainly because it is real: a promoted line shows its discount in the total but not which campaigns produced it, so the per-promotion audit trail lives only in `PromotionUsage.effects_snapshot`, which §*Promotion Usage Lifecycle* already writes at order confirmation. The clamp in `sales` (`Math.min(discountTotal, netSubtotalBeforeDiscount)`) also means a discount exceeding the line silently truncates rather than erroring; promotions must not rely on it as a guard, and `max_discount` remains the intended bound.
+
+### B.7 What is deliberately not fixed here
+
+Giving `SalesAdjustmentDraft` a `lineId` and teaching `documents.ts` to persist line-attributed adjustments is the better long-term answer: it would restore per-promotion attribution on the line and light up the `order_line_id` column that already exists. It is **out of scope for this amendment** and belongs in its own spec against the `sales` module, for a reason of blast radius rather than difficulty — `sales` is shipped code with live orders, quotes and returns reading these drafts, whereas `promotions` and `cart` are both greenfield. A change to a shipped module's calculation contract should not ride along inside a promotions amendment.
+
+Until that spec exists, §B.6 is the mapping. It is a contraction of ambition, not a workaround with a hidden failure mode: totals are correct, caps are honoured, and the only loss is per-promotion attribution on the line, which is recorded elsewhere.
+
+### B.8 Risks added
+
+| # | Risk | Severity | Failure scenario | Mitigation | Residual |
+|---|---|---|---|---|---|
+| A-R6 | Cap discarded by the unit basis | **High** | A capped line effect is submitted as `discountAmountBasis: 'unit'`; `sales` multiplies the unit amount by the full line quantity and discounts 8 units where the benefit allowed 5. Totals are wrong in the buyer's favour and nothing errors. | Unconditional `'line'` basis (B.6 rule 1); a test asserting a partially covered line's document total matches `unitAmount × appliedQuantity` (`TC-PROM-060`) | Low |
+| A-R7 | Ambiguous cap ordering | Medium | An operator caps at 5 pieces without stating which 5; the engine picks, and a campaign costed against the cheapest units is billed against the most expensive. | `selector` required whenever a cap is set, rejected at the write path, and unreachable in the admin form (B.4) | Low |
+| A-R8 | Cap loosened by line splitting | Medium | A cap counted per line is defeated by splitting a purchase across lines — which configurable products do on their own, without the buyer intending it. | Cart-wide budget held in `resolveEffects` (B.3), tested against a multi-line cart of one SKU (`TC-PROM-059`) | Low |
+
+### B.9 Additional test cases
+
+- `TC-PROM-058` — `max_quantity: 5` with `selector: cart_order` on an 8-unit line under `applies_to: 'unit'` returns one effect with `appliedQuantity: 5`, `lineQuantity: 8`, and `amount === unitAmount × 5`
+- `TC-PROM-059` — The same benefit against three lines of the same SKU at four units each discounts five units **in total** across lines, not five per line (A-R8)
+- `TC-PROM-060` — A partially covered line mapped through `cart` produces a document total equal to `unitPriceNet × quantity − |amount|`; the same effect submitted with `discountAmountBasis: 'unit'` is asserted to produce a *different*, wrong total, so the regression cannot pass unnoticed (A-R6)
+- `TC-PROM-061` — `applies_to: 'line'` with `max_quantity: 5` against a single 8-unit line applies **nothing** — a line cannot be split under that target
+- `TC-PROM-062` — A benefit config with `max_quantity` and no `selector` is rejected 422 at the write path (A-R7); `selector: all` with a cap is rejected likewise
+- `TC-PROM-063` — `quantity_step: 3` with `max_quantity: 5` discounts 3 units, not 5: a remainder smaller than a whole block is not discounted
+- `TC-PROM-064` — Two evaluations of an unchanged multi-line cart return identical effects, including which units the cap selected (tie-break determinism, B.4)
+- `TC-PROM-065` — `max_quantity` and `max_discount` set together: whichever binds first wins, asserted in both directions
+- `TC-PROM-066` — A gross-basis effect (`CartContext.taxMode: 'gross'`) is converted to net before assignment to `discountAmount`; cart totals equal order totals for the same promotion (B.6 rule 2)
+- `TC-PROM-067` — The `applies_to` allow-list is enforced, not merely documented: `cart_discount` with `applies_to: 'unit'` and `product_discount` with `applies_to: 'order'` are both rejected 422 at the write path (B.2)
+- `TC-PROM-068` — Two cumulative promotions discounting the same line sum into that line's single `discountAmount`, and both remain individually recoverable from `PromotionUsage.effects_snapshot` after order confirmation (B.6 rule 3)
+- `TC-PROM-069` — A `buy_x_get_y` benefit with a 100%-off reward emits `ADD_FREE_ITEM` rather than a `LINE_DISCOUNT`, whatever its `applies_to`, and the inserted line is excluded from the next evaluation's eligibility (B.2, reinforcing `TC-PROM-053`)
+
+### B.10 Market reference
+
+The shape follows the consensus of the established engines rather than inventing one. Magento 2 cart price rules carry `discount_qty` ("Maximum Qty Discount is Applied To") and `discount_step` ("Discount Qty Step") as first-class columns beside the action type — `max_quantity` and `quantity_step` are those fields under project naming. Shopify's discount API separates the allocation method (`ACROSS` the order vs `EACH` entitled item) from the entitled quantity, which is the `applies_to` / `max_quantity` split. Medusa carries the same distinction as `allocation: 'total' | 'item'`.
+
+The one place this spec diverges is Sylius, whose unit-level actions attach an adjustment to every `OrderItemUnit` individually. That is the most faithful model for partial returns, and it is rejected here for the reason in B.5: it would break an existing invariant and fan a large B2B line out into hundreds of effects per evaluation. `appliedQuantity` on a single effect preserves what the fan-out was for — knowing how many units were covered — at a fraction of the payload.
+
+---
+
 ## Changelog
 
 | Date | Version | Summary |
@@ -1583,3 +1782,4 @@ Reservation TTL is independent of and shorter than cart TTL. `cart`'s expiry swe
 | 2026-02-26 | 1.4.0 | Add `PromotionUsage` entity (`promotion_usages` table) serving as per-order compliance audit ledger and global spend tracker. Add `PromotionUsageService` (`lib/promotion-usage-service.ts`) with `registerUsage` (serializable budget cap enforcement, idempotent upsert, 207 Multi-Status on budget block), `revertUsage` (soft-revert on order cancellation), and `getBudgetConsumed`. Add `POST /api/cart/register-usage` and `POST /api/cart/revert-usage` cart-facing endpoints. Add `eligible_currencies` (text[]) + `max_budget` (numeric nullable) + `budget_currency` (text nullable) to `Promotion`. Add `currency` (required) to `CartContext`. Add currency eligibility check and optimistic budget pre-check to evaluation engine. Update `NormalizedPromotion` shape with `eligibleCurrencies`, `maxBudget`, `budgetCurrency`, `totalDiscountGranted`. Update cache build to aggregate `totalDiscountGranted` from usage table. Add `promotions.usage.registered`, `promotions.usage.reverted`, `promotions.promotion.budget-exhausted` events. Add `TC-PROM-023`–`TC-PROM-026` test cases. Add Budget Cap Race Window risk entry. |
 | 2026-08-17 | 2.0.1 | **Amendment reconciliation fix.** §A.3's route-rename table was incomplete and partly wrong: it listed a route (`remove-code`) that does not exist anywhere in this document — the real route is `delete-code` — and omitted `validate-code`/`use-code` entirely, which would have left both under the colliding `/api/cart/*` namespace the amendment exists to resolve. This table entry (1.4.0, dated *before* the 2.0.0 amendment but positioned after it) had also re-added `POST /api/cart/register-usage`/`revert-usage` under the pre-amendment namespace without reconciling against §A.3. Corrected §A.3 to cover all seven cart-facing routes; updated the module file structure, every *API Contracts* route header, and the Phase 3 implementation-plan steps to the `/api/promotions/*` paths. No further behavioural change. |
 | 2026-08-17 | 2.0.2 | **`/om-pre-implement-spec` audit fixes.** (1) The 2.0.1 fix was itself incomplete: 8 further `/api/cart/*`/old-operation-name references remained in the Proposed Solution summary, the Evaluation Engine Data Flow / Code Lifecycle / Promotion Usage Lifecycle diagrams, the Extensibility section (twice), the Phase 5 plan step, and a Risk scenario — all now updated. (2) `PromotionsService` (§A.2) was missing `validateCode`/`useCode` — two of the seven renamed routes had no in-process method, contradicting the "in-process callers MUST use the service" rule for those two operations; added. (3) Added §A.2a stating `reserveCode`/`releaseCode`/`useCode`/`registerUsage`/`revertUsage` are registered commands, not bare service calls, per root `AGENTS.md`. (4) Added §A.2b declaring `cart → promotions` a hard dependency, not an optional `tryResolve` peer. (5) Added a Final Compliance Report addendum for all of the above. See `ANALYSIS-2026-02-23-spec-055-promotions-cart-amendment.md` for the full audit. |
+| 2026-09-07 | 2.1.0 | **Benefit application target and quantity caps** (see §Amendment — 2026-09-07, normative over *Data Models — Benefit*, *Resolved Effect Types* and the `LINE_DISCOUNT` row of §A.5; the affected body tables are updated in place). `Benefit` gains an `applies_to` column (`order` \| `line` \| `unit`) with a per-type allow-list, replacing the implied-by-`benefit_type` target, `tiered_discount.scope` and the undefined `delivery_discount.scope`. A shared quantity-cap block (`max_quantity`, `max_lines`, `quantity_step`) intersected into every benefit variant replaces `product_discount.pcs_limit`; counting is **cart-wide per benefit invocation**, held in Pass 3 because the budget spans lines. `selector` gains `cart_order` (the literal "first N") and becomes **required whenever a cap is set** — no default, since "first 5" and "5 most expensive" are different campaign costs. `LINE_DISCOUNT` gains `appliesTo`, `lineQuantity`, `appliedQuantity` and `unitAmount`; a partially covered line stays one effect rather than fanning out per unit. §B.6 supersedes §A.5's line mapping: `sales` rejects a line-attributed adjustment draft today (`documents.ts` — *"Line-scoped adjustments are not supported yet."*) and `SalesAdjustmentDraft` carries no line reference, so line effects travel on `SalesLineSnapshot.discountAmount` with `discountAmountBasis: 'line'` — unconditionally, because a `'unit'` basis multiplies by the full line quantity and silently discards the cap. Extending `sales` with line-attributed adjustments is deferred to its own spec (§B.7). `NormalizedBenefit` gains `appliesTo`; `BenefitExtension` gains `supportedAppliesTo`/`defaultAppliesTo` and receives a pre-budgeted `UnitSelection`. New `lib/unit-selection.ts`. Risks A-R6…A-R8 and cases TC-PROM-058…069 added. |

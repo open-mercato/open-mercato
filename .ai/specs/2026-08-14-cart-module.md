@@ -101,15 +101,23 @@ Each command's `execute` phase runs the optimistic-lock pre-check (§8.1) before
 ```typescript
 const result = await salesCalculationService.calculateDocumentTotals({
   documentKind: 'quote',
-  lines: cart.lines.map(toSalesLineSnapshot),
-  adjustments: promotionEffects.map(toSalesAdjustmentDraft),
+  lines: cart.lines.map(toSalesLineSnapshot),          // line/unit promotion effects ride here
+  adjustments: orderScopedEffects.map(toSalesAdjustmentDraft),
   context: { tenantId, organizationId, currencyCode, metadata: { source: 'cart', cartId } },
 })
 ```
 
 `documentKind: 'quote'` reuses the existing `SalesDocumentKind` union (`'order' | 'quote' | 'invoice' | 'credit_memo'`) rather than extending it. A quote is precisely what a cart is — a non-binding priced document — and extending the union would ripple into document sequences, search indexing and the documents table for no gain.
 
-The mapping is direct because `SalesLineSnapshot` already carries `productId`, `productVariantId`, `quantity`, `quantityUnit`, `uomSnapshot`, `unitPriceNet`, `unitPriceGross`, `discountAmount`, `taxRate`, `configuration` and even `promotionCode`. `SalesAdjustmentDraft` carries `scope: 'order' | 'line'`, `promotionId`, `amountNet`/`amountGross` and `position`. Promotion effects map onto adjustment drafts without inventing a parallel shape.
+The mapping is direct because `SalesLineSnapshot` already carries `productId`, `productVariantId`, `quantity`, `quantityUnit`, `uomSnapshot`, `unitPriceNet`, `unitPriceGross`, `discountAmount`, `taxRate`, `configuration` and even `promotionCode`. `SalesAdjustmentDraft` carries `scope: 'order' | 'line'`, `promotionId`, `amountNet`/`amountGross` and `position`. Promotion effects map onto these shapes without inventing a parallel model.
+
+**Promotion effects split by target**, per SPEC-055 §B.6 — they do not all become adjustment drafts. Only `appliesTo: 'order'` effects (`CART_DISCOUNT`, `DELIVERY_DISCOUNT`) become `SalesAdjustmentDraft`. A `LINE_DISCOUNT` becomes `SalesLineSnapshot.discountAmount` on the matching line, because `SalesAdjustmentDraft` carries no line reference and `sales` currently rejects a line-attributed draft outright (`documents.ts` — *"Line-scoped adjustments are not supported yet."*). Three rules bind this mapping, each of them a mispriced cart if broken:
+
+1. Always `discountAmountBasis: 'line'` with the effect's total `amount`, never `'unit'` with `unitAmount` — `sales` multiplies a `'unit'` basis by the line's **full** quantity, so a capped effect covering 5 of 8 units would discount 8.
+2. `discountAmount` is a positive magnitude on a **net** basis; take the absolute value, and convert when the effect's `basis` is `'gross'`.
+3. Several cumulative promotions on one line sum into that single scalar. Per-promotion attribution on the line does not survive; it lives in `PromotionUsage.effects_snapshot`.
+
+SPEC-055 §B.7 defers giving `SalesAdjustmentDraft` a `lineId` to its own spec against `sales`, on blast-radius grounds — `sales` is shipped code with live orders, quotes and returns, while `cart` and `promotions` are both greenfield.
 
 **The cart stores the returned totals verbatim.** It does not round, re-sum or adjust them.
 
@@ -522,7 +530,8 @@ export const features = [
 **Totals correctness (Phase 2 gate):**
 - Cart totals equal the totals of the `SalesOrder` produced from the same lines, across a tax matrix including compound rates, mixed rates within a cart, and rounding boundaries (R1)
 - Totals stored verbatim; no re-rounding on read
-- Line and order-scope promotion adjustments reach `salesCalculationService` as `SalesAdjustmentDraft` and are reflected in totals
+- Order-scope promotion effects reach `salesCalculationService` as `SalesAdjustmentDraft`, line- and unit-scope effects as `SalesLineSnapshot.discountAmount` with `discountAmountBasis: 'line'`, and both are reflected in totals (SPEC-055 §B.6)
+- A partially covered line (`appliedQuantity < lineQuantity`) totals to `unitAmount × appliedQuantity`, not `unitAmount × lineQuantity` — asserted in both directions so a regression to the `'unit'` basis cannot pass (SPEC-055 A-R6 / `TC-PROM-060`)
 
 **Pricing:**
 - Snapshot stable across repeated reads within the staleness budget
@@ -629,6 +638,13 @@ Approval routing, bulk lines, admin cart list, abandonment events.
 ---
 
 ## 18) Changelog
+
+### 2026-09-07 (rev 4 — promotion effect mapping corrected)
+
+Applied [SPEC-055](./SPEC-055-2026-02-23-promotions-module.md) §B.6. This document previously said promotion effects "map onto adjustment drafts" wholesale — a mapping the `sales` module rejects: `SalesAdjustmentDraft` carries no line reference, and `documents.ts` throws `400 "Line-scoped adjustments are not supported yet."` when a line-attributed draft arrives. Left as written, every per-line promotion would have either failed at order creation or silently detached its discount from the line.
+
+- §3: promotion effects now **split by target** — only `appliesTo: 'order'` effects become `SalesAdjustmentDraft`; `LINE_DISCOUNT` (targets `line` and `unit`) becomes `SalesLineSnapshot.discountAmount` on the matching line. Added the three binding rules: unconditional `discountAmountBasis: 'line'` (a `'unit'` basis multiplies by the line's full quantity and discards the promotion's quantity cap), positive magnitude on a net basis with gross→net conversion, and summation of cumulative promotions into the single line scalar with attribution deferred to `PromotionUsage.effects_snapshot`.
+- §14: split the promotion-adjustment acceptance criterion by target, and added the partial-coverage totals assertion in both directions (SPEC-055 A-R6 / `TC-PROM-060`).
 
 ### 2026-09-06 (rev 3 — sibling amendments applied)
 
