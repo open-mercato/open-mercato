@@ -2141,12 +2141,13 @@ export async function run(argv = process.argv) {
               readyResolve = resolve
             })
             const exitPromise = new Promise<ManagedProcessExitResult>((resolve) => {
+              const nextDevCommand = buildNextDevArgs(nextBin, runtimeEnv)
+              const bundlerLabel = nextDevCommand.bundler === 'webpack' ? 'Webpack' : 'Turbopack'
               writeDevSplashRuntimeStarting(
                 lastRestartReason
-                  ? `Restarting Next.js dev server. Reason: ${lastRestartReason}`
-                  : 'Starting Next.js dev server',
+                  ? `Restarting Next.js dev server (${bundlerLabel}). Reason: ${lastRestartReason}`
+                  : `Starting Next.js dev server (${bundlerLabel})`,
               )
-              const nextDevCommand = buildNextDevArgs(nextBin, runtimeEnv)
               const nextProcess = spawn('node', nextDevCommand.args, {
                 stdio: ['inherit', 'pipe', 'pipe'],
                 env: runtimeEnv,

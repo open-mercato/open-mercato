@@ -1,7 +1,8 @@
 export type NextDevBundler = 'turbopack' | 'webpack'
 
 export function resolveNextDevBundler(environment: NodeJS.ProcessEnv = process.env): NextDevBundler {
-  return environment.OM_DEV_BUNDLER?.trim().toLowerCase() === 'webpack'
+  const raw = environment.OM_DEV_BUNDLER?.trim().toLowerCase()
+  return raw === 'webpack'
     ? 'webpack'
     : 'turbopack'
 }

@@ -9,6 +9,7 @@ import {
   findInotifyLimitIssues,
   mergeVsCodeWatcherExcludes,
   readCurrentInotifyLimits,
+  resolveDevBundlerDecision,
   resolveRequestedDevBundler,
 } from '../dev-inotify-limits.mjs'
 
@@ -87,6 +88,47 @@ test('resolveRequestedDevBundler defaults to automatic selection and accepts exp
   assert.equal(resolveRequestedDevBundler({ OM_DEV_BUNDLER: 'webpack' }), 'webpack')
   assert.equal(resolveRequestedDevBundler({ OM_DEV_BUNDLER: 'TURBOPACK' }), 'turbopack')
   assert.equal(resolveRequestedDevBundler({ OM_DEV_BUNDLER: 'unsupported' }), 'auto')
+})
+
+test('resolveDevBundlerDecision skips inotify for an explicit Webpack request', () => {
+  assert.deepEqual(resolveDevBundlerDecision({ requestedBundler: 'webpack' }), {
+    bundler: 'webpack',
+    fallback: false,
+    shouldCheckInotify: false,
+  })
+})
+
+test('resolveDevBundlerDecision keeps Turbopack when inotify is healthy', () => {
+  assert.deepEqual(resolveDevBundlerDecision({
+    requestedBundler: 'auto',
+    inotifyResult: { ok: true },
+  }), {
+    bundler: 'turbopack',
+    fallback: false,
+    shouldCheckInotify: true,
+  })
+})
+
+test('resolveDevBundlerDecision falls back to Webpack when inotify cannot be raised', () => {
+  assert.deepEqual(resolveDevBundlerDecision({
+    requestedBundler: 'auto',
+    inotifyResult: { ok: false },
+  }), {
+    bundler: 'webpack',
+    fallback: true,
+    shouldCheckInotify: true,
+  })
+})
+
+test('resolveDevBundlerDecision preserves a strict Turbopack request', () => {
+  assert.deepEqual(resolveDevBundlerDecision({
+    requestedBundler: 'turbopack',
+    inotifyResult: { ok: false },
+  }), {
+    bundler: 'turbopack',
+    fallback: false,
+    shouldCheckInotify: true,
+  })
 })
 
 test('ensureDevInotifyLimits attempts a noninteractive sysctl repair', () => {
