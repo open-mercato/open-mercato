@@ -1,4 +1,4 @@
-import { isForeignKeyViolation, isTransientDbError, isUniqueViolation } from '../pg-errors'
+import { getForeignKeyViolationConstraint, isForeignKeyViolation, isTransientDbError, isUniqueViolation } from '../pg-errors'
 
 describe('isTransientDbError', () => {
   it('is true for the max_connections SQLSTATE', () => {
@@ -60,10 +60,38 @@ describe('isForeignKeyViolation', () => {
     ).toBe(true)
   })
 
+  it('looks through MikroORM wrapper chains (cause / previous)', () => {
+    expect(isForeignKeyViolation({ message: 'wrapped', cause: { code: '23503' } })).toBe(true)
+    expect(isForeignKeyViolation({ message: 'wrapped', previous: { code: '23503' } })).toBe(true)
+  })
+
   it('is false for unique violations, transient errors and non-DB errors', () => {
     expect(isForeignKeyViolation({ code: '23505' })).toBe(false)
     expect(isForeignKeyViolation({ code: '53300' })).toBe(false)
     expect(isForeignKeyViolation(new Error('something unrelated broke'))).toBe(false)
     expect(isForeignKeyViolation(null)).toBe(false)
+  })
+})
+
+describe('getForeignKeyViolationConstraint', () => {
+  const driverMessage = 'update or delete on table "users" violates foreign key constraint "sidebar_variants_user_id_foreign" on table "sidebar_variants"'
+
+  it('reads the pg constraint field from the top-level error', () => {
+    expect(getForeignKeyViolationConstraint({ code: '23503', constraint: 'user_roles_user_id_foreign' })).toBe('user_roles_user_id_foreign')
+  })
+
+  it('reads the constraint from a wrapped driver error', () => {
+    expect(getForeignKeyViolationConstraint({ message: 'wrapped', previous: { code: '23503', constraint: 'sessions_user_id_foreign' } })).toBe('sessions_user_id_foreign')
+    expect(getForeignKeyViolationConstraint({ message: 'wrapped', cause: { code: '23503', constraint: 'user_acls_user_id_foreign' } })).toBe('user_acls_user_id_foreign')
+  })
+
+  it('falls back to the quoted constraint in the driver message', () => {
+    expect(getForeignKeyViolationConstraint(new Error(driverMessage))).toBe('sidebar_variants_user_id_foreign')
+  })
+
+  it('is null when nothing identifies the constraint', () => {
+    expect(getForeignKeyViolationConstraint({ code: '23503' })).toBeNull()
+    expect(getForeignKeyViolationConstraint(new Error('something unrelated broke'))).toBeNull()
+    expect(getForeignKeyViolationConstraint(null)).toBeNull()
   })
 })

@@ -29,7 +29,16 @@ import '@open-mercato/core/modules/auth/commands/users'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { User } from '../../data/entities'
+import {
+  User,
+  UserAcl,
+  UserRole,
+  Session,
+  PasswordReset,
+  UserSidebarPreference,
+  SidebarVariant,
+  UserConsent,
+} from '../../data/entities'
 
 /**
  * Regression coverage for issue #2339 — the auth.users.delete cascade deleted
@@ -48,6 +57,7 @@ describe('auth.users.delete atomic cascade (issue #2339)', () => {
     rollback: number
     flush: number
     nativeDelete: number
+    nativeDeleteArgs: Array<[unknown, Record<string, unknown>]>
   }
 
   function makeEm(calls: TxnCalls): EntityManager {
@@ -65,8 +75,9 @@ describe('auth.users.delete atomic cascade (issue #2339)', () => {
       flush: async () => {
         calls.flush += 1
       },
-      nativeDelete: async () => {
+      nativeDelete: async (entity: unknown, where: Record<string, unknown>) => {
         calls.nativeDelete += 1
+        calls.nativeDeleteArgs.push([entity, where])
         return 0
       },
       find: async () => [],
@@ -101,9 +112,23 @@ describe('auth.users.delete atomic cascade (issue #2339)', () => {
 
   const userId = '44444444-4444-4444-4444-444444444444'
 
+  // Every table with a foreign key to `users` (plus `user_consents`, which has a
+  // bare user_id column) must be cleared before the user row goes, in this order.
+  function expectedCascade(id: string): Array<[unknown, Record<string, unknown>]> {
+    return [
+      [UserAcl, { user: id }],
+      [UserRole, { user: id }],
+      [Session, { user: id }],
+      [PasswordReset, { user: id }],
+      [UserSidebarPreference, { user: id }],
+      [SidebarVariant, { user: id }],
+      [UserConsent, { userId: id }],
+    ]
+  }
+
   it('commits after every cascade delete succeeds', async () => {
     const handler = commandRegistry.get('auth.users.delete') as CommandHandler<{ query?: Record<string, unknown> }, unknown>
-    const calls: TxnCalls = { begin: 0, commit: 0, rollback: 0, flush: 0, nativeDelete: 0 }
+    const calls: TxnCalls = { begin: 0, commit: 0, rollback: 0, flush: 0, nativeDelete: 0, nativeDeleteArgs: [] }
     const em = makeEm(calls)
     const dataEngine = {
       deleteOrmEntity: jest.fn(async () => ({ id: userId, organizationId: 'org-1', tenantId: 'tenant-1' })),
@@ -115,12 +140,37 @@ describe('auth.users.delete atomic cascade (issue #2339)', () => {
     expect(calls.commit).toBe(1)
     expect(calls.rollback).toBe(0)
     expect(calls.nativeDelete).toBe(7)
+    expect(calls.nativeDeleteArgs).toEqual(expectedCascade(userId))
     expect(dataEngine.deleteOrmEntity).toHaveBeenCalledTimes(1)
+  })
+
+  it('undoing a create clears the same dependent rows before hard-deleting the user', async () => {
+    const handler = commandRegistry.get('auth.users.create') as CommandHandler<unknown, unknown>
+    const calls: TxnCalls = { begin: 0, commit: 0, rollback: 0, flush: 0, nativeDelete: 0, nativeDeleteArgs: [] }
+    const em = makeEm(calls)
+    const dataEngine = {
+      deleteOrmEntity: jest.fn(async () => ({ id: userId, organizationId: 'org-1', tenantId: 'tenant-1' })),
+    }
+
+    await handler.undo!({
+      logEntry: {
+        resourceId: userId,
+        snapshotAfter: { id: userId, tenantId: 'tenant-1', organizationId: 'org-1', custom: {} },
+      } as any,
+      ctx: makeCtx(em, dataEngine),
+    })
+
+    expect(calls.begin).toBe(1)
+    expect(calls.commit).toBe(1)
+    expect(calls.rollback).toBe(0)
+    expect(calls.nativeDeleteArgs).toEqual(expectedCascade(userId))
+    expect(dataEngine.deleteOrmEntity).toHaveBeenCalledTimes(1)
+    expect(dataEngine.deleteOrmEntity).toHaveBeenCalledWith(expect.objectContaining({ entity: User, soft: false }))
   })
 
   it('rolls back the whole cascade when the user delete fails', async () => {
     const handler = commandRegistry.get('auth.users.delete') as CommandHandler<{ query?: Record<string, unknown> }, unknown>
-    const calls: TxnCalls = { begin: 0, commit: 0, rollback: 0, flush: 0, nativeDelete: 0 }
+    const calls: TxnCalls = { begin: 0, commit: 0, rollback: 0, flush: 0, nativeDelete: 0, nativeDeleteArgs: [] }
     const em = makeEm(calls)
     const dataEngine = {
       deleteOrmEntity: jest.fn(async () => {

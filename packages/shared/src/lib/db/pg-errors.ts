@@ -11,18 +11,46 @@ export function isUniqueViolation(err: unknown): boolean {
   return typeof message === 'string' && /duplicate key value|unique constraint/i.test(message)
 }
 
+const FOREIGN_KEY_VIOLATION_MESSAGE = /violates foreign key constraint(?: "([^"]+)")?/i
+
+/**
+ * MikroORM wraps driver errors and copies the pg fields onto the wrapper, but
+ * the original error may also sit behind `cause` (Node) or `previous`
+ * (MikroORM). Walk that short chain so a check works on any layer.
+ */
+function pgErrorCandidates(err: unknown): Array<Record<string, unknown>> {
+  if (!err || typeof err !== 'object') return []
+  const chain = [err, (err as { cause?: unknown }).cause, (err as { previous?: unknown }).previous]
+  return chain.filter((candidate): candidate is Record<string, unknown> => !!candidate && typeof candidate === 'object')
+}
+
 /**
  * Detect a Postgres foreign-key violation (SQLSTATE 23503): the row is still
- * referenced by a dependent table, or references a parent that does not exist.
- * MikroORM copies `code` from the driver error onto its wrapper exception, so a
- * single check covers raw pg errors and ORM-wrapped ones alike.
+ * referenced by a dependent table, or the payload references a parent that
+ * does not exist. Looks through MikroORM's driver-error wrapping.
  */
 export function isForeignKeyViolation(err: unknown): boolean {
-  if (!err || typeof err !== 'object') return false
-  const code = (err as { code?: string }).code
-  if (code === '23503') return true // Postgres foreign_key_violation
-  const message = (err as { message?: string }).message
-  return typeof message === 'string' && /violates foreign key constraint/i.test(message)
+  return pgErrorCandidates(err).some((candidate) => {
+    if (candidate.code === '23503') return true // Postgres foreign_key_violation
+    return typeof candidate.message === 'string' && FOREIGN_KEY_VIOLATION_MESSAGE.test(candidate.message)
+  })
+}
+
+/**
+ * Name of the constraint behind a foreign-key violation, read from the pg
+ * `constraint` field on any layer of the wrapper chain, or parsed out of the
+ * quoted constraint in the driver message when the field is missing.
+ */
+export function getForeignKeyViolationConstraint(err: unknown): string | null {
+  for (const candidate of pgErrorCandidates(err)) {
+    if (typeof candidate.constraint === 'string' && candidate.constraint.length > 0) return candidate.constraint
+  }
+  for (const candidate of pgErrorCandidates(err)) {
+    if (typeof candidate.message !== 'string') continue
+    const match = FOREIGN_KEY_VIOLATION_MESSAGE.exec(candidate.message)
+    if (match?.[1]) return match[1]
+  }
+  return null
 }
 
 /**

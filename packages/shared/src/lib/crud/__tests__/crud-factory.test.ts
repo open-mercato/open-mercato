@@ -905,9 +905,11 @@ describe('CRUD Factory', () => {
 
   it('returns a 409 with the constraint name when a handler hits a foreign key violation', async () => {
     setRecordCustomFields.mockImplementationOnce(async () => {
+      // Mirror MikroORM's wrapping: the pg error sits behind `previous`, and the
+      // wrapper only carries the message.
       throw Object.assign(
         new Error('update or delete on table "users" violates foreign key constraint "sidebar_variants_user_id_foreign" on table "sidebar_variants"'),
-        { code: '23503', constraint: 'sidebar_variants_user_id_foreign' },
+        { previous: { code: '23503', constraint: 'sidebar_variants_user_id_foreign' } },
       )
     })
     const res = await route.POST(new Request('http://x/api/example/todos', { method: 'POST', body: JSON.stringify({ title: 'Referenced', is_done: true, cf_priority: 3 }), headers: { 'content-type': 'application/json' } }))

@@ -75,7 +75,7 @@ import { parseExtensionHeaders } from '../umes/extension-headers'
 import { createGenericOptimisticLockReader } from './optimistic-lock'
 import { registerOptimisticLockReaderIfAbsent } from './optimistic-lock-store'
 import { createLogger } from '../logger'
-import { isForeignKeyViolation, isTransientDbError } from '../db/pg-errors'
+import { getForeignKeyViolationConstraint, isForeignKeyViolation, isTransientDbError } from '../db/pg-errors'
 import { getTelemetryRuntime } from '../telemetry/runtime'
 import { randomUUID } from 'node:crypto'
 
@@ -634,17 +634,18 @@ function handleError(err: unknown, request?: Request): Response {
   }
 
   if (isForeignKeyViolation(err)) {
-    // A dependent row still references the record (or the payload points at a
-    // missing parent). That is a data-state conflict the caller can act on, not
-    // a server fault, so surface it as a 409 with the constraint for diagnosis.
-    const constraint = (err as { constraint?: string }).constraint
+    // SQLSTATE 23503 covers both directions: a DELETE blocked by a dependent row
+    // and an INSERT/UPDATE pointing at a missing parent. Either way it is a
+    // data-state conflict the caller can act on, not a server fault, so surface
+    // it as a 409 with the constraint for diagnosis.
+    const constraint = getForeignKeyViolationConstraint(err)
     logger.warn('Foreign key violation during CRUD handler', {
       message: err instanceof Error ? err.message : undefined,
       constraint,
     })
     return json(
       {
-        error: 'Record is still referenced by other data',
+        error: 'The record is still referenced by other data, or references a record that does not exist',
         code: 'FOREIGN_KEY_VIOLATION',
         ...(constraint ? { constraint } : {}),
       },
