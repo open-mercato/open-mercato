@@ -27,6 +27,7 @@
   "portal.invite.confirmPassword.placeholder": "••••••••",
   "portal.invite.description": "Create your portal account to accept this invitation.",
   "portal.invite.displayName": "Display Name",
+  "portal.invite.error.accountExists": "This email address already has a portal account. Sign in below instead of accepting the invitation.",
   "portal.invite.error.displayNameRequired": "Display name is required.",
   "portal.invite.error.generic": "Invitation acceptance failed. Please try again.",
   "portal.invite.error.invalidToken": "Invalid or expired invitation.",

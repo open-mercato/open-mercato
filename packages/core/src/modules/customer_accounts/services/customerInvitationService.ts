@@ -7,11 +7,34 @@ import {
   CustomerRole,
 } from '@open-mercato/core/modules/customer_accounts/data/entities'
 import { generateSecureToken, hashToken } from '@open-mercato/core/modules/customer_accounts/lib/tokenGenerator'
-import { hashForLookup } from '@open-mercato/shared/lib/encryption/aes'
+import { hashForLookup, lookupHashCandidates } from '@open-mercato/shared/lib/encryption/aes'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 const BCRYPT_COST = 10
 const INVITATION_TTL_MS = 72 * 60 * 60 * 1000 // 72 hours
+
+export const CUSTOMER_INVITATION_ACCOUNT_EXISTS_CODE = 'customer_accounts.invitation.account_exists'
+
+/**
+ * Raised by {@link CustomerInvitationService.acceptInvitation} when the invited address already
+ * owns a portal account in the same tenant. Callers MUST discriminate on the `code` property
+ * rather than `instanceof`: the service is resolved through DI, so a production bundle can hold
+ * more than one copy of this class and `instanceof` then silently returns false.
+ */
+export class CustomerInvitationAccountExistsError extends Error {
+  readonly code = CUSTOMER_INVITATION_ACCOUNT_EXISTS_CODE
+
+  constructor() {
+    super('[internal] A portal account already exists for the invited email address')
+    this.name = 'CustomerInvitationAccountExistsError'
+  }
+}
+
+export function isCustomerInvitationAccountExistsError(error: unknown): boolean {
+  return typeof error === 'object'
+    && error !== null
+    && (error as { code?: unknown }).code === CUSTOMER_INVITATION_ACCOUNT_EXISTS_CODE
+}
 
 export type CustomerInvitationRollbackState = {
   email: string
@@ -156,6 +179,23 @@ export class CustomerInvitationService {
   ): Promise<{ user: CustomerUser; invitation: CustomerUserInvitation } | null> {
     const invitation = await this.findByToken(token)
     if (!invitation) return null
+
+    // customer_users carries a (tenant_id, email_hash) unique constraint, so inserting a second
+    // account for an address that was already invited and activated raises a driver-level unique
+    // violation the caller can only surface as a 500. Detect it up front and let the caller answer
+    // with a message the invitee can act on (#5899). The lookup deliberately omits `deletedAt` —
+    // the constraint is not partial, so a soft-deleted account collides just the same.
+    const existingUser = await findOneWithDecryption(
+      this.em,
+      CustomerUser,
+      {
+        emailHash: { $in: lookupHashCandidates(invitation.email) },
+        tenantId: invitation.tenantId,
+      } as any,
+      undefined,
+      { tenantId: invitation.tenantId, organizationId: invitation.organizationId },
+    )
+    if (existingUser) throw new CustomerInvitationAccountExistsError()
 
     const passwordHash = await hash(password, BCRYPT_COST)
     const emailHash = hashForLookup(invitation.email)

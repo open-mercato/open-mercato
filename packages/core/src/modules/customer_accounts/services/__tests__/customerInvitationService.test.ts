@@ -1,6 +1,11 @@
 /** @jest-environment node */
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { CustomerInvitationService } from '@open-mercato/core/modules/customer_accounts/services/customerInvitationService'
+import {
+  CUSTOMER_INVITATION_ACCOUNT_EXISTS_CODE,
+  CustomerInvitationAccountExistsError,
+  CustomerInvitationService,
+  isCustomerInvitationAccountExistsError,
+} from '@open-mercato/core/modules/customer_accounts/services/customerInvitationService'
 import {
   CustomerRole,
   CustomerUser,
@@ -15,6 +20,7 @@ jest.mock('@open-mercato/core/modules/customer_accounts/lib/tokenGenerator', () 
 
 jest.mock('@open-mercato/shared/lib/encryption/aes', () => ({
   hashForLookup: jest.fn(() => 'email-hash'),
+  lookupHashCandidates: jest.fn(() => ['email-hash']),
 }))
 
 jest.mock('bcryptjs', () => ({
@@ -192,6 +198,95 @@ describe('CustomerInvitationService.acceptInvitation — role lookup batching', 
     await service.acceptInvitation('raw-token', 'Secret123!', 'New User')
     const roleFinds = (mockEm.find as jest.Mock).mock.calls.filter((call) => call[0] === CustomerRole)
     expect(roleFinds).toHaveLength(0)
+  })
+})
+
+describe('CustomerInvitationService.acceptInvitation — existing portal account (#5899)', () => {
+  const tenantId = '11111111-1111-4111-8111-111111111111'
+  const organizationId = '22222222-2222-4222-8222-222222222222'
+
+  let mockEm: jest.Mocked<Pick<EntityManager, 'find' | 'findOne' | 'create' | 'persist' | 'flush'>>
+  let service: CustomerInvitationService
+
+  const invitation = {
+    id: 'inv-existing-account',
+    email: 'taken@example.com',
+    tenantId,
+    organizationId,
+    customerEntityId: null,
+    roleIdsJson: [],
+    expiresAt: new Date(Date.now() + 60_000),
+    acceptedAt: null,
+    cancelledAt: null,
+  } as unknown as CustomerUserInvitation
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockEm = {
+      find: jest.fn(async () => []),
+      findOne: jest.fn(),
+      create: jest.fn((_: unknown, data: unknown) => data as any),
+      persist: jest.fn(),
+      flush: jest.fn(async () => undefined),
+    } as unknown as jest.Mocked<Pick<EntityManager, 'find' | 'findOne' | 'create' | 'persist' | 'flush'>>
+    service = new CustomerInvitationService(mockEm as unknown as EntityManager)
+  })
+
+  it('throws a discriminable account-exists error instead of inserting a duplicate customer_users row', async () => {
+    ;(mockEm.findOne as jest.Mock).mockImplementation(async (entity: unknown) => {
+      if (entity === CustomerUserInvitation) return invitation
+      if (entity === CustomerUser) return { id: 'existing-user', tenantId, organizationId }
+      return null
+    })
+
+    await expect(service.acceptInvitation('raw-token', 'Secret123!', 'New User')).rejects.toMatchObject({
+      code: CUSTOMER_INVITATION_ACCOUNT_EXISTS_CODE,
+    })
+
+    const userCreates = (mockEm.create as jest.Mock).mock.calls.filter((call) => call[0] === CustomerUser)
+    expect(userCreates).toHaveLength(0)
+    expect(mockEm.persist).not.toHaveBeenCalled()
+    expect(mockEm.flush).not.toHaveBeenCalled()
+    expect(invitation.acceptedAt).toBeNull()
+  })
+
+  it('looks the existing account up by every lookup-hash candidate scoped to the invitation tenant', async () => {
+    ;(mockEm.findOne as jest.Mock).mockImplementation(async (entity: unknown) => {
+      if (entity === CustomerUserInvitation) return invitation
+      if (entity === CustomerUser) return { id: 'existing-user', tenantId, organizationId }
+      return null
+    })
+
+    await expect(service.acceptInvitation('raw-token', 'Secret123!', 'New User')).rejects.toMatchObject({
+      code: CUSTOMER_INVITATION_ACCOUNT_EXISTS_CODE,
+    })
+
+    const userLookups = (mockEm.findOne as jest.Mock).mock.calls.filter((call) => call[0] === CustomerUser)
+    expect(userLookups).toHaveLength(1)
+    expect(userLookups[0][1]).toMatchObject({
+      emailHash: { $in: ['email-hash'] },
+      tenantId,
+    })
+  })
+
+  it('is recognised by isCustomerInvitationAccountExistsError without relying on instanceof', () => {
+    const error = new CustomerInvitationAccountExistsError()
+    expect(isCustomerInvitationAccountExistsError(error)).toBe(true)
+    expect(isCustomerInvitationAccountExistsError({ code: CUSTOMER_INVITATION_ACCOUNT_EXISTS_CODE })).toBe(true)
+    expect(isCustomerInvitationAccountExistsError(new Error('boom'))).toBe(false)
+    expect(isCustomerInvitationAccountExistsError(null)).toBe(false)
+  })
+
+  it('still creates the account when no user exists for the invited address', async () => {
+    ;(mockEm.findOne as jest.Mock).mockImplementation(async (entity: unknown) => {
+      if (entity === CustomerUserInvitation) return invitation
+      return null
+    })
+
+    const result = await service.acceptInvitation('raw-token', 'Secret123!', 'New User')
+    expect(result).not.toBeNull()
+    const userCreates = (mockEm.create as jest.Mock).mock.calls.filter((call) => call[0] === CustomerUser)
+    expect(userCreates).toHaveLength(1)
   })
 })
 

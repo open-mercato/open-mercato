@@ -3,13 +3,18 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
 import { invitationAcceptSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { CustomerInvitationService } from '@open-mercato/core/modules/customer_accounts/services/customerInvitationService'
+import {
+  CustomerInvitationService,
+  isCustomerInvitationAccountExistsError,
+} from '@open-mercato/core/modules/customer_accounts/services/customerInvitationService'
 import { CustomerSessionService } from '@open-mercato/core/modules/customer_accounts/services/customerSessionService'
 import { CustomerRbacService } from '@open-mercato/core/modules/customer_accounts/services/customerRbacService'
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
 import { getClientIp } from '@open-mercato/shared/lib/ratelimit/helpers'
 
 export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
+
+const ACCOUNT_EXISTS_ERROR_CODE = 'account_exists'
 
 export async function POST(req: Request) {
   let body: unknown
@@ -29,11 +34,21 @@ export async function POST(req: Request) {
   const customerSessionService = container.resolve('customerSessionService') as CustomerSessionService
   const customerRbacService = container.resolve('customerRbacService') as CustomerRbacService
 
-  const result = await customerInvitationService.acceptInvitation(
-    parsed.data.token,
-    parsed.data.password,
-    parsed.data.displayName,
-  )
+  let result: Awaited<ReturnType<CustomerInvitationService['acceptInvitation']>>
+  try {
+    result = await customerInvitationService.acceptInvitation(
+      parsed.data.token,
+      parsed.data.password,
+      parsed.data.displayName,
+    )
+  } catch (error) {
+    if (!isCustomerInvitationAccountExistsError(error)) throw error
+    return NextResponse.json({
+      ok: false,
+      error: 'An account already exists for this email address',
+      code: ACCOUNT_EXISTS_ERROR_CODE,
+    }, { status: 409 })
+  }
   if (!result) {
     return NextResponse.json({ ok: false, error: 'Invalid or expired invitation' }, { status: 400 })
   }
@@ -103,6 +118,11 @@ const acceptSuccessSchema = z.object({
 })
 
 const errorSchema = z.object({ ok: z.literal(false), error: z.string() })
+const accountExistsErrorSchema = z.object({
+  ok: z.literal(false),
+  error: z.string(),
+  code: z.literal(ACCOUNT_EXISTS_ERROR_CODE),
+})
 
 const methodDoc: OpenApiMethodDoc = {
   summary: 'Accept customer invitation',
@@ -117,6 +137,11 @@ const methodDoc: OpenApiMethodDoc = {
   ],
   errors: [
     { status: 400, description: 'Invalid or expired invitation', schema: errorSchema },
+    {
+      status: 409,
+      description: 'The invited email address already has a portal account in this tenant',
+      schema: accountExistsErrorSchema,
+    },
   ],
 }
 
