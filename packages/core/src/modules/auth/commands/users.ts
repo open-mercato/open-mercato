@@ -24,7 +24,6 @@ import {
   PasswordReset,
   UserSidebarPreference,
   SidebarVariant,
-  UserConsent,
 } from '@open-mercato/core/modules/auth/data/entities'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { resolveOrganizationScope } from '@open-mercato/core/modules/directory/utils/organizationScope'
@@ -370,7 +369,6 @@ const createUserCommand: CommandHandler<Record<string, unknown>, CreateUserResul
         await em.nativeDelete(PasswordReset, { user: userId })
         await em.nativeDelete(UserSidebarPreference, { user: userId })
         await em.nativeDelete(SidebarVariant, { user: userId })
-        await em.nativeDelete(UserConsent, { userId })
 
         if (snapshot?.custom && Object.keys(snapshot.custom).length) {
           const reset = buildCustomFieldResetMap(undefined, snapshot.custom)
@@ -946,7 +944,6 @@ const deleteUserCommand: CommandHandler<{ body?: Record<string, unknown>; query?
         await em.nativeDelete(PasswordReset, { user: id })
         await em.nativeDelete(UserSidebarPreference, { user: id })
         await em.nativeDelete(SidebarVariant, { user: id })
-        await em.nativeDelete(UserConsent, { userId: id })
         const removed = await de.deleteOrmEntity({
           entity: User,
           where: deleteWhere as FilterQuery<User>,

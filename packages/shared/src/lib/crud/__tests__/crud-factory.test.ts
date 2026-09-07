@@ -903,7 +903,7 @@ describe('CRUD Factory', () => {
     expect(mockDataEngine.emitOrmEntityEvent).not.toHaveBeenCalled()
   })
 
-  it('returns a 409 with the constraint name when a handler hits a foreign key violation', async () => {
+  it('returns a correlated 409 without leaking the constraint name when a handler hits a foreign key violation', async () => {
     setRecordCustomFields.mockImplementationOnce(async () => {
       // Mirror MikroORM's wrapping: the pg error sits behind `previous`, and the
       // wrapper only carries the message.
@@ -916,7 +916,12 @@ describe('CRUD Factory', () => {
     expect(res.status).toBe(409)
     const body = await res.json()
     expect(body.code).toBe('FOREIGN_KEY_VIOLATION')
-    expect(body.constraint).toBe('sidebar_variants_user_id_foreign')
+    // Internal schema names stay in the server log, never in the client body.
+    expect(body.constraint).toBeUndefined()
+    expect(JSON.stringify(body)).not.toContain('sidebar_variants_user_id_foreign')
+    // Same correlation contract as the generic 500 path.
+    expect(typeof body.requestId).toBe('string')
+    expect(res.headers.get('x-request-id')).toBe(body.requestId)
     expect(Object.values(db)).toHaveLength(0)
     expect(mockDataEngine.emitOrmEntityEvent).not.toHaveBeenCalled()
   })

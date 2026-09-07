@@ -13,15 +13,30 @@ export function isUniqueViolation(err: unknown): boolean {
 
 const FOREIGN_KEY_VIOLATION_MESSAGE = /violates foreign key constraint(?: "([^"]+)")?/i
 
+const MAX_ERROR_CHAIN_DEPTH = 4
+
 /**
  * MikroORM wraps driver errors and copies the pg fields onto the wrapper, but
  * the original error may also sit behind `cause` (Node) or `previous`
- * (MikroORM). Walk that short chain so a check works on any layer.
+ * (MikroORM), possibly re-wrapped by a transaction helper. Walk that chain,
+ * breadth-first with a small depth cap, so a check works on any layer.
  */
 function pgErrorCandidates(err: unknown): Array<Record<string, unknown>> {
-  if (!err || typeof err !== 'object') return []
-  const chain = [err, (err as { cause?: unknown }).cause, (err as { previous?: unknown }).previous]
-  return chain.filter((candidate): candidate is Record<string, unknown> => !!candidate && typeof candidate === 'object')
+  const found: Array<Record<string, unknown>> = []
+  const seen = new Set<unknown>()
+  let layer: unknown[] = [err]
+  for (let depth = 0; depth < MAX_ERROR_CHAIN_DEPTH && layer.length > 0; depth += 1) {
+    const next: unknown[] = []
+    for (const candidate of layer) {
+      if (!candidate || typeof candidate !== 'object' || seen.has(candidate)) continue
+      seen.add(candidate)
+      const record = candidate as Record<string, unknown>
+      found.push(record)
+      next.push(record.cause, record.previous)
+    }
+    layer = next
+  }
+  return found
 }
 
 /**

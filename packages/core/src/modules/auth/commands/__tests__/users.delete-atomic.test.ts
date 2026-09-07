@@ -112,8 +112,10 @@ describe('auth.users.delete atomic cascade (issue #2339)', () => {
 
   const userId = '44444444-4444-4444-4444-444444444444'
 
-  // Every table with a foreign key to `users` (plus `user_consents`, which has a
-  // bare user_id column) must be cleared before the user row goes, in this order.
+  // Every table with a foreign key to `users` must be cleared before the user row
+  // goes, in this order. `user_consents` is deliberately NOT here: it has no FK, so
+  // it never blocks the delete, and it is compliance evidence that the command's
+  // undo cannot restore. Consent erasure belongs to a dedicated GDPR path.
   function expectedCascade(id: string): Array<[unknown, Record<string, unknown>]> {
     return [
       [UserAcl, { user: id }],
@@ -122,7 +124,6 @@ describe('auth.users.delete atomic cascade (issue #2339)', () => {
       [PasswordReset, { user: id }],
       [UserSidebarPreference, { user: id }],
       [SidebarVariant, { user: id }],
-      [UserConsent, { userId: id }],
     ]
   }
 
@@ -139,8 +140,9 @@ describe('auth.users.delete atomic cascade (issue #2339)', () => {
     expect(calls.begin).toBe(1)
     expect(calls.commit).toBe(1)
     expect(calls.rollback).toBe(0)
-    expect(calls.nativeDelete).toBe(7)
+    expect(calls.nativeDelete).toBe(6)
     expect(calls.nativeDeleteArgs).toEqual(expectedCascade(userId))
+    expect(calls.nativeDeleteArgs.map(([entity]) => entity)).not.toContain(UserConsent)
     expect(dataEngine.deleteOrmEntity).toHaveBeenCalledTimes(1)
   })
 
@@ -164,6 +166,7 @@ describe('auth.users.delete atomic cascade (issue #2339)', () => {
     expect(calls.commit).toBe(1)
     expect(calls.rollback).toBe(0)
     expect(calls.nativeDeleteArgs).toEqual(expectedCascade(userId))
+    expect(calls.nativeDeleteArgs.map(([entity]) => entity)).not.toContain(UserConsent)
     expect(dataEngine.deleteOrmEntity).toHaveBeenCalledTimes(1)
     expect(dataEngine.deleteOrmEntity).toHaveBeenCalledWith(expect.objectContaining({ entity: User, soft: false }))
   })
@@ -185,8 +188,8 @@ describe('auth.users.delete atomic cascade (issue #2339)', () => {
     expect(calls.begin).toBe(1)
     expect(calls.commit).toBe(0)
     expect(calls.rollback).toBe(1)
-    // All seven dependent-row deletes were attempted inside the transaction
+    // All six dependent-row deletes were attempted inside the transaction
     // before the failing user delete, and are rolled back together.
-    expect(calls.nativeDelete).toBe(7)
+    expect(calls.nativeDelete).toBe(6)
   })
 })

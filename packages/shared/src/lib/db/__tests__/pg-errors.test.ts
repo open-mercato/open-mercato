@@ -60,9 +60,18 @@ describe('isForeignKeyViolation', () => {
     ).toBe(true)
   })
 
-  it('looks through MikroORM wrapper chains (cause / previous)', () => {
+  it('looks through MikroORM wrapper chains (cause / previous), including re-wrapped errors', () => {
     expect(isForeignKeyViolation({ message: 'wrapped', cause: { code: '23503' } })).toBe(true)
     expect(isForeignKeyViolation({ message: 'wrapped', previous: { code: '23503' } })).toBe(true)
+    expect(isForeignKeyViolation({ message: 'outer', cause: { message: 'inner', previous: { code: '23503' } } })).toBe(true)
+  })
+
+  it('stops on cyclic or very deep wrapper chains', () => {
+    const cyclic: Record<string, unknown> = { message: 'loop' }
+    cyclic.cause = cyclic
+    expect(isForeignKeyViolation(cyclic)).toBe(false)
+    const deep = { cause: { cause: { cause: { cause: { cause: { code: '23503' } } } } } }
+    expect(isForeignKeyViolation(deep)).toBe(false)
   })
 
   it('is false for unique violations, transient errors and non-DB errors', () => {

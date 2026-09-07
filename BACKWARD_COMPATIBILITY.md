@@ -354,6 +354,22 @@ Files in `apps/mercato/.mercato/generated/` are produced by the CLI generators. 
 
 ---
 
+## CRUD Foreign-Key Violations Answer 409 (2026-09-07)
+
+Deleting a user who had customised their sidebar failed on the `user_sidebar_preferences` / `sidebar_variants` foreign keys and surfaced as a generic `500`. The fix clears those rows in `auth.users.delete`, gives both FKs `ON DELETE CASCADE`, and teaches `makeCrudRoute` to recognise a Postgres foreign-key violation (SQLSTATE 23503). **All changes are additive** and pass the contract-surface checks above:
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| Import path / exports (`@open-mercato/shared/lib/db/pg-errors`) | New exports `isForeignKeyViolation(err)` and `getForeignKeyViolationConstraint(err)` | ✓ ADDITIVE (new exports, nothing removed or renamed) |
+| HTTP response shapes (`makeCrudRoute` handlers) | A handler that throws a Postgres foreign-key violation now answers `409 { error, code: 'FOREIGN_KEY_VIOLATION', requestId }` with an `x-request-id` header, where it previously answered the generic `500 { error, message, requestId }`. The constraint name is logged and reported to telemetry but never returned to the client. Every other error class keeps its byte-identical historical answer | ⚠️ Behaviour change for one error class only. No retained response loses a field, but a client that treated the old `500` as retryable now receives a non-retryable `409`. Regression-tested in `crud-factory.test.ts` |
+| Database schema (`user_sidebar_preferences_user_id_foreign`, `sidebar_variants_user_id_foreign`) | Both constraints are dropped and recreated with `on update cascade on delete cascade` (`Migration20260907120000_auth`). No table or column is added, renamed, removed or retyped, and `down()` restores each constraint to its original definition | ✓ ADDITIVE-ONLY compatible (delete behaviour widened, nothing narrowed) |
+| Command behaviour (`auth.users.delete`, `auth.users.create` undo) | The dependent-row cascade also clears `user_sidebar_preferences` and `sidebar_variants`. Those rows are not captured by `UserUndoSnapshot`, so undoing a user delete restores the user, roles, ACLs and custom fields but not the sidebar customisation. `user_consents` is deliberately left untouched | ✓ Behaviour-preserving for every delete that succeeded before; deletes that previously failed with `500` now succeed |
+| Event IDs, ACL features, DI names, CLI commands | No change | ✓ n/a |
+
+**Migration path for existing modules**: no action required. A client that branched on `5xx` for foreign-key failures should treat `409` with `code: 'FOREIGN_KEY_VIOLATION'` as the same condition; it was never retryable.
+
+---
+
 ## Module Registry Registration Listeners (2026-08-12)
 
 [`.ai/specs/2026-08-12-module-registry-registration-listeners.md`](.ai/specs/2026-08-12-module-registry-registration-listeners.md) adds a public subscription to the module registry so a cache derived from the module list can drop what it built from an incomplete one ([#5103](https://github.com/open-mercato/open-mercato/issues/5103)). **All changes are additive** and pass the contract-surface checks above:
