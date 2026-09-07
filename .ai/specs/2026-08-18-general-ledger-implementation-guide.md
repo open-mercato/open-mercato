@@ -143,6 +143,6 @@ anything else compiles or is reachable. High-level shape:
 ## When you're done with this spec
 
 The next piece — posting Accounts Receivable entries when a `sales`
-invoice is issued or paid — is a separate, dependent spec:
-`.ai/specs/2026-08-18-sales-invoice-gl-posting.md`. It depends on
-everything above existing; don't start it early.
+invoice is issued or paid — is a separate, dependent spec, not yet
+drafted (planned path: `.ai/specs/2026-08-18-sales-invoice-gl-posting.md`).
+It depends on everything above existing; don't start it early.

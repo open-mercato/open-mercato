@@ -12,9 +12,9 @@ of accounts and balanced debit/credit entries. This spec covers that
 gap in isolation: a standalone posting engine with no dependency on
 `sales`, invoicing, or country-specific tax logic. The first concrete
 consumer of the engine — posting Accounts Receivable entries from
-`sales` invoices — ships as its own dependent spec,
-`.ai/specs/2026-08-18-sales-invoice-gl-posting.md`, once this one is
-implemented; see Out of scope.
+`sales` invoices — ships as its own dependent spec (not yet drafted;
+planned path `.ai/specs/2026-08-18-sales-invoice-gl-posting.md`), once
+this one is implemented; see Out of scope.
 
 ## Overview
 
@@ -164,7 +164,7 @@ was posted against. This is a different mechanism from the future
 audit snapshot, not a queryable reporting dimension — and exists to
 avoid an audit gap between Accounts Payable shipping and the
 posting-rules/dimension engine being built later. Precedent for the
-column shape: `messages.Message.entity_snapshot` (`json`, nullable)
+column shape: `messages.MessageObject.entity_snapshot` (`json`, nullable)
 already does the same point-in-time-copy job elsewhere in the
 codebase. Added now on the same empty-table logic as the two decisions
 above; nothing in this phase populates or reads it.
@@ -223,8 +223,9 @@ any other document type in scope here, every journal entry in this
 phase is posted directly, not generated from another module. The
 fields exist anyway: adding a nullable column to an empty table costs
 nothing; adding one to a ledger table that already has production rows
-is a real migration. The dependent `sales-invoice-gl-posting` spec is
-the first real consumer, and it needs no schema change to use them.
+is a real migration. The dependent `sales-invoice-gl-posting` spec
+(planned, not yet drafted) is the first real consumer, and it needs no
+schema change to use them.
 
 **Currency is reused from the existing `currencies` module, not
 reinvented.** `packages/core/src/modules/currencies` already owns
@@ -367,6 +368,43 @@ multi-currency reporting are out of scope here, but when that work
 starts it reads from data that already exists rather than requiring a
 backfill.
 
+**`FiscalPeriod`/`LedgerAccount`/`LedgerAccountType` get a nullable
+`deletedAt`, even though no delete route ships for `FiscalPeriod` in
+Phase 1.** `packages/core/AGENTS.md`'s standard column contract lists
+`deleted_at` for soft delete on user-editable entities.
+`LedgerAccount`/`LedgerAccountType`'s `makeCrudRoute` delete operation
+is a soft delete (sets `deletedAt`), not a real `DELETE`, blocked once
+the account/type has posted entries (see Queries / API) — this makes
+the existing "no hard delete once posted" language literal (there was
+no column to back any delete at all before this fix) rather than
+ambiguous about which kind of delete is even possible. `FiscalPeriod`
+gets the column for the same empty-table-costs-nothing reason as
+`JournalEntry.referenceType`/`referenceId` above: no delete route is
+planned for it in Phase 1, but adding the column to an already-
+populated production table later is a real migration, while adding it
+to an empty one is free.
+
+**`FiscalPeriod` (fiscal-period locking) stays in this document — not
+split into its own dependent spec (resolved 2026-09-07).** An
+independent, fresh-context re-run of the checklist's scope-cohesion
+check (item 1.2) returned SPLIT, not COHESIVE, for the current scope,
+arguing the coupling between posting and period-locking is a single
+integration seam (one `isLocked` check inside `postJournalEntry`) and
+pointing at this document's own 2026-09-01 (removed, "not a technical
+obstacle") → 2026-09-03 (restored on stakeholder correction, not
+technical necessity) history as evidence the two are separable — the
+same grounds the AR/`sales` integration was already split out on.
+Decided anyway to keep both in one document: unlike AR/`sales`,
+fiscal-period locking is a core, load-bearing accounting control for
+this exact module — Poland's Ustawa o rachunkowości ties period-
+closing directly to posting/correction behavior (see the art. 25
+ust. 2 discussion below) — not an optional integration with a separate
+module. Splitting it would ship a posting engine with no way to lock a
+period against further posting: a materially weaker MVP than what's
+already been reviewed and stakeholder-approved twice. The SPLIT
+finding is accurate as a scope-cohesion observation; it just doesn't
+outweigh shipping a complete accounting control in one reviewable unit.
+
 ### Alternatives considered
 
 - **Single `direction` enum + `amount` per line** instead of separate
@@ -420,10 +458,10 @@ backfill.
 ### Entities (`data/entities.ts`)
 
 - `FiscalPeriod` — `startDate`, `endDate`, `isLocked`, `updatedAt`,
-  tenant/org scoped. User-editable, so it carries `updated_at` and
-  participates in the default-ON optimistic lock like `LedgerAccount`/
-  `LedgerAccountType` (see Design decisions). No `Currency` entity —
-  see Design decisions.
+  `deletedAt` (nullable — see Design decisions), tenant/org scoped.
+  User-editable, so it carries `updated_at` and participates in the
+  default-ON optimistic lock like `LedgerAccount`/`LedgerAccountType`
+  (see Design decisions). No `Currency` entity — see Design decisions.
 - `LedgerAccountGroup` — `jurisdiction`, `code`, `name`, tenant/org
   scoped like every other entity here (see Design decisions). Seeded
   via `setup.ts`'s `seedDefaults` (Phase 1: `jurisdiction: 'PL'` only,
@@ -434,11 +472,13 @@ backfill.
   (`DEBIT`/`CREDIT`), `parentAccountTypeId` (nullable, self-reference),
   `accountGroupId` (nullable FK to `LedgerAccountGroup`, immutable
   once any account of that type has posted entries — see Design
-  decisions), `updatedAt`.
+  decisions), `updatedAt`, `deletedAt` (nullable, soft delete — see
+  Design decisions).
 - `LedgerAccount` — `slug`, `accountTypeId` (immutable once the
   account has posted entries — see Design decisions), `parentAccountId`
   (nullable, self-reference — see Design decisions), tenant/org
-  scoped, `description`, `updatedAt`.
+  scoped, `description`, `updatedAt`, `deletedAt` (nullable, soft
+  delete — see Design decisions).
 - `JournalEntry` — `sequenceNumber` (`bigint`, unique per
   `(tenant_id, organization_id)`, allocated atomically — see Design
   decisions), `postedAt`,
@@ -547,6 +587,13 @@ RETURNING next_value - 1`, storing the result on
 `journal_entry.sequence_number`, which carries a
 `UNIQUE (tenant_id, organization_id, sequence_number)` constraint.
 
+Supporting indexes for the `journal-entries` list filters (see API
+Contracts): `(organization_id, posted_at)` on `journal_entry` backs the
+`periodId` date-range filter and default post-date ordering;
+`(organization_id, account_id)` on `journal_entry_line` backs the
+`accountId` filter; `(organization_id, reference_type, reference_id)`
+on `journal_entry` backs the `referenceType`/`referenceId` pair.
+
 ### Commands (Command Pattern, `commands/`)
 
 - `postJournalEntry` — validates the `FiscalPeriod` covering
@@ -590,21 +637,34 @@ RETURNING next_value - 1`, storing the result on
 
 ### Queries / API
 
+- Every route file under `api/` exports `openApi` (via
+  `buildModuleCrudOpenApi` for the three `makeCrudRoute` resources,
+  plus a hand-written schema for the read-only `journal-entries` list
+  and the custom lock/unlock routes) per `packages/core/AGENTS.md` →
+  API Routes. See File Manifest (`api/openapi.ts`).
 - `api/journal-entries/route.ts` — `listJournalEntries`, standard
   `makeCrudRoute` read-only list (no `create`), filterable by account,
-  period, type, reference. Requires `ledger.entries.view`. See API
+  period, type, reference. `accountId` joins through
+  `JournalEntryLine.accountId` (no such column on `JournalEntry`
+  itself); `periodId` resolves the named `FiscalPeriod`'s
+  `startDate`/`endDate` and filters by `postedAt` within that range —
+  an application-layer range filter, not a stored FK (see API
+  Contracts, Data Models). Requires `ledger.entries.view`. See API
   Contracts.
 - `api/accounts/route.ts`, `api/account-types/route.ts` — standard
-  `makeCrudRoute` CRUD (list/create/update; no hard delete once an
-  account/type has posted entries), backing the `CrudForm` pages
-  below. URLs: `/api/ledger/accounts`, `/api/ledger/account-types`.
+  `makeCrudRoute` CRUD (list/create/update/soft-delete via
+  `deletedAt`; delete blocked once an account/type has posted
+  entries), backing the `CrudForm` pages below. URLs:
+  `/api/ledger/accounts`, `/api/ledger/account-types`.
 - `api/fiscal-periods/route.ts` — `makeCrudRoute` list/create; lock/
   unlock are separate custom write routes
   (`api/fiscal-periods/[id]/lock/route.ts`, `.../unlock/route.ts`,
   URLs `/api/ledger/fiscal-periods/:id/lock` etc.) wired through the
   mutation guard registry (mapped to the `update` operation) per
   `AGENTS.md` → API Routes, since toggling `isLocked` isn't a
-  field-level CRUD edit.
+  field-level CRUD edit. No delete route ships for `FiscalPeriod` in
+  Phase 1; its `deletedAt` column exists for column-contract
+  consistency only (see Design decisions).
 
 ### Backend Pages (`backend/ledger/`)
 
@@ -632,6 +692,13 @@ Standard `makeCrudRoute` paginated list.
 - **Query**: `page?`, `pageSize?` (≤100), `accountId?`, `periodId?`,
   `type?` (`NORMAL|OPENING|CLOSING|REVERSAL`), `referenceType?`,
   `referenceId?`.
+- `accountId` filters to entries with at least one matching
+  `JournalEntryLine.accountId` (a join through `journal_entry_line` —
+  `JournalEntry` itself carries no `accountId` column; see Data
+  Models). `periodId` is resolved server-side to the named
+  `FiscalPeriod`'s `startDate`/`endDate` and applied as a `postedAt`
+  range filter — `JournalEntry` has no `periodId` column or FK either
+  (see Data Models). Both are supported by indexes named in Migration.
 - **Response 200**: `{ items: JournalEntryDto[], total: number, page: number, pageSize: number }`
   where `JournalEntryDto` is `{ id, sequenceNumber, postedAt, description, type, currencyId, exchangeRate, referenceType, referenceId, lines: { id, accountId, debit, credit, amountCurrency }[] }`.
 - **Response 403**: caller lacks `ledger.entries.view`.
@@ -675,7 +742,9 @@ none of it is unique to this module.
 One row per accounting period (`startDate`, `endDate`). `isLocked`
 starts `false`; `postJournalEntry` rejects any entry whose `postedAt`
 falls within a locked period, before any write. `updatedAt` backs the
-optimistic lock on the lock/unlock actions.
+optimistic lock on the lock/unlock actions. `deletedAt` exists for
+column-contract consistency; no delete route is exposed for
+`FiscalPeriod` in Phase 1 (see Design decisions).
 
 ### LedgerAccountGroup
 
@@ -695,6 +764,8 @@ account of that type has posted entries — enforced by
 rows against accounts of that type before allowing the change.
 `accountGroupId` (nullable FK to `LedgerAccountGroup`) carries the
 same immutability guard, for the same reason (see Design decisions).
+`deletedAt` backs a soft delete via `makeCrudRoute`, blocked once the
+type has posted entries.
 
 ### LedgerAccount
 
@@ -706,6 +777,8 @@ reads it yet (see Design decisions, Out of scope). `accountTypeId` is
 immutable once the account has posted entries — enforced by
 `updateLedgerAccount`, the same class of guard as `normalBalance`/
 `accountGroupId` on `LedgerAccountType` (see Design decisions).
+`deletedAt` backs a soft delete via `makeCrudRoute`, blocked once the
+account has posted entries.
 
 ### JournalEntry / JournalEntryLine
 
@@ -727,6 +800,12 @@ without a follow-up migration.
 `JournalEntryLine` carries its own `organizationId`/`tenantId`
 (matching `sales.SalesInvoiceLine`'s precedent — see Design decisions),
 not only the scope inherited through `journalEntryId`.
+
+Neither `periodId` nor `accountId` is a column on `JournalEntry` — the
+`journal-entries` list's `periodId` and `accountId` query filters
+resolve via `FiscalPeriod.startDate`/`endDate` and
+`JournalEntryLine.accountId` respectively (see API Contracts,
+Queries / API).
 
 ## Implementation Plan
 
@@ -758,9 +837,12 @@ not only the scope inherited through `journalEntryId`.
 6. Implement `createLedgerAccount` / `updateLedgerAccount`,
    `createLedgerAccountType` / `updateLedgerAccountType` (with the
    `normalBalance`-immutability check) behind `ledger.accounts.manage`.
-7. Implement `api/journal-entries/route.ts` (`listJournalEntries`),
-   `api/accounts/route.ts`, `api/account-types/route.ts`,
-   `api/fiscal-periods/route.ts` + the lock/unlock custom routes.
+7. Implement `api/journal-entries/route.ts` (`listJournalEntries`,
+   including the `periodId` date-range resolution and the
+   `accountId` join through `JournalEntryLine`), `api/accounts/route.ts`,
+   `api/account-types/route.ts`, `api/fiscal-periods/route.ts` + the
+   lock/unlock custom routes, and `api/openapi.ts` exporting `openApi`
+   for every route above.
 8. Build the backend pages: `accounts/`, `account-types/`
    (`CrudForm`/`DataTable`), `fiscal-periods/` (`DataTable` +
    lock/unlock row action), `journal-entries/` (read-only
@@ -796,6 +878,7 @@ not only the scope inherited through `journalEntryId`.
 | `commands/fiscalPeriods.ts` | Create | `createFiscalPeriod`, `lockFiscalPeriod` / `unlockFiscalPeriod` with optimistic-lock enforcement |
 | `commands/ledgerAccounts.ts` | Create | `createLedgerAccount` / `updateLedgerAccount` with the `accountTypeId`-immutability guard |
 | `commands/ledgerAccountTypes.ts` | Create | `createLedgerAccountType` / `updateLedgerAccountType` with the `normalBalance`/`accountGroupId`-immutability guard |
+| `api/openapi.ts` | Create | `openApi` exports for all `ledger` routes — `buildModuleCrudOpenApi` for the three `makeCrudRoute` resources, hand-written schema for `journal-entries` (read-only) and the lock/unlock custom routes |
 | `api/journal-entries/route.ts` | Create | `listJournalEntries`, paginated and filterable, read-only |
 | `api/accounts/route.ts` | Create | `LedgerAccount` CRUD (`makeCrudRoute`) |
 | `api/account-types/route.ts` | Create | `LedgerAccountType` CRUD (`makeCrudRoute`) |
@@ -841,6 +924,14 @@ not only the scope inherited through `journalEntryId`.
   `updateLedgerAccount`/`updateLedgerAccountType` return a 409 with
   `OptimisticLockConflictBody` on a stale `updated_at`, and succeed
   with the current one.
+- Assert deleting a `LedgerAccount`/`LedgerAccountType` sets
+  `deletedAt` (not a real row removal) and is rejected once the
+  account/type has posted entries; assert a soft-deleted account/type
+  is excluded from list results.
+- Assert `GET /api/ledger/journal-entries?periodId=` returns only
+  entries whose `postedAt` falls within that `FiscalPeriod`'s
+  `startDate`/`endDate`, and `?accountId=` returns only entries with a
+  matching `JournalEntryLine.accountId`.
 - Integration: `GET /api/ledger/journal-entries` returns filtered
   results and 403s without `ledger.entries.view`; the `fiscal-periods`
   lock/unlock routes return 200 / 409 (stale `updated_at`) / 403
@@ -859,14 +950,18 @@ that bypasses the command layer.
 None expected — this module has no write path into any other module's
 tables in this phase. `referenceType`/`referenceId` are stored but not
 validated against other modules' data, since nothing populates them
-in this spec — see the dependent `sales-invoice-gl-posting` spec,
-which is the first consumer and owns that failure-isolation story.
+in this spec — see the dependent `sales-invoice-gl-posting` spec
+(planned, not yet drafted), which will be the first consumer and will
+own that failure-isolation story.
 
 ### Tenant & data isolation
 
-`FiscalPeriod`, `LedgerAccount`, and `JournalEntry` are all
+`FiscalPeriod`, `LedgerAccount`, `LedgerAccountType`,
+`LedgerAccountGroup`, `JournalEntry`, and `JournalEntryLine` are all
 tenant/organization scoped, following the same pattern used elsewhere
-in the repo.
+in the repo (`JournalEntryLine` and `LedgerAccountGroup` carry their
+own scope columns rather than relying only on a parent join — see
+Design decisions).
 
 ### Migration & deployment
 
@@ -876,9 +971,10 @@ deploy independently of any other module.
 ## Out of scope (tracked separately)
 
 - Integration with `sales` invoices (auto-posting Accounts Receivable
-  on invoice issue/payment) — a dependent follow-up spec,
-  `.ai/specs/2026-08-18-sales-invoice-gl-posting.md`, once this engine
-  is implemented. Kept separate from this spec on scope-cohesion
+  on invoice issue/payment) — a dependent follow-up spec (not yet
+  drafted; planned path `.ai/specs/2026-08-18-sales-invoice-gl-posting.md`),
+  once this engine is implemented. Kept separate from this spec on
+  scope-cohesion
   grounds (see Alternatives considered): the posting engine is
   independently useful and independently reviewable without it.
 - Accounts Payable / Cash Management modules — depend on this engine,
@@ -946,6 +1042,17 @@ immutability guards, the new `events.ts` (`ledger.journal_entry.posted`),
 and `JournalEntryLine.organizationId`/`tenantId` — and catches two
 compliance issues introduced by this session's own earlier drafts
 before they could reach review (see Compliance Matrix and Changelog).
+A same-day follow-up round, prompted by running an independent,
+fresh-context verification against this checklist and against the
+real `AGENTS.md`/source files on disk (not against this document's own
+prior self-report), found and fixed four further gaps — missing
+`openApi` compliance, undesigned `periodId`/`accountId` API filters, a
+dangling reference to a spec file that does not exist
+(`sales-invoice-gl-posting.md`), and a missing `deletedAt` column on
+three user-editable entities. It also surfaced a genuine scope-
+cohesion question (SPLIT vs. COHESIVE for `FiscalPeriod`), resolved the
+same day by explicit stakeholder decision to keep this document as one
+spec — see Design decisions and Changelog.
 
 ### AGENTS.md Files Reviewed
 
@@ -953,6 +1060,8 @@ before they could reach review (see Compliance Matrix and Changelog).
 - `packages/core/AGENTS.md`
 - `packages/core/src/modules/customers/AGENTS.md`
 - `packages/core/src/modules/currencies/AGENTS.md`
+- `packages/events/AGENTS.md`
+- `packages/ui/AGENTS.md`
 - `.ai/specs/AGENTS.md`
 - `.ai/qa/AGENTS.md`
 - `BACKWARD_COMPATIBILITY.md`
@@ -971,6 +1080,10 @@ before they could reach review (see Compliance Matrix and Changelog).
 | `BACKWARD_COMPATIBILITY.md` | Database schema additive-only | Compliant | New tables only; no existing schema touched |
 | `packages/core/AGENTS.md` → Encryption | GDPR-relevant fields declared in `<module>/encryption.ts`, read via `findWithDecryption` | Compliant | `contractorSnapshot` (PII: name/NIP/bank account) declared in new `ledger/encryption.ts` — see Design decisions and File Manifest |
 | `packages/events/AGENTS.md` | Cross-module side effects only via declared events + subscribers; upstream module MUST NOT import/resolve a downstream consumer | Compliant | `ledger.journal_entry.posted` (ephemeral) declared in new `events.ts`; `ledger` has no subscribers of its own and no knowledge of any consumer (e.g. Posting Rules Engine) — see Architecture → Events |
+| `packages/core/AGENTS.md` → API Routes | All API route files MUST export `openApi` | Compliant (fixed 2026-09-07) | `api/openapi.ts` added to File Manifest and Implementation Plan step 7; every route, including the read-only `journal-entries` list and the custom lock/unlock routes, exports `openApi` — gap found by an independent review, absent from every earlier draft/round |
+| `packages/core/AGENTS.md` → Database Entities | Standard column contract includes `deleted_at` for soft delete | Compliant (fixed 2026-09-07) | `deletedAt` added to `FiscalPeriod`/`LedgerAccount`/`LedgerAccountType`; `LedgerAccount`/`LedgerAccountType` delete is now specified as a soft delete via `makeCrudRoute`, blocked once posted — gap found by an independent review |
+| `.ai/specs/AGENTS.md` | Never leave stale endpoints, entities, or assumptions in an updated spec; keep specs implementation-accurate | Compliant (fixed 2026-09-07) | `periodId`/`accountId` `journal-entries` filters now documented as resolving via `FiscalPeriod`'s date range / a `JournalEntryLine` join rather than nonexistent `JournalEntry` columns; the `sales-invoice-gl-posting.md` cross-reference (5 instances in this file, 1 in `2026-09-06-contractor-registry.md`, 1 in `2026-08-18-general-ledger-implementation-guide.md`) corrected to state it is planned, not yet drafted — gap found by an independent review |
+| `packages/ui/AGENTS.md` | Backend forms use `<CrudForm>`; lists use `<DataTable>` with stable `entityId`; non-`CrudForm` writes use `useGuardedMutation` | Compliant | `accounts`/`account-types` pages use `CrudForm`+`DataTable`; `fiscal-periods` lock/unlock row action uses `useGuardedMutation`+`retryLastMutation`, matching the `resources` guarded-row-action precedent (see Backend Pages) — this file was missing from AGENTS.md Files Reviewed until an independent review caught it |
 
 ### Internal Consistency Check
 
@@ -981,47 +1094,77 @@ before they could reach review (see Compliance Matrix and Changelog).
 | Every Testing Strategy item has a corresponding implementation step | Pass | `normalBalance`/`accountGroupId`-immutability test maps to `updateLedgerAccountType`; `accountTypeId`-immutability test maps to `updateLedgerAccount`; locked-period rejection maps to `postJournalEntry`; optimistic-lock tests map to period lock/unlock and account/type update commands |
 | User Stories match Implementation Plan | Pass | The accountant-facing chart-of-accounts and fiscal-period-locking stories have backend pages + API routes, not commands with no caller |
 | Risks cover all write operations | Pass | Balance integrity, tenant isolation, and migration risk addressed |
-| Scope cohesion | Pass | A fresh-context subagent verified the original five-piece scope (accounts, posting, periods, balance, reversal) as mutually dependent and independently deployable, with the `sales` integration excluded. The current scope (accounts, posting, periods, reversal) drops only balance calculation from that verified set — a strict subset cannot introduce coupling that wasn't already accounted for — so it inherits the same verdict as a logical consequence, not a fresh subagent pass |
+| API contracts match data models | Pass (fixed 2026-09-07) | `periodId`/`accountId` `journal-entries` filters now documented as resolving via `FiscalPeriod`/`JournalEntryLine` rather than implying nonexistent `JournalEntry` columns — gap found by an independent, fresh-context review that cross-referenced the real data model instead of trusting this document's own prior claims |
+| Scope cohesion | Pass (resolved 2026-09-07) | A fresh-context subagent was re-run against the *current* scope (not the pre-2026-09-01 five-piece set this row previously, inaccurately, claimed as still verified by inheritance) and returned SPLIT, not COHESIVE: fiscal-period locking is separable from posting, evidenced by this document's own 2026-09-01 → 2026-09-03 changelog. Escalated per the checklist and explicitly decided by the stakeholder: keep `FiscalPeriod` in this document — see Design decisions |
 
 ### Non-Compliant Items
 
-None remaining. Prior findings from the `om-spec-writing` review (Currency
-duplication, missing ACL/`setup.ts`, missing optimistic locking, unresolved
-module name, User Stories/Implementation Plan mismatch, untestable
-`normalBalance` test, shallow compliance report, missing API Contracts
-section) are addressed above. Two additional issues surfaced and were
-fixed during the 2026-09-07 re-verification, both caught before this
-report was re-run: an earlier draft of `LedgerAccountGroup` described
-it as not tenant/org scoped (violates `AGENTS.md` § Never — see
-Changelog), and `JournalEntryLine` was missing its own
-`organizationId`/`tenantId` (found against the `sales.SalesInvoiceLine`
-precedent — see Changelog). Both are resolved in the current
-document.
+None remaining against AGENTS.md rules. Prior findings from the
+`om-spec-writing` review (Currency duplication, missing ACL/`setup.ts`,
+missing optimistic locking, unresolved module name, User
+Stories/Implementation Plan mismatch, untestable `normalBalance` test,
+shallow compliance report, missing API Contracts section) are addressed
+above. Two additional issues surfaced and were fixed during the
+2026-09-07 re-verification, both caught before this report was
+re-run: an earlier draft of `LedgerAccountGroup` described it as not
+tenant/org scoped (violates `AGENTS.md` § Never — see Changelog), and
+`JournalEntryLine` was missing its own `organizationId`/`tenantId`
+(found against the `sales.SalesInvoiceLine` precedent — see
+Changelog). A same-day independent, fresh-context review — not primed
+with any of this document's own conclusions, cross-referencing the
+real `AGENTS.md` and source files rather than trusting this document's
+self-report — found four more, all now fixed (see Compliance Matrix,
+Changelog): missing `openApi` compliance, undesigned `periodId`/
+`accountId` API filters, the dangling `sales-invoice-gl-posting.md`
+cross-reference (across this file and two sibling specs), and the
+missing `deletedAt` column. That same independent review also re-ran
+the checklist's scope-cohesion check against the *current* scope and
+returned SPLIT, not COHESIVE — not an AGENTS.md rule violation, so it
+isn't listed here as non-compliant; it was escalated per the
+checklist's own instruction and resolved the same day by explicit
+stakeholder decision to keep this document as one spec (see Design
+decisions, Changelog).
 
 ### Verdict
 
 **Ready for maintainer review.** The module id is decided (`ledger`);
-every finding from the `om-spec-writing` review is resolved and
-re-verified against the current document: `acl.ts`/`setup.ts` are
-concrete deliverables (Architecture → Access Control / Module Setup,
-Implementation Plan step 2), `FiscalPeriod`/`LedgerAccount`/
-`LedgerAccountType`/`LedgerAccountGroup`/`JournalEntryLine` all carry
-correct tenant/org scoping, `updateLedgerAccountType` and
+every finding from every review round to date — including a same-day
+independent, fresh-context pass that cross-referenced the real
+`AGENTS.md`/source files rather than trusting this document's own
+prior self-report — is resolved and re-verified against the current
+document: `acl.ts`/`setup.ts` are concrete deliverables (Architecture
+→ Access Control / Module Setup, Implementation Plan step 2),
+`FiscalPeriod`/`LedgerAccount`/`LedgerAccountType`/`LedgerAccountGroup`/
+`JournalEntryLine` all carry correct tenant/org scoping and now a
+consistent `deletedAt` soft-delete story, `updateLedgerAccountType` and
 `updateLedgerAccount` both make their respective immutability
 invariants (`normalBalance`/`accountGroupId`, `accountTypeId`) real,
 `currencyId` is an FK-id to the existing `currencies` module with no
 duplicate `Currency` entity, `ledger.journal_entry.posted` gives
 downstream modules a compliant way to react to postings without
-`ledger` importing or resolving them, backend pages + API routes exist
-for every User Story that needs one, and a dedicated API Contracts
-section documents the unique endpoints (`journal-entries` list,
-`fiscal-periods` lock/unlock). No open questions remain **within this
-document's own scope**. `LedgerAccountGroup`'s jurisdiction-selection
-mechanism (which jurisdiction a given organization seeds) is
-explicitly out of scope for Phase 1 (hardcoded to `PL`) and deferred
-by design, not an oversight — see Design decisions. Downstream specs
-that consume this module (Posting Rules Engine, in particular) carry
-their own, separate open design items; those do not block this
+`ledger` importing or resolving them, every API route — including the
+previously-missing `api/openapi.ts` — documents its contract, the
+`journal-entries` list's `periodId`/`accountId` filters now match the
+real data model instead of implying nonexistent columns, and the
+`sales-invoice-gl-posting.md` cross-references across this document
+and two sibling specs now accurately describe it as planned rather
+than existing.
+
+An independent, fresh-context re-run of the checklist's scope-cohesion
+check (item 1.2) returned SPLIT, not COHESIVE, for the current scope —
+arguing fiscal-period locking is separable from posting (this
+document's own 2026-09-01/2026-09-03 changelog shows posting shipped,
+worked, and was reviewed with `FiscalPeriod` entirely absent, restored
+only on an unrelated stakeholder correction). Per the checklist, this
+was escalated rather than silently resolved by rewriting the document;
+it was then explicitly decided (2026-09-07) to keep `FiscalPeriod` in
+this document rather than split it out — see Design decisions for the
+full reasoning on both sides. `LedgerAccountGroup`'s jurisdiction-
+selection mechanism (which jurisdiction a given organization seeds)
+remains explicitly out of scope for Phase 1 (hardcoded to `PL`) and
+deferred by design, not an oversight — see Design decisions. Downstream
+specs that consume this module (Posting Rules Engine, in particular)
+carry their own, separate open design items; those do not block this
 document.
 
 ## Changelog
@@ -1266,3 +1409,84 @@ document.
   posted history would silently reinterpret its past entries. Updated
   Design decisions, Architecture → Entities, Data Models, Commands,
   Testing Strategy, and File Manifest.
+
+### 2026-09-07 (cont. — independent review round)
+
+- Fixed two remaining stale spots caught during a careful, adversarial
+  self-re-read of the whole document (no subagent involved yet): the
+  "Tenant & data isolation" list under Risks & Impact Review still
+  named only `FiscalPeriod`/`LedgerAccount`/`JournalEntry`, omitting
+  `LedgerAccountType`/`LedgerAccountGroup`/`JournalEntryLine`; and the
+  "AGENTS.md Files Reviewed" list omitted `packages/events/AGENTS.md`
+  despite the Compliance Matrix already citing it. Both corrected.
+- Ran a genuinely independent, fresh-context review (no prior framing,
+  cross-referencing the real `AGENTS.md` files and source on disk
+  rather than trusting this document's own self-report) against the
+  full `om-spec-writing` checklist and compliance-review process. It
+  found, and this round fixes:
+  - Missing `openApi` export compliance (`packages/core/AGENTS.md` →
+    API Routes, a hard MUST, satisfied everywhere else in the repo).
+    Added `api/openapi.ts` (File Manifest, Implementation Plan step 7,
+    Queries / API, Compliance Matrix).
+  - An undesigned `periodId` filter on `GET /api/ledger/journal-entries`
+    with no backing `JournalEntry` column, and the same latent gap on
+    `accountId` (which actually lives on `JournalEntryLine`). Both now
+    documented as resolving via `FiscalPeriod.startDate`/`endDate` and
+    a `JournalEntryLine.accountId` join respectively, with supporting
+    indexes named in Migration. Updated API Contracts, Queries / API,
+    Data Models, Migration, Testing Strategy, Internal Consistency
+    Check.
+  - A dangling cross-reference: `.ai/specs/2026-08-18-sales-invoice-gl-posting.md`
+    was cited as an existing dependent spec in 5 places in this
+    document (TLDR, Design decisions, Risks, Out of scope ×2) and in
+    `2026-09-06-contractor-registry.md` and
+    `2026-08-18-general-ledger-implementation-guide.md` — the file does
+    not exist anywhere in the repo. All 7 references corrected to state
+    it is planned, not yet drafted.
+  - A missing `deletedAt` column on `FiscalPeriod`/`LedgerAccount`/
+    `LedgerAccountType`, despite the "no hard delete once posted"
+    language implying a delete path exists pre-posting and
+    `packages/core/AGENTS.md`'s standard column contract listing
+    `deleted_at` for soft delete. Added to Design decisions,
+    Architecture → Entities, Data Models, Queries / API, Testing
+    Strategy, Compliance Matrix.
+  - A citation error: the `contractorSnapshot` precedent was attributed
+    to `messages.Message.entity_snapshot`; the column actually lives on
+    `messages.MessageObject`. Corrected.
+  - `packages/ui/AGENTS.md` was missing from AGENTS.md Files Reviewed
+    despite this module's reliance on `CrudForm`/`DataTable`/
+    `useGuardedMutation`. Added, with a new Compliance Matrix row.
+- The same independent review also flagged, as a process gap rather
+  than an AGENTS.md violation, that the Internal Consistency Check's
+  "Scope cohesion: Pass" row had never actually been re-verified
+  against the current (post-2026-09-01/09-03) scope — it inherited a
+  verdict from the original five-piece scope by logical argument
+  instead. A dedicated fresh-context subagent was then run against the
+  *current* scope specifically, and returned **SPLIT**: fiscal-period
+  locking is separable from posting, per this document's own
+  2026-09-01 (removed) → 2026-09-03 (restored on stakeholder
+  correction, not technical necessity) history. Per the checklist, a
+  SPLIT verdict is escalated to the maintainer, not silently resolved —
+  added as **Q2** in a new Open Questions section; Internal Consistency
+  Check, Non-Compliant Items, and Verdict updated to reflect that this
+  one item is not resolved by this document on its own authority.
+
+### 2026-09-07 (cont. — Q2 resolved)
+
+- Resolved the scope-cohesion SPLIT finding from the independent
+  review round above: decided to keep `FiscalPeriod` (fiscal-period
+  locking) in this document rather than extract it into its own
+  dependent spec, despite the fresh-context subagent's SPLIT verdict
+  being evidentially accurate (this document's own 2026-09-01 removal
+  / 2026-09-03 restoration genuinely shows the two are separable).
+  Reasoning: unlike the AR/`sales` integration already split out on
+  the same grounds, fiscal-period locking is a core, load-bearing
+  accounting control for this module under Poland's Ustawa o
+  rachunkowości, not an optional cross-module integration — splitting
+  it would ship a materially weaker MVP than what's already been
+  reviewed and stakeholder-approved twice. Folded the full argument
+  (both for SPLIT and for keeping it COHESIVE) into a new Design
+  Decision instead of leaving it as a standalone `Open Questions`
+  section, matching how Q1 was retired once resolved. Updated Design
+  decisions, Internal Consistency Check, Non-Compliant Items, and
+  Verdict; removed the temporary `## Open Questions` section.
