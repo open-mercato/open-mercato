@@ -161,6 +161,7 @@ export function createSyncScheduleService(em: EntityManager, schedulerService?: 
 
       const id = existing?.id ?? randomUUID()
       const scheduledJobId = existing?.scheduledJobId ?? id
+      const mintsRegistration = !existing?.scheduledJobId
 
       // Validate the schedule (and register it with the scheduler) before writing
       // the SyncSchedule row — an unparseable scheduleValue must not leave a
@@ -221,13 +222,13 @@ export function createSyncScheduleService(em: EntityManager, schedulerService?: 
         return row
       } catch (error: unknown) {
         // The registration above is already durable, so a failed write would
-        // otherwise strand a live ScheduledJob pointing at a row that was never
-        // persisted. Only a create can be compensated: it minted scheduledJobId
-        // in this call, so unregistering it cannot destroy someone else's
-        // registration. An update reuses a job the scheduler has already
-        // overwritten and SchedulerServiceLike offers no way to restore the
-        // previous one, so it deliberately stays uncompensated.
-        if (!existing) {
+        // otherwise strand a live ScheduledJob the data-sync page cannot explain
+        // or delete. Only a registration this call minted can be compensated —
+        // unregistering it cannot destroy one the row already owned. When the
+        // row arrived with a scheduledJobId the scheduler has just overwritten a
+        // job we inherited, and SchedulerServiceLike offers no way to restore
+        // the previous one, so that case deliberately stays uncompensated.
+        if (mintsRegistration) {
           try {
             await requireScheduler().unregister(scheduledJobId)
           } catch (compensationError: unknown) {
