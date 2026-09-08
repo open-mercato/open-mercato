@@ -96,23 +96,18 @@ const TASK_PRIORITIES: Array<{ key: TaskPriorityValue; labelKey: string; labelFa
   { key: 'high', labelKey: 'customers.schedule.task.priority.high', labelFallback: 'High', dot: 'bg-status-error-icon' },
 ]
 
-// Activities saved before the dialog wrote the real column only carry the legacy
-// `customValues.taskPriority` string; map it onto the canonical three-level scale so
-// those records still prefill (the retired `urgent` level collapses onto `high`).
-const LEGACY_TASK_PRIORITIES: Record<string, EditorPriority> = {
-  low: 'low',
-  medium: 'medium',
-  high: 'high',
-  urgent: 'high',
+function readTaskPriorityNumber(raw: { priority?: unknown } | null | undefined): number | null {
+  return typeof raw?.priority === 'number' && !Number.isNaN(raw.priority) ? raw.priority : null
 }
 
-function readTaskPriority(
-  raw: { priority?: unknown } | null | undefined,
-  customValues: Record<string, unknown> | null,
-): TaskPriorityValue {
-  if (typeof raw?.priority === 'number' && !Number.isNaN(raw.priority)) return priorityFromNumber(raw.priority)
-  const legacy = typeof customValues?.taskPriority === 'string' ? LEGACY_TASK_PRIORITIES[customValues.taskPriority] : undefined
-  return legacy ?? null
+// `TaskForm` writes any 0-100 value while these chips only offer three buckets, so a
+// save that did not touch the control must keep the stored number rather than snap it
+// to the bucket midpoint — `priority` is a sortable column, so rewriting 100 as 90
+// would silently reorder tasks the user never edited.
+function buildTaskPriorityPayload(level: TaskPriorityValue, seeded: number | null): number | null {
+  if (!level) return null
+  if (seeded !== null && priorityFromNumber(seeded) === level) return seeded
+  return PRIORITY_NUMBER[level]
 }
 
 interface ScheduleActivityDialogProps {
@@ -154,6 +149,7 @@ export function ScheduleActivityDialog({
   const [callPhoneNumber, setCallPhoneNumber] = React.useState('')
   const [callPhoneError, setCallPhoneError] = React.useState<string | null>(null)
   const [taskPriority, setTaskPriority] = React.useState<TaskPriorityValue>(null)
+  const [seededTaskPriority, setSeededTaskPriority] = React.useState<number | null>(null)
   const callPhoneInvalidMessage = React.useMemo(
     () =>
       t(
@@ -187,7 +183,9 @@ export function ScheduleActivityDialog({
           : ''
     setCallPhoneNumber(seededPhone)
     setCallPhoneError(null)
-    setTaskPriority(readTaskPriority(raw, cv))
+    const seededPriority = readTaskPriorityNumber(raw)
+    setSeededTaskPriority(seededPriority)
+    setTaskPriority(seededPriority === null ? null : priorityFromNumber(seededPriority))
   }, [open, editData])
 
   // Reset per-type chip state when the user switches activity type in create mode.
@@ -199,6 +197,7 @@ export function ScheduleActivityDialog({
     setCallPhoneNumber('')
     setCallPhoneError(null)
     setTaskPriority(null)
+    setSeededTaskPriority(null)
   }, [state.activityType, open, isEditing])
 
   const handleCallPhoneChange = React.useCallback((next: string | undefined) => {
@@ -428,7 +427,7 @@ export function ScheduleActivityDialog({
         phoneNumber: state.activityType === 'call' ? phoneNumberForPayload : undefined,
         // Only tasks expose the priority control, so other types leave the column
         // untouched rather than clearing it on a type switch (#5943).
-        priority: state.activityType === 'task' ? (taskPriority ? PRIORITY_NUMBER[taskPriority] : null) : undefined,
+        priority: state.activityType === 'task' ? buildTaskPriorityPayload(taskPriority, seededTaskPriority) : undefined,
         scheduledAt,
         durationMinutes: visibleFields.has('duration') && !state.allDay ? state.duration : null,
         location: visibleFields.has('location') ? (state.location.trim() || null) : null,
@@ -496,7 +495,7 @@ export function ScheduleActivityDialog({
     } finally {
       state.setSaving(false)
     }
-  }, [callDirection, callOutcome, callPhoneInvalidMessage, callPhoneNumber, isDateMissing, isTimeMissing, state.activityType, state.allDay, state.date, state.description, dealId, state.duration, editData, entityId, state.guestPermissions, state.linkedEntities, state.location, onActivityCreated, onClose, state.participants, state.recurrenceCount, state.recurrenceDays, state.recurrenceEnabled, state.recurrenceEndDate, state.recurrenceEndType, state.reminderMinutes, runGuardedMutation, state.startTime, t, taskPriority, state.title, translateErrorMessage, trimmedCallPhone, trimmedDate, trimmedStartTime, state.visibility, visibleFields]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [callDirection, callOutcome, callPhoneInvalidMessage, callPhoneNumber, isDateMissing, isTimeMissing, state.activityType, state.allDay, state.date, state.description, dealId, state.duration, editData, entityId, state.guestPermissions, state.linkedEntities, state.location, onActivityCreated, onClose, state.participants, state.recurrenceCount, state.recurrenceDays, state.recurrenceEnabled, state.recurrenceEndDate, state.recurrenceEndType, state.reminderMinutes, runGuardedMutation, seededTaskPriority, state.startTime, t, taskPriority, state.title, translateErrorMessage, trimmedCallPhone, trimmedDate, trimmedStartTime, state.visibility, visibleFields]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleKeyDown = useDialogKeyHandler({ onConfirm: handleSave })
 

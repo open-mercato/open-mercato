@@ -299,14 +299,33 @@ describe('ScheduleActivityDialog', () => {
       expect(screen.getByRole('button', { name: 'Medium' })).toHaveAttribute('aria-pressed', 'false')
     })
 
-    it('falls back to the legacy customValues.taskPriority for activities saved before the fix', () => {
+    it('ignores the legacy customValues.taskPriority so a cleared priority cannot be resurrected', () => {
       renderTaskDialog({
         id: TASK_ID,
         interactionType: 'task',
+        priority: null,
         customValues: { taskPriority: 'urgent' },
       } as ScheduleActivityEditData)
 
-      expect(screen.getByRole('button', { name: 'High' })).toHaveAttribute('aria-pressed', 'true')
+      expect(screen.getByRole('button', { name: 'None' })).toHaveAttribute('aria-pressed', 'true')
+      expect(screen.getByRole('button', { name: 'High' })).toHaveAttribute('aria-pressed', 'false')
+    })
+
+    it('keeps the stored number when the selected level still matches its bucket', async () => {
+      renderTaskDialog({ id: TASK_ID, interactionType: 'task', priority: 100 })
+
+      await save(/^Update activity$/)
+
+      expect(lastSavedPayload().priority).toBe(100)
+    })
+
+    it('snaps to the canonical number when the level actually changes', async () => {
+      renderTaskDialog({ id: TASK_ID, interactionType: 'task', priority: 100 })
+
+      fireEvent.click(screen.getByRole('button', { name: 'Low' }))
+      await save(/^Update activity$/)
+
+      expect(lastSavedPayload().priority).toBe(10)
     })
 
     it('shows None when the priority column is unset', () => {
