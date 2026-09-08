@@ -14,9 +14,12 @@ import { createQueue } from '../factory'
  * `QUEUE_STRATEGY=local` — so it skips unless a throwaway Redis is pointed at explicitly:
  *
  *   docker run -d --rm --name om-queue-test-redis -p 6579:6379 redis:7-alpine
- *   QUEUE_TEST_REDIS_URL=redis://127.0.0.1:6579/0 yarn workspace @open-mercato/queue test redis
+ *   QUEUE_TEST_REDIS_URL=redis://127.0.0.1:6579/0 yarn workspace @open-mercato/queue test:redis
  *
  * Point it at a disposable instance: the suite obliterates the queues it creates.
+ *
+ * CI runs the same command in the `queue-deduplication-redis` job, which supplies the URL — and
+ * asserts these tests actually ran, since a skipped suite exits 0.
  */
 const redisUrl = process.env.QUEUE_TEST_REDIS_URL
 const describeWithRedis = redisUrl ? describe : describe.skip
