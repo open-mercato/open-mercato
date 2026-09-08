@@ -96,6 +96,8 @@ Coding-agent exception: if `yarn db:generate` emits unrelated migrations because
 
 Do not run `yarn db:migrate` as part of generation unless the user explicitly asks to apply migrations. A PR should normally include the migration file plus snapshot, not depend on local DB state.
 
+After every module has migrated, `dbMigrate` collects the `queryIndexReindexEntityTypes` declarations exported by the migrations it just applied and queues one persistent `query_index.reindex` per entity type (`packages/cli/src/lib/db/migration-reindex.ts`). This step MUST stay non-fatal: an unreachable event bus degrades to printing the equivalent `mercato query_index rebuild --entity <type> --global`, and `OM_MIGRATION_REINDEX=off` disables it. A migration that rewrites a query-indexed column without declaring leaves `entity_indexes.doc` stale permanently.
+
 ## Standalone App Considerations
 
 In standalone apps, generators scan `node_modules/@open-mercato/*/dist/modules/` for compiled `.js` files (not `.ts` source). Ensure packages are built before publishing.
