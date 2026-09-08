@@ -2658,7 +2658,7 @@
   "customers.schedule.task.priority.high": "Hoch",
   "customers.schedule.task.priority.low": "Niedrig",
   "customers.schedule.task.priority.medium": "Mittel",
-  "customers.schedule.task.priority.urgent": "Dringend",
+  "customers.schedule.task.priority.none": "Keine",
   "customers.schedule.task.priorityLabel": "Priorität",
   "customers.schedule.task.save": "Aufgabe speichern",
   "customers.schedule.task.subtitle": "Erfassen Sie etwas zum Nachverfolgen",

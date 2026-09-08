@@ -2658,7 +2658,7 @@
   "customers.schedule.task.priority.high": "Alta",
   "customers.schedule.task.priority.low": "Baja",
   "customers.schedule.task.priority.medium": "Media",
-  "customers.schedule.task.priority.urgent": "Urgente",
+  "customers.schedule.task.priority.none": "Ninguna",
   "customers.schedule.task.priorityLabel": "Prioridad",
   "customers.schedule.task.save": "Guardar tarea",
   "customers.schedule.task.subtitle": "Captura algo para hacer seguimiento",

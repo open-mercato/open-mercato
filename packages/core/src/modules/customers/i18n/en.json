@@ -2658,7 +2658,7 @@
   "customers.schedule.task.priority.high": "High",
   "customers.schedule.task.priority.low": "Low",
   "customers.schedule.task.priority.medium": "Medium",
-  "customers.schedule.task.priority.urgent": "Urgent",
+  "customers.schedule.task.priority.none": "None",
   "customers.schedule.task.priorityLabel": "Priority",
   "customers.schedule.task.save": "Save task",
   "customers.schedule.task.subtitle": "Capture something to follow up on",

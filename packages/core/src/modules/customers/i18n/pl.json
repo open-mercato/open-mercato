@@ -2658,7 +2658,7 @@
   "customers.schedule.task.priority.high": "Wysoki",
   "customers.schedule.task.priority.low": "Niski",
   "customers.schedule.task.priority.medium": "Średni",
-  "customers.schedule.task.priority.urgent": "Pilny",
+  "customers.schedule.task.priority.none": "Brak",
   "customers.schedule.task.priorityLabel": "Priorytet",
   "customers.schedule.task.save": "Zapisz zadanie",
   "customers.schedule.task.subtitle": "Zapisz coś do późniejszego wykonania",

@@ -2658,7 +2658,7 @@
   "customers.schedule.task.priority.high": "높음",
   "customers.schedule.task.priority.low": "낮음",
   "customers.schedule.task.priority.medium": "보통",
-  "customers.schedule.task.priority.urgent": "긴급",
+  "customers.schedule.task.priority.none": "없음",
   "customers.schedule.task.priorityLabel": "우선순위",
   "customers.schedule.task.save": "작업 저장",
   "customers.schedule.task.subtitle": "후속 조치가 필요한 사항을 기록하세요",
