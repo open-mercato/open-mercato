@@ -19,7 +19,9 @@ both are recomputed over on every write, and there is no shape for a line whose 
 
 This spec proposes one opt-in, **persisted** mode — `sales_orders.totals_mode` and
 `sales_order_lines.amounts_mode`, each `computed` (default) | `external` — under which the caller's
-amounts are stored and served verbatim, and every recalculation path skips the row. It is deliberately
+amounts are stored and served verbatim, and no recalculation path can move them — including the two
+extension registries, which keep running but have the caller's amounts re-applied after them. It is
+deliberately
 **not** "honour a supplied `totalNetAmount`": that was #5644's option 1 and it was not taken, correctly,
 because it freezes exactly the legacy rows #5640 heals. The distinguishing property here is that the
 caller's authority is explicit and persisted, so recalculation can tell *a stored value that must be
