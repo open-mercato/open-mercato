@@ -291,6 +291,29 @@ describe('POST /api/auth/users/resend-invite', () => {
     expect(mockSendEmail).toHaveBeenCalledTimes(1)
   })
 
+  test('allows a loopback request URL behind a reverse proxy that forwards the public host in production', async () => {
+    process.env = {
+      ...process.env,
+      APP_URL: 'https://app.example',
+      NODE_ENV: 'production',
+      JWT_SECRET: 'test-jwt-secret',
+    }
+
+    const res = await POST(makeRequest(
+      { id: userId },
+      'https://localhost:3000/api/auth/users/resend-invite',
+      {
+        host: 'app.example',
+        'x-forwarded-proto': 'https',
+      },
+    ))
+
+    expect(res.status).toBe(200)
+    expect(mockSendEmail).toHaveBeenCalledTimes(1)
+    const [emailArgs] = mockSendEmail.mock.calls[0]
+    expect(emailArgs.to).toBe('invited@example.com')
+  })
+
   test('allows equivalent loopback proxy origins in production', async () => {
     process.env = {
       ...process.env,
