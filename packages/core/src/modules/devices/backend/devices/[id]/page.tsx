@@ -9,6 +9,7 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useDeviceUserLabels } from '../useDeviceUserLabels'
 
 type DeviceDetail = {
   id: string
@@ -35,7 +36,6 @@ export default function DeviceAdminEditPage({ params }: { params?: { id?: string
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [notFound, setNotFound] = React.useState(false)
-  const [userLabel, setUserLabel] = React.useState<string | null>(null)
 
   React.useEffect(() => {
     let cancelled = false
@@ -63,24 +63,10 @@ export default function DeviceAdminEditPage({ params }: { params?: { id?: string
   }, [id, t])
 
   // Resolve the owner's display name for a link to their profile. Devices admins may not hold
-  // auth.users.list, so fall back to the raw id (rendered without a link) instead of redirecting.
-  React.useEffect(() => {
-    const userId = device?.userId
-    if (!userId) return
-    let cancelled = false
-    void (async () => {
-      const call = await apiCall<{ items?: { id: string; name?: string | null; email?: string | null }[] }>(
-        `/api/auth/users?id=${encodeURIComponent(userId)}`,
-        { headers: { 'x-om-forbidden-redirect': '0' } },
-        { fallback: null },
-      ).catch(() => null)
-      if (cancelled || !call || !call.ok) return
-      const found = call.result?.items?.find((u) => u.id === userId)
-      const label = found?.name?.trim() || found?.email?.trim() || null
-      if (label) setUserLabel(label)
-    })()
-    return () => { cancelled = true }
-  }, [device?.userId])
+  // auth.users.list, so this falls back to the raw id (rendered without a link) instead of redirecting.
+  const ownerIds = React.useMemo(() => [device?.userId], [device?.userId])
+  const userLabels = useDeviceUserLabels(ownerIds)
+  const userLabel = device?.userId ? userLabels[device.userId] ?? null : null
 
   const fields = React.useMemo<CrudField[]>(() => [
     { id: 'clientAppVersion', label: t('devices.form.appVersion'), type: 'text' },

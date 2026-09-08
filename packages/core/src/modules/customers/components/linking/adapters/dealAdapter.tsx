@@ -276,7 +276,7 @@ export function createDealLinkAdapter(options: DealAdapterOptions): LinkEntityAd
       { id: 'all', label: 'All' },
       { id: 'open', label: 'Open' },
       { id: 'win', label: 'Won' },
-      { id: 'loose', label: 'Lost' },
+      { id: 'lost', label: 'Lost' },
       { id: 'orphan', label: 'Orphan', dotColor: '#eb9426' /* TODO(ds-review): #eb9426 — requires LinkEntityDialog to support semantic token classNames */ },
     ],
     defaultId: 'all',
@@ -286,7 +286,7 @@ export function createDealLinkAdapter(options: DealAdapterOptions): LinkEntityAd
       if (filterId === 'orphan') return meta.isOrphan === true
       // Server-side status filter already applied; this keeps all rows if server honored the filter.
       // Fallback client check on stage in case server returns mixed statuses.
-      if (filterId === 'open' || filterId === 'win' || filterId === 'loose') {
+      if (filterId === 'open' || filterId === 'win' || filterId === 'lost') {
         return (meta.stage ?? '').toLowerCase().includes(filterId) || true
       }
       return true

@@ -23,6 +23,7 @@
   "communication_channels.emptyState": "아직 공유 채널이 없습니다. 이 페이지에는 공유되는 테넌트 전체 채널이 나열됩니다. 개인 이메일 메일함은 비공개이며, 프로필 → 통신 채널에서 연결하고 관리하세요.",
   "communication_channels.errors.loadDetail": "채널을 불러오지 못했습니다",
   "communication_channels.errors.loadList": "채널을 불러오지 못했습니다",
+  "communication_channels.errors.missingChannelId": "선택된 채널이 없습니다.",
   "communication_channels.errors.pollNowPushDriven": "이 채널은 푸시 기반입니다 — 폴링은 적용되지 않습니다. 수신 메시지는 공급자의 푸시 연결로 전달됩니다.",
   "communication_channels.errors.reactionFailed": "반응 처리에 실패했습니다",
   "communication_channels.errors.undoBlockedPrimaryConflict": "다른 채널이 현재 이 사용자의 기본 채널로 설정되어 있습니다. 연결이 끊어진 채널을 기본으로 복원하기 전에 해당 채널을 기본이 아닌 채널로 설정하세요.",

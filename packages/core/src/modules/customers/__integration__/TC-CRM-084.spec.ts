@@ -404,7 +404,7 @@ test.describe('TC-CRM-084: deals map endpoint (GET /api/customers/deals/map)', (
         isPrimary: true,
       });
 
-      // One deal per wire status the filter exposes (open / win / loose).
+      // One deal per wire status the filter exposes (open / win / lost).
       openDealId = await createDealFixture(request, token, {
         title: `TC-CRM-084 Open Deal ${stamp}`,
         companyIds: [companyId],
@@ -421,9 +421,9 @@ test.describe('TC-CRM-084: deals map endpoint (GET /api/customers/deals/map)', (
         return id as string;
       };
       wonDealId = await createDealWithStatus(`TC-CRM-084 Won Deal ${stamp}`, 'win');
-      lostDealId = await createDealWithStatus(`TC-CRM-084 Lost Deal ${stamp}`, 'loose');
+      lostDealId = await createDealWithStatus(`TC-CRM-084 Lost Deal ${stamp}`, 'lost');
 
-      // Repeated multi-select: ?status=open&status=win must match BOTH, excluding the loose deal.
+      // Repeated multi-select: ?status=open&status=win must match BOTH, excluding the lost deal.
       // (The bug this guards: collapsing repeated params kept only the last value, so the open
       // deal silently dropped out whenever more than one status was selected.)
       const multi = await fetchMap(
@@ -435,7 +435,7 @@ test.describe('TC-CRM-084: deals map endpoint (GET /api/customers/deals/map)', (
       expect(multi.total, 'two selected statuses match exactly the two matching deals').toBe(2);
       expect(multiIds.has(openDealId), 'open deal is included by the open+win filter').toBe(true);
       expect(multiIds.has(wonDealId), 'won deal is included by the open+win filter').toBe(true);
-      expect(multiIds.has(lostDealId), 'loose deal is excluded by the open+win filter').toBe(false);
+      expect(multiIds.has(lostDealId), 'lost deal is excluded by the open+win filter').toBe(false);
 
       // Single value still works (no regression of the previously-passing path).
       const single = await fetchMap(request, token, `companyId=${companyId}&status=win&pageSize=100`);

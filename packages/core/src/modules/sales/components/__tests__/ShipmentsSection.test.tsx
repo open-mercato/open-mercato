@@ -48,7 +48,9 @@ jest.mock('@open-mercato/shared/lib/frontend/useOrganizationScope', () => ({
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => {
   const translate = (_key: string, fallback?: string) => fallback ?? _key
-  return { useT: () => translate }
+  // SalesShipmentsSection formats the shipped-at / delivered-at dates in the app locale, so the
+  // mock pins it rather than letting the component fall back to the runner's default (#5105).
+  return { useT: () => translate, useLocale: () => 'en-US' }
 })
 
 const mockEmit = jest.fn()

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { Organization, Tenant } from '@open-mercato/core/modules/directory/data/entities'
@@ -131,6 +132,10 @@ export async function resolveSudoContext(req: Request): Promise<SudoRequestConte
 export async function mapSudoError(error: unknown): Promise<NextResponse> {
   if (error instanceof CrudHttpError) {
     return NextResponse.json(await localizeSecurityApiBody(error.body), { status: error.status })
+  }
+  const interceptorRejection = getCommandInterceptorHttpRejection(error)
+  if (interceptorRejection) {
+    return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
   }
   if (isSudoRequiredError(error)) {
     return NextResponse.json(await localizeSecurityApiBody(error.body), { status: error.statusCode })

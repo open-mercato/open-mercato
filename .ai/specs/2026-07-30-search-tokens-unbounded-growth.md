@@ -142,6 +142,12 @@ source-compatible. Missing fields resolve to the safe defaults above.
 
 ## Changelog
 
+- 2026-08-24: The per-record path now carries the same unchanged-record skip, and the search
+  module's aliased `cf_<key>` field names are normalized to `cf:<key>` so the two token writers stop
+  invalidating each other's rows. See
+  [2026-08-24-search-token-double-write.md](2026-08-24-search-token-double-write.md); the residual
+  risks recorded above are unchanged by it, and the systematic per-record duplication it removes is
+  distinct from the concurrent-replacement duplicates this spec discusses.
 - 2026-08-20: Noted in the risk table how #5402 (skip rewriting unchanged search
   tokens) interacts with duplicate healing: the batch path no longer rewrites
   unconditionally, so healing now depends on the multiplicity comparison and on

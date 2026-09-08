@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Mockup — Legal entity settings</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: #f8fafc; color: #0f172a; width: 1440px; font-size: 14px;
+  }
+  .topbar {
+    height: 56px; background: #ffffff; border-bottom: 1px solid #e2e8f0;
+    display: flex; align-items: center; padding: 0 24px; gap: 16px;
+  }
+  .logo { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 15px; }
+  .logo-mark { width: 26px; height: 26px; border-radius: 7px; background: #4f46e5; }
+  .topbar-right { margin-left: auto; display: flex; align-items: center; gap: 14px; }
+  .icon-dot { width: 30px; height: 30px; border-radius: 8px; background: #f1f5f9; border: 1px solid #e2e8f0; }
+  .avatar { width: 32px; height: 32px; border-radius: 50%; background: #c7d2fe; color: #3730a3;
+    display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 13px; }
+  .shell { display: flex; }
+  .sidebar { width: 232px; min-height: 844px; background: #ffffff; border-right: 1px solid #e2e8f0; padding: 16px 12px; }
+  .nav-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: #94a3b8;
+    padding: 0 10px; margin: 14px 0 6px; font-weight: 600; }
+  .nav-label:first-child { margin-top: 0; }
+  .nav-item { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px;
+    color: #475569; font-size: 13.5px; margin-bottom: 2px; }
+  .nav-item .ni { width: 16px; height: 16px; border-radius: 4px; background: #cbd5e1; flex: none; }
+  .nav-item.active { background: #eef2ff; color: #4338ca; font-weight: 600; }
+  .nav-item.active .ni { background: #6366f1; }
+  .main { flex: 1; padding: 24px 32px; }
+  .breadcrumb { font-size: 12.5px; color: #94a3b8; margin-bottom: 10px; }
+  .breadcrumb b { color: #64748b; font-weight: 500; }
+  .page-head { margin-bottom: 20px; max-width: 720px; }
+  h1 { font-size: 20px; font-weight: 700; letter-spacing: -0.01em; display: flex; align-items: center; gap: 12px; }
+  .page-sub { color: #64748b; font-size: 13px; margin-top: 6px; line-height: 1.55; }
+  .source-chip { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600;
+    border-radius: 999px; padding: 4px 12px; background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; }
+  .source-chip .dot { width: 7px; height: 7px; border-radius: 50%; background: #10b981; }
+  .legend { display: flex; gap: 8px; margin-top: 12px; align-items: center; font-size: 12px; color: #94a3b8; }
+  .legend-chip { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 600;
+    border-radius: 999px; padding: 2px 9px; border: 1px solid #e2e8f0; background: #f8fafc; color: #64748b; }
+  .legend-chip .dot { width: 6px; height: 6px; border-radius: 50%; background: #cbd5e1; }
+  .legend-chip.instance .dot { background: #6366f1; }
+  .card { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; max-width: 720px; }
+  .card-body { padding: 22px 24px; }
+  .field { margin-bottom: 18px; }
+  .field:last-child { margin-bottom: 0; }
+  label { display: block; font-size: 13px; font-weight: 600; color: #334155; margin-bottom: 6px; }
+  label small { font-weight: 400; color: #94a3b8; }
+  .input { width: 100%; height: 38px; border: 1px solid #e2e8f0; border-radius: 8px; padding: 0 12px;
+    font-size: 13.5px; color: #0f172a; background: #ffffff; display: flex; align-items: center; }
+  .textarea { width: 100%; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 12px;
+    font-size: 13.5px; color: #0f172a; background: #ffffff; line-height: 1.55; min-height: 66px; }
+  .help { font-size: 12px; color: #94a3b8; margin-top: 5px; line-height: 1.5; }
+  .card-footer { display: flex; align-items: center; justify-content: space-between; border-top: 1px solid #e2e8f0;
+    padding: 14px 24px; background: #f8fafc; border-radius: 0 0 12px 12px; }
+  .footer-note { font-size: 12.5px; color: #94a3b8; }
+  .btn { display: inline-flex; align-items: center; border-radius: 8px; font-size: 13.5px;
+    font-weight: 600; padding: 9px 18px; border: 1px solid transparent; }
+  .btn-primary { background: #4f46e5; color: #ffffff; }
+  .usage { max-width: 720px; margin-top: 16px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px;
+    padding: 14px 18px; font-size: 12.5px; color: #64748b; line-height: 1.6; }
+  .usage b { color: #475569; }
+</style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="logo"><div class="logo-mark"></div>Mercato Backoffice</div>
+    <div class="topbar-right">
+      <div class="icon-dot"></div>
+      <div class="icon-dot"></div>
+      <div class="avatar">MA</div>
+    </div>
+  </div>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="nav-label">Settings</div>
+      <div class="nav-item"><span class="ni"></span>General</div>
+      <div class="nav-item"><span class="ni"></span>Organizations</div>
+      <div class="nav-item"><span class="ni"></span>Roles &amp; access</div>
+      <div class="nav-label">Module configuration</div>
+      <div class="nav-item"><span class="ni"></span>Currencies</div>
+      <div class="nav-item active"><span class="ni"></span>Legal entity</div>
+      <div class="nav-item"><span class="ni"></span>Notifications</div>
+      <div class="nav-item"><span class="ni"></span>Integrations</div>
+    </aside>
+    <main class="main">
+      <div class="breadcrumb">Settings &rsaquo; Module configuration &rsaquo; <b>Legal entity</b></div>
+      <div class="page-head">
+        <h1>Legal entity
+          <span class="source-chip"><span class="dot"></span>Source: tenant</span>
+        </h1>
+        <div class="page-sub">The data-controller identity used across legal documents, onboarding consent labels, and the checkout footer. Tenant values override the instance defaults.</div>
+        <div class="legend">Other states:
+          <span class="legend-chip instance"><span class="dot"></span>inherited from instance</span>
+          <span class="legend-chip"><span class="dot"></span>not configured</span>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-body">
+          <div class="field">
+            <label>Name</label>
+            <div class="input">Acme Sp. z o.o.</div>
+            <div class="help">Bakes into <b>{{controllerName}}</b> and renders in page chrome and the checkout footer.</div>
+          </div>
+          <div class="field">
+            <label>Contact email</label>
+            <div class="input">privacy@acme.example</div>
+            <div class="help">Bakes into <b>{{controllerEmail}}</b>.</div>
+          </div>
+          <div class="field">
+            <label>Address</label>
+            <div class="textarea">ul. Przykladowa 12<br>00-001 Warszawa, Poland</div>
+            <div class="help">Bakes into <b>{{controllerAddress}}</b>.</div>
+          </div>
+          <div class="field">
+            <label>Registration <small>&mdash; court / registry identifiers</small></label>
+            <div class="input">KRS 0000123456 &middot; NIP 5260000000 &middot; REGON 012345678</div>
+            <div class="help">Bakes into <b>{{controllerRegistration}}</b> and enables the registry-disclosure paragraph in onboarding.</div>
+          </div>
+        </div>
+        <div class="card-footer">
+          <span class="footer-note">Last saved Aug 12, 2026 by admin@acme.example</span>
+          <span class="btn btn-primary">Save</span>
+        </div>
+      </div>
+      <div class="usage">
+        Changing these values affects <b>future</b> published documents and rendered labels only &mdash; already published versions keep their baked identity and content hash.
+      </div>
+    </main>
+  </div>
+</body>
+</html>

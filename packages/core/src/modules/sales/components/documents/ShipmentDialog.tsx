@@ -20,7 +20,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { E } from '#generated/entities.ids.generated'
 import { emitSalesDocumentTotalsRefresh } from '@open-mercato/core/modules/sales/lib/frontend/documentTotalsEvents'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { formatMoney, normalizeNumber } from './lineItemUtils'
 import type { OrderLine, ShipmentRow } from './shipmentTypes'
 import { formatAddressString, type AddressFormatStrategy, type AddressValue } from '@open-mercato/core/modules/customers/utils/addressFormat'
@@ -290,6 +290,7 @@ export function ShipmentDialog({
   onAddComment,
 }: ShipmentDialogProps) {
   const t = useT()
+  const locale = useLocale()
   const [formResetKey, setFormResetKey] = React.useState(0)
   const [shippingMethods, setShippingMethods] = React.useState<ShippingMethodOption[]>([])
   const [shippingMethodLoading, setShippingMethodLoading] = React.useState(false)
@@ -540,21 +541,21 @@ export function ShipmentDialog({
       if (option.avgPrice !== null) {
         parts.push(
           t('sales.documents.shipments.shippingMethodAvg', 'Avg {{price}}', {
-            price: formatMoney(option.avgPrice, currency ?? null),
+            price: formatMoney(option.avgPrice, currency ?? null, locale),
           }),
         )
       }
       if (option.minPrice !== null) {
         parts.push(
           t('sales.documents.shipments.shippingMethodMin', 'Min {{price}}', {
-            price: formatMoney(option.minPrice, currency ?? null),
+            price: formatMoney(option.minPrice, currency ?? null, locale),
           }),
         )
       }
       if (parts.length === 0) return undefined
       return parts.join(' · ')
     },
-    [currencyCode, t],
+    [currencyCode, locale, t],
   )
 
   const mapShippingMethod = React.useCallback(

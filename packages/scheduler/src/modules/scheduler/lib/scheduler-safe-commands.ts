@@ -11,6 +11,27 @@ export type SchedulerCommandRbacService = {
   ) => Promise<boolean>
 }
 
+/**
+ * A scheduled command run was refused, and no retry can change that.
+ *
+ * Every rejection `assertSchedulerSafeCommandAuthorized` raises is a decision
+ * about the actor and the command, not a transient failure: the command is off
+ * the allowlist, there is no actor to authorize, the RBAC service is missing, or
+ * the actor lacks the required features. A `userHasAllFeatures` implementation
+ * whose store is down throws straight through instead, so callers can tell a
+ * refusal from an outage.
+ *
+ * Branch on this type, never on the message text: the wording is diagnostic and
+ * changes with the code — this release alone renamed `creator` to `actor` in two
+ * of the four — which is the fragility this type exists to remove.
+ */
+export class SchedulerCommandAuthorizationError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'SchedulerCommandAuthorizationError'
+  }
+}
+
 const schedulerSafeCommands = new Map<string, SchedulerSafeCommandDefinition>()
 
 function normalizeCommandId(commandId: unknown): string | null {
@@ -60,16 +81,16 @@ export async function assertSchedulerSafeCommandAuthorized(params: {
 }): Promise<SchedulerSafeCommandDefinition> {
   const command = getSchedulerSafeCommand(params.commandId)
   if (!command) {
-    throw new Error('Scheduled command is not allowed')
+    throw new SchedulerCommandAuthorizationError('Scheduled command is not allowed')
   }
 
   const actorUserId = normalizeCommandId(params.actorUserId)
   if (!actorUserId) {
-    throw new Error('Scheduled command requires an authenticated creator')
+    throw new SchedulerCommandAuthorizationError('Scheduled command requires an authenticated actor')
   }
 
   if (typeof params.rbacService.userHasAllFeatures !== 'function') {
-    throw new Error('Scheduled command authorization is unavailable')
+    throw new SchedulerCommandAuthorizationError('Scheduled command authorization is unavailable')
   }
 
   const authorized = await params.rbacService.userHasAllFeatures(actorUserId, command.requiredFeatures, {
@@ -77,7 +98,7 @@ export async function assertSchedulerSafeCommandAuthorized(params: {
     organizationId: params.organizationId ?? null,
   })
   if (!authorized) {
-    throw new Error('Scheduled command creator is not authorized')
+    throw new SchedulerCommandAuthorizationError('Scheduled command actor is not authorized')
   }
 
   return command

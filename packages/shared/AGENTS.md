@@ -253,6 +253,14 @@ MUST rules:
 - `message` is passed through verbatim and is never derived from an entity name — keep routing 404 copy through `translate(...)` so it stays translatable.
 - `assertFound` treats every falsy value as missing. Use it for entity/object lookups only, never to guard numbers or strings where `0`/`''` are valid results.
 
+### Query Parameter Parsing — MUST NOT rebuild the query object with `Object.fromEntries`
+
+```typescript
+import { buildQueryParams, readQueryParamList, toQueryValueList } from '@open-mercato/shared/lib/crud/query-params'
+```
+
+`Object.fromEntries(url.searchParams.entries())` keeps only the LAST value of a repeated key, so `?status=win&status=loose` silently becomes `'loose'` (#5548). `buildQueryParams(url.searchParams)` groups instead: a key seen once stays a string, a key seen twice or more becomes `string[]`. It never splits on commas, so `?ids=a,b` and free-text filters keep their literal value. Where a field's contract says a comma separates values, use `readQueryParamList(searchParams, key)` (or `toQueryValueList(raw)` on an already-parsed value) — they treat the repeated and comma forms as equivalent. MUST use these instead of a per-route `getAll` + split + trim copy.
+
 ### CRUD Multi-ID Filtering
 
 - Use `parseIdsParam()` and `mergeIdFilter()` from `@open-mercato/shared/lib/crud/ids` for factory-level `ids` query support.
@@ -288,10 +296,12 @@ MUST rules:
 - API-route override keys are `'METHOD /api/path'` (method case-insensitive, path leading slash optional). Trailing slashes are stripped.
 - Page-route override keys are `'/backend/path'` or `'/frontend/path'`.
 - `null` disables the matching method; `{ handler, metadata? }` replaces it. Disabling every method on an entry drops the entry.
-- The dispatcher SHOULD run from `bootstrap.ts` BEFORE any registry first-loads (`registerApiRouteManifests`, widget registries, notification registries, etc.) so the overrides take effect when the registry stores entries.
+- The dispatcher SHOULD run from `bootstrap.ts` BEFORE any registry first-loads (`registerApiRouteManifests`, widget registries, notification registries, etc.) so the overrides take effect when the registry stores entries. It MUST also run in the browser before `ClientBootstrap` re-registers the injection/dashboard/notification registries — pass `{ domains: ['widgets', 'notifications'] }` there so server-only appliers are not reported as unwired — otherwise the raw generated registries overwrite the filtered ones and a disabled widget returns on hydration (#5152).
+- `widgets.injection` keys accept EITHER identifier: the generated `entry.key` (`module:widget:file`) or the widget's own `entry.widgetId` (`module.injection.widget`). Both the entries registry and the injection tables resolve either spelling, so listing one is enough; listing both is accepted silently, and only genuinely conflicting values warn.
+- An `enabledModules` entry gated on a **server-only** env var (anything not `NEXT_PUBLIC_*`) MUST NOT carry `widgets` or `notifications` overrides. The browser re-evaluates `modules.ts` with those reads `undefined`, so the entry is absent there: the server dispatches the override and the client does not, and the widget returns on hydration with nothing logged. Declare such an override on an ungated entry, or gate it on a `NEXT_PUBLIC_` var. Outside production `ClientBootstrap` warns for every module id in `enabled-module-ids.generated` that the browser-evaluated list is missing.
 - Adding a new override domain MUST follow the umbrella spec: typed sub-shape + composer + runtime hook + tests + AGENTS.md/docs update + status-table tick.
 - `nav.groupOrder` **prepends** group ids ahead of the built-in ordering; ids it does not name keep their current position. It is a default, resolved beneath role and per-user sidebar preferences, and an absent override MUST leave ordering byte-identical.
-- Nav ordering state lives on `globalThis` because its reader is `@open-mercato/core` while its writer is app bootstrap; a module-local variable would be invisible across duplicated module instances in standalone builds.
+- Nav ordering state lives on `globalThis` because its reader is `@open-mercato/core` while its writer is app bootstrap; a module-local variable would be invisible across duplicated module instances in standalone builds. The injection-widget `key`⇄`widgetId` alias index is on `globalThis` for the same reason — `@open-mercato/ui` writes it while filtering entries, `@open-mercato/core` reads it while filtering tables.
 
 ### Query Engine Extensibility (UMES)
 

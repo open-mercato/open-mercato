@@ -50,6 +50,8 @@ function isCompanySnapshot(value: unknown): value is CompanySnapshot {
 export default function CreateEudrPlotPage() {
   const translate = useT()
   const router = useRouter()
+  const [geometryDraft, setGeometryDraft] = React.useState('')
+  const areaRequired = !isPolygonGeometry(geometryDraft)
 
   const fields = React.useMemo<CrudField[]>(() => [
     {
@@ -113,7 +115,10 @@ export default function CreateEudrPlotPage() {
         <GeometryInput
           id={id}
           value={typeof value === 'string' ? value : ''}
-          onChange={(nextValue) => setValue(nextValue)}
+          onChange={(nextValue) => {
+            setValue(nextValue)
+            setGeometryDraft(nextValue)
+          }}
           disabled={disabled}
           areaHa={typeof values?.areaHa === 'string' || typeof values?.areaHa === 'number' ? String(values.areaHa) : ''}
         />
@@ -124,6 +129,7 @@ export default function CreateEudrPlotPage() {
       layout: 'half',
       label: translate('eudr.plots.form.areaHa'),
       type: 'custom',
+      required: areaRequired,
       description: translate('eudr.plots.form.areaHaHelp'),
       component: ({ id, value, setValue, values, disabled }) => {
         const polygonGeometry = isPolygonGeometry(values?.geometry)
@@ -158,7 +164,7 @@ export default function CreateEudrPlotPage() {
         />
       ),
     },
-  ], [translate])
+  ], [translate, areaRequired])
 
   const groups = React.useMemo<CrudFormGroup[]>(() => [
     {

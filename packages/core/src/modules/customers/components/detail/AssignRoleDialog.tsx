@@ -640,13 +640,18 @@ export function AssignRoleDialog({
           </div>
         </div>
 
-        <DialogFooter className="shrink-0 border-t border-border/70 px-6 py-4 sm:justify-between">
-          <p className="text-xs text-muted-foreground">
-            {t(
-              'customers.roles.dialog.footerNote',
-              'One person per role · can be changed at any time',
-            )}
-          </p>
+        <DialogFooter
+          bordered={false}
+          className="shrink-0 border-t border-border/70 px-6 py-4"
+          leading={
+            <p className="text-xs text-muted-foreground sm:max-w-2xs">
+              {t(
+                'customers.roles.dialog.footerNote',
+                'One person per role · can be changed at any time',
+              )}
+            </p>
+          }
+        >
           <div className="flex items-center gap-2">
             <Button type="button" variant="outline" onClick={onClose}>
               {t('customers.roles.cancelAdd', 'Cancel')}

@@ -1,7 +1,6 @@
 'use client'
 
 import * as React from 'react'
-import { useParams } from 'next/navigation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
@@ -53,10 +52,9 @@ const CHANNELS_LIST_HREF = '/backend/communication_channels/channels'
  * from a tab opened before someone else touched the channel surfaces the shared
  * conflict bar instead of overwriting them.
  */
-export default function DiscordAiAutoReplyPage() {
+export default function DiscordAiAutoReplyPage({ params }: { params?: { id?: string } }) {
   const t = useT()
-  const params = useParams<{ id: string }>()
-  const channelId = (params?.id as string) ?? ''
+  const channelId = params?.id ?? ''
 
   const [settings, setSettings] = React.useState<AiAutoReplySettings | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
@@ -64,7 +62,11 @@ export default function DiscordAiAutoReplyPage() {
   const [notFound, setNotFound] = React.useState(false)
 
   const load = React.useCallback(async () => {
-    if (!channelId) return
+    if (!channelId) {
+      setIsLoading(false)
+      setErrorMessage(t('channel_discord.aiAutoReply.errors.missingChannelId', 'No channel selected.'))
+      return
+    }
     setIsLoading(true)
     setErrorMessage(null)
     setNotFound(false)
