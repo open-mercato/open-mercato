@@ -42,12 +42,16 @@ function recordEnricherDuration(
   elapsedMs: number,
 ): void {
   logEnricherTiming(enricherId, moduleId, targetEntity, elapsedMs)
-  getTelemetryRuntime()?.recordHistogram?.(
-    ENRICHER_DURATION_METRIC,
-    elapsedMs / 1000,
-    { 'enricher.id': enricherId },
-    's',
-  )
+  try {
+    getTelemetryRuntime()?.recordHistogram?.(
+      ENRICHER_DURATION_METRIC,
+      elapsedMs / 1000,
+      { 'enricher.id': enricherId },
+      's',
+    )
+  } catch {
+    return
+  }
 }
 
 function logSlowEnricher(enricherId: string, elapsedMs: number, finishedAt: number): void {

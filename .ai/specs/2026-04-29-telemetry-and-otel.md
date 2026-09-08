@@ -350,6 +350,7 @@ Built-in metrics — prefer **OpenTelemetry semantic-convention** instruments wh
 | `om.queue.jobs` / `om.queue.duration` | counter / histogram | queue, status | partial — RED is also derivable by the backend from queue spans |
 | `om.queue.depth` | gauge | queue | needs a core queue hook |
 | `om.event.subscribers.duration` | histogram | event_id | |
+| `om.enricher.duration` | histogram (`s`) | `enricher.id` | response-enricher execution time, list and detail paths |
 | `om.db.pool.in_use` / `om.db.pool.idle` | gauge | — | needs a core ORM hook |
 | `om.cache.hits` / `om.cache.misses` | counter | layer, namespace | needs a core cache hook |
 

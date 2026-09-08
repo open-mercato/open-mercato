@@ -187,4 +187,41 @@ describe('enricher performance reporting', () => {
       's',
     )
   })
+
+  it('preserves successful critical enrichment when histogram recording fails', async () => {
+    const entry = makeEntry('test.metric-failure')
+    entry.enricher.critical = true
+    entry.enricher.enrichMany = async (records) =>
+      records.map((record) => ({ ...record, enriched: true }))
+    entry.enricher.enrichOne = async (record) => ({ ...record, enriched: true })
+    const recordHistogram = jest.fn(() => {
+      throw new Error('[internal] Telemetry provider failed')
+    })
+    registerTelemetryRuntime(makeRuntime(recordHistogram))
+    mockNow([0, 25, 1_000, 1_010])
+
+    const listResult = await applyResponseEnrichers(
+      [{ id: 'person-1' }],
+      'customers.person',
+      context,
+      [entry],
+    )
+    const recordResult = await applyResponseEnricherToRecord(
+      { id: 'person-1' },
+      'customers.person',
+      context,
+      [entry],
+    )
+
+    expect(listResult).toEqual({
+      items: [{ id: 'person-1', enriched: true }],
+      _meta: { enrichedBy: ['test.metric-failure'] },
+    })
+    expect(recordResult).toEqual({
+      record: { id: 'person-1', enriched: true },
+      _meta: { enrichedBy: ['test.metric-failure'] },
+    })
+    expect(recordHistogram).toHaveBeenCalledTimes(2)
+    expect(loggerWarn).not.toHaveBeenCalled()
+  })
 })
