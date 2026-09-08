@@ -55,6 +55,18 @@ const PL_DICT = {
 // formatScheduledDate at all.
 const FIXED_NOW = new Date(2026, 3, 10, 9, 0, 0)
 
+// The leaf cells rendering the generic `Day, D Mon · HH:MM` form. Matching on the
+// separator rather than on locale-formatted day and month names keeps this
+// independent of whichever locale the runtime resolves `toLocaleDateString` to.
+function genericDateCells(): HTMLElement[] {
+  return screen.getAllByText(
+    (_content, element) =>
+      element?.tagName === 'SPAN' &&
+      element.children.length === 0 &&
+      (element.textContent ?? '').includes(' · '),
+  )
+}
+
 describe('PlannedActivitiesSection', () => {
   afterEach(() => {
     jest.useRealTimers()
@@ -153,6 +165,9 @@ describe('PlannedActivitiesSection', () => {
       { locale: 'pl', dict: PL_DICT },
     )
 
+    expect(screen.getByText('Later today')).toBeTruthy()
+    expect(screen.getByText('Day after')).toBeTruthy()
+    expect(genericDateCells()).toHaveLength(2)
     expect(screen.queryByText(/^Jutro /)).toBeNull()
     expect(screen.queryByText(/Tomorrow/)).toBeNull()
   })
