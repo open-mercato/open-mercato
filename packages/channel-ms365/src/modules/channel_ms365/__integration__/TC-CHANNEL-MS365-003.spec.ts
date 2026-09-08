@@ -1,17 +1,14 @@
 import { expect, test } from '@playwright/test'
-import { getAuthToken } from '@open-mercato/core/helpers/integration/authFixtures'
-import { apiRequest } from '@open-mercato/core/helpers/integration/api'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { createMs365Sandbox } from './fixtures'
 
-type JsonRecord = Record<string, unknown>
-
-const INTEGRATION_ID = 'channel_ms365'
 const BASE_URL = process.env.BASE_URL?.trim() || ''
 
 /**
  * TC-CHANNEL-MS365-003 — OAuth initiate builds an Entra authorize URL with PKCE.
  *
- * With the tenant client config saved, `POST /oauth/ms365/initiate` must
+ * Runs inside a dedicated organization/user sandbox (see `fixtures.ts`). With
+ * the sandbox's tenant client config saved, `POST /oauth/ms365/initiate` must
  * answer 200 with an `authorizeUrl` on the configured Entra authority, carry
  * the hub-minted `state`, the S256 PKCE challenge, `select_account`, and every
  * default scope, and set the HttpOnly state cookie. No live Microsoft call is
@@ -19,30 +16,17 @@ const BASE_URL = process.env.BASE_URL?.trim() || ''
  */
 test.describe('TC-CHANNEL-MS365-003: OAuth initiate with tenant config', () => {
   test('returns an Entra v2.0 authorize URL with PKCE and the default scopes', async ({ request }) => {
-    const token = await getAuthToken(request)
-
-    const initial = await apiRequest(request, 'GET', `/api/integrations/${INTEGRATION_ID}/credentials`, { token })
-    expect(initial.status()).toBe(200)
-    const initialBody = (await readJsonSafe(initial)) as JsonRecord
-    const previousCredentials =
-      initialBody.credentials && typeof initialBody.credentials === 'object' ? (initialBody.credentials as JsonRecord) : {}
-
+    const sandbox = await createMs365Sandbox(request, 'TC-MS365-003')
     try {
-      const save = await apiRequest(request, 'PUT', `/api/integrations/${INTEGRATION_ID}/credentials`, {
-        token,
-        data: {
-          credentials: {
-            clientId: 'tc-ms365-003-client-id',
-            clientSecret: 'tc-ms365-003-client-secret',
-            tenantId: '',
-            scopes: '',
-          },
-        },
+      await sandbox.saveClientCredentials({
+        clientId: 'tc-ms365-003-client-id',
+        clientSecret: 'tc-ms365-003-client-secret',
+        tenantId: '',
+        scopes: '',
       })
-      expect(save.status()).toBe(200)
 
       const response = await request.post(`${BASE_URL}/api/communication_channels/oauth/ms365/initiate`, {
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        headers: { Authorization: `Bearer ${sandbox.token}`, 'Content-Type': 'application/json' },
         data: { returnUrl: '/backend/profile/communication-channels', loginHint: 'alice@contoso.com' },
       })
       expect(response.status()).toBe(200)
@@ -68,10 +52,7 @@ test.describe('TC-CHANNEL-MS365-003: OAuth initiate with tenant config', () => {
       const setCookie = response.headers()['set-cookie'] ?? ''
       expect(setCookie).toContain('HttpOnly')
     } finally {
-      await apiRequest(request, 'PUT', `/api/integrations/${INTEGRATION_ID}/credentials`, {
-        token,
-        data: { credentials: previousCredentials },
-      })
+      await sandbox.dispose()
     }
   })
 })
