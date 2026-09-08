@@ -5,7 +5,7 @@ import type { DataTableExportConfig } from '../DataTable'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: jest.fn(), replace: jest.fn(), prefetch: jest.fn() }),
@@ -83,6 +83,36 @@ describe('DataTable export section titles', () => {
     try {
       expect(screen.getByText('Eksport 1')).toBeTruthy()
     } finally {
+      view.unmount()
+      queryClient.clear()
+    }
+  })
+
+  it('keeps the default download filename ASCII when the title is translated', async () => {
+    const anchorClicks: HTMLAnchorElement[] = []
+    const clickSpy = jest
+      .spyOn(HTMLAnchorElement.prototype, 'click')
+      .mockImplementation(function mockClick(this: HTMLAnchorElement) {
+        anchorClicks.push(this)
+      })
+    const originalCreateObjectURL = URL.createObjectURL
+    const originalRevokeObjectURL = URL.revokeObjectURL
+    URL.createObjectURL = jest.fn(() => 'blob:mock')
+    URL.revokeObjectURL = jest.fn()
+
+    const { view, queryClient } = renderExportMenu(
+      { 'ui.dataTable.export.fullTitle': '전체 데이터 내보내기' },
+      { full: { prepare: () => ({ prepared: { columns: [{ field: 'id', header: 'Id' }], rows: [{ id: '1' }] } }) } },
+    )
+    try {
+      expect(screen.getByText('전체 데이터 내보내기')).toBeTruthy()
+      fireEvent.click(screen.getByRole('button', { name: 'CSV' }))
+      await waitFor(() => expect(anchorClicks.length).toBe(1))
+      expect(anchorClicks[0].download).toBe('Full_data_export.csv')
+    } finally {
+      clickSpy.mockRestore()
+      URL.createObjectURL = originalCreateObjectURL
+      URL.revokeObjectURL = originalRevokeObjectURL
       view.unmount()
       queryClient.clear()
     }
