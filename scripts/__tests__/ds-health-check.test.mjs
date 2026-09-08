@@ -119,6 +119,32 @@ test('a run that found nothing reports "(no changes)" and no metric lines', () =
   }
 })
 
+test('the design-system docs describe the rolling report and embed no copy of the script', () => {
+  const docsDir = path.join(repoRoot, 'docs/design-system')
+  const docs = fs
+    .readdirSync(docsDir)
+    .filter((name) => name.endsWith('.md'))
+    .map((name) => ({ name, source: fs.readFileSync(path.join(docsDir, name), 'utf8') }))
+
+  for (const { name, source } of docs) {
+    assert.doesNotMatch(
+      source,
+      /ds-health-(?:YYYY|\d{4})-/,
+      `${name} documents a dated report filename. The health check writes only ${ROLLING_REPORT} (#5033, #5095).`,
+    )
+    assert.doesNotMatch(
+      source,
+      /ds-health-\*\.txt/,
+      `${name} selects the previous report through a ds-health-*.txt glob. That glob also matches the April 2026 baseline anchor, which sorts last (#5072, #5095).`,
+    )
+    assert.doesNotMatch(
+      source,
+      /^REPORT_FILE=/m,
+      `${name} embeds a copy of ds-health-check.sh. Link to .ai/scripts/ds-health-check.sh instead — a second copy drifts (#5095).`,
+    )
+  }
+})
+
 test('both copies of the health check share the same delta block', () => {
   const extractDelta = (file) => {
     const source = fs.readFileSync(file, 'utf8')

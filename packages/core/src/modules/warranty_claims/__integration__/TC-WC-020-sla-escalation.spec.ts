@@ -24,6 +24,7 @@ const APP_ROOT = process.env.OM_TEST_APP_ROOT?.trim()
   ? path.resolve(process.env.OM_TEST_APP_ROOT)
   : path.resolve(process.cwd(), 'apps/mercato')
 const QUEUE_BASE_DIR = path.resolve(APP_ROOT, '.mercato/queue')
+const SLA_SWEEP_QUEUE = 'warranty_claims.sla_sweep'
 
 if (!process.env.DATABASE_URL) {
   loadEnv({ path: path.resolve(APP_ROOT, '.env') })
@@ -188,7 +189,7 @@ function hasQueuedClaimEvent(jobs: readonly QueueEventJob[], event: string, clai
 }
 
 async function enqueueSlaSweep(payload: SlaSweepPayload): Promise<void> {
-  const queue = createQueue<SlaSweepPayload>('warranty_claims.sla_sweep', 'local', {
+  const queue = createQueue<SlaSweepPayload>(SLA_SWEEP_QUEUE, 'local', {
     baseDir: QUEUE_BASE_DIR,
     concurrency: 1,
   })
@@ -199,12 +200,43 @@ async function enqueueSlaSweep(payload: SlaSweepPayload): Promise<void> {
   }
 }
 
+// The local queue strategy increments `completedCount` in `state.json` only after a
+// job handler resolves, so a rising counter is durable proof the sweep ran to
+// completion — no matter which process ran it.
+async function readSweepCompletedCount(): Promise<number> {
+  const stateFile = path.join(QUEUE_BASE_DIR, SLA_SWEEP_QUEUE, 'state.json')
+  try {
+    const raw = await fs.readFile(stateFile, 'utf8')
+    const parsed = JSON.parse(raw) as { completedCount?: unknown }
+    return typeof parsed.completedCount === 'number' ? parsed.completedCount : 0
+  } catch (error) {
+    const code = error && typeof error === 'object' && 'code' in error ? String((error as { code?: unknown }).code) : ''
+    if (code === 'ENOENT') return 0
+    throw error
+  }
+}
+
 async function runSlaSweep(scope: SlaSweepPayload['scope']): Promise<QueueEventJob[]> {
   const before = await readQueuedEventJobs()
   const beforeIds = new Set(before.map((job) => job.id).filter((id): id is string => typeof id === 'string'))
+  const completedBefore = await readSweepCompletedCount()
   await enqueueSlaSweep({ scope })
-  const processed = await drainIntegrationQueue('warranty_claims.sla_sweep', { appRoot: APP_ROOT })
-  expect(processed, 'SLA sweep queue should process at least one job').toBeGreaterThan(0)
+  // The ephemeral harness defaults `AUTO_SPAWN_WORKERS` to true
+  // (packages/cli/src/lib/testing/integration.ts), so the app server runs its own
+  // `warranty_claims.sla_sweep` worker alongside this drain. When that worker wins
+  // the race it removes the job before the drain child reads the queue file, and
+  // the drain legitimately reports 0 processed even though the sweep already ran —
+  // which is how this spec failed while the sweep had done its work. Accept either
+  // proof: our own drain, or the queue's completed counter advancing.
+  const processed = await drainIntegrationQueue(SLA_SWEEP_QUEUE, { appRoot: APP_ROOT })
+  if (processed === 0) {
+    await expect
+      .poll(() => readSweepCompletedCount(), {
+        timeout: 30_000,
+        message: 'SLA sweep job should be completed by the drain or the app server worker',
+      })
+      .toBeGreaterThan(completedBefore)
+  }
   const after = await readQueuedEventJobs()
   return after.filter((job) => !job.id || !beforeIds.has(job.id))
 }

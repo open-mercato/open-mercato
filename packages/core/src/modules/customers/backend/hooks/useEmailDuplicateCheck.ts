@@ -40,16 +40,24 @@ export function useEmailDuplicateCheck(
     }
 
     const normalized = trimmed.toLowerCase()
+    const excludedId = typeof recordId === 'string' && recordId.trim().length ? recordId.trim() : null
     let cancelled = false
     const controller = new AbortController()
     const timer = window.setTimeout(async () => {
       setChecking(true)
       try {
-        const queryParam =
+        const params = [
           matchMode === 'prefix'
             ? `emailStartsWith=${encodeURIComponent(normalized)}`
-            : `email=${encodeURIComponent(normalized)}`
-        const call = await apiCall<{ items?: unknown[] }>(`/api/customers/people?${queryParam}&pageSize=5&page=1`, {
+            : `email=${encodeURIComponent(normalized)}`,
+          'pageSize=5',
+          'page=1',
+        ]
+        // The record being edited is never its own duplicate (#5534). Excluding it in the
+        // query — not only in the client-side scan below — also stops it from consuming one
+        // of the five returned slots and hiding a genuine duplicate.
+        if (excludedId) params.push(`excludeIds=${encodeURIComponent(excludedId)}`)
+        const call = await apiCall<{ items?: unknown[] }>(`/api/customers/people?${params.join('&')}`, {
           signal: controller.signal,
         })
         if (!call.ok) {
@@ -72,7 +80,7 @@ export function useEmailDuplicateCheck(
             })
             .filter((entry: EmailDuplicateMatch | null): entry is EmailDuplicateMatch => !!entry)
             .find((entry: EmailDuplicateMatch) => {
-              if (entry.id === recordId) return false
+              if (excludedId && entry.id === excludedId) return false
               return matchMode === 'prefix'
                 ? entry.email.startsWith(normalized)
                 : entry.email === normalized

@@ -8,6 +8,7 @@ import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { Input } from '@open-mercato/ui/primitives/input'
+import { PasswordInput } from '@open-mercato/ui/primitives/password-input'
 import {
   Select,
   SelectContent,
@@ -23,6 +24,11 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { CredentialFieldType, IntegrationCredentialField } from '@open-mercato/shared/modules/integrations/types'
 import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
+import {
+  buildCredentialEditValues,
+  buildCredentialSavePayload,
+  type SecretFieldsConfigured,
+} from '../../credential-secret-fields'
 
 type CredentialField = IntegrationCredentialField
 
@@ -88,6 +94,7 @@ export default function BundleConfigPage({ params }: BundleConfigPageProps) {
   const [error, setError] = React.useState<string | null>(null)
   const [isNotFound, setIsNotFound] = React.useState(false)
   const [credValues, setCredValues] = React.useState<Record<string, unknown>>({})
+  const [secretFieldsConfigured, setSecretFieldsConfigured] = React.useState<SecretFieldsConfigured>({})
   const [credentialsUpdatedAt, setCredentialsUpdatedAt] = React.useState<string | null>(null)
   const [isSavingCreds, setIsSavingCreds] = React.useState(false)
   const [togglingIds, setTogglingIds] = React.useState<Set<string>>(new Set())
@@ -134,13 +141,18 @@ export default function BundleConfigPage({ params }: BundleConfigPageProps) {
     }
     setDetail(call.result)
 
-    const credCall = await apiCall<{ credentials: Record<string, unknown>; updatedAt?: string | null }>(
+    const credCall = await apiCall<{
+      credentials: Record<string, unknown>
+      secretFieldsConfigured?: SecretFieldsConfigured
+      updatedAt?: string | null
+    }>(
       `/api/integrations/${encodeURIComponent(currentBundleId)}/credentials`,
       undefined,
       { fallback: null },
     )
     if (credCall.ok && credCall.result) {
       setCredentialsUpdatedAt(credCall.result.updatedAt ?? null)
+      setSecretFieldsConfigured(credCall.result.secretFieldsConfigured ?? {})
     }
     if (credCall.ok && credCall.result?.credentials) {
       const next = { ...credCall.result.credentials }
@@ -151,7 +163,10 @@ export default function BundleConfigPage({ params }: BundleConfigPageProps) {
           next.authMode = hasKeys ? 'access_keys' : 'ambient'
         }
       }
-      setCredValues(next)
+      setCredValues(buildCredentialEditValues(
+        next,
+        credCall.result.secretFieldsConfigured ?? {},
+      ))
     }
     setIsLoading(false)
   }, [resolveCurrentBundleId, t])
@@ -163,8 +178,13 @@ export default function BundleConfigPage({ params }: BundleConfigPageProps) {
     if (!currentBundleId) return
     setIsSavingCreds(true)
     try {
+      const savePayload = buildCredentialSavePayload(
+        credValues,
+        detail?.bundle?.credentials?.fields ?? [],
+        secretFieldsConfigured,
+      )
       const call = await runMutation({
-        mutationPayload: { bundleId: currentBundleId, credentials: credValues },
+        mutationPayload: { bundleId: currentBundleId, ...savePayload },
         context: {
           formId: mutationContextId,
           operation: 'update',
@@ -179,7 +199,7 @@ export default function BundleConfigPage({ params }: BundleConfigPageProps) {
           () => apiCall(`/api/integrations/${encodeURIComponent(currentBundleId)}/credentials`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ credentials: credValues }),
+            body: JSON.stringify(savePayload),
           }, { fallback: null }),
         ),
       })
@@ -194,7 +214,7 @@ export default function BundleConfigPage({ params }: BundleConfigPageProps) {
     } finally {
       setIsSavingCreds(false)
     }
-  }, [resolveCurrentBundleId, runMutation, mutationContextId, retryLastMutation, credValues, credentialsUpdatedAt, load, t])
+  }, [resolveCurrentBundleId, runMutation, mutationContextId, retryLastMutation, credValues, credentialsUpdatedAt, detail?.bundle?.credentials?.fields, load, secretFieldsConfigured, t])
 
   const handleToggle = React.useCallback(async (integrationId: string, enabled: boolean, updatedAt?: string | null) => {
     setTogglingIds((prev) => new Set(prev).add(integrationId))
@@ -295,15 +315,15 @@ export default function BundleConfigPage({ params }: BundleConfigPageProps) {
             <CardContent className="space-y-4">
               {credFields.filter(isFieldVisible).map((field) => (
                 <div key={field.key} className="space-y-1.5">
-                  <label className="text-sm font-medium">
-                    {field.label}{field.required && <span className="text-red-500 ml-0.5">*</span>}
+                  <label htmlFor={`bundle-credential-${field.key}`} className="text-sm font-medium">
+                    {field.label}{field.required && <span className="ml-0.5 text-destructive">*</span>}
                   </label>
                   {field.type === 'select' && field.options ? (
                     <Select
                       value={(credValues[field.key] as string) || undefined}
                       onValueChange={(value) => setCredValues((prev) => ({ ...prev, [field.key]: value ?? '' }))}
                     >
-                      <SelectTrigger>
+                      <SelectTrigger id={`bundle-credential-${field.key}`}>
                         <SelectValue placeholder="—" />
                       </SelectTrigger>
                       <SelectContent>
@@ -314,17 +334,32 @@ export default function BundleConfigPage({ params }: BundleConfigPageProps) {
                     </Select>
                   ) : field.type === 'boolean' ? (
                     <Switch
+                      id={`bundle-credential-${field.key}`}
                       checked={Boolean(credValues[field.key])}
                       onCheckedChange={(checked) => setCredValues((prev) => ({ ...prev, [field.key]: checked }))}
                     />
+                  ) : field.type === 'secret' ? (
+                    <PasswordInput
+                      id={`bundle-credential-${field.key}`}
+                      placeholder={field.placeholder}
+                      value={(credValues[field.key] as string) ?? ''}
+                      onChange={(event) => setCredValues((prev) => ({ ...prev, [field.key]: event.target.value }))}
+                      autoComplete="new-password"
+                    />
                   ) : (
                     <Input
-                      type={field.type === 'secret' ? 'password' : 'text'}
+                      id={`bundle-credential-${field.key}`}
+                      type="text"
                       placeholder={field.placeholder}
                       value={(credValues[field.key] as string) ?? ''}
                       onChange={(e) => setCredValues((prev) => ({ ...prev, [field.key]: e.target.value }))}
                     />
                   )}
+                  {field.type === 'secret' && secretFieldsConfigured[field.key] ? (
+                    <p className="text-xs text-muted-foreground">
+                      {t('integrations.detail.credentials.secretConfigured')}
+                    </p>
+                  ) : null}
                 </div>
               ))}
               <Button type="button" onClick={() => void handleSaveCredentials()} disabled={isSavingCreds}>

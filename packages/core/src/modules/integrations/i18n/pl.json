@@ -15,6 +15,7 @@
   "integrations.detail.credentials.save": "Zapisz dane",
   "integrations.detail.credentials.saveError": "Nie udało się zapisać danych",
   "integrations.detail.credentials.saved": "Dane zapisane",
+  "integrations.detail.credentials.secretConfigured": "Skonfigurowano. Wpisz nową wartość, aby ją zastąpić.",
   "integrations.detail.credentials.validation.boolean": "Select a valid value.",
   "integrations.detail.credentials.validation.option": "Select one of the available options.",
   "integrations.detail.credentials.validation.required": "{field} is required.",

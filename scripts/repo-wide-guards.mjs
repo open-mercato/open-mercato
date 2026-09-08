@@ -61,6 +61,10 @@ export const REPO_WIDE_GUARDS = [
         scans: 'packages/core and packages/onboarding frontends — hardcoded status colors (#3165)',
       },
       {
+        path: 'src/modules/auth/__tests__/acl-feature-catalog.i18n.test.ts',
+        scans: 'every packages/* and apps/mercato module acl.ts — localized ACL feature catalog coverage and English title drift (#5500)',
+      },
+      {
         path: 'src/__tests__/feature-policy-authorization-coverage.test.ts',
         scans: 'server runtime roots across packages and app templates — low-level ACL authorization bypasses',
       },
@@ -79,6 +83,14 @@ export const REPO_WIDE_GUARDS = [
       {
         path: 'src/__tests__/optimistic-lock-command-coverage.test.ts',
         scans: 'every packages/*/src/modules tree — optimistic-lock command coverage',
+      },
+      {
+        path: 'src/__tests__/backend-page-route-params.test.ts',
+        scans: 'every packages/*/src/modules and apps/*/src/modules backend page — route ids read from the `params` prop rather than `useParams()`, which the /backend/[...slug] catch-all never populates with an id (#5600)',
+      },
+      {
+        path: 'src/__tests__/notification-channel-eligibility.test.ts',
+        scans: 'every module-root notification catalogue under packages and apps — explicit delivery-channel eligibility (#5495)',
       },
       {
         path: 'src/modules/__tests__/crud-indexer-config.test.ts',

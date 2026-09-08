@@ -46,10 +46,11 @@ import {
   renderDictionaryColor,
 } from "@open-mercato/core/modules/dictionaries/components/dictionaryAppearance";
 import { E } from "#generated/entities.ids.generated";
-import { useT } from "@open-mercato/shared/lib/i18n/context";
+import { useT, useLocale } from "@open-mercato/shared/lib/i18n/context";
 import { useOrganizationScopeDetail } from "@open-mercato/shared/lib/frontend/useOrganizationScope";
 import { formatMoney, normalizeNumber } from "./lineItemUtils";
 import type { SalesLineRecord } from "./lineItemTypes";
+import { prepareShippedLineUpdatePayload } from "./lineItemShipmentLock";
 import {
   normalizeCustomFieldSubmitValue,
   extractCustomFieldValues,
@@ -279,6 +280,13 @@ type SalesLineDialogProps = {
   tenantId: string | null;
   initialLine?: SalesLineRecord | null;
   shippedQuantity?: number;
+  /**
+   * Whether `shippedQuantity` reflects a fully resolved shipment state. Defaults
+   * to `true` so callers that genuinely know the value keep working; pass `false`
+   * while the host is still loading shipments or after the load failed, and the
+   * dialog locks pricing instead of assuming the line is unshipped.
+   */
+  shippedQuantityResolved?: boolean;
   onOpenChange: (open: boolean) => void;
   onSaved?: () => Promise<void> | void;
   onDraftSaved?: (payload: Record<string, unknown>, lineId: string | null) => Promise<void> | void;
@@ -475,11 +483,13 @@ export function LineItemDialog({
   tenantId,
   initialLine,
   shippedQuantity = 0,
+  shippedQuantityResolved = true,
   onOpenChange,
   onSaved,
   onDraftSaved,
 }: SalesLineDialogProps) {
   const t = useT();
+  const locale = useLocale();
   const scope = useOrganizationScopeDetail();
   const resolvedOrganizationId = organizationId ?? scope.organizationId ?? null;
   const resolvedTenantId = tenantId ?? scope.tenantId ?? null;
@@ -513,6 +523,23 @@ export function LineItemDialog({
     () => (kind === "order" ? "sales/order-lines" : "sales/quote-lines"),
     [kind],
   );
+  // A line the caller has not resolved shipment state for is treated as shipped:
+  // the server rejects pricing changes on shipped lines, so guessing "unshipped"
+  // from a pending or failed shipments load hands the user an edit that cannot
+  // be saved. A brand-new line has no shipments by construction.
+  const hasExistingLine = Boolean(initialLine);
+  const shipmentStateUnknown = kind === "order" && hasExistingLine && !shippedQuantityResolved;
+  const isShippedOrderLine =
+    kind === "order" &&
+    hasExistingLine &&
+    (shipmentStateUnknown || shippedQuantity > 0);
+  // While the shipments read is unresolved the shipped quantity is unknown, so the
+  // only safe floor for a quantity edit is the quantity already stored on the line:
+  // whatever turns out to be shipped can never exceed it. Raising stays allowed,
+  // exactly as it is once the state resolves.
+  const storedQuantity = Number(initialLine?.quantity ?? 0);
+  const safeStoredQuantity = Number.isFinite(storedQuantity) ? storedQuantity : 0;
+  const quantityFloor = shipmentStateUnknown ? safeStoredQuantity : shippedQuantity;
   const documentKey = kind === "order" ? "orderId" : "quoteId";
   const customFieldEntityId =
     kind === "order" ? E.sales.sales_order_line : E.sales.sales_quote_line;
@@ -1018,10 +1045,10 @@ export function LineItemDialog({
               displayMode === "including-tax" &&
               amountGross !== null &&
               currency
-                ? formatMoney(amountGross, currency)
+                ? formatMoney(amountGross, currency, locale)
                 : null,
               displayMode === "excluding-tax" && amountNet !== null && currency
-                ? formatMoney(amountNet, currency)
+                ? formatMoney(amountNet, currency, locale)
                 : null,
               displayMode
                 ? displayMode === "including-tax"
@@ -1037,9 +1064,9 @@ export function LineItemDialog({
               labelParts.length > 0
                 ? labelParts.join(" • ")
                 : amountGross !== null && currency
-                  ? formatMoney(amountGross, currency)
+                  ? formatMoney(amountGross, currency, locale)
                   : amountNet !== null && currency
-                    ? formatMoney(amountNet, currency)
+                    ? formatMoney(amountNet, currency, locale)
                     : id;
             return {
               id,
@@ -1330,12 +1357,17 @@ export function LineItemDialog({
           },
         );
       }
-      if (shippedQuantity > 0 && qtyNumber < shippedQuantity) {
-        const message = t(
-          "sales.documents.items.errorQuantityBelowShipped",
-          "You cannot lower the quantity below the {{shipped}} already shipped.",
-          { shipped: shippedQuantity },
-        );
+      if (quantityFloor > 0 && qtyNumber < quantityFloor) {
+        const message = shipmentStateUnknown
+          ? t(
+              "sales.documents.items.errorQuantityShipmentsUnknown",
+              "The quantity cannot be lowered until this order's shipments have been read. Reopen the order to try again.",
+            )
+          : t(
+              "sales.documents.items.errorQuantityBelowShipped",
+              "You cannot lower the quantity below the {{shipped}} already shipped.",
+              { shipped: shippedQuantity },
+            );
         throw createCrudFormError(message, { quantity: message });
       }
       const resolvedQuantityUnit = (() => {
@@ -1509,9 +1541,20 @@ export function LineItemDialog({
       }
       if (resolvedName) payload.name = resolvedName;
 
+      const submittedPayload = prepareShippedLineUpdatePayload(
+        payload,
+        isShippedOrderLine && initialLine
+          ? {
+              quantity: initialLine.quantity,
+              totalNetAmount: initialLine.totalNet,
+              totalGrossAmount: initialLine.totalGross,
+            }
+          : null,
+      );
+
       try {
         if (onDraftSaved) {
-          await onDraftSaved(payload, editingId);
+          await onDraftSaved(submittedPayload, editingId);
           closeDialog();
           return;
         }
@@ -1521,7 +1564,9 @@ export function LineItemDialog({
           () =>
             action(
               resourcePath,
-              editingId ? { id: editingId, ...payload } : payload,
+              editingId
+                ? { id: editingId, ...submittedPayload }
+                : submittedPayload,
               {
                 errorMessage: t(
                   "sales.documents.items.errorSave",
@@ -1552,10 +1597,15 @@ export function LineItemDialog({
       documentKey,
       documentUpdatedAt,
       editingId,
+      initialLine,
+      isShippedOrderLine,
       onDraftSaved,
       priceOptions,
       productOption,
+      quantityFloor,
       resourcePath,
+      shipmentStateUnknown,
+      shippedQuantity,
       t,
       variantOption,
       onSaved,
@@ -1613,6 +1663,7 @@ export function LineItemDialog({
                   type="button"
                   size="sm"
                   variant={mode === "catalog" ? "default" : "ghost"}
+                  disabled={isShippedOrderLine}
                   onClick={() => switchMode("catalog")}
                 >
                   {t("sales.documents.items.lineMode.catalog", "Catalog item")}
@@ -1621,6 +1672,7 @@ export function LineItemDialog({
                   type="button"
                   size="sm"
                   variant={mode === "custom" ? "default" : "ghost"}
+                  disabled={isShippedOrderLine}
                   onClick={() => switchMode("custom")}
                 >
                   {t("sales.documents.items.lineMode.custom", "Custom line")}
@@ -1801,6 +1853,7 @@ export function LineItemDialog({
                       },
                     )
                   }
+                  disabled={isShippedOrderLine}
                 />
               ),
             } satisfies CrudField,
@@ -1960,7 +2013,7 @@ export function LineItemDialog({
                         },
                       )
                     }
-                    disabled={!productId}
+                    disabled={isShippedOrderLine || !productId}
                   />
                 );
               },
@@ -1984,6 +2037,51 @@ export function LineItemDialog({
                   typeof values?.variantId === "string"
                     ? values.variantId
                     : null;
+                const selectedPriceId =
+                  typeof value === "string" ? value : null;
+                const selectedPrice = selectedPriceId
+                  ? (priceOptions.find(
+                      (entry) => entry.id === selectedPriceId,
+                    ) ?? null)
+                  : null;
+                if (isShippedOrderLine) {
+                  const lockedAmount = normalizeNumber(
+                    values?.unitPrice,
+                    Number.NaN,
+                  );
+                  const lockedCurrency =
+                    selectedPrice?.currencyCode ??
+                    (typeof values?.currencyCode === "string"
+                      ? values.currencyCode
+                      : currencyCode) ??
+                    undefined;
+                  const lockedModeLabel =
+                    values?.priceMode === "net"
+                      ? t("sales.documents.items.priceNet", "Net")
+                      : t("sales.documents.items.priceGross", "Gross");
+                  const lockedAmountLabel = Number.isFinite(lockedAmount)
+                    ? `${formatMoney(lockedAmount, lockedCurrency, locale)} — ${lockedModeLabel}`
+                    : lockedModeLabel;
+                  const lockedPriceDetail =
+                    selectedPrice?.priceKindTitle ??
+                    selectedPrice?.priceKindCode ??
+                    null;
+                  return (
+                    <div className="space-y-2">
+                      <Input
+                        readOnly
+                        disabled
+                        value={lockedAmountLabel}
+                        aria-label={t("sales.documents.items.price", "Price")}
+                      />
+                      {lockedPriceDetail ? (
+                        <p className="text-xs text-muted-foreground">
+                          {lockedPriceDetail}
+                        </p>
+                      ) : null}
+                    </div>
+                  );
+                }
                 return (
                   <LookupSelect
                     key={
@@ -1991,7 +2089,7 @@ export function LineItemDialog({
                         ? `${productId}-${variantId ?? "no-variant"}`
                         : "price"
                     }
-                    value={typeof value === "string" ? value : null}
+                    value={selectedPriceId}
                     onChange={(next) => {
                       setValue(next ?? null);
                       const selected = next
@@ -2133,9 +2231,11 @@ export function LineItemDialog({
                   }
                   onChange={(event) => setValue(event.target.value)}
                   placeholder="0.00"
+                  disabled={isShippedOrderLine}
                 />
                 <Select
                   value={mode}
+                  disabled={isShippedOrderLine}
                   onValueChange={(value) => {
                     const nextMode = value === "net" ? "net" : "gross";
                     setFormValue?.("priceMode", nextMode);
@@ -2161,11 +2261,11 @@ export function LineItemDialog({
                       "sales.documents.items.priceBasisTemplate",
                       "Catalog price basis: {{baseAmount}} / {{baseUnit}}. Converted for {{unit}}: {{baseAmount}} × {{factor}} = {{convertedAmount}}.",
                       {
-                        baseAmount: formatMoney(selectedBaseAmount as number, selectedCurrency),
+                        baseAmount: formatMoney(selectedBaseAmount as number, selectedCurrency, locale),
                         baseUnit: baseUnitCode,
                         unit: quantityUnitCode,
                         factor: unitFactor,
-                        convertedAmount: formatMoney(convertedAmount, selectedCurrency),
+                        convertedAmount: formatMoney(convertedAmount, selectedCurrency, locale),
                       },
                     )}
                   </p>
@@ -2222,7 +2322,7 @@ export function LineItemDialog({
               <Select
                 value={resolvedValue || undefined}
                 onValueChange={(value) => handleChange({ target: { value } } as React.ChangeEvent<HTMLSelectElement>)}
-                disabled={!taxRates.length}
+                disabled={isShippedOrderLine || !taxRates.length}
               >
                 <SelectTrigger>
                   <SelectValue
@@ -2292,6 +2392,7 @@ export function LineItemDialog({
               <Input
                 value={typeof value === "string" ? value : ""}
                 onChange={(event) => setValue(event.target.value || null)}
+                disabled={isShippedOrderLine}
                 placeholder={t(
                   "sales.documents.items.quantityUnitPlaceholder",
                   "e.g. pc",
@@ -2349,7 +2450,7 @@ export function LineItemDialog({
                   });
                 }
               }}
-              disabled={!productId}
+              disabled={isShippedOrderLine || !productId}
             >
               <SelectTrigger>
                 <SelectValue
@@ -2394,7 +2495,7 @@ export function LineItemDialog({
                 typeof values?.quantityUnit === "string"
                   ? values.quantityUnit
                   : null;
-              if (productId) {
+              if (productId && !isShippedOrderLine) {
                 const selectedPriceId =
                   typeof values?.priceId === "string" ? values.priceId : null;
                 const selectedPriceKindId =
@@ -2549,6 +2650,7 @@ export function LineItemDialog({
     resolveTaxSelection,
     selectPriceAfterRefresh,
     hasTaxMetadata,
+    isShippedOrderLine,
   ]);
 
   const groups = React.useMemo<CrudFormGroup[]>(() => {
@@ -2914,6 +3016,21 @@ export function LineItemDialog({
               : t("sales.documents.items.addTitle", "Add line")}
           </DialogTitle>
         </DialogHeader>
+        {isShippedOrderLine ? (
+          <Alert status="information" style="lighter">
+            <AlertDescription>
+              {shipmentStateUnknown
+                ? t(
+                    "sales.documents.items.shippedLineLockPending",
+                    "Pricing is locked until this order's shipments have been read. Reopen the order to try again — you can still edit the name and raise the quantity.",
+                  )
+                : t(
+                    "sales.documents.items.shippedLineLocked",
+                    "Pricing is locked on this line because it already has shipped items. You can still edit the name and quantity.",
+                  )}
+            </AlertDescription>
+          </Alert>
+        ) : null}
         <CrudForm<LineFormState>
           key={formResetKey}
           embedded

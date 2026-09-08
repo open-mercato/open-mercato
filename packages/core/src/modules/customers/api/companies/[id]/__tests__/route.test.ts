@@ -337,3 +337,97 @@ describe('GET /api/customers/companies/[id]?include=people', () => {
     )
   })
 })
+
+// #5114: without `include=people` the payload still reports `counts.people`, and that
+// number has to describe the same set the People tab lists — link rows plus profile-only
+// assignments — instead of the link rows alone.
+describe('GET /api/customers/companies/[id] — people count without include=people', () => {
+  beforeEach(() => {
+    jest.resetModules()
+    mockGetAuthFromRequest.mockReset()
+    mockResolveOrganizationScopeForRequest.mockReset()
+    mockResolveCustomerInteractionFeatureFlags.mockReset()
+    mockLoadCustomFieldValues.mockReset()
+    mockResolveCompanyCustomFieldRouting.mockReset()
+    mockMergeCompanyCustomFieldValues.mockReset()
+    mockFindWithDecryption.mockReset()
+    mockFindOneWithDecryption.mockReset()
+    mockEm.findOne.mockReset()
+    mockEm.find.mockReset()
+    mockEm.count.mockReset()
+    mockEm.count.mockResolvedValue(0)
+    mockContainer.resolve.mockClear()
+
+    mockGetAuthFromRequest.mockResolvedValue({
+      sub: 'user-1',
+      tenantId: 'tenant-1',
+      orgId: 'org-1',
+      isApiKey: false,
+    })
+    mockResolveOrganizationScopeForRequest.mockResolvedValue({
+      filterIds: ['org-1'],
+      selectedId: 'org-1',
+      tenantId: 'tenant-1',
+    })
+    mockResolveCustomerInteractionFeatureFlags.mockResolvedValue({ unified: false })
+    mockLoadCustomFieldValues.mockResolvedValue({})
+    mockResolveCompanyCustomFieldRouting.mockResolvedValue({})
+    mockMergeCompanyCustomFieldValues.mockReturnValue({})
+    mockFindWithDecryption.mockResolvedValue([])
+  })
+
+  it('counts the union of link rows and profile-only assignments', async () => {
+    const createdAt = new Date('2026-04-10T08:00:00.000Z')
+
+    mockFindOneWithDecryption
+      .mockResolvedValueOnce({
+        id: '2408107d-0000-4000-8000-000000000002',
+        kind: 'company',
+        deletedAt: null,
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+        companyProfile: null,
+        displayName: 'Brightside Solar',
+        description: null,
+        ownerUserId: null,
+        primaryEmail: null,
+        primaryPhone: null,
+        status: null,
+        lifecycleStage: null,
+        source: null,
+        nextInteractionAt: null,
+        nextInteractionName: null,
+        nextInteractionRefId: null,
+        nextInteractionIcon: null,
+        nextInteractionColor: null,
+        isActive: true,
+        createdAt,
+        updatedAt: createdAt,
+      })
+      .mockResolvedValueOnce(null)
+
+    // The count path reads through the EM directly: it projects the foreign keys only,
+    // so no person row is hydrated or decrypted just to produce a number.
+    mockEm.find.mockImplementation(async (entity: { name?: string }) => {
+      if (entity?.name === 'CustomerPersonCompanyLink') {
+        return [{ person: { id: 'person-linked' }, deletedAt: null }, { person: { id: 'person-both' }, deletedAt: null }]
+      }
+      if (entity?.name === 'CustomerPersonProfile') {
+        return [{ entity: { id: 'person-both' } }, { entity: { id: 'person-profile-only' } }]
+      }
+      return []
+    })
+
+    const { GET } = await import('../route')
+    const response = await GET(
+      new Request('http://localhost/api/customers/companies/2408107d-0000-4000-8000-000000000002'),
+      { params: { id: '2408107d-0000-4000-8000-000000000002' } },
+    )
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.counts.people).toBe(3)
+    // The people list itself stays empty without `include=people` — only the count is served.
+    expect(body.people).toEqual([])
+  })
+})

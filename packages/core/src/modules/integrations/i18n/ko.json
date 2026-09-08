@@ -15,6 +15,7 @@
   "integrations.detail.credentials.save": "자격 증명 저장",
   "integrations.detail.credentials.saveError": "자격 증명 저장에 실패했습니다",
   "integrations.detail.credentials.saved": "자격 증명이 저장되었습니다",
+  "integrations.detail.credentials.secretConfigured": "구성됨. 바꾸려면 새 값을 입력하세요.",
   "integrations.detail.credentials.validation.boolean": "유효한 값을 선택하세요.",
   "integrations.detail.credentials.validation.option": "사용 가능한 옵션 중 하나를 선택하세요.",
   "integrations.detail.credentials.validation.required": "{field}은(는) 필수입니다.",

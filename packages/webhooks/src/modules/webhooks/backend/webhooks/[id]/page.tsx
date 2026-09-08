@@ -1,7 +1,7 @@
 "use client"
 import * as React from 'react'
 import { extensionPoints } from '@open-mercato/webhooks/modules/webhooks/extension-points'
-import { useParams, usePathname, useRouter } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 import { RotateCw } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
@@ -77,6 +77,7 @@ type DeliveryResponse = {
   page: number
   pageSize: number
   totalPages: number
+  totalIsCapped?: boolean
 }
 
 type DeliveryDetail = DeliveryRow & {
@@ -96,12 +97,10 @@ const statusVariantMap: Record<string, 'default' | 'secondary' | 'destructive' |
 }
 const DELIVERY_AUTO_REFRESH_INTERVAL_MS = 30000
 
-export default function WebhookDetailPage() {
-  const params = useParams()
-  const pathname = usePathname()
+export default function WebhookDetailPage({ params }: { params?: { id?: string } }) {
   const router = useRouter()
   const t = useT()
-  const webhookId = React.useMemo(() => resolveWebhookId(params?.id, pathname), [params?.id, pathname])
+  const webhookId = params?.id ?? null
 
   const [webhook, setWebhook] = React.useState<Webhook | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
@@ -113,6 +112,7 @@ export default function WebhookDetailPage() {
   const [deliveryPage, setDeliveryPage] = React.useState(1)
   const [deliveryTotal, setDeliveryTotal] = React.useState(0)
   const [deliveryTotalPages, setDeliveryTotalPages] = React.useState(1)
+  const [deliveryTotalIsCapped, setDeliveryTotalIsCapped] = React.useState(false)
   const [deliveriesLoading, setDeliveriesLoading] = React.useState(false)
   const [isRefreshingDeliveries, setIsRefreshingDeliveries] = React.useState(false)
   const [testDelivery, setTestDelivery] = React.useState<DeliveryDetail | null>(null)
@@ -188,6 +188,7 @@ export default function WebhookDetailPage() {
         setDeliveries(call.result.items)
         setDeliveryTotal(call.result.total)
         setDeliveryTotalPages(call.result.totalPages)
+        setDeliveryTotalIsCapped(call.result.totalIsCapped === true)
       }
     } finally {
       if (!silent) {
@@ -686,6 +687,7 @@ export default function WebhookDetailPage() {
               pageSize: 20,
               total: deliveryTotal,
               totalPages: deliveryTotalPages,
+              totalIsCapped: deliveryTotalIsCapped,
               onPageChange: setDeliveryPage,
             }}
             isLoading={deliveriesLoading || isRefreshingDeliveries}
@@ -729,22 +731,3 @@ export default function WebhookDetailPage() {
   )
 }
 
-function resolveWebhookId(paramValue: string | string[] | undefined, pathname: string | null): string | null {
-  if (typeof paramValue === 'string' && paramValue.trim().length > 0) {
-    return paramValue
-  }
-
-  if (Array.isArray(paramValue)) {
-    const first = paramValue.find((value) => typeof value === 'string' && value.trim().length > 0)
-    if (first) return first
-  }
-
-  if (typeof pathname === 'string') {
-    const match = pathname.match(/\/backend\/webhooks\/([^/?#]+)/)
-    if (match?.[1]) {
-      return decodeURIComponent(match[1])
-    }
-  }
-
-  return null
-}

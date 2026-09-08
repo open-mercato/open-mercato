@@ -123,7 +123,10 @@ index stores hashes of the plaintext, so it keeps matching. Issue #2990.
   predicate in that case.
 - `matched: true` with `ids: []` is a real empty result.
 - Queries that go through the query engine get this routing automatically; raw
-  `em.find` / Kysely list routes must wire it themselves. When the fallback would run
+  `em.find` / Kysely list routes must wire it themselves. One carve-out: with
+  `OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS=true` (default false), a base-column
+  `like`/`ilike` on a **plaintext** column runs as exact SQL ILIKE instead of the token
+  rewrite — encrypted columns keep the token path either way. When the fallback would run
   `ILIKE` against an encrypted column, both query engines now log a warning
   (`lib/query/ciphertext-search-warning`) instead of degrading silently.
 - The `…WithDecryption` helpers log the same warning outside production when the `where`
@@ -249,6 +252,14 @@ MUST rules:
   - **Guard statement** (multi-line lookup, or a compound condition such as `if (!entity || entity.tenantId !== auth.tenantId)`) → `throw notFound(msg)`. TypeScript already narrows the value after the throw, so this keeps tenant-scoping conditions explicit without losing type safety.
 - `message` is passed through verbatim and is never derived from an entity name — keep routing 404 copy through `translate(...)` so it stays translatable.
 - `assertFound` treats every falsy value as missing. Use it for entity/object lookups only, never to guard numbers or strings where `0`/`''` are valid results.
+
+### Query Parameter Parsing — MUST NOT rebuild the query object with `Object.fromEntries`
+
+```typescript
+import { buildQueryParams, readQueryParamList, toQueryValueList } from '@open-mercato/shared/lib/crud/query-params'
+```
+
+`Object.fromEntries(url.searchParams.entries())` keeps only the LAST value of a repeated key, so `?status=win&status=loose` silently becomes `'loose'` (#5548). `buildQueryParams(url.searchParams)` groups instead: a key seen once stays a string, a key seen twice or more becomes `string[]`. It never splits on commas, so `?ids=a,b` and free-text filters keep their literal value. Where a field's contract says a comma separates values, use `readQueryParamList(searchParams, key)` (or `toQueryValueList(raw)` on an already-parsed value) — they treat the repeated and comma forms as equivalent. MUST use these instead of a per-route `getAll` + split + trim copy.
 
 ### CRUD Multi-ID Filtering
 

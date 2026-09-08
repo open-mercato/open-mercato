@@ -26,6 +26,7 @@ import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/
 import { buildPasswordSchema } from '@open-mercato/shared/lib/auth/passwordPolicy'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { parseBooleanFlag } from '@open-mercato/shared/lib/boolean'
+import { MAX_USER_LOOKUP_IDS, resolveUserIdFilter } from '@open-mercato/core/modules/auth/lib/userIdFilter'
 import { findEntityIdsBySearchTokensCompat, type SearchTokenDatabase } from '@open-mercato/shared/lib/search/tokenLookup'
 import { normalizeDisplayNameInput } from '@open-mercato/core/modules/auth/lib/displayName'
 import {
@@ -38,6 +39,7 @@ const logger = createLogger('auth').child({ component: 'users' })
 
 const querySchema = z.object({
   id: z.string().uuid().optional(),
+  ids: z.string().optional().describe('Comma-separated user identifiers, at most 100'),
   page: z.coerce.number().min(1).default(1),
   pageSize: z.coerce.number().min(1).max(100).default(50),
   search: z.string().optional(),
@@ -204,10 +206,17 @@ export async function GET(req: Request) {
   if (!auth) return NextResponse.json({ items: [], total: 0, totalPages: 1 })
   const url = new URL(req.url)
   const rawRoleIds = url.searchParams.getAll('roleId').filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
+  // Accept both the repeated (`?ids=a&ids=b`) and comma-joined (`?ids=a,b`) spellings.
+  const rawIds = url.searchParams.getAll('ids').join(',') || undefined
+  const userIdFilter = resolveUserIdFilter(rawIds, url.searchParams.get('id'))
   const parsed = querySchema.safeParse({
     id: url.searchParams.get('id') || undefined,
+    ids: rawIds,
     page: url.searchParams.get('page') || undefined,
-    pageSize: url.searchParams.get('pageSize') || undefined,
+    // A caller resolving a batch of ids wants all of them; without this the default page of 50
+    // would silently truncate a 100-id lookup.
+    pageSize: url.searchParams.get('pageSize')
+      || (rawIds && userIdFilter.kind === 'ids' ? String(Math.min(userIdFilter.ids.length, MAX_USER_LOOKUP_IDS)) : undefined),
     search: url.searchParams.get('search') || undefined,
     name: url.searchParams.get('name') || undefined,
     organizationId: url.searchParams.get('organizationId') || undefined,
@@ -228,6 +237,9 @@ export async function GET(req: Request) {
     logger.error('Failed to resolve rbac', { err })
   }
   const { id, page, pageSize, search, name, organizationId, scopeToActiveOrganization, roleIds } = parsed.data
+  if (userIdFilter.kind === 'none') {
+    return NextResponse.json({ items: [], total: 0, totalPages: 1, isSuperAdmin })
+  }
   const filters: any[] = [{ deletedAt: null }]
   const actorTenantId = auth.tenantId ? String(auth.tenantId) : null
   let effectiveTenantId: string | null = null
@@ -293,7 +305,8 @@ export async function GET(req: Request) {
     }
     filters.push(displayNameFilters.length > 1 ? { $or: displayNameFilters } : displayNameFilters[0])
   }
-  let idFilter: Set<string> | null = id ? new Set([id]) : null
+  // `?id=` and `?ids=` are already intersected by resolveUserIdFilter.
+  let idFilter: Set<string> | null = userIdFilter.kind === 'ids' ? new Set(userIdFilter.ids) : null
   if (Array.isArray(roleIds) && roleIds.length > 0) {
     const uniqueRoleIds = Array.from(new Set(roleIds))
     const linksForRoles = await em.find(
@@ -387,10 +400,10 @@ export async function GET(req: Request) {
 
     filters.push(searchFilters.length > 1 ? { $or: searchFilters } : searchFilters[0])
   }
+  // `?id=` has no separate path: resolveUserIdFilter folds it into `idFilter`, and a `kind: 'none'`
+  // outcome already returned above, so `idFilter` is null only when neither param was supplied.
   if (idFilter && idFilter.size) {
     filters.push({ id: { $in: Array.from(idFilter) as any } })
-  } else if (id) {
-    filters.push({ id })
   }
   const where = filters.length > 1 ? { $and: filters } : filters[0]
   const [rows, count] = await em.findAndCount(User, where, { limit: pageSize, offset: (page - 1) * pageSize })
@@ -713,7 +726,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'List users',
       description:
-        'Returns users for the effective selected tenant and organization scope. Search matches email, organization name, and role name. Super administrators may scope the response via the topbar context, organization filters, or role filters. Pass scopeToActiveOrganization=1 to restrict results to the caller\'s active organization (used by recipient/assignee pickers so suggestions stay within the org that owns the resulting record).',
+        'Returns users for the effective selected tenant and organization scope. Search matches email, organization name, and role name. Super administrators may scope the response via the topbar context, organization filters, or role filters. Pass scopeToActiveOrganization=1 to restrict results to the caller\'s active organization (used by recipient/assignee pickers so suggestions stay within the org that owns the resulting record). Pass ids=<uuid>,<uuid> (max 100) to resolve a known set of users in one request, for example to label a list of foreign keys; it intersects with id and roleId, and a supplied ids value that contains no valid identifier matches nothing.',
       query: querySchema,
       responses: [
         { status: 200, description: 'User collection', schema: userListResponseSchema },

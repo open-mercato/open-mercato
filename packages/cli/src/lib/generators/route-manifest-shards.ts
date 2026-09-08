@@ -39,9 +39,16 @@ export function getRouteManifestShardKey(kind: RouteManifestShardKind, pathname:
   return firstSegment.toLowerCase()
 }
 
+function indentDeclaration(declaration: string): string {
+  return declaration
+    .split('\n')
+    .map((line) => (line.length > 0 ? `  ${line}` : line))
+    .join('\n')
+}
+
 function renderArray(entries: RouteManifestShardEntry[]): string {
   if (entries.length === 0) return '[]'
-  return `[\n${entries.map((entry) => `  ${entry.declaration}`).join(',\n')}\n]`
+  return `[\n${entries.map((entry) => indentDeclaration(entry.declaration)).join(',\n')}\n]`
 }
 
 function uniqueImports(entries: RouteManifestShardEntry[]): string[] {

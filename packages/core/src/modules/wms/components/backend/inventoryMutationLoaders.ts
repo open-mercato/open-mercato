@@ -321,21 +321,25 @@ export async function loadAllLocations(
   filters: { type?: string; search?: string },
 ): Promise<LocationListRow[]> {
   const items: LocationListRow[] = []
+  const pageSize = 100
   let page = 1
-  let totalPages = 1
 
-  while (page <= totalPages && page <= 10) {
+  // Short-page termination: `totalPages` derives from `total`, which is a
+  // display value that can be capped (OM_LIST_COUNT_CAP) — never a loop bound.
+  for (;;) {
     const params = buildQuery({
       page,
-      pageSize: 100,
+      pageSize,
       warehouseId,
       type: filters.type,
       search: filters.search?.trim() || undefined,
     })
     const call = await apiCall<PagedResponse<LocationListRow>>(`/api/wms/locations?${params}`)
     if (!call.ok) break
-    items.push(...(call.result?.items ?? []))
-    totalPages = call.result?.totalPages ?? 1
+    const batch = call.result?.items ?? []
+    items.push(...batch)
+    if (batch.length < pageSize) break
+    if (page >= 10) break
     page += 1
   }
 
@@ -538,13 +542,15 @@ export async function fetchCycleCountScopeEstimate(input: {
   const binCount = scopedBinIds.size
 
   const variantIds = new Set<string>()
+  const pageSize = 100
   let page = 1
-  let totalPages = 1
 
-  while (page <= totalPages && page <= 10) {
+  // Short-page termination: `totalPages` derives from `total`, which is a
+  // display value that can be capped (OM_LIST_COUNT_CAP) — never a loop bound.
+  for (;;) {
     const params = buildQuery({
       page,
-      pageSize: 100,
+      pageSize,
       warehouseId,
     })
     const call = await apiCall<PagedResponse<{ catalog_variant_id?: string | null; location_id?: string | null; quantity_on_hand?: string | number | null }>>(
@@ -554,7 +560,8 @@ export async function fetchCycleCountScopeEstimate(input: {
       throw new ScopeEstimateError()
     }
 
-    for (const row of call.result?.items ?? []) {
+    const batch = call.result?.items ?? []
+    for (const row of batch) {
       const locationId = row.location_id?.trim()
       const variantId = row.catalog_variant_id?.trim()
       const onHand = Number(row.quantity_on_hand ?? 0)
@@ -563,7 +570,8 @@ export async function fetchCycleCountScopeEstimate(input: {
       variantIds.add(variantId)
     }
 
-    totalPages = call.result?.totalPages ?? 1
+    if (batch.length < pageSize) break
+    if (page >= 10) break
     page += 1
   }
 
@@ -808,17 +816,20 @@ export async function buildCycleCountScopeQueue(input: {
   }
 
   const items: ScopeQueueItem[] = []
+  const pageSize = 100
   let page = 1
-  let totalPages = 1
 
-  while (page <= totalPages && page <= 20) {
-    const params = buildQuery({ page, pageSize: 100, warehouseId })
+  // Short-page termination: `totalPages` derives from `total`, which is a
+  // display value that can be capped (OM_LIST_COUNT_CAP) — never a loop bound.
+  for (;;) {
+    const params = buildQuery({ page, pageSize, warehouseId })
     const call = await apiCall<PagedResponse<BalanceRow>>(
       `/api/wms/inventory/balances?${params}`,
     )
     if (!call.ok) throw new ScopeQueueError()
 
-    for (const row of call.result?.items ?? []) {
+    const batch = call.result?.items ?? []
+    for (const row of batch) {
       const locationId = row.location_id?.trim()
       const variantId = row.catalog_variant_id?.trim()
       const lotId = row.lot_id?.trim() || null
@@ -838,7 +849,8 @@ export async function buildCycleCountScopeQueue(input: {
       })
     }
 
-    totalPages = call.result?.totalPages ?? 1
+    if (batch.length < pageSize) break
+    if (page >= 20) break
     page += 1
   }
 
@@ -900,8 +912,10 @@ async function fetchLocationTotalOnHand(input: {
   if (!locationId) return 0
   let sum = 0
   let page = 1
-  let totalPages = 1
-  do {
+  // Short-page termination: this sum is user-visible, and `totalPages` derives
+  // from `total`, which is a display value that can be capped
+  // (OM_LIST_COUNT_CAP) — never a loop bound.
+  for (;;) {
     const params = buildQuery({
       page,
       pageSize: LOCATION_TOTAL_ON_HAND_PAGE_SIZE,
@@ -912,13 +926,15 @@ async function fetchLocationTotalOnHand(input: {
       `/api/wms/inventory/balances?${params}`,
     )
     if (!call.ok) break
-    for (const row of call.result?.items ?? []) {
+    const batch = call.result?.items ?? []
+    for (const row of batch) {
       const value = Number(row.quantity_on_hand ?? 0)
       if (Number.isFinite(value)) sum += value
     }
-    totalPages = call.result?.totalPages ?? 1
+    if (batch.length < LOCATION_TOTAL_ON_HAND_PAGE_SIZE) break
+    if (page >= LOCATION_TOTAL_ON_HAND_MAX_PAGES) break
     page += 1
-  } while (page <= totalPages && page <= LOCATION_TOTAL_ON_HAND_MAX_PAGES)
+  }
   return sum
 }
 

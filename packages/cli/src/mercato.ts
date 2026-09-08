@@ -78,6 +78,29 @@ function getRegisteredCliWorkers(modules: Module[] = getCliModules()): ModuleWor
   return allWorkers
 }
 
+/**
+ * Picks the abandoned-job callback for a queue from its workers.
+ *
+ * The numeric queue options merge across a queue's workers with `Math.max`; two callbacks cannot
+ * merge, so the first declared one wins. Silence there would make a genuine wiring mistake — two
+ * handlers on one queue each expecting to report its abandoned jobs — look like it works while one of
+ * them never runs.
+ */
+export function resolveQueueAbandonHook(
+  queueName: string,
+  queueWorkers: Array<Pick<ModuleWorker, 'id' | 'onJobAbandoned'>>,
+  warn: (message: string) => void = console.warn,
+): ModuleWorker['onJobAbandoned'] {
+  const declaring = queueWorkers.filter((worker) => worker.onJobAbandoned)
+  if (declaring.length > 1) {
+    warn(
+      `[worker] Queue "${queueName}" has ${declaring.length} workers declaring onJobAbandoned `
+      + `(${declaring.map((worker) => worker.id).join(', ')}); using the first and ignoring the rest.`,
+    )
+  }
+  return declaring[0]?.onJobAbandoned
+}
+
 function shouldEmbedLocalSchedulerInSharedWorker(env: NodeJS.ProcessEnv = process.env): boolean {
   return parseBooleanToken(env.OM_DEV_EMBED_SCHEDULER_IN_SHARED_WORKER) === true
 }
@@ -1678,6 +1701,7 @@ export async function run(argv = process.argv) {
                 Math.max(...queueWorkers.map((w) => w.concurrency), 1)
               const maxStalledCount = Math.max(...queueWorkers.map((w) => w.maxStalledCount ?? 1), 1)
               const lockDuration = Math.max(...queueWorkers.map((w) => w.lockDuration ?? 0), 0) || undefined
+              const onJobAbandoned = resolveQueueAbandonHook(queue, queueWorkers)
 
               console.log(`[worker] Starting "${queue}" with ${queueWorkers.length} handler(s), concurrency: ${concurrency}`)
 
@@ -1688,6 +1712,7 @@ export async function run(argv = process.argv) {
                 concurrency,
                 lockDuration,
                 maxStalledCount,
+                onJobAbandoned,
                 background: true,
                 handler: createPerJobWorkerHandler(queueWorkers, createRequestContainer),
               })
@@ -1733,6 +1758,7 @@ export async function run(argv = process.argv) {
               const concurrency = budgetPlan.entries[0]?.effective ?? requested
               const maxStalledCount = Math.max(...queueWorkers.map((w) => w.maxStalledCount ?? 1), 1)
               const lockDuration = Math.max(...queueWorkers.map((w) => w.lockDuration ?? 0), 0) || undefined
+              const onJobAbandoned = resolveQueueAbandonHook(queueName!, queueWorkers)
 
               console.log(`[worker] Found ${queueWorkers.length} worker(s) for queue "${queueName}"`)
 
@@ -1743,6 +1769,7 @@ export async function run(argv = process.argv) {
                 concurrency,
                 lockDuration,
                 maxStalledCount,
+                onJobAbandoned,
                 handler: createPerJobWorkerHandler(queueWorkers, createRequestContainer),
               })
             } else {

@@ -226,7 +226,12 @@ export class DefaultDataEngine implements DataEngine {
           const eventName = `${mod}.${ent}.updated`
           warnIfUndeclaredEvent(eventName, 'setCustomFields')
           try {
-            await bus.emitEvent(eventName, { id: recordId, organizationId, tenantId }, { persistent: true })
+            await bus.emitEvent(eventName, { id: recordId, organizationId, tenantId }, {
+              persistent: true,
+              tenantId,
+              organizationId,
+              emitterModuleId: mod,
+            })
           } catch {
             // non-blocking
           }
@@ -627,6 +632,7 @@ export class DefaultDataEngine implements DataEngine {
           persistent: !!events.persistent,
           tenantId: ctx.identifiers.tenantId ?? null,
           organizationId: ctx.identifiers.organizationId ?? null,
+          emitterModuleId: events.module,
         })
       } catch {
         // non-blocking

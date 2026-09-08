@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
-import { SCHEDULER_EXECUTION_QUEUE, SCHEDULER_JOBS_PATH, uniqueScheduleName } from './helpers/scheduler'
+import { SCHEDULER_JOBS_PATH, SCHEDULER_TEST_COMMAND, uniqueScheduleName } from './helpers/scheduler'
 
 type ValidationError = { error?: string; details?: Array<{ path?: Array<string | number> }> }
 
@@ -36,8 +36,8 @@ test.describe('TC-SCHED-007: POST /api/scheduler/jobs validates schedule value f
           scheduleType: testCase.scheduleType,
           scheduleValue: testCase.scheduleValue,
           timezone: 'UTC',
-          targetType: 'queue',
-          targetQueue: SCHEDULER_EXECUTION_QUEUE,
+          targetType: 'command',
+          targetCommand: SCHEDULER_TEST_COMMAND,
           isEnabled: true,
           sourceType: 'user',
         },

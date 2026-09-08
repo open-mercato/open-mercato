@@ -4,6 +4,8 @@ export const notificationTypes: NotificationTypeDefinition[] = [
   {
     type: 'webhooks.delivery.failed',
     module: 'webhooks',
+    labelKey: 'webhooks.notifications.delivery.failed.label',
+    channels: ['in_app', 'email'],
     titleKey: 'webhooks.notifications.delivery.failed.title',
     bodyKey: 'webhooks.notifications.delivery.failed.body',
     icon: 'webhook',

@@ -6,6 +6,7 @@ import { checkRateLimit, getClientIp, RATE_LIMIT_ERROR_FALLBACK } from '@open-me
 import type { RateLimiterService } from '@open-mercato/shared/lib/ratelimit/service'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { getWebhookHandler } from '@open-mercato/shared/modules/payment_gateways/types'
+import { markQueueJobOrigin } from '@open-mercato/shared/lib/queue/dispatchOrigin'
 import type { IntegrationLogService } from '../../../../integrations/lib/log-service'
 import type { PaymentGatewayService } from '../../../lib/gateway-service'
 import type { CredentialsService } from '../../../../integrations/lib/credentials-service'
@@ -111,18 +112,15 @@ export async function POST(req: Request, { params }: { params: Promise<{ provide
 
     const scope = matchedScope
 
-    const jobPayload = {
+    const jobPayload = markQueueJobOrigin({
       providerKey,
       event,
       transactionId: transaction.id,
       scope,
-    }
+    }, 'inbound-webhook')
 
     if (process.env.QUEUE_STRATEGY === 'async') {
-      await queue.enqueue({
-        name: 'payment-gateway-webhook',
-        payload: jobPayload,
-      })
+      await queue.enqueue(jobPayload)
     } else {
       await processPaymentGatewayWebhookJob(
         {

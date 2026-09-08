@@ -57,4 +57,8 @@ export const baseEmailCapabilities: ChannelCapabilities = {
 
   // Polling (real-time push deferred to v2 for all email providers)
   realtimePush: false,
+
+  // Stated rather than left to the default so the email baseline reads as an
+  // explicit choice: outbound recipients here are addresses, not provider ids.
+  recipientFormat: 'email',
 }

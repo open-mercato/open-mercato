@@ -626,4 +626,72 @@ describe('CompanyPeopleSection', () => {
     expect(screen.getByRole('button', { name: 'Filters' })).toBeInTheDocument()
     expect(screen.getByRole('combobox')).toBeInTheDocument()
   })
+
+  // Live refresh for a detach performed in ANOTHER session. A link-backed detach broadcasts
+  // `customers.person_company_link.deleted`; a legacy profile-only one has no link row and
+  // broadcasts `customers.person.company_assignment.detached` instead (#5114). This tab must
+  // reload on both, or it keeps listing someone who is already gone.
+  describe.each([
+    ['customers.person_company_link.deleted'],
+    ['customers.person.company_assignment.detached'],
+  ])('%s', (eventId) => {
+    async function dispatchDetach(companyEntityId: string) {
+      await act(async () => {
+        window.dispatchEvent(
+          new CustomEvent('om:event', {
+            detail: {
+              id: eventId,
+              payload: { linkId: null, personEntityId: 'person-1', companyEntityId },
+              timestamp: 1,
+              organizationId: 'org-1',
+            },
+          }),
+        )
+      })
+    }
+
+    function countPeopleReads() {
+      return readApiResultOrThrowMock.mock.calls.filter(([url]) =>
+        typeof url === 'string' && url.startsWith('/api/customers/companies/company-123/people'),
+      ).length
+    }
+
+    it('reloads the people list when the detach targets this company', async () => {
+      renderWithProviders(
+        <CompanyPeopleSection
+          companyId="company-123"
+          initialPeople={[]}
+          addActionLabel="Add person"
+          emptyLabel="No linked people yet."
+          emptyState={emptyState}
+        />,
+      )
+      await waitForInitialPeopleLoad()
+      const before = countPeopleReads()
+
+      await dispatchDetach('company-123')
+
+      await waitFor(() => {
+        expect(countPeopleReads()).toBeGreaterThan(before)
+      })
+    })
+
+    it('ignores a detach that targets a different company', async () => {
+      renderWithProviders(
+        <CompanyPeopleSection
+          companyId="company-123"
+          initialPeople={[]}
+          addActionLabel="Add person"
+          emptyLabel="No linked people yet."
+          emptyState={emptyState}
+        />,
+      )
+      await waitForInitialPeopleLoad()
+      const before = countPeopleReads()
+
+      await dispatchDetach('company-999')
+
+      expect(countPeopleReads()).toBe(before)
+    })
+  })
 })

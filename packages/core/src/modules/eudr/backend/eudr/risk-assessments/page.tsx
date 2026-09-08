@@ -47,6 +47,7 @@ type RiskAssessmentsResponse = {
   items: RiskAssessmentRow[]
   total: number
   totalPages: number
+  totalIsCapped?: boolean
 }
 
 type MutationContext = {
@@ -105,6 +106,7 @@ export default function EudrRiskAssessmentsPage() {
   const [pageSize, setPageSize] = React.useState(20)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'assessedAt', desc: true }])
   const [filters, setFilters] = React.useState<FilterValues>({})
   const [search, setSearch] = React.useState('')
@@ -158,6 +160,7 @@ export default function EudrRiskAssessmentsPage() {
         setRows(Array.isArray(payload.items) ? payload.items : [])
         setTotal(typeof payload.total === 'number' ? payload.total : 0)
         setTotalPages(typeof payload.totalPages === 'number' ? payload.totalPages : 1)
+        setTotalIsCapped(payload?.totalIsCapped === true)
       } catch {
         if (!cancelled) flash(translate('eudr.riskAssessments.list.loadError'), 'error')
       } finally {
@@ -365,6 +368,7 @@ export default function EudrRiskAssessmentsPage() {
             pageSize,
             total,
             totalPages,
+            totalIsCapped,
             onPageChange: setPage,
             pageSizeOptions: [20, 50, 100],
             onPageSizeChange: (nextPageSize) => {

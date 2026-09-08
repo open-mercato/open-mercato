@@ -17,13 +17,10 @@ export const injectionTable: ModuleInjectionTable = {
       priority: 50,
     },
   ],
-  // NOTE: the 'data-table:sales.payments:columns' binding for
-  // 'sales.injection.payment-gateway-status-column' was removed here — it could never
-  // resolve. PaymentsSection.tsx renders its DataTable with no perspective/injectionSpotId/
-  // extensionTableId, so extensionTableId is null and the columns spot degrades to
-  // '__disabled__:columns'. The widget itself is still registered and is now UNBOUND: giving
-  // the payments table a real tableId so the gateway-status column finally renders is a sales
-  // feature gap, tracked in #5142 rather than silently reintroduced here.
+  'data-table:sales.payments:columns': {
+    widgetId: 'sales.injection.payment-gateway-status-column',
+    priority: 50,
+  },
   'crud-form:sales.payment_method:fields': {
     widgetId: 'sales.injection.payment-gateway-config-field',
     priority: 40,

@@ -41,6 +41,19 @@ import { hasChannelAdapter, registerChannelAdapter } from './adapter-registry-si
 /** Provider key for the network-free test stub adapter. */
 export const TEST_SEED_PROVIDER_KEY = '__test_seed__'
 
+/**
+ * Provider key for the network-free stub adapter that stands in for a CHAT
+ * provider — one whose senders are identified by an opaque handle and have no
+ * email address at all (Discord, Slack, Telegram…).
+ *
+ * It exists because the email-shaped stub above can only ever prove the hub
+ * accepts email-shaped data. That is precisely how CI stayed green while every
+ * real inbound Discord message was rejected (#4975): the fixture invented an
+ * address the provider can never produce. Tests that need to prove the hub's
+ * non-email identity contract MUST drive this provider instead.
+ */
+export const TEST_SEED_CHAT_PROVIDER_KEY = '__test_seed_chat__'
+
 /** Env flag that unlocks test-only channel seeding. Off in production. */
 export const TEST_CHANNEL_SEEDING_ENV = 'OM_ENABLE_TEST_CHANNEL_SEEDING'
 
@@ -72,8 +85,10 @@ const testSeedCapabilities: ChannelCapabilities = {
  * delivery worker reach its success path and emit `communication_channels.message.sent`.
  */
 class TestSeedChannelAdapter implements ChannelAdapter {
-  readonly providerKey = TEST_SEED_PROVIDER_KEY
-  readonly channelType = 'email'
+  // Widened to `string` rather than inferred as a literal so the chat-flavoured
+  // subclass below can override both with its own provider key / channel type.
+  readonly providerKey: string = TEST_SEED_PROVIDER_KEY
+  readonly channelType: string = 'email'
   readonly capabilities = testSeedCapabilities
 
   async sendMessage(input: SendMessageInput): Promise<SendMessageResult> {
@@ -121,11 +136,71 @@ class TestSeedChannelAdapter implements ChannelAdapter {
   }
 }
 
+/**
+ * Capabilities for the chat stub. Identical to the email stub's except for the
+ * recipient shape: a chat channel is addressed by a provider-issued identifier
+ * (a Discord snowflake), not an email address.
+ *
+ * Without this override the chat stub inherited `baseEmailCapabilities`, so it
+ * claimed `channelType: 'discord'` while validating recipients as email
+ * addresses — a channel that could not be addressed the way the provider it
+ * imitates actually is. That left the hub's `'provider-native'` branch
+ * (#4976: per-provider recipient validation, and the omitted recipient that
+ * falls back to the adapter's own target) reachable only with a live Discord
+ * bot, so no integration test could cover it and CI never exercised it.
+ */
+const testSeedChatCapabilities: ChannelCapabilities = {
+  ...testSeedCapabilities,
+  recipientFormat: 'provider-native',
+}
+
+/**
+ * Chat-flavoured twin of {@link TestSeedChannelAdapter}: same network-free
+ * behaviour, but it declares a non-email `channelType`, so a channel connected
+ * through it is shaped like a real chat channel — including an
+ * `externalIdentifier` of NULL when no email-ish credential key is supplied.
+ */
+class TestSeedChatChannelAdapter extends TestSeedChannelAdapter {
+  readonly providerKey: string = TEST_SEED_CHAT_PROVIDER_KEY
+  readonly channelType: string = 'discord'
+  readonly capabilities = testSeedChatCapabilities
+
+  async normalizeInbound(raw: InboundMessage): Promise<NormalizedInboundMessage> {
+    // Unlike the email stub, this one is reachable: the test-seed ingest action
+    // feeds it a chat-shaped frame so the message travels the real ingest path
+    // (and therefore the real compose validation) rather than a SQL shortcut.
+    const frame = (raw.raw ?? {}) as Record<string, unknown>
+    const senderIdentifier = String(frame.senderIdentifier ?? '')
+    if (!senderIdentifier) {
+      throw new Error('[internal] TestSeedChatChannelAdapter requires a senderIdentifier')
+    }
+    return {
+      externalMessageId: String(frame.externalMessageId ?? ''),
+      externalConversationId: String(frame.externalConversationId ?? ''),
+      senderIdentifier,
+      senderDisplayName:
+        typeof frame.senderDisplayName === 'string' ? frame.senderDisplayName : undefined,
+      body: typeof frame.body === 'string' ? frame.body : '',
+      bodyFormat: 'text',
+      timestamp: new Date(),
+      channelPayload: {},
+      channelContentType: 'text/plain',
+      channelMetadata: {},
+    }
+  }
+}
+
 let cachedTestSeedAdapter: TestSeedChannelAdapter | null = null
+let cachedTestSeedChatAdapter: TestSeedChatChannelAdapter | null = null
 
 function getTestSeedChannelAdapter(): TestSeedChannelAdapter {
   if (!cachedTestSeedAdapter) cachedTestSeedAdapter = new TestSeedChannelAdapter()
   return cachedTestSeedAdapter
+}
+
+function getTestSeedChatChannelAdapter(): TestSeedChatChannelAdapter {
+  if (!cachedTestSeedChatAdapter) cachedTestSeedChatAdapter = new TestSeedChatChannelAdapter()
+  return cachedTestSeedChatAdapter
 }
 
 /**
@@ -135,6 +210,10 @@ function getTestSeedChannelAdapter(): TestSeedChannelAdapter {
  */
 export function ensureTestSeedAdapterRegistered(): void {
   if (!isTestChannelSeedingEnabled()) return
-  if (hasChannelAdapter(TEST_SEED_PROVIDER_KEY)) return
-  registerChannelAdapter(getTestSeedChannelAdapter())
+  if (!hasChannelAdapter(TEST_SEED_PROVIDER_KEY)) {
+    registerChannelAdapter(getTestSeedChannelAdapter())
+  }
+  if (!hasChannelAdapter(TEST_SEED_CHAT_PROVIDER_KEY)) {
+    registerChannelAdapter(getTestSeedChatChannelAdapter())
+  }
 }

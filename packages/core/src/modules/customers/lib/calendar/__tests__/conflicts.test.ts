@@ -42,6 +42,61 @@ describe('findConflicts', () => {
     expect(conflicts.size).toBe(0)
   })
 
+  it('does not treat two guest participants without a userId as sharing an actor', () => {
+    const conflicts = findConflicts([
+      makeCalendarItem({
+        id: 'first',
+        start: at(10),
+        end: at(11),
+        participants: [{ email: 'guest-one@example.org' }],
+      }),
+      makeCalendarItem({
+        id: 'second',
+        start: at(10),
+        end: at(11),
+        participants: [{ email: 'guest-two@example.org' }],
+      }),
+    ])
+    expect(conflicts.size).toBe(0)
+  })
+
+  it('flags overlapping items sharing the same guest, matched on the normalized email', () => {
+    const conflicts = findConflicts([
+      makeCalendarItem({
+        id: 'first',
+        start: at(10),
+        end: at(11),
+        participants: [{ email: 'guest@example.org' }],
+      }),
+      makeCalendarItem({
+        id: 'second',
+        start: at(10, 30),
+        end: at(11, 30),
+        participants: [{ email: '  Guest@Example.ORG ' }],
+      }),
+    ])
+    expect(conflicts.get('first')).toEqual(['second'])
+    expect(conflicts.get('second')).toEqual(['first'])
+  })
+
+  it('does not match a guest email against a participant carrying a userId', () => {
+    const conflicts = findConflicts([
+      makeCalendarItem({
+        id: 'first',
+        start: at(10),
+        end: at(11),
+        participants: [{ userId: 'user-1', email: 'staff@example.org' }],
+      }),
+      makeCalendarItem({
+        id: 'second',
+        start: at(10),
+        end: at(11),
+        participants: [{ email: 'staff@example.org' }],
+      }),
+    ])
+    expect(conflicts.size).toBe(0)
+  })
+
   it('does not treat two items with null owners as sharing an owner', () => {
     const conflicts = findConflicts([
       makeCalendarItem({ id: 'first', start: at(10), end: at(11), ownerUserId: null }),

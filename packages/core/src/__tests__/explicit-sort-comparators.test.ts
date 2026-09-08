@@ -17,10 +17,11 @@ import { join, relative, sep } from 'node:path'
  *   - canonical/internal keys → `(a, b) => (a < b ? -1 : a > b ? 1 : 0)`
  *   - numbers → `(a, b) => a - b`
  *
- * This audit fails if any non-test source file under a package `src` root or
- * under `scripts/` calls `.sort()` / `.toSorted()` with empty parens. Test and
- * spec files are intentionally out of scope — their bare sorts operate on known
- * string fixtures for assertion convenience.
+ * This audit fails if any non-test source file under a package production root
+ * (`src`, plus a standalone `server` process directory when the package ships
+ * one) or under `scripts/` calls `.sort()` / `.toSorted()` with empty parens.
+ * Test and spec files are intentionally out of scope — their bare sorts operate
+ * on known string fixtures for assertion convenience.
  */
 
 const repoRoot = join(__dirname, '..', '..', '..', '..')
@@ -29,7 +30,13 @@ const SKIP_DIRS = new Set(['node_modules', '__tests__', '__integration__', 'gene
 const SOURCE_EXTENSIONS = ['.ts', '.tsx', '.mjs', '.js']
 const BARE_SORT = /\.(?:sort|toSorted)\(\s*\)/
 
-function discoverPackageSrcRoots(): string[] {
+// Production code does not always live under `src`. A package may also ship a
+// standalone long-lived process from its own top-level directory (for example
+// the Documents collaboration sidecar in `packages/documents/server`), which is
+// compiled and published just like `src` and must be audited the same way.
+const PACKAGE_PRODUCTION_DIRS = ['src', 'server']
+
+function discoverPackageProductionRoots(): string[] {
   const roots: string[] = []
   let packages: string[]
   try {
@@ -38,19 +45,21 @@ function discoverPackageSrcRoots(): string[] {
     return roots
   }
   for (const name of packages.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))) {
-    const srcDir = join(repoRoot, 'packages', name, 'src')
-    try {
-      if (statSync(srcDir).isDirectory()) {
-        roots.push(`packages/${name}/src`)
+    for (const dir of PACKAGE_PRODUCTION_DIRS) {
+      const candidate = join(repoRoot, 'packages', name, dir)
+      try {
+        if (statSync(candidate).isDirectory()) {
+          roots.push(`packages/${name}/${dir}`)
+        }
+      } catch {
+        // package without this production directory — skip
       }
-    } catch {
-      // package without a src directory — skip
     }
   }
   return roots
 }
 
-const SCAN_ROOTS = [...discoverPackageSrcRoots(), 'scripts']
+const SCAN_ROOTS = [...discoverPackageProductionRoots(), 'scripts']
 
 function isSourceFile(name: string): boolean {
   if (name.endsWith('.d.ts')) return false
@@ -116,6 +125,10 @@ describe('sort/toSorted call sites use explicit comparators (#3620)', () => {
     ]) {
       expect(SCAN_ROOTS).toContain(expected)
     }
+  })
+
+  it('covers standalone package server processes that ship outside src', () => {
+    expect(SCAN_ROOTS).toContain('packages/documents/server')
   })
 
   it('detects a bare sort and accepts an explicit comparator', () => {

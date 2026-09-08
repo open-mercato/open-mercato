@@ -7,6 +7,7 @@ import type { RowActionItem } from '@open-mercato/ui/backend/RowActions'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import type { FilterOptionTone } from '@open-mercato/shared/lib/query/advanced-filter'
+import { toneToDotClass } from './toneClasses'
 import { DealCard, type DealCardData } from './DealCard'
 import { DashedTileButton } from './DashedTileButton'
 import { LANE_WIDTH_PX } from './constants'
@@ -52,15 +53,10 @@ type LaneProps = {
   onResetWidth?: (stageId: string) => void
 }
 
-// 4px color bar tone — uses saturated icon tokens so the bar is visibly colored, not pale
-const ACCENT_TONE_CLASS: Record<FilterOptionTone, string> = {
-  success: 'bg-status-success-icon',
-  error: 'bg-status-error-icon',
-  warning: 'bg-status-warning-icon',
-  info: 'bg-status-info-icon',
-  neutral: 'bg-status-neutral-icon',
-  brand: 'bg-brand-violet',
-  pink: 'bg-status-pink-icon',
+// 4px color bar tone — saturated icon tokens shared with the status filter pills
+// (toneClasses.ts) so the lane bar and the filter dots stay in lockstep (#5107 review).
+function getAccentClass(tone: FilterOptionTone | null): string {
+  return toneToDotClass(tone, 'bg-border')
 }
 
 // Count pill bg uses very-light status background, text uses status text color
@@ -72,11 +68,6 @@ const COUNT_BADGE_TONE_CLASS: Record<FilterOptionTone, string> = {
   neutral: 'bg-status-neutral-bg text-status-neutral-text',
   brand: 'bg-brand-violet/14 text-brand-violet',
   pink: 'bg-status-pink-bg text-status-pink-text',
-}
-
-function getAccentClass(tone: FilterOptionTone | null): string {
-  if (tone && tone in ACCENT_TONE_CLASS) return ACCENT_TONE_CLASS[tone]
-  return 'bg-border'
 }
 
 function getCountBadgeClass(tone: FilterOptionTone | null): string {

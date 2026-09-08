@@ -151,12 +151,27 @@ export type EncryptedSortRowCapWarning = {
   entity: EntityId
   sortFields: string[]
   maxRows: number
+  /**
+   * Exact when `meta.listCountCapWarning` is absent; a floor when it is
+   * present (the list total itself was bounded at the cap).
+   */
   totalMatched: number
+}
+
+/**
+ * Present when the list COUNT was bounded at `cap` matching rows
+ * (`OM_LIST_COUNT_CAP`): `total` is a floor, not an exact value. Surfaced on
+ * CRUD list payloads as `totalIsCapped: true`.
+ */
+export type ListCountCapWarning = {
+  entity: EntityId
+  cap: number
 }
 
 export type QueryResultMeta = {
   partialIndexWarning?: PartialIndexWarning
   encryptedSortRowCapWarning?: EncryptedSortRowCapWarning
+  listCountCapWarning?: ListCountCapWarning
 }
 
 export type QueryResult<T = any> = {

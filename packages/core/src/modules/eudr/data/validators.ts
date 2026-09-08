@@ -46,6 +46,11 @@ export const GEOJSON_TYPES = ['Feature', 'FeatureCollection', 'Point', 'Polygon'
 
 const uuid = () => z.string().uuid()
 const geoJsonSizeLimit = 1_048_576
+// Two conventions for server-managed fields on these entities: fields listed below
+// are never advertised as create inputs, so a client sending a real value is rejected
+// (`rejectServerComputedFields` tolerates a null/undefined no-op echo). A field that
+// WAS advertised in the create schema — statements' `referenceIssuedAt` — is instead
+// dropped from the create schema, so it is stripped rather than rejected (#5508).
 const serverComputedSubmissionFields = ['completenessScore', 'missingFields'] as const
 const serverComputedPlotFields = ['validationWarnings', 'computedArea'] as const
 const serverComputedRiskAssessmentFields = ['countryRisks', 'overallTier', 'isSimplified', 'assessedByName'] as const
@@ -64,12 +69,16 @@ const orderSnapshotSchema = z.object({
   orderNumber: z.string().max(255).optional().nullable(),
 })
 
+// A whole-object POST echoes server-computed fields back with their no-op value
+// (a fresh draft's `submittedAt` is null), so tolerate a null/undefined echo and
+// reject only a meaningful attempt to set server-owned state (#5508).
 function rejectServerComputedFields(fields: readonly string[]): z.ZodType<unknown> {
   return z.unknown().superRefine((input, context) => {
     if (input === null || typeof input !== 'object' || Array.isArray(input)) return
     const record = input as Record<string, unknown>
     for (const field of fields) {
       if (!(field in record)) continue
+      if (record[field] === null || record[field] === undefined) continue
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: [field],
@@ -333,7 +342,13 @@ const statementBaseSchema = z.object({
   notes: z.string().max(5000).optional().nullable(),
 })
 
-export const statementCreateSchema = rejectServerComputedFields(serverComputedStatementFields).pipe(statementBaseSchema)
+// referenceIssuedAt is server-managed (only set at the submitted->available
+// transition) and is never a create input, so it is dropped from the create
+// schema. A whole-object POST that echoes it (null or a value) is accepted and
+// the field ignored, instead of a self-contradictory 400 (#5508).
+export const statementCreateSchema = rejectServerComputedFields(serverComputedStatementFields).pipe(
+  statementBaseSchema.omit({ referenceIssuedAt: true }),
+)
 
 export const statementUpdateSchema = rejectServerComputedFields(serverComputedStatementFields).pipe(
   z

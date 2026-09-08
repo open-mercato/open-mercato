@@ -6,10 +6,13 @@ import {
   DummyDriver,
 } from 'kysely'
 import { createNotificationService } from '../lib/notificationService'
+import { register as registerNotificationDi } from '../di'
 import { NOTIFICATION_EVENTS, NOTIFICATION_SSE_EVENTS } from '../lib/events'
 import type { Notification } from '../data/entities'
 import { getRecipientUserIdsForFeature } from '../lib/notificationRecipients'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import type { AppContainer } from '@open-mercato/shared/lib/di/container'
+import { asValue, createContainer, InjectionMode } from 'awilix'
 // Read filters AND-compose the organization read scope with the in-app visibility gate: both
 // fragments carry their own `$or`, so they cannot be spread into a single filter object.
 import { inAppVisibleFilter } from '../lib/notificationVisibility'
@@ -124,6 +127,33 @@ describe('notification service', () => {
         recipientUserId: baseNotificationInput.recipientUserId,
         tenantId: baseCtx.tenantId,
       })
+    )
+  })
+
+  it('creates a notification through the scoped DI service in CLASSIC injection mode', async () => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+    em.create.mockImplementation((_entity, data: Notification) => ({
+      id: 'note-classic-di',
+      ...data,
+    }))
+    const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
+    container.register({
+      em: asValue(em),
+      eventBus: asValue(eventBus),
+      commandBus: asValue({ execute: jest.fn() }),
+    })
+    registerNotificationDi(container as unknown as AppContainer)
+
+    const service = container.resolve<ReturnType<typeof createNotificationService>>('notificationService')
+    const notification = await service.create(baseNotificationInput, baseCtx)
+
+    expect(notification.id).toBe('note-classic-di')
+    expect(em.fork).toHaveBeenCalled()
+    expect(em.flush).toHaveBeenCalled()
+    expect(eventBus.emit).toHaveBeenCalledWith(
+      NOTIFICATION_EVENTS.CREATED,
+      expect.objectContaining({ recipientUserId: baseNotificationInput.recipientUserId }),
     )
   })
 

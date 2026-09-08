@@ -47,6 +47,21 @@ describe('route manifest shards', () => {
     expect(loader).toContain(`const ROUTE_SHARD_KEYS = ["customers","__dynamic","customers","__root"]`)
   })
 
+  it('indents every line of a multi-line declaration inside the shard array', () => {
+    const declaration = ['{', '  moduleId: "customers",', '  path: "/customers"', '} as any'].join('\n')
+    const outputs = renderRouteManifestShardOutputs('api', [{ path: '/customers', declaration }])
+    const shard = outputs.find((entry) => entry.fileName.includes('route-shard.'))?.content ?? ''
+
+    expect(shard).toContain([
+      'export const routes: ApiRouteManifestEntry[] = [',
+      '  {',
+      '    moduleId: "customers",',
+      '    path: "/customers"',
+      '  } as any',
+      ']',
+    ].join('\n'))
+  })
+
   it('renders metadata without load functions while retaining metadata imports', () => {
     const output = renderRouteMetadataOutput('backend', [{
       path: '/backend/settings',

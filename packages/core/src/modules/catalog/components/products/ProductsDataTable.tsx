@@ -86,6 +86,7 @@ type ProductsResponse = {
   items?: ProductRow[]
   total?: number
   totalPages?: number
+  totalIsCapped?: boolean
 }
 
 const PAGE_SIZE = 25
@@ -177,6 +178,7 @@ export default function ProductsDataTable({
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [cacheStatus, setCacheStatus] = React.useState<'hit' | 'miss' | null>(null)
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'title', desc: false }])
   const [search, setSearch] = React.useState('')
@@ -598,6 +600,7 @@ export default function ProductsDataTable({
         setRows(normalized)
         setTotal(typeof payload.total === 'number' ? payload.total : normalized.length)
         setTotalPages(typeof payload.totalPages === 'number' ? payload.totalPages : 1)
+        setTotalIsCapped(payload.totalIsCapped === true)
       } catch (error) {
         if (!cancelled) {
           setCacheStatus(null)
@@ -712,12 +715,16 @@ export default function ProductsDataTable({
           // dependency on the host page.
           total,
           totalMatching: total,
+          // `total` is a floor when the server capped the count, so the
+          // merchandising widget must not present it as an exact match count.
+          totalIsCapped,
         }}
         pagination={{
           page,
           pageSize: PAGE_SIZE,
           total,
           totalPages,
+          totalIsCapped,
           onPageChange: setPage,
           cacheStatus,
         }}

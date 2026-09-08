@@ -217,6 +217,7 @@ number for a broken build.
 | PR touches no in-scope files (UI-only, API-only, docs) | `scope.mjs` emits an empty matrix; the workflow skips. No score is invented. |
 | PR touches more than `MUTATION_MAX_FILES` in one package | The list is truncated deterministically and the dropped paths are printed in the summary. A silent cap would misrepresent coverage. |
 | File deleted in the diff | Excluded via `--diff-filter=d`; Stryker would otherwise fail on a missing path. |
+| PR changes an in-scope file no test covers yet | `relatedTests.mjs` partitions the mutate list with `jest --listTests --findRelatedTests` before Stryker runs, so the uncovered files are reported as needing tests rather than making the `enableFindRelatedTests` dry run execute zero tests and throw `ConfigError: No tests were executed`. When *every* file in a package is uncovered the mutation step is skipped entirely; both the report and the enforcement step read the partition outputs, so that skip is scored like "no mutants were generated" — reported, never failed — while a genuinely missing report after Stryker did run still fails closed under enforcement. |
 | File renamed | Treated as a new path and mutated; the old path is gone and is not scored. |
 | A widely-imported file is changed | `--findRelatedTests` pulls in a large test set — the pilot measured 530 tests per mutant for `boolean.ts` versus 127 for a leaf file. Bounded by `timeout-minutes: 20`; a timeout is reported as an infrastructure outcome, never as a low score. |
 | Flaky test in the related set | Can mark a mutant killed or timed out incorrectly. Advisory phases surface it as noise to investigate; Phase 3 must not be enabled while a package has known flaky suites. |
@@ -423,3 +424,28 @@ Additions the design did not anticipate:
 - **A follow-up worth filing:** `packages/core`'s `auth/lib/rateLimitCheck.ts` scored 58.5 %, with
   survivors clustered on early-return guards that the tests never attribute a rejection to. Real
   finding, out of scope here.
+
+### 2026-08-20 — uncovered files are reported, not fatal (PR #5343, issue #5281)
+
+`jest.enableFindRelatedTests: true` means Stryker's dry run executes only the tests related to each
+mutated file, so a diff-scoped file with no related test made the dry run execute nothing and throw
+`ConfigError: No tests were executed`, aborting the whole `mutate` job and leaving no
+`mutation.json`. It was hit for real on PR #5219.
+
+- `scripts/stryker/relatedTests.mjs` (new) partitions a package's mutate list into `covered` /
+  `uncovered` with `jest --listTests --findRelatedTests` — a static dependency-graph query, not a
+  test run. A Jest invocation that throws is treated as `uncovered` with a log line rather than
+  propagating, so the partition step itself can never be the thing that turns the job red.
+- The workflow feeds Stryker only the covered subset and skips the mutation step entirely when
+  nothing is covered. **Both** downstream consumers receive the partition outputs: `report.mjs`
+  renders a "Needs tests" note, and `enforce.mjs` treats "covered is empty and uncovered is not" as
+  the skip path — a non-failing outcome, matching its existing "no mutants were generated" verdict.
+  Without that second half, flipping `MUTATION_ENFORCE` to `'true'` would have re-created exactly
+  the red check this change removes, and broken Phase 3's "one value rather than a code change"
+  property. A missing report with a non-empty covered list is still a genuine crash and still fails
+  closed.
+- `scripts/stryker/mutation-changed.mjs` had the identical unconditional gap and gets the same
+  partition, parsing the mutate list through the shared `splitMutateList` so the local wrapper and
+  the CI entrypoint cannot drift apart again.
+- `scope.mjs` and `createConfig.mjs` are untouched: coverage filtering needs an installed Jest, so
+  it belongs after `yarn install` in the `mutate` job, not in the lightweight `scope` job.

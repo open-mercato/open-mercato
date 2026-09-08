@@ -93,6 +93,8 @@ const RECORD_MODIFIED_MESSAGE = 'This record was modified by someone else. Refre
 
 const dict = {
   'ui.forms.flash.recordModified': RECORD_MODIFIED_MESSAGE,
+  'ui.forms.errors.required': 'This field is required',
+  'integrations.detail.credentials.secretConfigured': 'Configured. Enter a new value to replace it.',
 }
 
 const integrationDetail = {
@@ -101,7 +103,10 @@ const integrationDetail = {
     title: 'Stripe',
     category: 'payment',
     credentials: {
-      fields: [{ key: 'publishableKey', label: 'Publishable Key', type: 'text', required: false }],
+      fields: [
+        { key: 'publishableKey', label: 'Publishable Key', type: 'text', required: false },
+        { key: 'secretKey', label: 'Secret Key', type: 'secret', required: true },
+      ],
     },
   },
   state: {
@@ -140,7 +145,7 @@ function makeResponse(status: number, body: unknown): Response {
   } as unknown as Response
 }
 
-function mockApiResponses() {
+function mockApiResponses(secretConfigured = true) {
   apiCallMock.mockImplementation((url: unknown, init?: RequestInit) => {
     const href = typeof url === 'string' ? url : ''
     const method = (init?.method ?? 'GET').toUpperCase()
@@ -153,7 +158,14 @@ function mockApiResponses() {
           response: makeResponse(409, conflictBody),
         })
       }
-      const body = { credentials: { publishableKey: 'pk_test_123' }, updatedAt: '2026-06-29T09:00:00.000Z' }
+      const body = {
+        credentials: {
+          publishableKey: 'pk_test_123',
+          ...(secretConfigured ? { secretKey: '__om_secret_unchanged__' } : {}),
+        },
+        secretFieldsConfigured: { secretKey: secretConfigured },
+        updatedAt: '2026-06-29T09:00:00.000Z',
+      }
       return Promise.resolve({ ok: true, status: 200, result: body, response: makeResponse(200, body) })
     }
     if (href.includes('/logs')) {
@@ -188,6 +200,19 @@ describe('Integration credentials — optimistic-lock conflict surfacing (#3676)
       expect(form).not.toBeNull()
     })
 
+    const secretField = container.querySelector('[data-crud-field-id="secretKey"]')
+    const secretInput = secretField?.querySelector('input')
+    expect(secretInput).not.toBeNull()
+    expect(secretInput).toHaveValue('')
+    expect(secretField).toHaveTextContent('Configured. Enter a new value to replace it.')
+    expect(container).not.toHaveTextContent('__om_secret_unchanged__')
+
+    const revealButton = secretField?.querySelector('button[aria-pressed]')
+    expect(revealButton).not.toBeNull()
+    fireEvent.click(revealButton as HTMLButtonElement)
+    expect(secretInput).toHaveAttribute('type', 'text')
+    expect(secretInput).toHaveValue('')
+
     await act(async () => {
       fireEvent.submit(form as unknown as HTMLFormElement)
     })
@@ -207,5 +232,37 @@ describe('Integration credentials — optimistic-lock conflict surfacing (#3676)
       ([, init]) => (init as RequestInit | undefined)?.method === 'PUT',
     )
     expect(putCall).toBeTruthy()
+    expect(JSON.parse(String((putCall?.[1] as RequestInit).body))).toEqual({
+      credentials: { publishableKey: 'pk_test_123' },
+      unchangedSecretFields: ['secretKey'],
+    })
+  })
+
+  it('keeps an unconfigured required secret mandatory and does not submit an empty value', async () => {
+    apiCallMock.mockReset()
+    mockApiResponses(false)
+
+    const { container } = renderWithProviders(
+      <IntegrationDetailPage params={{ id: 'gateway_stripe' }} />,
+      { dict },
+    )
+
+    let form: HTMLFormElement | null = null
+    await waitFor(() => {
+      form = container.querySelector('form')
+      expect(form).not.toBeNull()
+    })
+
+    await act(async () => {
+      fireEvent.submit(form as HTMLFormElement)
+    })
+
+    const secretField = container.querySelector('[data-crud-field-id="secretKey"]')
+    await waitFor(() => expect(secretField).toHaveTextContent('This field is required'))
+
+    const putCall = apiCallMock.mock.calls.find(
+      ([, init]) => (init as RequestInit | undefined)?.method === 'PUT',
+    )
+    expect(putCall).toBeUndefined()
   })
 })

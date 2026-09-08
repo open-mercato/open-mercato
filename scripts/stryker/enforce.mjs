@@ -19,10 +19,13 @@
  *
  * Usage:
  *   node scripts/stryker/enforce.mjs <mutation.json> [--threshold 70] [--min-mutants 20]
+ *                                    [--covered a.ts,b.ts] [--uncovered c.ts]
  *
  * Exits 1 only when enforcement is enabled AND the run genuinely failed — including
  * the case where no report exists at all, since an absent report is missing evidence
- * rather than a pass.
+ * rather than a pass. The one exception is a mutation step that was never invoked
+ * because every changed file was uncovered; `--covered` / `--uncovered` tell the two
+ * causes apart, exactly as `renderMissingReportMarkdown` does for the job summary.
  *
  * @see .ai/specs/2026-07-31-stryker-mutation-testing-ci-gate.md
  */
@@ -101,11 +104,20 @@ export function decideOutcome(report, options = {}) {
   }
 }
 
+function splitFileList(value) {
+  return String(value ?? '')
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry !== '')
+}
+
 export function parseEnforceArgs(argv) {
   const args = {
     reportPath: null,
     threshold: DEFAULT_BREAK_THRESHOLD,
     minMutants: DEFAULT_MIN_MUTANTS,
+    coveredFiles: [],
+    uncoveredFiles: [],
   }
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -115,6 +127,12 @@ export function parseEnforceArgs(argv) {
     } else if (argv[index] === '--min-mutants' && index + 1 < argv.length) {
       args.minMutants = Number(argv[index + 1])
       index += 1
+    } else if (argv[index] === '--covered' && index + 1 < argv.length) {
+      args.coveredFiles = splitFileList(argv[index + 1])
+      index += 1
+    } else if (argv[index] === '--uncovered' && index + 1 < argv.length) {
+      args.uncoveredFiles = splitFileList(argv[index + 1])
+      index += 1
     } else if (args.reportPath === null) {
       args.reportPath = argv[index]
     }
@@ -123,25 +141,64 @@ export function parseEnforceArgs(argv) {
   return args
 }
 
+/**
+ * The verdict for a run that left no `mutation.json` behind.
+ *
+ * A missing report has two causes, and only one of them is a failure. Stryker can
+ * crash or be misconfigured — missing evidence, not evidence of a pass, so with
+ * enforcement on that fails closed. Or the mutation step was skipped because every
+ * changed file had no related test, in which case Stryker was never asked to produce
+ * a report and there is nothing to fail on: that is issue #5281's whole point, and
+ * failing there would just relocate the aborted gate from Stryker to this module.
+ *
+ * `coveredFiles` disambiguates them, mirroring `renderMissingReportMarkdown`: empty
+ * covered plus a non-empty uncovered list means the skip path. Both empty means the
+ * caller passed no partition information at all, so the two causes are
+ * indistinguishable and the fail-closed rule stands.
+ *
+ * The pass verdict here matches `decideOutcome`'s existing "no mutants were
+ * generated" case: "Stryker had nothing to run" and "Stryker ran and scored nothing"
+ * are the same amount of evidence.
+ *
+ * @returns {{ shouldFail: boolean, reason: string }}
+ */
+export function decideMissingReportOutcome(options = {}) {
+  const { coveredFiles = [], uncoveredFiles = [], enforce = false } = options
+
+  if (coveredFiles.length === 0 && uncoveredFiles.length > 0) {
+    return {
+      shouldFail: false,
+      reason:
+        `${uncoveredFiles.length} changed file(s) need tests, so the mutation run was ` +
+        `skipped and there is nothing to score: ${uncoveredFiles.join(', ')}.`,
+    }
+  }
+
+  if (enforce) {
+    return {
+      shouldFail: true,
+      reason: 'No mutation report found and enforcement is enabled; failing closed.',
+    }
+  }
+
+  return {
+    shouldFail: false,
+    reason: 'No mutation report found; nothing to enforce (advisory).',
+  }
+}
+
 function main() {
   const args = parseEnforceArgs(process.argv.slice(2))
 
-  // A missing report means the run produced no evidence, which is not the same as
-  // evidence of a pass. While enforcement is off that distinction does not matter and
-  // this stays advisory; with enforcement on, the module that owns the pass/fail
-  // decision must not answer "no data ⇒ pass" — an absent report is the shape a
-  // crashed or misconfigured mutation step takes, so it fails closed.
   if (args.reportPath === null || !fs.existsSync(args.reportPath)) {
-    if (isEnforcementEnabled()) {
-      process.stdout.write(
-        '[stryker:enforce] No mutation report found and enforcement is enabled; failing closed.\n',
-      )
-      process.exit(1)
-    }
+    const outcome = decideMissingReportOutcome({
+      coveredFiles: args.coveredFiles,
+      uncoveredFiles: args.uncoveredFiles,
+      enforce: isEnforcementEnabled(),
+    })
 
-    process.stdout.write(
-      '[stryker:enforce] No mutation report found; nothing to enforce (advisory).\n',
-    )
+    process.stdout.write(`[stryker:enforce] ${outcome.reason}\n`)
+    if (outcome.shouldFail) process.exit(1)
     return
   }
 

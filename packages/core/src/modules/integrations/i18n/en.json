@@ -15,6 +15,7 @@
   "integrations.detail.credentials.save": "Save Credentials",
   "integrations.detail.credentials.saveError": "Failed to save credentials",
   "integrations.detail.credentials.saved": "Credentials saved",
+  "integrations.detail.credentials.secretConfigured": "Configured. Enter a new value to replace it.",
   "integrations.detail.credentials.validation.boolean": "Select a valid value.",
   "integrations.detail.credentials.validation.option": "Select one of the available options.",
   "integrations.detail.credentials.validation.required": "{field} is required.",

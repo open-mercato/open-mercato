@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { useRouter, useParams, usePathname } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
@@ -53,18 +53,10 @@ type RuleSetDetail = {
   }>
 }
 
-export default function EditRuleSetPage() {
+export default function EditRuleSetPage({ params }: { params?: { id?: string } }) {
   const router = useRouter()
-  const params = useParams()
   const pathname = usePathname()
-
-  // Handle catch-all route: params.slug = ['sets', 'uuid']
-  let setId: string | undefined
-  if (params?.slug && Array.isArray(params.slug)) {
-    setId = params.slug[1] // Second element is the ID
-  } else if (params?.id) {
-    setId = Array.isArray(params.id) ? params.id[0] : params.id
-  }
+  const setId = params?.id
 
   const t = useT()
   const { organizationId, tenantId } = useOrganizationScopeDetail()

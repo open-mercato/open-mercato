@@ -1,7 +1,9 @@
+import { createHash } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager as CoreEntityManager } from '@mikro-orm/core'
 import type { EntityManager as PgEntityManager } from '@mikro-orm/postgresql'
+import { runWithCacheTenant } from '@open-mercato/cache'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
@@ -11,14 +13,24 @@ import type { ExchangeRateService } from '@open-mercato/core/modules/currencies/
 import { parseBooleanFromUnknown } from '@open-mercato/shared/lib/boolean'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import type { CrudCtx } from '@open-mercato/shared/lib/crud/factory'
+import {
+  buildCollectionTags,
+  debugCrudCache,
+  isCrudCacheEnabled,
+  resolveCrudCache,
+} from '@open-mercato/shared/lib/crud/cache'
+import { readQueryParamList } from '@open-mercato/shared/lib/crud/query-params'
 import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { fetchStuckDealIds } from '../../../lib/stuckDeals'
+import { expandDealStatusAliases } from '../../../lib/dealStatus'
 import { findMatchingEntityIdsBySearchTokensAcrossSources } from '../../utils'
 import { E } from '#generated/entities.ids.generated'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('customers')
+const DEALS_AGGREGATE_CACHE_RESOURCE = 'customers.deal'
+const DEALS_AGGREGATE_CACHE_TTL_MS = 30_000
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['customers.deals.view'] },
@@ -27,7 +39,7 @@ export const metadata = {
 const querySchema = z.object({
   pipelineId: z.string().uuid().optional(),
   search: z.string().optional(),
-  status: z.array(z.enum(['open', 'closed', 'win', 'loose'])).optional(),
+  status: z.array(z.string().max(50)).max(20).optional(),
   ownerUserId: z.array(z.string().uuid()).optional(),
   personId: z.array(z.string().uuid()).optional(),
   companyId: z.array(z.string().uuid()).optional(),
@@ -42,6 +54,40 @@ const querySchema = z.object({
   expectedCloseAtFrom: z.string().optional(),
   expectedCloseAtTo: z.string().optional(),
 })
+
+type AggregateQuery = z.infer<typeof querySchema>
+
+function normalizeStringSet(values: string[] | undefined): string[] {
+  return Array.from(new Set((values ?? []).map((value) => value.trim())))
+    .sort((left, right) => (left < right ? -1 : left > right ? 1 : 0))
+}
+
+function buildDealsAggregateCacheKey(params: {
+  tenantId: string
+  currencyScopeOrganizationId: string | null
+  organizationIds: string[]
+  query: AggregateQuery
+}): string {
+  const signature = {
+    tenantId: params.tenantId,
+    currencyScopeOrganizationId: params.currencyScopeOrganizationId,
+    organizationIds: normalizeStringSet(params.organizationIds),
+    pipelineId: params.query.pipelineId ?? null,
+    status: normalizeStringSet(params.query.status),
+    ownerUserId: normalizeStringSet(params.query.ownerUserId),
+    personId: normalizeStringSet(params.query.personId),
+    companyId: normalizeStringSet(params.query.companyId),
+    expectedCloseAtFrom: params.query.expectedCloseAtFrom ?? null,
+    expectedCloseAtTo: params.query.expectedCloseAtTo ?? null,
+    isOverdue: params.query.isOverdue === true,
+  }
+  const digest = createHash('sha256').update(JSON.stringify(signature)).digest('hex')
+  return `customers:deal:aggregate:v1:${digest}`
+}
+
+function isDealsAggregateCacheEligible(searchParams: URLSearchParams): boolean {
+  return !searchParams.has('search') && !searchParams.has('isStuck')
+}
 
 type StageBreakdownByCurrency = {
   currency: string
@@ -121,11 +167,8 @@ export const openApi: OpenApiRouteDoc = {
 }
 
 function readArrayParam(searchParams: URLSearchParams, key: string): string[] | null {
-  const all = searchParams.getAll(key)
-  if (!all.length) return null
-  const flat = all.flatMap((v) => v.split(','))
-  const trimmed = flat.map((s) => s.trim()).filter(Boolean)
-  return trimmed.length ? trimmed : null
+  const values = readQueryParamList(searchParams, key)
+  return values.length ? values : null
 }
 
 function restrictToIds(where: string[], values: Array<string | number | null>, ids: string[]) {
@@ -176,6 +219,42 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
   const orgFilterIds = await resolveDealsOrganizationIds({ em, scope, auth, tenantId: effectiveTenantId })
+  const aggregateCache = isDealsAggregateCacheEligible(params) && isCrudCacheEnabled()
+    ? resolveCrudCache(container)
+    : null
+  const aggregateCacheKey = aggregateCache
+    ? buildDealsAggregateCacheKey({
+        tenantId: effectiveTenantId,
+        currencyScopeOrganizationId: orgFilterIds[0] ?? null,
+        organizationIds: orgFilterIds,
+        query: parsed.data,
+      })
+    : null
+
+  if (aggregateCache && aggregateCacheKey) {
+    try {
+      const cached = await runWithCacheTenant(
+        effectiveTenantId,
+        () => aggregateCache.get(aggregateCacheKey),
+      )
+      const cachedResponse = aggregateResponseSchema.safeParse(cached)
+      if (cachedResponse.success) {
+        return NextResponse.json(cachedResponse.data)
+      }
+      if (cached !== null && cached !== undefined) {
+        debugCrudCache('get-invalid', {
+          resource: DEALS_AGGREGATE_CACHE_RESOURCE,
+          key: aggregateCacheKey,
+        })
+      }
+    } catch (err) {
+      debugCrudCache('get', {
+        resource: DEALS_AGGREGATE_CACHE_RESOURCE,
+        key: aggregateCacheKey,
+        error: err instanceof Error ? err.message : String(err),
+      })
+    }
+  }
 
   // Raw SQL is used here intentionally — the route only projects non-encrypted columns
   // (`pipeline_stage_id`, `value_amount`, `value_currency`, `status`, plus filters). It
@@ -247,9 +326,11 @@ export async function GET(req: Request) {
     }
   }
   if (parsed.data.status && parsed.data.status.length) {
-    const placeholders = parsed.data.status.map(() => '?').join(',')
+    // Non-empty input always expands to a non-empty set, so this always narrows.
+    const expandedStatuses = expandDealStatusAliases(parsed.data.status)
+    const placeholders = expandedStatuses.map(() => '?').join(',')
     where.push(`status IN (${placeholders})`)
-    values.push(...parsed.data.status)
+    values.push(...expandedStatuses)
   }
   if (parsed.data.ownerUserId && parsed.data.ownerUserId.length) {
     const placeholders = parsed.data.ownerUserId.map(() => '?').join(',')
@@ -265,7 +346,14 @@ export async function GET(req: Request) {
     values.push(parsed.data.expectedCloseAtTo)
   }
   if (parsed.data.isOverdue) {
-    where.push("expected_close_at < CURRENT_DATE AND status = 'open'")
+    // Mirror the list route's precedence: the caller-supplied status filter wins, and
+    // status='open' is injected only when none was provided.
+    const hasCallerStatus = !!parsed.data.status?.length
+    if (hasCallerStatus) {
+      where.push('expected_close_at < CURRENT_DATE')
+    } else {
+      where.push("expected_close_at < CURRENT_DATE AND status = 'open'")
+    }
   }
   if (parsed.data.isStuck) {
     // Reuse the list endpoint's stuck-deal lookup so kanban headers, lane counts, and the
@@ -433,6 +521,28 @@ export async function GET(req: Request) {
   const response: AggregateResponse = {
     baseCurrencyCode,
     perStage: Array.from(stageMap.values()),
+  }
+
+  if (aggregateCache && aggregateCacheKey) {
+    try {
+      await runWithCacheTenant(
+        effectiveTenantId,
+        () => aggregateCache.set(aggregateCacheKey, response, {
+          ttl: DEALS_AGGREGATE_CACHE_TTL_MS,
+          tags: buildCollectionTags(
+            DEALS_AGGREGATE_CACHE_RESOURCE,
+            effectiveTenantId,
+            normalizeStringSet(orgFilterIds),
+          ),
+        }),
+      )
+    } catch (err) {
+      debugCrudCache('store', {
+        resource: DEALS_AGGREGATE_CACHE_RESOURCE,
+        key: aggregateCacheKey,
+        error: err instanceof Error ? err.message : String(err),
+      })
+    }
   }
 
   return NextResponse.json(response)

@@ -8,6 +8,42 @@ export type SenderOption = {
   description?: string | null
 }
 
+type SenderOptionSource = {
+  senderUserId?: string | null
+  senderName?: string | null
+  senderEmail?: string | null
+}
+
+/**
+ * Sender-filter options derived from the rows currently in the list.
+ *
+ * The filter narrows by `senderUserId`, so a row only yields an honest option
+ * when it also carries the platform identity behind that id. Ingested external
+ * mail does not: every such message in a tenant is composed under one
+ * system-user id, so labelling that id with one external sender's name would
+ * collapse every external sender into a single option that quietly returns all
+ * of their mail. Those rows are skipped, and the directory-loaded options —
+ * which are real platform users — stand alone.
+ */
+export function buildSenderOptionsFromMessages(items: SenderOptionSource[]): SenderOption[] {
+  return items.flatMap((item): SenderOption[] => {
+    if (typeof item.senderUserId !== 'string' || item.senderUserId.trim().length === 0) return []
+    const name = typeof item.senderName === 'string' && item.senderName.trim().length > 0
+      ? item.senderName.trim()
+      : null
+    const email = typeof item.senderEmail === 'string' && item.senderEmail.trim().length > 0
+      ? item.senderEmail.trim()
+      : null
+    const label = name ?? email
+    if (!label) return []
+    return [{
+      value: item.senderUserId,
+      label,
+      description: email && email !== label ? email : null,
+    }]
+  })
+}
+
 export type MessagesInboxFilterContext = {
   t: Translator
   typeOptions: { value: string; label: string }[]

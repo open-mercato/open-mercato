@@ -346,6 +346,71 @@ test('template baseline modules keep example and design_system unregistered for 
   assert.ok(content.includes("enabledModules.push({ id: 'example_customers_sync', from: '@app' })"))
 })
 
+test('template baseline installs every enabled Documents package', () => {
+  const templateRoot = join(__dirname, '..', '..', 'template')
+  const modulesSource = readFileSync(join(templateRoot, 'src', 'modules.ts'), 'utf-8')
+  const nextConfigSource = readFileSync(join(templateRoot, 'next.config.ts'), 'utf-8')
+  const packageTemplate = JSON.parse(readFileSync(join(templateRoot, 'package.json.template'), 'utf-8')) as {
+    dependencies?: Record<string, string>
+    scripts?: Record<string, string>
+  }
+  const environmentTemplate = readFileSync(join(templateRoot, '.env.example'), 'utf-8')
+  const dockerfile = readFileSync(join(templateRoot, 'Dockerfile'), 'utf-8')
+  const fullAppCompose = readFileSync(join(templateRoot, 'docker-compose.fullapp.yml'), 'utf-8')
+
+  assert.ok(modulesSource.includes("{ id: 'documents', from: '@open-mercato/documents' }"))
+  assert.equal(packageTemplate.dependencies?.['@open-mercato/documents'], '{{PACKAGE_VERSION}}')
+  assert.equal(
+    packageTemplate.scripts?.['documents:collab'],
+    'node ./node_modules/@open-mercato/documents/dist/server/documents-collab-server.js',
+  )
+  assert.match(nextConfigSource, /serverExternalPackages:[\s\S]*'puppeteer-core'/)
+  assert.match(nextConfigSource, /serverExternalPackages:[\s\S]*'jszip'/)
+  assert.match(environmentTemplate, /^NEXT_PUBLIC_DOCUMENTS_COLLAB_URL=/m)
+  assert.match(environmentTemplate, /^DOCUMENTS_COLLAB_JWT_SECRET_V2=$/m)
+  assert.match(environmentTemplate, /^DOCUMENTS_COLLAB_ALLOWED_ORIGINS=/m)
+  assert.match(dockerfile, /^ARG NEXT_PUBLIC_DOCUMENTS_COLLAB_URL$/m)
+  assert.doesNotMatch(dockerfile, /RUN node -e '[^']*NEXT_PUBLIC_DOCUMENTS_COLLAB_URL/)
+  assert.doesNotMatch(dockerfile, /ARG NEXT_PUBLIC_DOCUMENTS_COLLAB_URL=ws:\/\/localhost:4101/)
+  assert.match(dockerfile, /ENV NEXT_PUBLIC_DOCUMENTS_COLLAB_URL=\$\{NEXT_PUBLIC_DOCUMENTS_COLLAB_URL\}/)
+  assert.match(dockerfile, /EXPOSE \$\{CONTAINER_PORT\} \$\{DOCUMENTS_COLLAB_PORT\}/)
+  assert.match(dockerfile, /PUPPETEER_EXECUTABLE_PATH=\/usr\/bin\/chromium/)
+  assert.match(dockerfile, /ARG INSTALL_CHROMIUM=0/)
+  assert.match(dockerfile, /if \[ "\$INSTALL_CHROMIUM" = "1" \]/)
+  assert.match(dockerfile, /apk add --no-cache ca-certificates chromium openssl/)
+  assert.match(
+    fullAppCompose,
+    /NEXT_PUBLIC_DOCUMENTS_COLLAB_URL=\$\{NEXT_PUBLIC_DOCUMENTS_COLLAB_URL:-\}/,
+  )
+  assert.doesNotMatch(fullAppCompose, /NEXT_PUBLIC_DOCUMENTS_COLLAB_URL[^\n]*:-ws:\/\/localhost/)
+  assert.match(
+    fullAppCompose,
+    /DOCUMENTS_COLLAB_JWT_SECRET_V2: \$\{DOCUMENTS_COLLAB_JWT_SECRET_V2:-\}/,
+  )
+  assert.doesNotMatch(fullAppCompose, /change-me-documents-collab-v2-secret/)
+  assert.doesNotMatch(fullAppCompose, /DOCUMENTS_COLLAB[^\n]*\$\{[^}]*:\?/)
+  assert.match(fullAppCompose, /APP_URL: \$\{APP_URL:-http:\/\/localhost:3000\}/)
+  assert.match(
+    fullAppCompose,
+    /DOCUMENTS_COLLAB_ALLOWED_ORIGINS: \$\{DOCUMENTS_COLLAB_ALLOWED_ORIGINS:-\$\{APP_URL\}\}/,
+  )
+  assert.doesNotMatch(fullAppCompose, /DOCUMENTS_COLLAB_ALLOWED_ORIGINS[^\n]*localhost/)
+  assert.match(fullAppCompose, /documents-collab:[\s\S]*command: \["yarn", "documents:collab"\]/)
+  assert.match(fullAppCompose, /documents-collab:\s*\n\s+profiles:\s*\n\s+- documents-collab/)
+  assert.match(fullAppCompose, /INSTALL_CHROMIUM=\$\{INSTALL_CHROMIUM:-0\}/)
+})
+
+test('production image does not abort for a misconfigured collaboration endpoint', () => {
+  const dockerfile = readFileSync(
+    join(__dirname, '..', '..', 'template', 'Dockerfile'),
+    'utf-8',
+  )
+
+  assert.match(dockerfile, /^ARG NEXT_PUBLIC_DOCUMENTS_COLLAB_URL$/m)
+  assert.match(dockerfile, /ENV NEXT_PUBLIC_DOCUMENTS_COLLAB_URL=\$\{NEXT_PUBLIC_DOCUMENTS_COLLAB_URL\}/)
+  assert.doesNotMatch(dockerfile, /RUN node -e '[^']*NEXT_PUBLIC_DOCUMENTS_COLLAB_URL/)
+})
+
 test('monorepo keeps the applied Example nav override integration-only', () => {
   const monorepoContent = readFileSync(join(__dirname, '..', '..', '..', '..', 'apps', 'mercato', 'src', 'modules.ts'), 'utf-8')
   const monorepoEntry = extractExampleModuleEntry(monorepoContent)
