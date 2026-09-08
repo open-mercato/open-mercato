@@ -54,12 +54,12 @@ export function FilterFieldPicker({ fields, open, onOpenChange, onSelect, trigge
     const map = new Map<string, FilterFieldDef[]>()
     const order: string[] = []
     for (const f of filtered) {
-      const g = f.group ?? 'More'
+      const g = f.group ?? t('ui.advancedFilter.fieldPicker.ungrouped', 'More')
       if (!map.has(g)) { map.set(g, []); order.push(g) }
       map.get(g)!.push(f)
     }
     return order.map(g => ({ group: g, items: map.get(g)! }))
-  }, [filtered])
+  }, [filtered, t])
 
   const flatVisible = React.useMemo(() => grouped.flatMap(g => g.items), [grouped])
 
@@ -103,7 +103,7 @@ export function FilterFieldPicker({ fields, open, onOpenChange, onSelect, trigge
           <div className="max-h-[400px] overflow-y-auto py-1" role="listbox">
             {grouped.map(({ group, items }) => (
               <div key={group}>
-                <div className="px-3 pt-2 pb-1 text-overline font-semibold uppercase tracking-widest text-muted-foreground">{group}</div>
+                <div className="px-3 pt-2 pb-1 text-overline font-semibold uppercase tracking-widest text-muted-foreground">{t(group, group)}</div>
                 {items.map((f) => {
                   const flatIdx = flatVisible.indexOf(f)
                   const Icon = resolveIcon(f)

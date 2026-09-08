@@ -736,6 +736,7 @@
   "ui.advancedFilter.error.textTooShort": "Escribe al menos 3 caracteres",
   "ui.advancedFilter.fieldPicker.hint": "Consejo: escribe para buscar, ↑↓ para navegar, Enter para seleccionar",
   "ui.advancedFilter.fieldPicker.search": "Buscar campo…",
+  "ui.advancedFilter.fieldPicker.ungrouped": "Más",
   "ui.advancedFilter.limitDepthHint": "Has alcanzado la profundidad máxima de anidación ({max} niveles). Usa la palabra de conexión para invertir el conector de este grupo.",
   "ui.advancedFilter.limitDepthReached": "Profundidad máxima de anidación alcanzada",
   "ui.advancedFilter.limitTotalReached": "Maximum {max} conditions reached",

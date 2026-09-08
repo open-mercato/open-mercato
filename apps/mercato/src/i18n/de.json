@@ -736,6 +736,7 @@
   "ui.advancedFilter.error.textTooShort": "Tippe mindestens 3 Zeichen",
   "ui.advancedFilter.fieldPicker.hint": "Tipp: Tippen zum Suchen, ↑↓ zum Navigieren, Enter zum Auswählen",
   "ui.advancedFilter.fieldPicker.search": "Feld suchen…",
+  "ui.advancedFilter.fieldPicker.ungrouped": "Weitere",
   "ui.advancedFilter.limitDepthHint": "Du hast die maximale Schachtelungstiefe erreicht ({max} Ebenen). Nutze das Konnektor-Wort, um den Konnektor dieser Gruppe umzuschalten.",
   "ui.advancedFilter.limitDepthReached": "Maximale Schachtelungstiefe erreicht",
   "ui.advancedFilter.limitTotalReached": "Maximum {max} conditions reached",

@@ -227,7 +227,7 @@ export function ColumnChooserSection({
                   onClick={() => toggleGroup(group)}
                 >
                   <ChevronRight className={`size-4 transition-transform ${isCollapsed ? '' : 'rotate-90'}`} />
-                  <span>{group}</span>
+                  <span>{t(group, group)}</span>
                 </Button>
                 {!isCollapsed ? (
                   <div className="space-y-2 mt-2">
