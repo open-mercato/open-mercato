@@ -26,7 +26,9 @@ const logger = createLogger('ui')
 
 // Coarse-pointer devices never fire hover, so the hover-only reveal would leave the
 // edit trigger permanently at opacity-0 and untappable. Keep it visible there instead.
-const INLINE_TRIGGER_HIDDEN_CLASSES =
+// Exported so sibling inline editors outside this file share one definition rather than
+// re-deriving it — the drift that left these triggers hover-only in the first place.
+export const INLINE_TRIGGER_HIDDEN_CLASSES =
   'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100'
 
 function resolveInlineErrorMessage(err: unknown, fallbackMessage: string): string {
