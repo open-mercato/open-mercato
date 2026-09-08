@@ -49,7 +49,17 @@ const PL_DICT = {
   'customers.timeline.planned.tomorrow': 'Jutro {{time}}',
 }
 
+// A fixed local "now" so the day-boundary cases below never depend on the wall-clock
+// time the suite happens to run at — without it, a "later today" fixture flips to the
+// overdue branch when the run starts late in the evening and silently stops exercising
+// formatScheduledDate at all.
+const FIXED_NOW = new Date(2026, 3, 10, 9, 0, 0)
+
 describe('PlannedActivitiesSection', () => {
+  afterEach(() => {
+    jest.useRealTimers()
+  })
+
   it('marks an overdue activity done without opening the edit flow', () => {
     const onComplete = jest.fn()
     const onEdit = jest.fn()
@@ -117,6 +127,7 @@ describe('PlannedActivitiesSection', () => {
   })
 
   it('treats the whole of tomorrow as tomorrow, at both ends of the local calendar day (#5933)', () => {
+    jest.useFakeTimers().setSystemTime(FIXED_NOW)
     renderWithProviders(
       <PlannedActivitiesSection
         activities={[
@@ -131,6 +142,7 @@ describe('PlannedActivitiesSection', () => {
   })
 
   it('does not label activities outside tomorrow as tomorrow', () => {
+    jest.useFakeTimers().setSystemTime(FIXED_NOW)
     renderWithProviders(
       <PlannedActivitiesSection
         activities={[
