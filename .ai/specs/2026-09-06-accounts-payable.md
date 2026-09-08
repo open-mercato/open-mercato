@@ -304,6 +304,29 @@ config UI) and is **read** by `accounts_payable_payments` — the one
 intentional coupling point between the two modules besides the FK
 itself, documented explicitly in both documents to avoid drift.
 
+**No per-vendor `LedgerAccount` — contractor-level tracking lives in
+this module's own tables (control-account / subsidiary-ledger
+pattern).** Contractors deliberately do not get their own account in
+the chart of accounts. `accounts_payable.liabilityAccountId` is a
+single, shared control account for all vendors — the standard
+control-account pattern in double-entry bookkeeping. The per-vendor
+breakdown ("how much do we owe Contractor X") lives as ordinary
+application data — this module's `VendorInvoice` table and
+`accounts_payable_payments`, both keyed by `vendorId` (plain FK-id) —
+which together are the subsidiary ledger (księgi pomocnicze) that
+GL's own spec already anticipated in its Out of Scope section ("fall
+naturally out of a future Accounts Payable / Accounts Receivable
+module", `2026-08-18-general-ledger-core-engine.md`), now realized
+here rather than as a GL-level mechanism. Consequence: a question
+about "immutability of a contractor's account" doesn't apply to
+`LedgerAccount` at all — no such account exists. Protection against
+stale contractor data (e.g. a changed bank account) already happens
+one level down, at `JournalEntryLine.contractorSnapshot` (column
+defined in `2026-08-18-general-ledger-core-engine.md`'s Design
+decisions; see `2026-09-06-journal-entry-line-dimension.md` for why
+it's handled this way rather than as a dimension row), not at the
+chart-of-accounts level.
+
 ### Alternatives considered
 
 | Alternative | Why Rejected |
@@ -1296,3 +1319,19 @@ before being accepted (not taken on the reviewing agent's word alone):
   also documented in the sibling payments document.
 - Updated the Final Compliance Report (Compliance Matrix, Non-Compliant
   Items, Verdict) to record all of the above.
+
+### 2026-09-08 (cont. — control-account / subsidiary-ledger design
+decision)
+
+Added a Design Decision documenting that `liabilityAccountId` (the
+shared control account) together with `VendorInvoice.vendorId` (this
+module's own tables) implement the standard control-account /
+subsidiary-ledger accounting pattern — in response to a maintainer
+question about the correct archetype for handling a contractor's
+account/bank-detail changes. This confirms rather than changes the
+existing architecture; cross-checked against `2026-08-18-general-
+ledger-core-engine.md`'s Out of Scope section (which already
+anticipated this design) and `2026-09-06-journal-entry-line-
+dimension.md` (where contractor-data-change protection actually
+lives, via `contractorSnapshot`) — both updated in the same round to
+keep the three documents consistent.
