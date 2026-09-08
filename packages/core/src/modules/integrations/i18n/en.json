@@ -11,6 +11,7 @@
   "integrations.detail.back": "Back to Integrations",
   "integrations.detail.backToList": "Back to integrations",
   "integrations.detail.credentials.bundleShared": "Shared credentials from bundle: {bundle}",
+  "integrations.detail.credentials.noPermission": "You do not have permission to manage credentials for this integration.",
   "integrations.detail.credentials.notConfigured": "No credentials configured yet",
   "integrations.detail.credentials.save": "Save Credentials",
   "integrations.detail.credentials.saveError": "Failed to save credentials",
