@@ -49,6 +49,8 @@ Specs awaiting implementation or partially complete. Focus here for actionable w
 
 | SPEC | Date | Title | Description |
 | --- | --- | --- | --- |
+| [Contractor Registry](2026-09-06-contractor-registry.md) | 2026-09-06 | Contractor Registry | Shared registry for contractor tax identity (NIP/GUS/VIES) and bank accounts, with mandatory live VAT-whitelist (Biała Lista) verification at every payment per Art. 96b, plus a workflow-based new-vendor approval gate — consumed by Accounts Payable and the future AR path; deliberately excludes CRM (stays in `customers`) and payment execution (stays in AP); **moved here 2026-09-08 — not yet merged, PR #5955** |
+| [Contractor Registry — Implementation Guide](2026-09-06-contractor-registry-implementation-guide.md) | 2026-09-06 | Contractor Registry — Implementation Guide | Short build-order companion to the full spec: entity cheat sheet, one worked vendor-registration-to-payment flow, and the pitfalls (DI-resolvable whitelist check vs. HTTP-only, cache-never-shortcuts-live-check, unconditional NIP immutability, the ledger-facing delete guard that was removed) a developer implementing it needs to know upfront; **moved here 2026-09-08 — not yet merged, PR #5955** |
 | [SPEC-008](SPEC-008-2026-01-27-product-quality-widget.md) | 2026-01-27 | Product Quality Widget | Dashboard widget for tracking products with missing images/descriptions |
 | [SPEC-012](implemented/SPEC-012-2026-01-27-ai-assistant-schema-discovery.md) | 2026-01-27 | AI Assistant Schema Discovery | Entity schema extraction and OpenAPI integration for MCP tools |
 | [SPEC-018](implemented/SPEC-018-2026-02-05-safe-entity-flush.md) | 2026-02-05 | Atomic Phased Flush | `withAtomicFlush` — N-phase flush pipeline with optional transactions to prevent UoW data loss and partial commits |
@@ -205,8 +207,6 @@ Fully implemented and deployed. Canonical files live in [`implemented/`](impleme
 | [SPEC-066](implemented/SPEC-066-2026-03-15-official-modules-changesets-release-workflow.md) | 2026-03-15 | Official Modules Changesets Release Workflow | Changesets-based release workflow for official modules |
 | [Checkout Pay Links](implemented/2026-03-19-checkout-pay-links.md) | 2026-03-19 | Checkout Pay Links | Pay link generation and checkout flow (Phase A) |
 | [Checkout Wireframes](implemented/2026-03-19-checkout-pay-links-wireframes.md) | 2026-03-19 | Checkout Pay Links Wireframes | Companion wireframes for the Checkout Pay Links spec |
-| [Contractor Registry](2026-09-06-contractor-registry.md) | 2026-09-06 | Contractor Registry | Shared registry for contractor tax identity (NIP/GUS/VIES) and bank accounts, with mandatory live VAT-whitelist (Biała Lista) verification at every payment per Art. 96b — consumed by Accounts Payable and the future AR path; deliberately excludes CRM (stays in `customers`) and payment execution (stays in AP) |
-| [Contractor Registry — Implementation Guide](2026-09-06-contractor-registry-implementation-guide.md) | 2026-09-06 | Contractor Registry — Implementation Guide | Short build-order companion to the full spec: entity cheat sheet, one worked vendor-registration-to-payment flow, and the pitfalls (DI-resolvable whitelist check vs. HTTP-only, cache-never-shortcuts-live-check, unconditional NIP immutability) a developer implementing it needs to know upfront |
 
 ## Specification Structure
 

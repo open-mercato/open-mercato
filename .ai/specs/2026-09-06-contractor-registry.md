@@ -1,16 +1,18 @@
 # Contractor Registry — shared contractor registry (AP + AR)
 
-**Related:** [Accounts Payable](2026-09-06-accounts-payable.md) (consumer
-— vendor registration/verification), [Accounts Payable —
+**Related:** [Accounts Payable](2026-09-06-accounts-payable.md)
+(consumer — vendor registration/verification; **pending, not yet
+merged into `develop` — PR #5962**), [Accounts Payable —
 Payments](2026-09-06-accounts-payable-payments.md) (consumer — the
 module that actually resolves `contractorBankWhitelistCheck` via
 `tryResolve` at payment time, per AP's own split; **added
-2026-09-08**, see Changelog), sales-invoice-gl-posting (consumer —
-customers, indirectly through `sales`; **planned, not yet written**
-spec — see `2026-08-18-general-ledger-core-engine.md` Out of scope),
-[General Ledger core engine](2026-08-18-general-ledger-core-engine.md)
+2026-09-08**, see Changelog; **pending, not yet merged — PR #5962**),
+sales-invoice-gl-posting (consumer — customers, indirectly through
+`sales`; **planned, not yet written** spec — see
+`2026-08-18-general-ledger-core-engine.md` Out of scope), [General
+Ledger core engine](2026-08-18-general-ledger-core-engine.md)
 (`JournalEntryLine` gets a new `contractorSnapshot` field from this
-spec)
+spec; **pending, not yet merged — PR #5663**)
 
 ## TLDR
 
@@ -57,6 +59,17 @@ test (`__integration__/TC-CRM-078.spec.ts`) — `roleType` is a
 `z.string()` field (free text, not an enum; see `data/validators.ts`),
 so "vendor" isn't a recognized domain concept there, just a sample
 free-text value.
+
+Verification (GUS/VIES/whitelist) genuinely has no existing surface
+anywhere in the repo. Tax-ID *data entry*, however, is not entirely
+new: `customers`' `AddressEditor` already offers a `taxIdType` of
+`plNip`/`euVat`/`other` with a `taxId` value on an address, carried
+through `sales` document addresses, and `customers/search.ts` already
+treats `tax_id`/`registration_number` as hash-only fields. This module
+deliberately leaves that address-level field alone — it doesn't
+attempt to migrate or unify with it — and introduces a second place a
+NIP can be entered. Accepted as a real but minor duplication, not a
+reason to delay a dedicated registry.
 
 All entities in `customers` carry both `organizationId` and
 `tenantId` (a separate `Tenant` lives in `modules/directory`), and
@@ -326,6 +339,107 @@ encrypted column without a hash doesn't work.
 (financial data, PII). Reads go through
 `findWithDecryption`/`findOneWithDecryption`, never hand-rolled crypto.
 
+**Delete guard: drop the `JournalEntryLine` half (2026-09-08,
+maintainer review).** The original design blocked `Contractor`
+deletion "if it has any `JournalEntryLine` references via snapshot" —
+but `JournalEntryLine` belongs to `ledger`, a downstream consumer of
+this module, and checking it from here would require `contractors` to
+import or resolve something belonging to its own consumer, exactly the
+direction `packages/core/AGENTS.md` forbids ("the upstream/depended-on
+module MUST NOT import, resolve, or hard-require the consumer") — the
+same rule this document already quotes correctly for the
+`accounts_payable_payments` relationship (see Cross-module
+integration). It would also fail `module-decoupling.test.ts` the
+moment `ledger` is disabled, since the referenced table wouldn't
+exist. Dropped entirely: `contractorSnapshot` exists specifically so a
+historical journal entry never needs the `Contractor` row to still
+exist (a denormalized, point-in-time copy — see
+`2026-08-18-general-ledger-core-engine.md`), and deletion here is a
+soft delete (`deletedAt`) besides, so the row remains physically
+present regardless. The only delete guard this module enforces is its
+own: an active `ContractorBankAccount`. Whether `accounts_payable`'s
+open `VendorInvoice.vendorId` references should also block a
+contractor's deletion is a legitimate question, but belongs to AP's
+own design (it owns that FK), not to this module's ACL.
+
+**`gusData`/`viesData` narrowed to non-PII diagnostics (2026-09-08,
+maintainer review).** The original design stored the raw GUS/VIES API
+response verbatim (`jsonb`) for diagnostics. For a sole proprietorship
+(JDG), that raw response carries the owner's personal name and often a
+residential address — the exact fields this module's own encryption
+map already encrypts on `Contractor.name`/`Contractor.address` — so
+the raw blob silently duplicated the same PII in plaintext beside its
+encrypted counterpart, reducing the encryption to decoration for
+anyone with table or backup access. Narrowed to typed, non-PII fields
+only: `lastCheckStatus` (the registry's own status/response code),
+`lastCheckedAt`, `lastCheckRequestId` — enough to debug a failed
+lookup without persisting the underlying personal data a second time,
+in a form this module cannot redact on a GDPR erasure request. If a
+raw payload genuinely proves necessary for diagnostics later, it must
+be declared in the encryption map like every other PII field, with a
+stated retention/purge policy — not assumed safe because it's "just
+diagnostics."
+
+**Approval gate gets a real enforcement point: `checkBankAccountWhitelist`
+(2026-09-08, maintainer review).** Confirming the vendor-approval gate
+in scope (2026-09-08 as it happened) settled the workflow's
+*mechanism* but left its *consequence* undefined: `approvalStatus` and
+`verificationStatus` were specified as independent fields with
+"nothing in Phase 1 blocks Accounts Payable from using a
+`PENDING_APPROVAL` contractor" left as an open question for AP. A
+control nothing consults is documentation, not a control — the entire
+fraud-prevention argument in Problem Statement/Design decisions would
+fire zero times in practice. Resolved: `checkBankAccountWhitelist` —
+already the sanctioned, DI-resolved choke point every payment goes
+through (see Commands, Cross-module integration) — now also rejects
+with a typed error when the contractor's `approvalStatus` is not
+`APPROVED`, before it makes the live Biała Lista call. This folds the
+human-approval gate into the same call site AP already depends on,
+rather than requiring AP to separately read and interpret
+`approvalStatus` itself. This closes the Out of scope item below of
+the same name.
+
+**Four-eyes needs its own permission: `contractors.approve`
+(2026-09-08, maintainer review).** The original ACL required
+`contractors.manage` for both `createContractor` and
+`applyContractorApprovalDecision` — the same single feature on both
+sides of the split the approval gate exists to create, so the user who
+registers a vendor can also approve their own registration, defeating
+the four-eyes rationale in Problem Statement/Design decisions outright
+(the exact internal fictitious-vendor scheme the fraud research warns
+about). Split: `applyContractorApprovalDecision` now requires a
+distinct `contractors.approve` feature, not `contractors.manage`.
+`applyContractorApprovalDecision` additionally rejects a decision
+where the acting user is the same as the contractor's
+`createdByUserId` — explicit self-approval is blocked even for a user
+who happens to hold both features. `Contractor` gains a
+`createdByUserId` column to make this check possible.
+
+**`isPrimary` and the `nip`/`nipHash` uniqueness constraint get
+partial indexes, not the reasoning originally given (2026-09-08,
+maintainer review).** Two corrections. First,
+`ContractorBankAccount.isPrimary`'s command-only invariant was
+justified by "this repo's general preference for command-enforced
+business rules over database-level ones" — that preference doesn't
+exist; both real precedents for an "exactly one primary" invariant in
+this repo (`communication_channels_one_primary_per_user_uq`,
+`customer_deal_people_primary_uq`) use a partial unique index. Added:
+`create unique index "contractor_bank_account_one_primary_uq" on
+"contractor_bank_account" ("contractor_id") where "is_primary" and
+"deleted_at" is null`, keeping the command's unset-the-other-primary
+logic as the ergonomic path (so a normal request never hits the
+constraint) and removing the previously accepted concurrent-race
+residual risk, which the index now closes at the database level.
+Second, the `nipHash` uniqueness constraint (`UNIQUE (tenant_id,
+organization_id, nip_hash)`) didn't account for this entity's own
+`deletedAt` soft delete: a soft-deleted row still occupies the unique
+tuple, so re-registering the same NIP — including by the legitimate
+contractor it actually belongs to — would 409 forever, with no
+correction path since `nip` is unconditionally immutable. Changed to a
+partial index scoped `where "deleted_at" is null`, the same shape as
+`communication_channels_one_primary_per_user_uq`: a soft-deleted
+registration frees its NIP for re-registration.
+
 ### Alternatives considered
 
 | Alternative | Why Rejected |
@@ -361,14 +475,18 @@ encrypted column without a hash doesn't work.
 
 - `Contractor` — `isVendor` (bool), `isCustomer` (bool), `name`,
   `nip` (+ `nipHash` for lookup on the encrypted column, unique per
-  `(tenant_id, organization_id)` — duplicate detection), `address`,
+  `(tenant_id, organization_id)` while `deletedAt` is null — a partial
+  index, see Design decisions — duplicate detection), `address`,
   `contactEmail`, `contactPhone`, `verificationStatus`
-  (`PENDING`/`VERIFIED`/`FAILED`), `gusData`/`viesData` (`jsonb`, the
-  raw response from the last check — diagnostics, not a source of
-  truth), tenant/org scoped, `updatedAt` (user-editable → optimistic
-  lock), `deletedAt` (soft delete — per the standard column contract;
-  deletion blocked if the contractor has any `JournalEntryLine`
-  references via snapshot or any active `ContractorBankAccount`).
+  (`PENDING`/`VERIFIED`/`FAILED`), `lastCheckStatus`/`lastCheckedAt`/
+  `lastCheckRequestId` (typed, non-PII registry-check diagnostics —
+  see Design decisions; **not** the raw GUS/VIES response),
+  `createdByUserId` (see Design decisions — backs the self-approval
+  guard on `applyContractorApprovalDecision`), tenant/org scoped,
+  `updatedAt` (user-editable → optimistic lock), `deletedAt` (soft
+  delete — per the standard column contract; deletion blocked only
+  while an active `ContractorBankAccount` exists — a `JournalEntryLine`
+  check was considered and dropped, see Design decisions).
   Confirmed in scope, 2026-09-08 (see Design decisions):
   `approvalStatus`
   (`PENDING_APPROVAL`/`APPROVED`/`REJECTED`), `approvedByUserId`,
@@ -376,13 +494,15 @@ encrypted column without a hash doesn't work.
   inside the workflow, never through `updateContractor` (see Design
   decisions, Workflow definition). `verificationStatus` (GUS/VIES) and
   `approvalStatus` (human approve/reject) are independent, parallel
-  fields — Phase 1 does not gate one on the other, and nothing in
-  Phase 1 blocks Accounts Payable from using a `PENDING_APPROVAL`
-  contractor; whether it should is a real, still-open question this
-  document does not resolve (see Out of scope).
+  fields — Phase 1 does not gate registration or verification on
+  approval, but `checkBankAccountWhitelist` does gate on it (see
+  Design decisions, Commands): a `PENDING_APPROVAL`/`REJECTED`
+  contractor's bank account can never pass the live whitelist call a
+  payment depends on.
 - `ContractorBankAccount` — `contractorId` (FK to `Contractor`),
   `accountNumber` (encrypted), `isPrimary` (bool — exactly one primary
-  per contractor, enforced in the command), `lastVerifiedAt` (nullable,
+  per contractor, enforced by both the command and a partial unique
+  index, see Design decisions), `lastVerifiedAt` (nullable,
   UX cache — see Design decisions), `lastVerificationStatus`
   (`WHITELISTED`/`NOT_WHITELISTED`/`UNKNOWN`, UX cache), its own
   `organizationId`/`tenantId` (own scope columns, matching the
@@ -399,15 +519,24 @@ Following the `customers` module convention
 export const features = [
   { id: 'contractors.view', title: 'View contractors', module: 'contractors' },
   { id: 'contractors.manage', title: 'Manage contractors', module: 'contractors', dependsOn: ['contractors.view'] },
+  { id: 'contractors.approve', title: 'Approve contractors', module: 'contractors', dependsOn: ['contractors.view'] },
 ]
 ```
 
 `createContractor`/`updateContractor`/`createContractorBankAccount`/
-`updateContractorBankAccount`/`applyContractorApprovalDecision` require
-`contractors.manage`; `checkBankAccountWhitelist` requires
-`contractors.view` (read-only check, callable by anyone who can see
-the contractor — the actual payment-blocking decision belongs to AP's
-own guard, not to this module's ACL).
+`updateContractorBankAccount` require `contractors.manage` at the
+route/page level (a plain `registerCommand` carries no ACL of its
+own — enforcement is declarative, via `metadata.requireFeatures` on
+the API route and on the backend page). `applyContractorApprovalDecision`
+requires `contractors.approve`, not `contractors.manage` (see Design
+decisions) — enforced via `registerWorkflowSafeCommands`'s
+`requiredFeatures`, the one command-adjacent ACL mechanism that
+actually exists in this repo. `checkBankAccountWhitelist`'s own HTTP
+route (this module's "verify now" button) requires `contractors.view`.
+The DI-resolved path used by `accounts_payable_payments` (see DI
+Registrar, Cross-module integration) bypasses this route entirely and
+is unguarded by design — the caller owns authorization for its own
+request, the same as any other `tryResolve`d service call.
 
 ### Module Setup (`setup.ts`)
 
@@ -439,12 +568,14 @@ review — see Changelog).
   standard CRUD; `isPrimary: true` on one account automatically
   unsets it on any other account for the same contractor (single
   invariant enforced in the command, not left to the client).
-- `checkBankAccountWhitelist` — **not a plain query**: performs a live
-  call to the Ministry of Finance's Biała Lista API for the given
-  `accountNumber` and `nip`, returns the fresh result to the caller,
-  and — as a side effect only — updates
-  `lastVerifiedAt`/`lastVerificationStatus` on the matching
-  `ContractorBankAccount` for UX display. Never reads
+- `checkBankAccountWhitelist` — **not a plain query**: first rejects
+  with a typed error, before any network call, if the contractor's
+  `approvalStatus` is not `APPROVED` (see Design decisions,
+  2026-09-08) — otherwise performs a live call to the Ministry of
+  Finance's Biała Lista API for the given `accountNumber` and `nip`,
+  returns the fresh result to the caller, and — as a side effect
+  only — updates `lastVerifiedAt`/`lastVerificationStatus` on the
+  matching `ContractorBankAccount` for UX display. Never reads
   `lastVerifiedAt` to short-circuit the live call (see Design
   decisions). Idempotent to call repeatedly. Registered in `di.ts` as
   a resolvable service (see DI Registrar above) — this is the
@@ -456,8 +587,12 @@ review — see Changelog).
   `contractors.vendor-approval` workflow (not directly from the UI),
   via `UPDATE_ENTITY`, `PENDING_APPROVAL` → `APPROVED` or `REJECTED`
   and nothing else (accepts no other fields). Registered separately in
-  `registerWorkflowSafeCommands`, requires `contractors.manage`.
-  **Deliberately not `updateContractor`** — see Design decisions
+  `registerWorkflowSafeCommands`, requires `contractors.approve`, a
+  distinct feature from `contractors.manage` (see Design decisions,
+  2026-09-08) — and additionally rejects the decision if the acting
+  user equals the contractor's own `createdByUserId` (self-approval
+  guard, see Design decisions). **Deliberately not `updateContractor`**
+  — see Design decisions
   ("`approveContractor`'s mechanism is now resolved") for the
   contradiction this avoids, mirroring AP's identical fix to the same
   latent issue in `sales.order-approval`. **Reversibility (added
@@ -502,7 +637,7 @@ import { defineWorkflow, createWorkflowsModuleConfig } from '@open-mercato/share
 import { registerWorkflowSafeCommands } from '@open-mercato/core/modules/workflows/lib/workflow-safe-commands'
 
 registerWorkflowSafeCommands([
-  { commandId: 'contractors.contractor.applyApprovalDecision', requiredFeatures: ['contractors.manage'] },
+  { commandId: 'contractors.contractor.applyApprovalDecision', requiredFeatures: ['contractors.approve'] },
 ])
 
 const vendorApproval = defineWorkflow({
@@ -646,16 +781,19 @@ or hard-require the consumer."
 ### Contractor
 
 One row per contractor. `nip`/`nipHash` unique per
-`(tenant_id, organization_id)` — enforces one registration per tax
+`(tenant_id, organization_id)` while `deletedAt` is null — a partial
+index, see Design decisions — enforces one registration per tax
 identity within an organization and backs duplicate detection at
-`createContractor`. `verificationStatus` starts `PENDING`, moves to
-`VERIFIED`/`FAILED` asynchronously via the `verifyContractorRegistry`
-worker. `gusData`/`viesData` store the raw response from the most
-recent check for diagnostics — never read as a source of truth by any
-command, only surfaced in the UI. `deletedAt` blocks deletion while any
-`JournalEntryLine.contractorSnapshot` references this contractor or any
+`createContractor`, while letting a soft-deleted registration free its
+NIP for re-registration. `verificationStatus` starts `PENDING`, moves
+to `VERIFIED`/`FAILED` asynchronously via the `verifyContractorRegistry`
+worker. `lastCheckStatus`/`lastCheckedAt`/`lastCheckRequestId` —
+typed, non-PII diagnostics only, never the raw GUS/VIES payload (see
+Design decisions) — never read as a source of truth by any command,
+only surfaced in the UI. `deletedAt` blocks deletion only while an
 active `ContractorBankAccount` exists (enforced in `updateContractor`'s
-delete path — see Commands).
+delete path — see Commands); a `JournalEntryLine`-based guard was
+considered and dropped (see Design decisions).
 
 Confirmed in scope, 2026-09-08 (see Design decisions):
 `approvalStatus` (`PENDING_APPROVAL`/`APPROVED`/`REJECTED`),
@@ -673,11 +811,10 @@ the composite-index approach in #5663's `journal_entry`/
 
 One row per bank account registered for a contractor. `accountNumber`
 encrypted at rest. `isPrimary` — exactly one `true` per contractor,
-enforced by the command layer, not a database constraint (a partial
-unique index would work too but the command-level invariant is
-simpler and matches this repo's general preference for
-command-enforced business rules over database-level ones beyond raw
-integrity). `lastVerifiedAt`/`lastVerificationStatus` — UX cache only,
+enforced by both the command (unsets any existing primary in the same
+transaction) and a partial unique index at the database level (see
+Design decisions), closing the concurrent-race gap a command-only
+invariant would leave open. `lastVerifiedAt`/`lastVerificationStatus` — UX cache only,
 written only as a side effect of `checkBankAccountWhitelist`, never
 read by any command to skip the live check (see Design decisions).
 Own `organizationId`/`tenantId` (see Design decisions).
@@ -698,6 +835,9 @@ Standard `makeCrudRoute` list + create.
 - **Create body**: `{ isVendor, isCustomer, name, nip, address,
   contactEmail, contactPhone }`. `verificationStatus` not settable —
   always starts `PENDING`.
+- **Response shape** (list/detail): includes `updatedAt` on every
+  row, per root `AGENTS.md`'s requirement so `CrudForm` can
+  auto-derive the optimistic-lock header for `PUT` below.
 - **Response 403**: caller lacks `contractors.view` (list) or
   `contractors.manage` (create).
 - **Response 409** (create): `nip` already registered for this
@@ -716,7 +856,8 @@ Standard `makeCrudRoute` update.
 ### `GET /api/contractors/:id/bank-accounts` / `POST .../bank-accounts`
 
 Standard `makeCrudRoute` list + create, scoped to the parent
-contractor.
+contractor. **Response shape** (list): includes `updatedAt` per row,
+same rationale as `GET /api/contractors` above.
 
 - **Create body**: `{ accountNumber, isPrimary? }`.
 
@@ -816,6 +957,7 @@ exactly as `sales.order-approval` and
 | `events.ts` | Create | **Confirmed in scope, 2026-09-08** — `contractors.contractor.created`, the workflow's sole trigger |
 | `widgets/injection/vendor-approval/` | Create | **In `workflows`, not this module** — approval-task widget injected into `contractors.contractor.detail:details`, mirroring `workflows/widgets/injection/order-approval/` |
 | `commands/contractors.ts` | Update | Adds `applyContractorApprovalDecision`, called only from inside the workflow |
+| `i18n/` | Create | Locale keys for status labels (`PENDING`/`VERIFIED`/`FAILED`, `WHITELISTED`/`NOT_WHITELISTED`/`UNKNOWN`, `PENDING_APPROVAL`/`APPROVED`/`REJECTED`), the "last checked: N days ago" badge, the "Verify now" button, and 400/409/502 error copy — per root `AGENTS.md`'s "never hard-code user-facing strings" rule |
 | `api/openapi.ts` | Create | `openApi` exports for every route above |
 | `backend/contractors/page.tsx` (+ create/[id]) | Create | List/create/edit UI with inline bank-account sub-list |
 | `commands/__tests__/*` | Create | Regression coverage |
@@ -853,7 +995,7 @@ exactly as `sales.order-approval` and
   never any other transition.
 - Assert `verifyContractorRegistry` worker is idempotent — running it
   twice for the same contractor does not duplicate or corrupt
-  `gusData`/`viesData`.
+  `lastCheckStatus`/`lastCheckedAt`/`lastCheckRequestId`.
 - Assert encryption round-trip: `nip`/`address`/`contactEmail`/
   `contactPhone`/`accountNumber` are stored encrypted and returned in
   plaintext only through `findWithDecryption`.
@@ -863,6 +1005,31 @@ exactly as `sales.order-approval` and
   `contractors.view`; the verify route returns 200 with a fresh
   `checkedAt` on each call (not a cached timestamp) and 502 when the
   Biała Lista API is unavailable.
+- **Confirmed 2026-09-08 (maintainer review):** assert
+  `checkBankAccountWhitelist` rejects with a typed error — never
+  reaching the live API client — when `approvalStatus` is
+  `PENDING_APPROVAL` or `REJECTED`, and proceeds normally once
+  `APPROVED`.
+- Assert `applyContractorApprovalDecision` rejects a decision where
+  the acting user equals `createdByUserId`, even when that user holds
+  both `contractors.manage` and `contractors.approve`.
+- Assert `Contractor.lastCheckStatus`/`lastCheckedAt`/
+  `lastCheckRequestId` never contain the raw GUS/VIES response, and
+  that no `gusData`/`viesData` column exists.
+- Assert deleting a contractor with an active `ContractorBankAccount`
+  is blocked; assert deleting a contractor with `JournalEntryLine`
+  history but no active bank accounts succeeds — the corrected
+  behavior after the ledger-side guard was dropped (see Design
+  decisions).
+- Assert `contractor_bank_account_one_primary_uq` and the NIP partial
+  uniqueness index both exist and are exercised at the database level
+  (a raw insert bypassing the command still fails for two primaries or
+  two live NIPs), and that re-registering a soft-deleted NIP succeeds.
+- Reserved integration test category: `TC-CONTRACTOR-*`, including a
+  `__integration__/TC-CONTRACTOR-CRUDFORM-001.spec.ts` covering the
+  `Contractor` create/update `CrudForm` flow end to end (list → create
+  → edit → optimistic-lock conflict), per `.ai/qa/AGENTS.md`'s
+  mandatory CRUDFORM convention for every module shipping one.
 
 ## Risks & Impact Review
 
@@ -872,20 +1039,61 @@ exactly as `sales.order-approval` and
   NIP within the same organization race past an application-level
   uniqueness check before either commits.
   **Severity**: Medium. **Affected area**: `Contractor` registration.
-  **Mitigation**: `nipHash` carries a `UNIQUE (tenant_id,
-  organization_id, nip_hash)` database constraint, not just an
-  application-level check — the second insert fails at the database
-  regardless of the race. **Residual risk**: none; this is exactly
-  the failure mode a DB unique constraint is for.
+  **Mitigation**: `nipHash` carries a partial `UNIQUE (tenant_id,
+  organization_id, nip_hash) where deleted_at is null` database index
+  (see Design decisions), not just an application-level check — the
+  second insert fails at the database regardless of the race.
+  **Residual risk**: none; this is exactly the failure mode a DB
+  unique index is for.
+- **Scenario (found in maintainer review, 2026-09-08)**: a contractor
+  is registered with a NIP, has no bank accounts or ledger references,
+  and is soft-deleted (`deletedAt` set). The organization later tries
+  to register that same NIP again — including the legitimate
+  contractor it actually belongs to. **Severity**: Medium. **Affected
+  area**: `Contractor` registration. **Mitigation**: the uniqueness
+  index above is scoped `where deleted_at is null` (see Design
+  decisions, Data Models) — a soft-deleted row no longer occupies the
+  unique tuple, so re-registration succeeds. **Residual risk**: none —
+  this was a real gap in an earlier draft (a plain, unscoped unique
+  constraint would have burned the NIP permanently, since `nip` is
+  unconditionally immutable and cannot be corrected on the old row
+  either), closed by scoping the index to match this entity's own
+  soft-delete column.
 - **Scenario**: `createContractorBankAccount` sets `isPrimary: true`
   concurrently on two different accounts for the same contractor.
   **Severity**: Low. **Affected area**: `ContractorBankAccount`.
   **Mitigation**: command re-reads and unsets any existing primary
-  inside the same transaction as the insert/update. **Residual risk**:
-  a genuine race could still produce two primaries momentarily under
-  extreme concurrency (no DB-level partial unique index) — acceptable
-  for a low-frequency, human-initiated action; revisit if it proves to
-  matter in practice.
+  inside the same transaction as the insert/update, backed by a
+  partial unique index at the database level (see Design decisions).
+  **Residual risk**: none — the index closes the concurrent-race gap
+  the command alone would leave open; the command's unset-the-other
+  logic stays as the ergonomic path so a normal request never hits the
+  constraint.
+- **Scenario (found in maintainer review, 2026-09-08)**: the same user
+  who registers a fictitious vendor (holding `contractors.manage`)
+  also completes its own approval task. **Severity**: High — this is
+  precisely the internal fraud scheme the approval gate exists to
+  prevent. **Affected area**: `applyContractorApprovalDecision`.
+  **Mitigation**: `contractors.approve` is a distinct feature from
+  `contractors.manage` (see Design decisions, Access Control), and the
+  command additionally rejects a decision where the acting user equals
+  the contractor's `createdByUserId`, regardless of which features
+  they hold. **Residual risk**: none identified beyond two different
+  colluding accounts, which is an organizational control, not a
+  technical one.
+- **Scenario (found in maintainer review, 2026-09-08)**: a contractor
+  is registered and left `PENDING_APPROVAL` indefinitely;
+  `accounts_payable_payments` attempts a payment to it before anyone
+  acts on the approval task. **Severity**: High — defeats the entire
+  fraud-prevention rationale for the gate. **Affected area**:
+  `checkBankAccountWhitelist`, `accounts_payable_payments`'s payment
+  flow. **Mitigation**: `checkBankAccountWhitelist` rejects with a
+  typed error before making the live Biała Lista call whenever
+  `approvalStatus !== 'APPROVED'` (see Design decisions, Commands) —
+  `accounts_payable_payments` already treats any error from this call
+  as "block the payment" (see Cross-module integration), so no change
+  is needed on AP's side. **Residual risk**: none identified — every
+  payment path already goes through this single choke point.
 
 ### Cascading failures & side effects
 
@@ -973,11 +1181,12 @@ independently of AP, which does not yet exist.
   replaced by the `JournalEntryLine.contractorSnapshot` point-in-time
   copy (see Design decisions) — no separate audit-log table for every
   field change.
-- **Whether Accounts Payable should block using a contractor still in
-  `PENDING_APPROVAL` status.** Phase 1 does not gate on this — `Contractor`
-  exposes `approvalStatus` as a field AP can read, but this document
-  doesn't mandate AP enforce it before a first payment. Left as an
-  open question for AP's own design (see Architecture → Entities).
+- ~~Whether Accounts Payable should block using a contractor still
+  in `PENDING_APPROVAL` status.~~ **Resolved 2026-09-08, no longer out
+  of scope** — `checkBankAccountWhitelist` itself now rejects a
+  non-`APPROVED` contractor before AP's payment flow ever reaches the
+  live check (see Design decisions, Commands). AP does not need to
+  separately read or interpret `approvalStatus`.
 
 ## Final Compliance Report — 2026-09-07
 
@@ -1003,9 +1212,13 @@ independently of AP, which does not yet exist.
 | `AGENTS.md` | Write operations via Command pattern | Compliant | All mutations go through `createContractor`/`updateContractor`, `createContractorBankAccount`/`updateContractorBankAccount`, `checkBankAccountWhitelist` |
 | `AGENTS.md` / core `AGENTS.md` | Declarative feature guards; `acl.ts` synced to `setup.ts` | Compliant | Two `contractors.*` features, `defaultRoleFeatures` in `setup.ts`, `sync-role-acls` in Implementation Plan step 2 |
 | Core `AGENTS.md` § Database Entities | User-editable entities MUST include `updated_at` | Compliant | Both entities have `updatedAt`; `CrudForm` auto-derives the lock header |
-| Core `AGENTS.md` § Database Entities | Standard column contract includes `deleted_at` | Compliant | Both entities have `deletedAt` (soft delete); deletion of `Contractor` blocked while snapshot references or active bank accounts exist |
+| Core `AGENTS.md` § Database Entities | Standard column contract includes `deleted_at` | Compliant | Both entities have `deletedAt` (soft delete); deletion of `Contractor` blocked only while an active `ContractorBankAccount` exists — a `JournalEntryLine`-based check was dropped, see Design decisions |
 | `packages/core/AGENTS.md` → API Routes | All API route files MUST export `openApi` | Compliant | `api/openapi.ts` in File Manifest and Implementation Plan step 7, covering every route in this module |
-| `packages/core/AGENTS.md` → Encryption | GDPR/PII fields declared in `<module>/encryption.ts`, read via `findWithDecryption` | Compliant | `contractors:contractor` (name, address, contact, `nip`+`nipHash`) and `contractors:contractor_bank_account` (`account_number`) both declared |
+| `packages/core/AGENTS.md` → Encryption | GDPR/PII fields declared in `<module>/encryption.ts`, read via `findWithDecryption` | **Compliant (fixed 2026-09-08, maintainer review)** | `contractors:contractor` (name, address, contact, `nip`+`nipHash`) and `contractors:contractor_bank_account` (`account_number`) both declared. Originally, `gusData`/`viesData` stored the raw GUS/VIES payload — which duplicates the same PII in plaintext for a JDG contractor — outside this map entirely; narrowed to typed, non-PII diagnostic fields instead (see Design decisions) |
+| `packages/core/AGENTS.md` → Cross-Module Coupling | Upstream module MUST NOT import, resolve, or hard-require its own consumer | **Compliant (fixed 2026-09-08, maintainer review)** | The `Contractor` delete guard originally checked `ledger`'s `JournalEntryLine` from inside this (upstream) module — the exact inverted direction this same rule forbids, and a `module-decoupling.test.ts` failure waiting to happen. Dropped; `contractorSnapshot` already makes this unnecessary (see Design decisions) |
+| Problem Statement / fraud-prevention rationale (four-eyes) | The approval gate must actually separate "who registers" from "who approves" | **Compliant (fixed 2026-09-08, maintainer review)** | Both were gated on the same `contractors.manage` feature, permitting self-approval. Split into `contractors.manage` / `contractors.approve`, plus an explicit `createdByUserId` self-approval check (see Design decisions, Access Control) |
+| Problem Statement / fraud-prevention rationale (approval enforcement) | A control must have an actual enforcement point, not just a status field | **Compliant (fixed 2026-09-08, maintainer review)** | `approvalStatus` was previously read by nothing — `checkBankAccountWhitelist` now rejects a non-`APPROVED` contractor before any payment can reach the live check (see Design decisions, Commands, Out of scope) |
+| Root `AGENTS.md` | Never hard-code user-facing strings — use locale files | **Compliant (fixed 2026-09-08, maintainer review)** | File Manifest was missing an `i18n/` entry entirely, unlike every other core module; added |
 | `packages/queue/AGENTS.md` | Workers MUST be idempotent; MUST export `metadata: { queue, id?, concurrency? }` | Compliant | `verifyContractorRegistry.ts` follows the exact shape verified against `customers/workers/*.ts` |
 | `packages/ui/AGENTS.md` | `CrudForm`/`DataTable`; guarded row actions via `useGuardedMutation` | Compliant | Contractor list/create/edit use `CrudForm`+`DataTable`. **Resolved 2026-09-08** (superseding the 2026-09-07 correction, which only removed a false citation without replacing the design): the approval step (confirmed in scope, 2026-09-08) now uses the `workflows` engine (`defineWorkflow`/`USER_TASK`), 1:1 with `sales.order-approval`/`accounts_payable.invoice-approval`, not `useGuardedMutation` — consistent with the same principle already settled for `accounts_payable.invoice-approval`: a guarded row action is a real pattern only for a simple, reversible toggle (GL's fiscal-period lock/unlock), not a one-time approve/reject decision. See Design decisions, Workflow definition |
 | `packages/core/AGENTS.md` → Command Side Effects | The workflow's own transition calls a command dedicated to that transition, not the entity's general-purpose update command | **Compliant (fixed this round)** | Carried over from AP's own fix to the identical latent issue in `sales.order-approval` (which reuses `sales.orders.update` for its transition): `applyContractorApprovalDecision` is a separate, narrow command, not `updateContractor` — see Design decisions |
@@ -1027,15 +1240,30 @@ independently of AP, which does not yet exist.
 
 ### Non-Compliant Items
 
-None. `approveContractor` (the one-step vendor approval workflow,
-now `applyContractorApprovalDecision`) was the one item carried as
-**not yet decided** in the prior round; both its scope and its
-mechanism are now resolved (2026-09-08) — see Design decisions,
-backed by explicit research (the AFP's 2025 Payments Fraud and
-Control Survey, the documented limits of the mandatory Biała Lista
-check, and existing ERP precedent in SAP Ariba/ApprovalMax). Final
-sign-off with Łukasz happens through the normal PR review, same as
-every other decision in this document.
+None outstanding. An external maintainer review (PR #5955, 2026-09-08)
+found two blockers (unencrypted PII duplicated in `gusData`/`viesData`;
+the `Contractor` delete guard reading `ledger`'s `JournalEntryLine`,
+inverting the cross-module dependency direction) and six majors (no
+enforcement point for the approval gate; four-eyes defeated by a
+shared ACL feature; missing `i18n/` in the File Manifest; the
+`Contractor Registry` and implementation-guide README rows filed under
+"Fully implemented and deployed"; the implementation guide describing
+the approval gate as still pending after the spec resolved it; the
+`isPrimary` command-only-invariant rationale citing a repo preference
+that doesn't exist), plus five minors/nits (the NIP unique index not
+accounting for soft delete; no reserved `TC-` integration test IDs;
+"Related" documents linking to specs not yet merged; ACL requirements
+attributed to the command layer rather than routes; the existing
+`plNip` address field and `updatedAt` response-shape omissions). All
+addressed in this round — see Design decisions and Changelog. Prior to
+this, `approveContractor` (now `applyContractorApprovalDecision`) was
+the one item carried as **not yet decided**; both its scope and its
+mechanism were resolved 2026-09-08 — see Design decisions, backed by
+explicit research (the AFP's 2025 Payments Fraud and Control Survey,
+the documented limits of the mandatory Biała Lista check, and existing
+ERP precedent in SAP Ariba/ApprovalMax). Final sign-off with Łukasz
+happens through the normal PR review, same as every other decision in
+this document.
 
 ### Verdict
 
@@ -1074,6 +1302,23 @@ shortcut — remain fully threaded through Design decisions, Data
 Models, Commands, Testing Strategy, and Risks. This document unblocks
 the full expansion of `2026-09-06-accounts-payable.md`, which already
 assumed this registry's existence.
+
+**Updated 2026-09-08, after an external maintainer review (PR
+#5955).** The review found real defects this document's own
+self-review and fresh-context checklist passes had missed — precisely
+because they only surface when the design is checked against the
+codebase's actual module-isolation and ACL mechanisms, not against the
+document's own citations. Two blockers and six majors, all now
+resolved (see Design decisions, Compliance Matrix, Non-Compliant
+Items, Changelog): the `gusData`/`viesData` PII duplication, the
+inverted-direction delete guard, the missing approval-gate enforcement
+point, the four-eyes-defeating shared ACL feature, the missing `i18n/`
+manifest entry, the README miscategorization, the implementation-guide
+drift, and the `isPrimary` invariant's mistaken rationale. The
+document's core shape — the separate `ContractorBankAccount` entity,
+the DI/`tryResolve` cross-module design, the workflow-engine approval
+mechanism, the YAGNI deferrals — was not in question; every finding
+was a correction within that shape, not a challenge to it.
 
 ## Changelog
 
@@ -1333,3 +1578,64 @@ stated identically everywhere they recur, and the document
 consistently frames the vendor-approval decision as a recommendation
 for the normal PR review, not an already-audited fact overriding
 Łukasz's sign-off.
+
+### 2026-09-08 (cont. — external maintainer review, PR #5955)
+
+An external maintainer review on the open PR found real defects this
+document's own review rounds had missed, each independently
+re-verified against the real repository before being accepted:
+
+- **Blocker**: `gusData`/`viesData` stored the raw GUS/VIES response
+  verbatim, duplicating PII (a JDG contractor's personal name/address)
+  in plaintext beside the encrypted `name`/`address` columns. Narrowed
+  to typed, non-PII diagnostic fields (`lastCheckStatus`,
+  `lastCheckedAt`, `lastCheckRequestId`); dropped the raw payload.
+- **Blocker**: the `Contractor` delete guard checked `ledger`'s
+  `JournalEntryLine` from inside this upstream module — the exact
+  inverted dependency direction `packages/core/AGENTS.md` forbids, and
+  a document that itself quotes that rule correctly elsewhere.
+  Dropped; `contractorSnapshot` already makes it unnecessary, and
+  deletion here is a soft delete regardless.
+- **Major**: the confirmed approval gate had no enforcement point —
+  nothing blocked AP from using a `PENDING_APPROVAL` contractor.
+  `checkBankAccountWhitelist` now rejects non-`APPROVED` contractors
+  before the live check.
+- **Major**: `createContractor` and `applyContractorApprovalDecision`
+  shared one ACL feature (`contractors.manage`), permitting
+  self-approval and defeating the four-eyes rationale. Split into
+  `contractors.manage`/`contractors.approve` plus an explicit
+  `createdByUserId` self-approval check.
+- **Major**: File Manifest omitted `i18n/` entirely. Added, with the
+  key groups named.
+- **Major**: both README rows filed this and the implementation guide
+  under "Fully implemented and deployed" despite neither being merged.
+  Moved to Pending Specifications (see `.ai/specs/README.md`).
+- **Major**: the implementation guide still described the approval
+  gate as "pending team confirmation" and a 10-step Phase 1, both
+  superseded by this document's own 2026-09-08 resolution (11 steps).
+  Re-synced (see `2026-09-06-contractor-registry-implementation-guide.md`).
+- **Major**: the `isPrimary` command-only-invariant rationale cited
+  "this repo's general preference for command-enforced business rules
+  over database-level ones" — a preference that doesn't exist; both
+  real repo precedents for this exact invariant use a partial unique
+  index. Added `contractor_bank_account_one_primary_uq`.
+- **Minor**: the `nipHash` unique constraint didn't account for this
+  entity's own soft delete, permanently burning a NIP on
+  re-registration after a soft-deleted row. Scoped to a partial index
+  `where deleted_at is null`.
+- **Minor**: no reserved `TC-` integration-test category/IDs, no
+  `CRUDFORM` coverage row despite shipping a full `CrudForm`. Reserved
+  `TC-CONTRACTOR-*`, added the CRUDFORM row.
+- **Minor**: three of four "Related" documents link to specs not yet
+  merged into `develop`. Annotated each with its PR number.
+- **Minor**: ACL requirements were attributed to the command layer;
+  restated as route/page guards, with the DI-resolved path explicitly
+  marked as unguarded by design.
+- **Nit**: Problem Statement didn't acknowledge the existing
+  address-level `plNip` field in `customers`. Added a sentence.
+- **Nit**: API Contracts didn't document `updatedAt` in list/detail
+  response shapes, needed for the optimistic-lock 409 path to be
+  reachable from `CrudForm`. Added.
+
+Updated the Compliance Matrix, Non-Compliant Items, and Verdict to
+record all of the above.
