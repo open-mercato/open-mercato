@@ -415,6 +415,21 @@ where the acting user is the same as the contractor's
 who happens to hold both features. `Contractor` gains a
 `createdByUserId` column to make this check possible.
 
+This deliberately diverges from `sales.order-approval` and
+`2026-09-06-accounts-payable.md`'s own `applyVendorInvoiceApprovalDecision`,
+both of which explicitly accept self-approval as a documented Phase-1
+risk rather than an oversight (see `2026-09-06-accounts-payable.md`,
+"No maker-checker control (self-approval) in Phase 1"). That
+acceptance is consistent with *their* stated rationale — an ordinary
+authorization/oversight step, not a fraud control. It would not be
+consistent here: this document's own Problem Statement justifies the
+entire approval gate specifically as a four-eyes control against
+internal fictitious-vendor registration (see Problem Statement,
+Non-Compliant Items). Accepting self-approval while citing four-eyes
+as the reason for existing would be a direct contradiction within this
+document, not a repo-wide inconsistency — the other two modules never
+made that specific claim.
+
 **`isPrimary` and the `nip`/`nipHash` uniqueness constraint get
 partial indexes, not the reasoning originally given (2026-09-08,
 maintainer review).** Two corrections. First,
@@ -540,9 +555,19 @@ request, the same as any other `tryResolve`d service call.
 
 ### Module Setup (`setup.ts`)
 
-`defaultRoleFeatures` for `admin`/`employee` (mirroring GL's `acl.ts`
-sync pattern). No `seedDefaults` hook — unlike GL's jurisdiction
-dictionaries, there is no system reference data to seed here;
+`defaultRoleFeatures` for `admin`/`employee`, split deliberately
+(2026-09-08, second review pass — the four-eyes fix has no teeth if
+this table isn't spelled out): `admin` gets all three features
+(`contractors.view`/`.manage`/`.approve`); `employee` gets
+`contractors.view`/`.manage` only, **not** `.approve` — the person who
+can register a vendor is, by default, never also the person who can
+approve one. This is the concrete wiring the `contractors.approve`
+feature (see Access Control, Design decisions) depends on; declaring
+the feature without this split would ship the four-eyes fix granted to
+nobody, or worse, silently re-bundled onto the same role as
+`contractors.manage`. Mirrors GL's `acl.ts` sync pattern otherwise. No
+`seedDefaults` hook — unlike GL's jurisdiction dictionaries, there is
+no system reference data to seed here;
 contractors are entirely tenant-authored.
 
 ### DI Registrar (`di.ts`)
@@ -569,7 +594,8 @@ review — see Changelog).
   unsets it on any other account for the same contractor (single
   invariant enforced in the command, not left to the client).
 - `checkBankAccountWhitelist` — **not a plain query**: first rejects
-  with a typed error, before any network call, if the contractor's
+  with `{ code: 'CONTRACTOR_NOT_APPROVED', approvalStatus }` (`422`,
+  see API Contracts), before any network call, if the contractor's
   `approvalStatus` is not `APPROVED` (see Design decisions,
   2026-09-08) — otherwise performs a live call to the Ministry of
   Finance's Biała Lista API for the given `accountNumber` and `nip`,
@@ -589,9 +615,13 @@ review — see Changelog).
   and nothing else (accepts no other fields). Registered separately in
   `registerWorkflowSafeCommands`, requires `contractors.approve`, a
   distinct feature from `contractors.manage` (see Design decisions,
-  2026-09-08) — and additionally rejects the decision if the acting
-  user equals the contractor's own `createdByUserId` (self-approval
-  guard, see Design decisions). **Deliberately not `updateContractor`**
+  2026-09-08) — and additionally rejects with `{ code:
+  'SELF_APPROVAL_NOT_ALLOWED' }` (`422`, surfaced through the generic
+  `POST /api/workflows/tasks/:id/complete` route's error passthrough —
+  this module has no dedicated approval route, see API Contracts) if
+  the acting user equals the contractor's own `createdByUserId`
+  (self-approval guard, see Design decisions). **Deliberately not
+  `updateContractor`**
   — see Design decisions
   ("`approveContractor`'s mechanism is now resolved") for the
   contradiction this avoids, mirroring AP's identical fix to the same
@@ -798,7 +828,11 @@ considered and dropped (see Design decisions).
 Confirmed in scope, 2026-09-08 (see Design decisions):
 `approvalStatus` (`PENDING_APPROVAL`/`APPROVED`/`REJECTED`),
 `approvedByUserId`, `approvedAt` on this entity — also listed
-directly in Architecture → Entities.
+directly in Architecture → Entities. Added 2026-09-08, second review
+pass: `createdByUserId` (set once, at `createContractor` time, to the
+authenticated caller) — backs the self-approval guard on
+`applyContractorApprovalDecision` (see Design decisions, Commands),
+also listed directly in Architecture → Entities.
 
 Supporting index for the `contractors` list filters (see API
 Contracts / Queries-API): `(tenant_id, organization_id, is_vendor,
@@ -869,6 +903,12 @@ Custom write route (mutation guard registry, mapped to `update`).
   always the result of a live call made during this request, never a
   cached value.
 - **Response 403**: caller lacks `contractors.view`.
+- **Response 422 `CONTRACTOR_NOT_APPROVED`** (added 2026-09-08, second
+  review pass): `{ code: 'CONTRACTOR_NOT_APPROVED', approvalStatus }` —
+  `checkBankAccountWhitelist` rejected before making the live call
+  because the contractor's `approvalStatus` isn't `APPROVED` (see
+  Design decisions, Commands). Same shape convention as AP's
+  `FISCAL_PERIOD_LOCKED` (`2026-09-06-accounts-payable.md`).
 - **Response 502**: Biała Lista API unavailable — see Risks.
 
 ### Contractor approval — no dedicated route
@@ -890,7 +930,7 @@ exactly as `sales.order-approval` and
    migration (additive only). Add `encryption.ts` declaring
    `defaultEncryptionMaps` for both entities (`nip` with `hashField:
    'nip_hash'`, `account_number` on the bank account entity).
-2. Add `acl.ts` (two features) and `setup.ts`
+2. Add `acl.ts` (three features — `.view`/`.manage`/`.approve`) and `setup.ts`
    (`defaultRoleFeatures` for `admin`/`employee`); run
    `yarn mercato auth sync-role-acls`.
 3. Implement `createContractor` / `updateContractor` (NIP
@@ -942,10 +982,10 @@ exactly as `sales.order-approval` and
 | File | Action | Purpose |
 | --- | --- | --- |
 | `data/entities.ts` | Create | `Contractor`, `ContractorBankAccount` |
-| `migrations/MigrationXXXXXXXXXXXXXX.ts` | Create | Tables for both entities above |
+| `migrations/MigrationXXXXXXXXXXXXXX.ts` | Create | Tables for both entities above, plus the partial indexes `contractor_bank_account_one_primary_uq` and the `nip_hash` uniqueness index scoped `where deleted_at is null` (see Design decisions) |
 | `encryption.ts` | Create | `defaultEncryptionMaps` for `contractors:contractor` (incl. `nip` → `nip_hash`) and `contractors:contractor_bank_account` |
 | `di.ts` | Create | Registers `contractorBankWhitelistCheck` (`checkBankAccountWhitelist`) for cross-module resolution — see DI Registrar |
-| `acl.ts` | Create | Two `contractors.*` features |
+| `acl.ts` | Create | Three `contractors.*` features (`.view`/`.manage`/`.approve`) |
 | `setup.ts` | Create | `defaultRoleFeatures` for `admin`/`employee`; no `seedDefaults` |
 | `commands/contractors.ts` | Create | `createContractor` / `updateContractor` |
 | `commands/contractorBankAccounts.ts` | Create | `createContractorBankAccount` / `updateContractorBankAccount` / `checkBankAccountWhitelist` |
@@ -1210,7 +1250,7 @@ independently of AP, which does not yet exist.
 | `AGENTS.md` | No direct ORM relationships between modules | Compliant | `contractorSnapshot` on `JournalEntryLine` is a plain `json` copy, not a relation; AP will reference `Contractor` by FK-id only, never an ORM relation |
 | `AGENTS.md` | Filter by tenant/organization | Compliant | `Contractor` and `ContractorBankAccount` both carry their own `organizationId`/`tenantId`, matching the `sales.SalesInvoiceLine` precedent |
 | `AGENTS.md` | Write operations via Command pattern | Compliant | All mutations go through `createContractor`/`updateContractor`, `createContractorBankAccount`/`updateContractorBankAccount`, `checkBankAccountWhitelist` |
-| `AGENTS.md` / core `AGENTS.md` | Declarative feature guards; `acl.ts` synced to `setup.ts` | Compliant | Two `contractors.*` features, `defaultRoleFeatures` in `setup.ts`, `sync-role-acls` in Implementation Plan step 2 |
+| `AGENTS.md` / core `AGENTS.md` | Declarative feature guards; `acl.ts` synced to `setup.ts` | **Compliant (fixed 2026-09-08, second review pass)** | Three `contractors.*` features (`contractors.approve` added for four-eyes, see Design decisions) — `admin` gets all three, `employee` gets `.view`/`.manage` only, so approval always requires a different role than registration even within this repo's two-role default set; `defaultRoleFeatures` in `setup.ts`, `sync-role-acls` in Implementation Plan step 2 |
 | Core `AGENTS.md` § Database Entities | User-editable entities MUST include `updated_at` | Compliant | Both entities have `updatedAt`; `CrudForm` auto-derives the lock header |
 | Core `AGENTS.md` § Database Entities | Standard column contract includes `deleted_at` | Compliant | Both entities have `deletedAt` (soft delete); deletion of `Contractor` blocked only while an active `ContractorBankAccount` exists — a `JournalEntryLine`-based check was dropped, see Design decisions |
 | `packages/core/AGENTS.md` → API Routes | All API route files MUST export `openApi` | Compliant | `api/openapi.ts` in File Manifest and Implementation Plan step 7, covering every route in this module |
