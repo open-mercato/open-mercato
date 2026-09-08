@@ -2202,7 +2202,6 @@
   "customers.people.detail.tasks.completeSuccess": "Aufgabe als erledigt markiert",
   "customers.people.detail.tasks.createSuccess": "Aufgabe erstellt",
   "customers.people.detail.tasks.deleteConfirmAction": "Aufgabe entfernen",
-  "customers.people.detail.tasks.deleteConfirmCancel": "Abbrechen",
   "customers.people.detail.tasks.deleteConfirmDescription": "Die Aufgabe wird aus allen Ansichten entfernt, in denen sie erscheint. Diese Aktion kann nicht rückgängig gemacht werden.",
   "customers.people.detail.tasks.deleteConfirmTitle": "Aufgabe entfernen?",
   "customers.people.detail.tasks.deleteError": "Aufgabe konnte nicht entfernt werden",

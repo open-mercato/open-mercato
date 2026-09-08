@@ -2202,7 +2202,6 @@
   "customers.people.detail.tasks.completeSuccess": "Task marked as done",
   "customers.people.detail.tasks.createSuccess": "Task created",
   "customers.people.detail.tasks.deleteConfirmAction": "Remove task",
-  "customers.people.detail.tasks.deleteConfirmCancel": "Cancel",
   "customers.people.detail.tasks.deleteConfirmDescription": "This task will be removed from every view it appears in. This action cannot be undone.",
   "customers.people.detail.tasks.deleteConfirmTitle": "Remove task?",
   "customers.people.detail.tasks.deleteError": "Failed to remove task",

@@ -2202,7 +2202,6 @@
   "customers.people.detail.tasks.completeSuccess": "Tarea marcada como completada",
   "customers.people.detail.tasks.createSuccess": "Tarea creada",
   "customers.people.detail.tasks.deleteConfirmAction": "Eliminar tarea",
-  "customers.people.detail.tasks.deleteConfirmCancel": "Cancelar",
   "customers.people.detail.tasks.deleteConfirmDescription": "La tarea se eliminará de todas las vistas en las que aparece. Esta acción no se puede deshacer.",
   "customers.people.detail.tasks.deleteConfirmTitle": "¿Eliminar tarea?",
   "customers.people.detail.tasks.deleteError": "No se pudo eliminar la tarea",

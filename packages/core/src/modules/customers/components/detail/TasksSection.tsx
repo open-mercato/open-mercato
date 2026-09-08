@@ -363,7 +363,6 @@ export function TasksSection({
           'This task will be removed from every view it appears in. This action cannot be undone.',
         ),
         confirmText: t('customers.people.detail.tasks.deleteConfirmAction', 'Remove task'),
-        cancelText: t('customers.people.detail.tasks.deleteConfirmCancel', 'Cancel'),
         variant: 'destructive',
       })
       if (!approved) return
