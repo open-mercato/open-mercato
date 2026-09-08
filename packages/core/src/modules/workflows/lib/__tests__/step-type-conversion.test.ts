@@ -13,6 +13,7 @@ import { workflowDefinitionDataSchema } from '../../data/validators'
 import {
   CONVERTIBLE_STEP_TYPES,
   convertStepType,
+  listStepTypeConversionOptions,
   listStepTypeConversionTargets,
   readUnmappedStepConfig,
   type ConvertibleStepType,
@@ -233,5 +234,13 @@ describe('convertStepType — restricted pairs', () => {
     expect(targets.length).toBe(CONVERTIBLE_STEP_TYPES.length - 1)
     expect(listStepTypeConversionTargets('start')).toEqual([])
     expect(listStepTypeConversionTargets(undefined)).toEqual([])
+  })
+
+  test('the inspector option list keeps the current type so the control can show it', () => {
+    const options = listStepTypeConversionOptions('automated')
+    expect(options).toContain('automated')
+    expect(options).toEqual(CONVERTIBLE_STEP_TYPES)
+    expect(listStepTypeConversionOptions('start')).toEqual([])
+    expect(listStepTypeConversionOptions(undefined)).toEqual([])
   })
 })

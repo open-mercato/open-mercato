@@ -102,8 +102,11 @@ test.describe('TC-WF-034: step-type conversion quarantines config visibly', () =
       await openStudio(page, definitionId)
       await openStepInspector(page, 'review')
 
-      // Pick the target type and trigger the conversion.
-      await page.getByRole('combobox', { name: 'New step type' }).click()
+      // The control states what the step is today (issue #5988), and picking a
+      // different type is what arms the conversion.
+      const stepTypeSelect = page.getByRole('combobox', { name: 'Step Type' })
+      await expect(stepTypeSelect).toContainText('USER TASK')
+      await stepTypeSelect.click()
       await page.getByRole('option', { name: 'AUTOMATED', exact: true }).click()
       await page.getByRole('button', { name: 'Change type…' }).click()
 
@@ -124,6 +127,8 @@ test.describe('TC-WF-034: step-type conversion quarantines config visibly', () =
 
       // The quarantine is visible in the inspector, read-only, with the values intact.
       await openStepInspector(page, 'review')
+      // Reopening reports the type the step now HAS, never a blank field (#5988).
+      await expect(page.getByRole('combobox', { name: 'Step Type' })).toContainText('AUTOMATED')
       const drawer = page.locator('details').filter({ hasText: 'Unmapped configuration' })
       await expect(drawer).toBeVisible()
       await drawer.locator('summary').click()

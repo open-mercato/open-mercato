@@ -1604,10 +1604,20 @@ export default function VisualEditorPage() {
     }
   }, [showNodeDialog, showEdgeDialog, nodes, edges, triggers, contextSchema, definitionIo, triggerPayloadContracts])
 
-  const nodeDialogLedgerEntries = useMemo(
-    () => (dialogLedger && selectedNode ? dialogLedger.steps[selectedNode.id]?.entries : undefined),
-    [dialogLedger, selectedNode],
-  )
+  // A step nobody has wired yet has no incoming route, so the fixpoint leaves
+  // its ledger empty and the Input data panel opened on nothing at all (issue
+  // #5988). What such a step will receive once it is wired is exactly what the
+  // run starts with — the START step's ledger IS that initial context, since it
+  // has no incoming transitions either — so an unwired step borrows it rather
+  // than showing the author an empty picker.
+  const nodeDialogLedgerEntries = useMemo(() => {
+    if (!dialogLedger || !selectedNode) return undefined
+    const stepEntries = dialogLedger.steps[selectedNode.id]?.entries
+    if (stepEntries && stepEntries.length > 0) return stepEntries
+    const startNode = nodes.find((candidate) => candidate.type === 'start')
+    const startEntries = startNode ? dialogLedger.steps[startNode.id]?.entries : undefined
+    return startEntries && startEntries.length > 0 ? startEntries : stepEntries
+  }, [dialogLedger, nodes, selectedNode])
 
   // Pinned per-step samples carried inside metadata.editor.samples (spec
   // section 3.6, step 4.4). The page owns the metadata object, so pin/unpin

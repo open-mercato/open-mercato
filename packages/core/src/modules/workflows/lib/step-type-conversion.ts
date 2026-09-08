@@ -127,6 +127,17 @@ export function listStepTypeConversionTargets(sourceType: string | null | undefi
   return CONVERTIBLE_STEP_TYPES.filter((candidate) => candidate !== sourceType)
 }
 
+/**
+ * Every type the inspector's step-type control lists, INCLUDING the step's
+ * current one. The control states what the step is today and changes it by
+ * picking something else, so an options list that omitted the current type
+ * could never render a value for it.
+ */
+export function listStepTypeConversionOptions(sourceType: string | null | undefined): ConvertibleStepType[] {
+  if (!isConvertibleStepType(sourceType)) return []
+  return [...CONVERTIBLE_STEP_TYPES]
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }

@@ -42,6 +42,8 @@ import {
 } from '@open-mercato/ui/primitives/select'
 import { nodeToFormValues, formValuesToNodeUpdates, isJsonSchemaFormat, type NodeFormValues } from '../lib/nodeFormTransforms'
 import {
+  isConvertibleStepType,
+  listStepTypeConversionOptions,
   listStepTypeConversionTargets,
   readUnmappedStepConfig,
   type ConvertibleStepType,
@@ -103,6 +105,11 @@ export function RolesCrudField({ id, value, setValue, disabled }: CrudCustomFiel
  * Conversion is an action on the step, not a form value: it rewrites the node
  * type and its data wholesale, so it runs through its own callback (with a
  * confirmation on the page) instead of the CrudForm submit.
+ *
+ * The select still READS as the step's type: it opens on whatever the step is
+ * today (issue #5988 — it used to open blank on every visit, so it never said
+ * what the step was, not even right after a conversion), and picking a
+ * different entry is what arms "Change type…".
  */
 function StepTypeConversionControl({
   nodeType,
@@ -112,10 +119,19 @@ function StepTypeConversionControl({
   onConvert: (targetType: ConvertibleStepType) => void
 }) {
   const t = useT()
-  const [targetType, setTargetType] = useState<string>('')
-  const targets = useMemo(() => listStepTypeConversionTargets(nodeType), [nodeType])
+  const currentType = isConvertibleStepType(nodeType) ? nodeType : null
+  const options = useMemo(() => listStepTypeConversionOptions(nodeType), [nodeType])
+  const [targetType, setTargetType] = useState<string>(currentType ?? '')
 
-  if (targets.length === 0) return null
+  // A conversion replaces the node type under an already-mounted control, so
+  // the selection follows the step rather than stranding the previous choice.
+  useEffect(() => {
+    setTargetType(currentType ?? '')
+  }, [currentType])
+
+  if (options.length === 0) return null
+
+  const canConvert = targetType.length > 0 && targetType !== currentType
 
   return (
     <div className="space-y-2">
@@ -127,11 +143,11 @@ function StepTypeConversionControl({
       </p>
       <div className="flex items-center gap-2">
         <Select value={targetType} onValueChange={setTargetType}>
-          <SelectTrigger className="w-64" aria-label={t('workflows.stepConversion.targetLabel', 'New step type')}>
+          <SelectTrigger className="w-64" aria-label={t('workflows.steps.stepType')}>
             <SelectValue placeholder={t('workflows.stepConversion.targetPlaceholder', 'Select a step type')} />
           </SelectTrigger>
           <SelectContent>
-            {targets.map((candidate) => (
+            {options.map((candidate) => (
               <SelectItem key={candidate} value={candidate}>
                 {t(`workflows.nodeTypes.${candidate}`)}
               </SelectItem>
@@ -141,9 +157,9 @@ function StepTypeConversionControl({
         <Button
           type="button"
           variant="outline"
-          disabled={!targetType}
+          disabled={!canConvert}
           onClick={() => {
-            if (targetType) onConvert(targetType as ConvertibleStepType)
+            if (canConvert) onConvert(targetType as ConvertibleStepType)
           }}
         >
           {t('workflows.stepConversion.action', 'Change type…')}
