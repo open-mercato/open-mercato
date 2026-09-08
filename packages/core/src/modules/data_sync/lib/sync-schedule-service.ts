@@ -33,6 +33,15 @@ type SchedulerServiceLike = {
     isEnabled?: boolean
   }) => Promise<void>
   unregister: (scheduleId: string) => Promise<void>
+  exists?: (scheduleId: string) => Promise<boolean>
+}
+
+async function scheduledJobExists(scheduler: SchedulerServiceLike, scheduledJobId: string): Promise<boolean> {
+  // A scheduler substitute that cannot answer keeps the pre-existing behaviour:
+  // treat the registration as minted, which compensates rather than stranding an
+  // orphan on the create path where this is by far the likelier outcome.
+  if (!scheduler.exists) return false
+  return scheduler.exists(scheduledJobId)
 }
 
 export function createSyncScheduleService(em: EntityManager, schedulerService?: SchedulerServiceLike) {
@@ -161,12 +170,21 @@ export function createSyncScheduleService(em: EntityManager, schedulerService?: 
 
       const id = existing?.id ?? randomUUID()
       const scheduledJobId = existing?.scheduledJobId ?? id
-      const mintsRegistration = !existing?.scheduledJobId
+      const scheduler = requireScheduler()
+      // Only a registration this call mints may be compensated below. A create
+      // mints a fresh id, so no job can already live at it. An update of a row
+      // whose scheduledJobId is null is the ambiguous case — deleteSchedule reads
+      // that null as "the job lives at row.id", and register() upserts on id — so
+      // ask the scheduler instead of assuming, otherwise compensation would
+      // delete a job this call merely overwrote.
+      const mintsRegistration = existing
+        ? !existing.scheduledJobId && !(await scheduledJobExists(scheduler, scheduledJobId))
+        : true
 
       // Validate the schedule (and register it with the scheduler) before writing
       // the SyncSchedule row — an unparseable scheduleValue must not leave a
       // persisted row with no working schedule behind it.
-      await requireScheduler().register({
+      await scheduler.register({
         id: scheduledJobId,
         name: buildScheduleName(input),
         description: buildScheduleDescription(input),
@@ -223,14 +241,13 @@ export function createSyncScheduleService(em: EntityManager, schedulerService?: 
       } catch (error: unknown) {
         // The registration above is already durable, so a failed write would
         // otherwise strand a live ScheduledJob the data-sync page cannot explain
-        // or delete. Only a registration this call minted can be compensated —
-        // unregistering it cannot destroy one the row already owned. When the
-        // row arrived with a scheduledJobId the scheduler has just overwritten a
-        // job we inherited, and SchedulerServiceLike offers no way to restore
-        // the previous one, so that case deliberately stays uncompensated.
+        // or delete. Only a registration this call minted is compensated: when a
+        // job was already there, register() overwrote one we inherited, and
+        // SchedulerServiceLike offers no way to restore the previous definition,
+        // so unregistering would destroy that job rather than roll anything back.
         if (mintsRegistration) {
           try {
-            await requireScheduler().unregister(scheduledJobId)
+            await scheduler.unregister(scheduledJobId)
           } catch (compensationError: unknown) {
             logger.error('Failed to unregister the scheduled job after a schedule write failure', {
               scheduledJobId,
