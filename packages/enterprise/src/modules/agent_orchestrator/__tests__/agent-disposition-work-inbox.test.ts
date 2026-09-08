@@ -16,13 +16,19 @@
  *   queue feature says which KIND of work you may see, never whose;
  * - eval-replay proposals never reach the queue (allowlist, not denylist);
  * - the row carries `proposalId`, which the existing "Review proposal" row
- *   action reads.
+ *   action reads;
+ * - a narrowing the constant projection cannot satisfy drops the source
+ *   entirely, rows AND total — the inbox's Status filter used to return this
+ *   whole queue under `status=COMPLETED` and under every other status, because
+ *   the source read none of the query's row-level filters.
  */
 
 import { describe, test, expect, jest } from '@jest/globals'
 import {
   AGENT_DISPOSITION_INBOX_KIND,
   AGENT_DISPOSITION_QUEUE_FEATURE,
+  AGENT_DISPOSITION_ROW_STATUS,
+  agentDispositionSourceMatchesQuery,
   agentDispositionWorkInboxSource,
   buildAgentDispositionWhere,
   toAgentDispositionRow,
@@ -174,6 +180,77 @@ describe('the query', () => {
     // Merge-then-page: each source is asked for the whole window and the service
     // slices it, so the offset lives in the merge, not in the query.
     expect(options).toMatchObject({ limit: 15, offset: 0 })
+  })
+})
+
+/**
+ * The source cannot express any of these as a column predicate on
+ * `agent_proposals` — its rows are pending, unprioritized, undated and
+ * ownerless by construction — so it has to answer them against that constant.
+ * Ignoring them is what made the Work Inbox's Status filter useless: every
+ * status other than the one these rows carry still returned the whole queue.
+ */
+describe('narrowings the constant projection cannot satisfy', () => {
+  function listWith(overrides: Partial<WorkInboxQuery>) {
+    const findAndCount = jest.fn(async () => [[makeProposal()], 3])
+    const result = agentDispositionWorkInboxSource.list(makeQuery(overrides), {
+      scope: makeScope(),
+      resolve: <T,>(name: string): T => {
+        if (name !== 'em') throw new Error(`[internal] unexpected resolve(${name})`)
+        return { findAndCount } as T
+      },
+    })
+    return { result, findAndCount }
+  }
+
+  test('every row this source projects is PENDING', () => {
+    expect(toAgentDispositionRow(makeProposal(), NOW).status).toBe(AGENT_DISPOSITION_ROW_STATUS)
+  })
+
+  test('a status filter that excludes PENDING contributes no rows and no total', async () => {
+    const { result, findAndCount } = listWith({ statuses: ['COMPLETED'] })
+
+    expect(await result).toEqual({ rows: [], total: 0 })
+    // Counted-but-absent is the failure mode: a row in `pagination.total` that
+    // never reaches the page is exactly what the inbox guards against.
+    expect(findAndCount).not.toHaveBeenCalled()
+  })
+
+  test.each([['IN_PROGRESS'], ['CANCELLED'], ['ESCALATED']])(
+    'status=%s drops the source instead of falling through to the pending queue',
+    (status) => {
+      expect(agentDispositionSourceMatchesQuery(makeQuery({ statuses: [status] }))).toBe(false)
+    },
+  )
+
+  test('a status filter that includes PENDING still lists the queue', async () => {
+    const { result, findAndCount } = listWith({ statuses: ['PENDING'] })
+
+    expect((await result).rows).toHaveLength(1)
+    expect(findAndCount).toHaveBeenCalled()
+  })
+
+  test('a multi-value status filter matches on any member', () => {
+    expect(
+      agentDispositionSourceMatchesQuery(makeQuery({ statuses: ['IN_PROGRESS', 'PENDING'] })),
+    ).toBe(true)
+  })
+
+  test.each([
+    ['priority', { priorities: ['high'] as WorkInboxQuery['priorities'] }],
+    ['role', { roles: ['reviewer'] }],
+    ['entity type', { entityTypes: ['sales:order'] }],
+    ['assignee', { assignedTo: 'user-2' }],
+    ['overdue-only', { overdueOnly: true }],
+  ])('a %s narrowing drops the source too — its rows carry none', (_label, overrides) => {
+    expect(agentDispositionSourceMatchesQuery(makeQuery(overrides))).toBe(false)
+  })
+
+  test('an unnarrowed query still contributes, and myWork never narrows this queue', () => {
+    // The inbox opens with `myWork` on. Answering it here would hide the very
+    // queue the source exists to raise — admission is the queue feature's job.
+    expect(agentDispositionSourceMatchesQuery(makeQuery())).toBe(true)
+    expect(agentDispositionSourceMatchesQuery(makeQuery({ myWork: true }))).toBe(true)
   })
 })
 

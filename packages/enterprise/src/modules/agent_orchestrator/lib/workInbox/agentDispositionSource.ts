@@ -81,6 +81,16 @@ export const AGENT_DISPOSITION_ACTIONS: WorkInboxAction[] = []
 const PENDING_DISPOSITION = 'pending'
 
 /**
+ * The status EVERY row this source projects carries.
+ *
+ * It is a constant rather than a column read: the query already narrows to
+ * `disposition: 'pending'`, so an undisposed proposal is pending work by
+ * construction. Named because the inbox's status filter has to be answered
+ * against it — see `agentDispositionSourceMatchesQuery`.
+ */
+export const AGENT_DISPOSITION_ROW_STATUS = 'PENDING'
+
+/**
  * Rows produced by an eval replay are a record of what the agent proposed, not
  * work for an operator — the same `source: 'runtime'` floor the proposals list
  * route applies, and for the same reason: an allowlist keeps the queue closed by
@@ -88,6 +98,40 @@ const PENDING_DISPOSITION = 'pending'
  * somebody's inbox.
  */
 const RUNTIME_SOURCE = 'runtime'
+
+/**
+ * Whether this source can contribute to a NARROWED query at all.
+ *
+ * Its projection is a constant in every row-level dimension the inbox filters
+ * on: each row is `PENDING`, unprioritized, undated (so never overdue) and
+ * ownerless (no assignee, no claimant, no role queue, no entity binding). None
+ * of that is expressible as a column predicate on `agent_proposals`, so the
+ * filters have to be answered against the constant here — and answering them by
+ * ignoring them is the defect this exists to prevent: with the inbox asking for
+ * `status=COMPLETED`, an ignored filter returned the whole disposition queue
+ * alongside the completed tasks, and every other status returned it alone.
+ *
+ * `myWork` is deliberately NOT answered here. An administrative-queue item
+ * belongs to nobody on purpose, and the inbox opens with `myWork` on, so
+ * treating it as a row-level filter would hide the very queue this source
+ * exists to raise. Admission to these rows is the queue feature's job
+ * (`administrativeQueueFeature`), not the assignment filter's.
+ */
+export function agentDispositionSourceMatchesQuery(query: WorkInboxQuery): boolean {
+  if (
+    query.statuses &&
+    query.statuses.length > 0 &&
+    !query.statuses.includes(AGENT_DISPOSITION_ROW_STATUS)
+  ) {
+    return false
+  }
+  if (query.priorities && query.priorities.length > 0) return false
+  if (query.roles && query.roles.length > 0) return false
+  if (query.entityTypes && query.entityTypes.length > 0) return false
+  if (query.assignedTo) return false
+  if (query.overdueOnly) return false
+  return true
+}
 
 export function buildAgentDispositionWhere(
   query: WorkInboxQuery,
@@ -125,10 +169,10 @@ export function toAgentDispositionRow(proposal: AgentProposal, now: Date): WorkI
     moduleId: AGENT_ORCHESTRATOR_MODULE_ID,
     title: `Dispose agent proposal (${proposal.agentId})`,
     description: null,
-    status: 'PENDING',
+    status: AGENT_DISPOSITION_ROW_STATUS,
     priority: normalizeWorkInboxPriority(null),
     dueDate: null,
-    overdue: deriveWorkInboxOverdue(null, 'PENDING', now),
+    overdue: deriveWorkInboxOverdue(null, AGENT_DISPOSITION_ROW_STATUS, now),
     createdAt,
     updatedAt: proposal.updatedAt.toISOString(),
     assignedTo: null,
@@ -156,6 +200,14 @@ async function listAgentDispositionWorkItems(
   query: WorkInboxQuery,
   context: WorkInboxSourceContext,
 ): Promise<WorkInboxSourceResult> {
+  // A narrowing the constant projection cannot satisfy drops the source before
+  // it costs a query — and, crucially, before it contributes to `total`: a row
+  // counted in the pagination total and then absent from the page is the same
+  // "short page, lying total" failure the inbox guards against everywhere else.
+  if (!agentDispositionSourceMatchesQuery(query)) {
+    return { rows: [], total: 0 }
+  }
+
   // The source is dropped entirely for a caller without the queue feature
   // (`selectWorkInboxSources`), so reaching here already means admitted. Tenant
   // and organization scoping is still applied on every query — the queue feature
