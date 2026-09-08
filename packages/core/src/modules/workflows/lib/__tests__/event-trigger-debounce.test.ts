@@ -188,6 +188,18 @@ describe('processEventTriggers — trigger debounceMs (#5922)', () => {
     expect(mockStartWorkflow).toHaveBeenCalledTimes(2)
   })
 
+  it('keeps the window per entity when the payload id is numeric', async () => {
+    registerCodeWorkflowEntries([codeWorkflow('sales.order-followup', { debounceMs: DEBOUNCE_MS })])
+
+    await emitEvent({ id: 1 })
+    const otherNumericEntity = await emitEvent({ id: 2 })
+    const sameNumericEntity = await emitEvent({ id: 1 })
+
+    expect(otherNumericEntity).toEqual({ triggered: 1, skipped: 0 })
+    expect(sameNumericEntity).toEqual({ triggered: 0, skipped: 1 })
+    expect(mockStartWorkflow).toHaveBeenCalledTimes(2)
+  })
+
   it('debounces per trigger when the event payload carries no entity id', async () => {
     registerCodeWorkflowEntries([codeWorkflow('sales.order-followup', { debounceMs: DEBOUNCE_MS })])
 

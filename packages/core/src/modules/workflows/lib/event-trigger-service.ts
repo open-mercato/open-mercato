@@ -696,7 +696,13 @@ function shouldDebounceTrigger(trigger: UnifiedTrigger, payload: Record<string, 
 
   if (!debounceMs || debounceMs <= 0) return false // No debounce configured
 
-  const payloadId = typeof payload?.id === 'string' ? payload.id : null
+  // Accept numeric ids too: falling back to the shared `*` bucket would collapse
+  // every record under one key and suppress workflows for unrelated entities.
+  const rawPayloadId = payload?.id
+  const payloadId =
+    typeof rawPayloadId === 'string' ? rawPayloadId
+    : typeof rawPayloadId === 'number' ? String(rawPayloadId)
+    : null
   const key = `${trigger.tenantId}:${trigger.organizationId}:${trigger.id}:${payloadId ?? '*'}`
   const state = getTriggerDebounceState()
   const now = Date.now()
