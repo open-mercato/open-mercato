@@ -230,6 +230,45 @@ describe('Ms365ChannelAdapter OAuth flow', () => {
     expect(result.credentials.scopes).toContain('Mail.Send')
   })
 
+  it('exchangeOAuthCode persists the full requested scope list so refreshes can replay it', async () => {
+    const usScopes = ['offline_access', 'openid', 'https://graph.microsoft.us/Mail.ReadWrite', 'https://graph.microsoft.us/Mail.Send']
+    setMicrosoftOAuthClient(
+      stubOAuth({
+        exchangeCode: async () => ({ access_token: 'at', refresh_token: 'rt', scope: 'Mail.ReadWrite Mail.Send openid' }),
+        fetchProfile: async () => ({ mail: 'alice@contoso.us' }),
+      }),
+    )
+    const result = await getMs365ChannelAdapter().exchangeOAuthCode!({
+      code: 'code',
+      redirectUri: 'https://x/cb',
+      credentials: clientCredentials,
+      scope,
+      stateExtra: { codeVerifier: 'v', scopes: usScopes },
+    })
+    expect(result.credentials.requestedScopes).toEqual(usScopes)
+    expect(result.credentials.scopes).toEqual(['Mail.ReadWrite', 'Mail.Send', 'openid'])
+  })
+
+  it('exchangeOAuthCode fails when no mailbox address can be resolved', async () => {
+    setMicrosoftOAuthClient(
+      stubOAuth({
+        exchangeCode: async () => ({ access_token: 'at', refresh_token: 'rt', id_token: fakeJwt({ tid: 'tid-1' }) }),
+        fetchProfile: async () => {
+          throw new Error('Graph down')
+        },
+      }),
+    )
+    await expect(
+      getMs365ChannelAdapter().exchangeOAuthCode!({
+        code: 'code',
+        redirectUri: 'https://x/cb',
+        credentials: clientCredentials,
+        scope,
+        stateExtra: { codeVerifier: 'v' },
+      }),
+    ).rejects.toThrow(/could not resolve the mailbox address/)
+  })
+
   it('exchangeOAuthCode falls back to id_token claims when the profile lookup fails', async () => {
     setMicrosoftOAuthClient(
       stubOAuth({
@@ -283,6 +322,30 @@ describe('Ms365ChannelAdapter.refreshCredentials', () => {
     expect(calls[0]).toEqual({ tenantId: 'home-tenant-guid', refreshToken: 'refresh', clientId: 'hub-cid' })
     expect(result.credentials).toMatchObject({ accessToken: 'at2', refreshToken: 'rt2', email: 'alice@contoso.com' })
     expect(result.expiresAt).toBeInstanceOf(Date)
+  })
+
+  it('refreshes with the scopes the consent was granted for, not the tenant defaults', async () => {
+    const usScopes = ['offline_access', 'https://graph.microsoft.us/Mail.ReadWrite', 'https://graph.microsoft.us/Mail.Send']
+    const requested: string[][] = []
+    setMicrosoftOAuthClient(
+      stubOAuth({
+        refreshToken: async (input) => {
+          requested.push(input.scopes)
+          return { access_token: 'at2', refresh_token: 'rt2', expires_in: 3600 }
+        },
+      }),
+    )
+    const result = await getMs365ChannelAdapter().refreshCredentials!({
+      channelId: 'c1',
+      credentials: { ...userCredentials, requestedScopes: usScopes },
+      scope,
+      // A string `scopes` override on the tenant config (the shape the
+      // Integrations form stores) must not replace the granted list.
+      oauthClient: { clientId: 'cid', clientSecret: 'sec', scopes: ['https://graph.microsoft.com/Mail.ReadWrite'] },
+    })
+    expect(requested[0]).toEqual(usScopes)
+    expect(requested[0].some((s) => s.includes('graph.microsoft.com'))).toBe(false)
+    expect(result.credentials.requestedScopes).toEqual(usScopes)
   })
 
   it('keeps the previous refresh token when the response omits one', async () => {
@@ -521,6 +584,22 @@ describe('Ms365ChannelAdapter.fetchHistory', () => {
     expect(state.receivedWatermark).toBe('2026-09-04T10:00:00.000Z')
   })
 
+  it('surfaces a permanent per-message fetch failure instead of pinning the cursor forever', async () => {
+    setGraphMailClient({
+      ...emptyGraph(),
+      continueDelta: async () => ({
+        value: [{ id: 'blocked', receivedDateTime: '2026-09-04T10:05:00Z' }],
+        deltaLink: 'https://graph.microsoft.com/v1.0/delta?$deltatoken=advanced',
+      }),
+      getMessageMime: async () => {
+        throw new GraphApiError('denied', 403, 'Access is denied', { code: 'ErrorAccessDenied' })
+      },
+    })
+    await expect(
+      fetchHistory({ deltaLink: 'https://graph.microsoft.com/v1.0/delta?$deltatoken=current', receivedWatermark: '2026-09-04T10:00:00.000Z' }),
+    ).rejects.toMatchObject({ status: 403, transient: false })
+  })
+
   it('surfaces requires_reauth on a 401 from Graph', async () => {
     setGraphMailClient({
       ...emptyGraph(),
@@ -604,6 +683,42 @@ describe('Ms365ChannelAdapter.importHistory', () => {
     expect(filters[1]).toContain('person16@example.com')
   })
 
+  it('resumes a page after a transient failure without counting replayed messages against maxMessages', async () => {
+    let failOnce = true
+    const fetchedIds: string[] = []
+    setGraphMailClient({
+      ...emptyGraph(),
+      listInboxMessages: async () => ({ value: [{ id: 'a' }, { id: 'b' }, { id: 'c' }] }),
+      getMessageMime: async (_auth, id) => {
+        if (id === 'b' && failOnce) {
+          failOnce = false
+          throw new GraphApiError('boom', 503, 'unavailable')
+        }
+        fetchedIds.push(id)
+        return buildRawMime(`${id}@example.com`)
+      },
+    })
+    const adapter = getMs365ChannelAdapter()
+    const first = await adapter.importHistory!({ credentials: userCredentials, scope, sinceDays: 7, maxMessages: 3 })
+    expect(first.messages.map((m) => m.externalMessageId)).toEqual(['a@example.com'])
+    expect(first.hasMore).toBe(true)
+    const second = await adapter.importHistory!({ credentials: userCredentials, scope, sinceDays: 7, maxMessages: 3, cursor: first.nextCursor })
+    expect(second.messages.map((m) => m.externalMessageId)).toEqual(['b@example.com', 'c@example.com'])
+    expect(second.hasMore).toBe(false)
+    expect(fetchedIds).toEqual(['a', 'b', 'c'])
+  })
+
+  it('surfaces a permanent MIME failure during import', async () => {
+    setGraphMailClient({
+      ...emptyGraph(),
+      listInboxMessages: async () => ({ value: [{ id: 'a' }] }),
+      getMessageMime: async () => {
+        throw new GraphApiError('denied', 403, 'Access is denied', { code: 'ErrorAccessDenied' })
+      },
+    })
+    await expect(getMs365ChannelAdapter().importHistory!({ credentials: userCredentials, scope, sinceDays: 7 })).rejects.toMatchObject({ status: 403 })
+  })
+
   it('respects maxMessages across pages', async () => {
     setGraphMailClient({
       ...emptyGraph(),
@@ -683,19 +798,57 @@ describe('Ms365ChannelAdapter.sendMessage', () => {
     expect(loggerWarn).toHaveBeenCalled()
   })
 
-  it('reports a transient send failure without deleting the still-unsent draft', async () => {
+  it('throws the transient error for a confirmed-unsent draft so the hub retries, and removes the draft', async () => {
+    const deleted: string[] = []
+    await expect(
+      send({
+        sendDraft: async () => {
+          throw new GraphApiError('throttled', 429, 'TooManyRequests')
+        },
+        getMessageState: async (_auth, id) => ({ id, isDraft: true }),
+        deleteMessage: async (_auth, id) => {
+          deleted.push(id)
+        },
+      }),
+    ).rejects.toMatchObject({ status: 429, transient: true })
+    expect(deleted).toEqual(['draft-1'])
+  })
+
+  it('reports failed (no retry) when the send outcome cannot be confirmed after a transient error', async () => {
     const deleted: string[] = []
     const result = await send({
       sendDraft: async () => {
-        throw new GraphApiError('throttled', 429, 'TooManyRequests')
+        throw new GraphApiError('timed out', 599, 'request timed out')
       },
-      getMessageState: async (_auth, id) => ({ id, isDraft: true }),
+      getMessageState: async () => {
+        throw new GraphApiError('boom', 503, 'unavailable')
+      },
       deleteMessage: async (_auth, id) => {
         deleted.push(id)
       },
     })
     expect(result.status).toBe('failed')
     expect(deleted).toHaveLength(0)
+  })
+
+  it('throws the transient error when draft creation fails temporarily', async () => {
+    await expect(
+      send({
+        createDraftFromMime: async () => {
+          throw new GraphApiError('internal', 500, 'ErrorInternalServerError', { code: 'ErrorInternalServerError' })
+        },
+      }),
+    ).rejects.toMatchObject({ status: 500, transient: true })
+  })
+
+  it('reports a permanent draft-creation failure without retry', async () => {
+    const result = await send({
+      createDraftFromMime: async () => {
+        throw new GraphApiError('too big', 413, 'ErrorMessageSizeExceeded', { code: 'ErrorMessageSizeExceeded' })
+      },
+    })
+    expect(result.status).toBe('failed')
+    expect(result.error).toContain('ErrorMessageSizeExceeded')
   })
 
   it('cleans up the orphan draft after a permanent send failure', async () => {
@@ -713,7 +866,7 @@ describe('Ms365ChannelAdapter.sendMessage', () => {
     expect(deleted).toEqual(['draft-1'])
   })
 
-  it('fails legibly when the channel has no mailbox address', async () => {
+  it('reports requires_reauth (translated by the hub) when the channel has no mailbox address', async () => {
     setGraphMailClient(emptyGraph())
     const result = await getMs365ChannelAdapter().sendMessage({
       content: { text: 'x' },
@@ -722,7 +875,8 @@ describe('Ms365ChannelAdapter.sendMessage', () => {
       metadata: { to: ['bob@example.com'] },
     })
     expect(result.status).toBe('failed')
-    expect(result.error).toContain('no mailbox address')
+    expect(result.error).toBe('requires_reauth')
+    expect(loggerWarn).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ code: 'ms365.missing_mailbox_identity' }))
   })
 })
 

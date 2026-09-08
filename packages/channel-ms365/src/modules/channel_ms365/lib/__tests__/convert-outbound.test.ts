@@ -29,6 +29,27 @@ describe('convertOutboundForMs365', () => {
     expect(native.content.html).toContain('<b>there</b>')
   })
 
+  it('threads on the hub-supplied replyToExternalId (the hub strips caller inReplyTo)', async () => {
+    const native = await convertOutboundForMs365({
+      body: 'Re: hello',
+      bodyFormat: 'text',
+      fromAddress: 'alice@contoso.com',
+      channelMetadata: {
+        thread_id: 'outbound:1',
+        to: ['bob@example.com'],
+        subject: 'Re: Quote',
+        references: ['root@example.com', 'orig@example.com', 'om-thread-token@example.com'],
+        omThreadToken: 'token-1',
+        replyToExternalId: 'orig@example.com',
+      },
+    })
+    const meta = native.metadata as unknown as Ms365EmailNativeMetadata
+    expect(meta.inReplyTo).toBe('orig@example.com')
+    const raw = meta.rawMessage.toString('utf-8')
+    expect(raw).toContain('In-Reply-To: <orig@example.com>')
+    expect(raw).toContain('References: <root@example.com> <orig@example.com> <om-thread-token@example.com>')
+  })
+
   it('keeps an explicit Message-ID from the hub metadata', async () => {
     const native = await convertOutboundForMs365({
       body: 'plain',
