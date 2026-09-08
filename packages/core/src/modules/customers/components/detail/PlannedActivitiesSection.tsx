@@ -1,7 +1,6 @@
 'use client'
 import * as React from 'react'
 import { Phone, Mail, Users, StickyNote, Clock, AlertCircle, CalendarClock, Check, MoreHorizontal, Plus } from 'lucide-react'
-import { toZonedTime } from 'date-fns-tz'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -16,15 +15,7 @@ const TYPE_ICONS: Record<string, React.ComponentType<{ className?: string }>> = 
   note: StickyNote,
 }
 
-const DISPLAY_TIMEZONE = (() => {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
-  } catch {
-    return 'UTC'
-  }
-})()
-
-function isSameZonedDay(a: Date, b: Date): boolean {
+function isSameDay(a: Date, b: Date): boolean {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
 }
 
@@ -250,15 +241,14 @@ function formatRelativeOverdue(isoString: string, t: TranslateFn): string {
 function formatScheduledDate(isoString: string, t: TranslateFn): string {
   try {
     const date = new Date(isoString)
-    const zonedDate = toZonedTime(date, DISPLAY_TIMEZONE)
-    const zonedTomorrow = toZonedTime(new Date(), DISPLAY_TIMEZONE)
-    zonedTomorrow.setDate(zonedTomorrow.getDate() + 1)
+    const tomorrow = new Date()
+    tomorrow.setDate(tomorrow.getDate() + 1)
 
     const dayName = date.toLocaleDateString(undefined, { weekday: 'short' })
     const dateStr = date.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
     const timeStr = date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
 
-    if (isSameZonedDay(zonedDate, zonedTomorrow)) {
+    if (isSameDay(date, tomorrow)) {
       return t('customers.timeline.planned.tomorrow', 'Tomorrow {{time}}', { time: timeStr })
     }
     return `${dayName}, ${dateStr} · ${timeStr}`
