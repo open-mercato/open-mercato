@@ -640,6 +640,84 @@ export async function findMatchingTriggers(
 // Trigger Processing
 // ============================================================================
 
+// Last-fire timestamps for triggers configured with `debounceMs`, keyed by
+// tenant/org/trigger/entity. Parked on globalThis for the same reason as the
+// trigger cache above: the compiled module can be loaded under two import roots
+// (a Next.js server chunk vs. a worker), and a module-local Map would debounce
+// each copy separately — halving the effective window whenever both copies see
+// the same event stream.
+const GLOBAL_TRIGGER_DEBOUNCE_KEY = '__openMercatoWorkflowTriggerDebounce__'
+
+// Cap on tracked keys so a long-lived worker cannot grow the Map without bound;
+// mirrors the prune step in query_index's `markAutoReindexScheduled`.
+const TRIGGER_DEBOUNCE_MAX_KEYS = 5000
+
+type GlobalWithTriggerDebounce = typeof globalThis & {
+  [GLOBAL_TRIGGER_DEBOUNCE_KEY]?: Map<string, number>
+}
+
+function getTriggerDebounceState(): Map<string, number> {
+  const globalScope = globalThis as GlobalWithTriggerDebounce
+  if (!globalScope[GLOBAL_TRIGGER_DEBOUNCE_KEY]) {
+    globalScope[GLOBAL_TRIGGER_DEBOUNCE_KEY] = new Map<string, number>()
+  }
+  return globalScope[GLOBAL_TRIGGER_DEBOUNCE_KEY]
+}
+
+function pruneTriggerDebounceState(state: Map<string, number>, now: number, debounceMs: number): void {
+  if (state.size < TRIGGER_DEBOUNCE_MAX_KEYS) return
+
+  for (const [key, firedAt] of state) {
+    if (now - firedAt >= debounceMs) state.delete(key)
+  }
+
+  if (state.size < TRIGGER_DEBOUNCE_MAX_KEYS) return
+
+  const oldestKey = state.keys().next().value
+  if (oldestKey !== undefined) state.delete(oldestKey)
+}
+
+/**
+ * Check whether this event falls inside the trigger's debounce window.
+ *
+ * Leading-edge semantics: the first event fires the workflow and opens the
+ * window; repeats inside it are dropped. This matches the two other
+ * `debounceMs` implementations in the codebase (`markAutoReindexScheduled` in
+ * query_index, `NotificationDispatcher.shouldDebounce` in the UI package) and
+ * needs no timer that would have to survive a process restart.
+ *
+ * The key includes the event payload's `id` so the window is per trigger *and*
+ * per entity — rapid updates to two different records still start two
+ * workflows. Tenant and organization are part of the key because code-defined
+ * triggers reuse one id across every tenant.
+ */
+function shouldDebounceTrigger(trigger: UnifiedTrigger, payload: Record<string, unknown>): boolean {
+  const debounceMs = trigger.config?.debounceMs
+
+  if (!debounceMs || debounceMs <= 0) return false // No debounce configured
+
+  const payloadId = typeof payload?.id === 'string' ? payload.id : null
+  const key = `${trigger.tenantId}:${trigger.organizationId}:${trigger.id}:${payloadId ?? '*'}`
+  const state = getTriggerDebounceState()
+  const now = Date.now()
+  const lastFiredAt = state.get(key)
+
+  if (lastFiredAt !== undefined && now - lastFiredAt < debounceMs) return true
+
+  pruneTriggerDebounceState(state, now, debounceMs)
+  state.delete(key)
+  state.set(key, now)
+  return false
+}
+
+/**
+ * Clear all debounce windows. Test-only seam — production code relies on the
+ * windows expiring on their own.
+ */
+export function resetTriggerDebounceState(): void {
+  getTriggerDebounceState().clear()
+}
+
 /**
  * Check if max concurrent instances limit is reached.
  */
@@ -688,6 +766,13 @@ export async function processEventTriggers(
   // Process each trigger (definitions already validated during loading)
   for (const trigger of triggers) {
     try {
+      // Check debounce window before any DB work
+      if (shouldDebounceTrigger(trigger, context.payload)) {
+        logger.debug('Skipping trigger: inside debounce window', { triggerId: trigger.id, triggerName: trigger.name, debounceMs: trigger.config?.debounceMs })
+        result.skipped++
+        continue
+      }
+
       // Check concurrency limit
       const canStart = await checkConcurrencyLimit(em, trigger)
       if (!canStart) {
