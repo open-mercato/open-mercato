@@ -142,6 +142,39 @@ test('warns about an individually oversized nested AGENTS.md the chain ratchet l
   fs.rmSync(fixture, { recursive: true, force: true })
 })
 
+test('sizes instruction files in this checkout but not ones inside a nested checkout', () => {
+  const fixture = makeFixture({ rootBytes: 10, nestedBytes: 10, baselineNestedBytes: 10, tools: BYTE_TOOL })
+
+  // The control: an ordinary directory in this checkout, oversized, must still be reported.
+  fs.mkdirSync(path.join(fixture, 'packages', 'sibling'), { recursive: true })
+  fs.writeFileSync(path.join(fixture, 'packages', 'sibling', 'AGENTS.md'), 'y'.repeat(190))
+
+  // A throwaway worktree of the kind the PR-automation skills add under the gitignored `.ai/tmp/`.
+  // It is a separate checkout, marked by its own `.git`, so its copies of this repository's
+  // instruction files must not be measured — otherwise every finding is reported once per copy.
+  const carried = path.join(fixture, '.ai', 'tmp', 'pr-1')
+  fs.mkdirSync(path.join(carried, 'packages', 'demo'), { recursive: true })
+  fs.writeFileSync(path.join(carried, '.git'), 'gitdir: /elsewhere/worktrees/pr-1\n')
+  fs.writeFileSync(path.join(carried, 'packages', 'demo', 'AGENTS.md'), 'z'.repeat(190))
+
+  const result = runChecker(fixture)
+  assert.equal(result.status, 0, result.stderr)
+  assert.match(result.stdout, /\[file-size\] packages\/sibling\/AGENTS\.md is 190 bytes/)
+  assert.doesNotMatch(result.stdout, /\.ai\/tmp/)
+  fs.rmSync(fixture, { recursive: true, force: true })
+})
+
+test('--update-baseline reports advisory findings without claiming strict mode failed the run', () => {
+  // `--update-baseline` exits on the root hard limit alone, so printing the strict footer here
+  // would tell the maintainer the advisory findings failed a run that in fact returned 0.
+  const fixture = makeFixture({ rootBytes: 95, nestedBytes: 10, baselineNestedBytes: 10, warnAtPercent: 90 })
+  const result = runChecker(fixture, ['--update-baseline', '--strict'])
+  assert.equal(result.status, 0, result.stderr)
+  assert.match(result.stdout, /\[root-headroom\]/)
+  assert.doesNotMatch(result.stdout, /Strict mode: advisory findings fail the run/)
+  fs.rmSync(fixture, { recursive: true, force: true })
+})
+
 test('a token-unit limit is reported as an estimate and never blocks on its own', () => {
   const fixture = makeFixture({
     rootBytes: 10,

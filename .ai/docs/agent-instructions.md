@@ -45,7 +45,9 @@ These print on every run and never change the exit code. `yarn agents:check-budg
 - **`file-size`** — a single `AGENTS.md` has reached 90% of a limit in the baseline's `tools`
   table. The chain ratchet only measures four representative chains, so before this every other
   file could grow without limit; `packages/search/AGENTS.md` is 90% of Codex's entire budget on
-  its own, and an agent started there loses almost the whole root harness.
+  its own, and an agent started there loses almost the whole root harness. Only this checkout is
+  measured: a directory carrying its own `.git` — the `external/` submodule, or a throwaway
+  worktree under the gitignored `.ai/tmp/` — is skipped, so its copies are not reported again.
 - **`coverage`** — a package under `packages/`, or a module under a package's or app's
   `src/modules`, that has no `AGENTS.md` and no entry in
   `scripts/agents-md-coverage-allowlist.json`. A package shipping exactly one module is treated as

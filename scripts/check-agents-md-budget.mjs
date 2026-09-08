@@ -152,8 +152,19 @@ function fileBytes(absolutePath) {
 const SKIPPED_DIRECTORIES = new Set(['node_modules', '.git', 'dist', '.next', '.mercato', '.turbo'])
 const SKIPPED_RELATIVE_PATHS = new Set(['external', 'packages/create-app/template'])
 
-function isSkippedDirectory(name, relativePath) {
-  return SKIPPED_DIRECTORIES.has(name) || SKIPPED_RELATIVE_PATHS.has(relativePath)
+/**
+ * A directory carrying its own `.git` is a separate checkout: the official-modules submodule, or
+ * one of the throwaway worktrees the PR-automation skills add under the gitignored `.ai/tmp/`.
+ * Its AGENTS.md files belong to that checkout, so measuring them here reports the same finding
+ * once per copy against files nobody edits from this root.
+ */
+function isNestedCheckout(absolutePath) {
+  return fs.existsSync(path.join(absolutePath, '.git'))
+}
+
+function isSkippedDirectory(name, relativePath, absolutePath) {
+  if (SKIPPED_DIRECTORIES.has(name) || SKIPPED_RELATIVE_PATHS.has(relativePath)) return true
+  return isNestedCheckout(absolutePath)
 }
 
 /**
@@ -173,8 +184,9 @@ export function collectInstructionFiles(root) {
     for (const entry of entries) {
       const relativePath = relativeDir ? `${relativeDir}/${entry.name}` : entry.name
       if (entry.isDirectory()) {
-        if (isSkippedDirectory(entry.name, relativePath)) continue
-        walk(path.join(absoluteDir, entry.name), relativePath)
+        const absoluteChild = path.join(absoluteDir, entry.name)
+        if (isSkippedDirectory(entry.name, relativePath, absoluteChild)) continue
+        walk(absoluteChild, relativePath)
       } else if (entry.isFile() && entry.name === INSTRUCTION_FILE && relativeDir) {
         found.push({ path: relativePath, bytes: fileBytes(path.join(absoluteDir, entry.name)) })
       }
@@ -236,7 +248,10 @@ export function discoverInstructionOwners(root) {
     return entries
       .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.') && !entry.name.startsWith('__'))
       .map((entry) => `${relativeDir}/${entry.name}`)
-      .filter((relativePath) => !isSkippedDirectory(path.basename(relativePath), relativePath))
+      .filter(
+        (relativePath) =>
+          !isSkippedDirectory(path.basename(relativePath), relativePath, path.join(root, relativePath)),
+      )
       .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
   }
 
@@ -507,8 +522,10 @@ function main() {
     writeBaseline(baselinePath, baseline, result)
     console.log(formatReport(baseline, result))
     // Re-recording the ratchet is exactly when someone is looking at these files, so the advisory
-    // findings belong in that output too rather than only in a plain run.
-    const warningReport = formatWarnings(result, options.strict)
+    // findings belong in that output too rather than only in a plain run. They are reported as
+    // advisory even under --strict, because this branch's exit code is governed by the root hard
+    // limit alone — claiming "strict mode: advisory findings fail the run" here would be untrue.
+    const warningReport = formatWarnings(result, false)
     if (warningReport) console.log(warningReport)
     console.log(`Baseline re-recorded in ${BASELINE_RELATIVE_PATH}.`)
     if (result.rootBytes > baseline.rootMaxBytes) {
