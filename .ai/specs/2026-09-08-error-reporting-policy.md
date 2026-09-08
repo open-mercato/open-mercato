@@ -257,10 +257,11 @@ export type ReportErrorContext = {
 |---|---|
 | `integrations.log_error` | `integrationLogService.write()` fallback when the row carries no `code` |
 | `data_sync.item_failed` / `data_sync.export_item_failed` | per-item failure with no adapter-supplied code |
-| `data_sync.run_transient` / `data_sync.run_terminal` | run fault, from part 6's `classifySyncError` |
+| `data_sync.run_failed` | run fault (import and export). Splits into `data_sync.run_transient` / `data_sync.run_terminal` when part 6's `classifySyncError` lands — one constant in `sync-engine.ts` is the only site to change |
 | `data_sync.run_partial_failure` | `finalizeRun`, `completed` with `failedCount > 0` |
 | `data_sync.coverage_refresh_failed` | rejected coverage refresh |
-| `queue.job_failed` / `queue.job_exhausted` / `queue.abandon_sweep_failed` | queue strategy failure paths |
+| `queue.job_failed` / `queue.job_exhausted` | a handler that threw; a job that spent its last attempt |
+| `queue.worker_error` / `queue.abandon_sweep_failed` / `queue.abandon_report_failed` / `queue.abandon_ack_failed` | worker-level fault; the abandonment sweep and its two report failures |
 
 ## Configuration
 
@@ -299,7 +300,7 @@ Both phases are additive and independently deployable; Phase 1 is useful without
 | `packages/telemetry/{AGENTS.md,README.md}` | Modify | The rule; custom-provider recipe |
 | `packages/shared/src/lib/telemetry/runtime.ts` | Modify | `code` in the bridge context type |
 | `packages/core/src/modules/integrations/lib/log-service.ts` | Modify | The tee |
-| `packages/core/src/modules/integrations/lib/errors.ts` | Create | `IntegrationLogError` |
+| `packages/core/src/modules/integrations/lib/log-service.ts` | Modify | `IntegrationLogError` lives beside the service that raises it, per the module's own convention (`CredentialsEncryptionUnavailableError` in `credentials-service.ts`) rather than a new `errors.ts` |
 | `packages/queue/src/strategies/{async,local}.ts` | Modify | Job-failure tees |
 | `packages/core/src/modules/data_sync/lib/sync-engine.ts` | Modify | Codes, partial-failure report, coverage-refresh report, run.completed counts |
 | `apps/docs/docs/framework/runtime/error-reporting.mdx` | Create | Long-form policy |
@@ -412,6 +413,17 @@ None.
 Fully compliant — ready for review, then implementation.
 
 ## Changelog
+
+### 2026-09-08 — implemented
+Phases 1 and 2 shipped together on `jtomaszewski/error-reporting-policy-impl`; the full gate (`generate`, `build:packages`, `typecheck`, `lint`, `i18n:check-sync`, `i18n:check-usage`, `test`, `build:app`, `agents:check-budget`) is green, with 25 new unit tests across `telemetry`, `core:integrations`, `core:data_sync` and `queue`.
+
+Deviations from the design above, deliberate:
+- **Run faults use one code**, `data_sync.run_failed`, until part 6's `classifySyncError` exists to split it. A single constant in `sync-engine.ts` is the change surface when it lands.
+- **Three queue codes beyond the design** — `queue.worker_error`, `queue.abandon_report_failed`, `queue.abandon_ack_failed` — because those `logger.error` sites have the same "recorded, never reported" shape as the two the design named.
+- **`IntegrationLogError` lives in `log-service.ts`**, matching the module's existing convention, not a new `lib/errors.ts`.
+- **The re-entrancy guard is a module-level flag, not async-context state.** `reportError` is synchronous end to end, so a nested call can only arrive inside the same synchronous frame; `AsyncLocalStorage` would buy nothing and cost an allocation on the error path.
+- **`data_sync/AGENTS.md` gained the adapter-facing `data.errorCode` contract** (one bullet), so adapter authors meet it where they already read.
+- An adapter with `operationalTelemetry: true` produces **two** reports for a run fault, because it already writes two error rows — the tee's contract is one report per error row. Both carry `data_sync.run_failed`, so they group as one issue.
 
 ### 2026-09-08
 - Skeleton with Open Questions (gate).
