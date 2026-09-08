@@ -174,6 +174,16 @@ const STATUS_DOT = PROPOSAL_CASE_STATUS_DOT
  */
 const statusOf = proposalCaseStatus
 
+/**
+ * Whether a queue row still offers an inline approve/reject. A disposed case has
+ * given its verdict, so the only thing left is its detail — which the row click
+ * already opens. The list view asks this BEFORE rendering the actions column so
+ * a closed segment does not grow a column that is empty on every row.
+ */
+function hasQuickActions(row: QueueRow): boolean {
+  return row.isPending
+}
+
 function asString(value: unknown): string | null {
   return typeof value === 'string' ? value : null
 }
@@ -897,8 +907,13 @@ export default function AgentCaseloadPage() {
       {
         accessorKey: 'status',
         header: t('agent_orchestrator.caseload.col.status', 'Status'),
+        // A badge is an atom: clipped at the column edge it reads as a DIFFERENT
+        // status ("Auto-approved" cut to "Auto-appro…"), so the pill sizes to its
+        // own label instead of to the table's default status width. Truncation is
+        // off rather than widened — the longest label is a translation away.
+        meta: { truncate: false },
         cell: ({ row }) => (
-          <StatusBadge variant={STATUS_VARIANT[row.original.status]} dot>
+          <StatusBadge variant={STATUS_VARIANT[row.original.status]} dot className="whitespace-nowrap">
             {t(`agent_orchestrator.caseload.status.${row.original.status}`)}
           </StatusBadge>
         ),
@@ -932,9 +947,15 @@ export default function AgentCaseloadPage() {
     return [selectColumn, ...base]
   }, [t, selectedIds, selectableIds, allSelected, someSelected, toggleAll, toggleRow])
 
+  // Every quick action on a row is a DISPOSITION, so only a row that still owes
+  // one has any. A closed segment (Approved / Rejected) offers exactly what the
+  // decision pane offers a disposed case — the detail, which the row click
+  // already opens — and an Actions column empty on every row is noise, not an
+  // affordance. Both the predicate and the column presence read from here so the
+  // header can never outlive the buttons.
   const rowActions = React.useCallback(
     (row: QueueRow) => {
-      if (!row.isPending) return null
+      if (!hasQuickActions(row)) return null
       // A row whose agent offered alternatives has no approvable default: the
       // quick action is inert and points at the pane/detail where the choice lives.
       const optionId = chosenOptionOf(row)
@@ -965,6 +986,7 @@ export default function AgentCaseloadPage() {
     },
     [approveRows, openReject, busy, chosenOptionOf, t],
   )
+  const anyRowActionable = React.useMemo(() => visibleRows.some(hasQuickActions), [visibleRows])
 
   // Defined once, composed into both the inbox (inside its container) and the
   // list (above the table) toolbars so the controls live where each view needs them.
@@ -1146,7 +1168,7 @@ export default function AgentCaseloadPage() {
               columns={columns}
               data={visibleRows}
               sortable
-              rowActions={rowActions}
+              rowActions={anyRowActionable ? rowActions : undefined}
               onRowClick={(row) => openDetail(row)}
               pagination={{
                 page,
