@@ -29,6 +29,7 @@ jest.mock('../workflow-executor', () => ({
 import { INVOKE_AGENT_SIGNAL_NAME } from '../activity-executor'
 import { handleInvokeAgentJob } from '../activity-worker-handler'
 import type { WorkflowActivityJobInvokeAgent } from '../activity-queue-types'
+import { StepInstance } from '../../data/entities'
 import {
   OUTCOME_TRANSITION_KIND,
   WORKFLOW_GUARDRAIL_BLOCK_CONTEXT_KEY,
@@ -101,7 +102,10 @@ function makeDeps(transitions: Array<Record<string, unknown>>) {
     organizationId,
   }
   const em = {
-    findOne: jest.fn(async (_entity: unknown, where: unknown) => {
+    findOne: jest.fn(async (entity: unknown, where: unknown) => {
+      if (entity === StepInstance) {
+        return { id: 'step-instance-1', workflowInstanceId: 'instance-1', stepId, status: 'ACTIVE' }
+      }
       const id = (where as { id?: string })?.id
       if (id === definitionId) return definition
       return instance

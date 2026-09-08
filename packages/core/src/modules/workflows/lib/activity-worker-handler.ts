@@ -23,10 +23,11 @@ import {
   type OutcomeRoutingDefinitionLike,
 } from './outcome-routing'
 import { WORKFLOW_ERROR_CONTEXT_KEY, buildErrorContextEntry } from './error-routing'
-import { EntityManager } from '@mikro-orm/core'
+import { EntityManager, LockMode } from '@mikro-orm/core'
 import type { EntityManager as PostgreSqlEntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import { WorkflowDefinition, WorkflowInstance, StepInstance } from '../data/entities'
+import type { StepInstanceStatus } from '../data/entities'
 import type { WorkflowIoContract } from '../data/validators'
 import { logWorkflowEvent } from './event-logger'
 import './activity-registry-bootstrap'
@@ -353,6 +354,52 @@ type AgentWorkflowBridgeLike = {
 }
 
 /**
+ * Step-attempt statuses that mean THIS invocation is over. The step attempt
+ * (`step_instances` row) is the invocation's identity — one row per entry into
+ * the step — so a job addressed to a resolved attempt is a duplicate delivery
+ * and must be dropped. That is the idempotency the invoke_agent guard exists
+ * for, and unlike an equality check on `instance.currentStepId` it stays correct
+ * when a loop re-enters the same step id under a NEW attempt.
+ */
+const RESOLVED_STEP_ATTEMPT_STATUSES: ReadonlySet<StepInstanceStatus> = new Set<StepInstanceStatus>([
+  'COMPLETED',
+  'FAILED',
+  'SKIPPED',
+  'CANCELLED',
+])
+
+/**
+ * Block until the transaction that parks the step has committed.
+ *
+ * `executeInvokeAgent` enqueues this job from INSIDE the workflow execution
+ * transaction, so the worker — reading on its own connection — can observe a
+ * snapshot taken before the step was ever entered. The executor holds a
+ * `PESSIMISTIC_WRITE` lock on the instance row for the whole of that
+ * transaction (`getWorkflowInstanceForExecution`) and has already written the
+ * advanced `current_step_id` to it before the step's activities run, so
+ * requesting the SAME lock here waits for that transaction to finish and then
+ * reads its committed result. No polling, no sleep, no timing window: the lock
+ * IS the happens-before edge between "the step parked" and "the agent may run".
+ *
+ * The lock is released immediately (the transaction only reads), so the agent
+ * run itself never holds it. A no-op when the entity manager cannot open a
+ * transaction, or is already inside one — an outer transaction has a fixed
+ * snapshot the barrier could not refresh anyway, and holding a row lock for the
+ * length of an LLM run would be far worse than the race it guards.
+ */
+async function awaitStepParkingCommit(em: EntityManager, instanceId: string): Promise<void> {
+  const scopedEm = em as EntityManager & {
+    transactional?: <TResult>(callback: (trx: EntityManager) => Promise<TResult>) => Promise<TResult>
+    isInTransaction?: () => boolean
+  }
+  if (typeof scopedEm.transactional !== 'function') return
+  if (typeof scopedEm.isInTransaction === 'function' && scopedEm.isInTransaction()) return
+  await scopedEm.transactional(async (trx) => {
+    await trx.findOne(WorkflowInstance, { id: instanceId }, { lockMode: LockMode.PESSIMISTIC_WRITE })
+  })
+}
+
+/**
  * Run an INVOKE_AGENT step's agent OUTSIDE the workflow transaction, then resume
  * the parked step.
  *
@@ -364,10 +411,12 @@ type AgentWorkflowBridgeLike = {
  * committed per-run session rows it needs to authenticate submit_outcome.
  *
  * Idempotency: the agent must run exactly once and only after the step parks.
- * The guard below enforces both (skip when the step already advanced; retry when
- * not yet PAUSED). Once the agent has run, a resume failure is logged rather than
- * rethrown so the job is NOT retried — re-running an auto_approved agent would
- * re-execute its effector.
+ * The guard below enforces both, keyed on the STEP ATTEMPT the job was enqueued
+ * for (skip when that attempt already resolved; retry while it is not visible or
+ * the instance is not parked yet) after `awaitStepParkingCommit` has made the
+ * parking transaction's result observable. Once the agent has run, a resume
+ * failure is logged rather than rethrown so the job is NOT retried — re-running
+ * an auto_approved agent would re-execute its effector.
  */
 export async function handleInvokeAgentJob(
   em: EntityManager,
@@ -378,6 +427,8 @@ export async function handleInvokeAgentJob(
     maxAttempts: INVOKE_AGENT_QUEUE_MAX_ATTEMPTS,
   },
 ): Promise<void> {
+  await awaitStepParkingCommit(em, payload.workflowInstanceId)
+
   const instance = await em.findOne(WorkflowInstance, {
     id: payload.workflowInstanceId,
     tenantId: payload.tenantId,
@@ -390,11 +441,31 @@ export async function handleInvokeAgentJob(
     )
   }
 
-  if (instance.currentStepId !== payload.stepId) {
-    logger.info('invoke_agent job skipped — instance is on a different step (already resolved)', {
+  // The step attempt is this invocation's identity. Its ABSENCE means the
+  // parking transaction is still not observable (the instance has not reached
+  // the step yet) — a re-delivery, never a drop. `instance.currentStepId` cannot
+  // make that distinction: it reads the same on "not arrived yet" as on "already
+  // moved past", and dropping the job in the first case parks the instance
+  // forever waiting for work that will never run (issue #5986).
+  const stepAttempt = await em.findOne(StepInstance, {
+    id: payload.stepInstanceId,
+    workflowInstanceId: payload.workflowInstanceId,
+    tenantId: payload.tenantId,
+    organizationId: payload.organizationId,
+  })
+  if (!stepAttempt) {
+    throw new Error(
+      `invoke_agent: step attempt ${payload.stepInstanceId} for step ${payload.stepId} is not visible yet ` +
+      `(parking transaction not committed); retrying`
+    )
+  }
+  if (RESOLVED_STEP_ATTEMPT_STATUSES.has(stepAttempt.status)) {
+    logger.info('invoke_agent job skipped — this step attempt already resolved', {
       workflowInstanceId: payload.workflowInstanceId,
-      currentStepId: instance.currentStepId,
+      stepInstanceId: payload.stepInstanceId,
       stepId: payload.stepId,
+      stepAttemptStatus: stepAttempt.status,
+      currentStepId: instance.currentStepId,
     })
     return
   }

@@ -29,6 +29,7 @@ jest.mock('../workflow-executor', () => ({
 import { handleInvokeAgentJob } from '../activity-worker-handler'
 import { INVOKE_AGENT_SIGNAL_NAME } from '../activity-executor'
 import type { WorkflowActivityJobInvokeAgent } from '../activity-queue-types'
+import { StepInstance } from '../../data/entities'
 
 const tenantId = 'tenant-1'
 const organizationId = 'org-1'
@@ -53,13 +54,13 @@ function makeJob(): WorkflowActivityJobInvokeAgent {
 function makeDeps(agentError: unknown) {
   const invokeAgentForWorkflow = jest.fn().mockRejectedValue(agentError)
   const em = {
-    findOne: jest.fn().mockResolvedValue({
-      id: 'instance-1',
-      currentStepId: stepId,
-      status: 'PAUSED',
-      tenantId,
-      organizationId,
+    findOne: jest.fn(async (entity: unknown) => {
+      if (entity === StepInstance) {
+        return { id: 'step-instance-1', workflowInstanceId: 'instance-1', stepId, status: 'ACTIVE' }
+      }
+      return { id: 'instance-1', currentStepId: stepId, status: 'PAUSED', tenantId, organizationId }
     }),
+    flush: jest.fn(),
   } as unknown as EntityManager
   const container = {
     resolve: jest.fn((name: string) => {

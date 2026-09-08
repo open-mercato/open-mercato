@@ -6,6 +6,7 @@
  * `handleInvokeAgentJob` runs the agent and resumes the parked step.
  */
 
+import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/core'
 import type { AwilixContainer } from 'awilix'
 
@@ -33,6 +34,8 @@ import {
 } from '../activity-executor'
 import { handleInvokeAgentJob } from '../activity-worker-handler'
 import type { WorkflowActivityJobInvokeAgent } from '../activity-queue-types'
+import { StepInstance, WorkflowInstance } from '../../data/entities'
+import type { StepInstanceStatus } from '../../data/entities'
 
 const tenantId = 'tenant-1'
 const organizationId = 'org-1'
@@ -119,9 +122,23 @@ describe('executeInvokeAgent (enqueue + park)', () => {
 })
 
 describe('handleInvokeAgentJob (run agent off-transaction + resume)', () => {
-  function makeDeps(instance: Record<string, unknown> | null, outcome?: unknown) {
+  function makeStepAttempt(status: StepInstanceStatus = 'ACTIVE') {
+    return { id: 'step-instance-1', workflowInstanceId: 'instance-1', stepId, status }
+  }
+
+  function makeDeps(
+    instance: Record<string, unknown> | null,
+    outcome?: unknown,
+    stepAttempt: Record<string, unknown> | null = makeStepAttempt(),
+  ) {
     const invokeAgentForWorkflow = jest.fn().mockResolvedValue(outcome)
-    const em = { findOne: jest.fn().mockResolvedValue(instance) } as unknown as EntityManager
+    const em = {
+      findOne: jest.fn(async (entity: unknown) => {
+        if (entity === StepInstance) return stepAttempt
+        if (entity === WorkflowInstance) return instance
+        return null
+      }),
+    } as unknown as EntityManager
     const container = {
       resolve: jest.fn((name: string) => {
         if (name === 'agentWorkflowBridge') return { invokeAgentForWorkflow }
@@ -131,13 +148,82 @@ describe('handleInvokeAgentJob (run agent off-transaction + resume)', () => {
     return { em, container, invokeAgentForWorkflow }
   }
 
-  it('skips (idempotent) when the step already advanced', async () => {
-    const { em, container, invokeAgentForWorkflow } = makeDeps({
-      id: 'instance-1', currentStepId: 'next_step', status: 'RUNNING', tenantId, organizationId,
-    })
+  it('skips (idempotent) when this step attempt already resolved', async () => {
+    const { em, container, invokeAgentForWorkflow } = makeDeps(
+      { id: 'instance-1', currentStepId: 'next_step', status: 'RUNNING', tenantId, organizationId },
+      undefined,
+      makeStepAttempt('COMPLETED'),
+    )
     await handleInvokeAgentJob(em, container, makeJob())
     expect(invokeAgentForWorkflow).not.toHaveBeenCalled()
     expect(sendSignalMock).not.toHaveBeenCalled()
+  })
+
+  it('still skips a duplicate delivery when a loop re-entered the SAME step id under a new attempt', async () => {
+    // `currentStepId` is back on this step (a new attempt is parked there), so an
+    // equality check on it would happily re-run the agent for the OLD attempt.
+    const { em, container, invokeAgentForWorkflow } = makeDeps(
+      { id: 'instance-1', currentStepId: stepId, status: 'PAUSED', tenantId, organizationId },
+      { kind: 'researcher', data: {} },
+      makeStepAttempt('COMPLETED'),
+    )
+    await handleInvokeAgentJob(em, container, makeJob())
+    expect(invokeAgentForWorkflow).not.toHaveBeenCalled()
+    expect(sendSignalMock).not.toHaveBeenCalled()
+  })
+
+  it('re-delivers (throws) instead of dropping when the instance has not reached the step yet', async () => {
+    // Issue #5986: the job was picked up before the parking transaction became
+    // visible — the instance still reads as the PREVIOUS step and the attempt row
+    // does not exist yet. Dropping the job here parks the instance forever.
+    const { em, container, invokeAgentForWorkflow } = makeDeps(
+      { id: 'instance-1', currentStepId: 'start', status: 'RUNNING', tenantId, organizationId },
+      undefined,
+      null,
+    )
+    await expect(handleInvokeAgentJob(em, container, makeJob())).rejects.toThrow(/not visible yet/)
+    expect(invokeAgentForWorkflow).not.toHaveBeenCalled()
+    expect(sendSignalMock).not.toHaveBeenCalled()
+  })
+
+  it('waits for the parking transaction to commit before deciding (issue #5986)', async () => {
+    // The barrier takes the same PESSIMISTIC_WRITE lock on the instance row that
+    // the executor holds for the length of its transaction, so the guard below
+    // never reads a pre-commit snapshot.
+    let parkingCommitted = false
+    const lockModes: unknown[] = []
+    const invokeAgentForWorkflow = jest.fn().mockResolvedValue({ kind: 'researcher', data: { coverage: 'OC' } })
+    const em = {
+      isInTransaction: () => false,
+      transactional: jest.fn(async (callback: (trx: EntityManager) => Promise<unknown>) => {
+        const trx = {
+          findOne: jest.fn(async (_entity: unknown, _where: unknown, options?: { lockMode?: unknown }) => {
+            lockModes.push(options?.lockMode)
+            parkingCommitted = true
+            return { id: 'instance-1' }
+          }),
+        } as unknown as EntityManager
+        return await callback(trx)
+      }),
+      findOne: jest.fn(async (entity: unknown) => {
+        if (entity === StepInstance) return parkingCommitted ? makeStepAttempt() : null
+        return parkingCommitted
+          ? { id: 'instance-1', currentStepId: stepId, status: 'PAUSED', tenantId, organizationId }
+          : { id: 'instance-1', currentStepId: 'start', status: 'RUNNING', tenantId, organizationId }
+      }),
+    } as unknown as EntityManager
+    const container = {
+      resolve: jest.fn((name: string) => {
+        if (name === 'agentWorkflowBridge') return { invokeAgentForWorkflow }
+        throw new Error(`unexpected resolve(${name})`)
+      }),
+    } as unknown as AwilixContainer
+
+    await handleInvokeAgentJob(em, container, makeJob())
+
+    expect(lockModes).toEqual([LockMode.PESSIMISTIC_WRITE])
+    expect(invokeAgentForWorkflow).toHaveBeenCalledTimes(1)
+    expect(sendSignalMock).toHaveBeenCalledTimes(1)
   })
 
   it('retries (throws) before running the agent when the step has not parked yet', async () => {
@@ -207,7 +293,13 @@ describe('handleInvokeAgentJob (run agent off-transaction + resume)', () => {
 
   it('fail-stops the instance (no resume, no rethrow) when the agent run throws', async () => {
     const invokeAgentForWorkflow = jest.fn().mockRejectedValue(new Error('unknown agent id "claims.liability.policy_check"'))
-    const em = { findOne: jest.fn().mockResolvedValue({ id: 'instance-1', currentStepId: stepId, status: 'PAUSED', tenantId, organizationId }) } as unknown as EntityManager
+    const em = {
+      findOne: jest.fn(async (entity: unknown) => {
+        if (entity === StepInstance) return makeStepAttempt()
+        return { id: 'instance-1', currentStepId: stepId, status: 'PAUSED', tenantId, organizationId }
+      }),
+      flush: jest.fn(),
+    } as unknown as EntityManager
     const container = {
       resolve: jest.fn((name: string) => {
         if (name === 'agentWorkflowBridge') return { invokeAgentForWorkflow }
