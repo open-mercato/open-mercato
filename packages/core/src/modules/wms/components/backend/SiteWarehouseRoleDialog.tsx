@@ -48,6 +48,13 @@ export function SiteWarehouseRoleDialog({
             dialogRef.current?.querySelector("form")?.requestSubmit();
           }
         }}
+        onKeyDownCapture={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            event.stopPropagation();
+            onOpenChange(false);
+          }
+        }}
       >
         <DialogHeader>
           <DialogTitle>

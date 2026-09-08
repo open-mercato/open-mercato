@@ -17,6 +17,10 @@ import { raiseCrudError } from "@open-mercato/ui/backend/utils/serverErrors";
 import { Button } from "@open-mercato/ui/primitives/button";
 import { StatusBadge } from "@open-mercato/ui/primitives/status-badge";
 import { useT } from "@open-mercato/shared/lib/i18n/context";
+import {
+  getCurrentOrganizationScopeVersion,
+  subscribeOrganizationScopeChanged,
+} from "@open-mercato/shared/lib/frontend/organizationEvents";
 import { Factory } from "lucide-react";
 import { E } from "#generated/entities.ids.generated";
 import { extensionPoints } from "../../extension-points";
@@ -33,6 +37,15 @@ export function SitesTableClient() {
     { id: "updatedAt", desc: true },
   ]);
   const [filterValues, setFilterValues] = React.useState<FilterValues>({});
+  const [organizationScopeVersion, setOrganizationScopeVersion] =
+    React.useState(getCurrentOrganizationScopeVersion);
+  React.useEffect(
+    () =>
+      subscribeOrganizationScopeChanged(() => {
+        setOrganizationScopeVersion(getCurrentOrganizationScopeVersion());
+      }),
+    [],
+  );
   const filters = React.useMemo<FilterDef[]>(
     () => [
       {
@@ -66,7 +79,7 @@ export function SitesTableClient() {
     });
   }, [filterValues.isActive, page, search, sorting]);
   const query = useQuery({
-    queryKey: ["wms-sites", params],
+    queryKey: ["wms-sites", organizationScopeVersion, params],
     queryFn: async () => {
       const call = await apiCall<Paged<Site>>(`/api/wms/sites?${params}`, {
         cache: "no-store",
@@ -112,13 +125,14 @@ export function SitesTableClient() {
   return (
     <DataTable
       title={
-        <h2 className="flex items-center gap-2 text-base font-semibold">
-          <Factory
-            className="size-5 shrink-0 text-muted-foreground"
-            aria-hidden="true"
-          />
-          <span>{t("wms.sites.title", "Sites")}</span>
-        </h2>
+        <div className="flex items-center gap-3">
+          <div className="rounded-md border bg-muted/40 p-2 text-muted-foreground">
+            <Factory className="size-5" aria-hidden="true" />
+          </div>
+          <h2 className="text-xl font-semibold">
+            {t("wms.sites.title", "Sites")}
+          </h2>
+        </div>
       }
       columns={columns}
       data={query.data?.items ?? []}

@@ -1065,8 +1065,32 @@ const deleteWarehouseCommand: CommandHandler<{ id?: string }, { warehouseId: str
     const warehouseId = requireId(input?.id, 'Warehouse')
     const em = resolveEm(ctx)
     const warehouse = await loadWarehouse(em, ctx, warehouseId)
+    const wasPrimary = warehouse.isPrimary
+    warehouse.isPrimary = false
     warehouse.deletedAt = new Date()
+    let fallbackId: string | null = null
+    if (wasPrimary) {
+      const fallback = await findWithDecryption(
+        em,
+        Warehouse,
+        {
+          organizationId: warehouse.organizationId,
+          id: { $ne: warehouse.id },
+          deletedAt: null,
+        },
+        { orderBy: { createdAt: 'asc', id: 'asc' } },
+        { tenantId: warehouse.tenantId, organizationId: warehouse.organizationId },
+      )
+      fallbackId = fallback.find((record) => record.isActive && !record.isPrimary)?.id ?? null
+    }
     await em.flush()
+    if (fallbackId) {
+      await em.nativeUpdate(
+        Warehouse,
+        { id: fallbackId, tenantId: warehouse.tenantId, organizationId: warehouse.organizationId, deletedAt: null },
+        { isPrimary: true },
+      )
+    }
     await emitWarehouseCrudSideEffects(ctx, 'deleted', warehouse)
     return { warehouseId: warehouse.id }
   },
@@ -1088,6 +1112,19 @@ const deleteWarehouseCommand: CommandHandler<{ id?: string }, { warehouseId: str
       resolveScope(ctx, { tenantId: before.tenantId, organizationId: before.organizationId }),
     )
     if (!record) {
+      if (before.isPrimary) {
+        await em.nativeUpdate(
+          Warehouse,
+          {
+            organizationId: before.organizationId,
+            tenantId: before.tenantId,
+            id: { $ne: before.id },
+            isPrimary: true,
+            deletedAt: null,
+          },
+          { isPrimary: false },
+        )
+      }
       record = em.create(Warehouse, {
         id: before.id,
         organizationId: before.organizationId,
@@ -1109,6 +1146,19 @@ const deleteWarehouseCommand: CommandHandler<{ id?: string }, { warehouseId: str
     } else {
       ensureTenantScope(ctx, before.tenantId)
       ensureOrganizationScope(ctx, before.organizationId)
+      if (before.isPrimary) {
+        await em.nativeUpdate(
+          Warehouse,
+          {
+            organizationId: before.organizationId,
+            tenantId: before.tenantId,
+            id: { $ne: before.id },
+            isPrimary: true,
+            deletedAt: null,
+          },
+          { isPrimary: false },
+        )
+      }
       record.deletedAt = null
       record.name = before.name
       record.code = before.code

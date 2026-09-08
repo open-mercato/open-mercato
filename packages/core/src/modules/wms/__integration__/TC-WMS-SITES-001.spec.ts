@@ -14,15 +14,12 @@ import { createCrudFixture, ensureRoleFeatures } from './helpers/wmsFixtures'
 import {
   createRoleFixture,
   createUserFixture,
+  createOrganizationFixture,
   deleteRoleIfExists,
+  deleteOrganizationIfExists,
   deleteUserIfExists,
   setUserAclVisibility,
 } from '@open-mercato/core/helpers/integration/authFixtures'
-import {
-  createOrganizationInDb,
-  deleteOrganizationInDb,
-  deleteUserAclInDb,
-} from '@open-mercato/core/helpers/integration/dbFixtures'
 
 export const integrationMeta = { dependsOnModules: ['wms'] }
 
@@ -578,6 +575,7 @@ test.describe('TC-WMS-SITES-001: Site and warehouse-role API contracts', () => {
   test('does not expose or mutate Site records across organizations', async ({ request }) => {
     test.slow()
     const adminToken = await getAuthToken(request, 'admin')
+    const superadminToken = await getAuthToken(request, 'superadmin')
     const scope = getTokenScope(adminToken)
     const suffix = randomUUID().slice(0, 8)
     const password = 'StrongSecret123!'
@@ -590,7 +588,7 @@ test.describe('TC-WMS-SITES-001: Site and warehouse-role API contracts', () => {
     let warehouseId: string | null = null
     let mappingId: string | null = null
     try {
-      organizationId = await createOrganizationInDb({
+      organizationId = await createOrganizationFixture(request, superadminToken, {
         name: `WMS Sites organization ${suffix}`,
         tenantId: scope.tenantId,
       })
@@ -640,10 +638,9 @@ test.describe('TC-WMS-SITES-001: Site and warehouse-role API contracts', () => {
       if (scopedToken && siteId) await apiRequest(request, 'PUT', SITES_PATH, { token: scopedToken, data: { id: siteId, isActive: false } }).catch(() => undefined)
       if (scopedToken) await deleteGeneralEntityIfExists(request, scopedToken, ROLES_PATH, mappingId)
       if (scopedToken) await deleteGeneralEntityIfExists(request, scopedToken, WAREHOUSES_PATH, warehouseId)
-      if (userId) await deleteUserAclInDb(userId)
       await deleteUserIfExists(request, adminToken, userId)
       await deleteRoleIfExists(request, adminToken, roleId)
-      await deleteOrganizationInDb(organizationId)
+      await deleteOrganizationIfExists(request, superadminToken, organizationId)
     }
   })
 })

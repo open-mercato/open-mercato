@@ -23,6 +23,10 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import {
+  getCurrentOrganizationScopeVersion,
+  subscribeOrganizationScopeChanged,
+} from '@open-mercato/shared/lib/frontend/organizationEvents'
 import { Boxes, Layers, MapPinned, Warehouse } from 'lucide-react'
 import { E } from '#generated/entities.ids.generated'
 import {
@@ -282,6 +286,11 @@ export function WarehouseSection({ viewAllHref }: ConfigSectionOptions = {}) {
   const [search, setSearch] = React.useState('')
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'updatedAt', desc: true }])
   const [dialog, setDialog] = React.useState<DialogMode<WarehouseRow> | null>(null)
+  const [organizationScopeVersion, setOrganizationScopeVersion] = React.useState(getCurrentOrganizationScopeVersion)
+
+  React.useEffect(() => subscribeOrganizationScopeChanged(() => {
+    setOrganizationScopeVersion(getCurrentOrganizationScopeVersion())
+  }), [])
 
   const handleSortingChange = React.useCallback((nextSorting: SortingState) => {
     setSorting(nextSorting)
@@ -300,7 +309,7 @@ export function WarehouseSection({ viewAllHref }: ConfigSectionOptions = {}) {
   }, [page, search, sorting])
 
   const query = useQuery({
-    queryKey: ['wms-config', 'warehouses', params],
+    queryKey: ['wms-config', 'warehouses', organizationScopeVersion, params],
     queryFn: async () => {
       const call = await apiCall<PagedResponse<WarehouseRow>>(`/api/wms/warehouses?${params}`, {
         cache: 'no-store',
