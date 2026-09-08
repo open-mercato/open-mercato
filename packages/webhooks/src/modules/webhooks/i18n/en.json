@@ -1,4 +1,5 @@
 {
+  "notifications.categories.webhooks": "Webhooks",
   "webhooks.deliveries.actions.retry": "Retry",
   "webhooks.deliveries.actions.viewDetails": "View details",
   "webhooks.deliveries.autoRefreshHint": "The delivery log refreshes automatically while this page is open.",
@@ -80,7 +81,7 @@
   "webhooks.form.name": "Name",
   "webhooks.form.namePlaceholder": "My Webhook",
   "webhooks.form.rateLimitPerMinute": "Rate Limit Per Minute",
-  "webhooks.form.rateLimitPerMinuteHint": "Maximum deliveries per minute for this endpoint (0 means unlimited).",
+  "webhooks.form.rateLimitPerMinuteHint": "Maximum deliveries per minute for this endpoint (0 means unlimited). Stored for future use — the delivery worker does not enforce it yet.",
   "webhooks.form.secret": "Signing Secret",
   "webhooks.form.secretCopied": "Secret copied to clipboard.",
   "webhooks.form.secretCopy": "Copy Secret",
@@ -157,5 +158,6 @@
   "webhooks.nav.group": "Integrations",
   "webhooks.nav.title": "Webhooks",
   "webhooks.notifications.delivery.failed.body": "Webhook {webhookName} could not deliver event {eventType}. {errorMessage}",
+  "webhooks.notifications.delivery.failed.label": "Webhook delivery failed",
   "webhooks.notifications.delivery.failed.title": "Webhook delivery failed for {webhookName}"
 }

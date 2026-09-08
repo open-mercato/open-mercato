@@ -5,9 +5,11 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { EntityManager } from '@mikro-orm/core'
 import { CustomEntity } from '@open-mercato/core/modules/entities/data/entities'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { canReadEntityMetadata, getDeclaredCustomEntityRestriction } from '../lib/entityAcl'
 
 export const metadata = {
-  GET: { requireAuth: true },
+  GET: { requireAuth: true, requireFeatures: ['entities.records.view'] },
 }
 
 export async function GET(req: Request) {
@@ -17,6 +19,11 @@ export async function GET(req: Request) {
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as EntityManager
   const cache = resolve('cache') as any
+  const rbac = resolve('rbacService') as RbacService
+  const acl = await rbac.loadAcl(auth.sub ?? '', {
+    tenantId: auth.tenantId,
+    organizationId: auth.orgId ?? null,
+  })
 
   const where: any = { 
     isActive: true,
@@ -27,27 +34,49 @@ export async function GET(req: Request) {
     { $or: [ { tenantId: auth.tenantId ?? undefined as any }, { tenantId: null } ] },
   ]
   
-  // Try cache first to avoid repeated queries on focus refreshes
-  const cacheKey = `entities:sidebar:${auth.tenantId || 'null'}`
+  const cacheKey = `entities:sidebar:v2:${auth.tenantId || 'null'}`
+  let candidates: Array<{
+    entityId: string
+    label: string
+    href: string
+    accessRestricted: boolean
+  }> | null = null
   try {
     if (cache) {
       const cached = await cache.get(cacheKey)
-      if (cached && Array.isArray(cached.items)) return NextResponse.json(cached)
+      if (cached && Array.isArray(cached.candidates)) candidates = cached.candidates
     }
   } catch {}
 
-  const entities = await em.find(CustomEntity as any, where as any, { orderBy: { label: 'asc' } as any })
-  
-  const items = (entities as any[]).map((e) => ({
-    entityId: e.entityId,
-    label: e.label,
-    href: `/backend/entities/user/${encodeURIComponent(e.entityId)}/records`
-  }))
+  if (!candidates) {
+    const entities = await em.find(CustomEntity as any, where as any, { orderBy: { label: 'asc' } as any })
+    candidates = (entities as any[]).map((entity) => ({
+      entityId: entity.entityId,
+      label: entity.label,
+      href: `/backend/entities/user/${encodeURIComponent(entity.entityId)}/records`,
+      accessRestricted: getDeclaredCustomEntityRestriction(entity.entityId)
+        ?? entity.accessRestricted === true,
+    }))
+    try {
+      if (cache) {
+        await cache.set(cacheKey, { candidates }, { tags: [`nav:entities:${auth.tenantId || 'null'}`] })
+      }
+    } catch {}
+  }
 
+  const items = candidates
+    .filter((entity) => canReadEntityMetadata({
+      entityId: entity.entityId,
+      isCustomEntity: true,
+      isRestricted: entity.accessRestricted,
+      acl,
+    }))
+    .map((entity) => ({
+      entityId: entity.entityId,
+      label: entity.label,
+      href: entity.href,
+    }))
   const payload = { items }
-  try {
-    if (cache) await cache.set(cacheKey, payload, { tags: [`nav:entities:${auth.tenantId || 'null'}`] })
-  } catch {}
   return NextResponse.json(payload)
 }
 

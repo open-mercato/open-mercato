@@ -19,6 +19,7 @@ import { organizationUpdateSchema } from '@open-mercato/core/modules/directory/d
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import '@open-mercato/core/modules/directory/commands/organizations'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 
 const logger = createLogger('directory').child({ component: 'organization-branding' })
 
@@ -32,11 +33,13 @@ const brandingResponseSchema = z.object({
   organizationName: z.string(),
   tenantId: z.string().uuid(),
   logoUrl: z.string().nullable(),
+  logoPreserveAspectRatio: z.boolean(),
   updatedAt: z.string().nullable(),
 })
 
 const brandingUpdateSchema = z.object({
   logoUrl: organizationUpdateSchema.shape.logoUrl,
+  logoPreserveAspectRatio: organizationUpdateSchema.shape.logoPreserveAspectRatio,
 })
 
 const errorSchema = z.object({
@@ -132,6 +135,7 @@ function toResponsePayload(organization: Organization, tenantId: string) {
     organizationName: organization.name,
     tenantId,
     logoUrl: organization.logoUrl ?? null,
+    logoPreserveAspectRatio: !!organization.logoPreserveAspectRatio,
     updatedAt: toIsoOrNull(organization.updatedAt),
   }
 }
@@ -211,7 +215,12 @@ export async function PUT(req: Request) {
       operation: 'update',
       requestMethod: req.method,
       requestHeaders: req.headers,
-      mutationPayload: { logoUrl: parsed.data.logoUrl ?? null },
+      mutationPayload: {
+        logoUrl: parsed.data.logoUrl ?? null,
+        ...(parsed.data.logoPreserveAspectRatio !== undefined
+          ? { logoPreserveAspectRatio: parsed.data.logoPreserveAspectRatio }
+          : {}),
+      },
     })
     if (guardResult && !guardResult.ok) {
       return NextResponse.json(guardResult.body, { status: guardResult.status })
@@ -232,6 +241,9 @@ export async function PUT(req: Request) {
           id: resolved.organizationId,
           tenantId: resolved.tenantId,
           logoUrl: parsed.data.logoUrl ?? null,
+          ...(parsed.data.logoPreserveAspectRatio !== undefined
+            ? { logoPreserveAspectRatio: parsed.data.logoPreserveAspectRatio }
+            : {}),
         },
         ctx,
       },
@@ -256,6 +268,10 @@ export async function PUT(req: Request) {
   } catch (err) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
+    }
+    const interceptorRejection = getCommandInterceptorHttpRejection(err)
+    if (interceptorRejection) {
+      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
     }
     logger.error('Organization branding update failed', { err })
     return NextResponse.json(

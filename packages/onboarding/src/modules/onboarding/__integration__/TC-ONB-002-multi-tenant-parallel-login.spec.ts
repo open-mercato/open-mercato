@@ -4,6 +4,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { expect, test, type APIRequestContext, type Browser, type BrowserContext, type Page } from '@playwright/test';
 import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures';
+import { lookupHashCandidates } from '@open-mercato/shared/lib/encryption/aes';
 
 export const integrationMeta = {
   dependsOnModules: ['onboarding'],
@@ -39,9 +40,9 @@ async function replaceVerificationToken(email: string, token: string): Promise<s
          set token_hash = $2,
              expires_at = now() + interval '24 hours',
              updated_at = now()
-       where email = $1
+       where email_hash = any($1::text[])
        returning id`,
-      [email, hashToken(token)],
+      [lookupHashCandidates(email), hashToken(token)],
     );
     expect(result.rowCount, `onboarding request should exist for ${email}`).toBe(1);
     return result.rows[0].id;

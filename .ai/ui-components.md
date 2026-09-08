@@ -84,7 +84,8 @@ import { Button } from '@open-mercato/ui/primitives/button'
 ```
 
 **Variants**:
-- `default` (primary CTA) · `destructive` (danger filled)
+- `default` (primary CTA) · `destructive` (danger, quiet: red text + red border on the page surface)
+- `destructive-solid` (danger filled — point-of-no-return confirmations only)
 - `destructive-outline` · `destructive-soft` · `destructive-ghost` (danger family)
 - `outline` · `secondary` · `ghost` · `muted` · `link`
 
@@ -115,7 +116,20 @@ All sizes share `rounded-md`. Same-row buttons MUST share `size`.
 
 **Anti-patterns:** `<Button className="h-9">` (redundant, hides contract from grep), `<Button size="sm">` next to `size="icon"`, raw `<Link>` styled as a button.
 
-> Use the destructive family for danger actions: `destructive` for primary delete CTAs, `destructive-outline` for confirmation dialogs, `destructive-soft` for inline destructive chips, `destructive-ghost` for low-emphasis menu items.
+### Destructive loudness (MUST)
+
+`destructive` is **quiet by default** — red text and a red border on the page surface. A screen full of solid red buttons trains users to ignore red, so the fill is reserved for the one moment it has to be unmissable.
+
+| Control | Variant | Why |
+|---|---|---|
+| Delete / Remove / Discard trigger (row action, toolbar, form header, edit-dialog footer) | `destructive` | Opening a confirmation is reversible — Escape gets you out. |
+| The confirm button inside a confirmation dialog | `destructive-solid` | The single point of no return. `ConfirmDialog` with `variant="destructive"` already resolves to this — do not hand-roll it. |
+| Inline destructive chip | `destructive-soft` | Low-emphasis surface treatment. |
+| Low-emphasis destructive menu item | `destructive-ghost` | No border/fill in a list context. |
+
+MUST NOT put `destructive-solid` on a button that only *opens* a dialog, and MUST NOT leave a final confirmation on the quiet `destructive`. Status and validation copy is not a destructive action — that takes `text-status-error-text`, never `text-destructive` (see [`ds-rules.md`](ds-rules.md)).
+
+`destructive-outline` remains as an alias of the quiet treatment for call sites that predate the policy; new code uses `destructive`.
 
 ---
 
@@ -4826,7 +4840,9 @@ const [value, setValue] = React.useState<string>('')
 - **Blur**: a 200 ms delay before commit lets `onClick` on a suggestion win the race.
 - **`allowCustomValues={false}`**: on blur or `Enter`, if the typed text does not match any option (by value or case-insensitive label), the input reverts to the current `value`.
 - **Inner element**: deliberately a raw `<input>` (not the `Input` primitive) — the focus / suggestion-popup interplay relies on a plain input. The raw element is styled to *match* the DS `Input` visual contract (`h-9 rounded-md border-input shadow-xs`, `focus-visible:shadow-focus focus-visible:border-foreground`, `placeholder:text-muted-foreground`). Do not "fix" by swapping to the DS `Input` wrapper.
-- **Popup visual**: `rounded-2xl` container with Figma drop-shadow (`0 16px 32px -12px rgba(14,18,27,0.1)`), `p-2`, items `rounded-lg p-2` with `bg-muted` for keyboard-highlighted row — matches the DS `SelectContent` / `SelectItem` token contract.
+- **Popup placement**: the suggestion list is rendered through the DS [`Popover`](#popover) (`PopoverAnchor` + `PopoverContent`), so it is portaled to `<body>` and cannot be clipped by a scrolling ancestor such as a `Dialog` (`overflow-y-auto`). Query it from the document, not from the field wrapper, in tests — and by `role="option"`, since the items are not exposed as buttons. Focus stays on the `<input>` — `onOpenAutoFocus` / `onCloseAutoFocus` are prevented, and `aria-owns` keeps the portaled listbox a logical descendant so `aria-activedescendant` stays valid.
+- **MUST NOT** place a `ComboboxInput` inside a `<DialogContent elevated>`. Because the popup is portaled it no longer inherits the dialog's stacking context, and `z-popover` (45) is below `z-modal-elevated` (55) — the list would render behind that dialog and its overlay. Regular (non-`elevated`) dialogs, drawers and side panels are fine: `z-popover` sits above `z-modal` (40).
+- **Popup visual**: `PopoverContent` container (`rounded-md border-input bg-popover shadow-md`, `z-popover`) sized to the trigger via `--radix-popover-trigger-width`, `p-2`, items `rounded-lg p-2` with `bg-muted` for the keyboard-highlighted row — matches the DS `SelectContent` / `SelectItem` token contract.
 
 ### Props
 

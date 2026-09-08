@@ -16,6 +16,7 @@ import {
 } from '@open-mercato/core/modules/audit_logs/lib/projections'
 import { ActionLogService } from '@open-mercato/core/modules/audit_logs/services/actionLogService'
 import { loadAuditLogDisplayMaps } from '../../display'
+import { requireResolvedTenantScope } from '../../readScope'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['audit_logs.view_self'] },
@@ -111,6 +112,9 @@ function formatValue(value: unknown): string {
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const tenantScopeGuard = requireResolvedTenantScope(auth)
+  if (tenantScopeGuard) return tenantScopeGuard
 
   const container = await createRequestContainer()
   const { organizationId: defaultOrganizationId, scope } = await resolveFeatureCheckContext({ container, auth, request: req })
@@ -262,6 +266,7 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 400, description: 'Invalid filter values', schema: errorSchema },
         { status: 401, description: 'Authentication required', schema: errorSchema },
+        { status: 403, description: 'Caller has no resolved tenant scope and is not a superadmin', schema: errorSchema },
       ],
     },
   },

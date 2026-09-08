@@ -17,6 +17,8 @@ import {
 
 const logger = createLogger('ai_assistant').child({ component: 'tools' })
 
+let allModuleToolsLoad: Promise<void> | null = null
+
 /**
  * Module tool definition as exported from ai-tools.ts files.
  */
@@ -235,7 +237,7 @@ export async function loadGeneratedModuleAiTools(): Promise<number> {
  * Dynamically load tools from known module paths.
  * This is called during MCP server startup.
  */
-export async function loadAllModuleTools(): Promise<void> {
+async function loadAllModuleToolsUncached(): Promise<void> {
   // 1. Register built-in tools
   registerMcpTool(contextWhoamiTool, { moduleId: 'context' })
   logger.debug('Registered built-in context_whoami tool')
@@ -273,6 +275,21 @@ export async function loadAllModuleTools(): Promise<void> {
   } catch (error) {
     logger.error('Could not register API route manifests', { err: error })
   }
+}
+
+export function loadAllModuleTools(): Promise<void> {
+  if (!allModuleToolsLoad) {
+    allModuleToolsLoad = loadAllModuleToolsUncached().catch((error) => {
+      allModuleToolsLoad = null
+      throw error
+    })
+  }
+  return allModuleToolsLoad
+}
+
+/** @__internal Test-only hook — reset the process-wide loader memo. */
+export function resetAllModuleToolsLoadForTests(): void {
+  allModuleToolsLoad = null
 }
 
 /**

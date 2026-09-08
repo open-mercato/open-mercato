@@ -1,5 +1,6 @@
 import {
   getAllIntegrations,
+  resolveIntegrationCredentialsSchema,
   type IntegrationScope,
 } from '@open-mercato/shared/modules/integrations/types'
 import {
@@ -46,6 +47,17 @@ async function resolveDescriptor(
     return {
       ...descriptor,
       integrationId: null,
+      requiresConfiguration: false,
+      isConfigured: true,
+      configurationStatus: 'unmanaged',
+    }
+  }
+
+  const credentialsSchema = resolveIntegrationCredentialsSchema(integration.id)
+  if (credentialsSchema?.fields.length === 0) {
+    return {
+      ...descriptor,
+      integrationId: integration.id,
       requiresConfiguration: false,
       isConfigured: true,
       configurationStatus: 'unmanaged',

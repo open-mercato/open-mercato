@@ -912,6 +912,94 @@ test.describe('TC-CRM-028: Example customer sync', () => {
     }
   });
 
+  test('keeps probe events out of destructive sync while a legitimate scoped deletion still synchronizes', async ({ request }) => {
+    let companyId: string | null = null;
+    let interactionId: string | null = null;
+    let todoId: string | null = null;
+
+    try {
+      await setSyncFlags(request, superadminToken, { enabled: true, bidirectional: true });
+      companyId = await createCompanyFixture(request, adminToken, `QA CRM028 Probe Guard ${Date.now()}`);
+      interactionId = await createInteraction(request, adminToken, {
+        entityId: companyId,
+        interactionType: 'task',
+        title: `CRM028 probe guard ${Date.now()}`,
+        body: 'Must survive test-only event probes',
+        priority: 2,
+        customValues: { severity: 'high' },
+      });
+      await flushExampleCustomersSyncQueues({ outbound: true });
+
+      const mapping = await waitForMapping(
+        request,
+        superadminToken,
+        { interactionId },
+        undefined,
+        { expectedStatus: 'synced' },
+      );
+      todoId = mapping.todoId;
+
+      const forgedProbeResponse = await apiRequest(request, 'POST', '/api/example/assignees', {
+        token: adminToken,
+        data: {
+          eventId: 'example.todo.deleted',
+          organizationId: adminScope.organizationId,
+          payload: {
+            id: todoId,
+            tenantId: adminScope.tenantId,
+            organizationId: adminScope.organizationId,
+          },
+        },
+      });
+      expect(forgedProbeResponse.status()).toBe(403);
+
+      const scopedProbeResponse = await apiRequest(request, 'POST', '/api/example/assignees', {
+        token: adminToken,
+        data: {
+          eventId: 'example.todo.deleted',
+          organizationId: adminScope.organizationId,
+          payload: { probeId: `crm028-delete-probe-${Date.now()}` },
+        },
+      });
+      expect(scopedProbeResponse.status()).toBe(200);
+
+      await flushExampleCustomersSyncQueues({ events: true, inbound: true, outbound: false });
+      expect(
+        (await listCanonicalInteractions(request, adminToken, companyId))
+          .some((item) => item.id === interactionId),
+      ).toBe(true);
+      expect(await listMappings(request, superadminToken, { interactionId })).toHaveLength(1);
+
+      const legitimateDeleteResponse = await apiRequest(
+        request,
+        'DELETE',
+        `/api/example/todos?id=${encodeURIComponent(todoId)}`,
+        { token: adminToken },
+      );
+      expect(legitimateDeleteResponse.status()).toBe(200);
+
+      await expect
+        .poll(async () => {
+          await flushExampleCustomersSyncQueues({ events: true, inbound: true, outbound: false });
+          const interactions = await listCanonicalInteractions(request, adminToken, companyId!);
+          return interactions.some((item) => item.id === interactionId);
+        }, { timeout: 15_000, intervals: [250, 500, 1_000] })
+        .toBe(false);
+      await waitForMappingRemoval(request, superadminToken, { todoId });
+
+      interactionId = null;
+      todoId = null;
+    } finally {
+      await deleteEntityIfExists(request, adminToken, '/api/customers/interactions', interactionId);
+      await deleteEntityIfExists(request, adminToken, '/api/example/todos', todoId);
+      await cleanupDbRows({
+        interactionIds: interactionId ? [interactionId] : [],
+        todoIds: todoId ? [todoId] : [],
+      });
+      await deleteEntityIfExists(request, adminToken, '/api/customers/companies', companyId);
+    }
+  });
+
   test('skips sync side effects while the feature is disabled', async ({ request }) => {
     let companyId: string | null = null;
     let interactionId: string | null = null;

@@ -6,7 +6,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
-import { llmProviderRegistry } from '@open-mercato/shared/lib/ai/llm-provider-registry'
+import { llmProviderRegistry } from '../../../lib/llm-registry'
 import { AiTenantModelAllowlistRepository } from '../../../data/repositories/AiTenantModelAllowlistRepository'
 import {
   canonicalProviderId,
@@ -151,12 +151,11 @@ export async function PUT(req: NextRequest) {
   try {
     const container = await createRequestContainer()
     const rbacService = container.resolve<RbacService>('rbacService')
-    const acl = await rbacService.loadAcl(auth.sub, {
-      tenantId: auth.tenantId,
-      organizationId: auth.orgId,
-    })
-    const canManage =
-      acl.isSuperAdmin || acl.features.includes('ai_assistant.settings.manage')
+    const canManage = await rbacService.userHasAllFeatures(
+      auth.sub,
+      ['ai_assistant.settings.manage'],
+      { tenantId: auth.tenantId, organizationId: auth.orgId },
+    )
     if (!canManage) {
       return NextResponse.json({ error: 'Forbidden', code: 'forbidden' }, { status: 403 })
     }
@@ -197,12 +196,11 @@ export async function DELETE(req: NextRequest) {
   try {
     const container = await createRequestContainer()
     const rbacService = container.resolve<RbacService>('rbacService')
-    const acl = await rbacService.loadAcl(auth.sub, {
-      tenantId: auth.tenantId,
-      organizationId: auth.orgId,
-    })
-    const canManage =
-      acl.isSuperAdmin || acl.features.includes('ai_assistant.settings.manage')
+    const canManage = await rbacService.userHasAllFeatures(
+      auth.sub,
+      ['ai_assistant.settings.manage'],
+      { tenantId: auth.tenantId, organizationId: auth.orgId },
+    )
     if (!canManage) {
       return NextResponse.json({ error: 'Forbidden', code: 'forbidden' }, { status: 403 })
     }

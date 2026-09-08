@@ -186,14 +186,22 @@ export default function IntegrationsMarketplacePage() {
   const load = React.useCallback(async () => {
     setIsLoading(true)
     const fallback: ListResponse = { items: [], bundles: [], total: 0, page: 1, pageSize: 100, totalPages: 1 }
-    const call = await apiCall<ListResponse>(`/api/integrations${listQuery}`, undefined, { fallback })
-    if (!call.ok) {
+    try {
+      const call = await apiCall<ListResponse>(`/api/integrations${listQuery}`, undefined, { fallback })
+      if (!call.ok) {
+        flash(t('integrations.marketplace.loadError'), 'error')
+        setIsLoading(false)
+        return
+      }
+      setData(call.result ?? fallback)
+      setIsLoading(false)
+    } catch {
+      // apiFetch throws on 401/403 even when its own redirect is suppressed
+      // (e.g. a guarded repeat 401) — without this catch the page would spin
+      // forever instead of surfacing the load error.
       flash(t('integrations.marketplace.loadError'), 'error')
       setIsLoading(false)
-      return
     }
-    setData(call.result ?? fallback)
-    setIsLoading(false)
   }, [listQuery, t])
 
   React.useEffect(() => {

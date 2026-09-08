@@ -28,6 +28,11 @@ import {
   CustomerPipelineStage,
 } from '../data/entities'
 import {
+  dealClosureOutcomeFromStatus,
+  loadClosurePipelineStageSnapshot,
+} from '../lib/closureStage'
+import { canonicalDealStatus, isClosedDealStatus } from '../lib/dealStatus'
+import {
   assertTenantScope,
   type CustomersAiToolDefinition,
   type CustomersToolContext,
@@ -99,7 +104,7 @@ const listDealsTool = defineApiBackedAiTool<ListDealsInput, ListDealsApiResponse
   name: 'customers.list_deals',
   displayName: 'List deals',
   description:
-    'Search / list deals for the caller tenant + organization. Optional filters include linked person / company / pipeline stage.',
+    'Search / list deals for the caller tenant + organization. Optional filters include linked person / company / pipeline stage. Returns { items, total, totalIsCapped, limit, offset }. When totalIsCapped is true, total is a floor ("at least N", render it as "N+"), and pagination is exhausted only when a page returns fewer than limit items — never when offset reaches total.',
   inputSchema: listDealsInput,
   requiredFeatures: ['customers.deals.view'],
   toOperation: (input, ctx) => {
@@ -155,6 +160,9 @@ const listDealsTool = defineApiBackedAiTool<ListDealsInput, ListDealsApiResponse
         }
       }),
       total: typeof data.total === 'number' ? data.total : 0,
+      // A capped count reports a floor: phrase the total as "at least N" and
+      // never treat it as proof that pagination is exhausted.
+      totalIsCapped: (data as { totalIsCapped?: boolean }).totalIsCapped === true,
       limit,
       offset,
     }
@@ -466,10 +474,48 @@ const updateDealStageTool: CustomersAiToolDefinition = {
       afterPipelineStageLabel = stage?.label ?? input.toPipelineStageId
     } else if (input.toStage) {
       afterStatus = input.toStage
+      // The update command derives a closure outcome from terminal status spellings and
+      // relocates the deal to the pipeline's terminal stage (#5107) — preview that same
+      // projection so the approval card states the full blast radius.
+      const organizationId = deal.organizationId ?? ctx.organizationId ?? null
+      const outcome = dealClosureOutcomeFromStatus(input.toStage)
+      if (outcome && organizationId) {
+        const terminalStage = await loadClosurePipelineStageSnapshot(em, {
+          pipelineId: deal.pipelineId ?? null,
+          closureOutcome: outcome,
+          tenantId,
+          organizationId,
+        })
+        if (terminalStage) {
+          afterPipelineStageId = terminalStage.id
+          afterPipelineStageLabel = terminalStage.label
+        }
+      }
     }
     const beforeStatus = deal.status ?? null
     const beforePipelineStageId = deal.pipelineStageId ?? null
     const beforePipelineStageLabel = deal.pipelineStage ?? beforePipelineStageId
+    const beforeClosureOutcome = deal.closureOutcome ?? null
+    const beforeLossReasonId = deal.lossReasonId ?? null
+    const beforeLossNotes = deal.lossNotes ?? null
+    // Mirror the update command exactly (#5107): a status-only write derives the closure
+    // outcome for terminal spellings, clears outcome plus loss columns for non-closed
+    // non-terminal ones (reopen), and leaves `closed` and stage-only writes untouched.
+    // `toStage` is free-form model text, so canonicalize before the `closed` check — the
+    // command does the same, and the two must stay in lockstep or the approval card would
+    // preview a different write than the one that lands.
+    const requestedOutcome = dealClosureOutcomeFromStatus(input.toStage)
+    const clearsClosure =
+      input.toPipelineStageId === undefined &&
+      input.toStage !== undefined &&
+      !requestedOutcome &&
+      !isClosedDealStatus(canonicalDealStatus(input.toStage))
+    const afterClosureOutcome = clearsClosure
+      ? null
+      : requestedOutcome ?? beforeClosureOutcome
+    const closureOutcomeCleared = beforeClosureOutcome !== null && afterClosureOutcome === null
+    const afterLossReasonId = closureOutcomeCleared ? null : beforeLossReasonId
+    const afterLossNotes = closureOutcomeCleared ? null : beforeLossNotes
     return {
       recordId: deal.id,
       entityType: 'customers.deal',
@@ -477,23 +523,42 @@ const updateDealStageTool: CustomersAiToolDefinition = {
       before: {
         status: beforeStatus,
         pipelineStageId: beforePipelineStageId,
+        closureOutcome: beforeClosureOutcome,
+        lossReasonId: beforeLossReasonId,
+        lossNotes: beforeLossNotes,
       },
       after: {
         status: afterStatus,
         pipelineStageId: afterPipelineStageId,
+        closureOutcome: afterClosureOutcome,
+        lossReasonId: afterLossReasonId,
+        lossNotes: afterLossNotes,
       },
       display: {
         fieldLabels: {
           status: 'Status',
           pipelineStageId: 'Pipeline stage',
+          closureOutcome: 'Closure outcome',
+          lossReasonId: 'Loss reason',
+          lossNotes: 'Loss notes',
         },
         before: {
           ...(beforeStatus ? { status: titleStatus(beforeStatus) } : {}),
           ...(beforePipelineStageLabel ? { pipelineStageId: beforePipelineStageLabel } : {}),
+          ...(beforeClosureOutcome ? { closureOutcome: titleStatus(beforeClosureOutcome) } : {}),
+          ...(beforeLossReasonId ? { lossReasonId: beforeLossReasonId } : {}),
+          ...(beforeLossNotes ? { lossNotes: beforeLossNotes } : {}),
         },
         after: {
           ...(afterStatus ? { status: titleStatus(afterStatus) } : {}),
           ...(afterPipelineStageLabel ? { pipelineStageId: afterPipelineStageLabel } : {}),
+          ...(afterClosureOutcome
+            ? { closureOutcome: titleStatus(afterClosureOutcome) }
+            : closureOutcomeCleared
+              ? { closureOutcome: '—' }
+              : {}),
+          ...(afterLossReasonId ? { lossReasonId: afterLossReasonId } : {}),
+          ...(afterLossNotes ? { lossNotes: afterLossNotes } : {}),
         },
       },
     }

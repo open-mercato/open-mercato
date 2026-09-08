@@ -9,11 +9,11 @@ else
   echo "==> Skipping template sync in CI"
 fi
 
-echo "==> Checking version alignment across packages..."
-./scripts/check-version-alignment.sh
+echo "==> Bumping major version (packages + root manifest)..."
+./scripts/bump-version.sh major > /dev/null
 
-echo "==> Bumping major version..."
-yarn workspaces foreach -A --no-private version major
+echo "==> Verifying the target version is not published yet..."
+./scripts/check-version-unpublished.sh
 
 echo "==> Building packages..."
 yarn build:packages

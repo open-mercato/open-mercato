@@ -103,7 +103,7 @@ describe('TranslationManager locale tabs (issue #3318)', () => {
     render(<TranslationManager mode="embedded" entityType="" recordId="" />)
 
     const tabs = screen.getAllByRole('tab')
-    expect(tabs.map((tab) => tab.textContent)).toEqual(['EN', 'PL', 'ES', 'DE'])
+    expect(tabs.map((tab) => tab.textContent)).toEqual(['EN', 'PL', 'ES', 'DE', 'KO'])
     // Proves the shared Tabs primitive is rendering the triggers (not a hand-rolled <button>).
     tabs.forEach((tab) => expect(tab).toHaveAttribute('data-slot', 'tabs-trigger'))
   })

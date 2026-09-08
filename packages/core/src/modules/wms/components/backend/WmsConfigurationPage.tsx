@@ -1,19 +1,23 @@
 "use client"
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/wms/extension-points'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { z } from 'zod'
-import type { ColumnDef, SortingState } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
+import type { SortingState } from '@tanstack/react-table'
 import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
 import { CrudForm, type CrudField, type CrudFieldOption } from '@open-mercato/ui/backend/CrudForm'
+import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
@@ -34,6 +38,8 @@ import {
   inventoryRotationStrategyLabel,
 } from '../../lib/inventoryDisplayUi'
 import { LocationEditDialog } from './LocationEditDialog'
+import { WarehouseEditDialog, type WarehouseFormValues } from './WarehouseEditDialog'
+import { formatWarehouseCountryLabel } from './warehouseFormOptions'
 import { useWmsInventoryMutationAccess } from './useWmsInventoryMutationAccess'
 import { flashMutationError } from '../../lib/flashMutationError'
 
@@ -41,6 +47,7 @@ type PagedResponse<T> = {
   items: T[]
   total: number
   totalPages: number
+  totalIsCapped?: boolean
   page?: number
   pageSize?: number
 }
@@ -54,6 +61,9 @@ type WarehouseRow = {
   timezone?: string | null
   is_active?: boolean | null
   is_primary?: boolean | null
+  updated_at?: string | null
+  updatedAt?: string | null
+  customValues?: Record<string, unknown> | null
 }
 
 type LocationRow = {
@@ -77,6 +87,11 @@ type ZoneRow = {
   code?: string | null
   name?: string | null
   priority?: number | null
+  updated_at?: string | null
+  // The zones list route decorates with `stripPrefixedKeys: true`, so custom values
+  // arrive only under this canonical key — never as top-level `cf_*` / `cf:*`.
+  customValues?: Record<string, unknown> | null
+  customFields?: Array<{ key: string; label: string | null; value: unknown; kind: string | null; multi: boolean }>
 }
 
 type InventoryProfileRow = {
@@ -96,22 +111,14 @@ type InventoryProfileRow = {
   safety_stock?: string | number | null
 }
 
-type WarehouseFormValues = {
-  name: string
-  code: string
-  city?: string
-  country?: string
-  timezone?: string
-  isActive: boolean
-  isPrimary: boolean
-}
-
 type ZoneFormValues = {
   warehouseId: string
   code: string
   name: string
   priority?: number
-}
+  id?: string
+  updatedAt?: string | null
+} & { [key: `cf_${string}`]: unknown }
 
 type InventoryProfileFormValues = {
   catalogProductId: string
@@ -129,22 +136,12 @@ type DialogMode<T> =
   | { mode: 'create' }
   | { mode: 'edit'; row: T }
 
-const warehouseFormSchema = z.object({
-  name: z.string().trim().min(1),
-  code: z.string().trim().min(1),
-  city: z.string().trim().optional(),
-  country: z.string().trim().optional(),
-  timezone: z.string().trim().optional(),
-  isActive: z.boolean().default(true),
-  isPrimary: z.boolean().default(false),
-})
-
 const zoneFormSchema = z.object({
   warehouseId: z.string().uuid(),
   code: z.string().trim().min(1).max(80),
   name: z.string().trim().min(1).max(200),
   priority: z.coerce.number().int().min(0).optional(),
-})
+}).passthrough()
 
 function buildInventoryProfileFormSchema(fefoRequiredMsg: string) {
   return z.object({
@@ -179,6 +176,7 @@ function mergeCreatedWarehouseIntoWarehousesCaches(
   queryClient: QueryClient,
   newId: string,
   values: WarehouseFormValues,
+  updatedAt?: string | null,
 ) {
   const row: WarehouseRow = {
     id: newId,
@@ -189,6 +187,8 @@ function mergeCreatedWarehouseIntoWarehousesCaches(
     timezone: values.timezone || null,
     is_active: values.isActive,
     is_primary: values.isPrimary,
+    updated_at: updatedAt ?? null,
+    updatedAt: updatedAt ?? null,
   }
   const haystack = `${values.name}\n${values.code}`.toLowerCase()
 
@@ -273,6 +273,7 @@ type ConfigSectionOptions = {
 
 export function WarehouseSection({ viewAllHref }: ConfigSectionOptions = {}) {
   const t = useT()
+  const locale = useLocale()
   const queryClient = useQueryClient()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const { runMutation } = useGuardedMutation<Record<string, unknown>>({ contextId: 'wms-config-warehouses' })
@@ -280,7 +281,6 @@ export function WarehouseSection({ viewAllHref }: ConfigSectionOptions = {}) {
   const [page, setPage] = React.useState(1)
   const [search, setSearch] = React.useState('')
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'updatedAt', desc: true }])
-  const [submitting, setSubmitting] = React.useState(false)
   const [dialog, setDialog] = React.useState<DialogMode<WarehouseRow> | null>(null)
 
   const handleSortingChange = React.useCallback((nextSorting: SortingState) => {
@@ -312,16 +312,6 @@ export function WarehouseSection({ viewAllHref }: ConfigSectionOptions = {}) {
     },
   })
 
-  const fields = React.useMemo<CrudField[]>(() => [
-    { id: 'name', type: 'text', label: t('wms.backend.config.warehouses.form.name', 'Name'), required: true },
-    { id: 'code', type: 'text', label: t('wms.backend.config.warehouses.form.code', 'Code'), required: true },
-    { id: 'city', type: 'text', label: t('wms.backend.config.warehouses.form.city', 'City') },
-    { id: 'country', type: 'text', label: t('wms.backend.config.warehouses.form.country', 'Country') },
-    { id: 'timezone', type: 'text', label: t('wms.backend.config.warehouses.form.timezone', 'Timezone') },
-    { id: 'isPrimary', type: 'checkbox', label: t('wms.backend.config.warehouses.form.primary', 'Primary warehouse') },
-    { id: 'isActive', type: 'checkbox', label: t('wms.backend.config.warehouses.form.active', 'Active') },
-  ], [t])
-
   const columns = React.useMemo<ColumnDef<WarehouseRow>[]>(() => [
     {
       accessorKey: 'name',
@@ -331,7 +321,7 @@ export function WarehouseSection({ viewAllHref }: ConfigSectionOptions = {}) {
     },
     { accessorKey: 'code', header: t('wms.backend.config.warehouses.columns.code', 'Code'), enableSorting: true },
     { accessorKey: 'city', header: t('wms.backend.config.warehouses.columns.city', 'City'), cell: ({ row }) => row.original.city || '—' },
-    { accessorKey: 'country', header: t('wms.backend.config.warehouses.columns.country', 'Country'), cell: ({ row }) => row.original.country || '—' },
+    { accessorKey: 'country', header: t('wms.backend.config.warehouses.columns.country', 'Country'), cell: ({ row }) => formatWarehouseCountryLabel(row.original.country, locale) },
     {
       accessorKey: 'is_primary',
       header: t('wms.backend.config.warehouses.columns.primary', 'Primary'),
@@ -348,34 +338,10 @@ export function WarehouseSection({ viewAllHref }: ConfigSectionOptions = {}) {
           ? t('wms.common.inactive', 'Inactive')
           : t('wms.common.active', 'Active'),
     },
-  ], [t])
-
-  const initialValues = React.useMemo<WarehouseFormValues>(() => {
-    if (dialog?.mode === 'edit') {
-      return {
-        name: dialog.row.name || '',
-        code: dialog.row.code || '',
-        city: dialog.row.city || '',
-        country: dialog.row.country || '',
-        timezone: dialog.row.timezone || '',
-        isActive: dialog.row.is_active !== false,
-        isPrimary: dialog.row.is_primary === true,
-      }
-    }
-    return {
-      name: '',
-      code: '',
-      city: '',
-      country: '',
-      timezone: '',
-      isActive: true,
-      isPrimary: false,
-    }
-  }, [dialog])
+  ], [locale, t])
 
   const closeDialog = React.useCallback(() => {
     setDialog(null)
-    setSubmitting(false)
   }, [])
 
   const refresh = React.useCallback(async () => {
@@ -384,61 +350,20 @@ export function WarehouseSection({ viewAllHref }: ConfigSectionOptions = {}) {
     await queryClient.refetchQueries({ queryKey: ['wms-config', 'warehouses'], type: 'all' })
   }, [queryClient])
 
-  const handleSubmit = React.useCallback(async (values: WarehouseFormValues) => {
-    if (!dialog) return
-    const submitMode = dialog.mode
-    setSubmitting(true)
-    try {
-      const call = await runMutation({
-        operation: async () => {
-          const result = await apiCall<{ id?: string | null }>(
-            '/api/wms/warehouses',
-            {
-              method: submitMode === 'edit' ? 'PUT' : 'POST',
-              body: JSON.stringify(
-                submitMode === 'edit'
-                  ? { id: dialog.row.id, ...values }
-                  : values,
-              ),
-            },
-          )
-          if (!result.ok) {
-            await raiseCrudError(result.response, t('wms.backend.config.warehouses.errors.save', 'Failed to save warehouse.'))
-          }
-          return result
-        },
-        context: {},
-        mutationPayload: submitMode === 'edit' ? { id: dialog.row.id, ...values } : values,
-      })
-      flash(
-        submitMode === 'edit'
-          ? t('wms.backend.config.warehouses.flash.updated', 'Warehouse updated')
-          : t('wms.backend.config.warehouses.flash.created', 'Warehouse created'),
-        'success',
-      )
-
-      const createdId =
-        submitMode === 'create' &&
-        call?.result &&
-        typeof call.result === 'object' &&
-        typeof (call.result as { id?: unknown }).id === 'string'
-          ? (call.result as { id: string }).id.trim()
-          : null
-
-      closeDialog()
-
-      if (submitMode === 'create' && createdId) {
-        mergeCreatedWarehouseIntoWarehousesCaches(queryClient, createdId, values)
-        setSearch('')
-        setPage(1)
-      }
-
-      await refresh()
-    } catch (error) {
-      flashMutationError(error, t('wms.backend.config.warehouses.errors.save', 'Failed to save warehouse.'), t)
-      setSubmitting(false)
+  const handleWarehouseSaved = React.useCallback(async (info: {
+    mode: 'create' | 'edit'
+    id?: string
+    values: WarehouseFormValues
+    updatedAt?: string | null
+  }) => {
+    closeDialog()
+    if (info.mode === 'create' && info.id) {
+      mergeCreatedWarehouseIntoWarehousesCaches(queryClient, info.id, info.values, info.updatedAt)
+      setSearch('')
+      setPage(1)
     }
-  }, [closeDialog, dialog, queryClient, refresh, runMutation, t])
+    await refresh()
+  }, [closeDialog, queryClient, refresh])
 
   const handleDelete = React.useCallback(async (row: WarehouseRow) => {
     const confirmed = await confirm({
@@ -513,9 +438,10 @@ export function WarehouseSection({ viewAllHref }: ConfigSectionOptions = {}) {
             pageSize: 10,
             total: query.data?.total ?? 0,
             totalPages: query.data?.totalPages ?? 1,
+            totalIsCapped: query.data?.totalIsCapped === true,
             onPageChange: setPage,
           }}
-          perspective={{ tableId: 'wms.config.warehouses' }}
+          perspective={{ tableId: extensionPoints.hosts.warehousesTable.tableId }}
           emptyState={(
             <EmptyState
               title={t('wms.backend.config.warehouses.empty.title', 'No warehouses')}
@@ -526,28 +452,13 @@ export function WarehouseSection({ viewAllHref }: ConfigSectionOptions = {}) {
         />
       </SectionCard>
 
-      <Dialog open={dialog !== null} onOpenChange={(next) => !next && closeDialog()}>
-        <DialogContent className="max-w-3xl">
-          <DialogHeader>
-            <DialogTitle>
-              {dialog?.mode === 'edit'
-                ? t('wms.backend.config.warehouses.dialog.edit', 'Edit warehouse')
-                : t('wms.backend.config.warehouses.dialog.create', 'Create warehouse')}
-            </DialogTitle>
-          </DialogHeader>
-          <CrudForm<WarehouseFormValues>
-            schema={warehouseFormSchema}
-            fields={fields}
-            entityId={E.wms.warehouse}
-            initialValues={initialValues}
-            submitLabel={t('common.save', 'Save')}
-            onSubmit={handleSubmit}
-            embedded
-            isLoading={submitting}
-            twoColumn
-          />
-        </DialogContent>
-      </Dialog>
+      <WarehouseEditDialog
+        open={dialog !== null}
+        onOpenChange={(next) => { if (!next) closeDialog() }}
+        mode={dialog?.mode === 'edit' ? 'edit' : 'create'}
+        row={dialog?.mode === 'edit' ? dialog.row : null}
+        onSaved={handleWarehouseSaved}
+      />
       {ConfirmDialogElement}
     </>
   )
@@ -594,19 +505,54 @@ export function ZoneSection({ viewAllHref }: ConfigSectionOptions = {}) {
     },
   })
 
+  // Warehouse options for the dialog's combobox. Loaded whenever the dialog opens so a tenant
+  // with a single warehouse gets it pre-selected instead of an empty "type to search" input,
+  // and so the edit dialog can label the currently linked warehouse without a lookup round-trip.
+  const warehouseOptionsQuery = useQuery({
+    queryKey: ['wms-config', 'zones', 'warehouse-options'],
+    queryFn: () => loadWarehouseOptions(),
+    enabled: dialog !== null,
+    staleTime: 30_000,
+  })
+  const warehouseOptions = React.useMemo(
+    () => warehouseOptionsQuery.data ?? [],
+    [warehouseOptionsQuery.data],
+  )
+  const soleWarehouseId = warehouseOptions.length === 1 ? warehouseOptions[0].value : null
+
+  const warehouseSeedOptions = React.useMemo<CrudFieldOption[] | undefined>(() => {
+    if (dialog?.mode === 'edit') {
+      const warehouseId = dialog.row.warehouse_id
+      if (!warehouseId) return undefined
+      const label = dialog.row.warehouse_name?.trim() || dialog.row.warehouse_code?.trim() || ''
+      return label ? [{ value: warehouseId, label }] : undefined
+    }
+    return soleWarehouseId ? warehouseOptions : undefined
+  }, [dialog, soleWarehouseId, warehouseOptions])
+
+  // The dialog already holds the first page of warehouses; serve the combobox's initial
+  // (unsearched) open from that cache instead of repeating the same request, and only go
+  // back to the network once the user actually types a term the cached page cannot answer.
+  const loadZoneWarehouseOptions = React.useCallback(async (query?: string) => {
+    const term = query?.trim()
+    if (!term) return warehouseOptionsQuery.data ?? loadWarehouseOptions()
+    return loadWarehouseOptions(term)
+  }, [warehouseOptionsQuery.data])
+
   const fields = React.useMemo<CrudField[]>(() => [
     {
       id: 'warehouseId',
       type: 'combobox',
       label: t('wms.backend.config.zones.form.warehouse', 'Warehouse'),
       required: true,
-      loadOptions: loadWarehouseOptions,
+      loadOptions: loadZoneWarehouseOptions,
       allowCustomValues: false,
+      seedOptions: warehouseSeedOptions,
     },
     { id: 'code', type: 'text', label: t('wms.backend.config.zones.form.code', 'Code'), required: true },
     { id: 'name', type: 'text', label: t('wms.backend.config.zones.form.name', 'Name'), required: true },
     { id: 'priority', type: 'number', label: t('wms.backend.config.zones.form.priority', 'Priority') },
-  ], [t])
+  ], [t, loadZoneWarehouseOptions, warehouseSeedOptions])
 
   const columns = React.useMemo<ColumnDef<ZoneRow>[]>(() => [
     {
@@ -637,19 +583,22 @@ export function ZoneSection({ viewAllHref }: ConfigSectionOptions = {}) {
   const initialValues = React.useMemo<ZoneFormValues>(() => {
     if (dialog?.mode === 'edit') {
       return {
+        id: dialog.row.id,
+        updatedAt: dialog.row.updated_at ?? null,
         warehouseId: dialog.row.warehouse_id || '',
         code: dialog.row.code || '',
         name: dialog.row.name || '',
         priority: dialog.row.priority == null ? undefined : Number(dialog.row.priority),
+        ...extractCustomFieldEntries(dialog.row),
       }
     }
     return {
-      warehouseId: '',
+      warehouseId: soleWarehouseId ?? '',
       code: '',
       name: '',
       priority: undefined,
     }
-  }, [dialog])
+  }, [dialog, soleWarehouseId])
 
   const closeDialog = React.useCallback(() => {
     setDialog(null)
@@ -665,10 +614,14 @@ export function ZoneSection({ viewAllHref }: ConfigSectionOptions = {}) {
     const submitMode = dialog.mode
     setSubmitting(true)
     try {
-      const payload = {
-        ...values,
+      const customFields = collectCustomFieldValues(values)
+      const payload: Record<string, unknown> = {
+        warehouseId: values.warehouseId,
+        code: values.code,
+        name: values.name,
         priority: values.priority === undefined || Number.isNaN(values.priority) ? undefined : Number(values.priority),
       }
+      if (Object.keys(customFields).length) payload.customFields = customFields
       await runMutation({
         operation: async () => {
           const call = await apiCall(
@@ -773,9 +726,10 @@ export function ZoneSection({ viewAllHref }: ConfigSectionOptions = {}) {
             pageSize: 10,
             total: query.data?.total ?? 0,
             totalPages: query.data?.totalPages ?? 1,
+            totalIsCapped: query.data?.totalIsCapped === true,
             onPageChange: setPage,
           }}
-          perspective={{ tableId: 'wms.config.zones' }}
+          perspective={{ tableId: extensionPoints.hosts.zonesTable.tableId }}
           emptyState={(
             <EmptyState
               title={t('wms.backend.config.zones.empty.title', 'No zones')}
@@ -980,9 +934,10 @@ export function LocationSection({ viewAllHref }: ConfigSectionOptions = {}) {
             pageSize: 10,
             total: query.data?.total ?? 0,
             totalPages: query.data?.totalPages ?? 1,
+            totalIsCapped: query.data?.totalIsCapped === true,
             onPageChange: setPage,
           }}
-          perspective={{ tableId: 'wms.config.locations' }}
+          perspective={{ tableId: extensionPoints.hosts.locationsTable.tableId }}
           emptyState={(
             <EmptyState
               title={t('wms.backend.config.locations.empty.title', 'No locations')}
@@ -1274,9 +1229,10 @@ export function InventoryProfilesSection() {
             pageSize: 10,
             total: query.data?.total ?? 0,
             totalPages: query.data?.totalPages ?? 1,
+            totalIsCapped: query.data?.totalIsCapped === true,
             onPageChange: setPage,
           }}
-          perspective={{ tableId: 'wms.config.inventoryProfiles' }}
+          perspective={{ tableId: extensionPoints.hosts.inventoryProfilesTable.tableId }}
           emptyState={(
             <EmptyState
               title={t('wms.backend.config.profiles.empty.title', 'No inventory profiles')}

@@ -3,7 +3,8 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import type { ColumnDef, SortingState } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
+import type { SortingState } from '@tanstack/react-table'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable, withDataTableNamespaces } from '@open-mercato/ui/backend/DataTable'
 import { Badge } from '@open-mercato/ui/primitives/badge'
@@ -28,6 +29,7 @@ type LeaveRequestsResponse = {
   total?: number
   totalPages?: number
   viewer?: { memberId?: string | null; canSend?: boolean }
+  totalIsCapped?: boolean
 }
 
 export default function StaffMyLeaveRequestsPage() {
@@ -38,6 +40,7 @@ export default function StaffMyLeaveRequestsPage() {
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [search, setSearch] = React.useState('')
   const [isLoading, setIsLoading] = React.useState(true)
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'startDate', desc: true }])
@@ -117,6 +120,7 @@ export default function StaffMyLeaveRequestsPage() {
       setRows(items.map(mapLeaveRequest))
       setTotal(typeof payload.total === 'number' ? payload.total : items.length)
       setTotalPages(typeof payload.totalPages === 'number' ? payload.totalPages : 1)
+      setTotalIsCapped(payload?.totalIsCapped === true)
       const viewerMemberId = typeof payload.viewer?.memberId === 'string' ? payload.viewer.memberId : null
       setMemberId(viewerMemberId)
       setCanSend(payload.viewer?.canSend === true)
@@ -181,6 +185,7 @@ export default function StaffMyLeaveRequestsPage() {
             pageSize: PAGE_SIZE,
             total,
             totalPages,
+            totalIsCapped,
             onPageChange: setPage,
           }}
           onRowClick={(row) => {

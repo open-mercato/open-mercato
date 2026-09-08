@@ -29,7 +29,8 @@
       "om-spec-writing",
       "om-auto-fix-pr",
       "om-close-fixed-issues",
-      "om-verify-in-repo"
+      "om-verify-in-repo",
+      "om-pr-autopilot"
     ]
   },
   "tiers": {
@@ -38,6 +39,7 @@
       "skills": [
         "om-ds-guardian",
         "om-backend-ui-design",
+        "om-mockup-prototype",
         "om-implement-spec",
         "om-pre-implement-spec",
         "om-smart-test",
@@ -46,7 +48,16 @@
         "om-fix-specs",
         "om-migrate-mikro-orm",
         "om-create-ai-agent",
-        "om-help"
+        "om-help",
+        "om-refresh-standalone-harness",
+        "om-judge-agent-session",
+        "om-share-this-session"
+      ]
+    },
+    "design": {
+      "description": "Figma-side design workflow skills. Opt-in \u2014 presumes Figma tooling.",
+      "skills": [
+        "om-figma-design-with-ds"
       ]
     },
     "automation": {
@@ -66,7 +77,11 @@
     },
     "migration": {
       "description": "One-shot, version-pinned migrations. Install only when needed.",
-      "skills": ["om-auto-upgrade-0.4.10-to-0.5.0"]
+      "skills": [
+        "om-auto-upgrade-0.4.10-to-0.5.0",
+        "om-auto-upgrade-0.6.6-to-0.6.7",
+        "om-auto-upgrade-0.6.7-to-0.7.0"
+      ]
     },
     "infra": {
       "description": "Rare, special-case skills.",

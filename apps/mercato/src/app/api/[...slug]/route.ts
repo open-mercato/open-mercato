@@ -1,9 +1,10 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { findApiRouteManifestMatch, getApiRouteManifests, registerApiRouteManifests, type HttpMethod } from '@open-mercato/shared/modules/registry'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { apiRoutes } from '@/.mercato/generated/api-routes.generated'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { apiRouteFacades } from '@/.mercato/generated/api-route-shards.generated'
 import { resolveAuthFromRequestDetailed } from '@open-mercato/shared/lib/auth/server'
-import { bootstrap } from '@/bootstrap'
+import { bootstrap } from '@/bootstrap-api'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
@@ -20,7 +21,7 @@ import { withModuleResourceUsage } from '@open-mercato/shared/lib/modules/resour
 
 // Ensure all package registrations are initialized for API routes.
 bootstrap()
-registerApiRouteManifests(apiRoutes)
+registerApiRouteManifests(apiRouteFacades)
 
 const warnedDeprecatedRequireRoles = new Set<string>()
 
@@ -457,8 +458,16 @@ async function handleRequest(
       tenantId: auth?.tenantId ?? null,
       durationMs: Date.now() - startedAt,
     })
+    getTelemetryRuntime()?.recordHttpDuration(method, match.route.path, finalResponse.status, startedAt)
     return finalResponse
   } catch (error) {
+    // Unhandled throws become 500s (Next renders the error). This is the 5xx
+    // error funnel: record the exception (correlated to the active trace) and
+    // the request-duration metric, then re-throw unchanged.
+    getTelemetryRuntime()?.reportError(error, {
+      attributes: { 'http.request.method': method, 'http.route': match.route.path, 'http.response.status_code': 500 },
+    })
+    getTelemetryRuntime()?.recordHttpDuration(method, match.route.path, 500, startedAt)
     await emitLifecycleEvent(applicationLifecycleEvents.requestFailed, {
       ...receivedPayload,
       userId: auth?.sub ?? null,

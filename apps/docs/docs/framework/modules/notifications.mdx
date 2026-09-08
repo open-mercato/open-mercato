@@ -7,6 +7,13 @@ description: Create actionable in-app notifications with module-extensible types
 
 The Notifications module provides actionable in-app notifications that allow users to receive real-time updates and take actions directly from the notification panel. Notifications are automatically delivered to users via polling, with no manual refresh required.
 
+:::info Registering a notification type, and choosing its channels
+This page covers *creating* notifications. Declaring a notification **type** — the `notifications.ts`
+convention file your module ships, the `channels` / `nonOptOut` / `silent` flags, the delivery gate
+that decides which channels a given notification actually reaches, and a map of every type currently
+registered — lives in [Notification Delivery](./notification-delivery.mdx).
+:::
+
 ## Overview
 
 - **Location**: `packages/core/src/modules/notifications/`
@@ -1194,6 +1201,9 @@ expiresAt: undefined // Stays forever even if no longer relevant
 
 ## Related Documentation
 
+- [Notification Delivery](./notification-delivery.mdx) - Type registry, channels, and the delivery gate
+- [Push Notifications](./push-notifications.mdx) - Mobile push transport
+- [Devices](./devices.mdx) - The device registry push delivers to
 - [Events & Subscribers](../events/overview.mdx) - Event publishing system
 - [Queue & Workers](../events/queue-workers.mdx) - Background job processing
 - [Commands](../commands/overview.mdx) - Command execution from actions

@@ -28,11 +28,11 @@ jest.mock('@open-mercato/core/modules/shipping_carriers/lib/queue', () => ({
 }))
 
 function createMockRequest(body: string, headers: Record<string, string> = {}): Request {
-  return {
+  return new Request('http://localhost/api/shipping_carriers/webhook/shippo', {
     method: 'POST',
-    headers: new Headers(headers),
-    text: jest.fn(async () => body),
-  } as unknown as Request
+    headers,
+    body,
+  })
 }
 
 describe('shipping carrier webhook route security', () => {
@@ -56,6 +56,7 @@ describe('shipping carrier webhook route security', () => {
 
   test('rate limits unauthenticated provider webhooks before parsing the body', async () => {
     const request = createMockRequest('{"shipmentId":"ship_1"}', { 'x-forwarded-for': '203.0.113.10' })
+    const getReaderSpy = jest.spyOn(request.body!, 'getReader')
     ;(getShippingAdapter as jest.Mock).mockReturnValue({
       verifyWebhook: jest.fn(),
     })
@@ -74,7 +75,21 @@ describe('shipping carrier webhook route security', () => {
       duration: 60,
       keyPrefix: 'shipping_carriers:webhook',
     })
-    expect(request.text).not.toHaveBeenCalled()
+    expect(getReaderSpy).not.toHaveBeenCalled()
+    expect(findWithDecryption).not.toHaveBeenCalled()
+  })
+
+  test('rejects an oversized declared body before adapter verification', async () => {
+    const verifyWebhook = jest.fn()
+    ;(getShippingAdapter as jest.Mock).mockReturnValue({ verifyWebhook })
+    const request = createMockRequest('{}', {
+      'content-length': String(1024 * 1024 + 1),
+    })
+
+    const response = await POST(request, { params: { provider: 'shippo' } })
+
+    expect(response.status).toBe(413)
+    expect(verifyWebhook).not.toHaveBeenCalled()
     expect(findWithDecryption).not.toHaveBeenCalled()
   })
 

@@ -7,17 +7,10 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { isOrganizationReadAccessAllowed } from '@open-mercato/core/modules/directory/utils/organizationScopeGuard'
-import {
-  CustomerEntity,
-  CustomerPersonCompanyLink,
-  CustomerPersonProfile,
-} from '../../../../data/entities'
-import {
-  filterActivePersonCompanyLinks,
-  withActiveCustomerPersonCompanyLinkFilter,
-} from '../../../../lib/personCompanyLinkTable'
+import { CustomerEntity } from '../../../../data/entities'
+import { loadCompanyPeopleUnion } from '../../../../lib/personCompanies'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('customers')
@@ -119,73 +112,31 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
       throw notFound(translate('customers.errors.company_not_found', 'Company not found'))
     }
 
+    // Existence oracle (#5504): deny a cross-org read as not-found — identical to
+    // the parent-not-found above — so it cannot reveal that a company exists in an
+    // organization the caller cannot see.
     if (!isOrganizationReadAccessAllowed({ scope, auth, organizationId: company.organizationId })) {
-      throw new CrudHttpError(403, { error: translate('customers.errors.access_denied', 'Access denied') })
+      throw notFound(translate('customers.errors.company_not_found', 'Company not found'))
     }
 
     const entityScope = { tenantId: auth.tenantId, organizationId: company.organizationId }
-    const linkWhere = await withActiveCustomerPersonCompanyLinkFilter(
-      em,
-      {
-        company: company.id,
-        tenantId: company.tenantId,
-        organizationId: company.organizationId,
-      },
-      'customers.companies.people.GET',
-    )
-    const links = filterActivePersonCompanyLinks(
-      await findWithDecryption(
-        em,
-        CustomerPersonCompanyLink,
-        linkWhere,
-        { populate: ['person'] },
-        entityScope,
-      ),
-    )
+    const union = await loadCompanyPeopleUnion(em, company, entityScope)
 
-    const personIds = links
-      .map((link) => link.person?.id)
-      .filter((personId): personId is string => typeof personId === 'string' && personId.length > 0)
-
-    const profiles = personIds.length > 0
-      ? await findWithDecryption(
-          em,
-          CustomerPersonProfile,
-          {
-            entity: { $in: personIds },
-            tenantId: company.tenantId,
-            organizationId: company.organizationId,
-          },
-          {},
-          entityScope,
-        )
-      : []
-    const profileByPersonId = new Map(
-      profiles.map((profile) => [(profile.entity as { id: string }).id, profile]),
-    )
-
-    const items = links
-      .map((link) => {
-        const person = link.person
-        if (!person?.id) return null
-        const profile = profileByPersonId.get(person.id) ?? null
-        return {
-          id: person.id,
-          displayName: person.displayName ?? person.primaryEmail ?? person.id,
-          primaryEmail: person.primaryEmail ?? null,
-          primaryPhone: person.primaryPhone ?? null,
-          status: person.status ?? null,
-          lifecycleStage: person.lifecycleStage ?? null,
-          jobTitle: profile?.jobTitle ?? null,
-          department: profile?.department ?? null,
-          createdAt: person.createdAt.toISOString(),
-          organizationId: person.organizationId,
-          temperature: person.temperature ?? null,
-          source: person.source ?? null,
-          linkedAt: link.createdAt ? link.createdAt.toISOString() : null,
-        } satisfies CompanyPersonItem
-      })
-      .filter((item): item is CompanyPersonItem => item !== null)
+    const items = union.map(({ entity: person, profile, linkedAt }) => ({
+      id: person.id,
+      displayName: person.displayName ?? person.primaryEmail ?? person.id,
+      primaryEmail: person.primaryEmail ?? null,
+      primaryPhone: person.primaryPhone ?? null,
+      status: person.status ?? null,
+      lifecycleStage: person.lifecycleStage ?? null,
+      jobTitle: profile?.jobTitle ?? null,
+      department: profile?.department ?? null,
+      createdAt: person.createdAt.toISOString(),
+      organizationId: person.organizationId,
+      temperature: person.temperature ?? null,
+      source: person.source ?? null,
+      linkedAt,
+    } satisfies CompanyPersonItem))
 
     const filtered = query.search?.trim().length ? items.filter((item) => matchesSearch(item, query.search ?? '')) : items
     const sorted = sortItems(filtered, query.sort)

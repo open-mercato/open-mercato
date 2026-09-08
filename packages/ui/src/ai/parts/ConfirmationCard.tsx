@@ -210,7 +210,7 @@ function ConfirmationErrorAlert({
       : []
     return (
       <Alert
-        variant="warning"
+        status="warning"
         className="mt-3"
         data-ai-confirmation-error="stale_version"
       >
@@ -247,7 +247,7 @@ function ConfirmationErrorAlert({
   if (code === 'schema_drift') {
     return (
       <Alert
-        variant="warning"
+        status="warning"
         className="mt-3"
         data-ai-confirmation-error="schema_drift"
       >
@@ -270,7 +270,7 @@ function ConfirmationErrorAlert({
   if (code === 'invalid_status') {
     return (
       <Alert
-        variant="warning"
+        status="warning"
         className="mt-3"
         data-ai-confirmation-error="invalid_status"
       >
@@ -291,7 +291,7 @@ function ConfirmationErrorAlert({
   }
 
   return (
-    <Alert variant="destructive" className="mt-3" data-ai-confirmation-error={code}>
+    <Alert status="error" className="mt-3" data-ai-confirmation-error={code}>
       <AlertTitle>
         {t('ai_assistant.chat.mutation_cards.confirmation.errorTitle', 'Confirm failed')}
       </AlertTitle>

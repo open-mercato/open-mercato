@@ -124,13 +124,15 @@ const sidebars: SidebarsConfig = {
           items: [
             "user-guide/integrations",
             "user-guide/webhooks",
+            "user-guide/notifications-and-push",
             {
               type: "category",
-              label: "Email (Communication Channels)",
+              label: "Communication Channels",
               link: { type: "doc", id: "user-guide/communication-channels" },
               items: [
                 "user-guide/communication-channels-gmail",
                 "user-guide/communication-channels-imap",
+                "user-guide/communication-channels-discord",
                 "user-guide/customers-email",
               ],
             },
@@ -185,7 +187,15 @@ const sidebars: SidebarsConfig = {
     {
       type: "category",
       label: "Architecture",
-      items: ["architecture/system-overview", "architecture/module-dependencies", "architecture/generators", "architecture/cache-cli", "architecture/data-encryption"],
+      items: [
+        "architecture/system-overview",
+        "architecture/module-dependencies",
+        "architecture/configuration-decision-guide",
+        "architecture/generators",
+        "architecture/standalone-ai-development-harness",
+        "architecture/cache-cli",
+        "architecture/data-encryption",
+      ],
     },
     {
       type: "category",
@@ -356,6 +366,7 @@ const sidebars: SidebarsConfig = {
           label: "Modules",
           items: [
             "framework/modules/overview",
+            "framework/modules/reference-example-module",
             {
               type: "category",
               label: "Core Modules",
@@ -385,6 +396,10 @@ const sidebars: SidebarsConfig = {
             "framework/modules/routes-and-pages",
             "framework/modules/overrides",
             "framework/modules/notifications",
+            "framework/modules/notification-delivery",
+            "framework/modules/push-notifications",
+            "framework/modules/devices",
+            "framework/modules/communication-channels",
             "framework/modules/messages",
             "framework/modules/currencies",
             "framework/modules/integrations-data-sync",
@@ -392,6 +407,8 @@ const sidebars: SidebarsConfig = {
             "framework/modules/payment-gateways",
             "framework/modules/shipping-carriers",
             "framework/modules/building-gateway-provider",
+            "framework/modules/communication-channels",
+            "framework/modules/building-communication-channel-provider",
           ],
         },
         {
@@ -422,6 +439,7 @@ const sidebars: SidebarsConfig = {
             "framework/ai-assistant/launcher",
             "framework/ai-assistant/overrides",
             "framework/ai-assistant/settings",
+            "framework/ai-assistant/moderation",
             "framework/ai-assistant/playground",
           ],
         },
@@ -544,6 +562,7 @@ const sidebars: SidebarsConfig = {
         "tutorials/building-todo-module",
         "tutorials/authoring-first-module",
         "tutorials/api-data-fetching",
+        "tutorials/devices-and-push-getting-started",
         "tutorials/testing",
         {
           type: "category",

@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://open-mercato.dev/schemas/standalone-target-validation-result.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "caseId", "sourceResult", "beforeValidationFingerprint", "targetFingerprint", "commands", "generatedTests", "status"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "caseId": { "type": "string", "pattern": "^OMH-[0-9]{3}$" },
+    "sourceResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      }
+    },
+    "beforeValidationFingerprint": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "targetFingerprint": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "commands": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["command", "status", "exitStatus", "durationMs"],
+        "properties": {
+          "command": { "enum": ["yarn generate", "yarn typecheck", "yarn lint", "yarn build"] },
+          "status": { "const": "pass" },
+          "exitStatus": { "const": 0 },
+          "durationMs": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "generatedTests": {
+      "type": "array",
+      "maxItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["runner", "artifact", "artifactSha256", "executor", "cliPackage", "cliSha256", "argv", "command", "network", "testCounts", "status", "exitStatus", "durationMs"],
+        "properties": {
+          "runner": { "enum": ["jest", "playwright-api", "playwright-browser"] },
+          "artifact": { "type": "string", "minLength": 1, "maxLength": 300 },
+          "artifactSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "executor": { "const": "node" },
+          "cliPackage": { "enum": ["jest", "@playwright/test"] },
+          "cliSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "argv": { "type": "array", "minItems": 2, "maxItems": 20, "items": { "type": "string", "minLength": 1, "maxLength": 300 } },
+          "command": { "type": "string", "minLength": 1, "maxLength": 1000 },
+          "network": { "enum": ["none", "loopback"] },
+          "testCounts": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["passedTests", "skippedTests", "todoTests", "expectedFailureTests"],
+            "properties": {
+              "passedTests": { "type": "integer", "minimum": 1 },
+              "skippedTests": { "const": 0 },
+              "todoTests": { "const": 0 },
+              "expectedFailureTests": { "const": 0 }
+            }
+          },
+          "status": { "const": "pass" },
+          "exitStatus": { "const": 0 },
+          "durationMs": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "status": { "const": "pass" }
+  }
+}

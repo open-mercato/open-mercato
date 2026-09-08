@@ -1,8 +1,11 @@
 "use client"
 
 import * as React from 'react'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { apiCallOrThrow } from '../../backend/utils/apiCall'
 import type { AiPendingActionCardAction, AiPendingActionCardStatus } from './types'
+
+const logger = createLogger('ui').child({ component: 'useAiPendingActionPolling' })
 
 /**
  * Shared polling hook for the Phase 3 mutation-approval cards (Step 5.10).
@@ -148,6 +151,7 @@ export function useAiPendingActionPolling(
       }
       return result.pendingAction
     } catch (err) {
+      logger.error('Failed to load the pending AI action', { err, pendingActionId })
       if (!mountedRef.current) return null
       const message = err instanceof Error ? err.message : 'Failed to load pending action.'
       setError({ message })
@@ -168,7 +172,11 @@ export function useAiPendingActionPolling(
     }
     setIsPolling(true)
     timerRef.current = setTimeout(async () => {
-      await refresh()
+      try {
+        await refresh()
+      } catch (err) {
+        logger.error('Polling the pending AI action failed unexpectedly', { err })
+      }
       scheduleNext()
     }, intervalMs)
   }, [clearTimer, disabled, intervalMs, refresh])
@@ -184,11 +192,18 @@ export function useAiPendingActionPolling(
       }
     }
     setIsPolling(true)
-    // Always fetch on mount — the "reconnect behavior" guarantee.
-    void refresh().then(() => {
-      if (!mountedRef.current) return
-      scheduleNext()
-    })
+    // Always fetch on mount — the "reconnect behavior" guarantee. The catch
+    // runs before the scheduling step so a rejected first fetch degrades to a
+    // logged error instead of silently killing the polling loop.
+    void refresh()
+      .catch((err) => {
+        logger.error('Loading the pending AI action failed unexpectedly', { err })
+        return null
+      })
+      .then(() => {
+        if (!mountedRef.current) return
+        scheduleNext()
+      })
     return () => {
       mountedRef.current = false
       clearTimer()

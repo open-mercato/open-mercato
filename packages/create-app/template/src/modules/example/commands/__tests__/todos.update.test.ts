@@ -117,6 +117,9 @@ describe('example todos update', () => {
         updatedAt: expect.any(Date),
       }),
     )
+    // Read back through `findOneWithDecryption`: the `freshEventManager: true` fork
+    // carries no runtime ORM subscribers, so nothing would decrypt `notes` for the
+    // audit snapshot without it. The helper forwards `(entity, where, options)`.
     expect(findOne).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
@@ -125,6 +128,7 @@ describe('example todos update', () => {
         organizationId: '22222222-2222-4222-8222-222222222222',
         deletedAt: null,
       }),
+      undefined,
     )
     expect(setCustomFields).toHaveBeenCalledWith(
       expect.objectContaining({

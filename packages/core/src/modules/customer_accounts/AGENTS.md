@@ -136,7 +136,7 @@ Effective permissions = User ACL (if exists) OR aggregated Role ACLs.
 
 ### Portal Admin Flag
 
-`isPortalAdmin: true` on a role/user ACL bypasses all feature checks (equivalent to staff `isSuperAdmin`).
+`isPortalAdmin: true` on a role/user ACL bypasses stored-grant matching (equivalent to staff `isSuperAdmin`). Nulled ACL features and disabled modules remain denied.
 
 ### Default Roles (seeded on tenant creation)
 
@@ -150,7 +150,7 @@ Effective permissions = User ACL (if exists) OR aggregated Role ACLs.
 
 Customer portal features use the `portal.<area>.<action>` naming convention (e.g., `portal.orders.view`, `portal.catalog.view`).
 
-Treat `portal.*` and `*` as first-class ACL grants. When portal code reads raw feature arrays directly (for example menu filtering, injected portal navigation, or local runtime guards), use shared wildcard-aware matching instead of exact `includes(...)` checks.
+Treat `portal.*` and `*` as first-class stored ACL grants. Server authorization calls `CustomerRbacService.userHasAllFeatures`; already-loaded snapshots call shared `authorizeFeatures`. Portal UI and navigation consume `getEffectiveFeatures`, which returns concrete active IDs without wildcards.
 
 ### Cross-Module Feature Merging
 
@@ -172,7 +172,7 @@ const customerRbacService = container.resolve('customerRbacService')
 const hasAccess = await customerRbacService.userHasAllFeatures(userId, ['portal.orders.view'], { tenantId, organizationId })
 ```
 
-When a portal UI/client helper needs batch checks, prefer `/api/customer_accounts/portal/feature-check`. If it evaluates raw granted features directly, it must preserve wildcard semantics.
+When a portal UI/client helper needs batch checks, prefer `/api/customer_accounts/portal/feature-check`. Client helpers receive concrete effective features and may use the pure shared matcher without implementing portal-admin or removal bypasses.
 
 ## Services and DI
 

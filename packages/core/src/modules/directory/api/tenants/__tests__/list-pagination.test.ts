@@ -19,7 +19,7 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
 }))
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
-  getAuthFromRequest: jest.fn(async () => ({ sub: 'user-1', tenantId })),
+  getAuthFromRequest: jest.fn(async () => ({ sub: 'user-1', tenantId, isSuperAdmin: true })),
 }))
 
 const loadCustomFieldValues = jest.fn(async () => ({}))

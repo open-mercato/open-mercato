@@ -8,6 +8,7 @@ import { DefaultSalesCalculationService } from './services/salesCalculationServi
 import { DefaultTaxCalculationService } from './services/taxCalculationService'
 import { SalesDocumentNumberGenerator } from './services/salesDocumentNumberGenerator'
 import { DefaultSalesOrderService } from './services/salesOrderService'
+import { createSalesPaymentOrderTotalResolver } from './services/paymentOrderTotalResolver'
 import {
   SalesOrder,
   SalesOrderLine,
@@ -149,6 +150,14 @@ export function register(container: AppContainer) {
       return new DefaultSalesOrderService(em)
     })
       .singleton()
+      .proxy(),
+    // Authoritative amount-due lookup consumed by `payment_gateways` when it
+    // reconciles a caller-supplied payment-session amount (#4488). Registering
+    // it here keeps the gateway module free of any dependency on sales.
+    paymentOrderTotalResolver: asFunction(({ em }: AppCradle) => {
+      return createSalesPaymentOrderTotalResolver({ em })
+    })
+      .scoped()
       .proxy(),
     SalesOrder: asValue(SalesOrder),
     SalesOrderLine: asValue(SalesOrderLine),

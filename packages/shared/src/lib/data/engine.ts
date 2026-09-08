@@ -6,11 +6,12 @@ import { setRecordCustomFields } from '@open-mercato/core/modules/entities/lib/h
 import { validateCustomFieldValuesServer } from '@open-mercato/core/modules/entities/lib/validation'
 import { sanitizeCustomFieldHtmlRichTextValuesServer } from '@open-mercato/core/modules/entities/lib/htmlRichTextSanitizer'
 import type { EventBus } from '@open-mercato/events/types'
-import type {
-  CrudEventAction,
-  CrudEventsConfig,
-  CrudIndexerConfig,
-  CrudEntityIdentifiers,
+import {
+  CRUD_QUERY_INDEX_MANAGED_PAYLOAD_KEY,
+  type CrudEventAction,
+  type CrudEventsConfig,
+  type CrudIndexerConfig,
+  type CrudEntityIdentifiers,
 } from '../crud/types'
 import type { BulkImportSuppression } from '../commands/types'
 import { CrudHttpError } from '../crud/errors'
@@ -18,6 +19,7 @@ import { resolveRegisteredEntityTableName } from '../query/engine'
 import { getEntityIds } from '../encryption/entityIds'
 import { normalizeCustomFieldValues } from '../custom-fields/normalize'
 import { parseBooleanToken } from '../boolean'
+import { isReadProjectionAlwaysConsistent } from './consistency'
 import { isEventDeclared } from '../../modules/events'
 import { createLogger } from '../logger'
 
@@ -60,6 +62,19 @@ type QueuedCrudSideEffect = {
   actorUserId?: string | null
   events?: CrudEventsConfig<unknown>
   indexer?: CrudIndexerConfig<unknown>
+}
+
+/**
+ * A `makeCrudRoute` route-level `indexer:` declaration, handed to the data engine for the
+ * duration of one command-bus write. Command handlers own the side-effect mark on the
+ * `actions.*` path, and most of them mark `events:` only — without this the route's
+ * declaration would reach no code at all. `entityClass` scopes the default to the route's
+ * own ORM entity so a handler that also marks a sibling entity in the same request (a tag
+ * assignment alongside a tag, say) is never indexed under the route's `entityType`.
+ */
+export type DefaultCrudIndexerConfig = {
+  indexer: CrudIndexerConfig<unknown>
+  entityClass: abstract new (...args: never[]) => object
 }
 
 export interface DataEngine {
@@ -147,6 +162,20 @@ export interface DataEngine {
    * is responsible for rebuilding the `query_index` afterwards.
    */
   flushOrmEntityChanges(suppress?: BulkImportSuppression): Promise<void>
+
+  /**
+   * Declare the indexer a CRUD route configured, for marks made during one command-bus
+   * write that do not carry an indexer of their own. Pass `null` to clear it. Optional so
+   * third-party `DataEngine` implementations stay valid; callers invoke it with `?.`.
+   */
+  setDefaultIndexerConfig?(config: DefaultCrudIndexerConfig | null): void
+
+  /**
+   * Whether any side effect drained since the current default was declared carried an
+   * indexer for that default's entity class — false means the declared query-index
+   * obligation was discharged by nobody. Optional for the same reason as the setter.
+   */
+  hasIndexedDefaultEntityClass?(): boolean
 }
 
 export const SYSTEM_ENTITY_RECORDS_BLOCKED_CODE = 'system_entity_records_blocked'
@@ -186,7 +215,42 @@ export function assertCustomEntityStorageEntityId(em: EntityManager, entityId: s
 
 export class DefaultDataEngine implements DataEngine {
   private pendingSideEffects = new Map<string, QueuedCrudSideEffect>()
+  private defaultIndexer: DefaultCrudIndexerConfig | null = null
+  private indexedDefaultEntityClass = false
   constructor(private em: EntityManager, private container: AwilixContainer) {}
+
+  /**
+   * Per-command state, deliberately held on the engine instance rather than threaded through
+   * `CommandRuntimeContext` the way the bulk-import flags are. That is sound only because
+   * `createRequestContainer()` registers `dataEngine` per request (`lib/di/container.ts`), so
+   * one engine instance never spans two requests, and no `makeCrudRoute` verb runs two commands
+   * concurrently against it. An application that re-registers `dataEngine` as a transient would
+   * break both assumptions: the command would mark on a different instance than the route
+   * declared on, so nothing is indexed and every write logs the undischarged-declaration warning.
+   */
+  setDefaultIndexerConfig(config: DefaultCrudIndexerConfig | null): void {
+    this.defaultIndexer = config
+    this.indexedDefaultEntityClass = false
+  }
+
+  hasIndexedDefaultEntityClass(): boolean {
+    return this.indexedDefaultEntityClass
+  }
+
+  private matchesDefaultEntityClass(entity: unknown): boolean {
+    const declared = this.defaultIndexer?.entityClass
+    // `OrmEntityConfig.entity` is `any` and this repository treats `EntitySchema` instances as a
+    // first-class entity shape (`lib/bootstrap/types.ts`). An `EntitySchema` is an object rather
+    // than a constructor, so `instanceof` against it throws — and it would throw inside
+    // `markOrmEntityChange`, outside the best-effort try/catch that guards the flush, turning
+    // every write on such a route into a 500.
+    if (typeof declared !== 'function') return false
+    return entity instanceof declared
+  }
+
+  private resolveDefaultIndexer(entity: unknown): CrudIndexerConfig<unknown> | undefined {
+    return this.matchesDefaultEntityClass(entity) ? this.defaultIndexer?.indexer : undefined
+  }
 
   async setCustomFields(opts: Parameters<DataEngine['setCustomFields']>[0]): Promise<void> {
     const { entityId, recordId, organizationId = null, tenantId = null, values } = opts
@@ -224,7 +288,12 @@ export class DefaultDataEngine implements DataEngine {
           const eventName = `${mod}.${ent}.updated`
           warnIfUndeclaredEvent(eventName, 'setCustomFields')
           try {
-            await bus.emitEvent(eventName, { id: recordId, organizationId, tenantId }, { persistent: true })
+            await bus.emitEvent(eventName, { id: recordId, organizationId, tenantId }, {
+              persistent: true,
+              tenantId,
+              organizationId,
+              emitterModuleId: mod,
+            })
           } catch {
             // non-blocking
           }
@@ -598,7 +667,7 @@ export class DefaultDataEngine implements DataEngine {
     if (events && !suppress?.skipEvents) {
       const eventName = `${events.module}.${events.entity}.${action}`
       warnIfUndeclaredEvent(eventName, 'emitOrmEntityEvent')
-      const payload = events.buildPayload
+      const builtPayload = events.buildPayload
         ? events.buildPayload(ctx)
         : {
             id: ctx.identifiers.id,
@@ -606,11 +675,26 @@ export class DefaultDataEngine implements DataEngine {
             tenantId: ctx.identifiers.tenantId,
             ...(ctx.syncOrigin ? { syncOrigin: ctx.syncOrigin } : {}),
           }
+      // A configured indexer means this data-engine call owns the query-index
+      // decision, including an explicit skipReindex suppression. Mark object
+      // payloads so the legacy domain-event bridge does not enqueue the same
+      // record a second time. Keep the marker non-enumerable so client broadcasts
+      // and persisted domain payloads retain their existing public shape.
+      // Primitive custom payloads cannot be bridged in any case because they do
+      // not expose the record id.
+      const payload = indexer && builtPayload && typeof builtPayload === 'object' && !Array.isArray(builtPayload)
+        ? Object.defineProperty(
+            { ...(builtPayload as Record<string, unknown>) },
+            CRUD_QUERY_INDEX_MANAGED_PAYLOAD_KEY,
+            { value: true, enumerable: false },
+          )
+        : builtPayload
       try {
         await bus.emitEvent(eventName, payload, {
           persistent: !!events.persistent,
           tenantId: ctx.identifiers.tenantId ?? null,
           organizationId: ctx.identifiers.organizationId ?? null,
+          emitterModuleId: events.module,
         })
       } catch {
         // non-blocking
@@ -618,6 +702,7 @@ export class DefaultDataEngine implements DataEngine {
     }
 
     if (indexer && !suppress?.skipReindex) {
+      const alwaysConsistent = isReadProjectionAlwaysConsistent()
       const resolveCoverageBaseDelta = (): number | undefined => {
         if (action === 'created') return 1
         if (action === 'deleted') return -1
@@ -643,9 +728,14 @@ export class DefaultDataEngine implements DataEngine {
         // returns. The subscriber removes the projection row + tokens synchronously and
         // defers the coverage recompute + fulltext delete, so this stays bounded.
         // Errors are logged, not thrown — index drift never fails the originating write.
-        await bus.emitEvent('query_index.delete_one', enrichedPayload).catch((err: unknown) => {
-          logger.error('query_index.delete_one emit failed', { err })
-        })
+        // Always-consistent mode rethrows so drift is loud and retryable.
+        if (alwaysConsistent) {
+          await bus.emitEvent('query_index.delete_one', enrichedPayload, { rethrowHandlerErrors: true })
+        } else {
+          await bus.emitEvent('query_index.delete_one', enrichedPayload).catch((err: unknown) => {
+            logger.error('query_index.delete_one emit failed', { err })
+          })
+        }
       } else {
         const payload = indexer.buildUpsertPayload
           ? indexer.buildUpsertPayload(ctx)
@@ -663,18 +753,27 @@ export class DefaultDataEngine implements DataEngine {
         // (see delete_one above). The subscriber updates `entity_indexes` synchronously
         // and defers the heavy token-reindex pipeline (build doc + encrypt + decrypt +
         // tokenize + DELETE + chunked INSERT) so write latency stays bounded.
-        await bus.emitEvent('query_index.upsert_one', enrichedPayload).catch((err: unknown) => {
-          logger.error('query_index.upsert_one emit failed', { err })
-        })
+        if (alwaysConsistent) {
+          await bus.emitEvent('query_index.upsert_one', enrichedPayload, { rethrowHandlerErrors: true })
+        } else {
+          await bus.emitEvent('query_index.upsert_one', enrichedPayload).catch((err: unknown) => {
+            logger.error('query_index.upsert_one emit failed', { err })
+          })
+        }
       }
 
-      if (shouldTriggerCoverageRefresh(indexer.entityType, ctx.identifiers.tenantId ?? null)) {
-        void bus.emitEvent('query_index.coverage.refresh', {
+      if (alwaysConsistent || shouldTriggerCoverageRefresh(indexer.entityType, ctx.identifiers.tenantId ?? null)) {
+        const coveragePayload = {
           entityType: indexer.entityType,
           tenantId: ctx.identifiers.tenantId ?? null,
           organizationId: null,
           delayMs: 0,
-        }).catch(() => undefined)
+        }
+        if (alwaysConsistent) {
+          await bus.emitEvent('query_index.coverage.refresh', coveragePayload, { rethrowHandlerErrors: true })
+        } else {
+          void bus.emitEvent('query_index.coverage.refresh', coveragePayload).catch(() => undefined)
+        }
       }
     }
   }
@@ -691,6 +790,10 @@ export class DefaultDataEngine implements DataEngine {
     const { entity, identifiers } = opts
     if (!entity) return
     if (!identifiers?.id) return
+    // A command handler that marks `events:` only still discharges the route's declared
+    // query-index obligation — the route hands its `indexer:` down as the default so the
+    // handler's own entity and identifiers (the accurate ones) drive the projection write.
+    const indexer = opts.indexer ?? this.resolveDefaultIndexer(entity)
     const key = this.buildSideEffectKey(opts.action, identifiers)
     const existing = this.pendingSideEffects.get(key)
     if (existing) {
@@ -703,7 +806,11 @@ export class DefaultDataEngine implements DataEngine {
       existing.syncOrigin = opts.syncOrigin ?? null
       existing.actorUserId = opts.actorUserId ?? null
       if (opts.events) existing.events = opts.events as CrudEventsConfig<unknown>
+      // Explicit always wins, on the merge branch too: a second `events:`-only mark on the same
+      // key must not let the route default overwrite the `indexer:` an earlier mark installed,
+      // which would silently drop that handler's own `buildUpsertPayload`.
       if (opts.indexer) existing.indexer = opts.indexer as CrudIndexerConfig<unknown>
+      else if (!existing.indexer && indexer) existing.indexer = indexer
       this.pendingSideEffects.set(key, existing)
       return
     }
@@ -719,7 +826,7 @@ export class DefaultDataEngine implements DataEngine {
       actorUserId: opts.actorUserId ?? null,
     }
     if (opts.events) entry.events = opts.events as CrudEventsConfig<unknown>
-    if (opts.indexer) entry.indexer = opts.indexer as CrudIndexerConfig<unknown>
+    if (indexer) entry.indexer = indexer
     this.pendingSideEffects.set(key, entry)
   }
 
@@ -728,6 +835,9 @@ export class DefaultDataEngine implements DataEngine {
     const entries = Array.from(this.pendingSideEffects.values())
     this.pendingSideEffects.clear()
     for (const entry of entries) {
+      if (entry.indexer && !suppress?.skipReindex && this.matchesDefaultEntityClass(entry.entity)) {
+        this.indexedDefaultEntityClass = true
+      }
       try {
         await this.emitOrmEntityEvent({
           action: entry.action,
@@ -739,7 +849,10 @@ export class DefaultDataEngine implements DataEngine {
           indexer: entry.indexer as CrudIndexerConfig<unknown>,
           suppress,
         })
-      } catch {
+      } catch (error) {
+        if (isReadProjectionAlwaysConsistent()) {
+          throw error
+        }
         // best-effort; continue with remaining side effects
       }
     }

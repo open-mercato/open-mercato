@@ -100,6 +100,26 @@ export type SettingsSectionItem = {
   children?: SettingsSectionItem[]
 }
 
+/**
+ * Slug of a rendered group label, used as the pre-#4843 settings section id.
+ *
+ * `sectionOrder` used to be keyed by these slugs, which made ordering depend on the active locale.
+ * Kept only as a lookup fallback so third-party callers passing a legacy map keep their weights.
+ *
+ * @deprecated Key `sectionOrder` by the untranslated group id (`AdminNavItem.groupId`) instead.
+ */
+function legacySettingsSectionSlug(groupLabel: string): string {
+  return groupLabel.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
+}
+
+/**
+ * Groups the settings-context nav entries into ordered sections.
+ *
+ * `sectionOrder` is keyed by the untranslated group id (`AdminNavItem.groupId`, i.e. the page's
+ * `pageGroupKey` when it declares one) — the same convention the main sidebar's `defaultGroupOrder`
+ * follows. Keying off the rendered label instead made every non-English deployment miss its weights
+ * and fall back to the catch-all bucket (#4843).
+ */
 export function buildSettingsSections(
   entries: AdminNavItem[],
   sectionOrder: Record<string, number>
@@ -123,8 +143,8 @@ export function buildSettingsSections(
   }
 
   for (const item of settingsItems) {
-    const sectionId = item.group.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
-    const order = sectionOrder[sectionId] ?? 999
+    const sectionId = item.groupId
+    const order = sectionOrder[sectionId] ?? sectionOrder[legacySettingsSectionSlug(item.group)] ?? 999
 
     if (!sectionMap.has(sectionId)) {
       sectionMap.set(sectionId, {

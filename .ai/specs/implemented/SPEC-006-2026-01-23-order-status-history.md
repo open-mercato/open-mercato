@@ -75,9 +75,12 @@ type HistoryEntry = {
     statusTo?: string | null
     documentKind?: 'order' | 'quote'
     commandId?: string
+    changedFields?: string[] // stable field identifiers; localized by the client
   }
 }
 ```
+
+For action entries, `changedFields` is an optional concise summary rather than a full nested diff. Document line upserts derive user-editable fields from the before/after snapshots while excluding calculated totals and normalized UoM values. The client translates both the command action and field labels in the active locale.
 
 ## 6) API Design
 
@@ -134,6 +137,7 @@ const historyEntrySchema = z.object({
     statusTo: z.string().nullable().optional(),
     documentKind: z.enum(['order', 'quote']).optional(),
     commandId: z.string().optional(),
+    changedFields: z.array(z.string()).optional(),
   }).optional(),
 })
 
@@ -423,6 +427,8 @@ Add translation keys to all locale files (`en.json`, `de.json`, `es.json`, `pl.j
   "sales.documents.history.filter.actions": "Actions",
   "sales.documents.history.filter.comments": "Comments",
   "sales.documents.history.empty": "No history entries yet.",
+  "sales.documents.history.changedFields": "Changed fields: {fields}",
+  "sales.documents.history.fields.quantity": "Quantity",
   "sales.documents.history.status_changed": "Status changed from {from} to {to}",
   "sales.documents.history.by_actor": "by {actor}",
   "sales.documents.history.by_api_key": "by API key: {name}",
@@ -441,6 +447,7 @@ Add translation keys to all locale files (`en.json`, `de.json`, `es.json`, `pl.j
 - **API integration test:** Returns only scoped history entries, respects tenant/org isolation.
 - **Encryption test:** Ensure `ActionLogService.decryptEntries()` is applied and PII is properly decrypted.
 - **Widget injection test:** Verify History tab appears for both orders and quotes.
+- **Changed-fields regression:** Update an existing order line, verify `GET /api/sales/document-history` returns `metadata.changedFields`, and verify the History widget renders the localized summary.
 
 Test file location: `packages/core/src/modules/sales/api/__tests__/document-history.test.ts`
 
@@ -449,6 +456,13 @@ Test file location: `packages/core/src/modules/sales/api/__tests__/document-hist
 - **No DB migrations** if reusing ActionLog + SalesNote.
 - Run `npm run modules:prepare` after adding the widget to regenerate injection tables.
 - If a new entity is introduced later, generate migrations via `npm run db:generate` only.
+
+### 12.1 Migration & Backward Compatibility
+
+- `metadata.changedFields` is optional and additive, so existing API consumers remain compatible.
+- Existing action logs require no backfill: order and quote line updates derive the summary from their stored before/after snapshots at read time.
+- Existing `action` text remains the fallback when a command-specific translation key is unavailable.
+- No database migration or public identifier rename is required.
 
 ## 13) Open Questions (Please Confirm)
 
@@ -478,3 +492,7 @@ Test file location: `packages/core/src/modules/sales/api/__tests__/document-hist
 - [ ] Write unit tests for history builder
 - [ ] Write API integration tests
 - [ ] Run `npm run modules:prepare`
+
+## 15) Changelog
+
+- **2026-07-14** — Issue #3994: added optional localized changed-field summaries for document history actions, including retroactive order/quote line snapshot comparison and API/UI regression coverage.

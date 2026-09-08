@@ -4,7 +4,26 @@ import { cva, type VariantProps } from 'class-variance-authority'
 import { cn } from '@open-mercato/shared/lib/utils'
 
 const iconButtonVariants = cva(
-  "inline-flex items-center justify-center cursor-pointer transition-all outline-none disabled:pointer-events-none disabled:bg-bg-disabled disabled:text-text-disabled disabled:border-border-disabled disabled:shadow-none [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 [&_svg]:shrink-0 focus-visible:outline-none focus-visible:shadow-focus aria-pressed:bg-primary aria-pressed:text-primary-foreground aria-pressed:hover:bg-primary-hover",
+  // The pressed surface is repeated under `dark:` on purpose: the outline and
+  // ghost variants ship `dark:bg-input/30` / `dark:hover:bg-accent/50`, which
+  // otherwise outrank the un-prefixed `aria-pressed:` background while the
+  // `aria-pressed:text-primary-foreground` still applies — leaving a dark icon
+  // on a dark surface (invisible pressed star/bell buttons on the dark theme).
+  //
+  // Every pressed rule is additionally gated on `not-disabled:` because a toggle
+  // can be pressed AND disabled at the same time (an active editor tool while the
+  // document is read-only). Without the gate the pressed rules outrank the
+  // `disabled:` surface — `dark:aria-pressed:bg-primary` is more specific than
+  // `disabled:bg-bg-disabled` — and a control the user cannot operate renders
+  // as a primary, actionable button.
+  //
+  // The gate MUST stay `not-disabled:` (`&:not(:disabled)`) and not `enabled:`
+  // (`&:enabled`): the CSS `:enabled` pseudo-class only matches form elements,
+  // so on an `asChild` host — this primitive is routinely rendered onto a link —
+  // no pressed rule could ever match and the pressed state would not paint at
+  // all. `:not(:disabled)` gates the same way on a real `<button>` while leaving
+  // a non-form host styled.
+  "inline-flex items-center justify-center cursor-pointer transition-all outline-none disabled:pointer-events-none disabled:bg-bg-disabled disabled:text-text-disabled disabled:border-border-disabled disabled:shadow-none [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 [&_svg]:shrink-0 focus-visible:outline-none focus-visible:shadow-focus not-disabled:aria-pressed:bg-primary not-disabled:aria-pressed:text-primary-foreground not-disabled:aria-pressed:hover:bg-primary-hover dark:not-disabled:aria-pressed:bg-primary dark:not-disabled:aria-pressed:hover:bg-primary-hover",
   {
     variants: {
       variant: {

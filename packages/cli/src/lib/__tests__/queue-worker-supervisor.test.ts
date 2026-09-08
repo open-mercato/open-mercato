@@ -65,6 +65,39 @@ async function flushAsync(times = 5): Promise<void> {
 }
 
 describe('startLazyWorkerSupervisor', () => {
+  it('accepts lightweight worker descriptors without importing handlers', async () => {
+    const spawnFn = jest.fn() as unknown as jest.MockedFunction<LazySupervisorSpawnFn>
+    const probeFn = jest.fn(async (queueName, strategy) =>
+      emptyProbe(queueName, strategy),
+    ) as jest.MockedFunction<LazySupervisorProbeFn>
+
+    const handle = startLazyWorkerSupervisor({
+      mercatoBin: '/tmp/mercato',
+      appDir: '/tmp/app',
+      runtimeEnv: { ...process.env },
+      workers: [
+        {
+          id: 'events:workers:dispatch',
+          moduleId: 'events',
+          queue: 'events',
+          concurrency: 1,
+        },
+      ],
+      pollMs: 250,
+      restartOnUnexpectedExit: true,
+      strategy: 'local',
+      spawnFn,
+      probeFn,
+      logger: silentLogger,
+    })
+
+    await flushAsync(20)
+    expect(probeFn).toHaveBeenCalledWith('events', 'local')
+    expect(spawnFn).not.toHaveBeenCalled()
+
+    await handle.close()
+  })
+
   it('does not spawn any worker while every queue is idle', async () => {
     const spawnFn = jest.fn() as unknown as jest.MockedFunction<LazySupervisorSpawnFn>
     const probeFn = jest.fn(async (queueName, strategy) =>

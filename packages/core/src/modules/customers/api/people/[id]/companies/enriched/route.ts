@@ -25,6 +25,7 @@ import {
   filterActivePersonCompanyLinks,
   withActiveCustomerPersonCompanyLinkFilter,
 } from '../../../../../lib/personCompanyLinkTable'
+import { isOpenDealStatus, isWonDealStatus } from '../../../../../lib/dealStatus'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('customers')
@@ -177,8 +178,11 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
       throw notFound(translate('customers.errors.person_not_found', 'Person not found'))
     }
 
+    // Existence oracle (#5504): deny a cross-org read as not-found — identical to
+    // the parent-not-found above — so it cannot reveal that a person exists in an
+    // organization the caller cannot see.
     if (!isOrganizationReadAccessAllowed({ scope, auth, organizationId: person.organizationId })) {
-      throw new CrudHttpError(403, { error: translate('customers.errors.access_denied', 'Access denied') })
+      throw notFound(translate('customers.errors.person_not_found', 'Person not found'))
     }
 
     const entityScope = { tenantId: auth.tenantId, organizationId: person.organizationId }
@@ -280,13 +284,13 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
 
       const activeDeals = companyDealLinks
         .map((dcl) => dcl.deal as CustomerDeal)
-        .filter((deal) => deal.status !== 'win' && deal.status !== 'loose' && !deal.deletedAt)
+        .filter((deal) => isOpenDealStatus(deal.status) && !deal.deletedAt)
         .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
       const activeDeal = activeDeals.length > 0 ? activeDeals[0] : null
 
       const wonDeals = companyDealLinks
         .map((dcl) => dcl.deal as CustomerDeal)
-        .filter((deal) => deal.status === 'win' && !deal.deletedAt)
+        .filter((deal) => isWonDealStatus(deal.status) && !deal.deletedAt)
       let clv: { amount: number; currency: string } | null = null
       if (wonDeals.length > 0) {
         const currencies = new Map<string, number>()

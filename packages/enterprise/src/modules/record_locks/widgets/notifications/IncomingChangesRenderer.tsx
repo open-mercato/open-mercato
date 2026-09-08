@@ -4,7 +4,7 @@ import * as React from 'react'
 import { GitPullRequestArrow, Calendar } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { formatRelativeTime } from '@open-mercato/shared/lib/time'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import type { NotificationRendererProps } from '@open-mercato/shared/modules/notifications/types'
 
 type ChangeRow = {
@@ -35,6 +35,7 @@ function parseRows(notification: NotificationRendererProps['notification']): Cha
 
 export function IncomingChangesRenderer({ notification }: NotificationRendererProps) {
   const t = useT()
+  const locale = useLocale()
   const rows = React.useMemo(() => parseRows(notification), [notification])
   const isUnread = notification.status === 'unread'
 
@@ -63,7 +64,7 @@ export function IncomingChangesRenderer({ notification }: NotificationRendererPr
             </h4>
             <span className="flex items-center gap-1 text-xs text-muted-foreground">
               <Calendar className="h-3 w-3" />
-              {formatRelativeTime(notification.createdAt, { translate: t }) ?? ''}
+              {formatRelativeTime(notification.createdAt, { locale, translate: t }) ?? ''}
             </span>
           </div>
 

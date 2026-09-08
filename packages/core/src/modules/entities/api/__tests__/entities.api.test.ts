@@ -10,6 +10,10 @@ const mockEm = {
   flush: jest.fn(async () => undefined),
 }
 
+const mockRbac = {
+  loadAcl: jest.fn(),
+}
+
 // Swappable enterprise command-guard service so a test can assert the async seam
 // (`enforceCommandOptimisticLockWithGuards`) resolves and awaits it from the
 // request container. Null (the default) exercises the OSS-only floor path.
@@ -19,6 +23,7 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: async () => ({
     resolve: (key: string) => {
       if (key === 'em') return mockEm
+      if (key === 'rbacService') return mockRbac
       if (key === 'commandOptimisticLockGuardService') return mockCommandGuardService
       return null
     },
@@ -54,6 +59,15 @@ describe('GET /api/entities/entities — overlay merge', () => {
     jest.clearAllMocks()
     // second em.find (for field definitions) returns empty
     mockEm.find.mockResolvedValue([])
+    mockRbac.loadAcl.mockResolvedValue({ isSuperAdmin: false, features: ['*'], organizations: null })
+  })
+
+  it('does not enumerate entity metadata for an authenticated caller without view grants', async () => {
+    mockRbac.loadAcl.mockResolvedValue({ isSuperAdmin: false, features: [], organizations: null })
+
+    const response = await GET(new Request('http://x/api/entities/entities'))
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ items: [] })
   })
 
   it('preserves source: code for a generated entity that has a CustomEntity overlay', async () => {

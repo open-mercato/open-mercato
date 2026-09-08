@@ -6,6 +6,11 @@ import { GatewaySessionInitialization } from '../data/entities'
 
 type Scope = { organizationId: string; tenantId: string }
 
+export const PAYMENT_SESSION_REPLAY_WINDOW_MS = 24 * 60 * 60 * 1000
+export const PAYMENT_SESSION_INITIALIZATION_PRUNE_QUEUE =
+  'payment-gateway-session-initialization-prune'
+export const PAYMENT_SESSION_INITIALIZATION_PRUNE_BATCH_SIZE = 1_000
+
 export type OwnedPaymentSessionInitialization = {
   id: string
   claimToken: string
@@ -139,4 +144,35 @@ export async function refreshPaymentSessionInitialization(
     { claimedAt, updatedAt: claimedAt },
   )
   return refreshedRows > 0
+}
+
+export async function pruneCompletedPaymentSessionInitializations(
+  em: EntityManager,
+  scope: Scope,
+  options: { now?: Date; batchSize?: number } = {},
+): Promise<number> {
+  const now = options.now ?? new Date()
+  const batchSize = options.batchSize ?? PAYMENT_SESSION_INITIALIZATION_PRUNE_BATCH_SIZE
+  if (!Number.isInteger(batchSize) || batchSize < 1) {
+    throw new Error('[internal] Payment-session initialization prune batch size must be a positive integer')
+  }
+  const cutoff = new Date(now.getTime() - PAYMENT_SESSION_REPLAY_WINDOW_MS)
+  const connection = em.getConnection()
+  const result = await connection.execute(
+    `
+    delete from gateway_session_initializations
+    where id in (
+      select id from gateway_session_initializations
+      where tenant_id = ?
+        and organization_id = ?
+        and gateway_transaction_id is not null
+        and updated_at < ?
+      order by updated_at asc
+      limit ?
+    )
+    `,
+    [scope.tenantId, scope.organizationId, cutoff, batchSize],
+    'run',
+  ) as { affectedRows?: number; rowCount?: number } | undefined
+  return result?.affectedRows ?? result?.rowCount ?? 0
 }

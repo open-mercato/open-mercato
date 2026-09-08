@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { formatRelativeTime } from '@open-mercato/shared/lib/time'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import type { NotificationRendererProps } from '@open-mercato/shared/modules/notifications/types'
 
 export function CheckoutTransactionCompletedRenderer({
@@ -16,6 +16,7 @@ export function CheckoutTransactionCompletedRenderer({
   actions = [],
 }: NotificationRendererProps) {
   const t = useT()
+  const locale = useLocale()
   const router = useRouter()
   const [executing, setExecuting] = React.useState(false)
   const isUnread = notification.status === 'unread'
@@ -69,7 +70,7 @@ export function CheckoutTransactionCompletedRenderer({
             </h4>
             <span className="flex-shrink-0 text-xs text-muted-foreground flex items-center gap-1">
               <Calendar className="h-3 w-3" />
-              {formatRelativeTime(notification.createdAt, { translate: t }) ?? ''}
+              {formatRelativeTime(notification.createdAt, { locale, translate: t }) ?? ''}
             </span>
           </div>
           {amount ? (

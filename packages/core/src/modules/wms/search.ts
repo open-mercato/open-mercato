@@ -106,6 +106,7 @@ export const searchConfig: SearchModuleConfig = {
   entities: [
     {
       entityId: E.wms.warehouse,
+      aclFeatures: ['wms.view'],
       enabled: true,
       priority: 8,
       buildSource: async (ctx) => {
@@ -130,6 +131,7 @@ export const searchConfig: SearchModuleConfig = {
     },
     {
       entityId: E.wms.warehouse_location,
+      aclFeatures: ['wms.view'],
       enabled: true,
       priority: 7,
       buildSource: async (ctx) => {
@@ -155,6 +157,7 @@ export const searchConfig: SearchModuleConfig = {
     },
     {
       entityId: E.wms.product_inventory_profile,
+      aclFeatures: ['wms.view'],
       enabled: true,
       priority: 8,
       buildSource: async (ctx) => {
@@ -195,6 +198,7 @@ export const searchConfig: SearchModuleConfig = {
     },
     {
       entityId: E.wms.inventory_lot,
+      aclFeatures: ['wms.view'],
       enabled: true,
       priority: 6,
       buildSource: async (ctx) => {

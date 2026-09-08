@@ -237,6 +237,8 @@ async function resolvePageContext(input) {
 }
 ```
 
+`input` carries `{ entityType, recordId, container, tenantId, organizationId, userId }`. `entityType`/`recordId` come from the browser; `tenantId`, `organizationId` and `userId` come from the server-side auth context. Hydrating a **user-scoped** record (mail thread, personal task list, anything with an owner column) MUST compare that owner to `input.userId` and return `null` when it does not match or when `userId` is missing — otherwise anyone in the organization can read a colleague's records by supplying their `recordId`.
+
 ### 4.3 Object mode (structured output)
 
 For one-shot structured extraction set `executionMode: 'object'` and declare a Zod `output.schema`:

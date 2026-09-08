@@ -1,4 +1,5 @@
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { checkRateLimit, getClientIp } from '@open-mercato/shared/lib/ratelimit/helpers'
 import { POST } from '../route'
@@ -25,6 +26,7 @@ jest.mock('@open-mercato/shared/lib/ratelimit/helpers', () => ({
   checkRateLimit: jest.fn(),
   getClientIp: jest.fn(),
   RATE_LIMIT_FALLBACK_KEY: 'global',
+  RATE_LIMIT_UNAVAILABLE_FALLBACK: 'Service temporarily unavailable. Please try again later.',
 }))
 
 jest.mock('../../../../../events', () => ({
@@ -297,5 +299,179 @@ describe('POST /api/checkout/pay/[slug]/submit', () => {
     expect(response.status).toBe(403)
     const payload = await response.json()
     expect(payload.error).toBe('Invalid request host')
+  })
+
+  it('returns 201 when updateStatus rejects with concurrent_status_update (webhook won the race, payment succeeded)', async () => {
+    // The webhook already advanced the transaction to 'completed' before the
+    // submit route's updateStatus call — that 409 must be treated as benign
+    // and the route must still return 201 with the real terminal transaction.
+    const terminalTransaction = createTransaction({ status: 'completed', gatewayTransactionId: GATEWAY_TRANSACTION_ID })
+    ;(findOneWithDecryption as jest.Mock)
+      .mockResolvedValueOnce(createLink())        // link lookup
+      .mockResolvedValueOnce(null)               // no existing transaction (idempotency pre-check)
+      .mockResolvedValueOnce(createTransaction()) // transaction after create
+      .mockResolvedValueOnce(terminalTransaction) // refreshed transaction after conflict
+
+    const conflictError = new CrudHttpError(409, {
+      code: 'concurrent_status_update',
+      currentStatus: 'completed',
+      expectedStatus: 'processing',
+      requestedStatus: 'processing',
+      error: '[internal] concurrent update',
+    })
+    mockCommandExecute
+      .mockResolvedValueOnce({ result: { id: TRANSACTION_ID } }) // create
+      .mockRejectedValueOnce(conflictError)                      // updateStatus -> conflict
+
+    const response = await POST(
+      new Request('https://merchant.example/api/checkout/pay/donate/submit', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'Idempotency-Key': 'race-conflict-key-123',
+          origin: 'https://merchant.example',
+        },
+        body: JSON.stringify({ customerData: {}, acceptedLegalConsents: {}, amount: 1 }),
+      }),
+      { params: { slug: 'donate' } },
+    )
+
+    expect(response.status).toBe(201)
+    const payload = await response.json()
+    expect(payload.transactionId).toBe(TRANSACTION_ID)
+  })
+
+  it('returns 201 when updateStatus rejects with invalid_status_transition (terminal state already set)', async () => {
+    const terminalTransaction = createTransaction({ status: 'completed', gatewayTransactionId: GATEWAY_TRANSACTION_ID })
+    ;(findOneWithDecryption as jest.Mock)
+      .mockResolvedValueOnce(createLink())
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(createTransaction())
+      .mockResolvedValueOnce(terminalTransaction)
+
+    const invalidTransitionError = new CrudHttpError(409, {
+      code: 'invalid_status_transition',
+      currentStatus: 'completed',
+      requestedStatus: 'processing',
+      error: '[internal] invalid transition',
+    })
+    mockCommandExecute
+      .mockResolvedValueOnce({ result: { id: TRANSACTION_ID } })
+      .mockRejectedValueOnce(invalidTransitionError)
+
+    const response = await POST(
+      new Request('https://merchant.example/api/checkout/pay/donate/submit', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'Idempotency-Key': 'invalid-transition-key1',
+          origin: 'https://merchant.example',
+        },
+        body: JSON.stringify({ customerData: {}, acceptedLegalConsents: {}, amount: 1 }),
+      }),
+      { params: { slug: 'donate' } },
+    )
+
+    expect(response.status).toBe(201)
+    const payload = await response.json()
+    expect(payload.transactionId).toBe(TRANSACTION_ID)
+  })
+
+  describe('rate limiting is fail-closed', () => {
+    function submitRequest() {
+      return POST(
+        new Request('https://merchant.example/api/checkout/pay/donate/submit', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'Idempotency-Key': 'rate-limit-key1',
+            origin: 'https://merchant.example',
+          },
+          body: JSON.stringify({ customerData: {}, acceptedLegalConsents: {}, amount: 1 }),
+        }),
+        { params: { slug: 'donate' } },
+      )
+    }
+
+    it('asks the limiter to fail closed', async () => {
+      ;(findOneWithDecryption as jest.Mock).mockResolvedValue(createLink())
+
+      await submitRequest()
+
+      expect(checkRateLimit).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        expect.any(String),
+        expect.any(String),
+        expect.objectContaining({ failClosed: true }),
+      )
+    })
+
+    it('returns 503 without creating a payment session when the limiter cannot decide', async () => {
+      ;(findOneWithDecryption as jest.Mock).mockResolvedValue(createLink())
+      ;(checkRateLimit as jest.Mock).mockRejectedValue(new Error('backing store unreachable'))
+
+      const response = await submitRequest()
+
+      expect(response.status).toBe(503)
+      expect(await response.json()).toEqual({
+        error: 'Service temporarily unavailable. Please try again later.',
+      })
+      expect(mockCreatePaymentSession).not.toHaveBeenCalled()
+      expect(mockCommandExecute).not.toHaveBeenCalled()
+    })
+
+    it('passes a 503 the limiter itself produced straight through', async () => {
+      ;(findOneWithDecryption as jest.Mock).mockResolvedValue(createLink())
+      ;(checkRateLimit as jest.Mock).mockResolvedValue(
+        new Response(JSON.stringify({ error: 'unavailable' }), { status: 503 }),
+      )
+
+      const response = await submitRequest()
+
+      expect(response.status).toBe(503)
+      expect(mockCreatePaymentSession).not.toHaveBeenCalled()
+      expect(mockCommandExecute).not.toHaveBeenCalled()
+    })
+
+    // A rate limiter that is not registered at all is a configuration error, not a
+    // transient outage: the request is served (as it was before rate limiting was made
+    // fail-closed) instead of being rejected as "temporarily unavailable" indefinitely.
+    it('serves the request when no rate limiter is registered', async () => {
+      ;(findOneWithDecryption as jest.Mock)
+        .mockResolvedValueOnce(createLink())
+        .mockResolvedValueOnce(createTransaction())
+        .mockResolvedValueOnce(createTransaction())
+        .mockResolvedValueOnce(createTransaction({ gatewayTransactionId: GATEWAY_TRANSACTION_ID }))
+      ;(createRequestContainer as jest.Mock).mockResolvedValue({
+        hasRegistration: (name: string) => name !== 'rateLimiterService',
+        resolve: (name: string) => {
+          if (name === 'rateLimiterService') throw new Error('rate limiter is not registered')
+          if (name === 'em') return { findOne: mockEmFindOne }
+          if (name === 'commandBus') return { execute: mockCommandExecute }
+          if (name === 'paymentGatewayService') {
+            return { createPaymentSession: mockCreatePaymentSession }
+          }
+          throw new Error(`Unknown dependency: ${name}`)
+        },
+      })
+
+      const response = await POST(
+        new Request('https://merchant.example/api/checkout/pay/donate/submit', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'Idempotency-Key': 'no-limiter-key-1234',
+            origin: 'https://merchant.example',
+          },
+          body: JSON.stringify({ customerData: {}, acceptedLegalConsents: {}, amount: 1 }),
+        }),
+        { params: { slug: 'donate' } },
+      )
+
+      expect(response.status).toBe(201)
+      expect(checkRateLimit).not.toHaveBeenCalled()
+      expect(mockCommandExecute).toHaveBeenCalled()
+    })
   })
 })

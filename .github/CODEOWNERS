@@ -25,3 +25,25 @@ packages/core/src/modules/customer_accounts/  @open-mercato/maintainers
 # Security policy and tooling
 SECURITY.md                            @open-mercato/maintainers
 .github/CODEOWNERS                     @open-mercato/maintainers
+
+# Design-system governance — changes require the design owner's review.
+# These files encode how the design system is governed (rules, tokens, lint
+# escalation policy, guardian skill, docs), not the UI code they judge.
+docs/design-system/                    @zielivia
+.ai/ds-rules.md                        @zielivia
+.ai/ui-components.md                   @zielivia
+.ai/skills/om-ds-guardian/             @zielivia
+.ai/scripts/ds-health-check.sh         @zielivia
+packages/eslint-plugin-ds/             @zielivia
+.ai/ds/                                @zielivia
+apps/mercato/src/app/globals.css       @zielivia
+packages/create-app/template/src/app/globals.css  @zielivia
+
+# Certified partner gate. These two files decide who may run `/label` on pull
+# requests, so each one needs sign-off from @matgren specifically — a single
+# owner, because any owner on a line can approve alone.
+#
+# Listed last on purpose: CODEOWNERS applies the LAST matching pattern, so these
+# lines must stay below the `.github/workflows/` rule above to take effect.
+.github/certified-partners.yml         @matgren
+.github/workflows/community-labels.yml @matgren

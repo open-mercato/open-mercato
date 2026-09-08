@@ -48,10 +48,11 @@ export async function resolveCanonicalStaffAuthContext(
   // still exist (not soft-deleted, not expired). This is what makes logout / password-reset
   // actually invalidate an already-issued JWT.
   //
-  // Legacy tokens (pre-migration, without `sid`) are allowed through during the grace period
-  // (controlled by JWT_LEGACY_GRACE_MINUTES) so that rolling deployments don't force-logout
-  // every user. Once the grace period expires these tokens will fail signature verification
-  // in `verifyJwt` before reaching this point.
+  // Legacy tokens (pre-migration, without `sid`) are allowed through during the grace period so
+  // that rolling deployments don't force-logout every user. `verifyJwt` owns that window: it only
+  // marks a payload `_legacyToken` while the token's own `iat` is within JWT_LEGACY_GRACE_MINUTES
+  // and before JWT_LEGACY_CUTOVER_AT, so an aged or post-cutover raw-secret token fails
+  // verification before reaching this point and every remaining token must carry a live `sid`.
   const sessionId = normalizeScopeId(typeof auth.sid === 'string' ? auth.sid : null)
   if (sessionId === INVALID_SCOPE) return null
   if (sessionId === null) {
@@ -93,7 +94,7 @@ export async function resolveCanonicalStaffAuthContext(
     if (session.expiresAt.getTime() < Date.now()) return null
   }
 
-  if (!user) return null
+  if (!user || user.isConfirmed === false) return null
 
   const currentTenantId = normalizeScopeId(user.tenantId ?? null)
   const currentOrganizationId = normalizeScopeId(user.organizationId ?? null)

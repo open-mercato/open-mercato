@@ -10,6 +10,7 @@ import { useRouter } from 'next/navigation'
 import { pushWithFlash } from '@open-mercato/ui/backend/utils/flash'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { LoadingMessage } from '@open-mercato/ui/backend/detail'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
 
 const schema = upsertCustomEntitySchema
 
@@ -24,15 +25,23 @@ export default function CreateEntityPage() {
   React.useEffect(() => {
     let active = true
     ;(async () => {
-      const data = await readApiResultOrThrow<{ newEntitiesRestrictedByDefault?: boolean }>(
-        '/api/entities/entity-settings',
-        undefined,
-        { errorMessage: '[internal] Failed to load entity settings', fallback: { newEntitiesRestrictedByDefault: false } },
-      ).catch(() => ({ newEntitiesRestrictedByDefault: false }))
-      if (active) setDefaultRestricted(data?.newEntitiesRestrictedByDefault === true)
+      try {
+        const data = await readApiResultOrThrow<{ newEntitiesRestrictedByDefault?: boolean }>(
+          '/api/entities/entity-settings',
+          undefined,
+          {
+            errorMessage: t('entities.userEntities.errors.settingsLoadFailed', 'Could not load default restriction policy; using default'),
+            fallback: { newEntitiesRestrictedByDefault: false },
+          },
+        )
+        if (active) setDefaultRestricted(data?.newEntitiesRestrictedByDefault === true)
+      } catch {
+        flash(t('entities.userEntities.errors.settingsLoadFailed', 'Could not load default restriction policy; using default'), 'warning')
+        if (active) setDefaultRestricted(false)
+      }
     })()
     return () => { active = false }
-  }, [])
+  }, [t])
   const fields = React.useMemo<CrudField[]>(() => ([
     {
       id: 'entityId',

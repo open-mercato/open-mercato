@@ -3,7 +3,8 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import type { ColumnDef, SortingState } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
+import type { SortingState } from '@tanstack/react-table'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable, withDataTableNamespaces } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
@@ -40,6 +41,7 @@ type TeamsResponse = {
   items?: Array<Record<string, unknown>>
   total?: number
   totalPages?: number
+  totalIsCapped?: boolean
 }
 
 export default function StaffTeamsPage() {
@@ -51,6 +53,7 @@ export default function StaffTeamsPage() {
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'name', desc: false }])
   const [search, setSearch] = React.useState('')
   const [isLoading, setIsLoading] = React.useState(true)
@@ -175,6 +178,7 @@ export default function StaffTeamsPage() {
       setRows(items.map(mapApiTeam))
       setTotal(typeof payload.total === 'number' ? payload.total : items.length)
       setTotalPages(typeof payload.totalPages === 'number' ? payload.totalPages : Math.max(1, Math.ceil(items.length / PAGE_SIZE)))
+      setTotalIsCapped(payload?.totalIsCapped === true)
     } catch (error) {
       logger.error('staff.teams.list', { err: error })
       flash(labels.errors.load, 'error')
@@ -260,6 +264,7 @@ export default function StaffTeamsPage() {
             pageSize: PAGE_SIZE,
             total,
             totalPages,
+            totalIsCapped,
             onPageChange: setPage,
           }}
           rowActions={(row) => (

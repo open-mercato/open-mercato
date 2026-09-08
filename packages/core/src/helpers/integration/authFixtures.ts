@@ -86,11 +86,14 @@ export async function deleteUserIfExists(
 export async function createOrganizationFixture(
   request: APIRequestContext,
   token: string,
-  input: { name: string; tenantId?: string },
+  input: { name: string; tenantId?: string; parentId?: string },
 ): Promise<string> {
-  const payload: { name: string; tenantId?: string } = { name: input.name };
+  const payload: { name: string; tenantId?: string; parentId?: string } = { name: input.name };
   if (typeof input.tenantId === 'string' && input.tenantId.length > 0) {
     payload.tenantId = input.tenantId;
+  }
+  if (typeof input.parentId === 'string' && input.parentId.length > 0) {
+    payload.parentId = input.parentId;
   }
   const response = await apiRequest(request, 'POST', '/api/directory/organizations', {
     token,

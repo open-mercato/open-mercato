@@ -20,6 +20,10 @@ export const confirmPasswordResetSchema = z.object({
   password: passwordSchema,
 })
 
+export const validatePasswordResetTokenSchema = z.object({
+  token: z.string().min(10),
+})
+
 export const refreshSessionRequestSchema = z.object({
   refreshToken: z.string().min(1),
 })
@@ -128,6 +132,7 @@ export const featureCheckRequestSchema = z.object({
 export type UserLoginInput = z.infer<typeof userLoginSchema>
 export type RequestPasswordResetInput = z.infer<typeof requestPasswordResetSchema>
 export type ConfirmPasswordResetInput = z.infer<typeof confirmPasswordResetSchema>
+export type ValidatePasswordResetTokenInput = z.infer<typeof validatePasswordResetTokenSchema>
 export type RefreshSessionRequestInput = z.infer<typeof refreshSessionRequestSchema>
 export type SidebarPreferencesInput = z.infer<typeof sidebarPreferencesInputSchema>
 export type SidebarVariantSettingsInput = z.infer<typeof sidebarVariantSettingsSchema>

@@ -1,5 +1,5 @@
 "use client"
-import { createContext, useContext, useMemo, type ReactNode } from 'react'
+import { createContext, useContext, useMemo, type PropsWithChildren } from 'react'
 import type { Locale } from './config'
 
 export type Dict = Record<string, string>
@@ -48,7 +48,7 @@ function format(template: string, params?: TranslateParams) {
   })
 }
 
-export function I18nProvider({ children, locale, dict, localeLocked = false }: { children: ReactNode; locale: Locale; dict: Dict; localeLocked?: boolean }) {
+export function I18nProvider({ children, locale, dict, localeLocked = false }: PropsWithChildren<{ locale: Locale; dict: Dict; localeLocked?: boolean }>) {
   const value = useMemo<I18nContextValue>(() => ({
     locale,
     localeLocked,
@@ -91,6 +91,16 @@ export function useLocale() {
   const ctx = useContext(I18nContext)
   if (!ctx) throw new Error('useLocale must be used within I18nProvider')
   return ctx.locale
+}
+
+/**
+ * Like `useLocale`, but returns `undefined` instead of throwing when no
+ * `I18nProvider` is in scope. Use in shared components that receive their
+ * translator as a prop and may render outside a provider (galleries, tests).
+ */
+export function useOptionalLocale(): Locale | undefined {
+  const ctx = useContext(I18nContext)
+  return ctx?.locale
 }
 
 /**

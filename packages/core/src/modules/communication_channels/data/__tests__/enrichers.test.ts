@@ -1,6 +1,7 @@
 import { enrichers } from '../enrichers'
 import { CommunicationChannel, ExternalConversation, MessageChannelLink } from '../entities'
 import type { ResponseEnricher } from '@open-mercato/shared/lib/crud/response-enricher'
+import { applyMessageParticipantScope } from '../../../messages/lib/participantScope'
 
 const findEnricher = (id: string): ResponseEnricher => {
   const e = enrichers.find((x) => x.id === id)
@@ -299,5 +300,66 @@ describe('communication_channels enrichers — no duplicate MessageChannelLink l
     expect(participantQuery.where).toHaveBeenCalledWith('m.deleted_at', 'is', null)
     expect(expressionBuilder).toHaveBeenCalledWith('m.sender_user_id', '=', 'user-1')
     expect(expressionBuilder).toHaveBeenCalledWith('r.message_id', 'is not', null)
+  })
+})
+
+describe('message-channel enricher — participant scope agrees with the list route (#4133)', () => {
+  // Records the join conditions and OR-expression terms a Kysely builder emits,
+  // so the participant predicate can be compared regardless of call site.
+  function makeScopeRecorder() {
+    const onRef: unknown[][] = []
+    const on: unknown[][] = []
+    const or: unknown[][] = []
+    const joinBuilder: any = {
+      onRef: (...args: unknown[]) => { onRef.push(args); return joinBuilder },
+      on: (...args: unknown[]) => { on.push(args); return joinBuilder },
+    }
+    const expressionBuilder: any = (...args: unknown[]) => { or.push(args); return args }
+    expressionBuilder.or = (expressions: unknown[]) => expressions
+    const query: any = {
+      selectFrom: () => query,
+      leftJoin: (_table: string, join: (builder: any) => unknown) => { join(joinBuilder); return query },
+      select: () => query,
+      distinct: () => query,
+      where: (...args: unknown[]) => {
+        if (typeof args[0] === 'function') (args[0] as (eb: unknown) => unknown)(expressionBuilder)
+        return query
+      },
+      execute: async () => [{ id: 'm1' }],
+    }
+    return { query, signature: () => ({ onRef, on, or }) }
+  }
+
+  it('the enricher guard and the list route all-folder derive one participant set', async () => {
+    const enricher = findEnricher('communication_channels.message-channel')
+
+    // List route `all` folder: it calls the shared helper directly on its query.
+    const routeRecorder = makeScopeRecorder()
+    applyMessageParticipantScope(routeRecorder.query.selectFrom('messages as m'), 'user-1')
+
+    // Enricher: run its participant guard through a recording Kysely builder.
+    const enricherRecorder = makeScopeRecorder()
+    await enricher.enrichMany!([{ id: 'm1' }] as any, {
+      organizationId: 'org',
+      tenantId: 'tenant',
+      userId: 'user-1',
+      em: { find: jest.fn(async () => []), getKysely: () => enricherRecorder.query },
+      container: { resolve: () => null },
+    } as any)
+
+    // Both must emit the exact same sender-OR-recipient predicate — a drift in
+    // either call site would break this equality.
+    expect(enricherRecorder.signature()).toEqual(routeRecorder.signature())
+    expect(routeRecorder.signature()).toEqual({
+      onRef: [['m.id', '=', 'r.message_id']],
+      on: [
+        ['r.recipient_user_id', '=', 'user-1'],
+        ['r.deleted_at', 'is', null],
+      ],
+      or: [
+        ['m.sender_user_id', '=', 'user-1'],
+        ['r.message_id', 'is not', null],
+      ],
+    })
   })
 })

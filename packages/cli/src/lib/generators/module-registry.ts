@@ -5,6 +5,12 @@ import { VariableDeclarationKind, type WriterFunction } from 'ts-morph'
 import ts from 'typescript-js'
 import type { ModuleEntry, PackageResolver } from '../resolver'
 import {
+  DEV_SUPERVISOR_MANIFEST_FILE,
+  DEV_SUPERVISOR_MANIFEST_VERSION,
+  type DevSupervisorSchedulerStartStatus,
+  type DevSupervisorWorkerDescriptor,
+} from '../dev-supervisor-manifest'
+import {
   calculateStructureChecksum,
   toVar,
   moduleHasExport,
@@ -26,6 +32,7 @@ import {
   conditionalExpression,
   createGeneratedSourceFile,
   elementAccess,
+  escapeGeneratedJsonLiteral,
   returnStatement,
   getSourceText,
   identifier,
@@ -38,6 +45,7 @@ import {
   optionalPropertyAccess,
   parenthesized,
   propertyAccess,
+  renderGeneratedValue,
   spreadExpression,
   type GeneratedObjectEntry,
   variableStatement,
@@ -67,6 +75,12 @@ import {
 } from './scanner'
 import { loadGeneratorExtensions } from './extensions'
 import type { ModuleScanContext, StandaloneConfigOptions } from './extension'
+import {
+  renderRouteManifestShardOutputs,
+  renderRouteMetadataOutput,
+  routeManifestShardFilePattern,
+  type RouteManifestShardEntry,
+} from './route-manifest-shards'
 
 type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 
@@ -121,11 +135,15 @@ type DashboardWidgetEntry = {
   importPath: string
 }
 
-type CommandLoaderGenerationEntry = {
+export type CommandLoaderGenerationEntry = {
   moduleId: string
   key: string
   importPath: string
   ids: string[]
+}
+
+type WorkerGenerationEntry = DevSupervisorWorkerDescriptor & {
+  importPath: string
 }
 
 type RuntimeApiMethodMetadata = {
@@ -143,7 +161,9 @@ type RuntimeApiMethodMetadata = {
 type PageRouteGenerationResult = {
   eagerRoutes: string[]
   runtimeRoutes: string[]
-  manifestRoutes: string[]
+  manifestRoutes: WriterFunction[]
+  manifestShardRoutes: RouteManifestShardEntry[]
+  metadataRoutes: RouteManifestShardEntry[]
   routePatterns: string[]
 }
 
@@ -172,7 +192,9 @@ function assertUniqueBackendRoutePattern(
 type ApiRouteGenerationResult = {
   eagerApis: string[]
   runtimeApis: string[]
-  manifestApis: string[]
+  manifestApis: WriterFunction[]
+  manifestShardApis: RouteManifestShardEntry[]
+  metadataApis: RouteManifestShardEntry[]
 }
 
 type SerializablePageMetadata = {
@@ -224,6 +246,19 @@ type SerializableWorkerMetadata = {
   id?: string
   queue?: string
   concurrency?: number
+  schedulerSafe?: boolean
+  schedulerRequiredFeatures?: string[]
+  lockDuration?: number
+  maxStalledCount?: number
+  /**
+   * Whether the worker's metadata declares an `onJobAbandoned` callback.
+   *
+   * A function cannot be serialized into the registry the way the scalar options are, so the flag is
+   * resolved here at build time and the callback itself is emitted as a lazy import beside the
+   * handler. Recorded only when the source module could actually be loaded — the object-literal
+   * fallback below cannot see whether a referenced identifier is a function.
+   */
+  hasJobAbandonedHook?: boolean
 }
 
 type PageMetadataManifestLoadResult = {
@@ -277,6 +312,131 @@ function buildCacheBustedSourceImportUrl(sourceFile: string): string {
     url.searchParams.set('v', `${stat.mtimeMs}-${stat.size}`)
   } catch {}
   return url.href
+}
+
+function assertGeneratorPluginUsesTypeOnlyImports(sourceFile: string): void {
+  const source = fs.readFileSync(sourceFile, 'utf8')
+  const scriptKind = sourceFile.endsWith('.js') || sourceFile.endsWith('.mjs') || sourceFile.endsWith('.cjs')
+    ? ts.ScriptKind.JS
+    : ts.ScriptKind.TS
+  const parsed = ts.createSourceFile(sourceFile, source, ts.ScriptTarget.Latest, true, scriptKind)
+  const violations: string[] = []
+
+  for (const statement of parsed.statements) {
+    if (ts.isImportDeclaration(statement) && !statement.importClause?.isTypeOnly) {
+      violations.push(statement.getText(parsed))
+    }
+    if (ts.isImportEqualsDeclaration(statement)) {
+      violations.push(statement.getText(parsed))
+    }
+    if (ts.isExportDeclaration(statement) && statement.moduleSpecifier && !statement.isTypeOnly) {
+      violations.push(statement.getText(parsed))
+    }
+  }
+
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isCallExpression(node)
+      && (node.expression.kind === ts.SyntaxKind.ImportKeyword
+        || (ts.isIdentifier(node.expression) && node.expression.text === 'require'))
+    ) {
+      violations.push(node.getText(parsed))
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(parsed)
+
+  if (violations.length > 0) {
+    throw new Error(
+      `Generator plugin ${sourceFile} contains runtime imports. generators.ts may use only \`import type\`: ${violations.join('; ')}`,
+    )
+  }
+}
+
+const GENERATOR_PLUGIN_OUTPUT_MANIFEST = '.generator-plugin-outputs.json'
+
+function normalizeGeneratorPluginOutputFileName(pluginId: string, outputFileName: string): string {
+  const normalized = outputFileName.replace(/\\/g, '/')
+  if (
+    path.isAbsolute(outputFileName)
+    || outputFileName.includes('\\')
+    || normalized.startsWith('/')
+    || normalized.startsWith('../')
+    || normalized.includes('/../')
+    || !normalized.endsWith('.ts')
+  ) {
+    throw new Error(
+      `Generator plugin '${pluginId}' has an invalid outputFileName '${outputFileName}'; expected a relative .ts path inside the generated directory.`,
+    )
+  }
+  return normalized
+}
+
+function resolveGeneratorPluginOutputNames(
+  plugins: ReadonlyMap<string, import('@open-mercato/shared/modules/generators').GeneratorPlugin>,
+): Map<string, string> {
+  const outputNames = new Map<string, string>()
+  const ownersByOutput = new Map<string, string>()
+  for (const [pluginId, plugin] of plugins) {
+    const outputName = normalizeGeneratorPluginOutputFileName(pluginId, plugin.outputFileName)
+    const existingOwner = ownersByOutput.get(outputName)
+    if (existingOwner) {
+      throw new Error(
+        `Generator plugins '${existingOwner}' and '${pluginId}' declare the same output file '${outputName}'.`,
+      )
+    }
+    ownersByOutput.set(outputName, pluginId)
+    outputNames.set(pluginId, outputName)
+  }
+  return outputNames
+}
+
+function reconcileGeneratorPluginOutputs(options: {
+  outputDir: string
+  outputNames: Iterable<string>
+  result: GeneratorResult
+}): void {
+  const manifestPath = path.join(options.outputDir, GENERATOR_PLUGIN_OUTPUT_MANIFEST)
+  let previousOutputs: string[] = []
+  if (fs.existsSync(manifestPath)) {
+    const parsed = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as unknown
+    if (!Array.isArray(parsed) || parsed.some((entry) => typeof entry !== 'string')) {
+      throw new Error(`Invalid generator plugin output manifest: ${manifestPath}`)
+    }
+    previousOutputs = parsed.map((entry) => normalizeGeneratorPluginOutputFileName('manifest', entry))
+  }
+
+  const currentOutputs = new Set(options.outputNames)
+  for (const staleOutput of previousOutputs) {
+    if (currentOutputs.has(staleOutput)) continue
+    for (const stalePath of [
+      path.join(options.outputDir, staleOutput),
+      path.join(options.outputDir, staleOutput.replace(/\.ts$/, '.checksum')),
+    ]) {
+      if (!fs.existsSync(stalePath)) continue
+      fs.unlinkSync(stalePath)
+      options.result.filesWritten.push(stalePath)
+    }
+  }
+
+  if (currentOutputs.size === 0) {
+    if (fs.existsSync(manifestPath)) {
+      fs.unlinkSync(manifestPath)
+      options.result.filesWritten.push(manifestPath)
+    }
+    return
+  }
+
+  const manifestContent = `${JSON.stringify(
+    [...currentOutputs].sort((left, right) => left.localeCompare(right)),
+    null,
+    2,
+  )}\n`
+  if (!fs.existsSync(manifestPath) || fs.readFileSync(manifestPath, 'utf8') !== manifestContent) {
+    fs.mkdirSync(path.dirname(manifestPath), { recursive: true })
+    fs.writeFileSync(manifestPath, manifestContent)
+    options.result.filesWritten.push(manifestPath)
+  }
 }
 
 function unwrapObjectLiteralExpression(
@@ -428,6 +588,55 @@ function extractObjectPropertiesFromAst(sourceFile: string, exportName: string):
   }
 
   return Object.keys(result).length > 0 ? result : null
+}
+
+/**
+ * Whether an exported object literal declares a property, regardless of what it evaluates to.
+ *
+ * Needed for callbacks: the value resolvers above can read literals and local constants, but a
+ * property whose value is an imported function stays unresolvable, so "did the author declare it"
+ * cannot be answered by inspecting the extracted value. Answering it from the syntax instead is what
+ * lets the generator emit a lazy accessor for a hook it can see but cannot serialize.
+ */
+export function namedObjectLiteralDeclaresProperty(sourceFile: string, exportName: string, propertyName: string): boolean {
+  let source = ''
+  try {
+    source = fs.readFileSync(sourceFile, 'utf8')
+  } catch {
+    return false
+  }
+
+  const parsed = ts.createSourceFile(sourceFile, source, ts.ScriptTarget.Latest, true, inferScriptKind(sourceFile))
+  const exportedNames = new Set<string>()
+  for (const statement of parsed.statements) {
+    if (
+      ts.isExportDeclaration(statement)
+      && statement.exportClause
+      && ts.isNamedExports(statement.exportClause)
+      && !statement.moduleSpecifier
+    ) {
+      for (const element of statement.exportClause.elements) exportedNames.add(element.name.text)
+    }
+  }
+
+  for (const statement of parsed.statements) {
+    if (!ts.isVariableStatement(statement)) continue
+    const exportsDirectly = (ts.canHaveModifiers(statement) ? ts.getModifiers(statement) : undefined)
+      ?.some((modifier: ts.Modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)
+    for (const declaration of statement.declarationList.declarations) {
+      if (!ts.isIdentifier(declaration.name) || declaration.name.text !== exportName) continue
+      if (!exportsDirectly && !exportedNames.has(exportName)) continue
+      const objectLiteral = unwrapObjectLiteralExpression(declaration.initializer)
+      if (!objectLiteral) return false
+      return objectLiteral.properties.some((property) => {
+        const name = property.name
+        if (!name) return false
+        const key = ts.isIdentifier(name) ? name.text : ts.isStringLiteral(name) ? name.text : null
+        return key === propertyName
+      })
+    }
+  }
+  return false
 }
 
 export function extractNamedObjectLiteralExport(sourceFile: string, exportName: string): Record<string, unknown> | null {
@@ -989,11 +1198,7 @@ function requiresRuntimePageMetadataFromSourceFile(sourceFile: string): boolean 
 }
 
 function toLiteral(value: unknown): string {
-  return JSON.stringify(value)
-    .replace(/</g, '\\u003c')
-    .replace(/>/g, '\\u003e')
-    .replace(/\u2028/g, '\\u2028')
-    .replace(/\u2029/g, '\\u2029')
+  return escapeGeneratedJsonLiteral(JSON.stringify(value))
 }
 
 const GENERATED_MODULE_RELATIVE_PREFIXES = ['@/', '../../src/modules/', './'] as const
@@ -1155,7 +1360,7 @@ function collectStringArrayElements(expr: ts.Expression, stringConstants: Map<st
   return values
 }
 
-function extractCommandIdsFromSource(sourcePath: string): string[] {
+export function extractCommandIdsFromSource(sourcePath: string): string[] {
   const sourceText = fs.readFileSync(sourcePath, 'utf8')
   const sourceFile = ts.createSourceFile(sourcePath, sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
   const ids = new Set<string>()
@@ -1212,6 +1417,7 @@ function collectCommandLoaderEntries(
   roots: ModuleRoots,
   imps: ModuleImports,
   modId: string,
+  quiet = false,
 ): CommandLoaderGenerationEntry[] {
   const files = scanModuleDir(roots, COMMAND_SCAN_CONFIG)
   const entries: CommandLoaderGenerationEntry[] = []
@@ -1222,42 +1428,93 @@ function collectCommandLoaderEntries(
     const logicalKey = stripModuleCodeExtension(file.relPath)
     const basename = path.basename(logicalKey)
     if (basename === 'shared' || basename === 'factory') continue
+    const ids = extractCommandIdsFromSource(resolved.absolutePath)
+    if (ids.length > 0) warnIfRegisterCommandNotAtImportTime(resolved.absolutePath, quiet)
     entries.push({
       moduleId: modId,
       key: `${modId}:commands:${logicalKey}`,
       importPath: resolved.importPath,
-      ids: extractCommandIdsFromSource(resolved.absolutePath),
+      ids,
     })
   }
   return entries
 }
 
-function renderCommandLoadersFile(entries: CommandLoaderGenerationEntry[]): string {
+export function renderCommandLoadersFile(entries: CommandLoaderGenerationEntry[]): string {
   const seenCommandIds = new Map<string, string>()
-  const rendered: string[] = []
+  const loaderEntries: WriterFunction[] = []
 
   for (const entry of entries) {
-    const loadExpr = `() => ${buildDynamicImportExpression(entry.importPath)}`
+    const loadValue = arrowFunction({
+      body: importExpression(sanitizeGeneratedModuleSpecifier(entry.importPath)),
+    })
     for (const id of entry.ids) {
       const previous = seenCommandIds.get(id)
       if (previous && previous !== entry.key) {
         throw new Error(`[generate] Duplicate command id "${id}" discovered in "${previous}" and "${entry.key}"`)
       }
       seenCommandIds.set(id, entry.key)
-      rendered.push(`  { moduleId: ${toLiteral(entry.moduleId)}, id: ${toLiteral(id)}, key: ${toLiteral(entry.key)}, load: ${loadExpr} },`)
+      loaderEntries.push(objectLiteral([
+        { name: 'moduleId', value: entry.moduleId },
+        { name: 'id', value: id },
+        { name: 'key', value: entry.key },
+        { name: 'load', value: loadValue },
+      ]))
     }
-    rendered.push(`  { moduleId: ${toLiteral(entry.moduleId)}, key: ${toLiteral(entry.key)}, load: ${loadExpr} },`)
+    loaderEntries.push(objectLiteral([
+      { name: 'moduleId', value: entry.moduleId },
+      { name: 'key', value: entry.key },
+      { name: 'load', value: loadValue },
+    ]))
   }
 
-  return `// AUTO-GENERATED by mercato generate command-loaders
-import type { CommandLoader } from '@open-mercato/shared/lib/commands'
+  const sourceFile = createGeneratedSourceFile('command-loaders.generated.ts')
+  addAutoGeneratedComment(sourceFile, 'command-loaders')
 
-export const commandLoaderEntries: CommandLoader[] = [
-${rendered.join('\n')}
-]
+  addImportSpec(sourceFile, {
+    moduleSpecifier: '@open-mercato/shared/lib/commands',
+    isTypeOnly: true,
+    namedImports: [{ name: 'CommandLoader' }],
+  })
 
-export default commandLoaderEntries
-`
+  sourceFile.addVariableStatement({
+    declarationKind: VariableDeclarationKind.Const,
+    isExported: true,
+    declarations: [
+      {
+        name: 'commandLoaderEntries',
+        type: 'CommandLoader[]',
+        initializer: arrayLiteral(loaderEntries, writeValue),
+      },
+    ],
+  })
+  sourceFile.addExportAssignment({
+    isExportEquals: false,
+    expression: 'commandLoaderEntries',
+  })
+
+  return getSourceText(sourceFile)
+}
+
+export function renderBootstrapRegistrationsFile(options: {
+  entryImports: string[]
+  registrationImports: string[]
+  calls: string[]
+}): string {
+  const uniqueImports = [...new Set([...options.entryImports, ...options.registrationImports])]
+
+  const sourceFile = createGeneratedSourceFile('bootstrap-registrations.generated.ts')
+  addAutoGeneratedComment(sourceFile, 'registry')
+  addImportStatements(sourceFile, uniqueImports)
+
+  sourceFile.addFunction({
+    name: 'runBootstrapRegistrations',
+    isExported: true,
+    returnType: 'void',
+    statements: options.calls,
+  })
+
+  return getSourceText(sourceFile)
 }
 
 function serializeGeneratedImport(statement: GeneratedImportStatement): string {
@@ -1315,6 +1572,78 @@ function findExistingModuleFileByBaseNames(baseDir: string, relativeBaseNames: s
     if (resolved) return resolved
   }
   return null
+}
+
+const warnedConventionPaths = new Set<string>()
+
+/**
+ * Clears the once-per-path warning ledger.
+ *
+ * A single `yarn generate` runs three registry emitters over one discovery, and each of them
+ * walks the same frontend and backend page files, so an unguarded warning would print the
+ * same line up to six times. A diagnostic that repeats is a diagnostic that gets skimmed
+ * past, so each offending path is named once per run and the ledger resets when the run's
+ * discovery is built.
+ */
+export function resetConventionWarnings(): void {
+  warnedConventionPaths.clear()
+}
+
+function alreadyWarned(sourcePath: string): boolean {
+  if (warnedConventionPaths.has(sourcePath)) return true
+  warnedConventionPaths.add(sourcePath)
+  return false
+}
+
+/**
+ * Warns when a discovered page metadata file exports no `metadata` binding.
+ *
+ * Both page-route emitters read `<module>.metadata` off the imported file. When the author
+ * named the export something else — `meta` is the common near-miss — that read yields
+ * `undefined`, the route still generates, and every declaration in the file is dropped.
+ * `requireAuth` and `requireFeatures` are among them, so the page ships with no
+ * authorization gate and nothing in the build says so. The warning names that consequence
+ * because the rule alone ("export `metadata`") does not convey why it matters.
+ */
+export function warnIfPageMetaMissingMetadataExport(metaPath: string | null, quiet = false): void {
+  if (!metaPath || quiet) return
+  if (hasNamedExport(metaPath, 'metadata')) return
+  if (alreadyWarned(metaPath)) return
+  console.warn(
+    `[generate] ⚠ Page metadata file exports no 'metadata' — page metadata is dropped, `
+    + `including requireAuth/requireFeatures, so the page renders with NO authorization gate: ${metaPath}`,
+  )
+}
+
+/**
+ * Warns when a `commands/*.ts` file registers commands only from inside a function.
+ *
+ * Command discovery extracts ids statically and emits a lazy loader per file; the loader
+ * resolves a command by importing that file and relying on `registerCommand(...)` running as
+ * an import-time side effect. When every call sits inside a function body that nothing
+ * invokes, the ids still appear in the generated manifest but the handlers never register,
+ * so the command bus reports the command as unknown at runtime.
+ *
+ * Heuristic and deliberately conservative: it only fires when the file contains at least one
+ * `registerCommand(` call and none of them is at top level (column 0), which is how every
+ * correct module writes them.
+ */
+export function warnIfRegisterCommandNotAtImportTime(sourcePath: string, quiet = false): void {
+  if (quiet) return
+  let source = ''
+  try {
+    source = fs.readFileSync(sourcePath, 'utf8')
+  } catch {
+    return
+  }
+  if (!/\bregisterCommand\s*\(/.test(source)) return
+  const hasTopLevelCall = /^registerCommand\s*\(/m.test(source)
+  if (hasTopLevelCall) return
+  if (alreadyWarned(sourcePath)) return
+  console.warn(
+    `[generate] ⚠ registerCommand(...) is never called at import time — these command ids will `
+    + `appear in the manifest but the handlers will not register at runtime: ${sourcePath}`,
+  )
 }
 
 function toModuleImportSubpath(filePath: string, baseDir: string): string {
@@ -1441,8 +1770,38 @@ function buildPageRouteProps(metaExpr: string, routePath: string): string {
   return `pattern: ${toLiteral(routePath || '/')}, requireAuth: (${metaExpr})?.requireAuth, requireRoles: (${metaExpr})?.requireRoles, requireFeatures: (${metaExpr})?.requireFeatures, requireCustomerAuth: (${metaExpr})?.requireCustomerAuth, requireCustomerFeatures: (${metaExpr})?.requireCustomerFeatures, nav: (${metaExpr})?.nav, title: (${metaExpr})?.pageTitle ?? (${metaExpr})?.title, titleKey: (${metaExpr})?.pageTitleKey ?? (${metaExpr})?.titleKey, group: (${metaExpr})?.pageGroup ?? (${metaExpr})?.group, groupKey: (${metaExpr})?.pageGroupKey ?? (${metaExpr})?.groupKey, icon: (${metaExpr})?.icon, order: (${metaExpr})?.pageOrder ?? (${metaExpr})?.order, priority: (${metaExpr})?.pagePriority ?? (${metaExpr})?.priority, navHidden: (${metaExpr})?.navHidden, visible: (${metaExpr})?.visible, enabled: (${metaExpr})?.enabled, breadcrumb: (${metaExpr})?.breadcrumb, pageContext: (${metaExpr})?.pageContext, placement: (${metaExpr})?.placement`
 }
 
-function buildPageRouteManifestSpread(metaExpr: string, routePath: string): string {
-  return `...resolvePageRouteMetadata(${toLiteral(routePath || '/')}, ${metaExpr})`
+function buildPageRouteManifestSpread(metaExpr: string, routePath: string): WriterFunction {
+  return callExpression(identifier('resolvePageRouteMetadata'), [routePath || '/', identifier(metaExpr)])
+}
+
+function buildManifestRouteLoader(importPath: string): WriterFunction {
+  return arrowFunction({
+    async: true,
+    body: block((writer) => {
+      writeStatements(writer, [
+        variableStatement({
+          name: 'mod',
+          initializer: awaitExpression(importExpression(sanitizeGeneratedModuleSpecifier(importPath))),
+        }),
+        returnStatement(
+          asExpression(
+            parenthesized(nullishCoalesce([
+              propertyAccess(identifier('mod'), 'default'),
+              identifier('mod'),
+            ])),
+            'any',
+          ),
+        ),
+      ])
+    }),
+  })
+}
+
+function buildManifestApiLoader(importPath: string): WriterFunction {
+  return arrowFunction({
+    async: true,
+    body: importExpression(sanitizeGeneratedModuleSpecifier(importPath)),
+  })
 }
 
 function normalizeBreadcrumb(raw: unknown): SerializablePageMetadata['breadcrumb'] {
@@ -1553,6 +1912,16 @@ function normalizeWorkerMetadata(raw: unknown): SerializableWorkerMetadata | nul
   if (typeof source.id === 'string' && source.id.length > 0) normalized.id = source.id
   if (typeof source.queue === 'string' && source.queue.length > 0) normalized.queue = source.queue
   if (typeof source.concurrency === 'number') normalized.concurrency = source.concurrency
+  if (typeof source.lockDuration === 'number') normalized.lockDuration = source.lockDuration
+  if (typeof source.maxStalledCount === 'number') normalized.maxStalledCount = source.maxStalledCount
+  if (typeof source.onJobAbandoned === 'function') normalized.hasJobAbandonedHook = true
+  if (source.schedulerSafe === true) normalized.schedulerSafe = true
+  if (Array.isArray(source.schedulerRequiredFeatures)) {
+    const features = source.schedulerRequiredFeatures.filter(
+      (feature): feature is string => typeof feature === 'string' && feature.length > 0,
+    )
+    if (features.length > 0) normalized.schedulerRequiredFeatures = features
+  }
   return Object.keys(normalized).length > 0 ? normalized : null
 }
 
@@ -1564,8 +1933,16 @@ async function loadSubscriberMetadata(sourceFile: string): Promise<SerializableS
 
 async function loadWorkerMetadata(sourceFile: string): Promise<SerializableWorkerMetadata | null> {
   const sourceModule = await loadModuleExportsFromSource<Record<string, unknown>>(sourceFile)
-  return normalizeWorkerMetadata(sourceModule?.metadata)
+  const metadata = normalizeWorkerMetadata(sourceModule?.metadata)
     ?? normalizeWorkerMetadata(extractNamedObjectLiteralExport(sourceFile, 'metadata'))
+  if (!metadata) return null
+  // Resolved from the syntax, not the extracted value: a worker module that cannot be imported at
+  // build time falls back to the literal extractor, which cannot tell an imported function from an
+  // unresolvable identifier. Missing this is silent — the hook is simply never installed.
+  if (!metadata.hasJobAbandonedHook && namedObjectLiteralDeclaresProperty(sourceFile, 'metadata', 'onJobAbandoned')) {
+    metadata.hasJobAbandonedHook = true
+  }
+  return metadata
 }
 
 async function discoverSubscribers(
@@ -1627,12 +2004,16 @@ function discoverTranslations(roots: ModuleRoots): DiscoveredTranslation[] {
   const locales = new Set<string>()
   if (fs.existsSync(i18nCore)) {
     for (const entry of fs.readdirSync(i18nCore, { withFileTypes: true })) {
-      if (entry.isFile() && entry.name.endsWith('.json')) locales.add(entry.name.replace(/\.json$/, ''))
+      if (entry.isFile() && /^[a-zA-Z0-9][a-zA-Z0-9_-]*\.json$/.test(entry.name)) {
+        locales.add(entry.name.replace(/\.json$/, ''))
+      }
     }
   }
   if (fs.existsSync(i18nApp)) {
     for (const entry of fs.readdirSync(i18nApp, { withFileTypes: true })) {
-      if (entry.isFile() && entry.name.endsWith('.json')) locales.add(entry.name.replace(/\.json$/, ''))
+      if (entry.isFile() && /^[a-zA-Z0-9][a-zA-Z0-9_-]*\.json$/.test(entry.name)) {
+        locales.add(entry.name.replace(/\.json$/, ''))
+      }
     }
   }
   return Array.from(locales, (locale) => ({
@@ -1644,7 +2025,9 @@ function discoverTranslations(roots: ModuleRoots): DiscoveredTranslation[] {
 
 async function createModuleRegistryDiscovery(
   resolver: PackageResolver,
+  quiet = false,
 ): Promise<ModuleRegistryDiscovery> {
+  resetConventionWarnings()
   const enabled = resolver.loadEnabledModules()
   const modules: ModuleRegistryDiscoveryEntry[] = []
   const trackedRoots = new Set<string>()
@@ -1676,7 +2059,7 @@ async function createModuleRegistryDiscovery(
       resolve,
       frontendFiles: scanModuleDir(roots, SCAN_CONFIGS.frontendPages),
       backendFiles: scanModuleDir(roots, SCAN_CONFIGS.backendPages),
-      commandLoaderEntries: collectCommandLoaderEntries(roots, imps, modId),
+      commandLoaderEntries: collectCommandLoaderEntries(roots, imps, modId, quiet),
       getSubscribers: () => subscribers ??= discoverSubscribers(roots, imps, modId),
       getWorkers: () => workers ??= discoverWorkers(roots, imps, modId),
       translations: discoverTranslations(roots),
@@ -1738,12 +2121,15 @@ async function processPageFiles(options: {
   runtimeImports: string[]
   manifestImports?: string[]
   importIdRef: { value: number }
+  quiet?: boolean
 }): Promise<PageRouteGenerationResult> {
-  const { files, type, modId, appDir, pkgDir, appImportBase, pkgImportBase, eagerImports, runtimeImports, manifestImports, importIdRef } = options
+  const { files, type, modId, appDir, pkgDir, appImportBase, pkgImportBase, eagerImports, runtimeImports, manifestImports, importIdRef, quiet } = options
   const metaPrefix = type === 'frontend' ? 'M' : 'BM'
   const eagerRoutes: string[] = []
   const runtimeRoutes: string[] = []
-  const manifestRoutes: string[] = []
+  const manifestRoutes: WriterFunction[] = []
+  const manifestShardRoutes: RouteManifestShardEntry[] = []
+  const metadataRoutes: RouteManifestShardEntry[] = []
   const routePatterns: string[] = []
 
   // Next-style page.* files
@@ -1763,6 +2149,7 @@ async function processPageFiles(options: {
     const sourceFile = findExistingModuleFile(moduleBaseDir, pageFile)
     if (!sourceFile || !hasDefaultExport(sourceFile)) continue
     const metaPath = findExistingModuleFileByBaseNames(moduleBaseDir, ['page.meta', 'meta'])
+    warnIfPageMetaMissingMetadataExport(metaPath, quiet)
     let metaExpr = 'undefined'
     let runtimeMetaExpr = 'undefined'
     let manifestMetaExpr = 'undefined'
@@ -1815,7 +2202,26 @@ async function processPageFiles(options: {
     const manifestBaseProps = buildPageRouteManifestSpread(manifestMetaExpr, routePath)
     eagerRoutes.push(`{ ${baseProps}, Component: ${buildLazyRouteComponentExpression(importPath)} }`)
     runtimeRoutes.push(`{ ${runtimeBaseProps}, Component: ${buildLazyRouteComponentExpression(importPath)} }`)
-    manifestRoutes.push(`{ moduleId: ${toLiteral(modId)}, ${manifestBaseProps}, load: async () => { const mod = await ${buildDynamicImportExpression(importPath)}; return (mod.default ?? mod) as any } }`)
+    const metadataEntries: GeneratedObjectEntry[] = [
+      { name: 'moduleId', value: modId },
+      { kind: 'spread', value: manifestBaseProps },
+    ]
+    const manifestEntry = objectLiteral([
+      ...metadataEntries,
+      { name: 'load', value: buildManifestRouteLoader(importPath) },
+    ])
+    const shardImports = manifestImportStatement ? [manifestImportStatement] : []
+    manifestRoutes.push(manifestEntry)
+    manifestShardRoutes.push({
+      path: routePath,
+      declaration: renderGeneratedValue(manifestEntry),
+      imports: shardImports,
+    })
+    metadataRoutes.push({
+      path: routePath,
+      declaration: renderGeneratedValue(objectLiteral(metadataEntries)),
+      imports: shardImports,
+    })
     routePatterns.push(routePath)
   }
 
@@ -1894,7 +2300,26 @@ async function processPageFiles(options: {
     const manifestBaseProps = buildPageRouteManifestSpread(manifestMetaExpr, routePath)
     eagerRoutes.push(`{ ${baseProps}, Component: ${buildLazyRouteComponentExpression(importPath)} }`)
     runtimeRoutes.push(`{ ${runtimeBaseProps}, Component: ${buildLazyRouteComponentExpression(importPath)} }`)
-    manifestRoutes.push(`{ moduleId: ${toLiteral(modId)}, ${manifestBaseProps}, load: async () => { const mod = await ${buildDynamicImportExpression(importPath)}; return (mod.default ?? mod) as any } }`)
+    const metadataEntries: GeneratedObjectEntry[] = [
+      { name: 'moduleId', value: modId },
+      { kind: 'spread', value: manifestBaseProps },
+    ]
+    const manifestEntry = objectLiteral([
+      ...metadataEntries,
+      { name: 'load', value: buildManifestRouteLoader(importPath) },
+    ])
+    const shardImports = manifestImportStatement ? [manifestImportStatement] : []
+    manifestRoutes.push(manifestEntry)
+    manifestShardRoutes.push({
+      path: routePath,
+      declaration: renderGeneratedValue(manifestEntry),
+      imports: shardImports,
+    })
+    metadataRoutes.push({
+      path: routePath,
+      declaration: renderGeneratedValue(objectLiteral(metadataEntries)),
+      imports: shardImports,
+    })
     routePatterns.push(routePath)
   }
 
@@ -1902,6 +2327,8 @@ async function processPageFiles(options: {
     eagerRoutes,
     runtimeRoutes,
     manifestRoutes,
+    manifestShardRoutes,
+    metadataRoutes,
     routePatterns,
   }
 }
@@ -1918,12 +2345,14 @@ async function processApiRoutes(options: {
   const apiApp = path.join(roots.appBase, 'api')
   const apiPkg = path.join(roots.pkgBase, 'api')
   if (!fs.existsSync(apiApp) && !fs.existsSync(apiPkg)) {
-    return { eagerApis: [], runtimeApis: [], manifestApis: [] }
+    return { eagerApis: [], runtimeApis: [], manifestApis: [], manifestShardApis: [], metadataApis: [] }
   }
 
   const eagerApis: string[] = []
   const runtimeApis: string[] = []
-  const manifestApis: string[] = []
+  const manifestApis: WriterFunction[] = []
+  const manifestShardApis: RouteManifestShardEntry[] = []
+  const metadataApis: RouteManifestShardEntry[] = []
 
   // route.* aggregations
   const routeFiles = scanModuleDir(roots, SCAN_CONFIGS.apiRoutes)
@@ -1954,7 +2383,19 @@ async function processApiRoutes(options: {
     eagerImports.push(buildImportStatement(`* as ${importName}`, importPath))
     eagerApis.push(`{ path: ((${importName} as any).metadata?.path ?? ${toLiteral(routePath)}), metadata: (${importName} as any).metadata, handlers: ${importName} as any${docsPart} }`)
     runtimeApis.push(`{ path: ${toLiteral(resolvedPath)}, metadata: ${metadataLiteral}, handlers: { ${exportedMethods.map((method) => `${method}: async (req: Request, ctx?: any) => { const mod = await ${buildDynamicImportExpression(importPath)}; return (mod as any).${method}(req, ctx) }`).join(', ')} } }`)
-    manifestApis.push(`{ moduleId: ${toLiteral(modId)}, kind: ${toLiteral('route-file')}, path: ${toLiteral(resolvedPath)}, methods: [${exportedMethods.map((method) => toLiteral(method)).join(', ')}], load: async () => ${buildDynamicImportExpression(importPath)} }`)
+    const metadataEntries: GeneratedObjectEntry[] = [
+      { name: 'moduleId', value: modId },
+      { name: 'kind', value: 'route-file' },
+      { name: 'path', value: resolvedPath },
+      { name: 'methods', value: arrayLiteral(exportedMethods, writeValue) },
+    ]
+    const manifestEntry = objectLiteral([
+      ...metadataEntries,
+      { name: 'load', value: buildManifestApiLoader(importPath) },
+    ])
+    manifestApis.push(manifestEntry)
+    manifestShardApis.push({ path: resolvedPath, declaration: renderGeneratedValue(manifestEntry) })
+    metadataApis.push({ path: resolvedPath, declaration: renderGeneratedValue(objectLiteral(metadataEntries)) })
   }
 
   // Single files (plain scripts, not route.*, not tests, skip method dirs)
@@ -1986,7 +2427,19 @@ async function processApiRoutes(options: {
     eagerImports.push(buildImportStatement(`* as ${importName}`, importPath))
     eagerApis.push(`{ path: ((${importName} as any).metadata?.path ?? ${toLiteral(routePath)}), metadata: (${importName} as any).metadata, handlers: ${importName} as any${docsPart} }`)
     runtimeApis.push(`{ path: ${toLiteral(resolvedPath)}, metadata: ${metadataLiteral}, handlers: { ${exportedMethods.map((entryMethod) => `${entryMethod}: async (req: Request, ctx?: any) => { const mod = await ${buildDynamicImportExpression(importPath)}; return (mod as any).${entryMethod}(req, ctx) }`).join(', ')} } }`)
-    manifestApis.push(`{ moduleId: ${toLiteral(modId)}, kind: ${toLiteral('route-file')}, path: ${toLiteral(resolvedPath)}, methods: [${exportedMethods.map((entryMethod) => toLiteral(entryMethod)).join(', ')}], load: async () => ${buildDynamicImportExpression(importPath)} }`)
+    const metadataEntries: GeneratedObjectEntry[] = [
+      { name: 'moduleId', value: modId },
+      { name: 'kind', value: 'route-file' },
+      { name: 'path', value: resolvedPath },
+      { name: 'methods', value: arrayLiteral(exportedMethods, writeValue) },
+    ]
+    const manifestEntry = objectLiteral([
+      ...metadataEntries,
+      { name: 'load', value: buildManifestApiLoader(importPath) },
+    ])
+    manifestApis.push(manifestEntry)
+    manifestShardApis.push({ path: resolvedPath, declaration: renderGeneratedValue(manifestEntry) })
+    metadataApis.push({ path: resolvedPath, declaration: renderGeneratedValue(objectLiteral(metadataEntries)) })
   }
 
   // Legacy per-method
@@ -2028,7 +2481,20 @@ async function processApiRoutes(options: {
       eagerImports.push(buildImportStatement(`${importName}, * as ${metaName}`, importPath))
       eagerApis.push(`{ method: ${toLiteral(method)}, path: (${metaName}.metadata?.path ?? ${toLiteral(routePath)}), handler: ${importName}, metadata: ${metaName}.metadata${docsPart} }`)
       runtimeApis.push(`{ method: ${toLiteral(method)}, path: ${toLiteral(resolvedPath)}, handler: async (req: Request, ctx?: any) => { const mod = await ${buildDynamicImportExpression(importPath)}; const handler = ((mod as any).default ?? (mod as any).${method} ?? (mod as any).handler) as any; return handler(req, ctx) }, metadata: ${metadataLiteral} }`)
-      manifestApis.push(`{ moduleId: ${toLiteral(modId)}, kind: ${toLiteral('legacy')}, method: ${toLiteral(method)}, path: ${toLiteral(resolvedPath)}, methods: [${toLiteral(method)}], load: async () => ${buildDynamicImportExpression(importPath)} }`)
+      const metadataEntries: GeneratedObjectEntry[] = [
+        { name: 'moduleId', value: modId },
+        { name: 'kind', value: 'legacy' },
+        { name: 'method', value: method },
+        { name: 'path', value: resolvedPath },
+        { name: 'methods', value: arrayLiteral([method], writeValue) },
+      ]
+      const manifestEntry = objectLiteral([
+        ...metadataEntries,
+        { name: 'load', value: buildManifestApiLoader(importPath) },
+      ])
+      manifestApis.push(manifestEntry)
+      manifestShardApis.push({ path: resolvedPath, declaration: renderGeneratedValue(manifestEntry) })
+      metadataApis.push({ path: resolvedPath, declaration: renderGeneratedValue(objectLiteral(metadataEntries)) })
     }
   }
 
@@ -2036,65 +2502,22 @@ async function processApiRoutes(options: {
     eagerApis,
     runtimeApis,
     manifestApis,
+    manifestShardApis,
+    metadataApis,
   }
 }
 
-function processSubscribers(discovered: DiscoveredSubscriber[]): string[] {
-  const subscribers: string[] = []
-  for (const { id, importPath, metadata } of discovered) {
-    const subscriberId = metadata?.id ?? id
-    subscribers.push(
-      `{ id: ${toLiteral(subscriberId)}, event: ${toLiteral(metadata?.event ?? '')}, persistent: ${metadata?.persistent === undefined ? 'undefined' : toLiteral(metadata.persistent)}, sync: ${metadata?.sync === undefined ? 'undefined' : toLiteral(metadata.sync)}, priority: ${metadata?.priority === undefined ? 'undefined' : toLiteral(metadata.priority)}, handler: createLazyModuleSubscriber(() => ${buildDynamicImportExpression(importPath)}, ${toLiteral(subscriberId)}) }`
-    )
-  }
-  return subscribers
-}
+/**
+ * Registry helper emitted for a worker that declares `metadata.onJobAbandoned`.
+ *
+ * Named once because two things must stay in step: the call the worker entry renders, and the import
+ * the file needs for it. A generated file that references this without importing it type-checks
+ * nowhere, and only fails at `build:app` — see `generated-registry-imports.test.ts`.
+ */
+const ABANDON_HOOK_FACTORY = 'createLazyModuleWorkerAbandonHook'
 
-function processWorkers(discovered: DiscoveredWorker[]): string[] {
-  const workers: string[] = []
-  for (const { id, importPath, metadata } of discovered) {
-    const workerId = metadata.id ?? id
-    workers.push(
-      `{ id: ${toLiteral(workerId)}, queue: ${toLiteral(metadata.queue)}, concurrency: ${toLiteral(metadata.concurrency ?? 1)}, handler: createLazyModuleWorker(() => ${buildDynamicImportExpression(importPath)}, ${toLiteral(workerId)}) }`
-    )
-  }
-  return workers
-}
-
-function processTranslations(options: {
-  discovered: DiscoveredTranslation[]
-  modId: string
-  appImportBase: string
-  pkgImportBase: string
-  imports: string[]
-  extraImports?: string[]
-}): string[] {
-  const { discovered, modId, appImportBase, pkgImportBase, imports, extraImports } = options
-  const translations: string[] = []
-  for (const { locale, coreHas, appHas } of discovered) {
-    if (coreHas && appHas) {
-      const cName = `T_${toVar(modId)}_${toVar(locale)}_C`
-      const aName = `T_${toVar(modId)}_${toVar(locale)}_A`
-      imports.push(buildImportStatement(cName, `${pkgImportBase}/i18n/${locale}.json`))
-      imports.push(buildImportStatement(aName, `${appImportBase}/i18n/${locale}.json`))
-      extraImports?.push(buildImportStatement(cName, `${pkgImportBase}/i18n/${locale}.json`))
-      extraImports?.push(buildImportStatement(aName, `${appImportBase}/i18n/${locale}.json`))
-      translations.push(
-        `'${locale}': { ...( ${cName} as unknown as Record<string,string> ), ...( ${aName} as unknown as Record<string,string> ) }`
-      )
-    } else if (appHas) {
-      const aName = `T_${toVar(modId)}_${toVar(locale)}_A`
-      imports.push(buildImportStatement(aName, `${appImportBase}/i18n/${locale}.json`))
-      extraImports?.push(buildImportStatement(aName, `${appImportBase}/i18n/${locale}.json`))
-      translations.push(`'${locale}': ${aName} as unknown as Record<string,string>`)
-    } else if (coreHas) {
-      const cName = `T_${toVar(modId)}_${toVar(locale)}_C`
-      imports.push(buildImportStatement(cName, `${pkgImportBase}/i18n/${locale}.json`))
-      extraImports?.push(buildImportStatement(cName, `${pkgImportBase}/i18n/${locale}.json`))
-      translations.push(`'${locale}': ${cName} as unknown as Record<string,string>`)
-    }
-  }
-  return translations
+function workersDeclareAbandonHook(discovered: DiscoveredWorker[]): boolean {
+  return discovered.some(({ metadata }) => metadata.hasJobAbandonedHook === true)
 }
 
 /**
@@ -2241,6 +2664,64 @@ function buildModuleDashboardWidgetsValue(entries: DashboardWidgetEntry[]): Writ
   )
 }
 
+/**
+ * Wraps expressions that are still produced as pre-rendered strings by collaborators this
+ * change does not convert (page routes, api handlers, dashboard widgets) so they can sit
+ * inside an AST-built array without being re-quoted as string literals. It disappears once
+ * those producers emit writers themselves — see the follow-up noted in the spec's Non-Goals.
+ */
+function preRenderedExpressionList(expressions: readonly string[]): WriterFunction {
+  return arrayLiteral(expressions.map((expression) => identifier(expression)), writeValue)
+}
+
+/**
+ * `(X.<first> ?? X.<second>)` — the member-fallback shape the main registry path emits.
+ * It is deliberately not `namespaceFallback`, which the app path uses: that helper walks
+ * the members in an IIFE and treats only `!= null` as present, which is a different
+ * expression. Converging the two is a behaviour change, not a formatting one.
+ */
+function legacyNamespaceMemberFallback(importName: string, members: readonly [string, string]): WriterFunction {
+  return parenthesized(nullishCoalesce([
+    propertyAccess(identifier(importName), members[0]),
+    propertyAccess(identifier(importName), members[1]),
+  ]))
+}
+
+function buildLegacyModuleListValue(options: {
+  importName: string
+  members: readonly [string, string]
+  castType: string
+}): WriterFunction {
+  return logicalOr([
+    asExpression(legacyNamespaceMemberFallback(options.importName, options.members), options.castType),
+    emptyArray(),
+  ])
+}
+
+function buildLegacyModuleSetupValue(importName: string): WriterFunction {
+  return logicalOr([
+    legacyNamespaceMemberFallback(importName, ['default', 'setup']),
+    identifier('undefined'),
+  ])
+}
+
+function buildLegacyIntegrationListValue(
+  importName: string,
+  pluralMember: string,
+  singularMember: string,
+  castType: string,
+): WriterFunction {
+  const singular = propertyAccess(identifier(importName), singularMember)
+
+  return asExpression(
+    parenthesized(nullishCoalesce([
+      propertyAccess(identifier(importName), pluralMember),
+      parenthesized(conditionalExpression(singular, arrayLiteral([singular], writeValue), emptyArray())),
+    ])),
+    castType,
+  )
+}
+
 function buildModuleIntegrationListValue(
   importName: string,
   pluralMember: string,
@@ -2288,9 +2769,15 @@ function buildModulesInfoExpression(): WriterFunction {
 function renderAstModuleRegistryFile(options: {
   fileName: string
   generator: string
-  imports: string[]
+  /**
+   * Import statements, or the structured specs generator extensions push onto the shared
+   * import array via `processStandaloneConfig`. Both shapes reach this emitter at runtime,
+   * so both are normalised here rather than at each call site.
+   */
+  imports: GeneratedImportStatement[]
   moduleEntries: WriterFunction[]
   includeCreateElementImport?: boolean
+  includeAbandonHookImport?: boolean
 }): string {
   const sourceFile = createGeneratedSourceFile(options.fileName)
   addAutoGeneratedComment(sourceFile, options.generator)
@@ -2306,10 +2793,11 @@ function renderAstModuleRegistryFile(options: {
     namedImports: [
       { name: 'createLazyModuleSubscriber' },
       { name: 'createLazyModuleWorker' },
+      ...(options.includeAbandonHookImport ? [{ name: ABANDON_HOOK_FACTORY }] : []),
       { name: 'Module', isTypeOnly: true },
     ],
   })
-  addImportStatements(sourceFile, options.imports)
+  addImportStatements(sourceFile, options.imports.map((entry) => serializeGeneratedImport(entry)))
 
   sourceFile.addVariableStatement({
     declarationKind: VariableDeclarationKind.Const,
@@ -2335,6 +2823,52 @@ function renderAstModuleRegistryFile(options: {
         initializer: buildModulesInfoExpression(),
       },
     ],
+  })
+
+  return getSourceText(sourceFile)
+}
+
+function renderAstManifestFile(options: {
+  fileName: string
+  typeName: string
+  exportName: string
+  imports?: string[]
+  entries: WriterFunction[]
+}): string {
+  const sourceFile = createGeneratedSourceFile(options.fileName)
+  addAutoGeneratedComment(sourceFile, 'registry')
+
+  const usesPageRouteMetadataHelper = options.typeName === 'FrontendRouteManifestEntry'
+    || options.typeName === 'BackendRouteManifestEntry'
+  addImportSpec(sourceFile, usesPageRouteMetadataHelper
+    ? {
+      moduleSpecifier: '@open-mercato/shared/modules/registry',
+      namedImports: [
+        { name: 'resolvePageRouteMetadata' },
+        { name: options.typeName, isTypeOnly: true },
+      ],
+    }
+    : {
+      moduleSpecifier: '@open-mercato/shared/modules/registry',
+      isTypeOnly: true,
+      namedImports: [{ name: options.typeName }],
+    })
+  addImportStatements(sourceFile, options.imports ?? [])
+
+  sourceFile.addVariableStatement({
+    declarationKind: VariableDeclarationKind.Const,
+    isExported: true,
+    declarations: [
+      {
+        name: options.exportName,
+        type: `${options.typeName}[]`,
+        initializer: arrayLiteral(options.entries, writeValue),
+      },
+    ],
+  })
+  sourceFile.addExportAssignment({
+    isExportEquals: false,
+    expression: options.exportName,
   })
 
   return getSourceText(sourceFile)
@@ -2403,60 +2937,8 @@ function renderEnabledModuleIdsFile(moduleIds: readonly string[]): string {
   return getSourceText(sourceFile)
 }
 
-function renderLegacyCompatibleArray(entries: readonly string[]): string {
-  return `[
-  ${entries.join(',\n  ')}
-]`
-}
-
 function buildLazyRouteComponentExpression(importPath: string): string {
   return `async (props: any) => { const mod = await ${buildDynamicImportExpression(importPath)}; const Component = (mod.default ?? mod) as any; return createElement(Component, props) }`
-}
-
-function renderAstLegacyModuleRegistryOutput(options: {
-  fileName: string
-  imports: GeneratedImportStatement[]
-  moduleEntries: string[]
-  includeCreateElementImport?: boolean
-}): string {
-  const importSection = [
-    ...(options.includeCreateElementImport ? ["import { createElement } from 'react'"] : []),
-    "import { createLazyModuleSubscriber, createLazyModuleWorker, type Module } from '@open-mercato/shared/modules/registry'",
-    ...options.imports.map((entry) => serializeGeneratedImport(entry)),
-  ].join('\n')
-
-  return `// AUTO-GENERATED by mercato generate registry
-${importSection}
-
-export const modules: Module[] = ${renderLegacyCompatibleArray(options.moduleEntries)}
-export const modulesInfo = modules.map(m => ({ id: m.id, ...(m.info || {}) }))
-export default modules
-`
-}
-
-function renderAstLegacyManifestOutput(options: {
-  fileName: string
-  typeName: string
-  exportName: string
-  imports?: GeneratedImportStatement[]
-  entries: string[]
-}): string {
-  const usesPageRouteMetadataHelper = options.typeName === 'FrontendRouteManifestEntry'
-    || options.typeName === 'BackendRouteManifestEntry'
-  const importSection = [
-    usesPageRouteMetadataHelper
-      ? `import { resolvePageRouteMetadata, type ${options.typeName} } from '@open-mercato/shared/modules/registry'`
-      : `import type { ${options.typeName} } from '@open-mercato/shared/modules/registry'`,
-    ...(options.imports ?? []).map((entry) => serializeGeneratedImport(entry)),
-  ].join('\n')
-
-  return `// AUTO-GENERATED by mercato generate registry
-${importSection}
-
-export const ${options.exportName}: ${options.typeName}[] = ${renderLegacyCompatibleArray(options.entries)}
-
-export default ${options.exportName}
-`
 }
 
 function buildRuntimeRouteComponent(importPath: string): WriterFunction {
@@ -2567,6 +3049,7 @@ async function processPageFilesAst(options: {
   pkgImportBase: string
   imports: string[]
   importIdRef: { value: number }
+  quiet?: boolean
 }): Promise<{ routes: WriterFunction[]; routePatterns: string[] }> {
   const {
     files,
@@ -2578,6 +3061,7 @@ async function processPageFilesAst(options: {
     pkgImportBase,
     imports,
     importIdRef,
+    quiet,
   } = options
   const routes: WriterFunction[] = []
   const routePatterns: string[] = []
@@ -2614,6 +3098,7 @@ async function processPageFilesAst(options: {
     if (!sourceFile || !hasDefaultExport(sourceFile)) continue
 
     const metaPath = findExistingModuleFileByBaseNames(moduleBaseDir, ['page.meta', 'meta'])
+    warnIfPageMetaMissingMetadataExport(metaPath, quiet)
     if (metaPath) {
       const metaImportName = `${metaPrefix}${importIdRef.value++}_${toVar(modId)}_${toVar(segs.join('_') || 'index')}`
       const metaImportPath = sanitizeGeneratedModuleSpecifier(
@@ -2730,6 +3215,21 @@ function processWorkersAst(discovered: DiscoveredWorker[]): WriterFunction[] {
         { name: 'id', value: workerId },
         { name: 'queue', value: metadata.queue },
         { name: 'concurrency', value: metadata.concurrency ?? 1 },
+        ...(metadata.schedulerSafe === true ? [{ name: 'schedulerSafe', value: true }] : []),
+        ...(metadata.schedulerRequiredFeatures
+          ? [{ name: 'schedulerRequiredFeatures', value: arrayLiteral(metadata.schedulerRequiredFeatures, writeValue) }]
+          : []),
+        ...(metadata.lockDuration === undefined ? [] : [{ name: 'lockDuration', value: metadata.lockDuration }]),
+        ...(metadata.maxStalledCount === undefined ? [] : [{ name: 'maxStalledCount', value: metadata.maxStalledCount }]),
+        ...(metadata.hasJobAbandonedHook
+          ? [{
+            name: 'onJobAbandoned',
+            value: callExpression(identifier(ABANDON_HOOK_FACTORY), [
+              arrowFunction({ body: importExpression(importPath) }),
+              workerId,
+            ]),
+          }]
+          : []),
         {
           name: 'handler',
           value: callExpression(identifier('createLazyModuleWorker'), [
@@ -2745,6 +3245,24 @@ function processWorkersAst(discovered: DiscoveredWorker[]): WriterFunction[] {
   return workers
 }
 
+function collectWorkerGenerationEntries(
+  discovered: DiscoveredWorker[],
+  moduleId: string,
+): WorkerGenerationEntry[] {
+  const workers: WorkerGenerationEntry[] = []
+  for (const { id, importPath, metadata } of discovered) {
+    if (!metadata.queue) continue
+    workers.push({
+      id: metadata.id ?? id,
+      moduleId,
+      queue: metadata.queue,
+      concurrency: metadata.concurrency ?? 1,
+      importPath,
+    })
+  }
+  return workers
+}
+
 function processTranslationsAst(options: {
   discovered: DiscoveredTranslation[]
   modId: string
@@ -2752,8 +3270,9 @@ function processTranslationsAst(options: {
   pkgImportBase: string
   imports: string[]
   extraImports?: string[]
+  localeOutputs?: Map<string, { imports: string[]; value: WriterFunction }>
 }): GeneratedObjectEntry[] {
-  const { discovered, modId, appImportBase, pkgImportBase, imports, extraImports } = options
+  const { discovered, modId, appImportBase, pkgImportBase, imports, extraImports, localeOutputs } = options
 
   const translations: GeneratedObjectEntry[] = []
 
@@ -2762,43 +3281,234 @@ function processTranslationsAst(options: {
     if (coreHas && appHas) {
       const coreName = `T_${toVar(modId)}_${toVar(locale)}_C`
       const appName = `T_${toVar(modId)}_${toVar(locale)}_A`
-      imports.push(buildImportStatement(coreName, `${pkgImportBase}/i18n/${locale}.json`))
-      imports.push(buildImportStatement(appName, `${appImportBase}/i18n/${locale}.json`))
-      extraImports?.push(buildImportStatement(coreName, `${pkgImportBase}/i18n/${locale}.json`))
-      extraImports?.push(buildImportStatement(appName, `${appImportBase}/i18n/${locale}.json`))
+      const localeImports = [
+        buildImportStatement(coreName, `${pkgImportBase}/i18n/${locale}.json`),
+        buildImportStatement(appName, `${appImportBase}/i18n/${locale}.json`),
+      ]
+      imports.push(...localeImports)
+      extraImports?.push(...localeImports)
+      const value = objectLiteral([
+        { kind: 'spread', value: asExpression(identifier(coreName), 'unknown as Record<string, string>') },
+        { kind: 'spread', value: asExpression(identifier(appName), 'unknown as Record<string, string>') },
+      ])
       translations.push({
         name: JSON.stringify(locale),
-        value: objectLiteral([
-          { kind: 'spread', value: asExpression(identifier(coreName), 'unknown as Record<string, string>') },
-          { kind: 'spread', value: asExpression(identifier(appName), 'unknown as Record<string, string>') },
-        ]),
+        value,
       })
+      localeOutputs?.set(locale, { imports: localeImports, value })
       continue
     }
 
     if (appHas) {
       const appName = `T_${toVar(modId)}_${toVar(locale)}_A`
-      imports.push(buildImportStatement(appName, `${appImportBase}/i18n/${locale}.json`))
-      extraImports?.push(buildImportStatement(appName, `${appImportBase}/i18n/${locale}.json`))
+      const localeImports = [buildImportStatement(appName, `${appImportBase}/i18n/${locale}.json`)]
+      imports.push(...localeImports)
+      extraImports?.push(...localeImports)
+      const value = asExpression(identifier(appName), 'unknown as Record<string, string>')
       translations.push({
         name: JSON.stringify(locale),
-        value: asExpression(identifier(appName), 'unknown as Record<string, string>'),
+        value,
       })
+      localeOutputs?.set(locale, { imports: localeImports, value })
       continue
     }
 
     if (coreHas) {
       const coreName = `T_${toVar(modId)}_${toVar(locale)}_C`
-      imports.push(buildImportStatement(coreName, `${pkgImportBase}/i18n/${locale}.json`))
-      extraImports?.push(buildImportStatement(coreName, `${pkgImportBase}/i18n/${locale}.json`))
+      const localeImports = [buildImportStatement(coreName, `${pkgImportBase}/i18n/${locale}.json`)]
+      imports.push(...localeImports)
+      extraImports?.push(...localeImports)
+      const value = asExpression(identifier(coreName), 'unknown as Record<string, string>')
       translations.push({
         name: JSON.stringify(locale),
-        value: asExpression(identifier(coreName), 'unknown as Record<string, string>'),
+        value,
       })
+      localeOutputs?.set(locale, { imports: localeImports, value })
     }
   }
 
   return translations
+}
+
+function sourceDeclaresCliCommand(filePath: string, commandName: string): boolean {
+  let sourceText: string
+  try {
+    sourceText = fs.readFileSync(filePath, 'utf8')
+  } catch {
+    return false
+  }
+  const sourceFile = ts.createSourceFile(filePath, sourceText, ts.ScriptTarget.Latest, true)
+  const declarations = new Map<string, ts.Expression>()
+  for (const statement of sourceFile.statements) {
+    if (!ts.isVariableStatement(statement)) continue
+    for (const declaration of statement.declarationList.declarations) {
+      if (ts.isIdentifier(declaration.name) && declaration.initializer) {
+        declarations.set(declaration.name.text, declaration.initializer)
+      }
+    }
+  }
+
+  const expressionDeclaresCommand = (expression: ts.Expression, seen = new Set<string>()): boolean => {
+    if (ts.isParenthesizedExpression(expression) || ts.isAsExpression(expression) || ts.isSatisfiesExpression(expression)) {
+      return expressionDeclaresCommand(expression.expression, seen)
+    }
+    if (ts.isIdentifier(expression)) {
+      if (seen.has(expression.text)) return false
+      const initializer = declarations.get(expression.text)
+      if (!initializer) return false
+      const nextSeen = new Set(seen)
+      nextSeen.add(expression.text)
+      return expressionDeclaresCommand(initializer, nextSeen)
+    }
+    if (ts.isArrayLiteralExpression(expression)) {
+      return expression.elements.some((element) => (
+        ts.isSpreadElement(element)
+          ? expressionDeclaresCommand(element.expression, seen)
+          : expressionDeclaresCommand(element, seen)
+      ))
+    }
+    if (!ts.isObjectLiteralExpression(expression)) return false
+    return expression.properties.some((property) => {
+      if (!ts.isPropertyAssignment(property)) return false
+      const propertyName = ts.isIdentifier(property.name) || ts.isStringLiteralLike(property.name)
+        ? property.name.text
+        : null
+      return propertyName === 'command'
+        && (ts.isStringLiteralLike(property.initializer) || ts.isNoSubstitutionTemplateLiteral(property.initializer))
+        && property.initializer.text === commandName
+    })
+  }
+
+  return sourceFile.statements.some((statement) => (
+    ts.isExportAssignment(statement)
+    && !statement.isExportEquals
+    && expressionDeclaresCommand(statement.expression)
+  ))
+}
+
+function appDeclaresProgrammaticDevSupervisorOverrides(appDir: string): boolean {
+  const srcDir = path.join(appDir, 'src')
+  const pending = [srcDir]
+  while (pending.length > 0) {
+    const current = pending.pop()!
+    let entries: fs.Dirent[]
+    try {
+      entries = fs.readdirSync(current, { withFileTypes: true })
+    } catch {
+      continue
+    }
+    for (const entry of entries) {
+      const entryPath = path.join(current, entry.name)
+      if (entry.isDirectory()) {
+        if (entry.name !== '__tests__' && entry.name !== 'node_modules') pending.push(entryPath)
+        continue
+      }
+      if (!/\.[cm]?tsx?$/.test(entry.name) || /(?:^|\.)test\.[cm]?tsx?$/.test(entry.name)) continue
+
+      let sourceText: string
+      try {
+        sourceText = fs.readFileSync(entryPath, 'utf8')
+      } catch {
+        continue
+      }
+      const sourceFile = ts.createSourceFile(entryPath, sourceText, ts.ScriptTarget.Latest, true)
+      const directImports = new Set<string>()
+      const namespaceImports = new Set<string>()
+      for (const statement of sourceFile.statements) {
+        if (
+          !ts.isImportDeclaration(statement)
+          || !ts.isStringLiteralLike(statement.moduleSpecifier)
+          || statement.moduleSpecifier.text !== '@open-mercato/shared/modules/overrides'
+        ) continue
+        const bindings = statement.importClause?.namedBindings
+        if (bindings && ts.isNamespaceImport(bindings)) namespaceImports.add(bindings.name.text)
+        if (bindings && ts.isNamedImports(bindings)) {
+          for (const element of bindings.elements) {
+            const importedName = element.propertyName?.text ?? element.name.text
+            if (importedName === 'applyWorkerOverrides' || importedName === 'applyCliOverrides') {
+              directImports.add(element.name.text)
+            }
+          }
+        }
+      }
+      let found = false
+      const visit = (node: ts.Node): void => {
+        if (found) return
+        if (ts.isCallExpression(node)) {
+          if (ts.isIdentifier(node.expression) && directImports.has(node.expression.text)) {
+            found = true
+            return
+          }
+          if (
+            ts.isPropertyAccessExpression(node.expression)
+            && ts.isIdentifier(node.expression.expression)
+            && namespaceImports.has(node.expression.expression.text)
+            && ['applyWorkerOverrides', 'applyCliOverrides'].includes(node.expression.name.text)
+          ) {
+            found = true
+            return
+          }
+        }
+        ts.forEachChild(node, visit)
+      }
+      visit(sourceFile)
+      if (found) return true
+    }
+  }
+  return false
+}
+
+function renderAstI18nLocaleRegistryFile(options: {
+  fileName: string
+  imports: string[]
+  moduleEntries: WriterFunction[]
+}): string {
+  const sourceFile = createGeneratedSourceFile(options.fileName)
+  addAutoGeneratedComment(sourceFile, 'registry (locale-specific i18n version)')
+  addImportSpec(sourceFile, {
+    moduleSpecifier: '@open-mercato/shared/modules/registry',
+    namedImports: [{ name: 'Module', isTypeOnly: true }],
+  })
+  addImportStatements(sourceFile, options.imports)
+  sourceFile.addVariableStatement({
+    declarationKind: VariableDeclarationKind.Const,
+    isExported: true,
+    declarations: [{
+      name: 'modules',
+      type: 'Module[]',
+      initializer: arrayLiteral(options.moduleEntries, writeValue),
+    }],
+  })
+  sourceFile.addExportAssignment({
+    isExportEquals: false,
+    expression: 'modules',
+  })
+  return getSourceText(sourceFile)
+}
+
+function buildI18nLocaleShardFileName(locale: string): string {
+  const safeLocale = locale.replace(/[^a-zA-Z0-9_-]/g, '_')
+  return `modules.i18n.${safeLocale}.generated.ts`
+}
+
+function renderI18nLocaleLoadersFile(locales: string[]): string {
+  const cases = locales.map((locale) => {
+    const moduleSpecifier = `./${buildI18nLocaleShardFileName(locale).replace(/\.ts$/, '')}`
+    return `    case ${JSON.stringify(locale)}:\n      return import(${JSON.stringify(moduleSpecifier)}).then((entry) => entry.modules)`
+  }).join('\n')
+
+  return `// AUTO-GENERATED by mercato generate registry (locale-specific i18n loaders)\nimport type { Module } from '@open-mercato/shared/modules/registry'\n\nexport async function loadI18nModules(locale: string): Promise<Module[]> {\n  switch (locale) {\n${cases ? `${cases}\n` : ''}    default:\n      return []\n  }\n}\n`
+}
+
+function removeStaleI18nLocaleShards(outputDir: string, expectedFileNames: Set<string>): void {
+  if (!fs.existsSync(outputDir)) return
+  for (const entry of fs.readdirSync(outputDir, { withFileTypes: true })) {
+    if (!entry.isFile()) continue
+    if (!/^modules\.i18n\..+\.generated\.(?:ts|checksum)$/.test(entry.name)) continue
+    if (entry.name.startsWith('modules.i18n.loaders.generated.')) continue
+    if (expectedFileNames.has(entry.name)) continue
+    fs.unlinkSync(path.join(outputDir, entry.name))
+  }
 }
 
 function resolveConventionFile(
@@ -2859,6 +3569,7 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
   for (const discovered of discovery.modules) {
     const resolved = discovered.resolve('generators.ts')
     if (!resolved) continue
+    assertGeneratorPluginUsesTypeOnlyImports(resolved.absolutePath)
     try {
       const pluginMod = await import(buildCacheBustedSourceImportUrl(resolved.absolutePath))
       const plugins: import('@open-mercato/shared/modules/generators').GeneratorPlugin[] =
@@ -2872,20 +3583,27 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
     } catch {}
   }
 
+  const pluginOutputNames = resolveGeneratorPluginOutputNames(pluginRegistry)
+
   const imports: string[] = []
   const runtimeImports: string[] = []
   const frontendRouteManifestImports: string[] = []
   const backendRouteManifestImports: string[] = []
-  const moduleDecls: string[] = []
-  const runtimeModuleDecls: string[] = []
-  const frontendRouteManifestDecls: string[] = []
-  const backendRouteManifestDecls: string[] = []
-  const apiRouteManifestDecls: string[] = []
+  const moduleDecls: WriterFunction[] = []
+  const runtimeModuleDecls: WriterFunction[] = []
+  const frontendRouteManifestDecls: WriterFunction[] = []
+  const backendRouteManifestDecls: WriterFunction[] = []
+  const apiRouteManifestDecls: WriterFunction[] = []
+  const backendRouteShardEntries: RouteManifestShardEntry[] = []
+  const backendRouteMetadataEntries: RouteManifestShardEntry[] = []
+  const apiRouteShardEntries: RouteManifestShardEntry[] = []
+  const apiRouteMetadataEntries: RouteManifestShardEntry[] = []
   // Mutable ref so extracted helper functions can increment the shared counter
   const importIdRef = { value: 0 }
   const requiresByModule = new Map<string, string[]>()
   const commandLoaderEntries: CommandLoaderGenerationEntry[] = []
   let hasRouteComponents = false
+  let hasAbandonHookWorkers = false
 
   // UMES conflict detection: collect file paths during module processing
   const umesConflictSources: Array<{
@@ -2908,9 +3626,9 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
     const runtimeBackendRoutes: string[] = []
     const runtimeApis: string[] = []
     let cliImportName: string | null = null
-    const translations: string[] = []
-    const subscribers: string[] = []
-    const workers: string[] = []
+    const translations: GeneratedObjectEntry[] = []
+    const subscribers: WriterFunction[] = []
+    const workers: WriterFunction[] = []
     let infoImportName: string | null = null
     let extensionsImportName: string | null = null
     let fieldsImportName: string | null = null
@@ -2958,6 +3676,7 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
           runtimeImports,
           manifestImports: frontendRouteManifestImports,
           importIdRef,
+          quiet,
         })
         frontendRoutes.push(...generatedFrontendRoutes.eagerRoutes)
         runtimeFrontendRoutes.push(...generatedFrontendRoutes.runtimeRoutes)
@@ -3059,6 +3778,10 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
       if (fields) fieldsImportName = fields.importName
     }
 
+    const integrationExports = integrationImportName
+      ? `(${integrationImportName} as unknown as { integrations?: import('@open-mercato/shared/modules/integrations/types').IntegrationDefinition[]; integration?: import('@open-mercato/shared/modules/integrations/types').IntegrationDefinition; bundles?: import('@open-mercato/shared/modules/integrations/types').IntegrationBundle[]; bundle?: import('@open-mercato/shared/modules/integrations/types').IntegrationBundle })`
+      : null
+
     // 13. Pages: backend
     {
       const beApp = path.join(roots.appBase, 'backend')
@@ -3077,10 +3800,13 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
           runtimeImports,
           manifestImports: backendRouteManifestImports,
           importIdRef,
+          quiet,
         })
         backendRoutes.push(...generatedBackendRoutes.eagerRoutes)
         runtimeBackendRoutes.push(...generatedBackendRoutes.runtimeRoutes)
         backendRouteManifestDecls.push(...generatedBackendRoutes.manifestRoutes)
+        backendRouteShardEntries.push(...generatedBackendRoutes.manifestShardRoutes)
+        backendRouteMetadataEntries.push(...generatedBackendRoutes.metadataRoutes)
         for (const pattern of generatedBackendRoutes.routePatterns) {
           assertUniqueBackendRoutePattern(seenBackendRoutePatterns, modId, pattern)
         }
@@ -3101,6 +3827,8 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
       apis.push(...generatedApis.eagerApis)
       runtimeApis.push(...generatedApis.runtimeApis)
       apiRouteManifestDecls.push(...generatedApis.manifestApis)
+      apiRouteShardEntries.push(...generatedApis.manifestShardApis)
+      apiRouteMetadataEntries.push(...generatedApis.metadataApis)
     }
 
     // 15. CLI
@@ -3114,7 +3842,7 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
     }
 
     // 16. Translations
-    translations.push(...processTranslations({
+    translations.push(...processTranslationsAst({
       discovered: discovered.translations,
       modId,
       appImportBase,
@@ -3124,10 +3852,12 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
     }))
 
     // 17. Subscribers
-    subscribers.push(...processSubscribers(await discovered.getSubscribers()))
+    subscribers.push(...processSubscribersAst(await discovered.getSubscribers()))
 
     // 18. Workers
-    workers.push(...processWorkers(await discovered.getWorkers()))
+    const discoveredWorkersForModule = await discovered.getWorkers()
+    if (workersDeclareAbandonHook(discoveredWorkersForModule)) hasAbandonHookWorkers = true
+    workers.push(...processWorkersAst(discoveredWorkersForModule))
 
     // Build combined customFieldSets expression
     {
@@ -3150,44 +3880,120 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
       }
     }
 
-    moduleDecls.push(`{
-      id: ${toLiteral(modId)},
-      ${infoImportName ? `info: ${infoImportName}.metadata,` : ''}
-      ${frontendRoutes.length ? `frontendRoutes: [${frontendRoutes.join(', ')}],` : ''}
-      ${backendRoutes.length ? `backendRoutes: [${backendRoutes.join(', ')}],` : ''}
-      ${apis.length ? `apis: [${apis.join(', ')}],` : ''}
-      ${cliImportName ? `cli: ${cliImportName},` : ''}
-      ${translations.length ? `translations: { ${translations.join(', ')} },` : ''}
-      ${subscribers.length ? `subscribers: [${subscribers.join(', ')}],` : ''}
-      ${workers.length ? `workers: [${workers.join(', ')}],` : ''}
-      ${extensionsImportName ? `entityExtensions: ((${extensionsImportName}.default ?? ${extensionsImportName}.extensions) as import('@open-mercato/shared/modules/entities').EntityExtension[]) || [],` : ''}
-      customFieldSets: ${customFieldSetsExpr},
-      ${featuresImportName ? `features: ((${featuresImportName}.default ?? ${featuresImportName}.features) as any) || [],` : ''}
-      ${customEntitiesImportName ? `customEntities: ((${customEntitiesImportName}.default ?? ${customEntitiesImportName}.entities) as any) || [],` : ''}
-      ${dashboardWidgets.length ? `dashboardWidgets: [${dashboardWidgets.join(', ')}],` : ''}
-      ${setupImportName ? `setup: (${setupImportName}.default ?? ${setupImportName}.setup) || undefined,` : ''}
-      ${encryptionImportName ? `defaultEncryptionMaps: ((${encryptionImportName}.default ?? ${encryptionImportName}.defaultEncryptionMaps) as import('@open-mercato/shared/modules/encryption').ModuleEncryptionMap[]) || [],` : ''}
-      ${integrationImportName ? `integrations: (( ${integrationImportName}.integrations ?? (${integrationImportName}.integration ? [${integrationImportName}.integration] : []) ) as import('@open-mercato/shared/modules/integrations/types').IntegrationDefinition[]),` : ''}
-      ${integrationImportName ? `bundles: (( ${integrationImportName}.bundles ?? (${integrationImportName}.bundle ? [${integrationImportName}.bundle] : []) ) as import('@open-mercato/shared/modules/integrations/types').IntegrationBundle[]),` : ''}
-    }`)
-    runtimeModuleDecls.push(`{
-      id: ${toLiteral(modId)},
-      ${infoImportName ? `info: ${infoImportName}.metadata,` : ''}
-      ${runtimeFrontendRoutes.length ? `frontendRoutes: [${runtimeFrontendRoutes.join(', ')}],` : ''}
-      ${runtimeBackendRoutes.length ? `backendRoutes: [${runtimeBackendRoutes.join(', ')}],` : ''}
-      ${runtimeApis.length ? `apis: [${runtimeApis.join(', ')}],` : ''}
-      ${translations.length ? `translations: { ${translations.join(', ')} },` : ''}
-      ${subscribers.length ? `subscribers: [${subscribers.join(', ')}],` : ''}
-      ${workers.length ? `workers: [${workers.join(', ')}],` : ''}
-      ${extensionsImportName ? `entityExtensions: ((${extensionsImportName}.default ?? ${extensionsImportName}.extensions) as import('@open-mercato/shared/modules/entities').EntityExtension[]) || [],` : ''}
-      customFieldSets: ${customFieldSetsExpr},
-      ${featuresImportName ? `features: ((${featuresImportName}.default ?? ${featuresImportName}.features) as any) || [],` : ''}
-      ${customEntitiesImportName ? `customEntities: ((${customEntitiesImportName}.default ?? ${customEntitiesImportName}.entities) as any) || [],` : ''}
-      ${setupImportName ? `setup: (${setupImportName}.default ?? ${setupImportName}.setup) || undefined,` : ''}
-      ${encryptionImportName ? `defaultEncryptionMaps: ((${encryptionImportName}.default ?? ${encryptionImportName}.defaultEncryptionMaps) as import('@open-mercato/shared/modules/encryption').ModuleEncryptionMap[]) || [],` : ''}
-      ${integrationImportName ? `integrations: (( ${integrationImportName}.integrations ?? (${integrationImportName}.integration ? [${integrationImportName}.integration] : []) ) as import('@open-mercato/shared/modules/integrations/types').IntegrationDefinition[]),` : ''}
-      ${integrationImportName ? `bundles: (( ${integrationImportName}.bundles ?? (${integrationImportName}.bundle ? [${integrationImportName}.bundle] : []) ) as import('@open-mercato/shared/modules/integrations/types').IntegrationBundle[]),` : ''}
-    }`)
+    const identityEntries: GeneratedObjectEntry[] = [{ name: 'id', value: modId }]
+    if (infoImportName) {
+      identityEntries.push({ name: 'info', value: propertyAccess(identifier(infoImportName), 'metadata') })
+    }
+
+    const sharedTailEntries: GeneratedObjectEntry[] = []
+    if (translations.length > 0) {
+      sharedTailEntries.push({ name: 'translations', value: objectLiteral(translations) })
+    }
+    if (subscribers.length > 0) {
+      sharedTailEntries.push({ name: 'subscribers', value: arrayLiteral(subscribers, writeValue) })
+    }
+    if (workers.length > 0) {
+      sharedTailEntries.push({ name: 'workers', value: arrayLiteral(workers, writeValue) })
+    }
+    if (extensionsImportName) {
+      sharedTailEntries.push({
+        name: 'entityExtensions',
+        value: buildLegacyModuleListValue({
+          importName: extensionsImportName,
+          members: ['default', 'extensions'],
+          castType: "import('@open-mercato/shared/modules/entities').EntityExtension[]",
+        }),
+      })
+    }
+    sharedTailEntries.push({ name: 'customFieldSets', value: identifier(customFieldSetsExpr) })
+    if (featuresImportName) {
+      sharedTailEntries.push({
+        name: 'features',
+        value: buildLegacyModuleListValue({
+          importName: featuresImportName,
+          members: ['default', 'features'],
+          castType: 'any',
+        }),
+      })
+    }
+    if (customEntitiesImportName) {
+      sharedTailEntries.push({
+        name: 'customEntities',
+        value: buildLegacyModuleListValue({
+          importName: customEntitiesImportName,
+          members: ['default', 'entities'],
+          castType: 'any',
+        }),
+      })
+    }
+
+    const setupAndBeyondEntries: GeneratedObjectEntry[] = []
+    if (setupImportName) {
+      setupAndBeyondEntries.push({ name: 'setup', value: buildLegacyModuleSetupValue(setupImportName) })
+    }
+    if (encryptionImportName) {
+      setupAndBeyondEntries.push({
+        name: 'defaultEncryptionMaps',
+        value: buildLegacyModuleListValue({
+          importName: encryptionImportName,
+          members: ['default', 'defaultEncryptionMaps'],
+          castType: "import('@open-mercato/shared/modules/encryption').ModuleEncryptionMap[]",
+        }),
+      })
+    }
+    if (integrationExports) {
+      setupAndBeyondEntries.push({
+        name: 'integrations',
+        value: buildLegacyIntegrationListValue(
+          integrationExports,
+          'integrations',
+          'integration',
+          "import('@open-mercato/shared/modules/integrations/types').IntegrationDefinition[]",
+        ),
+      })
+      setupAndBeyondEntries.push({
+        name: 'bundles',
+        value: buildLegacyIntegrationListValue(
+          integrationExports,
+          'bundles',
+          'bundle',
+          "import('@open-mercato/shared/modules/integrations/types').IntegrationBundle[]",
+        ),
+      })
+    }
+
+    const eagerEntries: GeneratedObjectEntry[] = [...identityEntries]
+    if (frontendRoutes.length > 0) {
+      eagerEntries.push({ name: 'frontendRoutes', value: preRenderedExpressionList(frontendRoutes) })
+    }
+    if (backendRoutes.length > 0) {
+      eagerEntries.push({ name: 'backendRoutes', value: preRenderedExpressionList(backendRoutes) })
+    }
+    if (apis.length > 0) {
+      eagerEntries.push({ name: 'apis', value: preRenderedExpressionList(apis) })
+    }
+    if (cliImportName) {
+      eagerEntries.push({ name: 'cli', value: identifier(cliImportName) })
+    }
+    eagerEntries.push(...sharedTailEntries)
+    if (dashboardWidgets.length > 0) {
+      eagerEntries.push({ name: 'dashboardWidgets', value: preRenderedExpressionList(dashboardWidgets) })
+    }
+    eagerEntries.push(...setupAndBeyondEntries)
+    moduleDecls.push(objectLiteral(eagerEntries))
+
+    const runtimeEntries: GeneratedObjectEntry[] = [...identityEntries]
+    if (runtimeFrontendRoutes.length > 0) {
+      runtimeEntries.push({ name: 'frontendRoutes', value: preRenderedExpressionList(runtimeFrontendRoutes) })
+    }
+    if (runtimeBackendRoutes.length > 0) {
+      runtimeEntries.push({ name: 'backendRoutes', value: preRenderedExpressionList(runtimeBackendRoutes) })
+    }
+    if (runtimeApis.length > 0) {
+      runtimeEntries.push({ name: 'apis', value: preRenderedExpressionList(runtimeApis) })
+    }
+    runtimeEntries.push(...sharedTailEntries, ...setupAndBeyondEntries)
+    runtimeModuleDecls.push(objectLiteral(runtimeEntries))
   }
 
   // === UMES Conflict Detection ===
@@ -3288,38 +4094,48 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
     }
   }
 
-  const output = renderAstLegacyModuleRegistryOutput({
+  const output = renderAstModuleRegistryFile({
     fileName: 'modules.generated.ts',
+    generator: 'registry',
     imports,
     moduleEntries: moduleDecls,
     includeCreateElementImport: hasRouteComponents,
+    includeAbandonHookImport: hasAbandonHookWorkers,
   })
-  const runtimeOutput = renderAstLegacyModuleRegistryOutput({
+  const runtimeOutput = renderAstModuleRegistryFile({
     fileName: 'modules.runtime.generated.ts',
+    generator: 'registry',
     imports: runtimeImports,
     moduleEntries: runtimeModuleDecls,
     includeCreateElementImport: true,
+    includeAbandonHookImport: hasAbandonHookWorkers,
   })
-  const frontendRoutesOutput = renderAstLegacyManifestOutput({
+  const frontendRoutesOutput = renderAstManifestFile({
     fileName: 'frontend-routes.generated.ts',
     typeName: 'FrontendRouteManifestEntry',
     exportName: 'frontendRoutes',
     imports: frontendRouteManifestImports,
     entries: frontendRouteManifestDecls,
   })
-  const backendRoutesOutput = renderAstLegacyManifestOutput({
+  const backendRoutesOutput = renderAstManifestFile({
     fileName: 'backend-routes.generated.ts',
     typeName: 'BackendRouteManifestEntry',
     exportName: 'backendRoutes',
     imports: backendRouteManifestImports,
     entries: backendRouteManifestDecls,
   })
-  const apiRoutesOutput = renderAstLegacyManifestOutput({
+  const apiRoutesOutput = renderAstManifestFile({
     fileName: 'api-routes.generated.ts',
     typeName: 'ApiRouteManifestEntry',
     exportName: 'apiRoutes',
     entries: apiRouteManifestDecls,
   })
+  const routeManifestOutputs = [
+    ...renderRouteManifestShardOutputs('backend', backendRouteShardEntries),
+    ...renderRouteManifestShardOutputs('api', apiRouteShardEntries),
+    renderRouteMetadataOutput('backend', backendRouteMetadataEntries),
+    renderRouteMetadataOutput('api', apiRouteMetadataEntries),
+  ]
   const legacySubscribersOutput = renderAstLegacyAliasFile({
     fileName: 'subscribers.generated.ts',
     exportName: 'moduleSubscribers',
@@ -3367,6 +4183,29 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
   writeGeneratedFile({ outFile: frontendRoutesOutFile, checksumFile: frontendRoutesChecksumFile, content: frontendRoutesOutput, structureChecksum, result, quiet })
   writeGeneratedFile({ outFile: backendRoutesOutFile, checksumFile: backendRoutesChecksumFile, content: backendRoutesOutput, structureChecksum, result, quiet })
   writeGeneratedFile({ outFile: apiRoutesOutFile, checksumFile: apiRoutesChecksumFile, content: apiRoutesOutput, structureChecksum, result, quiet })
+  const expectedRouteManifestFiles = new Set(routeManifestOutputs.flatMap(({ fileName }) => [
+    fileName,
+    fileName.replace(/\.ts$/, '.checksum'),
+  ]))
+  if (fs.existsSync(outputDir)) {
+    for (const entry of fs.readdirSync(outputDir, { withFileTypes: true })) {
+      if (!entry.isFile() || !routeManifestShardFilePattern.test(entry.name)) continue
+      if (expectedRouteManifestFiles.has(entry.name)) continue
+      const stalePath = path.join(outputDir, entry.name)
+      fs.unlinkSync(stalePath)
+      result.filesWritten.push(stalePath)
+    }
+  }
+  for (const routeOutput of routeManifestOutputs) {
+    writeGeneratedFile({
+      outFile: path.join(outputDir, routeOutput.fileName),
+      checksumFile: path.join(outputDir, routeOutput.fileName.replace(/\.ts$/, '.checksum')),
+      content: routeOutput.content,
+      structureChecksum,
+      result,
+      quiet,
+    })
+  }
   writeGeneratedFile({ outFile: legacySubscribersOutFile, checksumFile: legacySubscribersChecksumFile, content: legacySubscribersOutput, structureChecksum, result, quiet })
   const commandLoadersOutput = renderCommandLoadersFile(commandLoaderEntries)
   writeGeneratedFile({ outFile: commandLoadersOutFile, checksumFile: commandLoadersChecksumFile, content: commandLoadersOutput, structureChecksum, result, quiet })
@@ -3391,10 +4230,15 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
     const importSection = state.imports.join('\n')
     const entriesLiteral = state.configs.join(',\n  ')
     const content = plugin.buildOutput({ importSection, entriesLiteral })
-    const outFile = path.join(outputDir, plugin.outputFileName)
-    const checksumFile = outFile.replace('.ts', '.checksum')
+    const outFile = path.join(outputDir, pluginOutputNames.get(pluginId)!)
+    const checksumFile = outFile.replace(/\.ts$/, '.checksum')
     writeGeneratedFile({ outFile, checksumFile, content, structureChecksum, result, quiet })
   }
+  reconcileGeneratorPluginOutputs({
+    outputDir,
+    outputNames: pluginOutputNames.values(),
+    result,
+  })
 
   // Bootstrap registrations: aggregate core registrations + plugin bootstrap-registration hooks
   // into one file. Always written (with at least the core backend route registration) so bootstrap.ts
@@ -3403,14 +4247,14 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
   {
     const bootstrapPlugins = [...pluginRegistry.values()].filter((p) => p.bootstrapRegistration)
     const allEntryImports: string[] = [
-      buildImportStatement(`{ backendRoutes }`, `./backend-routes.generated`),
+      buildImportStatement(`{ backendRouteFacades }`, `./backend-route-shards.generated`),
       buildImportStatement(`{ frontendRoutes }`, `./frontend-routes.generated`),
     ]
     const allRegImports: string[] = [
       `import { registerBackendRouteManifests, registerFrontendRouteManifests } from '@open-mercato/shared/modules/registry'`,
     ]
     const allCalls: string[] = [
-      `registerBackendRouteManifests(backendRoutes)`,
+      `registerBackendRouteManifests(backendRouteFacades)`,
       `registerFrontendRouteManifests(frontendRoutes)`,
     ]
     for (const plugin of bootstrapPlugins) {
@@ -3420,15 +4264,11 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
       allRegImports.push(...reg.registrationImports)
       allCalls.push(reg.buildCall(reg.entriesExportName))
     }
-    const uniqueImports = [...new Set([...allEntryImports, ...allRegImports])]
-    const importSection = uniqueImports.join('\n')
-    const body = `  ${allCalls.join('\n  ')}`
-    const bootstrapRegsOutput = `// AUTO-GENERATED by mercato generate registry
-${importSection ? `${importSection}\n` : ''}
-export function runBootstrapRegistrations(): void {
-${body}
-}
-`
+    const bootstrapRegsOutput = renderBootstrapRegistrationsFile({
+      entryImports: allEntryImports,
+      registrationImports: allRegImports,
+      calls: allCalls,
+    })
     writeGeneratedFile({ outFile: bootstrapRegsOutFile, checksumFile: bootstrapRegsChecksumFile, content: bootstrapRegsOutput, structureChecksum, result, quiet })
   }
 
@@ -3447,6 +4287,8 @@ async function generateModuleRegistryAppFromDiscovery(options: ModuleRegistryRen
   const bootstrapChecksumFile = path.join(outputDir, 'modules.bootstrap.generated.checksum')
   const i18nOutFile = path.join(outputDir, 'modules.i18n.generated.ts')
   const i18nChecksumFile = path.join(outputDir, 'modules.i18n.generated.checksum')
+  const i18nLoadersOutFile = path.join(outputDir, 'modules.i18n.loaders.generated.ts')
+  const i18nLoadersChecksumFile = path.join(outputDir, 'modules.i18n.loaders.generated.checksum')
   const legacyOutFile = path.join(outputDir, 'bootstrap-modules.generated.ts')
   const legacyChecksumFile = path.join(outputDir, 'bootstrap-modules.generated.checksum')
   const enabledIdsOutFile = path.join(outputDir, 'enabled-module-ids.generated.ts')
@@ -3461,10 +4303,12 @@ async function generateModuleRegistryAppFromDiscovery(options: ModuleRegistryRen
   const moduleDecls: WriterFunction[] = []
   const bootstrapModuleDecls: WriterFunction[] = []
   const i18nModuleDecls: WriterFunction[] = []
+  const i18nLocaleShards = new Map<string, { imports: string[]; moduleDecls: WriterFunction[] }>()
   const importIdRef = { value: 0 }
   const requiresByModule = new Map<string, string[]>()
   const commandLoaderEntries: CommandLoaderGenerationEntry[] = []
   let hasRouteComponents = false
+  let hasAbandonHookWorkers = false
   const seenBackendRoutePatterns = new Map<string, string>()
 
   for (const discovered of discovery.modules) {
@@ -3474,6 +4318,7 @@ async function generateModuleRegistryAppFromDiscovery(options: ModuleRegistryRen
     const frontendRoutes: WriterFunction[] = []
     const backendRoutes: WriterFunction[] = []
     const translations: GeneratedObjectEntry[] = []
+    const localeTranslations = new Map<string, { imports: string[]; value: WriterFunction }>()
     const subscribers: WriterFunction[] = []
     const workers: WriterFunction[] = []
     let infoImportName: string | null = null
@@ -3564,6 +4409,7 @@ async function generateModuleRegistryAppFromDiscovery(options: ModuleRegistryRen
           pkgImportBase: imps.pkgBase,
           imports,
           importIdRef,
+          quiet,
         })
         frontendRoutes.push(...feAst.routes)
         hasRouteComponents = true
@@ -3585,6 +4431,7 @@ async function generateModuleRegistryAppFromDiscovery(options: ModuleRegistryRen
           pkgImportBase: imps.pkgBase,
           imports,
           importIdRef,
+          quiet,
         })
         backendRoutes.push(...beAst.routes)
         for (const pattern of beAst.routePatterns) {
@@ -3602,13 +4449,30 @@ async function generateModuleRegistryAppFromDiscovery(options: ModuleRegistryRen
       pkgImportBase: imps.pkgBase,
       imports,
       extraImports: translationImports,
+      localeOutputs: localeTranslations,
     }))
-    bootstrapImports.push(...translationImports)
     i18nImports.push(...translationImports)
+    for (const [locale, localeTranslation] of localeTranslations) {
+      const shard = i18nLocaleShards.get(locale) ?? { imports: [], moduleDecls: [] }
+      shard.imports.push(...localeTranslation.imports)
+      shard.moduleDecls.push(objectLiteral([
+        { name: 'id', value: modId },
+        {
+          name: 'translations',
+          value: objectLiteral([{
+            name: JSON.stringify(locale),
+            value: localeTranslation.value,
+          }]),
+        },
+      ]))
+      i18nLocaleShards.set(locale, shard)
+    }
 
     subscribers.push(...processSubscribersAst(await discovered.getSubscribers()))
 
-    workers.push(...processWorkersAst(await discovered.getWorkers()))
+    const discoveredWorkersForModule = await discovered.getWorkers()
+    if (workersDeclareAbandonHook(discoveredWorkersForModule)) hasAbandonHookWorkers = true
+    workers.push(...processWorkersAst(discoveredWorkersForModule))
 
     {
       dashboardWidgetsValue = buildModuleDashboardWidgetsValue(discovered.dashboardWidgetEntries)
@@ -3720,7 +4584,9 @@ async function generateModuleRegistryAppFromDiscovery(options: ModuleRegistryRen
     }
 
     moduleDecls.push(objectLiteral(routeAwareModuleEntries))
-    bootstrapModuleDecls.push(objectLiteral(moduleEntries))
+    bootstrapModuleDecls.push(objectLiteral(moduleEntries.filter(
+      (entry) => entry.kind === 'spread' || entry.name !== 'translations',
+    )))
     i18nModuleDecls.push(objectLiteral(i18nModuleEntries))
   }
 
@@ -3730,18 +4596,21 @@ async function generateModuleRegistryAppFromDiscovery(options: ModuleRegistryRen
     imports,
     moduleEntries: moduleDecls,
     includeCreateElementImport: hasRouteComponents,
+    includeAbandonHookImport: hasAbandonHookWorkers,
   })
   const bootstrapOutput = renderAstModuleRegistryFile({
     fileName: 'modules.bootstrap.generated.ts',
     generator: 'registry (bootstrap version)',
     imports: bootstrapImports,
     moduleEntries: bootstrapModuleDecls,
+    includeAbandonHookImport: hasAbandonHookWorkers,
   })
   const i18nOutput = renderAstModuleRegistryFile({
     fileName: 'modules.i18n.generated.ts',
     generator: 'registry (i18n version)',
     imports: i18nImports,
     moduleEntries: i18nModuleDecls,
+    includeAbandonHookImport: hasAbandonHookWorkers,
   })
   const legacyOutput = renderAstLegacyAliasFile({
     fileName: 'bootstrap-modules.generated.ts',
@@ -3777,6 +4646,41 @@ async function generateModuleRegistryAppFromDiscovery(options: ModuleRegistryRen
   writeGeneratedFile({ outFile, checksumFile, content: output, structureChecksum, result, quiet })
   writeGeneratedFile({ outFile: bootstrapOutFile, checksumFile: bootstrapChecksumFile, content: bootstrapOutput, structureChecksum, result, quiet })
   writeGeneratedFile({ outFile: i18nOutFile, checksumFile: i18nChecksumFile, content: i18nOutput, structureChecksum, result, quiet })
+  const i18nLocales = [...i18nLocaleShards.keys()].sort((a, b) => a.localeCompare(b))
+  const shardFileNames = new Set<string>()
+  const expectedShardArtifacts = new Set<string>()
+  for (const locale of i18nLocales) {
+    const fileName = buildI18nLocaleShardFileName(locale)
+    if (shardFileNames.has(fileName)) {
+      throw new Error(`Locale names produce the same generated i18n shard file: ${locale}`)
+    }
+    shardFileNames.add(fileName)
+    expectedShardArtifacts.add(fileName)
+    expectedShardArtifacts.add(fileName.replace(/\.ts$/, '.checksum'))
+    const shard = i18nLocaleShards.get(locale)!
+    const content = renderAstI18nLocaleRegistryFile({
+      fileName,
+      imports: shard.imports,
+      moduleEntries: shard.moduleDecls,
+    })
+    writeGeneratedFile({
+      outFile: path.join(outputDir, fileName),
+      checksumFile: path.join(outputDir, fileName.replace(/\.ts$/, '.checksum')),
+      content,
+      structureChecksum,
+      result,
+      quiet,
+    })
+  }
+  removeStaleI18nLocaleShards(outputDir, expectedShardArtifacts)
+  writeGeneratedFile({
+    outFile: i18nLoadersOutFile,
+    checksumFile: i18nLoadersChecksumFile,
+    content: renderI18nLocaleLoadersFile(i18nLocales),
+    structureChecksum,
+    result,
+    quiet,
+  })
   writeGeneratedFile({ outFile: legacyOutFile, checksumFile: legacyChecksumFile, content: legacyOutput, structureChecksum, result, quiet })
 
   const enabledIdsOutput = renderEnabledModuleIdsFile(enabled.map((entry) => entry.id))
@@ -3797,6 +4701,7 @@ async function generateModuleRegistryAppFromDiscovery(options: ModuleRegistryRen
  * Excludes: frontend routes, backend routes, API handlers, injection widgets
  */
 async function generateModuleRegistryCliFromDiscovery(options: ModuleRegistryRenderOptions): Promise<GeneratorResult> {
+  let hasAbandonHookWorkers = false
   const { resolver, quiet = false } = options
   const { discovery } = options
   const result = createGeneratorResult()
@@ -3808,6 +4713,8 @@ async function generateModuleRegistryCliFromDiscovery(options: ModuleRegistryRen
   const legacyChecksumFile = path.join(outputDir, 'cli-modules.generated.checksum')
   const commandLoadersOutFile = path.join(outputDir, 'command-loaders.generated.ts')
   const commandLoadersChecksumFile = path.join(outputDir, 'command-loaders.generated.checksum')
+  const devSupervisorOutFile = path.join(outputDir, DEV_SUPERVISOR_MANIFEST_FILE)
+  const devSupervisorChecksumFile = path.join(outputDir, 'dev-supervisor.generated.checksum')
 
   const enabled = discovery.enabled
   const imports: string[] = []
@@ -3816,9 +4723,13 @@ async function generateModuleRegistryCliFromDiscovery(options: ModuleRegistryRen
   const importIdRef = { value: 0 }
   const requiresByModule = new Map<string, string[]>()
   const commandLoaderEntries: CommandLoaderGenerationEntry[] = []
+  const devSupervisorWorkers: DevSupervisorWorkerDescriptor[] = []
+  let schedulerStartStatus: DevSupervisorSchedulerStartStatus = 'missing-module'
+  let requiresFullBootstrap = enabled.some((entry) => entry.devSupervisorRequiresFullBootstrap === true)
+    || appDeclaresProgrammaticDevSupervisorOverrides(resolver.getAppDir())
 
   for (const discovered of discovery.modules) {
-    const { modId, roots, imps, appImportBase } = discovered
+    const { modId, imps, appImportBase } = discovered
     commandLoaderEntries.push(...discovered.commandLoaderEntries)
 
     let cliImportName: string | null = null
@@ -3910,11 +4821,20 @@ async function generateModuleRegistryCliFromDiscovery(options: ModuleRegistryRen
 
     // CLI
     {
+      if (modId === 'scheduler') schedulerStartStatus = 'missing-cli'
       const cliResolved = discovered.resolve('cli.ts')
       if (cliResolved) {
         const importName = `CLI_${toVar(modId)}`
         imports.push(buildImportStatement(importName, sanitizeGeneratedModuleSpecifier(cliResolved.importPath)))
         cliImportName = importName
+        if (modId === 'scheduler') {
+          if (sourceDeclaresCliCommand(cliResolved.absolutePath, 'start')) {
+            schedulerStartStatus = 'ok'
+          } else {
+            schedulerStartStatus = 'missing-command'
+            requiresFullBootstrap = true
+          }
+        }
       }
     }
 
@@ -3931,7 +4851,11 @@ async function generateModuleRegistryCliFromDiscovery(options: ModuleRegistryRen
     subscribers.push(...processSubscribersAst(await discovered.getSubscribers()))
 
     // Workers
-    workers.push(...processWorkersAst(await discovered.getWorkers()))
+    const discoveredWorkers = await discovered.getWorkers()
+    const workerGenerationEntries = collectWorkerGenerationEntries(discoveredWorkers, modId)
+    if (workersDeclareAbandonHook(discoveredWorkers)) hasAbandonHookWorkers = true
+    workers.push(...processWorkersAst(discoveredWorkers))
+    devSupervisorWorkers.push(...workerGenerationEntries.map(({ importPath: _importPath, ...worker }) => worker))
 
     // Dashboard widgets
     {
@@ -4053,6 +4977,7 @@ async function generateModuleRegistryCliFromDiscovery(options: ModuleRegistryRen
     generator: 'registry (CLI version)',
     imports,
     moduleEntries: moduleDecls,
+    includeAbandonHookImport: hasAbandonHookWorkers,
   })
   const legacyOutput = renderAstLegacyAliasFile({
     fileName: 'cli-modules.generated.ts',
@@ -4096,6 +5021,20 @@ async function generateModuleRegistryCliFromDiscovery(options: ModuleRegistryRen
   const structureChecksum = discovery.getStructureChecksum()
   writeGeneratedFile({ outFile, checksumFile, content: output, structureChecksum, result, quiet })
   writeGeneratedFile({ outFile: legacyOutFile, checksumFile: legacyChecksumFile, content: legacyOutput, structureChecksum, result, quiet })
+  const devSupervisorOutput = `${JSON.stringify({
+    version: DEV_SUPERVISOR_MANIFEST_VERSION,
+    workers: devSupervisorWorkers,
+    schedulerStartStatus,
+    requiresFullBootstrap,
+  }, null, 2)}\n`
+  writeGeneratedFile({
+    outFile: devSupervisorOutFile,
+    checksumFile: devSupervisorChecksumFile,
+    content: devSupervisorOutput,
+    structureChecksum,
+    result,
+    quiet,
+  })
   const commandLoadersOutput = renderCommandLoadersFile(commandLoaderEntries)
   writeGeneratedFile({ outFile: commandLoadersOutFile, checksumFile: commandLoadersChecksumFile, content: commandLoadersOutput, structureChecksum, result, quiet })
 
@@ -4103,22 +5042,22 @@ async function generateModuleRegistryCliFromDiscovery(options: ModuleRegistryRen
 }
 
 export async function generateModuleRegistry(options: ModuleRegistryOptions): Promise<GeneratorResult> {
-  const discovery = await createModuleRegistryDiscovery(options.resolver)
+  const discovery = await createModuleRegistryDiscovery(options.resolver, options.quiet ?? false)
   return generateModuleRegistryFromDiscovery({ ...options, discovery })
 }
 
 export async function generateModuleRegistryApp(options: ModuleRegistryOptions): Promise<GeneratorResult> {
-  const discovery = await createModuleRegistryDiscovery(options.resolver)
+  const discovery = await createModuleRegistryDiscovery(options.resolver, options.quiet ?? false)
   return generateModuleRegistryAppFromDiscovery({ ...options, discovery })
 }
 
 export async function generateModuleRegistryCli(options: ModuleRegistryOptions): Promise<GeneratorResult> {
-  const discovery = await createModuleRegistryDiscovery(options.resolver)
+  const discovery = await createModuleRegistryDiscovery(options.resolver, options.quiet ?? false)
   return generateModuleRegistryCliFromDiscovery({ ...options, discovery })
 }
 
 export async function generateModuleRegistries(options: ModuleRegistryOptions): Promise<GeneratorResult[]> {
-  const discovery = await createModuleRegistryDiscovery(options.resolver)
+  const discovery = await createModuleRegistryDiscovery(options.resolver, options.quiet ?? false)
   return [
     await generateModuleRegistryFromDiscovery({ ...options, discovery }),
     await generateModuleRegistryAppFromDiscovery({ ...options, discovery }),

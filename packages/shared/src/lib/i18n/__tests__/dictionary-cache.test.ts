@@ -41,6 +41,29 @@ describe('i18n dictionary memoization', () => {
     expect(loader).toHaveBeenCalledTimes(2)
   })
 
+  it('keeps other locale dictionaries cached after locale-scoped module registration', async () => {
+    const loader = jest.fn(async (locale: Locale) => ({ greeting: locale }))
+    registerAppDictionaryLoader(loader)
+    registerModules([
+      { id: 'demo', translations: { en: { module: 'English' }, pl: { module: 'Polski' } } },
+    ] as any)
+
+    const englishBefore = await loadDictionary('en')
+    const polishBefore = await loadDictionary('pl')
+
+    registerModules([
+      { id: 'demo', translations: { pl: { module: 'Polski 2' } } },
+    ] as any)
+
+    const englishAfter = await loadDictionary('en')
+    const polishAfter = await loadDictionary('pl')
+
+    expect(englishAfter).toBe(englishBefore)
+    expect(polishAfter).not.toBe(polishBefore)
+    expect(polishAfter.module).toBe('Polski 2')
+    expect(loader).toHaveBeenCalledTimes(3)
+  })
+
   it('rebuilds after modules are re-registered', async () => {
     registerAppDictionaryLoader(async () => ({}))
     registerModules([{ translations: { en: { a: 'one' } } }] as any)

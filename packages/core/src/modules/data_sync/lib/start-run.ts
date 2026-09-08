@@ -1,6 +1,7 @@
 import type { ProgressService } from '../../progress/lib/progressService'
 import type { SyncRunService } from './sync-run-service'
 import { getSyncQueue } from './queue'
+import { DATA_SYNC_EXPORT_QUEUE, DATA_SYNC_IMPORT_QUEUE } from './queue-policy'
 
 export type DataSyncStartScope = {
   organizationId: string
@@ -15,6 +16,7 @@ export type StartDataSyncRunInput = {
   cursor?: string | null
   triggeredBy?: string | null
   batchSize?: number
+  parameters?: Record<string, unknown> | null
   createProgressJob?: boolean
   progressJob?: {
     jobType?: string
@@ -63,6 +65,7 @@ export async function startDataSyncRun(params: {
       direction: input.direction,
       cursor: input.cursor ?? null,
       triggeredBy: input.triggeredBy ?? scope.userId ?? null,
+      parameters: input.parameters ?? null,
       progressJobId: progressJob?.id ?? null,
     },
     {
@@ -71,7 +74,7 @@ export async function startDataSyncRun(params: {
     },
   )
 
-  const queueName = input.direction === 'import' ? 'data-sync-import' : 'data-sync-export'
+  const queueName = input.direction === 'import' ? DATA_SYNC_IMPORT_QUEUE : DATA_SYNC_EXPORT_QUEUE
   const queue = getSyncQueue(queueName)
   await queue.enqueue({
     runId: run.id,

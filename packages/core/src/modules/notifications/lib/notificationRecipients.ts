@@ -1,5 +1,5 @@
 import type { Kysely } from 'kysely'
-import { hasFeature } from '@open-mercato/shared/security/features'
+import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 
 interface AclRow {
   user_id: string
@@ -22,13 +22,11 @@ function collectUsersWithFeature(
   requiredFeature: string
 ): void {
   for (const row of rows) {
-    if (row.is_super_admin) {
-      userIdsSet.add(row.user_id)
-      continue
-    }
-
-    const features = normalizeFeatures(row.features_json)
-    if (features && hasFeature(features, requiredFeature)) {
+    const features = normalizeFeatures(row.features_json) ?? []
+    if (authorizeFeatures([requiredFeature], {
+      grantedFeatures: features,
+      unrestricted: row.is_super_admin,
+    })) {
       userIdsSet.add(row.user_id)
     }
   }

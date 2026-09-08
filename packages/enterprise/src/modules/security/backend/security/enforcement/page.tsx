@@ -1,9 +1,11 @@
 'use client'
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/enterprise/modules/security/extension-points'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation.js'
-import type { ColumnDef, SortingState } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
+import type { SortingState } from '@tanstack/react-table'
 import { Pencil, Trash2 } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -274,7 +276,7 @@ export default function SecurityEnforcementPage() {
             onRefresh: () => void loadPolicies(),
             isRefreshing: loading,
           }}
-          perspective={{ tableId: 'security.enforcement.list' }}
+          perspective={{ tableId: extensionPoints.hosts.enforcementTable.tableId }}
           isLoading={loading}
           error={error ? (
             <div className="flex items-center justify-center gap-3">

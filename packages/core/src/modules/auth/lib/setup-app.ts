@@ -5,7 +5,7 @@ import { Role, RoleAcl, User, UserRole } from '@open-mercato/core/modules/auth/d
 import { Tenant, Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { rebuildHierarchyForTenant } from '@open-mercato/core/modules/directory/lib/hierarchy'
 import { normalizeTenantId } from './tenantAccess'
-import { computeEmailHash } from '@open-mercato/core/modules/auth/lib/emailHash'
+import { computeEmailHash, emailHashLookupValues } from '@open-mercato/core/modules/auth/lib/emailHash'
 import { getDefaultEncryptionMaps, type Module } from '@open-mercato/shared/modules/registry'
 import { isEncryptionDebugEnabled, isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
 import { EncryptionMap } from '@open-mercato/core/modules/entities/data/entities'
@@ -34,7 +34,7 @@ async function ensureRolesInContext(
   for (const name of roleNames) {
     const existing = await findOneWithDecryption(em, Role, { name, tenantId }, {}, { tenantId, organizationId: null })
     if (existing) continue
-    em.persist(em.create(Role, { name, tenantId, createdAt: new Date() }))
+    em.persist(em.create(Role, { name, tenantId, minActiveHolders: name === 'admin' ? 1 : 0, createdAt: new Date() }))
   }
 }
 
@@ -190,7 +190,20 @@ export async function setupInitialTenant(
   const defaultEncryptionMaps = getDefaultEncryptionMaps(resolvedModules)
 
   const mainEmail = primaryUser.email
-  const existingUser = await findOneWithDecryption(em, User, { email: mainEmail }, {}, { tenantId: null, organizationId: null })
+  const existingUserByHash = await findOneWithDecryption(
+    em,
+    User,
+    { emailHash: { $in: emailHashLookupValues(mainEmail) }, deletedAt: null },
+    {},
+    { tenantId: null, organizationId: null },
+  )
+  const existingUser = existingUserByHash ?? await findOneWithDecryption(
+    em,
+    User,
+    { email: mainEmail, deletedAt: null },
+    {},
+    { tenantId: null, organizationId: null },
+  )
   if (existingUser && failIfUserExists) {
     throw new Error('USER_EXISTS')
   }
@@ -320,6 +333,7 @@ export async function setupInitialTenant(
         ancestorIds: [],
         childIds: [],
         descendantIds: [],
+        logoPreserveAspectRatio: false,
         createdAt: new Date(),
         updatedAt: new Date(),
       })
@@ -357,7 +371,12 @@ export async function setupInitialTenant(
       await tem.flush()
 
       if (isTenantDataEncryptionEnabled()) {
+        // System-scoped maps are resolved from module code, never from a tenant row.
+        // Persisting one here would make the tenant-scoped encryption CLIs believe they
+        // own that entity and re-wrap its `system:<entityId>` ciphertext under the tenant
+        // DEK, which runtime decryption can no longer read.
         for (const spec of defaultEncryptionMaps) {
+          if (spec.keyScope === 'system') continue
           const existing = await findOneWithDecryption(tem, EncryptionMap, { entityId: spec.entityId, tenantId: tenant.id, organizationId: organization.id, deletedAt: null }, {}, { tenantId: String(tenant.id), organizationId: String(organization.id) })
           if (!existing) {
             tem.persist(tem.create(EncryptionMap, {
@@ -636,12 +655,18 @@ async function ensureRoleAclFor(
   features: string[],
   options: { isSuperAdmin?: boolean } = {},
 ) {
+  // Deduplicated on the create path too, not only on merge. `ensureDefaultRoleAcls` concatenates
+  // every enabled module's declared features, and two modules legitimately declare the same
+  // grant (the example module asks for `payment_gateways.view`, and so does that module itself),
+  // so a first init used to store the string twice while the second run silently collapsed it.
+  // Same list, two shapes, depending only on how many times setup had run.
+  const uniqueFeatures = Array.from(new Set(features))
   const existing = await findOneWithDecryption(em, RoleAcl, { role, tenantId }, {}, { tenantId, organizationId: null })
   if (!existing) {
     const acl = em.create(RoleAcl, {
       role,
       tenantId,
-      featuresJson: features,
+      featuresJson: uniqueFeatures,
       isSuperAdmin: !!options.isSuperAdmin,
       createdAt: new Date(),
     })
@@ -649,7 +674,7 @@ async function ensureRoleAclFor(
     return
   }
   const currentFeatures = Array.isArray(existing.featuresJson) ? existing.featuresJson : []
-  const merged = Array.from(new Set([...currentFeatures, ...features]))
+  const merged = Array.from(new Set([...currentFeatures, ...uniqueFeatures]))
   const changed =
     merged.length !== currentFeatures.length ||
     merged.some((value, index) => value !== currentFeatures[index])

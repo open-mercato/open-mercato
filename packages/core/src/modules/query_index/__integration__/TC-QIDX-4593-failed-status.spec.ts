@@ -42,7 +42,7 @@ test.describe('TC-QIDX-4593: failed reindex status', () => {
 
     await page.goto('/backend/query-indexes', { waitUntil: 'domcontentloaded' })
 
-    await expect(page.getByText('Customer activity', { exact: true })).toBeVisible()
+    await expect(page.getByText('customers:customer_activity', { exact: true })).toBeVisible()
     const failedBadge = page.locator('.bg-status-error-bg').filter({ hasText: 'Failed' })
     await expect(failedBadge).toBeVisible()
   })

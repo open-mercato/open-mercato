@@ -50,13 +50,14 @@ const vectorStoreConfig: NonNullable<VectorSearchSectionProps['vectorStoreConfig
 
 function renderSection(
   settings: NonNullable<VectorSearchSectionProps['embeddingSettings']> = embeddingSettings,
+  storeConfig: NonNullable<VectorSearchSectionProps['vectorStoreConfig']> = vectorStoreConfig,
 ) {
   return render(
     <I18nProvider locale="en" dict={{}}>
       <VectorSearchSection
         embeddingSettings={settings}
         embeddingLoading={false}
-        vectorStoreConfig={vectorStoreConfig}
+        vectorStoreConfig={storeConfig}
         vectorStoreConfigLoading={false}
         vectorReindexLock={null}
         onEmbeddingSettingsUpdate={jest.fn()}
@@ -111,5 +112,39 @@ describe('VectorSearchSection provider controls', () => {
     expect(providerButton.getAttribute('aria-controls')).toBeNull()
     expect(providerButton.parentElement?.classList.contains('cursor-not-allowed')).toBe(true)
     expect(document.getElementById('provider-ollama-configuration')).toBeNull()
+  })
+})
+
+describe('VectorSearchSection store availability', () => {
+  beforeEach(() => {
+    Object.defineProperty(globalThis, 'fetch', {
+      configurable: true,
+      value: jest.fn(() => new Promise(() => undefined)),
+    })
+  })
+
+  it('warns that the vector store is unavailable and surfaces the driver reason', () => {
+    renderSection(embeddingSettings, {
+      ...vectorStoreConfig,
+      drivers: [
+        {
+          ...vectorStoreConfig.drivers[0],
+          available: false,
+          unavailableReason: 'extension "vector" is not available on this PostgreSQL server',
+        },
+      ],
+    })
+
+    expect(screen.getByText('Vector store is not available')).toBeTruthy()
+    expect(screen.getByText(/extension "vector" is not available/)).toBeTruthy()
+  })
+
+  it('keeps the banner hidden while the store is reachable', () => {
+    renderSection(embeddingSettings, {
+      ...vectorStoreConfig,
+      drivers: [{ ...vectorStoreConfig.drivers[0], available: true, unavailableReason: null }],
+    })
+
+    expect(screen.queryByText('Vector store is not available')).toBeNull()
   })
 })

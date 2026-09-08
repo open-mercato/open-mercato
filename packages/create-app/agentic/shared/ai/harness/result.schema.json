@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://open-mercato.dev/schemas/standalone-harness-result.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "caseId", "promptHash", "runner", "runnerVersion", "model", "evaluationKind", "selectedRouter", "selectedSkills", "selectedContext", "decisions", "violations", "durationMs", "exitStatus", "status", "actualContext", "declaredContext"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "caseId": { "type": "string", "pattern": "^OMH-[0-9]{3}$" },
+    "promptHash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "runner": { "enum": ["deterministic", "codex", "claude"] },
+    "runnerVersion": { "type": "string", "maxLength": 200 },
+    "model": { "type": "string", "maxLength": 200 },
+    "reasoningEffort": { "enum": ["minimal", "low", "medium", "high", "xhigh"] },
+    "evaluationKind": { "enum": ["static", "routing", "implementation", "regression"] },
+    "selectedRouter": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+    "selectedSkills": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+    "selectedContext": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+    "decisions": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+    "violations": { "type": "array", "items": { "type": "string", "maxLength": 300 } },
+    "attempts": { "type": "integer", "minimum": 1, "maximum": 3 },
+    "corrections": { "type": "integer", "minimum": 0, "maximum": 2 },
+    "durationMs": { "type": "integer", "minimum": 0 },
+    "exitStatus": { "type": ["integer", "null"] },
+    "status": { "enum": ["pass", "fail", "error"] },
+    "sanitizedError": { "type": "string", "maxLength": 4096 },
+    "refusedContextReads": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+    "exampleReadPolicy": {
+      "type": "object",
+      "description": "Sanitized accounting of the case's canonical-example, declared source-reference, and reason-gated installed-source reads. Present when the case declares context.exampleRoots or context.sourceReferenceIds. Carries no file content.",
+      "additionalProperties": false,
+      "required": ["roots", "fallback", "references"],
+      "properties": {
+        "references": {
+          "type": "object",
+          "description": "Declared source-link references: what the case named, which origin owners it read first, and which exact targets it followed. Carries no file content.",
+          "additionalProperties": false,
+          "required": ["declared", "owners", "followed"],
+          "properties": {
+            "declared": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+            "owners": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+            "followed": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["referenceId", "originAsset", "resolvedPath", "targetKind", "package", "version", "hash"],
+                "properties": {
+                  "referenceId": { "type": "string" },
+                  "originAsset": { "type": "string" },
+                  "resolvedPath": { "type": "string" },
+                  "targetKind": { "type": ["string", "null"] },
+                  "package": { "type": ["string", "null"] },
+                  "version": { "type": ["string", "null"] },
+                  "hash": { "type": ["string", "null"] }
+                }
+              }
+            }
+          }
+        },
+        "roots": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["root", "entrypoints", "capabilities", "files", "bytes"],
+            "properties": {
+              "root": { "type": "string" },
+              "entrypoints": { "type": "array", "items": { "type": "string" } },
+              "capabilities": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+              "files": { "type": "integer", "minimum": 0 },
+              "bytes": { "type": "integer", "minimum": 0 }
+            }
+          }
+        },
+        "fallback": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["reason", "files", "bytes"],
+          "properties": {
+            "reason": { "type": ["string", "null"], "enum": ["SPECIALIST_ROUTE_NOT_DECLARED", "INSTALLED_VERSION_CONTRACT_MISMATCH", null] },
+            "files": { "type": "integer", "minimum": 0 },
+            "bytes": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    },
+    "actualContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["paths", "files", "bytes", "estimatedTokens", "initialPaths", "initialFiles", "initialBytes", "estimatedInitialTokens", "metadataPaths", "metadataEntries", "metadataBytes"],
+      "properties": {
+        "paths": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+        "files": { "type": "integer", "minimum": 0 },
+        "bytes": { "type": "integer", "minimum": 0 },
+        "estimatedTokens": { "type": "integer", "minimum": 0 },
+        "initialPaths": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+        "initialFiles": { "type": "integer", "minimum": 0 },
+        "initialBytes": { "type": "integer", "minimum": 0 },
+        "estimatedInitialTokens": { "type": "integer", "minimum": 0 },
+        "metadataPaths": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+        "metadataEntries": { "type": "integer", "minimum": 0 },
+        "metadataBytes": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "declaredContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["paths", "files", "bytes", "estimatedTokens", "initialPaths", "initialFiles", "initialBytes", "estimatedInitialTokens", "metadataPaths", "metadataEntries", "metadataBytes"],
+      "properties": {
+        "paths": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+        "files": { "type": "integer", "minimum": 0 },
+        "bytes": { "type": "integer", "minimum": 0 },
+        "estimatedTokens": { "type": "integer", "minimum": 0 },
+        "initialPaths": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+        "initialFiles": { "type": "integer", "minimum": 0 },
+        "initialBytes": { "type": "integer", "minimum": 0 },
+        "estimatedInitialTokens": { "type": "integer", "minimum": 0 },
+        "metadataPaths": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+        "metadataEntries": { "type": "integer", "minimum": 0 },
+        "metadataBytes": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "writable": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["changedPaths", "beforeOraclePassed", "afterOraclePassed", "targetFingerprint"],
+      "properties": {
+        "changedPaths": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+        "beforeOraclePassed": { "type": "boolean" },
+        "afterOraclePassed": { "type": "boolean" },
+        "targetFingerprint": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      }
+    }
+  }
+}

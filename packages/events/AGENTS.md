@@ -83,9 +83,11 @@ Single-delivery is the default. A persistent emit is delivered on exactly one pa
 - the bus skips inline delivery of **persistent-marked** subscribers on a persistent emit (ephemeral subscribers still run inline — read-your-writes paths like `query_index.upsert_one` are `persistent: false` and are unaffected);
 - the events worker dispatches **persistent** subscribers via `matchEventPattern`, so wildcard (`event: '*'`) persistent subscribers (workflow triggers, business-rules CRUD trigger, webhook outbound dispatch) are reached.
 
-This avoids the legacy dual-dispatch (set `OM_EVENTS_SINGLE_DELIVERY=false` to opt back in) where persistent emits ran inline **and** in the worker — double-running exact-match persistent subscribers (duplicate notifications/emails) and never reaching wildcard persistent subscribers in the worker. Both halves read the same env var and MUST agree within a process.
+This avoids the legacy dual-dispatch, where persistent emits ran inline **and** in the worker - double-running exact-match persistent subscribers (duplicate notifications/emails) and never reaching wildcard persistent subscribers in the worker. Both halves ask the SAME bus (`EventBus.dispatchQueued`), so they cannot disagree within a process.
 
-**Worker guard (silent-loss protection).** With single-delivery on, persistent subscribers run ONLY in the worker. The server bootstrap (`mercato server`/`start`) reconciles the flag against worker availability: if a process auto-spawns no events worker (`AUTO_SPAWN_WORKERS=off`) and `OM_EVENTS_EXTERNAL_WORKER` is not set, it logs a loud warning and falls back to inline dual-dispatch so persistent side effects are never silently dropped. Run an events worker out-of-process and set `OM_EVENTS_EXTERNAL_WORKER=true` to keep single-delivery without auto-spawn. Transient worker downtime is not a concern — the durable queue holds jobs until a worker returns; the guard only catches the "no worker at all" misconfiguration. Reconcile logic: `reconcileSingleDelivery` in `@open-mercato/events/single-delivery` (mirrored for the CLI in `packages/cli/src/lib/events-single-delivery.ts`).
+**No worker yet is not the same as lost.** With single-delivery on, persistent subscribers run ONLY in the worker. The bus does not second-guess that against "is a worker running": the queue is durable, so a persistent emit with no worker yet is delayed, not dropped, and a worker started later drains the backlog. Delivering inline instead would move the work back onto the caller's request path - exactly what a split app/worker deployment sets `AUTO_SPAWN_WORKERS=false` to avoid. The `mercato server`/`start` bootstrap still reconciles the flag for a process it *knows* runs no worker (`reconcileSingleDelivery`, mirrored in `packages/cli/src/lib/events-single-delivery.ts`); when it does, the bus stamps the queued job `persistentDeliveredInline: true` so a worker draining the queue skips it. Delivery is exactly-once on either path when handlers succeed; see the failure note below.
+
+**Failure on the inline path.** Inline delivery logs each handler error and continues, so a persistent subscriber that throws inline has no retry of its own. The producer therefore stamps `persistentDeliveredInline` only when every persistent subscriber succeeded; if one threw, the job stays unstamped and the worker runs it with queue retry + dead-lettering. A retry re-runs the persistent subscribers that already succeeded, which is why persistent subscribers MUST be idempotent.
 
 **Enqueue-only emits.** Pass `{ persistent: true, deliverInline: false }` to hand a heavy persistent job (e.g. a full query-index rebuild) to the durable queue without ANY inline delivery, independent of the single-delivery flag. Only use it when every subscriber to the event is `persistent: true`. This is the "Ask First: changing persistent delivery semantics" surface — coordinate before altering these defaults.
 
@@ -99,7 +101,7 @@ This avoids the legacy dual-dispatch (set `OM_EVENTS_SINGLE_DELIVERY=false` to o
 When `QUEUE_STRATEGY=async`, persistent event workers run as background processes. Start them with:
 
 ```bash
-yarn mercato events worker event-processing --concurrency=5
+yarn mercato queue worker events --concurrency=5
 ```
 
 ## Structure
@@ -115,6 +117,8 @@ packages/events/src/
 ## Workers
 
 Workers in `modules/events/workers/` handle async event processing. Follow the standard worker contract: export default handler + `metadata` with `{ queue, id?, concurrency? }`.
+
+The events worker MUST NOT keep a subscriber registry of its own - it resolves `eventBus` from the per-job DI container and calls `dispatchQueued`. It previously built one from `getCliModules()`, which only the `mercato` bin populates, so a worker started any other way dispatched zero subscribers and completed the job silently. When no bus is resolvable it now **throws**, so the job retries and dead-letters with a visible cause.
 
 ## Testing
 
@@ -180,3 +184,7 @@ useAppEvent('mymod.entity.created', (event) => {
 - Client deduplicates events within a 500ms window
 - `isBroadcastEvent(eventId)` checks if an event has `clientBroadcast: true`
 - The `useEventBridge()` hook must be mounted once in the app shell to start receiving events
+
+### Private cross-process coordination
+
+Use `crossProcessBroadcast: true` for server-to-server invalidation or coordination that must cross process boundaries but must not be exposed through browser SSE. The event bus publishes both `clientBroadcast` and `crossProcessBroadcast` events to the cross-process bridge, while the DOM Event Bridge delivers only `clientBroadcast` events. Do not use `clientBroadcast` merely to reach another server process when the payload contains record-scoped identifiers or activity that the organization-level SSE audience cannot authorize.

@@ -22,11 +22,15 @@ An activity is a discrete unit of work performed by the workflow engine. While s
 | Activity Type | Purpose | Common Use Cases |
 |---------------|---------|------------------|
 | **SEND_EMAIL** | Send email notifications | Approval requests, status updates, alerts |
-| **CALL_API** | Make HTTP requests to external systems | Payment processing, inventory checks, CRM updates |
+| **CALL_API** | Call this app's own `/api/*` endpoints | Read or update Open Mercato records through the API |
 | **EMIT_EVENT** | Publish domain events | Trigger other workflows, update dashboards, log actions |
-| **UPDATE_ENTITY** | Modify database records | Update order status, mark tasks complete, change flags |
-| **CALL_WEBHOOK** | Generic webhook calls | Integrate with Zapier, Slack, custom services |
-| **EXECUTE_FUNCTION** | Run custom JavaScript/TypeScript code | Custom business logic, complex transformations |
+| **UPDATE_ENTITY** | Modify records through a command | Update order status, mark tasks complete, change flags |
+| **CALL_WEBHOOK** | Call external HTTP endpoints | Integrate with Zapier, Slack, custom services |
+| **EXECUTE_FUNCTION** | Run a registered workflow function | Custom business logic, complex transformations |
+| **WAIT** | Pause the workflow | Cool-off periods, scheduled follow-ups |
+
+> ⚠️ **Calling third-party services**: use **CALL_WEBHOOK**, not CALL_API. `CALL_API` targets this
+> application only — it rejects any endpoint whose host differs from `APP_URL` (SSRF prevention).
 
 ## Configuring Activities
 
@@ -43,80 +47,90 @@ Send email notifications with dynamic content from workflow context.
   "activityType": "SEND_EMAIL",
   "config": {
     "to": "{{context.approverEmail}}",
-    "cc": "{{context.requesterEmail}}",
     "subject": "Approval Required: {{context.requestTitle}}",
     "body": "A new request requires your approval.\n\nRequest: {{context.requestTitle}}\nAmount: ${{context.amount}}\nRequester: {{context.requesterName}}\n\nPlease review and approve or reject this request.",
-    "templateKey": "approval-request"
+    "template": "approval-request",
+    "templateData": {
+      "requestTitle": "{{context.requestTitle}}"
+    }
   }
 }
 ```
 
 **Parameters:**
-- `to`: Recipient email address (supports variables)
-- `cc`, `bcc`: Optional carbon copy recipients
-- `subject`: Email subject line
+- `to`: Recipient email address (required, supports variables)
+- `subject`: Email subject line (required)
 - `body`: Email body (plain text or HTML)
-- `templateKey`: Optional reference to email template
+- `template`: Optional email template name
+- `templateData`: Optional data passed to the template
+
+Only these fields are forwarded to the email service — `cc` / `bcc` are not supported.
 
 ### CALL_API
 
-Make HTTP requests to external APIs for integration with third-party systems.
+Call this application's own `/api/*` endpoints. The engine authenticates the request with a
+one-time API key that it creates and deletes around the call, so no credentials belong in the
+configuration.
 
 **Configuration:**
 
 ```json
 {
-  "activityId": "charge-payment",
-  "activityName": "Charge Payment via Stripe",
+  "activityId": "reserve-stock",
+  "activityName": "Reserve Stock for Order",
   "activityType": "CALL_API",
   "config": {
-    "url": "https://api.stripe.com/v1/charges",
+    "endpoint": "/api/inventory/reservations",
     "method": "POST",
     "headers": {
-      "Authorization": "Bearer {{env.STRIPE_SECRET_KEY}}",
       "Content-Type": "application/json"
     },
     "body": {
-      "amount": "{{context.amountCents}}",
-      "currency": "usd",
-      "source": "{{context.paymentToken}}",
-      "description": "Order {{context.orderId}}"
+      "orderId": "{{context.orderId}}",
+      "quantity": "{{context.quantity}}"
     }
   },
   "async": true,
-  "timeout": "30s",
   "retryPolicy": {
     "maxAttempts": 3,
-    "backoff": "exponential"
+    "initialIntervalMs": 1000,
+    "backoffCoefficient": 2,
+    "maxIntervalMs": 10000
   }
 }
 ```
 
 **Parameters:**
-- `url`: API endpoint (supports variable interpolation)
-- `method`: HTTP method (GET, POST, PUT, DELETE, PATCH)
-- `headers`: Request headers (authentication, content type, etc.)
+- `endpoint`: Path or URL to call (required) — a relative path must start with `/api/`
+- `method`: HTTP method (default `GET`)
+- `headers`: Request headers
 - `body`: Request body (object or string)
+- `validateTenantMatch`: Verify the response belongs to the workflow's tenant (default `true`)
+
+> ⚠️ **Internal endpoints only**: relative paths are resolved against `APP_URL` and must start
+> with `/api/`; an absolute URL must resolve to the same host as `APP_URL`. Anything else fails
+> with an SSRF-prevention error. To reach a third-party service, use **CALL_WEBHOOK**.
 
 **Response Handling:**
 
-API responses are saved to workflow context under `activities.<activityId>.output`:
+When an activity runs asynchronously, its output is merged into the workflow context under
+`<activityId>_result` once the workflow resumes:
 
 ```json
 {
-  "activities": {
-    "charge-payment": {
-      "output": {
-        "id": "ch_123",
-        "status": "succeeded",
-        "amount": 5000
-      }
+  "reserve-stock_result": {
+    "status": 200,
+    "statusText": "OK",
+    "body": {
+      "reservationId": "res_123"
     }
   }
 }
 ```
 
-Access response data in subsequent steps: `{{activities.charge-payment.output.id}}`
+Access response data in subsequent steps: `{{context.reserve-stock_result.body.reservationId}}`.
+Synchronous activities are not written to the context — have them update a record, or run them
+asynchronously when a later step needs the result.
 
 ### EMIT_EVENT
 
@@ -130,7 +144,7 @@ Publish domain events to trigger other workflows or update application state.
   "activityName": "Emit Order Placed Event",
   "activityType": "EMIT_EVENT",
   "config": {
-    "eventType": "order.placed",
+    "eventName": "order.placed",
     "payload": {
       "orderId": "{{context.orderId}}",
       "customerId": "{{context.customerId}}",
@@ -142,12 +156,16 @@ Publish domain events to trigger other workflows or update application state.
 ```
 
 **Parameters:**
-- `eventType`: Event name (convention: `module.action`)
+- `eventName`: Event name (required, convention: `module.entity.action`)
 - `payload`: Event data (any JSON object)
+
+The engine adds a `_workflow` block (instance id, workflow id, tenant, organization) to every
+payload it publishes. A configuration without `eventName` fails the activity with
+`EMIT_EVENT requires "eventName" field`.
 
 ### UPDATE_ENTITY
 
-Update database records directly from the workflow.
+Update records through a command, so the change keeps its audit log, undo support, and side effects.
 
 **Configuration:**
 
@@ -157,11 +175,9 @@ Update database records directly from the workflow.
   "activityName": "Mark Order as Shipped",
   "activityType": "UPDATE_ENTITY",
   "config": {
-    "entityType": "SalesOrder",
-    "entityId": "{{context.orderId}}",
-    "updates": {
-      "status": "SHIPPED",
-      "shippedAt": "{{now}}",
+    "commandId": "sales.orders.update",
+    "input": {
+      "id": "{{context.orderId}}",
       "trackingNumber": "{{context.trackingNumber}}"
     }
   }
@@ -169,9 +185,30 @@ Update database records directly from the workflow.
 ```
 
 **Parameters:**
-- `entityType`: Database entity name
-- `entityId`: Record ID to update
-- `updates`: Fields and values to change
+- `commandId`: Command to execute (required) — must be one of the workflow-safe commands
+- `input`: Object with the command payload (required), including the record `id`
+- `statusDictionary`: Optional dictionary used to resolve `input.statusValue`
+
+To set a status by its label instead of its id, name the dictionary and pass `statusValue`; the
+engine resolves it to `statusEntryId` before running the command:
+
+```json
+{
+  "config": {
+    "commandId": "sales.orders.update",
+    "statusDictionary": "sales.order_status",
+    "input": {
+      "id": "{{context.id}}",
+      "statusValue": "pending_approval"
+    }
+  }
+}
+```
+
+The activity runs as the workflow's user and fails when that user is missing or lacks the
+command's required features. Only commands registered as workflow-safe can be used — the sales
+module ships `sales.orders.update`, and a module adds its own with
+`registerWorkflowSafeCommands()`.
 
 ### CALL_WEBHOOK
 
@@ -194,9 +231,18 @@ Generic webhook calls for integrations with Zapier, Slack, or custom services.
 }
 ```
 
+**Parameters:**
+- `url`: Destination URL (required)
+- `method`: HTTP method (default `POST`)
+- `headers`: Request headers
+- `body`: Request body
+
+Requests to private or loopback addresses are blocked, and redirects are rejected rather than
+followed.
+
 ### EXECUTE_FUNCTION
 
-Run custom JavaScript or TypeScript functions for complex business logic.
+Run a function registered in the DI container under `workflowFunction:<functionName>`.
 
 **Configuration:**
 
@@ -207,7 +253,7 @@ Run custom JavaScript or TypeScript functions for complex business logic.
   "activityType": "EXECUTE_FUNCTION",
   "config": {
     "functionName": "calculateVolumeDiscount",
-    "arguments": {
+    "args": {
       "quantity": "{{context.quantity}}",
       "unitPrice": "{{context.unitPrice}}",
       "customerTier": "{{context.customerTier}}"
@@ -215,6 +261,36 @@ Run custom JavaScript or TypeScript functions for complex business logic.
   }
 }
 ```
+
+**Parameters:**
+- `functionName`: Registered function name (required)
+- `args`: Object passed to the function as its first argument (default `{}`)
+
+### WAIT
+
+Pause the workflow for a relative duration or until an absolute moment.
+
+**Configuration:**
+
+```json
+{
+  "activityId": "cool-off",
+  "activityName": "Wait Before Follow-up",
+  "activityType": "WAIT",
+  "config": {
+    "duration": "PT5M"
+  },
+  "async": true
+}
+```
+
+**Parameters:**
+- `duration`: Relative delay, e.g. `"PT5M"`, `"1h"`, `"30s"`
+- `until`: Absolute ISO 8601 datetime, e.g. `"2026-04-15T10:00:00Z"`
+
+Provide `duration` or `until` — a WAIT activity with neither is rejected when the definition is
+saved. Prefer `"async": true` so the delay is scheduled on the queue instead of blocking the
+worker.
 
 ## Execution Modes
 
@@ -235,12 +311,11 @@ The workflow waits for the activity to complete before continuing.
 
 ### Asynchronous
 
-The workflow continues immediately while the activity runs in the background.
+The workflow continues immediately while the activity runs in the background on the queue.
 
 ```json
 {
-  "async": true,
-  "timeout": "5m"
+  "async": true
 }
 ```
 
@@ -259,21 +334,22 @@ Configure automatic retries for activities that might fail temporarily (network 
 {
   "retryPolicy": {
     "maxAttempts": 3,
-    "backoff": "exponential",
-    "retryableErrors": ["NETWORK_ERROR", "TIMEOUT", "RATE_LIMIT"]
+    "initialIntervalMs": 1000,
+    "backoffCoefficient": 2,
+    "maxIntervalMs": 10000
   }
 }
 ```
 
 **Parameters:**
-- `maxAttempts`: Maximum retry attempts (default: 0, no retries)
-- `backoff`: Retry delay strategy (`fixed`, `exponential`, `linear`)
-- `retryableErrors`: Only retry on specific error types
+- `maxAttempts`: Total attempts, including the first one (1–10)
+- `initialIntervalMs`: Delay before the first retry
+- `backoffCoefficient`: Multiplier applied to each delay (1–10)
+- `maxIntervalMs`: Upper bound for a single delay
 
-**Backoff Strategies:**
-- **Fixed**: Same delay between retries (e.g., 5s, 5s, 5s)
-- **Exponential**: Increasing delay (e.g., 2s, 4s, 8s)
-- **Linear**: Linearly increasing delay (e.g., 5s, 10s, 15s)
+The delay grows exponentially and is capped at `maxIntervalMs` — the example above waits about
+1s, then 2s, before the activity finally fails. Without a `retryPolicy` an activity is attempted
+once. Every attempt is retried the same way; there is no per-error-type filter.
 
 ## Variable Interpolation
 
@@ -281,14 +357,22 @@ Use `{{variable}}` syntax to inject workflow data into activity configurations.
 
 **Available Variables:**
 
-- `{{context.fieldName}}` - Workflow context data
+- `{{context.fieldName}}` - Workflow context data (nested paths supported)
 - `{{workflow.instanceId}}` - Current workflow instance ID
-- `{{workflow.definitionId}}` - Workflow definition ID
+- `{{workflow.workflowId}}` - Workflow ID
 - `{{workflow.version}}` - Workflow version number
-- `{{activities.activityId.output.field}}` - Output from previous activities
-- `{{env.ENV_VAR}}` - Environment variables
-- `{{now}}` - Current timestamp
-- `{{user.id}}` - Current user ID (if available)
+- `{{workflow.currentStepId}}` - Current step ID
+- `{{workflow.tenantId}}`, `{{workflow.organizationId}}` - Owning tenant and organization
+- `{{context.<activityId>_result.field}}` - Output of a completed async activity
+- `{{env.ENV_VAR}}` - Allowlisted environment variables
+- `{{now}}` - Current timestamp (ISO 8601)
+
+A token that stands alone in its value keeps the original type, so `"{{context.items}}"` passes an
+array rather than a string.
+
+> ⚠️ **Environment variables are allowlisted**: only `APP_URL` resolves by default, and anything
+> else returns an empty string. Add more keys with the `OM_WORKFLOWS_ENV_INTERPOLATION_ALLOWLIST`
+> environment variable (comma-separated) before referencing them.
 
 **Example:**
 
@@ -314,6 +398,8 @@ Configure an activity on the transition from an AUTOMATED step to a USER_TASK:
   "toStepId": "approve-request",
   "activities": [
     {
+      "activityId": "notify-approver",
+      "activityName": "Notify Approver",
       "activityType": "SEND_EMAIL",
       "config": {
         "to": "{{context.approverEmail}}",
@@ -325,37 +411,39 @@ Configure an activity on the transition from an AUTOMATED step to a USER_TASK:
 }
 ```
 
-### Call External API and Use Response
+### Call an Internal API and Use the Response
 
-Call an API, then use the response in subsequent steps:
+Call one of this app's endpoints asynchronously, then read the response in a later step:
 
 ```json
 {
   "activityId": "get-inventory",
+  "activityName": "Check Inventory",
   "activityType": "CALL_API",
   "config": {
-    "url": "https://inventory.example.com/check/{{context.productId}}"
-  }
+    "endpoint": "/api/inventory/levels?productId={{context.productId}}"
+  },
+  "async": true
 }
 ```
 
-Access the response: `{{activities.get-inventory.output.quantityAvailable}}`
+Access the response: `{{context.get-inventory_result.body.quantityAvailable}}`
 
 ### Update Record After Approval
 
-Update a database record when a task is completed:
+Update a record through a command when a task is completed:
 
 ```json
 {
   "activityId": "mark-approved",
+  "activityName": "Mark Request Approved",
   "activityType": "UPDATE_ENTITY",
   "config": {
-    "entityType": "PurchaseRequest",
-    "entityId": "{{context.requestId}}",
-    "updates": {
-      "status": "APPROVED",
-      "approvedBy": "{{user.id}}",
-      "approvedAt": "{{now}}"
+    "commandId": "sales.orders.update",
+    "statusDictionary": "sales.order_status",
+    "input": {
+      "id": "{{context.requestId}}",
+      "statusValue": "approved"
     }
   }
 }

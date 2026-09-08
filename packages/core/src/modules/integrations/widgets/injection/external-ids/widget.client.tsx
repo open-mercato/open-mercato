@@ -87,8 +87,3 @@ export default function ExternalIdsWidget({ data }: InjectionWidgetComponentProp
   )
 }
 
-ExternalIdsWidget.metadata = {
-  id: 'integrations.injection.external-ids',
-  title: 'External IDs',
-  features: ['integrations.view'],
-}

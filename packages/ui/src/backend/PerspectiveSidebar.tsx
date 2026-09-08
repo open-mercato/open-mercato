@@ -476,7 +476,7 @@ export function PerspectiveSidebar({
             ) : null}
 
             {apiWarning ? (
-              <Alert variant="warning" className="text-xs">{apiWarning}</Alert>
+              <Alert status="warning" className="text-xs">{apiWarning}</Alert>
             ) : null}
             {error ? <div className="text-sm text-status-error-text">{error}</div> : null}
           </section>

@@ -1,5 +1,6 @@
 "use client"
 import React, { useEffect, useMemo, useState, useCallback } from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/portal/extension-points'
 import { useRouter } from 'next/navigation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -10,7 +11,6 @@ import { PortalCard, PortalCardHeader } from '@open-mercato/ui/portal/components
 import { PortalEmptyState } from '@open-mercato/ui/portal/components/PortalEmptyState'
 import { usePortalDashboardWidgets } from '@open-mercato/ui/portal/hooks/usePortalDashboardWidgets'
 import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
-import { PortalInjectionSpots } from '@open-mercato/ui/backend/injection/spotIds'
 import {
   loadHiddenWidgets,
   saveHiddenWidgets,
@@ -107,7 +107,7 @@ export default function PortalDashboardPage({ params }: Props) {
         }
       />
 
-      <InjectionSpot spotId={PortalInjectionSpots.pageBefore('dashboard')} context={injectionContext} />
+      <InjectionSpot spotId={extensionPoints.hosts.dashboardBefore.spotId} context={injectionContext} />
 
       {editing && dashboardWidgets.length > 0 ? (
         <PortalCard>
@@ -151,7 +151,7 @@ export default function PortalDashboardPage({ params }: Props) {
         />
       ) : null}
 
-      <InjectionSpot spotId={PortalInjectionSpots.pageAfter('dashboard')} context={injectionContext} />
+      <InjectionSpot spotId={extensionPoints.hosts.dashboardAfter.spotId} context={injectionContext} />
     </div>
   )
 }

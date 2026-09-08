@@ -22,7 +22,7 @@ yarn mercato configs cache purge --segment admin-nav --tenant <tenantId>
 
 # Purge by cache tag, exact key, identifier token, or glob pattern
 yarn mercato configs cache purge --tag nav:sidebar:user:<userId> --tenant <tenantId>
-yarn mercato configs cache purge --key nav:sidebar:en:<userId>:<tenantId>:<orgId> --tenant <tenantId>
+yarn mercato configs cache purge --key <exact-key> --tenant <tenantId>
 yarn mercato configs cache purge --id <userId> --tenant <tenantId>
 yarn mercato configs cache purge --pattern 'nav:*' --all-tenants
 
@@ -85,10 +85,19 @@ yarn generate
 yarn mercato configs cache structural --all-tenants
 ```
 
+### The admin sidebar no longer needs a purge to survive a deploy
+
+`nav:sidebar:*` keys carry a fingerprint of the enabled module set, each module's declared ACL features, and the backend route manifest — plus a 30-minute TTL. A deployed change to `src/modules.ts`, to a module's `acl.ts`, or to a page's nav metadata therefore writes to a **new** key: old and new processes coexist during a rolling deploy, and no purge — or purge/rollout ordering — is required for the sidebar to reflect the new build.
+
+One input is deliberately outside the fingerprint: a nav **icon** swap. Icons are React elements whose component identity does not survive serialization, so a deploy that only changes an icon heals on the TTL rather than immediately. Run the structural purge if you need such a change visible at once.
+
+Keep running the structural purge for the rest of the chrome (generated fingerprints, AI agent registries, tenant-scoped nav derivatives), and in development where you want the change visible instantly rather than on the next request.
+
 ## Notes
 
 - `stats` and `purge --segment` operate on the same CRUD/widget segment model exposed by the admin cache page.
 - `purge --tag` reports deleted counts, but it cannot list matched keys first because the cache interface does not expose a reverse tag index.
 - `purge --id` is intentionally fuzzy. It is useful for navigation keys such as `nav:sidebar:...:<userId>:...`, but it can match multiple keys if the token appears in several names.
+- Sidebar keys are `nav:sidebar:v6:<moduleSurfaceFingerprint>:<locale>:<userId>:<tenantId>:<orgId>:<organizationSelection>`. The fingerprint is a build-derived hash, so `--key` is impractical here — reach for `--tag nav:sidebar:user:<userId>`, `--id <userId>`, or `--pattern 'nav:*'` instead.
 
 For internals, see the [cache CLI architecture page](../architecture/cache-cli).

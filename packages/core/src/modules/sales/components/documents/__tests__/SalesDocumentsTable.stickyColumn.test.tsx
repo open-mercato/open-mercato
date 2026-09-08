@@ -5,6 +5,11 @@ import * as React from 'react'
 import { render, act } from '@testing-library/react'
 import { SalesDocumentsTable } from '../SalesDocumentsTable'
 
+jest.mock('../../useSalesChannelsEnabled', () => ({
+  SALES_CHANNELS_TOGGLE_ID: 'sales_channels_enabled',
+  useSalesChannelsEnabled: () => ({ enabled: true, isLoading: false }),
+}))
+
 // Capture the props handed to DataTable so we can assert the sticky-column wiring.
 const mockDataTable = jest.fn()
 const mockApiCall = jest.fn()

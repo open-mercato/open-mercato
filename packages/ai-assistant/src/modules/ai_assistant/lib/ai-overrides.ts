@@ -204,9 +204,9 @@ export function applyAiOverridesDispatcherEntries(
 
 // Side-effect: register the `'ai'` applier on first module load so the
 // umbrella dispatcher in `@open-mercato/shared/modules/overrides` can
-// route `entry.overrides.ai` here. Any consumer that imports
-// `@open-mercato/ai-assistant` (which apps do via `bootstrap.ts`) gets
-// the registration for free — no second import needed.
+// route `entry.overrides.ai` here. Apps import this focused module from
+// `bootstrap-common.ts` so they register the applier without tracing the
+// package's MCP/provider umbrella into every server runtime.
 registerModuleOverrideApplier<AiModuleOverridesShape>(
   'ai',
   (entries: ReadonlyArray<ModuleOverrideEntry<AiModuleOverridesShape>>) => {

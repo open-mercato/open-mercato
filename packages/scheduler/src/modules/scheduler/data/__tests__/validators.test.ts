@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from '@jest/globals'
+import { describe, it, expect, beforeAll, afterAll } from '@jest/globals'
 import {
   scheduleCreateSchema,
   scheduleUpdateSchema,
@@ -7,19 +7,60 @@ import {
   scheduleTriggerSchema,
   scheduleRunsQuerySchema,
 } from '../validators'
-import { registerCommand } from '@open-mercato/shared/lib/commands'
-import type { CommandHandler } from '@open-mercato/shared/lib/commands'
+import { registerCommand } from '@open-mercato/shared/lib/commands/registry'
+import type { CommandHandler } from '@open-mercato/shared/lib/commands/types'
+import {
+  clearSchedulerSafeCommandsForTests,
+  registerSchedulerSafeCommands,
+} from '../../lib/scheduler-safe-commands'
+import { registerModules } from '@open-mercato/shared/lib/modules/registry'
 
-// Register a test command for validation tests
-const testCommand: CommandHandler<any, any> = {
+// Register test commands for validation tests
+const testCommand: CommandHandler<unknown, { ok: boolean }> = {
   id: 'test.command.for.validators',
   async execute() {
     return { ok: true }
   },
 }
 
+const schedulableTestCommand: CommandHandler<unknown, { ok: boolean }> = {
+  id: 'test.command.schedulable',
+  async execute() {
+    return { ok: true }
+  },
+}
+
 beforeAll(() => {
+  clearSchedulerSafeCommandsForTests()
   registerCommand(testCommand)
+  registerCommand(schedulableTestCommand)
+  registerSchedulerSafeCommands([
+    {
+      commandId: 'test.command.schedulable',
+      requiredFeatures: ['scheduler.jobs.manage'],
+    },
+  ])
+  // Queue targets are only valid when their worker opted into scheduling
+  // (`schedulerSafe: true`). Seed one safe queue so schema tests can exercise
+  // queue-target validation (#5213).
+  registerModules([
+    {
+      id: 'test_module',
+      workers: [
+        {
+          id: 'test_module:workers:safe',
+          queue: 'test',
+          concurrency: 1,
+          schedulerSafe: true,
+          handler: async () => {},
+        },
+      ],
+    },
+  ] as never)
+})
+
+afterAll(() => {
+  ;(globalThis as Record<string, unknown>).__openMercatoModulesRegistry__ = null
 })
 
 const tenantId = '123e4567-e89b-12d3-a456-426614174000'
@@ -35,7 +76,7 @@ describe('scheduleCreateSchema', () => {
         scheduleValue: '0 0 * * *',
         timezone: 'UTC',
         targetType: 'queue',
-        targetQueue: 'backup-queue',
+        targetQueue: 'test',
         isEnabled: true,
       })
 
@@ -43,7 +84,7 @@ describe('scheduleCreateSchema', () => {
       expect(result.scopeType).toBe('system')
       expect(result.scheduleType).toBe('cron')
       expect(result.targetType).toBe('queue')
-      expect(result.targetQueue).toBe('backup-queue')
+      expect(result.targetQueue).toBe('test')
     })
 
     it('should accept valid organization-scoped interval schedule with command target', () => {
@@ -56,7 +97,7 @@ describe('scheduleCreateSchema', () => {
         scheduleValue: '1h',
         timezone: 'America/New_York',
         targetType: 'command',
-        targetCommand: 'test.command.for.validators',
+        targetCommand: 'test.command.schedulable',
         targetPayload: { foo: 'bar' },
         isEnabled: true,
       })
@@ -68,7 +109,7 @@ describe('scheduleCreateSchema', () => {
       expect(result.scheduleType).toBe('interval')
       expect(result.scheduleValue).toBe('1h')
       expect(result.targetType).toBe('command')
-      expect(result.targetCommand).toBe('test.command.for.validators')
+      expect(result.targetCommand).toBe('test.command.schedulable')
     })
 
     it('should accept valid tenant-scoped schedule', () => {
@@ -79,7 +120,7 @@ describe('scheduleCreateSchema', () => {
         scheduleType: 'interval',
         scheduleValue: '15m',
         targetType: 'queue',
-        targetQueue: 'cleanup',
+        targetQueue: 'test',
       })
 
       expect(result.scopeType).toBe('tenant')
@@ -126,7 +167,8 @@ describe('scheduleCreateSchema', () => {
 
     it('should accept various interval formats', () => {
       const validIntervals = [
-        '30s',  // 30 seconds
+        '60s',  // 60 seconds
+        '1m',   // 1 minute
         '15m',  // 15 minutes
         '2h',   // 2 hours
         '1d',   // 1 day
@@ -270,6 +312,19 @@ describe('scheduleCreateSchema', () => {
         })
       ).toThrow(/Command does not exist/)
     })
+
+    it('should reject a registered command that did not opt into scheduler execution', () => {
+      expect(() =>
+        scheduleCreateSchema.parse({
+          name: 'Unsafe command',
+          scopeType: 'system',
+          scheduleType: 'cron',
+          scheduleValue: '0 0 * * *',
+          targetType: 'command',
+          targetCommand: 'test.command.for.validators',
+        })
+      ).toThrow(/Command is not schedulable/)
+    })
   })
 
   describe('schedule validation', () => {
@@ -323,6 +378,23 @@ describe('scheduleCreateSchema', () => {
           targetQueue: 'test',
         })
       ).toThrow(/Invalid schedule value/)
+    })
+
+    it('should reject interval values below one minute', () => {
+      const subMinuteIntervals = ['0s', '1s', '59s', '0m']
+
+      subMinuteIntervals.forEach(scheduleValue => {
+        expect(() =>
+          scheduleCreateSchema.parse({
+            name: 'Invalid',
+            scopeType: 'system',
+            scheduleType: 'interval',
+            scheduleValue,
+            targetType: 'queue',
+            targetQueue: 'test',
+          })
+        ).toThrow(/Invalid schedule value/)
+      })
     })
   })
 
@@ -436,6 +508,16 @@ describe('scheduleUpdateSchema', () => {
     ).toThrow(/Invalid schedule value/)
   })
 
+  it('should reject interval values below one minute when updating', () => {
+    expect(() =>
+      scheduleUpdateSchema.parse({
+        id: scheduleId,
+        scheduleType: 'interval',
+        scheduleValue: '1s',
+      })
+    ).toThrow(/Invalid schedule value/)
+  })
+
   it('should require targetQueue when changing to queue target', () => {
     expect(() =>
       scheduleUpdateSchema.parse({
@@ -458,11 +540,11 @@ describe('scheduleUpdateSchema', () => {
     const result = scheduleUpdateSchema.parse({
       id: scheduleId,
       targetType: 'command',
-      targetCommand: 'test.command.for.validators',
+      targetCommand: 'test.command.schedulable',
     })
 
     expect(result.targetType).toBe('command')
-    expect(result.targetCommand).toBe('test.command.for.validators')
+    expect(result.targetCommand).toBe('test.command.schedulable')
   })
 
   it('should reject non-existent command on update', () => {

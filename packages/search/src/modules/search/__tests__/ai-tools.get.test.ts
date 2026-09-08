@@ -21,6 +21,7 @@ function makeCtx(
   const searchIndexer = {
     getEntityConfig: (entityId: string) =>
       entityId === 'customers:customer_person_profile' ? PERSON_CONFIG : undefined,
+    getAllEntityConfigs: () => [{ entityId: 'customers:customer_person_profile', ...PERSON_CONFIG }],
   }
   const ctx = {
     tenantId: 'tenant-1',

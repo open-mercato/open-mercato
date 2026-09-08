@@ -1,5 +1,5 @@
 import type { MessageObjectTypeDefinition } from '@open-mercato/shared/modules/messages/types'
-import { MessageObjectDetail, MessageObjectPreview } from '@open-mercato/ui'
+import { MessageObjectDetail, MessageObjectPreview } from '@open-mercato/ui/backend/messages'
 
 const objectMessageTypes = ['default', 'messages.defaultWithObjects']
 

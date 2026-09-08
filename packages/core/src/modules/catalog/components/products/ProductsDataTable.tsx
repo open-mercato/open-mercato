@@ -1,8 +1,10 @@
 "use client"
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/catalog/extension-points'
 import Link from 'next/link'
-import type { ColumnDef, SortingState } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
+import type { SortingState } from '@tanstack/react-table'
 import { DataTable, type DataTableExportFormat } from '@open-mercato/ui/backend/DataTable'
 import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -84,6 +86,7 @@ type ProductsResponse = {
   items?: ProductRow[]
   total?: number
   totalPages?: number
+  totalIsCapped?: boolean
 }
 
 const PAGE_SIZE = 25
@@ -175,6 +178,7 @@ export default function ProductsDataTable({
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [cacheStatus, setCacheStatus] = React.useState<'hit' | 'miss' | null>(null)
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'title', desc: false }])
   const [search, setSearch] = React.useState('')
@@ -596,6 +600,7 @@ export default function ProductsDataTable({
         setRows(normalized)
         setTotal(typeof payload.total === 'number' ? payload.total : normalized.length)
         setTotalPages(typeof payload.totalPages === 'number' ? payload.totalPages : 1)
+        setTotalIsCapped(payload.totalIsCapped === true)
       } catch (error) {
         if (!cancelled) {
           setCacheStatus(null)
@@ -696,7 +701,7 @@ export default function ProductsDataTable({
         onCustomFieldFilterFieldsetChange={handleCustomFieldsetFilterChange}
         sorting={sorting}
         onSortingChange={setSorting}
-        injectionSpotId="data-table:catalog.products"
+        injectionSpotId={extensionPoints.hosts.productsTable.baseSpotId}
         injectionContext={{
           search,
           filters: filterValues,
@@ -710,18 +715,22 @@ export default function ProductsDataTable({
           // dependency on the host page.
           total,
           totalMatching: total,
+          // `total` is a floor when the server capped the count, so the
+          // merchandising widget must not present it as an exact match count.
+          totalIsCapped,
         }}
         pagination={{
           page,
           pageSize: PAGE_SIZE,
           total,
           totalPages,
+          totalIsCapped,
           onPageChange: setPage,
           cacheStatus,
         }}
         exporter={exportConfig}
         isLoading={isLoading}
-        perspective={{ tableId: 'catalog.products.list' }}
+        perspective={{ tableId: extensionPoints.hosts.productsTable.tableId }}
         stickyActionsColumn
         rowActions={(row) => (
           <RowActions

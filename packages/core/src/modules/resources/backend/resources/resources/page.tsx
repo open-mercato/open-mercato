@@ -1,9 +1,10 @@
 "use client"
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/resources/extension-points'
 import Link from 'next/link'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable, withDataTableNamespaces } from '@open-mercato/ui/backend/DataTable'
 import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
@@ -62,6 +63,7 @@ type ResourcesResponse = {
   total: number
   page: number
   totalPages: number
+  totalIsCapped?: boolean
 }
 
 type ResourceTypesResponse = {
@@ -80,6 +82,7 @@ export default function ResourcesResourcesPage() {
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [search, setSearch] = React.useState('')
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const [isLoading, setIsLoading] = React.useState(true)
@@ -359,6 +362,7 @@ export default function ResourcesResourcesPage() {
           setRows(mapped)
           setTotal(payload.total || 0)
           setTotalPages(payload.totalPages || 1)
+          setTotalIsCapped(payload?.totalIsCapped === true)
         }
       } catch (error) {
         if (!cancelled) {
@@ -524,7 +528,7 @@ export default function ResourcesResourcesPage() {
           filterValues={filterValues}
           onFiltersApply={handleFiltersApply}
           onFiltersClear={handleFiltersClear}
-          perspective={{ tableId: 'resources.resources.list' }}
+          perspective={{ tableId: extensionPoints.hosts.resourcesTable.tableId }}
           rowActions={(row) => {
             if (!canManage || row.rowKind !== 'resource') return null
             return (
@@ -545,7 +549,7 @@ export default function ResourcesResourcesPage() {
               createLabel={t('resources.resources.list.actions.create', 'New resource')}
             />
           )}
-          pagination={{ page, pageSize: PAGE_SIZE, total, totalPages, onPageChange: setPage }}
+          pagination={{ page, pageSize: PAGE_SIZE, total, totalPages, totalIsCapped, onPageChange: setPage }}
           isLoading={isLoading}
         />
       </PageBody>

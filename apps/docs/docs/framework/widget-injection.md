@@ -275,17 +275,14 @@ When enabled (`true`, default), `CrudForm` emits:
 
 The `example` module ships demo injection widgets (CRUD validation panel, sales todos tab, catalog SEO report, sample menu items).
 
-These widgets are disabled by default. Enable them with:
+These widgets are registered unconditionally. `NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED`
+used to gate them and **no longer exists** — the registry is now a plain static declaration so the
+module fact extractor can read it (a conditional export folded to nothing, and every entry was
+invisible to generated facts).
 
-```bash
-NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED=true
-```
-
-Default:
-
-```bash
-NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED=false
-```
+Registering an entry is not the same as rendering one: a cross-module entry is keyed on a spot id
+that only its host module renders, so it stays inert when that module is absent. To gate a widget on
+another module explicitly, declare `metadata.requiredModules` — `injection-loader.ts` enforces it.
 
 ### Operation Progress Tracking
 
@@ -451,6 +448,27 @@ Component replacement uses stable handle IDs:
   - `section:ui.detail.AttachmentsSection`
 - **Admin layout wrapper**: `admin.page:<path-handle>:before|after` from `PageInjectionBoundary` (wraps every backend page).
 - **Global backend mutations**: `GLOBAL_MUTATION_INJECTION_SPOT_ID` resolves to `backend:record:current` for non-`CrudForm` save hooks. `backend-mutation:global` is still mounted in `AppShell` as a legacy compatibility slot.
+
+### `wrapper` overrides must be pure
+
+The platform composes a `wrapper` override **at most once per `(wrapper, wrapped component)` pair** and caches the composed component, so that a wrapped subtree keeps a stable React identity instead of being torn down and remounted every time overrides re-resolve (a registry revision bump, a feature grant arriving after first paint).
+
+A wrapper must therefore be a pure function of `Original`. Read any dynamic value — a feature flag, the locale, tenant configuration, the clock, request state — **inside the render body of the component you return**, never at composition time:
+
+```tsx
+// ✅ the dynamic read happens on every render
+wrapper: (Original) => function WithBanner(props) {
+  const t = useT()
+  return <><Banner text={t('acme.notice')} /><Original {...props} /></>
+}
+
+// ❌ frozen at first composition — on the server the registry outlives the
+// request, so one tenant's value would render for everyone
+wrapper: (Original) => {
+  const label = readTenantConfig().label
+  return (props) => <><Banner text={label} /><Original {...props} /></>
+}
+```
 
 ## UMES Phase L — Integration Extension Widgets
 

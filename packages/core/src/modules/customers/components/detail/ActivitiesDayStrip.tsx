@@ -245,9 +245,8 @@ export function ActivitiesDayStrip({ entityId, selectedDate, onSelectDate, refre
         )
         setFetchedEvents(Array.isArray(payload?.items) ? payload.items : [])
       } catch (err) {
-        if ((err as { name?: string } | null)?.name !== 'AbortError') {
-          logger.warn('failed to load interactions', { component: 'ActivitiesDayStrip', err })
-        }
+        if ((err as { name?: string } | null)?.name === 'AbortError') return
+        logger.warn('failed to load interactions', { component: 'ActivitiesDayStrip', err })
         setFetchedEvents([])
       }
     })()

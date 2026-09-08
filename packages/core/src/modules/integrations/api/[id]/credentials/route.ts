@@ -21,7 +21,7 @@ import {
   runIntegrationMutationGuardAfterSuccess,
   runIntegrationMutationGuards,
 } from '../../guards'
-import { resolveIntegrationsOrganizationId } from '../../../lib/organization-scope'
+import { organizationScopeRequiredResponse, resolveActiveOrganizationId } from '@open-mercato/shared/lib/auth/organizationScope'
 
 const idParamsSchema = z.object({ id: z.string().min(1) })
 
@@ -45,9 +45,12 @@ function resolveParams(ctx: { params?: Promise<{ id?: string }> | { id?: string 
 
 export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }> | { id?: string } }) {
   const auth = await getAuthFromRequest(req)
-  const organizationId = resolveIntegrationsOrganizationId(auth)
-  if (!auth?.tenantId || !organizationId) {
+  if (!auth?.tenantId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  const organizationId = resolveActiveOrganizationId(auth)
+  if (!organizationId) {
+    return organizationScopeRequiredResponse()
   }
 
   const rawParams = await resolveParams(ctx)
@@ -91,9 +94,12 @@ export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }>
 
 export async function PUT(req: Request, ctx: { params?: Promise<{ id?: string }> | { id?: string } }) {
   const auth = await getAuthFromRequest(req)
-  const organizationId = resolveIntegrationsOrganizationId(auth)
-  if (!auth?.tenantId || !organizationId) {
+  if (!auth?.tenantId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  const organizationId = resolveActiveOrganizationId(auth)
+  if (!organizationId) {
+    return organizationScopeRequiredResponse()
   }
 
   const rawParams = await resolveParams(ctx)
@@ -177,11 +183,13 @@ export async function PUT(req: Request, ctx: { params?: Promise<{ id?: string }>
   }
 
   try {
-    // Secret fields are returned masked on GET; when the client round-trips the
-    // mask sentinel it means "unchanged", so restore the existing stored secret
-    // instead of overwriting it with the placeholder.
     const existing = await credentialsService.resolve(integration.id, scope)
-    const credentialsToSave = mergeMaskedSecretCredentials(schema, payloadData.credentials, existing ?? {})
+    const credentialsToSave = mergeMaskedSecretCredentials(
+      schema,
+      payloadData.credentials,
+      existing ?? {},
+      payloadData.unchangedSecretFields,
+    )
     await credentialsService.save(integration.id, credentialsToSave, scope)
   } catch (error) {
     if (isCredentialsEncryptionUnavailableError(error)) {

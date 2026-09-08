@@ -1,6 +1,7 @@
 "use client"
 
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { fetchAllDictionaryEntries } from '@open-mercato/core/modules/dictionaries/lib/fetchAllEntries'
 
 export type DictionaryEntryOption = {
   value: string
@@ -51,10 +52,9 @@ export async function loadStaffDictionary(
   const name = kind === 'activityTypes' ? 'Staff activity types' : 'Staff address types'
   const dictionary = await ensureDictionary(key, name)
   if (!dictionary) return { dictionary: null, entries: [] }
-  const entriesCall = await apiCall<{ items?: Record<string, unknown>[] }>(`/api/dictionaries/${dictionary.id}/entries`)
+  const entriesCall = await fetchAllDictionaryEntries(dictionary.id)
   if (!entriesCall.ok) return { dictionary, entries: [] }
-  const items = Array.isArray(entriesCall.result?.items) ? entriesCall.result?.items ?? [] : []
-  const entries = items
+  const entries = entriesCall.items
     .map((entry) => {
       if (!entry || typeof entry !== 'object') return null
       const record = entry as Record<string, unknown>

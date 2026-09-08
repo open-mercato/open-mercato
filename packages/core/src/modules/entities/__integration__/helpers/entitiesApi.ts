@@ -50,7 +50,7 @@ export function expectUuid(value: unknown, label: string): string {
 export function createCustomEntity(
   request: APIRequestContext,
   token: string,
-  body: { entityId: string; label: string; description?: string },
+  body: { entityId: string; label: string; description?: string; accessRestricted?: boolean },
 ): Promise<APIResponse> {
   return apiRequest(request, 'POST', '/api/entities/entities', { token, data: body });
 }

@@ -1,8 +1,9 @@
 "use client"
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/directory/extension-points'
 import Link from 'next/link'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
@@ -45,6 +46,7 @@ type OrganizationsResponse = {
   page: number
   pageSize: number
   totalPages: number
+  totalIsCapped?: boolean
   isSuperAdmin?: boolean
 }
 
@@ -178,6 +180,7 @@ export default function DirectoryOrganizationsPage() {
   }, [isSuperAdmin, t])
   const total = data?.total ?? 0
   const totalPages = data?.totalPages ?? 0
+  const totalIsCapped = data?.totalIsCapped === true
 
   const deleteMutationContextId = 'directory-organizations-list:single-delete'
   const { runMutation: runDeleteMutation, retryLastMutation: retryDeleteMutation } = useGuardedMutation<{
@@ -271,7 +274,7 @@ export default function DirectoryOrganizationsPage() {
             setPage(1)
           }}
           sortable={false}
-          perspective={{ tableId: 'directory.organizations.list' }}
+          perspective={{ tableId: extensionPoints.hosts.organizationsTable.tableId }}
           rowActions={(row) => (
             canManage ? (
               <RowActions
@@ -289,7 +292,7 @@ export default function DirectoryOrganizationsPage() {
               createLabel={t('directory.organizations.list.actions.create', 'Create')}
             />
           )}
-          pagination={{ page, pageSize: 50, total, totalPages, onPageChange: setPage }}
+          pagination={{ page, pageSize: 50, total, totalPages, totalIsCapped, onPageChange: setPage }}
           isLoading={isLoading}
         />
       </PageBody>

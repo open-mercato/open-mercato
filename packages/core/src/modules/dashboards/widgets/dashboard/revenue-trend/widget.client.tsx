@@ -20,7 +20,8 @@ import {
 import type { DateGranularity } from '@open-mercato/shared/modules/analytics'
 import { DEFAULT_SETTINGS, hydrateSettings, type RevenueTrendSettings } from './config'
 import type { WidgetDataResponse } from '../../../services/widgetDataService'
-import { formatCurrencyCompact } from '../../../lib/formatters'
+import { createCurrencyFormatters } from '../../../lib/formatters'
+import { UnlabelledAmountNotice } from '../../../components/UnlabelledAmountNotice'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('dashboards').child({ component: 'revenue-trend' })
@@ -114,8 +115,10 @@ const RevenueTrendWidget: React.FC<DashboardWidgetComponentProps<RevenueTrendSet
   const locale = useLocale()
   const hydrated = React.useMemo(() => hydrateSettings(settings), [settings])
   const [data, setData] = React.useState<LineChartDataItem[]>([])
+  const [currency, setCurrency] = React.useState<string | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const money = React.useMemo(() => createCurrencyFormatters(currency, '--', locale), [currency, locale])
 
   const fetchWidgetData = useWidgetData()
   const refresh = React.useCallback(async () => {
@@ -134,6 +137,7 @@ const RevenueTrendWidget: React.FC<DashboardWidgetComponentProps<RevenueTrendSet
         Revenue: item.value ?? 0,
       }))
       setData(chartData)
+      setCurrency(result.metadata?.currency ?? null)
     } catch (err) {
       logger.error('Failed to load revenue trend data', { err })
       setError(t('dashboards.analytics.widgets.revenueTrend.error', 'Failed to load data'))
@@ -212,10 +216,11 @@ const RevenueTrendWidget: React.FC<DashboardWidgetComponentProps<RevenueTrendSet
         loading={loading}
         error={error}
         showArea={hydrated.showArea}
-        valueFormatter={formatCurrencyCompact}
+        valueFormatter={money.formatCompact}
         colors={['blue']}
         emptyMessage={t('dashboards.analytics.widgets.revenueTrend.empty', 'No revenue data for this period')}
       />
+      <UnlabelledAmountNotice currency={currency} loading={loading} error={error} />
     </div>
   )
 }

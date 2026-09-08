@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { Client } from 'pg';
+import { resolveAppRoot } from './appRoot';
 
 /**
  * Database fixtures for the org-scope fail-open hardening tests.
@@ -13,11 +14,6 @@ import { Client } from 'pg';
  * Raw SQL keeps the test self-contained and avoids depending on built package
  * `dist/` output for an in-process MikroORM bootstrap.
  */
-
-function resolveAppRoot(): string {
-  const fromEnv = process.env.OM_TEST_APP_ROOT?.trim();
-  return fromEnv ? path.resolve(fromEnv) : path.resolve(process.cwd(), 'apps/mercato');
-}
 
 function readEnvValue(key: string): string | undefined {
   if (process.env[key]) return process.env[key];
@@ -44,8 +40,26 @@ function resolveDatabaseUrl(): string {
   return url;
 }
 
-export async function withClient<T>(run: (client: Client) => Promise<T>): Promise<T> {
-  const client = new Client({ connectionString: resolveDatabaseUrl() });
+/**
+ * The slice of `pg`'s client these fixtures use, declared structurally.
+ *
+ * `pg` publishes `Client` as a class merged with a namespace, and the app project's module
+ * resolution picks the namespace half in type position (`TS2709`), so naming the class here made
+ * every caller outside `packages/core` fail to typecheck. A structural type is resolvable from
+ * every project and keeps `query<T>()` generic, which `InstanceType<typeof Client>` did not.
+ */
+export type IntegrationDbClient = {
+  query<T = Record<string, unknown>>(
+    text: string,
+    values?: readonly unknown[],
+  ): Promise<{ rows: T[]; rowCount: number | null }>;
+};
+
+export async function withClient<T>(run: (client: IntegrationDbClient) => Promise<T>): Promise<T> {
+  const client = new Client({ connectionString: resolveDatabaseUrl() }) as unknown as IntegrationDbClient & {
+    connect: () => Promise<void>;
+    end: () => Promise<void>;
+  };
   await client.connect();
   try {
     return await run(client);

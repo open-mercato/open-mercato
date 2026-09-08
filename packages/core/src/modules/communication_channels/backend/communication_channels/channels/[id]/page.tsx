@@ -1,7 +1,6 @@
 'use client'
 
 import * as React from 'react'
-import { useParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { Tag } from '@open-mercato/ui/primitives/tag'
@@ -35,10 +34,9 @@ type ChannelHealth = {
   }>
 }
 
-export default function ChannelDetailPage() {
+export default function ChannelDetailPage({ params }: { params?: { id?: string } }) {
   const t = useT()
-  const params = useParams<{ id: string }>()
-  const id = (params?.id as string) ?? ''
+  const id = params?.id ?? ''
 
   const [detail, setDetail] = React.useState<ChannelDetail | null>(null)
   const [health, setHealth] = React.useState<ChannelHealth | null>(null)
@@ -47,7 +45,11 @@ export default function ChannelDetailPage() {
   const [notFound, setNotFound] = React.useState(false)
 
   React.useEffect(() => {
-    if (!id) return
+    if (!id) {
+      setIsLoading(false)
+      setErrorMessage(t('communication_channels.errors.missingChannelId', 'No channel selected.'))
+      return
+    }
     let cancelled = false
     async function load() {
       setIsLoading(true)

@@ -3,6 +3,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { CustomerInvitationService } from '@open-mercato/core/modules/customer_accounts/services/customerInvitationService'
 import {
   CustomerRole,
+  CustomerUser,
   CustomerUserInvitation,
   CustomerUserRole,
 } from '@open-mercato/core/modules/customer_accounts/data/entities'
@@ -140,6 +141,35 @@ describe('CustomerInvitationService.acceptInvitation — role lookup batching', 
     expect((linkCreates[0][1] as { role: { id: string } }).role.id).toBe(localRoleId)
   })
 
+  it('carries personEntityId from the invitation onto the new CustomerUser', async () => {
+    const personEntityId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
+    const invitation = {
+      id: 'inv-person',
+      email: 'new@example.com',
+      tenantId,
+      organizationId,
+      customerEntityId: null,
+      personEntityId,
+      roleIdsJson: [],
+      expiresAt: new Date(Date.now() + 60_000),
+      acceptedAt: null,
+      cancelledAt: null,
+    } as unknown as CustomerUserInvitation
+
+    ;(mockEm.findOne as jest.Mock).mockImplementation(async (entity: unknown) => {
+      if (entity === CustomerUserInvitation) return invitation
+      return null
+    })
+    ;(mockEm.find as jest.Mock).mockResolvedValue([])
+
+    const result = await service.acceptInvitation('raw-token', 'Secret123!', 'New User')
+    expect(result).not.toBeNull()
+
+    const userCreates = (mockEm.create as jest.Mock).mock.calls.filter((call) => call[0] === CustomerUser)
+    expect(userCreates).toHaveLength(1)
+    expect((userCreates[0][1] as { personEntityId: string | null }).personEntityId).toBe(personEntityId)
+  })
+
   it('skips the role query entirely when the invitation carries no roleIds', async () => {
     const invitation = {
       id: 'inv-2',
@@ -211,18 +241,27 @@ describe('CustomerInvitationService.createInvitation — pending-invitation dedu
       return null
     })
 
+    const personEntityId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
     const beforeExpiresAt = existing.expiresAt.getTime()
     const result = await service.createInvitation(
       ' New@Example.COM ',
       { tenantId, organizationId },
-      { roleIds, invitedByUserId: 'inviter-1', displayName: 'Refreshed Name' },
+      { roleIds, personEntityId, invitedByUserId: 'inviter-1', displayName: 'Refreshed Name' },
     )
 
     expect(mockEm.create).not.toHaveBeenCalled()
     expect(result.invitation).toBe(existing)
     expect(result.rawToken).toBe('raw-token')
+    expect(result.reused).toBe(true)
+    expect(result.rollbackState).toMatchObject({
+      email: 'old@example.com',
+      token: 'old-hashed-token',
+      roleIdsJson: ['old-role'],
+      displayName: 'Old Name',
+    })
     expect(existing.email).toBe('new@example.com')
     expect(existing.token).toBe('hashed-token')
+    expect(existing.personEntityId).toBe(personEntityId)
     expect(existing.roleIdsJson).toEqual(roleIds)
     expect(existing.invitedByUserId).toBe('inviter-1')
     expect(existing.displayName).toBe('Refreshed Name')
@@ -246,10 +285,11 @@ describe('CustomerInvitationService.createInvitation — pending-invitation dedu
   it('inserts a new invitation row when no pending invitation exists', async () => {
     ;(mockEm.findOne as jest.Mock).mockResolvedValue(null)
 
+    const personEntityId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
     const result = await service.createInvitation(
       'fresh@example.com',
       { tenantId, organizationId },
-      { roleIds, invitedByUserId: 'inviter-2', displayName: 'Fresh' },
+      { roleIds, personEntityId, invitedByUserId: 'inviter-2', displayName: 'Fresh' },
     )
 
     const invitationCreates = (mockEm.create as jest.Mock).mock.calls.filter(
@@ -262,9 +302,60 @@ describe('CustomerInvitationService.createInvitation — pending-invitation dedu
       email: 'fresh@example.com',
       emailHash: 'email-hash',
       token: 'hashed-token',
+      personEntityId,
       roleIdsJson: roleIds,
     })
     expect(mockEm.persist).toHaveBeenCalled()
     expect(result.rawToken).toBe('raw-token')
+    expect(result.reused).toBe(false)
+    expect(result.rollbackState).toBeNull()
+  })
+})
+
+describe('CustomerInvitationService.rollbackInvitation', () => {
+  it('hard-deletes the invitation and flushes the removal', async () => {
+    const flush = jest.fn(async () => undefined)
+    const mockEm = { remove: jest.fn(() => mockEm), flush } as unknown as EntityManager
+    const service = new CustomerInvitationService(mockEm)
+    const invitation = { id: 'inv-roll' } as unknown as CustomerUserInvitation
+
+    await service.rollbackInvitation(invitation, null)
+
+    expect(mockEm.remove).toHaveBeenCalledWith(invitation)
+    expect(flush).toHaveBeenCalledTimes(1)
+  })
+
+  it('restores the prior state of a reused invitation', async () => {
+    const flush = jest.fn(async () => undefined)
+    const mockEm = { remove: jest.fn(), flush } as unknown as EntityManager
+    const service = new CustomerInvitationService(mockEm)
+    const invitation = {
+      email: 'new@example.com',
+      token: 'new-token',
+      customerEntityId: 'new-customer',
+      personEntityId: 'new-person',
+      roleIdsJson: ['new-role'],
+      invitedByUserId: 'new-user',
+      invitedByCustomerUserId: null,
+      displayName: 'New Name',
+      expiresAt: new Date('2026-08-05T00:00:00.000Z'),
+    } as unknown as CustomerUserInvitation
+    const rollbackState = {
+      email: 'old@example.com',
+      token: 'old-token',
+      customerEntityId: null,
+      personEntityId: null,
+      roleIdsJson: ['old-role'],
+      invitedByUserId: null,
+      invitedByCustomerUserId: 'old-customer-user',
+      displayName: 'Old Name',
+      expiresAt: new Date('2026-08-04T00:00:00.000Z'),
+    }
+
+    await service.rollbackInvitation(invitation, rollbackState)
+
+    expect(invitation).toMatchObject(rollbackState)
+    expect(mockEm.remove).not.toHaveBeenCalled()
+    expect(flush).toHaveBeenCalledTimes(1)
   })
 })

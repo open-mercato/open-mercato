@@ -78,6 +78,17 @@ export type CanonicalTodoListResult = {
   total: number
 }
 
+function emptyCanonicalTodoList(): CanonicalTodoListResult {
+  return { items: [], bridgeIds: new Set(), total: 0 }
+}
+
+function isCollapsedRestrictedOrganizationScope(
+  organizationIds: string[] | null | undefined,
+  isUnrestricted: boolean | undefined,
+): boolean {
+  return isUnrestricted !== true && (!organizationIds || organizationIds.length === 0)
+}
+
 export type ListTodosPagination = { page: number; pageSize: number }
 
 function resolveLegacyTodoSource(source: string | null | undefined): string {
@@ -377,8 +388,11 @@ export async function listLegacyTodoRows(
   tenantId: string,
   organizationIds: string[] | null,
   entityId: string | undefined,
-  options?: { limit?: number | null },
+  options?: { limit?: number | null; isUnrestricted?: boolean },
 ): Promise<CustomerTodoRow[]> {
+  if (isCollapsedRestrictedOrganizationScope(organizationIds, options?.isUnrestricted)) {
+    return []
+  }
   const where: Record<string, unknown> = { tenantId }
   if (organizationIds && organizationIds.length > 0) {
     where.organizationId = { $in: organizationIds }
@@ -425,8 +439,12 @@ export async function listCanonicalTodoRows(
     pagination?: ListTodosPagination | null
     searchText?: string | null
     limit?: number | null
+    isUnrestricted?: boolean
   },
 ): Promise<CanonicalTodoListResult> {
+  if (isCollapsedRestrictedOrganizationScope(organizationIds, options?.isUnrestricted)) {
+    return emptyCanonicalTodoList()
+  }
   const where: Record<string, unknown> = {
     tenantId: auth.tenantId,
     interactionType: 'task',

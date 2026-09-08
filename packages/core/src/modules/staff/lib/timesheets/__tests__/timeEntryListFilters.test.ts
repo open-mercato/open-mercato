@@ -1,3 +1,4 @@
+import { normalizeFilters } from '@open-mercato/shared/lib/query/join-utils'
 import { buildTimeEntryListFilters } from '../timeEntryListFilters'
 
 describe('buildTimeEntryListFilters — running filter (issue #3717)', () => {
@@ -36,5 +37,20 @@ describe('buildTimeEntryListFilters — running filter (issue #3717)', () => {
   it('parses id lists and ignores blank entries', () => {
     const filters = buildTimeEntryListFilters({ ids: 'a, ,b' })
     expect(filters.id).toEqual({ $in: ['a', 'b'] })
+  })
+})
+
+describe('buildTimeEntryListFilters — query-engine normalization (issue #4841)', () => {
+  it('normalizes the running lookup to null-comparison clauses the engine must honor', () => {
+    const clauses = normalizeFilters(buildTimeEntryListFilters({ running: 'true' }))
+
+    // The bare `ended_at: null` must survive as an `eq` against null rather than
+    // being dropped — a dropped clause would silently widen the running lookup.
+    expect(clauses).toEqual(
+      expect.arrayContaining([
+        { field: 'started_at', op: 'ne', value: null },
+        { field: 'ended_at', op: 'eq', value: null },
+      ]),
+    )
   })
 })

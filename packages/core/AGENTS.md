@@ -502,9 +502,9 @@ When extending another module's data, add a separate extension entity — never 
 - RBAC is two-layered: Role ACLs and User ACLs per tenant
 - Features declared per module in `acl.ts`, naming: `<module>.<action>`
 - Server-side check: `rbacService.userHasAllFeatures(userId, features, { tenantId, organizationId })`
-- Special flags: `isSuperAdmin` (all features), organization visibility list
-- Treat wildcard grants as part of the ACL contract: `module.*` and `*` satisfy matching concrete features.
-- When a runtime helper evaluates raw granted feature arrays directly (for example nav builders, notification handlers, mutation guards, command interceptors, or AI tools), MUST use the shared wildcard-aware matcher instead of exact string comparisons.
+- Special flags: `isSuperAdmin` (all active features), organization visibility list
+- Policy order: invalid scope and nulled/disabled features deny before super-admin or wildcard grants.
+- For loaded ACL snapshots use shared `authorizeFeatures`; browser payloads use realm `getEffectiveFeatures` (concrete IDs only).
 
 ```typescript
 // acl.ts

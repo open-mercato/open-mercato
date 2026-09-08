@@ -1,0 +1,266 @@
+◇ injected env (96) from apps/mercato/.env // tip: ⌁ auth for agents [www.vestauth.com]
+╔═══════════════════════╗
+║  🧩 Open Mercato CLI  ║
+╚═══════════════════════╝
+
+🚀 Running test:integration --filter TC-AI-MODERATION
+[integration] Running Playwright suite...
+[integration] Checking whether an existing ephemeral environment can be reused...
+[integration] Build cache disabled: missing or invalid cache metadata (/home/bernard/workspace/OpenMercatoTest/.ai/tmp/auto-create-pr/ai-input-moderation-safety-identifiers-20260610-145153/.ai/qa/ephemeral-build-cache.json).
+[integration] Ephemeral database ready at localhost:32932
+[integration] Initializing application data (includes migrations)...
+[integration] Initializing application data... 2s elapsed, ~43s left
+[integration] Initializing application data... 4s elapsed, ~41s left
+[integration] Initializing application data... 6s elapsed, ~39s left
+[integration] Initializing application data... 8s elapsed, ~37s left
+[integration] Initializing application data... 10s elapsed, ~35s left
+[integration] Initializing application data... 12s elapsed, ~33s left
+[integration] Initializing application data... 14s elapsed, ~31s left
+[integration] Initializing application data... 16s elapsed, ~29s left
+[integration] Initializing application data... 18s elapsed, ~27s left
+[integration] Initializing application data... 20s elapsed, ~25s left
+[integration] Initializing application data... 22s elapsed, ~23s left
+[integration] Initializing application data... 24s elapsed, ~21s left
+[integration] Initializing application data... 26s elapsed, ~19s left
+[integration] Initializing application data... 28s elapsed, ~17s left
+[integration] Initializing application data... 30s elapsed, ~15s left
+[integration] Initializing application data... 32s elapsed, ~13s left
+[integration] Initializing application data... 34s elapsed, ~11s left
+[integration] Initializing application data... 36s elapsed, ~9s left
+[integration] Initializing application data... 38s elapsed, ~7s left
+[integration] Initializing application data... 40s elapsed, ~5s left
+[integration] Initializing application data... 42s elapsed, ~3s left
+[integration] Initializing application data... 44s elapsed, ~1s left
+[integration] Initializing application data... 46s elapsed, ~0s left
+[integration] Initializing application data... 48s elapsed, ~0s left
+[integration] Initializing application data... 50s elapsed, ~0s left
+[integration] Initializing application data completed in 51s.
+[integration] Build artifacts missing, stale, or out of date; rebuilding artifacts.
+[integration] Building packages...
+[integration] Building packages... 2s elapsed, ~18s left
+[integration] Building packages... 4s elapsed, ~16s left
+[integration] Building packages... 6s elapsed, ~14s left
+[integration] Building packages... 8s elapsed, ~12s left
+[integration] Building packages completed in 9s.
+[integration] Regenerating module artifacts...
+[integration] Regenerating module artifacts... 2s elapsed, ~6s left
+[integration] Regenerating module artifacts... 4s elapsed, ~4s left
+[integration] Regenerating module artifacts... 6s elapsed, ~2s left
+[integration] Regenerating module artifacts... 8s elapsed, ~0s left
+[integration] Regenerating module artifacts... 10s elapsed, ~0s left
+[integration] Regenerating module artifacts... 12s elapsed, ~0s left
+[integration] Regenerating module artifacts... 14s elapsed, ~0s left
+[integration] Regenerating module artifacts... 16s elapsed, ~0s left
+[integration] Regenerating module artifacts... 18s elapsed, ~0s left
+[integration] Regenerating module artifacts... 20s elapsed, ~0s left
+[integration] Regenerating module artifacts completed in 20s.
+[integration] Rebuilding packages after generation...
+[integration] Rebuilding packages after generation... 2s elapsed, ~18s left
+[integration] Rebuilding packages after generation... 4s elapsed, ~16s left
+[integration] Rebuilding packages after generation... 6s elapsed, ~14s left
+[integration] Rebuilding packages after generation... 8s elapsed, ~12s left
+[integration] Rebuilding packages after generation... 10s elapsed, ~10s left
+[integration] Rebuilding packages after generation... 12s elapsed, ~8s left
+[integration] Rebuilding packages after generation completed in 12s.
+[integration] Building application...
+[integration] Reset Next build output directory at /home/bernard/workspace/OpenMercatoTest/.ai/tmp/auto-create-pr/ai-input-moderation-safety-identifiers-20260610-145153/apps/mercato/.mercato/next.
+[integration] Building application... 2s elapsed, ~74s left
+[integration] Building application... 4s elapsed, ~72s left
+[integration] Building application... 6s elapsed, ~70s left
+[integration] Building application... 8s elapsed, ~68s left
+[integration] Building application... 10s elapsed, ~66s left
+[integration] Building application... 12s elapsed, ~64s left
+[integration] Building application... 14s elapsed, ~62s left
+[integration] Building application... 16s elapsed, ~60s left
+[integration] Building application... 18s elapsed, ~58s left
+[integration] Building application... 20s elapsed, ~56s left
+[integration] Building application... 22s elapsed, ~54s left
+[integration] Building application... 24s elapsed, ~52s left
+[integration] Building application... 26s elapsed, ~50s left
+[integration] Building application... 28s elapsed, ~48s left
+[integration] Building application... 30s elapsed, ~46s left
+[integration] Building application... 32s elapsed, ~44s left
+[integration] Building application... 34s elapsed, ~42s left
+[integration] Building application... 36s elapsed, ~40s left
+[integration] Building application... 38s elapsed, ~38s left
+[integration] Building application... 40s elapsed, ~36s left
+[integration] Building application... 42s elapsed, ~34s left
+[integration] Building application... 44s elapsed, ~32s left
+[integration] Building application... 46s elapsed, ~30s left
+[integration] Building application... 48s elapsed, ~28s left
+[integration] Building application... 50s elapsed, ~26s left
+[integration] Building application... 52s elapsed, ~24s left
+[integration] Building application... 54s elapsed, ~22s left
+[integration] Building application... 56s elapsed, ~20s left
+[integration] Building application... 58s elapsed, ~18s left
+[integration] Building application... 60s elapsed, ~16s left
+[integration] Building application... 62s elapsed, ~14s left
+[integration] Building application... 64s elapsed, ~12s left
+[integration] Building application... 66s elapsed, ~10s left
+[integration] Building application... 68s elapsed, ~8s left
+[integration] Building application... 70s elapsed, ~6s left
+[integration] Building application... 72s elapsed, ~4s left
+[integration] Building application... 74s elapsed, ~2s left
+[integration] Building application... 76s elapsed, ~0s left
+[integration] Building application... 78s elapsed, ~0s left
+[integration] Building application... 80s elapsed, ~0s left
+[integration] Building application... 82s elapsed, ~0s left
+[integration] Building application... 84s elapsed, ~0s left
+[integration] Building application... 86s elapsed, ~0s left
+[integration] Building application... 88s elapsed, ~0s left
+[integration] Building application... 90s elapsed, ~0s left
+[integration] Building application... 92s elapsed, ~0s left
+[integration] Building application... 94s elapsed, ~0s left
+[integration] Building application... 96s elapsed, ~0s left
+[integration] Building application... 98s elapsed, ~0s left
+[integration] Building application... 100s elapsed, ~0s left
+[integration] Building application... 102s elapsed, ~0s left
+[integration] Building application... 104s elapsed, ~0s left
+[integration] Building application... 106s elapsed, ~0s left
+[integration] Building application... 108s elapsed, ~0s left
+[integration] Building application... 110s elapsed, ~0s left
+[integration] Building application... 112s elapsed, ~0s left
+[integration] Building application... 114s elapsed, ~0s left
+[integration] Building application... 116s elapsed, ~0s left
+[integration] Building application... 118s elapsed, ~0s left
+[integration] Building application... 120s elapsed, ~0s left
+[integration] Building application... 122s elapsed, ~0s left
+[integration] Building application... 124s elapsed, ~0s left
+[integration] Building application... 126s elapsed, ~0s left
+[integration] Building application... 128s elapsed, ~0s left
+[integration] Building application... 130s elapsed, ~0s left
+[integration] Building application... 132s elapsed, ~0s left
+[integration] Building application... 134s elapsed, ~0s left
+[integration] Building application... 136s elapsed, ~0s left
+[integration] Building application... 138s elapsed, ~0s left
+[integration] Building application... 140s elapsed, ~0s left
+[integration] Building application... 142s elapsed, ~0s left
+[integration] Building application... 144s elapsed, ~0s left
+[integration] Building application... 146s elapsed, ~0s left
+[integration] Building application... 148s elapsed, ~0s left
+[integration] Building application... 150s elapsed, ~0s left
+[integration] Building application completed in 151s.
+[integration] Starting application on http://127.0.0.1:5001...
+[integration] Waiting for application readiness... 2s elapsed, ~88s left
+[integration] Waiting for application readiness... 4s elapsed, ~86s left
+[integration] Waiting for application readiness... 6s elapsed, ~84s left
+[integration] Waiting for application readiness... 8s elapsed, ~82s left
+[integration] Waiting for application readiness... 10s elapsed, ~80s left
+[integration] Waiting for application readiness... 12s elapsed, ~78s left
+[integration] Waiting for application readiness completed in 12s.
+[integration] Application is ready at http://127.0.0.1:5001
+[integration] Ensuring Playwright Chromium is installed...
+
+Running 7 tests using 1 worker
+
+  ✘  1 packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-MODERATION-008-settings-and-audit.spec.ts:54:3 › TC-AI-MODERATION-008: input moderation settings + audit › PUT inputModeration persists and GET reflects the effective per-agent policy (219ms)
+  ✘  2 packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-MODERATION-008-settings-and-audit.spec.ts:54:3 › TC-AI-MODERATION-008: input moderation settings + audit › PUT inputModeration persists and GET reflects the effective per-agent policy (retry #1) (216ms)
+  ✘  3 packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-MODERATION-008-settings-and-audit.spec.ts:98:3 › TC-AI-MODERATION-008: input moderation settings + audit › GET /moderation-flags is tenant-scoped (cross-tenant rows are never returned) (281ms)
+  ✘  4 packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-MODERATION-008-settings-and-audit.spec.ts:98:3 › TC-AI-MODERATION-008: input moderation settings + audit › GET /moderation-flags is tenant-scoped (cross-tenant rows are never returned) (retry #1) (250ms)
+  ✓  5 packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-MODERATION-008-settings-and-audit.spec.ts:125:3 › TC-AI-MODERATION-008: input moderation settings + audit › GET /moderation-flags RBAC + validation gates (317ms)
+  ✓  6 packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-MODERATION-009-ui.spec.ts:27:3 › TC-AI-MODERATION-009: moderation UI surfaces › audit page renders a flagged row with its category badge (3.9s)
+  ✓  7 packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-MODERATION-009-ui.spec.ts:64:3 › TC-AI-MODERATION-009: moderation UI surfaces › audit page renders the empty state when there are no flags (2.1s)
+  ✓  8 packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-MODERATION-009-ui.spec.ts:79:3 › TC-AI-MODERATION-009: moderation UI surfaces › audit page redirects an unauthenticated visit to login (787ms)
+  ✓  9 packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-MODERATION-009-ui.spec.ts:91:3 › TC-AI-MODERATION-009: moderation UI surfaces › agent settings renders the input-moderation section (enforced badge for untrusted agents) (1.9s)
+
+
+  1) packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-MODERATION-008-settings-and-audit.spec.ts:54:3 › TC-AI-MODERATION-008: input moderation settings + audit › PUT inputModeration persists and GET reflects the effective per-agent policy 
+
+    Error: at least one agent is registered
+
+    [2mexpect([22m[31mreceived[39m[2m).[22mtoBeTruthy[2m()[22m
+
+    Received: [31mundefined[39m
+
+      62 |     const before = await readJsonSafe<SettingsResponse>(settings0);
+      63 |     const agentId = before?.agents?.[0]?.agentId;
+    > 64 |     expect(agentId, 'at least one agent is registered').toBeTruthy();
+         |                                                         ^
+      65 |
+      66 |     try {
+      67 |       const put = await apiRequest(request, 'PUT', SETTINGS, {
+        at /home/bernard/workspace/OpenMercatoTest/.ai/tmp/auto-create-pr/ai-input-moderation-safety-identifiers-20260610-145153/packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-MODERATION-008-settings-and-audit.spec.ts:64:57
+
+    Error Context: .ai/qa/test-results/artifacts/packages-ai-assistant-src--871ca--effective-per-agent-policy/error-context.md
+
+    Retry #1 ───────────────────────────────────────────────────────────────────────────────────────
+
+    Error: at least one agent is registered
+
+    [2mexpect([22m[31mreceived[39m[2m).[22mtoBeTruthy[2m()[22m
+
+    Received: [31mundefined[39m
+
+      62 |     const before = await readJsonSafe<SettingsResponse>(settings0);
+      63 |     const agentId = before?.agents?.[0]?.agentId;
+    > 64 |     expect(agentId, 'at least one agent is registered').toBeTruthy();
+         |                                                         ^
+      65 |
+      66 |     try {
+      67 |       const put = await apiRequest(request, 'PUT', SETTINGS, {
+        at /home/bernard/workspace/OpenMercatoTest/.ai/tmp/auto-create-pr/ai-input-moderation-safety-identifiers-20260610-145153/packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-MODERATION-008-settings-and-audit.spec.ts:64:57
+
+    Error Context: .ai/qa/test-results/artifacts/packages-ai-assistant-src--871ca--effective-per-agent-policy-retry1/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    .ai/qa/test-results/artifacts/packages-ai-assistant-src--871ca--effective-per-agent-policy-retry1/trace.zip
+    Usage:
+
+        yarn playwright show-trace .ai/qa/test-results/artifacts/packages-ai-assistant-src--871ca--effective-per-agent-policy-retry1/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2) packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-MODERATION-008-settings-and-audit.spec.ts:98:3 › TC-AI-MODERATION-008: input moderation settings + audit › GET /moderation-flags is tenant-scoped (cross-tenant rows are never returned) 
+
+    Error: my tenant flag is visible
+
+    [2mexpect([22m[31mreceived[39m[2m).[22mtoContain[2m([22m[32mexpected[39m[2m) // indexOf[22m
+
+    Expected value: [32m"67add0df-3bbc-4232-9c56-10e1c866931c"[39m
+    Received array: [31m[][39m
+
+      112 |       expect(body?.items, 'returns an items array').toBeTruthy();
+      113 |       const ids = (body?.items ?? []).map((row) => row.id);
+    > 114 |       expect(ids, 'my tenant flag is visible').toContain(mineId);
+          |                                                ^
+      115 |       // Every returned row is scoped to the caller's tenant — the other-tenant row never leaks.
+      116 |       for (const row of body?.items ?? []) {
+      117 |         expect(row.tenantId).toBe(tenantId);
+        at /home/bernard/workspace/OpenMercatoTest/.ai/tmp/auto-create-pr/ai-input-moderation-safety-identifiers-20260610-145153/packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-MODERATION-008-settings-and-audit.spec.ts:114:48
+
+    Error Context: .ai/qa/test-results/artifacts/packages-ai-assistant-src--ab54b-nt-rows-are-never-returned-/error-context.md
+
+    Retry #1 ───────────────────────────────────────────────────────────────────────────────────────
+
+    Error: my tenant flag is visible
+
+    [2mexpect([22m[31mreceived[39m[2m).[22mtoContain[2m([22m[32mexpected[39m[2m) // indexOf[22m
+
+    Expected value: [32m"f8719396-5051-4d6e-a440-a9cc888fee6f"[39m
+    Received array: [31m[][39m
+
+      112 |       expect(body?.items, 'returns an items array').toBeTruthy();
+      113 |       const ids = (body?.items ?? []).map((row) => row.id);
+    > 114 |       expect(ids, 'my tenant flag is visible').toContain(mineId);
+          |                                                ^
+      115 |       // Every returned row is scoped to the caller's tenant — the other-tenant row never leaks.
+      116 |       for (const row of body?.items ?? []) {
+      117 |         expect(row.tenantId).toBe(tenantId);
+        at /home/bernard/workspace/OpenMercatoTest/.ai/tmp/auto-create-pr/ai-input-moderation-safety-identifiers-20260610-145153/packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-MODERATION-008-settings-and-audit.spec.ts:114:48
+
+    Error Context: .ai/qa/test-results/artifacts/packages-ai-assistant-src--ab54b-nt-rows-are-never-returned--retry1/error-context.md
+
+    attachment #2: trace (application/zip) ─────────────────────────────────────────────────────────
+    .ai/qa/test-results/artifacts/packages-ai-assistant-src--ab54b-nt-rows-are-never-returned--retry1/trace.zip
+    Usage:
+
+        yarn playwright show-trace .ai/qa/test-results/artifacts/packages-ai-assistant-src--ab54b-nt-rows-are-never-returned--retry1/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2 failed
+    packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-MODERATION-008-settings-and-audit.spec.ts:54:3 › TC-AI-MODERATION-008: input moderation settings + audit › PUT inputModeration persists and GET reflects the effective per-agent policy 
+    packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-MODERATION-008-settings-and-audit.spec.ts:98:3 › TC-AI-MODERATION-008: input moderation settings + audit › GET /moderation-flags is tenant-scoped (cross-tenant rows are never returned) 
+  5 passed (2.7m)
+[integration] Screenshot capture is enabled (override with --screenshots / --no-screenshots)
+💥 Failed: Command failed: yarn run test:integration TC-AI-MODERATION (exit 1).

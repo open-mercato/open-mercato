@@ -75,4 +75,25 @@ describe('AttachmentAssignmentsEditor (metadata dialog)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Remove assignment' }))
     expect(screen.queryByPlaceholderText('catalog.product')).toBeNull()
   })
+
+  it('keeps the surviving assignment values after removing a middle row', () => {
+    render(
+      <EditorHarness
+        initial={[
+          { type: 'catalog.product', id: 'p-1', href: '', label: '' },
+          { type: 'sales.order', id: 'o-2', href: '', label: '' },
+          { type: 'customers.person', id: 'c-3', href: '', label: '' },
+        ]}
+      />,
+    )
+
+    fireEvent.click(screen.getAllByRole('button', { name: labels.remove })[1])
+
+    const typeInputs = screen.getAllByPlaceholderText('catalog.product') as HTMLInputElement[]
+    const idInputs = screen.getAllByPlaceholderText('Record ID') as HTMLInputElement[]
+    expect(typeInputs[0]).toHaveValue('catalog.product')
+    expect(idInputs[0]).toHaveValue('p-1')
+    expect(typeInputs[1]).toHaveValue('customers.person')
+    expect(idInputs[1]).toHaveValue('c-3')
+  })
 })

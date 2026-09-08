@@ -3,7 +3,7 @@
  */
 import * as React from 'react'
 import { render, waitFor } from '@testing-library/react'
-import CustomerUserDetailPage from '../page'
+import { PortalUserDetailPageClient } from '../PortalUserDetailPageClient'
 
 type ApiResult = { ok: boolean; status: number; result: unknown }
 
@@ -114,7 +114,7 @@ function createDeferred<T>() {
   return { promise, resolve }
 }
 
-describe('CustomerUserDetailPage CRM name lookups', () => {
+describe('PortalUserDetailPageClient CRM name lookups', () => {
   beforeEach(() => {
     apiCallMock.mockReset()
     readApiResultOrThrowMock.mockReset()
@@ -132,7 +132,7 @@ describe('CustomerUserDetailPage CRM name lookups', () => {
       return Promise.resolve({ ok: true, status: 200, result: { items: [] } })
     })
 
-    render(<CustomerUserDetailPage params={{ id: 'user-1' }} />)
+    render(<PortalUserDetailPageClient params={{ id: 'user-1' }} portalOrigin="http://localhost:3000" />)
 
     // Both CRM lookups must be in-flight before either response resolves.
     await waitFor(() => {
@@ -163,7 +163,7 @@ describe('CustomerUserDetailPage CRM name lookups', () => {
       return Promise.resolve({ ok: true, status: 200, result: { items: [] } })
     })
 
-    render(<CustomerUserDetailPage params={{ id: 'user-1' }} />)
+    render(<PortalUserDetailPageClient params={{ id: 'user-1' }} portalOrigin="http://localhost:3000" />)
 
     await waitFor(() => {
       const calledUrls = apiCallMock.mock.calls.map((call) => call[0])

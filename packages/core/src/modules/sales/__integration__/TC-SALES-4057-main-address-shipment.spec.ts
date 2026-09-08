@@ -2,7 +2,7 @@ import { expect, test, type APIRequestContext, type Page } from '@playwright/tes
 import { apiRequest } from '@open-mercato/core/helpers/integration/api'
 import { createCompanyFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
 import { getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
-import { createOrderLineFixture, deleteSalesEntityIfExists } from '@open-mercato/core/helpers/integration/salesFixtures'
+import { deleteSalesEntityIfExists } from '@open-mercato/core/helpers/integration/salesFixtures'
 
 function readId(payload: unknown): string | null {
   if (!payload || typeof payload !== 'object') return null
@@ -60,7 +60,6 @@ test.describe('TC-SALES-4057: main address selected after order creation', () =>
     let customerId: string | null = null
     let customerAddressId: string | null = null
     let orderId: string | null = null
-    let orderLineId: string | null = null
 
     try {
       customerId = await createCompanyFixture(request, token, `QA Main Address Customer ${stamp}`)
@@ -85,8 +84,17 @@ test.describe('TC-SALES-4057: main address selected after order creation', () =>
       orderId = await createEntity(request, token, '/api/sales/orders', {
         currencyCode: 'USD',
         customerEntityId: customerId,
+        // A sales order must contain at least one line on creation (issue #4021).
+        lines: [
+          {
+            currencyCode: 'USD',
+            quantity: 1,
+            name: `QA main address line ${stamp}`,
+            unitPriceNet: 10,
+            unitPriceGross: 12,
+          },
+        ],
       })
-      orderLineId = await createOrderLineFixture(request, token, orderId, { name: `QA main address line ${stamp}` })
 
       await page.goto(`/backend/sales/orders/${encodeURIComponent(orderId)}?kind=order`, { waitUntil: 'domcontentloaded' })
       await page.getByRole('button', { name: 'Addresses' }).click()
@@ -118,7 +126,6 @@ test.describe('TC-SALES-4057: main address selected after order creation', () =>
       await expect(dialog.getByText(addressLine)).toBeVisible()
       await expect(dialog.getByText(/No results/)).toHaveCount(0)
     } finally {
-      await deleteSalesEntityIfExists(request, token, '/api/sales/order-lines', orderLineId)
       await deleteSalesEntityIfExists(request, token, '/api/sales/orders', orderId)
       await deleteEntityIfExists(request, token, '/api/customers/addresses', customerAddressId)
       await deleteEntityIfExists(request, token, '/api/customers/companies', customerId)

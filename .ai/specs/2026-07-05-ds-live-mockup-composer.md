@@ -11,6 +11,7 @@ Extend the `design_system` module (spec [`2026-07-05-ds-live-component-gallery.m
 - **Depends on (hard):** [`2026-07-05-ds-live-component-gallery.md`](2026-07-05-ds-live-component-gallery.md) — the `design_system` module, the `GalleryEntry`/`GalleryVariant` registry, its entry-id stability and registry-integrity concepts, and the `design_system.view` ACL feature are prerequisites for every phase
 - **Depends on (hard, Phase 3 only):** [`2026-07-05-ds-module-ui-scaffold.md`](2026-07-05-ds-module-ui-scaffold.md) — promote-to-scaffold emits `mercato module scaffold --with-ui` input, including its `--fields` DSL
 - **Related:** [`2026-07-07-ux-synthetic-user-walkthroughs.md`](2026-07-07-ux-synthetic-user-walkthroughs.md) — the post-implementation counterpart of the UX skills layer; no code dependency in either direction
+- **Related interactive-prototype workflow:** `.ai/skills/om-mockup-prototype/` — a separate backend/backoffice click-through and anchored-comment workflow under `.ai/prototypes/`; it is not a DS-composition format and never writes freehand HTML under `.ai/mockups/`
 - **New content, Phase 1:** mockup schema + loader + renderer pages inside `packages/core/src/modules/design_system/`; `.ai/mockups/` with one golden mockup; `.ai/skills/om-ds-mockup/SKILL.md`; `design_system.mockups.manage` ACL feature; GET routes and one dev-only PUT route
 - **New content, Phase 2:** studio (inspector editing), share-link route + token minting, version snapshots + diff view; `.ai/skills/om-ux-heuristics/` and `.ai/skills/om-ux-copy/`; schema v1 extensions (findings, copy files)
 - **New content, Phase 3:** `.ai/skills/om-ux-flows/` + flow-outline schema; draft-generation path in `om-ds-mockup`; `yarn ds:mockups:promote` CLI bridge to the scaffold command
@@ -76,6 +77,16 @@ Three independently shippable phases inside the `design_system` module, plus a c
 | Expressiveness | Deliberately limited | Unlimited |
 
 TSX wins only on expressiveness, and unlimited expressiveness is precisely the failure mode: a mockup that needs arbitrary code is a prototype, not a mockup. The `placeholder` block is the pressure valve for "this component doesn't exist yet" without opening the door to freehand markup. Every later phase capitalizes on the data decision — the studio, the diff, the heuristic critique, and the scaffold promotion are all walks over the same tree.
+
+### Coexistence with interactive prototypes
+
+The composer and the interactive-prototype skill serve different review questions and have disjoint storage contracts:
+
+- `om-ds-mockup` owns design-system composition, registry validation, status annotations, and promotion to implementation. Its artifacts remain zod-validated `.ai/mockups/<slug>.mockup.json` documents.
+- `om-mockup-prototype` is limited to backend/backoffice journeys that specifically require click-through behavior, presentation walkthroughs, or anchored asynchronous feedback. Its static artifacts live under `.ai/prototypes/<slug>/`, carry an explicit non-production warning, and cannot be loaded, validated, shared, or promoted by the composer.
+- Generic "mock this screen" requests route to `om-ds-mockup`; portal, storefront, and public frontend requests route to their surface-specific workflows. The prototype skill must not claim those surfaces.
+
+Storage names are intentionally distinct: **mockup** means registry-backed DS composition, while **prototype** means a disposable interactive flow model. If an old or unmerged freehand directory exists under `.ai/mockups/<slug>/`, move it to `.ai/prototypes/<slug>/` and update references before using the prototype workflow. Registry-backed `*.mockup.json` files never move.
 
 ### File locations and discovery (Phase 1)
 
@@ -380,4 +391,5 @@ Each phase is an independent `om-implement-spec` work order with its own gates; 
 
 ## Changelog
 
+- **2026-08-02** — Clarified coexistence with the separate `om-mockup-prototype` workflow: registry-backed DS compositions keep exclusive ownership of `.ai/mockups/*.mockup.json`, while interactive backend/backoffice click-throughs live under `.ai/prototypes/<slug>/`; documented routing, naming, and migration for legacy freehand directories.
 - **2026-07-05** — Initial spec, phased: **Phase 1** — zod-schema'd `*.mockup.json` documents (`.ai/mockups/` + module-local) composed from gallery registry entries; live renderer with a review-style annotation layer — margin status rail + side ledger, content never outlined (implemented/om-default/proposed, brand-violet for proposals, no amber); registry-reference integrity CI gate; per-status ledger counts and ephemeral-env screenshots; `om-ds-mockup` skill; `design_system.mockups.manage` with dev-only annotation write-back. **Phase 2** — studio editing on the palette·canvas·inspector pattern over the same JSON (full-document PUT with hash precondition); tokenized read-only share links with enumerated security constraints; snapshot-based side-by-side diff; `om-ux-heuristics` (findings annotation type with severity + heuristic id + staleness hash) and `om-ux-copy` (four-locale i18n key emission). **Phase 3** — `om-ux-flows` flow outlines, outline-driven draft generation (draft-flagged, never auto-final), and `ds:mockups:promote` bridging reviewed mockups into `mercato module scaffold --with-ui --fields` input — completing the user-story-to-running-module loop, with the synthetic-user walkthrough spec as the post-implementation counterpart.

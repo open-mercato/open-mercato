@@ -13,7 +13,7 @@ import { login } from '@open-mercato/core/helpers/integration/auth'
  * `pointer-events-none` div discarded those clicks.
  *
  * Cluster G makes the chevron a real `IconButton` (DS primitive — never a raw
- * `<button>` per `.ai/lessons.md` line 192) that scrolls the inner sidebar
+ * `<button>` per `.ai/lessons/must-use-button-and-iconbutton-primitives-never-raw.md`) that scrolls the inner sidebar
  * container to top or bottom depending on which variant is currently rendered
  * (`down` = scroll to bottom, `up` = scroll to top after the user has reached
  * the bottom). Reduced-motion users get an instant scroll via the

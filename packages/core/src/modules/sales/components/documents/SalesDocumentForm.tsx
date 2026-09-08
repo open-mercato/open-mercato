@@ -59,6 +59,8 @@ import {
 import { AddressEditor, type AddressEditorDraft } from '@open-mercato/core/modules/customers/components/AddressEditor'
 import { useSalesChannelsEnabled } from '../useSalesChannelsEnabled'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { SalesOrderDraftLines, createSalesOrderLineDraft, type SalesOrderLineDraft } from './SalesOrderDraftLines'
+import { normalizeAddressDraft } from './normalizeAddressDraft'
 
 const logger = createLogger('sales')
 
@@ -102,6 +104,7 @@ export type SalesDocumentFormValues = {
   shippingAddressDraft?: AddressDraft
   billingAddressDraft?: AddressDraft
   comments?: string | null
+  lines?: SalesOrderLineDraft[]
 } & Record<string, unknown>
 
 type InboxPreFill = {
@@ -433,29 +436,6 @@ function parseCustomerOptions(items: unknown[], kind: 'person' | 'company'): Cus
   return parsed
 }
 
-function normalizeAddressDraft(draft?: AddressDraft | null): Record<string, unknown> | null {
-  if (!draft) return null
-  const normalized: Record<string, unknown> = {}
-  const assign = (key: keyof AddressDraft, target: string) => {
-    const value = draft[key]
-    if (typeof value === 'string' && value.trim().length) normalized[target] = value.trim()
-    if (typeof value === 'boolean') normalized[target] = value
-  }
-  assign('name', 'name')
-  assign('purpose', 'purpose')
-  assign('companyName', 'companyName')
-  assign('addressLine1', 'addressLine1')
-  assign('addressLine2', 'addressLine2')
-  assign('buildingNumber', 'buildingNumber')
-  assign('flatNumber', 'flatNumber')
-  assign('city', 'city')
-  assign('region', 'region')
-  assign('postalCode', 'postalCode')
-  assign('country', 'country')
-  assign('isPrimary', 'isPrimary')
-  return Object.keys(normalized).length ? normalized : null
-}
-
 type DocumentNumberFieldProps = CrudCustomFieldRenderProps & { t: Translator }
 
 type BillingAddressSectionFieldProps = CrudCustomFieldRenderProps & {
@@ -653,6 +633,8 @@ function BillingAddressSectionField({ values, setFormValue, t, addressesLoading,
                 t={t}
                 onChange={(next) => updateValue('billingAddressDraft', next)}
                 hidePrimaryToggle
+                showPhoneField
+                showTaxIdField
               />
               <SwitchField
                 containerClassName="col-span-2"
@@ -805,6 +787,7 @@ function CustomerGroupComponent({ values, setValue, t, customers, setCustomers, 
 
 export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind, inboxPreFill }: SalesDocumentFormProps) {
   const t = useT()
+  const { organizationId, tenantId } = useOrganizationScopeDetail()
   const { enabled: channelsEnabled } = useSalesChannelsEnabled()
   const [customers, setCustomers] = React.useState<CustomerOption[]>([])
   const [customerLoading, setCustomerLoading] = React.useState(false)
@@ -1264,6 +1247,8 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
                   t={t}
                   onChange={(next) => updateValue('shippingAddressDraft', next)}
                   hidePrimaryToggle
+                  showPhoneField
+                  showTaxIdField
                 />
                 <SwitchField
                   containerClassName="col-span-2"
@@ -1305,14 +1290,20 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
       type: 'textarea',
     },
     {
-      id: 'infoNote',
+      id: 'lines',
       label: '',
       type: 'custom',
-      component: () => (
-        <div className="rounded-lg border bg-muted/50 p-3 text-sm text-muted-foreground">
-          {t('sales.documents.form.nextStep', 'After creation you will add items, prices, and fulfillment details.')}
-        </div>
-      ),
+      rendersOwnError: true,
+      component: ({ value, error, values, setValue }) => values?.documentKind === 'order' ? (
+        <SalesOrderDraftLines
+          currencyCode={typeof values.currencyCode === 'string' ? values.currencyCode : defaultCurrency}
+          organizationId={organizationId ?? null}
+          tenantId={tenantId ?? null}
+          lines={Array.isArray(value) ? value as SalesOrderLineDraft[] : []}
+          error={error}
+          onChange={(lines) => setValue(lines)}
+        />
+      ) : null,
     },
   ], [
     addressFormat,
@@ -1321,6 +1312,9 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
     addressesLoading,
     channelsEnabled,
     currencyLabels,
+    defaultCurrency,
+    organizationId,
+    tenantId,
     fetchCurrencyOptions,
     loadAddresses,
     loadChannels,
@@ -1340,6 +1334,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
     },
     { id: 'channels-comments', title: '', column: 1, fields: channelsEnabled ? ['channelId', 'comments'] : ['comments'] },
     { id: 'currency', title: '', column: 2, fields: ['currencyCode'] },
+    { id: 'lines', title: '', column: 1, fields: ['lines'] },
     { id: 'shipping', title: '', column: 2, fields: ['shippingAddressSection'] },
     { id: 'billing', title: '', column: 2, fields: ['billingAddressSection'] },
     { id: 'custom', title: t('sales.documents.form.customFields', 'Custom fields'), column: 2, kind: 'customFields' },
@@ -1361,6 +1356,21 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
       channelId: inboxPreFill?.channelId || undefined,
       customerEntityId: inboxPreFill?.customerEntityId || undefined,
       comments: inboxPreFill?.comments || undefined,
+      lines: (inboxPreFill?.lineItems ?? []).map((item, index) => {
+        const unitPrice = Number(item.unitPrice ?? item.unitPriceGross ?? item.unitPriceNet ?? 0)
+        const quantity = Number(item.quantity ?? 1)
+        return createSalesOrderLineDraft({
+          kind: item.kind || (item.productId ? 'product' : 'service'),
+          productId: typeof item.productId === 'string' ? item.productId : undefined,
+          productVariantId: typeof item.productVariantId === 'string' ? item.productVariantId : undefined,
+          name: item.productName || item.name || `Line ${index + 1}`,
+          quantity: Number.isFinite(quantity) ? quantity : 1,
+          currencyCode: inboxPreFill?.currencyCode || defaultCurrency,
+          unitPriceNet: Number.isFinite(unitPrice) ? unitPrice : 0,
+          unitPriceGross: Number.isFinite(unitPrice) ? unitPrice : 0,
+          metadata: item.productId ? undefined : { customLine: true, lineMode: 'custom' },
+        })
+      }),
       useCustomShipping: false,
       useCustomBilling: false,
       sameAsShipping: true,
@@ -1398,6 +1408,21 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
       }
       if (documentKind === 'order') {
         payload.orderNumber = documentNumber
+        const lines = Array.isArray(base.lines) ? base.lines : []
+        if (lines.length === 0) {
+          const message = t('sales.orders.linesRequired', 'Add at least one line item before creating the order.')
+          throw createCrudFormError(message, { lines: message })
+        }
+        payload.lines = lines.map((line) => {
+          const {
+            orderId: _orderId,
+            quoteId: _quoteId,
+            organizationId: _organizationId,
+            tenantId: _tenantId,
+            ...linePayload
+          } = line.payload
+          return { ...linePayload, currencyCode: linePayload.currencyCode || payload.currencyCode }
+        })
       } else {
         payload.quoteNumber = documentNumber
       }

@@ -15,6 +15,7 @@ import { readEndpointRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/
 import { checkAuthRateLimit } from '@open-mercato/core/modules/auth/lib/rateLimitCheck'
 import { mapSecurityEmailUrlError, toSecurityEmailUrl } from '@open-mercato/shared/lib/url'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { emitAuthEvent } from '@open-mercato/core/modules/auth/events'
 
 const logger = createLogger('auth').child({ component: 'reset' })
 
@@ -57,6 +58,12 @@ export async function POST(req: Request) {
   if (!resReq) return NextResponse.json({ ok: true })
   const { user, token } = resReq
   const resetUrl = resetUrlTemplate.replace('__token__', token)
+  void emitAuthEvent('auth.password.reset.requested', {
+    id: String(user.id),
+    tenantId: user.tenantId ? String(user.tenantId) : null,
+    organizationId: user.organizationId ? String(user.organizationId) : null,
+    at: new Date().toISOString(),
+  }, { persistent: true }).catch(() => undefined)
 
   const { translate } = await resolveTranslations()
   const subject = translate('auth.email.resetPassword.subject', 'Reset your password')
