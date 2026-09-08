@@ -18,8 +18,7 @@ import { createQueue } from '../factory'
  *
  * Point it at a disposable instance: the suite obliterates the queues it creates.
  *
- * CI runs the same command in the `queue-deduplication-redis` job, which supplies the URL — and
- * asserts these tests actually ran, since a skipped suite exits 0.
+ * CI supplies the URL on the `test` job, so this runs there as part of the ordinary queue suite.
  */
 const redisUrl = process.env.QUEUE_TEST_REDIS_URL
 const describeWithRedis = redisUrl ? describe : describe.skip
@@ -29,9 +28,18 @@ describeWithRedis('Queue - async strategy deduplication (real BullMQ)', () => {
   const SETTLE_MS = 2500
 
   let queueName: string
+  let previousRedisUrl: string | undefined
 
   beforeAll(() => {
+    // Jest workers run test files one after another in a single process, so an unrestored
+    // env var here becomes a sibling suite's surprise.
+    previousRedisUrl = process.env.REDIS_URL
     process.env.REDIS_URL = redisUrl
+  })
+
+  afterAll(() => {
+    if (previousRedisUrl === undefined) delete process.env.REDIS_URL
+    else process.env.REDIS_URL = previousRedisUrl
   })
 
   beforeEach(() => {

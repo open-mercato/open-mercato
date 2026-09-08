@@ -35,8 +35,8 @@ yarn workspace @open-mercato/queue test
 yarn workspace @open-mercato/queue build
 
 # Exercise the async strategy against a real BullMQ instead of the mock. Skipped
-# unless QUEUE_TEST_REDIS_URL is set; point it at a disposable server. CI runs the
-# same command in the `queue-deduplication-redis` job.
+# unless QUEUE_TEST_REDIS_URL is set; point it at a disposable server. CI sets it on
+# the `test` job, where the suite runs as part of the ordinary queue tests.
 docker run -d --rm --name om-queue-test-redis -p 6579:6379 redis:7-alpine
 QUEUE_TEST_REDIS_URL=redis://127.0.0.1:6579/0 yarn workspace @open-mercato/queue test:redis
 ```

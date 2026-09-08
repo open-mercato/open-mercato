@@ -164,11 +164,11 @@ The latter is opt-in (`QUEUE_TEST_REDIS_URL`) because nothing else in the repo n
 an optional peer dependency, every other suite mocks Redis, and the Playwright lane runs
 `QUEUE_STRATEGY=local`. Removing the pass-through turns it red, so it has teeth.
 
-CI runs it as the `queue-deduplication-redis` job — its own Redis-service lane, modelled on
-`documents-multi-instance`, and part of the `merge-coverage` gate. Because a skipped Jest suite exits
-0, the step asserts on jest's JSON output that the tests actually ran rather than trusting the exit
-code; an opt-in suite in a lane built to run it would otherwise be free to go green having proved
-nothing.
+CI supplies the URL through a Redis service on the existing `test` job, so the suite runs there as
+part of the ordinary queue tests rather than in a lane of its own. `documents-multi-instance` is not
+the precedent to copy here despite the surface similarity: it needs its own Docker-capable runner
+because it starts its containers with testcontainers, whereas one plain service container is
+something the shared job can declare — as two other workflows already do on the same runner.
 
 `yarn workspace @open-mercato/queue test` — 126 tests, plus 2 skipped without a Redis URL. The local
 deduplication suite covers: a burst of ten

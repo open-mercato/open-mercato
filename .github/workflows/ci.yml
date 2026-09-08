@@ -546,10 +546,33 @@ jobs:
       needs.audit-scope.result == 'success' &&
       (needs.audit.result == 'success' || needs.audit.result == 'skipped') &&
       needs.lint.result == 'success'
+    services:
+      # `@open-mercato/queue`'s deduplication suite is handed to BullMQ verbatim, so the
+      # rest of its tests — which mock BullMQ — prove the options reach `queue.add` and
+      # nothing more. The guarantee callers rely on is BullMQ's own behaviour, and a
+      # semantic change behind an unchanged option name would pass both the mock and the
+      # installed-BullMQ name guard. One server makes that suite run for real.
+      #
+      # No other suite reaches for a default localhost Redis (they all mock ioredis,
+      # bullmq or the connection helper), so this changes nothing else in the job.
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        # Without a health gate the first enqueue can beat the server's startup and fail
+        # the job for a reason that has nothing to do with the change under test.
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
     env:
       # app typecheck (tsc --noEmit on the full Next.js app) peaks at ~4 GB;
       # raise the heap so it does not OOM on cache-miss runs.
       NODE_OPTIONS: --max-old-space-size=5120
+      # Opts the queue's real-BullMQ deduplication suite in; it skips itself when unset,
+      # which is what keeps it out of every environment that has no Redis.
+      QUEUE_TEST_REDIS_URL: redis://127.0.0.1:6379/0
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -764,99 +787,6 @@ jobs:
 
       - name: Run real two-sidecar durability regression
         run: yarn workspace @open-mercato/documents test:multi-instance
-
-  # ── Queue deduplication against a real BullMQ ──────────────────────────────
-  # `EnqueueOptions.deduplication` is handed to BullMQ verbatim, and the queue's
-  # standard Jest suite runs against a mocked BullMQ — so it proves the options
-  # reach `queue.add` and nothing more. The guarantee callers rely on is BullMQ's
-  # own behaviour: coalesce the burst, then run once more with the last payload.
-  # A semantic change behind an unchanged option name would pass both the mock and
-  # the installed-BullMQ name guard, and the failure is silent (unknown job options
-  # are ignored, so every enqueue keeps succeeding while coalescing stops).
-  #
-  # Runs here rather than inside the `test` job because it needs a Redis service and
-  # `bullmq` is an optional peer dependency: the suite must stay skippable wherever
-  # no server is configured. Same shape as documents-multi-instance above.
-  queue-deduplication-redis:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    needs: [prepare, audit-scope, audit, lint]
-    if: |
-      always() &&
-      needs.prepare.result == 'success' &&
-      needs.audit-scope.result == 'success' &&
-      (needs.audit.result == 'success' || needs.audit.result == 'skipped') &&
-      needs.lint.result == 'success'
-    services:
-      redis:
-        image: redis:7-alpine
-        ports:
-          - 6379:6379
-        # Without a health gate the first enqueue can beat the server's startup and
-        # fail the job for a reason that has nothing to do with the change under test.
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 10
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v7
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 24
-
-      - name: Enable Corepack
-        run: corepack enable
-
-      - name: Cache Yarn packages
-        uses: actions/cache@v6
-        with:
-          path: .yarn/cache
-          key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
-          restore-keys: yarn-${{ runner.os }}-
-
-      - name: Cache node_modules
-        id: nm-cache
-        uses: actions/cache@v6
-        with:
-          path: |
-            node_modules
-            packages/*/node_modules
-            apps/*/node_modules
-          key: node-modules-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
-
-      - name: Install dependencies
-        if: steps.nm-cache.outputs.cache-hit != 'true'
-        run: yarn install --immutable
-
-      - name: Download build artifacts
-        uses: actions/download-artifact@v8
-        with:
-          name: build-artifacts
-
-      - name: Run deduplication regression against a real BullMQ
-        env:
-          # The suite skips itself when this is unset, which is what keeps it out of
-          # every other lane. Setting it here is what makes this job meaningful.
-          QUEUE_TEST_REDIS_URL: redis://127.0.0.1:6379/0
-        # A skipped suite exits 0, so this lane could go green having proved nothing —
-        # the silent-skip failure this workflow has been bitten by before (#3779, #4527).
-        # Assert the tests actually ran rather than trusting the exit code.
-        # `--outputFile` is resolved against jest's cwd, which `yarn workspace` puts inside
-        # packages/queue — hence the absolute path, so the check reads the file it wrote.
-        run: |
-          yarn workspace @open-mercato/queue test:redis --json --outputFile="${{ runner.temp }}/jest-redis-results.json"
-          node -e "
-            const results = require('${{ runner.temp }}/jest-redis-results.json')
-            if (results.numPendingTests > 0 || results.numPassedTests === 0) {
-              console.error('Queue deduplication suite skipped instead of running — this lane exists to run it.')
-              console.error(JSON.stringify({ passed: results.numPassedTests, pending: results.numPendingTests }))
-              process.exit(1)
-            }
-          "
 
   # ── Integration tests ───────────────────────────────────────────────────────
   # Boots an ephemeral app server and runs the Playwright suite.
@@ -1081,7 +1011,7 @@ jobs:
   # On push: downloads per-shard artifacts, merges coverage reports, writes summary.
   merge-coverage:
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    needs: [prepare, test, documents-multi-instance, queue-deduplication-redis, ephemeral-integration]
+    needs: [prepare, test, documents-multi-instance, ephemeral-integration]
     if: needs.prepare.outputs.shard_matrix != '["none"]'
     steps:
       - name: Checkout repository
