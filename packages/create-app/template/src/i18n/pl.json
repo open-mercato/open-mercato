@@ -1084,6 +1084,8 @@
   "ui.rating.summary.ariaLabel": "{value} z {max}",
   "ui.recordNotFound.backToList": "Powrót do listy",
   "ui.rowActions.openActions": "Otwórz akcje",
+  "ui.sectionHeader.collapse": "Zwiń sekcję {title}",
+  "ui.sectionHeader.expand": "Rozwiń sekcję {title}",
   "ui.sidebar.chevron.scrollBottom": "Przewiń do dołu",
   "ui.sidebar.chevron.scrollTop": "Przewiń do góry",
   "ui.spinner.ariaLabel": "Ładowanie",

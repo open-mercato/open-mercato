@@ -1084,6 +1084,8 @@
   "ui.rating.summary.ariaLabel": "{value} von {max}",
   "ui.recordNotFound.backToList": "Zurück zur Liste",
   "ui.rowActions.openActions": "Aktionen öffnen",
+  "ui.sectionHeader.collapse": "Abschnitt {title} einklappen",
+  "ui.sectionHeader.expand": "Abschnitt {title} ausklappen",
   "ui.sidebar.chevron.scrollBottom": "Nach unten scrollen",
   "ui.sidebar.chevron.scrollTop": "Nach oben scrollen",
   "ui.spinner.ariaLabel": "Wird geladen",
