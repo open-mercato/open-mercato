@@ -2333,6 +2333,7 @@
   "customers.people.form.phoneDuplicateNotice": "This phone number is already assigned to {{name}}.",
   "customers.people.form.preferredName": "Preferred name",
   "customers.people.form.primaryEmail": "Primary email",
+  "customers.people.form.primaryEmail.invalid": "Enter a valid email address (e.g. name@example.com)",
   "customers.people.form.primaryEmailPlaceholder": "name@example.com",
   "customers.people.form.primaryPhone": "Primary phone",
   "customers.people.form.primaryPhone.invalid": "Enter a valid phone number with country code (e.g. +1 212 555 1234)",

@@ -2333,6 +2333,7 @@
   "customers.people.form.phoneDuplicateNotice": "Diese Telefonnummer ist bereits {{name}} zugeordnet.",
   "customers.people.form.preferredName": "Bevorzugter Name",
   "customers.people.form.primaryEmail": "E-Mail",
+  "customers.people.form.primaryEmail.invalid": "Geben Sie eine gültige E-Mail-Adresse ein (z. B. name@beispiel.de)",
   "customers.people.form.primaryEmailPlaceholder": "name@beispiel.de",
   "customers.people.form.primaryPhone": "Telefon",
   "customers.people.form.primaryPhone.invalid": "Enter a valid phone number (digits, spaces, dashes, parentheses)",
