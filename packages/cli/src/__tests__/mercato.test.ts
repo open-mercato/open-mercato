@@ -395,16 +395,25 @@ describe('module command exit signal propagation', () => {
   })
 
   it('still reports 1 when a command throws, regardless of process.exitCode', async () => {
+    process.exitCode = 7
+
     registerCliModules([
       {
         id: 'reporting',
-        cli: [{ command: 'export', run: jest.fn().mockRejectedValue(new Error('export failed')) }],
+        cli: [{
+          command: 'export',
+          run: jest.fn().mockImplementation(async () => {
+            process.exitCode = 3
+            throw new Error('export failed')
+          }),
+        }],
       } as any,
     ])
 
     const exitCode = await run(['node', 'mercato', 'reporting', 'export'])
 
     expect(exitCode).toBe(1)
+    expect(process.exitCode).toBe(7)
   })
 })
 
