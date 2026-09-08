@@ -4,9 +4,23 @@
 
 import * as React from 'react'
 import { act, render, screen, waitFor } from '@testing-library/react'
+import type { CustomerAuthContext } from '@open-mercato/shared/modules/customer-auth'
 import { PortalShell } from '../PortalShell'
 import { PortalProvider } from '../PortalContext'
 import { PortalLayoutShell } from '../PortalLayoutShell'
+
+const signedInAuth: CustomerAuthContext = {
+  sub: 'customer-1',
+  sid: 'session-1',
+  type: 'customer',
+  tenantId: 'tenant-1',
+  orgId: 'org-1',
+  email: 'ada@example.com',
+  displayName: 'Ada Lovelace',
+  customerEntityId: null,
+  personEntityId: null,
+  resolvedFeatures: [],
+}
 
 const apiCallMock = jest.fn()
 
@@ -188,18 +202,7 @@ describe('PortalShell', () => {
     render(
       <PortalProvider
         orgSlug="acme"
-        initialAuth={{
-          sub: 'customer-1',
-          sid: 'session-1',
-          type: 'customer',
-          tenantId: 'tenant-1',
-          orgId: 'org-1',
-          email: 'ada@example.com',
-          displayName: 'Ada Lovelace',
-          customerEntityId: null,
-          personEntityId: null,
-          resolvedFeatures: [],
-        } as any}
+        initialAuth={signedInAuth}
         initialTenant={{ tenantId: 'tenant-1', organizationId: 'org-1', organizationName: 'Acme' }}
       >
         <PortalShell authenticated={false} orgSlug="acme" organizationName="Acme">
@@ -273,18 +276,7 @@ describe('PortalShell', () => {
         authenticated
         userName="Ada Lovelace"
         userEmail="ada@example.com"
-        customerAuth={{
-          sub: 'customer-1',
-          sid: 'session-1',
-          type: 'customer',
-          tenantId: 'tenant-1',
-          orgId: 'org-1',
-          email: 'ada@example.com',
-          displayName: 'Ada Lovelace',
-          customerEntityId: null,
-          personEntityId: null,
-          resolvedFeatures: [],
-        } as any}
+        customerAuth={signedInAuth}
       >
         <div>Dashboard</div>
       </PortalLayoutShell>,

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { getTokenContext } from '@open-mercato/core/helpers/integration/generalFixtures'
@@ -17,8 +18,9 @@ import { getTokenContext } from '@open-mercato/core/helpers/integration/generalF
 test.describe('TC-AUTH-064: portal root keeps the authenticated shell', () => {
   test('landing on /{orgSlug}/portal with a session redirects to the dashboard under the authenticated header', async ({ page, request }) => {
     // Sharded runs can start within the same millisecond, so the timestamp
-    // alone is not a unique fixture key.
-    const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+    // alone is not a unique fixture key. The suffix seeds the fixture password
+    // too, so it comes from the CSPRNG rather than Math.random().
+    const stamp = `${Date.now()}-${randomUUID().slice(0, 8)}`
     const customerEmail = `qa-auth-064-${stamp}@test.local`
     const password = `Password${stamp}!`
 
