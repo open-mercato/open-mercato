@@ -2810,6 +2810,7 @@
   "customers.timeline.planned.reschedule": "일정 변경",
   "customers.timeline.planned.schedule": "예약",
   "customers.timeline.planned.title": "예정된 활동",
+  "customers.timeline.planned.tomorrow": "내일 {{time}}",
   "customers.timeline.planned.upcoming": "다가오는 일정",
   "customers.timeline.unpin": "고정 해제",
   "customers.widgets.common.unknown": "알 수 없음",
