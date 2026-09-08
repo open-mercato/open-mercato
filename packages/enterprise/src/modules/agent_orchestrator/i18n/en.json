@@ -1,5 +1,5 @@
 {
-  "agent_orchestrator.agentDetail.actions.codeOnly": "Managed in code for now — UI wiring needs backend.",
+  "agent_orchestrator.agentDetail.actions.codeOnly": "This agent is defined by its definition file in the repository — its prompt, tools, model and outcome schema all come from that file, which is the single source of truth. Configuring or pausing an agent from the UI is planned for the next version of Agent Orchestrator; for now, edit the definition in code and redeploy.",
   "agent_orchestrator.agentDetail.actions.configure": "Configure",
   "agent_orchestrator.agentDetail.actions.pause": "Pause",
   "agent_orchestrator.agentDetail.activity.facetAll": "All",
@@ -137,7 +137,7 @@
   "agent_orchestrator.agentDetail.tokens.tools": "Tools",
   "agent_orchestrator.agentDetail.tokens.totalTokens": "tokens total",
   "agent_orchestrator.agentDetail.viewSkill": "View skill {skill}",
-  "agent_orchestrator.agents.actions.codeOnly": "Agents are defined in code for now — UI creation needs backend.",
+  "agent_orchestrator.agents.actions.codeOnly": "Agents are defined by definition files in the repository — that file is the single source of truth for an agent, and adding one means adding a definition to the codebase. Creating, duplicating and disabling agents from the UI is planned for the next version of Agent Orchestrator.",
   "agent_orchestrator.agents.actions.export": "Export",
   "agent_orchestrator.agents.actions.newAgent": "New agent",
   "agent_orchestrator.agents.filter.all": "All",

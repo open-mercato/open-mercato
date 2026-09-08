@@ -1,5 +1,5 @@
 {
-  "agent_orchestrator.agentDetail.actions.codeOnly": "Gestionado en código por ahora — la integración desde la UI requiere backend.",
+  "agent_orchestrator.agentDetail.actions.codeOnly": "Este agente se define mediante su archivo de definición en el repositorio: su prompt, herramientas, modelo y esquema de resultado provienen de ese archivo, que es la única fuente de verdad. Configurar o pausar un agente desde la interfaz está planificado para la próxima versión de Agent Orchestrator; por ahora, edita la definición en el código y vuelve a desplegar.",
   "agent_orchestrator.agentDetail.actions.configure": "Configurar",
   "agent_orchestrator.agentDetail.actions.pause": "Pausar",
   "agent_orchestrator.agentDetail.activity.facetAll": "All",
@@ -137,7 +137,7 @@
   "agent_orchestrator.agentDetail.tokens.tools": "Herramientas",
   "agent_orchestrator.agentDetail.tokens.totalTokens": "tokens en total",
   "agent_orchestrator.agentDetail.viewSkill": "Ver la habilidad {skill}",
-  "agent_orchestrator.agents.actions.codeOnly": "Los agentes se definen en código por ahora — la creación desde la UI requiere backend.",
+  "agent_orchestrator.agents.actions.codeOnly": "Los agentes se definen mediante archivos de definición en el repositorio: ese archivo es la única fuente de verdad de un agente, y añadir uno significa añadir una definición al código. Crear, duplicar y desactivar agentes desde la interfaz está planificado para la próxima versión de Agent Orchestrator.",
   "agent_orchestrator.agents.actions.export": "Exportar",
   "agent_orchestrator.agents.actions.newAgent": "Nuevo agente",
   "agent_orchestrator.agents.filter.all": "Todos",

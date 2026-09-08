@@ -5,6 +5,7 @@ import { CircleCheck, Clock, Coins, Cpu, Hash, Replace, SlidersHorizontal } from
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
+import { SimpleTooltip } from '@open-mercato/ui/primitives/tooltip'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@open-mercato/ui/primitives/select'
 import { TagsInput } from '@open-mercato/ui/backend/inputs/TagsInput'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -54,6 +55,10 @@ export function AgentHeaderCard({
   const overridePct = metrics.overrideRate == null ? null : Math.round(metrics.overrideRate * 100)
   const overrideGate = overridePct != null && overridePct > 30
   const noData = t('agent_orchestrator.agents.list.pending.noData', 'No data')
+  const codeOnly = t(
+    'agent_orchestrator.agentDetail.actions.codeOnly',
+    'This agent is defined by its definition file in the repository — its prompt, tools, model and outcome schema all come from that file, which is the single source of truth. Configuring or pausing an agent from the UI is planned for the next version of Agent Orchestrator; for now, edit the definition in code and redeploy.',
+  )
 
   return (
     <div className="overflow-hidden rounded-xl border border-border bg-card">
@@ -108,12 +113,25 @@ export function AgentHeaderCard({
           </div>
           {previewUi ? (
             <>
-              <Button variant="outline" size="sm" onClick={() => flash(t('agent_orchestrator.agentDetail.actions.codeOnly', 'Managed in code for now — UI wiring needs backend.'), 'info')}>
-                {t('agent_orchestrator.agentDetail.actions.pause', 'Pause')}
-              </Button>
-              <Button size="sm" onClick={onConfigure}>
-                {t('agent_orchestrator.agentDetail.actions.configure', 'Configure')}
-              </Button>
+              {/* Pause had no handler beyond a toast, so it is DISABLED rather
+                  than clickable: a control that looks live and then explains it
+                  is not has already misled whoever pressed it. The span carries
+                  the tooltip because a disabled button receives no pointer
+                  events of its own. Configure stays enabled — it opens a real
+                  drawer showing the target UX, whose Save is disabled for the
+                  same reason. */}
+              <SimpleTooltip content={codeOnly} side="bottom">
+                <span className="inline-flex">
+                  <Button variant="outline" size="sm" disabled>
+                    {t('agent_orchestrator.agentDetail.actions.pause', 'Pause')}
+                  </Button>
+                </span>
+              </SimpleTooltip>
+              <SimpleTooltip content={codeOnly} side="bottom">
+                <Button size="sm" onClick={onConfigure}>
+                  {t('agent_orchestrator.agentDetail.actions.configure', 'Configure')}
+                </Button>
+              </SimpleTooltip>
             </>
           ) : null}
         </div>

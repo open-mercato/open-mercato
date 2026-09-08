@@ -1,5 +1,5 @@
 {
-  "agent_orchestrator.agentDetail.actions.codeOnly": "Zarządzane w kodzie — wpięcie z UI wymaga backendu.",
+  "agent_orchestrator.agentDetail.actions.codeOnly": "Ten agent jest definiowany przez plik definicji w repozytorium — jego prompt, narzędzia, model i schemat wyniku pochodzą z tego pliku, który jest jedynym źródłem prawdy. Konfigurowanie i wstrzymywanie agenta z poziomu UI jest planowane w kolejnej wersji Agent Orchestratora; na razie zmień definicję w kodzie i wdróż ponownie.",
   "agent_orchestrator.agentDetail.actions.configure": "Konfiguruj",
   "agent_orchestrator.agentDetail.actions.pause": "Wstrzymaj",
   "agent_orchestrator.agentDetail.activity.facetAll": "All",
@@ -137,7 +137,7 @@
   "agent_orchestrator.agentDetail.tokens.tools": "Narzędzia",
   "agent_orchestrator.agentDetail.tokens.totalTokens": "tokenów łącznie",
   "agent_orchestrator.agentDetail.viewSkill": "Zobacz umiejętność {skill}",
-  "agent_orchestrator.agents.actions.codeOnly": "Agenci są na razie definiowani w kodzie — tworzenie z UI wymaga backendu.",
+  "agent_orchestrator.agents.actions.codeOnly": "Agenci są definiowani przez pliki definicji w repozytorium — taki plik jest jedynym źródłem prawdy o agencie, a dodanie agenta oznacza dodanie definicji do kodu. Tworzenie, duplikowanie i wyłączanie agentów z poziomu UI jest planowane w kolejnej wersji Agent Orchestratora.",
   "agent_orchestrator.agents.actions.export": "Eksport",
   "agent_orchestrator.agents.actions.newAgent": "Nowy agent",
   "agent_orchestrator.agents.filter.all": "Wszyscy",

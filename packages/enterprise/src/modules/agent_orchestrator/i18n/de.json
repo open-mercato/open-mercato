@@ -1,5 +1,5 @@
 {
-  "agent_orchestrator.agentDetail.actions.codeOnly": "Derzeit im Code verwaltet — die UI-Anbindung erfordert ein Backend.",
+  "agent_orchestrator.agentDetail.actions.codeOnly": "Dieser Agent wird durch seine Definitionsdatei im Repository bestimmt — Prompt, Werkzeuge, Modell und Ergebnisschema stammen alle aus dieser Datei, die die einzige Quelle der Wahrheit ist. Das Konfigurieren oder Pausieren eines Agenten über die UI ist für die nächste Version des Agent Orchestrator geplant; bearbeiten Sie vorerst die Definition im Code und deployen Sie erneut.",
   "agent_orchestrator.agentDetail.actions.configure": "Konfigurieren",
   "agent_orchestrator.agentDetail.actions.pause": "Pausieren",
   "agent_orchestrator.agentDetail.activity.facetAll": "All",
@@ -137,7 +137,7 @@
   "agent_orchestrator.agentDetail.tokens.tools": "Werkzeuge",
   "agent_orchestrator.agentDetail.tokens.totalTokens": "Tokens gesamt",
   "agent_orchestrator.agentDetail.viewSkill": "Fähigkeit {skill} anzeigen",
-  "agent_orchestrator.agents.actions.codeOnly": "Agenten werden derzeit im Code definiert — die UI-Erstellung erfordert ein Backend.",
+  "agent_orchestrator.agents.actions.codeOnly": "Agenten werden durch Definitionsdateien im Repository bestimmt — eine solche Datei ist die einzige Quelle der Wahrheit für einen Agenten, und einen Agenten hinzuzufügen heißt, eine Definition zum Code hinzuzufügen. Das Erstellen, Duplizieren und Deaktivieren von Agenten über die UI ist für die nächste Version des Agent Orchestrator geplant.",
   "agent_orchestrator.agents.actions.export": "Exportieren",
   "agent_orchestrator.agents.actions.newAgent": "Neuer Agent",
   "agent_orchestrator.agents.filter.all": "Alle",

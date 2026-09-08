@@ -15,6 +15,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { StatusBadge, type StatusMap } from '@open-mercato/ui/primitives/status-badge'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { SimpleTooltip } from '@open-mercato/ui/primitives/tooltip'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import {
   mapAgent,
@@ -93,6 +94,10 @@ export default function AgentsRegistryPage() {
   const [search, setSearch] = React.useState('')
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const previewUi = isAgentPreviewUiEnabled()
+  const codeOnly = t(
+    'agent_orchestrator.agents.actions.codeOnly',
+    'Agents are defined by definition files in the repository — that file is the single source of truth for an agent, and adding one means adding a definition to the codebase. Creating, duplicating and disabling agents from the UI is planned for the next version of Agent Orchestrator.',
+  )
 
   React.useEffect(() => {
     let cancelled = false
@@ -403,9 +408,16 @@ export default function AgentsRegistryPage() {
                 <Download className="mr-2 size-4" />
                 {t('agent_orchestrator.agents.actions.export', 'Export')}
               </Button>
-              <Button size="sm" onClick={() => flash(t('agent_orchestrator.agents.actions.codeOnly', 'Agents are defined in code for now — UI creation needs backend.'), 'info')}>
-                {t('agent_orchestrator.agents.actions.newAgent', 'New agent')}
-              </Button>
+              {/* Disabled, not clickable-then-apologetic: there is no create
+                  path to reach. The span carries the tooltip because a disabled
+                  button receives no pointer events. */}
+              <SimpleTooltip content={codeOnly} side="bottom">
+                <span className="inline-flex">
+                  <Button size="sm" disabled>
+                    {t('agent_orchestrator.agents.actions.newAgent', 'New agent')}
+                  </Button>
+                </span>
+              </SimpleTooltip>
             </div>
           ) : null}
         </div>
@@ -486,8 +498,8 @@ export default function AgentsRegistryPage() {
                   { id: 'playground', label: t('agent_orchestrator.agents.list.openPlayground', 'Open in playground'), onSelect: () => router.push(`/backend/playground?agent=${encodeURIComponent(row.id)}`) },
                   ...(previewUi
                     ? [
-                        { id: 'duplicate', label: t('agent_orchestrator.agents.list.actions.duplicate', 'Duplicate'), onSelect: () => flash(t('agent_orchestrator.agents.actions.codeOnly', 'Agents are defined in code for now — UI creation needs backend.'), 'info') },
-                        { id: 'disable', label: t('agent_orchestrator.agents.list.actions.disable', 'Disable'), destructive: true, onSelect: () => flash(t('agent_orchestrator.agents.actions.codeOnly', 'Agents are defined in code for now — UI creation needs backend.'), 'info') },
+                        { id: 'duplicate', label: t('agent_orchestrator.agents.list.actions.duplicate', 'Duplicate'), onSelect: () => flash(codeOnly, 'info') },
+                        { id: 'disable', label: t('agent_orchestrator.agents.list.actions.disable', 'Disable'), destructive: true, onSelect: () => flash(codeOnly, 'info') },
                       ]
                     : []),
                 ]}

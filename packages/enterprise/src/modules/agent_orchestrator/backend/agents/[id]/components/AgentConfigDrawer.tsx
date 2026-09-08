@@ -5,6 +5,7 @@ import { Info } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription, DrawerBody, DrawerFooter, DrawerClose } from '@open-mercato/ui/primitives/drawer'
+import { SimpleTooltip } from '@open-mercato/ui/primitives/tooltip'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { AgentDetailView } from '../../../../components/types'
 import { AutonomySegmented, ConfigField, NoticeBanner, SectionBand } from './workspacePrimitives'
@@ -26,7 +27,10 @@ export function AgentConfigDrawer({
 }) {
   const t = useT()
   const defaultValue = t('agent_orchestrator.agentDetail.defaultValue', 'Default')
-  const codeOnly = t('agent_orchestrator.agentDetail.actions.codeOnly', 'Managed in code for now — UI wiring needs backend.')
+  const codeOnly = t(
+    'agent_orchestrator.agentDetail.actions.codeOnly',
+    'This agent is defined by its definition file in the repository — its prompt, tools, model and outcome schema all come from that file, which is the single source of truth. Configuring or pausing an agent from the UI is planned for the next version of Agent Orchestrator; for now, edit the definition in code and redeploy.',
+  )
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
       <DrawerContent side="right">
@@ -77,7 +81,14 @@ export function AgentConfigDrawer({
           <DrawerClose asChild>
             <Button variant="outline">{t('agent_orchestrator.proposal.actions.cancelEdit', 'Cancel')}</Button>
           </DrawerClose>
-          <Button disabled title={codeOnly}>{t('agent_orchestrator.agentDetail.config.save', 'Save')}</Button>
+          {/* The span carries the tooltip: a disabled button receives no
+              pointer events, so hanging it on the button hides the one
+              explanation of why Save cannot save. */}
+          <SimpleTooltip content={codeOnly} side="top">
+            <span className="inline-flex">
+              <Button disabled>{t('agent_orchestrator.agentDetail.config.save', 'Save')}</Button>
+            </span>
+          </SimpleTooltip>
         </DrawerFooter>
       </DrawerContent>
     </Drawer>
