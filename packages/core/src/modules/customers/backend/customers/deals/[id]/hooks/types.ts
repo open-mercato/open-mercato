@@ -6,29 +6,6 @@ export type DealAssociation = {
   isPrimary?: boolean
 }
 
-export type PersonAssociationApiRecord = {
-  id?: string
-  displayName?: string | null
-  display_name?: string | null
-  primaryEmail?: string | null
-  primary_email?: string | null
-  primaryPhone?: string | null
-  primary_phone?: string | null
-  personProfile?: { jobTitle?: string | null } | null
-  person_profile?: { jobTitle?: string | null } | null
-}
-
-export type CompanyAssociationApiRecord = {
-  id?: string
-  displayName?: string | null
-  display_name?: string | null
-  domain?: string | null
-  websiteUrl?: string | null
-  website_url?: string | null
-  companyProfile?: { domain?: string | null; websiteUrl?: string | null } | null
-  company_profile?: { domain?: string | null; websiteUrl?: string | null } | null
-}
-
 export type PipelineStageInfo = {
   id: string
   label: string

@@ -1,14 +1,14 @@
-import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { runRouteMutationGuards, type RouteMutationGuardResult } from '@open-mercato/shared/lib/crud/route-mutation-guard'
-import { getCustomerAuthFromRequest, type CustomerAuthContext } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
+import type { CustomerAuthContext } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
 import { WarrantyClaim } from '../../../../data/entities'
 import { WARRANTY_CLAIM_RESOURCE_KIND } from '../../../../commands/shared'
 import { loadPortalOwnedClaim } from '../../../../lib/portalClaimAccess'
+import { resolveLinkedCustomerAuth } from '../../../../lib/portalAuthGuard'
 
 export type PortalClaimActionRouteContext = { params: Promise<{ id: string }> }
 
@@ -34,13 +34,9 @@ export async function resolvePortalClaimId(ctx: PortalClaimActionRouteContext): 
 }
 
 export async function resolvePortalActionContext(req: Request): Promise<PortalClaimActionContext | Response> {
-  const auth = await getCustomerAuthFromRequest(req)
-  if (!auth) {
-    return NextResponse.json({ ok: false, error: 'warranty_claims.errors.unauthorized' }, { status: 401 })
-  }
-  if (!auth.customerEntityId) {
-    return NextResponse.json({ ok: false, error: 'warranty_claims.errors.customerAccountNotLinked' }, { status: 403 })
-  }
+  const authOrResponse = await resolveLinkedCustomerAuth(req)
+  if (authOrResponse instanceof Response) return authOrResponse
+  const auth = authOrResponse
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
   const commandAuth: NonNullable<AuthContext> = {

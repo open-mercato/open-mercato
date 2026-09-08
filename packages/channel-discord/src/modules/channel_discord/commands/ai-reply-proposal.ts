@@ -9,6 +9,7 @@ import {
   CHANNEL_DISCORD_AI_PROPOSAL_APPROVE_COMMAND_ID,
   CHANNEL_DISCORD_AI_PROPOSAL_DISMISS_COMMAND_ID,
 } from '../lib/ai-proposal-contract'
+import { DISCORD_CHANNEL_TYPE } from '../lib/channel-identity'
 import { CHANNEL_DISCORD_AI_PROPOSAL_MESSAGE_TYPE } from '../message-types'
 
 const logger = createLogger('channel_discord').child({ component: 'ai-reply-proposal' })
@@ -110,6 +111,12 @@ const approveProposalCommand: CommandHandler<ProposalActionInput, ApproveProposa
       input: {
         type: inbound.type,
         visibility: 'public' as const,
+        // Same waiver the automatic tier needs (#5601). The approve path composes
+        // the identical public reply through the identical hub command, so an
+        // absent channel type breaks it identically: the validator fails closed
+        // and demands an `externalEmail` from a snowflake. The human-approved
+        // send was as broken as the automatic one.
+        sourceChannelType: DISCORD_CHANNEL_TYPE,
         subject: (inbound.subject ?? 'Discord reply').toString().slice(0, 200) || 'Discord reply',
         body,
         bodyFormat: 'markdown' as const,

@@ -136,14 +136,6 @@ function saveButton(): HTMLButtonElement {
   return screen.getByRole('button', { name: 'Save Changes' }) as HTMLButtonElement
 }
 
-// The grid's column headers render a bare day-of-month, so a document-wide text query for a
-// duration also matches the calendar whenever the rendered week happens to contain that number.
-// Totals assertions therefore scope themselves to the footer row, which holds only the per-day
-// totals and the grand total (#5825).
-function totalsRow(): HTMLElement {
-  return screen.getByText('Daily Total').closest('tr') as HTMLElement
-}
-
 function typeAndBlur(input: HTMLInputElement, value: string): void {
   fireEvent.change(input, { target: { value } })
   fireEvent.blur(input, { target: { value } })
@@ -227,6 +219,12 @@ describe('MyTimesheetsPage — duration entry (#4846)', () => {
 
   it('stops counting a cell in the totals once its pending value becomes invalid', async () => {
     const inputs = await renderGrid()
+    // Scope to the totals row. An unscoped `getAllByText('2')` also matches the grid's
+    // day-of-month labels (`<div className="text-xs">{date.getDate()}</div>`), so it passed
+    // for the wrong reason whenever the rendered week excluded the 2nd — and failed outright
+    // whenever it included it, which is roughly one week in four.
+    const totalsRow = () => screen.getByText('Daily Total').closest('tr') as HTMLElement
+
     typeAndBlur(inputs[0], '2')
     await waitFor(() => expect(within(totalsRow()).getAllByText('2').length).toBeGreaterThan(0))
 

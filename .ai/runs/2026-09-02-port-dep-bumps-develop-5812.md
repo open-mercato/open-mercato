@@ -93,7 +93,14 @@ contains a day numbered 2, so no PR — this one included — can reach green un
 - [x] 4.1 Scope the timesheet totals assertion to the totals footer so a day-of-month header can never satisfy it (#5825) — 6a4a357dc9
 - [x] 4.2 Merge current develop into the branch — ebb3e29b2a
 - [x] 4.3 Re-run the full validation gate — clean, see below
-- [ ] 4.4 Push and drive every required check to green
+- [x] 4.4 Push and drive every required check to green — `e1e948d186`: 30 pass, 0 fail, 0 pending
+
+### Phase 5: Resolve the develop merge conflict (resume)
+
+The branch fell behind `develop` and went `CONFLICTING`, which blocks the merge queue.
+
+- [ ] 5.1 Merge current `develop` and resolve the conflicts
+- [ ] 5.2 Re-drive the required checks to green on the merge commit
 
 Gate result (local runner — no compose `app` container was up, so `yarn X` rather than
 `docker-exec.mjs X`): `build:packages` ✅ · `generate` ✅ (no working-tree churn) · `build:packages`
