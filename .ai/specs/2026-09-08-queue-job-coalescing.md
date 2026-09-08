@@ -24,11 +24,11 @@ does.
 ## The problem
 
 Nothing in the package could express "this job only needs to run once for this entity, no matter how
-many triggers arrive". `EnqueueOptions` was `{ delayMs? }`. A chain of workers keyed on one entity —
-recompute standings, recompute final standings, recompute placements, republish — therefore ran end
-to end once per trigger. Ten score reports in a minute ran the chain ten times and republished three
-to five times per score, all but the last of them computing state that was obsolete before it was
-written.
+many triggers arrive". `EnqueueOptions` was `{ delayMs? }`. So a job that recomputes something from
+current state — an order total, a cached projection, a search document, a realtime broadcast — ran
+once per trigger, and a chain of such jobs ran end to end once per trigger. Ten writes to one entity
+in a minute produced ten runs of everything downstream, all but the last computing state that was
+obsolete before it was written.
 
 The naive fix makes it worse. "Unique until finished" — deduplicate against any outstanding job,
 which is what SQS FIFO and Cloud Tasks offer, and what BullMQ does when only `id` is given — drops a

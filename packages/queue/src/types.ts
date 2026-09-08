@@ -169,7 +169,7 @@ export type QueueOptions<S extends QueueStrategyType, T = unknown> = S extends '
  * lost. Keying it on the entity being recomputed is what makes that useful:
  *
  * ```typescript
- * await queue.enqueue({ stageId }, { coalesce: { key: `stage-standings:${stageId}` } })
+ * await queue.enqueue({ orderId }, { coalesce: { key: `order-totals:${orderId}` } })
  * ```
  *
  * The word is deliberate. This is not "deduplication" in the drop-the-duplicate sense that SQS FIFO

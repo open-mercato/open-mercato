@@ -143,10 +143,10 @@ aggregate, a realtime broadcast — does not need to run once per trigger. It ne
 already outstanding for it:
 
 ```typescript
-await queue.enqueue({ stageId }, { coalesce: { key: `stage-standings:${stageId}` } })
+await queue.enqueue({ orderId }, { coalesce: { key: `order-totals:${orderId}` } })
 ```
 
-Ten score reports in a minute then produce at most two runs instead of ten.
+Ten line-item edits in a minute then produce at most two runs instead of ten.
 
 The guarantee is that **the last trigger always gets a run that sees it**. Triggers arriving while a
 job for the key is merely *waiting* add nothing, because that job has not read anything yet and will
@@ -163,10 +163,10 @@ A key passed at every call site is a key one call site can forget. Declare it on
 every enqueue inherits it:
 
 ```typescript
-export function getStandingsQueue() {
-  return createModuleQueue<StandingsJob>('standings', {
+export function getOrderTotalsQueue() {
+  return createModuleQueue<RecalculateTotals>('order-totals', {
     concurrency: 3,
-    coalesceBy: (payload) => `stage-standings:${payload.stageId}`,
+    coalesceBy: (payload) => `order-totals:${payload.orderId}`,
   })
 }
 ```

@@ -14,12 +14,13 @@ Flexible job queue runtime for local and distributed execution.
 
 ## Coalescing 🔁
 
-A job that recomputes something from current state — an aggregate, a projection, a realtime
-broadcast — does not need to run once per trigger. It needs to run once per *burst*, on the latest
-state. Give the enqueue a key and repeated triggers collapse into the job already outstanding for it:
+A job that recomputes something from current state — an order total, a cached projection, a search
+document, a realtime broadcast — does not need to run once per trigger. It needs to run once per
+*burst*, on the latest state. Give the enqueue a key and repeated triggers collapse into the job
+already outstanding for it:
 
 ```typescript
-await queue.enqueue({ stageId }, { coalesce: { key: `stage-standings:${stageId}` } })
+await queue.enqueue({ orderId }, { coalesce: { key: `order-totals:${orderId}` } })
 ```
 
 Ten triggers in a minute then produce at most two runs instead of ten — and none of them is lost.
@@ -30,8 +31,8 @@ follow-up run starts when it finishes, carrying the latest payload.
 Declare the key once on the queue and no call site can forget it:
 
 ```typescript
-const queue = createModuleQueue<StandingsJob>('standings', {
-  coalesceBy: (payload) => `stage-standings:${payload.stageId}`,
+const queue = createModuleQueue<RecalculateTotals>('order-totals', {
+  coalesceBy: (payload) => `order-totals:${payload.orderId}`,
 })
 ```
 

@@ -53,22 +53,22 @@ describeWithRedis('Queue - async strategy coalescing (real BullMQ)', () => {
    * arriving after the consumer has already started work.
    */
   async function runBurst(coalesced: boolean, viaQueueResolver = false): Promise<number[]> {
-    const consumer = createQueue<{ score: number }>(queueName, 'async', { concurrency: 1 })
-    const producer = createQueue<{ score: number }>(queueName, 'async', {
-      ...(viaQueueResolver ? { coalesceBy: () => 'stage-standings:42' } : {}),
+    const consumer = createQueue<{ revision: number }>(queueName, 'async', { concurrency: 1 })
+    const producer = createQueue<{ revision: number }>(queueName, 'async', {
+      ...(viaQueueResolver ? { coalesceBy: () => 'order-totals:42' } : {}),
     })
     const runs: number[] = []
 
     try {
       await consumer.process(async (job) => {
-        runs.push(job.payload.score)
+        runs.push(job.payload.revision)
         await new Promise((resolve) => { setTimeout(resolve, HANDLER_MS) })
       })
 
-      for (let score = 1; score <= 10; score++) {
+      for (let revision = 1; revision <= 10; revision++) {
         await producer.enqueue(
-          { score },
-          coalesced && !viaQueueResolver ? { coalesce: { key: 'stage-standings:42' } } : undefined,
+          { revision },
+          coalesced && !viaQueueResolver ? { coalesce: { key: 'order-totals:42' } } : undefined,
         )
         await new Promise((resolve) => { setTimeout(resolve, 30) })
       }
@@ -83,7 +83,7 @@ describeWithRedis('Queue - async strategy coalescing (real BullMQ)', () => {
   }
 
   // The guarantee the feature exists for: the run that is already in flight read its input before
-  // scores 2..10 arrived, so exactly one more run has to happen, and it has to see score 10.
+  // revisions 2..10 arrived, so exactly one more run has to happen, and it has to see revision 10.
   it('collapses a burst into one run and then one more carrying the last payload', async () => {
     expect(await runBurst(true)).toEqual([1, 10])
   }, 30_000)
