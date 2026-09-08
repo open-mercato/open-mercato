@@ -77,6 +77,15 @@ function runtimeStub() {
   return { runtime, reported }
 }
 
+/** What BullMQ hands its `failed` listener: `attemptsMade` already counts the attempt that just failed. */
+function failedJob(overrides: { attemptsMade: number; opts?: { attempts?: number } }) {
+  return {
+    id: 'job-1',
+    data: { id: 'job-1', payload: { runId: 'run-1' }, createdAt: new Date(0).toISOString() } satisfies QueuedJob<{ runId: string }>,
+    ...overrides,
+  }
+}
+
 function emit(event: string, ...args: unknown[]): void {
   for (const listener of capturedListeners.get(event) ?? []) listener(...args)
 }
@@ -120,7 +129,7 @@ describe('queue job failures are reported, not only logged', () => {
       await queue.close()
     })
 
-    it('reports the final drop when a job exhausts its attempts', async () => {
+    it('reports the final attempt as exhausted, exactly once', async () => {
       const { runtime, reported } = runtimeStub()
       registerTelemetryRuntime(runtime)
       const queue = createQueue<{ value: number }>('data-sync', 'local')
@@ -134,7 +143,15 @@ describe('queue job failures are reported, not only logged', () => {
 
       await queue.process(() => { throw new Error('permanent') }, { limit: 10 })
 
-      expect(reported.map((entry) => entry.code)).toEqual(['queue.job_failed', 'queue.job_exhausted'])
+      // One report, not two: a dead-lettered job would otherwise count twice in
+      // `om.errors` and raise two issues in a Sentry-shaped backend.
+      expect(reported).toEqual([
+        expect.objectContaining({
+          code: 'queue.job_exhausted',
+          message: 'permanent',
+          attributes: expect.objectContaining({ queue: 'data-sync', attemptNumber: 3 }),
+        }),
+      ])
 
       await queue.close()
     })
@@ -158,19 +175,49 @@ describe('queue job failures are reported, not only logged', () => {
       const queue = createQueue<{ runId: string }>('data-sync', 'async')
       await queue.process(async () => {})
 
-      const job: { id: string; data: QueuedJob<{ runId: string }> } = {
-        id: 'job-1',
-        data: { id: 'job-1', payload: { runId: 'run-1' }, createdAt: new Date(0).toISOString() },
-      }
-      emit('failed', job, new Error('handler rethrew after marking the run failed'))
+      emit('failed', failedJob({ attemptsMade: 1 }), new Error('handler rethrew after marking the run failed'))
 
       expect(reported).toEqual([
         expect.objectContaining({
           code: 'queue.job_failed',
           message: 'handler rethrew after marking the run failed',
-          attributes: expect.objectContaining({ queue: 'data-sync', jobId: 'job-1' }),
+          attributes: expect.objectContaining({ queue: 'data-sync', jobId: 'job-1', attemptNumber: 1 }),
         }),
       ])
+
+      await queue.close()
+    })
+
+    // The dead-letter signal is what an operator pages on, so the two strategies
+    // must agree on it: an alert written against one has to hold for the other.
+    it('reports the final attempt as exhausted, exactly once', async () => {
+      const { runtime, reported } = runtimeStub()
+      registerTelemetryRuntime(runtime)
+      const queue = createQueue<{ runId: string }>('data-sync', 'async')
+      await queue.process(async () => {})
+
+      emit('failed', failedJob({ attemptsMade: 3 }), new Error('permanent'))
+
+      expect(reported).toEqual([
+        expect.objectContaining({
+          code: 'queue.job_exhausted',
+          message: 'permanent',
+          attributes: expect.objectContaining({ queue: 'data-sync', jobId: 'job-1', attemptNumber: 3 }),
+        }),
+      ])
+
+      await queue.close()
+    })
+
+    it('honours a per-job attempts override rather than the strategy default', async () => {
+      const { runtime, reported } = runtimeStub()
+      registerTelemetryRuntime(runtime)
+      const queue = createQueue<{ runId: string }>('data-sync', 'async')
+      await queue.process(async () => {})
+
+      emit('failed', failedJob({ attemptsMade: 1, opts: { attempts: 1 } }), new Error('no retries wanted'))
+
+      expect(reported.map((entry) => entry.code)).toEqual(['queue.job_exhausted'])
 
       await queue.close()
     })

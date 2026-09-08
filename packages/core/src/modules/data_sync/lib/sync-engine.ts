@@ -56,16 +56,27 @@ function runEventAttributes(run: SyncRun, scope: SyncScope): TelemetrySpanAttrib
 }
 
 /**
+ * The `module.reason` shape a fingerprint must have to be used as a metric label.
+ *
+ * Enforced rather than documented because the value comes from an adapter, which
+ * third parties write: an interpolated `` `http_${status}_${url}` `` would open one
+ * `om.errors` series per URL, and metric labels — unlike attributes — never pass
+ * through redaction, so an interpolated customer email would egress unredacted.
+ */
+const ERROR_CODE_SHAPE = /^[a-z0-9_]+\.[a-z0-9_]+$/
+
+/**
  * The failure fingerprint for a dead-lettered item.
  *
  * An adapter that classifies its own failures sets `errorCode` on the item's data
- * (a stable `module.reason` token, never an interpolated string); the fallback is
- * a real code rather than `unknown`, so grouping works even for an adapter that
- * supplies nothing.
+ * (a stable `module.reason` token, never an interpolated string); anything that is
+ * not that shape falls back rather than being trusted, and the fallback is a real
+ * code rather than `unknown`, so grouping works even for an adapter that supplies
+ * nothing.
  */
 function itemErrorCode(data: Record<string, unknown>, fallback: string): string {
-  const code = data.errorCode
-  return typeof code === 'string' && code.trim().length > 0 ? code.trim() : fallback
+  const code = typeof data.errorCode === 'string' ? data.errorCode.trim() : ''
+  return ERROR_CODE_SHAPE.test(code) ? code : fallback
 }
 
 /**
@@ -386,6 +397,13 @@ export function createSyncEngine(deps: EngineDeps) {
     }
   }
 
+  /**
+   * The adapter-gated operational log. Deliberately carries no `code`: these rows
+   * are run status records, and every fault they narrate was already written — and
+   * therefore already reported — by a direct `level: 'error'` write that owns the
+   * fingerprint. A code here would double-report every fault for adapters that
+   * have `operationalTelemetry` on.
+   */
   async function writeOperationalLog(params: {
     integrationId: string
     runId: string
@@ -393,7 +411,6 @@ export function createSyncEngine(deps: EngineDeps) {
     message: string
     scope: SyncScope
     enabled: boolean
-    code?: string
     payload?: Record<string, unknown>
   }): Promise<void> {
     if (!params.enabled) return
@@ -404,7 +421,6 @@ export function createSyncEngine(deps: EngineDeps) {
         runId: params.runId,
         level: params.level,
         message: params.message,
-        code: params.code,
         payload: params.payload,
       },
       params.scope,
@@ -562,7 +578,6 @@ export function createSyncEngine(deps: EngineDeps) {
         message: error ?? 'Sync run failed',
         scope,
         enabled: operationalTelemetry,
-        code: RUN_FAILED_CODE,
         payload: {
           operationalStatus: 'failed',
           summary: error ?? 'The sync run failed.',

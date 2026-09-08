@@ -83,13 +83,17 @@ function importAdapter(batch: ImportBatch): DataSyncAdapter {
   } as unknown as DataSyncAdapter
 }
 
-/** `finalCounts` is what the terminal `markStatus` CAS reports back for the run. */
+/**
+ * `finalCounts` is what the terminal `markStatus` CAS reports back for the run.
+ * `finalStatus` must match the status the engine asks for, or `finalizeRun` treats
+ * the run as finalized by another worker and returns before its operational log.
+ */
 function engineDeps(finalCounts: {
   createdCount: number
   updatedCount: number
   skippedCount: number
   failedCount: number
-}) {
+}, finalStatus: 'completed' | 'failed' = 'completed') {
   const runningRun = {
     id: 'run-1',
     integrationId: 'sync_akeneo',
@@ -103,7 +107,7 @@ function engineDeps(finalCounts: {
     markStatus: jest
       .fn()
       .mockResolvedValueOnce(runningRun)
-      .mockResolvedValueOnce({ ...runningRun, status: 'completed', batchesCompleted: 1, ...finalCounts }),
+      .mockResolvedValueOnce({ ...runningRun, status: finalStatus, batchesCompleted: 1, ...finalCounts }),
     updateCounts: jest.fn(async () => undefined),
     updateCursor: jest.fn(async () => undefined),
     commitBatchProgress: jest.fn(async () => undefined),
@@ -183,6 +187,43 @@ describe('data sync error reporting', () => {
       code: 'data_sync.item_failed',
       message: expect.stringContaining('product-2'),
     })
+  })
+
+  it('falls back rather than letting an adapter interpolate a metric label', async () => {
+    const { runtime } = runtimeStub()
+    registerTelemetryRuntime(runtime)
+    mockGetDataSyncAdapter.mockReturnValue(importAdapter({
+      items: [
+        {
+          externalId: 'product-1',
+          action: 'failed',
+          // An adapter interpolating a URL would open one `om.errors` series per
+          // URL; one interpolating an email would egress it, because metric labels
+          // — unlike attributes — never pass through redaction.
+          data: { errorMessage: 'not found', errorCode: 'http_404_https://akeneo.test/api/products/1' },
+        },
+        {
+          externalId: 'product-2',
+          action: 'failed',
+          data: { errorMessage: 'rejected', errorCode: 'NotAModuleReason' },
+        },
+      ],
+      cursor: 'cursor-1',
+      hasMore: false,
+      batchIndex: 0,
+    } as unknown as ImportBatch))
+    const { integrationLogService, deps } = engineDeps({
+      createdCount: 0,
+      updatedCount: 0,
+      skippedCount: 0,
+      failedCount: 2,
+    })
+
+    await createSyncEngine(deps).runImport('run-1', 100, scope)
+
+    const writes = (integrationLogService as unknown as { write: jest.Mock }).write.mock.calls
+    expect(writes[0][0]).toMatchObject({ code: 'data_sync.item_failed' })
+    expect(writes[1][0]).toMatchObject({ code: 'data_sync.item_failed' })
   })
 
   it('reports one partial-failure summary for a run that completed with failures', async () => {
@@ -288,6 +329,39 @@ describe('data sync error reporting', () => {
       code: 'data_sync.run_failed',
       message: 'Akeneo returned 500',
     })
+  })
+
+  it('reports a run fault once, even for an adapter that opted into the operational log', async () => {
+    const { runtime } = runtimeStub()
+    registerTelemetryRuntime(runtime)
+    mockGetDataSyncAdapter.mockReturnValue({
+      providerKey: 'akeneo',
+      direction: 'import',
+      supportedEntities: ['products'],
+      // The operational log writes its own `failed` row for the same fault. Coding
+      // that row too would make one fault two issues in a Sentry-shaped backend.
+      operationalTelemetry: true,
+      getMapping: jest.fn(async () => ({ entityType: 'products', fields: [], matchStrategy: 'externalId' })),
+      streamImport: async function* () {
+        throw new Error('Akeneo returned 500')
+      },
+    } as unknown as DataSyncAdapter)
+    const { integrationLogService, deps } = engineDeps({
+      createdCount: 0,
+      updatedCount: 0,
+      skippedCount: 0,
+      failedCount: 0,
+    }, 'failed')
+
+    await createSyncEngine(deps).runImport('run-1', 100, scope)
+
+    const writes = (integrationLogService as unknown as { write: jest.Mock }).write.mock.calls
+      .map((call) => call[0] as { level: string; code?: string })
+    expect(writes.filter((write) => write.code === 'data_sync.run_failed')).toHaveLength(1)
+    // The operational status row still exists — it just carries no fingerprint, so
+    // the tee reports it under the `integrations.log_error` catch-all rather than
+    // duplicating the fault's own code.
+    expect(writes.filter((write) => write.level === 'error' && !write.code)).toHaveLength(1)
   })
 
   it('codes a failed export item so it groups apart from an import failure', async () => {

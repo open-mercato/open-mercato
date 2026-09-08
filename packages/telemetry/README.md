@@ -128,7 +128,7 @@ bridge, so the package is not loaded on the disabled path.
 | `withSpan(name, fn, opts?)` | Run `fn` in a provider-owned span. `opts.root` starts a new trace; `opts.links` attaches causal links (see [Long-lived jobs](#long-lived-jobs-root-spans)) |
 | `currentSpan()` / `setAttributes(attrs)` | Active span access |
 | `counter` / `histogram` / `gauge` | Metric helpers |
-| `reportError(err, ctx?)` | Span exception + shared error log + `om.errors{module, code}` + the provider's own error sink. Pass `ctx.code` — see [Error reporting](#error-reporting) |
+| `reportError(err, ctx?)` | Span exception + shared error log + `om.errors{module, error.code}` + the provider's own error sink. Pass `ctx.code` — see [Error reporting](#error-reporting) |
 | `captureTraceContext()` / `continueTrace(...)` | Dedicated cross-boundary propagation |
 | `initTelemetry()` / `shutdownTelemetry()` | Opt-in bootstrap and flush |
 | `registerProvider(provider)` | Register a custom provider for an enabled backend name |
@@ -194,6 +194,17 @@ await initTelemetry()
 
 `error` arrives serialized and PII-redacted (name, message, stack) and
 `attributes` already redacted — never reach for the original thrown value.
+
+**The hook MUST NOT throw.** `reportError` is called from `catch` blocks that
+still have work to do after it — rethrowing the original error, returning a 500
+with its correlation header — so a hook that throws would replace the caller's
+error with yours. The facade wraps the call and degrades a throwing hook to a
+warning, but do not rely on that: swallow your SDK's failures inside the
+implementation, where you can decide what a dropped report means.
+
+`code` reaches your hook as `context.code`. It is deliberately **not** repeated in
+`attributes`, so putting it in both `tags` and `extra`, as the snippet above does
+with `tags`, is your choice rather than an accident of the payload.
 
 ### Long-lived jobs: root spans
 

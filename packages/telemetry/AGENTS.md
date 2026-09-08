@@ -38,7 +38,12 @@ off by default. Spec:
   `apps/docs/docs/framework/runtime/error-reporting.mdx`.
 - Pass `code` on every `reportError` call: a stable, enumerated `module.reason`
   token, never an interpolated string. It is a metric label and the fingerprint
-  backends group on — ids go in `attributes`.
+  backends group on — ids go in `attributes`. Where a `code` originates outside
+  the framework (an adapter's `data.errorCode`), validate the shape at the
+  boundary rather than documenting it: metric labels skip redaction.
+- Put the CAUSE in the reported message. A constant message with the reason only
+  in `payload` reports an error nobody can act on, because the payload stays in
+  the database.
 
 ## Ask First
 
@@ -58,6 +63,9 @@ off by default. Spec:
 - Never add sampling, throttling or suppression to `reportError`. Volume belongs
   to the collector and the backend, which drop where the drop is visible; a
   facade-level limiter is the only one that loses an error at the source.
+- Never call a provider-supplied hook unguarded from the facade. `reportError`
+  runs inside `catch` blocks that still have to rethrow or return a 500, so a
+  third-party sink that throws must degrade to a warning, not escape.
 - Never trust `traceparent` or `x-original-traceparent` at an inbound/global
   boundary unless `TELEMETRY_TRUST_INBOUND_TRACE=true`.
 - Never store provider, shared-logger extension, or runtime bridge state only in

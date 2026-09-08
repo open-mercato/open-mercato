@@ -335,7 +335,7 @@ Every item below refers to `BACKWARD_COMPATIBILITY.md` (linked from root `AGENTS
 - [ ] `packages/core` and other non-telemetry packages reach the funnel via `getTelemetryRuntime()?.reportError(...)`, never by importing `@open-mercato/telemetry`
 - [ ] No sampling, throttling or suppression added inside `reportError` — volume control belongs to the collector and the backend
 
-## 22. Anti-Pattern Checklist
+## 24. Anti-Pattern Checklist
 
 Flag any of these patterns as violations:
 

@@ -114,7 +114,7 @@ describe('reportError policy', () => {
     expect(record?.attributes?.runId).toBe('run-1')
     expect(metrics.find((metric) => metric.name === 'om.errors')?.labels).toEqual({
       module: 'data_sync',
-      code: 'data_sync.item_failed',
+      'error.code': 'data_sync.item_failed',
     })
   })
 
@@ -160,6 +160,9 @@ describe('reportError policy', () => {
     expect(reported[0]?.context.module).toBe('integrations')
     expect(reported[0]?.context.attributes?.authorization).toBe('[redacted]')
     expect(reported[0]?.context.attributes?.integrationId).toBe('sync_akeneo')
+    // Carried once, in the context — a provider author following the README recipe
+    // should not find it in `extra` as well as `tags`.
+    expect(reported[0]?.context.attributes?.['error.code']).toBeUndefined()
     // The hook is additive: the built-in path still fires, so a provider that
     // implements it cannot make signal disappear.
     expect(span.exceptions).toHaveLength(1)
@@ -184,6 +187,28 @@ describe('reportError policy', () => {
     expect(reported).toHaveLength(1)
     expect(reported[0]?.error.message).toBe('original failure')
     expect(errorLogs(logs)).toHaveLength(1)
+  })
+
+  it('survives a provider whose error sink throws, without losing any built-in signal', async () => {
+    const { provider, span, logs, metrics } = recordingProvider({
+      withErrorSink: true,
+      onReportError: () => {
+        throw new Error('sentry transport is down')
+      },
+    })
+    await activate(provider)
+
+    // `reportError` is called from catch blocks that still have work to do after
+    // it — rethrowing the caller's error, returning a 500 with its correlation
+    // header. A third-party hook must never be able to take that with it.
+    expect(() =>
+      reportError(new Error('item rejected'), { module: 'data_sync', code: 'data_sync.item_failed' }),
+    ).not.toThrow()
+
+    expect(span.exceptions).toHaveLength(1)
+    expect(span.attributes['error.code']).toBe('data_sync.item_failed')
+    expect(errorLogs(logs)).toHaveLength(1)
+    expect(metrics.filter((metric) => metric.name === 'om.errors')).toHaveLength(1)
   })
 
   it('is unaffected by a provider without the optional error sink', async () => {

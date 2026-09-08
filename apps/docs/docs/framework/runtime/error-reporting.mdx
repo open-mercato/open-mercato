@@ -39,9 +39,11 @@ With telemetry off, that is one global lookup and nothing else.
 
 ## `code` — the fingerprint
 
-`code` is a stable, enumerated token shaped `module.reason` (`data_sync.item_failed`, `queue.job_failed`). It is stamped on the span, the log record and the `om.errors` metric label.
+`code` is a stable, enumerated token shaped `module.reason` (`data_sync.item_failed`, `queue.job_failed`). It is published under one name, `error.code`, on all three built-in surfaces — the span attribute, the log record's attributes and the `om.errors` metric label — so a query written against one works against the others.
 
-**It MUST NOT be interpolated.** `` `import failed for ${id}` `` gives every occurrence its own group at the backend and unbounded cardinality on the metric. Put the id in `attributes`, where it belongs.
+**It MUST NOT be interpolated.** `` `import failed for ${id}` `` gives every occurrence its own group at the backend and unbounded cardinality on the metric. Worse, metric labels — unlike `attributes` — do not pass through redaction, so an interpolated email or token would egress. Put the id in `attributes`, where it belongs.
+
+Where the value comes from outside the framework — an adapter's `data.errorCode` — the engine enforces the shape rather than trusting it, and falls back to its own code when the value is not `module.reason`.
 
 `code` exists because the backends' automatic grouping cannot work without it *here*:
 
@@ -55,15 +57,17 @@ Three chokepoints mean most module code inherits the rule without writing a line
 | Chokepoint | Covers | Codes |
 |---|---|---|
 | `integrationLogService.write()` at `level: 'error'` | every integration error row — `data_sync`, `payment_gateways`, `gateway_stripe`, and any future integration | the row's own `code`, or `integrations.log_error` |
-| The queue strategies' failure paths | a worker that throws, a job that exhausts its attempts, a worker-level fault, a failed abandonment sweep | `queue.job_failed`, `queue.job_exhausted`, `queue.worker_error`, `queue.abandon_*` |
+| The queue strategies' failure paths (`async` + `local`) | a handler that throws, a job that spends its last attempt, a worker-level fault, a failed abandonment sweep | `queue.job_failed`, `queue.job_exhausted`, `queue.worker_error`, `queue.abandon_*` |
 | `data_sync`'s engine | per-item dead letters, run faults, a run that completed with failures, a dropped coverage refresh | `data_sync.item_failed`, `data_sync.export_item_failed`, `data_sync.run_failed`, `data_sync.run_partial_failure`, `data_sync.coverage_refresh_failed` |
 
-Adapters that classify their own item failures set `data.errorCode` on a `failed` import item and the engine uses it as the code; otherwise the fallback applies.
+Adapters that classify their own item failures set `data.errorCode` on a `failed` import item and the engine uses it as the code, provided it is shaped `module.reason`; otherwise the fallback applies.
+
+A job failure is reported **once**, and its code says which failure it is: `queue.job_failed` while retries remain, `queue.job_exhausted` on the attempt that dead-letters it. Both strategies agree on this, so an alert written against one holds for the other — `queue.job_exhausted` is the condition to page on.
 
 Two properties hold at each chokepoint:
 
-- **Observability never alters behaviour.** Every tee is wrapped, fires after the durable write, and degrades to a warning. A telemetry outage cannot fail a sync batch or lose a log row.
-- **`integration_logs.payload` never leaves the database.** The row's message, its `code` and opaque ids are reported; the payload carries the failed record itself, so it stays put. When you need detail preserved, put it in the payload, not in the message.
+- **Observability never alters behaviour.** Every tee is wrapped, fires after the durable write, and degrades to a warning — as does `reportError`'s own call into the provider hook, so a third-party sink that throws cannot escape into a caller that still has to rethrow or return a 500. A telemetry outage cannot fail a sync batch or lose a log row.
+- **`integration_logs.payload` never leaves the database.** The row's message, its `code` and opaque ids are reported; the payload carries the failed record itself, so it stays put. Put the *cause* in the message — a constant message with the reason only in the payload reports an error an operator cannot act on — and the failed record in the payload.
 
 ## Volume: not this layer's job
 
@@ -101,7 +105,9 @@ registerProvider({
 await initTelemetry()   // with TELEMETRY_BACKEND=sentry
 ```
 
-The `error` argument arrives already serialized and PII-redacted (name, message, stack) and `attributes` already redacted — never reach for the original thrown value.
+The `error` argument arrives already serialized and PII-redacted (name, message, stack) and `attributes` already redacted — never reach for the original thrown value. `code` arrives in the context and is deliberately not repeated in `attributes`.
+
+**The hook MUST NOT throw.** The facade wraps it and degrades a throwing hook to a warning, but swallow your SDK's failures inside the implementation, where you can decide what a dropped report means.
 
 ## Verifying it locally
 

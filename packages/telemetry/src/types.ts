@@ -138,6 +138,12 @@ export interface TelemetryProvider {
    * `error` arrives already serialized and PII-redacted (name/message/stack only)
    * and `attributes` already redacted, so an implementation must not reach for
    * the original thrown value.
+   *
+   * MUST NOT throw. The facade calls this from `catch` blocks that still have
+   * work to do — rethrowing the original error, returning a 500 with its
+   * correlation header — so it wraps this call and degrades a throwing hook to a
+   * warning. Do the same inside your implementation: a backend SDK that raises on
+   * a full buffer should be swallowed here, not escalated.
    */
   reportError?(
     error: NonNullable<LogRecord['error']>,

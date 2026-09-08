@@ -101,7 +101,9 @@ getTelemetryRuntime()?.reportError(new IntegrationLogError(input.message), {
 
 Why the service and not the call sites (Q3): it is the single chokepoint all seven `level: 'error'` writers already pass through, and the non-`data_sync` writers (payment status poller, Stripe webhook processor) have the identical gap. One edit covers them and every future integration.
 
-**(b) The queue job-failure path** — `packages/queue/src/strategies/async.ts:417` and `strategies/local.ts:495` (plus `local.ts:499` job-exhausted and `async.ts:242/251/291` abandonment-sweep failures). Each keeps its `logger.error` and adds `reportError` with `module: 'queue'`, `code: 'queue.job_failed'` / `'queue.job_exhausted'` / `'queue.abandon_sweep_failed'`, and attributes `{ queue, jobName, jobId, attemptNumber }`. This is what catches a `data_sync` worker that rethrows (`workers/sync-import.ts:41-71`, `sync-export.ts` mirror) rather than finishing through the engine's own fault path.
+**(b) The queue job-failure path** — `packages/queue/src/strategies/async.ts:417` and `strategies/local.ts:495` (plus `async.ts:242/251/291` abandonment-sweep failures). Each keeps its `logger.error` and adds `reportError` with `module: 'queue'`, `code: 'queue.job_failed'` / `'queue.job_exhausted'` / `'queue.abandon_sweep_failed'`, and attributes `{ queue, jobId, attemptNumber }`. This is what catches a `data_sync` worker that rethrows (`workers/sync-import.ts:41-71`, `sync-export.ts` mirror) rather than finishing through the engine's own fault path.
+
+A job failure reports **once**, coded by what the failure means: `queue.job_exhausted` on the attempt that dead-letters the job, `queue.job_failed` while retries remain. Two reports on the final attempt would double-count `om.errors` and raise two issues in an issue-shaped backend, and an operator pages on dead-lettering, not on a first attempt that will be retried. Both strategies implement it identically — `local.ts` from its own `attemptCount`, `async.ts` from BullMQ's `job.attemptsMade` against the job's `opts.attempts` — so an alert written against one holds for the other. There is no `jobName`: `QueuedJob` has no name field and the async strategy passes the job id as BullMQ's job name.
 
 **(c) `refreshCoverageSnapshots`** (`sync-engine.ts:231-242`) inspects its `Promise.allSettled` results and reports each rejection (`code: 'data_sync.coverage_refresh_failed'`, attributes `{ entityType }`) instead of dropping it. Behaviour is otherwise unchanged: a coverage-refresh failure still does not fail the batch.
 
@@ -153,7 +155,7 @@ A fourth limiter in the facade would be the worst of the four:
 *What survives the deletion*, because neither is rate limiting:
 
 - **The aggregate run report** ([S2](#s2--one-aggregated-report-per-partially-failed-run)) — it exists because "this run ended with 115 failures" is a *different fact* from any one item's failure, not because 115 reports were too many. It stays either way.
-- **A re-entrancy guard.** `reportError` sets a per-async-context flag for its own duration and no-ops on a nested call, so an error raised *inside* reporting (a throwing provider hook, a redaction bug) cannot recurse. ~10 lines, no config, no window, no eviction — a correctness guard, not a policy.
+- **A re-entrancy guard.** `reportError` sets a module-level flag for its own duration and no-ops on a nested call, so an error raised *inside* reporting (a provider hook that reports its own failures, a redaction bug) cannot recurse. A plain flag is sufficient only because the funnel is synchronous end to end; introducing an `await` in it would require an async-context-scoped flag, or concurrent reports would suppress each other. ~10 lines, no config, no window, no eviction — a correctness guard, not a policy. It bounds recursion, not propagation: a hook that *throws* is handled separately, by wrapping the call ([S4](#s4--optional-provider-error-hook)).
 
 *If a deployment does hit ingest cost*, the documented answer is the collector or the backend's own controls, named in the docs page. Adding a framework knob "just in case" would put the control at the layer with the least context: the collector knows the deployment's budget, the facade knows only that an error happened.
 
@@ -166,6 +168,8 @@ reportError?(error: { name: string; message: string; stack?: string }, ctx: { mo
 ```
 
 The facade always does its three existing things (span exception, error log, counter) and **additionally** calls `provider.reportError?.()` when the active provider implements it, passing the already-serialized, already-redacted error. It is additive rather than a replacement so no path can lose signal; a provider that models errors as issues owns its own dedup. `TelemetrySignal` already lists `'errors'` (`types.ts:10`) — this makes that entry mean something.
+
+**The call is wrapped, and this is load-bearing.** The hook is implemented by third parties, and `reportError` is called from `catch` blocks that still have work to do after it: the API dispatcher records a duration metric, emits `application.request.failed` and rethrows the original error; the CRUD factory returns a 500 carrying its `x-request-id`. An unguarded hook that throws would take all of that with it and replace the caller's error with the telemetry provider's — the exact inverse of "a telemetry failure cannot fail application work". The facade therefore catches around the hook and degrades to a `warn`; the interface documents it as non-throwing and the README recipe repeats that, but the guard is what makes it a property rather than a request. `code` reaches the hook in the context only, never duplicated into `attributes`.
 
 No Sentry dependency is added upstream. `packages/telemetry/README.md` gains a ~20-line recipe: implement `TelemetryProvider` (delegating tracing to the OTLP provider or a no-op), implement `reportError`, `registerProvider(provider)` before `initTelemetry()`, set `TELEMETRY_BACKEND` to the provider's name. Providers stay a bootstrap concern; the facade stays vendor-neutral.
 
@@ -195,13 +199,17 @@ Ordered by what the change is for. Each line is checkable by a named test or a s
 
 - [ ] **Errors during a data sync are reported.** With `TELEMETRY_BACKEND=console` (or any OTLP backend) and an import whose adapter fails items:
   - [ ] each dead-lettered item produces a reported error carrying `code`, `runId`, `integrationId` and the item's identifier — every item, never gated on an adapter flag;
-  - [ ] a run that ends `failed` produces a reported error with the fault's `code` and `runId`, for **every** adapter, including those with `operationalTelemetry` unset;
+  - [ ] a run that ends `failed` produces exactly one `data_sync.run_failed` report with the fault's `runId`, for **every** adapter — including those with `operationalTelemetry` set, whose operational status row carries no `code` precisely so it cannot duplicate the fault's fingerprint;
   - [ ] a run that ends `completed` with `failedCount > 0` produces exactly one `data_sync.run_partial_failure` report carrying `failedCount`;
-  - [ ] a `data_sync` worker that crashes outright produces a `queue.job_failed` report naming the queue and job;
+  - [ ] a `data_sync` worker that crashes outright produces a `queue.job_failed` report naming the queue and job — `queue.job_exhausted` once it has spent its last attempt;
   - [ ] a rejected coverage refresh produces a `data_sync.coverage_refresh_failed` report instead of being dropped.
 - [ ] **Every `level: 'error'` integration log row is reported**, for all seven current writers across `data_sync`, `payment_gateways` and `gateway_stripe` — verified by a service-level test, not per call site.
-- [ ] **A burst groups, and nothing is dropped.** 115 item failures produce 115 reports that share one `code`, so the backend collapses them into one group of 115 and `om.errors{module, code}` counts 115 — no framework-side suppression anywhere in the path. Drilling into any one of the 115 still yields its own item id and message.
-- [ ] **Reporting cannot recurse.** An error thrown inside the reporting path (a throwing provider hook, a redaction bug) is not itself reported; the re-entrancy guard no-ops the nested call and the original report still completes.
+- [ ] **Every reported error names its cause.** No covered writer reports a constant message with the reason only in `payload`, since the payload never egresses: the payment status poller and the Stripe webhook processor interpolate the cause into the message.
+- [ ] **A `code` that came from outside the framework is validated, not trusted.** An adapter's `data.errorCode` is used only when it is shaped `module.reason`; anything else falls back to the engine's own code, because metric labels are unbounded in cardinality and — unlike attributes — skip redaction.
+- [ ] **A job failure is reported once, coded by what it is.** `queue.job_exhausted` on the attempt that dead-letters the job, `queue.job_failed` while retries remain, identically on the `async` and `local` strategies.
+- [ ] **A burst groups, and nothing is dropped.** 115 item failures produce 115 reports that share one `code`, so the backend collapses them into one group of 115 and `om.errors{module, error.code}` counts 115 — no framework-side suppression anywhere in the path. Drilling into any one of the 115 still yields its own item id and message.
+- [ ] **Reporting cannot recurse.** An error raised inside the reporting path (a provider hook that reports its own failures, a redaction bug) is not itself reported; the re-entrancy guard no-ops the nested call and the original report still completes.
+- [ ] **A provider hook that throws cannot escape `reportError`.** The call into `provider.reportError?.()` is wrapped and degrades to a `warn`, so the API dispatcher still records its duration metric, emits `application.request.failed` and rethrows the caller's error, and the CRUD factory still returns its 500 with `x-request-id`. Asserted by a test with a throwing hook that also checks the span exception, the error log record and the `om.errors` sample all landed.
 - [ ] **An issue-tracker backend can be plugged in** without patching the facade: a test provider implementing `reportError?()` receives every reported error, with `code` and attributes intact, and the built-in span/log/metric path still fires.
 
 ### Non-regression
@@ -256,11 +264,12 @@ export type ReportErrorContext = {
 | Code | Raised at |
 |---|---|
 | `integrations.log_error` | `integrationLogService.write()` fallback when the row carries no `code` |
+| `payment_gateways.status_poll_failed` | the payment status poller's per-transaction failure, so it groups apart from the catch-all |
 | `data_sync.item_failed` / `data_sync.export_item_failed` | per-item failure with no adapter-supplied code |
 | `data_sync.run_failed` | run fault (import and export). Splits into `data_sync.run_transient` / `data_sync.run_terminal` when part 6's `classifySyncError` lands — one constant in `sync-engine.ts` is the only site to change |
 | `data_sync.run_partial_failure` | `finalizeRun`, `completed` with `failedCount > 0` |
 | `data_sync.coverage_refresh_failed` | rejected coverage refresh |
-| `queue.job_failed` / `queue.job_exhausted` | a handler that threw; a job that spent its last attempt |
+| `queue.job_failed` / `queue.job_exhausted` | a handler that threw with retries remaining; the attempt that dead-letters the job. Mutually exclusive — one report per failure, on both strategies |
 | `queue.worker_error` / `queue.abandon_sweep_failed` / `queue.abandon_report_failed` / `queue.abandon_ack_failed` | worker-level fault; the abandonment sweep and its two report failures |
 
 ## Configuration
@@ -313,11 +322,12 @@ No API route, database structure or UI file changes, so the coverage is unit/beh
 | Test | Location |
 |---|---|
 | `code` on span/log/metric; absent `code` leaves existing callers unchanged; N identical errors produce N reports | `packages/telemetry/src/__tests__/report-error.test.ts` |
-| Re-entrancy guard: a throwing provider hook neither recurses nor loses the original report | `packages/telemetry/src/__tests__/report-error.test.ts` |
+| Re-entrancy guard: a provider hook that reports from inside the sink neither recurses nor loses the original report | `packages/telemetry/src/__tests__/report-error.test.ts` |
+| A provider hook that **throws** does not escape `reportError`, and the span exception, error log and `om.errors` sample all still land | `packages/telemetry/src/__tests__/report-error.test.ts` |
 | Provider hook called with serialized+redacted error; absent hook is fine | `packages/telemetry/src/__tests__/report-error.test.ts` |
 | `error` tees / `info`+`warn` do not / `payload` withheld / throwing provider swallowed / telemetry-off no-op | `packages/core/src/modules/integrations/lib/__tests__/log-service.test.ts` |
-| Job failure, exhaustion and abandon-sweep report per strategy | `packages/queue/src/__tests__/` |
-| Per-item, run-fault, partial-failure and coverage-refresh reports; `operationalTelemetry: false` still reports; `run.completed` counts | `packages/core/src/modules/data_sync/lib/__tests__/sync-engine*.test.ts` |
+| Job failure, exhaustion and abandon-sweep report per strategy; exactly one report per failure; a per-job `attempts` override decides exhaustion | `packages/queue/src/__tests__/` |
+| Per-item, run-fault, partial-failure and coverage-refresh reports; `operationalTelemetry: false` still reports; `operationalTelemetry: true` reports the fault exactly once; a malformed adapter `errorCode` falls back; `run.completed` counts | `packages/core/src/modules/data_sync/lib/__tests__/sync-engine*.test.ts` |
 | `packages/core` does not import `@open-mercato/telemetry` | `packages/core/src/__tests__/module-decoupling.test.ts` |
 
 An end-to-end integration test is deliberately not added: the observable surface is a telemetry backend, not an HTTP response or a page, so a Playwright test would assert on nothing the framework owns. The manual verification recipe (`TELEMETRY_BACKEND=console`, run a failing import, read the console provider's output) goes in the docs page.
@@ -414,6 +424,18 @@ Fully compliant — ready for review, then implementation.
 
 ## Changelog
 
+### 2026-09-08 — review round 1
+
+Findings from the code review on PR #5960, all applied:
+
+- **The facade's own provider hook was unguarded** — the one place the spec's "a telemetry failure cannot fail application work" did not hold, because the three new chokepoints were wrapped but `reportError` itself was not. A third-party `reportError?()` that threw would have escaped into the API dispatcher's 5xx catch (losing the duration metric, the `application.request.failed` event and the original error) and the CRUD factory's 500 (losing `x-request-id`). Now wrapped, degrading to a `warn`, with a test asserting the built-in span/log/metric path still lands.
+- **An adapter's `data.errorCode` reached the metric label unvalidated.** It is now shape-checked against `module.reason` and falls back otherwise: metric labels are unbounded in cardinality and, unlike attributes, never pass through redaction.
+- **Two covered writers reported no cause** — the payment status poller and the Stripe webhook processor put it in `payload`, which the tee deliberately withholds. The cause moved into the message; the poller also gained its own `code`.
+- **A run fault double-reported** under `operationalTelemetry`. The operational status row no longer carries the fault's `code` (and `writeOperationalLog` no longer takes one at all).
+- **`queue.job_exhausted` was documented for both strategies but only emitted by `local`**, and `local` emitted it *in addition to* `queue.job_failed`, double-counting the final attempt. Both strategies now report a job failure exactly once, coded `queue.job_exhausted` on the attempt that dead-letters it. `jobName` is dropped from the attribute list — `QueuedJob` has no name.
+- **One spelling for the fingerprint attribute**, `error.code`, on the span, the log record and the metric label; and it is no longer duplicated into the attributes handed to a provider hook.
+- `.ai/review-checklist.md`'s tail renumbered (the duplicate `## 22` predated this PR).
+
 ### 2026-09-08 — implemented
 Phases 1 and 2 shipped together on `jtomaszewski/error-reporting-policy-impl`; the full gate (`generate`, `build:packages`, `typecheck`, `lint`, `i18n:check-sync`, `i18n:check-usage`, `test`, `build:app`, `agents:check-budget`) is green, with 25 new unit tests across `telemetry`, `core:integrations`, `core:data_sync` and `queue`.
 
@@ -423,7 +445,7 @@ Deviations from the design above, deliberate:
 - **`IntegrationLogError` lives in `log-service.ts`**, matching the module's existing convention, not a new `lib/errors.ts`.
 - **The re-entrancy guard is a module-level flag, not async-context state.** `reportError` is synchronous end to end, so a nested call can only arrive inside the same synchronous frame; `AsyncLocalStorage` would buy nothing and cost an allocation on the error path.
 - **`data_sync/AGENTS.md` gained the adapter-facing `data.errorCode` contract** (one bullet), so adapter authors meet it where they already read.
-- An adapter with `operationalTelemetry: true` produces **two** reports for a run fault, because it already writes two error rows — the tee's contract is one report per error row. Both carry `data_sync.run_failed`, so they group as one issue.
+- An adapter with `operationalTelemetry: true` writes two error rows for one run fault, and the tee's contract is one report per error row. Only the direct write carries `data_sync.run_failed`; the operational status row carries no `code` and therefore reports under the `integrations.log_error` catch-all, so the fault raises exactly one issue under its own fingerprint. The second, catch-all-coded report is the honest cost of keeping the chokepoint unconditional — an error row that is not reported would be a hole in the rule this spec exists to state.
 
 ### 2026-09-08
 - Skeleton with Open Questions (gate).

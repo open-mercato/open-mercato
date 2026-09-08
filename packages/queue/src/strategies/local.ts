@@ -514,12 +514,20 @@ export function createLocalQueue<T = unknown>(
           logger.info('Job completed', { jobId: job.id })
         } catch (error) {
           logger.error('Job failed', { jobId: job.id, attemptNumber, maxAttempts: DEFAULT_MAX_ATTEMPTS, err: error })
-          reportQueueError(error, 'queue.job_failed', { jobId: job.id, attemptNumber })
+          const exhausted = attemptNumber >= DEFAULT_MAX_ATTEMPTS
+          // One report per failure, coded by what the failure means: a job that
+          // has burned every retry is dead, which is the condition an operator
+          // pages on, and it must be distinguishable from a first attempt that
+          // will simply be retried. Reporting both would double-count `om.errors`
+          // on the final attempt.
+          reportQueueError(error, exhausted ? 'queue.job_exhausted' : 'queue.job_failed', {
+            jobId: job.id,
+            attemptNumber,
+          })
           failed++
           lastJobId = job.id
-          if (attemptNumber >= DEFAULT_MAX_ATTEMPTS) {
+          if (exhausted) {
             logger.error('Job exhausted all attempts; dropping it (no dead-letter store)', { jobId: job.id, maxAttempts: DEFAULT_MAX_ATTEMPTS })
-            reportQueueError(error, 'queue.job_exhausted', { jobId: job.id, attemptNumber })
             deadJobIds.add(job.id)
           } else {
             const backoffMs = RETRY_BACKOFF_BASE_MS * Math.pow(2, attemptNumber - 1)
