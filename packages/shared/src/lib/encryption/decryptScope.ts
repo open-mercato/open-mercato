@@ -22,6 +22,14 @@ export type DecryptScopeInput = {
  * so an org mismatch does not change which key is used, and comparing it would break legitimate
  * multi-org reads for no key-scope benefit.
  *
+ * That same argument does NOT exempt a `keyScope: 'system'` map, even though its key id is
+ * `system:<entityId>` and ignores the tenant entirely, so a mismatch there changes nothing about
+ * which key would be used. This helper is intentionally id-only — it never sees the map — so it
+ * refuses those rows too. That is conservative rather than correct-by-construction, and it is
+ * unreachable today: the only shipped system-scoped map is `onboarding:onboarding_request`, whose
+ * readers pass either no scope or the same tenant they filter on. A future system-scoped map read
+ * across tenants would need the decision moved to a caller that can see `keyScope`.
+ *
  * The refusal branch engages only when BOTH ids are present. Two shapes therefore degrade instead
  * of refusing, and both are safe:
  * - No row tenant (`rowTenantId` null) — the caller's own tenant is used, which is the strongest

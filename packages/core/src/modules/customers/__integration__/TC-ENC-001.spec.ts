@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { encryptWithAesGcm, generateDek } from '@open-mercato/shared/lib/encryption/aes'
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import { readJsonSafe } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
 
@@ -18,6 +19,11 @@ type PersonPayload = {
 }
 
 type PersonList = { items?: Array<Record<string, unknown>> }
+
+// A decrypt failure surfaces the stored envelope in place of the plaintext. That envelope is
+// `<ivBase64>:<ciphertextBase64>:<tagBase64>:v1` (packages/shared/src/lib/encryption/aes.ts),
+// so this pattern — not a prefix — is what actually distinguishes ciphertext from plaintext.
+const CIPHERTEXT_ENVELOPE = /^[A-Za-z0-9+/=]+:[A-Za-z0-9+/=]+:[A-Za-z0-9+/=]+:v1$/
 
 test.describe('TC-ENC-001: correctly scoped reads still return decrypted plaintext', () => {
   const stamp = `${Date.now()}`
@@ -64,7 +70,9 @@ test.describe('TC-ENC-001: correctly scoped reads still return decrypted plainte
 
     const listedName = String(match?.displayName ?? match?.display_name ?? '')
     expect(listedName).toBe(displayName)
-    // Ciphertext for this map is an `enc:`-prefixed envelope; a decrypt failure would surface it.
-    expect(listedName.startsWith('enc:')).toBe(false)
+    // Pin the detector against a real envelope before asserting its absence, so the negative
+    // guard below cannot pass merely because the pattern matches nothing.
+    expect(encryptWithAesGcm(displayName, generateDek()).raw).toMatch(CIPHERTEXT_ENVELOPE)
+    expect(listedName).not.toMatch(CIPHERTEXT_ENVELOPE)
   })
 })
