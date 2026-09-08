@@ -171,7 +171,11 @@ export function SystemHealthTile() {
               aria-hidden="true"
               className={`size-1.5 shrink-0 rounded-full ${DOT_CLASS[indicator.state]}`}
             />
-            <span className="truncate">{t(INDICATOR_LABEL_KEY[indicator.id])}</span>
+            {/* `truncate` only engages once the flex item may shrink below its
+                min-content width; without `min-w-0` a long label ("Wyszukiwanie
+                w sieci") overflows its grid cell and lands on the neighbouring
+                indicator instead of ellipsing. */}
+            <span className="min-w-0 truncate">{t(INDICATOR_LABEL_KEY[indicator.id])}</span>
             <span className="sr-only">{t(STATE_LABEL_KEY[indicator.state])}</span>
           </li>
         ))}

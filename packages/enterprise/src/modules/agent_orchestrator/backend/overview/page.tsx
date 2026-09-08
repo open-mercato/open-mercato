@@ -42,6 +42,15 @@ type TrustRow = { id: string; label: string; icon: string | null; resultKind: 'r
 type StuckRow = { id: string; workflowInstanceId: string | null; claim: string; agentLabel: string; waitingMin: number | null; waitingFor: Verb; sla: Sla }
 type AgentWindowMetrics = { totalRuns: number; overrideRate: number | null; disposedProposals: number }
 
+// `TableHead` ships `whitespace-nowrap`, and a table cell does not clip its
+// overflow: a label wider than its column is PAINTED ON TOP of the next
+// header, which is what "Uruchomienia"/"Nadpisania" did in a `table-fixed`
+// w-16 column. Wrapping is the only rule that holds for a translation nobody
+// measured yet — `break-words` guarantees even an unbreakable compound
+// ("Überschreibungen") stays inside the cell, and `hyphens-auto` lets the
+// page's `lang` dictionary pick a readable break point first.
+const WRAPPING_HEAD = 'whitespace-normal break-words hyphens-auto'
+
 const statusVariant: StatusMap<Health> = { good: 'success', watch: 'warning', poor: 'error', new: 'neutral' }
 const slaVariant: StatusMap<Sla> = { breach: 'error', risk: 'warning', ok: 'success' }
 const NEEDS_ATTENTION_PAGE_SIZE = 20
@@ -428,15 +437,20 @@ export default function AgentFleetOverviewPage() {
                 ) : stuck.length === 0 ? (
                   <p className="px-2 py-6 text-center text-sm text-muted-foreground">{t('agent_orchestrator.overview.stuck.empty', 'Nothing stuck right now')}</p>
                 ) : (
+                  // Six nowrap headers can out-measure a 3/5 panel; without a
+                  // scroll container the Panel's `overflow-hidden` silently ate
+                  // the SLA column. Wrapping headers shrink the table's minimum
+                  // width first, the scroller is the honest fallback.
+                  <div className="overflow-x-auto">
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>{t('agent_orchestrator.overview.stuck.col.id', 'ID')}</TableHead>
-                        <TableHead>{t('agent_orchestrator.overview.stuck.col.process', 'Process')}</TableHead>
-                        <TableHead>{t('agent_orchestrator.overview.stuck.col.agent', 'Agent')}</TableHead>
-                        <TableHead>{t('agent_orchestrator.overview.stuck.col.waitingFor', 'Waiting for')}</TableHead>
-                        <TableHead className="text-right">{t('agent_orchestrator.overview.stuck.col.waitingTime', 'Waiting time')}</TableHead>
-                        <TableHead>{t('agent_orchestrator.overview.stuck.col.sla', 'SLA')}</TableHead>
+                        <TableHead className={WRAPPING_HEAD}>{t('agent_orchestrator.overview.stuck.col.id', 'ID')}</TableHead>
+                        <TableHead className={WRAPPING_HEAD}>{t('agent_orchestrator.overview.stuck.col.process', 'Process')}</TableHead>
+                        <TableHead className={WRAPPING_HEAD}>{t('agent_orchestrator.overview.stuck.col.agent', 'Agent')}</TableHead>
+                        <TableHead className={WRAPPING_HEAD}>{t('agent_orchestrator.overview.stuck.col.waitingFor', 'Waiting for')}</TableHead>
+                        <TableHead className={`${WRAPPING_HEAD} text-right`}>{t('agent_orchestrator.overview.stuck.col.waitingTime', 'Waiting time')}</TableHead>
+                        <TableHead className={WRAPPING_HEAD}>{t('agent_orchestrator.overview.stuck.col.sla', 'SLA')}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -485,6 +499,7 @@ export default function AgentFleetOverviewPage() {
                       ))}
                     </TableBody>
                   </Table>
+                  </div>
                 )}
               </Panel>
 
@@ -504,14 +519,18 @@ export default function AgentFleetOverviewPage() {
                   <Table className="table-fixed">
                     <TableHeader>
                       <TableRow>
-                        <TableHead>{t('agent_orchestrator.overview.trust.col.agent', 'Agent')}</TableHead>
-                        <TableHead className="w-16 text-right">{t('agent_orchestrator.overview.trust.col.runs', 'Runs')}</TableHead>
+                        <TableHead className={WRAPPING_HEAD}>{t('agent_orchestrator.overview.trust.col.agent', 'Agent')}</TableHead>
+                        {/* Widths hold the column's CONTENT (a count, a meter, a badge)
+                            and the header wraps to whatever the locale needs — a header
+                            sized to the longest translation would spend the agent name's
+                            space on whitespace in every other language. */}
+                        <TableHead className={`${WRAPPING_HEAD} w-24 text-right`}>{t('agent_orchestrator.overview.trust.col.runs', 'Runs')}</TableHead>
                         {/* The panel is 2/5 of the row, so four columns leave the agent
                             name ~59px to live in below 2xl. Override is the least
                             identifying of them — a meter and a percentage — so it is the
                             one that yields the space back to the name. */}
-                        <TableHead className="hidden w-24 2xl:table-cell">{t('agent_orchestrator.overview.trust.col.override', 'Override')}</TableHead>
-                        <TableHead className="w-20">{t('agent_orchestrator.overview.trust.col.status', 'Status')}</TableHead>
+                        <TableHead className={`${WRAPPING_HEAD} hidden w-32 2xl:table-cell`}>{t('agent_orchestrator.overview.trust.col.override', 'Override')}</TableHead>
+                        <TableHead className={`${WRAPPING_HEAD} w-32`}>{t('agent_orchestrator.overview.trust.col.status', 'Status')}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
