@@ -12,6 +12,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { E } from '#generated/entities.ids.generated'
+import { extensionPoints } from '../../extension-points'
 import {
   buildPersonPayload,
   createPersonFormFields,
@@ -160,6 +161,7 @@ export function CreatePersonDialog({
           key={`${companyId}:${formInstanceKey}`}
           embedded
           entityIds={[E.customers.customer_entity, E.customers.customer_person_profile]}
+          injectionSpotId={extensionPoints.hosts.personForm.spotId}
           fields={fields}
           groups={groups}
           initialValues={initialValues}

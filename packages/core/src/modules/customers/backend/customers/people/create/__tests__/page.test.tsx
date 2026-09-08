@@ -3,7 +3,6 @@
  */
 import * as React from 'react'
 import { render } from '@testing-library/react'
-import { crudFormExtensionSpotId } from '@open-mercato/shared/modules/widgets/extension-points'
 import CreatePersonPage from '../page'
 import { extensionPoints } from '../../../../../extension-points'
 
@@ -58,14 +57,13 @@ describe('person create page injection host (#5882)', () => {
     expect(crudFormPropsCapture.current?.injectionSpotId).toBe(extensionPoints.hosts.personForm.spotId)
   })
 
-  it('does not fall back to the spot CrudForm would derive from the first entity id', () => {
+  it('no longer publishes the legacy derived spot', () => {
     render(<CreatePersonPage />)
 
-    const entityIds = crudFormPropsCapture.current?.entityIds as string[]
-    const derivedFallback = crudFormExtensionSpotId(entityIds[0].replace(/[:]+/g, '.'))
-
-    expect(derivedFallback).toBe('crud-form:customers.customer_entity')
-    expect(crudFormPropsCapture.current?.injectionSpotId).not.toBe(derivedFallback)
+    // Asserted as a literal rather than by recomputing `CrudForm`'s derivation: the point
+    // is that this specific published id is gone, and a test that re-derived it would keep
+    // passing even if the framework's fallback changed shape.
+    expect(crudFormPropsCapture.current?.injectionSpotId).not.toBe('crud-form:customers.customer_entity')
   })
 
   it('keeps the existing entityIds so custom-field resolution is unchanged', () => {
