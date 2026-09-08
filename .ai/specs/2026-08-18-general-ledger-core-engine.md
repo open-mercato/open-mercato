@@ -1000,14 +1000,20 @@ deploy independently of any other module.
   and monetary units (art. 13 ust. 1 pkt 3, art. 16 Ustawy o
   rachunkowości) are out of scope for this phase — they fall naturally
   out of a future Accounts Payable / Accounts Receivable module built
-  on top of this engine, not out of the posting engine itself.
+  on top of this engine, not out of the posting engine itself. **Realized
+  (2026-09-08):** this is exactly what `2026-09-06-accounts-
+  payable.md` implements — `liabilityAccountId` as the single shared
+  control account, with `VendorInvoice`/`accounts_payable_payments`
+  (application tables, keyed by `vendorId`) as the subsidiary ledger,
+  not a second GL-level mechanism. Confirms this prediction rather
+  than changing it.
 - **Multi-dimensional posting tags (`journal_entry_line_dimension`).**
-  Contextual analytics — kontrahent, MPK/cost-centre, rachunek
-  bankowy, środek trwały, waluta — often apply more than one at a time
-  to the same line (e.g. a counterparty on the credit line and a cost
-  centre on the debit line of one purchase), so they can't be modelled
-  by `LedgerAccount.parentAccountId` alone without exploding the chart
-  of accounts into dead combinations. Needs a dedicated table
+  Contextual analytics — MPK/cost-centre, rachunek bankowy, środek
+  trwały, waluta — often apply more than one at a time to the same
+  line (e.g. a cost centre on the debit line and a bank account tag
+  on the credit line of one purchase), so they can't be modelled by
+  `LedgerAccount.parentAccountId` alone without exploding the chart of
+  accounts into dead combinations. Needs a dedicated table
   (`dimensionType`, `dimensionId`, FK to the line — many rows per
   line) plus the posting-rule logic that uses it (e.g. reject a direct
   post to an account that has children — only its analytic leaves are
@@ -1015,8 +1021,17 @@ deploy independently of any other module.
   a future spec, not here. Distinct from `JournalEntryLine.contractorSnapshot`
   (see Design decisions): the snapshot is a denormalized, point-in-time
   audit copy on the line itself; this table is the queryable,
-  structured reporting dimension used for per-MPK/per-kontrahent
-  summaries. The two coexist for different purposes once both exist.
+  structured reporting dimension used for per-MPK summaries. The two
+  coexist for different purposes once both exist. **Correction
+  (2026-09-08):** kontrahent was originally listed here too as a
+  candidate dimension type. Once `2026-09-06-journal-entry-line-
+  dimension.md` was actually drafted, it deliberately excluded the
+  counterparty from this table — it's handled entirely by
+  `contractorSnapshot`, not a dimension row, for audit reasons (a
+  snapshot at posting time, not a live reference). The list above and
+  the example are corrected accordingly; this table's actual dimension
+  types are cost centre/project, bank account, fixed asset, and
+  currency.
 - **Multi-currency FX revaluation and reporting.** Scoped narrowly:
   this is period-end revaluation of open foreign-currency balances to
   a current rate (wycena bilansowa), not the transactional exchange-
@@ -1490,3 +1505,28 @@ document.
   section, matching how Q1 was retired once resolved. Updated Design
   decisions, Internal Consistency Check, Non-Compliant Items, and
   Verdict; removed the temporary `## Open Questions` section.
+
+### 2026-09-08 (cont. — control-account / subsidiary-ledger
+cross-check)
+
+Two corrections to the Out of Scope section, prompted by a maintainer
+question about the accounting archetype for contractor account/
+bank-detail changes, resolved by cross-checking `2026-09-06-accounts-
+payable.md` and `2026-09-06-journal-entry-line-dimension.md` once both
+existed:
+- "Subsidiary ledgers" bullet: added a note confirming this was
+  realized as predicted, in `accounts_payable`
+  (`liabilityAccountId` + `VendorInvoice.vendorId`).
+- "Multi-dimensional posting tags" bullet: this document originally
+  listed kontrahent as a candidate `journal_entry_line_dimension`
+  type. `2026-09-06-journal-entry-line-dimension.md`, once drafted,
+  deliberately excluded the counterparty from that table (handled by
+  `contractorSnapshot` instead). Corrected the list and the
+  co-occurrence example here to match what was actually built, and
+  fixed the stale "per-MPK/per-kontrahent summaries" phrase to
+  "per-MPK summaries".
+
+No architectural change — both documents' actual designs already
+implement the standard control-account / subsidiary-ledger pattern;
+this only fixes this document's own text to stop describing a
+kontrahent dimension row that was never built.
