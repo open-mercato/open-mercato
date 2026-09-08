@@ -72,6 +72,49 @@ describe('createBoundedPendingOperationTracker', () => {
     expect(tracker.pending).toBe(0)
   })
 
+  it.each(['resolve', 'reject'] as const)('drains repeated promise identities on %s', async (settlement) => {
+    const active = deferred<void>()
+    const tracker = createBoundedPendingOperationTracker({ capacity: 2, stage: 'test' })
+
+    expect(tracker.tryStart(() => active.promise).accepted).toBe(true)
+    expect(tracker.tryStart(() => active.promise).accepted).toBe(true)
+    expect(tracker.pending).toBe(2)
+
+    if (settlement === 'resolve') active.resolve()
+    else active.reject(new Error('[internal] shared operation failed'))
+    await active.promise.catch(() => undefined)
+    await Promise.resolve()
+    expect(tracker.pending).toBe(0)
+    await tracker.flush()
+    expect(tracker.tryStart(async () => undefined).accepted).toBe(true)
+    await tracker.flush()
+  })
+
+  it('reserves capacity and exposes the operation to a reentrant flush before running the factory', async () => {
+    const active = deferred<void>()
+    const tracker = createBoundedPendingOperationTracker({ capacity: 1, stage: 'test' })
+    let flushing: Promise<void> | undefined
+    let flushed = false
+    let pendingDuringFactory: number | undefined
+    let nestedAccepted: boolean | undefined
+    const rejectedFactory = jest.fn()
+    tracker.tryStart(() => {
+      pendingDuringFactory = tracker.pending
+      nestedAccepted = tracker.tryStart(rejectedFactory).accepted
+      flushing = tracker.flush().then(() => { flushed = true })
+      return active.promise
+    })
+    await Promise.resolve()
+    expect(flushed).toBe(false)
+    expect(pendingDuringFactory).toBe(1)
+    expect(nestedAccepted).toBe(false)
+    expect(flushing).toBeDefined()
+    expect(rejectedFactory).not.toHaveBeenCalled()
+    active.resolve()
+    await flushing
+    expect(tracker.pending).toBe(0)
+  })
+
   it('turns synchronous factory failures into tracked rejected promises', async () => {
     const failure = new Error('[internal] failed synchronously')
     const tracker = createBoundedPendingOperationTracker({ capacity: 1, stage: 'test' })
@@ -190,7 +233,12 @@ describe('createBoundedPendingOperationTracker', () => {
     tracker.tryStart(async () => undefined)
 
     expect(onDrop).toHaveBeenCalledTimes(2)
-    expect(points.filter((point) => point.name === 'om.audit_logs.dropped')).toHaveLength(3)
+    expect(onDrop).toHaveBeenNthCalledWith(1, { dropped: 1, totalDropped: 1 })
+    expect(onDrop).toHaveBeenNthCalledWith(2, { dropped: 2, totalDropped: 3 })
+    currentTime = 120_000
+    tracker.tryStart(async () => undefined)
+    expect(onDrop).toHaveBeenNthCalledWith(3, { dropped: 1, totalDropped: 4 })
+    expect(points.filter((point) => point.name === 'om.audit_logs.dropped')).toHaveLength(4)
     active.resolve()
     await tracker.flush()
   })

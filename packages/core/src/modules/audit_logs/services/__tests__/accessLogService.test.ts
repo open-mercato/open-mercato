@@ -8,6 +8,7 @@ import {
   resetAccessLogRuntimeStateForTests,
 } from '../accessLogService'
 import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
+import { registerLoggerExtension } from '@open-mercato/shared/lib/logger'
 
 type ExecuteCall = { sql: string; params: unknown[] }
 
@@ -189,15 +190,26 @@ describe('AccessLogService.logMany', () => {
     fork.getConnection = () => ({ execute })
     const service = new AccessLogService(em as any)
 
+    const emit = jest.fn()
+    const dispose = registerLoggerExtension({ emit })
     const accepted = service.log(payload(0))
-    const rejectedSingle = await service.log(payload(1))
-    const rejectedBatch = await service.logMany([payload(2)])
+    try {
+      const rejectedSingle = await service.log(payload(1))
+      const rejectedBatch = await service.logMany([payload(2)])
 
-    expect(rejectedSingle).toBeNull()
-    expect(rejectedBatch).toBe(0)
-    releaseWrite()
-    await accepted
-    await flushAccessLog()
+      expect(rejectedSingle).toBeNull()
+      expect(rejectedBatch).toBe(0)
+      expect(emit).toHaveBeenCalledWith(expect.objectContaining({
+        level: 'warn',
+        message: 'Dropped access-log write because pending capacity is full',
+        fields: { component: 'access-log-service', capacity: 1, stage: 'service_write', dropped: 1, totalDropped: 1 },
+      }))
+    } finally {
+      releaseWrite()
+      await accepted
+      await flushAccessLog()
+      dispose()
+    }
     expect(execute).toHaveBeenCalledTimes(1)
   })
 })

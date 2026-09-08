@@ -808,9 +808,11 @@ function getCrudAccessLogTracker(): BoundedPendingOperationTracker {
   current.tracker = createBoundedPendingOperationTracker({
     capacity,
     stage: 'crud_dispatch',
-    onDrop: () => {
+    onDrop: ({ dropped, totalDropped }) => {
       logger.warn('Dropped access-log dispatch because pending capacity is full', {
         capacity,
+        dropped,
+        totalDropped,
         stage: 'crud_dispatch',
       })
     },

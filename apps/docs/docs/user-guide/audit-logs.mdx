@@ -48,7 +48,7 @@ Configure these in your `.env` file to keep the volume of access logs under cont
 
 Access-log writes use two asynchronous stages: CRUD response dispatch and the audit-log service write. Each stage accepts up to **256 pending tasks per process** by default. Set `AUDIT_LOGS_MAX_PENDING` to a positive integer to change that per-stage limit; invalid, zero, and negative values use the default.
 
-When a stage is full, the newest access-log task is skipped before parsing, encryption, or database work begins. The application request continues normally. Blocking mode does not wait for capacity: it returns the same deterministic skipped result. A warning identifies only the fixed stage and configured capacity and is limited to once per minute per stage.
+When a stage is full, the newest access-log task is skipped before parsing, encryption, or database work begins. The application request continues normally. Blocking mode does not wait for capacity: it returns the same deterministic skipped result. Warnings include the fixed stage, configured capacity, `dropped` tasks since the previous warning, and `totalDropped` tasks over the tracker lifetime, even when telemetry is disabled. They are limited to once per minute per stage; suppressed drops accumulate until the next eligible capacity rejection. Counts describe rejected tasks, so a rejected batch can contain multiple access-log records.
 
 Retention sweeps are single-flight. Concurrent writes wait for the active sweep instead of starting duplicate delete operations. With `AUDIT_LOGS_ROTATE_INTERVAL_MS=0`, concurrent callers still share the active sweep, while the next sequential write starts a new one.
 

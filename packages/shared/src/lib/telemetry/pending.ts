@@ -14,7 +14,7 @@ export type BoundedPendingOperationTrackerOptions = {
   capacity: number
   stage: string
   now?: () => number
-  onDrop?: () => void
+  onDrop?: (notification: { dropped: number; totalDropped: number }) => void
   onError?: (error: Error) => void
   dropNotificationIntervalMs?: number
 }
@@ -55,9 +55,10 @@ export function createBoundedPendingOperationTracker(
   const now = options.now ?? defaultNow
   const dropNotificationIntervalMs = options.dropNotificationIntervalMs
     ?? DEFAULT_DROP_NOTIFICATION_INTERVAL_MS
-  const pendingOperations = new Map<Promise<unknown>, number>()
-  let pendingCount = 0
+  const pendingOperations = new Map<number, { promise: Promise<unknown>; startedAt: number }>()
+  let nextOperationToken = 0
   let droppedCount = 0
+  let droppedSinceLastNotification = 0
   let lastDropNotificationAt: number | null = null
   let disposeCollector: (() => void) | null = null
   let disposed = false
@@ -78,7 +79,7 @@ export function createBoundedPendingOperationTracker(
 
   const collect = () => {
     let oldestStartedAt: number | null = null
-    for (const startedAt of pendingOperations.values()) {
+    for (const { startedAt } of pendingOperations.values()) {
       if (oldestStartedAt === null || startedAt < oldestStartedAt) {
         oldestStartedAt = startedAt
       }
@@ -90,7 +91,7 @@ export function createBoundedPendingOperationTracker(
     recordMetric({
       kind: 'gauge',
       name: 'om.audit_logs.pending_writes',
-      value: pendingCount,
+      value: pendingOperations.size,
       labels: { stage: options.stage },
       unit: '{task}',
     })
@@ -114,10 +115,9 @@ export function createBoundedPendingOperationTracker(
     disposeCollector = null
   }
 
-  const finish = (promise: Promise<unknown>) => {
-    if (!pendingOperations.delete(promise)) return
-    pendingCount -= 1
-    if (pendingCount === 0) {
+  const finish = (token: number) => {
+    if (!pendingOperations.delete(token)) return
+    if (pendingOperations.size === 0) {
       if (!disposed) collect()
       stopCollector()
     }
@@ -129,8 +129,10 @@ export function createBoundedPendingOperationTracker(
       || droppedAt - lastDropNotificationAt >= dropNotificationIntervalMs
     if (!shouldNotify) return
     lastDropNotificationAt = droppedAt
+    const dropped = droppedSinceLastNotification
+    droppedSinceLastNotification = 0
     try {
-      options.onDrop?.()
+      options.onDrop?.({ dropped, totalDropped: droppedCount })
     } catch (error) {
       reportError(error)
     }
@@ -142,14 +144,15 @@ export function createBoundedPendingOperationTracker(
       return droppedCount
     },
     get pending() {
-      return pendingCount
+      return pendingOperations.size
     },
     tryStart<T>(factory: () => Promise<T> | T): PendingOperationAdmission<T> {
       if (disposed) {
         throw new Error('[internal] cannot start work on a disposed pending operation tracker')
       }
-      if (pendingCount >= options.capacity) {
+      if (pendingOperations.size >= options.capacity) {
         droppedCount += 1
+        droppedSinceLastNotification += 1
         recordMetric({
           kind: 'counter',
           name: 'om.audit_logs.dropped',
@@ -158,32 +161,32 @@ export function createBoundedPendingOperationTracker(
           unit: '{task}',
         })
         notifyDrop()
-        return { accepted: false, pending: pendingCount }
+        return { accepted: false, pending: pendingOperations.size }
       }
 
-      pendingCount += 1
-      const startedAt = now()
-      let promise: Promise<T>
-      try {
-        promise = Promise.resolve(factory())
-      } catch (error) {
-        promise = Promise.reject(error)
-      }
-      pendingOperations.set(promise as Promise<unknown>, startedAt)
+      const token = nextOperationToken++
+      let resolveOperation!: (value: T | PromiseLike<T>) => void
+      let rejectOperation!: (reason: unknown) => void
+      const promise = new Promise<T>((resolve, reject) => {
+        resolveOperation = resolve
+        rejectOperation = reject
+      })
+      pendingOperations.set(token, { promise, startedAt: now() })
       ensureCollector()
       void promise.then(
-        () => finish(promise),
-        () => finish(promise),
+        () => finish(token),
+        () => finish(token),
       )
-      return { accepted: true, pending: pendingCount, promise }
+      try {
+        resolveOperation(factory())
+      } catch (error) {
+        rejectOperation(error)
+      }
+      return { accepted: true, pending: pendingOperations.size, promise }
     },
     async flush(): Promise<void> {
-      while (pendingCount > 0) {
-        const snapshot = Array.from(pendingOperations.keys())
-        if (snapshot.length === 0) {
-          await Promise.resolve()
-          continue
-        }
+      while (pendingOperations.size > 0) {
+        const snapshot = Array.from(pendingOperations.values(), ({ promise }) => promise)
         await Promise.allSettled(snapshot)
       }
     },

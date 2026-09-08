@@ -49,14 +49,16 @@ The normal interval path assigns `lastRotatedAt` before its first `await`, which
 
 ### Add a reusable bounded pending tracker
 
-Create a shared utility backed by `Map<Promise<unknown>, startedAtMonotonicMs>` with:
+Create a shared utility backed by `Map<operationToken, { promise, startedAtMonotonicMs }>` with:
 
 - `tryStart(factory)` that checks capacity before invoking `factory`;
-- settlement cleanup that cannot delete a newer operation;
+- a unique monotonic token per admission, including factories returning the same promise;
+- a tracked promise and reserved slot before invoking the factory, including reentrant admission/flush;
+- settlement cleanup by token, with pending depth derived from map size;
 - `flush()` that waits until all accepted work present across settlement waves is empty;
 - current depth and oldest monotonic age;
 - a dropped counter and enabled-only 10-second sampler;
-- a rate-limited drop callback, at most once per tracker/stage per 60 seconds;
+- a rate-limited drop callback, at most once per tracker/stage per 60 seconds, carrying `dropped` since the previous notification and `totalDropped` for the tracker lifetime;
 - an explicit disposer for tests/reloads.
 
 Telemetry must not be required for enforcement: admission, settlement cleanup, and flushing work identically when telemetry is off. A sampling interval exists only while an active metric runtime is available and is cleared when the tracker empties or is disposed.
@@ -99,7 +101,7 @@ request → logCrudAccess()
 
 ## Data Models
 
-No database schema or persisted data changes. The tracker keeps only promise identity and monotonic start time in memory. Metric labels contain no tenant, organization, user, route, resource-kind, record, or payload values.
+No database schema or persisted data changes. The tracker keeps only an admission token, promise, and monotonic start time for each pending operation in memory. Metric labels contain no tenant, organization, user, route, resource-kind, record, or payload values.
 
 ## API Contracts
 
@@ -121,7 +123,7 @@ The variable is mirrored in `apps/mercato/.env.example` and `packages/create-app
 
 ### Existing return contracts
 
-- CRUD access-log dispatch still resolves to its existing result union; capacity rejection is `status: 'skipped'`, `count: 0`.
+- CRUD access-log dispatch still resolves to its existing result union; capacity rejection is `mode: 'skipped'`, `count: 0`.
 - Direct `log()` retains its nullable result shape and returns `null` on capacity rejection.
 - `logMany()` retains its numeric result and returns `0` on capacity rejection.
 - `flushPendingCrudAccessLogs()` and `flushAccessLog()` retain their promise signatures and wait until accepted pending work empties.
@@ -254,6 +256,12 @@ None.
 **Fully compliant: Approved — ready for implementation.**
 
 ## Changelog
+
+### 2026-09-08
+
+- Key admissions independently of promise identity and remove the empty-snapshot microtask spin.
+- Include per-notification and cumulative drop counts in both stage warnings, including telemetry-disabled deployments. Suppressed drops accumulate until the next eligible rejection; no warning timer is added.
+- Add duplicate-promise resolution/rejection, reentrant flush, counted-warning, and call-site regression coverage.
 
 ### 2026-08-30
 

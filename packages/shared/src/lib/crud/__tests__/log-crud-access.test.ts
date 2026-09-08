@@ -1,3 +1,4 @@
+import { registerLoggerExtension } from '@open-mercato/shared/lib/logger'
 import { flushPendingCrudAccessLogs, logCrudAccess } from '@open-mercato/shared/lib/crud/factory'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 
@@ -163,6 +164,34 @@ describe('logCrudAccess', () => {
 
     releaseFirst()
     await flushPendingCrudAccessLogs()
+  })
+
+  it('reports counted capacity warnings without a telemetry provider', async () => {
+    process.env.AUDIT_LOGS_MAX_PENDING = '2'
+    process.env.OM_CRUD_ACCESS_LOG_BLOCKING = '0'
+    const emit = jest.fn()
+    const dispose = registerLoggerExtension({ emit })
+    let releaseWrites!: () => void
+    const gate = new Promise<void>((resolve) => { releaseWrites = resolve })
+    const service = { log: jest.fn(() => gate) }
+    const options = {
+      container: makeContainer(service), auth, items: makeItems(1),
+      idField: 'id', resourceKind: 'example.todo',
+    }
+    try {
+      await logCrudAccess(options)
+      await logCrudAccess(options)
+      await logCrudAccess(options)
+      expect(emit).toHaveBeenCalledWith(expect.objectContaining({
+        level: 'warn',
+        message: 'Dropped access-log dispatch because pending capacity is full',
+        fields: { component: 'crud', capacity: 2, stage: 'crud_dispatch', dropped: 1, totalDropped: 1 },
+      }))
+    } finally {
+      releaseWrites()
+      await flushPendingCrudAccessLogs()
+      dispose()
+    }
   })
 
   it('skips items without a normalized id and dedupes duplicate ids', async () => {
