@@ -1,17 +1,22 @@
 # Accounts Payable — vendors, purchase invoice lifecycle
 
 **Related:** [General Ledger core engine](2026-08-18-general-ledger-core-engine.md)
-(the posting engine this spec books into), the future [sales-invoice-gl-posting](2026-08-18-sales-invoice-gl-posting.md)
+(open, PR #5663 — the posting engine this spec books into), the future
+[sales-invoice-gl-posting](2026-08-18-sales-invoice-gl-posting.md)
 (planned, not written yet — the analogous subscriber pattern on the AR
 side; same citation correction as in `Contractor Registry`'s Related
 header), [Contractor Registry](2026-09-06-contractor-registry.md)
-(vendor registry — this spec consumes it, does not duplicate it),
+(open, PR #5955 — vendor registry — this spec consumes it, does not
+duplicate it),
 [Journal Entry Line Dimension](2026-09-06-journal-entry-line-dimension.md)
-(future consumer of AP's cost lines — the 490 engine, this spec does
-not build it), [Accounts Payable —
+(open, PR #5972 — future consumer of AP's cost lines — the 490 engine,
+this spec does not build it), [Accounts Payable —
 Payments](2026-09-06-accounts-payable-payments.md) (sibling document —
 payment batches, transfer execution, VAT whitelist verification;
-split out of this document 2026-09-08, see Changelog)
+split out of this document 2026-09-08, see Changelog). None of the
+above three have merged as of this writing (2026-09-08, maintainer
+review) — every link above resolves once its own PR lands, not
+before.
 
 ## TLDR
 
@@ -32,7 +37,9 @@ vendor registration and verification (GUS/VIES/VAT whitelist — pulled
 out to `Contractor Registry`), (B) purchasing materials (goods receipt
 → invoice → posted), (C) purchasing a fixed asset (asset capitalization,
 depreciation schedule — pulled out to a separate Fixed Assets spec, see
-`.ai/specs/2026-09-06-fixed-assets.md`), (D) outbound payments (budget
+`.ai/specs/2026-09-06-fixed-assets.md` — planned, not written yet;
+no such file or PR exists today, 2026-09-08 maintainer review), (D)
+outbound payments (budget
 limits, payment batches — pulled out to
 `2026-09-06-accounts-payable-payments.md`, see below). This document
 covers **only B** — A, C, and D are deliberately pulled out (their own,
@@ -121,7 +128,9 @@ extra from AP. The only convention: AP's account mapping points to
 group 4, not directly to group 5. Known gap: the dimension table's
 mere existence doesn't close the window — nothing writes to it yet,
 until the Posting Rules Engine (built directly after AP, see
-`.ai/specs/2026-09-06-posting-rules-engine.md`) actually starts doing
+`.ai/specs/2026-09-06-posting-rules-engine.md` — planned, not
+written yet; no such file or PR exists today, 2026-09-08 maintainer
+review) actually starts doing
 so (`2026-09-06-journal-entry-line-dimension.md` itself says: "empty
 structure for now, no populating logic"). If AP starts posting before
 the Posting Rules Engine exists at all, invoices posted in that window
@@ -184,9 +193,13 @@ optional peer for AP (an AP module without GL makes no sense — it's a
 hard, declared dependency), so `packages/core/AGENTS.md` →
 Cross-Module Coupling doesn't apply here (that pattern is for
 *optional* integration, where a missing peer must degrade safely). AP
-calls `container.resolve('commandBus').execute('ledger.postJournalEntry', input, ctx)`
-— exactly the same generic mechanism that `workflows`'
-`UPDATE_ENTITY` already uses to call commands by string `commandId`
+calls `container.resolve('commandBus').execute('ledger.postJournalEntry', { input, ctx })`
+— the real, two-argument `execute(commandId, options)` signature
+(`packages/shared/src/lib/commands/command-bus.ts:223-226`; corrected
+2026-09-08, maintainer review — an earlier draft cited a non-existent
+three-argument form) — exactly the same generic mechanism that
+`workflows`' `UPDATE_ENTITY` already uses to call commands by string
+`commandId`
 (`packages/core/src/modules/workflows/lib/activity-executor.ts`).
 Decidedly simpler than inventing a new mechanism for this case — and
 consistent with GL itself saying "Phase 1 comes from
@@ -404,6 +417,7 @@ Following the `customers`/`ledger` module convention
 export const features = [
   { id: 'accounts_payable.invoices.view', title: 'View vendor invoices', module: 'accounts_payable' },
   { id: 'accounts_payable.invoices.manage', title: 'Create and edit vendor invoices', module: 'accounts_payable', dependsOn: ['accounts_payable.invoices.view'] },
+  { id: 'accounts_payable.invoices.approve', title: 'Approve or reject vendor invoices', module: 'accounts_payable', dependsOn: ['accounts_payable.invoices.view'] },
   { id: 'accounts_payable.invoices.post', title: 'Post vendor invoices to the ledger', module: 'accounts_payable', dependsOn: ['accounts_payable.invoices.view'] },
 ]
 ```
@@ -415,26 +429,48 @@ mirroring `ledger.accounts.manage` vs `ledger.entries.post`: editing a
 draft invoice is a different sensitivity than sending an irreversible
 entry to GL).
 
-**The invoice approve/reject decision has no ACL feature of its own in
-this module** — it goes through `POST
-/api/workflows/tasks/:id/complete`, gated by `workflows.tasks.complete`
-from the `workflows` module (see Cross-module integration) — a
-deliberate choice for consistency with the only real, production
-precedent (`sales.order-approval` does exactly the same; the
-`workflows` module also has a `workflows.simple-approval` demo, but
-that's explicitly marked as a test/demonstration example, not a
-business precedent), not an oversight.
+**The invoice approve/reject decision is gated by
+`accounts_payable.invoices.approve` (corrected 2026-09-08, maintainer
+review).** Completing the `pending_approval` user task always requires
+`workflows.tasks.complete` (from the `workflows` module, gating the
+route itself — see Cross-module integration), but `UPDATE_ENTITY`'s
+authorization check
+(`packages/core/src/modules/workflows/lib/activity-executor.ts:644-657`)
+separately requires the completing user to hold every feature in the
+registered safe command's `requiredFeatures` — see Workflow
+definition, where `accounts_payable.vendor_invoices.applyApprovalDecision`
+is now registered against `['accounts_payable.invoices.approve']`. An
+earlier draft of this section claimed the decision "has no ACL feature
+of its own" and mirrored `sales.order-approval`'s `sales.orders.update`
+→ `requiredFeatures: ['sales.orders.manage']` registration — that
+claim was wrong (the decision was always gated by whichever feature
+the registered command names) and the mirrored behavior was a latent
+bug in the precedent, not a deliberate choice: `sales` does declare a
+`sales.orders.approve` feature (`packages/core/src/modules/sales/acl.ts`),
+but only uses it to gate the approval widget's visibility
+(`workflows/widgets/injection/order-approval/widget.ts:9`), not the
+transition itself — the transition still requires `sales.orders.manage`,
+which is exactly what this module had copied. Registering
+`applyVendorInvoiceApprovalDecision` against `.approve` instead closes
+that gap for real, the same way this module already deliberately
+improved on the `sales.order-approval` pattern once before (see Design
+decisions, "The approval flow calls a separate, narrow command").
 
 **No maker-checker control (self-approval) in Phase 1 — a documented
-risk, not an oversight.** The default `defaultRoleFeatures` grant the
-`employee` role both `accounts_payable.invoices.manage` (needed to
-enter and submit an invoice) and — indirectly, through
-`workflows.tasks.complete` from the `workflows` module — the ability
-to complete their own approval task. Nothing in the design
-distinguishes "the person who entered the invoice" from "the
-approver" (the same gap already exists in `sales.order-approval`,
-which AP mirrors). See Risks & Impact Review for the full record of
-this risk.
+risk, not an oversight, and now a genuinely configurable one.** `admin`
+gets `accounts_payable.invoices.approve` automatically
+(`defaultRoleFeatures` grants `admin: ['accounts_payable.*']` — see
+Module Setup) alongside `.manage`, so nothing stops that role from
+entering an invoice and then approving it itself. `employee`'s default
+list (`accounts_payable.invoices.view`, `.manage`) never included
+`.approve`, so a tenant that wants genuine maker-checker separation can
+grant `.approve` alone to a distinct approver role today — a
+configuration option that actually works, unlike
+`sales.order-approval`'s: there, granting only `sales.orders.approve`
+lets a user see the widget but fails `UPDATE_ENTITY`'s authorization
+check the moment they try to complete it, because the transition is
+still gated by `.manage`. See Risks & Impact Review for the full
+record of the residual (default-role) risk.
 
 ### Module Dependency (`index.ts`)
 
@@ -542,8 +578,9 @@ async seedDefaults({ em, tenantId, organizationId }) {
   via `UPDATE_ENTITY`, `PENDING_APPROVAL` → `APPROVED` or `REJECTED`
   and nothing else (accepts no other fields). Registered separately in
   `registerWorkflowSafeCommands`, requires
-  `accounts_payable.invoices.manage`. **Deliberately not
-  `updateVendorInvoice`** — see Design decisions ("The approval flow
+  `accounts_payable.invoices.approve` (corrected 2026-09-08, maintainer
+  review — see Access Control for why `.manage` was wrong).
+  **Deliberately not `updateVendorInvoice`** — see Design decisions ("The approval flow
   calls a separate, narrow command") for the contradiction this
   avoids.
 - `postVendorInvoice` — `APPROVED` → `POSTED`. Resolves `commandBus`
@@ -559,10 +596,11 @@ async seedDefaults({ em, tenantId, organizationId }) {
   — `ModuleConfigService`, see Data Models — **the same configuration
   value that `accounts_payable_payments` reads later**), with
   `referenceType: 'accounts_payable:vendor_invoice'`,
-  `referenceId: invoice.id`. Sets `postedJournalEntryId` only after
+  `referenceId: invoice.id`. Sets `postedJournalEntryId` and emits
+  `accounts_payable.vendor_invoice.posted` (see Events) only after
   success (idempotency guard — a repeat call on an invoice that
   already has `postedJournalEntryId` is a no-op, not a duplicate
-  entry). **Locked-period handling**: if `ledger.postJournalEntry`
+  entry, and does not re-emit the event). **Locked-period handling**: if `ledger.postJournalEntry`
   rejects the call (the period covering `invoiceDate`/`postedAt` is
   locked), `postVendorInvoice` catches that error and returns a
   readable domain message (`FISCAL_PERIOD_LOCKED`, with the name/range
@@ -579,24 +617,29 @@ async seedDefaults({ em, tenantId, organizationId }) {
 ### Workflow definition (`workflows.ts`)
 
 A 1:1 mirror of the `sales.order-approval` pattern
-(`packages/core/src/modules/sales/workflows.ts`) — not a new
-mechanism, the same one:
+(`packages/core/src/modules/sales/workflows.ts`) for the workflow
+shape itself — steps, transitions, `USER_TASK` config — with one
+deliberate difference: the registered safe command's
+`requiredFeatures` names `accounts_payable.invoices.approve`, not
+`accounts_payable.invoices.manage` (see Access Control, "The invoice
+approve/reject decision is gated by `accounts_payable.invoices.approve`"):
 
 ```typescript
 import { defineWorkflow, createWorkflowsModuleConfig } from '@open-mercato/shared/modules/workflows'
 import { registerWorkflowSafeCommands } from '@open-mercato/core/modules/workflows/lib/workflow-safe-commands'
 
 registerWorkflowSafeCommands([
-  { commandId: 'accounts_payable.vendor_invoices.applyApprovalDecision', requiredFeatures: ['accounts_payable.invoices.manage'] },
+  { commandId: 'accounts_payable.vendor_invoices.applyApprovalDecision', requiredFeatures: ['accounts_payable.invoices.approve'] },
 ])
 
 const invoiceApproval = defineWorkflow({
   workflowId: 'accounts_payable.invoice-approval',
   workflowName: 'Vendor Invoice Approval Workflow',
   steps: [
-    { stepId: 'start', stepType: 'START' },
+    { stepId: 'start', stepName: 'Start', stepType: 'START' },
     {
       stepId: 'pending_approval',
+      stepName: 'Pending Approval',
       stepType: 'USER_TASK',
       userTaskConfig: {
         formSchema: {
@@ -610,16 +653,23 @@ const invoiceApproval = defineWorkflow({
         slaDuration: 'PT24H',
       },
     },
-    { stepId: 'approved', stepType: 'AUTOMATED' },
-    { stepId: 'rejected', stepType: 'AUTOMATED' },
-    { stepId: 'end', stepType: 'END' },
+    { stepId: 'approved', stepName: 'Approved', stepType: 'AUTOMATED' },
+    { stepId: 'rejected', stepName: 'Rejected', stepType: 'AUTOMATED' },
+    { stepId: 'end', stepName: 'Complete', stepType: 'END' },
   ] as const,
-  transitions: [ /* start→pending_approval (auto), pending_approval→approved
-                    (preCondition: decision === 'approve'), pending_approval→rejected
-                    (preCondition: decision === 'reject'), both →end — identical
-                    structure to sales.order-approval, see that file */ ],
+  transitions: [ /* start→pending_approval (auto, EMIT_EVENT already fired by
+                    submitVendorInvoiceForApproval, not repeated here);
+                    pending_approval→approved (preCondition: decision === 'approve',
+                    UPDATE_ENTITY → applyApprovalDecision, then EMIT_EVENT
+                    accounts_payable.vendor_invoice.approved); pending_approval→rejected
+                    (preCondition: decision === 'reject', same shape, EMIT_EVENT
+                    accounts_payable.vendor_invoice.rejected); both →end — identical
+                    structure to sales.order-approval's own emit_order_approved/
+                    emit_order_rejected activities, see that file (added 2026-09-08,
+                    maintainer review — names which transition emits which event) */ ],
   triggers: [{
     triggerId: 'invoice_approval_trigger',
+    name: 'Invoice Approval Trigger',
     eventPattern: 'accounts_payable.vendor_invoice.submitted',
     config: { entityType: 'VendorInvoice' },
     enabled: true,
@@ -658,12 +708,14 @@ const events = [
 ] as const
 ```
 
-`accounts_payable.vendor_invoice.posted` is ephemeral (mirroring
+`accounts_payable.vendor_invoice.posted` is emitted by
+`postVendorInvoice` (see Commands) and is ephemeral (mirroring
 `ledger.journal_entry.posted`) — no persistent subscriber is needed
 yet in Phase 1; the future Posting Rules Engine subscribes directly to
 `ledger.journal_entry.posted` (from GL), not to AP's events — AP isn't
-its data source, GL is (see
-`2026-09-06-posting-rules-engine.md`). `accounts_payable_payments`
+its data source, GL is (see `2026-09-06-posting-rules-engine.md` —
+planned, not written yet; no such file or PR exists today, 2026-09-08
+maintainer review). `accounts_payable_payments`
 does **not** subscribe to any of the above events — it reads
 `VendorInvoice` status directly (a query, not an event) when building
 a payment batch, see the sibling document.
@@ -675,7 +727,7 @@ a payment batch, see the sibling document.
   Coupling describes `tryResolve` for **optional** integration; GL
   isn't optional here (an AP module without GL has no functional
   meaning). AP calls
-  `container.resolve('commandBus').execute('ledger.postJournalEntry', input, ctx)`
+  `container.resolve('commandBus').execute('ledger.postJournalEntry', { input, ctx })`
   — the same generic mechanism that `workflows`'
   `UPDATE_ENTITY` already uses to call any command by string
   `commandId`. No degradation to design: if `ledger` is disabled, AP
@@ -850,14 +902,19 @@ module first, the sibling module second.
 1. `index.ts` (`metadata.requires: ['ledger']`) + entities + migration
    (the two tables above) + indexes from Data Models +
    `encryption.ts` (`vendor_snapshot`).
-2. `acl.ts` + `setup.ts` (roles, `defaultRoleFeatures`).
+2. `acl.ts` (four features, including `.approve`) + `setup.ts`
+   (roles, `defaultRoleFeatures`).
 3. `createVendorInvoice` / `updateVendorInvoice`.
 4. `submitVendorInvoiceForApproval` + `events.ts` (declaring
    `accounts_payable.vendor_invoice.submitted` and the rest).
 5. `workflows.ts` (the `accounts_payable.invoice-approval` definition,
-   `registerWorkflowSafeCommands` on `applyVendorInvoiceApprovalDecision`)
-   + `applyVendorInvoiceApprovalDecision` + the injected approval
-   widget on `backend/accounts_payable/invoices/[id]/page.tsx`.
+   `registerWorkflowSafeCommands` on `applyVendorInvoiceApprovalDecision`
+   against `accounts_payable.invoices.approve`) +
+   `applyVendorInvoiceApprovalDecision`; declare the approval-task spot
+   ID on `backend/accounts_payable/invoices/[id]/page.tsx` — the widget
+   itself is created and injected by `workflows` (cross-module task,
+   coordinate with that module's `injection-table.ts`, corrected
+   2026-09-08 maintainer review — see Backend Pages).
 6. `postVendorInvoice` (the `commandBus` call → `ledger.postJournalEntry`
    with three legs — net/VAT/liability, see Commands — handling
    `FISCAL_PERIOD_LOCKED`).
@@ -882,13 +939,12 @@ module first, the sibling module second.
 |------|--------|---------|
 | `index.ts` | Create | `metadata.requires: ['ledger']` — hard dependency |
 | `data/entities.ts` | Create | `VendorInvoice`, `VendorInvoiceLine` |
-| `acl.ts` | Create | Three features (view/manage/post) |
+| `acl.ts` | Create | Four features (view/manage/approve/post) |
 | `setup.ts` | Create | `defaultRoleFeatures`; `onTenantCreated` writing empty `module_configs` values |
 | `encryption.ts` | Create | `vendor_snapshot` (mirroring `sales`'s `customer_snapshot`) |
 | `events.ts` | Create | Five events (see Events) |
 | `workflows.ts` | Create | The `accounts_payable.invoice-approval` definition, `registerWorkflowSafeCommands` on `applyVendorInvoiceApprovalDecision` |
 | `commands/vendorInvoices.ts` | Create | `createVendorInvoice`, `updateVendorInvoice`, `submitVendorInvoiceForApproval`, `applyVendorInvoiceApprovalDecision`, `postVendorInvoice`, `cancelVendorInvoice` |
-| `widgets/injection/invoice-approval/` | Create | Approval-task widget, mirroring `sales`'s `order-approval` |
 | `api/openapi.ts` | Create | `openApi` exports for every `accounts_payable` route |
 | `api/invoices/route.ts` | Create | `VendorInvoice` CRUD (`makeCrudRoute`), including the `beforeDelete`-guarded `DELETE` |
 | `api/invoices/[id]/submit/route.ts`, `.../post/route.ts` | Create | Custom guarded write routes |
@@ -992,26 +1048,44 @@ module first, the sibling module second.
   payment batches.
 
 #### No maker-checker control (invoice self-approval)
-- **Scenario**: the same person, holding
-  `accounts_payable.invoices.manage`, creates an invoice, submits it
-  for approval, and — if they also have access to the workflow task
-  panel (`workflows.tasks.complete`) — completes their own approval
-  task, approving their own invoice with no second person in the loop.
+- **Scenario**: the same person, holding both
+  `accounts_payable.invoices.manage` and
+  `accounts_payable.invoices.approve` (e.g. the `admin` role, which
+  gets both automatically via the `accounts_payable.*` wildcard — see
+  Module Setup), creates an invoice, submits it for approval, and
+  completes their own approval task, approving their own invoice with
+  no second person in the loop.
 - **Severity**: Medium (financial control, not data loss)
 - **Affected area**: `accounts_payable.invoices.*`, the approval flow
-- **Mitigation**: none in Phase 1 at this module's level — the same
-  gap already exists in the mirrored `sales.order-approval`. Practical
-  mitigation today: don't grant `workflows.tasks.complete` to the same
-  role as `accounts_payable.invoices.manage` at the tenant's role
-  configuration level (already possible today through RBAC, requires
-  no changes in this module) — but that's an operational decision for
-  each tenant, not a code-level enforcement.
-- **Residual risk**: without code-level enforcement (e.g. "assignee
-  different from the invoice's creator"), nothing protects against
-  self-approval if a tenant's administrator grants both permissions to
-  the same role. Deliberately accepted as a Phase 1 gap (consistent
-  with precedent, not worse than it), to be considered in Phase 2
-  alongside the multi-step approval flow.
+- **Mitigation (corrected 2026-09-08, maintainer review)**: role
+  configuration — and, unlike the mirrored `sales.order-approval`, one
+  that actually works. `employee`'s default `defaultRoleFeatures`
+  never included `.approve` (see Access Control), so a tenant that
+  wants a real approver role can grant `.approve` alone to it today;
+  that role can complete the approval task and nothing else
+  invoice-related. `sales.order-approval` cannot offer the same
+  guarantee: it declares `sales.orders.approve`, but never registers
+  it against the transition's `registerWorkflowSafeCommands` entry
+  (`sales.orders.update` still requires `sales.orders.manage`), so
+  granting only `.approve` there lets a user see the widget but fails
+  `UPDATE_ENTITY`'s authorization check the moment they try to
+  complete it — no functioning maker-checker role is possible in
+  `sales` today. This module's registration against `.approve` (see
+  Access Control, Workflow definition) closes that gap for itself; an
+  earlier draft of this section described the old, non-functional
+  `sales`-style mitigation as the practical option, which was wrong.
+- **Residual risk**: no code-level enforcement (e.g. "assignee
+  different from the invoice's creator" — the runtime check
+  `2026-09-06-contractor-registry.md` uses for its own four-eyes
+  requirement) exists here — nothing stops an administrator from
+  granting both features to the same role, which is exactly what the
+  default `admin` role does. Accepted as a Phase 1 gap: unlike
+  Contractor Registry's Problem Statement, this module's own Problem
+  Statement never frames approval as a fraud-prevention control, so a
+  hard runtime self-approval block is not justified here — the
+  configuration option (now genuinely functional) is considered
+  sufficient for Phase 1. Revisit in Phase 2 alongside the
+  multi-step, threshold-based approval flow.
 
 ### Cascading failures & side effects
 
@@ -1095,7 +1169,7 @@ tables, zero changes to existing ones. `onTenantCreated` is idempotent
 | `packages/core/AGENTS.md` → Database Entities | User-editable entities MUST include `updated_at` | Compliant | `VendorInvoice` has `updatedAt`; `VendorInvoiceLine` is a sub-resource guarded by its parent aggregate (exempt, per the same rule's own exemption list) |
 | `packages/core/AGENTS.md` → Database Entities | Standard column contract includes `deleted_at` | Compliant | `VendorInvoice` has `deletedAt`; status guard enforced at both the command layer (`cancelVendorInvoice`) and the route layer (`DELETE`'s `beforeDelete` hook) |
 | `packages/core/AGENTS.md` → Encryption | GDPR/PII fields declared in `<module>/encryption.ts`, read via `findWithDecryption` | Compliant | `encryption.ts` declares `vendor_snapshot`, mirroring `sales`'s already-encrypted `customer_snapshot`. **Corrected this review round**: an earlier draft's sample used a keyed-object shape instead of the real `ModuleEncryptionMap[]` array-of-`{entityId, fields}` shape — fixed to match `sales/encryption.ts` exactly |
-| `packages/core/AGENTS.md` → Access Control (RBAC) | Features declared per module, naming `<module>.<action>` | Compliant | Three features (`view`/`manage`/`post`) |
+| `packages/core/AGENTS.md` → Access Control (RBAC) | Features declared per module, naming `<module>.<action>` | Compliant | Four features (`view`/`manage`/`approve`/`post`) — `approve` added 2026-09-08, maintainer review, closing the self-approval ACL gap (see Design decisions, Risks) |
 | `packages/events/AGENTS.md` | Events declared with `as const`; subscribers export `metadata` | Compliant | Five events declared; no persistent subscriber needed in Phase 1 |
 | `packages/queue/AGENTS.md` | Workers idempotent, export `metadata` | N/A | This module ships no queue worker in Phase 1 — no background job crosses a request boundary |
 | `packages/core/src/modules/workflows/AGENTS.md` | Event triggers for cross-module workflow starts; `registerWorkflowSafeCommands` gates `UPDATE_ENTITY` | Compliant | `accounts_payable.invoice-approval` triggers on `accounts_payable.vendor_invoice.submitted`, mirroring `sales.order-approval`'s `sales.order.created` trigger; the registered command is a dedicated `applyVendorInvoiceApprovalDecision`, not the general-purpose `update` |
@@ -1129,8 +1203,29 @@ describing the ownership backwards — the real precedent
 (`workflows/widgets/injection/order-approval/`) has the *workflow*
 module own and inject the widget into the consumer's spot, not the
 other way around. Also added: a Risks entry for "no reversal path for
-a wrongly-posted invoice", previously undocumented. See Changelog for
-the full list with sources.
+a wrongly-posted invoice", previously undocumented.
+
+**A second review round (2026-09-08, external maintainer review of PR
+#5962) found and fixed a further four defects**, all verified against
+the real repository before being accepted: the approval decision was
+gated only by `workflows.tasks.complete` in prose, while the real
+`UPDATE_ENTITY` authorization check also required
+`accounts_payable.invoices.manage` (fixed by adding a dedicated
+`accounts_payable.invoices.approve` feature and registering
+`applyVendorInvoiceApprovalDecision` against it — see Access Control,
+Workflow definition, Risks); two `commandBus.execute` citations used a
+non-existent three-argument form instead of the real
+`execute(commandId, options)` signature; the `workflows.ts` code
+sample omitted the required `stepName` on every step and `name` on its
+trigger; and the File Manifest / Implementation Plan still assigned
+creation of the approval widget to this module, contradicting the
+already-corrected Backend Pages text. Also added, on the same round:
+naming which transition emits which `.approved`/`.rejected` event and
+which command emits `.posted` (previously left implicit); PR-status
+annotations on the Related header's GL/Contractor Registry/JELD links
+and explicit "not written yet" framing for `fixed-assets.md`/
+`posting-rules-engine.md` (none of the five resolve today). See
+Changelog for the full list with sources.
 
 ### Verdict
 
@@ -1335,3 +1430,46 @@ anticipated this design) and `2026-09-06-journal-entry-line-
 dimension.md` (where contractor-data-change protection actually
 lives, via `contractorSnapshot`) — both updated in the same round to
 keep the three documents consistent.
+
+### 2026-09-08 (cont. — external maintainer review of PR #5962, four
+majors)
+
+An external maintainer review of the split PR (invoices + payments,
+review scope: both documents together) found four majors and six
+minors/nits. This entry covers the fixes affecting this document (the
+invoices half); the sibling document's Changelog covers the rest.
+Every finding personally re-verified against the real repository
+before being fixed, not accepted on the review's word alone:
+
+- **ACL gap (major)**: the approval decision's real authorization gate
+  was `accounts_payable.invoices.manage` (via `UPDATE_ENTITY`'s
+  `requiredFeatures` check on the registered safe command,
+  `activity-executor.ts:644-657`), not "no ACL feature of its own" as
+  this document claimed — and the claimed `sales.order-approval`
+  precedent for that framing was itself a latent bug in `sales`
+  (`sales.orders.approve` exists but only gates the widget, never the
+  transition). Fixed by adding `accounts_payable.invoices.approve`
+  and registering `applyVendorInvoiceApprovalDecision` against it —
+  see Access Control, Workflow definition, Risks, Compliance Matrix.
+- **`commandBus.execute` signature (minor)**: both citations used a
+  non-existent three-argument form; corrected to the real
+  `execute(commandId, { input, ctx })` two-argument signature
+  (`packages/shared/src/lib/commands/command-bus.ts:223-226`).
+- **`workflows.ts` sample (minor)**: added the required `stepName` on
+  every step and `name` on the trigger (both required by the real
+  builder types); named which transition emits `.approved`/`.rejected`
+  and which command (`postVendorInvoice`) emits `.posted`, previously
+  left to an elided comment.
+- **Widget-ownership contradiction (minor)**: the File Manifest and
+  Implementation Plan step 5 still assigned creating the approval
+  widget to this module, contradicting the Backend Pages correction
+  from the prior review round. Dropped the File Manifest row; reworded
+  step 5 to declare only the spot ID and name the widget's creation as
+  a cross-module task belonging to `workflows`.
+- **Dangling links (minor)**: annotated the Related header's GL/
+  Contractor Registry/JELD links with their open PR numbers (#5663/
+  #5955/#5972 — none merged as of this writing); marked
+  `fixed-assets.md` and `posting-rules-engine.md` explicitly as
+  planned, not written yet, wherever cited by path.
+- Updated the Final Compliance Report (Compliance Matrix, Non-Compliant
+  Items) to record all of the above.

@@ -111,6 +111,8 @@ Specs awaiting implementation or partially complete. Focus here for actionable w
 | [Customer Interaction Completion Event Reliability](2026-07-20-customer-interaction-completion-event-reliability.md) | 2026-07-20 | Customer Interaction Completion Event Reliability | Reliable scoped persistent publication with retry-safe per-interaction delivery state |
 | [Stable Workflow Activity Outputs](2026-07-20-stable-workflow-activity-outputs.md) | 2026-07-20 | Stable Workflow Activity Outputs | Additive `activities.<activityId>` result addressing across synchronous and asynchronous workflow activities |
 | [Backend Route Collision Guard](2026-07-23-backend-route-collision-guard.md) | 2026-07-23 | Backend Route Collision Guard | Build-time `mercato generate` guard that fails loud when two modules emit the same backend page URL (folder-derived), mirroring the duplicate-command-id guard; route overrides unaffected |
+| [Accounts Payable](2026-09-06-accounts-payable.md) | 2026-09-06 | Accounts Payable | Vendor invoice lifecycle module — draft/pending-approval/approved/posted, workflow-engine-based approval (mirroring `sales.order-approval`), three-leg VAT-aware GL posting, hard dependency on `ledger`; payments split out 2026-09-08, see the sibling spec. **Moved here 2026-09-08 — not yet merged, PR #5962** |
+| [Accounts Payable — Payments](2026-09-06-accounts-payable-payments.md) | 2026-09-06 | Accounts Payable — Payments | Payment batch module — groups posted vendor invoices into batches, live Biała Lista/MPP verification (fail-closed) before send, GL posting on send; hard dependency on both `ledger` and Accounts Payable; split out from the combined Accounts Payable spec 2026-09-08. **Moved here 2026-09-08 — not yet merged, PR #5962** |
 
 ### Implemented Specifications
 
@@ -205,8 +207,6 @@ Fully implemented and deployed. Canonical files live in [`implemented/`](impleme
 | [SPEC-066](implemented/SPEC-066-2026-03-15-official-modules-changesets-release-workflow.md) | 2026-03-15 | Official Modules Changesets Release Workflow | Changesets-based release workflow for official modules |
 | [Checkout Pay Links](implemented/2026-03-19-checkout-pay-links.md) | 2026-03-19 | Checkout Pay Links | Pay link generation and checkout flow (Phase A) |
 | [Checkout Wireframes](implemented/2026-03-19-checkout-pay-links-wireframes.md) | 2026-03-19 | Checkout Pay Links Wireframes | Companion wireframes for the Checkout Pay Links spec |
-| [Accounts Payable](2026-09-06-accounts-payable.md) | 2026-09-06 | Accounts Payable | Vendor invoice lifecycle module — draft/pending-approval/approved/posted, workflow-engine-based approval (mirroring `sales.order-approval`), three-leg VAT-aware GL posting, hard dependency on `ledger`; payments split out 2026-09-08, see the sibling spec |
-| [Accounts Payable — Payments](2026-09-06-accounts-payable-payments.md) | 2026-09-06 | Accounts Payable — Payments | Payment batch module — groups posted vendor invoices into batches, live Biała Lista/MPP verification (fail-closed) before send, GL posting on send; hard dependency on both `ledger` and Accounts Payable; split out from the combined Accounts Payable spec 2026-09-08 |
 
 ## Specification Structure
 

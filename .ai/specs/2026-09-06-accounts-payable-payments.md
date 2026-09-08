@@ -1,14 +1,15 @@
 # Accounts Payable — Payments
 
 **Related:** [Accounts Payable — invoices](2026-09-06-accounts-payable.md)
-(sibling document — purchase invoice lifecycle; this document has a
-hard, declared dependency on it, see Architecture → Module Dependency;
-split out of it 2026-09-08, see Changelog),
+(sibling document, open PR #5962 — purchase invoice lifecycle; this
+document has a hard, declared dependency on it, see Architecture →
+Module Dependency; split out of it 2026-09-08, see Changelog),
 [General Ledger core engine](2026-08-18-general-ledger-core-engine.md)
-(the posting engine this spec books into), [Contractor
-Registry](2026-09-06-contractor-registry.md) (vendor registry and VAT-
-whitelist verification — this spec consumes it as an optional peer,
-does not duplicate it)
+(open, PR #5663 — the posting engine this spec books into),
+[Contractor Registry](2026-09-06-contractor-registry.md) (open, PR
+#5955 — vendor registry and VAT-whitelist verification — this spec
+consumes it as an optional peer, does not duplicate it). None of the
+above have merged as of this writing (2026-09-08, maintainer review).
 
 ## TLDR
 
@@ -28,8 +29,10 @@ out to `Contractor Registry`), (B) purchasing materials (goods receipt
 → invoice → posted — pulled out to `2026-09-06-accounts-payable.md`),
 (C) purchasing a fixed asset (asset capitalization, depreciation
 schedule — pulled out to a separate Fixed Assets spec, see
-`.ai/specs/2026-09-06-fixed-assets.md`), (D) outbound payments
-(grouping approved invoices into payment batches, sending). **This
+`.ai/specs/2026-09-06-fixed-assets.md` — planned, not written yet;
+no such file or PR exists today, 2026-09-08 maintainer review), (D)
+outbound payments (grouping approved invoices into payment batches,
+sending). **This
 document covers only D** — A, B, and C are deliberately pulled out
 (their own, independent capabilities; D itself was, until 2026-09-08,
 part of the same document as B, see Changelog).
@@ -192,11 +195,32 @@ Design decisions for the full justification (the same analysis, the
 same verdict, not repeated here in full). The team confirmed SPLIT on
 2026-09-08.
 
+**Invoice eligibility predicate, made explicit (2026-09-08, external
+maintainer review — closes a double-payment gap).** Every prior
+mention of the batch-eligibility rule used the phrase "not yet
+attached to another unfinished batch" — ambiguous on its face, and
+read literally it excludes the wrong thing: a `SENT` batch is
+"finished" by ordinary English, so the literal reading stops
+protecting an invoice the moment its batch is sent, letting the same
+`POSTED` invoice (there is no `PAID` status — see Data Models — and no
+other settlement flag on `VendorInvoice`) enter a second batch and be
+paid twice. `cancelPaymentBatch` was always the only command that
+"frees" a batch's invoices (see Commands) — which only makes sense if
+non-cancelled batches, `SENT` included, hold the claim — so the intent
+was never in question, only the wording. The rule, stated
+unambiguously everywhere it's used: **an invoice is ineligible for a
+new `PaymentBatchLine` while it is attached to a line on any
+`PaymentBatch` whose `status` is not `CANCELLED`** — `DRAFT`,
+`CONFIRMED` and `SENT` all block re-attachment; only `CANCELLED`
+(via `cancelPaymentBatch`, which removes the line) releases it.
+
 **A new mechanism introduced by the split: two direct cross-module
 reads, without `commandBus`.**
 `createPaymentBatch`/`updatePaymentBatch` need to find approved
 (`status === 'POSTED'`), not-yet-batched invoices for the same vendor/
-currency, that aren't already attached to another, unfinished batch;
+currency, that aren't attached to any batch whose status isn't
+`CANCELLED` (corrected 2026-09-08, external maintainer review — see
+below, "invoice eligibility predicate, made explicit");
 `markPaymentBatchSent` needs the vendor liability account, configured
 on the sibling module. As long as both entity groups lived in one
 module, both were ordinary intra-module reads; the split makes this
@@ -213,35 +237,39 @@ both always scoped by `tenantId`/`organizationId`. Rationale:
 module (validated at generation time through `ModuleInfo.requires`,
 see Module Dependency) — not an optional peer like `contractors` — so
 there's no degradation scenario to design for either read, just as
-there isn't for `ledger`. **Neither read has an existing repo
-precedent** — unlike `commandBus.execute('ledger.postJournalEntry', ...)`,
-which has a direct precedent (`workflows`'
-`UPDATE_ENTITY`), no existing module in the repo today queries another
-hard-dependency module's entity directly, and no existing
-`ModuleConfigService` call site reads another module's config value —
-every real call site today (`entities`, `entity-settings`,
-`notifications/lib/deliveryConfig.ts`) reads only its own module's
-value. **Correction (2026-09-08, this review round)**: an earlier
-draft cited `ModuleConfigService.get('accounts_payable.liabilityAccountId',
+there isn't for `ledger`. **The direct entity query has a real repo
+precedent — an earlier claim that it didn't was wrong (corrected
+2026-09-08, external maintainer review).** A prior draft of this
+section claimed "no existing module in the repo today queries another
+hard-dependency module's entity directly" and escalated that as a
+first-of-its-kind coupling category needing explicit team sign-off.
+That's false: `staff` (`requires: ['planner', 'resources']`) imports
+`PlannerAvailabilityRuleSet` from `planner`'s own `data/entities.ts`
+and queries it directly, tenant/org-scoped, with no ORM relation
+(`packages/core/src/modules/staff/lib/messageObjectPreviews.ts:7,294-303`);
+`communication_channels` does the same against `messages`'s `Message`
+entity (`commands/deliver-outbound-message.ts:131`). Both are exactly
+this pattern — type-import plus scoped query, no relation — applied
+across a hard-dependency boundary. The `ModuleConfigService` half of
+the original claim does hold: every real call site today (`entities`,
+`entity-settings`, `notifications/lib/deliveryConfig.ts`) reads only
+its own module's value, so `markPaymentBatchSent`'s read of
+`accounts_payable.liabilityAccountId` genuinely is a first-of-its-kind
+config read. **Correction (2026-09-08, prior review round)**: an
+earlier draft cited `ModuleConfigService.get('accounts_payable.liabilityAccountId',
 { tenantId })` as if it were already-established precedent for the
 entity-query decision above; that citation was wrong twice over — the
 real method is `getValue(moduleId, name, options)` (`.get` doesn't
 exist, and `moduleId`/`name` are separate arguments, not one dotted
 string), and it wasn't precedent at all, since this document is
-introducing that exact call itself. Both cross-module reads are new
-coupling, introduced together by this document — not a case of one
-mirroring an established pattern for the other. Rejected alternative:
-a thin query command on `accounts_payable`
-(`accounts_payable.vendorInvoices.listPayable`, called through the
-same `commandBus`) — would give stricter encapsulation at the cost of
-an extra indirection layer for something that always co-exists with
-`accounts_payable` anyway; flagged for maintainer confirmation at code
-review — see Alternatives considered. Whether introducing this
-first-of-its-kind coupling category (direct cross-module entity and
-config reads, bypassing `commandBus`) rises to a Q-style architectural
-decision requiring explicit team sign-off, rather than a routine
-implementation choice left to code review, is an open question raised
-by this review round and not resolved by this document alone.
+introducing that exact call itself. With a real precedent now cited
+for the entity query, the "thin query command" alternative needs no
+further ceremony — see Alternatives considered, now closed rather than
+left open. The `ModuleConfigService` cross-module read remains
+genuinely new and stays a routine implementation choice for code
+review, not a question requiring team sign-off — narrower in scope
+than the original draft claimed, since it's the only piece of this
+pair that's actually unprecedented.
 
 **API path change**: the HTTP route base path changes from
 `/api/accounts_payable/payments/...` (when this was one module) to
@@ -257,7 +285,7 @@ documented explicitly, not glossed over.
 |-------------|-------------|
 | Real bank integration (calling a bank's API / a transfer file) in Phase 1 | No precedent whatsoever in the repo — SPEC-024's Cash Management defines no `PaymentOrder`/`PaymentInstruction`/`PaymentBatch` type. Phase 1 ends at creating and posting the payment batch; executing the transfer itself is Phase 2 |
 | Keep invoices and payments in one `accounts_payable` module | Rejected 2026-09-08 after two independent reviews — see Design decisions, "Q1 resolved" |
-| A thin query command on `accounts_payable` (`listPayable`) instead of a direct `entityManager` query across the module boundary | Considered as a safer, more encapsulated alternative (the same mechanism as `postJournalEntry`) — not rejected, only deferred as an open implementation decision: either this is chosen at code review, or the direct query is (both have the same functional effect, neither requires reworking entities/commands) |
+| A thin query command on `accounts_payable` (`listPayable`) instead of a direct `entityManager` query across the module boundary | **Closed, 2026-09-08 maintainer review** — the direct query has a real repo precedent (`staff`→`planner`, `communication_channels`→`messages`; see Design decisions), so the extra indirection layer buys no encapsulation this repo doesn't already accept elsewhere. Rejected in favor of the direct `entityManager` query |
 
 ## User Stories
 
@@ -407,10 +435,19 @@ async seedDefaults({ em, tenantId, organizationId }) {
 
 - `createPaymentBatch` — creates a `PaymentBatch` in `DRAFT`, empty.
 - `updatePaymentBatch` — adds/removes `PaymentBatchLine` (only
-  invoices with status `POSTED` in `accounts_payable`, not yet
-  attached to another unfinished batch — read directly through
-  `entityManager`, see Design decisions and Cross-module integration),
-  only while `PaymentBatch.status === 'DRAFT'`.
+  invoices with status `POSTED` in `accounts_payable`, not attached to
+  any batch whose status isn't `CANCELLED` — i.e. `DRAFT`, `CONFIRMED`
+  **and** `SENT` all block re-attachment, not just `DRAFT`/`CONFIRMED`
+  (corrected 2026-09-08, maintainer review — see "invoice eligibility
+  predicate, made explicit" below for why `SENT` must count: without
+  it, a `SENT` batch's invoices become payable again, i.e. payable
+  twice) — read directly through `entityManager`, see Design decisions
+  and Cross-module integration), and matching the batch's own
+  `vendor_id`/`currency_id` (set from the first line added; every
+  subsequent line must match both, rejected otherwise — a real,
+  enforced invariant as of 2026-09-08, maintainer review; previously
+  only "same vendor/currency" prose with no backing column, see Data
+  Models), only while `PaymentBatch.status === 'DRAFT'`.
 - `confirmPaymentBatch` — `DRAFT` → `CONFIRMED`. For each line,
   resolves `contractorBankWhitelistCheck` from the `contractors`
   module through a local `tryResolve` (the same pattern, and the same
@@ -422,17 +459,26 @@ async seedDefaults({ em, tenantId, organizationId }) {
   treats a missing result as "assume WHITELISTED".
 - `markPaymentBatchSent` — `CONFIRMED` → `SENT`. Resolves `commandBus`
   from the container and calls `ledger.postJournalEntry` with one DR
-  line to the configured liability account
-  (`accounts_payable.liabilityAccountId` — read directly through
-  `ModuleConfigService` scoped by the sibling module's `tenantId`, see
-  Data Models → Module Config) per `VendorInvoiceLine` sum (or one
-  line per invoice in the batch), one CR line to the configured
-  bank/cash account
+  line **per invoice in the batch** (resolved 2026-09-08, maintainer
+  review — an earlier draft left this as an unresolved "per
+  `VendorInvoiceLine` sum, or one line per invoice" either/or; per-line
+  granularity is unnecessary here, since the payment side settles the
+  invoice's already-posted total rather than re-deriving
+  `postVendorInvoice`'s net/VAT split, and summing
+  `VendorInvoiceLine` would itself be a second cross-module entity
+  read this design doesn't otherwise need) to the configured liability
+  account (`accounts_payable.liabilityAccountId` — read directly
+  through `ModuleConfigService` scoped by the sibling module's
+  `tenantId`, see Data Models → Module Config), one CR line to the
+  configured bank/cash account
   (`accounts_payable_payments.defaultCashAccountId`),
-  `referenceType: 'accounts_payable_payments:payment_batch'`,
-  `referenceId: batch.id`. **Does not execute a real bank transfer** —
-  see Out of scope. Sets `postedJournalEntryId` (idempotency guard,
-  mirroring `postVendorInvoice`).
+  `currencyId: batch.currencyId` (see Data Models — added 2026-09-08,
+  maintainer review; `PaymentBatch` previously had no currency column
+  to post with), `referenceType:
+  'accounts_payable_payments:payment_batch'`, `referenceId: batch.id`.
+  **Does not execute a real bank transfer** — see Out of scope. Sets
+  `postedJournalEntryId` (idempotency guard, mirroring
+  `postVendorInvoice`).
 - `cancelPaymentBatch` — `DRAFT`/`CONFIRMED` → `CANCELLED` (soft
   delete via `deletedAt`; frees the attached invoices so they can go
   into another batch — logically, by removing `PaymentBatchLine`, not
@@ -461,7 +507,9 @@ const events = [
 persistent subscriber is needed yet in Phase 1; the future Posting
 Rules Engine subscribes directly to `ledger.journal_entry.posted`
 (from GL), not to this module's events — this module isn't its data
-source, GL is (see `2026-09-06-posting-rules-engine.md`). This module
+source, GL is (see `2026-09-06-posting-rules-engine.md` — planned,
+not written yet; no such file or PR exists today, 2026-09-08
+maintainer review). This module
 does **not** subscribe to any event from `accounts_payable` — it reads
 `VendorInvoice` status directly (a query, not an event) when building a
 payment batch, see Cross-module integration.
@@ -475,17 +523,22 @@ deliberately different mechanisms, not by oversight:
   an optional peer.** `packages/core/AGENTS.md` → Cross-Module
   Coupling describes `tryResolve` for **optional** integration; GL
   isn't optional here. This module calls
-  `container.resolve('commandBus').execute('ledger.postJournalEntry', input, ctx)`
-  — the same generic mechanism `accounts_payable` already uses for
-  exactly the same purpose, and that `workflows`'
+  `container.resolve('commandBus').execute('ledger.postJournalEntry', { input, ctx })`
+  — the real, two-argument `execute(commandId, options)` signature
+  (`packages/shared/src/lib/commands/command-bus.ts:223-226`; corrected
+  2026-09-08, maintainer review — an earlier draft cited a
+  non-existent three-argument form, the same fix applied to the
+  sibling document) — the same generic mechanism `accounts_payable`
+  already uses for exactly the same purpose, and that `workflows`'
   `UPDATE_ENTITY` already uses to call any command by string
   `commandId`.
 - **`accounts_payable` — a hard, declared dependency, with a new
   pattern: a direct entity query across the module boundary.**
   `updatePaymentBatch` queries `VendorInvoice` directly through
   `entityManager` (status `POSTED`, vendor, currency, excluding
-  invoices already attached to another unfinished batch — always
-  scoped by `tenantId`/`organizationId`), and `markPaymentBatchSent`
+  invoices attached to any batch whose status isn't `CANCELLED` —
+  always scoped by `tenantId`/`organizationId`), and
+  `markPaymentBatchSent`
   reads `accounts_payable.liabilityAccountId` directly through
   `ModuleConfigService` scoped by `tenantId` (not through
   `commandBus` — this is a configuration value, not a command).
@@ -517,6 +570,22 @@ deliberately different mechanisms, not by oversight:
 
 - `id`: uuid (PK)
 - `tenant_id`, `organization_id`: uuid
+- `vendor_id`: uuid, nullable (FK-id, same target as
+  `VendorInvoice.vendorId` → `contractors.Contractor`, no ORM relation
+  — added 2026-09-08, maintainer review). Nullable only while `DRAFT`
+  and empty; set from the first `PaymentBatchLine` added by
+  `updatePaymentBatch` and immutable afterward. Backs the "same
+  vendor" invariant (previously prose only, see Commands) and the
+  `vendorId` list filter (previously a join through
+  `PaymentBatchLine`, see API Contracts) with a real column.
+- `currency_id`: uuid, nullable (FK-id → `currencies.Currency`, no ORM
+  relation, same target as `VendorInvoice.currencyId` — added
+  2026-09-08, maintainer review). Same lifecycle as `vendor_id`: set
+  from the first line added, immutable afterward. Backs the "same
+  currency" invariant and gives `markPaymentBatchSent` a real
+  `currencyId` to post to `ledger.postJournalEntry` with — previously
+  missing entirely, so a multi-currency tenant had no way to produce a
+  correct posting from this schema.
 - `bank_account_id`: uuid (FK-id, reference to a future Bank Management entity)
 - `status`: text (`DRAFT`/`CONFIRMED`/`SENT`/`CANCELLED`)
 - `scheduled_payment_date`: date
@@ -526,7 +595,10 @@ deliberately different mechanisms, not by oversight:
 - `deleted_at`: timestamptz, nullable
 
 Supporting index: `(tenant_id, organization_id, status,
-scheduled_payment_date)` for the batch list.
+scheduled_payment_date)` for the batch list; `(tenant_id,
+organization_id, vendor_id)` backing the `vendorId` list filter (added
+2026-09-08, maintainer review, now that `vendor_id` is a real
+column).
 
 ### PaymentBatchLine
 
@@ -540,7 +612,8 @@ scheduled_payment_date)` for the batch list.
 
 Supporting index: `(payment_batch_id)` for loading batch lines;
 `(vendor_invoice_id)` so `createPaymentBatch`/`updatePaymentBatch` can
-quickly exclude invoices already attached to another unfinished batch.
+quickly exclude invoices attached to any batch whose status isn't
+`CANCELLED`.
 
 ### Module Config (`ModuleConfigService`, tenant scope)
 
@@ -576,8 +649,12 @@ routes live under their own module's prefix" convention.
 
 - **Request (list)**: standard `makeCrudRoute` list params —
   `page`/`pageSize` for pagination, plus filters on `status` and
-  `vendorId` (via the attached invoices' vendor). **Added explicitly
-  (this review round)**: an earlier draft left these undocumented.
+  `vendorId`. **Added explicitly (prior review round)**: an earlier
+  draft left these undocumented. **Corrected (2026-09-08, maintainer
+  review)**: `vendorId` filters directly on `PaymentBatch.vendor_id` —
+  an earlier draft described it as "via the attached invoices' vendor"
+  (a join through `PaymentBatchLine`) because `PaymentBatch` had no
+  `vendor_id` column of its own yet; see Data Models.
 - **Response 403**: caller lacks `accounts_payable_payments.payments.view` (list) / `.manage` (create).
 
 ### `POST /api/accounts_payable_payments/payments/:id/lines` / `DELETE /api/accounts_payable_payments/payments/:id/lines/:lineId`
@@ -589,8 +666,9 @@ no corresponding route — the `DELETE` route above closes that gap.
 
 - **Request (POST)**: `{ vendorInvoiceId, contractorBankAccountId, amount }`.
 - **Response 409 (POST)**: `PaymentBatch.status !== 'DRAFT'`, or the invoice
-  isn't `POSTED` (in `accounts_payable`), or the invoice is already
-  attached to another unfinished batch.
+  isn't `POSTED` (in `accounts_payable`), or the invoice is attached
+  to another batch whose status isn't `CANCELLED` (`DRAFT`/`CONFIRMED`/
+  `SENT` all count).
 - **Response 409 (DELETE)**: `PaymentBatch.status !== 'DRAFT'`.
 - **Response 403**: caller lacks `accounts_payable_payments.payments.manage`.
 
@@ -852,7 +930,8 @@ tables, zero changes to existing ones. `onTenantCreated` is idempotent
 | `packages/core/AGENTS.md` → API Routes | Custom write routes wire the mutation guard registry | Compliant | `lines`/`confirm`/`send`/`cancel` routes all mapped to `update` operation |
 | `packages/core/AGENTS.md` → Cross-Module Coupling | Optional-peer sync calls resolve via `tryResolve` in `try/catch`; hard dependency uses direct resolution | Compliant | `contractorBankWhitelistCheck` via `tryResolve` (optional peer, fail-closed policy); `ledger.postJournalEntry` via direct `commandBus.execute` (hard dependency) |
 | `packages/core/AGENTS.md` → Cross-Module Coupling (hard dependency mechanism) | Hard dependency declared through `ModuleInfo.requires` | Compliant | `index.ts` with `metadata.requires: ['ledger', 'accounts_payable']` |
-| `packages/core/AGENTS.md` → Cross-Module Coupling (new pattern) | Direct entity query across a hard-dependency module boundary | **Compliant, but a new pattern introduced by this split — flagged, not silently assumed** | No existing repo module today queries another hard-dependency module's entity directly (the closest precedent, `commandBus.execute`, is for command calls, not reads); this document's own Design decisions record the reasoning and the rejected thin-query-command alternative, and recommend maintainer confirmation at code review rather than treating this as a settled, verified precedent |
+| `packages/core/AGENTS.md` → Cross-Module Coupling | Direct entity query across a hard-dependency module boundary | **Compliant, precedented (corrected 2026-09-08, maintainer review)** | `staff`→`planner` (`messageObjectPreviews.ts:7,294-303`) and `communication_channels`→`messages` (`deliver-outbound-message.ts:131`) already do exactly this — type-import plus tenant/org-scoped query, no ORM relation. An earlier draft claimed no precedent existed and escalated this to a team-sign-off question; that was wrong — see Design decisions |
+| `packages/core/AGENTS.md` → Cross-Module Coupling (new pattern) | Direct `ModuleConfigService` read of another module's config value | **Compliant, genuinely new — flagged, not silently assumed** | Every real `ModuleConfigService.getValue` call site today (`entities`, `entity-settings`, `notifications/lib/deliveryConfig.ts`) reads only its own module's value; `markPaymentBatchSent`'s read of `accounts_payable.liabilityAccountId` is the first cross-module one — see Design decisions |
 | `packages/core/AGENTS.md` → Database Entities | User-editable entities MUST include `updated_at` | Compliant | `PaymentBatch` has `updatedAt`; `PaymentBatchLine` is a sub-resource guarded by its parent aggregate (exempt, per the same rule's own exemption list) |
 | `packages/core/AGENTS.md` → Database Entities | Standard column contract includes `deleted_at` | Compliant | `PaymentBatch` has `deletedAt`; `PaymentBatchLine` exempt as sub-resource. Status guard blocking delete after `SENT` enforced at the command layer (`cancelPaymentBatch`) |
 | `packages/core/AGENTS.md` → Encryption | GDPR/PII fields declared in `<module>/encryption.ts`, read via `findWithDecryption` | N/A | No PII/GDPR-sensitive field in this module's entities — `whitelistCheckResult` deliberately excludes the bank account number (already encrypted in `contractors/encryption.ts`), see Encryption |
@@ -867,13 +946,13 @@ tables, zero changes to existing ones. `onTenantCreated` is idempotent
 | Check | Status | Notes |
 |-------|--------|-------|
 | Data models match architecture | Pass | Entities in Architecture and Data Models agree |
-| API contracts match data models | Pass | Every documented field/filter has a backing column, including the `.../cancel` route |
+| API contracts match data models | Pass (corrected 2026-09-08, maintainer review) | Every documented field/filter has a backing column, including the `.../cancel` route and the `vendorId` list filter / "same vendor or currency" invariant, which had none until `PaymentBatch.vendor_id`/`currency_id` were added this round (see Data Models) |
 | Commands defined for all mutations | Pass | Every status transition has a named command, including `cancelPaymentBatch` for `CANCELLED` |
 | Double-entry postings balance | Pass | `markPaymentBatchSent` posts DR liability / CR cash, both to configured accounts |
 | Risks cover all write operations | Pass | Double-posting, `contractors`/`ledger`/`accounts_payable` cascades, tenant isolation, migration all addressed |
 | Scope cohesion vs. other modules | Pass | Single capability (payment batching and sending), independently deployable given its two hard dependencies (`ledger`, `accounts_payable`) — invoices split out per Q1 resolution, see the sibling document |
 | Scope cohesion *within* this document | Pass | One entity group, one lifecycle, one GL integration seam — this is exactly the half of the original combined document that both independent reviews identified as its own cohesive capability |
-| Cross-module coupling mechanism matches dependency type | Pass, with one flagged new pattern | Hard dependencies (`ledger`, `accounts_payable`) via `ModuleInfo.requires`; `ledger` calls via `commandBus` (existing precedent); `accounts_payable` reads via direct entity query and direct `ModuleConfigService` read (new pattern, explicitly flagged — see Compliance Matrix above); optional peer (`contractors`) via `tryResolve`, fail-closed |
+| Cross-module coupling mechanism matches dependency type | Pass, with one flagged new pattern | Hard dependencies (`ledger`, `accounts_payable`) via `ModuleInfo.requires`; `ledger` calls via `commandBus` (existing precedent); `accounts_payable`'s entity query is precedented (`staff`→`planner`, `communication_channels`→`messages` — corrected 2026-09-08); its `ModuleConfigService` read is the one genuinely new pattern, explicitly flagged — see Compliance Matrix above; optional peer (`contractors`) via `tryResolve`, fail-closed |
 
 ### Non-Compliant Items
 
@@ -899,28 +978,35 @@ Compliance Matrix row for the API-route-rename rule. See Changelog for
 the full list with sources.
 
 One item remains a **newly introduced design pattern flagged for
-maintainer (and possibly team) confirmation, not a compliance gap**:
-the direct cross-module entity query against
-`accounts_payable.VendorInvoice` and the direct
-`ModuleConfigService.getValue` read of
-`accounts_payable.liabilityAccountId` (see Compliance Matrix and
-Design decisions) — both new coupling categories with no existing
-repo precedent.
+maintainer confirmation, not a compliance gap** — narrower than a
+prior draft claimed (corrected 2026-09-08, external maintainer
+review): the direct `ModuleConfigService.getValue` read of
+`accounts_payable.liabilityAccountId` is genuinely new coupling, with
+no existing repo precedent. The direct entity query against
+`accounts_payable.VendorInvoice`, previously escalated alongside it as
+equally unprecedented, is not — `staff`→`planner` and
+`communication_channels`→`messages` already establish exactly that
+pattern (see Compliance Matrix and Design decisions); it needs no
+further flag or team sign-off, only routine code-review confirmation
+like any other cross-module read.
 
 ### Verdict
 
-**Ready for maintainer review, with two items flagged for explicit
-confirmation (not compliance blockers, but genuine open questions this
-document does not resolve alone):**
-(1) whether `updatePaymentBatch`'s read of `accounts_payable.VendorInvoice`
-and `markPaymentBatchSent`'s read of `accounts_payable.liabilityAccountId`
-should go through thin query/read commands on `commandBus` (stricter
-encapsulation, no new pattern) or the direct reads this document
-designs (simpler, no new command surface), and whether introducing
-this first-of-its-kind coupling category deserves explicit team
-sign-off rather than routine code-review confirmation — see Design
-decisions and Alternatives considered; (2) the API-route-rename
-question above. Every AGENTS.md rule checked is compliant. This
+**Ready for maintainer review, with one item flagged for explicit
+confirmation (not a compliance blocker, a genuine open question this
+document does not resolve alone) — narrowed from two, 2026-09-08
+maintainer review:** whether `markPaymentBatchSent`'s direct
+`ModuleConfigService` read of `accounts_payable.liabilityAccountId`
+needs anything beyond routine code-review confirmation, given it's the
+only piece of this pair genuinely without repo precedent (see Design
+decisions). `updatePaymentBatch`'s direct entity query against
+`accounts_payable.VendorInvoice` — previously flagged alongside it as
+an equally open, possibly team-sign-off-worthy question — is not: it
+matches an established repo pattern (`staff`→`planner`,
+`communication_channels`→`messages`) and the "thin query command"
+alternative is closed, not left open, for that reason (see
+Alternatives considered). The API-route-rename question above remains
+open on its own terms. Every AGENTS.md rule checked is compliant. This
 document is the narrower, payments-only half of what was originally a
 single combined Accounts Payable specification — two independent,
 fresh-context reviews found the combined document's own scope-cohesion
@@ -1070,3 +1156,60 @@ before being accepted (not taken on the reviewing agent's word alone):
   silently settle — whether the new direct-cross-module-read pattern
   needs team-level sign-off (a Q-style decision) rather than routine
   code-review confirmation.
+
+### 2026-09-08 (cont. — external maintainer review of PR #5962, four
+majors)
+
+An external maintainer review of the split PR (invoices + payments,
+review scope: both documents together) found four majors and six
+minors/nits. This entry covers the fixes affecting this document (the
+payments half); the sibling invoices document's Changelog covers the
+rest. Every finding personally re-verified against the real repository
+before being fixed, not accepted on the review's word alone:
+
+- **Double-payment predicate (major)**: every mention of the
+  batch-eligibility rule used the ambiguous phrase "not yet attached
+  to another unfinished batch" — read literally, a `SENT` batch (no
+  longer "unfinished") stops protecting its own invoices, and since
+  `VendorInvoice` has no `PAID` status or settlement flag, the same
+  invoice could re-enter a second batch and be paid twice. Rewrote the
+  rule everywhere (Design decisions, Commands, index rationale, API
+  Contracts) to the unambiguous form: an invoice is ineligible while
+  attached to a line on any batch whose status isn't `CANCELLED` —
+  `DRAFT`/`CONFIRMED`/`SENT` all block re-attachment.
+- **False "no repo precedent" claim (major)**: this document escalated
+  the direct cross-module entity query
+  (`updatePaymentBatch`/`VendorInvoice`) as a first-of-its-kind
+  coupling category needing possible team sign-off. It isn't:
+  `staff`→`planner` (`messageObjectPreviews.ts:7,294-303`) and
+  `communication_channels`→`messages` (`deliver-outbound-message.ts:131`)
+  already do exactly this. Narrowed the claim to what's actually new —
+  the direct `ModuleConfigService` cross-module read — and closed the
+  "thin query command" alternative as rejected rather than left open,
+  across Design decisions, Alternatives considered, Compliance Matrix,
+  Internal Consistency Check, Non-Compliant Items, and Verdict.
+- **`PaymentBatch` missing `currencyId`/`vendorId` (major)**: the
+  "same vendor/currency" invariant, the `vendorId` list filter, and
+  `markPaymentBatchSent`'s GL posting were all load-bearing on columns
+  that didn't exist. Added `vendor_id` and `currency_id` to
+  `PaymentBatch` (set from the first line added, immutable after),
+  backing the invariant and the filter with real columns and giving
+  the GL posting a `currencyId` to use.
+- **`commandBus.execute` signature (minor)**: corrected the
+  three-argument citation to the real
+  `execute(commandId, { input, ctx })` two-argument signature, same
+  fix as the sibling document.
+- **Debit-side ambiguity (minor)**: `markPaymentBatchSent` left "per
+  `VendorInvoiceLine` sum (or one line per invoice in the batch)" as
+  an open either/or. Resolved to one DR line per invoice — the payment
+  side settles the already-posted total and doesn't need
+  `postVendorInvoice`'s net/VAT granularity, and summing
+  `VendorInvoiceLine` would be an unnecessary second cross-module read.
+- **Dangling links (minor)**: annotated the Related header's AP
+  invoices/GL/Contractor Registry links with their open PR numbers
+  (#5962/#5663/#5955 — none merged as of this writing); marked
+  `fixed-assets.md` and `posting-rules-engine.md` explicitly as
+  planned, not written yet, wherever cited by path.
+- Updated the Final Compliance Report (Compliance Matrix, Internal
+  Consistency Check, Non-Compliant Items, Verdict) to record all of
+  the above.
