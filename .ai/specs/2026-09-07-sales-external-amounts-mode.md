@@ -6,7 +6,7 @@ Related: [#5644](https://github.com/open-mercato/open-mercato/issues/5644), [#57
 [#5853](https://github.com/open-mercato/open-mercato/issues/5853), [#3757](https://github.com/open-mercato/open-mercato/issues/3757),
 [#5640](https://github.com/open-mercato/open-mercato/pull/5640), and
 [`.ai/specs/2026-08-07-sales-line-discount-amount-contract.md`](2026-08-07-sales-line-discount-amount-contract.md).
-Verified against: `develop` @ `19bf96975` (2026-09-02). Line numbers are a convenience pinned to that
+Verified against: `develop` @ `3076e5ccf` (2026-09-08). Line numbers are a convenience pinned to that
 commit and drift; the symbol or command id beside each is the durable identifier.
 
 ## TLDR
@@ -45,40 +45,40 @@ took: the contract is agreed first, the code follows in a separate change.
 
 ### What core owns today
 
-`buildBaseLineResult` (`lib/calculations.ts:109`) derives a line's net from its own columns and nothing
+`buildBaseLineResult` (`lib/calculations.ts:118`) derives a line's net from its own columns and nothing
 else:
 
 ```ts
-const netSubtotalBeforeDiscount = toNumber(unitNet, 0) * quantity          // :117
+const netSubtotalBeforeDiscount = toNumber(unitNet, 0) * quantity          // :126
 const discountTotal = Math.min(
   Math.max(resolveLineDiscountTotal(line, netSubtotalBeforeDiscount, quantity), 0),
-  netSubtotalBeforeDiscount,                                               // :118-121
+  netSubtotalBeforeDiscount,                                               // :127-130
 )
-const netSubtotal = Math.max(netSubtotalBeforeDiscount - discountTotal, 0) // :122
+const netSubtotal = Math.max(netSubtotalBeforeDiscount - discountTotal, 0) // :131
 ```
 
 `line.totalNetAmount` is never read. `line.totalGrossAmount`, by contrast, **is** honoured verbatim
-(`:127-130`) — the asymmetry #5644 opened and #5853 still carries.
+(`:168-171`) — the asymmetry #5644 opened and #5853 still carries.
 
-`buildBaseDocumentResult` (`:151`) then derives the header from the line *results*:
+`buildBaseDocumentResult` (`:192`) then derives the header from the line *results*:
 
 ```ts
 for (const line of lines) {
-  subtotalNet += toNumber(line.netAmount, 0)                               // :172-181
+  subtotalNet += toNumber(line.netAmount, 0)                               // :213-222
   subtotalGross += toNumber(line.grossAmount, 0)
   discountTotal += toNumber(line.discountAmount, 0)
   taxTotal += toNumber(line.taxAmount, 0)
 }
 ```
 
-`applyOrderTotals` (`commands/documents.ts:3641`) writes **only** from `calculation.totals` onto the order
+`applyOrderTotals` (`commands/documents.ts:3653`) writes **only** from `calculation.totals` onto the order
 header; there is no branch anywhere that reads a caller-supplied header total for an order or a quote.
 
 Every command that touches one line recalculates the whole document and re-persists every line:
-`sales.orders.lines.upsert` builds `calcLines` from *all* the order's lines (`documents.ts:7283-7286`),
-calls `calculateDocumentTotals` (`:7301`), then `applyOrderLineResults` (`:3218`) rewrites each row from
-the result via `convertLineCalculationToEntityInput` (`:3130`) — `totalNetAmount: lineResult.netAmount`
-at `:3173`, `totalGrossAmount: lineResult.grossAmount` at `:3174`. A persisted line re-enters calculation
+`sales.orders.lines.upsert` builds `calcLines` from *all* the order's lines (`documents.ts:7297-7300`),
+calls `calculateDocumentTotals` (`:7314`), then `applyOrderLineResults` (`:3230`) rewrites each row from
+the result via `convertLineCalculationToEntityInput` (`:3142`) — `totalNetAmount: lineResult.netAmount`
+at `:3185`, `totalGrossAmount: lineResult.grossAmount` at `:3186`. A persisted line re-enters calculation
 through `mapPersistedLine` (`lib/lineSnapshots.ts:14`), rebuilt from its columns.
 
 This is correct for a system that **composes** orders. It is wrong for one that **mirrors** orders whose
@@ -90,7 +90,7 @@ figures are the legally filed ones.
    net which, multiplied by quantity, does not reproduce its own line net. The caller knows the true net
    and has nowhere to put it: `totalNetAmount` is accepted and validated (`data/validators.ts:349`) and
    then never read, and since #5640 a non-zero `discountPercent` takes precedence over any supplied
-   `discountAmount` (`lib/calculations.ts:93-96`), so the amount channel is not available either.
+   `discountAmount` (`lib/calculations.ts:102-105`), so the amount channel is not available either.
 
 2. **The header cannot be transmitted either.** Where the source rounds VAT per rate group, its own header
    net legitimately differs from the sum of its lines. `orderCreateSchema` *accepts* the header fields —
@@ -100,7 +100,7 @@ figures are the legally filed ones.
    shape as #5644, one level up.
 
 3. **Markups are unrepresentable.** `discountAmount` is `decimal({ min: 0 })` (`data/validators.ts:342`)
-   and the engine clamps the resolved discount with `Math.max(…, 0)` (`lib/calculations.ts:119`), so a line
+   and the engine clamps the resolved discount with `Math.max(…, 0)` (`lib/calculations.ts:128`), so a line
    whose net is *above* `unitPrice × quantity` — upward source rounding, a surcharge priced into the line —
    has no shape at either layer.
 
@@ -121,15 +121,15 @@ no amount of rounding-mode tuning closes a gap that the source deliberately intr
 ### Core already has caller-asserted amounts — on invoices
 
 This is not a new principle for the module, only a new place to apply it. `sales.invoices.create`
-(`commands/documents.ts:8963`) writes the header straight from request input:
+(`commands/documents.ts:8977`) writes the header straight from request input:
 
 ```ts
-subtotalNetAmount: toNumericString(parsed.subtotalNetAmount ?? 0),        // :9028
-grandTotalNetAmount: toNumericString(parsed.grandTotalNetAmount ?? 0),    // :9032
+subtotalNetAmount: toNumericString(parsed.subtotalNetAmount ?? 0),        // :9042
+grandTotalNetAmount: toNumericString(parsed.grandTotalNetAmount ?? 0),    // :9046
 ```
 
-`sales.invoices.update` (`:9242`), `sales.credit_memos.create` (`:9614`, `:9617`) and
-`sales.credit_memos.update` (`:9788`) do the same. The discount contract's D1 records the matching
+`sales.invoices.update` (`:9256`), `sales.credit_memos.create` (`:9628`, `:9631`) and
+`sales.credit_memos.update` (`:9802`) do the same. The discount contract's D1 records the matching
 line-level position: `sales_invoice_lines.discount_amount` is *"caller-asserted and unenforced"* and stays
 outside its normative contract.
 
@@ -153,7 +153,7 @@ So core already ships a document kind whose amounts belong to the caller. What i
 Both columns, not one. The header finding and the line finding are independent, and neither column is
 derivable from the other at the point of use:
 
-- The line calculation is a pure function of one `SalesLineSnapshot` (`lib/calculations.ts:109`) with no
+- The line calculation is a pure function of one `SalesLineSnapshot` (`lib/calculations.ts:118`) with no
   document in scope. The snapshot is the only channel through which the engine can learn a line is
   external, and `mapPersistedLine` (`lib/lineSnapshots.ts:14`) is handed a line entity alone. A
   document-only mode would have to be fetched through a relation inside the mapper.
@@ -182,14 +182,16 @@ explicit is worthwhile and is separate work.
 | field | question it answers | set by |
 |---|---|---|
 | `discountAmountBasis` (`lib/types.ts:66`) | *how* to read a supplied `discountAmount` — per unit or per line | callers only |
-| `discountAmountFromStoredRow` (`:72`) | *where* the amount came from — a request or a persisted row | mappers only |
+| `discountAmountFromStoredRow` (`:72`) | *where* the discount came from — a request or a persisted row | mappers only |
+| `totalsFromStoredRow` (`:84`) | *where* the net and gross came from — same question, different field, added by #5707 | mappers only |
 | **`amountsMode`** (new) | *who is authoritative* for this line's amounts | callers and mappers |
 
-`lib/lineSnapshots.ts:33-38` is emphatic that a mapper must not answer one origin question with the other's
-field. The same applies here, in both directions: `amountsMode` is not an origin signal, and neither of the
-other two is an authority signal. All three must stay separate, and unlike the first two, `amountsMode`
-**is** legitimately set by both producers — a caller declares it on create, and `mapPersistedLine` reads it
-back off the column.
+Three of these already exist, and the third is the precedent: #5707 needed an origin signal for the totals
+and **added its own field rather than reusing the discount's**, because `lib/lineSnapshots.ts:33-38` is
+emphatic that a mapper must not answer one origin question with the other's. `amountsMode` is the same
+discipline applied once more — it is not an origin signal, and none of the other three is an authority
+signal. Unlike the others, it **is** legitimately set by both producers: a caller declares it on create,
+and `mapPersistedLine` reads it back off the column.
 
 ```ts
 // packages/core/src/modules/sales/lib/types.ts
@@ -224,7 +226,7 @@ if line.amountsMode === 'external':
 
 Three properties of that block are load-bearing.
 
-**No clamp.** The `Math.max(…, 0)` at `:119` and the `Math.min(…, netSubtotalBeforeDiscount)` at `:118` do
+**No clamp.** The `Math.max(…, 0)` at `:128` and the `Math.min(…, netSubtotalBeforeDiscount)` at `:127` do
 not run, so a line net *above* `unitPrice × quantity` is expressible. The markup arrives as a **negative
 derived `discountAmount`**, which the `numeric(18,4)` column holds without a schema change.
 
@@ -237,15 +239,15 @@ deliberate improvement on the obvious fix of relaxing the bound, which would als
 renders both a percent and an amount keeps agreeing with itself, and the document rollup keeps summing a
 quantity-inclusive line total exactly as D1 fixed it.
 
-**Registered line calculators still run, and cannot move the amounts.** `calculateLine` (`:318`) runs
-`buildBaseLineResult` first (`:320`), then the `sales.line.calculate.before` event, then the hook registry
-(`:334-337`), then `.after`. Substituting at the first stage only would leave any later stage free to
+**Registered line calculators still run, and cannot move the amounts.** `calculateLine` (`:359`) runs
+`buildBaseLineResult` first (`:361`), then the `sales.line.calculate.before` event, then the hook registry
+(`:375-378`), then `.after`. Substituting at the first stage only would leave any later stage free to
 overwrite the caller's figures, so `calculateLine` **re-applies** an external line's supplied `netAmount`,
 `grossAmount` and `taxAmount` after the registry, immediately before returning.
 
 That is not a new pattern: `calculateDocument` already does exactly this for `paidTotalAmount` /
-`refundedTotalAmount` (`:415-426`), for exactly this reason — *"Totals calculators rebuild the document
-result from lines+adjustments and would otherwise reset paid/refunded to 0"* (`:409-414`). Authoritative
+`refundedTotalAmount` (`:456-467`), for exactly this reason — *"Totals calculators rebuild the document
+result from lines+adjustments and would otherwise reset paid/refunded to 0"* (`:450-455`). Authoritative
 inputs are re-applied last. A supplied amount under `external` is an authoritative input by definition.
 
 Hooks keep running, so the extension point `BACKWARD_COMPATIBILITY.md` treats as stable is not silently
@@ -256,7 +258,7 @@ blunter *"Cart Discounts are deactivated for Line Items with this price mode"*.
 ### 4. Document totals under `external`
 
 The supplied header reaches the engine through two additive fields on `CalculateDocumentOptions`
-(`lib/types.ts:166`), which today has no channel for it at all:
+(`lib/types.ts:175`), which today has no channel for it at all:
 
 ```ts
 export type CalculateDocumentOptions = {
@@ -266,7 +268,7 @@ export type CalculateDocumentOptions = {
 }
 ```
 
-`buildBaseDocumentResult` (`:151`) then takes the supplied header instead of the line rollup, for every
+`buildBaseDocumentResult` (`:192`) then takes the supplied header instead of the line rollup, for every
 field `orderTotalsSchema` (`data/validators.ts:662`) already accepts: `subtotalNetAmount`,
 `subtotalGrossAmount`, `discountTotalAmount`, `taxTotalAmount`, `shippingNetAmount`,
 `shippingGrossAmount`, `surchargeTotalAmount`, `grandTotalNetAmount`, `grandTotalGrossAmount`.
@@ -296,17 +298,17 @@ let working = rebuildDocumentResult({            // totals.ts:191
 })
 ```
 
-`rebuildDocumentResult` (`calculations.ts:464`) calls `buildBaseDocumentResult` with lines and adjustments
+`rebuildDocumentResult` (`calculations.ts:505`) calls `buildBaseDocumentResult` with lines and adjustments
 only — there is no channel for supplied totals — and the hook returns `working` at `totals.ts:370`
 whether or not a shipping or payment method is set. `calculateDocument` runs the registered totals
-calculators after the base result (`:384-393`) and returns their output, which is what `applyOrderTotals`
+calculators after the base result (`:425-434`) and returns their output, which is what `applyOrderTotals`
 persists. Left unaddressed, the caller's header is replaced by the sum of its lines before anything is
 written, and acceptance criterion 3 cannot pass.
 
 Two changes close it, and neither disables the registry:
 
 1. **`calculateDocument` re-applies the supplied header after the totals-calculator stage**, in the same
-   final block that already re-applies `paidTotalAmount` / `refundedTotalAmount` (`:415-426`) — today gated
+   final block that already re-applies `paidTotalAmount` / `refundedTotalAmount` (`:456-467`) — today gated
    on `existingTotals`, extended to run whenever `totalsMode === 'external'`. `outstandingAmount` is then
    recomputed against the restored gross, exactly as that block already does. This is the belt: whatever a
    third-party calculator does, the caller's header is restored last.
@@ -320,8 +322,8 @@ Third-party totals calculators still run and may still append adjustments; they 
 header. A calculator that needs to must switch the document to `computed` first.
 
 `paidTotalAmount`, `refundedTotalAmount` and `outstandingAmount` stay **core-owned** and derived, unchanged:
-`outstandingAmount = max(grandTotalGross − paid + refunded, 0)` (`lib/calculations.ts:273`, re-applied at
-`:415-426`; `commands/payments.ts:317` recomputes it from `order.grandTotalGrossAmount` and the payment
+`outstandingAmount = max(grandTotalGross − paid + refunded, 0)` (`lib/calculations.ts:314`, re-applied at
+`:456-467`; `commands/payments.ts:317` recomputes it from `order.grandTotalGrossAmount` and the payment
 rows). Because payments derive outstanding from the *persisted* header gross and never re-derive the
 header, **`sales.payments.*` needs no rule and no change at all** — under `external` it simply derives from
 the caller's gross instead of core's.
@@ -337,47 +339,48 @@ and the Shipping Method have an external tax amount and rate set."*
 every rehydration is self-describing. Combined with § 3 and § 4:
 
 - Recalculation triggered by a sibling line's write returns the external line's stored amounts unchanged.
-- The persisted-totals reconciliation and the #5707 divergence warning skip external rows (§ 8).
+- The persisted-totals reconciliation and the #5707 divergence warning skip external rows — structurally,
+  because § 3's branch returns before `lib/calculations.ts:143` ever runs (§ Out of Scope).
 - The read path needs no change at all: `sales.orders` single-row `GET` already serves persisted totals
   rather than recomputing, since *"fix(sales): serve persisted order totals on single-row GET (#5438)"*
   (`136748c73`) removed the display recalculation from `api/documents/factory.ts`.
   `recalculateOrderTotalsForDisplay` (`commands/returns.ts:176`) survives as an export with **no production
-  caller** on `develop` @ `19bf96975`.
+  caller** on `develop` @ `3076e5ccf`.
 
 **This is the property that separates the proposal from every write-time-only variant.** A request flag can
 make one write correct; only a persisted column survives the next write to a sibling row.
 
 ### 6. Every place that writes header totals, and its rule
 
-Exhaustive at `19bf96975`. **Seventeen sites: sixteen command-layer writers, and one inside the calculation
+Exhaustive at `3076e5ccf`. **Seventeen sites: sixteen command-layer writers, and one inside the calculation
 engine** — the totals-calculator stage of § 4, which is not reachable by grepping the command files because
 it is registered as a module side effect. The rule is one sentence, applied uniformly:
 
 > A command that would rewrite an external document's header either **refuses**, or **leaves the header
 > untouched** and records its own non-monetary effect. Nothing recomputes an external header implicitly.
 
-**`commands/documents.ts` — recalculate-and-persist via `applyOrderTotals` (`:3641`) / `applyQuoteTotals` (`:3622`)**
+**`commands/documents.ts` — recalculate-and-persist via `applyOrderTotals` (`:3641`) / `applyQuoteTotals` (`:3634`)**
 
 | command | decl | writes at | rule under `external` |
 |---|---:|---:|---|
-| `sales.orders.create` | 5702 | 5978 | accepts `amountsMode: 'external'` + complete lines + header totals; incomplete input is a 4xx |
-| `sales.orders.update` | 5458 | 5591 | if the request carries lines or totals it must carry **both**; a request carrying neither leaves the persisted header untouched |
-| `sales.orders.lines.upsert` | 7064 | 7327 | **reject** unless the request also carries the document header totals — which today's schema cannot express, so § API Contracts widens it |
-| `sales.orders.lines.delete` | 7383 | 7509 | **reject** unless the request also carries the document header totals — same schema widening |
-| `sales.orders.adjustments.upsert` | 8033 | 8270 | **refuse** — an adjustment exists only to change money |
-| `sales.orders.adjustments.delete` | 8327 | 8435 | **refuse** — same |
-| `sales.quotes.create` | 4706 | 4948 | unchanged — quotes are always `computed` (§ 1) |
-| `sales.quotes.update` | 5225 | 5368 | unchanged |
-| `sales.quotes.lines.upsert` | 7565 | 7823 | unchanged |
-| `sales.quotes.lines.delete` | 7879 | 7977 | unchanged |
-| `sales.quotes.adjustments.upsert` | 8492 | 8727 | unchanged |
-| `sales.quotes.adjustments.delete` | 8784 | 8891 | unchanged |
+| `sales.orders.create` | 5714 | 5990 | accepts `amountsMode: 'external'` + complete lines + header totals; incomplete input is a 4xx |
+| `sales.orders.update` | 5470 | 5603 | if the request carries lines or totals it must carry **both**; a request carrying neither leaves the persisted header untouched |
+| `sales.orders.lines.upsert` | 7076 | 7340 | **reject** unless the request also carries the document header totals — which today's schema cannot express, so § API Contracts widens it |
+| `sales.orders.lines.delete` | 7396 | 7522 | **reject** unless the request also carries the document header totals — same schema widening |
+| `sales.orders.adjustments.upsert` | 8047 | 8284 | **refuse** — an adjustment exists only to change money |
+| `sales.orders.adjustments.delete` | 8341 | 8449 | **refuse** — same |
+| `sales.quotes.create` | 4718 | 4960 | unchanged — quotes are always `computed` (§ 1) |
+| `sales.quotes.update` | 5237 | 5380 | unchanged |
+| `sales.quotes.lines.upsert` | 7578 | 7837 | unchanged |
+| `sales.quotes.lines.delete` | 7893 | 7991 | unchanged |
+| `sales.quotes.adjustments.upsert` | 8506 | 8741 | unchanged |
+| `sales.quotes.adjustments.delete` | 8798 | 8905 | unchanged |
 
 **`commands/documents.ts` — copies a header rather than deriving one**
 
 | command | decl | writes at | rule |
 |---|---:|---:|---|
-| `sales.quotes.convert_to_order` | 6314 | 6488–6503 | copies the quote's persisted totals onto the new order without recalculating; the produced order is `computed`, because its source was |
+| `sales.quotes.convert_to_order` | 6326 | 6500–6515 | copies the quote's persisted totals onto the new order without recalculating; the produced order is `computed`, because its source was |
 
 **`commands/returns.ts` — recalculate-and-persist via the returns-local `applyOrderTotals` (`:121`)**
 
@@ -432,7 +435,7 @@ recoverable:
 - Every line net returns to `unitPriceNet × quantity − discount`, so the differences the mode existed to
   preserve are gone, and the header returns to the rollup.
 - A markup line's negative derived `discount_amount` (§ 3) meets `Math.max(…, 0)` at
-  `lib/calculations.ts:119` on the way back, so its discount clamps to `0` and its net **rises**.
+  `lib/calculations.ts:128` on the way back, so its discount clamps to `0` and its net **rises**.
 
 The supplied values are **not** retained in shadow columns. A shadow copy is a second source of truth that
 nothing reads and nothing keeps correct, and the caller's own book of record still holds the originals.
@@ -451,7 +454,7 @@ DocumentLineCreateInput ──────┤
                               │
                               ▼
                      ┌────────────────────┐
-SalesOrderLine   ───▶│  SalesLineSnapshot │───▶ buildBaseLineResult (calculations.ts:109)
+SalesOrderLine   ───▶│  SalesLineSnapshot │───▶ buildBaseLineResult (calculations.ts:118)
   via mapPersistedLine│  + amountsMode    │        │
   (lineSnapshots.ts:14)└────────────────────┘      ├─ external → net/gross/tax verbatim, no clamp (§3)
         ▲                                          └─ computed → today's derivation, unchanged
@@ -462,7 +465,7 @@ SalesOrderLine   ───▶│  SalesLineSnapshot │───▶ buildBaseLin
         │                                                   ▼
         │                                          SalesLineCalculationResult
         │                                                   │
-        ├──── persist (documents.ts:3173-3174) ◀────────────┤
+        ├──── persist (documents.ts:3185-3186) ◀────────────┤
         │                                                   ▼
         │                                       buildBaseDocumentResult (:151)
         │                                          ├─ external → supplied header (§4)
@@ -472,10 +475,10 @@ SalesOrderLine   ───▶│  SalesLineSnapshot │───▶ buildBaseLin
         │                            └─ provider hook (providers/totals.ts:183) no-ops if external
         │                                                   │
         │                            external → re-apply supplied header, recompute
-        │                                       outstanding against it (:415-426)
+        │                                       outstanding against it (:456-467)
         │                                                   │
         └──── applyOrderTotals ◀────────────────────────────┘
-              documents.ts:3641 (12 sites) / returns.ts:121 (3 sites), all guarded per §6
+              documents.ts:3653 (12 sites) / returns.ts:121 (3 sites), all guarded per §6
 ```
 
 The two `re-apply` stages are the load-bearing part, and they are why the seventeenth site in § 6 exists.
@@ -598,7 +601,7 @@ Contract surfaces touched, classified per `BACKWARD_COMPATIBILITY.md`:
 | `CalculateDocumentOptions` (public type) | **ADDITIVE-ONLY** | two optional fields, `totalsMode` and `suppliedTotals` (§ 4) |
 | `SalesTotalsCalculationHook` contract | **STABLE, unchanged signature** | the hook's *output* stops being final for an external document, because the supplied header is re-applied after the registry (§ 4). No third-party calculator has to change; one that deliberately moved an external header would stop being able to — see § Risks |
 | Line and document validators | **ADDITIVE-ONLY** | optional field; omission = today's behaviour |
-| `orderLineUpsertSchema`, `orderLineDeleteSchema` (`commands/documents.ts:6781`, `:6785`) | **ADDITIVE-ONLY** | one optional nested `orderTotals` group each |
+| `orderLineUpsertSchema`, `orderLineDeleteSchema` (`commands/documents.ts:6793`, `:6797`) | **ADDITIVE-ONLY** | one optional nested `orderTotals` group each |
 | DB schema | **ADDITIVE-ONLY** | two new columns with defaults — explicitly permitted: *"MAY add new columns with defaults (non-breaking)"* (§ 8) |
 | API routes / URLs | unchanged | — |
 | API responses | **ADDITIVE-ONLY** | two new fields |
@@ -734,7 +737,7 @@ flag.
 ## Out of Scope
 
 **#5644 option 1 — "honour a supplied `totalNetAmount`" — is not being asked for, and must not be.**
-#5644 offered three directions; option 1 was not taken and #5707 implements option 3, validate-and-warn.
+#5644 offered three directions; option 1 was not taken; #5707 implemented option 3, validate-and-warn, and merged on 2026-09-08.
 Honouring a supplied net *by default* would freeze exactly the legacy rows the discount contract heals on
 recalculation (`.ai/specs/2026-08-07-…` § Row reconciliation). That objection is correct. Under this
 proposal a supplied net is honoured **only** on a row that carries an explicit, persisted `external` mode;
@@ -748,7 +751,7 @@ the stored percent and overwrites the value — the Odoo failure above.
 
 **#5853 is referenced, not decided.** Whether a caller-supplied `totalGrossAmount` should keep being
 honoured verbatim on the `computed` path stays open. One observation, offered as input rather than as an
-answer: today's net/gross asymmetry (`lib/calculations.ts:127-130` honours gross, nothing honours net) is
+answer: today's net/gross asymmetry (`lib/calculations.ts:168-171` honours gross, nothing honours net) is
 an argument for a single explicit mode over per-field verbatim rules, because under `external` net and
 gross are symmetric by construction and there is no asymmetry left to justify.
 
@@ -759,11 +762,15 @@ persisted assertion, which is strictly more information than the warning was bui
 `totalsFromStoredRow` flag answers an *origin* question and must not be overloaded to answer this
 *authority* one — the same separation `lib/lineSnapshots.ts:33-38` already insists on, and § 2 restates.
 
-At `19bf96975` #5707 is **open and unmerged**, so on `develop` today a supplied `totalNetAmount` is
-still discarded with no warning at all. If #5707 lands first, the external branch in § 3 must be placed
-ahead of its reconciliation and reuse its `NET_RECONCILIATION_TOLERANCE`; if this lands first, #5707 must
-gate its warning on `amountsMode !== 'external'`. Whichever order they land in, that ordering is a review
-checkpoint, not an optional tidy-up.
+**#5707 merged on 2026-09-08** (`5f3843eb7`), which settles the landing order an earlier revision of this
+spec had to hedge. The warning now lives inside `buildBaseLineResult` at `lib/calculations.ts:143-163`,
+gated on `line.totalsFromStoredRow !== true`, with a half-minor-unit
+`NET_RECONCILIATION_TOLERANCE` (`:33`).
+
+Nothing further is needed to suppress it: § 3's external branch returns at the **top** of
+`buildBaseLineResult`, before `:143`, so an external line never reaches the reconciliation at all. The
+suppression is structural rather than a second gate someone has to remember to add — and it is the reason
+§ 3 specifies an early return rather than a late override.
 
 **Quotes, invoices and credit memos** — see § 1.
 
@@ -774,7 +781,7 @@ checkpoint, not an optional tidy-up.
 | **A. Persisted mode columns on document and line** (this spec) | caller authority survives every sibling write; no behaviour change without opt-in; two defaulted columns | **chosen** |
 | B. Honour a supplied `totalNetAmount` unconditionally (#5644 option 1) | no new column, no new field | rejected — freezes legacy rows the discount contract heals; explicitly not taken upstream |
 | C. A per-request flag (`amountsMode` on the input only, nothing persisted) | no migration at all | rejected — the next write to any sibling line recalculates the whole document and overwrites it. This is the Odoo `_inverse_tax_totals` failure, verbatim |
-| D. Document-level mode only | one column instead of two | rejected — the line calculation is a pure function of one `SalesLineSnapshot` with no document in scope (`calculations.ts:109`), and `mapPersistedLine` is handed a line entity alone. The mode would have to be reached through a relation inside the mapper |
+| D. Document-level mode only | one column instead of two | rejected — the line calculation is a pure function of one `SalesLineSnapshot` with no document in scope (`calculations.ts:118`), and `mapPersistedLine` is handed a line entity alone. The mode would have to be reached through a relation inside the mapper |
 | E. Line-level mode only | one column instead of two | rejected — cannot express a header that legitimately differs from the sum of its lines, which is ~23% of orders in the measurement above and the harder half of the problem |
 | F. Shadow columns retaining the caller's values through a switch back to `computed` | switching back is reversible | rejected — a second source of truth that nothing reads and nothing keeps correct; the caller's book of record already holds the originals (§ 8) |
 | G. A separate "mirrored document" entity alongside `sales_orders` | perfect isolation | rejected — duplicates the whole document surface (lines, adjustments, returns, payments, shipments, UI, search, exports) to change how nine numeric columns are populated |
@@ -822,9 +829,10 @@ checkpoint, not an optional tidy-up.
     pre-return values.
 11. **Switch-back is explicit and complete.** Setting `computed` on an external order flips every line,
     recomputes header and lines, and is never triggered as a side effect of any other write.
-12. **The #5707 warning is suppressed for external rows** once both changes exist, and `amountsMode` is
-    never conflated with `totalsFromStoredRow`, `discountAmountFromStoredRow` or `discountAmountBasis` —
-    no producer sets one to mean another (§ 2).
+12. **The #5707 warning does not fire for an external line** — asserted against the logger, not assumed
+    from code reading, since the suppression is positional (§ Out of Scope). And `amountsMode` is never
+    conflated with `totalsFromStoredRow`, `discountAmountFromStoredRow` or `discountAmountBasis` — no
+    producer sets one to mean another (§ 2).
 13. **No `any`, no hardcoded user-facing strings, no hardcoded status colours** in the UI of § 7.
 
 ## Testing Strategy
@@ -867,8 +875,8 @@ return create/delete cycle asserting the header is untouched; then the switch ba
 
 | risk | severity | affected | mitigation | residual |
 |---|---|---|---|---|
-| **Core's own totals calculator rebuilds the header from the line rollup after the base result** (`lib/providers/totals.ts:191`, returning at `:370`), registered by a module side effect (`providers/index.ts:5`) that fires from both `sales/index.ts:2` and `data/validators.ts:6` | **high** | **every** external document, not a subset — this is the default path, not a deployment-specific one | § 4's two changes: the provider hook no-ops for external documents, and `calculateDocument` re-applies the supplied header after the whole registry (`:415-426`); § 6 lists it as the seventeenth site; criterion 3a pins it | none once both land. Missing only the first would leave a third-party calculator able to clobber; missing only the second would leave core's own hook doing it |
-| A registered line calculator (`calculations.ts:334-337`) mutates an external line | medium | deployments with custom line calculators | § 3 re-applies the supplied line amounts after the registry, the same way § 4 does for the header; criterion 2 pins the round trip | a hook's work on an external line's amounts is silently discarded rather than silently applied — the safer direction, but still silent. § Decision Requested q3 asks whether skipping the registry outright would be more honest |
+| **Core's own totals calculator rebuilds the header from the line rollup after the base result** (`lib/providers/totals.ts:191`, returning at `:370`), registered by a module side effect (`providers/index.ts:5`) that fires from both `sales/index.ts:2` and `data/validators.ts:6` | **high** | **every** external document, not a subset — this is the default path, not a deployment-specific one | § 4's two changes: the provider hook no-ops for external documents, and `calculateDocument` re-applies the supplied header after the whole registry (`:456-467`); § 6 lists it as the seventeenth site; criterion 3a pins it | none once both land. Missing only the first would leave a third-party calculator able to clobber; missing only the second would leave core's own hook doing it |
+| A registered line calculator (`calculations.ts:375-378`) mutates an external line | medium | deployments with custom line calculators | § 3 re-applies the supplied line amounts after the registry, the same way § 4 does for the header; criterion 2 pins the round trip | a hook's work on an external line's amounts is silently discarded rather than silently applied — the safer direction, but still silent. § Decision Requested q3 asks whether skipping the registry outright would be more honest |
 | A third-party totals calculator that deliberately moved an external document's header stops being able to | low | third-party modules | § 4 states the rule; the documented escape is to switch the document to `computed` first | a calculator written against a mode that does not exist yet cannot regress; the risk is only for code written after this ships |
 | A return moves no header total on an external order, surprising an operator | **high** | any external-mode deployment that takes returns | § 6 states the rule; § 7's badge marks the document; criterion 10 pins it | intended, and the rule most likely to be overruled — see § Decision Requested q2 |
 | A caller opts in with incomplete data and gets a 4xx it did not expect | medium | new integrations | § 4 completeness rule; criterion 5 requires the error to name the missing field | a stricter contract than the `computed` path, deliberately |
@@ -930,6 +938,19 @@ Requested is answered — the three decisions change the shape of the change, no
 
 ## Changelog
 
+### 2026-09-08 (later)
+
+- Rebased onto `develop` @ `3076e5ccf` and re-verified every citation against it. #5707 merged in the
+  meantime (`5f3843eb7`), moving `lib/calculations.ts` by 41 lines, `commands/documents.ts` by 12–14,
+  `lib/types.ts` by 9 and `lib/lineSnapshots.ts` by 23, so every line number in this spec was restated.
+- #5707 having landed settles what an earlier revision had to hedge as a landing-order dependency: the
+  reconciliation warning now sits at `lib/calculations.ts:143-163` behind `totalsFromStoredRow`, and § 3's
+  early return means an external line never reaches it. No second gate is needed, and § Out of Scope says
+  so instead of describing two possible futures.
+- § 2's orthogonal-signals table gains `totalsFromStoredRow` (`lib/types.ts:84`) as a fourth row. It is
+  now the strongest argument in that section: faced with the same question, #5707 added its own origin
+  field rather than reusing the discount's.
+
 ### 2026-09-08
 
 - Added the totals-calculator stage as the seventeenth site in § 6. Core registers its own totals
@@ -937,13 +958,13 @@ Requested is answered — the three decisions change the shape of the change, no
   rebuilds the header from the line rollup (`:191`) and returns it (`:370`), so honouring the supplied
   header in `buildBaseDocumentResult` alone would have been overwritten before anything persisted.
   § 4 now re-applies the supplied header after the whole registry, following the precedent
-  `calculateDocument` already sets for paid/refunded (`calculations.ts:415-426`), and core's provider hook
+  `calculateDocument` already sets for paid/refunded (`calculations.ts:456-467`), and core's provider hook
   no-ops for external documents. § 3 gains the same re-application at line level, which also sharpens
   § Decision Requested question 3.
 - Specified the channel the supplied header reaches the engine through: `totalsMode` and `suppliedTotals`
   on `CalculateDocumentOptions`. It had no channel before, which § 4 had left implicit.
-- § API Contracts now widens `orderLineUpsertSchema` (`commands/documents.ts:6781`) and
-  `orderLineDeleteSchema` (`:6785`) with an optional nested `orderTotals` group. Without it § 6's rule for
+- § API Contracts now widens `orderLineUpsertSchema` (`commands/documents.ts:6793`) and
+  `orderLineDeleteSchema` (`:6797`) with an optional nested `orderTotals` group. Without it § 6's rule for
   the line commands was one no caller could satisfy.
 - Added acceptance criterion 3a and the matching registry tests; updated criterion 7 and the § Risks table.
 
