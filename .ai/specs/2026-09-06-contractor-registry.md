@@ -1,10 +1,14 @@
 # Contractor Registry — shared contractor registry (AP + AR)
 
 **Related:** [Accounts Payable](2026-09-06-accounts-payable.md) (consumer
-— vendors), sales-invoice-gl-posting (consumer — customers, indirectly
-through `sales`; **planned, not yet written** spec — see
-`2026-08-18-general-ledger-core-engine.md` Out of scope), [General
-Ledger core engine](2026-08-18-general-ledger-core-engine.md)
+— vendor registration/verification), [Accounts Payable —
+Payments](2026-09-06-accounts-payable-payments.md) (consumer — the
+module that actually resolves `contractorBankWhitelistCheck` via
+`tryResolve` at payment time, per AP's own split; **added
+2026-09-08**, see Changelog), sales-invoice-gl-posting (consumer —
+customers, indirectly through `sales`; **planned, not yet written**
+spec — see `2026-08-18-general-ledger-core-engine.md` Out of scope),
+[General Ledger core engine](2026-08-18-general-ledger-core-engine.md)
 (`JournalEntryLine` gets a new `contractorSnapshot` field from this
 spec)
 
@@ -456,7 +460,15 @@ review — see Changelog).
   **Deliberately not `updateContractor`** — see Design decisions
   ("`approveContractor`'s mechanism is now resolved") for the
   contradiction this avoids, mirroring AP's identical fix to the same
-  latent issue in `sales.order-approval`.
+  latent issue in `sales.order-approval`. **Reversibility (added
+  2026-09-08, flagged by review):** this transition is final — once
+  `APPROVED`/`REJECTED`, there is no resubmission path back to
+  `PENDING_APPROVAL` on the same task, mirroring
+  `accounts_payable_payments`'s own explicit stance for
+  `applyVendorInvoiceApprovalDecision` ("the decision is documented
+  and irreversible without a trace"). A rejected contractor that
+  should be reconsidered is corrected and re-registered as a new
+  pending case, not resubmitted onto the same approval task.
 
 ### Events
 
@@ -490,7 +502,7 @@ import { defineWorkflow, createWorkflowsModuleConfig } from '@open-mercato/share
 import { registerWorkflowSafeCommands } from '@open-mercato/core/modules/workflows/lib/workflow-safe-commands'
 
 registerWorkflowSafeCommands([
-  { commandId: 'contractors.applyApprovalDecision', requiredFeatures: ['contractors.manage'] },
+  { commandId: 'contractors.contractor.applyApprovalDecision', requiredFeatures: ['contractors.manage'] },
 ])
 
 const vendorApproval = defineWorkflow({
@@ -570,26 +582,38 @@ triggers on `sales.order.created`.
 
 ### Cross-module integration
 
-AP does not call the HTTP route above at payment time. Per
-`packages/core/AGENTS.md` → Cross-Module Coupling, a same-request
-synchronous need on an optional peer resolves that peer's service
-locally via a `tryResolve`-in-`try/catch` helper (precedent:
+**Corrected 2026-09-08**: the consumer named below is
+`accounts_payable_payments`, not `accounts_payable` (invoices) — AP
+split into the two modules on 2026-09-08 (see
+`2026-09-06-accounts-payable-payments.md`), and that document is
+explicit that `contractorBankWhitelistCheck` integration lives
+exclusively in the payments module, not the invoices one. This
+section previously said "AP" generically; corrected for accuracy.
+
+`accounts_payable_payments` does not call the HTTP route above at
+payment time. Per `packages/core/AGENTS.md` → Cross-Module Coupling, a
+same-request synchronous need on an optional peer resolves that peer's
+service locally via a `tryResolve`-in-`try/catch` helper (precedent:
 `inbox_ops/subscribers/extractionWorker.ts`,
 `shipping_carriers/api/webhook/[provider]/route.ts`) — never a hard
-`container.resolve(...)` and never an HTTP call to itself. AP's
-payment command resolves `contractorBankWhitelistCheck` (the DI token
-registered in this module's `di.ts`) this way and calls it in-process.
-Two distinct degradation cases follow from this, both resolving to the
-same policy (block the payment, never proceed without a live check —
-see Risks & Impact Review):
+`container.resolve(...)` and never an HTTP call to itself.
+`accounts_payable_payments`'s `confirmPaymentBatch` command resolves
+`contractorBankWhitelistCheck` (the DI token registered in this
+module's `di.ts`) this way and calls it in-process. Two distinct
+degradation cases follow from this, both resolving to the same policy
+(block the payment, never proceed without a live check — see Risks &
+Impact Review):
 - **`contractors` module disabled/absent** — `tryResolve` returns
-  `undefined`; AP's own guard treats a missing whitelist-check service
-  as "cannot verify," and blocks the payment.
+  `undefined`; `accounts_payable_payments`'s own guard treats a
+  missing whitelist-check service as "cannot verify," and blocks the
+  payment.
 - **`contractors` module present, but the live Biała Lista API call
   itself fails** — `checkBankAccountWhitelist` throws or returns an
-  error result; AP catches it and blocks the payment the same way.
-This module never imports or resolves anything belonging to AP —
-the dependency direction is one-way (AP → `contractors`), matching
+  error result; `accounts_payable_payments` catches it and blocks the
+  payment the same way.
+This module never imports or resolves anything belonging to
+`accounts_payable_payments` — the dependency direction is one-way
+(`accounts_payable_payments` → `contractors`), matching
 `packages/core/AGENTS.md`'s "upstream module MUST NOT import, resolve,
 or hard-require the consumer."
 
@@ -801,10 +825,12 @@ exactly as `sales.order-approval` and
 
 - Assert the module-decoupling test
   (`packages/core/src/__tests__/module-decoupling.test.ts`) passes with
-  `contractors` disabled, and that AP's own `tryResolve` wrapper around
-  `contractorBankWhitelistCheck` degrades to "block the payment" in
-  that case rather than throwing unhandled (see Cross-module
-  integration, Risks & Impact Review).
+  `contractors` disabled, and that `accounts_payable_payments`'s own
+  `tryResolve` wrapper around `contractorBankWhitelistCheck` degrades
+  to "block the payment" in that case rather than throwing unhandled
+  (see Cross-module integration, Risks & Impact Review; **corrected
+  2026-09-08** — the consumer is the payments module, not AP's
+  invoices module, per AP's own split).
 - Assert `createContractor` rejects a duplicate `nip` within the same
   `(tenant, organization)` (via `nipHash` lookup), and allows the same
   `nip` across different organizations.
@@ -873,25 +899,31 @@ exactly as `sales.order-approval` and
   stay `FAILED` indefinitely if GUS/VIES are down long-term — no
   automatic re-enqueue beyond the queue's own retry window; manual
   re-trigger needed (out of scope for this document's Phase 1 UI).
-- **Scenario**: Biała Lista API is down at the exact moment AP needs
-  to execute a payment (AP has resolved `checkBankAccountWhitelist` via
-  `tryResolve` — see Cross-module integration — and the in-process call
-  itself fails). **Severity**: High (business-blocking, not
-  data-corrupting). **Affected area**: AP's payment execution flow.
-  **Mitigation**: `checkBankAccountWhitelist` throws/returns an error
-  result; AP is expected to block the payment rather than proceed
-  without a live check (this module cannot make that policy decision
-  for AP — noted explicitly as AP's own responsibility, see Out of
-  scope). **Residual risk**: legitimate payments could be delayed
-  during a Biała Lista outage; accepted as the safer failure mode given
-  the legal exposure of paying without verification.
+- **Scenario**: Biała Lista API is down at the exact moment
+  `accounts_payable_payments` needs to execute a payment
+  (`accounts_payable_payments` has resolved `checkBankAccountWhitelist`
+  via `tryResolve` — see Cross-module integration — and the in-process
+  call itself fails; **corrected 2026-09-08** — this was "AP" generically
+  before AP's own split into invoices/payments). **Severity**: High
+  (business-blocking, not data-corrupting). **Affected area**:
+  `accounts_payable_payments`'s payment execution flow. **Mitigation**:
+  `checkBankAccountWhitelist` throws/returns an error result;
+  `accounts_payable_payments` is expected to block the payment rather
+  than proceed without a live check (this module cannot make that
+  policy decision for its consumer — noted explicitly as
+  `accounts_payable_payments`'s own responsibility, see Out of scope).
+  **Residual risk**: legitimate payments could be delayed during a
+  Biała Lista outage; accepted as the safer failure mode given the
+  legal exposure of paying without verification.
 - **Scenario**: the `contractors` module itself is disabled or absent
-  when AP tries to resolve `contractorBankWhitelistCheck`.
-  **Severity**: High (business-blocking). **Affected area**: AP's
-  payment execution flow. **Mitigation**: AP's local `tryResolve`
-  wrapper (per `packages/core/AGENTS.md` → Cross-Module Coupling)
-  returns `undefined` instead of throwing; AP treats a missing service
-  identically to a failed live check — block the payment. Covered by
+  when `accounts_payable_payments` tries to resolve
+  `contractorBankWhitelistCheck`. **Severity**: High
+  (business-blocking). **Affected area**:
+  `accounts_payable_payments`'s payment execution flow. **Mitigation**:
+  its local `tryResolve` wrapper (per `packages/core/AGENTS.md` →
+  Cross-Module Coupling) returns `undefined` instead of throwing;
+  `accounts_payable_payments` treats a missing service identically to
+  a failed live check — block the payment. Covered by
   `packages/core/src/__tests__/module-decoupling.test.ts` per repo
   convention (see Testing Strategy). **Residual risk**: none identified
   — this is the sanctioned degrade-gracefully path, not a gap.
@@ -925,9 +957,10 @@ independently of AP, which does not yet exist.
   its result against a particular payment/invoice record is Accounts
   Payable's concern (AP owns the "payment" concept; this module does
   not know what a payment is).
-- **Multi-step or threshold-based vendor approval.** Phase 2, pending
-  the same team confirmation as the Phase 1 one-step version — see
-  Design decisions.
+- **Multi-step or threshold-based vendor approval.** Phase 2,
+  deferred unless the team later decides the Phase 1 one-step version
+  (confirmed in scope, 2026-09-08) isn't sufficient — see Design
+  decisions.
 - **Cross-organization contractor sharing.** YAGNI — no precedent in
   the codebase, no confirmed business requirement (see Design
   decisions).
@@ -940,6 +973,11 @@ independently of AP, which does not yet exist.
   replaced by the `JournalEntryLine.contractorSnapshot` point-in-time
   copy (see Design decisions) — no separate audit-log table for every
   field change.
+- **Whether Accounts Payable should block using a contractor still in
+  `PENDING_APPROVAL` status.** Phase 1 does not gate on this — `Contractor`
+  exposes `approvalStatus` as a field AP can read, but this document
+  doesn't mandate AP enforce it before a first payment. Left as an
+  open question for AP's own design (see Architecture → Entities).
 
 ## Final Compliance Report — 2026-09-07
 
@@ -1163,7 +1201,7 @@ This round applies that same, now-proven resolution here:
   `useGuardedMutation` toggle — 1:1 mirroring `sales.order-approval`
   and `accounts_payable.invoice-approval`.
 - Added the `contractors.vendor-approval` Workflow definition section
-  (new), triggered on a new, conditional `contracts.contractor.created`
+  (new), triggered on a new, conditional `contractors.contractor.created`
   event (Events section updated) — immediate trigger, like
   `sales.order.created`, since (unlike AP's invoice) a contractor has
   no separate draft state before approval.
@@ -1236,3 +1274,62 @@ implementing:
   normal PR review, same as every other decision in this document —
   this was a recommendation backed by evidence, not a unilateral
   decision.
+
+### 2026-09-08 (cont. — fresh-context review, per om-spec-writing Step 8)
+
+The prior two rounds today (mechanism resolution, then scope
+resolution) were self-verified against real code but never run
+through the `om-spec-writing` skill's actual Step 8 process — a
+fresh-context subagent given only this file, applying
+`spec-checklist.md`. Ran it. Six findings, all confirmed against the
+real repo before being accepted (per this engagement's standing
+practice of never taking a subagent's claim at face value):
+
+- **High — stale cross-module consumer name.** Cross-module
+  integration, both Risks scenarios, and Testing Strategy all said
+  "AP" resolves `contractorBankWhitelistCheck`. AP itself split into
+  `accounts_payable` (invoices) and `accounts_payable_payments` on
+  2026-09-08 at 08:29 UTC — *before* either of today's edit rounds to
+  this document — and AP's own spec is explicit that the whitelist
+  integration lives exclusively in `accounts_payable_payments`, not
+  the invoices module. Verified directly against
+  `2026-09-06-accounts-payable-payments.md` on `docs/accounts-payable`
+  (commit `7677a3ea3`). Fixed: Related header now links both AP
+  documents; Cross-module integration, Risks & Impact Review, and
+  Testing Strategy all name `accounts_payable_payments` specifically.
+- **High — command-ID naming inconsistency.** The workflow's
+  `registerWorkflowSafeCommands` entry used `contractors.applyApprovalDecision`
+  — missing the resource segment both real precedents use
+  (`sales.orders.update`, verified in
+  `packages/core/src/modules/sales/workflows.ts`;
+  `accounts_payable.vendor_invoices.applyApprovalDecision`, verified
+  in AP's own spec) — and inconsistent with this same document's own
+  event name, `contractors.contractor.created`. Fixed:
+  `contractors.contractor.applyApprovalDecision`.
+- **Medium — stale Out of scope bullet.** Still read "pending the same
+  team confirmation as the Phase 1 one-step version" after Phase 1 was
+  confirmed. Fixed to read as deferred pending a *future* decision
+  that the confirmed one-step version isn't sufficient.
+- **Medium — orphaned cross-reference.** Architecture → Entities
+  pointed to "(see Out of scope)" for whether AP should block use of a
+  `PENDING_APPROVAL` contractor; no matching bullet existed. Added
+  one.
+- **Medium — missing reversibility statement.** `spec-checklist.md`
+  §4 requires undo/reversibility to be documented for every mutation;
+  `applyContractorApprovalDecision` had none, unlike
+  `accounts_payable_payments`'s explicit stance for the identical
+  mechanism. Added: the transition is final, no resubmission path.
+- **Low — typo.** `contracts.contractor.created` (missing "or") in the
+  prior round's changelog entry. Fixed.
+
+No new violation found in the checklist items directly touched by
+today's edits (naming, undo contract, cross-module coupling) beyond
+the above. Scope-cohesion re-check: confirming `approveContractor` as
+a permanent Phase-1 commitment (rather than conditional) strengthens,
+not weakens, the earlier case for keeping it threaded rather than
+split — no new split argument found. Research-citation honesty
+re-check: the AFP/ksbot.pl/Trustpair/SAP-Ariba/ApprovalMax claims are
+stated identically everywhere they recur, and the document
+consistently frames the vendor-approval decision as a recommendation
+for the normal PR review, not an already-audited fact overriding
+Łukasz's sign-off.
