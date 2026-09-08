@@ -3,6 +3,10 @@ import type { Locator } from '@playwright/test'
 import { login } from '@open-mercato/core/helpers/integration/auth'
 import { isStandaloneIntegration } from '@open-mercato/core/helpers/integration/standaloneEnv'
 
+export const integrationMeta = {
+  dependsOnModules: ['perspectives', 'customers'],
+}
+
 /**
  * TC-PERSP-NEWVIEW-LAYOUT-001: the Views panel's "New view" control keeps its
  * confirm/cancel buttons vertically centred inside the name input — while the
