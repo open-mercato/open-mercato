@@ -11,6 +11,7 @@
   "integrations.detail.back": "통합으로 돌아가기",
   "integrations.detail.backToList": "통합 목록으로 돌아가기",
   "integrations.detail.credentials.bundleShared": "번들에서 공유된 자격 증명: {bundle}",
+  "integrations.detail.credentials.noPermission": "이 통합의 자격 증명을 관리할 권한이 없습니다.",
   "integrations.detail.credentials.notConfigured": "아직 구성된 자격 증명이 없습니다",
   "integrations.detail.credentials.save": "자격 증명 저장",
   "integrations.detail.credentials.saveError": "자격 증명 저장에 실패했습니다",

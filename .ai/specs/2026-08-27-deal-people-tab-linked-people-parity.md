@@ -17,7 +17,9 @@
 | 1.3 | 2026-08-28 | Spec review round 2: set-diffing collides with the `is_primary` partial unique index that delete-and-recreate currently makes unreachable, so the set-diff must clear displaced flags and flush first; the lock stamp is keyed to membership **or** the primary flag and stated as a property of the whole deal write path rather than the people half; corrected the `CustomerDeal.updatedAt` citation. |
 | 1.4 | 2026-08-28 | Round-3 inline review: the `is_primary` rule was incomplete (covered a displaced row that stays, not one that is removed — inserts commit before deletes); named the `updated_at` touch mechanism and undo-path semantics; the write-path fix now ships as its own issue and PR; enumerated the real prop surface and flagged the extraction as the risky step. |
 | 2026-08-28 | Restructured delivery into three independently revertable PRs (stamp → UI → set-diff), sequencing the `linkedAt`-dependent surfaces behind the correction that makes them trustworthy. |
+| 2026-08-31 | Corrected § Data Models: PR 1 makes no-op link writes non-destructive as a side effect of the change-detection the lock stamp requires. Noted that `DealForm` submits both link lists on every Details save, which is why that side effect is user-visible rather than theoretical. |
 | 1.5 | 2026-08-28 | Split delivery into three PRs on maintainer direction: the `updated_at` stamp ships first and alone (PR 1), the UI parity work second (PR 2), and set-diffing last (PR 3). PR 2 deliberately omits the linked date and the "recently linked" sort — both depend on a durable `linkedAt` that only PR 3 delivers — so no wrong value is ever displayed. Added `availableSorts` and `PersonCard.showLinkedDate` as the switches that complete parity in PR 3. |
+| 1.6 | 2026-08-31 | Implementation feedback from PR 1 (#5757): the no-op early return the lock stamp needs also makes unchanged writes non-destructive, so `customer_deal_people` write semantics change in PR 1 as well as PR 3 — § Data Models now says so instead of claiming PR 1 leaves them untouched. |
 
 ## TLDR
 
@@ -199,9 +201,14 @@ The people CRUD route has no `dealEntityId` equivalent, so the deal link is a **
 
 No entity, migration or snapshot change. `CustomerDealPersonLink`, `CustomerPersonCompanyLink`, `CustomerEntity` and `CustomerPersonProfile` are read as they are today.
 
-**PR 3 only** changes the write semantics of `customer_deal_people`: rows survive an unrelated people update instead of being recreated, so `created_at` becomes a durable "linked at" value rather than a per-write timestamp. No backfill — existing rows keep whatever date the last write gave them, and the value only becomes meaningful going forward. Say so in the PR 3 body so the first post-deploy "recently linked" ordering is not read as a bug.
+Write semantics change across **two** of the three PRs, not one. The split follows from what each correction needs:
 
-PR 1 and PR 2 leave the table's write semantics exactly as they are today.
+- **PR 1** — deciding whether to stamp the lock token requires knowing whether the links actually changed, and once that is known, a write that changes nothing has no reason to delete and recreate every row. So a *no-op* write becomes non-destructive as of PR 1. This matters more than it sounds: `DealForm` puts `personIds` **and** `companyIds` into its payload on every Details save regardless of which groups are shown, so before PR 1 an ordinary Details save re-dated every link row on the deal.
+- **PR 3** — a *genuine* change stops deleting and recreating the untouched rows, which is what finally makes `created_at` durable in every case.
+
+No backfill in either. Existing rows keep whatever date the last write gave them, so "recently linked" only becomes meaningful going forward — increasingly so from PR 1 and fully from PR 3. Say so in the PR 3 body rather than letting the first post-deploy ordering read as a bug.
+
+PR 2 leaves the table's write semantics exactly as PR 1 left them.
 
 ## API Contracts
 
