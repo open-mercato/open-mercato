@@ -1,8 +1,27 @@
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { IntegrationScope } from '@open-mercato/shared/modules/integrations/types'
 import type { ListIntegrationLogsQuery } from '../data/validators'
 import { IntegrationLog } from '../data/entities'
+
+const logger = createLogger('integrations')
+
+/**
+ * The error an `integration_logs` row at `level: 'error'` is reported as.
+ *
+ * A named type rather than a bare `Error` because every integration failure in
+ * the product funnels through one line below: backends that fingerprint on the
+ * error class would otherwise group these together with unrelated framework
+ * errors. The per-row `code` is what separates them from each other.
+ */
+export class IntegrationLogError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'IntegrationLogError'
+  }
+}
 
 export type IntegrationLogAnalytics = {
   lastActivityAt: string | null
@@ -38,6 +57,37 @@ type LogInput = {
   payload?: Record<string, unknown> | null
 }
 
+/**
+ * Report an error row outward, so recording it is also reporting it.
+ *
+ * The row is the durable record; this is the signal. Message, `code` and opaque
+ * ids only — `payload` carries the failed item itself and MUST NOT leave the
+ * database. Wrapped because observability may never alter behaviour: the row is
+ * already flushed by the time this runs, and a telemetry fault degrades to a
+ * warning rather than failing the write its caller depends on.
+ */
+function reportErrorLog(input: LogInput, scope: IntegrationScope): void {
+  try {
+    getTelemetryRuntime()?.reportError(new IntegrationLogError(input.message), {
+      module: 'integrations',
+      code: input.code ?? 'integrations.log_error',
+      attributes: {
+        integrationId: input.integrationId,
+        runId: input.runId ?? undefined,
+        scopeEntityType: input.scopeEntityType ?? undefined,
+        scopeEntityId: input.scopeEntityId ?? undefined,
+        organizationId: scope.organizationId,
+        tenantId: scope.tenantId,
+      },
+    })
+  } catch (telemetryError) {
+    logger.warn('Failed to report an integration error log to telemetry', {
+      integrationId: input.integrationId,
+      err: telemetryError as Error,
+    })
+  }
+}
+
 export function createIntegrationLogService(em: EntityManager) {
   return {
     async write(input: LogInput, scope: IntegrationScope): Promise<IntegrationLog> {
@@ -54,6 +104,7 @@ export function createIntegrationLogService(em: EntityManager) {
         tenantId: scope.tenantId,
       })
       await em.persist(row).flush()
+      if (input.level === 'error') reportErrorLog(input, scope)
       return row
     },
 

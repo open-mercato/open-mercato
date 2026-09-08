@@ -207,6 +207,7 @@ If the sync provider needs bootstrap credentials, mappings, locales, channels, o
 - **Resume**: Retry reads the last successful cursor, resumes from there
 - **Progress**: Linked to `ProgressJob` via `progressJobId` for `ProgressTopBar` display
 - **Cancellation**: The engine polls `progressService.isCancellationRequested()` in the batch handler AND on the heartbeat tick while a batch is still in flight, aborting `StreamImportInput.signal` / `StreamExportInput.signal`. Adapters SHOULD honour the signal wherever the work is divisible (per page, per record, around a long flush) and `return` — with the `return` ABOVE the `yield`, never below it, or the engine commits a cursor for a half-applied page. Adapters that ignore the signal keep the old between-batches behavior.
+- **Error reporting**: Every `level: 'error'` row the engine writes is also reported to the active telemetry backend, grouped by a `code`. A `failed` import item MAY carry `data.errorCode` (a stable `module.reason` token, never an interpolated string) alongside `data.errorMessage`; without it the engine substitutes `data_sync.item_failed`. A run that finishes with `failedCount > 0` additionally reports one `data_sync.run_partial_failure` summary, independent of `adapter.operationalTelemetry` — that flag decides how chatty the operational log is, never whether a failure is observable. Policy: [`error-reporting.mdx`](../../../../../apps/docs/docs/framework/runtime/error-reporting.mdx)
 - **Tracing**: The engine emits one **root** span per batch (`data_sync.import.batch` / `data_sync.export.batch`) linked back to the run, covering the adapter's read *and* the engine's bookkeeping. Adapters MUST NOT hand-roll their own batch span — they cannot root it, so a multi-day run would ride on the single sampling decision taken for the request that triggered it. Inner spans an adapter creates nest under the batch span normally. The final read — the one that finds the stream drained — is traced as `data_sync.import.drain` / `data_sync.export.drain`, so N batches emit exactly N `*.batch` spans plus one `*.drain`.
 - **Stream shape**: The engine drives the adapter's async iterator explicitly (`batch-stream.ts`) so the span wraps `next()`, where a generator does its real work before yielding. Closing follows the language's own `IteratorClose` rules, so `finally` blocks in an adapter generator behave exactly as under `for await`: no `return()` when the stream exhausts or `next()` throws (already closed), `return()` with its failure surfaced on an early stop, and `return()` with its failure swallowed when the engine's own handler threw (that error wins). Keep cleanup in `finally`.
 
@@ -223,7 +224,7 @@ If the sync provider needs bootstrap credentials, mappings, locales, channels, o
 | Event ID | Emitted When |
 |---|---|
 | `data_sync.run.started` | Sync run begins processing |
-| `data_sync.run.completed` | Sync run finishes successfully |
+| `data_sync.run.completed` | Sync run finishes successfully (payload carries `createdCount`/`updatedCount`/`skippedCount`/`failedCount`) |
 | `data_sync.run.failed` | Sync run fails |
 | `data_sync.run.cancelled` | Sync run is cancelled |
 

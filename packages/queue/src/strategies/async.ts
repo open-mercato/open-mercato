@@ -195,6 +195,27 @@ export function createAsyncQueue<T = unknown>(
   const onJobAbandoned = options?.onJobAbandoned
   const logger = packageLogger.child({ queue: name })
 
+  /**
+   * Report a queue-level failure outward. Wrapped so a telemetry fault can never
+   * escape into an EventEmitter handler, where an unhandled rejection is fatal to
+   * the process.
+   */
+  function reportQueueError(
+    error: unknown,
+    code: string,
+    attributes?: Record<string, string | number | undefined>,
+  ): void {
+    try {
+      getTelemetryRuntime()?.reportError(error, {
+        module: 'queue',
+        code,
+        attributes: { queue: name, ...attributes },
+      })
+    } catch {
+      // Reporting is never worth a worker.
+    }
+  }
+
   let bullQueue: BullQueueInterface<QueuedJob<T>> | null = null
   let bullWorker: BullWorkerInterface | null = null
   let bullmqModule: BullMQModule | null = null
@@ -243,6 +264,7 @@ export function createAsyncQueue<T = unknown>(
           jobId,
           err: hookError as Error,
         })
+        reportQueueError(hookError as Error, 'queue.abandon_report_failed', { jobId: jobId ?? undefined })
         return
       }
       try {
@@ -252,6 +274,7 @@ export function createAsyncQueue<T = unknown>(
           jobId,
           err: ackError as Error,
         })
+        reportQueueError(ackError as Error, 'queue.abandon_ack_failed', { jobId: jobId ?? undefined })
       }
     })().finally(() => {
       inFlightAbandonedJobIds.delete(payload.id)
@@ -289,6 +312,7 @@ export function createAsyncQueue<T = unknown>(
       }
     } catch (sweepError) {
       logger.error('Abandoned-job sweep failed', { err: sweepError as Error })
+      reportQueueError(sweepError as Error, 'queue.abandon_sweep_failed')
     }
   }
   // Resolved once: a BullMQOtel instance (delegate async tracing to BullMQ) or
@@ -415,6 +439,11 @@ export function createAsyncQueue<T = unknown>(
       const failedJob = job as AbandonedJobRecord | undefined
       const error = err as Error
       logger.error('Job failed', { jobId: failedJob?.id, err: error })
+      // A log line reaches the backend's LOGS signal; a job that died is an error
+      // and belongs in the error signal too, with a code the backend can group on.
+      // This is the only outward record for a handler that rethrows after doing its
+      // own bookkeeping — a sync worker marking its run `failed`, for instance.
+      reportQueueError(error, 'queue.job_failed', { jobId: failedJob?.id })
 
       if (!onJobAbandoned) return
       // Any other reason means a handler ran and threw. That failure is the handler's own and it has
@@ -445,6 +474,7 @@ export function createAsyncQueue<T = unknown>(
     bullWorker.on('error', (err) => {
       const error = err as Error
       logger.error('Worker error', { err: error })
+      reportQueueError(error, 'queue.worker_error')
     })
 
     if (onJobAbandoned) {

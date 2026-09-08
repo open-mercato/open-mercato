@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { Queue, QueuedJob, JobHandler, LocalQueueOptions, ProcessOptions, ProcessResult, EnqueueOptions, QueueJobScope } from '../types'
 import { attachTraceMetadata, runJobInTrace } from '../tracing'
 
@@ -124,6 +125,26 @@ export function createLocalQueue<T = unknown>(
   const lockDir = path.join(queueDir, 'queue.lock')
   const lockOwnerFile = path.join(lockDir, 'owner')
   const logger = packageLogger.child({ queue: name })
+
+  /**
+   * Report a job failure outward, so the log line is not the only record of it.
+   * Wrapped: reporting is never worth a poll cycle.
+   */
+  function reportQueueError(
+    error: unknown,
+    code: string,
+    attributes?: Record<string, string | number | undefined>,
+  ): void {
+    try {
+      getTelemetryRuntime()?.reportError(error, {
+        module: 'queue',
+        code,
+        attributes: { queue: name, ...attributes },
+      })
+    } catch {
+      // Reporting is never worth a worker.
+    }
+  }
   // Note: concurrency is stored for logging/compatibility but jobs are processed sequentially
   const concurrency = options?.concurrency ?? 1
   const pollInterval = options?.pollInterval ?? DEFAULT_POLL_INTERVAL
@@ -493,10 +514,12 @@ export function createLocalQueue<T = unknown>(
           logger.info('Job completed', { jobId: job.id })
         } catch (error) {
           logger.error('Job failed', { jobId: job.id, attemptNumber, maxAttempts: DEFAULT_MAX_ATTEMPTS, err: error })
+          reportQueueError(error, 'queue.job_failed', { jobId: job.id, attemptNumber })
           failed++
           lastJobId = job.id
           if (attemptNumber >= DEFAULT_MAX_ATTEMPTS) {
             logger.error('Job exhausted all attempts; dropping it (no dead-letter store)', { jobId: job.id, maxAttempts: DEFAULT_MAX_ATTEMPTS })
+            reportQueueError(error, 'queue.job_exhausted', { jobId: job.id, attemptNumber })
             deadJobIds.add(job.id)
           } else {
             const backoffMs = RETRY_BACKOFF_BASE_MS * Math.pow(2, attemptNumber - 1)

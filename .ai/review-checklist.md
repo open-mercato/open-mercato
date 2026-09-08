@@ -326,6 +326,15 @@ Every item below refers to `BACKWARD_COMPATIBILITY.md` (linked from root `AGENTS
 - [ ] Documented in UPGRADE_NOTES.md
 - [ ] Spec in `.ai/specs/` with "Migration & Backward Compatibility" section
 
+## 23. Observability & Error Reporting
+
+- [ ] Every new `catch` that does anything other than rethrow — persists a row, sets a `failed` status, dead-letters an item, returns a fallback — also reaches `reportError`, directly or through a chokepoint that does (`integrationLogService.write` at `level: 'error'`, the queue failure paths). `logger.error` alone is NOT reporting: no span exception, no `om.errors` sample, no fingerprint
+- [ ] Every `reportError` call passes a `code`: a stable, enumerated `module.reason` token, never an interpolated string (it is a metric label and the backend's grouping key — ids belong in `attributes`)
+- [ ] Reporting is wrapped where it sits on a durable write path, so a telemetry fault degrades to a warning instead of failing the caller
+- [ ] No PII, credentials or record payloads in the reported message or attributes (`integration_logs.payload` never leaves the database)
+- [ ] `packages/core` and other non-telemetry packages reach the funnel via `getTelemetryRuntime()?.reportError(...)`, never by importing `@open-mercato/telemetry`
+- [ ] No sampling, throttling or suppression added inside `reportError` — volume control belongs to the collector and the backend
+
 ## 22. Anti-Pattern Checklist
 
 Flag any of these patterns as violations:

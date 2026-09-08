@@ -1,0 +1,117 @@
+---
+title: Error Reporting
+description: The policy that makes recorded errors reach the active telemetry backend — reportError, the framework chokepoints, and the code fingerprint backends group on.
+---
+
+# Error Reporting
+
+Recording an error is not reporting it.
+
+A `catch` that persists a row, sets a `failed` status, dead-letters an item or returns a fallback has *recorded* the failure. Nobody outside the database learns about it. Reporting means the error reaches the active telemetry backend as an error: an exception on the current span, an error log record, a sample on the `om.errors` counter, and — for backends that model errors as issues — an entry there.
+
+## The rule
+
+> A `catch` that does anything other than rethrow MUST also route the error to `reportError`, either directly or through a chokepoint that does.
+
+`logger.error` alone does **not** satisfy the rule. It produces a log record (which does reach the backend's logs signal when telemetry is on), but no span exception, no `om.errors` sample, and no fingerprint for the backend to group on. Log it *and* report it.
+
+```ts
+import { reportError } from '@open-mercato/telemetry'
+
+try {
+  await pullBatch()
+} catch (error) {
+  logger.error('Batch pull failed', { runId, err: error })
+  reportError(error, { module: 'data_sync', code: 'data_sync.batch_pull_failed', attributes: { runId } })
+  // …then whatever the caller does: retry, dead-letter, mark failed
+}
+```
+
+From a package that must not depend on `@open-mercato/telemetry` (anything in `packages/core`, `packages/queue`, …), go through the runtime bridge instead of importing the package:
+
+```ts
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+
+getTelemetryRuntime()?.reportError(error, { module: 'integrations', code: 'integrations.log_error' })
+```
+
+With telemetry off, that is one global lookup and nothing else.
+
+## `code` — the fingerprint
+
+`code` is a stable, enumerated token shaped `module.reason` (`data_sync.item_failed`, `queue.job_failed`). It is stamped on the span, the log record and the `om.errors` metric label.
+
+**It MUST NOT be interpolated.** `` `import failed for ${id}` `` gives every occurrence its own group at the backend and unbounded cardinality on the metric. Put the id in `attributes`, where it belongs.
+
+`code` exists because the backends' automatic grouping cannot work without it *here*:
+
+- **Sentry** fingerprints on the stack trace, **New Relic** groups on error class and message. The framework chokepoints below synthesize one error type at one line, so without a discriminator every integration failure in the product collapses into a single issue.
+- **SigNoz** has no error-grouping concept of its own; it groups at query and alert time, on the attributes you send.
+
+## Where the framework already reports for you
+
+Three chokepoints mean most module code inherits the rule without writing a line:
+
+| Chokepoint | Covers | Codes |
+|---|---|---|
+| `integrationLogService.write()` at `level: 'error'` | every integration error row — `data_sync`, `payment_gateways`, `gateway_stripe`, and any future integration | the row's own `code`, or `integrations.log_error` |
+| The queue strategies' failure paths | a worker that throws, a job that exhausts its attempts, a worker-level fault, a failed abandonment sweep | `queue.job_failed`, `queue.job_exhausted`, `queue.worker_error`, `queue.abandon_*` |
+| `data_sync`'s engine | per-item dead letters, run faults, a run that completed with failures, a dropped coverage refresh | `data_sync.item_failed`, `data_sync.export_item_failed`, `data_sync.run_failed`, `data_sync.run_partial_failure`, `data_sync.coverage_refresh_failed` |
+
+Adapters that classify their own item failures set `data.errorCode` on a `failed` import item and the engine uses it as the code; otherwise the fallback applies.
+
+Two properties hold at each chokepoint:
+
+- **Observability never alters behaviour.** Every tee is wrapped, fires after the durable write, and degrades to a warning. A telemetry outage cannot fail a sync batch or lose a log row.
+- **`integration_logs.payload` never leaves the database.** The row's message, its `code` and opaque ids are reported; the payload carries the failed record itself, so it stays put. When you need detail preserved, put it in the payload, not in the message.
+
+## Volume: not this layer's job
+
+The framework reports **every** error. There is no sampling, throttling or suppression in `reportError`, and no env var to add one.
+
+Three layers below the facade already own volume, and each drops where the drop is visible and adjustable:
+
+- **The backend** — Sentry's per-key rate limits and spike protection, New Relic's ingest quotas and drop rules.
+- **The collector** — the OpenTelemetry Collector is the designed home for filtering and sampling, per pipeline, changeable without a release.
+- **The SDK** — the OTLP provider runs batch processors at their defaults, so a bounded queue sheds load under flood and the span-event limit caps per-span growth.
+
+A fourth limiter inside the facade would be the only one that loses an error irrecoverably at the source, and its budget would be per process — not a number an operator can alert on. If a burst is noisy, the fix is the alert rule (group by `code`, threshold on the `om.errors` rate), not throwing the events away first.
+
+`reportError` does hold one guard: it no-ops a **nested** call, so an error raised inside the reporting path cannot recurse.
+
+## Plugging in an issue-tracker backend
+
+`TelemetryProvider` has an optional `reportError` hook, called *in addition to* the span/log/metric path, so implementing it can never make signal disappear. The provider owns its own de-duplication.
+
+```ts
+import { registerProvider, initTelemetry } from '@open-mercato/telemetry'
+
+registerProvider({
+  ...baseProvider,
+  name: 'sentry',
+  supports: ['errors', 'logs'],
+  reportError(error, { module, code, attributes }) {
+    Sentry.captureException(new Error(error.message), {
+      fingerprint: code ? [code] : undefined,
+      tags: { module, code },
+      extra: attributes,
+    })
+  },
+})
+await initTelemetry()   // with TELEMETRY_BACKEND=sentry
+```
+
+The `error` argument arrives already serialized and PII-redacted (name, message, stack) and `attributes` already redacted — never reach for the original thrown value.
+
+## Verifying it locally
+
+```bash
+TELEMETRY_BACKEND=console yarn mercato data_sync run --integration <id>
+```
+
+The console provider prints every reported error with its `code` and attributes, so a failing import shows one line per dead-lettered item plus one `data_sync.run_partial_failure` summary for the run.
+
+## Related
+
+- [Structured Logging](./logging.mdx) — the transport `reportError` writes its log record through
+- `packages/telemetry/AGENTS.md`, `.ai/specs/2026-09-08-error-reporting-policy.md`

@@ -48,6 +48,12 @@ export type TelemetryRuntime = {
     error: unknown,
     context?: {
       module?: string
+      /**
+       * Stable, enumerated fingerprint (`module.reason`) the backend groups on.
+       * Optional so a bootstrap predating it still satisfies the contract — an
+       * older bridge simply ignores the field.
+       */
+      code?: string
       attributes?: Record<string, string | number | boolean | undefined>
     },
   ): void

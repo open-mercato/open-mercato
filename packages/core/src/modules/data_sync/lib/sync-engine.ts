@@ -14,11 +14,76 @@ import { forEachBatch } from './batch-stream'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import {
   captureTelemetryTrace,
+  getTelemetryRuntime,
   type TelemetrySpanAttributes,
 } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { SyncRun } from '../data/entities'
 
 const logger = createLogger('data_sync').child({ component: 'sync-engine' })
+
+/**
+ * A run that finished with failed items. Raised so a partial success is one
+ * reported error with a count, at the granularity an operator acts on — a
+ * different fact from any single item's failure, which the per-item error rows
+ * report on their own.
+ */
+export class SyncRunPartialFailureError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'SyncRunPartialFailureError'
+  }
+}
+
+/**
+ * The fingerprint for a run that ended in a fault.
+ *
+ * One code for now. PR #5450's `classifySyncError` splits faults into transient
+ * and terminal; when it lands, this is the single place that becomes
+ * `data_sync.run_transient` / `data_sync.run_terminal`.
+ */
+const RUN_FAILED_CODE = 'data_sync.run_failed'
+
+/** Run identity for a reported error, mirroring `runSpanAttributes` minus the provider key. */
+function runEventAttributes(run: SyncRun, scope: SyncScope): TelemetrySpanAttributes {
+  return {
+    'data_sync.run_id': run.id,
+    'data_sync.integration_id': run.integrationId,
+    'data_sync.entity_type': run.entityType,
+    'data_sync.direction': run.direction,
+    'om.tenant_id': scope.tenantId,
+    'om.organization_id': scope.organizationId,
+  }
+}
+
+/**
+ * The failure fingerprint for a dead-lettered item.
+ *
+ * An adapter that classifies its own failures sets `errorCode` on the item's data
+ * (a stable `module.reason` token, never an interpolated string); the fallback is
+ * a real code rather than `unknown`, so grouping works even for an adapter that
+ * supplies nothing.
+ */
+function itemErrorCode(data: Record<string, unknown>, fallback: string): string {
+  const code = data.errorCode
+  return typeof code === 'string' && code.trim().length > 0 ? code.trim() : fallback
+}
+
+/**
+ * Report a `data_sync` failure that is otherwise only recorded (a dropped
+ * promise, a run's own summary). Wrapped: observability may never decide the fate
+ * of a batch that is already committed.
+ */
+function reportSyncError(
+  error: unknown,
+  code: string,
+  attributes: TelemetrySpanAttributes,
+): void {
+  try {
+    getTelemetryRuntime()?.reportError(error, { module: 'data_sync', code, attributes })
+  } catch (telemetryError) {
+    logger.warn('Failed to report a data sync error to telemetry', { code, err: telemetryError as Error })
+  }
+}
 
 type RunParameters = Record<string, RunParameterValue>
 
@@ -232,14 +297,29 @@ export function createSyncEngine(deps: EngineDeps) {
   async function refreshCoverageSnapshots(entityTypes: string[] | undefined, scope: SyncScope): Promise<void> {
     if (!entityTypes || entityTypes.length === 0) return
 
-    await Promise.allSettled(
-      Array.from(new Set(entityTypes.filter((value) => typeof value === 'string' && value.trim().length > 0)))
-        .map((entityType) => refreshCoverageSnapshot(deps.em, {
-          entityType,
-          tenantId: scope.tenantId,
-          organizationId: scope.organizationId,
-        })),
+    const types = Array.from(
+      new Set(entityTypes.filter((value) => typeof value === 'string' && value.trim().length > 0)),
     )
+    const outcomes = await Promise.allSettled(
+      types.map((entityType) => refreshCoverageSnapshot(deps.em, {
+        entityType,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+      })),
+    )
+    // `allSettled` keeps a failed refresh from failing a committed batch, which is
+    // right — but on its own it also discards the reason entirely, leaving no row,
+    // no log and no signal. Reporting is the whole difference between degrading and
+    // going silent.
+    outcomes.forEach((outcome, index) => {
+      if (outcome.status !== 'rejected') return
+      logger.warn('Coverage snapshot refresh failed', { entityType: types[index], err: outcome.reason as Error })
+      reportSyncError(outcome.reason, 'data_sync.coverage_refresh_failed', {
+        entityType: types[index],
+        'om.tenant_id': scope.tenantId,
+        'om.organization_id': scope.organizationId,
+      })
+    })
   }
 
   async function logImportItemFailures(
@@ -272,6 +352,7 @@ export function createSyncEngine(deps: EngineDeps) {
           runId,
           level: 'error',
           message,
+          code: itemErrorCode(item.data, 'data_sync.item_failed'),
           payload: item.data,
         },
         scope,
@@ -297,6 +378,7 @@ export function createSyncEngine(deps: EngineDeps) {
           runId,
           level: 'error',
           message,
+          code: 'data_sync.export_item_failed',
           payload: { kind: 'export-item-failure', summary: result.error },
         },
         scope,
@@ -311,6 +393,7 @@ export function createSyncEngine(deps: EngineDeps) {
     message: string
     scope: SyncScope
     enabled: boolean
+    code?: string
     payload?: Record<string, unknown>
   }): Promise<void> {
     if (!params.enabled) return
@@ -321,6 +404,7 @@ export function createSyncEngine(deps: EngineDeps) {
         runId: params.runId,
         level: params.level,
         message: params.message,
+        code: params.code,
         payload: params.payload,
       },
       params.scope,
@@ -478,6 +562,7 @@ export function createSyncEngine(deps: EngineDeps) {
         message: error ?? 'Sync run failed',
         scope,
         enabled: operationalTelemetry,
+        code: RUN_FAILED_CODE,
         payload: {
           operationalStatus: 'failed',
           summary: error ?? 'The sync run failed.',
@@ -486,6 +571,25 @@ export function createSyncEngine(deps: EngineDeps) {
     }
 
     if (status === 'completed') {
+      // A run that finished with failures is a partial success, and the operator
+      // finds out here or not at all: the per-item rows carry the reasons but no
+      // count, and this is the only place that knows the run is over. Reported
+      // outside `writeOperationalLog` on purpose — that path is gated on an adapter
+      // opt-in, and an adapter flag may decide how chatty the operational log is,
+      // never whether a failure is observable.
+      if (run.failedCount > 0) {
+        reportSyncError(
+          new SyncRunPartialFailureError(`Sync run completed with ${run.failedCount} failed item(s)`),
+          'data_sync.run_partial_failure',
+          {
+            ...runEventAttributes(run, scope),
+            'data_sync.failed_count': run.failedCount,
+            'data_sync.created_count': run.createdCount,
+            'data_sync.updated_count': run.updatedCount,
+            'data_sync.skipped_count': run.skippedCount,
+          },
+        )
+      }
       await emitDataSyncEvent('data_sync.run.completed', {
         runId,
         integrationId: run.integrationId,
@@ -493,6 +597,10 @@ export function createSyncEngine(deps: EngineDeps) {
         direction: run.direction,
         tenantId: scope.tenantId,
         organizationId: scope.organizationId,
+        createdCount: run.createdCount,
+        updatedCount: run.updatedCount,
+        skippedCount: run.skippedCount,
+        failedCount: run.failedCount,
       })
       return
     }
@@ -726,6 +834,7 @@ export function createSyncEngine(deps: EngineDeps) {
             runId: run.id,
             level: 'error',
             message,
+            code: RUN_FAILED_CODE,
           },
           scope,
         )
@@ -948,6 +1057,7 @@ export function createSyncEngine(deps: EngineDeps) {
             runId: run.id,
             level: 'error',
             message,
+            code: RUN_FAILED_CODE,
           },
           scope,
         )

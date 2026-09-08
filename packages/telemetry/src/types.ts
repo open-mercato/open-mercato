@@ -124,6 +124,25 @@ export interface TelemetryProvider {
   emitLog(record: LogRecord): void
   /** Record a metric observation (no-op if `metrics` unsupported). */
   recordMetric(point: MetricPoint): void
+  /**
+   * Receive a reported error as a first-class error, for backends that model
+   * errors as issues rather than as a span event plus a log record (Sentry and
+   * friends). The facade calls it in ADDITION to the span/log/metric path, never
+   * instead of it, so a provider that implements this cannot cause signal to be
+   * lost — it owns its own de-duplication.
+   *
+   * OPTIONAL, and MUST stay optional: third parties implement this interface, and
+   * a required method would break every existing provider. Facade callers invoke
+   * it as `provider.reportError?.(…)`.
+   *
+   * `error` arrives already serialized and PII-redacted (name/message/stack only)
+   * and `attributes` already redacted, so an implementation must not reach for
+   * the original thrown value.
+   */
+  reportError?(
+    error: NonNullable<LogRecord['error']>,
+    context: { module?: string; code?: string; attributes?: Attributes },
+  ): void
 }
 
 /**
