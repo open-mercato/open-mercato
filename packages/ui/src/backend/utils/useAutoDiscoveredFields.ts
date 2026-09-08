@@ -76,7 +76,11 @@ export function useAutoDiscoveredFields<T extends RowData = RowData>({
     for (let i = 0; i < columns.length; i++) {
       const col = columns[i]
       const accessorKey = (col as any).accessorKey as string | undefined
-      if (!accessorKey) continue
+      // Widget-injected columns carry `accessorFn` + `id` instead of `accessorKey`
+      // (dotted access paths cannot be an object key), and the column id is what
+      // the chooser toggle and visibility state already round-trip on.
+      const chooserKey = accessorKey ?? ((col as any).id as string | undefined)
+      if (!chooserKey) continue
 
       const meta = (col as any).meta as ColumnMeta | undefined
       const label = resolveHeaderLabel(col)
@@ -100,10 +104,10 @@ export function useAutoDiscoveredFields<T extends RowData = RowData>({
       }
 
       // Column chooser field
-      if (!seenChooserKeys.has(accessorKey)) {
-        seenChooserKeys.add(accessorKey)
+      if (!seenChooserKeys.has(chooserKey)) {
+        seenChooserKeys.add(chooserKey)
         chooserFields.push({
-          key: accessorKey,
+          key: chooserKey,
           label,
           group: meta?.columnChooserGroup ?? defaultGroupLabel,
           alwaysVisible: meta?.alwaysVisible ?? i === 0,
