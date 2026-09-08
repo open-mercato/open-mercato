@@ -14,7 +14,7 @@ import { SectionHeader } from '@open-mercato/ui/backend/SectionHeader'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { normalizeProposalEnvelope } from '../data/proposalEnvelope'
 import { ProposalOptionList } from './ProposalOptionList'
-import { formatConfidence, type ProposalView } from './types'
+import { formatConfidence, type AdHocProposalView, type ProposalView } from './types'
 import { agentAvatarIcon } from './agentChips'
 import { useAgentIconMap } from './useAgentIcons'
 import { proposalVerdict } from './cockpitStatus'
@@ -45,15 +45,12 @@ export type ProposalCardProps = {
   /** Persisted proposal (caseload detail). */
   proposal?: ProposalView | null
   /**
-   * Ad-hoc proposal payload (playground proposal result). When provided
-   * without `proposal`, the card renders read-only with disabled actions.
+   * Ad-hoc proposal a run just returned (playground proposal result). When
+   * provided without `proposal`, the card renders read-only with disabled
+   * actions. Build it with `mapAdHocProposal` — the card reads the option set
+   * off `payload`, so it must be the envelope, not one option's actions.
    */
-  adHoc?: {
-    agentId: string
-    confidence: number | null
-    payload: unknown
-    rationale?: string | null
-  }
+  adHoc?: AdHocProposalView
   /** Disposition action wiring. Omit for a fully read-only card (playground). */
   actions?: ProposalActionsConfig
   /** Opens the Agent I/O drawer. */

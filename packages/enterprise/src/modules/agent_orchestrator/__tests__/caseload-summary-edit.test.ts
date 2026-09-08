@@ -151,7 +151,7 @@ describe('source invariants', () => {
 
   it('the playground consumer stays read-only (no actions prop, edit footer gated on actions)', () => {
     const playground = read('backend/playground/page.tsx')
-    expect(playground).toContain('adHoc={{')
+    expect(playground).toContain('adHoc={mapAdHocProposal(')
     expect(playground).not.toMatch(/<ProposalCard[\s\S]{0,400}actions=\{/)
     const card = read('components/ProposalCard.tsx')
     expect(card).toContain("mode === 'view' && actions && isPending")

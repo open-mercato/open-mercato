@@ -24,20 +24,13 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { ProposalCard } from '../../components/ProposalCard'
 import { WebSearchActivity } from '../../components/WebSearchActivity'
-import { mapAgent, type AgentView } from '../../components/types'
+import { mapAdHocProposal, mapAgent, type AgentView } from '../../components/types'
 import { toolPanelStateFromResponse, type ToolPanelState } from '../../components/playgroundToolCalls'
 import { runErrorStateFromBody } from '../../components/playgroundRunError'
 import { Chip, TYPE_ICON, RUNTIME_ICON, resolveAgentIcon } from '../../components/agentChips'
 import { PlaygroundEvalPanel } from './PlaygroundEvalPanel'
-import { deriveEnvelopeConfidence, normalizeProposalEnvelope, readProposalActions } from '../../data/proposalEnvelope'
 
 type AgentsResponse = { items?: Array<Record<string, unknown>> }
-
-/** The option-set rationale, or the leading option's when the envelope carries none. */
-function readEnvelopeRationale(payload: unknown): string | null {
-  const envelope = normalizeProposalEnvelope(payload)
-  return envelope.rationale ?? envelope.options[0]?.rationale ?? null
-}
 
 type AgentResult =
   | { kind: 'researcher'; data: unknown }
@@ -525,14 +518,7 @@ export default function AgentPlaygroundPage() {
               ) : null}
 
               {result?.kind === 'proposal' ? (
-                <ProposalCard
-                  adHoc={{
-                    agentId,
-                    confidence: deriveEnvelopeConfidence(result.proposal),
-                    payload: readProposalActions(result.proposal),
-                    rationale: readEnvelopeRationale(result.proposal),
-                  }}
-                />
+                <ProposalCard adHoc={mapAdHocProposal(agentId, result.proposal)} />
               ) : null}
 
               {result?.kind === 'researcher' ? (

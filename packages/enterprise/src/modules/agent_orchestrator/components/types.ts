@@ -5,6 +5,7 @@
  */
 import { isAgentIconName, type AgentIconName } from '../data/agentIcons'
 import { normalizeAgentTags } from '../data/agentTags'
+import { deriveEnvelopeConfidence, normalizeProposalEnvelope } from '../data/proposalEnvelope'
 import type { AgentType } from '../data/validators'
 import type { AgentTokenUsage, TokenizedFile } from '../lib/tokens/types'
 
@@ -387,6 +388,42 @@ export function mapProposal(item: Record<string, unknown>): ProposalView | null 
     autoDispositionBlock: asString(item.auto_disposition_block) ?? asString(item.autoDispositionBlock),
     createdAt: asString(item.created_at) ?? asString(item.createdAt),
     updatedAt: asString(item.updated_at) ?? asString(item.updatedAt),
+  }
+}
+
+/**
+ * A proposal a run just returned, before anyone has opened it in the Caseload.
+ *
+ * The Playground gets the typed `AgentResult` back from `POST /agents/:id/run`
+ * instead of a persisted row, so it has no `ProposalView` to hand `ProposalCard`.
+ * It builds this instead — and it builds it HERE, through the one mapper, so the
+ * two surfaces cannot disagree about what an agent proposed.
+ */
+export type AdHocProposalView = {
+  agentId: string
+  confidence: number | null
+  /** The proposal ENVELOPE (`{ options[], rationale? }`) — never a bare action list. */
+  payload: unknown
+  rationale: string | null
+}
+
+/**
+ * Project a run result's `proposal` onto the same three fields `mapProposal`
+ * derives from a persisted row.
+ *
+ * `payload` MUST stay the envelope: `ProposalCard` and `ProposalOptionList` read
+ * the option set off it, so handing them the leading option's `actions[]` array
+ * made a real proposal render as "the agent proposed nothing" (#5980).
+ */
+export function mapAdHocProposal(agentId: string, proposal: unknown): AdHocProposalView {
+  // Idempotent: the runner already shaped the result through the same coercion
+  // before persisting it, so this reproduces the stored payload exactly.
+  const payload = normalizeProposalEnvelope(proposal)
+  return {
+    agentId,
+    confidence: deriveEnvelopeConfidence(payload),
+    payload,
+    rationale: extractRationale(payload),
   }
 }
 
