@@ -286,6 +286,10 @@ export const CROSS_PACKAGE_EXCEPTIONS = [
     reason: 'Already unfiltered — the "Check create-app template parity" CI step runs the whole create-mercato-app suite (#3779).',
   },
   {
+    path: 'packages/create-app/src/lib/template-modules-parity.test.ts',
+    reason: 'Already unfiltered — the "Check create-app template parity" CI step runs the whole create-mercato-app suite (#3779). It reads apps/mercato/src/modules.ts and the template counterpart through the scripts/template-sync.ts transform, and it is a node:test file rather than a jest one, so it could not run under this jest-based runner anyway (#5598).',
+  },
+  {
     path: 'packages/create-app/src/lib/module-activation-fixtures.test.ts',
     reason: 'Already unfiltered — the "Check create-app template parity" CI step runs the whole create-mercato-app suite (#3779).',
   },
