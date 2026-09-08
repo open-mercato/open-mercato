@@ -108,9 +108,21 @@ function statusIdFromColumnKey(key: readonly unknown[]): string | null {
 }
 
 /**
+ * `true` when `candidate` names a strictly earlier version than `reference`.
+ * Unparseable input answers `false`, so an unexpected format leaves whatever the
+ * list handed us in charge rather than pinning the board to a remembered token.
+ */
+function isOlderVersion(candidate: string, reference: string): boolean {
+  const candidateAt = Date.parse(candidate)
+  const referenceAt = Date.parse(reference)
+  if (!Number.isFinite(candidateAt) || !Number.isFinite(referenceAt)) return false
+  return candidateAt < referenceAt
+}
+
+/**
  * The Kanban board of screen 6 (T3.6, US-C1/US-C2).
  *
- * Three things carry the design intent and are worth reading before changing anything:
+ * Four things carry the design intent and are worth reading before changing anything:
  *
  *  1. **The move is optimistic and the rollback is exact.** Before the PATCH the board
  *     snapshots every column cache; the card is moved between them immediately. On any
@@ -126,6 +138,13 @@ function statusIdFromColumnKey(key: readonly unknown[]): string | null {
  *     registers a `taskId|statusId` key that the event handler consumes instead of
  *     refetching, so a colleague's drag moves the card here and yours does not fight the
  *     optimistic update that already landed.
+ *  4. **The next move's version comes out of the last move's response.** A move bumps
+ *     the row's `updated_at`, so the version the board is holding for that card is spent
+ *     the moment the PATCH commits — and the optimistic write of note 1 carries the
+ *     pre-move version forward until a refetch replaces it. Reading the version back off
+ *     the response (as `TaskDrawer` already does) is what lets the same card be moved
+ *     twice in a row; waiting for the refetch made every second move answer 409 "changed
+ *     by someone else" with nobody else editing.
  */
 export function KanbanBoard({
   timeProjectId,
@@ -153,6 +172,26 @@ export function KanbanBoard({
   const [statusDraft, setStatusDraft] = React.useState('')
 
   const ownMoveKeysRef = React.useRef(new Map<string, number>())
+
+  // The version the server confirmed for a card in its own move response, kept until
+  // a fetched row catches up with it (note 4). "Newest wins" never suppresses a real
+  // conflict: somebody else's move produces a version NEWER than the one confirmed
+  // here, and the row that carries it takes over — this only stops the board from
+  // replaying a version its own last move already spent.
+  const confirmedVersionsRef = React.useRef(new Map<string, string>())
+
+  const resolveTaskVersion = React.useCallback(
+    (taskId: string, rowVersion: string | null): string | null => {
+      const confirmed = confirmedVersionsRef.current.get(taskId)
+      if (!confirmed) return rowVersion
+      if (rowVersion && !isOlderVersion(rowVersion, confirmed)) {
+        confirmedVersionsRef.current.delete(taskId)
+        return rowVersion
+      }
+      return confirmed
+    },
+    [],
+  )
 
   const { runMutation: runMoveMutation, retryLastMutation: retryMoveMutation } = useGuardedMutation<{
     formId: string
@@ -420,15 +459,15 @@ export function KanbanBoard({
         })
       }
 
-      const taskVersion = readString(movingRow, 'updated_at', 'updatedAt')
+      const taskVersion = resolveTaskVersion(taskId, readString(movingRow, 'updated_at', 'updatedAt'))
       setTaskPending(taskId, true)
       setFailedMove(null)
       markOwnMove(taskId, targetStatusId)
 
       runMoveMutation({
         operation: async () => {
-          await withScopedApiRequestHeaders(buildOptimisticLockHeader(taskVersion), () =>
-            apiCallOrThrow(
+          const call = await withScopedApiRequestHeaders(buildOptimisticLockHeader(taskVersion), () =>
+            apiCallOrThrow<Record<string, unknown>>(
               `/api/staff/timesheets/tasks/${encodeURIComponent(taskId)}/status`,
               {
                 method: 'PATCH',
@@ -438,6 +477,7 @@ export function KanbanBoard({
               { errorMessage: t('staff.time_tracking.board.move.error', 'Could not move the task.') },
             ),
           )
+          return readString(call.result ?? {}, 'updatedAt', 'updated_at')
         },
         context: {
           formId: MOVE_MUTATION_CONTEXT_ID,
@@ -446,7 +486,11 @@ export function KanbanBoard({
           retryLastMutation: retryMoveMutation,
         },
       })
-        .then(() => {
+        .then((confirmedVersion) => {
+          // Note 4: the card the optimistic write left in the target column still
+          // carries the version this move just spent, so the response's version has
+          // to take over until a fetched row carries a newer one.
+          if (confirmedVersion) confirmedVersionsRef.current.set(taskId, confirmedVersion)
           invalidateBoard()
         })
         .catch((error: unknown) => {
@@ -455,7 +499,9 @@ export function KanbanBoard({
           consumeOwnMove(taskId, targetStatusId)
           if (surfaceRecordConflict(error, t)) {
             // Somebody else moved this card. Refetch and let the conflict bar speak —
-            // retrying here would silently overwrite their move.
+            // retrying here would silently overwrite their move. The version this board
+            // remembered is behind the server's, so the refetched row takes over.
+            confirmedVersionsRef.current.delete(taskId)
             invalidateBoard()
             return
           }
@@ -475,6 +521,7 @@ export function KanbanBoard({
       invalidateBoard,
       markOwnMove,
       queryClient,
+      resolveTaskVersion,
       retryMoveMutation,
       runMoveMutation,
       setTaskPending,

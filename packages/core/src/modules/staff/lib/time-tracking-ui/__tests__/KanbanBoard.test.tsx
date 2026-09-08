@@ -472,6 +472,103 @@ describe('KanbanBoard', () => {
   })
 
   /**
+   * QA could move a card exactly once per page load: every move after the first
+   * answered 409 "changed by someone else" with nobody else editing, and only a
+   * page refresh cleared it.
+   *
+   * A move bumps the row's `updated_at`, so the version the board holds for that
+   * card is spent the moment the first move commits — and the optimistic write that
+   * keeps the card in its new column carries the pre-move version forward. Anything
+   * that keeps the post-move refetch from landing (a list cache that has not caught
+   * up, a slow or failed request, a filter change) therefore left the board replaying
+   * a version the server had already superseded.
+   *
+   * The refetch is stalled here to hold the board in exactly that state: the second
+   * move has to carry the version the first move's own response returned.
+   */
+  it('moves the same card twice without the refetch, on the version the first move returned', async () => {
+    const SECOND_VERSION = '2026-08-12T10:05:00.000Z'
+    const freshRouter = mockApiCall.getMockImplementation()!
+    mockApiCallOrThrow.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const match = String(input).match(/\/tasks\/([^/]+)\/status$/)
+      if (!match) return ok({ ok: true }) as never
+      const body = JSON.parse(String(init?.body ?? '{}')) as { taskStatusId: string }
+      applyMoveToFixture(match[1], body.taskStatusId)
+      // The board never sees this through the list: the refetch below never answers.
+      mockApiCall.mockImplementation(async (url: RequestInfo | URL, requestInit?: RequestInit) => {
+        if (String(url).includes('/timesheets/tasks?')) return new Promise(() => {}) as never
+        return freshRouter(url, requestInit)
+      })
+      return ok({
+        id: match[1],
+        taskStatusId: body.taskStatusId,
+        position: 500,
+        closedAt: null,
+        updatedAt: SECOND_VERSION,
+      }) as never
+    })
+
+    const { container } = renderBoard()
+    await waitFor(() => expect(cardIn(container, BACKLOG_ID, TASK_ID)).not.toBeNull())
+
+    dropOn(IN_PROGRESS_ID)
+    await waitFor(() => expect(mockApiCallOrThrow).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(cardIn(container, IN_PROGRESS_ID, TASK_ID)).not.toBeNull())
+
+    dropOn(DONE_ID)
+    await waitFor(() => expect(mockApiCallOrThrow).toHaveBeenCalledTimes(2))
+    expect(mockWithScopedHeaders.mock.calls[1][0]).toEqual({
+      [OPTIMISTIC_LOCK_HEADER_NAME]: SECOND_VERSION,
+    })
+    expect(mockSurfaceRecordConflict).not.toHaveBeenCalled()
+  })
+
+  /**
+   * The counterpart of the test above: once the list catches up, the row is the
+   * authority again. A colleague's move always lands a NEWER version than the one
+   * this board confirmed for itself, so remembering a version can never swallow a
+   * genuine conflict.
+   */
+  it('defers to a fetched row that carries a newer version than the one it confirmed', async () => {
+    const OWN_VERSION = '2026-08-12T10:05:00.000Z'
+    const REMOTE_VERSION = '2026-08-12T10:09:00.000Z'
+    mockApiCallOrThrow.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const match = String(input).match(/\/tasks\/([^/]+)\/status$/)
+      if (!match) return ok({ ok: true }) as never
+      const body = JSON.parse(String(init?.body ?? '{}')) as { taskStatusId: string }
+      applyMoveToFixture(match[1], body.taskStatusId)
+      return ok({ id: match[1], taskStatusId: body.taskStatusId, updatedAt: OWN_VERSION }) as never
+    })
+
+    const { container } = renderBoard()
+    await waitFor(() => expect(cardIn(container, BACKLOG_ID, TASK_ID)).not.toBeNull())
+
+    dropOn(IN_PROGRESS_ID)
+    await waitFor(() => expect(mockApiCallOrThrow).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(cardIn(container, IN_PROGRESS_ID, TASK_ID)).not.toBeNull())
+
+    // Somebody else edits the card between the two moves, and the board refetches it.
+    for (const rows of Object.values(tasksByStatus)) {
+      for (const row of rows) if (row.id === TASK_ID) row.updated_at = REMOTE_VERSION
+    }
+    const listCallsBefore = mockApiCall.mock.calls.filter((call) =>
+      String(call[0]).includes('/timesheets/tasks?'),
+    ).length
+    broadcastStatusChange(DONE_ID)
+    await waitFor(() =>
+      expect(
+        mockApiCall.mock.calls.filter((call) => String(call[0]).includes('/timesheets/tasks?')).length,
+      ).toBeGreaterThan(listCallsBefore),
+    )
+
+    dropOn(DONE_ID)
+    await waitFor(() => expect(mockApiCallOrThrow).toHaveBeenCalledTimes(2))
+    expect(mockWithScopedHeaders.mock.calls[1][0]).toEqual({
+      [OPTIMISTIC_LOCK_HEADER_NAME]: REMOTE_VERSION,
+    })
+  })
+
+  /**
    * The tag's name lives behind a second request. Falling back to the id painted the
    * raw uuid on the card until that request answered — the very "internal id where a
    * name belongs" defect this PR fixed elsewhere.
