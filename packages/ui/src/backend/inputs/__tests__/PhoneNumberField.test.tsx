@@ -215,3 +215,15 @@ describe('PhoneNumberField country option list', () => {
     ])
   })
 })
+
+describe('PhoneNumberField option list under an unusable locale', () => {
+  it('falls back to English names and English collation instead of throwing', () => {
+    const options = buildPhoneCountryOptions(undefined, englishOnly, 'not a locale tag')
+
+    expect(options.find((option) => option.country.iso2 === 'DE')?.label).toBe('Germany')
+
+    const labels = options.map((option) => option.label)
+    const sorted = [...labels].sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' }))
+    expect(labels).toEqual(sorted)
+  })
+})

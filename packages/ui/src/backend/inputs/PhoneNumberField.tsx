@@ -378,6 +378,16 @@ export type PhoneCountryOption = {
 }
 
 /**
+ * Locale safe to hand to `localeCompare`. A tag `Intl` cannot construct would
+ * throw there just as it does in `getRegionDisplayNames`, so both fall back to
+ * English together.
+ */
+function resolveCollationLocale(locale: string | undefined): string {
+  if (!locale) return 'en'
+  return getRegionDisplayNames(locale) ? locale : 'en'
+}
+
+/**
  * Options rendered in the country dropdown. A caller-supplied list is
  * authoritative — its labels and its order are preserved verbatim — while the
  * built-in dictionary is localized and re-sorted for the active locale, since
@@ -389,9 +399,10 @@ export function buildPhoneCountryOptions(
   locale: string | undefined,
 ): PhoneCountryOption[] {
   if (countries) return countries.map((country) => ({ country, label: country.label }))
+  const collationLocale = resolveCollationLocale(locale)
   return PHONE_COUNTRIES
     .map((country) => ({ country, label: resolvePhoneCountryLabel(country, t, locale) }))
-    .sort((a, b) => a.label.localeCompare(b.label, locale ?? 'en', { sensitivity: 'base' }))
+    .sort((a, b) => a.label.localeCompare(b.label, collationLocale, { sensitivity: 'base' }))
 }
 
 /**
