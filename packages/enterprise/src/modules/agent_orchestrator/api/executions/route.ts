@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
-import { buildIlikeTerm } from '@open-mercato/shared/lib/db/buildIlikeTerm'
 import { ProcessInstance } from '../../data/entities'
+import { buildExecutionSearchBranches } from '../../lib/processes/executionSearch'
 import {
   processExecutionListQuerySchema,
   processMilestoneReachedSchema,
@@ -116,7 +116,12 @@ const crud = makeCrudRoute<never, never, z.infer<typeof processExecutionListQuer
       if (query.subjectType) filters.subject_type = { $eq: query.subjectType }
       if (query.sourceEntityType) filters.source_entity_type = { $eq: query.sourceEntityType }
       if (query.sourceEntityId) filters.source_entity_id = { $eq: query.sourceEntityId }
-      if (query.q) filters.subject_label = { $ilike: buildIlikeTerm(query.q.trim()) }
+      // Matches the subject reference AND the id the list actually shows; every
+      // branch is a column of this row, so the factory's tenant/org scope holds.
+      if (query.q) {
+        const searchBranches = buildExecutionSearchBranches(query.q)
+        if (searchBranches) filters.$or = searchBranches
+      }
       switch (query.scope) {
         case 'needs_decision':
           filters.status = { $in: NEEDS_DECISION_STATUSES }

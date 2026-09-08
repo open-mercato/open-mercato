@@ -151,7 +151,7 @@ export const runIdPrefixSchema = z
   .regex(/^[0-9a-fA-F-]{4,36}$/)
 
 /** Strips dashes + lowercases; null when the result is not 4–32 hex chars. */
-export function normalizeRunIdPrefix(raw: string): string | null {
+export function normalizeUuidPrefix(raw: string): string | null {
   const hex = raw.trim().toLowerCase().replace(/-/g, '')
   if (!/^[0-9a-f]{4,32}$/.test(hex)) return null
   return hex
@@ -163,8 +163,8 @@ export function normalizeRunIdPrefix(raw: string): string | null {
  * bytewise — identical to hex-string order — so a `$gte`/`$lte` pair is exact
  * prefix semantics without the uuid-vs-`ilike` cast problem.
  */
-export function runIdPrefixRange(raw: string): { from: string; to: string } | null {
-  const hex = normalizeRunIdPrefix(raw)
+export function uuidPrefixRange(raw: string): { from: string; to: string } | null {
+  const hex = normalizeUuidPrefix(raw)
   if (!hex) return null
   const dashed = (filled: string) =>
     `${filled.slice(0, 8)}-${filled.slice(8, 12)}-${filled.slice(12, 16)}-${filled.slice(16, 20)}-${filled.slice(20, 32)}`
@@ -173,6 +173,12 @@ export function runIdPrefixRange(raw: string): { from: string; to: string } | nu
     to: dashed(hex.padEnd(32, 'f')),
   }
 }
+
+/** The run-list spelling of the same prefix normalization (`GET /runs?idPrefix=`). */
+export const normalizeRunIdPrefix = normalizeUuidPrefix
+
+/** The run-list spelling of the same uuid range (`GET /runs?idPrefix=`). */
+export const runIdPrefixRange = uuidPrefixRange
 
 /** Query schema for GET /runs (list + ?id= detail). */
 export const runListQuerySchema = z

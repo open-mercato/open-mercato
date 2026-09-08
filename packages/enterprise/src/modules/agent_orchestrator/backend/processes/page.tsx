@@ -81,7 +81,8 @@ export default function ProcessesListPage() {
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [search, setSearch] = React.useState('')
-  // Debounced 300 ms before hitting the server `q` (subject reference/label).
+  // Debounced 300 ms before hitting the server `q` (subject reference, or the
+  // process id the identifier column shows when there is no subject).
   const [q, setQ] = React.useState('')
   // Header sort → server sortField/sortDir; null = the route's default order.
   const [sort, setSort] = React.useState<ServerSort | null>(null)
