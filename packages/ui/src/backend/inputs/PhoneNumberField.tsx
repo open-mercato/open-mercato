@@ -357,10 +357,19 @@ function regionDisplayName(iso2: string, locale: string | undefined): string | n
   }
 }
 
+function isEnglishLocale(locale: string | undefined): boolean {
+  return !locale || locale.toLowerCase().split(/[-_]/)[0] === 'en'
+}
+
 /**
  * Display name for a built-in country in the active locale. A locale-file entry
  * wins so a deployment can correct or override any name; otherwise the
  * platform's region data localizes it; the English label is the last resort.
+ *
+ * English deliberately skips the region data: the dictionary already holds
+ * curated English names, and CLDR spells several of them differently
+ * ("Antigua & Barbuda" for "Antigua and Barbuda"), so consulting it would
+ * silently rewrite existing English copy for no gain.
  */
 export function resolvePhoneCountryLabel(
   country: PhoneCountry,
@@ -369,6 +378,7 @@ export function resolvePhoneCountryLabel(
 ): string {
   const translated = t(phoneCountryLabelKey(country.iso2), '')
   if (translated) return translated
+  if (isEnglishLocale(locale)) return country.label
   return regionDisplayName(country.iso2, locale) ?? country.label
 }
 

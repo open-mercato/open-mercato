@@ -182,6 +182,17 @@ describe('PhoneNumberField country name localization', () => {
     expect(resolvePhoneCountryLabel(poland, englishOnly, undefined)).toBe('Poland')
   })
 
+  it('keeps the curated English dictionary names under an English locale', () => {
+    const antigua = PHONE_COUNTRIES.find((country) => country.iso2 === 'AG') as PhoneCountry
+
+    expect(resolvePhoneCountryLabel(poland, englishOnly, 'en')).toBe('Poland')
+    // CLDR spells this "Antigua & Barbuda"; the dictionary wins so existing
+    // English copy is never silently rewritten.
+    expect(antigua.label).toBe('Antigua and Barbuda')
+    expect(resolvePhoneCountryLabel(antigua, englishOnly, 'en')).toBe('Antigua and Barbuda')
+    expect(resolvePhoneCountryLabel(antigua, englishOnly, 'en-GB')).toBe('Antigua and Barbuda')
+  })
+
   it('falls back to the English label for a code the runtime cannot name', () => {
     const unassigned: PhoneCountry = { iso2: 'QQ', dialCode: '+999', label: 'Nowhere', flag: '' }
     const malformed: PhoneCountry = { iso2: 'QQQ', dialCode: '+999', label: 'Nowhere', flag: '' }
