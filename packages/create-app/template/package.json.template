@@ -56,6 +56,7 @@
     "@open-mercato/channel-discord": "{{PACKAGE_VERSION}}",
     "@open-mercato/channel-gmail": "{{PACKAGE_VERSION}}",
     "@open-mercato/channel-imap": "{{PACKAGE_VERSION}}",
+    "@open-mercato/channel-ms365": "{{PACKAGE_VERSION}}",
     "@open-mercato/channel-apns": "{{PACKAGE_VERSION}}",
     "@open-mercato/channel-expo": "{{PACKAGE_VERSION}}",
     "@open-mercato/channel-fcm": "{{PACKAGE_VERSION}}",
