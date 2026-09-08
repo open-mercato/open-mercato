@@ -42,7 +42,7 @@ import {
   type ProposalView,
 } from '../../components/types'
 import { OPTIONAL_REQUEST_INIT } from '../../components/optionalRequest'
-import { subjectRefOf } from '../../components/subjectRef'
+import { shortCaseId, subjectLabelOf } from '../../components/subjectRef'
 import { useCoalescedReload } from '../../components/useCoalescedReload'
 import { summarizeProposalActions } from '../../components/proposalFactsData'
 import { normalizeProposalEnvelope, rankProposalOptions } from '../../data/proposalEnvelope'
@@ -378,7 +378,7 @@ export default function AgentCaseloadPage() {
           const id = fieldOf(run, 'id')
           if (!id) continue
           const input = asObject(run.input)
-          claims.set(id, (input && subjectRefOf(input)) || id.slice(0, 12))
+          claims.set(id, subjectLabelOf(input, id))
           io.set(id, { input: run.input ?? null, output: run.output ?? null })
         }
         setRunClaims(claims)
@@ -450,7 +450,7 @@ export default function AgentCaseloadPage() {
         agentLabel: agentLabels.get(proposal.agentId) || proposal.agentId,
         agentIcon: agentIconInfo?.icon ?? null,
         agentResultKind: agentIconInfo?.resultKind ?? 'researcher',
-        claim: runClaims.get(proposal.runId) || proposal.id.slice(0, 12),
+        claim: runClaims.get(proposal.runId) || shortCaseId(proposal.id),
         proposes: summary.display,
         proposesType: summary.typeLabel,
         proposesRawType: summary.typeRaw,

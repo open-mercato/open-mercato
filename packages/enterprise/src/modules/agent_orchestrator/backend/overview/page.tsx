@@ -27,7 +27,7 @@ import {
   type RunView,
 } from '../../components/types'
 import { OPTIONAL_REQUEST_INIT } from '../../components/optionalRequest'
-import { subjectRefOf } from '../../components/subjectRef'
+import { subjectLabelOf } from '../../components/subjectRef'
 import { useCoalescedReload } from '../../components/useCoalescedReload'
 import { agentAvatarIcon } from '../../components/agentChips'
 import { SystemHealthTile } from '../../components/SystemHealthTile'
@@ -307,9 +307,7 @@ export default function AgentFleetOverviewPage() {
       .map((proposal) => {
         const run = pendingRuns.get(proposal.runId) ?? null
         const input = run ? asObject(run.input) : null
-        const claim =
-          (input && subjectRefOf(input)) ||
-          proposal.runId.slice(0, 12)
+        const claim = subjectLabelOf(input, proposal.runId)
         const waitingMin = minutesAgo(proposal.createdAt)
         return {
           id: proposal.id,

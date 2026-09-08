@@ -28,6 +28,7 @@ import {
   AGENT_DISPOSITION_INBOX_KIND,
   AGENT_DISPOSITION_QUEUE_FEATURE,
   AGENT_DISPOSITION_ROW_STATUS,
+  AGENT_DISPOSITION_TITLE_KEY,
   agentDispositionSourceMatchesQuery,
   agentDispositionWorkInboxSource,
   buildAgentDispositionWhere,
@@ -44,6 +45,17 @@ const TENANT_ID = '11111111-2222-4333-8444-aaaaaaaaaaaa'
 const ORG_ID = '11111111-2222-4333-8444-bbbbbbbbbbbb'
 const OTHER_ORG_ID = '11111111-2222-4333-8444-cccccccccccc'
 const NOW = new Date('2026-07-28T12:00:00.000Z')
+
+/**
+ * A translator that echoes the key it was asked for, so a projection that goes
+ * back to hard-coded English fails loudly here instead of reading fine in
+ * English and wrong in every other locale.
+ */
+const PRESENTATION = {
+  translate: (key: string, _fallback: string, params?: Record<string, string | number>) =>
+    `${key}:${params?.agent ?? ''}`,
+  agentLabels: new Map([['invoice-triage', 'Invoice triage']]),
+}
 
 function makeQuery(overrides: Partial<WorkInboxQuery> = {}): WorkInboxQuery {
   return {
@@ -204,7 +216,9 @@ describe('narrowings the constant projection cannot satisfy', () => {
   }
 
   test('every row this source projects is PENDING', () => {
-    expect(toAgentDispositionRow(makeProposal(), NOW).status).toBe(AGENT_DISPOSITION_ROW_STATUS)
+    expect(toAgentDispositionRow(makeProposal(), NOW, PRESENTATION).status).toBe(
+      AGENT_DISPOSITION_ROW_STATUS,
+    )
   })
 
   test('a status filter that excludes PENDING contributes no rows and no total', async () => {
@@ -256,7 +270,7 @@ describe('narrowings the constant projection cannot satisfy', () => {
 
 describe('the row projection', () => {
   test('carries proposalId and claims no owner it does not have', () => {
-    const row = toAgentDispositionRow(makeProposal(), NOW)
+    const row = toAgentDispositionRow(makeProposal(), NOW, PRESENTATION)
 
     expect(row.kind).toBe(AGENT_DISPOSITION_INBOX_KIND)
     expect(row.details.proposalId).toBe('11111111-2222-4333-8444-dddddddddddd')
@@ -268,5 +282,20 @@ describe('the row projection', () => {
     expect(row.dueDate).toBeNull()
     expect(row.overdue).toBe(false)
     expect(row.detailHref).toBe('/backend/caseload/11111111-2222-4333-8444-dddddddddddd')
+  })
+
+  test('titles the row through the locale key, naming the agent rather than its id', () => {
+    const row = toAgentDispositionRow(makeProposal(), NOW, PRESENTATION)
+
+    expect(row.title).toBe(`${AGENT_DISPOSITION_TITLE_KEY}:Invoice triage`)
+  })
+
+  test('falls back to the agent id only when the registry has no label for it', () => {
+    const row = toAgentDispositionRow(makeProposal(), NOW, {
+      translate: PRESENTATION.translate,
+      agentLabels: new Map(),
+    })
+
+    expect(row.title).toBe(`${AGENT_DISPOSITION_TITLE_KEY}:invoice-triage`)
   })
 })

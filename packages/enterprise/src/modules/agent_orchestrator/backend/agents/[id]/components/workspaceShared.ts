@@ -1,6 +1,6 @@
 import type { StatusMap } from '@open-mercato/ui/primitives/status-badge'
 import { formatTimeShort } from '../../../../components/types'
-import { subjectRefOf } from '../../../../components/subjectRef'
+import { subjectLabelOf } from '../../../../components/subjectRef'
 
 export type Autonomy = 'auto' | 'review' | 'gated'
 export type Health = 'good' | 'watch' | 'poor' | 'new'
@@ -94,7 +94,7 @@ export function buildRunRows(
     else if (disposition === 'approved' || disposition === 'auto_approved') outcome = 'applied'
     return {
       id: runId,
-      claim: (input && subjectRefOf(input)) || runId.slice(0, 12),
+      claim: subjectLabelOf(input, runId),
       decision:
         (payload && fieldOf(payload, 'decision', 'action', 'label')) || fieldOf(run, 'result_kind', 'resultKind') || '—',
       confidence: proposal ? asNumber(proposal.confidence) : null,

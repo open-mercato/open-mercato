@@ -13,6 +13,8 @@
  * sample. No new entities — pure read projections.
  */
 
+import { shortCaseId } from './subjectRef'
+
 /** Mirrors `ProcessInstanceStatus` (spec §Data Models → status derivation). */
 export type ProcessInstanceStatus =
   | 'running'
@@ -595,7 +597,7 @@ export function mapProcessListRow(item: Record<string, unknown>): ProcessListRow
   return {
     id: projection.workflowInstanceId,
     subjectType: projection.subjectType ?? '—',
-    subjectLabel: projection.subjectLabel ?? projection.workflowInstanceId.slice(0, 8).toUpperCase(),
+    subjectLabel: projection.subjectLabel ?? shortCaseId(projection.workflowInstanceId),
     subjectTitle: projection.subjectTitle ?? projection.workflowId ?? '',
     currentStage: projection.currentStage ?? '—',
     status: projection.status,

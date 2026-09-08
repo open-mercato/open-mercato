@@ -169,7 +169,7 @@ export async function POST(req: Request, ctx: RouteContext) {
     result = await agentRuntime.run(id, parsed.data.input, runCtx)
   } catch (err) {
     if (err instanceof AgentNotFoundError) {
-      return NextResponse.json({ error: 'Agent not found' }, { status: 404 })
+      return NextResponse.json({ error: 'Agent not found', code: 'agent_not_found' }, { status: 404 })
     }
     // Subclass FIRST: a guardrail block is a policy verdict, not a model bug —
     // the typed reason (kind/phase/set version) must reach the client instead
@@ -187,15 +187,21 @@ export async function POST(req: Request, ctx: RouteContext) {
       )
     }
     if (err instanceof AgentOutputInvalidError) {
-      return NextResponse.json({ error: 'Agent produced invalid output' }, { status: 422 })
+      return NextResponse.json(
+        { error: 'Agent produced invalid output', code: 'agent_output_invalid' },
+        { status: 422 },
+      )
     }
     if (err instanceof AgentRunTimeoutError) {
-      return NextResponse.json({ error: 'The agent run timed out before producing a result' }, { status: 422 })
+      return NextResponse.json(
+        { error: 'The agent run timed out before producing a result', code: 'agent_run_timeout' },
+        { status: 422 },
+      )
     }
     if (isAgentCapacityError(err)) {
       const retryAfterSeconds = Math.max(1, Math.ceil(resolveAdmissionMaxWaitMs() / 1000))
       return NextResponse.json(
-        { error: 'Agent run capacity is exhausted — retry shortly' },
+        { error: 'Agent run capacity is exhausted — retry shortly', code: 'agent_capacity_exhausted' },
         { status: 429, headers: { 'Retry-After': String(retryAfterSeconds) } },
       )
     }

@@ -33,17 +33,35 @@ describe('runErrorStateFromBody (playground guardrail-block mapping)', () => {
     })
   })
 
-  it('maps a plain error body to the generic state with its message', () => {
+  it('maps a classified code to its locale key instead of the route English', () => {
+    expect(
+      runErrorStateFromBody({
+        error: 'No LLM provider is configured for this deployment',
+        code: 'no_provider_configured',
+      }),
+    ).toEqual({
+      kind: 'generic',
+      messageKey: 'agent_orchestrator.errors.no_provider_configured',
+      message: null,
+    })
+  })
+
+  it('keeps the server text only for a body whose code this build cannot classify', () => {
     expect(runErrorStateFromBody({ error: 'Agent produced invalid output' })).toEqual({
       kind: 'generic',
+      messageKey: null,
       message: 'Agent produced invalid output',
     })
   })
 
   it('maps null / non-object / empty bodies to the generic state with no message', () => {
-    expect(runErrorStateFromBody(null)).toEqual({ kind: 'generic', message: null })
-    expect(runErrorStateFromBody('oops')).toEqual({ kind: 'generic', message: null })
-    expect(runErrorStateFromBody({ error: '   ' })).toEqual({ kind: 'generic', message: null })
+    expect(runErrorStateFromBody(null)).toEqual({ kind: 'generic', messageKey: null, message: null })
+    expect(runErrorStateFromBody('oops')).toEqual({ kind: 'generic', messageKey: null, message: null })
+    expect(runErrorStateFromBody({ error: '   ' })).toEqual({
+      kind: 'generic',
+      messageKey: null,
+      message: null,
+    })
   })
 })
 

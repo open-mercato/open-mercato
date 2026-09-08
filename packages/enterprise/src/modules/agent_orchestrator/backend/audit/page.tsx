@@ -17,7 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { formatDateTime, formatNumber, mapAgent, mapOverviewMetrics, type OverviewMetricsView } from '../../components/types'
-import { subjectRefOf } from '../../components/subjectRef'
+import { subjectLabelOf } from '../../components/subjectRef'
 
 type Disposition = 'pending' | 'approved' | 'edited' | 'rejected' | 'auto_approved'
 type DispositionFilter = 'all' | Disposition
@@ -136,9 +136,7 @@ export default function AgentAuditPage() {
         const runId = fieldOf(proposal, 'run_id', 'runId')
         const run = runById.get(runId)
         const input = run ? asObject(run.input) : null
-        const subjectRef =
-          (input && subjectRefOf(input)) ||
-          (runId ? runId.slice(0, 12) : fieldOf(proposal, 'id').slice(0, 12))
+        const subjectRef = subjectLabelOf(input, runId || fieldOf(proposal, 'id'))
         return {
           id: fieldOf(proposal, 'id'),
           when: fieldOf(proposal, 'created_at', 'createdAt') || null,

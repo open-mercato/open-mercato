@@ -4,6 +4,7 @@ import path from 'node:path'
 import { normalizeFilters } from '@open-mercato/shared/lib/query/join-utils'
 import { buildExecutionSearchBranches } from '../lib/processes/executionSearch'
 import { uuidPrefixRange } from '../data/validators'
+import { mapProcessListRow } from '../components/processTypes'
 
 /**
  * Issue #5989 — the Processes list search could only match `subject_label`, but
@@ -99,9 +100,19 @@ describe('Processes list search (#5989)', () => {
     })
 
     it('the list still renders the short id when there is no subject reference', () => {
-      expect(read('components/processTypes.ts')).toContain(
-        'projection.subjectLabel ?? projection.workflowInstanceId.slice(0, 8).toUpperCase()',
-      )
+      const instanceId = '05cf8116-4b7d-4c21-9d10-0123456789ab'
+      const row = mapProcessListRow({ workflow_instance_id: instanceId, status: 'running' })
+
+      // Asserted against the search branches rather than the source text, so
+      // the two halves of the feature cannot drift: what the list SHOWS has to
+      // be what typing it FINDS.
+      expect(row?.subjectLabel).toBe('05CF8116')
+      expect(buildExecutionSearchBranches(row!.subjectLabel)?.[1]).toEqual({
+        workflow_instance_id: {
+          $gte: '05cf8116-0000-0000-0000-000000000000',
+          $lte: '05cf8116-ffff-ffff-ffff-ffffffffffff',
+        },
+      })
     })
   })
 

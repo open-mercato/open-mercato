@@ -27,3 +27,35 @@ export function subjectRefOf(input: unknown): string | null {
   }
   return null
 }
+
+/** Characters of the identifier a short case id keeps. */
+const SHORT_CASE_ID_LENGTH = 8
+
+/**
+ * The module's one short case-id rendering: the leading hex block of a record
+ * id, upper-cased.
+ *
+ * It exists because `subjectRefOf` legitimately finds nothing — an agent whose
+ * input carries no recognizable reference has no subject to name, and no later
+ * fetch will produce one. The fallback is therefore permanent, not a loading
+ * state, so it has to be readable on its own.
+ *
+ * Eight characters is the boundary the processes list already searches on
+ * (`components/processTypes.ts`), which is what makes this a case REFERENCE an
+ * operator can paste into a search box rather than a truncated UUID: a UUID's
+ * first block is exactly eight hex digits, so the cut never lands mid-group and
+ * never leaves a dangling `-`.
+ */
+export function shortCaseId(id: string | null | undefined): string {
+  const trimmed = (id ?? '').trim()
+  if (!trimmed) return ''
+  return trimmed.slice(0, SHORT_CASE_ID_LENGTH).toUpperCase()
+}
+
+/**
+ * What a row shows in its "subject" slot: the reference the agent input
+ * declared, or the short case id of the record it belongs to.
+ */
+export function subjectLabelOf(input: unknown, fallbackId: string | null | undefined): string {
+  return subjectRefOf(input) ?? shortCaseId(fallbackId)
+}

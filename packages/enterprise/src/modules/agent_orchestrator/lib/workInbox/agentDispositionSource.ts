@@ -56,7 +56,10 @@ import {
   deriveWorkInboxOverdue,
   normalizeWorkInboxPriority,
 } from '@open-mercato/core/modules/workflows/lib/work-inbox/provider'
+import { createFallbackTranslator } from '@open-mercato/shared/lib/i18n/translate'
+import type { TranslateWithFallbackFn } from '@open-mercato/shared/lib/i18n/translate'
 import { AgentProposal } from '../../data/entities'
+import { ensureAgentsLoaded, getAgentEntry } from '../sdk/defineAgent'
 
 export const AGENT_ORCHESTRATOR_MODULE_ID = 'agent_orchestrator'
 
@@ -155,19 +158,52 @@ export function buildAgentDispositionWhere(
   return where as FilterQuery<AgentProposal>
 }
 
+/** i18n key for the row title, so the key lives next to the row that uses it. */
+export const AGENT_DISPOSITION_TITLE_KEY = 'agent_orchestrator.workInbox.disposition.title'
+
+/** English source text — the value every locale file carries under the key. */
+export const AGENT_DISPOSITION_TITLE_FALLBACK = 'Agent proposal to review: {agent}'
+
+/**
+ * Everything the row projection needs that is NOT on the proposal row.
+ *
+ * `WorkInboxRow.title` is a rendered string on the wire — core's inbox has no
+ * translation-key channel for it — so the string has to be resolved here, in
+ * the request that serves the page. Passing the translator in (rather than
+ * calling `resolveTranslations()` inside the projection) keeps
+ * `toAgentDispositionRow` a pure function of its inputs, which is what makes
+ * the "never English chrome" invariant testable.
+ *
+ * `agentLabels` turns the registry id into the name the operator sees on every
+ * other screen; an id with no registry entry falls back to the id itself,
+ * because inventing a prettier name for an agent that is no longer registered
+ * would be a lie.
+ */
+export type AgentDispositionRowPresentation = {
+  translate: TranslateWithFallbackFn
+  agentLabels?: ReadonlyMap<string, string>
+}
+
 /**
  * A proposal has no assignee, no claimant, no queue and no due date — every one
  * of those is `null` on purpose rather than invented, because a fabricated
  * assignee is what the whole administrative-queue class exists to avoid. The
  * source's `administrativeQueueFeature` is what makes the row visible.
  */
-export function toAgentDispositionRow(proposal: AgentProposal, now: Date): WorkInboxRow {
+export function toAgentDispositionRow(
+  proposal: AgentProposal,
+  now: Date,
+  presentation: AgentDispositionRowPresentation,
+): WorkInboxRow {
   const createdAt = proposal.createdAt.toISOString()
+  const agent = presentation.agentLabels?.get(proposal.agentId) || proposal.agentId
   return {
     id: proposal.id,
     kind: AGENT_DISPOSITION_INBOX_KIND,
     moduleId: AGENT_ORCHESTRATOR_MODULE_ID,
-    title: `Dispose agent proposal (${proposal.agentId})`,
+    title: presentation.translate(AGENT_DISPOSITION_TITLE_KEY, AGENT_DISPOSITION_TITLE_FALLBACK, {
+      agent,
+    }),
     description: null,
     status: AGENT_DISPOSITION_ROW_STATUS,
     priority: normalizeWorkInboxPriority(null),
@@ -194,6 +230,52 @@ export function toAgentDispositionRow(proposal: AgentProposal, now: Date): WorkI
       confidence: proposal.confidence ?? null,
     },
   }
+}
+
+/**
+ * The request's translator, or an English-only one.
+ *
+ * `resolveTranslations` is imported lazily because it pulls `server-only`, and
+ * this file is reachable from module registration; it also throws outside a
+ * Next request scope (a CLI invocation, a unit test), where degrading to the
+ * fallback text is the honest answer rather than failing the queue.
+ */
+async function resolveWorkInboxTranslator(): Promise<TranslateWithFallbackFn> {
+  try {
+    const { resolveTranslations } = await import('@open-mercato/shared/lib/i18n/server')
+    return (await resolveTranslations()).translate
+  } catch {
+    return createFallbackTranslator({})
+  }
+}
+
+/**
+ * Registry labels for the agents on THIS page only — the projection never needs
+ * the whole registry, and a missing entry is left to fall back to the id.
+ */
+async function resolveAgentLabels(agentIds: string[]): Promise<ReadonlyMap<string, string>> {
+  const labels = new Map<string, string>()
+  if (agentIds.length === 0) return labels
+  try {
+    await ensureAgentsLoaded()
+  } catch {
+    return labels
+  }
+  for (const agentId of new Set(agentIds)) {
+    const label = getAgentEntry(agentId)?.label
+    if (label) labels.set(agentId, label)
+  }
+  return labels
+}
+
+async function resolveAgentDispositionPresentation(
+  agentIds: string[],
+): Promise<AgentDispositionRowPresentation> {
+  const [translate, agentLabels] = await Promise.all([
+    resolveWorkInboxTranslator(),
+    resolveAgentLabels(agentIds),
+  ])
+  return { translate, agentLabels }
 }
 
 async function listAgentDispositionWorkItems(
@@ -223,8 +305,12 @@ async function listAgentDispositionWorkItems(
     },
   )
 
+  const presentation = await resolveAgentDispositionPresentation(
+    proposals.map((proposal) => proposal.agentId),
+  )
+
   return {
-    rows: proposals.map((proposal) => toAgentDispositionRow(proposal, query.now)),
+    rows: proposals.map((proposal) => toAgentDispositionRow(proposal, query.now, presentation)),
     total,
   }
 }

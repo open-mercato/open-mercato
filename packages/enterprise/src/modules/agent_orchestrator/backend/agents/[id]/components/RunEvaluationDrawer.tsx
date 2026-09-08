@@ -22,6 +22,7 @@ import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { shortCaseId } from '../../../../components/subjectRef'
 
 type ApprovedCase = {
   id: string
@@ -188,7 +189,7 @@ export function RunEvaluationDrawer({ open, onOpenChange, agentId, agentLabel, o
                     </SelectItem>
                     {cases.map((row) => (
                       <SelectItem key={row.id} value={row.id}>
-                        {row.processType ? `${row.processType} · ${row.id.slice(0, 8)}` : row.id.slice(0, 12)}
+                        {row.processType ? `${row.processType} · ${shortCaseId(row.id)}` : shortCaseId(row.id)}
                       </SelectItem>
                     ))}
                   </SelectContent>

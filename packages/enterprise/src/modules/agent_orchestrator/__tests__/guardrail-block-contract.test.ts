@@ -110,14 +110,20 @@ describe('guardrail-block 422 contract (subclass before parent)', () => {
     expect(typeof body.error).toBe('string')
   })
 
-  it('run route keeps the generic 422 (no code) for a plain AgentOutputInvalidError', async () => {
+  // The run route stamps a code on every failure it classifies (#5979: the
+  // playground renders a translated message per code instead of the route's
+  // English `error`). What this case pins is that an invalid-output 422 is NOT
+  // the guardrail verdict — a distinct code, and none of the guardrail fields.
+  it('run route keeps the generic 422 for a plain AgentOutputInvalidError', async () => {
     await mockAuthAndScope()
     await setupContainer(new AgentOutputInvalidError(AGENT_ID, 'schema mismatch'))
     const res = await runPost(runRequest(), { params: runParams })
     expect(res.status).toBe(422)
     const body = await res.json()
     expect(body.error).toBe('Agent produced invalid output')
-    expect(body.code).toBeUndefined()
+    expect(body.code).toBe('agent_output_invalid')
+    expect(body.kind).toBeUndefined()
+    expect(body.phase).toBeUndefined()
   })
 
   it('rerun route maps AgentGuardrailBlockedError to the typed guardrail_blocked body', async () => {

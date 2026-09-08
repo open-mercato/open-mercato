@@ -293,7 +293,11 @@ export default function AgentPlaygroundPage() {
         if (errorState.kind === 'guardrail') {
           setGuardrailBlock({ guardrailKind: errorState.guardrailKind, phase: errorState.phase })
         } else {
-          setError(errorState.message ?? t('agent_orchestrator.playground.error'))
+          setError(
+            errorState.messageKey
+              ? t(errorState.messageKey)
+              : errorState.message ?? t('agent_orchestrator.playground.error'),
+          )
         }
         return
       }

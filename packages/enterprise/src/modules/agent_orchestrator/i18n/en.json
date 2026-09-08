@@ -326,11 +326,15 @@
   "agent_orchestrator.disposition.rejected": "Rejected",
   "agent_orchestrator.errors.agent_invalid_output": "Agent produced invalid output",
   "agent_orchestrator.errors.agent_not_found": "Agent not found",
+  "agent_orchestrator.errors.agent_run_failed": "The agent run failed unexpectedly",
   "agent_orchestrator.errors.already_disposed": "This proposal has already been disposed",
+  "agent_orchestrator.errors.api_key_missing": "The configured LLM provider has no API key on this deployment",
   "agent_orchestrator.errors.capacity": "Agent run capacity is exhausted — retry shortly",
   "agent_orchestrator.errors.conflict": "This proposal changed since you loaded it. Reload and try again.",
+  "agent_orchestrator.errors.no_provider_configured": "No LLM provider is configured for this deployment",
   "agent_orchestrator.errors.payload_required": "An edited payload is required",
   "agent_orchestrator.errors.proposal_not_found": "Proposal not found",
+  "agent_orchestrator.errors.provider_rejected": "The configured LLM provider refused the request for this deployment",
   "agent_orchestrator.errors.reason_required": "A reason is required to edit or reject a proposal",
   "agent_orchestrator.errors.tenant_required": "Tenant context required",
   "agent_orchestrator.errors.timeout": "The agent run timed out before producing a result",
@@ -1463,5 +1467,6 @@
   "agent_orchestrator.webSearch.activity.stage.done": "Done",
   "agent_orchestrator.webSearch.activity.stage.merging": "Merging results",
   "agent_orchestrator.webSearch.activity.stage.reading": "Reading pages",
-  "agent_orchestrator.webSearch.activity.title": "Web search"
+  "agent_orchestrator.webSearch.activity.title": "Web search",
+  "agent_orchestrator.workInbox.disposition.title": "Agent proposal to review: {agent}"
 }

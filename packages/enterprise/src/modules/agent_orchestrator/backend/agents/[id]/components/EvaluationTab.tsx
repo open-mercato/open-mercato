@@ -42,6 +42,7 @@ import { AssertionFormDrawer } from './AssertionFormDrawer'
 import { EvalCaseDrawer } from './EvalCaseDrawer'
 import { RunEvaluationDrawer } from './RunEvaluationDrawer'
 import { EvalResultsDrawer } from './EvalResultsDrawer'
+import { shortCaseId } from '../../../../components/subjectRef'
 
 type EvaluationSection = 'assertions' | 'cases' | 'runs'
 
@@ -403,7 +404,7 @@ export default function EvaluationTab({ agentId, agentLabel, active, initialSect
       accessorKey: 'id',
       header: t('agent_orchestrator.evalCases.col.sourceId'),
       cell: ({ row }) => (
-        <span className="font-mono text-xs text-muted-foreground" title={row.original.id}>{row.original.id.slice(0, 12)}</span>
+        <span className="font-mono text-xs text-muted-foreground" title={row.original.id}>{shortCaseId(row.original.id)}</span>
       ),
     },
     {

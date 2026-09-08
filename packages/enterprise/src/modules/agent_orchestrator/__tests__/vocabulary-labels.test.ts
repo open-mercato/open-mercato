@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { subjectRefOf } from '../components/subjectRef'
+import { shortCaseId, subjectLabelOf, subjectRefOf } from '../components/subjectRef'
+import { mapProcessListRow } from '../components/processTypes'
 import { autoDispositionBlockMessageKey } from '../components/proposalCaseStatus'
 import { autoDispositionBlockValues } from '../data/validators'
 
@@ -98,8 +99,53 @@ describe('subjectRefOf (consistency pass Area 5)', () => {
     ]
     for (const page of pages) {
       const source = readFileSync(join(MODULE_ROOT, page), 'utf8')
-      expect(source).toContain('subjectRefOf(')
+      // `subjectLabelOf` is the probe plus its fallback; either entry point is
+      // the shared implementation, a locally re-rolled one is not.
+      expect(source).toMatch(/subject(RefOf|LabelOf)\(/)
       expect(source).not.toMatch(/fieldOf\([^)]*'claimId'/)
+    }
+  })
+})
+
+/**
+ * Issue #5979 part 2: a truncated UUID was rendering where a subject name
+ * belongs. `subjectRefOf` returning null is not a loading state — an agent
+ * whose input declares no reference has no subject, and no later fetch invents
+ * one — so the fallback is permanent and has to read as a case reference.
+ */
+describe('shortCaseId / subjectLabelOf (issue #5979)', () => {
+  it('cuts on the UUID group boundary, so no dangling separator survives', () => {
+    expect(shortCaseId('3b895091-dcd4-4a1f-9f0e-1c2d3e4f5a6b')).toBe('3B895091')
+    expect(shortCaseId(null)).toBe('')
+    expect(shortCaseId('  ')).toBe('')
+  })
+
+  it('prefers the declared reference and falls back to the short case id', () => {
+    expect(subjectLabelOf({ claimId: 'CLM-1' }, '3b895091-dcd4-4a1f-9f0e-1c2d3e4f5a6b')).toBe('CLM-1')
+    expect(subjectLabelOf({}, '3b895091-dcd4-4a1f-9f0e-1c2d3e4f5a6b')).toBe('3B895091')
+  })
+
+  it('renders the same short id the processes list searches on', () => {
+    const row = mapProcessListRow({
+      workflow_instance_id: '3b895091-dcd4-4a1f-9f0e-1c2d3e4f5a6b',
+      status: 'running',
+    })
+
+    expect(row?.subjectLabel).toBe(shortCaseId('3b895091-dcd4-4a1f-9f0e-1c2d3e4f5a6b'))
+  })
+
+  it('no cockpit surface truncates an id mid-group any more', () => {
+    const pages = [
+      'backend/audit/page.tsx',
+      'backend/overview/page.tsx',
+      'backend/caseload/page.tsx',
+      'backend/processes/[id]/page.tsx',
+      'backend/agents/[id]/components/workspaceShared.ts',
+      'backend/agents/[id]/components/EvaluationTab.tsx',
+      'backend/agents/[id]/components/RunEvaluationDrawer.tsx',
+    ]
+    for (const page of pages) {
+      expect(readFileSync(join(MODULE_ROOT, page), 'utf8')).not.toMatch(/slice\(0,\s*12\)/)
     }
   })
 })

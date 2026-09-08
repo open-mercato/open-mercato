@@ -20,6 +20,7 @@ import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { confidenceFace, confidencePctOf } from '../../../components/cockpitStatus'
+import { shortCaseId } from '../../../components/subjectRef'
 import { isAgentPreviewUiEnabled } from '../../../lib/featureFlags'
 import {
   formatConfidence,
@@ -606,7 +607,7 @@ export default function ProcessDetailPage({ params }: { params?: { id?: string }
               <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                 {process.subjectType ?? t('agent_orchestrator.process.list.title')}{' '}
                 <span className="font-semibold text-foreground">
-                  {process.subjectLabel ?? process.workflowInstanceId.slice(0, 8).toUpperCase()}
+                  {process.subjectLabel ?? shortCaseId(process.workflowInstanceId)}
                 </span>
               </p>
               <h1 className="mt-1 text-2xl font-bold tracking-tight text-foreground">
