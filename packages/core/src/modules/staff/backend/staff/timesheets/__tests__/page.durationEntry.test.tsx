@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import MyTimesheetsPage from '../page'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 
@@ -219,12 +219,18 @@ describe('MyTimesheetsPage — duration entry (#4846)', () => {
 
   it('stops counting a cell in the totals once its pending value becomes invalid', async () => {
     const inputs = await renderGrid()
+    // Scope to the totals row. An unscoped `getAllByText('2')` also matches the grid's
+    // day-of-month labels (`<div className="text-xs">{date.getDate()}</div>`), so it passed
+    // for the wrong reason whenever the rendered week excluded the 2nd — and failed outright
+    // whenever it included it, which is roughly one week in four.
+    const totalsRow = () => screen.getByText('Daily Total').closest('tr') as HTMLElement
+
     typeAndBlur(inputs[0], '2')
-    await waitFor(() => expect(screen.getAllByText('2').length).toBeGreaterThan(0))
+    await waitFor(() => expect(within(totalsRow()).getAllByText('2').length).toBeGreaterThan(0))
 
     typeAndBlur(inputs[0], 'abc')
     await waitFor(() => expect(inputs[0]).toHaveAttribute('aria-invalid', 'true'))
-    expect(screen.queryAllByText('2')).toHaveLength(0)
+    expect(within(totalsRow()).queryAllByText('2')).toHaveLength(0)
   })
 
   it('names every duration cell after its own project and date', async () => {

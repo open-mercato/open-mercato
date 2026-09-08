@@ -123,6 +123,40 @@ describe('CompanyPeopleSection', () => {
     expect(screen.getByText('Add new person')).toBeInTheDocument()
   })
 
+  // #5944: the role filter chips used to be built from English literals while every sibling
+  // string in the same adapter call went through the translator, so the dialog stayed English
+  // in every other locale.
+  it('renders the link dialog role filters through the translator', async () => {
+    const dictionary: Record<string, string> = {
+      'customers.linking.person.role.all': 'Wszystkie',
+      'customers.linking.person.role.decisionMaker': 'Decydent',
+      'customers.linking.person.role.budgetHolder': 'Dysponent budżetu',
+      'customers.linking.person.role.stakeholder': 'Interesariusz',
+      'customers.linking.person.role.contact': 'Kontakt',
+    }
+    const translator = (key: string, fallback?: string) => dictionary[key] ?? fallback ?? key
+
+    renderWithProviders(
+      <CompanyPeopleSection
+        companyId="company-123"
+        initialPeople={[]}
+        addActionLabel="Add person"
+        emptyLabel="No linked people yet."
+        emptyState={emptyState}
+        translator={translator}
+      />,
+    )
+
+    await waitForInitialPeopleLoad()
+    fireEvent.click(screen.getByRole('button', { name: 'Link existing person' }))
+
+    for (const label of Object.values(dictionary)) {
+      expect(await screen.findByRole('button', { name: label })).toBeInTheDocument()
+    }
+    expect(screen.queryByRole('button', { name: 'Decision maker' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'All' })).not.toBeInTheDocument()
+  })
+
   it('links an existing person through the guarded mutation path', async () => {
     const runGuardedMutation = jest.fn(async <T,>(operation: () => Promise<T>) => operation())
     const onPeopleChange = jest.fn()

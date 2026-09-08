@@ -32,6 +32,7 @@ import { resolveCanonicalActivityTargetId } from '../../lib/legacyActivityBridge
 import { buildEmailVisibilityMikroFilter } from '../../lib/visibilityFilter'
 import { listGrantsForViewer, listSharedChannelIds } from '../../lib/conversationShares'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 
 const logger = createLogger('customers')
 
@@ -630,6 +631,10 @@ export async function POST(request: Request): Promise<Response> {
     if (isCrudHttpError(err)) {
       return withAdapterHeaders(NextResponse.json(err.body, { status: err.status }))
     }
+    const interceptorRejection = getCommandInterceptorHttpRejection(err)
+    if (interceptorRejection) {
+      return withAdapterHeaders(NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status }))
+    }
     if (err instanceof z.ZodError) {
       return withAdapterHeaders(
         NextResponse.json({ error: 'Validation failed', details: err.issues }, { status: 400 }),
@@ -713,6 +718,10 @@ export async function PUT(request: Request): Promise<Response> {
     if (isCrudHttpError(err)) {
       return withAdapterHeaders(NextResponse.json(err.body, { status: err.status }))
     }
+    const interceptorRejection = getCommandInterceptorHttpRejection(err)
+    if (interceptorRejection) {
+      return withAdapterHeaders(NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status }))
+    }
     if (err instanceof z.ZodError) {
       return withAdapterHeaders(
         NextResponse.json({ error: 'Validation failed', details: err.issues }, { status: 400 }),
@@ -780,6 +789,10 @@ export async function DELETE(request: Request): Promise<Response> {
   } catch (err) {
     if (isCrudHttpError(err)) {
       return withAdapterHeaders(NextResponse.json(err.body, { status: err.status }))
+    }
+    const interceptorRejection = getCommandInterceptorHttpRejection(err)
+    if (interceptorRejection) {
+      return withAdapterHeaders(NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status }))
     }
     if (err instanceof z.ZodError) {
       return withAdapterHeaders(
