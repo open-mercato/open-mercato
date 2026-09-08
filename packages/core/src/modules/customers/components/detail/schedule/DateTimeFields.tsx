@@ -5,6 +5,8 @@ import { Globe, Repeat } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
+import { Input } from '@open-mercato/ui/primitives/input'
 import { DatePicker } from '@open-mercato/ui/primitives/date-picker'
 import { TimePicker } from '@open-mercato/ui/backend/inputs/TimePicker'
 import {
@@ -43,7 +45,17 @@ const DURATION_OPTIONS: Array<{ value: number; key: string; fallback: string }> 
   { value: 90, key: 'customers.schedule.duration.option.1h30m', fallback: '1h 30m' },
   { value: 120, key: 'customers.schedule.duration.option.2hours', fallback: '2 hours' },
 ]
-const DAYS_OF_WEEK = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+// Monday-first render order; labels come from the same locale keys the
+// activities day strip uses, so PL shows PN/WT/SR instead of Mo/Tu/We.
+const RECURRENCE_DAY_KEYS: Array<[string, string]> = [
+  ['customers.calendar.day.mon', 'MON'],
+  ['customers.calendar.day.tue', 'TUE'],
+  ['customers.calendar.day.wed', 'WED'],
+  ['customers.calendar.day.thu', 'THU'],
+  ['customers.calendar.day.fri', 'FRI'],
+  ['customers.calendar.day.sat', 'SAT'],
+  ['customers.calendar.day.sun', 'SUN'],
+]
 
 interface DateTimeFieldsProps {
   visible: Set<ScheduleFieldId>
@@ -109,9 +121,9 @@ export function DateTimeFields({
       {/* Date / Time / Duration */}
       <div className="flex flex-wrap gap-3">
         <div className="flex min-w-0 flex-[1.5] flex-col gap-1.5">
-          <label className="text-overline font-semibold text-muted-foreground tracking-wider">
+          <label className="text-sm font-medium">
             {getFieldLabel(activityType, 'date', t, 'customers.schedule.date', 'Date')}
-            <span aria-hidden="true" className="ml-1 text-status-error-foreground">*</span>
+            <span aria-hidden="true" className="text-accent-indigo"> *</span>
           </label>
           <DatePicker
             value={parseIsoDate(date)}
@@ -120,7 +132,7 @@ export function DateTimeFields({
             required
             aria-describedby={dateMissing ? dateErrorId : undefined}
             className={cn(
-              'h-10',
+              'h-9',
               dateMissing && 'border-status-error-border',
             )}
           />
@@ -132,9 +144,9 @@ export function DateTimeFields({
         </div>
         {showStartTime && (
           <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-            <label className="text-overline font-semibold text-muted-foreground tracking-wider">
+            <label className="text-sm font-medium">
               {getFieldLabel(activityType, 'startTime', t, 'customers.schedule.start', 'Start')}
-              <span aria-hidden="true" className="ml-1 text-status-error-foreground">*</span>
+              <span aria-hidden="true" className="text-accent-indigo"> *</span>
             </label>
             <TimePicker
               value={startTime || null}
@@ -142,11 +154,12 @@ export function DateTimeFields({
               disabled={allDay}
               placeholder={t('customers.schedule.start.placeholder', 'Pick a time')}
               className={cn(
-                'py-2.5',
+                'h-9',
                 timeMissing ? 'border-status-error-border' : undefined,
               )}
               showNowButton
               showClearButton={false}
+              popoverModal
             />
             {timeMissing ? (
               <p id={timeErrorId} className="text-xs text-status-error-foreground">
@@ -157,7 +170,7 @@ export function DateTimeFields({
         )}
         {showDuration && (
           <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-            <label className="text-overline font-semibold text-muted-foreground tracking-wider">
+            <label className="text-sm font-medium">
               {getFieldLabel(activityType, 'duration', t, 'customers.schedule.duration', 'Duration')}
             </label>
             <Select
@@ -168,7 +181,7 @@ export function DateTimeFields({
               }}
               disabled={allDay}
             >
-              <SelectTrigger className="h-10">
+              <SelectTrigger>
                 <SelectValue placeholder={t('customers.schedule.duration.placeholder', 'Pick duration')} />
               </SelectTrigger>
               <SelectContent>
@@ -187,17 +200,15 @@ export function DateTimeFields({
       {showAllDay && (
         <div className="flex flex-wrap items-center gap-3.5 text-xs text-muted-foreground">
           <label className="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" checked={allDay} onChange={(e) => setAllDay(e.target.checked)} className="rounded" />
+            <Checkbox checked={allDay} onCheckedChange={(checked) => setAllDay(checked === true)} />
             {t('customers.schedule.allDay', 'All day')}
           </label>
-          <span className="text-muted-foreground">&middot;</span>
           <span className="flex items-center gap-1.5">
             <Globe className="size-3.5" />
             {Intl.DateTimeFormat().resolvedOptions().timeZone} (GMT{new Date().getTimezoneOffset() <= 0 ? '+' : '-'}{String(Math.abs(Math.floor(new Date().getTimezoneOffset() / 60))).padStart(1, '0')})
           </span>
           {showRecurrence && (
             <>
-              <span className="text-muted-foreground">&middot;</span>
               <Button
                 type="button"
                 variant="ghost"
@@ -217,44 +228,76 @@ export function DateTimeFields({
 
       {/* Recurrence config */}
       {showRecurrence && recurrenceEnabled && (
-        <div className="rounded-lg border border-status-warning-border bg-status-warning-bg p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="flex items-center gap-2 text-sm font-semibold text-foreground">
-              <Repeat className="size-3.5" />
-              {t('customers.schedule.recurrence.title', 'Recurrence')}
-            </span>
-            <Button type="button" variant="ghost" size="sm" className="h-auto text-xs font-medium text-foreground">
-              {t('customers.schedule.recurrence.edit', 'Edit')}
-            </Button>
-          </div>
+        <div className="rounded-lg border border-accent-indigo/30 bg-accent-indigo/10 p-4 space-y-3">
+          <span className="flex items-center gap-2 text-sm font-semibold text-foreground">
+            <Repeat className="size-3.5" />
+            {t('customers.schedule.recurrence.title', 'Recurrence')}
+          </span>
           <div className="flex gap-2">
-            {DAYS_OF_WEEK.map((day, i) => (
+            {RECURRENCE_DAY_KEYS.map(([key, fallback], i) => (
               <Button
-                key={day}
+                key={key}
                 type="button"
                 variant="ghost"
                 size="sm"
+                aria-pressed={recurrenceDays[i]}
                 onClick={() => toggleRecurrenceDay(i)}
                 className={cn(
-                  'h-auto flex size-8 items-center justify-center rounded-full text-xs font-medium transition-colors p-0',
-                  recurrenceDays[i] ? 'bg-primary text-primary-foreground' : 'border border-border bg-background text-muted-foreground hover:bg-muted',
+                  'h-auto flex size-8 items-center justify-center rounded-md text-xs font-medium transition-colors p-0',
+                  recurrenceDays[i] ? 'bg-primary text-primary-foreground' : 'border border-border bg-background text-muted-foreground hover:bg-accent-indigo/15 dark:hover:bg-accent-indigo/15',
                 )}
               >
-                {day.slice(0, 2)}
+                {t(key, fallback).slice(0, 2)}
               </Button>
             ))}
           </div>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <span>{t('customers.schedule.recurrence.ends', 'Ends')}:</span>
-            <Button type="button" variant="ghost" size="sm" onClick={() => setRecurrenceEndType('never')} className={cn('h-auto rounded-full px-3 py-1 text-xs font-medium', recurrenceEndType === 'never' ? 'bg-background border border-border text-foreground' : 'text-muted-foreground')}>
-              {t('customers.schedule.recurrence.never', 'Never')}
-            </Button>
-            <Button type="button" variant="ghost" size="sm" onClick={() => setRecurrenceEndType('count')} className={cn('h-auto rounded-full px-3 py-1 text-xs font-medium', recurrenceEndType === 'count' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground')}>
-              {t('customers.schedule.recurrence.afterCount', 'After {{count}} occurrences', { count: recurrenceCount })}
-            </Button>
-            <Button type="button" variant="ghost" size="sm" onClick={() => setRecurrenceEndType('date')} className={cn('h-auto rounded-full px-3 py-1 text-xs font-medium', recurrenceEndType === 'date' ? 'bg-background border border-border text-foreground' : 'text-muted-foreground')}>
-              {recurrenceEndDate || t('customers.schedule.recurrence.onDate', 'On date')}
-            </Button>
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <span className="text-muted-foreground">{t('customers.schedule.recurrence.ends', 'Ends')}:</span>
+            {([
+              ['never', t('customers.schedule.recurrence.never', 'Never')],
+              ['count', t('customers.schedule.recurrence.afterOccurrences', 'After occurrences')],
+              ['date', t('customers.schedule.recurrence.onDate', 'On date')],
+            ] as const).map(([type, label]) => (
+              <Button
+                key={type}
+                type="button"
+                variant="ghost"
+                size="sm"
+                aria-pressed={recurrenceEndType === type}
+                onClick={() => setRecurrenceEndType(type)}
+                className={cn(
+                  'h-8 rounded-md px-2.5 text-xs font-medium',
+                  recurrenceEndType === type
+                    ? 'bg-primary text-primary-foreground'
+                    : 'border border-border bg-background text-muted-foreground hover:bg-accent-indigo/15 dark:hover:bg-accent-indigo/15',
+                )}
+              >
+                {label}
+              </Button>
+            ))}
+            {recurrenceEndType === 'count' ? (
+              <Input
+                type="number"
+                size="sm"
+                min={1}
+                value={recurrenceCount}
+                onChange={(e) => {
+                  const parsed = parseInt(e.target.value, 10)
+                  setRecurrenceCount(Number.isFinite(parsed) && parsed > 0 ? parsed : 1)
+                }}
+                aria-label={t('customers.schedule.recurrence.afterOccurrences', 'After occurrences')}
+                className="h-8 w-20"
+              />
+            ) : null}
+            {recurrenceEndType === 'date' ? (
+              <DatePicker
+                value={parseIsoDate(recurrenceEndDate)}
+                onChange={(next) => setRecurrenceEndDate(formatIsoDate(next))}
+                placeholder={t('customers.schedule.recurrence.onDate', 'On date')}
+                aria-label={t('customers.schedule.recurrence.onDate', 'On date')}
+                className="h-8 w-40 text-xs"
+              />
+            ) : null}
           </div>
         </div>
       )}

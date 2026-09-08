@@ -67,7 +67,7 @@ export function MobileTaskForm({
         <div key={fieldName} className="space-y-2">
           <Label htmlFor={fieldName}>
             {fieldTitle}
-            {required && <span className="text-status-error-text ml-1">*</span>}
+            {required && <span className="text-accent-indigo ml-1">*</span>}
           </Label>
           {fieldDescription && <p className="text-xs text-muted-foreground">{fieldDescription}</p>}
           <Select
@@ -94,7 +94,7 @@ export function MobileTaskForm({
             <div key={fieldName} className="space-y-2">
               <Label htmlFor={fieldName}>
                 {fieldTitle}
-                {required && <span className="text-status-error-text ml-1">*</span>}
+                {required && <span className="text-accent-indigo ml-1">*</span>}
               </Label>
               {fieldDescription && <p className="text-xs text-muted-foreground">{fieldDescription}</p>}
               <Textarea
@@ -112,7 +112,7 @@ export function MobileTaskForm({
           <div key={fieldName} className="space-y-2">
             <Label htmlFor={fieldName}>
               {fieldTitle}
-              {required && <span className="text-status-error-text ml-1">*</span>}
+              {required && <span className="text-accent-indigo ml-1">*</span>}
             </Label>
             {fieldDescription && <p className="text-xs text-muted-foreground">{fieldDescription}</p>}
             <Input
@@ -132,7 +132,7 @@ export function MobileTaskForm({
           <div key={fieldName} className="space-y-2">
             <Label htmlFor={fieldName}>
               {fieldTitle}
-              {required && <span className="text-status-error-text ml-1">*</span>}
+              {required && <span className="text-accent-indigo ml-1">*</span>}
             </Label>
             {fieldDescription && <p className="text-xs text-muted-foreground">{fieldDescription}</p>}
             <Input
@@ -158,7 +158,7 @@ export function MobileTaskForm({
               />
               <Label htmlFor={fieldName} className="font-medium">
                 {fieldTitle}
-                {required && <span className="text-status-error-text ml-1">*</span>}
+                {required && <span className="text-accent-indigo ml-1">*</span>}
               </Label>
             </div>
             {fieldDescription && <p className="text-xs text-muted-foreground">{fieldDescription}</p>}
@@ -170,7 +170,7 @@ export function MobileTaskForm({
           <div key={fieldName} className="space-y-2">
             <Label htmlFor={fieldName}>
               {fieldTitle}
-              {required && <span className="text-status-error-text ml-1">*</span>}
+              {required && <span className="text-accent-indigo ml-1">*</span>}
             </Label>
             {fieldDescription && <p className="text-xs text-muted-foreground">{fieldDescription}</p>}
             <Input

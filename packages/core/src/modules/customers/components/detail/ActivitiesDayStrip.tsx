@@ -4,8 +4,10 @@ import * as React from 'react'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { toZonedTime } from 'date-fns-tz'
 import { cn } from '@open-mercato/shared/lib/utils'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { SegmentedControl, SegmentedControlItem } from '@open-mercato/ui/primitives/segmented-control'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import type { InteractionSummary } from './types'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -17,6 +19,10 @@ interface ActivitiesDayStripProps {
   selectedDate: Date
   onSelectDate: (date: Date) => void
   refreshKey?: number
+  /** Rendered at the left edge of the strip's single header row (card title). */
+  headerLeft?: React.ReactNode
+  /** Rendered after the week controls (card actions, e.g. Add new). */
+  headerRight?: React.ReactNode
   /**
    * Optional pre-fetched events. When provided, the day strip skips its own fetch
    * and uses the supplied list, ensuring its busyness count agrees with the
@@ -42,10 +48,7 @@ function toLocalZonedDate(value: string | Date): Date {
   return toZonedTime(value, USER_TIMEZONE)
 }
 
-const VISIBLE_DAYS = 5
-const BUSYNESS_SLOTS = 10
-const SLOT_START_HOUR = 7
-const SLOT_END_HOUR = 22
+const VISIBLE_DAYS = 7
 
 const DAY_LABEL_KEYS: Array<[number, string, string]> = [
   [0, 'customers.calendar.day.sun', 'SUN'],
@@ -57,20 +60,6 @@ const DAY_LABEL_KEYS: Array<[number, string, string]> = [
   [6, 'customers.calendar.day.sat', 'SAT'],
 ]
 
-const MONTH_KEYS: Array<[number, string, string]> = [
-  [0, 'customers.calendar.month.january', 'January'],
-  [1, 'customers.calendar.month.february', 'February'],
-  [2, 'customers.calendar.month.march', 'March'],
-  [3, 'customers.calendar.month.april', 'April'],
-  [4, 'customers.calendar.month.may', 'May'],
-  [5, 'customers.calendar.month.june', 'June'],
-  [6, 'customers.calendar.month.july', 'July'],
-  [7, 'customers.calendar.month.august', 'August'],
-  [8, 'customers.calendar.month.september', 'September'],
-  [9, 'customers.calendar.month.october', 'October'],
-  [10, 'customers.calendar.month.november', 'November'],
-  [11, 'customers.calendar.month.december', 'December'],
-]
 
 function startOfDay(date: Date): Date {
   const next = new Date(date)
@@ -104,105 +93,23 @@ function buildVisibleDays(anchor: Date): Date[] {
   return Array.from({ length: VISIBLE_DAYS }, (_, index) => addDays(start, index))
 }
 
-// Anchor the visible window so that the given focal date lands at the center slot
-// (position 2 out of 5). Matches Figma 784:809 where the selected day is centered.
+// Anchor the visible window to the Monday of the focal date's week, so the
+// strip always reads as a calendar week (Mon..Sun).
 function anchorCenteredOn(focalDate: Date): Date {
-  return startOfDay(addDays(focalDate, -Math.floor(VISIBLE_DAYS / 2)))
+  const day = focalDate.getDay()
+  const sinceMonday = (day + 6) % 7
+  return startOfDay(addDays(focalDate, -sinceMonday))
 }
 
-type SlotState = 'empty' | 'partial' | 'full' | 'conflict'
-
-type DayBusyness = {
-  totalMinutes: number
-  eventCount: number
-  slots: SlotState[]
-}
-
-function emptyBusyness(): DayBusyness {
-  return {
-    totalMinutes: 0,
-    eventCount: 0,
-    slots: Array<SlotState>(BUSYNESS_SLOTS).fill('empty'),
-  }
-}
-
-function computeDayBusyness(events: InteractionSummary[], day: Date): DayBusyness {
-  if (events.length === 0) return emptyBusyness()
-  const dayStart = startOfDay(day).getTime()
-  const slotMs = ((SLOT_END_HOUR - SLOT_START_HOUR) * 60 * 60 * 1000) / BUSYNESS_SLOTS
-  const slotMinutes = slotMs / 60000
-  const slotCounts: number[] = Array(BUSYNESS_SLOTS).fill(0)
-  const slotMinutesUsed: number[] = Array(BUSYNESS_SLOTS).fill(0)
-  let totalMinutes = 0
-  let eventCount = 0
-
-  for (const event of events) {
-    const startIso = event.scheduledAt ?? event.occurredAt ?? event.createdAt
-    if (!startIso) continue
-    const start = new Date(startIso)
-    if (Number.isNaN(start.getTime())) continue
-    // Compare in the user's local timezone so an activity at 23:30 local time
-    // doesn't bleed into the next UTC day's chip (issue #1809 — E3).
-    const localStart = toLocalZonedDate(startIso)
-    if (!isSameDay(localStart, day)) continue
-    eventCount += 1
-    const durationMinutes = typeof event.duration === 'number' && event.duration > 0 ? event.duration : 30
-    totalMinutes += durationMinutes
-    const eventStartMs = start.getTime()
-    const eventEndMs = eventStartMs + durationMinutes * 60000
-    const slotsStartMs = dayStart + SLOT_START_HOUR * 60 * 60 * 1000
-    for (let slot = 0; slot < BUSYNESS_SLOTS; slot += 1) {
-      const slotStart = slotsStartMs + slot * slotMs
-      const slotEnd = slotStart + slotMs
-      const overlapStart = Math.max(slotStart, eventStartMs)
-      const overlapEnd = Math.min(slotEnd, eventEndMs)
-      const overlapMinutes = Math.max(0, (overlapEnd - overlapStart) / 60000)
-      if (overlapMinutes <= 0) continue
-      slotCounts[slot] += 1
-      slotMinutesUsed[slot] += overlapMinutes
-    }
-  }
-
-  const slots: SlotState[] = slotCounts.map((count, index) => {
-    if (count === 0) return 'empty'
-    if (count > 1) return 'conflict'
-    const used = slotMinutesUsed[index]
-    if (used >= slotMinutes * 0.5) return 'full'
-    return 'partial'
-  })
-
-  return { totalMinutes, eventCount, slots }
-}
-
-function formatBusyLabel(busy: DayBusyness, t: TranslateFn): string {
-  if (busy.eventCount === 0) return ''
-  // Match Figma 784:809 label format: "Xm" when under an hour, "Xh" otherwise.
-  // Mixed "Xh Ym" overflows the 101px card and is not part of the visual spec.
-  const durationLabel = busy.totalMinutes < 60
-    ? t('customers.activities.calendar.minutesShort', '{minutes}m', { minutes: Math.max(Math.round(busy.totalMinutes), 1) })
-    : t('customers.activities.calendar.hoursShort', '{hours}h', { hours: Math.floor(busy.totalMinutes / 60) })
-  return t('customers.activities.calendar.eventsSummary', '{count} {countLabel} · {duration}', {
-    count: busy.eventCount,
-    countLabel: busy.eventCount === 1
-      ? t('customers.activities.calendar.eventSingular', 'event')
-      : t('customers.activities.calendar.eventPlural', 'events'),
-    duration: durationLabel,
-  })
-}
-
-function formatMonthLabel(date: Date, t: TranslateFn): string {
-  const monthEntry = MONTH_KEYS.find(([index]) => index === date.getMonth())
-  const monthName = monthEntry ? t(monthEntry[1], monthEntry[2]) : ''
-  return t('customers.activities.calendar.monthYear', '{month} {year}', { month: monthName, year: date.getFullYear() })
-}
 
 function formatDayLabel(date: Date, t: TranslateFn): string {
   const entry = DAY_LABEL_KEYS.find(([index]) => index === date.getDay())
   return entry ? t(entry[1], entry[2]) : ''
 }
 
-export function ActivitiesDayStrip({ entityId, selectedDate, onSelectDate, refreshKey = 0, events: providedEvents }: ActivitiesDayStripProps) {
+export function ActivitiesDayStrip({ entityId, selectedDate, onSelectDate, refreshKey = 0, headerLeft, headerRight, events: providedEvents }: ActivitiesDayStripProps) {
   const t = useT()
+  const locale = useLocale()
   const [anchor, setAnchor] = React.useState<Date>(() => anchorCenteredOn(selectedDate))
   const [fetchedEvents, setFetchedEvents] = React.useState<InteractionSummary[]>([])
   // When the parent supplies `events` (preferred path — keeps day strip and
@@ -220,7 +127,7 @@ export function ActivitiesDayStrip({ entityId, selectedDate, onSelectDate, refre
   }, [selectedDate])
 
   const visibleDays = React.useMemo(() => buildVisibleDays(anchor), [anchor])
-  const headerLabel = React.useMemo(() => formatMonthLabel(visibleDays[0], t), [visibleDays, t])
+  const headerLabel = React.useMemo(() => formatRangeLabel(visibleDays, locale), [visibleDays, locale])
 
   React.useEffect(() => {
     if (useProvidedEvents) return
@@ -261,164 +168,126 @@ export function ActivitiesDayStrip({ entityId, selectedDate, onSelectDate, refre
   const handleNext = React.useCallback(() => {
     setAnchor((current) => addDays(current, VISIBLE_DAYS))
   }, [])
-  const handleHeaderPrev = React.useCallback(() => {
-    setAnchor((current) => {
-      const next = new Date(current)
-      next.setMonth(current.getMonth() - 1)
-      return startOfDay(next)
-    })
-  }, [])
-  const handleHeaderNext = React.useCallback(() => {
-    setAnchor((current) => {
-      const next = new Date(current)
-      next.setMonth(current.getMonth() + 1)
-      return startOfDay(next)
-    })
-  }, [])
+
+  const selectedIso = formatDayIso(selectedDate)
+
+  const handleToday = React.useCallback(() => {
+    onSelectDate(startOfDay(new Date()))
+  }, [onSelectDate])
 
   return (
-    <div className="flex flex-col gap-2.5 rounded-md px-3.5 py-3 w-full">
-      <div className="flex items-center justify-center gap-1.5 rounded-md bg-muted px-1.5 py-1.5">
-        <button
-          type="button"
-          onClick={handleHeaderPrev}
-          aria-label={t('customers.activities.calendar.prevMonth', 'Previous month')}
-          className="flex size-6 items-center justify-center rounded-md border border-border bg-card shadow-xs hover:bg-accent/40"
-        >
-          <ChevronLeft className="size-4 text-foreground" />
-        </button>
-        <span className="flex-1 text-center text-sm font-medium leading-5 text-foreground">{headerLabel}</span>
-        <button
-          type="button"
-          onClick={handleHeaderNext}
-          aria-label={t('customers.activities.calendar.nextMonth', 'Next month')}
-          className="flex size-6 items-center justify-center rounded-md border border-border bg-card shadow-xs hover:bg-accent/40"
-        >
-          <ChevronRight className="size-4 text-foreground" />
-        </button>
-      </div>
-      <div className="flex w-full items-center gap-2">
-        <button
-          type="button"
-          onClick={handlePrev}
-          aria-label={t('customers.activities.calendar.prevWindow', 'Previous days')}
-          className="flex size-6 shrink-0 items-center justify-center rounded-md border border-border bg-card shadow-xs hover:bg-accent/40"
-        >
-          <ChevronLeft className="size-4 text-foreground" />
-        </button>
-        <div className="flex flex-1 items-stretch justify-center gap-1">
-          {visibleDays.map((day) => {
-            const busy = computeDayBusyness(events, day)
-            const isSelected = isSameDay(day, selectedDate)
-            const isToday = isSameDay(day, todayDate)
-            const weekend = isWeekend(day)
-            const busyLabel = busy.eventCount > 0
-              ? formatBusyLabel(busy, t)
-              : weekend
-                ? t('customers.activities.calendar.weekend', 'Weekend')
-                : ''
-            return (
-              <DayCard
-                key={day.toISOString()}
-                day={day}
-                isActive={isSelected}
-                isToday={isToday}
-                busyness={busy}
-                label={busyLabel}
-                dayName={formatDayLabel(day, t)}
-                onSelect={() => onSelectDate(day)}
-              />
-            )
-          })}
+    <div className="flex w-full flex-col gap-4">
+      {/* Single header row: card title on the left, week controls + card
+          actions on the right — the separate title and nav rows left a band
+          of dead space across the top of the card. */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        {headerLeft ? <div className="flex min-w-0 items-center gap-2">{headerLeft}</div> : null}
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={handlePrev}
+            aria-label={t('customers.activities.calendar.prevWindow', 'Previous days')}
+            className="flex size-9 shrink-0 items-center justify-center rounded-md border border-border bg-card shadow-xs hover:bg-accent/40"
+          >
+            <ChevronLeft className="size-4 text-foreground" />
+          </button>
+          <span className="whitespace-nowrap text-sm font-medium text-foreground">
+            {headerLabel}
+          </span>
+          <button
+            type="button"
+            onClick={handleNext}
+            aria-label={t('customers.activities.calendar.nextWindow', 'Next days')}
+            className="flex size-9 shrink-0 items-center justify-center rounded-md border border-border bg-card shadow-xs hover:bg-accent/40"
+          >
+            <ChevronRight className="size-4 text-foreground" />
+          </button>
+          <Button type="button" variant="outline" onClick={handleToday}>
+            {t('customers.activities.calendar.today', 'Today')}
+          </Button>
+          {headerRight}
         </div>
-        <button
-          type="button"
-          onClick={handleNext}
-          aria-label={t('customers.activities.calendar.nextWindow', 'Next days')}
-          className="flex size-6 shrink-0 items-center justify-center rounded-md border border-border bg-card shadow-xs hover:bg-accent/40"
-        >
-          <ChevronRight className="size-4 text-foreground" />
-        </button>
       </div>
+      {/* Reference-style week strip: one muted track, the selected day lifts as
+          a white tile (DS SegmentedControl geometry; heights overridden for the
+          two-line day cells). */}
+      <SegmentedControl
+        value={selectedIso}
+        onValueChange={(next) => {
+          const parsed = new Date(`${next}T00:00:00`)
+          if (!Number.isNaN(parsed.getTime())) onSelectDate(parsed)
+        }}
+        aria-label={t('customers.activities.calendar.weekStrip', 'Pick a day')}
+        className="h-auto w-full min-w-0"
+      >
+        {visibleDays.map((day) => {
+          const iso = formatDayIso(day)
+          const isToday = isSameDay(day, todayDate)
+          const eventCount = events.filter((event) => {
+            const startIso = event.scheduledAt ?? event.occurredAt ?? event.createdAt
+            return Boolean(startIso) && isSameDay(toLocalZonedDate(startIso as string), day)
+          }).length
+          return (
+            <SegmentedControlItem
+              key={iso}
+              value={iso}
+              aria-label={`${formatDayLabel(day, t)} ${day.getDate()}`}
+              className={cn(
+                'h-auto min-w-0 flex-1 flex-col gap-1.5 px-1 py-3',
+                // Today reads as a violet-tinted tile (unless it is the selected
+                // white one), replacing the old dot beside the number.
+                isToday && 'data-[state=unchecked]:bg-accent-indigo/10',
+              )}
+            >
+              <span className="text-xs font-medium leading-none tracking-wide text-muted-foreground">
+                {formatDayLabel(day, t)}
+              </span>
+              <span className="text-xl font-semibold leading-7 text-foreground">{day.getDate()}</span>
+              <span className="whitespace-nowrap text-overline leading-none text-muted-foreground">
+                {/* Narrow cells fit only the bare count; the full label returns from sm up. */}
+                <span className="sm:hidden">{eventCount > 0 ? eventCount : '\u00A0'}</span>
+                <span className="hidden sm:inline">
+                  {eventCount === 0
+                    ? t('customers.activities.calendar.none', 'None')
+                    : eventCount === 1
+                      ? t('customers.activities.calendar.countOne', '1 activity')
+                      : t('customers.activities.calendar.countMany', '{count} activities', { count: eventCount })}
+                </span>
+              </span>
+              {/* Dot row mirrors the count (max three); always rendered so empty
+                  days keep equal cell height. */}
+              <span className="flex h-2 items-center gap-1" aria-hidden>
+                {Array.from({ length: Math.min(eventCount, 3) }, (_, dotIndex) => (
+                  <span key={dotIndex} className="size-1 rounded-full bg-accent-indigo" />
+                ))}
+              </span>
+            </SegmentedControlItem>
+          )
+        })}
+      </SegmentedControl>
     </div>
   )
 }
 
-interface DayCardProps {
-  day: Date
-  isActive: boolean
-  isToday: boolean
-  busyness: DayBusyness
-  label: string
-  dayName: string
-  onSelect: () => void
-}
-
-function DayCard({ day, isActive, isToday, busyness, label, dayName, onSelect }: DayCardProps) {
-  const dayNumber = String(day.getDate()).padStart(2, '0')
-  return (
-    <button
-      type="button"
-      onClick={onSelect}
-      aria-pressed={isActive}
-      aria-label={`${dayName} ${dayNumber}`}
-      className={cn(
-        'flex h-[104px] w-[101px] flex-col items-center gap-[6px] overflow-hidden rounded-[10px] border p-[12px] transition-colors',
-        isActive
-          ? 'border-transparent bg-foreground'
-          : 'border-border bg-card hover:border-foreground/40',
-      )}
-    >
-      <span className="text-[11px] font-medium leading-none tracking-[0.44px] text-muted-foreground">
-        {dayName}
-      </span>
-      <div className="flex items-center gap-[5px]">
-        <span
-          className={cn(
-            'text-2xl font-semibold leading-7',
-            isActive ? 'text-background' : 'text-foreground',
-          )}
-        >
-          {dayNumber}
-        </span>
-        {isToday ? (
-          <span
-            className="inline-block size-1.5 rounded-full bg-status-info-icon"
-            aria-hidden
-          />
-        ) : null}
-      </div>
-      <div className="flex h-4 w-[82px] items-end gap-[1.5px]">
-        {busyness.slots.map((state, index) => (
-          <BusySlot key={index} state={state} active={isActive} />
-        ))}
-      </div>
-      <span className="text-[11px] leading-[14px] font-normal whitespace-nowrap text-muted-foreground">
-        {label}
-      </span>
-    </button>
-  )
-}
-
-function BusySlot({ state, active }: { state: SlotState; active: boolean }) {
-  const heightClass = state === 'empty'
-    ? 'h-0.5'
-    : state === 'partial'
-      ? 'h-2'
-      : 'h-3.5'
-  let bgClass: string
-  if (state === 'conflict') {
-    bgClass = 'bg-status-error-icon'
-  } else if (active) {
-    if (state === 'empty') bgClass = 'bg-background/30'
-    else if (state === 'partial') bgClass = 'bg-background/60'
-    else bgClass = 'bg-background'
-  } else {
-    if (state === 'empty') bgClass = 'bg-border'
-    else if (state === 'partial') bgClass = 'bg-muted-foreground'
-    else bgClass = 'bg-foreground'
+function formatRangeLabel(days: Date[], locale: string): string {
+  if (days.length === 0) return ''
+  const first = days[0]
+  const last = days[days.length - 1]
+  // App locale, not the browser locale — a pl tenant on an en-US browser must
+  // still read Polish month names here (same fix as 4dbca7b35 on develop).
+  const dayMonth = new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'long' })
+  const year = last.getFullYear()
+  if (first.getMonth() === last.getMonth() && first.getFullYear() === last.getFullYear()) {
+    return `${first.getDate()}–${dayMonth.format(last)} ${year}`
   }
-  return <div className={cn('w-[7px] shrink-0 rounded-[1.5px]', heightClass, bgClass)} aria-hidden />
+  return `${dayMonth.format(first)} – ${dayMonth.format(last)} ${year}`
+}
+
+function formatDayIso(date: Date): string {
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
 }
 
 export default ActivitiesDayStrip

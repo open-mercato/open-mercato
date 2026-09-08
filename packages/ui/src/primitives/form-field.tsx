@@ -76,7 +76,7 @@ export function FormField({
         >
           {label}
           {required && (
-            <span className="text-status-error-icon ml-0.5" aria-hidden="true">*</span>
+            <span className="text-accent-indigo ml-0.5" aria-hidden="true">*</span>
           )}
         </Label>
       ) : null}

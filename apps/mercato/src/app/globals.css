@@ -16,6 +16,16 @@ TODO: Fix that latter to have reference by the package names
 
 @custom-variant dark (&:is(.dark *));
 
+/* Never let the document grow a horizontal scroll: any stray overflow inflates
+   iOS Safari's layout viewport past the device width, which then renders
+   fixed-position surfaces (dialogs, the bottom sheet) wider than the screen
+   and clipped at an edge. `clip` avoids creating a scroll container, so
+   position: fixed/sticky descendants keep working. */
+html,
+body {
+  overflow-x: clip;
+}
+
 @utility z-popover {
   z-index: var(--z-index-popover);
 }
@@ -744,10 +754,58 @@ body[data-ai-chat-open="true"] .om-demo-feedback-floating {
 }
 .om-mdx-editor [role="toolbar"] {
   border-bottom: 1px solid var(--border);
+  /* Compact density: MDXEditor's stock 24px glyphs in 36px buttons overflow the
+     dialog width after just a few groups; 18px glyphs in 28px buttons fit the
+     whole toolbar and match the density of typical rich-text editors. */
+  padding: 0.25rem 0.375rem;
+  gap: 0;
+  min-height: 0;
+}
+/* MDXEditor ships unlayered CSS pinning flex-wrap: nowrap + a horizontal
+   scrollbar; our layered globals lose every contested property to it
+   regardless of specificity, so these two need !important. Wrapping to a
+   second row beats hiding half the controls behind a scroll. */
+.om-mdx-editor [role="toolbar"] {
+  flex-wrap: wrap !important;
+  overflow-x: visible !important;
+}
+/* MDXEditor portals its dropdowns (Block type, link dialog) into a body-level
+   .mdxeditor-popup-container pinned at z-index: 2, which stacks underneath our
+   Radix Dialog (z-modal 40) — the menu opened but was invisible inside modal
+   hosts. Lift the portal above the modal layer; unlayered vendor CSS again,
+   hence !important. */
+.mdxeditor-popup-container {
+  z-index: var(--z-index-modal-elevated, 55) !important;
+}
+.om-mdx-editor [role="toolbar"] button {
+  padding: 0.25rem;
+}
+.om-mdx-editor [role="toolbar"] button svg {
+  width: 1.125rem;
+  height: 1.125rem;
+}
+.om-mdx-editor [role="toolbar"] [role="separator"] {
+  margin: 0 0.0625rem;
+}
+.om-mdx-editor [role="toolbar"] [role="combobox"] {
+  height: 1.75rem;
+  /* Vendor CSS pins a wide min-width on the select — unlayered again, so both
+     constraints need !important for the toolbar to hold one row at 640px. */
+  min-width: 0 !important;
+  max-width: 6rem !important;
+  font-size: 0.8125rem;
 }
 .om-mdx-prose {
   min-height: 9rem;
   padding: 0.625rem 0.875rem;
+}
+/* iOS Safari auto-zooms any editable surface under 16px on focus — the same
+   guard the form primitives carry (text-base below sm). */
+@media (max-width: 639px) {
+  .om-mdx-prose,
+  .om-mdx-editor .cm-editor {
+    font-size: 1rem;
+  }
 }
 /* Tailwind Preflight strips heading + list styling globally; MDXEditor relies on browser
    defaults, so restore them inside the editor content only (scoped to .om-mdx-prose). */

@@ -4437,7 +4437,7 @@ const FieldControl = React.memo(function FieldControlImpl({
       {field.type !== 'checkbox' && field.label.trim().length > 0 ? (
         <label className="block text-sm font-medium">
           {field.label}
-          {field.required || markRequired ? <span className="text-status-error-text"> *</span> : null}
+          {field.required || markRequired ? <span className="text-accent-indigo"> *</span> : null}
         </label>
       ) : null}
       {field.type === 'text' && (

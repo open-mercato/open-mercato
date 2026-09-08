@@ -192,29 +192,28 @@ export function ActivitiesCard({
   }, [effectiveEvents])
 
   return (
-    <div className="flex flex-col gap-3 rounded-lg border border-border bg-card pt-4 pb-4 px-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Calendar className="size-4 text-foreground" />
-          <h3 className="text-sm font-semibold leading-none text-foreground">
-            {t('customers.activities.card.title', 'Activities')}
-          </h3>
-          {overdueCount > 0 ? (
-            <span className="inline-flex items-center gap-1 rounded-full bg-status-error-bg px-1.5 py-0.5 text-xs font-medium text-status-error-text">
-              <CalendarClock className="size-3" />
-              {t('customers.activities.card.overdue', '{count} overdue', { count: overdueCount })}
-            </span>
-          ) : null}
-        </div>
-        <ActivitiesAddNewMenu onSelect={onAddNew} />
-      </div>
-
+    <div className="flex flex-col gap-4 rounded-lg border border-border bg-card p-5">
       <ActivitiesDayStrip
         entityId={entityId}
         selectedDate={selectedDate}
         onSelectDate={setSelectedDate}
         refreshKey={refreshKey}
         events={fetchedEvents ?? undefined}
+        headerLeft={
+          <>
+            <Calendar className="size-4 shrink-0 text-foreground" />
+            <h3 className="whitespace-nowrap text-sm font-semibold leading-none text-foreground">
+              {t('customers.activities.card.title', 'Activities')}
+            </h3>
+            {overdueCount > 0 ? (
+              <span className="inline-flex items-center gap-1 rounded-full bg-status-error-bg px-1.5 py-0.5 text-xs font-medium text-status-error-text">
+                <CalendarClock className="size-3" />
+                {t('customers.activities.card.overdue', '{count} overdue', { count: overdueCount })}
+              </span>
+            ) : null}
+          </>
+        }
+        headerRight={<ActivitiesAddNewMenu onSelect={onAddNew} />}
       />
 
       {eventsForSelectedDay.length > 0 ? (
@@ -260,7 +259,7 @@ function PlannedEventRow({ activity, onClick, entityCompanyName, t }: PlannedEve
   const overdue = validDate && date.getTime() < Date.now() && isOpenInteractionStatus(activity.status)
   const typeLabel = labelForType(activity.interactionType, t)
   const subtitleSuffix = activity.dealTitle ?? entityCompanyName ?? null
-  const subtitle = subtitleSuffix ? `${typeLabel} · ${subtitleSuffix}` : typeLabel
+  const subtitle = subtitleSuffix ? `${typeLabel}, ${subtitleSuffix}` : typeLabel
   const interactive = !!onClick
 
   return (
@@ -270,8 +269,10 @@ function PlannedEventRow({ activity, onClick, entityCompanyName, t }: PlannedEve
         onClick={interactive ? () => onClick?.(activity) : undefined}
         disabled={!interactive}
         className={cn(
-          'flex w-full items-start gap-[9px] pt-[8px] text-left transition-colors',
-          interactive ? 'cursor-pointer rounded-md hover:bg-accent/30 px-1' : 'px-1',
+          // The row surface spans exactly the card content width so its edges
+          // line up with the week strip; padding indents the content inside.
+          'flex w-full items-start gap-3 rounded-md px-3 py-3 text-left transition-colors',
+          interactive && 'cursor-pointer hover:bg-muted focus-visible:bg-muted focus-visible:outline-none',
         )}
       >
         <div className="flex h-[44px] w-[43px] shrink-0 flex-col gap-[2px] pt-[2px]">
@@ -282,8 +283,8 @@ function PlannedEventRow({ activity, onClick, entityCompanyName, t }: PlannedEve
             {validDate ? formatRelativeDay(date, t) : ''}
           </span>
         </div>
-        <div className="flex shrink-0 items-center justify-center rounded-full bg-muted border-4 border-background size-7">
-          <Icon className="size-4 text-muted-foreground" />
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-accent-indigo/15">
+          <Icon className="size-4 text-accent-indigo" />
         </div>
         <div className="min-w-0 flex flex-1 flex-col gap-[4px]">
           <span className="text-sm leading-5 tracking-[-0.084px] text-foreground">

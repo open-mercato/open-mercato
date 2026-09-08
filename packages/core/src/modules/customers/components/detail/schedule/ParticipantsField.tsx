@@ -1,14 +1,13 @@
 'use client'
 
 import * as React from 'react'
-import { Users, X, Clock, CheckCircle2, XCircle } from 'lucide-react'
+import { Check, CheckCircle2, Clock, X, XCircle } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { hasMoreFromPage } from '@open-mercato/shared/lib/pagination/load-more'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
-import { Popover, PopoverContent, PopoverTrigger } from '@open-mercato/ui/primitives/popover'
 import { SearchInput } from '@open-mercato/ui/primitives/search-input'
 import { fetchAssignableStaffMembersPage } from '../assignableStaff'
 import type { ActivityType, ScheduleFieldId } from './fieldConfig'
@@ -17,6 +16,32 @@ import type { Participant, RsvpStatus } from './useScheduleFormState'
 import { PARTICIPANT_COLORS } from './useScheduleFormState'
 
 const PAGE_SIZE = 20
+
+// Dismiss the type-ahead panel on outside pointer-down or Escape. Blur alone is
+// unreliable inside the dialog focus trap; Escape is swallowed so the dialog
+// itself stays open (same pattern as the calendar editor's useDropdownDismiss).
+function useDropdownDismiss(open: boolean, onClose: () => void): React.RefObject<HTMLDivElement | null> {
+  const rootRef = React.useRef<HTMLDivElement | null>(null)
+  React.useEffect(() => {
+    if (!open) return
+    const handlePointerDown = (event: PointerEvent) => {
+      if (rootRef.current && event.target instanceof Node && !rootRef.current.contains(event.target)) onClose()
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.stopPropagation()
+        onClose()
+      }
+    }
+    document.addEventListener('pointerdown', handlePointerDown, true)
+    document.addEventListener('keydown', handleKeyDown, true)
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown, true)
+      document.removeEventListener('keydown', handleKeyDown, true)
+    }
+  }, [open, onClose])
+  return rootRef
+}
 
 function ParticipantSearchPopover({
   existingIds,
@@ -30,6 +55,8 @@ function ParticipantSearchPopover({
   t: (key: string, fallback: string) => string
 }) {
   const [open, setOpen] = React.useState(false)
+  const closeDropdown = React.useCallback(() => setOpen(false), [])
+  const rootRef = useDropdownDismiss(open, closeDropdown)
   const [query, setQuery] = React.useState('')
   const [results, setResults] = React.useState<Array<{ userId: string; name: string; email: string }>>([])
   const [page, setPage] = React.useState(1)
@@ -85,27 +112,21 @@ function ParticipantSearchPopover({
   }, [open, query])
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button type="button" variant="ghost" size="sm" className="h-auto inline-flex items-center gap-1.5 rounded-full border border-status-success-border bg-status-success-bg px-2.5 py-1.5 text-xs font-semibold text-foreground">
-          <Users className="size-3" />
-          {t('customers.schedule.addParticipant', 'Add participant')}
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent align="start" className="w-72 p-2">
-        <SearchInput
-          value={query}
-          onChange={setQuery}
-          placeholder={t('customers.schedule.searchParticipant', 'Search team members...')}
-          className="mb-2"
-          autoFocus
-        />
+    <div ref={rootRef} className="relative">
+      <SearchInput
+        value={query}
+        onChange={setQuery}
+        onFocus={() => setOpen(true)}
+        placeholder={t('customers.schedule.searchParticipant', 'Search team members...')}
+        aria-expanded={open}
+      />
+      {open ? (
+      <div className="absolute z-dropdown mt-1 w-full rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md">
         {selectableResults.length ? (
           <div className="mb-2">
             <Button
               type="button"
               variant="outline"
-              size="sm"
               className="w-full"
               onClick={() => {
                 onAddMany(
@@ -139,12 +160,14 @@ function ParticipantSearchPopover({
                 disabled={alreadyAdded}
                 onClick={() => {
                   onAdd({ userId: r.userId, name: r.name, email: r.email, color: PARTICIPANT_COLORS[existingIds.size % PARTICIPANT_COLORS.length] })
-                  setOpen(false)
                   setQuery('')
                 }}
                 className={cn(
-                  'h-auto flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors',
-                  alreadyAdded ? 'opacity-40 cursor-default' : 'hover:bg-accent cursor-pointer',
+                  'h-9 flex w-full items-center gap-2 rounded-md px-2 text-left text-sm transition-colors',
+                  // Fight the Button primitive's disabled:opacity-50 — stacked with a
+                  // local opacity the row faded to ~20% and read as empty space. An
+                  // added member stays legible: muted text + explicit check.
+                  alreadyAdded ? 'cursor-default disabled:bg-transparent disabled:text-foreground disabled:opacity-100' : 'hover:bg-accent cursor-pointer',
                 )}
               >
                 <span className="inline-flex size-6 items-center justify-center rounded-full bg-muted text-xs font-bold shrink-0">
@@ -152,19 +175,21 @@ function ParticipantSearchPopover({
                 </span>
                 <span className="min-w-0 flex-1 truncate">{r.name}</span>
                 {r.email && <span className="text-xs text-muted-foreground truncate">{r.email}</span>}
+                {alreadyAdded ? <Check className="size-3.5 shrink-0 text-status-success-icon" aria-hidden /> : null}
               </Button>
             )
           })}
           {!loading && !loadError && hasMore ? (
             <div className="px-2 py-2">
-              <Button type="button" variant="outline" size="sm" className="w-full" onClick={() => setPage((current) => current + 1)}>
+              <Button type="button" variant="outline" className="w-full" onClick={() => setPage((current) => current + 1)}>
                 {t('customers.schedule.loadMore', 'Load more')}
               </Button>
             </div>
           ) : null}
         </div>
-      </PopoverContent>
-    </Popover>
+      </div>
+      ) : null}
+    </div>
   )
 }
 
@@ -201,21 +226,11 @@ export function ParticipantsField({
 
   return (
     <div>
-      <label className="text-overline font-semibold uppercase text-muted-foreground tracking-wider">
+      <label className="text-sm font-medium">
         {sectionLabel}
       </label>
-      <div className="mt-2.5 flex flex-wrap content-center items-center gap-2 rounded-lg border border-border bg-background px-3 py-2.5">
-        {participants.map((p, index) => (
-          <div key={p.userId ?? p.email ?? index} className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted px-2.5 py-1.5">
-            <span className={cn('inline-flex size-5 items-center justify-center rounded-full text-xs font-bold text-white', p.color ?? 'bg-primary')}>
-              {p.name.charAt(0).toUpperCase()}
-            </span>
-            <span className="text-xs text-foreground">{p.name}</span>
-            <IconButton type="button" variant="ghost" size="sm" onClick={() => removeParticipant(index)} className="h-auto text-muted-foreground hover:text-foreground p-0" aria-label={t('customers.schedule.removeParticipant', 'Remove participant')}>
-              <X className="size-3" />
-            </IconButton>
-          </div>
-        ))}
+      {/* Action first, tags underneath. */}
+      <div className="mt-2">
         <ParticipantSearchPopover
           existingIds={new Set(participants.map((p) => p.userId).filter((userId): userId is string => Boolean(userId)))}
           onAdd={(p) => setParticipants((prev) => [...prev, { ...p, status: 'pending' as RsvpStatus }])}
@@ -228,10 +243,26 @@ export function ParticipantsField({
           t={t}
         />
       </div>
+      {participants.length > 0 && (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          {/* DS Tag [1.1] (Figma 431:16147): compact radius-6 rect, avatar + label + × */}
+          {participants.map((p, index) => (
+            <div key={p.userId ?? p.email ?? index} className="inline-flex h-6 items-center gap-1 rounded-sm bg-muted pl-1 pr-1.5">
+              <span className={cn('inline-flex size-5 items-center justify-center rounded-full text-overline font-bold text-white', p.color ?? 'bg-primary')}>
+                {p.name.charAt(0).toUpperCase()}
+              </span>
+              <span className="text-xs font-medium text-foreground">{p.name}</span>
+              <IconButton type="button" variant="ghost" size="sm" onClick={() => removeParticipant(index)} className="h-auto text-muted-foreground hover:text-foreground p-0" aria-label={t('customers.schedule.removeParticipant', 'Remove participant')}>
+                <X className="size-3" />
+              </IconButton>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Guest permissions -- shown when participants exist */}
       {participants.length > 0 && (
-        <div className="mt-3 flex flex-wrap items-center gap-x-[16px] gap-y-[6px] text-xs">
+        <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs">
           <span className="font-medium text-muted-foreground">{t('customers.schedule.guestPermissions', 'Guest permissions:')}</span>
           <label htmlFor="guest-perm-invite" className="flex items-center gap-1.5 cursor-pointer">
             <Checkbox id="guest-perm-invite" checked={guestPermissions.canInviteOthers} onCheckedChange={(checked) => setGuestPermissions((p) => ({ ...p, canInviteOthers: checked === true }))} />
@@ -255,10 +286,10 @@ export function ParticipantsField({
         const declined = participants.filter((p) => p.status === 'declined').length
         if (accepted === 0 && pending === 0 && declined === 0) return null
         return (
-          <div className="mt-2 flex items-center gap-3 text-xs">
+          <div className="mt-3 flex items-center gap-3 text-xs">
             <span className="text-muted-foreground">{t('customers.schedule.rsvp.label', 'Responses:')}</span>
             {accepted > 0 && <span className="flex items-center gap-1 font-medium text-status-success-text"><CheckCircle2 className="size-3.5" /> {accepted} {t('customers.schedule.rsvp.accepted', 'tak')}</span>}
-            {pending > 0 && <span className="flex items-center gap-1 font-medium text-status-warning-text"><Clock className="size-3.5" /> {pending} {t('customers.schedule.rsvp.pending', 'czeka')}</span>}
+            {pending > 0 && <span className="flex items-center gap-1 font-medium text-muted-foreground"><Clock className="size-3.5" /> {pending} {t('customers.schedule.rsvp.pending', 'czeka')}</span>}
             {declined > 0 && <span className="flex items-center gap-1 font-medium text-status-error-text"><XCircle className="size-3.5" /> {declined} {t('customers.schedule.rsvp.declined', 'nie')}</span>}
           </div>
         )

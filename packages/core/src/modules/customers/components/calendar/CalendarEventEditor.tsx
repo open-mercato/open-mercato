@@ -202,7 +202,7 @@ function EditorBody({
           options={typeSwitcherOptions}
         />
       </div>
-      <Field label={titleLabel} error={errors.title} className="lg:col-span-2">
+      <Field label={titleLabel} error={errors.title} required className="lg:col-span-2">
         <Input
           type="text"
           value={form.title}
@@ -274,7 +274,7 @@ function EditorBody({
         </Field>
       ) : null}
       {config.people === 'assignee' && staffEnabled ? (
-        <Field label={t('customers.calendar.editor.assignee', 'Assignee')} error={errors.assignee}>
+        <Field label={t('customers.calendar.editor.assignee', 'Assignee')} error={errors.assignee} required>
           <PeopleField
             mode="single"
             includeCustomers={false}
@@ -293,7 +293,7 @@ function EditorBody({
       ) : null}
       </div>
       <div className="flex w-full flex-col gap-4">
-      <Field label={t('customers.calendar.editor.relatedTo', 'Related to')} error={errors.relatedTo}>
+      <Field label={t('customers.calendar.editor.relatedTo', 'Related to')} error={errors.relatedTo} required>
         <RelatedToField
           label={t('customers.calendar.editor.relatedTo', 'Related to')}
           value={form.relatedTo}
