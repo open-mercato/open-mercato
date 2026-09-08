@@ -142,6 +142,24 @@ mechanism (see Out of scope). Added now on the same logic as
 while the table is empty, and it unblocks the tree shape that Bank
 Management (`130-x`) and Fixed Assets (`010-x`) will need later.
 
+**When a future consumer (Bank Management or Fixed Assets) starts
+reading `parentAccountId`, `updateLedgerAccount` should gain a guard
+of the same class as `accountTypeId`'s above — the exact trigger
+condition is intentionally left open here (2026-09-08).** Nothing
+enforces this today, deliberately: no Phase 1 logic aggregates over
+the hierarchy yet, so changing `parentAccountId` now has no reporting
+consequence to protect against, and adding an active guard for a
+mutation surface nothing reads would itself be the kind of
+speculative, not-yet-needed scope the review checklist's anti-pattern
+check flags. This is a documented placeholder for whichever future
+spec adds that reader, not a settled mechanism: `accountTypeId`'s
+guard only checks for posted entries on the account itself, but
+`parentAccountId` may also need to consider whether the account has
+child accounts (re-parenting a subtree, not just a leaf, is a
+different blast radius) — that question is explicitly left to whoever
+designs the actual guard, once there is a real reader to protect
+against silent, retroactive rollup changes.
+
 **`LedgerAccount.accountTypeId` is immutable once the account has
 posted entries — same class of guard as `normalBalance`/
 `accountGroupId` on `LedgerAccountType`.** `normalBalance` and
@@ -1530,3 +1548,25 @@ No architectural change — both documents' actual designs already
 implement the standard control-account / subsidiary-ledger pattern;
 this only fixes this document's own text to stop describing a
 kontrahent dimension row that was never built.
+
+### 2026-09-08 (cont. — documented the planned `parentAccountId`
+guard)
+
+A maintainer's Slack message described `130-1 mBank` as "faktycznie
+nieedytowalne" (actually non-editable) — true in intent but not yet
+true in this spec: `parentAccountId` has no mutability guard today,
+deliberately, since nothing in Phase 1 reads or aggregates over the
+Chart-of-Accounts hierarchy yet. Added a Design Decision making the
+deferral explicit: when a future consumer (Bank Management / Fixed
+Assets) starts reading `parentAccountId`, `updateLedgerAccount` should
+gain the same *class* of guard already specified for `accountTypeId`
+— but, unlike a first draft of this entry, the exact trigger condition
+is left explicitly open rather than prescribed. `accountTypeId`'s
+guard only checks for posted entries; whether `parentAccountId`'s
+guard also needs to account for existing child accounts (re-parenting
+a subtree vs. a leaf) is a real open design question, not settled
+here. Not implemented now — adding an active guard for a field
+nothing reads would itself be speculative scope per the review
+checklist's anti-pattern check. This turns a silent gap into an
+intentional, documented one, without overstating how much of the
+eventual mechanism is actually decided.
