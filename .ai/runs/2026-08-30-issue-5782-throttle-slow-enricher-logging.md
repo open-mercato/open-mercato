@@ -57,3 +57,9 @@ Making enrichers faster, changing enricher timeout semantics, creating a general
 
 - [x] 4.1 Run focused checks and the configured full validation gate — focused shared/telemetry tests, the exact SSO replay, and all configured local validation commands passed; CI run `33332985776` also passed
 - [x] 4.2 Run automated review, push the completed plan, monitor CI, and normalize PR status — automated review found no findings; GitHub still requires an eligible external reviewer
+
+### Phase 5: Address requested review changes
+
+- [x] 5.1 Isolate histogram-provider failures from successful list and detail enrichment and add regression coverage — `210412bcd8`
+- [x] 5.2 Add `om.enricher.duration` to the telemetry spec's built-in metric catalogue — `210412bcd8`
+- [x] 5.3 Run focused validation, push the fixes, and return the PR to review — focused shared checks and the configured build, generation, i18n, typecheck, and app-build gates passed; the monorepo test graph passed 33/34 tasks and exposed an unrelated create-app path-encoding failure when the checkout path contains a space
