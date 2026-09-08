@@ -205,7 +205,35 @@ describe('inline editor trigger accessibility and touch reachability (#5947)', (
       { dict: {} },
     )
 
-    expect(screen.getByRole('button', { name: 'Edit' }).className).toContain('opacity-100')
+    // Substring matching would hold on the default constant alone, which already carries
+    // group-hover:opacity-100 — tokenise the class list so the override is really pinned.
+    const classNames = screen.getByRole('button', { name: 'Edit' }).className.split(/\s+/)
+    expect(classNames).toContain('opacity-100')
+    expect(classNames).not.toContain('opacity-0')
+    expect(classNames).toContain('[@media(hover:none)]:opacity-100')
+  })
+
+  it('keeps the coarse-pointer reveal when a caller supplies its own hover-only reveal', () => {
+    // The literal string CompanyHighlights, PersonHighlights and the sales document page
+    // pass. For those fields the touch fix only reaches the browser because tailwind-merge
+    // does not treat their unprefixed opacity-0 as conflicting with the arbitrary variant.
+    renderWithProviders(
+      <InlineTextEditor
+        label="Email"
+        value="a@example.com"
+        emptyLabel="No email"
+        triggerClassName="opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 mt-1"
+        onSave={jest.fn()}
+      />,
+      { dict: {} },
+    )
+
+    const classNames = screen.getByRole('button', { name: 'Edit' }).className.split(/\s+/)
+    // mt-1 comes only from the caller, so it proves the override really reached the merge
+    // rather than the assertions below passing on the default constant alone.
+    expect(classNames).toContain('mt-1')
+    expect(classNames).toContain('[@media(hover:none)]:opacity-100')
+    expect(classNames).toContain('group-hover:opacity-100')
   })
 })
 
