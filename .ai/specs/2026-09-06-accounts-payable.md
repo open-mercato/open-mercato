@@ -1,384 +1,381 @@
-# Accounts Payable — dostawcy, obieg faktur zakupowych
+# Accounts Payable — vendors, purchase invoice lifecycle
 
 **Related:** [General Ledger core engine](2026-08-18-general-ledger-core-engine.md)
-(posting engine ten spec księguje do), the future [sales-invoice-gl-posting](2026-08-18-sales-invoice-gl-posting.md)
-(planned, nie napisany jeszcze — analogiczny subscriber-wzorzec po stronie AR;
-ta sama korekta cytatu co w `Contractor Registry`'s Related header),
-[Contractor Registry](2026-09-06-contractor-registry.md)
-(rejestr dostawcy — ten spec go konsumuje, nie duplikuje), [Journal Entry Line
-Dimension](2026-09-06-journal-entry-line-dimension.md) (przyszły konsument
-kosztów AP — silnik 490, ten spec go nie buduje), [Accounts Payable —
-płatności](2026-09-06-accounts-payable-payments.md) (siostrzany dokument —
-paczki płatnicze, wykonanie przelewu, weryfikacja Białej Listy; wydzielony
-z tego dokumentu 2026-09-08, patrz Changelog)
+(the posting engine this spec books into), the future [sales-invoice-gl-posting](2026-08-18-sales-invoice-gl-posting.md)
+(planned, not written yet — the analogous subscriber pattern on the AR
+side; same citation correction as in `Contractor Registry`'s Related
+header), [Contractor Registry](2026-09-06-contractor-registry.md)
+(vendor registry — this spec consumes it, does not duplicate it),
+[Journal Entry Line Dimension](2026-09-06-journal-entry-line-dimension.md)
+(future consumer of AP's cost lines — the 490 engine, this spec does
+not build it), [Accounts Payable —
+Payments](2026-09-06-accounts-payable-payments.md) (sibling document —
+payment batches, transfer execution, VAT whitelist verification;
+split out of this document 2026-09-08, see Changelog)
 
 ## TLDR
 
-Moduł obsługujący cykl życia zobowiązania od strony faktury: przyjęcie i
-akceptację faktury zakupowej (w tym stan roboczy/bufor przed ostatecznym
-zaksięgowaniem). Kończy się wywołaniem `postJournalEntry` w GL — ten
-spec nie zmienia silnika księgowań, tylko go używa. Rejestracja i
-weryfikacja kontrahenta (dostawcy) żyje w osobnym module — patrz
-`Contractor Registry`. Grupowanie zatwierdzonych faktur w paczki
-płatnicze i wykonanie przelewu żyje w osobnym, siostrzanym module —
-patrz `Accounts Payable — płatności` — ten podział jest wynikiem
-niezależnego review, nie pierwotnego projektu (patrz Changelog,
-2026-09-08).
+Module handling the liability lifecycle from the invoice side: receipt
+and approval of the purchase invoice (including the draft/buffer state
+before final posting). Ends with a call to `postJournalEntry` in GL —
+this spec does not change the posting engine, only uses it. Vendor
+registration and verification lives in a separate module — see
+`Contractor Registry`. Grouping approved invoices into payment batches
+and executing the transfer lives in a separate, sibling module — see
+`Accounts Payable — Payments` — this split is the result of independent
+review, not the original design (see Changelog, 2026-09-08).
 
 ## Overview
 
-Na ścianie proces AP to cztery równoległe ścieżki: (A) rejestracja i
-weryfikacja kontrahenta (GUS/VIES/Biała Lista — wyciągnięte do
-`Contractor Registry`), (B) zakup materiałów (PZ → faktura →
-zaksięgowano), (C) zakup środka trwałego (OT, tabela amortyzacyjna —
-wyciągnięte do osobnego spec-a Fixed Assets, patrz
-`.ai/specs/2026-09-06-fixed-assets.md`), (D) płatności wychodzące
-(limity budżetowe, paczki płatnicze — wyciągnięte do
-`2026-09-06-accounts-payable-payments.md`, patrz niżej). Ten dokument
-obejmuje wyłącznie B — A, C i D są świadomie wyciągnięte (własne,
-niezależne funkcjonalności).
+On the event-storming wall the AP process is four parallel paths: (A)
+vendor registration and verification (GUS/VIES/VAT whitelist — pulled
+out to `Contractor Registry`), (B) purchasing materials (goods receipt
+→ invoice → posted), (C) purchasing a fixed asset (asset capitalization,
+depreciation schedule — pulled out to a separate Fixed Assets spec, see
+`.ai/specs/2026-09-06-fixed-assets.md`), (D) outbound payments (budget
+limits, payment batches — pulled out to
+`2026-09-06-accounts-payable-payments.md`, see below). This document
+covers **only B** — A, C, and D are deliberately pulled out (their own,
+independent capabilities).
 
-> **Market Reference**: SPEC-024 (przedwarsztatowy brief, sekcja "Accounts
-> Payable Module") zakładał pełny three-way matching (`matchToOrder`
-> wymagające `PurchaseOrder` i `GoodsReceipt`) i osobny typ
-> `PaymentProposal`/`PaymentError`. Ściana (zweryfikowane źródło,
-> patrz Design decisions) pokazała prostszy, dwuetapowy przepływ
-> (PZ→faktura, bez formalnego PO) i nie potwierdziła żadnego z tych
-> typów w kodzie — żaden z nich nie istnieje nigdzie w repo. Przyjęto
-> to, co potwierdzone na warsztacie, a SPEC-024 potraktowano jako
-> punkt odniesienia do tego, co świadomie odrzucono (three-way
-> matching) i dlaczego (Faza 2, brak wsparcia w kodzie).
+> **Market Reference**: SPEC-024 (the pre-workshop brief, "Accounts
+> Payable Module" section) assumed full three-way matching
+> (`matchToOrder` requiring `PurchaseOrder` and `GoodsReceipt`) and a
+> separate `PaymentProposal`/`PaymentError` type. The wall (the
+> verified source, see Design decisions) showed a simpler, two-step
+> flow (goods receipt → invoice, no formal PO) and confirmed neither
+> type in code — neither exists anywhere in the repo. What was
+> confirmed at the workshop was adopted, and SPEC-024 was treated as a
+> reference point for what was deliberately rejected (three-way
+> matching) and why (Phase 2, no support in code).
 
 ## Problem Statement
 
-Dziś nie ma żadnego modułu odpowiadającego za stronę zakupową — GL
-(#5663) księguje tylko finalne, zbalansowane zapisy, ale nic nie
-zarządza obiegiem faktury przed zaksięgowaniem. To "biała karta w
-kodzie" (brak istniejącej implementacji do rozszerzenia) —
-potwierdzone bezpośrednio w repo: nie istnieje żaden moduł
-`accounts_payable`, żadna encja `PurchaseOrder`/`GoodsReceipt`
-finansowa, a moduł WMS (`packages/core/src/modules/wms`) ma przyjęcie
-towaru jako realną, ilościową encję (`InventoryMovement`, `type:
-'receipt'`) ale bez jakiegokolwiek pola finansowego ani ścieżki
-księgowania — patrz Design decisions. Zakres i granice z sąsiednimi
-modułami (Contractor Registry, płatności, Fixed Assets, Posting Rules
-Engine) trzeba było ustalić explicite przed projektowaniem encji — co
-ten dokument teraz robi.
+Today there is no module responsible for the purchasing side — GL
+(#5663) only posts final, balanced entries, but nothing manages the
+invoice lifecycle before posting. This is a "blank page in code" (no
+existing implementation to extend) — confirmed directly in the repo: no
+`accounts_payable` module exists, no financial `PurchaseOrder`/
+`GoodsReceipt` entity exists, and the WMS module
+(`packages/core/src/modules/wms`) has goods receipt as a real,
+quantity-only entity (`InventoryMovement`, `type: 'receipt'`) but
+without any financial field or posting path — see Design decisions.
+Scope and boundaries with neighboring modules (Contractor Registry,
+payments, Fixed Assets, Posting Rules Engine) had to be settled
+explicitly before designing the entities — which is what this document
+now does.
 
-**Ten dokument pierwotnie obejmował też płatności** (`PaymentBatch`/
-`PaymentBatchLine`) w jednym module `accounts_payable`. Dwa
-niezależne, świeży-kontekst review (compliance/checklist +
-architektoniczny) doszły niezależnie do werdyktu SPLIT: osobne grupy
-ACL, osobne wywołania `postJournalEntry` do GL, sprzężenie tylko przez
-FK (jak do w pełni osobnego modułu), osobna domena ryzyka prawnego
-(Biała Lista/MPP dotyczy tylko płatności). Zespół potwierdził podział
-2026-09-08 — patrz Changelog i `2026-09-06-accounts-payable-payments.md`.
+**This document originally covered payments too** (`PaymentBatch`/
+`PaymentBatchLine`) in one `accounts_payable` module. Two independent,
+fresh-context reviews (compliance/checklist + architectural) both
+independently reached a SPLIT verdict: separate ACL groups, separate
+`postJournalEntry` calls to GL, coupling only through an FK (the same
+shape as referencing a fully separate module), a separate legal-risk
+domain (the VAT whitelist/mandatory split payment applies only to
+payments). The team confirmed the split on 2026-09-08 — see Changelog
+and `2026-09-06-accounts-payable-payments.md`.
 
 ## Proposed Solution
 
-Niezależny moduł `accounts_payable` z jedną grupą encji: **faktury
-zakupowe** (`VendorInvoice`/`VendorInvoiceLine`, stan roboczy →
-akceptacja → zaksięgowano). Obieg akceptacji faktury korzysta z
-silnika `workflows` (patrz Design decisions poniżej — to nie było
-jeszcze rozstrzygnięte w szkielecie i wymagało weryfikacji w kodzie).
-Moduł nie księguje bezpośrednio do bazy — przejście w stan `posted`
-wywołuje `postJournalEntry` z GL przez generyczny `commandBus`, tak
-samo jak robi to każdy inny moduł wywołujący cudzą komendę (patrz
-Architecture → Cross-module integration). Grupowanie zatwierdzonych
-faktur w paczki płatnicze i wykonanie przelewu żyje w siostrzanym
-module `accounts_payable_payments`, który odczytuje `VendorInvoice`
-przez FK-id i ma na ten moduł twardy, zadeklarowany dependency
-(patrz ten dokument's Module Dependency, i sibling doc's własny
-`index.ts`).
+An independent `accounts_payable` module with one entity group:
+**purchase invoices** (`VendorInvoice`/`VendorInvoiceLine`, draft state
+→ approval → posted). The invoice approval flow uses the `workflows`
+engine (see Design decisions below — this was not yet settled in the
+skeleton and required verification in code). The module does not post
+directly to the database — the transition to `posted` calls
+`postJournalEntry` from GL through the generic `commandBus`, the same
+way any other module calls someone else's command (see Architecture →
+Cross-module integration). Grouping approved invoices into payment
+batches and executing the transfer lives in the sibling module
+`accounts_payable_payments`, which reads `VendorInvoice` via FK-id and
+has a hard, declared dependency on this module (see this document's
+Module Dependency, and the sibling doc's own `index.ts`).
 
-### Design decisions (2026-09-07 — resolved na warsztacie)
+### Design decisions (2026-09-07 — resolved at the workshop)
 
-**Kontrahent jest współdzieloną encją, nie duplikowaną w AP i AR.**
-Test pojedynczej funkcjonalności: rejestr kontrahenta (weryfikacja
-GUS/VIES, rachunek bankowy, obieg akceptacji) działa niezależnie od
-obiegu faktur zakupowych — więc żyje w osobnym, współdzielonym
-module (`2026-09-06-contractor-registry.md`), a AP odwołuje się do
-niego przez FK-id.
+**The contractor is a shared entity, not duplicated in AP and AR.**
+Single-responsibility test: the contractor registry (GUS/VIES
+verification, bank account, approval flow) works independently of the
+purchase invoice flow — so it lives in a separate, shared module
+(`2026-09-06-contractor-registry.md`), and AP references it via FK-id.
 
-**Stan roboczy faktury (bufor) wchodzi w Fazę 1.** Bez stanu
-przed-zaksięgowania nie da się zbudować obiegu akceptacji — a to jest
-sens istnienia AP. Status faktury: draft → pending-approval →
-approved → posted.
+**The invoice's draft (buffer) state is in Phase 1.** Without a
+pre-posting state there's no way to build an approval flow — and that
+is the whole point of AP existing. Invoice status: draft →
+pending-approval → approved → posted.
 
-**Konto 300 (GR/IR) wchodzi w Fazę 1.** Ściana pokazuje PZ-przed-
-fakturą jako normalny, częsty przypadek (ścieżka "zakup materiałów"),
-nie brzegowy wyjątek.
+**Account 300 (GR/IR) is in Phase 1.** The wall shows goods-receipt-
+before-invoice as a normal, frequent case (the "purchase materials"
+path), not an edge case.
 
-**Obieg akceptacji: prosty, jednostopniowy w Fazie 1.** Jeden
-akceptujący, binarna decyzja. Konfigurowalne progi kwotowe i
-wielostopniowe ścieżki to Faza 2.
+**Approval flow: simple, single-step in Phase 1.** One approver, a
+binary decision. Configurable amount thresholds and multi-step paths
+are Phase 2.
 
-**Brak specjalnego "hooka" pod przyszły silnik 490 — z jedną znaną
-luką przejściową.** AP księguje zwykłe, zbalansowane
-`JournalEntryLine` w konta zespołu 4 — silnik dekretacji (Posting
-Rules Engine, gdy powstanie) czyta z osobnej tabeli wymiarów
-(`2026-09-06-journal-entry-line-dimension.md`), nie potrzebuje niczego
-dodatkowego od AP. Jedyna konwencja: mapowanie kont AP wskazuje na
-zespół 4, nie bezpośrednio na zespół 5. Znana luka: samo istnienie
-tabeli wymiarów nie zamyka okna — nic jej jeszcze nie zapisuje, dopóki
-Posting Rules Engine (budowany bezpośrednio po AP, patrz
-`.ai/specs/2026-09-06-posting-rules-engine.md`) faktycznie nie zacznie
-tego robić (`2026-09-06-journal-entry-line-dimension.md` samo mówi:
-"Pusta struktura teraz, bez logiki wypełniającej"). Jeśli AP zacznie
-księgować zanim Posting Rules Engine w ogóle powstanie, faktury
-zaksięgowane w tym oknie nie będą miały zapisanego wymiaru MPK do
-retroaktywnej reklasyfikacji — trzeba je będzie ręcznie zreklasyfikować
-po starcie silnika 490. Zaakceptowane świadomie jako koszt krótkiego
-okna przejściowego, nie przeoczone.
+**No special "hook" for the future 490 engine — with one known
+transitional gap.** AP posts ordinary, balanced `JournalEntryLine`
+rows to group-4 accounts — the posting-rules engine (Posting Rules
+Engine, once it exists) reads from a separate dimension table
+(`2026-09-06-journal-entry-line-dimension.md`), and needs nothing
+extra from AP. The only convention: AP's account mapping points to
+group 4, not directly to group 5. Known gap: the dimension table's
+mere existence doesn't close the window — nothing writes to it yet,
+until the Posting Rules Engine (built directly after AP, see
+`.ai/specs/2026-09-06-posting-rules-engine.md`) actually starts doing
+so (`2026-09-06-journal-entry-line-dimension.md` itself says: "empty
+structure for now, no populating logic"). If AP starts posting before
+the Posting Rules Engine exists at all, invoices posted in that window
+will not have a recorded cost-center dimension for retroactive
+reclassification — they will need to be manually reclassified once the
+490 engine starts. Deliberately accepted as the cost of a short
+transitional window, not overlooked.
 
-**Purchase Order / three-way matching — Faza 2.** SPEC-024
-(przedwarsztatowy brief) zakładał PO→GR→Invoice, ale ściana (aktualne,
-zweryfikowane źródło) pokazuje tylko PZ→fakturę (two-way). Fazowanie
-podąża za tym, co potwierdzone na warsztacie.
+**Purchase Order / three-way matching — Phase 2.** SPEC-024 (the
+pre-workshop brief) assumed PO→GR→Invoice, but the wall (the current,
+verified source) shows only goods-receipt→invoice (two-way). Phasing
+follows what was confirmed at the workshop.
 
-**Odrzucenie przez zablokowany `FiscalPeriod` — teraz zaprojektowane
-(patrz niżej).** Faktura może czekać w buforze (draft →
-pending-approval → approved) dłużej niż trwa otwarty okres
-obrachunkowy. Rozwiązanie: patrz Architecture → Commands
-(`postVendorInvoice`) i Risks & Impact Review → Data integrity
-failures.
+**Rejection due to a locked `FiscalPeriod` — now designed (see
+below).** An invoice can sit in the buffer (draft →
+pending-approval → approved) longer than an open fiscal period lasts.
+Solution: see Architecture → Commands (`postVendorInvoice`) and Risks &
+Impact Review → Data integrity failures.
 
-**Weryfikacja Białej Listy/MPP nie jest zagadnieniem tego dokumentu.**
-To twardy blocker prawny, ale dotyczy momentu **płatności**, nie
-przyjęcia/zaksięgowania faktury — pełne uzasadnienie prawne i
-projekt żyją w siostrzanym `2026-09-06-accounts-payable-payments.md`.
+**VAT whitelist/mandatory split payment (MPP) verification is not this
+document's concern.** It's a hard legal blocker, but it applies at
+**payment** time, not invoice receipt/posting — the full legal
+rationale and design live in the sibling
+`2026-09-06-accounts-payable-payments.md`.
 
-### Design decisions (2026-09-07 — dodane podczas pełnego rozwijania spec-a)
+### Design decisions (2026-09-07 — added during the full spec expansion)
 
-Poniższe decyzje nie były jeszcze rozstrzygnięte w szkielecie — każda
-wymagała sprawdzenia w realnym kodzie (nie na ścianie), więc są
-oznaczone osobno.
+The decisions below were not yet settled in the skeleton — each
+required verification in real code (not on the wall), so they are
+flagged separately.
 
-**Obieg akceptacji faktury używa silnika `workflows`
-(`defineWorkflow`/`USER_TASK`), nie `useGuardedMutation`.**
-Sprawdzone w kodzie: jedyny zaimplementowany w repo precedens dla
-decyzji typu approve/reject (`sales.order-approval`,
-`packages/core/src/modules/sales/workflows.ts`) używa pełnego
-workflow engine — `USER_TASK` z `formSchema` (`decision: approve |
-reject`), automatyczne przejścia (`UPDATE_ENTITY` na status,
-`EMIT_EVENT`), i front-end kompletujący zadanie przez
-`POST /api/workflows/tasks/:id/complete` (zwykły `useMutation`, nie
-`useGuardedMutation` — to nie jest edycja pola przez `CrudForm`).
-`useGuardedMutation` jako "guarded row action" jest realnym wzorcem
-tylko dla prostego, odwracalnego toggle (GL's fiscal-period lock/
-unlock) — nie dla jednorazowej decyzji approve/reject. Faktura AP to
-dokładnie ten drugi przypadek ("jeden akceptujący, binarna decyzja"),
-więc AP przyjmuje wzorzec `sales.order-approval` 1:1: `submit for
-approval` emituje zdarzenie, `workflows.ts` deklaruje trigger na to
-zdarzenie (`eventPattern`), `registerWorkflowSafeCommands` autoryzuje
-komendę aktualizującą status, a widget wstrzyknięty w
-`backend/accounts_payable/invoices/[id]/page.tsx` pokazuje zadanie do
-wykonania — analogicznie do `widgets/injection/order-approval/`. Ta
-sama korekta (dokładnie ten sam błędny cytat) została naniesiona
-wstecz na już otwarty PR #5955 (Contractor Registry) — patrz tamten
-spec's Changelog, 2026-09-07 "approval-pattern citation corrected".
+**The invoice approval flow uses the `workflows` engine
+(`defineWorkflow`/`USER_TASK`), not `useGuardedMutation`.** Verified in
+code: the only implemented repo precedent for an approve/reject-type
+decision (`sales.order-approval`,
+`packages/core/src/modules/sales/workflows.ts`) uses the full workflow
+engine — `USER_TASK` with a `formSchema` (`decision: approve |
+reject`), automated transitions (`UPDATE_ENTITY` on status,
+`EMIT_EVENT`), and a front end that completes the task via
+`POST /api/workflows/tasks/:id/complete` (a plain `useMutation`, not
+`useGuardedMutation` — this isn't a field edit through `CrudForm`).
+`useGuardedMutation` as a "guarded row action" is a real pattern only
+for a simple, reversible toggle (GL's fiscal-period lock/unlock) — not
+for a one-off approve/reject decision. The AP invoice is exactly that
+second case ("one approver, a binary decision"), so AP adopts the
+`sales.order-approval` pattern 1:1: `submit for approval` emits an
+event, `workflows.ts` declares a trigger on that event (`eventPattern`),
+`registerWorkflowSafeCommands` authorizes the status-updating command,
+and a widget injected into
+`backend/accounts_payable/invoices/[id]/page.tsx` shows the pending
+task — analogous to `widgets/injection/order-approval/`. The same fix
+(the exact same wrong citation) was applied retroactively to the
+already-open PR #5955 (Contractor Registry) — see that spec's
+Changelog, 2026-09-07 "approval-pattern citation corrected".
 
-**Wywołanie `postJournalEntry` z GL idzie przez generyczny
-`commandBus`, nie przez `tryResolve`/DI-token jak
-`checkBankAccountWhitelist`.** To rozróżnienie ma znaczenie: GL nie
-jest opcjonalnym peerem dla AP (moduł AP bez GL nie ma sensu — to
-twardy, zadeklarowany dependency), więc `packages/core/AGENTS.md` →
-Cross-Module Coupling nie ma tu zastosowania (ten wzorzec jest dla
-integracji *opcjonalnej*, gdzie brakujący peer musi dać się bezpiecznie
-zdegradować). AP wywołuje `container.resolve('commandBus').execute('ledger.postJournalEntry', input, ctx)`
-— dokładnie ten sam generyczny mechanizm, którego `workflows`
-`UPDATE_ENTITY` już używa do wołania komend po stringowym `commandId`
+**The call to `postJournalEntry` in GL goes through the generic
+`commandBus`, not through `tryResolve`/a DI token like
+`checkBankAccountWhitelist`.** This distinction matters: GL is not an
+optional peer for AP (an AP module without GL makes no sense — it's a
+hard, declared dependency), so `packages/core/AGENTS.md` →
+Cross-Module Coupling doesn't apply here (that pattern is for
+*optional* integration, where a missing peer must degrade safely). AP
+calls `container.resolve('commandBus').execute('ledger.postJournalEntry', input, ctx)`
+— exactly the same generic mechanism that `workflows`'
+`UPDATE_ENTITY` already uses to call commands by string `commandId`
 (`packages/core/src/modules/workflows/lib/activity-executor.ts`).
-Zdecydowanie prostsze niż wymyślanie nowego mechanizmu dla tego
-przypadku — i zgodne z tym, że GL samo mówi "Phase 1 comes from
+Decidedly simpler than inventing a new mechanism for this case — and
+consistent with GL itself saying "Phase 1 comes from
 `postJournalEntry` called programmatically by a downstream
-integration" (GL nie ma jeszcze własnej ścieżki HTTP do tego).
+integration" (GL doesn't yet have its own HTTP path for this).
 
-**`goodsReceiptReference` to prawdziwy FK-id do `InventoryMovement`
-(WMS), nie wolny tekst — korekta po niezależnym review.** Pierwsza
-wersja tej decyzji zakładała, że żadna encja PZ/goods-receipt nie
-istnieje w kodzie. Niezależny, świeży-kontekst review znalazł, że to
-nieprawda: `packages/core/src/modules/wms`'s `InventoryMovement`
-(`type: 'receipt'`, `referenceType: 'po'|'so'|'transfer'|'manual'|'qc'|'rma'`)
-to realna, działająca encja przyjęcia towaru, z komendą
-`wms.inventory.receive` i UI (`ReceiveInventoryDialog.tsx`). To, co
-faktycznie nie istnieje, to wyłączony toggle
-(`wms_integration_procurement_goods_receipt`) — a ten dotyczy tylko
-przyszłej integracji PO-do-przyjęcia, nie samego przyjęcia. Skutek:
-`VendorInvoice.goodsReceiptReference` to nullable `uuid` (FK-id →
-`InventoryMovement.id` gdzie `type = 'receipt'`, brak relacji ORM),
-nie zwykły string.
+**`goodsReceiptReference` is a real FK-id to `InventoryMovement`
+(WMS), not free text — correction after independent review.** The
+first version of this decision assumed no goods-receipt entity exists
+in code. Independent, fresh-context review found this to be false:
+`packages/core/src/modules/wms`'s `InventoryMovement` (`type:
+'receipt'`, `referenceType: 'po'|'so'|'transfer'|'manual'|'qc'|'rma'`)
+is a real, working goods-receipt entity, with a command
+(`wms.inventory.receive`) and a UI (`ReceiveInventoryDialog.tsx`).
+What actually doesn't exist is a disabled toggle
+(`wms_integration_procurement_goods_receipt`) — and that only concerns
+the future PO-to-receipt integration, not the receipt itself. Result:
+`VendorInvoice.goodsReceiptReference` is a nullable `uuid` (FK-id →
+`InventoryMovement.id` where `type = 'receipt'`, no ORM relation), not
+a plain string.
 
-**To nie zmienia analizy konta 300 poniżej.** `InventoryMovement` to
-czysto ilościowa encja magazynowa (quantity/warehouse/location/lot),
-bez jakiegokolwiek pola finansowego (brak `amount`, brak `accountId`)
-i bez żadnego wywołania `postJournalEntry`/`commandBus` gdziekolwiek w
-`wms/commands/inventory-actions.ts` (sprawdzone niezależnie). Więc
-mimo że encja przyjęcia istnieje, nic po stronie WMS nadal nie
-księguje drugiej nogi konta 300 — luka opisana niżej pozostaje
-aktualna; zmienia się tylko to, czy `goodsReceiptReference` jest
-realnym odnośnikiem czy wolnym tekstem.
+**This does not change the account-300 analysis below.**
+`InventoryMovement` is a purely quantity-based warehouse entity
+(quantity/warehouse/location/lot), with no financial field whatsoever
+(no `amount`, no `accountId`) and no call to
+`postJournalEntry`/`commandBus` anywhere in
+`wms/commands/inventory-actions.ts` (independently verified). So even
+though the receipt entity exists, nothing on the WMS side still posts
+the second leg of account 300 — the gap described below remains
+current; only whether `goodsReceiptReference` is a real reference or
+free text changes.
 
-**Konto 300 (GR/IR): świadomie jednostronna, przejściowa luka w Fazie
-1 — nie mechanizm rozliczający się do zera.** Standardowy przepływ
-GR/IR wymaga dwóch zapisów: przy przyjęciu towaru (DR koszt/zapas, CR
-300) i przy fakturze (DR 300, CR zobowiązania) — dopiero oba razem
-zerują konto 300. Ponieważ żadna ścieżka nie księguje pierwszej nogi
-finansowo (PZ — `InventoryMovement`, patrz wyżej — istnieje jako
-encja, ale nie ma pola na kwotę ani konto i nigdy nie woła
-`postJournalEntry`), `postVendorInvoice` w tym dokumencie księguje
-**tylko** drugą nogę (DR 300, CR zobowiązania). Skutek: konto 300
-będzie pokazywać rosnące, nigdy niezerowane saldo DR, dopóki WMS nie
-zacznie księgować przyjęć finansowo — to jest zaakceptowana świadomie,
-wprost udokumentowana luka przejściowa (analogiczna do luki z
-wymiarem MPK/kontem 490 powyżej), nie błąd projektu. Patrz Risks &
-Impact Review → Data integrity failures dla pełnego opisu i
-zrewidowanej mitigacji (GL's własna trasa do odczytu salda konta jest
-wycięta z Fazy 1 — patrz tamten Risk dla szczegółów).
+**Account 300 (GR/IR): a deliberately one-sided, transitional gap in
+Phase 1 — not a mechanism that settles to zero.** The standard GR/IR
+flow requires two postings: on goods receipt (DR cost/inventory, CR
+300) and on the invoice (DR 300, CR liability) — only both together
+zero out account 300. Because no path posts the first leg financially
+(goods receipt — `InventoryMovement`, see above — exists as an entity,
+but has no amount/account field and never calls `postJournalEntry`),
+`postVendorInvoice` in this document posts **only** the second leg (DR
+300, CR liability). Result: account 300 will show a growing, never-
+zeroed DR balance until WMS starts posting receipts financially — this
+is a deliberately accepted, explicitly documented transitional gap
+(analogous to the cost-dimension/490 gap above), not a design flaw. See
+Risks & Impact Review → Data integrity failures for the full
+description and the revised mitigation (GL's own balance-lookup route
+is cut from Phase 1 — see that Risk for details).
 
-**VAT naliczony dostaje własne konto — nie jest cicho wliczany w
-konto kosztowe.** Korekta po niezależnym review, który prześledził
-matematykę księgowania na przykładzie: gdyby `postVendorInvoice`
-księgował DR per pozycja tylko na jej `accountId` bez osobnej nogi na
-VAT, to żeby zapis się zbilansował z CR na pełną kwotę brutto
-zobowiązania, DR musiałby po cichu zawierać VAT — zawyżając koszt w
-rachunku wyników i nigdy nie ujmując podatku naliczonego jako
-należność od urzędu skarbowego (realny składnik aktywów w polskiej
-rachunkowości). Poprawka: `postVendorInvoice` księguje DR netto per
-pozycja na jej `accountId`, jedną zagregowaną DR na skonfigurowane
-konto VAT naliczonego (`accounts_payable.vatInputAccountId`, suma
-`taxAmount` wszystkich pozycji), i CR na konto zobowiązań na pełną
-kwotę brutto — patrz Architecture → Commands, Data Models → Module
-Config.
+**Input VAT gets its own account — it is not silently absorbed into
+the expense account.** Correction after independent review, which
+traced the posting math by example: if `postVendorInvoice` posted a DR
+per line only to its `accountId` with no separate VAT leg, then for the
+entry to balance against a CR at the full gross liability amount, the
+DR would have to silently include VAT — overstating expense in the P&L
+and never recording input VAT as a receivable from the tax office (a
+real asset item under Polish accounting rules). Fix:
+`postVendorInvoice` posts a net DR per line to its `accountId`, one
+aggregated DR to the configured input-VAT account
+(`accounts_payable.vatInputAccountId`, the sum of `taxAmount` across
+all lines), and a CR to the liability account for the full gross
+amount — see Architecture → Commands, Data Models → Module Config.
 
-**Obieg akceptacji woła osobną, wąską komendę — nie
-`updateVendorInvoice`.** Pierwsza wersja tego dokumentu rejestrowała
-`accounts_payable.vendor_invoices.update` (tę samą komendę co edycja
-pól roboczej faktury) jako `registerWorkflowSafeCommands`'s cel dla
-przejścia `PENDING_APPROVAL` → `APPROVED`/`REJECTED` — ale
-`updateVendorInvoice` jest zdefiniowane wyżej jako działające
-**tylko** na `status === 'DRAFT'`. Niezależny review złapał tę
-sprzeczność: albo strażnik statusu odrzuciłby własne przejście
-workflow-u, albo reguła "tylko DRAFT" po cichu nie dotyczyłaby wywołań
-z workflow-u — żadna z tych opcji nie była zaprojektowana. Poprawka:
-osobna, wąska komenda `applyVendorInvoiceApprovalDecision`,
-rejestrowana osobno w `registerWorkflowSafeCommands`, która **tylko**
-przenosi `PENDING_APPROVAL` → `APPROVED`/`REJECTED` (i nic więcej) —
-patrz Architecture → Commands, Workflow definition. To celowe
-odejście od `sales.order-approval`'s wzorca (tam `sales.orders.update`
-jest reużyte dla obu celów) — sprawdzone, że sales ma dokładnie ten
-sam potencjalny problem, nierozwiązany w tamtym module; AP go unika
-zamiast kopiować.
+**The approval flow calls a separate, narrow command — not
+`updateVendorInvoice`.** The first version of this document registered
+`accounts_payable.vendor_invoices.update` (the same command used to
+edit a draft invoice's fields) as `registerWorkflowSafeCommands`'s
+target for the `PENDING_APPROVAL` → `APPROVED`/`REJECTED` transition —
+but `updateVendorInvoice` is defined above as working **only** on
+`status === 'DRAFT'`. Independent review caught this contradiction:
+either the status guard would reject the workflow's own transition, or
+the "DRAFT only" rule would silently not apply to workflow-originated
+calls — neither option had been designed. Fix: a separate, narrow
+`applyVendorInvoiceApprovalDecision` command, registered separately in
+`registerWorkflowSafeCommands`, which **only** moves `PENDING_APPROVAL`
+→ `APPROVED`/`REJECTED` (and nothing else) — see Architecture →
+Commands, Workflow definition. This is a deliberate departure from
+`sales.order-approval`'s pattern (which reuses `sales.orders.update`
+for both purposes) — verified that sales has this exact same latent
+issue, unresolved in that module; AP avoids it rather than copying it.
 
-**Twardy dependency na `ledger` jest realnym mechanizmem
-(`ModuleInfo.requires`), nie tylko stwierdzeniem w tekście.**
-Niezależny review sprawdził, że `metadata.requires: string[]` istnieje
-i jest walidowane przy generowaniu (`packages/shared/src/modules/registry.ts`,
-`packages/cli/src/lib/generators/module-registry.ts`), używane
-dziś przez `sales` (`requires: ['catalog','customers','dictionaries']`)
-i `wms`. Pierwsza wersja tego dokumentu twierdziła, że AP deklaruje to
-w ten sposób, ale nie projektowała tego nigdzie (brak `index.ts` w
-Architecture/File Manifest) — poprawka: patrz Architecture → Module
+**The hard dependency on `ledger` is a real mechanism
+(`ModuleInfo.requires`), not just a statement in prose.** Independent
+review verified that `metadata.requires: string[]` exists and is
+validated at generation time
+(`packages/shared/src/modules/registry.ts`,
+`packages/cli/src/lib/generators/module-registry.ts`), used today by
+`sales` (`requires: ['catalog','customers','dictionaries']`) and
+`wms`. The first version of this document claimed AP declares this,
+but never designed it anywhere (no `index.ts` in
+Architecture/File Manifest) — fix: see Architecture → Module
 Dependency (`index.ts`), File Manifest.
 
-### Design decisions (2026-09-08 — Q1 resolved: podział na dwa moduły)
+### Design decisions (2026-09-08 — Q1 resolved: split into two modules)
 
-**Rozdzielono na `accounts_payable` (ten dokument — faktury) i
-`accounts_payable_payments` (siostrzany dokument — płatności).**
-Dwa niezależne, świeży-kontekst review (fresh-context, jak
-`spec-checklist.md` wymaga) doszły niezależnie do werdyktu SPLIT:
-osobne grupy ACL (`invoices.*` vs `payments.*`), osobne wywołania
-`postJournalEntry` do GL (dwa różne zapisy księgowe, dwa różne
-momenty), sprzężenie tylko przez FK (`PaymentBatchLine.vendorInvoiceId`
-— ten sam kształt co odwołanie do w pełni osobnego modułu Contractor
-Registry), osobna domena ryzyka prawnego (Biała Lista/MPP dotyczy
-tylko płatności, nie przyjęcia faktury). Kontrargument za COHESIVE
-(współdzielone konto zobowiązań, żywy dostęp do zatwierdzonych faktur
-przy budowaniu paczki) był realny, ale nie przeważył — a pierwsza
-wersja tego dokumentu uzasadniała "Pass" analogią do tego, jak GL
-zostawił `FiscalPeriod` w jednym dokumencie, co po sprawdzeniu okazało
-się nietrafnym porównaniem (GL's własny scope-cohesion check też
-zwrócił SPLIT i został tam utrzymany tylko przez jawną decyzję
-interesariusza, nie przez czyste uzasadnienie architektoniczne).
-Zespół potwierdził SPLIT 2026-09-08. Współdzielone konto zobowiązań
-(`accounts_payable.liabilityAccountId`) zostaje **celowo** własnością
-tego dokumentu (ustawiane przez jego config UI) i jest **czytane**
-przez `accounts_payable_payments` — to jedyny zamierzony punkt
-sprzężenia między dwoma modułami poza samym FK, udokumentowany
-explicite w obu dokumentach, żeby uniknąć rozjazdu.
+**Split into `accounts_payable` (this document — invoices) and
+`accounts_payable_payments` (sibling document — payments).** Two
+independent, fresh-context reviews (as `spec-checklist.md` requires)
+independently reached a SPLIT verdict: separate ACL groups
+(`invoices.*` vs `payments.*`), separate `postJournalEntry` calls to
+GL (two different postings, two different moments), coupling only
+through an FK (`PaymentBatchLine.vendorInvoiceId` — the same shape as
+referencing the fully separate Contractor Registry module), a separate
+legal-risk domain (the VAT whitelist/MPP applies only to payments, not
+invoice receipt). The counter-argument for COHESIVE (a shared liability
+account, live access to approved invoices when building a batch) was
+real, but didn't win out — and the first version of this document
+justified its "Pass" by analogy to how GL left `FiscalPeriod` in one
+document, which on inspection turned out to be a misleading
+comparison (GL's own scope-cohesion check also returned SPLIT and was
+only kept bundled by an explicit stakeholder decision, not a clean
+architectural justification). The team confirmed SPLIT on 2026-09-08.
+The shared liability account (`accounts_payable.liabilityAccountId`)
+remains **deliberately** owned by this document (set through its
+config UI) and is **read** by `accounts_payable_payments` — the one
+intentional coupling point between the two modules besides the FK
+itself, documented explicitly in both documents to avoid drift.
 
 ### Alternatives considered
 
 | Alternative | Why Rejected |
 |-------------|-------------|
-| `useGuardedMutation` prosty toggle dla approve/reject faktury | Nie ma pokrycia w żadnym realnym, zaimplementowanym precedensie repo dla decyzji approve/reject (tylko dla odwracalnych toggle jak GL lock/unlock); `sales.order-approval` — jedyny realny precedens tego typu decyzji — używa pełnego workflow engine |
-| Pominięcie konta 300 w Fazie 1, księgowanie wprost na konto zespołu 4 | Rozważone i odrzucone po konsultacji — ściana wprost i świadomie chce konta 300 już w Fazie 1 (nie jako brzegowy przypadek); przyjęto zamiast tego udokumentowaną, jednostronną lukę przejściową, patrz Design decisions powyżej |
-| Automatyczne mapowanie konto-per-dostawca/kategoria (silnik regułowy) | Brak jakiegokolwiek precedensu w repo dla tego typu mapowania (sprawdzone — nic podobnego nie istnieje); zbudowanie własnego silnika regułowego dla AP dublowałoby przyszły Posting Rules Engine (konto 490), który dokładnie to ma robić. Faza 1: ręczny wybór konta per pozycja faktury + tenant-owe wartości konfiguracyjne (patrz Data Models, Module Config) |
-| Zostawić faktury i płatności w jednym module `accounts_payable` | Odrzucone 2026-09-08 po dwóch niezależnych review — patrz Design decisions, "Q1 resolved" |
+| `useGuardedMutation` simple toggle for invoice approve/reject | Has no coverage in any real, implemented repo precedent for an approve/reject decision (only for reversible toggles like the GL lock/unlock); `sales.order-approval` — the only real precedent for this kind of decision — uses the full workflow engine |
+| Skip account 300 in Phase 1, post straight to the group-4 account | Considered and rejected after consultation — the wall explicitly and deliberately wants account 300 in Phase 1 already (not as an edge case); a documented, one-sided transitional gap was adopted instead, see Design decisions above |
+| Automatic vendor/category-to-account mapping (a rules engine) | No precedent whatsoever in the repo for this kind of mapping (verified — nothing similar exists); building AP's own rules engine would duplicate the future Posting Rules Engine (account 490), which is meant to do exactly this. Phase 1: manual account selection per invoice line + tenant-scoped configuration values (see Data Models, Module Config) |
+| Keep invoices and payments in one `accounts_payable` module | Rejected 2026-09-08 after two independent reviews — see Design decisions, "Q1 resolved" |
 
 ## User Stories
 
-- **Pracownik AP** chce **wprowadzić fakturę zakupową jako roboczą i
-  uzupełniać ją stopniowo**, żeby **nie blokować się na
-  jednorazowym, kompletnym wprowadzeniu wszystkich danych naraz**.
-- **Pracownik AP** chce **przesłać fakturę do akceptacji jednym
-  kliknięciem**, żeby **przełożony zobaczył ją w swoim panelu zadań
-  bez ręcznego powiadamiania**.
-- **Osoba akceptująca** chce **zatwierdzić albo odrzucić fakturę z
-  jednego ekranu, z opcjonalnym komentarzem**, żeby **decyzja była
-  udokumentowana i nieodwracalna bez śladu**.
-- **Główny księgowy** chce **mieć pewność, że zaksięgowana faktura
-  nigdy nie zniknie z konta 202 bez odpowiadającego zapisu
-  płatności** (rejestrowanego przez `accounts_payable_payments`), żeby
-  **rozrachunki z dostawcami zawsze się zgadzały** — to jest właśnie
-  ta cross-modułowa relacja, którą oba dokumenty muszą utrzymać
-  spójnie mimo podziału (patrz Design decisions, "Q1 resolved").
-- **Główny księgowy** chce **czytelny komunikat zamiast surowego błędu
-  komendy, gdy próbuje zaksięgować fakturę w zamkniętym okresie**,
-  żeby **wiedział, co dalej zrobić (przełożyć datę czy poprosić o
-  odblokowanie okresu)**.
+- **AP clerk** wants to **enter a purchase invoice as a draft and fill
+  it in progressively**, so they **don't get blocked on entering all
+  the data at once in a single pass**.
+- **AP clerk** wants to **submit an invoice for approval with one
+  click**, so the **approver sees it in their task panel without
+  manual notification**.
+- **Approver** wants to **approve or reject an invoice from a single
+  screen, with an optional comment**, so the **decision is documented
+  and irreversible without a trace**.
+- **Chief accountant** wants **certainty that a posted invoice never
+  disappears from account 202 without a matching payment entry**
+  (recorded by `accounts_payable_payments`), so **vendor reconciliation
+  always balances** — this is exactly the cross-module relationship
+  both documents must keep consistent despite the split (see Design
+  decisions, "Q1 resolved").
+- **Chief accountant** wants a **readable message instead of a raw
+  command error when trying to post an invoice in a closed period**, so
+  they **know what to do next (move the date, or ask for the period to
+  be unlocked)**.
 
 ## Architecture
 
 ### Entities (`data/entities.ts`)
 
-- `VendorInvoice` — `vendorId` (FK-id → `Contractor`, `uuid`, brak
-  relacji ORM), `vendorSnapshot` (nullable `json` — nazwa/NIP dostawcy
-  w momencie utworzenia faktury, wyłącznie do renderowania listy bez
-  live-joina; analogiczne do `SalesInvoice.customerSnapshot` po
-  stronie AR, ale to **inny** snapshot niż `JournalEntryLine.contractorSnapshot`
-  z GL — ten drugi powstaje dopiero przy księgowaniu i jest zapisem
-  audytowym GL, nie danymi UI tego modułu), `invoiceNumber` (własny
-  numer faktury dostawcy, wolny tekst — to nie jest dokument, który
-  numerujemy sami), `invoiceDate`, `dueDate`, `currencyId` (FK-id,
-  `uuid`, jak `JournalEntry.currencyId` w GL), `status`
-  (`DRAFT`/`PENDING_APPROVAL`/`APPROVED`/`REJECTED`/`POSTED`/
+- `VendorInvoice` — `vendorId` (FK-id → `Contractor`, `uuid`, no ORM
+  relation), `vendorSnapshot` (nullable `json` — the vendor's name/tax
+  ID at the time the invoice was created, purely for rendering the list
+  without a live join; analogous to `SalesInvoice.customerSnapshot` on
+  the AR side, but a **different** snapshot than GL's
+  `JournalEntryLine.contractorSnapshot` — the latter is created only at
+  posting time and is GL's own audit record, not this module's UI
+  data), `invoiceNumber` (the vendor's own invoice number, free text —
+  this isn't a document we number ourselves), `invoiceDate`, `dueDate`,
+  `currencyId` (FK-id, `uuid`, like `JournalEntry.currencyId` in GL),
+  `status` (`DRAFT`/`PENDING_APPROVAL`/`APPROVED`/`REJECTED`/`POSTED`/
   `CANCELLED`), `goodsReceiptReference` (nullable `uuid`, FK-id →
-  `wms.InventoryMovement.id` gdzie `type = 'receipt'`, brak relacji
-  ORM — patrz Design decisions), `totalNet`/`totalTax`/`totalGross`
-  (`numeric(19,4)`, wyliczane z pozycji), `postedJournalEntryId`
-  (nullable FK-id — ustawiane raz, po skutecznym `postJournalEntry`;
-  służy też jako idempotency guard przed podwójnym zaksięgowaniem),
-  tenant/org scoped, `updatedAt` (optymistyczna blokada aktywna dopóki
-  `status !== 'POSTED'`), `deletedAt` (soft delete, blokowany dla
-  statusów innych niż `DRAFT`/`REJECTED`/`CANCELLED` — patrz
-  Commands). **Czytana przez `accounts_payable_payments`** (FK-id
-  `PaymentBatchLine.vendorInvoiceId`, tylko faktury `POSTED` mogą
-  wejść do paczki płatniczej) — to jest cross-modułowy konsument tej
-  encji, patrz siostrzany dokument.
+  `wms.InventoryMovement.id` where `type = 'receipt'`, no ORM relation
+  — see Design decisions), `totalNet`/`totalTax`/`totalGross`
+  (`numeric(19,4)`, computed from the lines), `postedJournalEntryId`
+  (nullable FK-id — set once, after a successful `postJournalEntry`;
+  also serves as an idempotency guard against double posting),
+  tenant/org scoped, `updatedAt` (optimistic lock active as long as
+  `status !== 'POSTED'`), `deletedAt` (soft delete, blocked for
+  statuses other than `DRAFT`/`REJECTED`/`CANCELLED` — see Commands).
+  **Read by `accounts_payable_payments`** (FK-id
+  `PaymentBatchLine.vendorInvoiceId`, only `POSTED` invoices can enter
+  a payment batch) — this is a cross-module consumer of this entity,
+  see the sibling document.
 - `VendorInvoiceLine` — `vendorInvoiceId` (FK), `accountId` (FK-id →
-  `LedgerAccount`, oczekiwany w zespole 3 [konto 300] albo zespole 4
-  — walidowane na poziomie komendy, nie ograniczenia bazy, ta sama
-  konwencja co GL's `LedgerAccountType`/`LedgerAccount` bez wymuszania
-  numeracji w schemacie), `description`, `netAmount`, `taxRate`,
-  `taxAmount`, `grossAmount` (`numeric(19,4)`), własne
-  `organizationId`/`tenantId` (jak `ContractorBankAccount` — nie tylko
-  odziedziczone przez `vendorInvoiceId`).
+  `LedgerAccount`, expected in group 3 [account 300] or group 4 —
+  validated at the command level, not a database constraint, the same
+  convention as GL's `LedgerAccountType`/`LedgerAccount` without
+  enforcing numbering in the schema), `description`, `netAmount`,
+  `taxRate`, `taxAmount`, `grossAmount` (`numeric(19,4)`), its own
+  `organizationId`/`tenantId` (like `ContractorBankAccount` — not just
+  inherited through `vendorInvoiceId`).
 
 ### Access Control (`acl.ts`)
 
-Podążając za konwencją modułu `customers`/`ledger`
-(`<module>.<resource>.<action>`, `manage`/`post` zależne od `view`):
+Following the `customers`/`ledger` module convention
+(`<module>.<resource>.<action>`, `manage`/`post` depending on `view`):
 
 ```typescript
 export const features = [
@@ -390,39 +387,39 @@ export const features = [
 
 `createVendorInvoice`/`updateVendorInvoice`/`submitVendorInvoiceForApproval`
 require `accounts_payable.invoices.manage`; `postVendorInvoice`
-requires `accounts_payable.invoices.post` (osobno od `.manage` —
-mirror `ledger.accounts.manage` vs `ledger.entries.post`: samo
-edytowanie roboczej faktury to inna wrażliwość niż wysłanie
-nieodwracalnego zapisu do GL).
+requires `accounts_payable.invoices.post` (separate from `.manage` —
+mirroring `ledger.accounts.manage` vs `ledger.entries.post`: editing a
+draft invoice is a different sensitivity than sending an irreversible
+entry to GL).
 
-**Decyzja o approve/reject faktury nie ma własnej funkcjonalności
-ACL w tym module** — przechodzi przez `POST
-/api/workflows/tasks/:id/complete`, bramkowane `workflows.tasks.complete`
-z modułu `workflows` (patrz Cross-module integration) — to świadomy
-wybór spójności z jedynym realnym, produkcyjnym precedensem
-(`sales.order-approval` robi dokładnie tak samo; w module `workflows`
-istnieje też demo `workflows.simple-approval`, ale to jawnie oznaczony
-przykład testowy/demonstracyjny, nie precedens biznesowy), nie
-przeoczenie.
+**The invoice approve/reject decision has no ACL feature of its own in
+this module** — it goes through `POST
+/api/workflows/tasks/:id/complete`, gated by `workflows.tasks.complete`
+from the `workflows` module (see Cross-module integration) — a
+deliberate choice for consistency with the only real, production
+precedent (`sales.order-approval` does exactly the same; the
+`workflows` module also has a `workflows.simple-approval` demo, but
+that's explicitly marked as a test/demonstration example, not a
+business precedent), not an oversight.
 
-**Brak kontroli maker-checker (samo-akceptacji) w Fazie 1 —
-udokumentowane ryzyko, nie przeoczenie.** Domyślne `defaultRoleFeatures`
-dają roli `employee` zarówno `accounts_payable.invoices.manage`
-(potrzebne do wprowadzenia i przesłania faktury), jak i — pośrednio,
-przez `workflows.tasks.complete` z modułu `workflows` — możliwość
-dokończenia własnego zadania akceptacji. Nic w projekcie nie
-odróżnia "osoby, która wprowadziła fakturę" od "osoby akceptującej"
-(ten sam brak istnieje już w `sales.order-approval`, które AP
-mirroruje). Patrz Risks & Impact Review dla pełnego zapisu tego
-ryzyka.
+**No maker-checker control (self-approval) in Phase 1 — a documented
+risk, not an oversight.** The default `defaultRoleFeatures` grant the
+`employee` role both `accounts_payable.invoices.manage` (needed to
+enter and submit an invoice) and — indirectly, through
+`workflows.tasks.complete` from the `workflows` module — the ability
+to complete their own approval task. Nothing in the design
+distinguishes "the person who entered the invoice" from "the
+approver" (the same gap already exists in `sales.order-approval`,
+which AP mirrors). See Risks & Impact Review for the full record of
+this risk.
 
 ### Module Dependency (`index.ts`)
 
-GL jest twardym, zadeklarowanym dependency (patrz Design decisions,
-Cross-module integration) — nie opcjonalnym peerem. Wyrażone przez
-realny, zwalidowany przy generowaniu mechanizm `ModuleInfo.requires`
-(`packages/shared/src/modules/registry.ts`), już używany przez
-`sales` (`requires: ['catalog','customers','dictionaries']`) i `wms`:
+GL is a hard, declared dependency (see Design decisions, Cross-module
+integration) — not an optional peer. Expressed through the real,
+generation-time-validated `ModuleInfo.requires` mechanism
+(`packages/shared/src/modules/registry.ts`), already used by `sales`
+(`requires: ['catalog','customers','dictionaries']`) and `wms`:
 
 ```typescript
 // index.ts
@@ -434,17 +431,16 @@ export const metadata: ModuleInfo = {
 }
 ```
 
-`contractors` nie jest na tej liście — ten moduł tylko trzyma
-`vendorId` jako plain FK-id (żadnego `tryResolve`, żadnego wywołania
-serwisu); żywa weryfikacja Białej Listy żyje w
-`accounts_payable_payments`, nie tutaj.
+`contractors` is not on this list — this module only holds `vendorId`
+as a plain FK-id (no `tryResolve`, no service call); live VAT-whitelist
+verification lives in `accounts_payable_payments`, not here.
 
 ### Encryption (`encryption.ts`)
 
-`VendorInvoice.vendorSnapshot` przechowuje zdenormalizowaną nazwę i
-NIP dostawcy (patrz Entities) — strukturalnie identyczne do
-`SalesOrder.customerSnapshot`/`SalesQuote.customerSnapshot`, oba
-zadeklarowane w `sales/encryption.ts`. AP robi to samo:
+`VendorInvoice.vendorSnapshot` stores the vendor's denormalized name
+and tax ID (see Entities) — structurally identical to
+`SalesOrder.customerSnapshot`/`SalesQuote.customerSnapshot`, both
+declared in `sales/encryption.ts`. AP does the same:
 
 ```typescript
 // encryption.ts
@@ -453,8 +449,8 @@ export const defaultEncryptionMaps = {
 }
 ```
 
-Odczyty przez `findWithDecryption`/`findOneWithDecryption`, z
-`tenantId`/`organizationId` zawsze przekazywanymi — jak wymaga
+Reads go through `findWithDecryption`/`findOneWithDecryption`, always
+passing `tenantId`/`organizationId` — as required by
 `packages/core/AGENTS.md` → Encryption.
 
 ### Module Setup (`setup.ts`)
@@ -469,11 +465,11 @@ defaultRoleFeatures: {
 },
 
 async seedDefaults({ em, tenantId, organizationId }) {
-  // Rejestruje domyślny workflow 'accounts_payable.invoice-approval'
-  // przez createWorkflowsModuleConfig — patrz Workflow definition
-  // poniżej. Nie zapisuje żadnych wierszy samo w sobie: definicja
-  // kodowa (source: 'code') jest projektowana przez workflows
-  // dopóki nikt jej nie zmaterializuje w bazie (patrz
+  // Registers the default 'accounts_payable.invoice-approval' workflow
+  // through createWorkflowsModuleConfig — see Workflow definition
+  // below. Doesn't write any rows itself: the code-defined
+  // configuration (source: 'code') is projected by workflows until
+  // someone materializes it in the database (see
   // packages/core/src/modules/workflows/AGENTS.md → Trigger Sources
   // And Precedence).
 }
@@ -481,60 +477,60 @@ async seedDefaults({ em, tenantId, organizationId }) {
 
 ### Commands (Command Pattern, `commands/`)
 
-- `createVendorInvoice` / `updateVendorInvoice` — tylko status
-  `DRAFT`. Waliduje sumy pozycji (`netAmount`+`taxAmount` =
-  `grossAmount` per linia, suma linii = `totalNet`/`totalTax`/
-  `totalGross` na nagłówku). Nie waliduje weryfikacji dostawcy —
-  faktura robocza może istnieć zanim dostawca zostanie w pełni
-  zweryfikowany w GUS/VIES (to blokuje dopiero płatność w
-  `accounts_payable_payments`, nie wprowadzenie faktury).
+- `createVendorInvoice` / `updateVendorInvoice` — `DRAFT` status only.
+  Validates line totals (`netAmount`+`taxAmount` = `grossAmount` per
+  line, sum of lines = header `totalNet`/`totalTax`/`totalGross`).
+  Does not validate vendor verification — a draft invoice can exist
+  before the vendor is fully verified in GUS/VIES (that only blocks
+  payment in `accounts_payable_payments`, not entering the invoice).
 - `submitVendorInvoiceForApproval` — `DRAFT` → `PENDING_APPROVAL`.
-  Emituje `accounts_payable.vendor_invoice.submitted` (persistent) —
-  to jest jedyny sposób uruchomienia workflow-u akceptacji, patrz
-  Workflow definition. Wymaga co najmniej jednej pozycji.
-- `applyVendorInvoiceApprovalDecision` — wołana **tylko** wewnątrz
-  workflow-u (nie z UI wprost — patrz Workflow definition), przez
-  `UPDATE_ENTITY`, `PENDING_APPROVAL` → `APPROVED` albo `REJECTED` i
-  nic więcej (nie przyjmuje żadnych innych pól). Zarejestrowana
-  osobno w `registerWorkflowSafeCommands`, wymaga
-  `accounts_payable.invoices.manage`. **Celowo nie jest
-  `updateVendorInvoice`** — patrz Design decisions ("Obieg akceptacji
-  woła osobną, wąską komendę") dla sprzeczności, którą to unika.
-- `postVendorInvoice` — `APPROVED` → `POSTED`. Resolves
-  `commandBus` z kontenera (patrz Cross-module integration) i woła
-  `ledger.postJournalEntry` z: jedną linią DR **netto** per
-  `VendorInvoiceLine` (na jej `accountId`, kwota `netAmount`, nie
-  `grossAmount` — patrz Design decisions, "VAT naliczony dostaje
-  własne konto"), jedną zagregowaną linią DR na skonfigurowane konto
-  VAT naliczonego (`accounts_payable.vatInputAccountId`, suma
-  `taxAmount` wszystkich pozycji — pomijana, jeśli suma wynosi zero)
-  i jedną linią CR na skonfigurowane konto zobowiązań
-  (`accounts_payable.liabilityAccountId`, pełna kwota `totalGross` —
-  `ModuleConfigService`, patrz Data Models — **ta sama wartość
-  konfiguracyjna, którą później czyta `accounts_payable_payments`**),
-  z `referenceType: 'accounts_payable:vendor_invoice'`,
-  `referenceId: invoice.id`. Ustawia `postedJournalEntryId`
-  wyłącznie po sukcesie (idempotency guard — ponowne wywołanie na
-  fakturze, która ma już `postedJournalEntryId`, jest no-opem, nie
-  duplikuje zapisu). **Obsługa zablokowanego okresu**: jeśli
-  `ledger.postJournalEntry` odrzuci wywołanie (okres pokrywający
-  `invoiceDate`/`postedAt` jest zablokowany), `postVendorInvoice`
-  łapie ten błąd i zwraca czytelny komunikat domenowy
-  (`FISCAL_PERIOD_LOCKED`, z nazwą/zakresem zablokowanego okresu) —
-  faktura zostaje w stanie `APPROVED` (nie traci akceptacji, nie
-  wraca do `DRAFT`), gotowa do ponownej próby po odblokowaniu okresu
-  albo do ręcznej zmiany `invoiceDate` na aktualnie otwarty okres
-  przez główną księgową. To domyka Design decision, który w
-  szkielecie był otwarty ("obsługa jeszcze niezaprojektowana").
-- `cancelVendorInvoice` — `DRAFT`/`REJECTED` → `CANCELLED`
-  (soft-delete via `deletedAt`). Zablokowane dla `PENDING_APPROVAL`/
-  `APPROVED`/`POSTED`.
+  Emits `accounts_payable.vendor_invoice.submitted` (persistent) — the
+  only way to start the approval workflow, see Workflow definition.
+  Requires at least one line.
+- `applyVendorInvoiceApprovalDecision` — called **only** from inside
+  the workflow (not directly from the UI — see Workflow definition),
+  via `UPDATE_ENTITY`, `PENDING_APPROVAL` → `APPROVED` or `REJECTED`
+  and nothing else (accepts no other fields). Registered separately in
+  `registerWorkflowSafeCommands`, requires
+  `accounts_payable.invoices.manage`. **Deliberately not
+  `updateVendorInvoice`** — see Design decisions ("The approval flow
+  calls a separate, narrow command") for the contradiction this
+  avoids.
+- `postVendorInvoice` — `APPROVED` → `POSTED`. Resolves `commandBus`
+  from the container (see Cross-module integration) and calls
+  `ledger.postJournalEntry` with: one **net** DR line per
+  `VendorInvoiceLine` (on its `accountId`, the `netAmount`, not
+  `grossAmount` — see Design decisions, "Input VAT gets its own
+  account"), one aggregated DR line to the configured input-VAT
+  account (`accounts_payable.vatInputAccountId`, the sum of
+  `taxAmount` across all lines — skipped if the sum is zero), and one
+  CR line to the configured liability account
+  (`accounts_payable.liabilityAccountId`, the full `totalGross` amount
+  — `ModuleConfigService`, see Data Models — **the same configuration
+  value that `accounts_payable_payments` reads later**), with
+  `referenceType: 'accounts_payable:vendor_invoice'`,
+  `referenceId: invoice.id`. Sets `postedJournalEntryId` only after
+  success (idempotency guard — a repeat call on an invoice that
+  already has `postedJournalEntryId` is a no-op, not a duplicate
+  entry). **Locked-period handling**: if `ledger.postJournalEntry`
+  rejects the call (the period covering `invoiceDate`/`postedAt` is
+  locked), `postVendorInvoice` catches that error and returns a
+  readable domain message (`FISCAL_PERIOD_LOCKED`, with the name/range
+  of the locked period) — the invoice stays in `APPROVED` (it doesn't
+  lose its approval, doesn't revert to `DRAFT`), ready for a retry once
+  the period is unlocked or for a manual change of `invoiceDate` to the
+  currently open period by the chief accountant. This closes a design
+  decision that was still open in the skeleton ("handling not yet
+  designed").
+- `cancelVendorInvoice` — `DRAFT`/`REJECTED` → `CANCELLED` (soft
+  delete via `deletedAt`). Blocked for `PENDING_APPROVAL`/`APPROVED`/
+  `POSTED`.
 
 ### Workflow definition (`workflows.ts`)
 
-Mirror 1:1 wzorca `sales.order-approval`
-(`packages/core/src/modules/sales/workflows.ts`) — nie nowy
-mechanizm, ten sam:
+A 1:1 mirror of the `sales.order-approval` pattern
+(`packages/core/src/modules/sales/workflows.ts`) — not a new
+mechanism, the same one:
 
 ```typescript
 import { defineWorkflow, createWorkflowsModuleConfig } from '@open-mercato/shared/modules/workflows'
@@ -570,8 +566,8 @@ const invoiceApproval = defineWorkflow({
   ] as const,
   transitions: [ /* start→pending_approval (auto), pending_approval→approved
                     (preCondition: decision === 'approve'), pending_approval→rejected
-                    (preCondition: decision === 'reject'), both →end — identyczna
-                    struktura co sales.order-approval, patrz ten plik */ ],
+                    (preCondition: decision === 'reject'), both →end — identical
+                    structure to sales.order-approval, see that file */ ],
   triggers: [{
     triggerId: 'invoice_approval_trigger',
     eventPattern: 'accounts_payable.vendor_invoice.submitted',
@@ -589,15 +585,15 @@ export const workflowsConfig = createWorkflowsModuleConfig({
 export default workflowsConfig
 ```
 
-Jedna różnica strukturalna wobec `sales.order-approval` — nie
-kosmetyczna, wynika wprost z Design decisions: sales uruchamia workflow
-natychmiast po **utworzeniu** zamówienia (`eventPattern:
-'sales.order.created'` — zamówienie nie ma osobnego stanu roboczego
-przed wysłaniem do akceptacji). AP ma jawny stan `DRAFT` przed
-akceptacją (Design decision: "Bez stanu przed-zaksięgowania nie da się
-zbudować obiegu akceptacji"), więc trigger wiąże się z osobnym
-zdarzeniem `accounts_payable.vendor_invoice.submitted`, emitowanym
-dopiero przez `submitVendorInvoiceForApproval` — nie z
+One structural difference from `sales.order-approval` — not
+cosmetic, it follows directly from Design decisions: sales starts its
+workflow immediately on **order creation** (`eventPattern:
+'sales.order.created'` — the order has no separate draft state before
+being sent for approval). AP has an explicit `DRAFT` state before
+approval (Design decision: "Without a pre-posting state there's no way
+to build an approval flow"), so the trigger binds to a separate event,
+`accounts_payable.vendor_invoice.submitted`, emitted only by
+`submitVendorInvoiceForApproval` — not by
 `accounts_payable.vendor_invoice.created`.
 
 ### Events (`events.ts`)
@@ -612,47 +608,47 @@ const events = [
 ] as const
 ```
 
-`accounts_payable.vendor_invoice.posted` jest ephemeral (mirror
-`ledger.journal_entry.posted`) — żaden subscriber persistentny nie
-jest jeszcze potrzebny w Fazie 1; przyszły Posting Rules Engine
-subskrybuje bezpośrednio `ledger.journal_entry.posted` (z GL), nie
-zdarzenia AP — AP nie jest jego źródłem danych, GL jest (patrz
+`accounts_payable.vendor_invoice.posted` is ephemeral (mirroring
+`ledger.journal_entry.posted`) — no persistent subscriber is needed
+yet in Phase 1; the future Posting Rules Engine subscribes directly to
+`ledger.journal_entry.posted` (from GL), not to AP's events — AP isn't
+its data source, GL is (see
 `2026-09-06-posting-rules-engine.md`). `accounts_payable_payments`
-**nie** subskrybuje żadnego z powyższych zdarzeń — czyta status
-`VendorInvoice` bezpośrednio (query, nie event) przy budowaniu paczki
-płatniczej, patrz siostrzany dokument.
+does **not** subscribe to any of the above events — it reads
+`VendorInvoice` status directly (a query, not an event) when building
+a payment batch, see the sibling document.
 
 ### Cross-module integration
 
-- **GL (`ledger.postJournalEntry`) — twardy, zadeklarowany dependency,
-  nie opcjonalny peer.** `packages/core/AGENTS.md` → Cross-Module
-  Coupling opisuje `tryResolve` dla integracji **opcjonalnej**; GL nie
-  jest tu opcjonalne (moduł AP bez GL nie ma sensu funkcjonalnego).
-  AP woła `container.resolve('commandBus').execute('ledger.postJournalEntry', input, ctx)`
-  — ten sam generyczny mechanizm, którego `workflows`'
-  `UPDATE_ENTITY` już używa do wołania dowolnej komendy po stringowym
-  `commandId`. Brak degradacji do zaprojektowania: jeśli `ledger` jest
-  wyłączony, AP po prostu nie działa (podobnie jak GL bez `ledger`
-  samo w sobie nie działa) — to jest oczekiwane, nie błąd do
-  obsłużenia.
-- **Contractor Registry — plain FK-id, bez integracji.** `vendorId`
-  jest zwykłym FK-id (jak każde inne w tym repo); ten moduł nigdy nie
-  resolves ani nie woła żadnego serwisu z `contractors`. Żywa
-  weryfikacja Białej Listy (`contractorBankWhitelistCheck` przez
-  `tryResolve`, fail-closed) żyje wyłącznie w
-  `accounts_payable_payments` — patrz ten dokument.
+- **GL (`ledger.postJournalEntry`) — a hard, declared dependency, not
+  an optional peer.** `packages/core/AGENTS.md` → Cross-Module
+  Coupling describes `tryResolve` for **optional** integration; GL
+  isn't optional here (an AP module without GL has no functional
+  meaning). AP calls
+  `container.resolve('commandBus').execute('ledger.postJournalEntry', input, ctx)`
+  — the same generic mechanism that `workflows`'
+  `UPDATE_ENTITY` already uses to call any command by string
+  `commandId`. No degradation to design: if `ledger` is disabled, AP
+  simply doesn't work (much like GL itself doesn't work without
+  `ledger`) — that's expected, not an error to handle.
+- **Contractor Registry — plain FK-id, no integration.** `vendorId` is
+  a plain FK-id (like every other one in this repo); this module never
+  resolves or calls any service from `contractors`. Live VAT-whitelist
+  verification (`contractorBankWhitelistCheck` through `tryResolve`,
+  fail-closed) lives exclusively in `accounts_payable_payments` — see
+  that document.
 
 ### Backend Pages (`backend/accounts_payable/`)
 
-- `invoices/page.tsx` — `DataTable` faktur (status, dostawca z
-  `vendorSnapshot`, kwota, termin płatności).
+- `invoices/page.tsx` — invoice `DataTable` (status, vendor from
+  `vendorSnapshot`, amount, due date).
 - `invoices/create/page.tsx`, `invoices/[id]/page.tsx` — `CrudForm`
-  z pozycjami faktury jako inline sub-listą; edytowalne tylko w
-  `DRAFT`. Wstrzyknięty widget zadania akceptacji (analogiczny do
-  `widgets/injection/order-approval/`) na spot ID
-  `accounts_payable.vendor_invoice.detail:details`, widoczny gdy
-  status to `PENDING_APPROVAL` i istnieje zadanie przypisane
-  bieżącemu użytkownikowi.
+  with invoice lines as an inline sub-list; editable only in `DRAFT`.
+  An injected approval-task widget (analogous to
+  `widgets/injection/order-approval/`) at spot ID
+  `accounts_payable.vendor_invoice.detail:details`, visible when the
+  status is `PENDING_APPROVAL` and there's a task assigned to the
+  current user.
 
 ## Data Models
 
@@ -660,55 +656,54 @@ płatniczej, patrz siostrzany dokument.
 
 - `id`: uuid (PK)
 - `tenant_id`, `organization_id`: uuid
-- `vendor_id`: uuid (FK-id → `contractors.Contractor`, brak relacji ORM)
+- `vendor_id`: uuid (FK-id → `contractors.Contractor`, no ORM relation)
 - `vendor_snapshot`: json, nullable
 - `invoice_number`: text
 - `invoice_date`, `due_date`: date
-- `currency_id`: uuid (FK-id → `currencies.Currency`, brak relacji ORM)
+- `currency_id`: uuid (FK-id → `currencies.Currency`, no ORM relation)
 - `status`: text (`DRAFT`/`PENDING_APPROVAL`/`APPROVED`/`REJECTED`/`POSTED`/`CANCELLED`)
 - `goods_receipt_reference`: uuid, nullable (FK-id → `wms.InventoryMovement`)
 - `total_net`, `total_tax`, `total_gross`: numeric(19,4)
 - `posted_journal_entry_id`: uuid, nullable (FK-id → `ledger.JournalEntry`)
-- `updated_at`: timestamptz, nullable (optymistyczna blokada, aktywna dopóki `status <> 'POSTED'`)
+- `updated_at`: timestamptz, nullable (optimistic lock, active as long as `status <> 'POSTED'`)
 - `deleted_at`: timestamptz, nullable
 
-Wspierający indeks dla list faktur (status, dostawca, termin
-płatności — patrz API Contracts): `(tenant_id, organization_id,
-status, due_date)`. Osobny indeks `(tenant_id, organization_id,
-vendor_id)` dla filtra po dostawcy i dla `accounts_payable_payments`'s
-zapytania "zatwierdzone, niezapłacone faktury tego dostawcy" (patrz
-siostrzany dokument's Cross-module integration).
+Supporting index for the invoice list (status, vendor, due date — see
+API Contracts): `(tenant_id, organization_id, status, due_date)`. A
+separate index `(tenant_id, organization_id, vendor_id)` for the
+vendor filter and for `accounts_payable_payments`'s query for
+"approved, unpaid invoices for this vendor" (see the sibling document's
+Cross-module integration).
 
 ### VendorInvoiceLine
 
 - `id`: uuid (PK)
 - `vendor_invoice_id`: uuid (FK)
-- `tenant_id`, `organization_id`: uuid (własne, nie tylko odziedziczone)
-- `account_id`: uuid (FK-id → `ledger.LedgerAccount`, brak relacji ORM)
+- `tenant_id`, `organization_id`: uuid (own, not just inherited)
+- `account_id`: uuid (FK-id → `ledger.LedgerAccount`, no ORM relation)
 - `description`: text
 - `net_amount`, `tax_rate`, `tax_amount`, `gross_amount`: numeric(19,4)
 
-Wspierający indeks: `(vendor_invoice_id)` dla ładowania pozycji faktury.
+Supporting index: `(vendor_invoice_id)` for loading invoice lines.
 
 ### Module Config (`ModuleConfigService`, tenant scope)
 
-Zamiast budować własny silnik mapowania konto-per-dostawca/kategoria
-(odrzucone, patrz Alternatives considered), AP przechowuje dwie
-tenant-owe wartości konfiguracyjne przez
+Instead of building its own vendor/category-to-account mapping engine
+(rejected, see Alternatives considered), AP stores exactly two
+tenant-scoped configuration values through
 `src/modules/configs/lib/module-config-service.ts`:
 
-- `accounts_payable.liabilityAccountId` — `LedgerAccount.id` konta
-  zobowiązań wobec dostawców (np. "202"), używane jako CR w
-  `postVendorInvoice`. **Własność tego dokumentu, ale czytane też
-  przez `accounts_payable_payments`** (jako DR w jego
-  `markPaymentBatchSent`) — to jedyny zamierzony, udokumentowany punkt
-  współdzielonej konfiguracji między dwoma dokumentami (patrz Design
-  decisions, "Q1 resolved"). Ustawiane raz, w tym dokumencie's config
-  UI.
-- `accounts_payable.vatInputAccountId` — `LedgerAccount.id` konta VAT
-  naliczonego (np. "223"), używane jako zagregowana DR w
-  `postVendorInvoice` (patrz Design decisions, "VAT naliczony dostaje
-  własne konto"). Używane wyłącznie w tym dokumencie.
+- `accounts_payable.liabilityAccountId` — the `LedgerAccount.id` of the
+  vendor liability account (e.g. "202"), used as the CR in
+  `postVendorInvoice`. **Owned by this document, but also read by
+  `accounts_payable_payments`** (as the DR in its
+  `markPaymentBatchSent`) — the one intentional, documented shared
+  configuration point between the two documents (see Design decisions,
+  "Q1 resolved"). Set once, in this document's config UI.
+- `accounts_payable.vatInputAccountId` — the `LedgerAccount.id` of the
+  input-VAT account (e.g. "223"), used as the aggregated DR in
+  `postVendorInvoice` (see Design decisions, "Input VAT gets its own
+  account"). Used exclusively in this document.
 
 ## API Contracts
 
@@ -745,11 +740,11 @@ hook (`packages/shared/src/lib/crud/factory.ts`, real precedent:
 ### `POST /api/accounts_payable/invoices/:id/submit`
 
 Custom write route wired through the mutation guard registry (mapped
-to `update`), per `packages/core/AGENTS.md` → API Routes — nie jest
-edycją pola, więc nie idzie przez `makeCrudRoute`.
+to `update`), per `packages/core/AGENTS.md` → API Routes — this isn't
+a field edit, so it doesn't go through `makeCrudRoute`.
 
 - **Response 200**: `{ id, status: 'PENDING_APPROVAL' }`.
-- **Response 409**: `status !== 'DRAFT'` albo brak pozycji.
+- **Response 409**: `status !== 'DRAFT'` or no lines.
 - **Response 403**: caller lacks `accounts_payable.invoices.manage`.
 
 ### `POST /api/accounts_payable/invoices/:id/post`
@@ -759,68 +754,67 @@ Custom write route (mapped to `update`).
 - **Response 200**: `{ id, status: 'POSTED', postedJournalEntryId }`.
 - **Response 409**: `status !== 'APPROVED'`.
 - **Response 422 `FISCAL_PERIOD_LOCKED`**: `{ code:
-  'FISCAL_PERIOD_LOCKED', periodStart, periodEnd }` — okres
-  pokrywający `invoiceDate` jest zablokowany; faktura zostaje w
-  `APPROVED`. **Uwaga koordynacyjna**: GL's własny spec
-  (`2026-08-18-general-ledger-core-engine.md`) opisuje, że
-  `postJournalEntry` odrzuca zablokowany okres, ale nie definiuje
-  żadnego typowanego kodu błędu dla tego odrzucenia — `code:
-  'FISCAL_PERIOD_LOCKED'` jest **propozycją tego dokumentu**, nie
-  potwierdzonym kontraktem GL. Wymaga uzgodnienia z GL's implementacją
-  (albo GL doda dyskryminator błędu, albo `postVendorInvoice` będzie
-  musiał rozpoznawać odrzucenie po treści/klasie wyjątku — do
-  ustalenia przy implementacji, nie rozstrzygnięte tym spec-em samym
-  w sobie).
+  'FISCAL_PERIOD_LOCKED', periodStart, periodEnd }` — the period
+  covering `invoiceDate` is locked; the invoice stays `APPROVED`.
+  **Coordination note**: GL's own spec
+  (`2026-08-18-general-ledger-core-engine.md`) describes
+  `postJournalEntry` rejecting a locked period, but defines no typed
+  error code for that rejection — `code: 'FISCAL_PERIOD_LOCKED'` is
+  **this document's own proposal**, not a confirmed GL contract.
+  Requires agreement with GL's implementation (either GL adds an
+  error discriminator, or `postVendorInvoice` will have to recognize
+  the rejection by exception content/class — to be settled at
+  implementation time, not resolved by this spec on its own).
 - **Response 403**: caller lacks `accounts_payable.invoices.post`.
 
 ## Migration & Deployment
 
-Nowe, addytywne tabele: `accounts_payable_vendor_invoices`,
-`accounts_payable_vendor_invoice_lines` — zero zmian w istniejących
-tabelach innych modułów (GL, Contractor Registry). `onTenantCreated`
-w `setup.ts` zapisuje puste wartości domyślne dla
-`accounts_payable.liabilityAccountId`/`vatInputAccountId` (rekord w
-`module_configs` z `tenant_id` ustawionym) — nie może wybrać
-sensownej wartości automatycznie (zależy od faktycznego planu kont
-tenant-a, tworzonego ręcznie przez `ledger.createLedgerAccount`), więc
-`postVendorInvoice` odrzuca wywołanie czytelnym błędem
-konfiguracyjnym dopóki księgowy nie ustawi obu wartości przez ekran
-konfiguracji modułu. **`accounts_payable_payments`'s wdrożenie zależy
-od `liabilityAccountId` będącego już ustawionym tutaj** — kolejność
-wdrożenia: ten moduł najpierw, siostrzany moduł potem.
+New, additive tables: `accounts_payable_vendor_invoices`,
+`accounts_payable_vendor_invoice_lines` — zero changes to existing
+tables in other modules (GL, Contractor Registry). `onTenantCreated`
+in `setup.ts` writes empty default values for
+`accounts_payable.liabilityAccountId`/`vatInputAccountId` (a row in
+`module_configs` with `tenant_id` set) — it can't pick a sensible value
+automatically (it depends on the tenant's actual chart of accounts,
+created manually through `ledger.createLedgerAccount`), so
+`postVendorInvoice` rejects the call with a readable configuration
+error until the accountant sets both values through the module
+configuration screen. **`accounts_payable_payments`'s rollout depends
+on `liabilityAccountId` already being set here** — rollout order: this
+module first, the sibling module second.
 
 ## Implementation Plan
 
-### Phase 1: Faktury, akceptacja, księgowanie
+### Phase 1: Invoices, approval, posting
 
-1. `index.ts` (`metadata.requires: ['ledger']`) + encje + migracja
-   (dwie tabele powyżej) + indeksy z Data Models +
+1. `index.ts` (`metadata.requires: ['ledger']`) + entities + migration
+   (the two tables above) + indexes from Data Models +
    `encryption.ts` (`vendor_snapshot`).
-2. `acl.ts` + `setup.ts` (role, `defaultRoleFeatures`).
+2. `acl.ts` + `setup.ts` (roles, `defaultRoleFeatures`).
 3. `createVendorInvoice` / `updateVendorInvoice`.
-4. `submitVendorInvoiceForApproval` + `events.ts` (deklaracja
-   `accounts_payable.vendor_invoice.submitted` i pozostałych).
-5. `workflows.ts` (definicja `accounts_payable.invoice-approval`,
-   `registerWorkflowSafeCommands` na `applyVendorInvoiceApprovalDecision`)
-   + `applyVendorInvoiceApprovalDecision` + wstrzyknięty widget
-   akceptacji na `backend/accounts_payable/invoices/[id]/page.tsx`.
-6. `postVendorInvoice` (wywołanie `commandBus` → `ledger.postJournalEntry`
-   z trzema nogami — netto/VAT/zobowiązania, patrz Commands — obsługa
+4. `submitVendorInvoiceForApproval` + `events.ts` (declaring
+   `accounts_payable.vendor_invoice.submitted` and the rest).
+5. `workflows.ts` (the `accounts_payable.invoice-approval` definition,
+   `registerWorkflowSafeCommands` on `applyVendorInvoiceApprovalDecision`)
+   + `applyVendorInvoiceApprovalDecision` + the injected approval
+   widget on `backend/accounts_payable/invoices/[id]/page.tsx`.
+6. `postVendorInvoice` (the `commandBus` call → `ledger.postJournalEntry`
+   with three legs — net/VAT/liability, see Commands — handling
    `FISCAL_PERIOD_LOCKED`).
-7. API routes + `api/openapi.ts` (w tym `DELETE`).
+7. API routes + `api/openapi.ts` (including `DELETE`).
 8. Backend pages (invoices list/create/edit).
-9. Moduł config UI (ustawienie `liabilityAccountId`/`vatInputAccountId`).
-10. Unit + integration test coverage (patrz Testing Strategy).
+9. Module config UI (setting `liabilityAccountId`/`vatInputAccountId`).
+10. Unit + integration test coverage (see Testing Strategy).
 
 ### Phase 2 (deferred)
 
-- Purchase Order / three-way matching (`matchToOrder`), gdy powstanie
-  finansowe księgowanie PZ w WMS.
-- Wielostopniowy, progowy obieg akceptacji (kwotowe progi,
-  wieloosobowe ścieżki).
-- Automatyczne mapowanie konto-per-dostawca/kategoria — dopiero gdy
-  Posting Rules Engine (konto 490) będzie gotowy, żeby nie dublować
-  tego samego mechanizmu dwa razy.
+- Purchase Order / three-way matching (`matchToOrder`), once financial
+  goods-receipt posting exists in WMS.
+- Multi-step, threshold-based approval flow (amount thresholds,
+  multi-person paths).
+- Automatic vendor/category-to-account mapping — only once the
+  Posting Rules Engine (account 490) is ready, so the same mechanism
+  isn't duplicated twice.
 
 ### File Manifest
 
@@ -828,15 +822,15 @@ wdrożenia: ten moduł najpierw, siostrzany moduł potem.
 |------|--------|---------|
 | `index.ts` | Create | `metadata.requires: ['ledger']` — hard dependency |
 | `data/entities.ts` | Create | `VendorInvoice`, `VendorInvoiceLine` |
-| `acl.ts` | Create | Trzy funkcjonalności (view/manage/post) |
-| `setup.ts` | Create | `defaultRoleFeatures`; `onTenantCreated` zapisujący puste `module_configs` wartości |
-| `encryption.ts` | Create | `vendor_snapshot` (mirror `sales`'s `customer_snapshot`) |
-| `events.ts` | Create | Pięć zdarzeń (patrz Events) |
-| `workflows.ts` | Create | Definicja `accounts_payable.invoice-approval`, `registerWorkflowSafeCommands` na `applyVendorInvoiceApprovalDecision` |
+| `acl.ts` | Create | Three features (view/manage/post) |
+| `setup.ts` | Create | `defaultRoleFeatures`; `onTenantCreated` writing empty `module_configs` values |
+| `encryption.ts` | Create | `vendor_snapshot` (mirroring `sales`'s `customer_snapshot`) |
+| `events.ts` | Create | Five events (see Events) |
+| `workflows.ts` | Create | The `accounts_payable.invoice-approval` definition, `registerWorkflowSafeCommands` on `applyVendorInvoiceApprovalDecision` |
 | `commands/vendorInvoices.ts` | Create | `createVendorInvoice`, `updateVendorInvoice`, `submitVendorInvoiceForApproval`, `applyVendorInvoiceApprovalDecision`, `postVendorInvoice`, `cancelVendorInvoice` |
-| `widgets/injection/invoice-approval/` | Create | Widget zadania akceptacji, mirror `sales`'s `order-approval` |
-| `api/openapi.ts` | Create | `openApi` exports dla wszystkich tras `accounts_payable` |
-| `api/invoices/route.ts` | Create | `VendorInvoice` CRUD (`makeCrudRoute`), w tym `beforeDelete`-guarded `DELETE` |
+| `widgets/injection/invoice-approval/` | Create | Approval-task widget, mirroring `sales`'s `order-approval` |
+| `api/openapi.ts` | Create | `openApi` exports for every `accounts_payable` route |
+| `api/invoices/route.ts` | Create | `VendorInvoice` CRUD (`makeCrudRoute`), including the `beforeDelete`-guarded `DELETE` |
 | `api/invoices/[id]/submit/route.ts`, `.../post/route.ts` | Create | Custom guarded write routes |
 | `backend/accounts_payable/invoices/page.tsx` (+ create/[id]) | Create | Vendor invoice list/create/edit UI |
 | `backend/config/accounts_payable/page.tsx` | Create | `liabilityAccountId`/`vatInputAccountId` config UI |
@@ -845,155 +839,157 @@ wdrożenia: ten moduł najpierw, siostrzany moduł potem.
 
 ## Testing Strategy
 
-- Utworzyć fakturę roboczą, edytować, przesłać do akceptacji;
-  zaakceptować przez `POST /api/workflows/tasks/:id/complete`; assert
-  status `APPROVED` i zdarzenie `accounts_payable.vendor_invoice.approved`
-  wyemitowane.
-- To samo dla odrzucenia — assert `REJECTED`, faktura nie może być
-  zaksięgowana ani ponownie przesłana bez powrotu do `DRAFT`.
-- Zaksięgować zatwierdzoną fakturę; assert zbalansowany
-  `JournalEntry` z poprawnym `referenceType`/`referenceId`, drugie
-  wywołanie `postVendorInvoice` na tej samej fakturze jest no-opem
-  (idempotency guard).
-- Zaksięgować fakturę z `invoiceDate` w zablokowanym okresie; assert
-  odpowiedź `422 FISCAL_PERIOD_LOCKED`, faktura zostaje `APPROVED`.
-- Regression test dla konta 300: zaksięgować dwie faktury z liniami na
-  konto 300; assert, że `JournalEntry` per faktura jest zbalansowany
-  *wewnętrznie* (to sprawdza tylko poprawność pojedynczego zapisu — nie
-  jest testem na "saldo konta 300 się zeruje", bo z założenia się nie
-  zeruje w Fazie 1, patrz Design decisions i Risks).
-- Regression test dla VAT: zaksięgować fakturę z dwiema pozycjami o
-  różnych `taxRate`; assert, że `JournalEntry` ma osobną linię DR na
-  `vatInputAccountId` równą sumie `taxAmount` obu pozycji, że linie na
-  `accountId` per pozycja niosą **netto** (nie brutto), i że CR na
-  `liabilityAccountId` równa się `totalGross`.
+- Create a draft invoice, edit it, submit it for approval; approve it
+  through `POST /api/workflows/tasks/:id/complete`; assert status
+  `APPROVED` and the `accounts_payable.vendor_invoice.approved` event
+  emitted.
+- Same for rejection — assert `REJECTED`, the invoice can't be posted
+  or resubmitted without returning to `DRAFT`.
+- Post an approved invoice; assert a balanced `JournalEntry` with the
+  correct `referenceType`/`referenceId`, a second call to
+  `postVendorInvoice` on the same invoice is a no-op (idempotency
+  guard).
+- Post an invoice with `invoiceDate` in a locked period; assert a
+  `422 FISCAL_PERIOD_LOCKED` response, the invoice stays `APPROVED`.
+- Account-300 regression test: post two invoices with lines on account
+  300; assert that the `JournalEntry` per invoice is balanced
+  *internally* (this only checks the correctness of a single entry —
+  it is not a test that "account 300's balance zeroes out", since by
+  design it doesn't in Phase 1, see Design decisions and Risks).
+- VAT regression test: post an invoice with two lines at different
+  `taxRate` values; assert that the `JournalEntry` has a separate DR
+  line on `vatInputAccountId` equal to the sum of `taxAmount` across
+  both lines, that the lines on `accountId` per line carry **net**
+  amounts (not gross), and that the CR on `liabilityAccountId` equals
+  `totalGross`.
 
 ## Risks & Impact Review
 
 ### Data integrity failures
 
-#### Podwójne zaksięgowanie tej samej faktury
-- **Scenario**: `postVendorInvoice` wywołane dwa razy dla tej samej
-  faktury (np. retry po timeout-cie sieci), zanim pierwsze wywołanie
-  zdąży ustawić `postedJournalEntryId`.
+#### Double posting of the same invoice
+- **Scenario**: `postVendorInvoice` called twice for the same invoice
+  (e.g. a retry after a network timeout), before the first call
+  manages to set `postedJournalEntryId`.
 - **Severity**: High
-- **Affected area**: `accounts_payable`, `ledger` (podwójny,
-  niezbalansowany wpis na koncie zobowiązań)
-- **Mitigation**: `postedJournalEntryId` sprawdzane i ustawiane w
-  jednej transakcji z wywołaniem `commandBus`
-  (`withAtomicFlush`/transaction wrapping); druga, równoległa próba na
-  tej samej fakturze musi zobaczyć już ustawiony
-  `postedJournalEntryId` i zwrócić no-op zamiast wołać
-  `postJournalEntry` ponownie.
-- **Residual risk**: teoretyczne wyścigowe okno między odczytem a
-  zapisem `postedJournalEntryId` przy dwóch równoczesnych requestach —
-  wymaga unique constraint albo select-for-update na
-  `VendorInvoice.id` wewnątrz komendy; do potwierdzenia przy
-  implementacji (nie rozwiązane samym projektem danych).
+- **Affected area**: `accounts_payable`, `ledger` (a duplicate,
+  unbalanced entry on the liability account)
+- **Mitigation**: `postedJournalEntryId` is checked and set in the
+  same transaction as the `commandBus` call
+  (`withAtomicFlush`/transaction wrapping); a second, concurrent
+  attempt on the same invoice must see `postedJournalEntryId` already
+  set and return a no-op instead of calling `postJournalEntry` again.
+- **Residual risk**: a theoretical race window between reading and
+  writing `postedJournalEntryId` under two simultaneous requests —
+  requires a unique constraint or a select-for-update on
+  `VendorInvoice.id` inside the command; to be confirmed at
+  implementation time (not resolved by the data design alone).
 
-#### Konto 300 nigdy się nie zeruje w Fazie 1
-- **Scenario**: Każda faktura zaksięgowana z linią na konto 300
-  zwiększa jego saldo DR; nic nigdy go nie uznaje (brak księgowania
-  PZ finansowo). Po miesiącach działania konto 300 pokazuje duże,
-  narastające saldo, które może zostać błędnie odczytane jako błąd
-  księgowy przez kogoś, kto nie zna tego design decision.
+#### Account 300 never zeroes out in Phase 1
+- **Scenario**: Every invoice posted with a line on account 300
+  increases its DR balance; nothing ever credits it (no financial
+  goods-receipt posting). After months of operation, account 300 shows
+  a large, growing balance that could be misread as an accounting
+  error by someone unaware of this design decision.
 - **Severity**: Medium
-- **Affected area**: `ledger` (czytelność bilansu), księgowość
-- **Mitigation**: udokumentowane wprost w Design decisions i w tym
-  ryzyku (nie ukryte). GL's własny spec jawnie wycina
-  `getAccountBalance`/`GET /api/ledger/accounts/:id/balance` z Fazy 1
-  (stakeholder-directed scope reduction). Do czasu, aż GL doda tę
-  trasę, jedyna dostępna mitigacja to ręczny raport SQL na
-  `journal_entry_line` (poza produktem, wymaga dostępu do bazy) albo
-  ręczna korekta/reklasyfikacja gdy WMS zacznie księgować PZ
-  finansowo. To jest realna, nie tylko kosmetyczna, dodatkowa
-  zależność międzyspecowa — GL dodając balance route zamyka tę lukę
-  mitigacji taniej niż cokolwiek AP mogłoby zrobić samo.
-- **Residual risk**: do czasu WMS-owego księgowania PZ finansowo,
-  saldo konta 300 jest z definicji nieprawidłowe księgowo
-  (jednostronne) — zaakceptowane świadomie jako koszt fazowania, nie
-  do wyeliminowania bez budowania PZ wcześniej niż zaplanowano.
-  Dodatkowo, do czasu GL's balance route, nawet wykrycie tego stanu
-  wymaga ręcznego zapytania do bazy, nie ekranu w produkcie.
+- **Affected area**: `ledger` (balance-sheet readability), accounting
+- **Mitigation**: documented explicitly in Design decisions and in
+  this risk (not hidden). GL's own spec explicitly cuts
+  `getAccountBalance`/`GET /api/ledger/accounts/:id/balance` from
+  Phase 1 (a stakeholder-directed scope reduction). Until GL adds that
+  route, the only available mitigation is a manual SQL report on
+  `journal_entry_line` (outside the product, requires database access)
+  or a manual correction/reclassification once WMS starts posting
+  goods receipts financially. This is a real, not merely cosmetic,
+  cross-spec dependency — GL adding a balance route closes this
+  mitigation gap more cheaply than anything AP could do alone.
+- **Residual risk**: until WMS posts goods receipts financially,
+  account 300's balance is, by definition, accounting-incorrect
+  (one-sided) — deliberately accepted as the cost of phasing, not
+  eliminable without building goods receipt earlier than planned.
+  Additionally, until GL's balance route exists, even detecting this
+  state requires a manual database query, not a screen in the
+  product.
 
-#### Brak kontroli maker-checker (samo-akceptacji faktury)
-- **Scenario**: ta sama osoba, mająca `accounts_payable.invoices.manage`,
-  tworzy fakturę, przesyła ją do akceptacji, i — jeśli ma też dostęp do
-  panelu zadań workflow-u (`workflows.tasks.complete`) — kończy własne
-  zadanie akceptacji, zatwierdzając własną fakturę bez drugiej osoby w
-  pętli.
-- **Severity**: Medium (kontrola finansowa, nie utrata danych)
-- **Affected area**: `accounts_payable.invoices.*`, obieg akceptacji
-- **Mitigation**: żadna w Fazie 1 na poziomie tego modułu — ten sam
-  brak istnieje już w mirrorowanym `sales.order-approval`. Praktyczna
-  mitigacja dziś: nie przyznawać `workflows.tasks.complete` tej samej
-  roli co `accounts_payable.invoices.manage` na poziomie konfiguracji
-  ról tenant-a (możliwe już dziś przez RBAC, nie wymaga zmian w tym
-  module) — ale to decyzja operacyjna każdego tenant-a, nie
-  wymuszenie na poziomie kodu.
-- **Residual risk**: bez wymuszenia na poziomie kodu (np. "assignee
-  różny od twórcy faktury"), nic nie chroni przed samo-akceptacją,
-  jeśli administrator tenant-a przyzna oba uprawnienia tej samej roli.
-  Świadomie zaakceptowane jako luka Fazy 1 (spójna z precedensem, nie
-  gorsza od niego), do rozważenia w Fazie 2 razem z wielostopniowym
-  obiegiem akceptacji.
+#### No maker-checker control (invoice self-approval)
+- **Scenario**: the same person, holding
+  `accounts_payable.invoices.manage`, creates an invoice, submits it
+  for approval, and — if they also have access to the workflow task
+  panel (`workflows.tasks.complete`) — completes their own approval
+  task, approving their own invoice with no second person in the loop.
+- **Severity**: Medium (financial control, not data loss)
+- **Affected area**: `accounts_payable.invoices.*`, the approval flow
+- **Mitigation**: none in Phase 1 at this module's level — the same
+  gap already exists in the mirrored `sales.order-approval`. Practical
+  mitigation today: don't grant `workflows.tasks.complete` to the same
+  role as `accounts_payable.invoices.manage` at the tenant's role
+  configuration level (already possible today through RBAC, requires
+  no changes in this module) — but that's an operational decision for
+  each tenant, not a code-level enforcement.
+- **Residual risk**: without code-level enforcement (e.g. "assignee
+  different from the invoice's creator"), nothing protects against
+  self-approval if a tenant's administrator grants both permissions to
+  the same role. Deliberately accepted as a Phase 1 gap (consistent
+  with precedent, not worse than it), to be considered in Phase 2
+  alongside the multi-step approval flow.
 
 ### Cascading failures & side effects
 
-#### `ledger.postJournalEntry` niedostępne (moduł `ledger` wyłączony)
+#### `ledger.postJournalEntry` unavailable (the `ledger` module disabled)
 - **Scenario**: `commandBus.execute('ledger.postJournalEntry', ...)`
-  rzuca, bo `ledger` nie jest zarejestrowany.
+  throws, because `ledger` isn't registered.
 - **Severity**: Critical
-- **Affected area**: cały moduł `accounts_payable` — nie może
-  księgować niczego.
-- **Mitigation**: brak degradacji do zaprojektowania — to twardy
-  dependency (patrz Cross-module integration), nie opcjonalny peer.
-  `accounts_payable` deklaruje `ledger` jako wymagany moduł przez
+- **Affected area**: the whole `accounts_payable` module — it can't
+  post anything.
+- **Mitigation**: no degradation to design — this is a hard dependency
+  (see Cross-module integration), not an optional peer.
+  `accounts_payable` declares `ledger` as a required module through
   `index.ts`'s `metadata.requires`.
-- **Residual risk**: brak — to oczekiwane zachowanie dla brakującego
-  twardego dependency, analogiczne do tego, że GL samo w sobie nie
-  działa bez bazy danych.
+- **Residual risk**: none — this is the expected behavior for a
+  missing hard dependency, analogous to GL itself not working without
+  a database.
 
-#### Zdarzenie `accounts_payable.vendor_invoice.submitted` nie trafia do workflow-u
-- **Scenario**: worker zdarzeń persistentnych jest offline w
-  momencie `submitVendorInvoiceForApproval`; zdarzenie czeka w
-  kolejce.
+#### The `accounts_payable.vendor_invoice.submitted` event doesn't reach the workflow
+- **Scenario**: the persistent-event worker is offline at the moment
+  of `submitVendorInvoiceForApproval`; the event waits in the queue.
 - **Severity**: Medium
-- **Affected area**: obieg akceptacji (opóźniony, nie utracony)
-- **Mitigation**: kolejka trwała (`@open-mercato/queue`) doręcza
-  zdarzenie, gdy worker wróci — brak utraty danych, tylko opóźnienie.
-  Faktura widoczna w UI jako `PENDING_APPROVAL` przez cały ten czas
-  (stan trwały w bazie, niezależny od stanu workflow-u).
-- **Residual risk**: brak — to jest dokładnie zachowanie, do którego
-  `packages/events/AGENTS.md` projektuje kolejkę trwałą.
+- **Affected area**: the approval flow (delayed, not lost)
+- **Mitigation**: the durable queue (`@open-mercato/queue`) delivers
+  the event once the worker returns — no data loss, only delay. The
+  invoice is visible in the UI as `PENDING_APPROVAL` the whole time
+  (persistent state in the database, independent of the workflow's own
+  state).
+- **Residual risk**: none — this is exactly the behavior
+  `packages/events/AGENTS.md` designs the durable queue for.
 
 ### Tenant & data isolation
 
-Obie encje mają własne `tenant_id`/`organization_id`
-(`VendorInvoiceLine` ma własne kolumny zakresu, nie tylko odziedziczone
-przez FK, mirror `ContractorBankAccount`). `ModuleConfigService` z
-jawnym `tenantId` w scope gwarantuje, że konto zobowiązań jednego
-tenant-a nigdy nie przecieka jako fallback do innego (patrz
-`packages/core/AGENTS.md` → Module Config — scoped write nigdy nie
-dotyka wiersza globalnego).
+Both entities have their own `tenant_id`/`organization_id`
+(`VendorInvoiceLine` has its own scope columns, not just inherited
+through the FK, mirroring `ContractorBankAccount`).
+`ModuleConfigService` with an explicit `tenantId` in scope guarantees
+that one tenant's liability account never leaks as a fallback to
+another (see `packages/core/AGENTS.md` → Module Config — a scoped
+write never touches the global row).
 
 ### Migration & deployment
 
-Patrz Migration & Deployment section powyżej — dwie nowe, addytywne
-tabele, zero zmian w istniejących. `onTenantCreated` idempotentny
-(może być uruchomiony wielokrotnie bez duplikowania wierszy
-`module_configs` — `ModuleConfigService`'s partial unique indexes to
-gwarantują).
+See the Migration & Deployment section above — two new, additive
+tables, zero changes to existing ones. `onTenantCreated` is idempotent
+(can run multiple times without duplicating `module_configs` rows —
+`ModuleConfigService`'s partial unique indexes guarantee this).
 
 ## Out of scope (tracked separately)
 
-- Grupowanie faktur w paczki płatnicze, wykonanie przelewu, weryfikacja
-  Białej Listy — patrz `2026-09-06-accounts-payable-payments.md`.
-- Purchase Order / three-way matching — Faza 2, czeka na finansowe
-  księgowanie PZ w WMS.
-- Wielostopniowy, progowy obieg akceptacji — Faza 2.
-- Automatyczne mapowanie konto-per-dostawca/kategoria — czeka na
-  Posting Rules Engine (konto 490), żeby nie dublować mechanizmu.
+- Grouping invoices into payment batches, executing transfers, VAT-
+  whitelist verification — see
+  `2026-09-06-accounts-payable-payments.md`.
+- Purchase Order / three-way matching — Phase 2, waiting on financial
+  goods-receipt posting in WMS.
+- Multi-step, threshold-based approval flow — Phase 2.
+- Automatic vendor/category-to-account mapping — waiting on the
+  Posting Rules Engine (account 490), so the mechanism isn't
+  duplicated.
 
 ## Final Compliance Report — 2026-09-08
 
@@ -1177,7 +1173,7 @@ same round (only the ones affecting the invoice half are listed here
 - Resolved Q1: split the combined `accounts_payable` document into
   this document (`accounts_payable` — vendor invoice lifecycle only)
   and a new sibling, `2026-09-06-accounts-payable-payments.md`
-  (`accounts_payable_payments` — payment batches, Biała Lista
+  (`accounts_payable_payments` — payment batches, VAT-whitelist
   verification, payment posting). Removed `PaymentBatch`/
   `PaymentBatchLine` entities, `payments.*` ACL features,
   `createPaymentBatch`/`updatePaymentBatch`/`confirmPaymentBatch`/
@@ -1194,3 +1190,5 @@ same round (only the ones affecting the invoice half are listed here
   prose and API contract but not the Data Models schema table itself.
   Removed the temporary Open Questions section; Internal Consistency
   Check and Verdict rewritten to be unconditional again.
+- Translated the document to English (this pass) — the Polish version
+  is superseded by this one; no content change beyond translation.

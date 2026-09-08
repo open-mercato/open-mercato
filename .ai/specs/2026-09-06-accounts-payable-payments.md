@@ -1,93 +1,94 @@
-# Accounts Payable — płatności
+# Accounts Payable — Payments
 
-**Related:** [Accounts Payable — faktury](2026-09-06-accounts-payable.md)
-(siostrzany dokument — cykl życia faktury zakupowej; ten dokument ma
-na niego twardy, zadeklarowany dependency, patrz Architecture →
-Module Dependency; wydzielony z niego 2026-09-08, patrz Changelog),
+**Related:** [Accounts Payable — invoices](2026-09-06-accounts-payable.md)
+(sibling document — purchase invoice lifecycle; this document has a
+hard, declared dependency on it, see Architecture → Module Dependency;
+split out of it 2026-09-08, see Changelog),
 [General Ledger core engine](2026-08-18-general-ledger-core-engine.md)
-(posting engine ten spec księguje do), [Contractor
-Registry](2026-09-06-contractor-registry.md) (rejestr dostawcy i
-weryfikacja Białej Listy — ten spec ją konsumuje jako opcjonalny
-peer, nie duplikuje)
+(the posting engine this spec books into), [Contractor
+Registry](2026-09-06-contractor-registry.md) (vendor registry and VAT-
+whitelist verification — this spec consumes it as an optional peer,
+does not duplicate it)
 
 ## TLDR
 
-Moduł obsługujący grupowanie zatwierdzonych, zaksięgowanych faktur
-zakupowych w paczki płatnicze i księgowanie ich wysyłki. Twardy,
-zadeklarowany dependency na `accounts_payable` (czyta status i sumy
-faktur) i na `ledger` (księguje wysyłkę paczki). Weryfikuje Białą
-Listę/MPP przed potwierdzeniem paczki — opcjonalny peer,
-`contractors`, z polityką fail-closed. Nie wykonuje realnego
-przelewu — to jest Faza 2 (patrz Out of scope).
+Module handling the grouping of approved, posted purchase invoices
+into payment batches and posting their send. Hard, declared
+dependency on `accounts_payable` (reads invoice status and totals) and
+on `ledger` (posts the batch send). Verifies the VAT whitelist/
+mandatory split payment (MPP) before confirming a batch — an optional
+peer, `contractors`, with a fail-closed policy. Does not execute a
+real bank transfer — that's Phase 2 (see Out of scope).
 
 ## Overview
 
-Na ścianie proces AP to cztery równoległe ścieżki: (A) rejestracja i
-weryfikacja kontrahenta (GUS/VIES/Biała Lista — wyciągnięte do
-`Contractor Registry`), (B) zakup materiałów (PZ → faktura →
-zaksięgowano — wyciągnięte do `2026-09-06-accounts-payable.md`), (C)
-zakup środka trwałego (OT, tabela amortyzacyjna — wyciągnięte do
-osobnego spec-a Fixed Assets, patrz
-`.ai/specs/2026-09-06-fixed-assets.md`), (D) płatności wychodzące
-(grupowanie zatwierdzonych faktur w paczki płatnicze, wysyłka).
-**Ten dokument obejmuje wyłącznie D** — A, B i C są świadomie
-wyciągnięte (własne, niezależne funkcjonalności; D samo było do
-2026-09-08 częścią tego samego dokumentu co B, patrz Changelog).
+On the event-storming wall the AP process is four parallel paths: (A)
+vendor registration and verification (GUS/VIES/VAT whitelist — pulled
+out to `Contractor Registry`), (B) purchasing materials (goods receipt
+→ invoice → posted — pulled out to `2026-09-06-accounts-payable.md`),
+(C) purchasing a fixed asset (asset capitalization, depreciation
+schedule — pulled out to a separate Fixed Assets spec, see
+`.ai/specs/2026-09-06-fixed-assets.md`), (D) outbound payments
+(grouping approved invoices into payment batches, sending). **This
+document covers only D** — A, B, and C are deliberately pulled out
+(their own, independent capabilities; D itself was, until 2026-09-08,
+part of the same document as B, see Changelog).
 
-> **Market Reference**: SPEC-024 (przedwarsztatowy brief, sekcja
-> "Cash Management Module") nie definiuje żadnego typu w stylu
-> `PaymentOrder`/`PaymentInstruction` — tylko `BankTransaction` z
-> polem `matchedEntryId: Option<EntryId>`, co pokazuje logikę
-> **rekoncyliacji** (dopasowanie zaimportowanej pozycji z wyciągu do
-> już istniejącego zapisu), nie logikę **inicjowania** płatności.
-> Ściana (zweryfikowane źródło) rozstrzyga to na korzyść podziału:
-> ten moduł inicjuje i księguje wysyłkę paczki płatniczej; przyszły
-> Bank Management (SPEC-024) tylko importuje wyciąg i dopasowuje go
-> wstecz do tego, co ten moduł już wykonał — patrz Design decisions.
+> **Market Reference**: SPEC-024 (the pre-workshop brief, "Cash
+> Management Module" section) defines no `PaymentOrder`/
+> `PaymentInstruction`-style type — only `BankTransaction` with a
+> `matchedEntryId: Option<EntryId>` field, which shows reconciliation
+> logic (matching an imported statement line to an entry that already
+> exists), not payment-**initiation** logic. The wall (the verified
+> source) settles this in favor of the split: this module initiates
+> and posts the payment batch's send; the future Bank Management
+> (SPEC-024) only imports the statement and matches it back to what
+> this module already executed — see Design decisions.
 
 ## Problem Statement
 
-Dziś nie ma żadnego modułu odpowiadającego za stronę płatniczą —
-zatwierdzone, zaksięgowane faktury zakupowe (`2026-09-06-accounts-payable.md`)
-nie mają żadnego mechanizmu grupowania w paczki płatnicze ani
-księgowania wysyłki. Potwierdzone bezpośrednio w repo: nie istnieje
-żadna encja `PaymentBatch`/`PaymentOrder`/`PaymentInstruction`
-nigdzie w kodzie, a moduł `contractors` (Contractor Registry) ma
-`ContractorBankAccount` z numerem rachunku (zaszyfrowanym) i
-weryfikacją Białej Listy jako część rejestru kontrahenta, ale żadnej
-logiki grupowania faktur w płatności.
+Today there is no module responsible for the payment side — approved,
+posted purchase invoices (`2026-09-06-accounts-payable.md`) have no
+mechanism for grouping into payment batches or posting the send.
+Confirmed directly in the repo: no `PaymentBatch`/`PaymentOrder`/
+`PaymentInstruction` entity exists anywhere in the code, and the
+`contractors` module (Contractor Registry) has `ContractorBankAccount`
+with a (encrypted) account number and VAT-whitelist verification as
+part of the vendor registry, but no logic for grouping invoices into
+payments.
 
-**Ten dokument pierwotnie był częścią jednego modułu `accounts_payable`**
-razem z fakturami (`VendorInvoice`/`VendorInvoiceLine`). Dwa
-niezależne, świeży-kontekst review (compliance/checklist +
-architektoniczny) doszły niezależnie do werdyktu SPLIT: osobne grupy
-ACL, osobne wywołania `postJournalEntry` do GL, sprzężenie tylko przez
-FK (jak do w pełni osobnego modułu Contractor Registry), osobna
-domena ryzyka prawnego (Biała Lista/MPP dotyczy tylko płatności, nie
-przyjęcia faktury). Zespół potwierdził podział 2026-09-08 — patrz
-Design decisions i Changelog.
+**This document was originally part of one combined `accounts_payable`
+module** together with the invoice half (`VendorInvoice`/
+`VendorInvoiceLine`). Two independent, fresh-context reviews
+(compliance/checklist + architectural) both independently reached a
+SPLIT verdict: separate ACL groups, separate `postJournalEntry` calls
+to GL, coupling only through an FK (the same shape as referencing the
+fully separate Contractor Registry module), a separate legal-risk
+domain (the VAT whitelist/MPP applies only to payments, not invoice
+receipt). The team confirmed the split on 2026-09-08 — see Design
+decisions and Changelog.
 
 ## Proposed Solution
 
-Nowy, niezależny moduł `accounts_payable_payments` z jedną grupą
-encji: **paczki płatnicze** (`PaymentBatch`/`PaymentBatchLine`,
-grupowanie zatwierdzonych, zaksięgowanych faktur z
-`accounts_payable` w paczki, potwierdzenie z weryfikacją Białej
-Listy, wysyłka z księgowaniem). Moduł nie księguje bezpośrednio do
-bazy — przejście w stan `SENT` wywołuje `postJournalEntry` z GL przez
-generyczny `commandBus`, tak samo jak robi to `accounts_payable`
-samo (patrz Architecture → Cross-module integration). Ma twardy,
-zadeklarowany dependency na dwa moduły: `ledger` (księgowanie) i
-`accounts_payable` (czyta status faktury i skonfigurowane konto
-zobowiązań) — w odróżnieniu od `contractors`, który pozostaje
-opcjonalnym peerem z polityką fail-closed.
+A new, independent `accounts_payable_payments` module with one entity
+group: **payment batches** (`PaymentBatch`/`PaymentBatchLine`, grouping
+approved, posted invoices from `accounts_payable` into batches,
+confirmation with VAT-whitelist verification, send with posting). The
+module does not post directly to the database — the transition to
+`SENT` calls `postJournalEntry` from GL through the generic
+`commandBus`, the same way `accounts_payable` itself does (see
+Architecture → Cross-module integration). It has a hard, declared
+dependency on two modules: `ledger` (posting) and `accounts_payable`
+(reads invoice status and the configured liability account) — unlike
+`contractors`, which remains an optional peer with a fail-closed
+policy.
 
-### Design decisions (2026-09-07 — resolved na warsztacie)
+### Design decisions (2026-09-07 — resolved at the workshop)
 
-**Płatności: ten moduł tworzy propozycję i wykonuje przelew; Bank
-Management robi import wyciągu i rekoncyliację.** Potwierdzone
-bezpośrednio w kodzie źródłowym SPEC-024 (`grep` na
-`.ai/specs/SPEC-024-...md`, sekcja "Cash Management Module"):
+**Payments: this module creates the proposal and executes the
+transfer; Bank Management does statement import and reconciliation.**
+Confirmed directly in SPEC-024's own source text (a `grep` on
+`.ai/specs/SPEC-024-...md`, "Cash Management Module" section):
 
 ```typescript
 type BankTransaction = {
@@ -101,179 +102,181 @@ type BankTransaction = {
 }
 ```
 
-Pole `matchedEntryId: Option<EntryId>` pokazuje, że Cash Management
-**dopasowuje** transakcję bankową do już istniejącego zapisu — to jest
-logika rekoncyliacji (importowana pozycja z wyciągu ↔ coś, co już
-zaksięgowano), nie logika **inicjowania** płatności. SPEC-024 nie
-definiuje żadnego typu w stylu `PaymentOrder`/`PaymentInstruction`
-w module Cash Management. Rozstrzyga to pytanie otwarte z review
-(czy płatności zostają w AP, czy przechodzą do Bank Management) na
-korzyść obecnego podziału: ten moduł inicjuje i wykonuje przelew
-(grupowanie faktur w paczki płatnicze — to wymaga bliskiego związku
-z zatwierdzonymi fakturami), Bank Management tylko importuje wyciąg
-i dopasowuje go wstecz do tego, co ten moduł już wykonał.
+The `matchedEntryId: Option<EntryId>` field shows that Cash Management
+**matches** a bank transaction to an entry that already exists — that's
+reconciliation logic (an imported statement line ↔ something already
+posted), not payment-**initiation** logic. SPEC-024 defines no
+`PaymentOrder`/`PaymentInstruction`-style type in the Cash Management
+module. This settles the open review question (whether payments stay
+in AP or move to Bank Management) in favor of the current split: this
+module initiates and executes the transfer (grouping invoices into
+payment batches — this requires a close relationship with approved
+invoices), Bank Management only imports the statement and matches it
+back to what this module already executed.
 
-**Weryfikacja Białej Listy i split payment (MPP) to twardy blocker
-Fazy 1, nie ostrzeżenie.** Realne ryzyko prawne (odpowiedzialność
-solidarna VAT, próg 15 000 zł, załącznik nr 15 ustawy o VAT) — patrz
-pełne uzasadnienie prawne w `2026-09-06-contractor-registry.md`.
+**VAT-whitelist and mandatory split payment (MPP) verification is a
+hard Phase 1 blocker, not a warning.** Real legal risk (joint-and-
+several VAT liability, the PLN 15,000 threshold, Annex 15 of the VAT
+Act) — see the full legal justification in
+`2026-09-06-contractor-registry.md`.
 
-**Rzeczywista integracja bankowa (wywołanie API banku / plik
-przelewów) — Faza 2.** Brak jakiegokolwiek precedensu w repo —
-SPEC-024's Cash Management nie definiuje żadnego typu
-`PaymentOrder`/`PaymentInstruction`/`PaymentBatch`. Faza 1 kończy się
-na stworzeniu i zaksięgowaniu paczki płatniczej; samo wykonanie
-przelewu (plik do banku, API) to Faza 2 — patrz Out of scope.
+**Real bank integration (calling a bank's API / a transfer file) —
+Phase 2.** No precedent whatsoever in the repo — SPEC-024's Cash
+Management defines no `PaymentOrder`/`PaymentInstruction`/
+`PaymentBatch` type. Phase 1 ends at creating and posting the payment
+batch; executing the transfer itself (a file to the bank, an API) is
+Phase 2 — see Out of scope.
 
-**Płatności częściowe — Faza 2.** Faza 1: `PaymentBatchLine.amount`
-zawsze równa się pełnej pozostałej kwocie faktury; brak wsparcia dla
-częściowego rozliczenia jednej faktury wieloma płatnościami.
+**Partial payments — Phase 2.** Phase 1: `PaymentBatchLine.amount` is
+always the full remaining invoice amount; no support for settling one
+invoice with multiple partial payments.
 
-### Design decisions (2026-09-07 — dodane podczas pełnego rozwijania spec-a, wtedy jeszcze połączone z fakturami)
+### Design decisions (2026-09-07 — added during the full spec expansion, at the time still combined with invoices)
 
-**`confirmPaymentBatch` woła `contractorBankWhitelistCheck` z
-modułu `contractors` przez lokalny `tryResolve`, fail-closed —
-inna polityka niż w Contractor Registry, ten sam mechanizm.**
-`contractors` **jest** opcjonalnym peerem tutaj (w odróżnieniu od
-`ledger`/`accounts_payable`, oba twarde dependency). Różnica
-względem Contractor Registry: tam brak modułu degraduje tylko UI
-(przycisk "verify now" przestaje działać, fail-open — bezpieczne,
-bo to wygoda UX, nie blocker prawny); tutaj brak modułu **blokuje
-potwierdzenie całej paczki** (fail-closed), bo chodzi o twardy
-blocker prawny (Biała Lista/MPP), nie wygodę. Ten sam mechanizm
-(`tryResolve`), inna polityka biznesowa przy braku wyniku — moduł
-nigdy nie traktuje brakującego wyniku jako "zakładam WHITELISTED".
+**`confirmPaymentBatch` calls `contractorBankWhitelistCheck` from the
+`contractors` module through a local `tryResolve`, fail-closed — a
+different policy than in Contractor Registry, the same mechanism.**
+`contractors` **is** an optional peer here (unlike `ledger`/
+`accounts_payable`, both hard dependencies). The difference from
+Contractor Registry: there, a missing module only degrades the UI (the
+"verify now" button stops working, fail-open — safe, because it's a
+UX convenience, not a legal blocker); here, a missing module **blocks
+confirmation of the entire batch** (fail-closed), because it's a hard
+legal blocker (VAT whitelist/MPP), not a convenience. The same
+mechanism (`tryResolve`), a different business policy when there's no
+result — the module never treats a missing result as "assume
+WHITELISTED".
 
-**`PaymentBatchLine.whitelistCheckResult` nie duplikuje numeru
-rachunku bankowego.** Numer rachunku jest już zaszyfrowany na
+**`PaymentBatchLine.whitelistCheckResult` does not duplicate the bank
+account number.** The account number is already encrypted on
 `ContractorBankAccount.accountNumber` (`contractors/encryption.ts`);
-duplikowanie go tu w niezaszyfrowanej formie byłoby drugą,
-niekontrolowaną kopią danych już objętych szyfrowaniem. Zapisywany
-jest wyłącznie wynik weryfikacji (`status`, `checkedAt`, `requestId`)
-— to jest **dowód zgodności**, nie cache UX jak
-`ContractorBankAccount.lastVerifiedAt` (nigdy nie czytany zamiast
-ponownego wywołania przy kolejnej paczce). Skutek dla tego dokumentu:
-nie potrzeba własnego `encryption.ts` — patrz Architecture →
-Encryption.
+duplicating it here in unencrypted form would be a second,
+uncontrolled copy of data already covered by encryption. Only the
+verification result is stored (`status`, `checkedAt`, `requestId`) —
+this is **compliance evidence**, not a UX cache like
+`ContractorBankAccount.lastVerifiedAt` (never read in place of a fresh
+call for the next batch). Consequence for this document: no
+`encryption.ts` of its own is needed — see Architecture → Encryption
+below.
 
-### Design decisions (2026-09-08 — Q1 resolved: podział na dwa moduły)
+### Design decisions (2026-09-08 — Q1 resolved: split into two modules)
 
-**Rozdzielono na `accounts_payable` (siostrzany dokument — faktury) i
-`accounts_payable_payments` (ten dokument — płatności).** Dwa
-niezależne, świeży-kontekst review doszły niezależnie do werdyktu
-SPLIT: osobne grupy ACL (`invoices.*` vs `payments.*`), osobne
-wywołania `postJournalEntry` do GL (dwa różne zapisy księgowe, dwa
-różne momenty), sprzężenie tylko przez FK
-(`PaymentBatchLine.vendorInvoiceId` — ten sam kształt co odwołanie
-do w pełni osobnego modułu Contractor Registry), osobna domena
-ryzyka prawnego (Biała Lista/MPP dotyczy tylko tego dokumentu, nie
-przyjęcia faktury). Kontrargument za COHESIVE (współdzielone konto
-zobowiązań, żywy dostęp do zatwierdzonych faktur przy budowaniu
-paczki) był realny, ale nie przeważył — patrz siostrzany dokument's
-Design decisions dla pełnego uzasadnienia (ta sama analiza, ten sam
-werdykt, nie powtarzana tu w całości). Zespół potwierdził SPLIT
+**Split into `accounts_payable` (sibling document — invoices) and
+`accounts_payable_payments` (this document — payments).** Two
+independent, fresh-context reviews independently reached a SPLIT
+verdict: separate ACL groups (`invoices.*` vs `payments.*`), separate
+`postJournalEntry` calls to GL (two different postings, two different
+moments), coupling only through an FK
+(`PaymentBatchLine.vendorInvoiceId` — the same shape as referencing
+the fully separate Contractor Registry module), a separate legal-risk
+domain (the VAT whitelist/MPP applies only to this document, not
+invoice receipt). The counter-argument for COHESIVE (a shared
+liability account, live access to approved invoices when building a
+batch) was real, but didn't win out — see the sibling document's
+Design decisions for the full justification (the same analysis, the
+same verdict, not repeated here in full). The team confirmed SPLIT on
 2026-09-08.
 
-**Nowy mechanizm wprowadzony przez podział: bezpośrednie zapytanie o
-`VendorInvoice` przez granicę modułu, bez `commandBus`.**
-`createPaymentBatch`/`updatePaymentBatch` muszą znaleźć zatwierdzone
-(`status === 'POSTED'`), jeszcze niepodpięte do innej, niezakończonej
-paczki faktury tego samego dostawcy/waluty. Dopóki oba zestawy encji
-żyły w jednym module, było to zwykłe zapytanie wewnątrz-modułowe;
-podział czyni je pierwszym miejscem w całym tym dokumencie, gdzie
-moduł czyta cudzą encję (nie tylko FK-id) przez granicę modułu.
-**Decyzja**: bezpośrednie zapytanie `entityManager` po encji
-`VendorInvoice` (import typu, **bez** deklaracji relacji ORM —
-`root AGENTS.md`'s zakaz dotyczy relacji/joinów, nie samego importu
-typu do zapytania), zawsze ze scope `tenantId`/`organizationId`
-(mirror tego, jak `ModuleConfigService.get('accounts_payable.liabilityAccountId',
-{ tenantId })` już czyta cudzą wartość konfiguracyjną bezpośrednio,
-bez opakowania w `commandBus`). Uzasadnienie: `accounts_payable` jest
-twardym, zawsze-współobecnym dependency tego modułu (zwalidowanym
-przy generowaniu przez `ModuleInfo.requires`, patrz Module
-Dependency) — nie opcjonalnym peerem jak `contractors` — więc nie ma
-tu scenariusza degradacji do zaprojektowania, tak samo jak dla
-`ledger`. **To jest nowy wzorzec, nie istniejący precedens w repo** —
-w odróżnieniu od `commandBus.execute('ledger.postJournalEntry', ...)`,
-które ma bezpośredni precedens (`workflows`' `UPDATE_ENTITY`), żaden
-istniejący moduł w repo dziś nie odpytuje bezpośrednio encji innego,
-twardo-zależnego modułu. Odrzucony alternatywny wzorzec: cienka
-komenda zapytania w `accounts_payable`
-(`accounts_payable.vendorInvoices.listPayable`, wołana przez ten sam
-`commandBus`) — dałaby ściślejszą enkapsulację kosztem dodatkowej
-warstwy pośredniej dla czegoś, co i tak zawsze współistnieje z
-`accounts_payable`; oznaczone jako otwarta decyzja implementacyjna
-(nie architektoniczna rozbieżność wymagająca eskalacji Q-stylu — obie
-opcje są poprawne i niskiego ryzyka), do potwierdzenia przez
-maintainerów przy code review, patrz Alternatives considered.
+**A new mechanism introduced by the split: a direct cross-module
+query for `VendorInvoice`, without `commandBus`.**
+`createPaymentBatch`/`updatePaymentBatch` need to find approved
+(`status === 'POSTED'`), not-yet-batched invoices for the same vendor/
+currency, that aren't already attached to another, unfinished batch.
+As long as both entity groups lived in one module, this was an
+ordinary intra-module query; the split makes it the first place in
+this whole document where the module reads someone else's entity (not
+just an FK-id) across a module boundary. **Decision**: a direct
+`entityManager` query against the `VendorInvoice` entity (importing the
+type, **without** declaring an ORM relation — root `AGENTS.md`'s ban
+concerns relations/joins, not simply importing a type for a query),
+always scoped by `tenantId`/`organizationId` (mirroring how
+`ModuleConfigService.get('accounts_payable.liabilityAccountId',
+{ tenantId })` already reads someone else's configuration value
+directly, without wrapping it in `commandBus`). Rationale:
+`accounts_payable` is a hard, always-co-present dependency of this
+module (validated at generation time through `ModuleInfo.requires`,
+see Module Dependency) — not an optional peer like `contractors` — so
+there's no degradation scenario to design here, just as there isn't
+for `ledger`. **This is a new pattern, not an existing repo
+precedent** — unlike `commandBus.execute('ledger.postJournalEntry', ...)`,
+which has a direct precedent (`workflows`'
+`UPDATE_ENTITY`), no existing module in the repo today queries another
+hard-dependency module's entity directly. Rejected alternative: a thin
+query command on `accounts_payable`
+(`accounts_payable.vendorInvoices.listPayable`, called through the
+same `commandBus`) — would give stricter encapsulation at the cost of
+an extra indirection layer for something that always co-exists with
+`accounts_payable` anyway; flagged as an open implementation decision
+(not a Q-style architectural fork requiring escalation — both options
+are correct and low-risk), for maintainers to confirm at code review,
+see Alternatives considered.
 
-**Zmiana ścieżki API**: bazowa ścieżka tras HTTP zmienia się z
-`/api/accounts_payable/payments/...` (gdy był to jeden moduł) na
-`/api/accounts_payable_payments/payments/...` (mirror konwencji "trasy
-API żyją pod prefiksem własnego modułu", tak jak
-`/api/accounts_payable/invoices` żyje pod `accounts_payable`) — patrz
-API Contracts. Zewnętrzna zmiana kontraktu wynikająca z podziału,
-udokumentowana explicite, nie po cichu.
+**API path change**: the HTTP route base path changes from
+`/api/accounts_payable/payments/...` (when this was one module) to
+`/api/accounts_payable_payments/payments/...` (mirroring the "API
+routes live under their own module's prefix" convention, the same way
+`/api/accounts_payable/invoices` lives under `accounts_payable`) — see
+API Contracts. An external contract change caused by the split,
+documented explicitly, not glossed over.
 
 ### Alternatives considered
 
 | Alternative | Why Rejected |
 |-------------|-------------|
-| Rzeczywista integracja bankowa (wywołanie API banku / plik przelewów) w Fazie 1 | Brak jakiegokolwiek precedensu w repo — SPEC-024's Cash Management nie definiuje żadnego typu `PaymentOrder`/`PaymentInstruction`/`PaymentBatch`. Faza 1 kończy się na stworzeniu i zaksięgowaniu paczki płatniczej; samo wykonanie przelewu to Faza 2 |
-| Zostawić faktury i płatności w jednym module `accounts_payable` | Odrzucone 2026-09-08 po dwóch niezależnych review — patrz Design decisions, "Q1 resolved" |
-| Cienka komenda zapytania w `accounts_payable` (`listPayable`) zamiast bezpośredniego zapytania `entityManager` przez granicę modułu | Rozważone jako bezpieczniejsza, bardziej enkapsulowana alternatywa (ten sam mechanizm co `postJournalEntry`) — nie odrzucona, tylko odroczona jako otwarta decyzja implementacyjna: albo ta jest wybrana przy code review, albo bezpośrednie zapytanie (obie mają ten sam efekt funkcjonalny, żadna nie wymaga rework encji/komend) |
+| Real bank integration (calling a bank's API / a transfer file) in Phase 1 | No precedent whatsoever in the repo — SPEC-024's Cash Management defines no `PaymentOrder`/`PaymentInstruction`/`PaymentBatch` type. Phase 1 ends at creating and posting the payment batch; executing the transfer itself is Phase 2 |
+| Keep invoices and payments in one `accounts_payable` module | Rejected 2026-09-08 after two independent reviews — see Design decisions, "Q1 resolved" |
+| A thin query command on `accounts_payable` (`listPayable`) instead of a direct `entityManager` query across the module boundary | Considered as a safer, more encapsulated alternative (the same mechanism as `postJournalEntry`) — not rejected, only deferred as an open implementation decision: either this is chosen at code review, or the direct query is (both have the same functional effect, neither requires reworking entities/commands) |
 
 ## User Stories
 
-- **Pracownik AP** chce **zgrupować kilka zatwierdzonych faktur tego
-  samego dostawcy w jedną paczkę płatniczą**, żeby **wykonać jeden
-  przelew zamiast wielu osobnych**.
-- **Pracownik AP** chce, żeby **system zablokował wysyłkę płatności,
-  jeśli rachunek bankowy dostawcy nie jest tego dnia na Białej
-  Liście**, żeby **firma nie poniosła odpowiedzialności solidarnej za
-  VAT dostawcy**.
-- **Główny księgowy** chce **mieć pewność, że zaksięgowana faktura
-  (w `accounts_payable`) nigdy nie zniknie z konta 202 bez
-  odpowiadającego zapisu płatności rejestrowanego przez ten moduł**,
-  żeby **rozrachunki z dostawcami zawsze się zgadzały** — to jest
-  właśnie ta cross-modułowa relacja, którą oba dokumenty muszą
-  utrzymać spójnie mimo podziału (patrz Design decisions, "Q1
-  resolved").
+- **AP clerk** wants to **group several approved invoices for the same
+  vendor into one payment batch**, so they can **execute one transfer
+  instead of many separate ones**.
+- **AP clerk** wants the **system to block sending a payment if the
+  vendor's bank account isn't on the VAT whitelist that day**, so the
+  **company doesn't incur joint-and-several VAT liability for the
+  vendor**.
+- **Chief accountant** wants **certainty that a posted invoice (in
+  `accounts_payable`) never disappears from account 202 without a
+  matching payment entry recorded by this module**, so **vendor
+  reconciliation always balances** — this is exactly the cross-module
+  relationship both documents must keep consistent despite the split
+  (see Design decisions, "Q1 resolved").
 
 ## Architecture
 
 ### Entities (`data/entities.ts`)
 
-- `PaymentBatch` — `bankAccountId` (FK-id, `uuid` — referencja do
-  przyszłej encji Bank Management/SPEC-024; ten moduł jej nie
-  implementuje, dokładnie tak samo jak `accounts_payable` referencuje
-  `Contractor`/`LedgerAccount` z modułów, które w momencie pisania
-  tego spec-a mogą same być jeszcze tylko spec-em), `status`
+- `PaymentBatch` — `bankAccountId` (FK-id, `uuid` — a reference to a
+  future Bank Management/SPEC-024 entity; this module does not
+  implement it, exactly the same way AP references `Contractor`/
+  `LedgerAccount` from modules that, at the time this spec was
+  written, may themselves be only a spec), `status`
   (`DRAFT`/`CONFIRMED`/`SENT`/`CANCELLED`), `scheduledPaymentDate`,
-  `totalAmount` (`numeric(19,4)`, wyliczane z pozycji),
-  `postedJournalEntryId` (nullable FK-id, ustawiane po
-  `markPaymentBatchSent` — ten sam idempotency guard co
-  `VendorInvoice.postedJournalEntryId`, patrz siostrzany dokument),
-  tenant/org scoped, `updatedAt` (optymistyczna blokada dopóki
-  `status` to `DRAFT`/`CONFIRMED`), `deletedAt` (soft delete,
-  blokowany po `SENT`).
+  `totalAmount` (`numeric(19,4)`, computed from the lines),
+  `postedJournalEntryId` (nullable FK-id, set after
+  `markPaymentBatchSent` — the same idempotency guard as
+  `VendorInvoice.postedJournalEntryId`, see the sibling document),
+  tenant/org scoped, `updatedAt` (optimistic lock as long as `status`
+  is `DRAFT`/`CONFIRMED`), `deletedAt` (soft delete, blocked after
+  `SENT`).
 - `PaymentBatchLine` — `paymentBatchId` (FK), `vendorInvoiceId`
-  (FK-id → `accounts_payable.VendorInvoice`, `uuid`, brak relacji
-  ORM — patrz Design decisions, "Nowy mechanizm... bezpośrednie
-  zapytanie"), `contractorBankAccountId` (FK-id →
-  `ContractorBankAccount` z Contractor Registry — konkretny rachunek,
-  na który leci ten konkretny przelew), `amount` (`numeric(19,4)` —
-  Faza 1: zawsze pełna pozostała kwota faktury, brak płatności
-  częściowych, patrz Out of scope), `whitelistCheckResult` (nullable
-  `json` — wynik żywej weryfikacji Białej Listy w momencie
-  `confirmPaymentBatch`: `status`, `checkedAt`, `requestId` — **bez**
-  numeru rachunku, patrz Design decisions i Encryption poniżej),
-  własne `organizationId`/`tenantId`.
+  (FK-id → `accounts_payable.VendorInvoice`, `uuid`, no ORM relation —
+  see Design decisions, "A new mechanism... direct query"),
+  `contractorBankAccountId` (FK-id → `ContractorBankAccount` from
+  Contractor Registry — the specific account this particular transfer
+  goes to), `amount` (`numeric(19,4)` — Phase 1: always the full
+  remaining invoice amount, no partial payments, see Out of scope),
+  `whitelistCheckResult` (nullable `json` — the result of the live
+  VAT-whitelist verification at `confirmPaymentBatch` time: `status`,
+  `checkedAt`, `requestId` — **without** the account number, see
+  Design decisions and Encryption below), its own
+  `organizationId`/`tenantId`.
 
 ### Access Control (`acl.ts`)
 
-Podążając za konwencją modułu `customers`/`ledger`
-(`<module>.<resource>.<action>`, `manage`/`execute` zależne od
+Following the `customers`/`ledger` module convention
+(`<module>.<resource>.<action>`, `manage`/`execute` depending on
 `view`):
 
 ```typescript
@@ -284,28 +287,29 @@ export const features = [
 ]
 ```
 
-`createPaymentBatch`/`updatePaymentBatch`/`cancelPaymentBatch`
-require `accounts_payable_payments.payments.manage` (anulowanie
-niewysłanej paczki to nie ruch pieniędzy, więc `.manage` wystarcza —
-mirror decyzji z siostrzanego dokumentu dla `cancelVendorInvoice`).
+`createPaymentBatch`/`updatePaymentBatch`/`cancelPaymentBatch` require
+`accounts_payable_payments.payments.manage` (cancelling an unsent
+batch isn't a movement of money, so `.manage` is enough — mirroring
+the decision for `cancelVendorInvoice` in the sibling document).
 `confirmPaymentBatch`/`markPaymentBatchSent` require
-`accounts_payable_payments.payments.execute` (osobno od `.manage` —
-realne przesunięcie pieniędzy zasługuje na własną, węższą bramkę).
+`accounts_payable_payments.payments.execute` (separate from `.manage`
+— an actual movement of money deserves its own, narrower gate).
 
-Nazwa funkcjonalności powtarza słowo "payments" (nazwa modułu i nazwa
-zasobu) — świadomie zaakceptowana redundancja, nie błąd: zasób jest
-rzeczywiście "payments" (paczki płatnicze), niezależnie od nazwy
-modułu, i konwencja `<module>.<resource>.<action>` obowiązuje
-niezależnie od tego, czy nazwa modułu już zawiera nazwę zasobu.
+The feature name repeats the word "payments" (both the module name
+and the resource name) — a deliberately accepted redundancy, not a
+mistake: the resource really is "payments" (payment batches),
+regardless of the module's name, and the `<module>.<resource>.<action>`
+convention applies whether or not the module name already contains
+the resource name.
 
 ### Module Dependency (`index.ts`)
 
-Dwa twarde, zadeklarowane dependency — `ledger` (księgowanie) i
-`accounts_payable` (status faktury, skonfigurowane konto zobowiązań
-— patrz Cross-module integration) — wyrażone przez ten sam realny,
-zwalidowany przy generowaniu mechanizm `ModuleInfo.requires`
-(`packages/shared/src/modules/registry.ts`), już używany przez
-`sales` (`requires: ['catalog','customers','dictionaries']`) i `wms`:
+Two hard, declared dependencies — `ledger` (posting) and
+`accounts_payable` (invoice status, the configured liability account —
+see Cross-module integration) — expressed through the same real,
+generation-time-validated `ModuleInfo.requires` mechanism
+(`packages/shared/src/modules/registry.ts`), already used by `sales`
+(`requires: ['catalog','customers','dictionaries']`) and `wms`:
 
 ```typescript
 // index.ts
@@ -317,20 +321,20 @@ export const metadata: ModuleInfo = {
 }
 ```
 
-Brak `contractors` na tej liście jest celowy — to opcjonalny peer
-(patrz Cross-module integration), nie twardy dependency; deklarowanie
-go tutaj złamałoby dokładnie ten mechanizm degradacji, który
-`tryResolve` ma zapewnić.
+`contractors` is not on this list deliberately — it's an optional peer
+(see Cross-module integration), not a hard dependency; declaring it
+here would break the very degradation mechanism `tryResolve` is meant
+to provide.
 
 ### Encryption (`encryption.ts`)
 
-**Ten moduł nie potrzebuje własnego `encryption.ts`.**
-`PaymentBatchLine.whitelistCheckResult` przechowuje tylko wynik
-weryfikacji (`status`/`checkedAt`/`requestId`), celowo bez numeru
-rachunku bankowego — ten jest już zaszyfrowany na
-`ContractorBankAccount.accountNumber` w `contractors/encryption.ts`
-(patrz Design decisions). Żadne inne pole w `PaymentBatch`/
-`PaymentBatchLine` nie niesie danych PII/GDPR-wrażliwych.
+**This module needs no `encryption.ts` of its own.**
+`PaymentBatchLine.whitelistCheckResult` stores only the verification
+result (`status`/`checkedAt`/`requestId`), deliberately without the
+bank account number — that's already encrypted on
+`ContractorBankAccount.accountNumber` in `contractors/encryption.ts`
+(see Design decisions). No other field on `PaymentBatch`/
+`PaymentBatchLine` carries PII/GDPR-sensitive data.
 
 ### Module Setup (`setup.ts`)
 
@@ -341,67 +345,66 @@ defaultRoleFeatures: {
     'accounts_payable_payments.payments.view',
     'accounts_payable_payments.payments.manage',
   ],
-  // employee celowo bez '.execute' — potwierdzenie/wysyłka paczki
-  // (realne przesunięcie pieniędzy) to węższa brama, mirror braku
-  // '.post' dla employee w accounts_payable
+  // employee deliberately without '.execute' — confirming/sending a
+  // batch (an actual movement of money) is a narrower gate, mirroring
+  // employee not getting '.post' in accounts_payable
 },
 
 async seedDefaults({ em, tenantId, organizationId }) {
-  // Zapisuje pusty wiersz module_configs dla
-  // accounts_payable_payments.defaultCashAccountId — patrz Migration
-  // & Deployment. Nie zapisuje wartości dla
-  // accounts_payable.liabilityAccountId — ta należy do siostrzanego
-  // dokumentu (patrz Data Models → Module Config).
+  // Writes an empty module_configs row for
+  // accounts_payable_payments.defaultCashAccountId — see Migration &
+  // Deployment. Does not write a value for
+  // accounts_payable.liabilityAccountId — that belongs to the sibling
+  // document (see Data Models → Module Config).
 }
 ```
 
 ### Commands (Command Pattern, `commands/`)
 
-- `createPaymentBatch` — tworzy `PaymentBatch` w `DRAFT`, pusty.
-- `updatePaymentBatch` — dodaje/usuwa `PaymentBatchLine` (tylko
-  faktury w statusie `POSTED` z `accounts_payable`, jeszcze
-  niepodpięte do innej, niezakończonej paczki — czytane bezpośrednio
-  przez `entityManager`, patrz Design decisions i Cross-module
-  integration), tylko gdy `PaymentBatch.status === 'DRAFT'`.
-- `confirmPaymentBatch` — `DRAFT` → `CONFIRMED`. Dla każdej linii
-  rozwiązuje `contractorBankWhitelistCheck` z modułu `contractors`
-  przez lokalny `tryResolve` (ten sam wzorzec co w Contractor
-  Registry — `contractors` **jest** opcjonalnym peerem tutaj, w
-  odróżnieniu od `ledger`/`accounts_payable`). **Polityka degradacji
-  jest inna niż w Contractor Registry**: tam brak modułu powodował
-  bezpieczne pominięcie tylko UI-owego przycisku "verify now"; tutaj,
-  ponieważ chodzi o twardy blocker prawny (Biała Lista/MPP), brak
-  modułu **blokuje potwierdzenie całej paczki** (fail-closed), zamiast
-  cicho przechodzić dalej (fail-open) — ten sam mechanizm
-  (`tryResolve`), inna polityka biznesowa przy braku wyniku.
-- `markPaymentBatchSent` — `CONFIRMED` → `SENT`. Resolves
-  `commandBus` z kontenera i woła `ledger.postJournalEntry` z jedną
-  linią DR na skonfigurowane konto zobowiązań (`accounts_payable.liabilityAccountId`
-  — czytane bezpośrednio przez `ModuleConfigService` ze scope
-  `tenantId` siostrzanego modułu, patrz Data Models → Module Config)
-  per `VendorInvoiceLine`-suma (albo jedną linią per faktura w
-  paczce), jedną linią CR na skonfigurowane konto bankowe/kasowe
+- `createPaymentBatch` — creates a `PaymentBatch` in `DRAFT`, empty.
+- `updatePaymentBatch` — adds/removes `PaymentBatchLine` (only
+  invoices with status `POSTED` in `accounts_payable`, not yet
+  attached to another unfinished batch — read directly through
+  `entityManager`, see Design decisions and Cross-module integration),
+  only while `PaymentBatch.status === 'DRAFT'`.
+- `confirmPaymentBatch` — `DRAFT` → `CONFIRMED`. For each line,
+  resolves `contractorBankWhitelistCheck` from the `contractors`
+  module through a local `tryResolve` (the same pattern as in
+  Contractor Registry — `contractors` **is** an optional peer here,
+  unlike `ledger`/`accounts_payable`). **The degradation policy differs
+  from Contractor Registry**: there, a missing module safely skipped
+  only the UI's "verify now" button; here, because it's a hard legal
+  blocker (VAT whitelist/MPP), a missing module **blocks confirmation
+  of the entire batch** (fail-closed), instead of silently proceeding
+  (fail-open) — the same mechanism (`tryResolve`), a different
+  business policy when there's no result.
+- `markPaymentBatchSent` — `CONFIRMED` → `SENT`. Resolves `commandBus`
+  from the container and calls `ledger.postJournalEntry` with one DR
+  line to the configured liability account
+  (`accounts_payable.liabilityAccountId` — read directly through
+  `ModuleConfigService` scoped by the sibling module's `tenantId`, see
+  Data Models → Module Config) per `VendorInvoiceLine` sum (or one
+  line per invoice in the batch), one CR line to the configured
+  bank/cash account
   (`accounts_payable_payments.defaultCashAccountId`),
   `referenceType: 'accounts_payable_payments:payment_batch'`,
-  `referenceId: batch.id`. **Nie wykonuje realnego przelewu** — patrz
-  Out of scope. Ustawia `postedJournalEntryId` (idempotency guard,
-  mirror `postVendorInvoice`).
-- `cancelPaymentBatch` — `DRAFT`/`CONFIRMED` → `CANCELLED`
-  (soft-delete via `deletedAt`; zwalnia podpięte faktury, żeby mogły
-  trafić do innej paczki — logicznie, przez usunięcie
-  `PaymentBatchLine`, nie zapis do `VendorInvoice` samego). Zablokowane
-  dla `SENT`.
+  `referenceId: batch.id`. **Does not execute a real bank transfer** —
+  see Out of scope. Sets `postedJournalEntryId` (idempotency guard,
+  mirroring `postVendorInvoice`).
+- `cancelPaymentBatch` — `DRAFT`/`CONFIRMED` → `CANCELLED` (soft
+  delete via `deletedAt`; frees the attached invoices so they can go
+  into another batch — logically, by removing `PaymentBatchLine`, not
+  by writing back to `VendorInvoice` itself). Blocked for `SENT`.
 
-**Ten moduł nie definiuje żadnego workflow-u.** W odróżnieniu od
-`accounts_payable`'s obiegu akceptacji faktury (jednorazowa decyzja
-approve/reject, `defineWorkflow`/`USER_TASK`), potwierdzenie i
-wysyłka paczki płatniczej to proste, odwracalne-do-anulowania
-przejścia stanu bramkowane samą `.execute`/`.manage` ACL i
-`useGuardedMutation` na poziomie UI (patrz Backend Pages) — nie
-jednorazowa, nieodwracalna decyzja wymagająca `USER_TASK`. To jest
-dokładnie ten pierwszy przypadek ("prosty, odwracalny toggle"),
-odróżniony w `accounts_payable`'s Design decisions od drugiego
-("jednorazowa decyzja approve/reject").
+**This module defines no workflow of its own.** Unlike
+`accounts_payable`'s invoice approval flow (a one-off approve/reject
+decision, `defineWorkflow`/`USER_TASK`), confirming and sending a
+payment batch are simple, cancel-reversible state transitions, gated
+by plain `.execute`/`.manage` ACL and `useGuardedMutation` at the UI
+level (see Backend Pages) — not a one-off, irreversible decision
+requiring a `USER_TASK`. This is exactly the first case ("a simple,
+reversible toggle") distinguished in `accounts_payable`'s Design
+decisions from the second ("a one-off approve/reject decision").
 
 ### Events (`events.ts`)
 
@@ -412,63 +415,60 @@ const events = [
 ] as const
 ```
 
-`.sent` jest ephemeral (mirror `ledger.journal_entry.posted`) — żaden
-subscriber persistentny nie jest jeszcze potrzebny w Fazie 1;
-przyszły Posting Rules Engine subskrybuje bezpośrednio
-`ledger.journal_entry.posted` (z GL), nie zdarzenia tego modułu — ten
-moduł nie jest jego źródłem danych, GL jest (patrz
-`2026-09-06-posting-rules-engine.md`). Ten moduł **nie** subskrybuje
-żadnego zdarzenia z `accounts_payable` — czyta status `VendorInvoice`
-bezpośrednio (query, nie event) przy budowaniu paczki płatniczej,
-patrz Cross-module integration.
+`.sent` is ephemeral (mirroring `ledger.journal_entry.posted`) — no
+persistent subscriber is needed yet in Phase 1; the future Posting
+Rules Engine subscribes directly to `ledger.journal_entry.posted`
+(from GL), not to this module's events — this module isn't its data
+source, GL is (see `2026-09-06-posting-rules-engine.md`). This module
+does **not** subscribe to any event from `accounts_payable` — it reads
+`VendorInvoice` status directly (a query, not an event) when building a
+payment batch, see Cross-module integration.
 
 ### Cross-module integration
 
-Trzy różne relacje z trzema różnymi modułami — celowo różne
-mechanizmy, nie przez przeoczenie:
+Three different relationships with three different modules —
+deliberately different mechanisms, not by oversight:
 
-- **GL (`ledger.postJournalEntry`) — twardy, zadeklarowany dependency,
-  nie opcjonalny peer.** `packages/core/AGENTS.md` → Cross-Module
-  Coupling opisuje `tryResolve` dla integracji **opcjonalnej**; GL nie
-  jest tu opcjonalne. Ten moduł woła
+- **GL (`ledger.postJournalEntry`) — a hard, declared dependency, not
+  an optional peer.** `packages/core/AGENTS.md` → Cross-Module
+  Coupling describes `tryResolve` for **optional** integration; GL
+  isn't optional here. This module calls
   `container.resolve('commandBus').execute('ledger.postJournalEntry', input, ctx)`
-  — ten sam generyczny mechanizm, którego `accounts_payable` już
-  używa dla dokładnie tego samego celu, i którego `workflows`'
-  `UPDATE_ENTITY` już używa do wołania dowolnej komendy po stringowym
+  — the same generic mechanism `accounts_payable` already uses for
+  exactly the same purpose, and that `workflows`'
+  `UPDATE_ENTITY` already uses to call any command by string
   `commandId`.
-- **`accounts_payable` — twardy, zadeklarowany dependency, z nowym
-  wzorcem: bezpośrednie zapytanie encji przez granicę modułu.**
-  `updatePaymentBatch` odpytuje `VendorInvoice` bezpośrednio przez
-  `entityManager` (status `POSTED`, dostawca, waluta, wykluczając
-  faktury już podpięte do innej, niezakończonej paczki — zawsze ze
-  scope `tenantId`/`organizationId`), a `markPaymentBatchSent` czyta
-  `accounts_payable.liabilityAccountId` bezpośrednio przez
-  `ModuleConfigService` ze scope `tenantId` (nie przez `commandBus` —
-  to jest wartość konfiguracyjna, nie komenda). Uzasadnienie i
-  odrzucona alternatywa (cienka komenda zapytania) — patrz Design
-  decisions, "Nowy mechanizm wprowadzony przez podział".
-- **Contractors (`contractorBankWhitelistCheck`) — opcjonalny peer,
-  z polityką fail-closed.** Ten moduł resolves przez lokalny
-  `tryResolve` w `try/catch`, dokładnie jak zaprojektowano w
-  Contractor Registry. Różnica względem tamtego spec-a: tam brak
-  modułu degraduje tylko UI (`verify now` przestaje działać), tutaj
-  brak modułu **blokuje** `confirmPaymentBatch` w całości — bo to
-  twardy blocker prawny (Biała Lista/MPP), nie wygoda UX. Ten moduł
-  nigdy nie traktuje brakującego wyniku jako "zakładam WHITELISTED"
-  (fail-open) — zawsze jako "nie mogę zweryfikować, więc blokuję"
-  (fail-closed).
+- **`accounts_payable` — a hard, declared dependency, with a new
+  pattern: a direct entity query across the module boundary.**
+  `updatePaymentBatch` queries `VendorInvoice` directly through
+  `entityManager` (status `POSTED`, vendor, currency, excluding
+  invoices already attached to another unfinished batch — always
+  scoped by `tenantId`/`organizationId`), and `markPaymentBatchSent`
+  reads `accounts_payable.liabilityAccountId` directly through
+  `ModuleConfigService` scoped by `tenantId` (not through
+  `commandBus` — this is a configuration value, not a command).
+  Rationale and the rejected alternative (a thin query command) — see
+  Design decisions, "A new mechanism introduced by the split".
+- **Contractors (`contractorBankWhitelistCheck`) — an optional peer,
+  with a fail-closed policy.** This module resolves through a local
+  `tryResolve` in a `try/catch`, exactly as designed in Contractor
+  Registry. The difference from that spec: there, a missing module
+  degrades only the UI (`verify now` stops working); here, a missing
+  module **blocks** `confirmPaymentBatch` entirely — because it's a
+  hard legal blocker (VAT whitelist/MPP), not a UX convenience. This
+  module never treats a missing result as "assume WHITELISTED"
+  (fail-open) — always as "I can't verify, so I block" (fail-closed).
 
 ### Backend Pages (`backend/accounts_payable_payments/`)
 
-- `payments/page.tsx` — `DataTable` paczek płatniczych.
-- `payments/create/page.tsx`, `payments/[id]/page.tsx` — tworzenie
-  paczki (wybór zatwierdzonych, zaksięgowanych, niezapłaconych faktur
-  tego samego dostawcy/waluty z `accounts_payable`), guarded row
-  action "Potwierdź" (`useGuardedMutation` na `confirmPaymentBatch` —
-  to jest zwykły toggle-podobny stan przejścia, nie decyzja
-  approve/reject, więc `useGuardedMutation` jest tu właściwym wzorcem,
-  w odróżnieniu od akceptacji faktury w siostrzanym dokumencie) i
-  "Wyślij" (`markPaymentBatchSent`).
+- `payments/page.tsx` — payment batch `DataTable`.
+- `payments/create/page.tsx`, `payments/[id]/page.tsx` — batch
+  creation (choosing approved, posted, unpaid invoices for the same
+  vendor/currency from `accounts_payable`), a guarded row action
+  "Confirm" (`useGuardedMutation` on `confirmPaymentBatch` — this is a
+  plain, toggle-like state transition, not an approve/reject decision,
+  so `useGuardedMutation` is the right pattern here, unlike invoice
+  approval in the sibling document) and "Send" (`markPaymentBatchSent`).
 
 ## Data Models
 
@@ -476,74 +476,73 @@ mechanizmy, nie przez przeoczenie:
 
 - `id`: uuid (PK)
 - `tenant_id`, `organization_id`: uuid
-- `bank_account_id`: uuid (FK-id, referencja do przyszłej encji Bank Management)
+- `bank_account_id`: uuid (FK-id, reference to a future Bank Management entity)
 - `status`: text (`DRAFT`/`CONFIRMED`/`SENT`/`CANCELLED`)
 - `scheduled_payment_date`: date
 - `total_amount`: numeric(19,4)
 - `posted_journal_entry_id`: uuid, nullable
-- `updated_at`: timestamptz, nullable (optymistyczna blokada dopóki `status` to `DRAFT`/`CONFIRMED`)
+- `updated_at`: timestamptz, nullable (optimistic lock while `status` is `DRAFT`/`CONFIRMED`)
 - `deleted_at`: timestamptz, nullable
 
-Wspierający indeks: `(tenant_id, organization_id, status,
-scheduled_payment_date)` dla listy paczek.
+Supporting index: `(tenant_id, organization_id, status,
+scheduled_payment_date)` for the batch list.
 
 ### PaymentBatchLine
 
 - `id`: uuid (PK)
 - `payment_batch_id`: uuid (FK)
-- `vendor_invoice_id`: uuid (FK-id → `accounts_payable.VendorInvoice`, brak relacji ORM)
-- `contractor_bank_account_id`: uuid (FK-id → `contractors.ContractorBankAccount`, brak relacji ORM)
+- `vendor_invoice_id`: uuid (FK-id → `accounts_payable.VendorInvoice`, no ORM relation)
+- `contractor_bank_account_id`: uuid (FK-id → `contractors.ContractorBankAccount`, no ORM relation)
 - `amount`: numeric(19,4)
 - `whitelist_check_result`: json, nullable
-- `tenant_id`, `organization_id`: uuid (własne)
+- `tenant_id`, `organization_id`: uuid (own)
 
-Wspierający indeks: `(payment_batch_id)` dla ładowania pozycji paczki;
-`(vendor_invoice_id)` żeby `createPaymentBatch`/`updatePaymentBatch`
-mogły szybko wykluczyć faktury już podpięte do innej, niezakończonej
-paczki.
+Supporting index: `(payment_batch_id)` for loading batch lines;
+`(vendor_invoice_id)` so `createPaymentBatch`/`updatePaymentBatch` can
+quickly exclude invoices already attached to another unfinished batch.
 
 ### Module Config (`ModuleConfigService`, tenant scope)
 
-- `accounts_payable_payments.defaultCashAccountId` — domyślne konto
-  bankowe/kasowe (np. "130"), używane jako CR w `markPaymentBatchSent`
-  gdy `PaymentBatch.bankAccountId` nie mapuje się jeszcze na konkretne
-  konto księgowe (Bank Management nie istnieje w kodzie — to
-  tymczasowy fallback, do usunięcia gdy powstanie realne mapowanie
-  rachunek-bankowy → konto księgowe). Własność tego dokumentu,
-  ustawiane w jego config UI.
-- **`accounts_payable.liabilityAccountId` — czytane, nie
-  własność.** Konto zobowiązań wobec dostawców, używane jako DR w
-  `markPaymentBatchSent`. Ustawiane w siostrzanego dokumentu config
-  UI; ten moduł czyta je bezpośrednio przez `ModuleConfigService` ze
-  scope `tenantId` (patrz Cross-module integration) — to jedyny
-  zamierzony, udokumentowany punkt współdzielonej konfiguracji między
-  dwoma dokumentami (patrz Design decisions, "Q1 resolved").
+- `accounts_payable_payments.defaultCashAccountId` — the default
+  bank/cash account (e.g. "130"), used as the CR in
+  `markPaymentBatchSent` when `PaymentBatch.bankAccountId` doesn't yet
+  map to a specific ledger account (Bank Management doesn't exist in
+  code — this is a temporary fallback, to be removed once a real
+  bank-account-to-ledger-account mapping exists). Owned by this
+  document, set in its config UI.
+- **`accounts_payable.liabilityAccountId` — read, not owned.** The
+  vendor liability account, used as the DR in `markPaymentBatchSent`.
+  Set in the sibling document's config UI; this module reads it
+  directly through `ModuleConfigService` scoped by `tenantId` (see
+  Cross-module integration) — the one intentional, documented shared
+  configuration point between the two documents (see Design
+  decisions, "Q1 resolved").
 
-Obie czytane bez `tenantId` w scope tylko jako fallback (globalny
-wiersz) — w praktyce każdy tenant ustawia je przy onboardingu, przez
-`onTenantCreated` (patrz Migration & Deployment).
+Both are read without `tenantId` in scope only as a fallback (a global
+row) — in practice every tenant sets them during onboarding, through
+`onTenantCreated` (see Migration & Deployment).
 
 ## API Contracts
 
 ### `GET /api/accounts_payable_payments/payments` / `POST /api/accounts_payable_payments/payments`
 
-Standard `makeCrudRoute` dla `PaymentBatch` (create tworzy pusty
-`DRAFT`; pozycje dodawane osobno). Bazowa ścieżka zmieniona z
-`/api/accounts_payable/payments/...` (gdy był to jeden moduł, patrz
-Design decisions, "Zmiana ścieżki API") na
-`/api/accounts_payable_payments/payments/...`, mirror konwencji
-"trasy API żyją pod prefiksem własnego modułu".
+Standard `makeCrudRoute` for `PaymentBatch` (create makes an empty
+`DRAFT`; lines are added separately). Base path changed from
+`/api/accounts_payable/payments/...` (when this was one module, see
+Design decisions, "API path change") to
+`/api/accounts_payable_payments/payments/...`, mirroring the "API
+routes live under their own module's prefix" convention.
 
 - **Response 403**: caller lacks `accounts_payable_payments.payments.view` (list) / `.manage` (create).
 
 ### `POST /api/accounts_payable_payments/payments/:id/lines`
 
-Custom write route dodająca `PaymentBatchLine` (mapped to `update`).
+Custom write route adding a `PaymentBatchLine` (mapped to `update`).
 
 - **Request**: `{ vendorInvoiceId, contractorBankAccountId, amount }`.
-- **Response 409**: `PaymentBatch.status !== 'DRAFT'`, albo faktura
-  nie jest `POSTED` (w `accounts_payable`), albo faktura jest już
-  podpięta do innej, niezakończonej paczki.
+- **Response 409**: `PaymentBatch.status !== 'DRAFT'`, or the invoice
+  isn't `POSTED` (in `accounts_payable`), or the invoice is already
+  attached to another unfinished batch.
 - **Response 403**: caller lacks `accounts_payable_payments.payments.manage`.
 
 ### `POST /api/accounts_payable_payments/payments/:id/confirm`
@@ -553,8 +552,8 @@ Custom write route (mapped to `update`).
 - **Response 200**: `{ id, status: 'CONFIRMED' }`.
 - **Response 422 `WHITELIST_CHECK_FAILED`**: `{ code:
   'WHITELIST_CHECK_FAILED', failedLines: { vendorInvoiceId, reason
-  }[] }` — co najmniej jedna linia nie przeszła żywej weryfikacji
-  Białej Listy (albo moduł `contractors` jest niedostępny — patrz
+  }[] }` — at least one line failed the live VAT-whitelist
+  verification (or the `contractors` module is unavailable — see
   Cross-module integration, fail-closed).
 - **Response 403**: caller lacks `accounts_payable_payments.payments.execute`.
 
@@ -576,67 +575,66 @@ Custom write route (mapped to `update`).
 
 ## Migration & Deployment
 
-Nowe, addytywne tabele: `accounts_payable_payments_payment_batches`,
-`accounts_payable_payments_payment_batch_lines` — zero zmian w
-istniejących tabelach innych modułów (GL, Contractor Registry,
-`accounts_payable`). `onTenantCreated` w `setup.ts` zapisuje pustą
-wartość domyślną dla `accounts_payable_payments.defaultCashAccountId`
-(rekord w `module_configs` z `tenant_id` ustawionym) — nie może
-wybrać sensownej wartości automatycznie (zależy od faktycznego planu
-kont tenant-a), więc `markPaymentBatchSent` odrzuca wywołanie
-czytelnym błędem konfiguracyjnym dopóki księgowy nie ustawi tej
-wartości (i `accounts_payable.liabilityAccountId` w siostrzanym
-dokumencie) przez ekran konfiguracji modułu.
+New, additive tables: `accounts_payable_payments_payment_batches`,
+`accounts_payable_payments_payment_batch_lines` — zero changes to
+existing tables in other modules (GL, Contractor Registry,
+`accounts_payable`). `onTenantCreated` in `setup.ts` writes an empty
+default value for `accounts_payable_payments.defaultCashAccountId` (a
+row in `module_configs` with `tenant_id` set) — it can't pick a
+sensible value automatically (it depends on the tenant's actual chart
+of accounts), so `markPaymentBatchSent` rejects the call with a
+readable configuration error until the accountant sets this value
+(and `accounts_payable.liabilityAccountId` in the sibling document)
+through the module configuration screen.
 
 ## Implementation Plan
 
-### Phase 1: Paczki płatnicze, weryfikacja Białej Listy, księgowanie wysyłki
+### Phase 1: Payment batches, VAT-whitelist verification, send posting
 
-1. `index.ts` (`metadata.requires: ['ledger', 'accounts_payable']`)
-   + encje + migracja (dwie tabele powyżej) + indeksy z Data Models.
-2. `acl.ts` + `setup.ts` (role, `defaultRoleFeatures`,
-   `onTenantCreated` zapisujący pustą wartość
-   `defaultCashAccountId`).
+1. `index.ts` (`metadata.requires: ['ledger', 'accounts_payable']`) +
+   entities + migration (the two tables above) + indexes from Data
+   Models.
+2. `acl.ts` + `setup.ts` (roles, `defaultRoleFeatures`,
+   `onTenantCreated` writing an empty `defaultCashAccountId` value).
 3. `createPaymentBatch` / `updatePaymentBatch` / `cancelPaymentBatch`
-   (zapytanie o zatwierdzone, niepodpięte faktury z
-   `accounts_payable` — patrz Cross-module integration, decyzja
-   implementacyjna do potwierdzenia przy code review: bezpośrednie
-   zapytanie czy cienka komenda-zapytanie).
-4. `confirmPaymentBatch` (integracja `contractorBankWhitelistCheck`
-   przez `tryResolve`, fail-closed) + `events.ts`.
-5. `markPaymentBatchSent` (wywołanie `commandBus` →
-   `ledger.postJournalEntry`, czytanie
-   `accounts_payable.liabilityAccountId` z siostrzanego modułu).
-6. API routes + `api/openapi.ts` (w tym `.../cancel`).
+   (querying for approved, unattached invoices from
+   `accounts_payable` — see Cross-module integration, an
+   implementation decision to be confirmed at code review: direct
+   query vs. a thin query command).
+4. `confirmPaymentBatch` (the `contractorBankWhitelistCheck`
+   integration through `tryResolve`, fail-closed) + `events.ts`.
+5. `markPaymentBatchSent` (the `commandBus` call →
+   `ledger.postJournalEntry`, reading
+   `accounts_payable.liabilityAccountId` from the sibling module).
+6. API routes + `api/openapi.ts` (including `.../cancel`).
 7. Backend pages (payments list/create/edit).
-8. Moduł config UI (ustawienie `defaultCashAccountId`).
-9. Unit + integration test coverage (patrz Testing Strategy).
+8. Module config UI (setting `defaultCashAccountId`).
+9. Unit + integration test coverage (see Testing Strategy).
 
 ### Phase 2 (deferred)
 
-- Rzeczywista integracja bankowa (wywołanie API banku albo eksport
-  pliku przelewów) — dziś `markPaymentBatchSent` tylko księguje,
-  nie wysyła pieniędzy.
-- Płatności częściowe (dziś: pełna kwota faktury albo nic).
-- Budżety/limity kwotowe na płatności — pre-warsztatowy brief
-  (SPEC-024, sekcja "Budgeting & Forecasting", rola "Finance Manager
-  chce ustawiać limity budżetowe") sugeruje osobny, przyszły moduł
-  Budgeting — nie potwierdzone na warsztacie jako część tego dokumentu,
-  więc świadomie poza zakresem.
+- Real bank integration (calling a bank's API, or exporting a transfer
+  file) — today `markPaymentBatchSent` only posts, doesn't send money.
+- Partial payments (today: the full invoice amount or nothing).
+- Budgets/payment amount limits — the pre-workshop brief (SPEC-024,
+  "Budgeting & Forecasting" section, the "Finance Manager wants to set
+  budget limits" role) suggests a separate, future Budgeting module —
+  not confirmed at the workshop as part of this document, so
+  deliberately out of scope.
 
 ### File Manifest
 
 | File | Action | Purpose |
 |------|--------|---------|
-| `index.ts` | Create | `metadata.requires: ['ledger', 'accounts_payable']` — dwa twarde dependency |
+| `index.ts` | Create | `metadata.requires: ['ledger', 'accounts_payable']` — two hard dependencies |
 | `data/entities.ts` | Create | `PaymentBatch`, `PaymentBatchLine` |
-| `acl.ts` | Create | Trzy funkcjonalności (view/manage/execute) |
-| `setup.ts` | Create | `defaultRoleFeatures`; `onTenantCreated` zapisujący pustą `defaultCashAccountId` |
-| `events.ts` | Create | Dwa zdarzenia (patrz Events) |
+| `acl.ts` | Create | Three features (view/manage/execute) |
+| `setup.ts` | Create | `defaultRoleFeatures`; `onTenantCreated` writing an empty `defaultCashAccountId` |
+| `events.ts` | Create | Two events (see Events) |
 | `commands/paymentBatches.ts` | Create | `createPaymentBatch`, `updatePaymentBatch`, `confirmPaymentBatch`, `markPaymentBatchSent`, `cancelPaymentBatch` |
-| `lib/whitelistCheck.ts` | Create | Lokalny `tryResolve` wrapper wokół `contractorBankWhitelistCheck`, fail-closed policy |
-| `lib/vendorInvoiceQueries.ts` | Create | Bezpośrednie zapytania `entityManager` po `accounts_payable.VendorInvoice` (albo wołanie cienkiej komendy-zapytania, jeśli tak zdecydowano przy code review — patrz Design decisions) |
-| `api/openapi.ts` | Create | `openApi` exports dla wszystkich tras `accounts_payable_payments` |
+| `lib/whitelistCheck.ts` | Create | Local `tryResolve` wrapper around `contractorBankWhitelistCheck`, fail-closed policy |
+| `lib/vendorInvoiceQueries.ts` | Create | Direct `entityManager` queries against `accounts_payable.VendorInvoice` (or a call to a thin query command, if that's decided at code review — see Design decisions) |
+| `api/openapi.ts` | Create | `openApi` exports for every `accounts_payable_payments` route |
 | `api/payments/route.ts` | Create | `PaymentBatch` CRUD (`makeCrudRoute`) |
 | `api/payments/[id]/lines/route.ts`, `.../confirm/route.ts`, `.../send/route.ts`, `.../cancel/route.ts` | Create | Custom guarded write routes |
 | `backend/accounts_payable_payments/payments/page.tsx` (+ create/[id]) | Create | Payment batch list/create/edit UI |
@@ -646,131 +644,128 @@ dokumencie) przez ekran konfiguracji modułu.
 
 ## Testing Strategy
 
-- Zbudować paczkę płatniczą z dwóch zatwierdzonych, zaksięgowanych
-  faktur tego samego dostawcy (z `accounts_payable`); potwierdzić
-  (mock `contractorBankWhitelistCheck` zwraca `WHITELISTED` dla obu);
-  wysłać; assert zbalansowany `JournalEntry` na koncie
-  zobowiązań/koncie bankowym.
-- Potwierdzić paczkę gdy jedna linia nie przechodzi weryfikacji
-  Białej Listy; assert `422 WHITELIST_CHECK_FAILED`, paczka zostaje
+- Build a payment batch from two approved, posted invoices for the
+  same vendor (from `accounts_payable`); confirm it (mock
+  `contractorBankWhitelistCheck` returns `WHITELISTED` for both); send
+  it; assert a balanced `JournalEntry` on the liability/bank account.
+- Confirm a batch when one line fails VAT-whitelist verification;
+  assert a `422 WHITELIST_CHECK_FAILED` response, the batch stays
   `DRAFT`.
-- Potwierdzić paczkę gdy moduł `contractors` jest wyłączony (test
-  module-decoupling, patrz `packages/core/AGENTS.md` → Testing with
-  Disabled Modules); assert fail-closed — paczka **nie** przechodzi do
-  `CONFIRMED`.
-- Zbudować paczkę gdy moduł `accounts_payable` jest wyłączony (test
-  module-decoupling); assert, że `createPaymentBatch`/
-  `updatePaymentBatch` nie mogą znaleźć żadnej kwalifikującej się
-  faktury — w odróżnieniu od `contractors`' testu powyżej, ten
-  scenariusz jest w praktyce niemożliwy do wywołania w produkcji
-  (`accounts_payable` to zwalidowany przy generowaniu twardy
-  dependency), ale regression test dokumentuje oczekiwane zachowanie
-  jeśli walidacja kiedyś zawiedzie.
-- Anulować paczkę płatniczą w `DRAFT` i w `CONFIRMED`; assert
-  `CANCELLED`, podpięte faktury zwolnione (dostępne dla innej
-  paczki); anulowanie paczki `SENT` musi zwrócić 409.
-- Wysłać tę samą paczkę dwa razy (retry po timeout-cie sieci); assert
-  drugie wywołanie `markPaymentBatchSent` jest no-opem, nie duplikuje
-  zapisu (idempotency guard, mirror `postVendorInvoice`'s test w
-  siostrzanym dokumencie).
+- Confirm a batch when the `contractors` module is disabled (a
+  module-decoupling test, see `packages/core/AGENTS.md` → Testing
+  with Disabled Modules); assert fail-closed — the batch does **not**
+  move to `CONFIRMED`.
+- Build a batch when the `accounts_payable` module is disabled (a
+  module-decoupling test); assert that `createPaymentBatch`/
+  `updatePaymentBatch` can't find any qualifying invoice — unlike the
+  `contractors` test above, this scenario is in practice impossible to
+  trigger in production (`accounts_payable` is a generation-time-
+  validated hard dependency), but the regression test documents the
+  expected behavior if that validation ever fails.
+- Cancel a payment batch in `DRAFT` and in `CONFIRMED`; assert
+  `CANCELLED`, attached invoices freed (available for another batch);
+  cancelling a `SENT` batch must return 409.
+- Send the same batch twice (a retry after a network timeout); assert
+  the second `markPaymentBatchSent` call is a no-op, doesn't duplicate
+  the entry (idempotency guard, mirroring `postVendorInvoice`'s test in
+  the sibling document).
 
 ## Risks & Impact Review
 
 ### Data integrity failures
 
-#### Podwójne zaksięgowanie tej samej paczki płatniczej
-- **Scenario**: `markPaymentBatchSent` wywołane dwa razy dla tej samej
-  paczki (np. retry po timeout-cie sieci), zanim pierwsze wywołanie
-  zdąży ustawić `postedJournalEntryId`.
+#### Double posting of the same payment batch
+- **Scenario**: `markPaymentBatchSent` called twice for the same batch
+  (e.g. a retry after a network timeout), before the first call
+  manages to set `postedJournalEntryId`.
 - **Severity**: High
-- **Affected area**: `accounts_payable_payments`, `ledger` (podwójny,
-  niezbalansowany wpis na koncie zobowiązań/bankowym)
-- **Mitigation**: `postedJournalEntryId` sprawdzane i ustawiane w
-  jednej transakcji z wywołaniem `commandBus`
-  (`withAtomicFlush`/transaction wrapping); druga, równoległa próba na
-  tej samej paczce musi zobaczyć już ustawiony `postedJournalEntryId`
-  i zwrócić no-op zamiast wołać `postJournalEntry` ponownie — mirror
-  `postVendorInvoice`'s mitigacja w siostrzanym dokumencie.
-- **Residual risk**: teoretyczne wyścigowe okno między odczytem a
-  zapisem `postedJournalEntryId` przy dwóch równoczesnych requestach —
-  wymaga unique constraint albo select-for-update na
-  `PaymentBatch.id` wewnątrz komendy; do potwierdzenia przy
-  implementacji.
+- **Affected area**: `accounts_payable_payments`, `ledger` (a
+  duplicate, unbalanced entry on the liability/bank account)
+- **Mitigation**: `postedJournalEntryId` is checked and set in the
+  same transaction as the `commandBus` call
+  (`withAtomicFlush`/transaction wrapping); a second, concurrent
+  attempt on the same batch must see `postedJournalEntryId` already
+  set and return a no-op instead of calling `postJournalEntry` again —
+  mirroring `postVendorInvoice`'s mitigation in the sibling document.
+- **Residual risk**: a theoretical race window between reading and
+  writing `postedJournalEntryId` under two simultaneous requests —
+  requires a unique constraint or a select-for-update on
+  `PaymentBatch.id` inside the command; to be confirmed at
+  implementation time.
 
 ### Cascading failures & side effects
 
-#### Brak modułu `contractors` blokuje wszystkie płatności
-- **Scenario**: moduł `contractors` wyłączony albo niedostępny (błąd
-  DI); `confirmPaymentBatch` nie może rozwiązać
+#### The `contractors` module missing blocks all payments
+- **Scenario**: the `contractors` module is disabled or unavailable (a
+  DI error); `confirmPaymentBatch` can't resolve
   `contractorBankWhitelistCheck`.
-- **Severity**: High (dla operacji), ale zamierzone
+- **Severity**: High (operationally), but intentional
 - **Affected area**: `accounts_payable_payments.payments.*`
-- **Mitigation**: fail-closed z założenia — żadna paczka nie może
-  przejść do `CONFIRMED` bez świeżego wyniku weryfikacji. To jest
-  poprawne zachowanie prawne, nie błąd do naprawienia.
-- **Residual risk**: brak — to jest projektowany, akceptowalny wynik
-  (blokada płatności > naruszenie odpowiedzialności solidarnej VAT).
+- **Mitigation**: fail-closed by design — no batch can move to
+  `CONFIRMED` without a fresh verification result. This is correct
+  legal behavior, not a bug to fix.
+- **Residual risk**: none — this is a designed, acceptable outcome
+  (blocking payments beats a joint-and-several VAT liability breach).
 
-#### `ledger.postJournalEntry` niedostępne (moduł `ledger` wyłączony)
+#### `ledger.postJournalEntry` unavailable (the `ledger` module disabled)
 - **Scenario**: `commandBus.execute('ledger.postJournalEntry', ...)`
-  rzuca, bo `ledger` nie jest zarejestrowany.
+  throws, because `ledger` isn't registered.
 - **Severity**: Critical
-- **Affected area**: cały moduł — nie może księgować wysyłki żadnej
-  paczki.
-- **Mitigation**: brak degradacji do zaprojektowania — to twardy
-  dependency (patrz Cross-module integration), deklarowany przez
+- **Affected area**: the whole module — it can't post any batch's
+  send.
+- **Mitigation**: no degradation to design — this is a hard
+  dependency (see Cross-module integration), declared through
   `index.ts`'s `metadata.requires`.
-- **Residual risk**: brak — oczekiwane zachowanie dla brakującego
-  twardego dependency.
+- **Residual risk**: none — expected behavior for a missing hard
+  dependency.
 
-#### Moduł `accounts_payable` niedostępny
-- **Scenario**: moduł `accounts_payable` wyłączony albo niedostępny;
-  bezpośrednie zapytanie o `VendorInvoice` (patrz Cross-module
-  integration) nie zwraca żadnych wierszy albo rzuca, jeśli encja nie
-  jest zarejestrowana.
-- **Severity**: Critical, ale zamierzone
-- **Affected area**: cały moduł — nie może zbudować ani wysłać żadnej
-  paczki (brak faktur do podpięcia, brak
-  `accounts_payable.liabilityAccountId` do zaksięgowania wysyłki).
-- **Mitigation**: brak degradacji do zaprojektowania — to twardy,
-  zwalidowany przy generowaniu dependency (`ModuleInfo.requires`),
-  analogiczne do `ledger`. **Nowe ryzyko wprowadzone przez podział**
-  (przed 2026-09-08 to był jeden moduł — ten scenariusz po prostu nie
-  istniał), ale symetryczne do już zaakceptowanego ryzyka braku
-  `ledger`.
-- **Residual risk**: brak — oczekiwane zachowanie dla brakującego
-  twardego dependency; w praktyce niemożliwe do wywołania, bo
-  rejestracja modułów waliduje `requires` przy generowaniu.
+#### The `accounts_payable` module unavailable
+- **Scenario**: the `accounts_payable` module is disabled or
+  unavailable; a direct query for `VendorInvoice` (see Cross-module
+  integration) returns no rows, or throws if the entity isn't
+  registered.
+- **Severity**: Critical, but intentional
+- **Affected area**: the whole module — it can't build or send any
+  batch (no invoices to attach, no
+  `accounts_payable.liabilityAccountId` to post the send against).
+- **Mitigation**: no degradation to design — this is a generation-
+  time-validated hard dependency (`ModuleInfo.requires`), analogous to
+  `ledger`. **A new risk introduced by the split** (before 2026-09-08
+  this was one module — this scenario simply didn't exist), but
+  symmetric to the already-accepted risk of a missing `ledger`.
+- **Residual risk**: none — expected behavior for a missing hard
+  dependency; in practice impossible to trigger, since module
+  registration validates `requires` at generation time.
 
 ### Tenant & data isolation
 
-Obie encje mają własne `tenant_id`/`organization_id`
-(`PaymentBatchLine` ma własne kolumny zakresu, nie tylko odziedziczone
-przez FK, mirror `ContractorBankAccount`). `ModuleConfigService` z
-jawnym `tenantId` w scope gwarantuje, że konto bankowe/kasowe jednego
-tenant-a nigdy nie przecieka jako fallback do innego — to samo
-dotyczy odczytu `accounts_payable.liabilityAccountId` (patrz Data
-Models → Module Config).
+Both entities have their own `tenant_id`/`organization_id`
+(`PaymentBatchLine` has its own scope columns, not just inherited
+through the FK, mirroring `ContractorBankAccount`).
+`ModuleConfigService` with an explicit `tenantId` in scope guarantees
+that one tenant's bank/cash account never leaks as a fallback to
+another — the same applies to reading
+`accounts_payable.liabilityAccountId` (see Data Models → Module
+Config).
 
 ### Migration & deployment
 
-Patrz Migration & Deployment section powyżej — dwie nowe, addytywne
-tabele, zero zmian w istniejących. `onTenantCreated` idempotentny
-(może być uruchomiony wielokrotnie bez duplikowania wierszy
-`module_configs` — `ModuleConfigService`'s partial unique indexes to
-gwarantują).
+See the Migration & Deployment section above — two new, additive
+tables, zero changes to existing ones. `onTenantCreated` is idempotent
+(can run multiple times without duplicating `module_configs` rows —
+`ModuleConfigService`'s partial unique indexes guarantee this).
 
 ## Out of scope (tracked separately)
 
-- Rzeczywista integracja bankowa (przelew wykonywany naprawdę) — brak
-  jakiegokolwiek precedensu w repo; `markPaymentBatchSent` w tym
-  dokumencie tylko księguje, nie wysyła pieniędzy. Osobny, przyszły
-  spec (Bank Management/SPEC-024 rozwinięcie).
-- Budżety/limity kwotowe na płatności — pre-warsztatowy koncept
-  (SPEC-024), niepotwierdzony na warsztacie jako część tego dokumentu;
-  osobny, przyszły moduł Budgeting, jeśli w ogóle powstanie.
-- Płatności częściowe — Faza 2.
-- Przyjęcie faktury i obieg akceptacji — patrz
+- Real bank integration (an actually executed transfer) — no
+  precedent whatsoever in the repo; `markPaymentBatchSent` in this
+  document only posts, doesn't send money. A separate, future spec
+  (a Bank Management/SPEC-024 expansion).
+- Budgets/payment amount limits — a pre-workshop concept (SPEC-024),
+  not confirmed at the workshop as part of this document; a separate,
+  future Budgeting module, if it ever exists.
+- Partial payments — Phase 2.
+- Invoice receipt and the approval flow — see
   `2026-09-06-accounts-payable.md`.
 
 ## Final Compliance Report — 2026-09-08
@@ -786,7 +781,7 @@ gwarantują).
 
 | Rule Source | Rule | Status | Notes |
 |-------------|------|--------|-------|
-| root AGENTS.md | No direct ORM relationships between modules | Compliant | `vendorInvoiceId`, `contractorBankAccountId`, `bankAccountId` all FK-id only, no relation decorators — including the new direct-query pattern against `accounts_payable.VendorInvoice` (patrz Design decisions) |
+| root AGENTS.md | No direct ORM relationships between modules | Compliant | `vendorInvoiceId`, `contractorBankAccountId`, `bankAccountId` all FK-id only, no relation decorators — including the new direct-query pattern against `accounts_payable.VendorInvoice` (see Design decisions) |
 | root AGENTS.md | Filter by organization_id | Compliant | Both entities tenant/org scoped; `PaymentBatchLine` carries own scope columns |
 | `packages/core/AGENTS.md` → API Routes | All API route files MUST export `openApi` | Compliant | `api/openapi.ts` covers every route, per File Manifest |
 | `packages/core/AGENTS.md` → API Routes | Custom write routes wire the mutation guard registry | Compliant | `lines`/`confirm`/`send`/`cancel` routes all mapped to `update` operation |
@@ -810,7 +805,7 @@ gwarantują).
 | Commands defined for all mutations | Pass | Every status transition has a named command, including `cancelPaymentBatch` for `CANCELLED` |
 | Double-entry postings balance | Pass | `markPaymentBatchSent` posts DR liability / CR cash, both to configured accounts |
 | Risks cover all write operations | Pass | Double-posting, `contractors`/`ledger`/`accounts_payable` cascades, tenant isolation, migration all addressed |
-| Scope cohesion vs. other modules | Pass | Single capability (payment batching and sending), independently deployable given its two hard dependencies (`ledger`, `accounts_payable`) — invoices split out per Q1 resolution, see siostrzany dokument |
+| Scope cohesion vs. other modules | Pass | Single capability (payment batching and sending), independently deployable given its two hard dependencies (`ledger`, `accounts_payable`) — invoices split out per Q1 resolution, see the sibling document |
 | Scope cohesion *within* this document | Pass | One entity group, one lifecycle, one GL integration seam — this is exactly the half of the original combined document that both independent reviews identified as its own cohesive capability |
 | Cross-module coupling mechanism matches dependency type | Pass, with one flagged new pattern | Hard dependencies (`ledger`, `accounts_payable`) via `ModuleInfo.requires`; `ledger` calls via `commandBus` (existing precedent); `accounts_payable` reads via direct entity query and direct `ModuleConfigService` read (new pattern, explicitly flagged — see Compliance Matrix above); optional peer (`contractors`) via `tryResolve`, fail-closed |
 
@@ -892,7 +887,7 @@ invoice-half fixes from this same round are recorded in
 
 - Resolved Q1: split the combined `accounts_payable` document into
   this document (`accounts_payable_payments` — payment batches,
-  Biała Lista verification, payment posting) and
+  VAT-whitelist verification, payment posting) and
   `2026-09-06-accounts-payable.md` (`accounts_payable` — vendor
   invoice lifecycle only, kept as the sibling document's title).
   Carried over verbatim: `PaymentBatch`/`PaymentBatchLine` entities,
@@ -927,3 +922,5 @@ invoice-half fixes from this same round are recorded in
   Stories, Risks, Out of scope, and the Final Compliance Report for
   the narrower payments-only scope; removed the Open Questions
   section (Q1 resolved).
+- Translated the document to English (this pass) — the Polish version
+  is superseded by this one; no content change beyond translation.
