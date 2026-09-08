@@ -33,6 +33,11 @@ Use `@open-mercato/queue` for all background job processing. MUST NOT implement 
 yarn generate
 yarn workspace @open-mercato/queue test
 yarn workspace @open-mercato/queue build
+
+# Opt-in: exercise the async strategy against a real BullMQ instead of the mock.
+# Skipped unless QUEUE_TEST_REDIS_URL is set; point it at a disposable server.
+docker run -d --rm --name om-queue-test-redis -p 6579:6379 redis:7-alpine
+QUEUE_TEST_REDIS_URL=redis://127.0.0.1:6579/0 yarn workspace @open-mercato/queue test redis
 ```
 
 ## Concurrency Guidelines

@@ -154,7 +154,18 @@ Additive throughout — nothing to migrate, nothing deprecated, no `UPGRADE_NOTE
 
 ## Verification
 
-`yarn workspace @open-mercato/queue test` — 126 tests. The deduplication suite covers: a burst of ten
+Coverage is asymmetric by design, because the two strategies carry different risk. The local
+strategy holds all the new logic and is tested against its real implementation. The async strategy is
+a one-line pass-through, so its unit tests run against the usual BullMQ mock and assert only that the
+options arrive untouched — the risk there is not our code but BullMQ's behaviour changing underneath
+it, which two other tests address: `bullmq-deduplication-option.test.ts` reads the *installed* BullMQ
+and fails on a rename, and `async.deduplication.redis.test.ts` runs the burst against a real server.
+The latter is opt-in (`QUEUE_TEST_REDIS_URL`) because nothing else in the repo needs one: `bullmq` is
+an optional peer dependency, every other suite mocks Redis, and the Playwright lane runs
+`QUEUE_STRATEGY=local`. Removing the pass-through turns it red, so it has teeth.
+
+`yarn workspace @open-mercato/queue test` — 126 tests, plus 2 skipped without a Redis URL. The local
+deduplication suite covers: a burst of ten
 collapsing to one job and one run; separate keys and undeduplicated jobs untouched; the key released
 on completion and on attempt exhaustion but surviving a retry; `keepLastIfActive` producing exactly
 one more run with the latest payload, driven from a second queue instance so the pass proves the
