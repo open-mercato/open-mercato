@@ -14,6 +14,7 @@ Use `@open-mercato/queue` for all background job processing. MUST NOT implement 
 1. **MUST make workers idempotent** — jobs may be retried on failure; duplicate execution MUST NOT corrupt data
 2. **MUST export `metadata`** with `{ queue, id?, concurrency? }` from every worker file
 3. **MUST test with both strategies** — verify workers process correctly with `local` and `async`
+4. **MUST deduplicate recompute-from-state jobs** — enqueue them with `{ deduplication: { id: '<entity>:<id>', keepLastIfActive: true } }` so a burst of triggers runs the job once. `keepLastIfActive` is what guarantees one more run *after* the last trigger; without it the run finishes on input that predates the trigger it dropped. MUST NOT hand-roll coalescing inside the worker.
 
 ## Ask First
 

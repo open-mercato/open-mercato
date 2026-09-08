@@ -1,4 +1,4 @@
-import type { Queue, QueuedJob, JobHandler, AsyncQueueOptions, ProcessResult, EnqueueOptions, QueueJobScope } from '../types'
+import type { Queue, QueuedJob, JobHandler, AsyncQueueOptions, ProcessResult, EnqueueOptions, QueueJobScope, DeduplicationOptions } from '../types'
 import { getRedisUrlOrThrow, parseRedisUrl, REDIS_WIRE_PROTOCOL } from '@open-mercato/shared/lib/redis/connection'
 import type { RedisProtocolVersion } from '@open-mercato/shared/lib/redis/connection'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
@@ -30,6 +30,7 @@ interface BullQueueInterface<T> {
       delay?: number
       attempts?: number
       backoff?: { type: string; delay: number }
+      deduplication?: DeduplicationOptions
     },
   ) => Promise<{ id?: string }>
   obliterate: (opts?: { force?: boolean }) => Promise<void>
@@ -368,8 +369,12 @@ export function createAsyncQueue<T = unknown>(
       removeOnFail: 1000,
       attempts,
       backoff: { type: 'exponential', delay: 1000 },
+      // Never emit `deduplication: undefined` — BullMQ treats the key's presence as intent.
+      ...(options?.deduplication ? { deduplication: options.deduplication } : {}),
     })
 
+    // On a deduplicated add BullMQ returns the job that survived, so this is the id of the run the
+    // caller's payload will be served by — not necessarily a job this call created.
     return job.id ?? jobData.id
   }
 

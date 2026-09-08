@@ -147,6 +147,36 @@ export type QueueOptions<S extends QueueStrategyType> = S extends 'async'
   : LocalQueueOptions
 
 /**
+ * Coalesces repeated enqueues of the same logical work into a single job.
+ *
+ * The shape mirrors BullMQ's `DeduplicationOptions` so the async strategy can pass it straight to
+ * `queue.add`, but the contract is the package's own: the local strategy implements the same
+ * semantics on its file-backed store, so development and integration lanes behave like production.
+ *
+ * BullMQ's remaining deduplication fields (`ttl`, `extend`, `replace`) are deliberately not exposed
+ * yet. They only bite in the dedupe-only mode below — BullMQ ignores `ttl` entirely once
+ * `keepLastIfActive` is set — and supporting them in the local strategy costs an expiry index the
+ * feature does not currently need. Adding them later is additive.
+ */
+export type DeduplicationOptions = {
+  /** Coalescing key, scoped to one queue. Key it on the entity the job recomputes. */
+  id: string
+  /**
+   * Guarantees one more run after the last trigger.
+   *
+   * While a job with this `id` is running, a further enqueue is stored rather than dropped, and
+   * exactly one follow-up run starts once the current one finishes — carrying the latest payload.
+   * At most one active plus one waiting job exists per `id` at any time.
+   *
+   * Any job that recomputes from state (standings, aggregates, republishes) MUST set this. Without
+   * it, deduplication means "unique until finished": a trigger that lands mid-run is dropped, and
+   * the running job completes on input that predates it, leaving the recomputed state stale until
+   * some unrelated trigger arrives. That is a correctness bug, not a tuning choice.
+   */
+  keepLastIfActive?: boolean
+}
+
+/**
  * Optional job scheduling options.
  */
 export type EnqueueOptions = {
@@ -154,6 +184,13 @@ export type EnqueueOptions = {
    * Delay job execution by this many milliseconds.
    */
   delayMs?: number
+  /**
+   * Coalesce this enqueue with outstanding work sharing the same key.
+   *
+   * Best-effort per strategy: an implementation that does not honour deduplication MUST still
+   * enqueue the job. Degrading toward a duplicate run is acceptable; dropping a job is not.
+   */
+  deduplication?: DeduplicationOptions
 }
 
 // ============================================================================

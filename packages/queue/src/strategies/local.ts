@@ -1,4 +1,5 @@
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -13,9 +14,43 @@ type LocalState = {
   failedCount?: number
 }
 
+/**
+ * The enqueue that arrived while its deduplication twin was already running, parked on that twin's
+ * record until it finishes. At most one exists per record: a later arrival overwrites it, so the
+ * follow-up run always carries the latest payload.
+ *
+ * It keeps the id minted when the producer called `enqueue`, because that id was already returned to
+ * the caller — the follow-up must be the job that id names.
+ */
+type DeduplicatedNextJob<T> = {
+  id: string
+  payload: T
+  createdAt: string
+  metadata?: Record<string, unknown>
+  delayMs?: number
+}
+
 type StoredJob<T> = QueuedJob<T> & {
   availableAt?: string
   attemptCount?: number
+  /** Coalescing key. While a record carries it, further enqueues for that key are deduplicated. */
+  deduplicationId?: string
+  deduplicationNext?: DeduplicatedNextJob<T>
+}
+
+/**
+ * The consumer's record of which jobs it has started and not yet finalized on disk.
+ *
+ * Producers run in other processes, so `inFlightJobIds` cannot answer "is this job running right
+ * now?" for them — and that question is the whole of `keepLastIfActive`. Hence a file. It has
+ * exactly one writer (the strategy's single consumer, see the topology note above), so it needs
+ * atomic replacement but not the queue lock.
+ */
+type ActiveLease = {
+  jobIds: string[]
+  since: number
+  pid: number
+  host: string
 }
 
 type QueueFileIdentity = {
@@ -52,6 +87,14 @@ const RETRY_BACKOFF_BASE_MS = 1000
  * was merely suspended rather than dead can still be reclaimed, which is why
  * every acquisition carries an owner token and releases only its own lock.
  */
+/**
+ * How long a lease written by a *different host* is believed. On the same host a lease is checked
+ * against its owner's pid instead, which is exact and imposes no ceiling on how long a job may run.
+ * A file-backed queue shared across hosts is outside this strategy's contract, so this is only a
+ * backstop that keeps such a setup from wedging on a lease nobody will ever clear.
+ */
+const ACTIVE_LEASE_FOREIGN_HOST_STALE_MS = 15 * 60 * 1000
+
 const LOCK_STALE_MS = 15_000
 const LOCK_ACQUIRE_TIMEOUT_MS = 30_000
 const LOCK_RETRY_MIN_MS = 2
@@ -67,6 +110,13 @@ const fsp = fs.promises
  * Jobs are stored in JSON files within a directory structure:
  * - `.mercato/queue/<name>/queue.json` - Array of queued jobs
  * - `.mercato/queue/<name>/state.json` - Processing state (last processed ID)
+ * - `.mercato/queue/<name>/active.json` - Which jobs the consumer has started (created on demand)
+ *
+ * `EnqueueOptions.deduplication` is honoured here, not just by the `async` strategy, so development
+ * and integration runs coalesce the way production does. A record carrying `deduplicationId` *is*
+ * the deduplication key — no separate index, because a local job stays stored for its whole life.
+ * `keepLastIfActive` needs one thing that cannot be derived from `queue.json`, namely whether a job
+ * is running right now, and `active.json` supplies it across processes.
  *
  * **Limitations:**
  * - Jobs are processed sequentially (concurrency option is for logging/compatibility only)
@@ -121,6 +171,7 @@ export function createLocalQueue<T = unknown>(
   const queueDir = path.join(baseDir, name)
   const queueFile = path.join(queueDir, 'queue.json')
   const stateFile = path.join(queueDir, 'state.json')
+  const activeFile = path.join(queueDir, 'active.json')
   const lockDir = path.join(queueDir, 'queue.lock')
   const lockOwnerFile = path.join(lockDir, 'owner')
   const logger = packageLogger.child({ queue: name })
@@ -418,27 +469,189 @@ export function createLocalQueue<T = unknown>(
   }
 
   // -------------------------------------------------------------------------
+  // Active lease
+  // -------------------------------------------------------------------------
+
+  /**
+   * Reads the consumer's lease.
+   *
+   * Unreadable or unparsable content is discarded rather than quarantined, the mirror image of
+   * `readQueue`'s fail-closed handling: a lease holds no payload anyone could recover, and the worst
+   * consequence of losing one is a job that runs twice — which is the pre-feature behaviour and
+   * within the queue's at-least-once contract. Refusing to enqueue over a damaged lease, by
+   * contrast, would turn a cosmetic file into an outage.
+   */
+  async function readActiveLease(): Promise<ActiveLease | null> {
+    let content: string
+    try {
+      content = await fsp.readFile(activeFile, 'utf8')
+    } catch (e: unknown) {
+      const readError = e as NodeJS.ErrnoException
+      if (readError.code !== 'ENOENT') {
+        logger.error('Failed to read the active-job lease; treating it as empty', { err: readError })
+      }
+      return null
+    }
+
+    try {
+      const parsed = JSON.parse(content) as Partial<ActiveLease>
+      if (!parsed || !Array.isArray(parsed.jobIds)) {
+        throw new Error('Active-job lease must be an object with a jobIds array')
+      }
+      return {
+        jobIds: parsed.jobIds.filter((id): id is string => typeof id === 'string'),
+        since: typeof parsed.since === 'number' ? parsed.since : 0,
+        pid: typeof parsed.pid === 'number' ? parsed.pid : 0,
+        host: typeof parsed.host === 'string' ? parsed.host : '',
+      }
+    } catch (e: unknown) {
+      logger.error('Failed to parse the active-job lease; discarding it', { err: e as Error })
+      await fsp.rm(activeFile, { force: true }).catch(() => {})
+      return null
+    }
+  }
+
+  /**
+   * Whether a lease still describes a running consumer. A lease left behind by a crash must not
+   * deduplicate enqueues forever, and the strategy has no per-job heartbeat to fall back on.
+   */
+  function isLeaseLive(lease: ActiveLease | null): lease is ActiveLease {
+    if (!lease || lease.jobIds.length === 0) return false
+    if (lease.host !== os.hostname()) {
+      return Date.now() - lease.since <= ACTIVE_LEASE_FOREIGN_HOST_STALE_MS
+    }
+    if (!nodeProcess?.kill || !lease.pid) return true
+    try {
+      nodeProcess.kill(lease.pid, 0)
+      return true
+    } catch (e: unknown) {
+      // EPERM means the pid exists but belongs to another user, so the owner is alive.
+      return (e as NodeJS.ErrnoException).code === 'EPERM'
+    }
+  }
+
+  async function readLiveLeaseJobIds(): Promise<Set<string>> {
+    const lease = await readActiveLease()
+    return new Set(isLeaseLive(lease) ? lease.jobIds : [])
+  }
+
+  /**
+   * Publishes the lease. Written with an atomic rename and *without* the queue lock: the lease has a
+   * single writer, and taking the lock per job would serialize every producer behind the consumer's
+   * handlers for no gain. Producers read it inside their own locked segment, so they observe either
+   * the previous document or this one, never a torn mix.
+   */
+  async function writeActiveLease(jobIds: string[]): Promise<void> {
+    await ensureDir()
+    const lease: ActiveLease = {
+      jobIds,
+      since: Date.now(),
+      pid: nodeProcess?.pid ?? 0,
+      host: os.hostname(),
+    }
+    await writeFileAtomic(activeFile, JSON.stringify(lease, null, 2))
+  }
+
+  async function releaseActiveLease(): Promise<void> {
+    await fsp.rm(activeFile, { force: true }).catch((err: unknown) => {
+      logger.error('Failed to release the active-job lease', { err })
+    })
+  }
+
+  /**
+   * Builds the follow-up job parked on a finalized record by `keepLastIfActive`.
+   *
+   * Everything except the delay is carried over from the producer's enqueue — id, payload, creation
+   * time and trace metadata — so the run is attributed to the caller that triggered it. Only
+   * `availableAt` is recomputed, because a delay means "after the enqueue is acted on", and that
+   * moment is now.
+   */
+  function buildFollowUpJob(record: StoredJob<T>): StoredJob<T> | null {
+    const next = record.deduplicationNext
+    if (!next) return null
+    const availableAt = next.delayMs && next.delayMs > 0
+      ? new Date(Date.now() + next.delayMs).toISOString()
+      : undefined
+    return {
+      id: next.id,
+      payload: next.payload,
+      createdAt: next.createdAt,
+      ...(availableAt ? { availableAt } : {}),
+      ...(next.metadata ? { metadata: next.metadata } : {}),
+      ...(record.deduplicationId ? { deduplicationId: record.deduplicationId } : {}),
+    }
+  }
+
+  function warnAboutDiscardedFollowUps(records: StoredJob<T>[]): void {
+    const deduplicationIds = records
+      .filter((record) => record.deduplicationNext)
+      .map((record) => record.deduplicationId ?? record.id)
+    if (deduplicationIds.length === 0) return
+    logger.warn(
+      'Discarded deduplicated follow-up jobs whose ids were already returned to their callers',
+      { deduplicationIds },
+    )
+  }
+
+  // -------------------------------------------------------------------------
   // Queue Implementation
   // -------------------------------------------------------------------------
 
   async function enqueue(data: T, options?: EnqueueOptions): Promise<string> {
-    const availableAt = options?.delayMs && options.delayMs > 0
-      ? new Date(Date.now() + options.delayMs).toISOString()
-      : undefined
+    const delayMs = options?.delayMs && options.delayMs > 0 ? options.delayMs : undefined
+    const availableAt = delayMs ? new Date(Date.now() + delayMs).toISOString() : undefined
     const metadata = attachTraceMetadata(undefined)
+    const deduplication = options?.deduplication
+    const deduplicationId = deduplication?.id
     const job: StoredJob<T> = {
       id: generateId(),
       payload: data,
       createdAt: new Date().toISOString(),
       ...(availableAt ? { availableAt } : {}),
       ...(metadata ? { metadata } : {}),
+      ...(deduplicationId ? { deduplicationId } : {}),
     }
-    await withFileLock(async () => {
+
+    if (!deduplicationId) {
+      await withFileLock(async () => {
+        const jobs = await readQueue()
+        jobs.push(job)
+        await writeQueue(jobs)
+      })
+      return job.id
+    }
+
+    // The whole decision runs inside one locked segment, so a concurrent producer cannot slip an
+    // enqueue between the lookup and the write, and the consumer cannot finalize the job being
+    // examined halfway through.
+    return withFileLock(async () => {
       const jobs = await readQueue()
-      jobs.push(job)
-      await writeQueue(jobs)
+      const current = jobs.find((candidate) => candidate.deduplicationId === deduplicationId)
+      if (!current) {
+        jobs.push(job)
+        await writeQueue(jobs)
+        return job.id
+      }
+
+      if (deduplication?.keepLastIfActive && (await readLiveLeaseJobIds()).has(current.id)) {
+        // The running job read its input before this enqueue existed, so dropping the enqueue would
+        // lose the write it represents. Park it; the consumer promotes it when the current run ends.
+        current.deduplicationNext = {
+          id: job.id,
+          payload: data,
+          createdAt: job.createdAt,
+          ...(metadata ? { metadata } : {}),
+          ...(delayMs ? { delayMs } : {}),
+        }
+        await writeQueue(jobs)
+        return current.id
+      }
+
+      // Deduplicated with nothing to record: deliberately no write at all. Rewriting `queue.json`
+      // here would rename the file and wake the consumer's watcher for a job that does not exist,
+      // which is precisely the work deduplication exists to avoid.
+      return current.id
     })
-    return job.id
   }
 
   /**
@@ -472,10 +685,20 @@ export function createLocalQueue<T = unknown>(
     let lastJobId: string | undefined
     const completedJobIds = new Set<string>()
     const deadJobIds = new Set<string>()
-    const retryUpdates = new Map<string, StoredJob<T>>()
+    // Patches rather than whole records: the record is re-read below, and a producer may have parked
+    // a `deduplicationNext` on it while the handler ran. Rewriting it from the pre-run snapshot
+    // would silently discard that enqueue.
+    const retryPatches = new Map<string, { attemptCount: number; availableAt: string }>()
+    let leaseWritten = false
 
     try {
-      for (const job of jobsToProcess) {
+      for (let index = 0; index < jobsToProcess.length; index++) {
+        const job = jobsToProcess[index]
+        // Every job started so far, because none of them leaves `queue.json` until the batch's
+        // closing write. A producer that sees a finished-but-still-stored job as idle would drop an
+        // enqueue the job can no longer act on, so the lease only shrinks when the records do.
+        await writeActiveLease(jobsToProcess.slice(0, index + 1).map((leased) => leased.id))
+        leaseWritten = true
         const attemptNumber = (job.attemptCount ?? 0) + 1
         try {
           await runJobInTrace(name, job.metadata, () =>
@@ -500,8 +723,7 @@ export function createLocalQueue<T = unknown>(
             deadJobIds.add(job.id)
           } else {
             const backoffMs = RETRY_BACKOFF_BASE_MS * Math.pow(2, attemptNumber - 1)
-            retryUpdates.set(job.id, {
-              ...job,
+            retryPatches.set(job.id, {
               attemptCount: attemptNumber,
               availableAt: new Date(Date.now() + backoffMs).toISOString(),
             })
@@ -509,14 +731,28 @@ export function createLocalQueue<T = unknown>(
         }
       }
 
-      const hasChanges = completedJobIds.size > 0 || deadJobIds.size > 0 || retryUpdates.size > 0
+      const hasChanges = completedJobIds.size > 0 || deadJobIds.size > 0 || retryPatches.size > 0
       if (hasChanges) {
         await withFileLock(async () => {
           // Re-read so jobs enqueued during handler execution are preserved.
           const currentJobs = await readQueue()
+          const finalizedJobIds = new Set([...completedJobIds, ...deadJobIds])
+          // A job that exhausted its attempts is finalized too, exactly as a completed one is.
+          // Leaving its key behind would deduplicate every later enqueue onto a record that no
+          // longer exists, and would strand a follow-up whose id a caller already holds.
+          const followUpJobs = currentJobs
+            .filter((j) => finalizedJobIds.has(j.id))
+            .map((j) => buildFollowUpJob(j))
+            .filter((j): j is StoredJob<T> => j !== null)
           const updatedJobs = currentJobs
-            .filter((j) => !completedJobIds.has(j.id) && !deadJobIds.has(j.id))
-            .map((j) => retryUpdates.get(j.id) ?? j)
+            .filter((j) => !finalizedJobIds.has(j.id))
+            .map((j) => {
+              const patch = retryPatches.get(j.id)
+              return patch ? { ...j, ...patch } : j
+            })
+          // Appended in the same write that removes the job they were parked on, so there is never a
+          // moment where a burst could produce a third job for one deduplication key.
+          updatedJobs.push(...followUpJobs)
           await writeQueue(updatedJobs)
           hasQueuedJobs = updatedJobs.length > 0
 
@@ -533,6 +769,10 @@ export function createLocalQueue<T = unknown>(
     } finally {
       for (const job of jobsToProcess) {
         inFlightJobIds.delete(job.id)
+      }
+      // After the closing write, so a job is never both stored and unleased.
+      if (leaseWritten) {
+        await releaseActiveLease()
       }
     }
   }
@@ -634,6 +874,13 @@ export function createLocalQueue<T = unknown>(
     handler: JobHandler<T>,
     options?: ProcessOptions
   ): Promise<ProcessResult> {
+    // A consumer is starting, and this strategy admits exactly one consumer per queue, so any lease
+    // already on disk belongs to a run that will never finish. Clearing it is the authoritative
+    // recovery from a crashed consumer: the jobs it named are still stored, so they simply run
+    // again, carrying any parked follow-up with them. The alternative — ageing leases out — would
+    // have to guess a ceiling on how long a handler may legitimately take.
+    await releaseActiveLease()
+
     // If limit is specified, do a single batch (backward compatibility)
     if (options?.limit) {
       return processBatch(handler, options)
@@ -670,6 +917,7 @@ export function createLocalQueue<T = unknown>(
     return withFileLock(async () => {
       const jobs = await readQueue()
       const removed = jobs.length
+      warnAboutDiscardedFollowUps(jobs)
       await writeQueue([])
       hasQueuedJobs = false
       scheduleQueuedPoll()
@@ -689,6 +937,8 @@ export function createLocalQueue<T = unknown>(
       const retainedJobs = jobs.filter((job) => inFlightJobIds.has(job.id) || !payloadMatchesScope(job.payload, scope))
       const removed = jobs.length - retainedJobs.length
       if (removed > 0) {
+        const retainedIds = new Set(retainedJobs.map((job) => job.id))
+        warnAboutDiscardedFollowUps(jobs.filter((job) => !retainedIds.has(job.id)))
         await writeQueue(retainedJobs)
       }
       hasQueuedJobs = retainedJobs.length > 0
@@ -732,10 +982,16 @@ export function createLocalQueue<T = unknown>(
     return withFileLock(async () => {
       const state = await readState()
       const jobs = await readQueue()
+      // Intersected with the stored jobs rather than trusted outright, so a lease naming a job that
+      // has since been cleared away cannot inflate the count or push `waiting` negative.
+      const leasedJobIds = await readLiveLeaseJobIds()
+      const active = jobs.filter((job) => leasedJobIds.has(job.id)).length
 
       return {
-        waiting: jobs.length, // All jobs in queue are waiting (processed ones are removed)
-        active: 0, // Local strategy doesn't track active jobs
+        // A job stays stored while it runs, so waiting is what is left once the active ones are
+        // discounted.
+        waiting: jobs.length - active,
+        active,
         completed: state.completedCount ?? 0,
         failed: state.failedCount ?? 0,
       }

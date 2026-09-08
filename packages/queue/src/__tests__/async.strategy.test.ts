@@ -142,6 +142,35 @@ describe('Queue - async strategy', () => {
     await queue.close()
   })
 
+  it('passes deduplication options through to BullMQ untouched', async () => {
+    const queue = createQueue<{ value: number }>('test-queue', 'async')
+
+    await queue.enqueue({ value: 42 }, { deduplication: { id: 'stage-42', keepLastIfActive: true } })
+
+    expect(queueAdd).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ payload: { value: 42 } }),
+      expect.objectContaining({ deduplication: { id: 'stage-42', keepLastIfActive: true } }),
+    )
+
+    await queue.close()
+  })
+
+  // BullMQ reads the key's presence as intent, so an undefined value must not be emitted at all.
+  it('omits deduplication entirely when the caller did not ask for it', async () => {
+    const queue = createQueue<{ value: number }>('test-queue', 'async')
+
+    await queue.enqueue({ value: 42 })
+
+    expect(queueAdd).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.anything(),
+      expect.not.objectContaining({ deduplication: expect.anything() }),
+    )
+
+    await queue.close()
+  })
+
   it('threads queue retry, lock-duration and stalled-job options to BullMQ', async () => {
     const queue = createQueue<{ value: number }>('test-queue', 'async', {
       attempts: 5,
