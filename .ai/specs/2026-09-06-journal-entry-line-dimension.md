@@ -102,7 +102,15 @@ explicitly, and an earlier draft of this document mistyped it as
 and fixed in itself the day before — corrected here) — for audit
 reasons (a snapshot at posting time, not a live reference). This table
 handles the remaining dimensions: cost centre/project, bank account,
-fixed asset, currency.
+fixed asset, currency. This table
+is not the place to compute a per-contractor running balance — that
+lives in `accounts_payable`'s own subsidiary-ledger-shaped tables
+(`VendorInvoice` and `accounts_payable_payments`, both keyed by
+`vendorId`), reconciled against the single shared control account
+(`accounts_payable.liabilityAccountId`; see
+`2026-09-06-accounts-payable.md`, Design decisions).
+`contractorSnapshot` here is audit-only (a point-in-time copy), not a
+queryable balance mechanism.
 
 **Why this is a separate document from Posting Rules Engine, and why
 that split is now justified differently than an earlier draft claimed
@@ -739,3 +747,18 @@ rather than an independently-authored source like #5663 — flagged in
 Design Decisions and the Verdict as worth reconfirming once
 `fixed-assets.md` gets its own fresh-context review, not treated with
 the same confidence as the #5663 check.
+
+### 2026-09-08 (cont. — control-account / subsidiary-ledger
+clarification)
+
+Added a clarifying note to "Excludes the counterparty": this table is
+deliberately not where a per-contractor running balance is computed —
+that lives in `accounts_payable`'s own tables (`VendorInvoice.vendorId`
+against the shared `liabilityAccountId` control account), the standard
+control-account / subsidiary-ledger pattern. Written in the same round
+as the corresponding Design Decision added to
+`2026-09-06-accounts-payable.md` and the correction to
+`2026-08-18-general-ledger-core-engine.md`'s "Multi-dimensional
+posting tags" bullet (which had listed kontrahent as a candidate
+dimension type before this document settled on excluding it) — all
+three kept consistent.
