@@ -117,8 +117,16 @@ back to what this module already executed.
 **VAT-whitelist and mandatory split payment (MPP) verification is a
 hard Phase 1 blocker, not a warning.** Real legal risk (joint-and-
 several VAT liability, the PLN 15,000 threshold, Annex 15 of the VAT
-Act) — see the full legal justification in
-`2026-09-06-contractor-registry.md`.
+Act). **Correction (2026-09-08, this review round)**: no other spec in
+this repo documents this legal basis — `2026-09-06-contractor-registry.md`
+does not mention MPP, Annex 15, or the PLN 15,000 threshold anywhere,
+despite owning the underlying whitelist-check mechanism
+(`contractorBankWhitelistCheck`) this document consumes. An earlier
+draft pointed there for "the full legal justification"; that pointer
+was wrong. This document is the sole owner of this legal justification
+in the repo today — the specifics above should be confirmed with
+Finance/Legal before implementation, not treated as already verified
+elsewhere.
 
 **Real bank integration (calling a bank's API / a transfer file) —
 Phase 2.** No precedent whatsoever in the repo — SPEC-024's Cash
@@ -134,18 +142,25 @@ invoice with multiple partial payments.
 ### Design decisions (2026-09-07 — added during the full spec expansion, at the time still combined with invoices)
 
 **`confirmPaymentBatch` calls `contractorBankWhitelistCheck` from the
-`contractors` module through a local `tryResolve`, fail-closed — a
-different policy than in Contractor Registry, the same mechanism.**
-`contractors` **is** an optional peer here (unlike `ledger`/
-`accounts_payable`, both hard dependencies). The difference from
-Contractor Registry: there, a missing module only degrades the UI (the
-"verify now" button stops working, fail-open — safe, because it's a
-UX convenience, not a legal blocker); here, a missing module **blocks
-confirmation of the entire batch** (fail-closed), because it's a hard
-legal blocker (VAT whitelist/MPP), not a convenience. The same
-mechanism (`tryResolve`), a different business policy when there's no
-result — the module never treats a missing result as "assume
-WHITELISTED".
+`contractors` module through a local `tryResolve`, fail-closed — the
+same mechanism and the same policy Contractor Registry's own spec
+already documents for this exact integration.** `contractors` **is**
+an optional peer here (unlike `ledger`/`accounts_payable`, both hard
+dependencies). **Correction (2026-09-08, this review round)**: an
+earlier draft characterized Contractor Registry as "fail-open" here;
+that was wrong. Contractor Registry's own Cross-module integration
+section specifies, for this exact call, that both degradation cases —
+`contractors` absent (`tryResolve` returns `undefined`) and the live
+Biała Lista API call itself failing — resolve to the same policy:
+block the payment, never proceed without a live check. This document
+simply implements the consumer side of that already-designed contract;
+it does not introduce a different or stricter policy. (Contractor
+Registry's own backend UI separately has a "verify now" button for
+manually re-checking one bank account from its own screen; that button
+doing nothing when `contractors` can't reach the API is a UX detail of
+that module's own page, unrelated to payment confirmation and with no
+bearing on this module's fail-closed policy.) This module never treats
+a missing result as "assume WHITELISTED".
 
 **`PaymentBatchLine.whitelistCheckResult` does not duplicate the bank
 account number.** The account number is already encrypted on
@@ -177,39 +192,56 @@ Design decisions for the full justification (the same analysis, the
 same verdict, not repeated here in full). The team confirmed SPLIT on
 2026-09-08.
 
-**A new mechanism introduced by the split: a direct cross-module
-query for `VendorInvoice`, without `commandBus`.**
+**A new mechanism introduced by the split: two direct cross-module
+reads, without `commandBus`.**
 `createPaymentBatch`/`updatePaymentBatch` need to find approved
 (`status === 'POSTED'`), not-yet-batched invoices for the same vendor/
-currency, that aren't already attached to another, unfinished batch.
-As long as both entity groups lived in one module, this was an
-ordinary intra-module query; the split makes it the first place in
-this whole document where the module reads someone else's entity (not
-just an FK-id) across a module boundary. **Decision**: a direct
-`entityManager` query against the `VendorInvoice` entity (importing the
-type, **without** declaring an ORM relation — root `AGENTS.md`'s ban
-concerns relations/joins, not simply importing a type for a query),
-always scoped by `tenantId`/`organizationId` (mirroring how
-`ModuleConfigService.get('accounts_payable.liabilityAccountId',
-{ tenantId })` already reads someone else's configuration value
-directly, without wrapping it in `commandBus`). Rationale:
+currency, that aren't already attached to another, unfinished batch;
+`markPaymentBatchSent` needs the vendor liability account, configured
+on the sibling module. As long as both entity groups lived in one
+module, both were ordinary intra-module reads; the split makes this
+document the first place where a module reads another module's entity
+*and* another module's configuration value directly, rather than
+through `commandBus`. **Decision**: (1) a direct `entityManager` query
+against the `VendorInvoice` entity (importing the type, **without**
+declaring an ORM relation — root `AGENTS.md`'s ban concerns
+relations/joins, not simply importing a type for a query), and (2) a
+direct `moduleConfigService.getValue('accounts_payable',
+'liabilityAccountId', { scope: { tenantId, organizationId } })` call —
+both always scoped by `tenantId`/`organizationId`. Rationale:
 `accounts_payable` is a hard, always-co-present dependency of this
 module (validated at generation time through `ModuleInfo.requires`,
 see Module Dependency) — not an optional peer like `contractors` — so
-there's no degradation scenario to design here, just as there isn't
-for `ledger`. **This is a new pattern, not an existing repo
+there's no degradation scenario to design for either read, just as
+there isn't for `ledger`. **Neither read has an existing repo
 precedent** — unlike `commandBus.execute('ledger.postJournalEntry', ...)`,
 which has a direct precedent (`workflows`'
 `UPDATE_ENTITY`), no existing module in the repo today queries another
-hard-dependency module's entity directly. Rejected alternative: a thin
-query command on `accounts_payable`
+hard-dependency module's entity directly, and no existing
+`ModuleConfigService` call site reads another module's config value —
+every real call site today (`entities`, `entity-settings`,
+`notifications/lib/deliveryConfig.ts`) reads only its own module's
+value. **Correction (2026-09-08, this review round)**: an earlier
+draft cited `ModuleConfigService.get('accounts_payable.liabilityAccountId',
+{ tenantId })` as if it were already-established precedent for the
+entity-query decision above; that citation was wrong twice over — the
+real method is `getValue(moduleId, name, options)` (`.get` doesn't
+exist, and `moduleId`/`name` are separate arguments, not one dotted
+string), and it wasn't precedent at all, since this document is
+introducing that exact call itself. Both cross-module reads are new
+coupling, introduced together by this document — not a case of one
+mirroring an established pattern for the other. Rejected alternative:
+a thin query command on `accounts_payable`
 (`accounts_payable.vendorInvoices.listPayable`, called through the
 same `commandBus`) — would give stricter encapsulation at the cost of
 an extra indirection layer for something that always co-exists with
-`accounts_payable` anyway; flagged as an open implementation decision
-(not a Q-style architectural fork requiring escalation — both options
-are correct and low-risk), for maintainers to confirm at code review,
-see Alternatives considered.
+`accounts_payable` anyway; flagged for maintainer confirmation at code
+review — see Alternatives considered. Whether introducing this
+first-of-its-kind coupling category (direct cross-module entity and
+config reads, bypassing `commandBus`) rises to a Q-style architectural
+decision requiring explicit team sign-off, rather than a routine
+implementation choice left to code review, is an open question raised
+by this review round and not resolved by this document alone.
 
 **API path change**: the HTTP route base path changes from
 `/api/accounts_payable/payments/...` (when this was one module) to
@@ -316,10 +348,22 @@ generation-time-validated `ModuleInfo.requires` mechanism
 import type { ModuleInfo } from '@open-mercato/shared/modules/registry'
 
 export const metadata: ModuleInfo = {
-  id: 'accounts_payable_payments',
+  name: 'accounts_payable_payments',
+  title: 'Accounts Payable — Payments',
+  version: '0.1.0',
+  description:
+    'Payment batching, VAT-whitelist verification, and posting of vendor payments to the general ledger.',
+  author: 'Open Mercato Team',
+  license: 'MIT',
   requires: ['ledger', 'accounts_payable'],
+  ejectable: true,
 }
 ```
+
+**Correction (2026-09-08, this review round)**: the real `ModuleInfo`
+type has no `id` field — the identifying field is `name`, exactly as
+`sales`/`wms` use it. An earlier draft used `id:`, which would not
+compile against the real type.
 
 `contractors` is not on this list deliberately — it's an optional peer
 (see Cross-module integration), not a hard dependency; declaring it
@@ -369,15 +413,13 @@ async seedDefaults({ em, tenantId, organizationId }) {
   only while `PaymentBatch.status === 'DRAFT'`.
 - `confirmPaymentBatch` — `DRAFT` → `CONFIRMED`. For each line,
   resolves `contractorBankWhitelistCheck` from the `contractors`
-  module through a local `tryResolve` (the same pattern as in
-  Contractor Registry — `contractors` **is** an optional peer here,
-  unlike `ledger`/`accounts_payable`). **The degradation policy differs
-  from Contractor Registry**: there, a missing module safely skipped
-  only the UI's "verify now" button; here, because it's a hard legal
-  blocker (VAT whitelist/MPP), a missing module **blocks confirmation
-  of the entire batch** (fail-closed), instead of silently proceeding
-  (fail-open) — the same mechanism (`tryResolve`), a different
-  business policy when there's no result.
+  module through a local `tryResolve` (the same pattern, and the same
+  fail-closed policy, Contractor Registry's own Cross-module
+  integration section already specifies for this exact call —
+  `contractors` **is** an optional peer here, unlike `ledger`/
+  `accounts_payable`). A missing module, or a failed live check,
+  **blocks confirmation of the entire batch**; the module never
+  treats a missing result as "assume WHITELISTED".
 - `markPaymentBatchSent` — `CONFIRMED` → `SENT`. Resolves `commandBus`
   from the container and calls `ledger.postJournalEntry` with one DR
   line to the configured liability account
@@ -451,13 +493,12 @@ deliberately different mechanisms, not by oversight:
   Design decisions, "A new mechanism introduced by the split".
 - **Contractors (`contractorBankWhitelistCheck`) — an optional peer,
   with a fail-closed policy.** This module resolves through a local
-  `tryResolve` in a `try/catch`, exactly as designed in Contractor
-  Registry. The difference from that spec: there, a missing module
-  degrades only the UI (`verify now` stops working); here, a missing
-  module **blocks** `confirmPaymentBatch` entirely — because it's a
-  hard legal blocker (VAT whitelist/MPP), not a UX convenience. This
-  module never treats a missing result as "assume WHITELISTED"
-  (fail-open) — always as "I can't verify, so I block" (fail-closed).
+  `tryResolve` in a `try/catch`, exactly as Contractor Registry's own
+  spec already designs for this integration: whether `contractors` is
+  missing or the live check fails, `confirmPaymentBatch` **blocks** —
+  because it's a hard legal blocker (VAT whitelist/MPP), not a UX
+  convenience. This module never treats a missing result as "assume
+  WHITELISTED" — always as "I can't verify, so I block" (fail-closed).
 
 ### Backend Pages (`backend/accounts_payable_payments/`)
 
@@ -533,16 +574,24 @@ Design decisions, "API path change") to
 `/api/accounts_payable_payments/payments/...`, mirroring the "API
 routes live under their own module's prefix" convention.
 
+- **Request (list)**: standard `makeCrudRoute` list params —
+  `page`/`pageSize` for pagination, plus filters on `status` and
+  `vendorId` (via the attached invoices' vendor). **Added explicitly
+  (this review round)**: an earlier draft left these undocumented.
 - **Response 403**: caller lacks `accounts_payable_payments.payments.view` (list) / `.manage` (create).
 
-### `POST /api/accounts_payable_payments/payments/:id/lines`
+### `POST /api/accounts_payable_payments/payments/:id/lines` / `DELETE /api/accounts_payable_payments/payments/:id/lines/:lineId`
 
-Custom write route adding a `PaymentBatchLine` (mapped to `update`).
+Custom write routes (both mapped to `update`) adding/removing a
+`PaymentBatchLine`. **Added (this review round)**: an earlier draft
+documented `updatePaymentBatch` as removing lines (see Commands) with
+no corresponding route — the `DELETE` route above closes that gap.
 
-- **Request**: `{ vendorInvoiceId, contractorBankAccountId, amount }`.
-- **Response 409**: `PaymentBatch.status !== 'DRAFT'`, or the invoice
+- **Request (POST)**: `{ vendorInvoiceId, contractorBankAccountId, amount }`.
+- **Response 409 (POST)**: `PaymentBatch.status !== 'DRAFT'`, or the invoice
   isn't `POSTED` (in `accounts_payable`), or the invoice is already
   attached to another unfinished batch.
+- **Response 409 (DELETE)**: `PaymentBatch.status !== 'DRAFT'`.
 - **Response 403**: caller lacks `accounts_payable_payments.payments.manage`.
 
 ### `POST /api/accounts_payable_payments/payments/:id/confirm`
@@ -737,6 +786,22 @@ through the module configuration screen.
   dependency; in practice impossible to trigger, since module
   registration validates `requires` at generation time.
 
+#### No reversal path once a payment batch is SENT
+- **Scenario**: a payment batch reaches `SENT` (posted to `ledger`)
+  with incorrect data — wrong amount, wrong account, wrong invoice —
+  discovered only after sending.
+- **Severity**: Medium-High
+- **Affected area**: `accounts_payable_payments`, `ledger`
+- **Mitigation**: none in Phase 1. `cancelPaymentBatch` is explicitly
+  blocked for `SENT` (see Commands); there is no `reversePaymentBatch`
+  command and no unwind of the posted journal entry. The only path
+  today is a manual, out-of-band correcting journal entry directly in
+  `ledger`.
+- **Residual risk**: real, and currently accepted as a Phase 1 gap,
+  symmetric to the same gap in the sibling invoices document — a
+  genuine reversal/void flow is deferred to Phase 2. Flagged
+  explicitly here (this review round) rather than left implicit.
+
 ### Tenant & data isolation
 
 Both entities have their own `tenant_id`/`organization_id`
@@ -795,6 +860,7 @@ tables, zero changes to existing ones. `onTenantCreated` is idempotent
 | `packages/events/AGENTS.md` | Events declared with `as const`; subscribers export `metadata` | Compliant | Two events declared; no persistent subscriber needed in Phase 1 |
 | `packages/queue/AGENTS.md` | Workers idempotent, export `metadata` | N/A | This module ships no queue worker in Phase 1 — no background job crosses a request boundary |
 | `BACKWARD_COMPATIBILITY.md` | Database schema additive-only | Compliant | Two new tables only, zero changes to existing modules' schemas |
+| `BACKWARD_COMPATIBILITY.md` | API Route URLs (STABLE) — MUST NOT rename or remove an existing route URL | **N/A, not Compliant/Non-Compliant** — added this review round, an earlier draft's matrix omitted this rule entirely | `/api/accounts_payable/payments/...` becomes `/api/accounts_payable_payments/payments/...` under the split (see Design decisions, "API path change"). This rule protects real deployed consumers of an *existing* route; neither `accounts_payable` nor `accounts_payable_payments` has shipped as code yet (both are still specs), so there is no real external caller to break today. Flagged here so the maintainer decides consciously rather than the omission going unnoticed: if any code lands under the pre-split path before this split is approved, the rename would then be a real, rule-covered break requiring a deprecation window. |
 
 ### Internal Consistency Check
 
@@ -811,32 +877,63 @@ tables, zero changes to existing ones. `onTenantCreated` is idempotent
 
 ### Non-Compliant Items
 
-None. One item is a **newly introduced design pattern flagged for
-maintainer confirmation, not a compliance gap**: the direct
-cross-module entity query against `accounts_payable.VendorInvoice`
-(see Compliance Matrix and Design decisions).
+None outstanding after this review round's fixes. **This review round
+(2026-09-08, post-split, English translation + fresh-context review)
+found and fixed five real defects** in the previous version of this
+document, none caught by this document's own prior self-assessment:
+an `index.ts` sample using a non-existent `ModuleInfo.id` field (real
+field is `name`); a `ModuleConfigService.get(...)` citation using a
+method and argument shape that don't exist (real: `getValue(moduleId,
+name, options)`); that same citation being circular (it cited this
+document's own new mechanism as if it were pre-existing precedent);
+a false characterization of Contractor Registry's design as
+"fail-open" for the `contractorBankWhitelistCheck` degradation case,
+when Contractor Registry's own spec documents the identical
+fail-closed policy this document also uses; and a dangling citation
+claiming Contractor Registry contains "the full legal justification"
+for Annex 15/MPP, when Contractor Registry's spec never mentions
+either. Additionally fixed: a missing `DELETE` route for
+`PaymentBatchLine` removal, undocumented list pagination params, a
+missing Risks entry for "no reversal path once `SENT`", and a missing
+Compliance Matrix row for the API-route-rename rule. See Changelog for
+the full list with sources.
+
+One item remains a **newly introduced design pattern flagged for
+maintainer (and possibly team) confirmation, not a compliance gap**:
+the direct cross-module entity query against
+`accounts_payable.VendorInvoice` and the direct
+`ModuleConfigService.getValue` read of
+`accounts_payable.liabilityAccountId` (see Compliance Matrix and
+Design decisions) — both new coupling categories with no existing
+repo precedent.
 
 ### Verdict
 
-**Ready for maintainer review, with one implementation detail
-flagged for confirmation at code review (not a compliance blocker):**
-whether `updatePaymentBatch`'s read of `accounts_payable.VendorInvoice`
-should go through a thin query command on `commandBus` (stricter
-encapsulation, no new pattern) or the direct `entityManager` query
-this document designs (simpler, no new command surface) — see Design
-decisions and Alternatives considered. Every AGENTS.md rule checked
-is compliant. This document is the narrower, payments-only half of
-what was originally a single combined Accounts Payable
-specification — two independent, fresh-context reviews found the
-combined document's own scope-cohesion self-assessment unreliable
-(it cited a misrepresented GL precedent) and recommended a split; the
-team confirmed the split on 2026-09-08. This document carries
-forward, unchanged, every fix from that combined document's own
-independent-review round that applies to the payments half (the
-`cancelPaymentBatch`/unreachable-`CANCELLED` fix, the
-`whitelistCheckResult` encryption-avoidance design) — see Changelog
-for the full history. The invoice half, its own risks, and its own
-compliance report live in `2026-09-06-accounts-payable.md`.
+**Ready for maintainer review, with two items flagged for explicit
+confirmation (not compliance blockers, but genuine open questions this
+document does not resolve alone):**
+(1) whether `updatePaymentBatch`'s read of `accounts_payable.VendorInvoice`
+and `markPaymentBatchSent`'s read of `accounts_payable.liabilityAccountId`
+should go through thin query/read commands on `commandBus` (stricter
+encapsulation, no new pattern) or the direct reads this document
+designs (simpler, no new command surface), and whether introducing
+this first-of-its-kind coupling category deserves explicit team
+sign-off rather than routine code-review confirmation — see Design
+decisions and Alternatives considered; (2) the API-route-rename
+question above. Every AGENTS.md rule checked is compliant. This
+document is the narrower, payments-only half of what was originally a
+single combined Accounts Payable specification — two independent,
+fresh-context reviews found the combined document's own scope-cohesion
+self-assessment unreliable (it cited a misrepresented GL precedent)
+and recommended a split; the team confirmed the split on 2026-09-08. A
+further pair of fresh-context reviews of the post-split, translated
+document (this round) found the five defects listed above, now fixed.
+This document carries forward, unchanged, every fix from the combined
+document's own earlier independent-review round that applies to the
+payments half (the `cancelPaymentBatch`/unreachable-`CANCELLED` fix,
+the `whitelistCheckResult` encryption-avoidance design) — see
+Changelog for the full history. The invoice half, its own risks, and
+its own compliance report live in `2026-09-06-accounts-payable.md`.
 
 ## Changelog
 
@@ -924,3 +1021,52 @@ invoice-half fixes from this same round are recorded in
   section (Q1 resolved).
 - Translated the document to English (this pass) — the Polish version
   is superseded by this one; no content change beyond translation.
+
+### 2026-09-08 (cont. — fresh-context review of the post-split, English
+document; this pass)
+
+Ran the `om-spec-writing` skill's Step 8 (checklist review, with the
+scope-cohesion item delegated to a fresh-context subagent) and Step 9
+(Compliance Gate) on this document for the first time since the split
+— the split itself had never been through this formal process before.
+Findings, each personally re-verified against the real repository
+before being accepted (not taken on the reviewing agent's word alone):
+
+- Fixed `index.ts`: real `ModuleInfo` has no `id` field (real field is
+  `name`); added the full metadata shape matching `sales`/`wms`
+  precedent.
+- Fixed the `ModuleConfigService` citation in Design decisions: the
+  real method is `getValue(moduleId, name, options)`, not
+  `.get('module.field', { tenantId })`; also removed the circular
+  framing that cited this document's own new mechanism as if it were
+  established precedent — clarified that both the entity query and
+  the config read are new, unprecedented coupling introduced together.
+- Fixed a false characterization of Contractor Registry's design as
+  "fail-open" (three occurrences: Design decisions, Commands,
+  Cross-module integration) — verified directly against Contractor
+  Registry's own spec text (`docs/contractor-registry` branch), which
+  documents the identical fail-closed policy for this exact
+  integration. Corrected all three to state the shared policy
+  accurately instead of a false contrast.
+- Fixed a dangling citation claiming Contractor Registry contains "the
+  full legal justification" for Annex 15/MPP — verified (grep across
+  the full Contractor Registry spec text) that it contains no mention
+  of Annex 15, MPP, or the PLN 15,000 threshold anywhere. This
+  document is now recorded as the sole owner of that legal
+  justification.
+- Added a `DELETE /api/accounts_payable_payments/payments/:id/lines/:lineId`
+  route — `updatePaymentBatch` was documented as removing lines with
+  no corresponding route.
+- Added explicit pagination params to the payments list route.
+- Added a Risks entry for "no reversal path once a batch is `SENT`" —
+  previously undocumented, symmetric to the same gap in the sibling
+  invoices document (also fixed this round).
+- Added a Compliance Matrix row for `BACKWARD_COMPATIBILITY.md`'s API
+  route rename rule, previously omitted entirely, with an explicit note
+  that it doesn't bind today only because neither module has shipped
+  as code yet.
+- Updated the Final Compliance Report (Non-Compliant Items, Verdict) to
+  record all of the above, and to raise explicitly — rather than
+  silently settle — whether the new direct-cross-module-read pattern
+  needs team-level sign-off (a Q-style decision) rather than routine
+  code-review confirmation.

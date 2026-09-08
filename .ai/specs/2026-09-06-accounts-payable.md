@@ -426,10 +426,23 @@ generation-time-validated `ModuleInfo.requires` mechanism
 import type { ModuleInfo } from '@open-mercato/shared/modules/registry'
 
 export const metadata: ModuleInfo = {
-  id: 'accounts_payable',
+  name: 'accounts_payable',
+  title: 'Accounts Payable — Invoices',
+  version: '0.1.0',
+  description:
+    'Vendor invoice lifecycle: draft, approval, and posting to the general ledger.',
+  author: 'Open Mercato Team',
+  license: 'MIT',
   requires: ['ledger'],
+  ejectable: true,
 }
 ```
+
+**Correction (2026-09-08, this review round)**: the real `ModuleInfo`
+type (`packages/shared/src/modules/registry.ts`) has no `id` field —
+the identifying field is `name`, exactly as `sales`/`wms` use it. The
+sample above was fixed to match; an earlier draft used `id:`, which
+would not compile against the real type.
 
 `contractors` is not on this list — this module only holds `vendorId`
 as a plain FK-id (no `tryResolve`, no service call); live VAT-whitelist
@@ -444,10 +457,24 @@ declared in `sales/encryption.ts`. AP does the same:
 
 ```typescript
 // encryption.ts
-export const defaultEncryptionMaps = {
-  'accounts_payable:vendor_invoice': ['vendor_snapshot'],
-}
+import type { ModuleEncryptionMap } from '@open-mercato/shared/modules/encryption'
+
+export const defaultEncryptionMaps: ModuleEncryptionMap[] = [
+  {
+    entityId: 'accounts_payable:vendor_invoice',
+    fields: [{ field: 'vendor_snapshot' }],
+  },
+]
+
+export default defaultEncryptionMaps
 ```
+
+**Correction (2026-09-08, this review round)**: the real
+`ModuleEncryptionMap` type (`packages/shared/src/modules/encryption.ts`)
+is an array of `{ entityId, fields }` objects, with `fields` itself an
+array of `{ field, hashField? }` rule objects — not a keyed object of
+plain string arrays, as an earlier draft showed. The sample above now
+matches `sales/encryption.ts`'s real shape exactly.
 
 Reads go through `findWithDecryption`/`findOneWithDecryption`, always
 passing `tenantId`/`organizationId` — as required by
@@ -644,11 +671,21 @@ a payment batch, see the sibling document.
   `vendorSnapshot`, amount, due date).
 - `invoices/create/page.tsx`, `invoices/[id]/page.tsx` — `CrudForm`
   with invoice lines as an inline sub-list; editable only in `DRAFT`.
-  An injected approval-task widget (analogous to
-  `widgets/injection/order-approval/`) at spot ID
+  An injected approval-task widget at spot ID
   `accounts_payable.vendor_invoice.detail:details`, visible when the
   status is `PENDING_APPROVAL` and there's a task assigned to the
-  current user.
+  current user. **Correction (2026-09-08, this review round)**: the
+  real precedent (`workflows/widgets/injection/order-approval/`) shows
+  the widget itself is owned and defined by `workflows`, not by the
+  consuming module — `workflows` registers
+  `workflows.injection.order-approval` into `sales`'s own declared spot
+  ID (`sales.document.detail.order:details`) via `workflows`' own
+  `injection-table.ts`. This module only needs to declare and document
+  the spot ID above; the widget component, its feature gate
+  (mirroring `sales.orders.approve`), and the injection-table entry
+  belong to `workflows`, exactly as they do for `sales` today — not to
+  this module, and there is no `sales/widgets/injection/order-approval/`
+  path (an earlier draft cited a path that does not exist).
 
 ## Data Models
 
@@ -911,6 +948,26 @@ module first, the sibling module second.
   state requires a manual database query, not a screen in the
   product.
 
+#### No reversal path for a wrongly-posted invoice
+- **Scenario**: an invoice reaches `POSTED` (`postedJournalEntryId`
+  set) with incorrect data — wrong amount, wrong account, wrong vendor
+  — discovered only after posting.
+- **Severity**: Medium-High
+- **Affected area**: `accounts_payable`, `ledger` (an incorrect balance
+  stands until corrected)
+- **Mitigation**: none in Phase 1. This module defines no
+  `reverseVendorInvoice`/`voidVendorInvoice` command and no unwind of
+  `postJournalEntry`. The only path today is a manual, out-of-band
+  correcting journal entry directly in `ledger` (outside this module,
+  requires ledger access), not a documented, guarded operation of this
+  module.
+- **Residual risk**: real, and currently accepted as a Phase 1 gap — a
+  genuine reversal/void flow (a new command, a new workflow state, and
+  a corresponding reversing entry in `ledger`) is deferred to Phase 2.
+  Flagged explicitly here (this review round) rather than left
+  implicit, matching the sibling document's symmetric gap for `SENT`
+  payment batches.
+
 #### No maker-checker control (invoice self-approval)
 - **Scenario**: the same person, holding
   `accounts_payable.invoices.manage`, creates an invoice, submits it
@@ -1011,10 +1068,10 @@ tables, zero changes to existing ones. `onTenantCreated` is idempotent
 | `packages/core/AGENTS.md` → API Routes | All API route files MUST export `openApi` | Compliant | `api/openapi.ts` covers every route, per File Manifest |
 | `packages/core/AGENTS.md` → API Routes | Custom write routes wire the mutation guard registry | Compliant | `submit`/`post` routes mapped to `update` operation |
 | `packages/core/AGENTS.md` → Cross-Module Coupling | Hard dependency uses direct resolution, not `tryResolve` | Compliant | `ledger.postJournalEntry` via direct `commandBus.execute` — verified against `packages/core/src/modules/workflows/lib/activity-executor.ts` and real cross-module command calls elsewhere in the repo that need no allowlist |
-| `packages/core/AGENTS.md` → Cross-Module Coupling (hard dependency mechanism) | Hard dependency declared through `ModuleInfo.requires` | Compliant | `index.ts` with `metadata.requires: ['ledger']`, matching `sales`/`wms`'s real usage |
+| `packages/core/AGENTS.md` → Cross-Module Coupling (hard dependency mechanism) | Hard dependency declared through `ModuleInfo.requires` | Compliant | `index.ts` with `metadata.requires: ['ledger']`, matching `sales`/`wms`'s real usage. **Corrected this review round**: an earlier draft's sample used a non-existent `id:` field instead of the real `name:` field — fixed to match `sales`/`wms` exactly (see Architecture → Module Dependency) |
 | `packages/core/AGENTS.md` → Database Entities | User-editable entities MUST include `updated_at` | Compliant | `VendorInvoice` has `updatedAt`; `VendorInvoiceLine` is a sub-resource guarded by its parent aggregate (exempt, per the same rule's own exemption list) |
 | `packages/core/AGENTS.md` → Database Entities | Standard column contract includes `deleted_at` | Compliant | `VendorInvoice` has `deletedAt`; status guard enforced at both the command layer (`cancelVendorInvoice`) and the route layer (`DELETE`'s `beforeDelete` hook) |
-| `packages/core/AGENTS.md` → Encryption | GDPR/PII fields declared in `<module>/encryption.ts`, read via `findWithDecryption` | Compliant | `encryption.ts` declares `vendor_snapshot`, mirroring `sales`'s already-encrypted `customer_snapshot` |
+| `packages/core/AGENTS.md` → Encryption | GDPR/PII fields declared in `<module>/encryption.ts`, read via `findWithDecryption` | Compliant | `encryption.ts` declares `vendor_snapshot`, mirroring `sales`'s already-encrypted `customer_snapshot`. **Corrected this review round**: an earlier draft's sample used a keyed-object shape instead of the real `ModuleEncryptionMap[]` array-of-`{entityId, fields}` shape — fixed to match `sales/encryption.ts` exactly |
 | `packages/core/AGENTS.md` → Access Control (RBAC) | Features declared per module, naming `<module>.<action>` | Compliant | Three features (`view`/`manage`/`post`) |
 | `packages/events/AGENTS.md` | Events declared with `as const`; subscribers export `metadata` | Compliant | Five events declared; no persistent subscriber needed in Phase 1 |
 | `packages/queue/AGENTS.md` | Workers idempotent, export `metadata` | N/A | This module ships no queue worker in Phase 1 — no background job crosses a request boundary |
@@ -1029,14 +1086,28 @@ tables, zero changes to existing ones. `onTenantCreated` is idempotent
 | API contracts match data models | Pass | Every documented field/filter has a backing column |
 | Commands defined for all mutations | Pass | Every status transition has a named command |
 | Double-entry postings balance | Pass | `postVendorInvoice` posts three legs — DR net per line, aggregated DR to `vatInputAccountId`, CR `totalGross` to the liability account |
-| Risks cover all write operations | Pass | Double-posting, konto 300, ledger-unavailable, event-queue delay, maker-checker, tenant isolation, migration all addressed |
+| Risks cover all write operations | Pass | Double-posting, konto 300, ledger-unavailable, event-queue delay, maker-checker, tenant isolation, migration, and (added this review round) the missing reversal-path gap all addressed |
 | Scope cohesion vs. other modules | Pass | Single capability (vendor invoice lifecycle), independently deployable given its one hard dependency (`ledger`) — payments split out per Q1 resolution below |
 | Scope cohesion *within* this document | Pass | One entity group, one lifecycle, one GL integration seam — the prior bundling of payments (a second, separate GL integration seam and ACL group) was resolved by the split recorded in Design decisions |
 | Cross-module coupling mechanism matches dependency type | Pass | Hard dependency (`ledger`) via `commandBus` + `ModuleInfo.requires`; plain FK-id reference to `Contractor` (no coupling mechanism needed, no service resolved) |
 
 ### Non-Compliant Items
 
-None.
+None outstanding after this review round's fixes. **This review round
+(2026-09-08, post-split, English translation + fresh-context review)
+found and fixed three real defects**, none caught by this document's
+own prior self-assessment: an `index.ts` sample using a non-existent
+`ModuleInfo.id` field (real field is `name`); an `encryption.ts` sample
+using the wrong shape for `ModuleEncryptionMap` (real shape is an array
+of `{entityId, fields}`, `fields` itself an array of `{field}` rule
+objects); and a widget-placement sample citing a non-existent path
+(`sales/widgets/injection/order-approval/`) and, more substantively,
+describing the ownership backwards — the real precedent
+(`workflows/widgets/injection/order-approval/`) has the *workflow*
+module own and inject the widget into the consumer's spot, not the
+other way around. Also added: a Risks entry for "no reversal path for
+a wrongly-posted invoice", previously undocumented. See Changelog for
+the full list with sources.
 
 ### Verdict
 
@@ -1046,9 +1117,11 @@ a single combined Accounts Payable specification — two independent,
 fresh-context reviews (compliance/checklist + architectural sanity)
 found the combined document's own scope-cohesion self-assessment
 unreliable (it cited a misrepresented GL precedent) and recommended a
-split; the team confirmed the split on 2026-09-08. This document
-carries forward, unchanged, every fix from that combined document's
-own independent-review round that applies to the invoice half
+split; the team confirmed the split on 2026-09-08. A further pair of
+fresh-context reviews of the post-split, translated document (this
+round) found the three defects listed above, now fixed. This document
+carries forward, unchanged, every fix from the combined document's
+earlier independent-review round that applies to the invoice half
 (encryption gap, workflow/command contradiction, VAT posting gap,
 corrected goods-receipt claim, undesigned hard dependency) — see
 Changelog for the full history. The payments half, its own risks, and
@@ -1192,3 +1265,34 @@ same round (only the ones affecting the invoice half are listed here
   Check and Verdict rewritten to be unconditional again.
 - Translated the document to English (this pass) — the Polish version
   is superseded by this one; no content change beyond translation.
+
+### 2026-09-08 (cont. — fresh-context review of the post-split, English
+document; this pass)
+
+Ran the `om-spec-writing` skill's Step 8 (checklist review, with the
+scope-cohesion item delegated to a fresh-context subagent) and Step 9
+(Compliance Gate) on this document for the first time since the split
+— the split itself had never been through this formal process before.
+Findings, each personally re-verified against the real repository
+before being accepted (not taken on the reviewing agent's word alone):
+
+- Fixed `index.ts`: real `ModuleInfo` has no `id` field (real field is
+  `name`); added the full metadata shape matching `sales`/`wms`
+  precedent.
+- Fixed `encryption.ts`: real `ModuleEncryptionMap` is an array of
+  `{entityId, fields}` objects (`fields` itself an array of `{field,
+  hashField?}` rule objects), not a keyed object of plain string
+  arrays — fixed to match `sales/encryption.ts` exactly.
+- Fixed the approval-task widget sample in Backend Pages: the cited
+  path `sales/widgets/injection/order-approval/` doesn't exist, and
+  the underlying claim was backwards — the real precedent
+  (`workflows/widgets/injection/order-approval/`) has the *workflow*
+  module own and inject the widget into the consuming module's spot
+  (`sales.document.detail.order:details`), not the consuming module
+  defining its own widget. Corrected this module's sample to declare
+  only the spot ID, matching the real division of ownership.
+- Added a Risks entry for "no reversal path for a wrongly-posted
+  invoice" — previously undocumented, symmetric to the same gap now
+  also documented in the sibling payments document.
+- Updated the Final Compliance Report (Compliance Matrix, Non-Compliant
+  Items, Verdict) to record all of the above.
