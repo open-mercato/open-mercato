@@ -99,8 +99,9 @@ contains a day numbered 2, so no PR — this one included — can reach green un
 
 The branch fell behind `develop` and went `CONFLICTING`, which blocks the merge queue.
 
-- [ ] 5.1 Merge current `develop` and resolve the conflicts
-- [ ] 5.2 Re-drive the required checks to green on the merge commit
+- [x] 5.1 Merge current `develop` and resolve the conflicts — 31aed97afb
+- [x] 5.2 Bump the `fast-uri` resolution 3.1.5 -> 3.1.7 to clear four newly-published high advisories that red the `audit` gate
+- [ ] 5.3 Re-drive the required checks to green on the merge commit
 
 Gate result (local runner — no compose `app` container was up, so `yarn X` rather than
 `docker-exec.mjs X`): `build:packages` ✅ · `generate` ✅ (no working-tree churn) · `build:packages`
