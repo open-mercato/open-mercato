@@ -9,6 +9,7 @@ import { StatusBadge, type StatusBadgeVariant } from '@open-mercato/ui/primitive
 import { mapDictionaryColorToTone } from '@open-mercato/shared/lib/query/advanced-filter'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { LoadingMessage, TabEmptyState } from '@open-mercato/ui/backend/detail'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -115,6 +116,7 @@ export function TasksSection({
   const tHook = useT()
   const fallbackTranslator = React.useMemo<Translator>(() => createTranslatorWithFallback(tHook), [tHook])
   const t: Translator = React.useMemo(() => translator ?? fallbackTranslator, [translator, fallbackTranslator])
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const runWriteMutation = React.useCallback(
     async <T,>(operation: () => Promise<T>, mutationPayload?: Record<string, unknown>): Promise<T> => {
       if (!runGuardedMutation) {
@@ -354,6 +356,17 @@ export function TasksSection({
 
   const handleDelete = React.useCallback(
     async (task: TodoLinkSummary) => {
+      const approved = await confirm({
+        title: t('customers.people.detail.tasks.deleteConfirmTitle', 'Remove task?'),
+        description: t(
+          'customers.people.detail.tasks.deleteConfirmDescription',
+          'This task will be removed from every view it appears in. This action cannot be undone.',
+        ),
+        confirmText: t('customers.people.detail.tasks.deleteConfirmAction', 'Remove task'),
+        cancelText: t('customers.people.detail.tasks.deleteConfirmCancel', 'Cancel'),
+        variant: 'destructive',
+      })
+      if (!approved) return
       try {
         await runWriteMutation(
           () => unlinkTask(task),
@@ -371,7 +384,7 @@ export function TasksSection({
         flash(message, 'error')
       }
     },
-    [onDataRefresh, refresh, runWriteMutation, t, unlinkTask],
+    [confirm, onDataRefresh, refresh, runWriteMutation, t, unlinkTask],
   )
 
   const handleCancel = React.useCallback(
@@ -620,6 +633,8 @@ export function TasksSection({
         contextMessage={dialogContextMessage}
         useCanonicalInteractions={useCanonicalInteractions}
       />
+
+      {ConfirmDialogElement}
     </div>
   )
 }
