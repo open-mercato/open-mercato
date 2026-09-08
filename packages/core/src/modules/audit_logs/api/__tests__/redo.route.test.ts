@@ -1,4 +1,5 @@
 /** @jest-environment node */
+import { CommandInterceptorError } from '@open-mercato/shared/lib/commands/errors'
 import { POST } from '@open-mercato/core/modules/audit_logs/api/audit-logs/actions/redo/route'
 
 const mockRbac = { userHasAllFeatures: jest.fn() }
@@ -235,5 +236,70 @@ describe('POST /api/audit_logs/audit-logs/actions/redo', () => {
     const res = await POST(makeRequest({ logId: 'log-2' }))
     expect(res.status).toBe(400)
     expect(mockCommandBus.execute).not.toHaveBeenCalled()
+  })
+  it('surfaces the status and body of an interceptor rejection that carries one', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+      sub: 'user-1',
+      tenantId: 'tenant-1',
+      orgId: 'org-1',
+    })
+    const log = {
+      id: 'log-undo',
+      commandId: 'demo.command',
+      actorUserId: 'user-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      resourceKind: 'demo.resource',
+      resourceId: 'res-1',
+      executionState: 'undone',
+      commandPayload: { __redoInput: { foo: 'bar' } },
+      contextJson: null,
+    }
+    mockLogs.findById.mockResolvedValue(log)
+    mockLogs.latestUndoneForActor.mockResolvedValue(log)
+    mockCommandBus.execute.mockRejectedValueOnce(
+      new CommandInterceptorError('Redo blocked by policy', {
+        status: 409,
+        body: { error: 'Redo blocked by policy', reason: 'window-closed' },
+      }),
+    )
+
+    const res = await POST(makeRequest({ logId: 'log-undo' }))
+
+    expect(res.status).toBe(409)
+    await expect(res.json()).resolves.toEqual({
+      error: 'Redo blocked by policy',
+      reason: 'window-closed',
+    })
+  })
+
+  it('keeps the generic 400 when an interceptor rejection carries no status', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
+      sub: 'user-1',
+      tenantId: 'tenant-1',
+      orgId: 'org-1',
+    })
+    const log = {
+      id: 'log-undo',
+      commandId: 'demo.command',
+      actorUserId: 'user-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      resourceKind: 'demo.resource',
+      resourceId: 'res-1',
+      executionState: 'undone',
+      commandPayload: { __redoInput: { foo: 'bar' } },
+      contextJson: null,
+    }
+    mockLogs.findById.mockResolvedValue(log)
+    mockLogs.latestUndoneForActor.mockResolvedValue(log)
+    mockCommandBus.execute.mockRejectedValueOnce(new CommandInterceptorError('Blocked without a status'))
+
+    const res = await POST(makeRequest({ logId: 'log-undo' }))
+
+    expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toEqual({ error: 'Redo failed' })
   })
 })

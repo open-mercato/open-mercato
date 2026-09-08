@@ -58,12 +58,18 @@ import {
   type SecretFieldsConfigured,
 } from '../credential-secret-fields'
 import { isValidCredentialUrl } from '../../../lib/credentials-field-validation'
+import { useIntegrationCredentialsFeatureAccess } from '../useIntegrationCredentialsFeatureAccess'
 
 type CredentialField = IntegrationCredentialField
 type BuiltInIntegrationDetailTab = 'credentials' | 'version' | 'health' | 'logs' | 'data-sync-schedule'
 type IntegrationDetailTab = BuiltInIntegrationDetailTab | string
 
 const UNSUPPORTED_CREDENTIAL_FIELD_TYPES = new Set<CredentialFieldType>(['oauth', 'ssh_keypair'])
+
+// `/api/integrations/{id}/credentials` requires `integrations.credentials.manage`, so a viewer
+// without the grant gets an expected 403 that the permission notice already explains. Opting out
+// of the global forbidden handling keeps it from raising an "Access denied" flash and throwing.
+const credentialsRequestHeaders = { 'x-om-forbidden-redirect': '0' } as const
 
 function isEditableCredentialField(field: CredentialField): boolean {
   return !UNSUPPORTED_CREDENTIAL_FIELD_TYPES.has(field.type)
@@ -463,6 +469,10 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
   const [activeTab, setActiveTab] = React.useState<IntegrationDetailTab>('credentials')
 
   const credentialsFormId = React.useId()
+  const {
+    isLoading: isLoadingCredentialsAccess,
+    canManageCredentials,
+  } = useIntegrationCredentialsFeatureAccess()
 
   const resolveCurrentIntegrationId = React.useCallback(() => {
     return integrationId ?? (
@@ -516,7 +526,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
       updatedAt?: string | null
     }>(
       `/api/integrations/${encodeURIComponent(currentIntegrationId)}/credentials`,
-      undefined,
+      { headers: credentialsRequestHeaders },
       { fallback: null },
     )
     if (call.ok && call.result) {
@@ -1032,7 +1042,10 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
     ? 'border-status-success-border bg-status-success-bg text-status-success-text'
     : 'border-status-neutral-border bg-status-neutral-bg text-status-neutral-text'
 
-  const showCredentialActions = showCredentialsTab && activeTab === 'credentials' && credentialFormFields.length > 0
+  const showCredentialActions = showCredentialsTab
+    && activeTab === 'credentials'
+    && credentialFormFields.length > 0
+    && canManageCredentials
 
   React.useEffect(() => {
     setActiveTab(resolveRequestedIntegrationDetailTab(searchParams?.get('tab'), visibleTabIds))
@@ -1280,6 +1293,14 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
                   <p className="text-sm text-muted-foreground">
                     {t('integrations.detail.credentials.notConfigured')}
                   </p>
+                ) : isLoadingCredentialsAccess ? (
+                  <div className="flex justify-center py-8"><Spinner /></div>
+                ) : !canManageCredentials ? (
+                  <EmptyState
+                    size="sm"
+                    icon={<Key className="h-8 w-8" aria-hidden="true" />}
+                    title={t('integrations.detail.credentials.noPermission', 'You do not have permission to manage credentials for this integration.')}
+                  />
                 ) : (
                   <CrudForm<Record<string, unknown>>
                     key={`${resolvedIntegration.id}:${credentialsFormKey}`}
