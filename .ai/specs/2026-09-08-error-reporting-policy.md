@@ -18,20 +18,20 @@
 
 1. `integrationLogService.write()` at `level: 'error'` tees to `reportError` (covers `data_sync`, `payment_gateways`, `gateway_stripe` and every future integration in one place);
 2. the queue runner's job-failure path tees to `reportError` (covers a worker that crashes outright);
-3. `reportError` gains a stable `code` fingerprint and a per-fingerprint rate limit, so a 115-item dead-letter batch is one grouped signal with a count — not 115 pages, and not a channel everyone mutes.
+3. `reportError` gains a stable `code` — the fingerprint the backend groups on, and the one thing a backend cannot derive for itself here.
 
 **The argument.** The gap is not missing infrastructure. `reportError` exists, is vendor-neutral, and any OTLP backend is one env var away. The gap is that *the places errors actually land* — a log row, a `failed` status, a dead-letter entry — are not connected to it, and connecting them per call site is a treadmill. Three chokepoints cover essentially every integration and background-work error path in the repo, and the rule keeps new ones connected.
 
 **Scope**
 - The policy rule, documented where agents and reviewers actually read it, and checkable in review.
 - The `integrations` log-service tee and the `queue` job-failure tee.
-- `reportError` policy: `code`/fingerprint attribute, per-fingerprint rate limiting, PII posture (message + code + ids only, never `payload`).
+- `reportError` policy: the `code` fingerprint attribute, and the PII posture (message + code + ids only, never `payload`).
 - One aggregated report per partially-failed sync run, plus item counts on `data_sync.run.completed`.
 - Optional `reportError?()` on `TelemetryProvider` + a documented recipe for an issue-tracker provider (Sentry-shaped backends), with no upstream vendor dependency.
 
 **Concerns**
 - `integration_logs.payload` carries the full failed item; teeing it outward would export customer data to a third party. The tee sends message + `code` + ids only.
-- Rate limiting inside `reportError` changes what the two existing callers emit under an error storm. It is a visible, documented, env-overridable default — not a silent filter.
+- **Every** error is reported; the framework adds no sampling, throttling or suppression of its own. Volume, grouping and quota control belong to the backend and the collector, which already own them — see [S3](#s3--fingerprint-policy-report-everything).
 - Root `AGENTS.md` has **8 bytes of budget headroom** (`yarn agents:check-budget`), so the rule cannot simply be appended there. See [S5](#s5--where-the-rule-lives-and-how-it-is-enforced).
 
 ## Decisions
@@ -43,7 +43,7 @@ The skeleton's Open Questions, resolved as recommended. Rationale is inlined bel
 | Q1 | Where does the per-item failure `code` contract live? | **Part 6 §4 owns it**; this spec consumes it, with a named fallback so Phase 1 is not blocked ([P1](#prerequisite-p1)) |
 | Q2 | Provider contract for issue-tracker backends? | **Optional `reportError?(error, ctx)` on `TelemetryProvider`** + docs recipe. No upstream Sentry dependency ([S4](#s4--optional-provider-error-hook)) |
 | Q3 | Tee scope | **Every `level: 'error'` write through `integrationLogService`**, plus the queue job-failure path ([S1](#s1--tee-at-the-chokepoints)) |
-| Q4 | Rate-limit default | **On by default**, `TELEMETRY_ERROR_RATE_LIMIT=10/60s`, `0` disables ([S3](#s3--fingerprint-and-rate-limit-policy)) |
+| Q4 | Rate-limit default | **Reversed after review: no framework-side rate limit at all.** Report everything; carry a `code` so the backend groups correctly ([S3](#s3--fingerprint-policy-report-everything)) |
 | Q5 | Other swallow sites | **Out of scope, named owners** — this spec ships the rule + the chokepoints ([Out of scope](#out-of-scope--named-owners)) |
 
 ---
@@ -119,25 +119,43 @@ getTelemetryRuntime()?.reportError(new SyncRunPartialFailureError(
 })
 ```
 
-This is the signal that answers *"a run finished badly"* at run granularity, independent of per-item volume and of the per-item rate limit. It is deliberately not gated on `adapter.operationalTelemetry`: an adapter flag may decide how chatty the *operational log* is, never whether a failure is observable.
+This is the signal that answers *"a run finished badly"* at run granularity, independent of per-item volume. It is deliberately not gated on `adapter.operationalTelemetry`: an adapter flag may decide how chatty the *operational log* is, never whether a failure is observable.
 
 `data_sync.run.completed`'s payload gains `createdCount` / `updatedCount` / `skippedCount` / `failedCount` (additive optional fields — BACKWARD_COMPATIBILITY §5 permits this), so a subscriber or a tenant webhook can distinguish a clean run from a partial one without querying `sync_runs`.
 
-### S3 — Fingerprint and rate-limit policy
+### S3 — Fingerprint policy: report everything
 
 `ReportErrorContext` gains `code?: string` — a **stable, enumerated, low-cardinality token** (`module.reason`), never an interpolated message. `reportError`:
 
 1. stamps `error.code` on the span exception attributes and the log record;
 2. labels the counter `om.errors{module, code}` — `code` is enumerable, so this stays a legal metric label; ids stay off metrics and on span attributes (the telemetry spec's R4);
-3. rate-limits per fingerprint.
+3. reports every occurrence. No sampling, no throttling, no suppression.
 
-**Fingerprint** = `code ?? error.name` + `module` + `attributes.integrationId` when present. Per-integration budgets matter: one broken integration must not exhaust the window for the other twenty.
+**Why `code` and not a limiter.** These are two separable halves of what looked like one design, and only one of them is ours to own.
 
-**Budget** — `TELEMETRY_ERROR_RATE_LIMIT`, default `10/60s`, `0` disables. The first N occurrences of a fingerprint in the window are reported in full. Beyond N, within the window: no span exception attributes, no log record, no provider hook call — only `om.errors{module, code, suppressed=true}` is incremented, and **once per fingerprint per window** a single `logger.warn` summary line is emitted (`"suppressed <n> further <code> errors"`) so the count is legible without the flood. The counter is therefore complete even when reporting is not — alerting on `om.errors` remains sound.
+*Grouping is worth owning, and the backends cannot do it for us here.* Sentry fingerprints on the stack trace; New Relic groups on error class and message. The `integrations` tee synthesizes a single `IntegrationLogError` at one line in `log-service.ts`, so without an explicit `code` **every integration error in the product collapses into one group** — one issue titled "IntegrationLogError", 40 000 events deep, spanning a broken Akeneo cursor and a declined card. SigNoz has no error-grouping concept at all; it groups at query and alert time, on the attributes we send. So the more capable the backend's grouping, the more it depends on us supplying a discriminator that the synthesized error object does not carry. `code` is that discriminator, and it is why this section exists.
 
-The fingerprint table is an internal LRU capped at 1000 entries (evict oldest), so a caller that violates the enumerated-`code` rule degrades to unbounded-cardinality *misses* rather than unbounded memory. Implementation: `packages/telemetry/src/facade/error-policy.ts`, pure and unit-testable, with an injectable clock.
+*Rate limiting is not worth owning, because three layers below us already do it — better.*
 
-Why on by default (Q4): 115 dead-lettered items arriving as 115 events is the failure mode that makes an operator mute the channel — after which the alerting is worse than none. The trade-off is explicit and reversible in one env var.
+| Layer | What it already does |
+|---|---|
+| Backend | Sentry: per-project/per-key rate limits, spike protection, client `sampleRate`, `beforeSend`. New Relic: ingest quotas and NRQL drop rules. SigNoz: whatever the collector in front of it is configured to do. |
+| Collector | The OTel Collector is the designed home for filtering, sampling and rate limiting, per pipeline, per deployment, changeable without a release. |
+| SDK | This repo's provider uses `BatchSpanProcessor` and `BatchLogRecordProcessor` at SDK defaults (`otlp-provider.ts:256-258`): a bounded queue that sheds load under flood, plus the default 128-events-per-span cap that truncates excess span exceptions. |
+
+A fourth limiter in the facade would be the worst of the four:
+
+- **It drops data irreversibly at the source.** Nothing downstream can recover a suppressed report — no drill-in, no later re-aggregation, no "show me the 40 I did not see". The backend's own limiters drop at ingest, where the operator can see the drop and raise the quota.
+- **Its guarantee is fictional.** The budget is per process. With `DATA_SYNC_QUEUE_CONCURRENCY = 5`, several workers and the web tier all running, "10 per 60s" is really "10 per 60s **per process**", which is neither a number an operator can reason about nor one an alert can be written against.
+- **It solves an alerting problem in the wrong layer.** The original justification — *115 events would make an operator mute the channel* — is about alert routing, not about data collection. The fix is the alert rule: group by `code`, threshold on the `om.errors` rate, re-notify on an interval. Every one of these backends supports that; none of them needs us to have thrown the events away first.
+- **It costs the thing it was meant to protect.** Reporting is cheap (a serialize, a redaction pass, a queue push) and already bounded by the SDK's queue; a per-fingerprint table with an eviction policy is new state, new config, and a new failure mode inside the error path.
+
+*What survives the deletion*, because neither is rate limiting:
+
+- **The aggregate run report** ([S2](#s2--one-aggregated-report-per-partially-failed-run)) — it exists because "this run ended with 115 failures" is a *different fact* from any one item's failure, not because 115 reports were too many. It stays either way.
+- **A re-entrancy guard.** `reportError` sets a per-async-context flag for its own duration and no-ops on a nested call, so an error raised *inside* reporting (a throwing provider hook, a redaction bug) cannot recurse. ~10 lines, no config, no window, no eviction — a correctness guard, not a policy.
+
+*If a deployment does hit ingest cost*, the documented answer is the collector or the backend's own controls, named in the docs page. Adding a framework knob "just in case" would put the control at the layer with the least context: the collector knows the deployment's budget, the facade knows only that an error happened.
 
 ### S4 — Optional provider error hook
 
@@ -156,7 +174,7 @@ No Sentry dependency is added upstream. `packages/telemetry/README.md` gains a ~
 Root `AGENTS.md` is at 31,224 of 31,232 bytes — **8 bytes free** — and `yarn agents:check-budget` is a hard gate, so the rule cannot be appended there. Anything past the limit is never delivered to the agent, which would make an appended rule worse than no rule.
 
 - **Canonical text**: `packages/telemetry/AGENTS.md` → **Always** (one bullet, ~4 lines). That file is 3.3 KB and is read by anything touching telemetry.
-- **Long form**: a new `apps/docs/docs/framework/runtime/error-reporting.mdx` — the rule, the three chokepoints, the `code` naming convention, the rate limit, the custom-provider recipe, and the "`logger.error` is not reporting" distinction. Sibling of `logging.mdx`.
+- **Long form**: a new `apps/docs/docs/framework/runtime/error-reporting.mdx` — the rule, the three chokepoints, the `code` naming convention, where volume control belongs, the custom-provider recipe, and the "`logger.error` is not reporting" distinction. Sibling of `logging.mdx`.
 - **Router**: rewrite the existing logging row (`AGENTS.md:100`) **byte-neutrally or shorter** to cover both, pointing at the telemetry package guide and the new docs page. The step is not done until `yarn agents:check-budget` passes; if the row cannot absorb it, the fallback is to trim the same row's now-redundant parenthetical rather than to grow the file.
 - **Review**: a new `.ai/review-checklist.md` section — *Observability & Error Reporting* — with the rule as two checkboxes (catch-that-records also reports; `code` is an enumerated token, not an interpolated string). This is the enforcement surface `om-code-review` actually reads.
 - No new lint gate in Phase 1. A static check for "catch blocks that record without reporting" is inherently noisy; an advisory script in the spirit of `yarn logger:check-console` is a Phase 2 option, not a blocker.
@@ -176,13 +194,14 @@ Ordered by what the change is for. Each line is checkable by a named test or a s
 ### The capability
 
 - [ ] **Errors during a data sync are reported.** With `TELEMETRY_BACKEND=console` (or any OTLP backend) and an import whose adapter fails items:
-  - [ ] each dead-lettered item produces a reported error carrying `code`, `runId`, `integrationId` and the item's identifier — subject only to the documented rate limit, never to an adapter flag;
+  - [ ] each dead-lettered item produces a reported error carrying `code`, `runId`, `integrationId` and the item's identifier — every item, never gated on an adapter flag;
   - [ ] a run that ends `failed` produces a reported error with the fault's `code` and `runId`, for **every** adapter, including those with `operationalTelemetry` unset;
   - [ ] a run that ends `completed` with `failedCount > 0` produces exactly one `data_sync.run_partial_failure` report carrying `failedCount`;
   - [ ] a `data_sync` worker that crashes outright produces a `queue.job_failed` report naming the queue and job;
   - [ ] a rejected coverage refresh produces a `data_sync.coverage_refresh_failed` report instead of being dropped.
 - [ ] **Every `level: 'error'` integration log row is reported**, for all seven current writers across `data_sync`, `payment_gateways` and `gateway_stripe` — verified by a service-level test, not per call site.
-- [ ] **A burst is one grouped signal.** 115 failures of one fingerprint inside one window emit the first 10 in full plus a single suppression summary, while `om.errors` counts all 115 (`suppressed=true` on the excess). Alerting on `om.errors` stays exact.
+- [ ] **A burst groups, and nothing is dropped.** 115 item failures produce 115 reports that share one `code`, so the backend collapses them into one group of 115 and `om.errors{module, code}` counts 115 — no framework-side suppression anywhere in the path. Drilling into any one of the 115 still yields its own item id and message.
+- [ ] **Reporting cannot recurse.** An error thrown inside the reporting path (a throwing provider hook, a redaction bug) is not itself reported; the re-entrancy guard no-ops the nested call and the original report still completes.
 - [ ] **An issue-tracker backend can be plugged in** without patching the facade: a test provider implementing `reportError?()` receives every reported error, with `code` and attributes intact, and the built-in span/log/metric path still fires.
 
 ### Non-regression
@@ -191,14 +210,14 @@ Ordered by what the change is for. Each line is checkable by a named test or a s
 - [ ] **A telemetry failure cannot fail application work.** A provider that throws from `reportError` leaves the `integration_logs` row committed, the batch committed and the run's outcome unchanged — asserted by a test with a throwing provider.
 - [ ] **No payload egress.** No reported error carries `integration_logs.payload`, adapter row content, or credentials; asserted by a test that puts a marker value in `payload` and a secret-looking key in the row, then inspects everything the provider received.
 - [ ] **`packages/core` still does not depend on `@open-mercato/telemetry`** — the tees go through `getTelemetryRuntime()`; asserted by the existing decoupling test surface.
-- [ ] Existing `reportError` callers (API dispatcher, CRUD factory) keep working with no `code`; their fingerprint falls back to `error.name` and the behaviour change under a storm is documented in UPGRADE_NOTES.
+- [ ] **Existing `reportError` callers are behaviourally unchanged.** The API dispatcher and CRUD factory pass no `code` and keep reporting every 5xx exactly as today; `code` is absent on their reports rather than defaulted. Nothing in this spec makes an existing path emit less.
 
 ### Contract and docs
 
 - [ ] `ReportErrorContext.code`, `TelemetryRuntime.reportError`'s `code`, and `TelemetryProvider.reportError?()` are additive and optional; `BACKWARD_COMPATIBILITY.md` records all three, including that `TelemetryProvider.reportError` MUST stay optional (third parties implement this interface).
 - [ ] `data_sync.run.completed` gains four optional payload fields; no existing field changes.
 - [ ] The rule is in `packages/telemetry/AGENTS.md`, `apps/docs/docs/framework/runtime/error-reporting.mdx`, and `.ai/review-checklist.md`; the root `AGENTS.md` router row is updated and **`yarn agents:check-budget` passes**.
-- [ ] `TELEMETRY_ERROR_RATE_LIMIT` is documented in `apps/mercato/.env.example` and mirrored into the create-app template (`yarn template:sync:fix`, per root AGENTS.md).
+- [ ] **No new environment variable.** Volume control is documented as a collector/backend concern in the docs page, so `.env.example` and the create-app template are untouched.
 
 ### Gate
 
@@ -245,11 +264,9 @@ export type ReportErrorContext = {
 
 ## Configuration
 
-| Env var | Default | Meaning |
-|---|---|---|
-| `TELEMETRY_ERROR_RATE_LIMIT` | `10/60s` | Per-fingerprint reporting budget: first N per window in full, the rest counted only. `0` disables limiting entirely. Malformed values fall back to the default with a `warn`. |
+**None.** No env var is added, and `TELEMETRY_BACKEND` continues to be the only switch that matters: off means off, on means every error is reported.
 
-Parsed in `packages/telemetry/src/env.ts` alongside the existing `TELEMETRY_*` vars and memoized with them (`resetTelemetryEnvCache()` applies).
+Volume, sampling and quota controls stay where they already exist and where the deployment's budget is known — the collector pipeline, or the backend's own limits. The docs page names the concrete levers (collector filter/sampling processors; Sentry `sampleRate`, spike protection and per-key rate limits; New Relic drop rules and ingest quotas) so an operator who needs one is not left to invent it in application code.
 
 ## Privacy
 
@@ -267,9 +284,9 @@ Inherits the telemetry spec's **don't-emit** posture with the active `redactPii`
 
 ### Phase 2 — policy and pluggability (additive to the contract)
 
-6. **Rate limit.** `facade/error-policy.ts` with an injectable clock and the LRU cap; `TELEMETRY_ERROR_RATE_LIMIT` in `env.ts`, `.env.example` and the create-app template (`yarn template:sync:fix`); the suppression summary line and the `suppressed=true` counter. Tests: budget boundary, window rollover, per-integration isolation, `0` disables, LRU eviction, counter completeness across suppression.
+6. **Re-entrancy guard.** A per-async-context flag in `report-error.ts` that no-ops a nested `reportError`. Tests: a throwing provider hook does not recurse and does not lose the original report.
 7. **Provider hook.** Optional `reportError?()` on `TelemetryProvider`; facade calls it additively; `packages/telemetry/README.md` recipe. Tests: provider with and without the hook; serialized+redacted payload only.
-8. **UPGRADE_NOTES.md** — the storm-behaviour change for existing `reportError` callers and how to opt out.
+8. **Volume-control docs.** The collector/backend levers in `error-reporting.mdx`, with the reasoning from [S3](#s3--fingerprint-policy-report-everything) compressed to a paragraph. No UPGRADE_NOTES entry is needed: no existing path changes what it emits.
 
 Both phases are additive and independently deployable; Phase 1 is useful without Phase 2, and Phase 2 does not depend on part 6.
 
@@ -277,10 +294,8 @@ Both phases are additive and independently deployable; Phase 1 is useful without
 
 | File | Action | Purpose |
 |---|---|---|
-| `packages/telemetry/src/facade/report-error.ts` | Modify | `code`, fingerprint, rate limit, provider hook |
-| `packages/telemetry/src/facade/error-policy.ts` | Create | Fingerprint + budget, pure, injectable clock |
+| `packages/telemetry/src/facade/report-error.ts` | Modify | `code` attribute + metric label, re-entrancy guard, provider hook |
 | `packages/telemetry/src/types.ts` | Modify | Optional `TelemetryProvider.reportError?()` |
-| `packages/telemetry/src/env.ts` | Modify | `TELEMETRY_ERROR_RATE_LIMIT` |
 | `packages/telemetry/{AGENTS.md,README.md}` | Modify | The rule; custom-provider recipe |
 | `packages/shared/src/lib/telemetry/runtime.ts` | Modify | `code` in the bridge context type |
 | `packages/core/src/modules/integrations/lib/log-service.ts` | Modify | The tee |
@@ -288,8 +303,7 @@ Both phases are additive and independently deployable; Phase 1 is useful without
 | `packages/queue/src/strategies/{async,local}.ts` | Modify | Job-failure tees |
 | `packages/core/src/modules/data_sync/lib/sync-engine.ts` | Modify | Codes, partial-failure report, coverage-refresh report, run.completed counts |
 | `apps/docs/docs/framework/runtime/error-reporting.mdx` | Create | Long-form policy |
-| `AGENTS.md`, `.ai/review-checklist.md`, `BACKWARD_COMPATIBILITY.md`, `UPGRADE_NOTES.md` | Modify | Routing, review gate, contract record |
-| `apps/mercato/.env.example` + create-app template | Modify | Env documentation (`yarn template:sync:fix`) |
+| `AGENTS.md`, `.ai/review-checklist.md`, `BACKWARD_COMPATIBILITY.md` | Modify | Routing, review gate, contract record |
 
 ## Test Coverage
 
@@ -297,8 +311,8 @@ No API route, database structure or UI file changes, so the coverage is unit/beh
 
 | Test | Location |
 |---|---|
-| `code` on span/log/metric; fingerprint fallback to `error.name` | `packages/telemetry/src/__tests__/report-error.test.ts` |
-| Budget boundary, window rollover, per-integration isolation, `0` disables, LRU eviction, counter completeness | `packages/telemetry/src/__tests__/error-policy.test.ts` |
+| `code` on span/log/metric; absent `code` leaves existing callers unchanged; N identical errors produce N reports | `packages/telemetry/src/__tests__/report-error.test.ts` |
+| Re-entrancy guard: a throwing provider hook neither recurses nor loses the original report | `packages/telemetry/src/__tests__/report-error.test.ts` |
 | Provider hook called with serialized+redacted error; absent hook is fine | `packages/telemetry/src/__tests__/report-error.test.ts` |
 | `error` tees / `info`+`warn` do not / `payload` withheld / throwing provider swallowed / telemetry-off no-op | `packages/core/src/modules/integrations/lib/__tests__/log-service.test.ts` |
 | Job failure, exhaustion and abandon-sweep report per strategy | `packages/queue/src/__tests__/` |
@@ -308,13 +322,6 @@ No API route, database structure or UI file changes, so the coverage is unit/beh
 An end-to-end integration test is deliberately not added: the observable surface is a telemetry backend, not an HTTP response or a page, so a Playwright test would assert on nothing the framework owns. The manual verification recipe (`TELEMETRY_BACKEND=console`, run a failing import, read the console provider's output) goes in the docs page.
 
 ## Risks & Impact Review
-
-#### Error storm silences real errors
-- **Scenario**: rate limiting is on; a fingerprint collision (two distinct faults sharing `code` + `module` + `integrationId`) means the second fault's first occurrence lands beyond the budget and is never reported in full.
-- **Severity**: Medium
-- **Affected area**: all reporting paths
-- **Mitigation**: fingerprints include `code`, and codes are enumerated per failure reason, so collisions require two reasons deliberately sharing a code — which the review checklist forbids. `om.errors` counts every occurrence including suppressed ones, so the *count* is never wrong; the suppression summary line names the code that is flooding.
-- **Residual risk**: within one window, one reason can mask another under the same code. Accepted: the alternative (no limiting) is a muted channel, which masks everything.
 
 #### Telemetry failure breaks a sync
 - **Scenario**: the active provider throws or blocks inside a tee; the tee is on the path of a committed `integration_logs` write inside a running batch.
@@ -331,18 +338,18 @@ An end-to-end integration test is deliberately not added: the observable surface
 - **Residual risk**: a novel identifier shape (a phone number, a national id) in an adapter-authored message is not caught by the email/token patterns. Same residual risk the existing `logger.error` path already carries; extending the pattern set is the documented response.
 
 #### Cost and volume at the backend
-- **Scenario**: a large tenant with many integrations reports thousands of errors a day, driving ingest cost at a paid backend.
+- **Scenario**: a broken upstream fails every item of a large import; the tenant reports tens of thousands of errors in a day, driving ingest cost at a paid backend.
 - **Severity**: Low
-- **Affected area**: operator's telemetry bill
-- **Mitigation**: the rate limit is per fingerprint per window and on by default; suppressed occurrences cost one counter increment. `TELEMETRY_ERROR_RATE_LIMIT` tightens it further.
-- **Residual risk**: an operator with hundreds of integrations and a broken upstream still pays for the per-integration budgets. Accepted and tunable.
+- **Affected area**: the operator's telemetry bill; under sustained flood, the SDK's export queue
+- **Mitigation**: reported volume is bounded by what already happens — one report per `integration_logs` row the code writes anyway, so the ceiling is the row count, not a new multiplier. Beyond that the controls are the ones that own this concern: collector-side filtering or sampling, and the backend's quota/spike protection. Both are deployment-level and need no release. The SDK's batch processors shed load rather than growing unboundedly, and the 128-events-per-span cap bounds span growth.
+- **Residual risk**: an operator who configures none of those pays for the flood on the first bad day, and the SDK may shed some records. Accepted deliberately: the alternative — dropping errors in the framework — makes the flood invisible instead of expensive, and invisible is the failure mode this spec exists to fix. The docs page names the levers.
 
-#### Behaviour change for existing callers
-- **Scenario**: the API dispatcher and CRUD factory currently report every 5xx; after Phase 2 the eleventh identical 5xx in a minute is counted, not reported.
+#### Grouping degrades if a `code` is wrong
+- **Scenario**: a contributor passes an interpolated string as `code` (`` `import failed for ${id}` ``), so every occurrence is its own group at the backend and `om.errors` gains unbounded label cardinality.
 - **Severity**: Medium
-- **Affected area**: existing dashboards and alerts built on reported errors
-- **Mitigation**: documented in UPGRADE_NOTES; `om.errors` remains complete; `TELEMETRY_ERROR_RATE_LIMIT=0` restores the old behaviour exactly.
-- **Residual risk**: an operator who upgrades without reading the notes sees fewer error events. Bounded — the counter still shows the true rate.
+- **Affected area**: backend grouping; metric cardinality at the collector
+- **Mitigation**: the rule is stated where it is read (`packages/telemetry/AGENTS.md`, the docs page) and is one of the two review-checklist boxes; the `code` values in use are enumerated in this spec's table, so review has a reference list. `module` remains a bounded label even if `code` is abused.
+- **Residual risk**: a bad `code` reaches production between merge and the next review pass. Bounded and reversible — it is a one-line fix with no data migration, unlike a suppressed error, which is gone.
 
 #### Tenant isolation
 - **Scenario**: reported attributes leak one tenant's identifiers into another's view.
@@ -380,7 +387,7 @@ Q5's remaining catch-and-record sites, from part 2's catalogue, each a follow-up
 | root | `.env.example` edits mirror into the create-app template | Compliant | Explicit plan step (`yarn template:sync:fix`) |
 | root | AGENTS.md instruction budget | Compliant | Byte-neutral router row; canonical text in the package guide; gate must pass |
 | `telemetry` | Never emit PII, credentials, record content, request bodies | Compliant | `payload` withheld; double redaction |
-| `telemetry` | Keep metric labels low-cardinality | Compliant | `om.errors{module, code, suppressed}`; ids on span attributes only |
+| `telemetry` | Keep metric labels low-cardinality | Compliant | `om.errors{module, code}`; ids on span attributes only |
 | `telemetry` | Telemetry must extend the shared logger, not add a logger | Compliant | Suppression summary uses `createLogger` |
 | `telemetry` | Keep host integration default-unloaded | Compliant | Tees go through `getTelemetryRuntime()`; no static import |
 | `telemetry` | OTEL packages importable only by the OTLP provider | Compliant | Facade-only changes |
@@ -394,7 +401,7 @@ Q5's remaining catch-and-record sites, from part 2's catalogue, each a follow-up
 |---|---|---|
 | Codes table covers every reporting site in the solution | Pass | Nine codes, each mapped to a site |
 | DoD lines each have a named test or command | Pass | See Test Coverage table and the gate |
-| Risks cover every new write/emit path | Pass | Tees, rate limit, provider hook, payload boundary |
+| Risks cover every new write/emit path | Pass | Tees, provider hook, payload boundary, `code` misuse |
 | Contracts match the file manifest | Pass | |
 | Phasing is independently deployable | Pass | Phase 1 useful without Phase 2; neither blocks on part 6 |
 
@@ -408,5 +415,6 @@ Fully compliant — ready for review, then implementation.
 
 ### 2026-09-08
 - Skeleton with Open Questions (gate).
-- Resolved Q1–Q5 as recommended and completed the spec: the rule, three chokepoint tees, the aggregated per-run report, fingerprint + rate-limit policy, the optional provider hook, Definition of Done, test coverage, risk register and compliance report.
+- Resolved Q1–Q5 as recommended and completed the spec: the rule, three chokepoint tees, the aggregated per-run report, fingerprint policy, the optional provider hook, Definition of Done, test coverage, risk register and compliance report.
+- **Reversed Q4 after review** (*"why bother with a rate limit — Sentry/SigNoz/New Relic do throttling and fingerprinting anyway"*): the per-fingerprint rate limit, its `TELEMETRY_ERROR_RATE_LIMIT` env var, the suppression counter and `facade/error-policy.ts` are all removed. Every error is reported. `code` stays — and gains a sharper justification: the tee synthesizes one error class at one line, so without an explicit discriminator the backends' own stack/class-based grouping collapses every integration error into a single issue. Volume control is documented as a collector/backend concern. What survived: the aggregate per-run report (a distinct fact, never a volume mitigation) and a re-entrancy guard (a correctness guard, no config).
 - Added during completion, from verification against `develop`: the queue job-failure tee (`async.ts:417`, `local.ts:495`) and the dropped `Promise.allSettled` in `refreshCoverageSnapshots` as reporting sites; the `adapter.operationalTelemetry` gate (one adopting adapter in-repo) as the reason run-level reporting cannot live in `writeOperationalLog`; the 8-byte root `AGENTS.md` budget as the constraint on where the rule is documented; `gateway_stripe`'s webhook processor as a second existing `code` writer.
