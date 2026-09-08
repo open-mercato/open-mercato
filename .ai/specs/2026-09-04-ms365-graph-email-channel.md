@@ -685,6 +685,25 @@ None block implementation; defaults apply unless the maintainer objects in revie
   when it also hosts another stack. Not verified: an end-to-end consent + mail round-trip against
   a real Entra tenant (requires an app registration).
 
+### 2026-09-08 — Strict review fixes (PR #5898, `om-auto-review-pr-multi-strict`)
+
+- Standalone template now installs `@open-mercato/channel-ms365` (it already enabled the module);
+  a create-app test asserts module/dependency parity for every unconditionally enabled module.
+- Outbound: transient Graph failures on draft creation, and on `/send` when the draft is confirmed
+  unsent, are thrown as structured errors so the hub retries with backoff (the unsent draft is
+  removed first); permanent failures and unverifiable outcomes are still reported without retry.
+- Inbound: permanent per-message MIME failures (e.g. 403) propagate to the hub instead of pinning
+  the cursor forever; only transient ones pin. `importHistory` resumes a page at the failed
+  message (`pageOffset`) so replayed messages are never re-fetched or counted twice.
+- Threading: the converter maps the hub's trusted `replyToExternalId` to `In-Reply-To`.
+- OAuth: the full requested scope list is persisted (`requestedScopes`) and replayed on refresh
+  (sovereign clouds); the exchange fails when no mailbox address can be resolved; refresh
+  failures log the Entra error code (never tokens).
+- A channel without a mailbox address reports the `requires_reauth` sentinel (translated by the
+  hub) instead of an English string, with a stable diagnostic code in the log.
+- Integration specs 002/003 run in a per-test organization/user sandbox and never touch the
+  shared organization's credentials.
+
 ### 2026-09-05 — Review fixes (PR #5898, `om-auto-review-pr`)
 
 - Blockers: `auth.acl.features.channel_ms365.*` + `auth.acl.modules.channel_ms365` added to the

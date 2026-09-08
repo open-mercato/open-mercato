@@ -52,7 +52,10 @@ export async function convertOutboundForMs365(
   }
   const cc = toAddressList(meta.cc)
   const bcc = toAddressList(meta.bcc)
-  const inReplyTo = stringOrUndefined(meta.inReplyTo)
+  // The hub strips caller-supplied reply targeting and passes the trusted
+  // parent as `replyToExternalId` (see deliver-outbound-message); `inReplyTo`
+  // only reaches us from direct callers such as test-send.
+  const inReplyTo = stringOrUndefined(meta.replyToExternalId) ?? stringOrUndefined(meta.inReplyTo)
   const references = referencesFromMeta(meta.references)
   const messageId = stringOrUndefined(meta.messageId) ?? generateMessageId(input.fromAddress, 'outlook.com')
 
