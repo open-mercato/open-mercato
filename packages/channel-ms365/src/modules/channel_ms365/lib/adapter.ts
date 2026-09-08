@@ -95,7 +95,18 @@ const PERMANENT_ACCESS_ERROR_CODES = new Set([
 type ImportCursor = {
   nextLink?: string
   chunkIndex: number
+  /** Unique messages imported so far (never counts a replayed message twice). */
   fetched: number
+  /** Non-draft candidates of the current page already imported (resume point). */
+  pageOffset: number
+}
+
+/** Stable diagnostic code logged when a channel has no mailbox identity. */
+const MISSING_MAILBOX_IDENTITY_CODE = 'ms365.missing_mailbox_identity'
+
+/** 429 / 5xx / timeout Graph failures — the hub retries these with backoff. */
+function isTransientGraphError(error: unknown): boolean {
+  return error instanceof GraphApiError && error.transient
 }
 
 /**
@@ -129,11 +140,14 @@ class Ms365ChannelAdapter implements ChannelAdapter {
   async sendMessage(input: SendMessageInput): Promise<SendMessageResult> {
     const userCredentials = parseUserCredentialsOrThrow(input.credentials)
     if (!userCredentials.email) {
-      return {
-        externalMessageId: '',
-        status: 'failed',
-        error: 'Microsoft 365 channel has no mailbox address; reconnect the channel.',
-      }
+      // A channel without a mailbox address cannot send; the only remedy is
+      // reconnecting, so surface the hub's sentinel (translated by the hub's
+      // requires_reauth notification) instead of a provider-specific English
+      // string. Keep the diagnostic code in the server log.
+      logger.warn('Microsoft 365 channel has no mailbox identity; reporting requires_reauth', {
+        code: MISSING_MAILBOX_IDENTITY_CODE,
+      })
+      return { externalMessageId: '', status: 'failed', error: REQUIRES_REAUTH }
     }
     let native: ChannelNativeContent
     try {
@@ -163,6 +177,10 @@ class Ms365ChannelAdapter implements ChannelAdapter {
       internetMessageId = draft.internetMessageId
       conversationId = draft.conversationId
     } catch (error) {
+      // Nothing was sent. A transient Graph failure (429/5xx/timeout) is
+      // thrown as the structured error so the hub's classifier retries the
+      // delivery with backoff instead of failing it permanently.
+      if (isTransientGraphError(error)) throw error
       return failedSendResult(error, 'Microsoft 365 draft creation failed')
     }
 
@@ -179,17 +197,25 @@ class Ms365ChannelAdapter implements ChannelAdapter {
       const state = await api.getMessageState(auth, draftId).catch(() => undefined)
       const alreadySent = state !== undefined && state !== null && state.isDraft === false
       if (!alreadySent) {
-        const draftStillExists = state !== null
-        const permanent = !(error instanceof GraphApiError && error.transient)
-        if (permanent && draftStillExists) {
-          // Permanent send failure: remove the draft so the user's Drafts folder
-          // does not accumulate orphans. Best-effort — the send already failed.
+        const confirmedUnsent = state !== undefined && state !== null && state.isDraft === true
+        const transient = isTransientGraphError(error)
+        if (state !== null && (confirmedUnsent || !transient)) {
+          // The draft still exists and either the failure is permanent or the
+          // hub is about to retry from scratch: remove the draft so the user's
+          // Drafts folder does not accumulate orphans. Best-effort.
           try {
             await api.deleteMessage(auth, draftId)
           } catch (cleanupError) {
             logger.warn('failed to delete orphaned draft after send failure', { err: cleanupError })
           }
         }
+        if (transient && confirmedUnsent) {
+          // Confirmed not sent + transient cause: let the hub retry (structured
+          // error keeps `transient`/`status` for its classifier).
+          throw error
+        }
+        // Permanent failure, or ambiguous state (could not confirm whether the
+        // send went out): report failed without retry — a retry could duplicate.
         return failedSendResult(error, 'Microsoft 365 send failed')
       }
       logger.warn('Microsoft Graph send response was lost but the draft was sent; reporting success', {
@@ -318,6 +344,14 @@ class Ms365ChannelAdapter implements ChannelAdapter {
       logger.warn('Microsoft Graph profile lookup failed; falling back to id_token claims', { err: error })
     }
     email = email ?? normalizeEmail(claims?.preferred_username) ?? normalizeEmail(claims?.email)
+    if (!email) {
+      // Without a mailbox address the channel could neither send (no From)
+      // nor be matched on reconnect. Fail the exchange so the hub reports
+      // the connection as failed instead of creating a dead channel.
+      throw new Error(
+        '[internal] Microsoft 365 OAuth exchange could not resolve the mailbox address (Graph /me failed and the id_token carries no preferred_username/email claim); check the User.Read, openid and email scopes',
+      )
+    }
     displayName = displayName ?? claims?.name ?? email
 
     const expiresAt = tokenResponseToExpiresAt(token)
@@ -326,6 +360,11 @@ class Ms365ChannelAdapter implements ChannelAdapter {
       refreshToken: token.refresh_token,
       expiresAt: expiresAt?.toISOString(),
       scopes: token.scope ? token.scope.split(' ').filter(Boolean) : scopes,
+      // The full scope list (with resource URIs) the consent was granted for;
+      // refreshes MUST request the same list so a sovereign-cloud consent
+      // (graph.microsoft.us) is never silently swapped for the public-cloud
+      // defaults. Entra's `scope` echo uses short names, so keep this separately.
+      requestedScopes: scopes,
       email,
       displayName,
       // Refreshes go to the user's home directory so they keep working even
@@ -346,6 +385,12 @@ class Ms365ChannelAdapter implements ChannelAdapter {
       throw new Error(REQUIRES_REAUTH)
     }
     const client = resolveMs365OAuthClient(input)
+    // Prefer the scope list the consent was granted for (persisted at
+    // exchange); fall back to the tenant config only for legacy rows.
+    const refreshScopes =
+      Array.isArray(current.requestedScopes) && current.requestedScopes.length > 0
+        ? parseScopes(current.requestedScopes.join(' '))
+        : parseScopes(client.scopes)
     let token
     try {
       token = await getMicrosoftOAuthClient().refreshToken({
@@ -353,12 +398,18 @@ class Ms365ChannelAdapter implements ChannelAdapter {
         clientSecret: client.clientSecret,
         tenantId: current.tenantId ?? client.tenantId,
         refreshToken: current.refreshToken,
-        scopes: parseScopes(client.scopes),
+        scopes: refreshScopes,
       })
     } catch (error) {
       // `invalid_grant` = refresh token revoked/expired (90-day inactivity,
       // password change, admin revocation). Surface the sentinel so the hub
       // flips the channel instead of retrying forever.
+      // Log the Entra error code (never the tokens) so an unexpected reauth
+      // flip can be diagnosed from the server log.
+      logger.warn('Microsoft 365 token refresh failed', {
+        channelId: input.channelId,
+        reason: error instanceof Error ? error.message : String(error),
+      })
       if (error instanceof Error && /invalid_grant|interaction_required|AADSTS7000|AADSTS50173/i.test(error.message)) {
         throw new Error(REQUIRES_REAUTH)
       }
@@ -448,15 +499,24 @@ class Ms365ChannelAdapter implements ChannelAdapter {
     }
 
     const remaining = maxMessages - cursor.fetched
-    const candidates = page.value.filter((item) => !item.isDraft).slice(0, remaining)
+    // `pageOffset` resumes a page after a transient failure at the message
+    // that failed, so replayed messages are neither re-fetched nor counted
+    // against `maxMessages` a second time.
+    const pageCandidates = page.value.filter((item) => !item.isDraft)
+    const candidates = pageCandidates.slice(cursor.pageOffset, cursor.pageOffset + remaining)
     const { messages, hardFailed } = await this.fetchAndNormalize(api, auth, candidates, accountIdentifier)
     const fetched = cursor.fetched + messages.length
 
     if (hardFailed) {
-      // Re-run the same page next time; already-ingested messages dedup at the hub.
+      // Re-run the same page next time, resuming right after the successful prefix.
       return {
         messages,
-        nextCursor: encodeCursor({ nextLink: cursor.nextLink, chunkIndex: cursor.chunkIndex, fetched } satisfies ImportCursor),
+        nextCursor: encodeCursor({
+          nextLink: cursor.nextLink,
+          chunkIndex: cursor.chunkIndex,
+          fetched,
+          pageOffset: cursor.pageOffset + messages.length,
+        } satisfies ImportCursor),
         hasMore: true,
         totalCandidates: page.count,
       }
@@ -466,7 +526,7 @@ class Ms365ChannelAdapter implements ChannelAdapter {
     if (page.nextLink && !capped) {
       return {
         messages,
-        nextCursor: encodeCursor({ nextLink: page.nextLink, chunkIndex: cursor.chunkIndex, fetched } satisfies ImportCursor),
+        nextCursor: encodeCursor({ nextLink: page.nextLink, chunkIndex: cursor.chunkIndex, fetched, pageOffset: 0 } satisfies ImportCursor),
         hasMore: true,
         totalCandidates: page.count,
       }
@@ -475,7 +535,7 @@ class Ms365ChannelAdapter implements ChannelAdapter {
     if (nextChunk < senderChunks.length && !capped) {
       return {
         messages,
-        nextCursor: encodeCursor({ chunkIndex: nextChunk, fetched } satisfies ImportCursor),
+        nextCursor: encodeCursor({ chunkIndex: nextChunk, fetched, pageOffset: 0 } satisfies ImportCursor),
         hasMore: true,
         totalCandidates: page.count,
       }
@@ -604,7 +664,14 @@ class Ms365ChannelAdapter implements ChannelAdapter {
       } catch (error) {
         if (error instanceof GraphApiError && (error.status === 404 || error.status === 410)) continue
         if (error instanceof GraphApiError && error.status === 401) throw toHubError(error)
-        logger.warn('Microsoft Graph message fetch failed; pinning cursor for retry', {
+        if (!isTransientGraphError(error)) {
+          // A permanent failure (403 access denied, malformed request, …)
+          // would never clear by re-reading the same page: pinning the cursor
+          // here would block every later message while the channel still
+          // reports connected. Surface it to the hub instead.
+          throw toHubError(error)
+        }
+        logger.warn('Microsoft Graph message fetch failed transiently; pinning cursor for retry', {
           graphMessageId: stub.id,
           err: error,
         })
@@ -709,12 +776,15 @@ export function buildImportFilter(since: Date, senders: string[] | undefined): s
 
 function decodeImportCursor(value: string | undefined): ImportCursor {
   const decoded = decodeCursor(value)
-  if (!decoded || typeof decoded !== 'object') return { chunkIndex: 0, fetched: 0 }
+  if (!decoded || typeof decoded !== 'object') return { chunkIndex: 0, fetched: 0, pageOffset: 0 }
   const record = decoded as Record<string, unknown>
+  const nonNegativeInt = (raw: unknown): number =>
+    typeof raw === 'number' && Number.isFinite(raw) && raw >= 0 ? Math.floor(raw) : 0
   return {
     nextLink: typeof record.nextLink === 'string' && record.nextLink.length > 0 ? record.nextLink : undefined,
-    chunkIndex: typeof record.chunkIndex === 'number' && record.chunkIndex >= 0 ? Math.floor(record.chunkIndex) : 0,
-    fetched: typeof record.fetched === 'number' && record.fetched >= 0 ? Math.floor(record.fetched) : 0,
+    chunkIndex: nonNegativeInt(record.chunkIndex),
+    fetched: nonNegativeInt(record.fetched),
+    pageOffset: nonNegativeInt(record.pageOffset),
   }
 }
 

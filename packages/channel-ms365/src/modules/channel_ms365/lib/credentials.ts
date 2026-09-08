@@ -63,8 +63,14 @@ export const ms365UserCredentialsSchema = z
     refreshToken: z.string().optional(),
     /** ISO timestamp of access-token expiry. */
     expiresAt: z.string().datetime().optional(),
-    /** Scopes actually granted (Entra may trim what we requested). */
+    /** Scopes actually granted, as echoed by Entra (short names). */
     scopes: z.array(z.string()).optional(),
+    /**
+     * Full scope list (with resource URIs) requested at consent time. Refreshes
+     * re-request exactly this list so a sovereign-cloud consent is never
+     * swapped for the public-cloud defaults. Absent on legacy rows.
+     */
+    requestedScopes: z.array(z.string()).optional(),
     /** Primary SMTP address of the connected mailbox (`mail` ?? `userPrincipalName`). */
     email: z.string().email().optional(),
     /** Display name from the Graph profile. */
