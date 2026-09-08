@@ -245,7 +245,7 @@ async function resolveTenantCredentials(
   logger.warn('Sending system email with instance-wide environment credentials', {
     tenantId,
     providerKey: channel.providerKey,
-    reason: 'no tenant email channel or credentials configured',
+    reason: `no tenant email channel or credentials configured for '${channel.providerKey}'`,
     remedy: `run 'yarn mercato seed:defaults --module channel_${channel.providerKey}' to move this tenant onto the Communications Hub`,
   })
   return resolveEnvCredentials(channel.providerKey, payload.from)
