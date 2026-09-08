@@ -10,6 +10,7 @@ import { cookies } from 'next/headers'
 import Image from 'next/image'
 import Link from 'next/link'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { bootstrap } from '@/bootstrap'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { isEmailDeliveryConfigured } from '@open-mercato/shared/lib/email/config'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -17,6 +18,14 @@ import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { Tenant, Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { buildHomeQuickLinks } from '@/lib/homeQuickLinks'
 import { Fragment } from 'react'
+
+// Every other route that builds a request container bootstraps first, and this page needs it
+// twice over: `createRequestContainer` throws outright until `registerDiRegistrars` has run, and
+// the email transport `isEmailDeliveryConfigured` reads is registered by a module's DI
+// `register()`. Without this the process's first request answers `/start` with the database
+// panel in an error state and the onboarding CTA hidden on a fully configured instance, then
+// silently corrects itself once any API route bootstraps the process (#5817).
+bootstrap()
 
 function FeatureBadge({ label }: { label: string }) {
   return (
