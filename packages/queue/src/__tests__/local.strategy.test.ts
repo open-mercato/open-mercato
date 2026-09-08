@@ -991,8 +991,8 @@ describe('Queue - local strategy', () => {
     }
   })
 
-  describe('deduplication', () => {
-    const queueName = 'dedupe-queue'
+  describe('coalescing', () => {
+    const queueName = 'coalesce-queue'
     const queueDir = path.join('.mercato', 'queue', queueName)
     const queuePath = path.join(queueDir, 'queue.json')
     const activePath = path.join(queueDir, 'active.json')
@@ -1032,7 +1032,7 @@ describe('Queue - local strategy', () => {
       const runs: number[] = []
 
       for (let value = 1; value <= 10; value++) {
-        ids.push(await queue.enqueue({ value }, { deduplication: { id: 'stage-42' } }))
+        ids.push(await queue.enqueue({ value }, { coalesce: { key: 'stage-42' } }))
       }
 
       expect(readJson(queuePath)).toHaveLength(1)
@@ -1044,13 +1044,13 @@ describe('Queue - local strategy', () => {
       await queue.close()
     })
 
-    test('separate keys and undeduplicated jobs are untouched', async () => {
+    test('separate keys and uncoalesced jobs are untouched', async () => {
       const queue = createQueue<Payload>(queueName, 'local')
       const runs: number[] = []
 
-      await queue.enqueue({ value: 1 }, { deduplication: { id: 'stage-a' } })
-      await queue.enqueue({ value: 2 }, { deduplication: { id: 'stage-a' } })
-      await queue.enqueue({ value: 3 }, { deduplication: { id: 'stage-b' } })
+      await queue.enqueue({ value: 1 }, { coalesce: { key: 'stage-a' } })
+      await queue.enqueue({ value: 2 }, { coalesce: { key: 'stage-a' } })
+      await queue.enqueue({ value: 3 }, { coalesce: { key: 'stage-b' } })
       await queue.enqueue({ value: 4 })
       await queue.enqueue({ value: 5 })
 
@@ -1063,9 +1063,9 @@ describe('Queue - local strategy', () => {
     test('a key is released once its job finishes', async () => {
       const queue = createQueue<Payload>(queueName, 'local')
 
-      const first = await queue.enqueue({ value: 1 }, { deduplication: { id: 'stage-42' } })
+      const first = await queue.enqueue({ value: 1 }, { coalesce: { key: 'stage-42' } })
       await queue.process(() => {}, { limit: 10 })
-      const second = await queue.enqueue({ value: 2 }, { deduplication: { id: 'stage-42' } })
+      const second = await queue.enqueue({ value: 2 }, { coalesce: { key: 'stage-42' } })
 
       expect(second).not.toBe(first)
       expect(readJson(queuePath)).toHaveLength(1)
@@ -1074,11 +1074,11 @@ describe('Queue - local strategy', () => {
     })
 
     // A job that exhausts its attempts is finalized, not merely gone: leaving its key behind would
-    // deduplicate every later enqueue onto a record that no longer exists.
+    // collapse every later enqueue onto a record that no longer exists.
     test('a key is released when its job exhausts every attempt', async () => {
       const queue = createQueue<Payload>(queueName, 'local')
 
-      const first = await queue.enqueue({ value: 1 }, { deduplication: { id: 'stage-42' } })
+      const first = await queue.enqueue({ value: 1 }, { coalesce: { key: 'stage-42' } })
       const jobs = readJson(queuePath)
       jobs[0].attemptCount = 2
       fs.writeFileSync(queuePath, JSON.stringify(jobs, null, 2), 'utf8')
@@ -1086,7 +1086,7 @@ describe('Queue - local strategy', () => {
       await queue.process(() => { throw new Error('permanent') }, { limit: 10 })
       expect(readJson(queuePath)).toHaveLength(0)
 
-      const second = await queue.enqueue({ value: 2 }, { deduplication: { id: 'stage-42' } })
+      const second = await queue.enqueue({ value: 2 }, { coalesce: { key: 'stage-42' } })
       expect(second).not.toBe(first)
       expect(readJson(queuePath)).toHaveLength(1)
 
@@ -1096,14 +1096,14 @@ describe('Queue - local strategy', () => {
     test('a key survives a retry, so enqueues during backoff still coalesce', async () => {
       const queue = createQueue<Payload>(queueName, 'local')
 
-      const first = await queue.enqueue({ value: 1 }, { deduplication: { id: 'stage-42' } })
+      const first = await queue.enqueue({ value: 1 }, { coalesce: { key: 'stage-42' } })
       await queue.process(() => { throw new Error('transient') }, { limit: 10 })
 
       const retrying = readJson(queuePath)
       expect(retrying).toHaveLength(1)
       expect(retrying[0].attemptCount).toBe(1)
 
-      const second = await queue.enqueue({ value: 2 }, { deduplication: { id: 'stage-42' } })
+      const second = await queue.enqueue({ value: 2 }, { coalesce: { key: 'stage-42' } })
       expect(second).toBe(first)
       expect(readJson(queuePath)).toHaveLength(1)
 
@@ -1112,18 +1112,18 @@ describe('Queue - local strategy', () => {
 
     // The guarantee the whole feature exists for: the running job read its input before the later
     // enqueues arrived, so exactly one more run has to happen, and it has to carry the last payload.
-    test('keepLastIfActive runs exactly once more, with the latest payload', async () => {
+    test('an enqueue during a run produces exactly one more run, with the latest payload', async () => {
       const consumer = createQueue<Payload>(queueName, 'local')
       // A second instance stands in for a producer process: a pass proves the active state was read
       // from disk rather than from the consumer's in-memory in-flight set.
       const producer = createQueue<Payload>(queueName, 'local')
-      const dedupe = { deduplication: { id: 'stage-42', keepLastIfActive: true } }
+      const coalesce = { coalesce: { key: 'stage-42' } }
       const parked: string[] = []
 
-      const first = await producer.enqueue({ value: 1 }, dedupe)
+      const first = await producer.enqueue({ value: 1 }, coalesce)
       const runs = await whileFirstJobIsRunning(consumer, async () => {
-        parked.push(await producer.enqueue({ value: 2 }, dedupe))
-        parked.push(await producer.enqueue({ value: 3 }, dedupe))
+        parked.push(await producer.enqueue({ value: 2 }, coalesce))
+        parked.push(await producer.enqueue({ value: 3 }, coalesce))
       })
 
       // Both enqueues were answered with the running job's id, and only the last one survived.
@@ -1131,7 +1131,7 @@ describe('Queue - local strategy', () => {
       const pending = readJson(queuePath)
       expect(pending).toHaveLength(1)
       expect(pending[0].payload).toEqual({ value: 3 })
-      expect(pending[0].deduplicationId).toBe('stage-42')
+      expect(pending[0].coalesceKey).toBe('stage-42')
 
       await consumer.process((job) => { runs.push(job.payload.value) }, { limit: 10 })
       expect(runs).toEqual([1, 3])
@@ -1143,14 +1143,14 @@ describe('Queue - local strategy', () => {
     test('the follow-up job keeps the id its producer was given', async () => {
       const consumer = createQueue<Payload>(queueName, 'local')
       const producer = createQueue<Payload>(queueName, 'local')
-      const dedupe = { deduplication: { id: 'stage-42', keepLastIfActive: true } }
+      const coalesce = { coalesce: { key: 'stage-42' } }
       let parkedId = ''
 
-      await producer.enqueue({ value: 1 }, dedupe)
+      await producer.enqueue({ value: 1 }, coalesce)
       await whileFirstJobIsRunning(consumer, async () => {
         // The id a caller is handed must name the run that eventually serves its payload.
-        await producer.enqueue({ value: 2 }, dedupe)
-        parkedId = readJson(queuePath)[0].deduplicationNext.id
+        await producer.enqueue({ value: 2 }, coalesce)
+        parkedId = readJson(queuePath)[0].coalesceNext.id
       })
 
       expect(readJson(queuePath)[0].id).toBe(parkedId)
@@ -1159,32 +1159,67 @@ describe('Queue - local strategy', () => {
       await producer.close()
     })
 
-    test('without keepLastIfActive an enqueue during a run is dropped outright', async () => {
-      const consumer = createQueue<Payload>(queueName, 'local')
-      const producer = createQueue<Payload>(queueName, 'local')
+    // The queue-level resolver exists so a chain of workers cannot lose coalescing to one call site
+    // that forgot the option — the key is declared once, where the queue is built.
+    test('a queue-level coalesceBy keys every enqueue without the call site passing anything', async () => {
+      const queue = createQueue<{ stageId: number }>(queueName, 'local', {
+        coalesceBy: (payload) => `stage:${payload.stageId}`,
+      })
+      const runs: number[] = []
 
-      await producer.enqueue({ value: 1 }, { deduplication: { id: 'stage-42' } })
-      const runs = await whileFirstJobIsRunning(consumer, async () => {
-        await producer.enqueue({ value: 2 }, { deduplication: { id: 'stage-42' } })
+      await queue.enqueue({ stageId: 42 })
+      await queue.enqueue({ stageId: 42 })
+      await queue.enqueue({ stageId: 7 })
+
+      const stored = readJson(queuePath)
+      expect(stored).toHaveLength(2)
+      expect(stored.map((job: { coalesceKey: string }) => job.coalesceKey)).toEqual(['stage:42', 'stage:7'])
+
+      await queue.process((job) => { runs.push(job.payload.stageId) }, { limit: 10 })
+      expect(runs).toEqual([42, 7])
+
+      await queue.close()
+    })
+
+    test('a coalesceBy returning null leaves that payload uncoalesced', async () => {
+      const queue = createQueue<{ stageId: number | null }>(queueName, 'local', {
+        coalesceBy: (payload) => (payload.stageId === null ? null : `stage:${payload.stageId}`),
       })
 
-      expect(readJson(queuePath)).toEqual([])
-      await consumer.process((job) => { runs.push(job.payload.value) }, { limit: 10 })
-      expect(runs).toEqual([1])
+      await queue.enqueue({ stageId: null })
+      await queue.enqueue({ stageId: null })
 
-      await consumer.close()
-      await producer.close()
+      const stored = readJson(queuePath)
+      expect(stored).toHaveLength(2)
+      expect(stored[0].coalesceKey).toBeUndefined()
+
+      await queue.close()
+    })
+
+    test('an explicit coalesce key overrides the queue-level one', async () => {
+      const queue = createQueue<{ stageId: number }>(queueName, 'local', {
+        coalesceBy: (payload) => `stage:${payload.stageId}`,
+      })
+
+      await queue.enqueue({ stageId: 42 })
+      await queue.enqueue({ stageId: 42 }, { coalesce: { key: 'something-else' } })
+
+      const stored = readJson(queuePath)
+      expect(stored.map((job: { coalesceKey: string }) => job.coalesceKey))
+        .toEqual(['stage:42', 'something-else'])
+
+      await queue.close()
     })
 
     test('an enqueue while the twin is merely waiting parks nothing', async () => {
       const queue = createQueue<Payload>(queueName, 'local')
-      const dedupe = { deduplication: { id: 'stage-42', keepLastIfActive: true } }
+      const coalesce = { coalesce: { key: 'stage-42' } }
       const runs: number[] = []
 
-      await queue.enqueue({ value: 1 }, dedupe)
-      await queue.enqueue({ value: 2 }, dedupe)
+      await queue.enqueue({ value: 1 }, coalesce)
+      await queue.enqueue({ value: 2 }, coalesce)
 
-      expect(readJson(queuePath)[0].deduplicationNext).toBeUndefined()
+      expect(readJson(queuePath)[0].coalesceNext).toBeUndefined()
       await queue.process((job) => { runs.push(job.payload.value) }, { limit: 10 })
       expect(runs).toEqual([1])
       expect(readJson(queuePath)).toEqual([])
@@ -1223,9 +1258,9 @@ describe('Queue - local strategy', () => {
       await queue.close()
     })
 
-    test('a lease left behind by a dead process does not deduplicate as active', async () => {
+    test('a lease left behind by a dead process is not treated as active', async () => {
       const queue = createQueue<Payload>(queueName, 'local')
-      const jobId = await queue.enqueue({ value: 1 }, { deduplication: { id: 'stage-42' } })
+      const jobId = await queue.enqueue({ value: 1 }, { coalesce: { key: 'stage-42' } })
       // A pid that cannot be running: the owner died without releasing its lease.
       fs.writeFileSync(activePath, JSON.stringify({
         jobIds: [jobId],
@@ -1234,9 +1269,9 @@ describe('Queue - local strategy', () => {
         host: os.hostname(),
       }), 'utf8')
 
-      await queue.enqueue({ value: 2 }, { deduplication: { id: 'stage-42', keepLastIfActive: true } })
+      await queue.enqueue({ value: 2 }, { coalesce: { key: 'stage-42' } })
 
-      expect(readJson(queuePath)[0].deduplicationNext).toBeUndefined()
+      expect(readJson(queuePath)[0].coalesceNext).toBeUndefined()
 
       await queue.close()
     })
@@ -1264,13 +1299,13 @@ describe('Queue - local strategy', () => {
     test('clear and scoped removal free the key for later enqueues', async () => {
       const queue = createQueue<{ tenantId: string; value: number }>(queueName, 'local')
 
-      const first = await queue.enqueue({ tenantId: 'tenant-1', value: 1 }, { deduplication: { id: 'stage-42' } })
+      const first = await queue.enqueue({ tenantId: 'tenant-1', value: 1 }, { coalesce: { key: 'stage-42' } })
       await queue.clear()
-      const second = await queue.enqueue({ tenantId: 'tenant-1', value: 2 }, { deduplication: { id: 'stage-42' } })
+      const second = await queue.enqueue({ tenantId: 'tenant-1', value: 2 }, { coalesce: { key: 'stage-42' } })
       expect(second).not.toBe(first)
 
       await queue.removeQueuedJobsByScope!({ tenantId: 'tenant-1' })
-      const third = await queue.enqueue({ tenantId: 'tenant-1', value: 3 }, { deduplication: { id: 'stage-42' } })
+      const third = await queue.enqueue({ tenantId: 'tenant-1', value: 3 }, { coalesce: { key: 'stage-42' } })
       expect(third).not.toBe(second)
       expect(readJson(queuePath)).toHaveLength(1)
 
@@ -1283,11 +1318,11 @@ describe('Queue - local strategy', () => {
     test('a dropped enqueue does not rewrite the queue file', async () => {
       const queue = createQueue<Payload>(queueName, 'local')
 
-      await queue.enqueue({ value: 1 }, { deduplication: { id: 'stage-42' } })
+      await queue.enqueue({ value: 1 }, { coalesce: { key: 'stage-42' } })
       const before = fs.statSync(queuePath)
 
-      await queue.enqueue({ value: 2 }, { deduplication: { id: 'stage-42' } })
-      await queue.enqueue({ value: 3 }, { deduplication: { id: 'stage-42' } })
+      await queue.enqueue({ value: 2 }, { coalesce: { key: 'stage-42' } })
+      await queue.enqueue({ value: 3 }, { coalesce: { key: 'stage-42' } })
 
       const after = fs.statSync(queuePath)
       expect(after.ino).toBe(before.ino)
@@ -1300,10 +1335,10 @@ describe('Queue - local strategy', () => {
     // and the cost of losing one is a duplicate run, which the queue's contract already permits.
     test('an unparsable lease is discarded rather than failing the enqueue', async () => {
       const queue = createQueue<Payload>(queueName, 'local')
-      await queue.enqueue({ value: 1 }, { deduplication: { id: 'stage-42' } })
+      await queue.enqueue({ value: 1 }, { coalesce: { key: 'stage-42' } })
       fs.writeFileSync(activePath, 'not json at all', 'utf8')
 
-      await expect(queue.enqueue({ value: 2 }, { deduplication: { id: 'stage-42', keepLastIfActive: true } }))
+      await expect(queue.enqueue({ value: 2 }, { coalesce: { key: 'stage-42' } }))
         .resolves.toEqual(expect.any(String))
       expect(fs.existsSync(activePath)).toBe(false)
       expect(queueLoggerError).toHaveBeenCalledWith(
@@ -1315,7 +1350,7 @@ describe('Queue - local strategy', () => {
       await queue.close()
     })
 
-    test('records written before deduplication existed still process', async () => {
+    test('records written before coalescing existed still process', async () => {
       const queue = createQueue<Payload>(queueName, 'local')
       const runs: number[] = []
       fs.mkdirSync(queueDir, { recursive: true })
@@ -1330,10 +1365,10 @@ describe('Queue - local strategy', () => {
     })
 
     test('a continuous worker collapses a producer burst into one follow-up run', async () => {
-      const baseDir = path.join(tmp, 'dedupe-continuous')
+      const baseDir = path.join(tmp, 'coalesce-continuous')
       const consumer = createQueue<Payload>(queueName, 'local', { baseDir, pollInterval: 20 })
       const producer = createQueue<Payload>(queueName, 'local', { baseDir })
-      const dedupe = { deduplication: { id: 'stage-42', keepLastIfActive: true } }
+      const coalesce = { coalesce: { key: 'stage-42' } }
       const runs: number[] = []
 
       let releaseFirst!: () => void
@@ -1354,10 +1389,10 @@ describe('Queue - local strategy', () => {
           resolveSecondRun(job.payload.value)
         })
 
-        await producer.enqueue({ value: 1 }, dedupe)
+        await producer.enqueue({ value: 1 }, coalesce)
         await within(firstStartedPromise, 2000)
         for (let value = 2; value <= 6; value++) {
-          await producer.enqueue({ value }, dedupe)
+          await producer.enqueue({ value }, coalesce)
         }
         releaseFirst()
 

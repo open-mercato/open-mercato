@@ -10,26 +10,33 @@ Flexible job queue runtime for local and distributed execution.
 - 🚀 Built for async workloads and retries
 - 🧩 Worker-first design with explicit concurrency
 - 🔒 Great fit for idempotent business jobs
-- 🔁 Job deduplication that coalesces bursts without losing the last trigger
+- 🔁 Coalescing that collapses bursts without losing the last trigger
 
-## Deduplication 🔁
+## Coalescing 🔁
 
-Jobs that recompute something from current state — aggregates, standings, cached projections,
-realtime broadcasts — should run once per burst rather than once per trigger. Pass a
-`deduplication.id` keyed on the entity being recomputed, and repeated enqueues collapse into the
-job already outstanding for that key:
+A job that recomputes something from current state — an aggregate, a projection, a realtime
+broadcast — does not need to run once per trigger. It needs to run once per *burst*, on the latest
+state. Give the enqueue a key and repeated triggers collapse into the job already outstanding for it:
 
 ```typescript
-await queue.enqueue({ stageId }, {
-  deduplication: { id: `stage-standings:${stageId}`, keepLastIfActive: true },
+await queue.enqueue({ stageId }, { coalesce: { key: `stage-standings:${stageId}` } })
+```
+
+Ten triggers in a minute then produce at most two runs instead of ten — and none of them is lost.
+Triggers arriving while a job for the key is merely *waiting* need no run of their own, because that
+job has not read anything yet. Triggers arriving while it is *running* are parked, and exactly one
+follow-up run starts when it finishes, carrying the latest payload.
+
+Declare the key once on the queue and no call site can forget it:
+
+```typescript
+const queue = createModuleQueue<StandingsJob>('standings', {
+  coalesceBy: (payload) => `stage-standings:${payload.stageId}`,
 })
 ```
 
-Set `keepLastIfActive: true` for anything of that shape. Without it, deduplication lasts only until
-the job *finishes*: a trigger arriving mid-run is dropped, and the running job completes on input
-that predates it, leaving the result stale. With it, that trigger is parked and exactly one more run
-follows the current one, carrying the latest payload. Both strategies implement it — the async one
-through BullMQ, the local one on its file-backed store — so development behaves like production.
+Both strategies implement this — the async one through BullMQ, the local one on its file-backed
+store — so development behaves like production.
 
 ## Install
 

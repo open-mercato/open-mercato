@@ -4,6 +4,7 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { Queue, QueuedJob, JobHandler, LocalQueueOptions, ProcessOptions, ProcessResult, EnqueueOptions, QueueJobScope } from '../types'
+import { resolveCoalesceKey } from '../coalescing'
 import { attachTraceMetadata, runJobInTrace } from '../tracing'
 
 const packageLogger = createLogger('queue')
@@ -15,14 +16,14 @@ type LocalState = {
 }
 
 /**
- * The enqueue that arrived while its deduplication twin was already running, parked on that twin's
+ * The enqueue that arrived while its coalescing twin was already running, parked on that twin's
  * record until it finishes. At most one exists per record: a later arrival overwrites it, so the
  * follow-up run always carries the latest payload.
  *
  * It keeps the id minted when the producer called `enqueue`, because that id was already returned to
  * the caller — the follow-up must be the job that id names.
  */
-type DeduplicatedNextJob<T> = {
+type CoalescedNextJob<T> = {
   id: string
   payload: T
   createdAt: string
@@ -33,9 +34,9 @@ type DeduplicatedNextJob<T> = {
 type StoredJob<T> = QueuedJob<T> & {
   availableAt?: string
   attemptCount?: number
-  /** Coalescing key. While a record carries it, further enqueues for that key are deduplicated. */
-  deduplicationId?: string
-  deduplicationNext?: DeduplicatedNextJob<T>
+  /** Coalescing key. While a record carries it, further enqueues for that key collapse into it. */
+  coalesceKey?: string
+  coalesceNext?: CoalescedNextJob<T>
 }
 
 /**
@@ -112,11 +113,11 @@ const fsp = fs.promises
  * - `.mercato/queue/<name>/state.json` - Processing state (last processed ID)
  * - `.mercato/queue/<name>/active.json` - Which jobs the consumer has started (created on demand)
  *
- * `EnqueueOptions.deduplication` is honoured here, not just by the `async` strategy, so development
- * and integration runs coalesce the way production does. A record carrying `deduplicationId` *is*
- * the deduplication key — no separate index, because a local job stays stored for its whole life.
- * `keepLastIfActive` needs one thing that cannot be derived from `queue.json`, namely whether a job
- * is running right now, and `active.json` supplies it across processes.
+ * `EnqueueOptions.coalesce` is honoured here, not just by the `async` strategy, so development and
+ * integration runs collapse bursts the way production does. A record carrying `coalesceKey` *is* the
+ * key — no separate index, because a local job stays stored for its whole life. Coalescing needs one
+ * thing that cannot be derived from `queue.json`, namely whether a job is running right now, and
+ * `active.json` supplies it across processes.
  *
  * **Limitations:**
  * - Jobs are processed sequentially (concurrency option is for logging/compatibility only)
@@ -162,9 +163,11 @@ const fsp = fs.promises
  */
 export function createLocalQueue<T = unknown>(
   name: string,
-  options?: LocalQueueOptions
+  options?: LocalQueueOptions<T>
 ): Queue<T> {
   const nodeProcess = (globalThis as typeof globalThis & { process?: NodeJS.Process }).process
+  // Captured here because `enqueue`'s own `options` parameter shadows this one.
+  const coalesceBy = options?.coalesceBy
   const queueBaseDirFromEnv = nodeProcess?.env?.QUEUE_BASE_DIR
   const baseDir = options?.baseDir
     ?? path.resolve(queueBaseDirFromEnv || DEFAULT_LOCAL_QUEUE_BASE_DIR)
@@ -567,7 +570,7 @@ export function createLocalQueue<T = unknown>(
    * moment is now.
    */
   function buildFollowUpJob(record: StoredJob<T>): StoredJob<T> | null {
-    const next = record.deduplicationNext
+    const next = record.coalesceNext
     if (!next) return null
     const availableAt = next.delayMs && next.delayMs > 0
       ? new Date(Date.now() + next.delayMs).toISOString()
@@ -578,18 +581,18 @@ export function createLocalQueue<T = unknown>(
       createdAt: next.createdAt,
       ...(availableAt ? { availableAt } : {}),
       ...(next.metadata ? { metadata: next.metadata } : {}),
-      ...(record.deduplicationId ? { deduplicationId: record.deduplicationId } : {}),
+      ...(record.coalesceKey ? { coalesceKey: record.coalesceKey } : {}),
     }
   }
 
   function warnAboutDiscardedFollowUps(records: StoredJob<T>[]): void {
-    const deduplicationIds = records
-      .filter((record) => record.deduplicationNext)
-      .map((record) => record.deduplicationId ?? record.id)
-    if (deduplicationIds.length === 0) return
+    const coalesceKeys = records
+      .filter((record) => record.coalesceNext)
+      .map((record) => record.coalesceKey ?? record.id)
+    if (coalesceKeys.length === 0) return
     logger.warn(
-      'Discarded deduplicated follow-up jobs whose ids were already returned to their callers',
-      { deduplicationIds },
+      'Discarded coalesced follow-up jobs whose ids were already returned to their callers',
+      { coalesceKeys },
     )
   }
 
@@ -601,18 +604,17 @@ export function createLocalQueue<T = unknown>(
     const delayMs = options?.delayMs && options.delayMs > 0 ? options.delayMs : undefined
     const availableAt = delayMs ? new Date(Date.now() + delayMs).toISOString() : undefined
     const metadata = attachTraceMetadata(undefined)
-    const deduplication = options?.deduplication
-    const deduplicationId = deduplication?.id
+    const coalesceKey = resolveCoalesceKey(data, options, coalesceBy)
     const job: StoredJob<T> = {
       id: generateId(),
       payload: data,
       createdAt: new Date().toISOString(),
       ...(availableAt ? { availableAt } : {}),
       ...(metadata ? { metadata } : {}),
-      ...(deduplicationId ? { deduplicationId } : {}),
+      ...(coalesceKey ? { coalesceKey } : {}),
     }
 
-    if (!deduplicationId) {
+    if (!coalesceKey) {
       await withFileLock(async () => {
         const jobs = await readQueue()
         jobs.push(job)
@@ -626,17 +628,17 @@ export function createLocalQueue<T = unknown>(
     // examined halfway through.
     return withFileLock(async () => {
       const jobs = await readQueue()
-      const current = jobs.find((candidate) => candidate.deduplicationId === deduplicationId)
+      const current = jobs.find((candidate) => candidate.coalesceKey === coalesceKey)
       if (!current) {
         jobs.push(job)
         await writeQueue(jobs)
         return job.id
       }
 
-      if (deduplication?.keepLastIfActive && (await readLiveLeaseJobIds()).has(current.id)) {
+      if ((await readLiveLeaseJobIds()).has(current.id)) {
         // The running job read its input before this enqueue existed, so dropping the enqueue would
         // lose the write it represents. Park it; the consumer promotes it when the current run ends.
-        current.deduplicationNext = {
+        current.coalesceNext = {
           id: job.id,
           payload: data,
           createdAt: job.createdAt,
@@ -647,9 +649,9 @@ export function createLocalQueue<T = unknown>(
         return current.id
       }
 
-      // Deduplicated with nothing to record: deliberately no write at all. Rewriting `queue.json`
+      // Coalesced with nothing to record: deliberately no write at all. Rewriting `queue.json`
       // here would rename the file and wake the consumer's watcher for a job that does not exist,
-      // which is precisely the work deduplication exists to avoid.
+      // which is precisely the work coalescing exists to avoid.
       return current.id
     })
   }
@@ -686,7 +688,7 @@ export function createLocalQueue<T = unknown>(
     const completedJobIds = new Set<string>()
     const deadJobIds = new Set<string>()
     // Patches rather than whole records: the record is re-read below, and a producer may have parked
-    // a `deduplicationNext` on it while the handler ran. Rewriting it from the pre-run snapshot
+    // a `coalesceNext` on it while the handler ran. Rewriting it from the pre-run snapshot
     // would silently discard that enqueue.
     const retryPatches = new Map<string, { attemptCount: number; availableAt: string }>()
     let leaseWritten = false
@@ -751,7 +753,7 @@ export function createLocalQueue<T = unknown>(
               return patch ? { ...j, ...patch } : j
             })
           // Appended in the same write that removes the job they were parked on, so there is never a
-          // moment where a burst could produce a third job for one deduplication key.
+          // moment where a burst could produce a third job for one coalescing key.
           updatedJobs.push(...followUpJobs)
           await writeQueue(updatedJobs)
           hasQueuedJobs = updatedJobs.length > 0

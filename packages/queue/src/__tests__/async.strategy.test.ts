@@ -142,10 +142,12 @@ describe('Queue - async strategy', () => {
     await queue.close()
   })
 
-  it('passes deduplication options through to BullMQ untouched', async () => {
+  // `keepLastIfActive` is not a caller-facing choice — it is what makes BullMQ's deduplication mean
+  // what this package's `coalesce` promises, so it is always set.
+  it('translates a coalesce key into BullMQ deduplication that requeues after an active job', async () => {
     const queue = createQueue<{ value: number }>('test-queue', 'async')
 
-    await queue.enqueue({ value: 42 }, { deduplication: { id: 'stage-42', keepLastIfActive: true } })
+    await queue.enqueue({ value: 42 }, { coalesce: { key: 'stage-42' } })
 
     expect(queueAdd).toHaveBeenCalledWith(
       expect.any(String),
@@ -156,8 +158,24 @@ describe('Queue - async strategy', () => {
     await queue.close()
   })
 
+  it('derives the key from a queue-level coalesceBy when the call site passes none', async () => {
+    const queue = createQueue<{ stageId: number }>('test-queue', 'async', {
+      coalesceBy: (payload) => `stage:${payload.stageId}`,
+    })
+
+    await queue.enqueue({ stageId: 7 })
+
+    expect(queueAdd).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.anything(),
+      expect.objectContaining({ deduplication: { id: 'stage:7', keepLastIfActive: true } }),
+    )
+
+    await queue.close()
+  })
+
   // BullMQ reads the key's presence as intent, so an undefined value must not be emitted at all.
-  it('omits deduplication entirely when the caller did not ask for it', async () => {
+  it('omits deduplication entirely when nothing supplies a coalesce key', async () => {
     const queue = createQueue<{ value: number }>('test-queue', 'async')
 
     await queue.enqueue({ value: 42 })

@@ -547,9 +547,9 @@ jobs:
       (needs.audit.result == 'success' || needs.audit.result == 'skipped') &&
       needs.lint.result == 'success'
     services:
-      # `@open-mercato/queue`'s deduplication suite is handed to BullMQ verbatim, so the
-      # rest of its tests — which mock BullMQ — prove the options reach `queue.add` and
-      # nothing more. The guarantee callers rely on is BullMQ's own behaviour, and a
+      # `@open-mercato/queue` translates its `coalesce` option into BullMQ deduplication,
+      # and the rest of its tests — which mock BullMQ — prove only that the right options
+      # reach `queue.add`. The guarantee callers rely on is BullMQ's own behaviour, and a
       # semantic change behind an unchanged option name would pass both the mock and the
       # installed-BullMQ name guard. One server makes that suite run for real.
       #
@@ -570,7 +570,7 @@ jobs:
       # app typecheck (tsc --noEmit on the full Next.js app) peaks at ~4 GB;
       # raise the heap so it does not OOM on cache-miss runs.
       NODE_OPTIONS: --max-old-space-size=5120
-      # Opts the queue's real-BullMQ deduplication suite in; it skips itself when unset,
+      # Opts the queue's real-BullMQ coalescing suite in; it skips itself when unset,
       # which is what keeps it out of every environment that has no Redis.
       QUEUE_TEST_REDIS_URL: redis://127.0.0.1:6379/0
     steps:

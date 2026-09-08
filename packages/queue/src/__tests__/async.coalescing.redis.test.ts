@@ -3,11 +3,12 @@ import crypto from 'node:crypto'
 import { createQueue } from '../factory'
 
 /**
- * The async strategy's deduplication support is a pass-through, so the rest of the suite proves it
- * with a mocked BullMQ: the options reach `queue.add` untouched. What that cannot prove is the half
- * the guarantee actually rests on — that BullMQ *coalesces* the burst and then runs the job once
- * more with the last payload. `bullmq-deduplication-option.test.ts` guards the option's name and the
- * shape of its Lua, but a semantic change behind an unchanged name would slip past it.
+ * The async strategy translates `coalesce` into BullMQ deduplication, and the rest of the suite
+ * proves that translation with a mocked BullMQ: the right options reach `queue.add`. What it cannot
+ * prove is the half the guarantee actually rests on — that BullMQ *coalesces* the burst and then
+ * runs the job once more with the last payload. `bullmq-deduplication-option.test.ts` guards the
+ * option's name and the shape of its Lua, but a semantic change behind an unchanged name would slip
+ * past it.
  *
  * This suite closes that gap against a real server. It is opt-in because nothing else in the repo
  * requires one — `bullmq` is an optional peer dependency and the Playwright lane runs
@@ -23,7 +24,7 @@ import { createQueue } from '../factory'
 const redisUrl = process.env.QUEUE_TEST_REDIS_URL
 const describeWithRedis = redisUrl ? describe : describe.skip
 
-describeWithRedis('Queue - async strategy deduplication (real BullMQ)', () => {
+describeWithRedis('Queue - async strategy coalescing (real BullMQ)', () => {
   const HANDLER_MS = 300
   const SETTLE_MS = 2500
 
@@ -44,16 +45,18 @@ describeWithRedis('Queue - async strategy deduplication (real BullMQ)', () => {
 
   beforeEach(() => {
     // Unique per test so a leftover job from a previous run cannot bleed into this one.
-    queueName = `queue-dedupe-test-${crypto.randomUUID()}`
+    queueName = `queue-coalesce-test-${crypto.randomUUID()}`
   })
 
   /**
    * Reports one payload per run while a burst of enqueues lands on a single key, the first of them
    * arriving after the consumer has already started work.
    */
-  async function runBurst(keepLastIfActive: boolean): Promise<number[]> {
+  async function runBurst(coalesced: boolean, viaQueueResolver = false): Promise<number[]> {
     const consumer = createQueue<{ score: number }>(queueName, 'async', { concurrency: 1 })
-    const producer = createQueue<{ score: number }>(queueName, 'async')
+    const producer = createQueue<{ score: number }>(queueName, 'async', {
+      ...(viaQueueResolver ? { coalesceBy: () => 'stage-standings:42' } : {}),
+    })
     const runs: number[] = []
 
     try {
@@ -63,9 +66,10 @@ describeWithRedis('Queue - async strategy deduplication (real BullMQ)', () => {
       })
 
       for (let score = 1; score <= 10; score++) {
-        await producer.enqueue({ score }, {
-          deduplication: { id: 'stage-standings:42', ...(keepLastIfActive ? { keepLastIfActive } : {}) },
-        })
+        await producer.enqueue(
+          { score },
+          coalesced && !viaQueueResolver ? { coalesce: { key: 'stage-standings:42' } } : undefined,
+        )
         await new Promise((resolve) => { setTimeout(resolve, 30) })
       }
 
@@ -80,13 +84,19 @@ describeWithRedis('Queue - async strategy deduplication (real BullMQ)', () => {
 
   // The guarantee the feature exists for: the run that is already in flight read its input before
   // scores 2..10 arrived, so exactly one more run has to happen, and it has to see score 10.
-  it('coalesces a burst into one run and then one more carrying the last payload', async () => {
+  it('collapses a burst into one run and then one more carrying the last payload', async () => {
     expect(await runBurst(true)).toEqual([1, 10])
   }, 30_000)
 
-  // The same burst without `keepLastIfActive`, which is why recompute jobs must not omit it: every
-  // score after the first is dropped and nothing re-runs, so the result reflects score 1 forever.
-  it('drops everything that arrives mid-run when keepLastIfActive is omitted', async () => {
-    expect(await runBurst(false)).toEqual([1])
+  // Same guarantee when the key comes from the queue rather than the call site — the path that
+  // exists so no call site can forget it.
+  it('collapses the same burst when the key comes from a queue-level coalesceBy', async () => {
+    expect(await runBurst(true, true)).toEqual([1, 10])
+  }, 30_000)
+
+  // The same burst uncoalesced, which is what the feature is measured against: ten triggers, ten
+  // runs, nine of them computing state that was obsolete before it was written.
+  it('runs every enqueue when no coalesce key is supplied', async () => {
+    expect(await runBurst(false)).toHaveLength(10)
   }, 30_000)
 })

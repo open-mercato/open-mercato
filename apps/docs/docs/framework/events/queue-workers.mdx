@@ -131,41 +131,60 @@ interface Queue<T> {
 ```typescript
 type EnqueueOptions = {
   delayMs?: number
-  deduplication?: { id: string; keepLastIfActive?: boolean }
+  coalesce?: { key: string }
 }
 ```
 
-## Deduplication
+## Coalescing
 
 A job that recomputes something from current state — order totals, a leaderboard, a cached
 aggregate, a realtime broadcast — does not need to run once per trigger. It needs to run once per
-*burst*, on the latest state. Pass a `deduplication.id` keyed on the entity, and repeated enqueues
-collapse into the single job already outstanding for that key:
+*burst*, on the latest state. Give the enqueue a key and repeated triggers collapse into the job
+already outstanding for it:
 
 ```typescript
-await queue.enqueue({ stageId }, {
-  deduplication: { id: `stage-standings:${stageId}`, keepLastIfActive: true },
-})
+await queue.enqueue({ stageId }, { coalesce: { key: `stage-standings:${stageId}` } })
 ```
 
-Ten score reports in a minute then produce one recompute instead of ten.
+Ten score reports in a minute then produce at most two runs instead of ten.
 
-**Always set `keepLastIfActive: true` for a recompute.** Without it, deduplication means "unique
-until finished": an enqueue that arrives while the job is running is dropped, and the running job
-finishes on input read before that write landed — leaving the recomputed state stale until some
-unrelated trigger happens along. With it, the enqueue is parked instead, and exactly one more run
-starts when the current one ends, carrying the latest payload. At most one active plus one waiting
-job exists per key.
+The guarantee is that **the last trigger always gets a run that sees it**. Triggers arriving while a
+job for the key is merely *waiting* add nothing, because that job has not read anything yet and will
+observe their writes. Triggers arriving while it is *running* are parked, and exactly one follow-up
+run starts when it finishes, carrying the latest payload. At most one active plus one waiting job
+exists per key.
 
-Leave it off only when dropping triggers is what you actually want, such as "at most one import of
-this file may be queued at a time".
+`enqueue` returns the id of the job that will serve your payload — which, when your enqueue was
+collapsed into an outstanding one, is a job you did not create.
 
-The key is scoped to one queue, and `enqueue` returns the id of the job that will serve your
-payload — which, when your enqueue was coalesced, is a job you did not create.
+### Declaring the key on the queue
 
-Both strategies implement this. The async strategy hands the options to BullMQ; the local strategy
-implements the same semantics on its file-backed store, so development and integration runs coalesce
-the way production does.
+A key passed at every call site is a key one call site can forget. Declare it once instead, and
+every enqueue inherits it:
+
+```typescript
+export function getStandingsQueue() {
+  return createModuleQueue<StandingsJob>('standings', {
+    concurrency: 3,
+    coalesceBy: (payload) => `stage-standings:${payload.stageId}`,
+  })
+}
+```
+
+Return `null` from `coalesceBy` to leave a payload uncoalesced. An explicit `coalesce` on an
+individual `enqueue` overrides the queue's resolver.
+
+### Why there is no drop-the-duplicate mode
+
+Most queues spell this "deduplication" and mean it literally: while a job is outstanding, further
+enqueues are discarded. That is a correctness bug for anything that recomputes from state — the
+running job read its input before the discarded trigger arrived, so it finishes on stale data and
+nothing re-runs. This package does not expose that mode. The run it would save is one workers are
+already required to tolerate, since jobs may be retried.
+
+Both strategies implement coalescing. The async strategy maps it onto BullMQ's deduplication with
+`keepLastIfActive`; the local strategy implements the same semantics on its file-backed store, so
+development and integration runs behave like production.
 
 ## Job Handler
 
