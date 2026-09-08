@@ -1,3 +1,4 @@
+import { CommandInterceptorError } from '@open-mercato/shared/lib/commands/errors'
 import { CustomerInteraction, CustomerTodoLink } from '../../../data/entities'
 import { DELETE, GET, POST } from '../route'
 
@@ -460,5 +461,45 @@ describe('customers todos adapter route', () => {
     expect(res.status).toBe(410)
     expect(res.headers.get('Deprecation')).toBe('true')
     expect(mockCommandBus.execute).not.toHaveBeenCalled()
+  })
+
+  it('surfaces an interceptor rejection status while keeping the adapter headers', async () => {
+    mockCommandBus.execute.mockRejectedValueOnce(
+      new CommandInterceptorError('Missing required fields', {
+        status: 422,
+        body: { error: 'Missing required fields', missingFields: ['title'] },
+      }),
+    )
+
+    const res = await POST(
+      new Request('http://localhost/api/customers/todos', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ entityId: ENTITY_ID, title: 'Create adapter task' }),
+      }),
+    )
+
+    expect(res.status).toBe(422)
+    expect(res.headers.get('Deprecation')).toBe('true')
+    await expect(res.json()).resolves.toEqual({
+      error: 'Missing required fields',
+      missingFields: ['title'],
+    })
+  })
+
+  it('keeps the generic 500 when an interceptor rejection carries no status', async () => {
+    mockCommandBus.execute.mockRejectedValueOnce(new CommandInterceptorError('Blocked without a status'))
+
+    const res = await POST(
+      new Request('http://localhost/api/customers/todos', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ entityId: ENTITY_ID, title: 'Create adapter task' }),
+      }),
+    )
+
+    expect(res.status).toBe(500)
+    expect(res.headers.get('Deprecation')).toBe('true')
+    await expect(res.json()).resolves.toEqual({ error: 'Internal server error' })
   })
 })

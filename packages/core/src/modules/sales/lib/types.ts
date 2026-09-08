@@ -73,6 +73,15 @@ export type SalesLineSnapshot = {
   discountPercent?: number | null
   taxRate?: number | null
   taxAmount?: number | null
+  /**
+   * Set by entity-to-snapshot mappers ONLY. Marks `totalNetAmount` /
+   * `totalGrossAmount` as reconstructed from a persisted row, so they are the
+   * engine's own previous output rather than a caller assertion. That is what
+   * keeps the #5644 reconciliation a *caller* signal: a stored net is expected
+   * to diverge on a row the discount contract heals on the next pass. Never
+   * persisted; never accepted from a request.
+   */
+  totalsFromStoredRow?: boolean
   totalNetAmount?: number | null
   totalGrossAmount?: number | null
   configuration?: Record<string, unknown> | null

@@ -53,6 +53,19 @@ export async function seedConnectedChannel(
      * cannot prove it, because it can only ever supply email-shaped data.
      */
     providerFlavor?: 'email' | 'chat';
+    /**
+     * Relabel the connected stub channel's `provider_key`. Provider packages own
+     * routes that filter on their own key, and a real channel for those providers
+     * cannot be connected in CI (the Discord adapter validates its bot token
+     * against the live API), so without this a provider-scoped listing can only
+     * be asserted against an empty result — the assertion that stayed green
+     * through #5602.
+     *
+     * The row is relabelled, nothing is registered: do not drive an outbound send
+     * through a relabelled channel, because delivery would resolve the real
+     * provider's adapter.
+     */
+    labelAsProviderKey?: string;
   } = {},
 ): Promise<string> {
   const response = await apiRequest(request, 'POST', TEST_SEED_PATH, {
