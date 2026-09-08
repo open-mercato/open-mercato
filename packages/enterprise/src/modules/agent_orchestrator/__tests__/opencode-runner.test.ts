@@ -260,6 +260,37 @@ describe('OpenCodeAgentRunner (integration, fake client)', () => {
     expect(deleteSessionApiKeyMock).toHaveBeenCalledTimes(1)
   })
 
+  it('a run that called no tool still ingests one span, so it stays auditable and auto-approvable', async () => {
+    const entry = registerExampleFileAgent()
+    const { calls, commandBus, container } = makeHarness()
+    const sessionTokenRef = { value: '' }
+    const agentSentRef = { value: undefined as string | undefined }
+    // The fake client submits its outcome through the in-process handler and
+    // emits no tool-call events — a pure reasoning run, which is exactly the
+    // shape that used to leave the trace tables empty.
+    const client = makeFakeClient({ outcome: validOutcome, sessionTokenRef, agentSentRef, container })
+
+    const runner = new OpenCodeAgentRunner({
+      container: container as never,
+      commandBus: commandBus as never,
+      openCodeClient: client,
+    })
+
+    await runner.run(entry, { dealId: 'deal-1' }, runCtx)
+
+    const ingest = calls.find((call) => call.id === 'agent_orchestrator.trace.ingest')
+    expect(ingest).toBeDefined()
+    const payload = (ingest!.input as {
+      payload: { spans?: Array<{ kind: string; startedAt: string; endedAt?: string | null }> }
+    }).payload
+    // Spans are derived 1:1 from tool calls, so this run produced none — and a
+    // run with no span is unauditable, which `dispositionService` reads as
+    // `trace_incomplete` and holds for a human however confident the agent was.
+    expect(payload.spans).toHaveLength(1)
+    expect(payload.spans![0].kind).toBe('llm')
+    expect(Date.parse(payload.spans![0].startedAt)).not.toBeNaN()
+  })
+
   it('stamps the declared model (alongside runtime) on runs.create so the cockpit can show/filter runs by model', async () => {
     const entry = registerExampleFileAgent()
     const { calls, commandBus, container } = makeHarness()

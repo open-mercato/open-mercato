@@ -67,3 +67,34 @@ export function proposalCaseStatusVariant(disposition: string | null | undefined
 export function proposalCaseStatusLabelKey(disposition: string | null | undefined): string {
   return `agent_orchestrator.caseload.status.${proposalCaseStatus(disposition)}`
 }
+
+/**
+ * `agent_proposals.auto_disposition_block` → the sentence shown to the operator,
+ * or null when nothing held the proposal back.
+ *
+ * EVERY stored value maps. Only `near_tie` was ever rendered, so an operator
+ * whose proposal was held by the tenant's risk ceiling, a failed guardrail, a
+ * missing trace or the policy switch saw a queue that had simply stopped, and
+ * read it as "the confidence threshold was not met" — which sends them looking
+ * at the number that was in fact the one thing that passed. An unrecognised
+ * value returns null rather than a guess: this build not knowing a reason is not
+ * evidence about why the proposal is waiting.
+ */
+export function autoDispositionBlockMessageKey(
+  block: string | null | undefined,
+): string | null {
+  switch (block) {
+    case 'near_tie':
+      return 'agent_orchestrator.proposal.options.nearTie'
+    case 'risk':
+      return 'agent_orchestrator.proposal.options.autoBlock.risk'
+    case 'guardrail':
+      return 'agent_orchestrator.proposal.options.autoBlock.guardrail'
+    case 'trace_incomplete':
+      return 'agent_orchestrator.proposal.options.autoBlock.traceIncomplete'
+    case 'policy':
+      return 'agent_orchestrator.proposal.options.autoBlock.policy'
+    default:
+      return null
+  }
+}

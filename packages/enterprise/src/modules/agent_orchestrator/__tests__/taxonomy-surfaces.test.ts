@@ -98,9 +98,13 @@ describe('the trace shows which option was chosen and by whom', () => {
     expect(page).toContain('agent_orchestrator.traces.detail.disposedByRule')
   })
 
-  it('carries the near_tie explanation onto the trace too', () => {
-    expect(page).toContain("proposal.autoDispositionBlock === 'near_tie'")
-    expect(page).toContain('agent_orchestrator.proposal.options.nearTie')
+  it('carries the hold explanation onto the trace too — every reason, not just near_tie', () => {
+    // Was pinned to a literal `=== 'near_tie'` comparison, which is precisely
+    // what left the other four reasons (risk, guardrail, trace_incomplete,
+    // policy) rendering as nothing at all. The shared vocabulary answers all of
+    // them; `vocabulary-labels.test.ts` guards that mapping and its copy.
+    expect(page).toContain('autoDispositionBlockMessageKey(proposal.autoDispositionBlock)')
+    expect(page).toContain('{t(autoBlockMessageKey)}')
   })
 
   it('maps the disposition columns onto the proposal view', () => {

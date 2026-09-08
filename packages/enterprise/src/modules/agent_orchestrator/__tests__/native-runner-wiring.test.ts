@@ -269,6 +269,37 @@ describe('post-run trace capture', () => {
     expect(failRunMock).not.toHaveBeenCalled()
   })
 
+  it('the trace is persisted BEFORE run() resolves, so the disposition cannot race it', async () => {
+    registerNativeAgent('native.capture_ordering_agent')
+    runAiAgentObjectMock.mockResolvedValue(VALID_MODEL_OUTPUT)
+
+    let releaseCapture = (): void => {}
+    captureNativeRunTraceMock.mockReturnValue(
+      new Promise<void>((resolve) => {
+        releaseCapture = resolve
+      }),
+    )
+
+    const service = makeService()
+    let settled = false
+    const pending = service.run('native.capture_ordering_agent', {}, runCtx).then((result) => {
+      settled = true
+      return result
+    })
+
+    await flushMicrotasks()
+    expect(captureNativeRunTraceMock).toHaveBeenCalledTimes(1)
+    // The whole point of awaiting it: `dispositionService` counts this run's
+    // spans the instant the runner returns, and reads zero as "unauditable, hold
+    // for a human". A capture still in flight at that moment made auto-approval
+    // depend on I/O timing rather than on policy.
+    expect(settled).toBe(false)
+
+    releaseCapture()
+    await pending
+    expect(settled).toBe(true)
+  })
+
   it('OM_AGENT_TRACE_CAPTURE=off skips capture and the step hook', async () => {
     process.env.OM_AGENT_TRACE_CAPTURE = 'off'
     registerNativeAgent('native.capture_off_agent')

@@ -148,7 +148,7 @@ type QueueRow = {
    * is what the envelope is for.
    */
   defaultOptionId: string | null
-  /** `near_tie` — a threshold-clearing auto-approval held for a human. */
+  /** Which policy gate held a threshold-clearing auto-approval for a human. */
   autoDispositionBlock: string | null
 }
 

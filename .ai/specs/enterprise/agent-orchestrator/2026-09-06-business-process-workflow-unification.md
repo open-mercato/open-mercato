@@ -296,3 +296,13 @@ architectural gain.
 ## Changelog
 
 - 2026-09-06 — spec written.
+- 2026-09-08 — §8 gaps closed. The tenant ceiling was READ (`resolveTenantAutoApprovalPolicy`) but
+  nothing wrote it, so every tenant silently ran the default; it is now editable at Settings →
+  Auto-approval (`GET`/`PUT /api/agent_orchestrator/auto-approval/settings`). `traceComplete` was
+  racing its own evidence: the native runner scheduled trace capture fire-and-forget while the
+  inline disposition counted spans the moment `run()` returned, and the OpenCode runner derived
+  spans 1:1 from tool calls, so a toolless run persisted none — both held threshold-clearing
+  proposals as `trace_incomplete`. The capture is now awaited and a toolless OpenCode run writes one
+  synthetic span, matching `buildNativeTracePayload`. Finally, only `near_tie` of the five
+  `auto_disposition_block` values was ever rendered; all five now surface through
+  `autoDispositionBlockMessageKey`.

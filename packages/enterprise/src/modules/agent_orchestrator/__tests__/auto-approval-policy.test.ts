@@ -9,6 +9,7 @@ import {
   optionActionRisk,
   type DispositionOnResult,
 } from '../lib/disposition/autoApprovalPolicy'
+import { readTenantAutoApprovalPolicy } from '../lib/disposition/tenantAutoApprovalPolicy'
 import type { ProposalOption } from '../data/validators'
 import type { AgentProposal } from '../data/entities'
 
@@ -375,5 +376,55 @@ describe('DispositionService applies the rule', () => {
       'agent_orchestrator.proposals.dispose',
       expect.objectContaining({ input: expect.objectContaining({ selectedOptionId: 'b' }) }),
     )
+  })
+})
+
+/**
+ * The settings screen has to distinguish "we decided this" from "nobody has
+ * decided anything yet". Both answer `enabled / medium`, and only one of them is
+ * a decision — so `source` is reported separately, and every fallback arm (no
+ * store, no record, a malformed record) is honestly `'default'`.
+ */
+describe('readTenantAutoApprovalPolicy reports where the policy came from', () => {
+  function makeContainer(record: unknown, options: { withStore?: boolean } = {}) {
+    const getRecord = jest.fn<(...args: unknown[]) => Promise<unknown>>().mockResolvedValue(record)
+    return {
+      resolve: (token: string) => {
+        if (token === 'moduleConfigService' && options.withStore !== false) return { getRecord }
+        throw new Error(`Unexpected DI token in test: ${token}`)
+      },
+    }
+  }
+
+  test('a saved row reports source=tenant and its own values', async () => {
+    const container = makeContainer({ value: { enabled: false, maxAutoApproveRisk: 'high' } })
+    await expect(readTenantAutoApprovalPolicy(container as never, TENANT_ID)).resolves.toEqual({
+      policy: { enabled: false, maxAutoApproveRisk: 'high' },
+      source: 'tenant',
+    })
+  })
+
+  test('no row reports source=default and the conservative policy', async () => {
+    const container = makeContainer(null)
+    await expect(readTenantAutoApprovalPolicy(container as never, TENANT_ID)).resolves.toEqual({
+      policy: DEFAULT_TENANT_AUTO_APPROVAL_POLICY,
+      source: 'default',
+    })
+  })
+
+  test('a malformed row is a default, never a looser policy read out of a partial object', async () => {
+    const container = makeContainer({ value: { enabled: true } })
+    await expect(readTenantAutoApprovalPolicy(container as never, TENANT_ID)).resolves.toEqual({
+      policy: DEFAULT_TENANT_AUTO_APPROVAL_POLICY,
+      source: 'default',
+    })
+  })
+
+  test('no config store at all is still a default, not a failure', async () => {
+    const container = makeContainer(null, { withStore: false })
+    await expect(readTenantAutoApprovalPolicy(container as never, TENANT_ID)).resolves.toEqual({
+      policy: DEFAULT_TENANT_AUTO_APPROVAL_POLICY,
+      source: 'default',
+    })
   })
 })

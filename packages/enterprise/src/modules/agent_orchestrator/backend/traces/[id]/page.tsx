@@ -31,7 +31,11 @@ import {
   type ToolCallView,
 } from '../../../components/types'
 import { deriveReasoning } from '../../../components/proposalFactsData'
-import { proposalCaseStatus, proposalCaseStatusVariant } from '../../../components/proposalCaseStatus'
+import {
+  autoDispositionBlockMessageKey,
+  proposalCaseStatus,
+  proposalCaseStatusVariant,
+} from '../../../components/proposalCaseStatus'
 import { findProposalOption, normalizeProposalEnvelope, rankProposalOptions } from '../../../data/proposalEnvelope'
 import { buildSpanTimeline, truncateSpanName } from '../../../lib/trace/spanTimeline'
 import { runStatusVariant, runStatusLabelKey, confidenceFace, confidencePctOf, ConfidenceFaceValue } from '../../../components/cockpitStatus'
@@ -574,6 +578,7 @@ function DispositionCard({ proposals }: { proposals: ProposalView[] }) {
             : null
           const chosenRank = chosen ? options.findIndex((option) => option.id === chosen.id) + 1 : 0
           const auto = proposal.dispositionBy === 'rule:threshold'
+          const autoBlockMessageKey = autoDispositionBlockMessageKey(proposal.autoDispositionBlock)
           return (
             <li key={proposal.id} className="space-y-1.5 border-b border-border pb-3 last:border-0 last:pb-0">
               <div className="flex flex-wrap items-center gap-2">
@@ -617,10 +622,8 @@ function DispositionCard({ proposals }: { proposals: ProposalView[] }) {
                   </>
                 ) : null}
               </dl>
-              {proposal.autoDispositionBlock === 'near_tie' ? (
-                <p className="text-sm text-status-warning-text">
-                  {t('agent_orchestrator.proposal.options.nearTie')}
-                </p>
+              {autoBlockMessageKey ? (
+                <p className="text-sm text-status-warning-text">{t(autoBlockMessageKey)}</p>
               ) : null}
             </li>
           )

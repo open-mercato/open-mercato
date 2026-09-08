@@ -1,6 +1,8 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { subjectRefOf } from '../components/subjectRef'
+import { autoDispositionBlockMessageKey } from '../components/proposalCaseStatus'
+import { autoDispositionBlockValues } from '../data/validators'
 
 const MODULE_ROOT = join(__dirname, '..')
 const LOCALES = ['en', 'pl', 'de', 'es'] as const
@@ -123,5 +125,34 @@ describe('neutral vocabulary (Q5 sweep)', () => {
     expect(pl['agent_orchestrator.audit.emptyDescription']).not.toMatch(/dyspozycj/i)
     expect(pl['agent_orchestrator.process.stepDisposed']).toMatch(/^Zdecydowano/)
     expect(pl['agent_orchestrator.process.disposes']).toBe('Decyduje')
+  })
+})
+
+/**
+ * A proposal held for a human must say WHY.
+ *
+ * Only `near_tie` was ever rendered, so a proposal held by the tenant's risk
+ * ceiling, a failed guardrail, a missing trace or the policy switch looked like a
+ * queue that had simply stopped — and the operator read it as "the confidence
+ * threshold was not met", which is the one thing that had in fact passed. This
+ * guards the mapping AND its translations together: a new block value that
+ * nobody wrote copy for fails here rather than shipping as silence.
+ */
+describe('auto-disposition block reasons', () => {
+  it('maps every stored value to a message key present in every locale', () => {
+    for (const block of autoDispositionBlockValues) {
+      const key = autoDispositionBlockMessageKey(block)
+      expect(key).toEqual(expect.any(String))
+      for (const locale of LOCALES) {
+        expect(catalogs[locale][key as string]).toEqual(expect.any(String))
+        expect(catalogs[locale][key as string].trim().length).toBeGreaterThan(0)
+      }
+    }
+  })
+
+  it('returns null for a value this build does not recognise, rather than guessing', () => {
+    expect(autoDispositionBlockMessageKey('a_reason_from_a_newer_build')).toBeNull()
+    expect(autoDispositionBlockMessageKey(null)).toBeNull()
+    expect(autoDispositionBlockMessageKey(undefined)).toBeNull()
   })
 })

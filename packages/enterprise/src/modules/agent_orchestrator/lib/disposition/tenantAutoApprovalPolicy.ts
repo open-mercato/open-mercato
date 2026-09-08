@@ -52,26 +52,49 @@ export async function resolveTenantAutoApprovalPolicy(
   container: AwilixContainer,
   tenantId: string | null,
 ): Promise<TenantAutoApprovalPolicy> {
+  return (await readTenantAutoApprovalPolicy(container, tenantId)).policy
+}
+
+/**
+ * Where the effective policy came from — `'tenant'` when this tenant actually
+ * saved one, `'default'` when it is inheriting.
+ *
+ * The disposition path does not care (a policy is a policy), but the settings
+ * screen does: an admin looking at `enabled: true / medium` has to be able to
+ * tell "we decided this" from "nobody has decided anything yet", and every
+ * fallback arm below — no store, no record, a malformed record, an unreadable
+ * one — is honestly `'default'`.
+ */
+export type TenantAutoApprovalPolicySource = 'tenant' | 'default'
+
+export async function readTenantAutoApprovalPolicy(
+  container: AwilixContainer,
+  tenantId: string | null,
+): Promise<{ policy: TenantAutoApprovalPolicy; source: TenantAutoApprovalPolicySource }> {
+  const fallback = {
+    policy: DEFAULT_TENANT_AUTO_APPROVAL_POLICY,
+    source: 'default' as const,
+  }
   const service = resolveModuleConfig(container)
-  if (!service) return DEFAULT_TENANT_AUTO_APPROVAL_POLICY
+  if (!service) return fallback
   try {
     const record = await service.getRecord(AUTO_APPROVAL_CONFIG_MODULE, AUTO_APPROVAL_CONFIG_NAME, {
       tenantId,
     })
-    if (!record) return DEFAULT_TENANT_AUTO_APPROVAL_POLICY
+    if (!record) return fallback
     const parsed = tenantAutoApprovalPolicySchema.safeParse(record.value)
     if (!parsed.success) {
       logger.warn('stored auto-approval policy is malformed; using the conservative default', {
         tenantId,
       })
-      return DEFAULT_TENANT_AUTO_APPROVAL_POLICY
+      return fallback
     }
-    return parsed.data
+    return { policy: parsed.data, source: 'tenant' }
   } catch (error) {
     logger.warn('auto-approval policy unreadable; using the conservative default', {
       tenantId,
       error: error instanceof Error ? error.message : String(error),
     })
-    return DEFAULT_TENANT_AUTO_APPROVAL_POLICY
+    return fallback
   }
 }

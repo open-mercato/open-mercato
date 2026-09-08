@@ -287,7 +287,7 @@ describe('OpenCodeAgentRunner — trace ingestion (#3628)', () => {
     expect(loadSkillSpan?.toolCalls?.[0]?.responseSummary).toEqual({ ok: true })
   })
 
-  it('still stamps run latency (empty span list) when the run observed no tool calls', async () => {
+  it('stamps run latency AND one synthetic span when the run observed no tool calls', async () => {
     const entry = registerExampleFileAgent()
     const { commandBus, container } = makeHarness()
     // A client that submits the outcome but emits no tool parts.
@@ -323,13 +323,23 @@ describe('OpenCodeAgentRunner — trace ingestion (#3628)', () => {
     })
 
     await runner.run(entry, { subject: 'no tools' }, runCtx)
-    // No tool calls → no spans, but the wall-clock latency still lands on the
-    // run row via the same ingest path (data-honesty: DURATION must not be `—`
-    // for a successful OpenCode run).
+    // The wall-clock latency lands on the run row via the same ingest path
+    // (data-honesty: DURATION must not be `—` for a successful OpenCode run).
     const ingestInput = findIngestInput(commandBus)
     expect(ingestInput).toBeTruthy()
-    expect(ingestInput!.payload.spans).toEqual([])
     expect(typeof ingestInput!.payload.latencyMs).toBe('number')
     expect(ingestInput!.payload.latencyMs).toBeGreaterThanOrEqual(0)
+    // Spans are derived 1:1 from tool calls, so this run produced none — and
+    // this used to assert exactly that, pinning the empty list as correct. It is
+    // not: `dispositionService` reads a run with no span as unauditable
+    // (`trace_incomplete`) and holds its proposal for a human, which made
+    // auto-approval unreachable for every toolless OpenCode agent. One synthetic
+    // span covering the session is the same answer `buildNativeTracePayload`
+    // gives a toolless native run.
+    expect(ingestInput!.payload.spans).toHaveLength(1)
+    const span = ingestInput!.payload.spans![0] as { kind: string; sequence: number; startedAt: string }
+    expect(span.kind).toBe('llm')
+    expect(span.sequence).toBe(0)
+    expect(Date.parse(span.startedAt)).not.toBeNaN()
   })
 })

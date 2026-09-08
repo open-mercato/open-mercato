@@ -350,12 +350,20 @@ export class NativeAgentRunner {
         ...(cost ? { costMinor: cost.costMinor, currency: cost.currency } : {}),
       }
     }
-    const scheduleTraceCapture = (): void => {
+    const captureTrace = async (): Promise<void> => {
       if (!traceEnabled) return
-      // Fire-and-forget: the capture catches internally, but a defensive catch
-      // here guarantees a rejected capture can never surface as an unhandled
-      // rejection regardless of the capture implementation.
-      captureNativeRunTrace(
+      // AWAITED, not fire-and-forget. `dispositionService` decides whether a
+      // proposal may act unattended by counting this run's spans the instant the
+      // runner returns (`traceComplete`), so scheduling the capture in the
+      // background raced that read: a run whose spans landed a few milliseconds
+      // late was held as `trace_incomplete`, making auto-approval a function of
+      // I/O timing rather than of policy. The cost is a handful of row inserts on
+      // a path that has just paid for a model call.
+      //
+      // The capture catches internally; the defensive catch here guarantees a
+      // rejected capture can never fail the run regardless of the capture
+      // implementation.
+      await captureNativeRunTrace(
         this.container,
         { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
         {
@@ -427,12 +435,12 @@ export class NativeAgentRunner {
       rawObject = raced
     } catch (err) {
       if (err instanceof AgentRunTimeoutError) {
-        scheduleTraceCapture()
+        await captureTrace()
         throw err
       }
       const message = err instanceof Error ? err.message : String(err)
       await failRun(this.commandBus, commandCtx, { runId, errorMessage: message, ...buildUsageStamp() })
-      scheduleTraceCapture()
+      await captureTrace()
       throw err
     } finally {
       deadline.cancel()
@@ -494,7 +502,7 @@ export class NativeAgentRunner {
       })
       const detail = parsed.success ? 'guardrail block' : parsed.error.message
       await failRun(this.commandBus, commandCtx, { runId, errorMessage: detail, ...buildUsageStamp() })
-      scheduleTraceCapture()
+      await captureTrace()
       const blocked = verdict.blockedReason
       if (blocked) {
         throw new AgentGuardrailBlockedError(agentId, detail, {
@@ -542,9 +550,10 @@ export class NativeAgentRunner {
       })
     }
 
-    // Post-run, best-effort span persistence — after the audited persistence
-    // tail so the hot path pays nothing and a capture failure changes nothing.
-    scheduleTraceCapture()
+    // Span persistence, after the audited persistence tail so a capture failure
+    // changes nothing about the run. Awaited: the caller disposes the proposal
+    // this run just created, and that decision reads the trace.
+    await captureTrace()
 
     return result
   }

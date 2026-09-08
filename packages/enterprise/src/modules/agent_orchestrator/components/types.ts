@@ -27,7 +27,8 @@ export type ProposalView = {
   selectedOptionId: string | null
   /**
    * Why an auto-approval that cleared its threshold was held for a human
-   * (`near_tie`). Distinct from `dispositionReason`, which is the OPERATOR's.
+   * (`near_tie` | `risk` | `guardrail` | `trace_incomplete` | `policy`). Distinct
+   * from `dispositionReason`, which is the OPERATOR's.
    */
   autoDispositionBlock: string | null
   createdAt: string | null

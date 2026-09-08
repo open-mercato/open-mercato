@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { Check, Scale } from 'lucide-react'
+import { Check, Scale, ShieldAlert } from 'lucide-react'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { cn } from '@open-mercato/shared/lib/utils'
@@ -9,6 +9,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { normalizeProposalEnvelope, rankProposalOptions } from '../data/proposalEnvelope'
 import type { ProposalOption } from '../data/validators'
 import { humanizeKey } from './proposalFactsData'
+import { autoDispositionBlockMessageKey } from './proposalCaseStatus'
 
 /**
  * The option set an agent offered, ranked, with ONE selection control
@@ -33,9 +34,11 @@ export type ProposalOptionListProps = {
   onSelect?: (optionId: string) => void
   disabled?: boolean
   /**
-   * `agent_proposals.auto_disposition_block` — `near_tie` means the agent's top
-   * two options were too close to auto-approve, so silence here would read as
-   * "the threshold was not met".
+   * `agent_proposals.auto_disposition_block` — why a proposal that cleared its
+   * confidence threshold was held for a person anyway. EVERY value renders,
+   * because silence here reads as "the threshold was simply not met" and sends
+   * the operator looking for a number when the real answer is a guardrail, the
+   * tenant's risk ceiling, a missing trace or the policy switch.
    */
   autoDispositionBlock?: string | null
   /** Renders the "you must pick one" hint below the list. */
@@ -130,13 +133,18 @@ export function ProposalOptionList({
 
   const selectedIndex = options.findIndex((option) => option.id === selectedOptionId)
   const nearTie = autoDispositionBlock === 'near_tie'
+  const autoBlockMessageKey = autoDispositionBlockMessageKey(autoDispositionBlock)
 
   return (
     <div className={cn('space-y-3', className)}>
-      {nearTie ? (
+      {autoBlockMessageKey ? (
         <div className="flex items-start gap-2.5 rounded-lg bg-status-warning-bg px-3.5 py-2.5 text-sm text-status-warning-text">
-          <Scale className="mt-0.5 size-4 shrink-0" />
-          <span>{t('agent_orchestrator.proposal.options.nearTie')}</span>
+          {nearTie ? (
+            <Scale className="mt-0.5 size-4 shrink-0" />
+          ) : (
+            <ShieldAlert className="mt-0.5 size-4 shrink-0" />
+          )}
+          <span>{t(autoBlockMessageKey)}</span>
         </div>
       ) : null}
 

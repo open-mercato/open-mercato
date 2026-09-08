@@ -407,13 +407,16 @@ export class OpenCodeAgentRunner {
       // ingest on failure discarded it. Best-effort by contract (see the method),
       // so this can never turn a completed run into a failed one.
       if (startedAtMs != null) {
+        const endedAtMs = Date.now()
         await this.ingestSessionTrace(commandCtx, {
           tenantId: ctx.tenantId,
           organizationId: ctx.organizationId,
           agentId,
           externalRunId: session.id,
           toolCalls: capturedToolCalls,
-          latencyMs: Math.max(0, Math.round(Date.now() - startedAtMs)),
+          startedAtMs,
+          endedAtMs,
+          latencyMs: Math.max(0, Math.round(endedAtMs - startedAtMs)),
         })
       }
 
@@ -467,6 +470,8 @@ export class OpenCodeAgentRunner {
       agentId: string
       externalRunId: string
       toolCalls: CapturedToolCall[]
+      startedAtMs?: number | null
+      endedAtMs?: number | null
       latencyMs?: number | null
     },
   ): Promise<void> {
@@ -489,6 +494,26 @@ export class OpenCodeAgentRunner {
           },
         ],
       }))
+      // A run that called no tool still has to leave a trace. Spans here are
+      // derived 1:1 from tool calls, so a pure reasoning run produced NONE — and
+      // a run with no span is unauditable, which `dispositionService` reads as
+      // `trace_incomplete` and holds for a human. That made auto-approval
+      // unreachable for every toolless OpenCode agent, no matter its confidence.
+      // One synthetic span covering the session is the same answer
+      // `buildNativeTracePayload` already gives a toolless native run.
+      if (spans.length === 0 && args.startedAtMs != null) {
+        const endedAtMs = args.endedAtMs ?? args.startedAtMs
+        spans.push({
+          externalSpanId: `${args.externalRunId}:0`,
+          sequence: 0,
+          name: 'llm',
+          kind: 'llm',
+          startedAt: new Date(args.startedAtMs).toISOString(),
+          endedAt: new Date(endedAtMs).toISOString(),
+          durationMs: Math.max(0, Math.round(endedAtMs - args.startedAtMs)),
+          status: 'ok',
+        })
+      }
       await withAuditedCommand(() =>
         this.commandBus.execute<IngestTraceCommandInput, IngestTraceResult>(
           'agent_orchestrator.trace.ingest',
