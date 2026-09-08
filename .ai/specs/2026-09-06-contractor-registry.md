@@ -231,6 +231,42 @@ follow-up. The per-section "pending team confirmation" markers stay —
 they, not a separate document, are what carries the "this isn't
 approved yet" signal.
 
+**`approveContractor`'s mechanism is now resolved: the `workflows`
+engine (`defineWorkflow`/`USER_TASK`), 1:1 with `sales.order-approval`
+and `accounts_payable.invoice-approval` — not `useGuardedMutation`
+(2026-09-08, this round).** The scope question (whether this feature
+ships at all) stays pending Łukasz/the team's confirmation — this
+decision only settles *how* it would be built, once confirmed, so the
+document stops carrying a half-fixed citation (see Changelog,
+"approval-pattern citation corrected," which removed the false GL
+comparison but left no replacement design). Verified directly: the
+repo's only implemented approve/reject precedent is
+`sales.order-approval`, and it uses the full workflow engine, not a
+guarded row action — `useGuardedMutation` is real, but only for a
+simple, *reversible* toggle (GL's fiscal-period lock/unlock), which is
+a structurally different decision shape from a one-time approve/reject
+gate. `approveContractor` is exactly the second shape, same as AP's
+own invoice approval, so this document now adopts the identical
+pattern AP already adopted for the identical problem: a
+`contractors.vendor-approval` workflow, triggered on
+`contractors.contractor.created` (immediate, like
+`sales.order.created` — this module has no separate "draft" contractor
+state before approval, unlike AP's invoice, which has `DRAFT` before
+`PENDING_APPROVAL`; see Workflow definition), `USER_TASK` with a
+`formSchema: {decision: approve | reject}`, and completion through the
+existing generic `POST /api/workflows/tasks/:id/complete` — not a
+custom `/api/contractors/:id/approve` route (removed, see API
+Contracts). One deliberate departure from `sales.order-approval`,
+carried over from AP's own review: the workflow's transition calls a
+**dedicated** `applyContractorApprovalDecision` command, not the
+general-purpose `updateContractor` — AP independently found that
+`sales.order-approval` reusing its own generic `update` command for
+this exact purpose is a latent, unresolved contradiction risk
+(`updateContractor` has its own guards — e.g. the NIP-immutability
+guard above — that were never designed with a workflow-originated call
+in mind), and this document avoids repeating it rather than copying
+the same latent issue a third time.
+
 **Registry is per-organization, not shared across a tenant's
 organizations.** No precedent for such a pattern for a domain,
 tenant/org-scoped entity in the code — the only nullable
@@ -295,6 +331,16 @@ encrypted column without a hash doesn't work.
   lock), `deletedAt` (soft delete — per the standard column contract;
   deletion blocked if the contractor has any `JournalEntryLine`
   references via snapshot or any active `ContractorBankAccount`).
+  *If `approveContractor` is confirmed in scope*: `approvalStatus`
+  (`PENDING_APPROVAL`/`APPROVED`/`REJECTED`), `approvedByUserId`,
+  `approvedAt` — set only by `applyContractorApprovalDecision` from
+  inside the workflow, never through `updateContractor` (see Design
+  decisions, Workflow definition). `verificationStatus` (GUS/VIES) and
+  `approvalStatus` (human approve/reject) are independent, parallel
+  fields — Phase 1 does not gate one on the other, and nothing in
+  Phase 1 blocks Accounts Payable from using a `PENDING_APPROVAL`
+  contractor; whether it should is a real, still-open question this
+  document does not resolve (see Out of scope).
 - `ContractorBankAccount` — `contractorId` (FK to `Contractor`),
   `accountNumber` (encrypted), `isPrimary` (bool — exactly one primary
   per contractor, enforced in the command), `lastVerifiedAt` (nullable,
@@ -318,7 +364,7 @@ export const features = [
 ```
 
 `createContractor`/`updateContractor`/`createContractorBankAccount`/
-`updateContractorBankAccount`/`approveContractor` require
+`updateContractorBankAccount`/`applyContractorApprovalDecision` require
 `contractors.manage`; `checkBankAccountWhitelist` requires
 `contractors.view` (read-only check, callable by anyone who can see
 the contractor — the actual payment-blocking decision belongs to AP's
@@ -366,23 +412,105 @@ review — see Changelog).
   sanctioned entry point for another module to call it synchronously
   in the same request; the HTTP route below wraps the same command
   only for this module's own backend UI.
-- `approveContractor` — **pending team confirmation, see Design
-  decisions.** One approver, binary decision (approve/reject),
-  mirroring AP's own one-step invoice approval. Sets
-  `approvalStatus`/`approvedByUserId`/`approvedAt` (fields added to
-  `Contractor` only if this command is confirmed in scope — see
-  Data Models note).
+- `applyContractorApprovalDecision` — **pending team confirmation,
+  see Design decisions.** Called **only** from inside the
+  `contractors.vendor-approval` workflow (not directly from the UI),
+  via `UPDATE_ENTITY`, `PENDING_APPROVAL` → `APPROVED` or `REJECTED`
+  and nothing else (accepts no other fields). Registered separately in
+  `registerWorkflowSafeCommands`, requires `contractors.manage`.
+  **Deliberately not `updateContractor`** — see Design decisions
+  ("`approveContractor`'s mechanism is now resolved") for the
+  contradiction this avoids, mirroring AP's identical fix to the same
+  latent issue in `sales.order-approval`.
 
 ### Events
 
-None declared in Phase 1. AP consumes `Contractor`/
-`ContractorBankAccount` by resolving this module's `di.ts`-registered
-service directly (see DI Registrar and Cross-module integration below)
-at the moment it needs an answer — payment approval and vendor
-registration are both synchronous, user-initiated flows, not something
-a downstream module needs to react to automatically after the fact.
-Revisit if a real asynchronous consumer emerges (YAGNI — matches the
-same reasoning already used for cross-organization sharing).
+**One conditional event, only if `approveContractor` is confirmed in
+scope: `contractors.contractor.created` (persistent), emitted by
+`createContractor`.** Its sole purpose is triggering the
+`contractors.vendor-approval` workflow (see Workflow definition) —
+exactly mirroring `sales.order.created` triggering
+`sales.order-approval`, not a general-purpose "contractor created"
+notification for other consumers. If the approval feature is cut,
+this event is cut with it; nothing else in this module needs it. AP
+still consumes `Contractor`/`ContractorBankAccount` by resolving this
+module's `di.ts`-registered service directly (see DI Registrar and
+Cross-module integration below) at the moment it needs an answer —
+payment approval and vendor registration are both synchronous,
+user-initiated flows, not something a downstream module needs to react
+to automatically after the fact. Revisit further async use if a real
+consumer emerges (YAGNI — matches the same reasoning already used for
+cross-organization sharing).
+
+### Workflow definition (`workflows.ts`)
+
+**Only ships if `approveContractor` is confirmed in scope** (see
+Design decisions). A 1:1 mirror of the `sales.order-approval` pattern
+(`packages/core/src/modules/sales/workflows.ts`) — not a new
+mechanism, the same one AP already adopted for its own invoice
+approval:
+
+```typescript
+import { defineWorkflow, createWorkflowsModuleConfig } from '@open-mercato/shared/modules/workflows'
+import { registerWorkflowSafeCommands } from '@open-mercato/core/modules/workflows/lib/workflow-safe-commands'
+
+registerWorkflowSafeCommands([
+  { commandId: 'contractors.applyApprovalDecision', requiredFeatures: ['contractors.manage'] },
+])
+
+const vendorApproval = defineWorkflow({
+  workflowId: 'contractors.vendor-approval',
+  workflowName: 'Contractor Vendor Approval Workflow',
+  steps: [
+    { stepId: 'start', stepType: 'START' },
+    {
+      stepId: 'pending_approval',
+      stepType: 'USER_TASK',
+      userTaskConfig: {
+        formSchema: {
+          type: 'object',
+          required: ['decision'],
+          properties: {
+            comments: { type: 'string' },
+            decision: { enum: ['approve', 'reject'], type: 'string' },
+          },
+        },
+        slaDuration: 'PT24H',
+      },
+    },
+    { stepId: 'approved', stepType: 'AUTOMATED' },
+    { stepId: 'rejected', stepType: 'AUTOMATED' },
+    { stepId: 'end', stepType: 'END' },
+  ] as const,
+  transitions: [ /* start→pending_approval (auto), pending_approval→approved
+                    (preCondition: decision === 'approve'), pending_approval→rejected
+                    (preCondition: decision === 'reject'), both →end — identical
+                    structure to sales.order-approval, see that file */ ],
+  triggers: [{
+    triggerId: 'vendor_approval_trigger',
+    eventPattern: 'contractors.contractor.created',
+    config: { entityType: 'Contractor' },
+    enabled: true,
+    priority: 0,
+  }],
+})
+
+export const workflowsConfig = createWorkflowsModuleConfig({
+  moduleId: 'contractors',
+  workflows: [vendorApproval],
+})
+
+export default workflowsConfig
+```
+
+One structural difference from AP's own `accounts_payable.invoice-approval`,
+not from `sales.order-approval`: AP triggers on a separate "submitted"
+event because a vendor invoice has an explicit `DRAFT` state before
+approval. A contractor has no equivalent draft state — `createContractor`
+persists it immediately (already true today, for the unrelated
+GUS/VIES check) — so this workflow triggers directly on
+`contractors.contractor.created`, exactly like `sales.order-approval`
+triggers on `sales.order.created`.
 
 ### Queries / API
 
@@ -400,8 +528,11 @@ same reasoning already used for cross-organization sharing).
   returning the live result. This route backs only this module's own
   backend UI (the per-row "verify now" button) — it is **not** the
   integration path for AP. See Cross-module integration below.
-- `api/contractors/[id]/approve/route.ts` — pending team confirmation
-  (see Design decisions); custom write route calling `approveContractor`.
+- **Removed 2026-09-08**: no dedicated approve route. See API
+  Contracts, "Contractor approval — no dedicated route" — approval
+  now completes through the generic
+  `POST /api/workflows/tasks/:id/complete`, once `approveContractor`
+  is confirmed in scope.
 
 ### Cross-module integration
 
@@ -438,15 +569,19 @@ or hard-require the consumer."
   showing the UX-only "last checked: N days ago" badge, plus a
   "Verify now" button per row that calls the live-check route above
   and refreshes the badge.
-- Pending team confirmation: an "Approve contractor" guarded row
-  action on the list, using `useGuardedMutation`, visible only for
-  contractors not yet approved. **Correction (2026-09-07):** this is
-  a deliberate Phase-1 simplification, not a verified precedent — see
-  the Compliance Matrix note below. If `approveContractor` is
-  confirmed in scope, revisit against the workflow-engine pattern
-  (`defineWorkflow`/`USER_TASK`, as used by `sales.order-approval`)
-  before committing to `useGuardedMutation` for a real approve/reject
-  decision.
+- Pending team confirmation: an injected approval-task widget at a
+  `contractors.contractor.detail:details` spot ID, visible when
+  `approvalStatus === 'PENDING_APPROVAL'` and there's a task assigned
+  to the current user. **Resolved 2026-09-08** (see Design decisions,
+  Workflow definition): this is no longer a `useGuardedMutation` row
+  action — mirroring the corrected pattern already used in
+  `2026-09-06-accounts-payable.md`, the widget itself is owned and
+  defined by `workflows` (real precedent:
+  `workflows/widgets/injection/order-approval/`, injected into
+  `sales.document.detail.order:details`), not by this module. This
+  module only needs to declare and document the spot ID above; the
+  widget component and its injection-table entry belong to
+  `workflows`.
 
 ## Data Models
 
@@ -465,8 +600,9 @@ active `ContractorBankAccount` exists (enforced in `updateContractor`'s
 delete path — see Commands).
 
 *If `approveContractor` is confirmed in scope:* add
-`approvalStatus` (`PENDING`/`APPROVED`/`REJECTED`), `approvedByUserId`,
-`approvedAt` to this entity.
+`approvalStatus` (`PENDING_APPROVAL`/`APPROVED`/`REJECTED`),
+`approvedByUserId`, `approvedAt` to this entity — now also listed
+directly in Architecture → Entities (2026-09-08), not only here.
 
 Supporting index for the `contractors` list filters (see API
 Contracts / Queries-API): `(tenant_id, organization_id, is_vendor,
@@ -536,10 +672,16 @@ Custom write route (mutation guard registry, mapped to `update`).
 - **Response 403**: caller lacks `contractors.view`.
 - **Response 502**: Biała Lista API unavailable — see Risks.
 
-### `POST /api/contractors/:id/approve`
+### Contractor approval — no dedicated route
 
-Pending team confirmation (see Design decisions). Custom write route,
-`contractors.manage` required.
+**Removed 2026-09-08** (see Design decisions, Workflow definition): an
+earlier draft proposed a custom `POST /api/contractors/:id/approve`
+route. Once the mechanism moved to the `workflows` engine, approval no
+longer needs a module-specific route — completing the decision goes
+through the existing, generic `POST /api/workflows/tasks/:id/complete`,
+exactly as `sales.order-approval` and
+`accounts_payable.invoice-approval` already do. Still pending team
+confirmation whether the feature ships at all (see Design decisions).
 
 ## Implementation Plan
 
@@ -573,13 +715,26 @@ Pending team confirmation (see Design decisions). Custom write route,
    yet), so nothing has actually "landed" in running code; listed here
    only for traceability against the sibling spec.
 10. Regression + integration test coverage (see Testing Strategy).
+11. *If `approveContractor` is confirmed in scope* (pending team
+    confirmation, not deferred to Phase 2 — see Design decisions,
+    "stays threaded... same implementation cycle"): add `approvalStatus`/
+    `approvedByUserId`/`approvedAt` to `Contractor`; implement
+    `workflows.ts` (`contractors.vendor-approval`) and `events.ts`
+    (`contractors.contractor.created`); implement
+    `applyContractorApprovalDecision`; add the injected approval-task
+    widget in `workflows` (see Backend Pages). **Corrected 2026-09-08**:
+    an earlier draft of this Implementation Plan listed the one-step
+    approval flow under "Phase 2 (deferred)" below, contradicting
+    Design decisions' own resolution that it belongs to Phase 1's
+    implementation cycle once confirmed, not a separate follow-up —
+    moved here.
 
 ### Phase 2 (deferred, pending team confirmation)
 
-- `approveContractor` one-step approval flow, if confirmed — or a
-  more elaborate multi-step/threshold-based approval if the team
-  decides the light version isn't sufficient (mirrors AP's own
-  Phase 2 deferral of multi-step invoice approval).
+- A more elaborate multi-step/threshold-based approval, if the team
+  decides the light, one-step version (Phase 1, step 11) isn't
+  sufficient (mirrors AP's own Phase 2 deferral of multi-step invoice
+  approval).
 - Cross-organization contractor sharing, if a real business need
   emerges (currently YAGNI — see Design decisions).
 
@@ -599,6 +754,10 @@ Pending team confirmation (see Design decisions). Custom write route,
 | `api/contractors/route.ts` | Create | `Contractor` CRUD (`makeCrudRoute`) |
 | `api/contractors/[id]/bank-accounts/route.ts` | Create | `ContractorBankAccount` CRUD (`makeCrudRoute`) |
 | `api/contractors/[id]/bank-accounts/[bankAccountId]/verify/route.ts` | Create | Live Biała Lista check |
+| `workflows.ts` | Create, conditional | **Only if `approveContractor` is confirmed in scope** — the `contractors.vendor-approval` definition, `registerWorkflowSafeCommands` on `applyContractorApprovalDecision` |
+| `events.ts` | Create, conditional | **Only if `approveContractor` is confirmed in scope** — `contractors.contractor.created`, the workflow's sole trigger |
+| `widgets/injection/vendor-approval/` | Create, conditional | **In `workflows`, not this module** — approval-task widget injected into `contractors.contractor.detail:details`, mirroring `workflows/widgets/injection/order-approval/` |
+| `commands/contractors.ts` | Update, conditional | Adds `applyContractorApprovalDecision`, called only from inside the workflow |
 | `api/openapi.ts` | Create | `openApi` exports for every route above |
 | `backend/contractors/page.tsx` (+ create/[id]) | Create | List/create/edit UI with inline bank-account sub-list |
 | `commands/__tests__/*` | Create | Regression coverage |
@@ -626,6 +785,12 @@ Pending team confirmation (see Design decisions). Custom write route,
   Regression test: seed a `ContractorBankAccount` with
   `lastVerifiedAt: now()`, call `checkBankAccountWhitelist`, assert the
   live API client was actually invoked.
+- *If `approveContractor` is confirmed in scope*: assert
+  `applyContractorApprovalDecision` is only reachable through the
+  `contractors.vendor-approval` workflow (via `registerWorkflowSafeCommands`),
+  not directly callable to bypass the approval task, and that it moves
+  `approvalStatus` `PENDING_APPROVAL` → `APPROVED`/`REJECTED` only —
+  never any other transition.
 - Assert `verifyContractorRegistry` worker is idempotent — running it
   twice for the same contractor does not duplicate or corrupt
   `gusData`/`viesData`.
@@ -770,7 +935,8 @@ independently of AP, which does not yet exist.
 | `packages/core/AGENTS.md` → API Routes | All API route files MUST export `openApi` | Compliant | `api/openapi.ts` in File Manifest and Implementation Plan step 7, covering every route in this module |
 | `packages/core/AGENTS.md` → Encryption | GDPR/PII fields declared in `<module>/encryption.ts`, read via `findWithDecryption` | Compliant | `contractors:contractor` (name, address, contact, `nip`+`nipHash`) and `contractors:contractor_bank_account` (`account_number`) both declared |
 | `packages/queue/AGENTS.md` | Workers MUST be idempotent; MUST export `metadata: { queue, id?, concurrency? }` | Compliant | `verifyContractorRegistry.ts` follows the exact shape verified against `customers/workers/*.ts` |
-| `packages/ui/AGENTS.md` | `CrudForm`/`DataTable`; guarded row actions via `useGuardedMutation` | Compliant | Contractor list/create/edit use `CrudForm`+`DataTable`. The pending-confirmation "approve" row action is drafted as a `useGuardedMutation` toggle — **corrected 2026-09-07:** this document originally claimed parity with "GL's fiscal-period lock/unlock row action," but that comparison doesn't hold: the repo's only implemented approve/reject precedent (`sales.order-approval`) uses a full workflow (`defineWorkflow`/`USER_TASK`), not a guarded row action. `useGuardedMutation` here is now flagged as an unverified Phase-1 shortcut, to revisit against the workflow-engine pattern if `approveContractor` is confirmed in scope, not cited as an already-proven pattern |
+| `packages/ui/AGENTS.md` | `CrudForm`/`DataTable`; guarded row actions via `useGuardedMutation` | Compliant | Contractor list/create/edit use `CrudForm`+`DataTable`. **Resolved 2026-09-08** (superseding the 2026-09-07 correction, which only removed a false citation without replacing the design): the pending-confirmation approval step now uses the `workflows` engine (`defineWorkflow`/`USER_TASK`), 1:1 with `sales.order-approval`/`accounts_payable.invoice-approval`, not `useGuardedMutation` — consistent with the same principle already settled for `accounts_payable.invoice-approval`: a guarded row action is a real pattern only for a simple, reversible toggle (GL's fiscal-period lock/unlock), not a one-time approve/reject decision. See Design decisions, Workflow definition |
+| `packages/core/AGENTS.md` → Command Side Effects | The workflow's own transition calls a command dedicated to that transition, not the entity's general-purpose update command | **Compliant (fixed this round)** | Carried over from AP's own fix to the identical latent issue in `sales.order-approval` (which reuses `sales.orders.update` for its transition): `applyContractorApprovalDecision` is a separate, narrow command, not `updateContractor` — see Design decisions |
 | `BACKWARD_COMPATIBILITY.md` | Database schema additive-only | Compliant | Two new tables only |
 | `packages/core/AGENTS.md` → Cross-Module Coupling | Optional-peer sync calls resolve via a local `tryResolve` in `try/catch`; never a hard `requires`; upstream MUST NOT resolve the consumer | **Compliant (fixed this round)** | Originally designed as a plain HTTP route AP would call — an independent review caught this as the wrong mechanism (no degrade path if `contractors` is disabled). Corrected: `checkBankAccountWhitelist` is now also registered in `di.ts`; AP resolves it via `tryResolve`; the HTTP route is now scoped to this module's own UI only. See DI Registrar, Cross-module integration, Risks & Impact Review. |
 | Checklist § Performance | Every query pattern names its supporting index | **Compliant (fixed this round)** | Missing from the first draft of this expansion; added to Data Models for both entities' list/lookup filters. |
@@ -793,23 +959,33 @@ None. One item is explicitly **not yet decided** rather than
 non-compliant: `approveContractor` (the one-step vendor approval
 workflow) is marked throughout as pending confirmation from
 Łukasz/the team — it is designed so it can be dropped without
-reworking any other section, not silently assumed as approved.
+reworking any other section, not silently assumed as approved. Its
+*mechanism*, unlike its scope, is no longer undecided — see Design
+decisions and Workflow definition (2026-09-08).
 
 ### Verdict
 
 **Ready for maintainer review, with one item flagged for explicit
 team confirmation before implementation (not a compliance blocker):**
-the `approveContractor` one-step vendor acceptance workflow. Every
-AGENTS.md rule checked is compliant — an independent review round
-(2026-09-07, second pass) found and fixed a real cross-module-coupling
-gap (`checkBankAccountWhitelist` was designed as an HTTP-only call with
-no degrade path; now also a `di.ts`-resolvable service behind
-`tryResolve`) and a missing supporting-index gap (now added to Data
-Models), and corrected several factual citation errors (see Changelog).
-A separate scope-cohesion check flagged `approveContractor` as
-bundled-but-severable; resolved as a deliberate choice to keep it
-threaded through the same sections rather than split out (see Design
-decisions). The two design decisions worked through with the team
+whether the `approveContractor` one-step vendor acceptance workflow
+ships at all. Its mechanism, if it does, is now fully resolved
+(2026-09-08): the `workflows` engine (`defineWorkflow`/`USER_TASK`),
+1:1 with `sales.order-approval` and AP's own
+`accounts_payable.invoice-approval`, with the same dedicated-command
+departure AP made from `sales.order-approval`'s one latent issue (see
+Design decisions, Workflow definition) — replacing an earlier,
+half-finished correction that had removed a false citation
+("verified GL precedent") without replacing it with a real design.
+Every AGENTS.md rule checked is compliant — an independent review
+round (2026-09-07, second pass) found and fixed a real
+cross-module-coupling gap (`checkBankAccountWhitelist` was designed as
+an HTTP-only call with no degrade path; now also a `di.ts`-resolvable
+service behind `tryResolve`) and a missing supporting-index gap (now
+added to Data Models), and corrected several factual citation errors
+(see Changelog). A separate scope-cohesion check flagged
+`approveContractor` as bundled-but-severable; resolved as a deliberate
+choice to keep it threaded through the same sections rather than
+split out (see Design decisions). The two design decisions worked through with the team
 earlier this session — `ContractorBankAccount` as its own entity, and
 its verification cache as strictly UX-only, never a compliance
 shortcut — remain fully threaded through Design decisions, Data
@@ -926,3 +1102,47 @@ assumed this registry's existence.
   `approveContractor` remains pending team confirmation either way —
   this changes only how its eventual mechanism is justified, not its
   scope status.
+
+### 2026-09-08 — approval mechanism resolved, matching AP's own fix to the identical problem
+
+The previous round's correction removed a false citation ("verified
+GL precedent") from the approval design but did not replace it with a
+real one, leaving `approveContractor` sketched as a `useGuardedMutation`
+row action with no justification. Meanwhile,
+`2026-09-06-accounts-payable.md` independently faced and fully
+resolved the identical problem for its own one-step invoice approval.
+This round applies that same, now-proven resolution here:
+
+- `approveContractor` renamed `applyContractorApprovalDecision` and
+  redesigned as a command called only from inside a `workflows` engine
+  definition (`contractors.vendor-approval`), not a directly-callable
+  `useGuardedMutation` toggle — 1:1 mirroring `sales.order-approval`
+  and `accounts_payable.invoice-approval`.
+- Added the `contractors.vendor-approval` Workflow definition section
+  (new), triggered on a new, conditional `contracts.contractor.created`
+  event (Events section updated) — immediate trigger, like
+  `sales.order.created`, since (unlike AP's invoice) a contractor has
+  no separate draft state before approval.
+- `Contractor` now lists `approvalStatus`/`approvedByUserId`/
+  `approvedAt` directly in Architecture → Entities, not only as a
+  footnote in Data Models.
+- Removed the custom `POST /api/contractors/:id/approve` route (API
+  Contracts, Queries/API, File Manifest) — completion now goes through
+  the existing, generic `POST /api/workflows/tasks/:id/complete`,
+  exactly as `sales.order-approval`/AP's invoice approval already do.
+- Backend Pages: replaced the guarded-row-action sketch with an
+  injected approval-task widget, owned by `workflows` (real precedent:
+  `workflows/widgets/injection/order-approval/`), matching the
+  corrected pattern already applied to
+  `2026-09-06-accounts-payable.md`'s own Backend Pages this same week.
+- Carried over AP's own deliberate departure from `sales.order-approval`:
+  the workflow's transition calls a dedicated
+  `applyContractorApprovalDecision` command, not the general-purpose
+  `updateContractor` — `sales.order-approval` reusing its own generic
+  `update` command for this exact purpose is a latent, unverified
+  contradiction risk AP found and avoided; this document avoids it too
+  rather than repeating it a third time.
+- Updated Compliance Matrix, Non-Compliant Items, and Verdict to
+  record the above. The scope question itself — whether
+  `approveContractor` ships at all — remains unchanged: still pending
+  Łukasz/the team's confirmation.
