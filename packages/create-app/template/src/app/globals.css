@@ -207,6 +207,10 @@ TODO: Fix that latter to have reference by the package names
   --font-geist-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-geist-mono: ui-monospace, "SFMono-Regular", "SF Mono", Consolas, "Liberation Mono", Menlo, monospace;
   --radius: 0.625rem;
+  /* Vertical space a viewport-pinned floating CTA needs to clear: its bottom
+     offset (1.5rem) plus its own height, rounded up to the spacing scale.
+     Consumed by the `body[data-demo-feedback-fab]` safe-area rule below. */
+  --om-floating-cta-safe-area: 5rem;
   /* Brand lime + yellow — theme-invariant (no .dark override). Brand violet is themed (see below + .dark). */
   --brand-lime: #B4F372;
   /* Brand yellow — mid stop of the OM brand gradient (lime -> yellow -> violet), theme-invariant. */
@@ -670,11 +674,28 @@ body[data-column-chooser-open="true"] .om-demo-feedback-floating {
 }
 
 /* Hide floating demo feedback button while an AI chat (e.g. the merchandising
-   assistant sheet) is open — the FAB sits at z-[60] and otherwise overlaps
-   the chat composer's send button. The data attribute is set/cleared by the
-   shared <AiChat> component. */
+   assistant sheet) is open — the FAB would otherwise overlap the chat
+   composer's send button. The data attribute is set/cleared by the shared
+   <AiChat> component. */
 body[data-ai-chat-open="true"] .om-demo-feedback-floating {
   display: none !important;
+}
+
+/* Bottom safe area for the floating demo feedback CTA.
+ *
+ * The button is `position: fixed` in the bottom-right corner, so whatever is
+ * last in the page scroll container stays underneath it once the operator
+ * scrolls to the end of the page — the compact-viewport workflow step palette
+ * and in-flow form footers both ended up unreachable that way (#5984).
+ * Stacking order alone cannot fix that: those controls are ordinary in-flow
+ * content, not overlays. Reserving the CTA's own footprint at the end of
+ * `<main>` lets every page scroll its last row clear of the button.
+ *
+ * The attribute is mirrored from the widget's own visibility, so pages that
+ * never render the CTA (demo mode off, `ff_om_hide_contact`, AI dock mounted)
+ * keep their original spacing. */
+body[data-demo-feedback-fab="visible"] main {
+  padding-bottom: var(--om-floating-cta-safe-area);
 }
 
 /* Hide native scrollbar while keeping scroll behavior — used by sticky sidebars */
