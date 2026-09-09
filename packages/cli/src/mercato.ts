@@ -44,6 +44,7 @@ import { assertSingleInstanceStrategies } from './lib/single-instance-strategy-g
 import { createDevEnvReloader, watchDevEnvFiles } from './lib/dev-env-reload'
 import { quotePostgresIdentifier } from './lib/db/identifiers'
 import { getRegisteredDevSupervisorManifest } from './lib/dev-supervisor-manifest'
+import { buildNextDevArgs } from './lib/next-dev-bundler'
 // Lazy-imported to avoid pulling in `testcontainers` (devDependency) at startup
 const lazyIntegration = () => import('./lib/testing/integration')
 import type { ChildProcess } from 'node:child_process'
@@ -2140,12 +2141,14 @@ export async function run(argv = process.argv) {
               readyResolve = resolve
             })
             const exitPromise = new Promise<ManagedProcessExitResult>((resolve) => {
+              const nextDevCommand = buildNextDevArgs(nextBin, runtimeEnv)
+              const bundlerLabel = nextDevCommand.bundler === 'webpack' ? 'Webpack' : 'Turbopack'
               writeDevSplashRuntimeStarting(
                 lastRestartReason
-                  ? `Restarting Next.js dev server. Reason: ${lastRestartReason}`
-                  : 'Starting Next.js dev server',
+                  ? `Restarting Next.js dev server (${bundlerLabel}). Reason: ${lastRestartReason}`
+                  : `Starting Next.js dev server (${bundlerLabel})`,
               )
-              const nextProcess = spawn('node', [nextBin, 'dev', '--turbopack'], {
+              const nextProcess = spawn('node', nextDevCommand.args, {
                 stdio: ['inherit', 'pipe', 'pipe'],
                 env: runtimeEnv,
                 cwd: appDir,

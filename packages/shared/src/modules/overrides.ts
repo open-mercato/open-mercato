@@ -258,11 +258,21 @@ const TRACKING_ISSUE_HINT =
  * Call this exactly once from `apps/<app>/src/bootstrap.ts` BEFORE any
  * registry first-loads. Calling it more than once is safe but
  * accumulates per-domain entries each time.
+ *
+ * `options.domains` narrows the dispatch to the domains a given runtime wires.
+ * The browser re-registers the widget and notification registries from
+ * `ClientBootstrap`, so it needs those overrides too, but it never loads the
+ * server-only appliers — dispatching every domain there would report wired
+ * domains as unwired (#5152).
  */
 export function applyModuleOverridesFromEnabledModules(
   modules: ReadonlyArray<ModuleEntryWithOverrides>,
+  options?: { domains?: readonly ModuleOverrideDomain[] },
 ): void {
   if (!Array.isArray(modules) || modules.length === 0) return
+  const selectedDomains = options?.domains
+    ? DOMAIN_KEYS.filter((domain) => options.domains!.includes(domain))
+    : DOMAIN_KEYS
 
   // Bucket entries by domain in module-load order.
   const buckets = new Map<ModuleOverrideDomain, Array<ModuleOverrideEntry<unknown>>>()
@@ -272,7 +282,7 @@ export function applyModuleOverridesFromEnabledModules(
     const overrides = entry.overrides
     if (!overrides || typeof overrides !== 'object') continue
 
-    for (const domain of DOMAIN_KEYS) {
+    for (const domain of selectedDomains) {
       const value = (overrides as Record<string, unknown>)[domain]
       if (value === undefined || value === null) continue
       if (typeof value !== 'object') continue
@@ -572,14 +582,33 @@ function composeStore<T>(store: OverrideStore<T>): OverrideMap<T> {
   return { ...store.modules, ...store.programmatic }
 }
 
+type ArrayOverrideOptions<T> = {
+  label: string
+  getId: (value: T) => string | null
+  /**
+   * Secondary identifiers the same item may also be addressed by. A domain whose
+   * entries carry more than one id (injection widgets expose both `key` and
+   * `widgetId`) would otherwise force authors to guess which spelling the
+   * override map is matched against — see issue #5152.
+   */
+  getAliasIds?: (value: T) => readonly (string | undefined)[]
+  isReplacement?: (value: unknown) => value is T
+}
+
+function resolveOverrideIds<T>(value: T, options: ArrayOverrideOptions<T>): string[] {
+  const ids: string[] = []
+  const primary = options.getId(value)
+  if (primary) ids.push(primary)
+  for (const alias of options.getAliasIds?.(value) ?? []) {
+    if (alias && !ids.includes(alias)) ids.push(alias)
+  }
+  return ids
+}
+
 function applyArrayOverrides<T>(
   items: readonly T[] | undefined,
   overrides: Readonly<OverrideMap<T>>,
-  options: {
-    label: string
-    getId: (value: T) => string | null
-    isReplacement?: (value: unknown) => value is T
-  },
+  options: ArrayOverrideOptions<T>,
 ): { items: T[] | undefined; consumed: Set<string>; changed: boolean } {
   if (!items || Object.keys(overrides).length === 0) {
     return { items: items ? Array.from(items) : items, consumed: new Set(), changed: false }
@@ -590,12 +619,31 @@ function applyArrayOverrides<T>(
   let changed = false
 
   for (const item of items) {
-    const id = options.getId(item)
-    if (!id || !Object.prototype.hasOwnProperty.call(overrides, id)) {
+    const matched = resolveOverrideIds(item, options)
+      .filter((candidate) => Object.prototype.hasOwnProperty.call(overrides, candidate))
+    if (matched.length === 0) {
       result.push(item)
       continue
     }
-    consumed.add(id)
+    // Every matching spelling is consumed, not just the winner: addressing one item
+    // under both of its ids is one instruction written twice, and reporting the loser
+    // as stale is the log noise #5152 asks to remove. Genuinely conflicting values
+    // still get their own warning, since only one of them can take effect.
+    const id = matched[0]
+    for (const candidate of matched) consumed.add(candidate)
+    if (matched.some((candidate) => overrides[candidate] !== overrides[id])) {
+      // The two spellings resolve to different values, and only the first takes
+      // effect. Disable-versus-replace is the case a reader has to act on; two
+      // separate replacement objects are more often the same instruction written
+      // twice, so say which one this is rather than reporting both as a conflict.
+      const disablesAndReplaces = matched.some((candidate) => (overrides[candidate] === null) !== (overrides[id] === null))
+      logger.warn(
+        disablesAndReplaces
+          ? 'Conflicting overrides for the same entry — one key disables it while another replaces it; the first matching key wins'
+          : 'Duplicate replacement overrides for the same entry — only the first matching key takes effect',
+        { label: options.label, id, keys: matched },
+      )
+    }
     changed = true
     const replacement = overrides[id]
     if (replacement === null) continue
@@ -604,11 +652,26 @@ function applyArrayOverrides<T>(
       result.push(item)
       continue
     }
-    const replacementId = options.getId(replacement)
-    if (replacementId !== id) {
+    const replacementIds = resolveOverrideIds(replacement, options)
+    if (!replacementIds.includes(id)) {
       logger.warn('Skipping malformed override — replacement id must match the override key', { label: options.label, id })
       result.push(item)
       continue
+    }
+    // Matching on ONE id is enough to accept the replacement, so the other one can
+    // still drift: an injection widget matched by `widgetId` may carry a foreign
+    // `key` (colliding with another entry's registry slot) and one matched by `key`
+    // a foreign `widgetId` (orphaning every table slot that placed the original).
+    // The override still applies — it named this entry — but it does not do it quietly.
+    const itemIds = resolveOverrideIds(item, options)
+    const divergent = itemIds.filter((candidate) => !replacementIds.includes(candidate))
+    if (divergent.length > 0) {
+      logger.warn('Replacement override changes an identifier it was not matched on — references to the old value are not rewritten', {
+        label: options.label,
+        id,
+        replaced: divergent,
+        replacementIds,
+      })
     }
     result.push(replacement)
   }
@@ -804,6 +867,7 @@ export function resetModuleContractOverridesForTests(): void {
   clearStore(aclFeatureOverrideStore)
   clearStore(encryptionMapOverrideStore)
   clearStore(diOverrideStore)
+  getInjectionWidgetIdAliases().clear()
   for (const key of Object.keys(setupOverridesByModule)) delete setupOverridesByModule[key]
   const navState = getNavOverrideState()
   navState.modules = null
@@ -1165,13 +1229,60 @@ function applyEntryListOverrides<TEntry extends { moduleId: string }, TValue>(
   return changed ? result : Array.from(entries)
 }
 
+/**
+ * `entry.key` (`module:widget:file`) and `entry.widgetId` (the widget module's own
+ * metadata id) are two spellings of the same widget, and the generator never emits
+ * the same value for both. Injection tables reference widgets by `widgetId` while
+ * the entries registry is keyed by `key`, so an override map keyed by one spelling
+ * used to reach only one of the two consumers (#5152). Remembering the pairs lets
+ * either spelling address the widget everywhere.
+ *
+ * Pairs are additive for the process lifetime — re-registration under HMR re-adds
+ * identical pairs, which the sets deduplicate, and a renamed widget leaves behind a
+ * pairing that can only ever over-match an override key naming something that no
+ * longer exists. Only the test reset clears it.
+ *
+ * Persisted on `globalThis` for the same reason the nav state above is: the index is
+ * written when `@open-mercato/ui` filters the entries and read when
+ * `@open-mercato/core` filters the tables, and a standalone build can evaluate
+ * `@open-mercato/shared` through more than one chunk — a module-local `Map` would let
+ * the write and the read land in different instances.
+ */
+const GLOBAL_INJECTION_WIDGET_ID_ALIASES_KEY = '__openMercatoInjectionWidgetIdAliases__'
+
+function getInjectionWidgetIdAliases(): Map<string, Set<string>> {
+  const existing = (globalThis as Record<string, unknown>)[GLOBAL_INJECTION_WIDGET_ID_ALIASES_KEY]
+  if (existing instanceof Map) return existing as Map<string, Set<string>>
+  const initial = new Map<string, Set<string>>()
+  ;(globalThis as Record<string, unknown>)[GLOBAL_INJECTION_WIDGET_ID_ALIASES_KEY] = initial
+  return initial
+}
+
+function rememberInjectionWidgetIdAliases(entries: readonly ModuleInjectionWidgetEntry[] | undefined): void {
+  if (!entries) return
+  const aliases = getInjectionWidgetIdAliases()
+  for (const entry of entries) {
+    const ids = [entry?.key, entry?.widgetId].filter((id): id is string => typeof id === 'string' && id.length > 0)
+    if (ids.length < 2) continue
+    for (const id of ids) {
+      const siblings = aliases.get(id) ?? new Set<string>()
+      for (const sibling of ids) {
+        if (sibling !== id) siblings.add(sibling)
+      }
+      aliases.set(id, siblings)
+    }
+  }
+}
+
 export function applyInjectionWidgetOverridesToEntries(
   entries: readonly ModuleInjectionWidgetEntry[],
   overrides: Readonly<InjectionWidgetOverridesMap> = composeInjectionWidgetOverrides(),
 ): ModuleInjectionWidgetEntry[] {
+  rememberInjectionWidgetIdAliases(entries)
   const applied = applyArrayOverrides(entries, overrides as OverrideMap<ModuleInjectionWidgetEntry>, {
     label: 'widgets.injection',
     getId: (entry) => entry.key,
+    getAliasIds: (entry) => [entry.widgetId],
     isReplacement: isInjectionWidgetEntry,
   })
   warnStaleOverrides('widgets.injection', overrides, applied.consumed)
@@ -1210,11 +1321,25 @@ export function applyWorkerOverridesToDescriptors<T extends { id: string; queue:
   return applied.items ?? []
 }
 
+/**
+ * Injection tables reference widgets by `widgetId`, so a `key`-spelled override has to
+ * be expanded before the slots can be filtered. Pass `entries` whenever the caller has
+ * them: the shared alias index is only a fallback for callers that do not, and it can
+ * only expand pairs some earlier `applyInjectionWidgetOverridesToEntries` call already
+ * recorded.
+ */
 export function applyInjectionWidgetOverridesToTables(
   tables: readonly { moduleId: string; table: ModuleInjectionTable }[],
   overrides: Readonly<InjectionWidgetOverridesMap> = composeInjectionWidgetOverrides(),
+  entries: readonly ModuleInjectionWidgetEntry[] = [],
 ): Array<{ moduleId: string; table: ModuleInjectionTable }> {
-  const disabled = new Set(Object.entries(overrides).filter(([, value]) => value === null).map(([key]) => key))
+  rememberInjectionWidgetIdAliases(entries)
+  const disabled = new Set<string>()
+  for (const [key, value] of Object.entries(overrides)) {
+    if (value !== null) continue
+    disabled.add(key)
+    for (const alias of getInjectionWidgetIdAliases().get(key) ?? []) disabled.add(alias)
+  }
   if (disabled.size === 0) return Array.from(tables)
 
   const filterSlot = (slot: unknown): unknown => {
