@@ -1,10 +1,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, readdirSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { resolvePreset, generateModulesTs, applyStarterPreset } from './apply-starter-preset.js'
+import type { ModuleEntry } from './starter-presets.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -18,10 +19,10 @@ test('resolvePreset: classic returns isClassic=true and empty modules', () => {
   assert.deepEqual(result.filesToRemove, [])
 })
 
-test('resolvePreset: empty returns 11-module list', () => {
+test('resolvePreset: empty returns 12-module list', () => {
   const result = resolvePreset('empty')
   assert.equal(result.isClassic, false)
-  assert.equal(result.modules.length, 11)
+  assert.equal(result.modules.length, 12)
   const ids = result.modules.map((m) => m.id)
   assert.deepEqual(ids, [
     'auth',
@@ -35,10 +36,14 @@ test('resolvePreset: empty returns 11-module list', () => {
     'dashboards',
     'events',
     'search',
+    'attachments',
   ])
   assert.equal(result.modules.find((m) => m.id === 'events')?.from, '@open-mercato/events')
   // search backs the Cmd+K palette the app shell renders unconditionally (issue #5164)
   assert.equal(result.modules.find((m) => m.id === 'search')?.from, '@open-mercato/search')
+  // attachments owns POST /api/attachments, which the baseline directory branding page
+  // uploads the organization logo through (issue #5897)
+  assert.equal(result.modules.find((m) => m.id === 'attachments')?.from, '@open-mercato/core')
   assert.ok(
     result.modules
       .filter((m) => m.id !== 'events' && m.id !== 'search')
@@ -95,7 +100,7 @@ test('resolvePreset: crm returns 19-module list extending empty (includes attach
 test('resolvePreset: wms returns empty plus the WMS dependency chain', () => {
   const result = resolvePreset('wms')
   assert.equal(result.isClassic, false)
-  assert.equal(result.modules.length, 18)
+  assert.equal(result.modules.length, 19)
   const ids = result.modules.map((m) => m.id)
   assert.deepEqual(ids, [
     'auth',
@@ -109,6 +114,7 @@ test('resolvePreset: wms returns empty plus the WMS dependency chain', () => {
     'dashboards',
     'events',
     'search',
+    'attachments',
     'customers',
     'dictionaries',
     'feature_toggles',
@@ -208,7 +214,7 @@ test('applyStarterPreset: classic is a no-op', () => {
   }
 })
 
-test('applyStarterPreset: empty writes 11-module modules.ts and keeps example source present', () => {
+test('applyStarterPreset: empty writes 12-module modules.ts and keeps example source present', () => {
   const dir = makeTempDir()
   try {
     applyStarterPreset('empty', dir)
@@ -221,6 +227,9 @@ test('applyStarterPreset: empty writes 11-module modules.ts and keeps example so
     assert.ok(content.includes("id: 'events'"))
     assert.ok(content.includes("id: 'search'"))
     assert.ok(content.includes("from: '@open-mercato/search'"))
+    // attachments must register so the branding logo upload has a route to POST to
+    // (regression coverage for issue #5897)
+    assert.ok(content.includes("id: 'attachments'"))
     assert.ok(!content.includes("id: 'customers'"))
     assert.ok(!content.includes('example_customers_sync'))
     assert.ok(existsSync(join(dir, 'src', 'modules', 'example')))
@@ -274,6 +283,9 @@ test('applyStarterPreset: wms writes the WMS dependency chain and keeps example 
     for (const moduleId of ['customers', 'dictionaries', 'feature_toggles', 'catalog', 'sales', 'wms', 'currencies']) {
       assert.ok(content.includes(`id: '${moduleId}'`))
     }
+    // catalog's product media manager uploads through POST /api/attachments, which only
+    // the inherited attachments module registers (issue #5897)
+    assert.ok(content.includes("id: 'attachments'"))
     assert.ok(!content.includes("id: 'ai_assistant'"))
     assert.ok(existsSync(join(dir, 'src', 'modules', 'example')))
     const marker = JSON.parse(readFileSync(join(dir, '.mercato', 'starter-preset.json'), 'utf-8'))
@@ -320,6 +332,74 @@ test('every non-classic preset enables the modules the template topbar gates on'
         `preset "${presetId}" must enable module "${moduleId}" — the topbar gates an affordance on one of its features`,
       )
     }
+  }
+})
+
+// Drift guard: a preset that enables a module whose UI uploads through
+// `POST /api/attachments` without also enabling `attachments` ships an app where the
+// route is simply not registered, so the upload answers 404 while the rest of the page
+// keeps working. That silent failure is how issue #5897 escaped review — the baseline
+// `directory` branding page has always uploaded the organization logo that way.
+
+const PACKAGES_DIR = join(__dirname, '..', '..', '..')
+
+// Every module a preset can enable lives at `packages/<pkg>/src/modules/<id>`, so the
+// owning package is derivable from the entry's `from` — scanning only `@open-mercato/core`
+// would leave a preset that enables an uploader from `search`, `events` or `ai-assistant`
+// unguarded.
+function moduleSourceDir(entry: ModuleEntry): string {
+  return join(PACKAGES_DIR, entry.from.replace('@open-mercato/', ''), 'src', 'modules', entry.id)
+}
+
+function collectSourceFiles(dir: string): string[] {
+  const skipped = new Set(['__tests__', '__integration__', 'migrations', 'node_modules'])
+  const files: string[] = []
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.isDirectory()) {
+      if (skipped.has(entry.name)) continue
+      files.push(...collectSourceFiles(join(dir, entry.name)))
+      continue
+    }
+    if (entry.name.endsWith('.ts') || entry.name.endsWith('.tsx')) files.push(join(dir, entry.name))
+  }
+  return files
+}
+
+const attachmentUploaderCache = new Map<string, boolean>()
+
+function moduleUploadsToAttachments(entry: ModuleEntry): boolean {
+  const cached = attachmentUploaderCache.get(entry.id)
+  if (cached !== undefined) return cached
+  const moduleDir = moduleSourceDir(entry)
+  const uploads =
+    existsSync(moduleDir) &&
+    collectSourceFiles(moduleDir).some((file) =>
+      readFileSync(file, 'utf-8').includes("'/api/attachments'"),
+    )
+  attachmentUploaderCache.set(entry.id, uploads)
+  return uploads
+}
+
+test('every non-classic preset enabling an attachment uploader also enables attachments', () => {
+  // The guard is only meaningful while a baseline module really does upload; assert that
+  // premise so a future refactor turns this test red rather than vacuously green.
+  assert.ok(
+    moduleUploadsToAttachments({ id: 'directory', from: '@open-mercato/core' }),
+    'expected the directory branding page to upload the organization logo to /api/attachments',
+  )
+
+  for (const presetId of ['empty', 'crm', 'wms']) {
+    const modules = resolvePreset(presetId).modules
+    const enabledIds = new Set(modules.map((m) => m.id))
+    const uploaders = modules
+      .filter((m) => m.id !== 'attachments')
+      .filter(moduleUploadsToAttachments)
+      .map((m) => m.id)
+    if (uploaders.length === 0) continue
+    assert.ok(
+      enabledIds.has('attachments'),
+      `preset "${presetId}" enables ${uploaders.join(', ')} — module(s) uploading through POST /api/attachments — but not the attachments module that registers the route`,
+    )
   }
 })
 
