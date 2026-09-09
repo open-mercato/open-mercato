@@ -140,11 +140,18 @@ Behavior:
 - Groups are matched on their stable `CrudFormGroup.id`. Injected widget cards use the id `widget:<widgetId>`.
 - Hidden groups reserve no column space and contribute no header, sortable entry, collapsible state, or validation focus target. Hiding the only column-2 group collapses the layout to a single column.
 - Ids that match no declared group are ignored (with a development-mode warning), so a stale id after a rename never breaks the page.
+- A user's saved group order survives hiding: a hidden group keeps its stored position and returns to it once the group is shown again.
 - Omitting the prop — or passing an empty array — preserves existing rendering and submission behavior exactly.
 
 :::caution Hiding is presentation-only
 Fields that live only in a hidden group **keep their values and are still submitted unchanged**, so hiding a group can never clear the underlying columns. A `required` field that lives only in a hidden group is skipped by the built-in required check (the same way `visibleWhen` works), but a host-supplied Zod `schema` is **not** bypassed — do not hide a group whose fields the schema requires unless defaults supply them.
 :::
+
+:::caution Hiding a widget card does not disable the widget
+An injected widget's handlers belong to the injection spot, not to its card. Hiding a `widget:<widgetId>` group therefore removes the card while `onBeforeSave` and `transformFormData` keep running, and the widget's fields stay required — so a validation failure can block save with nothing on screen to fix. Do not hide a widget group that gates saving; disable the widget instead.
+:::
+
+Because hosts address groups by id, a built-in group's `id` is a contract surface: see [`BACKWARD_COMPATIBILITY.md`](https://github.com/open-mercato/open-mercato/blob/develop/BACKWARD_COMPATIBILITY.md) before renaming one, and pin a builder's ids with a guard test.
 
 ## Mobile UX
 - On small screens the form is fullscreen with a sticky header that shows the `title` and a `backHref` link.

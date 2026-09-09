@@ -143,6 +143,7 @@ These functions are called directly by module code. Their signatures MUST NOT ch
 | `collectCustomFieldValues()` | `@open-mercato/ui/backend/utils/customFieldValues` | MUST NOT change |
 | `flash()` | `@open-mercato/ui` | MUST NOT change |
 | `CrudForm` component props | `@open-mercato/ui/backend/crud` | MUST NOT remove existing props |
+| Built-in `CrudFormGroup.id` values | any module's form-group builder (e.g. `createCompanyFormGroups`) | MUST NOT rename or remove an id a shipped form declares — `CrudForm`'s `hiddenGroupIds` addresses groups by id, and an unmatched id is ignored, so a rename makes a card the host hid silently reappear in production. Renames follow the deprecation protocol; pin a builder's ids with a guard test (pattern: `packages/core/src/modules/customers/components/__tests__/companyFormHiddenGroups.test.tsx`). MAY add new groups freely |
 | `DataTable` component props | `@open-mercato/ui/backend` | MUST NOT remove existing props |
 | `parseBooleanToken` / `parseBooleanWithDefault` | `@open-mercato/shared/lib/boolean` | MUST NOT change |
 
