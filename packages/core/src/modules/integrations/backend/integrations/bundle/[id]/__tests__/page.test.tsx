@@ -13,13 +13,17 @@ jest.mock('next/link', () => ({
   default: ({ children, href }: { children: React.ReactNode; href: string }) => <a href={href}>{children}</a>,
 }))
 
-jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
-  apiCall: (...args: unknown[]) => apiCallMock(...args),
-  withScopedApiRequestHeaders: (
-    _headers: Record<string, string>,
-    operation: () => Promise<unknown>,
-  ) => operation(),
-}))
+jest.mock('@open-mercato/ui/backend/utils/apiCall', () => {
+  const actual = jest.requireActual('@open-mercato/ui/backend/utils/apiCall')
+  return {
+    ...actual,
+    apiCall: (...args: unknown[]) => apiCallMock(...args),
+    withScopedApiRequestHeaders: (
+      _headers: Record<string, string>,
+      operation: () => Promise<unknown>,
+    ) => operation(),
+  }
+})
 
 jest.mock('@open-mercato/ui/backend/utils/optimisticLock', () => ({
   buildOptimisticLockHeader: () => ({}),
