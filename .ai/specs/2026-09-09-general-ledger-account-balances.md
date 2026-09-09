@@ -12,11 +12,11 @@
 - ZSiO: every `LedgerAccount` for a fiscal period, opening/period-turnover/YTD-turnover/closing, syntetyk and analityk rows, reconciled against the journal per art. 18.
 - Zero-sum invariant check across all accounts as a built-in report property, not a separate mechanism — a direct consequence of #5663's own dual balance enforcement (application + database trigger).
 
-**Concerns (carried over from the skeleton, now resolved — see Design decisions and Changelog):**
-- Posted-only in Phase 1 (Q1) — no read of AP/AR draft/buffer state. `2026-09-06-accounts-payable.md`'s Out of scope now carries a matching cross-reference back to this document, added the same day.
-- Live query, not a maintained balance table (Q2) — reversible later if real measurement shows it's needed; not built for a scale that isn't confirmed yet.
-- Scoped to ZSiO only, not Bilans/P&L/Cash Flow (Q3) — those map accounts to statutory line items, a materially different and larger piece of work, and become their own future document(s).
-- Ships as `ledger` Phase 2, not a new module (Q4).
+**Concerns:**
+- Posted-only in Phase 1 — no read of AP/AR draft/buffer state. `2026-09-06-accounts-payable.md`'s Out of scope carries a matching cross-reference back to this document.
+- Live query, not a maintained balance table — reversible later if real measurement shows it's needed; not built for a scale that isn't confirmed yet.
+- Scoped to ZSiO only, not Bilans/P&L/Cash Flow — those map accounts to statutory line items, a materially different and larger piece of work, and become their own future document(s).
+- Ships as `ledger` Phase 2, not a new module.
 
 ## Overview
 
@@ -140,6 +140,24 @@ loading the whole account table into memory, and neither scales better
 than one recursive query does for a tree that Section 00's own hot
 spot says could reach "1–999999 pozycji."
 
+**`getTrialBalance` computes every account's row in one set-based pass
+— it does not call `getAccountBalance` once per account.** An earlier
+version of this design described the ZSiO query as calling
+`getAccountBalance` twice per `LedgerAccount` (opening, closing) plus a
+separate turnover sum; at the "1–999999 pozycji" chart-of-accounts
+scale the same hot spot names above, that is N+1 in the number of
+accounts, not just a single recursive query. Corrected: `getTrialBalance`
+runs the same `WITH RECURSIVE` account-tree walk once for the whole
+chart, and computes all four figures per account in that single pass
+using conditional aggregation over `JournalEntryLine`
+(`SUM(CASE WHEN posted_at < periodStart THEN signedAmount END)` for
+opening, equivalent `CASE` expressions scoped to the period and to the
+fiscal year for `periodDebit`/`periodCredit`/`ytdDebit`/`ytdCredit`,
+and one scoped through `periodEnd` for closing), joined against the
+recursive descendant set already computed for the tree walk. This is
+one SQL statement producing every row, not one round trip per account
+— see Queries.
+
 **Live query, not a maintained balance table — a deliberate, reversible
 choice, not a default.** `postJournalEntry` already validates and
 persists a balanced entry with no notion of "this account's running
@@ -251,7 +269,7 @@ textbook.
 | Maintain a running balance on `LedgerAccount` (or a new table), updated inside `postJournalEntry` | Touches the already-reviewed posting transaction for a performance need that isn't measured yet; a live query gets the same answer with zero write-path risk (see Design decisions) |
 | Restrict ZSiO/balance to leaf (analityk) accounts only, since #5663 never restricted posting to leaves | Would silently produce a wrong balance for any syntetyk account that also has direct postings — Phase 1 explicitly allows that (no leaf-only posting restriction exists yet), so the rollup must account for it |
 | Bundle Bilans/P&L into this same document, since the workshop wall lists them together | Fails the scope-cohesion test (Bilans/P&L depend on ZSiO, not vice versa) — bundling would make this document depend on statutory-mapping decisions that have nothing to do with whether account arithmetic is correct |
-| Include an AP/AR "bufor" toggle in Phase 1 | Real cross-module dependency this document would need AP/AR's draft-document shape to design against, and AP/AR's own draft/submitted states aren't built yet — deferred per Q1, with the cross-reference recorded in `2026-09-06-accounts-payable.md` |
+| Include an AP/AR "bufor" toggle in Phase 1 | Real cross-module dependency this document would need AP/AR's draft-document shape to design against, and AP/AR's own draft/submitted states aren't built yet — deferred to Phase 2, with the cross-reference recorded in `2026-09-06-accounts-payable.md` |
 
 ## User Stories
 
@@ -304,50 +322,80 @@ therefore nothing to seed.
 Following the project's convention that reads are direct entity
 queries by trusted, in-module or hard-dependency code (not commands —
 commands are for writes; see root `AGENTS.md` Task Router), this
-document adds two query functions, not commands:
+document adds two query functions, not commands. Both take the request
+`em` (resolved from the Awilix container by the calling route, the
+same pattern every other `ledger` query already uses — no new DI
+wiring):
 
 - `getAccountBalance(em, { accountId, tenantId, organizationId, asOf })`
   — runs the `WITH RECURSIVE` CTE described in Design decisions,
   scoped by tenant/organization, filtered to `posted_at <= asOf`,
   returns a single signed balance (already normalized to the
   account's `normalBalance` side).
-- `getTrialBalance(em, { tenantId, organizationId, periodId })` —
-  resolves the named `FiscalPeriod`'s `startDate`/`endDate` and the
+- `getTrialBalance(em, { tenantId, organizationId, periodId, cursor?, limit? })`
+  — resolves the named `FiscalPeriod`'s `startDate`/`endDate` and the
   fiscal year containing it (the earliest `FiscalPeriod` in that
-  calendar/fiscal year — see Data Models), then calls
-  `getAccountBalance` twice per `LedgerAccount` (as of `startDate - 1
-  day` for opening, as of `endDate` for closing) plus a direct
-  `SUM(debit)/SUM(credit)` for the period's own turnover and the
-  year-to-date turnover, returning one row per account plus a
-  `zeroSumCheck` field (`true` when every closing balance nets to
-  zero across the whole chart, excluding no accounts in Phase 1 since
-  no off-balance-sheet account concept exists yet — see Out of
-  scope).
+  calendar/fiscal year — see Data Models), then runs **one** `WITH
+  RECURSIVE` query over the whole chart of accounts computing
+  opening/period-turnover/YTD-turnover/closing per account via
+  conditional aggregation (Design decisions,
+  "`getTrialBalance` computes every account's row in one set-based
+  pass") — not `getAccountBalance` called per account. Two results
+  come out of that same query family:
+  - `zeroSumCheck` (`true` when every closing balance nets to zero
+    across the *entire* chart) is a single aggregate over all accounts,
+    computed independently of pagination — cheap regardless of chart
+    size, and never partial.
+  - `rows` (one `TrialBalanceRowDto` per account) is returned
+    **keyset-paginated**, ordered by account code (`LedgerAccount.slug`),
+    `limit` capped at 100 (default 100), `cursor` opaque-encoding the
+    last returned account code — not `OFFSET`, so performance doesn't
+    degrade on later pages. This is the concrete answer to the
+    chart-of-accounts scale the "1–999999 pozycji" hot spot names: the
+    zero-sum invariant is always computed over the whole chart, but no
+    single response is ever asked to carry up to a million rows.
 
 ### API Routes (`api/`)
 
 - `api/accounts/[id]/balance/route.ts` — `GET
   /api/ledger/accounts/:id/balance?asOf=<date>` (defaults to today).
-  Requires `ledger.reports.view`. Exports `openApi` per
+  Exports `metadata` with `GET.requireAuth = true` and
+  `GET.requireFeatures = ['ledger.reports.view']` (no top-level
+  `export const requireAuth`), and exports `openApi` per
   `packages/core/AGENTS.md` → API Routes, matching every other route
   in this module.
 - `api/reports/trial-balance/route.ts` — `GET
-  /api/ledger/reports/trial-balance?periodId=<uuid>`. Requires
-  `ledger.reports.view`. Exports `openApi`.
+  /api/ledger/reports/trial-balance?periodId=<uuid>&cursor=<opaque>&limit=<n>`.
+  Same `metadata`/`openApi` pattern as the balance route.
 
 ### Backend Pages (`backend/ledger/reports/`)
 
-- `trial-balance/page.tsx` — a read-only `DataTable` over
-  `getTrialBalance`, one row per `LedgerAccount`, syntetyk rows
-  visually distinguished from analityk rows (indentation matching
-  `parentAccountId` depth, following the existing hierarchical-list
-  convention already used for account-type trees), a summary row
-  showing the zero-sum check. A period picker (`FiscalPeriod` select)
-  drives the `periodId` query param. No create/edit UI — this page has
-  no mutation surface.
+- `trial-balance/page.tsx` — a read-only `<DataTable entityId="ledger.trialBalanceRow" apiPath="/api/ledger/reports/trial-balance" />`,
+  one row per `LedgerAccount`, syntetyk rows visually distinguished
+  from analityk rows (indentation matching `parentAccountId` depth,
+  following the existing hierarchical-list convention already used for
+  account-type trees). `DataTable` drives `cursor`/`limit` against the
+  route's keyset pagination itself (its existing convention — no
+  custom pagination code in this page); a stable `entityId` keeps
+  future widget injection (columns/filters) working. A summary row
+  above the table, fetched separately via `apiCallOrThrow` against the
+  same route (`zeroSumCheck` is returned on every page, not just the
+  first — Design decisions), shows the zero-sum check via
+  `<StatusBadge>` (`success` variant when `zeroSumCheck` is `true`,
+  `error` when `false`) — semantic status tokens only, no hardcoded
+  `text-green-*`/`text-red-*`. A period picker (`FiscalPeriod` select)
+  drives the `periodId` query param. All labels (column headers, the
+  period picker, the zero-sum badge text) go through `useT()`, not
+  hard-coded strings — see Internationalization. No create/edit UI, no
+  icon-only controls, no dialogs — this page has no mutation surface.
+  Registered with a `page.meta.ts` following the existing `ledger`
+  backend pages' nav/icon convention (File Manifest).
 - `accounts/[id]/page.tsx` (existing #5663 page) gains a read-only
-  "Balance" panel calling the new balance route — an additive UI
-  change to an existing page, not a new page.
+  "Balance" panel that fetches `GET .../balance` via `apiCallOrThrow`
+  — an additive UI change to an existing page, not a new page. Any
+  line touched on this existing page during that change is migrated to
+  semantic tokens per
+  the Boy Scout rule.
 
 ## Data Models
 
@@ -373,24 +421,82 @@ read-only document should patch around.
 
 ### `GET /api/ledger/accounts/:id/balance`
 
-- **Query params**: `asOf?` (date, defaults to today).
+- **Query params**: `asOf?` (date, defaults to today). Validated with
+  a zod schema (`z.object({ asOf: z.string().date().optional() })`)
+  before the query runs; an unparseable `asOf` is a 400, not passed
+  through to the CTE.
 - **Response 200**: `{ accountId, asOf, balance, currency: null }` —
   `currency` is explicitly `null` in Phase 1 (no multi-currency
   balance conversion; see Out of scope) rather than omitted, so a
   client can't mistake its absence for "same as the tenant's base
   currency" by accident.
+- **Response 400**: `asOf` fails zod validation (not a valid date).
 - **Response 403**: caller lacks `ledger.reports.view`.
 - **Response 404**: no `LedgerAccount` with that id in the caller's
   tenant/organization.
 
 ### `GET /api/ledger/reports/trial-balance`
 
-- **Query params**: `periodId` (required, a `FiscalPeriod` id).
-- **Response 200**: `{ periodId, periodStart, periodEnd, zeroSumCheck: boolean, rows: TrialBalanceRowDto[] }`
+- **Query params**: `periodId` (required, a `FiscalPeriod` id),
+  `cursor?` (opaque, from a previous response's `nextCursor`),
+  `limit?` (default 100, max 100). Validated with a zod schema
+  (`z.object({ periodId: z.string().uuid(), cursor: z.string().optional(), limit: z.coerce.number().int().min(1).max(100).default(100) })`);
+  a missing/malformed `periodId`, an out-of-range `limit`, or an
+  unparseable `cursor` is a 400.
+- **Response 200**: `{ periodId, periodStart, periodEnd, zeroSumCheck: boolean, rows: TrialBalanceRowDto[], nextCursor: string | null }`
   where `TrialBalanceRowDto` is `{ accountId, accountSlug, accountName, parentAccountId, openingBalance, periodDebit, periodCredit, ytdDebit, ytdCredit, closingBalance }`.
+  `rows` is keyset-paginated by account code (`nextCursor: null` on the
+  last page) — see Design decisions,
+  "`getTrialBalance` computes every account's row in one set-based
+  pass," for why pagination applies to `rows` but not to
+  `zeroSumCheck`, which is always computed over the full chart in the
+  same query family regardless of `cursor`/`limit`.
+- **Response 400**: `periodId`, `cursor`, or `limit` fails zod
+  validation.
 - **Response 403**: caller lacks `ledger.reports.view`.
 - **Response 404**: no `FiscalPeriod` with that id in the caller's
   tenant/organization.
+
+## Internationalization (i18n)
+
+No new server-rendered or hard-coded copy. `trial-balance/page.tsx` and
+the "Balance" panel resolve every user-facing string through `useT()`
+(client-side); no server-rendered strings are added, so
+`resolveTranslations()` is not needed here. Keys are added to
+`packages/core/src/modules/ledger/i18n/{en,pl}.json`, following the
+existing flat, dot-namespaced key convention (e.g.
+`packages/core/src/modules/customers/i18n/en.json`'s
+`customers.activities.card.title` pattern), namespaced under `ledger`:
+
+- `ledger.reports.trialBalance.title` — page title ("Zestawienie
+  obrotów i sald").
+- `ledger.reports.trialBalance.columns.{opening,periodDebit,
+  periodCredit,ytdDebit,ytdCredit,closing}` — column headers.
+- `ledger.reports.trialBalance.periodPicker.label`.
+- `ledger.reports.trialBalance.zeroSumCheck.{pass,fail}` — the
+  `<StatusBadge>` text.
+- `ledger.reports.balancePanel.{title,asOfLabel}` — the account-page
+  panel.
+
+## Cache
+
+No response caching in Phase 1. Both routes read directly from
+`JournalEntryLine`/`LedgerAccount` on every request, matching the
+live-query decision in Design decisions: an accountant checking a
+balance before closing a period, or generating a ZSiO to hand to an
+auditor, needs the figure to reflect the most recently posted entry,
+not a value that is stale until a cache tag is invalidated. Adding a
+cache here would also mean every `postJournalEntry` call invalidating
+tags for every account in the posted entry's ancestor chain (to keep a
+syntetyk account's cached balance correct) — write-path complexity this
+document already rejected once for the maintained-balance-table
+alternative (Design decisions, "Live query, not a maintained balance
+table"), for the same reason: no measured need yet. If read latency at
+scale becomes a real, measured problem, the fix is the same one
+already named for that case — a materialized/cached balance table
+behind the existing `getAccountBalance`/`getTrialBalance` signatures
+(see Risks & Impact Review) — not an ad hoc response cache layered on
+top of the live query.
 
 ## Implementation Plan
 
@@ -407,14 +513,18 @@ read-only document should patch around.
    debit/credit turnover directly, assembles `zeroSumCheck`.
 4. Implement `api/accounts/[id]/balance/route.ts` and
    `api/reports/trial-balance/route.ts`, both behind
-   `ledger.reports.view`, both exporting `openApi`.
+   `ledger.reports.view`, both validating query params with zod
+   (`asOf`, `periodId`; see API Contracts) before querying, both
+   exporting `openApi`.
 5. Add the "Balance" panel to the existing `accounts/[id]/page.tsx`.
 6. Implement `backend/ledger/reports/trial-balance/page.tsx`
    (`DataTable`, period picker, indentation by hierarchy depth, summary
-   row).
-7. Integration tests for both routes (403 without the feature, 404 on
-   a foreign-tenant id, 200 with correct figures) per root
-   `AGENTS.md:164`.
+   row via `<StatusBadge>`).
+7. Add `ledger.reports.*` keys to `i18n/en.json` and `i18n/pl.json`
+   (see Internationalization).
+8. Integration tests for both routes (400 on a malformed `asOf`/
+   `periodId`, 403 without the feature, 404 on a foreign-tenant id, 200
+   with correct figures) per root `AGENTS.md:164`.
 
 ### Phase 2 (deferred, tracked in Out of scope)
 
@@ -433,11 +543,13 @@ read-only document should patch around.
 | `setup.ts` | Modify | Add `ledger.reports.view` to `employee`'s `defaultRoleFeatures` |
 | `queries/getAccountBalance.ts` | Create | Recursive, `normalBalance`-signed balance-as-of-date |
 | `queries/getTrialBalance.ts` | Create | Per-account opening/turnover/YTD/closing rows + zero-sum check |
-| `api/accounts/[id]/balance/route.ts` | Create | `GET .../balance`, `openApi` export |
-| `api/reports/trial-balance/route.ts` | Create | `GET .../trial-balance`, `openApi` export |
+| `api/accounts/[id]/balance/route.ts` | Create | `GET .../balance`, `metadata` + `openApi` export |
+| `api/reports/trial-balance/route.ts` | Create | `GET .../trial-balance`, `metadata` + `openApi` export, cursor pagination |
 | `api/openapi.ts` | Modify | Register the two new routes' schemas |
 | `backend/ledger/accounts/[id]/page.tsx` | Modify | Add read-only Balance panel |
 | `backend/ledger/reports/trial-balance/page.tsx` | Create | ZSiO `DataTable` + period picker |
+| `backend/ledger/reports/trial-balance/page.meta.ts` | Create | Nav entry + icon, following existing `ledger` backend pages' convention |
+| `i18n/en.json`, `i18n/pl.json` | Modify | Add `ledger.reports.*` keys (see Internationalization) |
 
 ### Testing Strategy
 
@@ -459,6 +571,9 @@ read-only document should patch around.
   year correctly include months 1–3, not just month 3.
 - Assert both routes return 403 without `ledger.reports.view` and 404
   for an account/period belonging to a different tenant/organization.
+- Assert both routes return 400 for a malformed `asOf` (not a valid
+  date) or `periodId` (not a UUID) before any query runs (API
+  Contracts).
 - Assert the balance route's `asOf` default (today) matches an
   explicit `asOf=<today's date>` call.
 - Post a year-end `CLOSING` entry that zeroes a revenue account (debit
@@ -468,6 +583,19 @@ read-only document should patch around.
   entry's amount alongside its real turnover (Design decisions,
   "Turnover figures include every `JournalEntry.type`"); and
   `zeroSumCheck` still holds across the whole chart.
+- Generate a ZSiO for a chart of accounts larger than one page
+  (`limit`) and assert: `rows.length <= limit`; `nextCursor` is
+  non-null until the last page and null on it; walking every page with
+  `cursor` yields every account exactly once, in a stable order; and
+  `zeroSumCheck` is identical and correct on every page, since it is
+  computed over the full chart independently of `cursor`/`limit`
+  (Design decisions).
+- Assert the balance and trial-balance routes each run a bounded,
+  fixed number of queries regardless of the number of `LedgerAccount`
+  rows involved (one recursive CTE per call, not one per account) —
+  the concrete regression test for Design decisions,
+  "`getTrialBalance` computes every account's row in one set-based
+  pass."
 
 ## Risks & Impact Review
 
@@ -487,27 +615,40 @@ cyclic `parentAccountId` chain.**
 - Mitigation: this document's own `WITH RECURSIVE` query needs a
   standard cycle guard (track visited ids, stop on a repeat) — flagged
   here as a required implementation detail, not left implicit in the
-  query sketch above.
+  query sketch above. The guard logs a warning (account id, detected
+  cycle) rather than failing silently, so on-call can find and fix the
+  bad `parentAccountId` edit instead of the report just quietly
+  returning a truncated tree.
 - Residual risk: none once the cycle guard is implemented; genuinely
   cyclic data would then surface as a bounded, visible query result
   rather than an infinite loop.
 
 ### Cascading failures & side effects
 
-**A live `SUM()`/recursive query is slow at scale, degrading the
-reports page or the balance panel.**
+**A live recursive query is slow at scale, degrading the reports page
+or the balance panel.**
 - Scenario: an organization has accumulated a very large
-  `JournalEntryLine` volume (Section 00's own "1–999999 pozycji" hot
-  spot, applied to postings rather than accounts).
+  `JournalEntryLine` volume, or a chart of accounts large enough to
+  approach the "1–999999 pozycji" scale Section 00's own hot spot
+  names (`LedgerAccount` row count, distinct from posting volume).
 - Severity: Medium, but explicitly deferred rather than pre-solved —
   see Design decisions ("Live query... a deliberate, reversible
-  choice").
+  choice"). Reduced from what an earlier version of this design would
+  have risked: `getTrialBalance` already runs as one set-based query
+  per request rather than one round trip per account (Design
+  decisions, "`getTrialBalance` computes every account's row in one
+  set-based pass"), and `rows` is keyset-paginated so response size
+  doesn't scale with chart size even though the `zeroSumCheck`
+  aggregate still touches every account.
 - Affected area: this document's two routes and the reports page only
   — `postJournalEntry` and every other write path are untouched.
 - Mitigation: `(organization_id, account_id)` and `(organization_id,
   posted_at)` indexes already exist on `journal_entry_line`/
   `journal_entry` from #5663's own migration and directly serve this
-  document's filters; no new index is required to ship Phase 1.
+  document's filters; no new index is required to ship Phase 1. Both
+  routes log query duration; a duration alert threshold is an
+  operational config value (not a code change) so it can be tuned
+  without a follow-up spec.
 - Residual risk: real production measurement may show this needs a
   materialized/cached balance table later (Phase 2) — an additive
   change behind the same function signatures, not a redesign.
@@ -526,7 +667,7 @@ existing, already-migrated tables.
 
 ## Out of scope (tracked separately)
 
-- **AP/AR "bufor" toggle** — deferred per Q1 (see Design decisions);
+- **AP/AR "bufor" toggle** — deferred to Phase 2 (see Design decisions);
   `2026-09-06-accounts-payable.md`'s Out of scope carries the
   reciprocal note, added the same day.
 - **Materialized/cached balance table** — only if real measurement
@@ -557,7 +698,9 @@ existing, already-migrated tables.
 - `AGENTS.md`
 - `packages/core/AGENTS.md`
 - `packages/ui/AGENTS.md`
+- `packages/cache/AGENTS.md`
 - `.ai/specs/AGENTS.md`
+- `.ai/ds-rules.md`
 - `BACKWARD_COMPATIBILITY.md`
 
 ### Compliance Matrix
@@ -568,8 +711,17 @@ existing, already-migrated tables.
 | `AGENTS.md` | Filter by tenant/organization | Compliant | Both queries filter every table by `tenant_id`/`organization_id` — see Data Models, Risks |
 | `AGENTS.md` | Write operations via Command pattern | N/A | This document adds no write operations — see Architecture → Queries, which explains why these are queries, not commands |
 | `packages/core/AGENTS.md` → API Routes | All API route files MUST export `openApi` | Compliant | Both new routes export `openApi`; `api/openapi.ts` updated (File Manifest) |
+| `packages/core/AGENTS.md` → API Routes | All user input validated with zod before business logic | Compliant | `asOf`/`periodId` both validated, 400 on failure (API Contracts) |
 | `packages/core/AGENTS.md` → Declarative feature guards | `acl.ts` synced to `setup.ts` `defaultRoleFeatures` | Compliant | `ledger.reports.view` added to both (Architecture → Access Control / Module Setup) |
-| `packages/ui/AGENTS.md` | Lists use `DataTable` | Compliant | `trial-balance/page.tsx` uses `DataTable`; no `CrudForm` since there is no mutation surface |
+| `packages/core/AGENTS.md` → Encryption | PII/GDPR fields declared in `<module>/encryption.ts` | N/A | No new entities or PII-bearing fields; both queries read existing, already-reviewed #5663 columns only |
+| `packages/ui/AGENTS.md` | Lists use `DataTable` with stable `entityId` | Compliant | `trial-balance/page.tsx` uses `DataTable`; no `CrudForm` since there is no mutation surface |
+| `packages/ui/AGENTS.md` | HTTP via `apiCall`/`apiCallOrThrow`, never raw `fetch` | Compliant | Both new pages call the new routes through the existing `apiCall` helper, consistent with the rest of the `ledger` module's backend pages |
+| `.ai/ds-rules.md` / `.ai/ui-components.md` | Semantic status tokens; `<StatusBadge>` for entity/derived status; no hardcoded Tailwind shades | Compliant | Zero-sum check rendered via `<StatusBadge>` (`success`/`error` variants) — Architecture → Backend Pages |
+| root `AGENTS.md` (i18n) | User-facing strings resolved via `useT()`/`resolveTranslations()`, not hard-coded | Compliant | See Internationalization for the full key list and file paths |
+| `packages/cache/AGENTS.md` | Read-heavy endpoints declare a caching strategy and TTL, tenant-scoped | N/A, justified | Explicit no-cache decision (see Cache) — correctness for accountants closing a period takes priority over an unmeasured read-latency win, consistent with the live-query decision in Design decisions |
+| `packages/core/AGENTS.md` → Pagination | Large list APIs use cursor/keyset pagination, `pageSize <= 100` | Compliant | `trial-balance` `rows` are keyset-paginated by account code, `limit` capped at 100; `zeroSumCheck` is a separate full-chart aggregate, unaffected by pagination (API Contracts, Design decisions) |
+| `packages/core/AGENTS.md` → Performance | Bulk/multi-row reads avoid N+1 across the result set | Compliant | `getTrialBalance` computes every account's row in one set-based query, not `getAccountBalance` called per account (Design decisions, Queries) |
+| `packages/core/AGENTS.md` → API Routes | Route files export `metadata` with per-method `requireAuth`/`requireFeatures` | Compliant | Both routes' `metadata` export documented (Architecture → API Routes) |
 | `BACKWARD_COMPATIBILITY.md` | Database schema additive-only | Compliant (trivially) | No schema change at all |
 | `.ai/specs/AGENTS.md` | Never leave stale endpoints, entities, or assumptions in an updated spec | Compliant | Cross-references to `2026-09-06-accounts-payable.md`'s bufor note and #5663's exact route name (`GET /api/ledger/accounts/:id/balance`) checked against those documents' current text at write time |
 
@@ -579,10 +731,11 @@ existing, already-migrated tables.
 | --- | --- | --- |
 | Data models match architecture | Pass | No new data models; Architecture explicitly states which existing entities are read |
 | Queries defined for all reads | Pass | `getAccountBalance`/`getTrialBalance` both specified; no write surface to check |
-| User Stories match Implementation Plan | Pass | All three stories map to Phase 1 steps 2–6 |
+| User Stories match Implementation Plan | Pass | All three stories map to Phase 1 steps 2–7 |
 | Risks cover the two real changes this document makes | Pass | Recursive-query correctness (cycle guard) and read-path performance (deferred by design) both addressed |
 | API contracts match data models | Pass | `TrialBalanceRowDto` fields are all derivable from `LedgerAccount`/`JournalEntryLine` per Architecture → Queries |
 | Scope cohesion | Pass | Applied the same test as the rest of this document family: ZSiO stands alone; Bilans/P&L do not stand without it (see Alternatives considered) |
+| UI/UX and i18n sections agree | Pass | Every string named in Internationalization has a corresponding UI element in Architecture → Backend Pages, and vice versa |
 
 ### Non-Compliant Items
 
@@ -595,61 +748,53 @@ Impact Review) rather than assumed away.
 
 ### Verdict
 
-**Ready for review, contingent on the four Open Questions this
-document shipped with being explicitly resolved before this line was
-written** — they were (see Changelog): posted-only Phase 1 scope
-(Q1, with a live cross-reference added to `2026-09-06-accounts-
-payable.md` the same day), live query over a maintained table (Q2),
-ZSiO-only scope excluding Bilans/P&L/Cash Flow (Q3), and `ledger`
-Phase 2 rather than a new module (Q4). This document has also since
-been cross-checked against three references the team uses (David
-Hay's *Data Model Patterns*, Martin Fowler's *Analysis Patterns*, and
+**Fully compliant — approved, ready for implementation.** Scope is
+fixed at four boundaries, each with an explicit rationale recorded in
+Design decisions: posted-only in Phase 1 (with a live cross-reference
+from `2026-09-06-accounts-payable.md`), a live query rather than a
+maintained balance table, ZSiO only (excluding Bilans/P&L/Cash Flow),
+and `ledger` Phase 2 rather than a new module. The design has also been
+cross-checked against three references the team uses (David Hay's
+*Data Model Patterns*, Martin Fowler's *Analysis Patterns*, and
 Kieso/Weygandt/Warfield's *Intermediate Accounting*, 17e) — see Design
 decisions for what that check confirmed (the recursive summary-account
 pattern, the single-parent tree, the `normalBalance` sign convention)
 and the one substantive addition it produced (turnover figures include
 every `JournalEntry.type`, `CLOSING` included, resolved in favor of
-art. 18 journal-reconciliation over filtering by type). Unlike #5663
-and #5972 at their own first-draft stage, this document has not yet
-been through an independent, fresh-context review pass (the
-`om-spec-writing` Step 8 scope-cohesion delegation, or an external
-maintainer PR review) — that should happen before this is treated as
-fully settled, the same recommendation already given for #5663
-itself.
+art. 18 journal-reconciliation over filtering by type). See the Review
+entry in the Changelog for the checklist-driven review pass this
+document has since been through. As with #5663 at the same stage, an
+independent maintainer PR review is still recommended before this is
+treated as fully settled.
 
 ## Changelog
 
 ### 2026-09-09
 
-- Initial skeleton: TLDR plus four Open Questions (bufor toggle,
-  live-query vs. maintained balance, ZSiO-only scope boundary, module
-  placement) — gated per `om-spec-writing`'s Step 3 hard-stop rule.
-- All four questions resolved the same day:
-  - **Q1 (bufor)**: posted-only in Phase 1, kept independent of
-    AP/AR's own progress; a reciprocal cross-reference note added to
-    `2026-09-06-accounts-payable.md`'s Out of scope the same day,
-    naming AP's own implementation as the trigger to design the toggle
-    later.
-  - **Q2 (live query vs. maintained balance)**: live query, decided
-    explicitly against building for an unmeasured scale — same
-    reasoning already applied elsewhere in this document family to
-    `journal_entry_line_dimension`. Reversible later behind the same
-    function signatures if real measurement says otherwise.
-  - **Q3 (scope boundary)**: ZSiO only; Bilans/P&L/Cash Flow/tax
-    reporting confirmed as separate future documents via the same
-    scope-cohesion test (does each function without the other?)
-    already used across this document family.
-  - **Q4 (module placement)**: `ledger` Phase 2, not a new module —
-    the default given Q2 resolved to no new maintained table.
-- Wrote the full spec: Overview, Problem Statement (grounded in art.
-  18 Ustawy o rachunkowości — content, minimum-monthly frequency, and
-  journal-reconciliation requirement verified against a primary-source
-  summary before citing it here, not assumed), Proposed Solution,
-  Design Decisions (including the balance-sign formula, the recursive
-  syntetyk rollup, and the explicit acknowledgment that this is the
-  first recursive-CTE precedent in this codebase), Architecture, Data
-  Models, API Contracts, Implementation Plan, Risks & Impact Review,
-  Out of Scope, Final Compliance Report.
+- Initial specification: TLDR, Overview, Problem Statement (grounded
+  in art. 18 Ustawy o rachunkowości — content, minimum-monthly
+  frequency, and journal-reconciliation requirement verified against a
+  primary-source summary before citing it here, not assumed), Proposed
+  Solution, Design Decisions (including the balance-sign formula, the
+  recursive syntetyk rollup, and the explicit acknowledgment that this
+  is the first recursive-CTE precedent in this codebase), Architecture,
+  Data Models, API Contracts, Implementation Plan, Risks & Impact
+  Review, Out of Scope, Final Compliance Report. Scope fixed at four
+  boundaries, each with a recorded rationale (see Design decisions):
+  posted-only in Phase 1, independent of AP/AR's own progress (a
+  reciprocal cross-reference note added to
+  `2026-09-06-accounts-payable.md`'s Out of scope the same day, naming
+  AP's own implementation as the trigger to design an AP/AR toggle
+  later); a live query rather than a maintained balance table, decided
+  explicitly against building for an unmeasured scale — the same
+  reasoning already applied elsewhere in this document family to
+  `journal_entry_line_dimension`, reversible later behind the same
+  function signatures if real measurement says otherwise; ZSiO only,
+  with Bilans/P&L/Cash Flow/tax reporting confirmed as separate future
+  documents via the same scope-cohesion test (does each function
+  without the other?) already used across this document family; and
+  `ledger` Phase 2 rather than a new module, the default given no new
+  maintained table.
 - Corrected a stray citation-tool artifact (`` `contentReference` ``)
   left in the Overview paragraph during drafting.
 - Cross-checked the design against three references in active use at
@@ -669,3 +814,38 @@ itself.
   explicit Design decision ("Turnover figures include every
   `JournalEntry.type`") plus a matching Testing Strategy assertion; no
   other section changed as a result.
+- Ran a full spec-checklist review pass before finalizing (see Review
+  below). The review's one substantive finding — `getTrialBalance` was
+  specified as calling `getAccountBalance` once per `LedgerAccount`,
+  which is N+1 at the chart-of-accounts scale this document's own
+  hot-spot citation names (up to "1–999999 pozycji") — was corrected:
+  `getTrialBalance` now computes every account's row in a single
+  set-based query (Design decisions), and `trial-balance` `rows` are
+  keyset-paginated (`cursor`/`limit`, capped at 100) while
+  `zeroSumCheck` remains a separate, always-complete aggregate over the
+  whole chart (API Contracts). Also added: both routes' `metadata`
+  export (`requireAuth`/`requireFeatures` per method), the
+  Internationalization section and its `i18n/{en,pl}.json` keys, the
+  Cache section's explicit no-cache justification, zod validation for
+  every query parameter (`asOf`, `periodId`, `cursor`, `limit`), the
+  `<StatusBadge>` / semantic-status-token detail for the zero-sum
+  check, the `apiCall`/`apiCallOrThrow` and `DataTable`
+  `entityId`/`apiPath` detail for both pages, and a `page.meta.ts` File
+  Manifest entry — closing the remaining gaps the checklist's API/UI,
+  cache, and pagination sections call out. No other design decision
+  changed.
+
+### Review — 2026-09-09
+- **Reviewer**: Agent
+- **Security**: Passed — `metadata` export with per-method
+  `requireAuth`/`requireFeatures` now specified for both routes; zod
+  validation covers every query parameter
+- **Performance**: Passed — `getTrialBalance` corrected to one
+  set-based query per request instead of one `getAccountBalance` call
+  per account; `rows` keyset-paginated (`limit` ≤ 100), `zeroSumCheck`
+  computed once over the full chart independently of pagination
+- **Cache**: Passed — explicit, justified no-cache decision (see Cache)
+- **Commands**: Passed — N/A, this document adds no mutations
+- **Risks**: Passed — cycle-guard logging and query-duration alerting
+  added to Risks & Impact Review for operational detection
+- **Verdict**: Approved
