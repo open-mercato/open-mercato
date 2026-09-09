@@ -493,14 +493,41 @@ design). **Booking** (art. 32 ust. 4, confirmed via bakertilly-tpa.pl,
 cross-checked against Kieso's "Other expenses and losses" classification
 — the two converge despite being independent sources): the loss debits
 `FixedAssetSettings.otherOperatingExpenseAccountId`, credits
-`ledgerAccumulatedDepreciationAccountId` (an impairment write-down
-reduces carrying value the same way accumulated depreciation does,
-functionally a second contra-asset balance against the same asset
-account — Phase 1 does not add a fourth, dedicated "accumulated
-impairment" ledger-account field to `FixedAsset`, reusing the existing
-accumulated-depreciation account instead, since both represent
-"reduction from gross value" and splitting them adds a reporting
-dimension with no Phase 1 consumer). **New settings fields**:
+`FixedAsset.ledgerAccumulatedImpairmentAccountId` — its own, dedicated
+contra-asset account, **not** `ledgerAccumulatedDepreciationAccountId`.
+**Revised 2026-09-09 (cont. — corrected against a reference chart of
+accounts).** An earlier draft of this decision reused the
+accumulated-depreciation account for impairment too, reasoning that both
+are contra-asset "reduction from gross value" postings and that a fourth
+ledger-account field would add a reporting dimension with no Phase 1
+consumer. A wzorcowy plan kont (model chart of accounts, zespół 0–8,
+supplied by the accounting team) shows this was wrong: real Polish
+practice keeps these on genuinely separate synthetic accounts — `070`/
+`071` ("Umorzenie środków trwałych"/"...wartości niematerialnych i
+prawnych", planned depreciation) versus `072` ("Odpisy aktualizujące
+środki trwałe oraz wartości niematerialne i prawne", one-off impairment
+write-downs), each with its own analytics. Conflating them into one
+account would misstate what the balance represents to anyone reading the
+trial balance and would make it impossible to distinguish "how much of
+this asset's value is planned wear" from "how much was a one-off
+write-down" — a real reporting loss, not merely a hypothetical one, now
+that a concrete reference chart of accounts confirms the distinction is
+actually drawn in practice. `FixedAsset` therefore gains a fourth
+required ledger-account field, `ledgerAccumulatedImpairmentAccountId`
+(FK-id to `ledger.LedgerAccount.id`), in the same required/immutable
+class as the other three (`ledgerAssetAccountId`,
+`ledgerAccumulatedDepreciationAccountId`,
+`ledgerDepreciationExpenseAccountId` — see Architecture → Entities). A
+`ONE_TIME` asset still never posts to it in practice (its
+`carryingAmountBefore` is already `0`, so `recognizeImpairment`'s
+non-positive-`lossAmount` rejection excludes it — see Commands), but the
+field is still required at creation for consistency with the other
+three and so the account is ready if an organization later reclassifies
+a `ONE_TIME` asset's method. This is a correction to the field, not a
+new design axis: `disposeAsset`'s write-off of the accumulated balances
+(see below) now posts two separate debit lines instead of one combined
+figure, since the two balances live on two different accounts. **New
+settings fields**:
 `FixedAssetSettings` gains `otherOperatingExpenseAccountId` and
 `otherOperatingIncomeAccountId` (both FK-ids to `ledger.LedgerAccount.id`,
 nullable — no sensible default the way the low-value threshold has one,
@@ -582,8 +609,10 @@ partial reversals of the same impairment (the same "never restore above
 the pre-impairment carrying value" ceiling Kieso applies to its own,
 narrower held-for-disposal case — the bound is sound regardless of which
 regime mandates the reversal). Books the reverse of the original entry:
-debits `ledgerAccumulatedDepreciationAccountId`, credits
-`otherOperatingIncomeAccountId`. **Tax treatment**: an impairment
+debits `FixedAsset.ledgerAccumulatedImpairmentAccountId`, credits
+`otherOperatingIncomeAccountId` — the same dedicated impairment account
+`recognizeImpairment` credited, not `ledgerAccumulatedDepreciationAccountId`
+(see "Revised 2026-09-09 (cont.)" above). **Tax treatment**: an impairment
 write-down is ordinarily not tax-deductible when recognized (CIT/PIT
 follow realized loss, not a book provision) — Phase 1 does not track this
 as a separate deferred-tax entry, consistent with tax depreciation
@@ -669,15 +698,21 @@ day-to-day asset registration.
   `depreciationStartDate`, `lowValueThresholdSnapshot` (nullable
   `numeric(19,4)` — see Design Decisions), `ledgerAssetAccountId`,
   `ledgerAccumulatedDepreciationAccountId`,
-  `ledgerDepreciationExpenseAccountId` (three FK-ids to `ledger.
-  LedgerAccount.id` — no ORM relation; all three are used for every
+  `ledgerAccumulatedImpairmentAccountId`,
+  `ledgerDepreciationExpenseAccountId` (four FK-ids to `ledger.
+  LedgerAccount.id` — no ORM relation; all four are used for every
   `entrySource`, including `AP_LINKED` — see Design Decisions,
-  "`acceptFixedAsset` always posts the capitalization entry"),
-  `otDocumentNumber`, `otDate` (both nullable until accepted), `status`
+  "`acceptFixedAsset` always posts the capitalization entry"). The fourth,
+  `ledgerAccumulatedImpairmentAccountId`, is a dedicated contra-asset
+  account for impairment write-downs, kept separate from
+  `ledgerAccumulatedDepreciationAccountId` — see Design Decisions,
+  Impairment, "Revised 2026-09-09 (cont.)" for why reusing the
+  depreciation account was corrected. `otDocumentNumber`, `otDate` (both
+  nullable until accepted), `status`
   (`DRAFT` / `ACTIVE` / `FULLY_DEPRECIATED` / `DISPOSED`), tenant/org
   scoped, `updatedAt`, `deletedAt` (soft delete, blocked once `status !=
   'DRAFT'`). `acquisitionValue`, `salvageValue`, `depreciationMethod`,
-  `usefulLifeMonths`, `depreciationStartDate`, and the three ledger-account
+  `usefulLifeMonths`, `depreciationStartDate`, and the four ledger-account
   fields become immutable once `status != 'DRAFT'` (enforced by `updateFixedAsset` —
   same immutability class as `ledger.LedgerAccount.accountTypeId`);
   `reopenFixedAsset` is the one documented path back to `DRAFT` (see
@@ -849,7 +884,7 @@ remaining reversible amount. `(organization_id, asset_id)` on
   half-posted GL footprint. Requires `fixed_assets.assets.manage`.
 - `updateFixedAsset` — standard CRUD; rejects a change to
   `acquisitionValue`, `salvageValue`, `depreciationMethod`, `usefulLifeMonths`,
-  `depreciationStartDate`, or any of the three ledger-account fields once
+  `depreciationStartDate`, or any of the four ledger-account fields once
   `status != 'DRAFT'` (the invariant the Testing Strategy checks).
   Requires `fixed_assets.assets.manage`.
 All write commands validate their input with a zod schema before any
@@ -945,18 +980,23 @@ a validation failure returns the standard 400 shape (see API Contracts).
   SUM(AssetImpairment.lossAmount for this asset's original rows) -
   SUM(AssetImpairment.reversalAmount for this asset's reversal rows)` —
   zero for an asset that was never impaired, added here so a prior
-  `recognizeImpairment` (which credits the same
-  `ledgerAccumulatedDepreciationAccountId`, see below) isn't silently
-  dropped from the disposal figures (see Risk Register, "Disposal net
-  book value ignoring prior impairment"). `netBookValueAtDisposal =
-  acquisitionValue - accruedDepreciationTotal - netImpairmentTotal`. Posts
-  one `ledger.postJournalEntry` (type `NORMAL`, `referenceType:
-  'AssetDisposal'`, `referenceId` set after the `AssetDisposal` row is
-  allocated its `documentNumber`) debiting
-  `ledgerAccumulatedDepreciationAccountId` for `accruedDepreciationTotal +
-  netImpairmentTotal` (the account's full balance for this asset, however
-  it accumulated), crediting `ledgerAssetAccountId` for the full
-  `acquisitionValue`, and booking `netBookValueAtDisposal` (net of
+  `recognizeImpairment` (which credits
+  `ledgerAccumulatedImpairmentAccountId`, see below — its own account,
+  not `ledgerAccumulatedDepreciationAccountId`, since the correction in
+  Design Decisions) isn't silently dropped from the disposal figures (see
+  Risk Register, "Disposal net book value computed from the wrong basis").
+  `netBookValueAtDisposal = acquisitionValue - accruedDepreciationTotal -
+  netImpairmentTotal`. Posts one `ledger.postJournalEntry` (type
+  `NORMAL`, `referenceType: 'AssetDisposal'`, `referenceId` set after the
+  `AssetDisposal` row is allocated its `documentNumber`) debiting
+  `ledgerAccumulatedDepreciationAccountId` for `accruedDepreciationTotal`
+  **and, as a separate line, debiting**
+  `ledgerAccumulatedImpairmentAccountId` for `netImpairmentTotal` (two
+  lines, not one combined figure, since Design Decisions now keeps these
+  on two different accounts — `netImpairmentTotal` is skipped entirely,
+  posting no line for it, when it is exactly `0`, the common case of an
+  asset that was never impaired), crediting `ledgerAssetAccountId` for
+  the full `acquisitionValue`, and booking `netBookValueAtDisposal` (net of
   `proceedsAmount` for `SALE`) as a debit to
   `FixedAssetSettings.otherOperatingExpenseAccountId` (loss) or a credit
   to `otherOperatingIncomeAccountId` (gain) depending on sign — rejecting
@@ -988,7 +1028,9 @@ a validation failure returns the standard 400 shape (see API Contracts).
   salvage value — see Design Decisions). Posts one `ledger.postJournalEntry`
   (type `NORMAL`, `referenceType: 'AssetImpairment'`, `referenceId` set
   after the row is inserted) debiting `otherOperatingExpenseAccountId`,
-  crediting `ledgerAccumulatedDepreciationAccountId`, for `lossAmount`.
+  crediting `FixedAsset.ledgerAccumulatedImpairmentAccountId` — its own,
+  dedicated contra-asset account, not `ledgerAccumulatedDepreciationAccountId`
+  (see Design Decisions, "Revised 2026-09-09 (cont.)") — for `lossAmount`.
   Inserts the `AssetImpairment` row (`reversalOfImpairmentId: null`).
   Does not change `FixedAsset.status` — an impaired `ACTIVE` asset stays
   `ACTIVE` and a `FULLY_DEPRECIATED` one stays `FULLY_DEPRECIATED`.
@@ -1016,7 +1058,8 @@ a validation failure returns the standard 400 shape (see API Contracts).
   original write-down, matching the ceiling Kieso applies to its own,
   narrower held-for-disposal case — see Design Decisions). Posts one
   `ledger.postJournalEntry` (type `NORMAL`, `referenceType:
-  'AssetImpairment'`) debiting `ledgerAccumulatedDepreciationAccountId`,
+  'AssetImpairment'`) debiting `FixedAsset.ledgerAccumulatedImpairmentAccountId`
+  (the same dedicated account `recognizeImpairment` credited),
   crediting `otherOperatingIncomeAccountId`, for `reversalAmount`.
   Inserts a new `AssetImpairment` row (`reversalOfImpairmentId:
   impairmentId`, `reversalAmount` set, `lossAmount: null`).
@@ -1184,7 +1227,7 @@ capitalization entry for **every** `entrySource`, including `AP_LINKED`
 accounts, never directly to an asset account, so the reclassification
 onto the asset register always happens at acceptance). `acquisitionValue`,
 `depreciationMethod`, `usefulLifeMonths`, `depreciationStartDate`,
-`salvageValue`, and the three ledger-account fields are immutable once
+`salvageValue`, and the four ledger-account fields are immutable once
 `status != 'DRAFT'` —
 enforced by `updateFixedAsset`, the same immutability class `ledger.
 LedgerAccount.accountTypeId` uses once posted entries exist, for the
@@ -1273,7 +1316,11 @@ Standard `makeCrudRoute` create (`createFixedAsset`).
   acquisitionValue, salvageValue?, currencyId, entrySource, sourceReferenceId?,
   depreciationMethod, usefulLifeMonths?, depreciationStartDate,
   ledgerAssetAccountId, ledgerAccumulatedDepreciationAccountId,
-  ledgerDepreciationExpenseAccountId }`. `sourceReferenceId` required iff
+  ledgerAccumulatedImpairmentAccountId, ledgerDepreciationExpenseAccountId }`.
+  `ledgerAccumulatedImpairmentAccountId` is required alongside the other
+  three ledger-account fields (see Design Decisions, Impairment — a
+  dedicated contra-asset account for impairment write-downs, distinct
+  from `ledgerAccumulatedDepreciationAccountId`). `sourceReferenceId` required iff
   `entrySource === 'AP_LINKED'`; `usefulLifeMonths` required iff
   `depreciationMethod === 'STRAIGHT_LINE'`; `salvageValue` defaults to `0`
   and must be `< acquisitionValue` (see Design Decisions).
@@ -1497,8 +1544,11 @@ All user-facing strings resolve through `useT()` client-side /
   `VendorInvoiceLine` picker (`AP_LINKED`) or nothing extra (the other
   three sources), a depreciation-method selector (`ONE_TIME` shown as
   disabled/informational once the low-value threshold applies — decided
-  by the server at acceptance, not user-selectable), and three
-  `LedgerAccount` pickers. Once `status != 'DRAFT'`, the financial fields
+  by the server at acceptance, not user-selectable), and four
+  `LedgerAccount` pickers (asset, accumulated depreciation, accumulated
+  impairment, depreciation expense — see Design Decisions, Impairment,
+  for why the impairment account is its own field rather than reusing the
+  depreciation one). Once `status != 'DRAFT'`, the financial fields
   render read-only with an inline note explaining why (`fixed_assets.
   errors` copy), rather than silently rejecting a submit.
 - **Accept (OT) dialog**: collects `otDocumentNumber`/`otDate` and, when
@@ -1663,20 +1713,25 @@ All user-facing strings resolve through `useT()` client-side /
    `ACTIVE`/`FULLY_DEPRECIATED` status guard on recognition and the
    not-`DISPOSED` guard on reversal, the operating-account-unset
    rejection, the non-positive-loss and below-salvage-value rejections on
-   recognition, the remaining-reversible-amount cap on reversal, and the
-   unaccrued-schedule-row delete-and-regenerate on both (count-preserved,
-   from `recoverableAmount - salvageValue` or the recomputed post-reversal
-   carrying value — reuse the same delete-and-regenerate helper step 7
-   introduces for `reviseDepreciationParameters`, generalized to take an
-   explicit period count instead of always reading
-   `remainingUsefulLifeMonths` from the request).
+   recognition, the remaining-reversible-amount cap on reversal, posting
+   to `FixedAsset.ledgerAccumulatedImpairmentAccountId` — not
+   `ledgerAccumulatedDepreciationAccountId` — on both commands (see Design
+   Decisions), and the unaccrued-schedule-row delete-and-regenerate on
+   both (count-preserved, from `recoverableAmount - salvageValue` or the
+   recomputed post-reversal carrying value — reuse the same
+   delete-and-regenerate helper step 7 introduces for
+   `reviseDepreciationParameters`, generalized to take an explicit period
+   count instead of always reading `remainingUsefulLifeMonths` from the
+   request).
 10. Implement `disposeAsset`: the pre-disposal catch-up accrual step, the
     net-book-value calculation from actual accrued depreciation **and**
     net impairment (post-catch-up), the `AssetDisposal` insert with
     atomic `documentNumber` allocation, the gain/loss posting (including
-    the `SALE` proceeds line, and the full accumulated-depreciation
-    account balance including any impairment), and the `DISPOSED` status
-    transition.
+    the `SALE` proceeds line, and **two separate** derecognition debit
+    lines — `ledgerAccumulatedDepreciationAccountId` for
+    `accruedDepreciationTotal`, `ledgerAccumulatedImpairmentAccountId` for
+    `netImpairmentTotal`, the latter omitted when zero — see Design
+    Decisions), and the `DISPOSED` status transition.
 11. Implement `api/asset-classes/route.ts`, `api/settings/route.ts`,
     `api/assets/route.ts` + `[id]/accept/route.ts` +
     `[id]/reopen/route.ts` + `[id]/revise-depreciation/route.ts` +
@@ -1703,8 +1758,9 @@ All user-facing strings resolve through `useT()` client-side /
     accept it, run accrual across two periods, revise its remaining
     useful life after the first period and confirm only the unaccrued
     tail regenerates, recognize an impairment and confirm the net book
-    value and accumulated-depreciation account both reflect it, partially
-    reverse it and confirm the reversible-amount cap, lock a period and
+    value reflects it and the write-down lands on the dedicated
+    accumulated-impairment account rather than the depreciation one,
+    partially reverse it and confirm the reversible-amount cap, lock a period and
     confirm accrual for it is reported as skipped rather than failed,
     dispose the previously-impaired asset and confirm the GL entries and
     net book value correctly net out the impairment history).
@@ -1796,12 +1852,20 @@ All user-facing strings resolve through `useT()` client-side /
   `DISPOSED` asset, rejecting a `reversalAmount`
   exceeding the remaining reversible amount, accepting a partial reversal
   and correctly computing the remaining reversible amount for a
-  subsequent one, and regenerating the unaccrued tail upward to sum
-  exactly to the post-reversal carrying value; `disposeAsset`'s `netBookValueAtDisposal` and its
-  `ledgerAccumulatedDepreciationAccountId` debit both correctly including
-  `netImpairmentTotal` for a previously-impaired asset (a regression test
-  guarding the fix described in Changelog — this figure silently excluded
-  impairment before the impairment feature existed to expose the gap).
+  subsequent one, and crediting `ledgerAccumulatedImpairmentAccountId` (not
+  `ledgerAccumulatedDepreciationAccountId`) on both recognition and
+  reversal — a regression test guarding the account-separation fix
+  described in Changelog; and regenerating the unaccrued tail upward to
+  sum exactly to the post-reversal carrying value; `disposeAsset`'s
+  `netBookValueAtDisposal` and its two separate debit lines
+  (`ledgerAccumulatedDepreciationAccountId` for `accruedDepreciationTotal`,
+  `ledgerAccumulatedImpairmentAccountId` for `netImpairmentTotal`, the
+  latter omitted entirely when it is `0`) both correctly including
+  `netImpairmentTotal` for a previously-impaired asset (two regression
+  tests guarding two separate fixes described in Changelog: the original
+  gap where this figure silently excluded impairment altogether, and the
+  later correction that split it onto its own account instead of
+  combining it with `accruedDepreciationTotal` on one line).
 - Integration: every custom write route's 200/403/409/404 cases; the
   three read-only lists' filter and pagination behavior; cross-tenant
   isolation (an asset/schedule/disposal/impairment from tenant A never
@@ -1916,8 +1980,9 @@ for its own manual `CLOSING`/`OPENING` entries.
   balance (what the ledger account actually holds) is depreciation plus
   net impairment, not depreciation alone, and understating it here would
   both misstate the disposal gain/loss and leave a residual, un-derecognized
-  balance in `ledgerAccumulatedDepreciationAccountId` after the asset
-  account itself is credited to zero.
+  balance in `ledgerAccumulatedDepreciationAccountId`/
+  `ledgerAccumulatedImpairmentAccountId` after the asset account itself is
+  credited to zero.
 - **Severity**: High
 - **Affected area**: `fixed_assets.disposeAsset`, disposal gain/loss
   accuracy, balance sheet.
@@ -1926,8 +1991,12 @@ for its own manual `CLOSING`/`OPENING` entries.
   rows with `accruedAt IS NOT NULL` (`accruedDepreciationTotal`) **and**
   the asset's full `AssetImpairment` history (`netImpairmentTotal` —
   original losses minus reversals) for the net-book-value calculation,
-  debiting `ledgerAccumulatedDepreciationAccountId` for both aggregates
-  combined so the account is fully derecognized alongside the asset
+  debiting `ledgerAccumulatedDepreciationAccountId` for
+  `accruedDepreciationTotal` and, as a separate line,
+  `ledgerAccumulatedImpairmentAccountId` for `netImpairmentTotal` — two
+  accounts, not one, since Design Decisions ("Revised 2026-09-09 (cont.)")
+  corrected the original design of reusing the depreciation account for
+  impairment too — so each is fully derecognized alongside the asset
   account (see Architecture → Commands, Data Models, Design Decisions).
 - **Residual risk**: A period the catch-up step itself finds locked is
   still reported in `catchUpAccrual.skippedLockedPeriod` rather than
@@ -2187,7 +2256,7 @@ for its own manual `CLOSING`/`OPENING` entries.
   impairments by MPK/cost-centre) — waits on `journal_entry_line_dimension`
   the same as `transferAsset` above, not built here.
 
-## Final Compliance Report — 2026-09-09 (rev. 2 — salvage value, useful-life revision, impairment)
+## Final Compliance Report — 2026-09-09 (rev. 3 — accumulated-impairment account correction)
 
 ### AGENTS.md Files Reviewed
 
@@ -2201,7 +2270,7 @@ for its own manual `CLOSING`/`OPENING` entries.
 
 | Rule Source | Rule | Status | Notes |
 |-------------|------|--------|-------|
-| root AGENTS.md | No direct ORM relationships between modules | Compliant | `sourceReferenceId`, the three `ledgerAccountId` fields, `currencyId`, and the two new `otherOperating*AccountId` fields are all plain FK-ids |
+| root AGENTS.md | No direct ORM relationships between modules | Compliant | `sourceReferenceId`, the four `ledgerAccountId` fields (including `ledgerAccumulatedImpairmentAccountId`), `currencyId`, and the two `otherOperating*AccountId` settings fields are all plain FK-ids |
 | root AGENTS.md | Filter by organization_id | Compliant | Every entity tenant/org scoped, including the two new entities (`AssetImpairment`, `DepreciationRevision`); every query filters accordingly |
 | packages/core/AGENTS.md | API routes MUST export openApi | Compliant | Listed per route in Architecture → Queries / API and File Manifest, including the three new routes (`revise-depreciation`, `impairments`, `impairments/:id/reverse`) |
 | packages/core/AGENTS.md | metadata export with per-method requireAuth/requireFeatures | Compliant | Every route requires the ACL feature named in Access Control, including the new `fixed_assets.impairment.manage` feature |
@@ -2226,16 +2295,22 @@ for its own manual `CLOSING`/`OPENING` entries.
 
 ### Non-Compliant Items
 
-None outstanding — see the two 2026-09-09 Review entries in the Changelog
-(the original spec review, and this revision's review of the salvage
-value / useful-life revision / impairment addition) for the items each
-round flagged and how every one was resolved before its Verdict was
-reached. This revision's round found and fixed two blocking defects
+None outstanding — see the three 2026-09-09 Review entries in the
+Changelog (the original spec review; the review of the salvage
+value/useful-life revision/impairment addition; and this revision's
+review of the accumulated-impairment account correction) for the items
+each round flagged and how every one was resolved before its Verdict was
+reached. The second round found and fixed two blocking defects
 (schedule-tail regeneration missing on impairment/reversal; missing
 `FixedAsset.status` guards on both impairment commands) plus two smaller
 gaps (an unjustified PII exemption; an unpersisted `reason` on
-`reviseDepreciationParameters`) — see Review — 2026-09-09 (cont.) for the
-full account.
+`reviseDepreciationParameters`) — see Review — 2026-09-09 (cont. —
+salvage value / useful-life revision / impairment addition) for the full
+account. This third round found zero real defects in the
+accumulated-impairment account correction itself, and fixed one
+unrelated, pre-existing stale cross-reference label found while
+reviewing the same area — see Review — 2026-09-09 (cont. —
+accumulated-impairment account correction).
 
 ### Verdict
 
@@ -2358,6 +2433,100 @@ full account.
   entries cover (impairment, salvage/residual value, useful-life
   revision) — see the following Review entry for the fresh, full
   adversarial pass and updated Final Compliance Report this triggers.
+
+### 2026-09-09 (cont. — dedicated accumulated-impairment account, corrected against a reference chart of accounts)
+- **Found after this spec had already been reviewed and pushed**: the
+  Impairment Design Decision above reused
+  `ledgerAccumulatedDepreciationAccountId` as the credit target for
+  `recognizeImpairment` (and, symmetrically, the debit target for
+  `reverseImpairment`), on the reasoning that both depreciation and
+  impairment are contra-asset "reduction from gross value" postings and
+  that a fourth ledger-account field would add a reporting dimension with
+  no Phase 1 consumer. A wzorcowy plan kont (a full model chart of
+  accounts, zespół 0–8, supplied by the accounting team) surfaced this as
+  wrong: real Polish practice keeps `070`/`071` ("Umorzenie" — planned,
+  systematic depreciation) and `072` ("Odpisy aktualizujące" — one-off
+  impairment write-downs) as genuinely separate synthetic accounts, each
+  with its own analytics, not one account serving both purposes. This is
+  an external-reference correction, not a defect an adversarial review
+  round would have caught by reading the spec alone — nothing internal to
+  the document was inconsistent; the design decision itself was resting on
+  an accounting-practice assumption that turned out to be wrong once
+  checked against a real chart of accounts.
+- **Fixed**: `FixedAsset` gains a fourth required, immutable-once-
+  non-`DRAFT` ledger-account field, `ledgerAccumulatedImpairmentAccountId`.
+  `recognizeImpairment` now credits it (not
+  `ledgerAccumulatedDepreciationAccountId`); `reverseImpairment` now debits
+  it. `disposeAsset`'s derecognition of the accumulated balances is now
+  **two separate debit lines** instead of one combined figure —
+  `ledgerAccumulatedDepreciationAccountId` for `accruedDepreciationTotal`,
+  and `ledgerAccumulatedImpairmentAccountId` for `netImpairmentTotal`
+  (omitted when zero) — since the two balances now live on two different
+  ledger accounts and combining them into one posting line would misstate
+  what each account's balance represents.
+- Threaded through Design Decisions (Impairment "Booking" paragraph,
+  reverseImpairment paragraph), Architecture → Entities (`FixedAsset`) /
+  Commands (`updateFixedAsset`, `disposeAsset`, `recognizeImpairment`,
+  `reverseImpairment`), API Contracts (`POST /assets` request body), Data
+  Models (`FixedAsset`), Risk Register ("Disposal net book value computed
+  from the wrong basis"), Testing Strategy, UI/UX (asset form's ledger
+  picker count), Implementation Plan (steps 9, 10, 15), and the Final
+  Compliance Report's Compliance Matrix.
+- Per `financial-spec-citation-check`: this correction is sourced from a
+  reference chart of accounts supplied directly by the accounting team,
+  not from Kieso or the UoR — neither covers Polish chart-of-accounts
+  numbering at this level of detail, and the UoR excerpt available in this
+  session (Rozdział 2, art. 9–25) does not reach art. 32/35c either, so
+  the account-numbering claim rests on the reference document alone, not
+  on primary legal text.
+
+### Review — 2026-09-09 (cont. — accumulated-impairment account correction)
+- **Reviewer**: Agent (adversarial, fresh-context)
+- **Security**: Passed — no change to input validation, ACL features, or
+  PII/encryption surface; the new field is a plain FK-id like its three
+  siblings, no new attack surface introduced.
+- **Performance**: Passed — no new query pattern; `netImpairmentTotal`/
+  `accruedDepreciationTotal` aggregation is unchanged, the disposal
+  posting simply gains one more line in the same transaction.
+- **Cache**: Passed — still correctly N/A (no cached read endpoints in
+  this module).
+- **Commands**: Passed — every location this correction claims to touch
+  (Design Decisions' Impairment "Booking" paragraph and its "Revised
+  2026-09-09 (cont.)" subsection, the `reverseImpairment` paragraph,
+  Architecture → Entities `FixedAsset`, Commands for `updateFixedAsset`/
+  `disposeAsset`/`recognizeImpairment`/`reverseImpairment`, the `POST
+  /api/fixed_assets/assets` request body, Data Models `FixedAsset`, the
+  "Disposal net book value computed from the wrong basis" Risk Register
+  entry, Testing Strategy, the UI form's ledger-picker count,
+  Implementation Plan steps 9/10/15, and the Compliance Matrix row) is
+  consistent with the new four-field/two-debit-line design — no leftover
+  reference describes `recognizeImpairment`/`reverseImpairment` posting
+  against `ledgerAccumulatedDepreciationAccountId`, and no leftover
+  "three ledger-account fields"/"one combined figure"/"one debit line"
+  phrasing misdescribes the total field count or the disposal posting
+  (the "three ledger-account fields" occurrence in API Contracts
+  correctly means "the other three besides the new one," four total).
+  The double-entry math was independently re-derived for every code path
+  (initial impairment, a second impairment on an already-impaired asset,
+  full reversal, partial reversal, disposal of a never-impaired/
+  still-impaired/fully-reversed-impairment asset) and balances in each
+  case; `netImpairmentTotal` is always ≥ 0 and always exactly matches
+  what `disposeAsset` derecognizes, so the "omitted when zero" disposal
+  line never hides a real balance. One stale, pre-existing (not
+  introduced by this correction) cross-reference was also found and
+  fixed while reviewing this area: `disposeAsset`'s Commands text cited
+  the Risk Register entry by an old label
+  ("Disposal net book value ignoring prior impairment") instead of its
+  actual current heading ("Disposal net book value computed from the
+  wrong basis") — corrected. Zero real defects found in the correction
+  itself.
+- **Risks**: Passed — the "Disposal net book value computed from the
+  wrong basis" entry already documents the two-debit-line fix and the
+  residual-balance failure mode it prevents; no new risk introduced.
+- **Verdict**: Approved — the correction is internally consistent,
+  correctly threaded through every section it claims to touch, and
+  produces balanced, non-stranding double-entry postings in every code
+  path checked.
 
 ### Review — 2026-09-09
 - **Reviewer**: Agent (adversarial, fresh-context)
