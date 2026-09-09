@@ -130,6 +130,33 @@ describe('notification service', () => {
     )
   })
 
+  it('invalidates cached notification reads after creating a notification', async () => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+    const container = { resolve: jest.fn() }
+
+    em.create.mockImplementation((_entity, data: Notification) => ({
+      id: 'note-cache',
+      ...data,
+    }))
+
+    const service = createNotificationService({ em, eventBus, container })
+
+    await service.create(baseNotificationInput, baseCtx)
+
+    expect(invalidateCrudCache).toHaveBeenCalledWith(
+      container,
+      'notifications.notification',
+      {
+        id: undefined,
+        tenantId: baseCtx.tenantId,
+        organizationId: null,
+      },
+      baseCtx.tenantId,
+      'created',
+    )
+  })
+
   it('creates a notification through the scoped DI service in CLASSIC injection mode', async () => {
     const em = buildEm()
     const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
