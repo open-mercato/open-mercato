@@ -4,7 +4,8 @@ jest.setTimeout(15000)
 // Injected field definitions for the CrudForm `:fields` injection spot. The
 // hook is mocked so the test drives `injectedFieldDefinitions` directly without
 // standing up the full injection registry/bootstrap. See issue #3047.
-let injectedFieldWidgets: Array<{ fields: unknown[] }> = []
+let injectedFieldWidgets: Array<{ moduleId: string; fields: unknown[] }> = []
+const withScopedApiRequestBodyMock = jest.fn(async (_payload: unknown, run: () => Promise<unknown>) => run())
 
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: () => {} }),
@@ -22,9 +23,16 @@ jest.mock('../injection/useInjectionDataWidgets', () => ({
   __esModule: true,
   useInjectionDataWidgets: () => ({ widgets: injectedFieldWidgets, isLoading: false, error: null }),
 }))
+jest.mock('../utils/apiCall', () => {
+  const actual = jest.requireActual('../utils/apiCall')
+  return {
+    ...actual,
+    withScopedApiRequestBody: (...args: unknown[]) => withScopedApiRequestBodyMock(args[0], args[1] as () => Promise<unknown>),
+  }
+})
 
 import * as React from 'react'
-import { waitFor } from '@testing-library/react'
+import { act, fireEvent, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { CrudForm, type CrudField, type CrudFormGroup } from '../CrudForm'
 import { InjectionPosition } from '@open-mercato/shared/modules/widgets/injection-position'
@@ -53,11 +61,13 @@ function orderedFieldIds(container: HTMLElement): string[] {
 describe('CrudForm group field injection (#3047)', () => {
   afterEach(() => {
     injectedFieldWidgets = []
+    withScopedApiRequestBodyMock.mockClear()
   })
 
   it('honors placement when injecting a field into an existing group', async () => {
     injectedFieldWidgets = [
       {
+        moduleId: 'relations',
         fields: [
           {
             id: 'cf:middle_name',
@@ -100,6 +110,7 @@ describe('CrudForm group field injection (#3047)', () => {
   it('renders the injected field label exactly once', async () => {
     injectedFieldWidgets = [
       {
+        moduleId: 'relations',
         fields: [
           {
             id: 'cf:middle_name',
@@ -130,5 +141,38 @@ describe('CrudForm group field injection (#3047)', () => {
       (node) => node.textContent?.trim() === 'Middle name',
     )
     expect(labelMatches).toHaveLength(1)
+  })
+
+  it('scopes active injected field values around the host submit callback', async () => {
+    injectedFieldWidgets = [{
+      moduleId: 'customer_relations',
+      fields: [{ id: 'relatedPersonId', label: 'Related person', type: 'text', group: 'personalData' }],
+    }]
+    const onSubmit = jest.fn(async () => undefined)
+
+    const { container } = renderWithProviders(
+      React.createElement(CrudForm as any, {
+        title: 'Form',
+        entityId: 'customers:person',
+        fields: baseFields,
+        groups,
+        initialValues: { relatedPersonId: 'person-1' },
+        onSubmit,
+      }),
+    )
+
+    await waitFor(() => expect(container.querySelector('[data-crud-field-id="relatedPersonId"]')).toBeTruthy())
+    fireEvent.change(container.querySelector('[data-crud-field-id="relatedPersonId"] input') as HTMLInputElement, {
+      target: { value: 'person-2' },
+    })
+    const form = container.querySelector('form') as HTMLFormElement
+    await act(async () => {
+      form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    })
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1))
+
+    expect(withScopedApiRequestBodyMock).toHaveBeenCalledWith({
+      customer_relations: { relatedPersonId: 'person-2' },
+    }, expect.any(Function))
   })
 })

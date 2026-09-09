@@ -776,6 +776,7 @@ satisfies InjectionGroupWidget  // Existing pattern, now typed
 | Phase | Status | Date | Notes |
 |-------|--------|------|-------|
 | Phase G — CrudForm Field Injection | Done | 2026-02-26 | Added `InjectedField`, field spot loading, group insertion, visibility-aware payload exclusion, form handles, and end-to-end triad verification coverage. |
+| Phase G — Injected values on the wire | Amended | 2026-08-23 | Injected field values now travel to the server on their own channel: `CrudForm` scopes them around submit, `apiCall` serializes them under the private `__om_ext_v1` transport field for exactly one request, and `makeCrudRoute` extracts them into `InterceptorContext.extensionPayload` before any schema parse (see [spec](../2026-08-19-crudform-injected-widget-payload.md)). |
 
 ### Phase G — Detailed Progress
 
@@ -784,7 +785,7 @@ satisfies InjectionGroupWidget  // Existing pattern, now typed
 - [x] `visibleWhen` conditions implemented and hidden-field exclusion applied
 - [x] CrudForm loads field widgets from `crud-form:<entityId>:fields`
 - [x] Injected fields inserted into resolved form groups with fallback placement
-- [x] Injected field values excluded from core schema validation and core submit payload
+- [x] Injected field values excluded from core schema validation and the core submit payload — since 2026-08-23 they still travel with the request on the separate `__om_ext_v1` extension channel, which `makeCrudRoute` strips before validation and exposes as `InterceptorContext.extensionPayload`
 - [x] CrudForm replacement handle added (`crud-form:<entityId>`) and rendered as `data-component-handle`
 - [x] CrudForm render tests still pass (`CrudForm.render.test.tsx`)
 - [x] Example end-to-end priority triad (`entity + API + field widget + enrichers`) completed

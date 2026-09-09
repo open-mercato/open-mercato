@@ -86,6 +86,12 @@ interface InterceptorContext {
 }
 ```
 
+**Injected CrudForm values (2026-08-20):** CRUD `POST` and `PUT` interceptors
+may receive `context.extensionPayload`, an optional module-keyed payload. It is
+browser-supplied and must be validated and feature-authorized by the consuming
+interceptor. The factory removes the private transport field before any direct
+or command schema validation.
+
 ### 2. Execution Order in CRUD Mutation Pipeline
 
 ```
