@@ -26,7 +26,7 @@ Classify each changed file by Open Mercato layer: API route, entity, validator, 
 ## Context sources
 
 - `.ai/specs/` — check for active specs on the touched modules; flag divergence from an active spec.
-- `.ai/lessons.md` — known pitfalls; treat documented lessons as review rules.
+- `.ai/lessons.md` — scan the tagged index by affected module/area/topic, open only matching lesson records, and treat those documented lessons as review rules.
 - `BACKWARD_COMPATIBILITY.md` — protected contract surfaces (the shared skill already enforces this; violations are Critical).
 
 ## Frontend performance gate

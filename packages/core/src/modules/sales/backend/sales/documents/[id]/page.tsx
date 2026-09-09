@@ -3,6 +3,8 @@
 "use client"
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/sales/extension-points'
+import { resolveExtensionPointPattern } from '@open-mercato/shared/modules/widgets/extension-points'
 import { useSearchParams, useRouter, usePathname } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import {
@@ -36,7 +38,7 @@ import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimi
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { mapCrudServerErrorToFormErrors } from '@open-mercato/ui/backend/utils/serverErrors'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { ContactEmailDisplay } from '@open-mercato/core/modules/sales/components/ContactEmailDisplay'
@@ -77,13 +79,17 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('sales')
 
-function formatMessageAmount(amount: number | null | undefined, currency: string | null | undefined): string | null {
+function formatMessageAmount(
+  amount: number | null | undefined,
+  currency: string | null | undefined,
+  locale?: string
+): string | null {
   if (typeof amount !== 'number' || !Number.isFinite(amount)) return null
-  if (!currency) return amount.toLocaleString()
+  if (!currency) return amount.toLocaleString(locale)
   try {
-    return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(amount)
+    return new Intl.NumberFormat(locale, { style: 'currency', currency }).format(amount)
   } catch {
-    return `${amount.toLocaleString()} ${currency}`
+    return `${amount.toLocaleString(locale)} ${currency}`
   }
 }
 
@@ -1898,6 +1904,7 @@ export default function SalesDocumentDetailPage({
   includeAmountInMessageMetadata?: boolean
 }) {
   const t = useT()
+  const locale = useLocale()
   const { enabled: channelsEnabled } = useSalesChannelsEnabled()
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -1949,7 +1956,10 @@ export default function SalesDocumentDetailPage({
     () => (record?.id ? `sales-document:${kind}:${record.id}` : `sales-document:${kind}:pending`),
     [kind, record?.id],
   )
-  const detailsInjectionSpotId = React.useMemo(() => `sales.document.detail.${kind}:details`, [kind])
+  const detailsInjectionSpotId = React.useMemo(
+    () => resolveExtensionPointPattern(extensionPoints.hosts.documentDetail.pattern, { kind, surface: 'details' }),
+    [kind],
+  )
   const { runMutation, retryLastMutation } = useGuardedMutation<{
     kind: SalesDocumentKind
     record: DocumentRecord | null
@@ -2802,7 +2812,7 @@ export default function SalesDocumentDetailPage({
       : null
   const contactEmail = resolveCustomerEmail(customerSnapshot) ?? metadataEmail ?? record?.contactEmail ?? null
   const statusDisplay = record?.status ? statusDictionaryMap[record.status] ?? null : null
-  const previewAmount = formatMessageAmount(record?.grandTotalGrossAmount ?? null, record?.currencyCode ?? null)
+  const previewAmount = formatMessageAmount(record?.grandTotalGrossAmount ?? null, record?.currencyCode ?? null, locale)
   const messagePreviewMetadata: Record<string, string> = {}
   if (includeAmountInMessageMetadata && previewAmount) {
     messagePreviewMetadata[t('sales.documents.detail.totals.grandTotalGross')] = previewAmount
@@ -3862,7 +3872,7 @@ export default function SalesDocumentDetailPage({
         renderDisplay: (params) => {
           const { value, emptyLabel } = params
           if (value && value.length) {
-            return <span className="text-sm text-muted-foreground">{new Date(value).toLocaleDateString()}</span>
+            return <span className="text-sm text-muted-foreground">{new Date(value).toLocaleDateString(locale)}</span>
           }
           return <span className="text-sm text-muted-foreground">{emptyLabel}</span>
         },
@@ -3939,6 +3949,7 @@ export default function SalesDocumentDetailPage({
     shippingMethodLoading,
     shippingMethodOptions,
     t,
+    locale,
     kind,
     saveShortcutLabel,
   ])
@@ -3988,7 +3999,10 @@ export default function SalesDocumentDetailPage({
   const { payload: backendChromePayload, isReady: backendChromeReady } = useBackendChrome()
   const canComposeMessages = backendChromeReady && hasFeature(backendChromePayload?.grantedFeatures, 'messages.compose')
 
-  const tabInjectionSpotId = React.useMemo(() => `sales.document.detail.${kind}:tabs`, [kind])
+  const tabInjectionSpotId = React.useMemo(
+    () => resolveExtensionPointPattern(extensionPoints.hosts.documentDetail.pattern, { kind, surface: 'tabs' }),
+    [kind],
+  )
   const { widgets: injectedTabWidgets } = useInjectionWidgets(tabInjectionSpotId, {
     context: detailInjectionContext,
     triggerOnLoad: true,
@@ -4263,7 +4277,7 @@ export default function SalesDocumentDetailPage({
             onAddComment={appendShipmentComment}
           />
           <InjectionSpot
-            spotId="detail:sales.order:shipping"
+            spotId={extensionPoints.hosts.orderShipping.spotId}
             context={detailInjectionContext}
             data={record}
             onDataChange={(next) => setRecord(next as unknown as DocumentRecord)}
@@ -4709,7 +4723,7 @@ export default function SalesDocumentDetailPage({
             renderDisplay={({ value, emptyLabel }) =>
               value && value.length ? (
                 <span className="text-sm text-muted-foreground">
-                  {new Date(value).toLocaleDateString()}
+                  {new Date(value).toLocaleDateString(locale)}
                 </span>
               ) : (
                 <span className="text-sm text-muted-foreground">{emptyLabel}</span>

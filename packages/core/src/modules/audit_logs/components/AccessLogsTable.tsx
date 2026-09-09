@@ -1,7 +1,8 @@
 'use client'
 
 import * as React from 'react'
-import type { ColumnDef } from '@tanstack/react-table'
+import { extensionPoints } from '@open-mercato/core/modules/audit_logs/extension-points'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { DataTable, type PaginationProps } from '@open-mercato/ui/backend/DataTable'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
@@ -74,7 +75,7 @@ export function AccessLogsTable({ items, isLoading, actions, pagination }: { ite
       title={t('audit_logs.access.title')}
       data={accessItems}
       columns={columns}
-      perspective={{ tableId: 'audit_logs.access.list' }}
+      perspective={{ tableId: extensionPoints.hosts.accessLogsTable.tableId }}
       isLoading={Boolean(isLoading)}
       actions={actions}
       pagination={pagination}

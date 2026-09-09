@@ -4,9 +4,11 @@ import {
 } from '../subscriber'
 import type { TenantDataEncryptionService } from '../tenantDataEncryptionService'
 
-// Give every entity a resolvable id so the real decrypt() path proceeds to decryptEntityPayload.
+// Give every entity a resolvable id so the real decrypt() path proceeds to decryptEntityPayload,
+// keying off the class name so a test's fixture and its assertion describe the same entity.
 jest.mock('../entityIds', () => ({
-  resolveEntityIdFromMetadata: jest.fn(() => 'customers:customer_address'),
+  resolveEntityIdFromMetadata: jest.fn((meta?: { className?: string }) =>
+    meta?.className === 'OnboardingRequest' ? 'onboarding:onboarding_request' : 'customers:customer_address'),
 }))
 
 describe('decryptEntitiesWithFallbackScope subscriber memoization (issue #2235)', () => {
@@ -148,5 +150,55 @@ describe('decryptEntitiesWithFallbackScope per-row scope (multi-org safety)', ()
     // Only a row that carries no org of its own falls back to orgFilterIds[0].
     expect(orgFor(rowNoOrg)).toBe(fallbackOrg)
     expect(calls).toHaveLength(3)
+  })
+})
+
+describe('tenant-less entity encryption delegation', () => {
+  const originalToggle = process.env.TENANT_DATA_ENCRYPTION
+
+  beforeEach(() => {
+    process.env.TENANT_DATA_ENCRYPTION = 'yes'
+  })
+
+  afterEach(() => {
+    if (originalToggle === undefined) delete process.env.TENANT_DATA_ENCRYPTION
+    else process.env.TENANT_DATA_ENCRYPTION = originalToggle
+  })
+
+  it('lets the encryption service resolve an explicit system-scoped map', async () => {
+    const encryptEntityPayload = jest.fn(async (
+      _entityId: string,
+      target: Record<string, unknown>,
+    ) => ({ ...target, secret: 'encrypted' }))
+    const service = {
+      isEnabled: () => true,
+      encryptEntityPayload,
+    } as unknown as TenantDataEncryptionService
+    const subscriber = new TenantEncryptionSubscriber(service)
+    const entity = { secret: 'plaintext' }
+    const meta = {
+      className: 'OnboardingRequest',
+      tableName: 'onboarding_requests',
+      properties: {
+        secret: { name: 'secret', fieldName: 'secret' },
+      },
+    }
+    const changeSet = { payload: { secret: 'plaintext' } }
+
+    await subscriber.beforeCreate({
+      entity,
+      meta,
+      em: {},
+      changeSet,
+    } as never)
+
+    expect(encryptEntityPayload).toHaveBeenCalledWith(
+      'onboarding:onboarding_request',
+      expect.any(Object),
+      null,
+      null,
+    )
+    expect(entity.secret).toBe('encrypted')
+    expect(changeSet.payload.secret).toBe('encrypted')
   })
 })

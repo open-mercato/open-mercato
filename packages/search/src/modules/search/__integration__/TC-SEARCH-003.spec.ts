@@ -68,9 +68,12 @@ test.describe('TC-SEARCH-003: search API auth & feature gates (401/403)', () => 
       const viewerSearch = await apiRequest(request, 'GET', '/api/search/search?q=qa-search-003', { token: viewerToken })
       expect(viewerSearch.status(), 'viewer with search.view must not be unauthorized on search').not.toBe(401)
       expect(viewerSearch.status(), 'viewer with search.view must not be forbidden on search').not.toBe(403)
-      // The search route resolves searchService and returns 200 with results
-      // (empty when no strategy returns hits) — it does not 503 here — so a passing
-      // gate yields 200.
+      // The search route resolves searchService, rbacService and searchIndexer —
+      // all registered in this environment, so the fail-closed 503 added for
+      // issue #5168 is unreachable here — and returns 200 with results. This
+      // viewer holds no per-entity view feature, so the per-entity ACL filter
+      // narrows the readable set to nothing and the results come back empty;
+      // the gate assertion is about the status code, which stays 200.
       expect(viewerSearch.status(), 'search.view passes the gate, so the search succeeds with 200').toBe(200)
 
       const viewerReindex = await apiRequest(request, 'POST', '/api/search/reindex', { token: viewerToken, data: {} })

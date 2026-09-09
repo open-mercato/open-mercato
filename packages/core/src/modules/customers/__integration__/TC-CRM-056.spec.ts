@@ -7,10 +7,11 @@ import {
 } from '@open-mercato/core/helpers/integration/crmFixtures'
 
 /**
- * TC-CRM-056: Confirm-dialog stability — Discard prompt reopens after Keep
- * editing/X (#1804) and Company Name with JSON-like content does not crash
- * the page with a `useInsertionEffect must not schedule updates` warning
- * (#1810).
+ * TC-CRM-056: Confirm-dialog stability — Discard prompt supports real pointer
+ * and keyboard cancellation inside the Schedule Activity Radix modal (#4822),
+ * reopens after cancellation (#1804), and Company Name with JSON-like content
+ * does not crash the page with a `useInsertionEffect must not schedule updates`
+ * warning (#1810).
  *
  * Spec: .ai/specs/2026-05-06-crm-fixes-3.md (Cluster A — Step 6).
  *
@@ -31,7 +32,7 @@ import {
  * in one path does not starve the other under a shared Playwright timeout.
  */
 test.describe('TC-CRM-056: Confirm-dialog stability (#1804, #1810)', () => {
-  test('Schedule Activity discard prompt reopens after Keep editing (#1804)', async ({ page, request }) => {
+  test('Schedule Activity discard prompt has non-destructive pointer and keyboard exits (#4822)', async ({ page, request }) => {
     test.slow()
     test.setTimeout(120_000)
 
@@ -109,22 +110,9 @@ test.describe('TC-CRM-056: Confirm-dialog stability (#1804, #1810)', () => {
       const discardDialog = page.locator('dialog[role="alertdialog"][open]')
       await expect(discardDialog).toHaveCount(1, { timeout: 10_000 })
 
-      // Click "Keep editing" to dismiss the discard prompt without losing
-      // the unsaved title. Before the fix the second confirm() never reopened.
-      // The native <dialog> sits in the top-layer; Playwright's standard
-      // click + force-click both intermittently fail to register here.
-      // Calling `.click()` from inside the page evaluates element.click()
-      // on the focused button which always fires the React click handler
-      // (this is the same path the user takes when pressing Space/Enter
-      // on the focused "Keep editing" button).
-      await page.evaluate(() => {
-        const dialog = document.querySelector('dialog[role="alertdialog"][open]')
-        if (!dialog) throw new Error('Discard dialog not present in DOM')
-        const buttons = Array.from(dialog.querySelectorAll('button')) as HTMLButtonElement[]
-        const target = buttons.find((btn) => /keep editing/i.test(btn.textContent ?? ''))
-        if (!target) throw new Error('"Keep editing" button not found inside discard dialog')
-        target.click()
-      })
+      // Use a real Playwright pointer sequence. A programmatic element.click()
+      // omits pointerdown, which previously hid the nested-modal regression.
+      await discardDialog.getByRole('button', { name: /Keep editing/i }).click()
       // Wait for the dialog's `open` attribute to be removed.
       await expect(page.locator('dialog[role="alertdialog"][open]')).toHaveCount(0, { timeout: 10_000 })
 
@@ -138,15 +126,26 @@ test.describe('TC-CRM-056: Confirm-dialog stability (#1804, #1810)', () => {
       const discardDialog2 = page.locator('dialog[role="alertdialog"][open]')
       await expect(discardDialog2).toHaveCount(1, { timeout: 10_000 })
 
-      // Confirm the discard this time. The schedule dialog MUST close.
-      await page.evaluate(() => {
-        const dialog = document.querySelector('dialog[role="alertdialog"][open]')
-        if (!dialog) throw new Error('Second discard dialog not present in DOM')
-        const buttons = Array.from(dialog.querySelectorAll('button')) as HTMLButtonElement[]
-        const target = buttons.find((btn) => /^discard$/i.test((btn.textContent ?? '').trim()))
-        if (!target) throw new Error('"Discard" button not found inside discard dialog')
-        target.click()
-      })
+      // The alert-dialog X is also a non-destructive exit and must preserve
+      // the underlying form values.
+      await discardDialog2.getByRole('button', { name: /^Close$/i }).click()
+      await expect(page.locator('dialog[role="alertdialog"][open]')).toHaveCount(0, { timeout: 10_000 })
+      await expect(titleInput).toHaveValue(titleStub)
+
+      // Escape follows the same cancel path and must keep the activity editor
+      // open with the unsaved title intact.
+      await dialogCancelButton.click()
+      const discardDialog3 = page.locator('dialog[role="alertdialog"][open]')
+      await expect(discardDialog3).toHaveCount(1, { timeout: 10_000 })
+      await page.keyboard.press('Escape')
+      await expect(page.locator('dialog[role="alertdialog"][open]')).toHaveCount(0, { timeout: 10_000 })
+      await expect(titleInput).toHaveValue(titleStub)
+
+      // Discard remains the only destructive exit and closes the scheduler.
+      await dialogCancelButton.click()
+      const discardDialog4 = page.locator('dialog[role="alertdialog"][open]')
+      await expect(discardDialog4).toHaveCount(1, { timeout: 10_000 })
+      await discardDialog4.getByRole('button', { name: /^Discard$/i }).click()
 
       // The Schedule Activity dialog should be unmounted.
       await expect(scheduleDialog).toBeHidden({ timeout: 10_000 })

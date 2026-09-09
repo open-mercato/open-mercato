@@ -1,9 +1,11 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { type Kysely, sql } from 'kysely'
+import { type Kysely, type Transaction, sql } from 'kysely'
 import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('query_index').child({ component: 'coverage' })
+
+type CoverageExecutor = Kysely<any> | Transaction<any>
 
 export type CoverageScope = {
   entityType: string
@@ -95,7 +97,7 @@ function applyOrganizationCondition<QB extends { where: (...args: any[]) => QB }
 }
 
 async function fetchCoverageRow(
-  db: Kysely<any>,
+  db: CoverageExecutor,
   scope: CoverageScope
 ): Promise<(CoverageRow & { organization_id: string | null }) | null> {
   const { entityType, tenantId, organizationId, withDeleted } = scope
@@ -120,7 +122,7 @@ async function fetchCoverageRow(
 }
 
 async function pruneDuplicateCoverageRows(
-  db: Kysely<any>,
+  db: CoverageExecutor,
   scope: CoverageScope,
   keepId: string | null
 ): Promise<void> {
@@ -139,7 +141,7 @@ async function pruneDuplicateCoverageRows(
 }
 
 async function upsertCoverageRow(
-  db: Kysely<any>,
+  db: CoverageExecutor,
   scope: CoverageScope,
   counts: { baseCount: number; indexedCount: number; vectorIndexedCount: number }
 ): Promise<void> {
@@ -260,10 +262,11 @@ export async function readCoverageSnapshots(
 
 export async function applyCoverageAdjustments(
   em: EntityManager,
-  adjustments: CoverageAdjustment[]
+  adjustments: CoverageAdjustment[],
+  options?: { trx?: CoverageExecutor },
 ): Promise<void> {
   if (!adjustments.length) return
-  const db = (em as any).getKysely() as Kysely<any>
+  const db = options?.trx ?? ((em as any).getKysely() as Kysely<any>)
   const aggregated = aggregateAdjustments(adjustments)
   for (const entry of aggregated) {
     const scope = entry.scope
@@ -289,6 +292,19 @@ export async function deleteCoverageForEntity(db: Kysely<any>, entityType: strin
     .deleteFrom('entity_index_coverage' as any)
     .where('entity_type' as any, '=', entityType)
     .execute()
+}
+
+async function deleteCoverageScope(db: Kysely<any>, scope: CoverageScope): Promise<void> {
+  const { entityType, tenantId, organizationId, withDeleted } = scope
+  if (!entityType) return
+  let query = db
+    .deleteFrom('entity_index_coverage' as any)
+    .where('entity_type' as any, '=', entityType)
+    .where('with_deleted' as any, '=', withDeleted === true)
+  query = tenantId == null
+    ? query.where('tenant_id' as any, 'is', null as any)
+    : query.where('tenant_id' as any, '=', tenantId)
+  await applyOrganizationCondition(query as any, 'organization_id', organizationId ?? null).execute()
 }
 
 async function tableHasColumn(db: Kysely<any>, table: string, column: string): Promise<boolean> {
@@ -378,9 +394,9 @@ export async function primeColumnCache(db: Kysely<any>, checks: ColumnCheck[]): 
 export async function refreshCoverageSnapshot(
   em: EntityManager,
   scope: CoverageScope,
-): Promise<void> {
+): Promise<{ baseCount: number; indexedCount: number } | null> {
   const entityType = String(scope.entityType || '')
-  if (!entityType) return
+  if (!entityType) return null
   const tenantId = scope.tenantId ?? null
   const organizationId = scope.organizationId ?? null
   const withDeleted = scope.withDeleted === true
@@ -392,22 +408,37 @@ export async function refreshCoverageSnapshot(
   const hasTenant = await tableHasColumn(db, baseTable, 'tenant_id')
   const hasDeleted = await tableHasColumn(db, baseTable, 'deleted_at')
 
-  if (organizationId !== null && !hasOrg) return
-  if (tenantId !== null && !hasTenant) return
+  // A scope the base table cannot express must not narrow the index side either. Index rows
+  // can carry an organization the base table has no column for — `organizations` has no
+  // `organization_id` yet its index rows derive one from the record id. Filtering only the
+  // index side compares two different populations and reports a gap no reindex can close;
+  // returning early instead of recounting left the previous snapshot frozen, which is what
+  // surfaced as a permanent "out of sync" row for `directory:organization`.
+  //
+  // Tenant is different: a base table without `tenant_id` (`user_roles`) cannot be counted
+  // per tenant at all, and writing the cross-tenant total into one tenant's row would leak
+  // another tenant's volume into it. Drop the unusable scoped row instead, leaving only the
+  // global row — which is the one that can be true — rather than freezing a stale count.
+  const scopeOrg = organizationId !== null && hasOrg
+  if (tenantId !== null && !hasTenant) {
+    await deleteCoverageScope(db, { entityType, tenantId, organizationId, withDeleted })
+    return null
+  }
+  const scopeTenant = tenantId !== null && hasTenant
 
   let baseQuery = db
     .selectFrom(`${baseTable} as b` as any)
     .select(sql`count(*)`.as('count'))
-  if (organizationId !== null && hasOrg) baseQuery = baseQuery.where('b.organization_id' as any, '=', organizationId)
-  if (tenantId !== null && hasTenant) baseQuery = baseQuery.where('b.tenant_id' as any, '=', tenantId)
+  if (scopeOrg) baseQuery = baseQuery.where('b.organization_id' as any, '=', organizationId)
+  if (scopeTenant) baseQuery = baseQuery.where('b.tenant_id' as any, '=', tenantId)
   if (!withDeleted && hasDeleted) baseQuery = baseQuery.where('b.deleted_at' as any, 'is', null as any)
 
   let indexQuery = db
     .selectFrom('entity_indexes as ei' as any)
     .select(sql`count(*)`.as('count'))
     .where('ei.entity_type' as any, '=', entityType)
-  if (organizationId !== null) indexQuery = indexQuery.where('ei.organization_id' as any, '=', organizationId)
-  if (tenantId !== null) indexQuery = indexQuery.where('ei.tenant_id' as any, '=', tenantId)
+  if (scopeOrg) indexQuery = indexQuery.where('ei.organization_id' as any, '=', organizationId)
+  if (scopeTenant) indexQuery = indexQuery.where('ei.tenant_id' as any, '=', tenantId)
   if (!withDeleted) indexQuery = indexQuery.where('ei.deleted_at' as any, 'is', null as any)
 
   const vectorCountPromise = (async (): Promise<number | undefined> => {
@@ -450,6 +481,8 @@ export async function refreshCoverageSnapshot(
     indexedCount: indexCount,
     vectorCount,
   })
+
+  return { baseCount, indexedCount: indexCount }
 }
 
 export async function writeCoverageCounts(

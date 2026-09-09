@@ -1,8 +1,9 @@
 /**
  * Template sync checker/fixer for create-app scaffold parity.
  *
- * Keeps `packages/create-app/template/src/{app,components,lib,modules}` and selected
- * root src files aligned with app source for shared layout/routes/module scaffolding.
+ * Keeps `packages/create-app/template/src/{app,components,i18n,lib,modules}` and selected
+ * root src files aligned with app source for shared layout/routes/module scaffolding
+ * and locale dictionaries.
  *
  * Usage:
  *   tsx scripts/template-sync.ts          # check only (exit 1 on drift)
@@ -28,13 +29,18 @@ const APP_SRC_ROOT = path.join(ROOT, 'apps', 'mercato', 'src')
 const TEMPLATE_SRC_ROOT = path.join(ROOT, 'packages', 'create-app', 'template', 'src')
 const APP_PACKAGE_FILE = path.join(ROOT, 'apps', 'mercato', 'package.json')
 const TEMPLATE_PACKAGE_FILE = path.join(ROOT, 'packages', 'create-app', 'template', 'package.json.template')
-const SYNC_FOLDERS = ['app', 'components', 'lib', 'modules'] as const
+export const SYNC_FOLDERS = ['app', 'components', 'i18n', 'lib', 'modules'] as const
 const SYNC_ROOT_FILES = ['bootstrap.ts', 'modules.ts', 'official-modules.generated.ts'] as const
 const EXPLICIT_TEMPLATE_FILE_MAPPINGS = [
   {
     sourceFile: path.join(ROOT, 'scripts', 'dev.mjs'),
     templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev.mjs'),
     rel: 'scripts/dev.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-memory-sampler.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-memory-sampler.mjs'),
+    rel: 'scripts/dev-memory-sampler.mjs',
   },
   {
     sourceFile: path.join(ROOT, 'scripts', 'dev-splash.html'),
@@ -117,7 +123,7 @@ const EXPLICIT_TEMPLATE_FILE_MAPPINGS = [
     rel: 'docker/redis/redis.conf',
   },
 ] as const
-const TEMPLATE_ONLY_RELATIVE_FILES = new Set<string>([
+export const TEMPLATE_ONLY_RELATIVE_FILES = new Set<string>([
   'app/api/healthz/__tests__/route.test.ts',
   'app/api/healthz/route.ts',
   'modules/auth/__integration__/TC-AUTH-001.spec.ts',
@@ -135,9 +141,141 @@ const SYNC_INTERNAL_PACKAGE_KEYS = [
   '@open-mercato/gateway-stripe',
   '@open-mercato/sync-akeneo',
 ] as const
-const TEMPLATE_CONTENT_TRANSFORMS: Record<string, (content: string) => string> = {
+// Modules whose source ships in every scaffold but must stay runtime-disabled there.
+// The monorepo dev app keeps them enabled for QA; the template copy strips their
+// `enabledModules` registrations (see the disabled-by-default delivery contract).
+const TEMPLATE_DISABLED_MODULE_IDS = ['design_system', 'example'] as const
+const ENABLED_MODULES_DECLARATION = 'export const enabledModules: ModuleEntry[] = ['
+const EXAMPLE_CUSTOMERS_SYNC_GUARD = "if (enabledModules.some((entry) => entry.id === 'example')) {"
+
+function failTemplateTransform(rel: string, reason: string): never {
+  throw new Error(
+    `[template-sync] ${rel}: ${reason}. Update TEMPLATE_CONTENT_TRANSFORMS in scripts/template-sync.ts.`,
+  )
+}
+
+function stripEnabledModuleEntry(content: string, moduleId: string, rel: string): string {
+  const declarationIndex = content.indexOf(ENABLED_MODULES_DECLARATION)
+  if (declarationIndex === -1) failTemplateTransform(rel, 'could not locate the enabledModules declaration')
+
+  const needle = `id: '${moduleId}',`
+  const occurrences: number[] = []
+  for (
+    let index = content.indexOf(needle, declarationIndex);
+    index !== -1;
+    index = content.indexOf(needle, index + needle.length)
+  ) {
+    occurrences.push(index)
+  }
+  if (occurrences.length !== 1) {
+    failTemplateTransform(
+      rel,
+      `expected exactly one enabled '${moduleId}' registration to strip, found ${occurrences.length}`,
+    )
+  }
+
+  let openIndex = occurrences[0] - 1
+  while (openIndex >= 0 && /\s/.test(content[openIndex])) openIndex--
+  if (content[openIndex] !== '{') {
+    failTemplateTransform(rel, `the '${moduleId}' registration is not an object literal entry`)
+  }
+
+  let depth = 0
+  let closeIndex = -1
+  for (let index = openIndex; index < content.length; index++) {
+    const char = content[index]
+    if (char === '{') depth++
+    else if (char === '}') {
+      depth--
+      if (depth === 0) {
+        closeIndex = index
+        break
+      }
+    }
+  }
+  if (closeIndex === -1) failTemplateTransform(rel, `the '${moduleId}' registration has no closing brace`)
+
+  let end = closeIndex + 1
+  if (content[end] === ',') end++
+  while (content[end] === ' ' || content[end] === '\t') end++
+  if (content[end] === '\n') end++
+
+  let start = content.lastIndexOf('\n', openIndex) + 1
+  while (start >= 2) {
+    const previousLineStart = content.lastIndexOf('\n', start - 2) + 1
+    const previousLine = content.slice(previousLineStart, start - 1)
+    if (!/^\s*\/\//.test(previousLine)) break
+    start = previousLineStart
+  }
+
+  const stripped = `${content.slice(0, start)}${content.slice(end)}`
+  if (stripped.indexOf(needle, stripped.indexOf(ENABLED_MODULES_DECLARATION)) !== -1) {
+    failTemplateTransform(rel, `the '${moduleId}' registration survived stripping`)
+  }
+  return stripped
+}
+
+function stripTemplateDisabledModules(content: string, rel: string): string {
+  const stripped = TEMPLATE_DISABLED_MODULE_IDS.reduce(
+    (current, moduleId) => stripEnabledModuleEntry(current, moduleId, rel),
+    content,
+  )
+  // `example_customers_sync` is only ever pushed behind the example guard, so stripping
+  // the example registration must leave it inert rather than unconditionally enabled.
+  if (!stripped.includes(EXAMPLE_CUSTOMERS_SYNC_GUARD)) {
+    failTemplateTransform(rel, 'the example_customers_sync activation guard is missing')
+  }
+  return stripped
+}
+
+// Modules that stay commented out (not stripped) in the template: enabling them pushes the
+// generated root close to its byte budget, so the template keeps a maintainer-facing explanation
+// instead of silently dropping the registration like TEMPLATE_DISABLED_MODULE_IDS entries.
+// Each entry replaces the app's registration and its leading comment verbatim, so a reworded
+// source comment fails the transform loudly rather than drifting back into the template. The
+// replacement goes in as a function so a `$` in a template body stays literal instead of being
+// read as a String.replace substitution pattern.
+export const TEMPLATE_COMMENTED_MODULES: Record<string, { source: string; template: string }> = {
+  channel_discord: {
+    source: `  // Discord bot channel (SPEC 2026-06-19) — two-way Discord via REST + a
+  // provider-owned Gateway worker + a signed Interactions endpoint, plus an
+  // optional AI auto-reply subscriber.
+  { id: 'channel_discord', from: '@open-mercato/channel-discord' },`,
+    template: `  // Discord bot channel (SPEC 2026-06-19). The package ships with the scaffold
+  // but stays disabled by default. #4989 removed the hard overflow this used to
+  // cause (the generated root now sheds its module-fact index instead), but the
+  // headroom is still gone: enabling it puts the generated root at 12,275 of the
+  // 12,288-byte target, so the next module enabled after it drops the inline
+  // index to pointer form. Enabling is therefore a maintainer call about that
+  // budget, not a one-line edit — see
+  // packages/create-app/src/lib/agent-instruction-budget.test.ts
+  // ('one more template module still fits the root budget with its inline index
+  // intact'), and #4983 for the discussion.
+  // { id: 'channel_discord', from: '@open-mercato/channel-discord' },`,
+  },
+}
+
+function commentOutTemplateModules(content: string, rel: string): string {
+  return Object.entries(TEMPLATE_COMMENTED_MODULES).reduce((current, [moduleId, replacement]) => {
+    if (!current.includes(replacement.source)) {
+      failTemplateTransform(rel, `expected the ${moduleId} enabledModules entry with its source comment`)
+    }
+    return current.replace(replacement.source, () => replacement.template)
+  }, content)
+}
+
+export const TEMPLATE_CONTENT_TRANSFORMS: Record<string, (content: string) => string> = {
   // Standalone template has shallower node_modules path than monorepo app.
   'app/globals.css': (content) => content.replaceAll('../../../../node_modules/', '../../node_modules/'),
+  // The template's pinned core version does not expose the autologin helper subpath yet.
+  'app/page.tsx': (content) =>
+    content.replace(
+      "import { isAutoLoginEnabled } from '@open-mercato/core/modules/auth/lib/autologin'\n",
+      "\nfunction isAutoLoginEnabled(): boolean {\n  return Boolean(process.env.OM_AUTOLOGIN_EMAIL?.trim() && process.env.OM_AUTOLOGIN_PASSWORD)\n}\n",
+    ),
+  // Scaffolds ship the example and design-system source but keep both runtime-disabled;
+  // channel_discord stays commented out with a byte-budget explanation instead.
+  'modules.ts': (content) => commentOutTemplateModules(stripTemplateDisabledModules(content, 'modules.ts'), 'modules.ts'),
   'scripts/dev-cache-purge.mjs': (content) =>
     content
       .replaceAll("['apps', 'mercato', '.mercato', 'next'", "['.mercato', 'next'")
@@ -508,4 +646,11 @@ async function main() {
   process.exit(0)
 }
 
-void main()
+// Guarded so parity tests can import the exception constants without running the CLI.
+function isDirectInvocation(): boolean {
+  const entry = process.argv[1]
+  if (!entry) return false
+  return path.resolve(entry) === path.resolve(__filename_)
+}
+
+if (isDirectInvocation()) void main()

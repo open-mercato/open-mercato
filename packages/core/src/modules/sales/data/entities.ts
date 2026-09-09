@@ -1790,6 +1790,9 @@ export class SalesPaymentAllocation {
 
 @Entity({ tableName: 'sales_notes' })
 @Index({ name: 'sales_notes_scope_idx', properties: ['organizationId', 'tenantId'] })
+@Index({ name: 'sales_notes_context_idx', properties: ['contextId'] })
+@Index({ name: 'sales_notes_order_idx', properties: ['order'] })
+@Index({ name: 'sales_notes_quote_idx', properties: ['quote'] })
 export class SalesNote {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -1836,6 +1839,9 @@ export class SalesNote {
 
 @Entity({ tableName: 'sales_document_addresses' })
 @Index({ name: 'sales_document_addresses_scope_idx', properties: ['organizationId', 'tenantId'] })
+@Index({ name: 'sales_document_addresses_document_idx', properties: ['documentId'] })
+@Index({ name: 'sales_document_addresses_order_idx', properties: ['order'] })
+@Index({ name: 'sales_document_addresses_quote_idx', properties: ['quote'] })
 export class SalesDocumentAddress {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -1947,6 +1953,7 @@ export class SalesDocumentTag {
 
 @Entity({ tableName: 'sales_document_tag_assignments' })
 @Index({ name: 'sales_document_tag_assignments_scope_idx', properties: ['organizationId', 'tenantId'] })
+@Index({ name: 'sales_document_tag_assignments_document_idx', properties: ['documentId'] })
 @Unique({
   name: 'sales_document_tag_assignments_unique',
   properties: ['tag', 'documentId', 'documentKind'],

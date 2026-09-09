@@ -69,9 +69,7 @@ export default function PortalAiAssistantTriggerWidget({ context }: PortalAiAssi
   const resolvedFeatures = Array.isArray(context?.resolvedFeatures)
     ? (context?.resolvedFeatures as string[])
     : []
-  const featureAllowed =
-    context?.isPortalAdmin === true ||
-    hasFeature(resolvedFeatures, PORTAL_AI_INJECT_REQUIRED_FEATURE)
+  const featureAllowed = hasFeature(resolvedFeatures, PORTAL_AI_INJECT_REQUIRED_FEATURE)
 
   const pageContext = React.useMemo<PortalAiInjectPageContext>(() => ({
     view: 'portal.profile',

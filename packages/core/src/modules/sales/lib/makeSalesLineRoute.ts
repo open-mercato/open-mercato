@@ -202,10 +202,18 @@ export function makeSalesLineRoute(config: SalesLineRouteConfig) {
         return fields
       })(),
       sortFieldMap: {
+        id: F.id,
         createdAt: F.created_at,
         updatedAt: F.updated_at,
         lineNumber: F.line_number,
       },
+      // Line ids are random v4 UUIDs, so the factory's `id` default orders a
+      // document's lines arbitrarily and reshuffles them whenever an integration
+      // rewrites the lines (delete-and-reinsert is the normal upsert shape).
+      // `line_number` is the document's real reading order; `id` only breaks ties
+      // between legacy rows that all still sit at the column default of 0.
+      defaultSort: { field: 'lineNumber', dir: 'asc' },
+      tiebreakSortField: 'id',
       buildFilters: async (query: Record<string, unknown>, ctx: CrudCtx) => {
         const filters: Record<string, unknown> = {}
         if (query.id) filters.id = { $eq: query.id }

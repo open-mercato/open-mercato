@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { getEntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
 import { resolveRegisteredEntityTableName } from '@open-mercato/shared/lib/query/engine'
+import { listEntityMetadata } from '@open-mercato/shared/lib/db/entityMetadata'
 
 export type QueryIndexScope = {
   tenantId: string | null
@@ -58,13 +59,7 @@ export function resolveQueryIndexSourceMetadata(
     throw new QueryIndexScopeError(`Query index entity type has no registered ORM table: ${entityType}`)
   }
 
-  const registry = em.getMetadata?.()
-  const allMetadataRaw = typeof registry?.getAll === 'function' ? registry.getAll() : null
-  const allMetadata: QueryIndexEntityMetadata[] = Array.isArray(allMetadataRaw)
-    ? allMetadataRaw as QueryIndexEntityMetadata[]
-    : allMetadataRaw instanceof Map
-      ? Array.from(allMetadataRaw.values()) as QueryIndexEntityMetadata[]
-      : Object.values(allMetadataRaw ?? {}) as QueryIndexEntityMetadata[]
+  const allMetadata = listEntityMetadata(em) as unknown as QueryIndexEntityMetadata[]
   const metadata = allMetadata.find((candidate) => String(candidate.tableName ?? '') === table)
   if (!metadata) {
     throw new QueryIndexScopeError(`Query index entity metadata was not found for table: ${table}`)

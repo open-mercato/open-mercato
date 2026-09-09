@@ -67,7 +67,7 @@ test.describe('TC-SALES-035 document address CRUD + order scoping', () => {
     try {
       const orderResponse = await apiRequest(request, 'POST', '/api/sales/orders', {
         token,
-        data: { currencyCode: 'USD' },
+        data: { currencyCode: 'USD' , lines: [{ currencyCode: 'USD', quantity: 1, name: 'QA seed line', unitPriceNet: 0, unitPriceGross: 0 }] },
       })
       expect(orderResponse.status()).toBe(201)
       orderId = (await readJson(orderResponse)).id as string
@@ -189,7 +189,7 @@ test.describe('TC-SALES-035 document address CRUD + order scoping', () => {
 
       const orderResponse = await apiRequest(request, 'POST', '/api/sales/orders', {
         token: adminToken,
-        data: { currencyCode: 'USD' },
+        data: { currencyCode: 'USD' , lines: [{ currencyCode: 'USD', quantity: 1, name: 'QA seed line', unitPriceNet: 0, unitPriceGross: 0 }] },
       })
       expect(orderResponse.status()).toBe(201)
       orderId = (await readJson(orderResponse)).id as string
@@ -328,7 +328,7 @@ test.describe('TC-SALES-035 document address CRUD + order scoping', () => {
     try {
       const orderResponse = await apiRequest(request, 'POST', '/api/sales/orders', {
         token,
-        data: { currencyCode: 'USD' },
+        data: { currencyCode: 'USD' , lines: [{ currencyCode: 'USD', quantity: 1, name: 'QA seed line', unitPriceNet: 0, unitPriceGross: 0 }] },
       })
       orderId = (await readJson(orderResponse)).id as string
 

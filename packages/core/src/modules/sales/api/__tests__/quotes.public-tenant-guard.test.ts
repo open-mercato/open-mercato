@@ -138,11 +138,13 @@ describe('public quote view — tenant guard against the real auth resolver (#43
     expect(res.status).toBe(404)
   })
 
-  // The reported repro: a superadmin session scoped to "all tenants" carries an EMPTY
-  // om_selected_tenant cookie, which `applySuperAdminScope` turns into `tenantId: null` while
-  // preserving the real tenant under `actorTenantId`. The old `auth?.tenantId &&` precondition
-  // read that as "tenant unknown → allow" and skipped the comparison entirely.
-  test('cross-tenant superadmin scoped to all tenants is rejected with 404', async () => {
+  // The reported repro used to arrive here as an EMPTY om_selected_tenant cookie, which
+  // `applySuperAdminScope` turned into `tenantId: null`; the old `auth?.tenantId &&` precondition
+  // read that as "tenant unknown → allow" and skipped the comparison. A blank cookie is now "no
+  // selection", so the tenant from the token governs and the comparison runs on that instead —
+  // either way the foreign tenant must not see the quote. `resolveEffectiveTenantId` below still
+  // covers the nulled-tenant fallback directly.
+  test('cross-tenant superadmin with a blank tenant cookie is rejected with 404', async () => {
     const token = staffToken({ tenantId: TENANT_B, orgId: null, isSuperAdmin: true })
     const res = await getPublicQuote(makeRequest(`auth_token=${token}; om_selected_tenant=`), makeCtx())
     expect(res.status).toBe(404)
@@ -200,9 +202,10 @@ describe('quote acceptance — tenant scoping stays aligned with the view guard 
     expect(mockCommandBus.execute).not.toHaveBeenCalled()
   })
 
-  // Previously this succeeded: tenantId was null, so no scoping was applied and the unscoped
-  // lookup converted a foreign-tenant quote into an order.
-  test('cross-tenant superadmin scoped to all tenants is rejected with 404', async () => {
+  // Previously this succeeded: the blank cookie nulled tenantId, so no scoping was applied and the
+  // unscoped lookup converted a foreign-tenant quote into an order. The blank cookie no longer
+  // nulls the tenant, but the acceptance must stay scoped either way.
+  test('cross-tenant superadmin with a blank tenant cookie is rejected with 404', async () => {
     captureLookupTenant()
     const token = staffToken({ tenantId: TENANT_B, orgId: null, isSuperAdmin: true })
     const res = await acceptQuote(makeAcceptRequest(`auth_token=${token}; om_selected_tenant=`))

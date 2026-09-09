@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { organizationScopeRequiredResponse, resolveActiveOrganizationId } from '@open-mercato/shared/lib/auth/organizationScope'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAllIntegrations } from '@open-mercato/shared/modules/integrations/types'
 import type { CredentialsService } from '../../integrations/lib/credentials-service'
@@ -17,14 +18,18 @@ export const openApi = {
 
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
-  if (!auth?.tenantId || !auth.orgId) {
+  if (!auth?.tenantId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  const organizationId = resolveActiveOrganizationId(auth)
+  if (!organizationId) {
+    return organizationScopeRequiredResponse()
   }
 
   const container = await createRequestContainer()
   const credentialsService = container.resolve('integrationCredentialsService') as CredentialsService
   const stateService = container.resolve('integrationStateService') as IntegrationStateService
-  const scope = { organizationId: auth.orgId as string, tenantId: auth.tenantId }
+  const scope = { organizationId, tenantId: auth.tenantId }
 
   const items = await Promise.all(
     getAllIntegrations()
@@ -50,6 +55,7 @@ export async function GET(req: Request) {
           runMode: adapter.runMode ?? 'generic',
           canStartRun: adapter.runMode !== 'provider',
           supportedEntities: adapter.supportedEntities,
+          runParameters: adapter.runParameters ?? [],
           hasCredentials: Boolean(credentials),
           isEnabled,
           settingsPath: `/backend/integrations/${encodeURIComponent(integration.id)}`,

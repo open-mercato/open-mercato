@@ -11,9 +11,10 @@ import { EmailInput } from '@open-mercato/ui/primitives/email-input'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
-import { useAiDock } from '@open-mercato/ui/ai'
+import { useAiDock } from '@open-mercato/ui/ai/AiDock'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { isContactWidgetHidden } from './demoFeedbackFlag'
 
 const SUPPRESS_COOKIE = 'om_feedback_suppress'
 const SHOWN_TODAY_COOKIE = 'om_feedback_shown'
@@ -48,6 +49,7 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
   const [open, setOpen] = useState(false)
   const [captionIndex, setCaptionIndex] = useState(0)
   const [mounted, setMounted] = useState(false)
+  const [hiddenByFlag, setHiddenByFlag] = useState(false)
 
   // form state
   const [email, setEmail] = useState('')
@@ -63,7 +65,13 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
   const autoShownRef = useRef(false)
   const [otherModalOpen, setOtherModalOpen] = useState(false)
 
-  useEffect(() => { setMounted(true) }, [])
+  // The `ff_om_hide_contact` localStorage flag lets a demo tenant hide the
+  // contact/feedback surface entirely (floating CTA and the inactivity popup).
+  // It is read after mount because localStorage is unavailable during SSR.
+  useEffect(() => {
+    setMounted(true)
+    setHiddenByFlag(isContactWidgetHidden())
+  }, [])
 
   // Track whether another Radix Dialog or native <dialog> modal is currently open.
   // The floating button + auto-popup must defer while the user is mid-task in another modal —
@@ -99,7 +107,7 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
   // operator is mid-conversation with an assistant and a popup would be
   // disruptive on top of (or competing with) the dock surface.
   useEffect(() => {
-    if (!demoModeEnabled || !mounted) return
+    if (!demoModeEnabled || !mounted || hiddenByFlag) return
     if (aiDockActive) return
     if (getCookie(SUPPRESS_COOKIE) === '1') return
     if (getCookie(SHOWN_TODAY_COOKIE) === todayKey()) return
@@ -133,7 +141,7 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
       events.forEach((ev) => window.removeEventListener(ev, resetTimer))
       if (inactivityTimer.current) clearTimeout(inactivityTimer.current)
     }
-  }, [demoModeEnabled, mounted, aiDockActive])
+  }, [demoModeEnabled, mounted, aiDockActive, hiddenByFlag])
 
   const handleSubmit = useCallback(async () => {
     setFieldErrors({})
@@ -205,7 +213,7 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
     }
   }, [submitState, resetForm])
 
-  if (!mounted) return null
+  if (!mounted || hiddenByFlag) return null
 
   const caption = CAPTIONS[captionIndex]
   const currentCaption = t(caption.key, caption.fallback)
@@ -333,7 +341,7 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
                   onCheckedChange={(v) => setMarketingConsent(v === true)}
                 />
                 <span>
-                  {t('demoFeedback.form.marketingLabel', "I consent to receiving direct marketing from CT Tornado by email. I can withdraw my consent at any time. See our {termsLink} and {privacyLink}.")
+                  {t('demoFeedback.form.marketingLabel', "I consent to receiving direct marketing from Open Mercato sp. z o.o. by email. I can withdraw my consent at any time. See our {termsLink} and {privacyLink}.")
                     .split(/{termsLink}|{privacyLink}/)
                     .map((part, i, arr) => (
                       <span key={i}>

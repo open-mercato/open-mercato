@@ -1,5 +1,6 @@
 "use client"
 import { useEffect, useMemo } from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/portal/extension-points'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -10,7 +11,6 @@ import { SearchX, ShoppingBag, User, Shield } from 'lucide-react'
 import { usePortalContext } from '@open-mercato/ui/portal/PortalContext'
 import { PortalFeatureCard } from '@open-mercato/ui/portal/components/PortalFeatureCard'
 import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
-import { PortalInjectionSpots } from '@open-mercato/ui/backend/injection/spotIds'
 
 type Props = { params: { orgSlug: string } }
 
@@ -54,7 +54,7 @@ export default function PortalLandingPage({ params }: Props) {
 
   return (
     <>
-      <InjectionSpot spotId={PortalInjectionSpots.pageBefore('home')} context={injectionContext} />
+      <InjectionSpot spotId={extensionPoints.hosts.homeBefore.spotId} context={injectionContext} />
 
       <section className="flex flex-col items-center gap-5 py-8 text-center sm:py-16">
         <p className="text-overline font-semibold uppercase tracking-widest text-muted-foreground/60">
@@ -94,7 +94,7 @@ export default function PortalLandingPage({ params }: Props) {
         />
       </section>
 
-      <InjectionSpot spotId={PortalInjectionSpots.pageAfter('home')} context={injectionContext} />
+      <InjectionSpot spotId={extensionPoints.hosts.homeAfter.spotId} context={injectionContext} />
     </>
   )
 }

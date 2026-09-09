@@ -4,6 +4,7 @@ import type { InjectionRowActionWidget } from '@open-mercato/shared/modules/widg
 const widget: InjectionRowActionWidget = {
   metadata: {
     id: 'example.injection.customer-priority-row-action',
+    requiredModules: ['customers'],
     priority: 30,
   },
   rowActions: [

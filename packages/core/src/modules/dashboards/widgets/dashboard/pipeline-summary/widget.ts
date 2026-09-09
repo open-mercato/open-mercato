@@ -1,5 +1,5 @@
 import { lazyDashboardWidget, type DashboardWidgetModule } from '@open-mercato/shared/modules/dashboard/widgets'
-import { DEFAULT_SETTINGS, hydrateSettings, type PipelineSummarySettings } from './config'
+import { DEFAULT_SETTINGS, dehydrateSettings, hydrateSettings, type PipelineSummarySettings } from './config'
 const PipelineSummaryWidget = lazyDashboardWidget(() => import('./widget.client'))
 
 const widget: DashboardWidgetModule<PipelineSummarySettings> = {
@@ -18,7 +18,7 @@ const widget: DashboardWidgetModule<PipelineSummarySettings> = {
   },
   Widget: PipelineSummaryWidget,
   hydrateSettings,
-  dehydrateSettings: (s) => ({ dateRange: s.dateRange }),
+  dehydrateSettings,
 }
 
 export default widget

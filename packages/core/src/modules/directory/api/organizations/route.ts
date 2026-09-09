@@ -251,6 +251,7 @@ export async function GET(req: Request) {
       id: stringId(org.id),
       name: org.name,
       logoUrl: org.logoUrl ?? null,
+      logoPreserveAspectRatio: !!org.logoPreserveAspectRatio,
       parentId: org.parentId ?? null,
       tenantId: tenantId,
       isActive: !!org.isActive,
@@ -344,10 +345,12 @@ export async function GET(req: Request) {
     const slugByOrgId = new Map<string, string | null>()
     const updatedAtByOrgId = new Map<string, string | null>()
     const logoUrlByOrgId = new Map<string, string | null>()
+    const logoPreserveAspectRatioByOrgId = new Map<string, boolean>()
     for (const org of allOrgs) {
       slugByOrgId.set(String(org.id), org.slug ?? null)
       updatedAtByOrgId.set(String(org.id), org.updatedAt instanceof Date ? org.updatedAt.toISOString() : null)
       logoUrlByOrgId.set(String(org.id), org.logoUrl ?? null)
+      logoPreserveAspectRatioByOrgId.set(String(org.id), !!org.logoPreserveAspectRatio)
     }
 
     const tenantIds = Array.from(byTenant.keys())
@@ -433,6 +436,7 @@ export async function GET(req: Request) {
         slug: slugByOrgId.get(recordId) ?? null,
         updatedAt: updatedAtByOrgId.get(recordId) ?? null,
         logoUrl: logoUrlByOrgId.get(recordId) ?? null,
+        logoPreserveAspectRatio: logoPreserveAspectRatioByOrgId.get(recordId) ?? false,
         tenantId: tid,
         tenantName: tenantNameMap[tid] ?? tid,
         parentId: node.parentId,
@@ -475,10 +479,12 @@ export async function GET(req: Request) {
   const hierarchy = computeHierarchyForOrganizations(orgs, tenantId)
   const slugByOrgId = new Map<string, string | null>()
   const logoUrlByOrgId = new Map<string, string | null>()
+  const logoPreserveAspectRatioByOrgId = new Map<string, boolean>()
   const updatedAtByOrgId = new Map<string, string | null>()
   for (const org of orgs) {
     slugByOrgId.set(String(org.id), org.slug ?? null)
     logoUrlByOrgId.set(String(org.id), org.logoUrl ?? null)
+    logoPreserveAspectRatioByOrgId.set(String(org.id), !!org.logoPreserveAspectRatio)
     updatedAtByOrgId.set(String(org.id), org.updatedAt instanceof Date ? org.updatedAt.toISOString() : null)
   }
 
@@ -543,6 +549,7 @@ export async function GET(req: Request) {
       name: node.name,
       slug: slugByOrgId.get(recordId) ?? null,
       logoUrl: logoUrlByOrgId.get(recordId) ?? null,
+      logoPreserveAspectRatio: logoPreserveAspectRatioByOrgId.get(recordId) ?? false,
       updatedAt: updatedAtByOrgId.get(recordId) ?? null,
       tenantId: node.tenantId,
       tenantName,

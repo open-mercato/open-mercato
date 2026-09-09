@@ -6,6 +6,11 @@ import type { ProgressService } from '../../progress/lib/progressService'
 import type { SyncRunService } from '../lib/sync-run-service'
 import { SyncSchedule } from '../data/entities'
 import { startDataSyncRun } from '../lib/start-run'
+import { resolveAdapterForIntegration, resolveStartCursor } from '../lib/start-cursor'
+import { normalizeRunParameters } from '../lib/run-parameters'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('data_sync').child({ component: 'sync-scheduled' })
 
 type ScheduledSyncPayload = {
   scheduleId: string
@@ -63,14 +68,42 @@ export default async function handle(job: QueuedJob<ScheduledSyncPayload>, ctx: 
     return
   }
 
+  const adapter = resolveAdapterForIntegration(schedule.integrationId)
+
   const cursor = schedule.fullSync
     ? null
-    : await syncRunService.resolveCursor(
-        schedule.integrationId,
-        schedule.entityType,
-        schedule.direction,
-        job.payload.scope,
-      )
+    : await resolveStartCursor({
+        syncRunService,
+        adapter,
+        integrationId: schedule.integrationId,
+        entityType: schedule.entityType,
+        direction: schedule.direction,
+        scope: job.payload.scope,
+      })
+
+  // A schedule carries no parameter form, but the adapter's declared defaults
+  // still apply: normalizing an empty input materializes exactly those, so a
+  // scheduled run reaches the adapter with the same set a manual run would
+  // rather than an empty object. A declaration whose own default is invalid
+  // stops the run instead of handing over a half-applied set.
+  const normalizedParameters = normalizeRunParameters(
+    adapter?.runParameters,
+    schedule.direction,
+    null,
+    schedule.entityType,
+  )
+  if (!normalizedParameters.ok) {
+    logger.error('Scheduled run skipped: adapter declares invalid run parameter defaults', {
+      scheduleId: schedule.id,
+      integrationId: schedule.integrationId,
+      entityType: schedule.entityType,
+      keys: normalizedParameters.errors.map((error) => error.key),
+    })
+    return
+  }
+  const parameters = Object.keys(normalizedParameters.values).length > 0
+    ? normalizedParameters.values
+    : null
 
   schedule.lastRunAt = new Date()
   await em.flush()
@@ -85,6 +118,7 @@ export default async function handle(job: QueuedJob<ScheduledSyncPayload>, ctx: 
       direction: schedule.direction,
       cursor,
       triggeredBy: 'scheduler',
+      parameters,
     },
   })
 }

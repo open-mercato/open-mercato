@@ -360,7 +360,7 @@ describe('CrudForm initialValues', () => {
     })
 
     await waitFor(() => {
-      expect(queryByRole('button', { name: 'Alpha' })).toBeInTheDocument()
+      expect(queryByRole('option', { name: 'Alpha' })).toBeInTheDocument()
     })
 
     jest.useRealTimers()

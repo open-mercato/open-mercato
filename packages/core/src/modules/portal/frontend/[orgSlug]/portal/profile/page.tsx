@@ -1,5 +1,6 @@
 "use client"
 import { useEffect, useMemo } from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/portal/extension-points'
 import { useRouter } from 'next/navigation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Badge } from '@open-mercato/ui/primitives/badge'
@@ -8,7 +9,6 @@ import { usePortalContext } from '@open-mercato/ui/portal/PortalContext'
 import { PortalPageHeader } from '@open-mercato/ui/portal/components/PortalPageHeader'
 import { PortalCard, PortalCardHeader, PortalStatRow, PortalCardDivider } from '@open-mercato/ui/portal/components/PortalCard'
 import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
-import { PortalInjectionSpots } from '@open-mercato/ui/backend/injection/spotIds'
 
 type Props = { params: { orgSlug: string } }
 
@@ -49,7 +49,7 @@ export default function PortalProfilePage({ params }: Props) {
         title={t('portal.profile.title', 'Profile')}
       />
 
-      <InjectionSpot spotId={PortalInjectionSpots.pageBefore('profile')} context={injectionContext} />
+      <InjectionSpot spotId={extensionPoints.hosts.profileBefore.spotId} context={injectionContext} />
 
       <div className="grid gap-5 md:grid-cols-2">
         <PortalCard>
@@ -106,7 +106,7 @@ export default function PortalProfilePage({ params }: Props) {
         </PortalCard>
       </div>
 
-      <InjectionSpot spotId={PortalInjectionSpots.pageAfter('profile')} context={injectionContext} />
+      <InjectionSpot spotId={extensionPoints.hosts.profileAfter.spotId} context={injectionContext} />
     </div>
   )
 }

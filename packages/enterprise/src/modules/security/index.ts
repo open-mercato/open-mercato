@@ -1,3 +1,7 @@
+import './lib/mfaCompletionRoutes'
+
+export { registerCanonicalMfaCompletionRoutes } from './lib/mfaCompletionRoutes'
+
 export const metadata = {
   id: 'security',
   version: '0.1.0',

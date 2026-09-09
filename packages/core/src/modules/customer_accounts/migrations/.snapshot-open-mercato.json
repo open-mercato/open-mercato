@@ -923,6 +923,22 @@
           "enumItems": [],
           "mappedType": "uuid"
         },
+        "person_entity_id": {
+          "name": "person_entity_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "uuid"
+        },
         "role_ids_json": {
           "name": "role_ids_json",
           "type": "jsonb",

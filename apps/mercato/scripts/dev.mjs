@@ -7,6 +7,7 @@ import {
   createRuntimeFailureLatch,
   createRuntimeNoiseFilter,
   formatChildExitStatus,
+  isNonRuntimeFailureLine,
   isStatelessRuntimeNoiseLine,
   resolveChildExitCode,
   resolveUnexpectedExitCode,
@@ -597,7 +598,7 @@ function looksLikeWarningLine(line) {
 }
 
 function looksLikeFailure(line) {
-  if (isStatelessRuntimeNoiseLine(line) || looksLikeWarningLine(line)) return false
+  if (isStatelessRuntimeNoiseLine(line) || looksLikeWarningLine(line) || isNonRuntimeFailureLine(line)) return false
 
   return /^error\b/i.test(line)
     || /^Error:/i.test(line)

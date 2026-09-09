@@ -24,7 +24,7 @@ import type { MfaService } from './MfaService'
 import type { MfaVerificationService } from './MfaVerificationService'
 import { sudoTargets as defaultSudoTargets } from '../security.sudo'
 import type { SecurityModuleConfig } from '../lib/security-config'
-import { readSecurityModuleConfig } from '../lib/security-config'
+import { emitMfaEmergencyBypassActiveWarning, readSecurityModuleConfig } from '../lib/security-config'
 
 type SudoMethod = 'password' | 'mfa'
 
@@ -54,6 +54,12 @@ type UserScope = {
   id: string
   tenantId: string | null
   organizationId: string | null
+}
+
+type BoundPendingSudoSession = SudoSession & {
+  targetIdentifier: string
+  sudoConfigId: string
+  sudoConfigUpdatedAt: Date
 }
 
 export type SudoAuthScope = {
@@ -131,21 +137,7 @@ export class SudoChallengeService {
     organizationId?: string | null,
   ): Promise<SudoProtectionResolution> {
     await this.ensureDeveloperDefaultsRegistered()
-
-    const candidates = await this.em.find(SudoChallengeConfig, {
-      targetIdentifier,
-      deletedAt: null,
-    })
-
-    const resolved = candidates
-      .filter((config) => this.matchesScope(config, tenantId ?? null, organizationId ?? null))
-      .sort((left, right) => this.compareConfigPriority(left, right, tenantId ?? null, organizationId ?? null))[0]
-
-    if (!resolved || !resolved.isEnabled) {
-      return { protected: false }
-    }
-
-    return { protected: true, config: resolved }
+    return this.resolveProtection(this.em, targetIdentifier, tenantId ?? null, organizationId ?? null)
   }
 
   async initiate(
@@ -159,23 +151,24 @@ export class SudoChallengeService {
     availableMfaMethods?: SudoAvailableMethod[]
     expiresAt?: Date
   }> {
+    const user = await this.findUserScope(userId)
+    if (!user?.tenantId) {
+      throw new SudoChallengeServiceError('User not found', 404)
+    }
+    const scopeTenantId = options?.tenantId !== undefined ? options.tenantId : user.tenantId
+    const scopeOrganizationId = options?.organizationId !== undefined ? options.organizationId : user.organizationId
     const protection = await this.isProtected(
       targetIdentifier,
-      options?.tenantId ?? null,
-      options?.organizationId ?? null,
+      scopeTenantId,
+      scopeOrganizationId,
     )
 
     if (!protection.protected || !protection.config) {
       return { required: false }
     }
 
-    const user = await this.findUserScope(userId)
-    if (!user?.tenantId) {
-      throw new SudoChallengeServiceError('User not found', 404)
-    }
-
     const userMethods = await this.mfaService.getUserMethods(userId)
-    const method = this.resolveChallengeMethod(protection.config.challengeMethod, userMethods.length)
+    const method = this.resolveChallengeMethod(protection.config.challengeMethod, userMethods.length, userId, targetIdentifier)
 
     let sessionToken = randomBytes(16).toString('hex')
     let availableMfaMethods: SudoAvailableMethod[] | undefined
@@ -189,9 +182,15 @@ export class SudoChallengeService {
     const session = this.em.create(SudoSession, {
       userId,
       tenantId: user.tenantId,
+      scopeTenantId,
+      scopeOrganizationId,
+      targetIdentifier,
+      sudoConfigId: protection.config.id,
+      sudoConfigUpdatedAt: protection.config.updatedAt,
       sessionToken,
       challengeMethod: method,
       expiresAt,
+      verifiedAt: null,
       createdAt: new Date(),
     })
     this.em.persist(session)
@@ -255,16 +254,35 @@ export class SudoChallengeService {
     if (!user?.tenantId) {
       throw new SudoChallengeServiceError('User not found', 404)
     }
+    if (user.tenantId !== session.tenantId) {
+      throw new SudoChallengeServiceError('Unable to verify sudo challenge', 403)
+    }
 
-    const scopeTenantId = options.tenantId !== undefined ? options.tenantId : user.tenantId
-    const scopeOrganizationId = options.organizationId !== undefined ? options.organizationId : user.organizationId
+    const requestedTenantId = options.tenantId !== undefined ? options.tenantId : user.tenantId
+    const requestedOrganizationId = options.organizationId !== undefined ? options.organizationId : user.organizationId
+    if (
+      options.targetIdentifier !== session.targetIdentifier
+      || requestedTenantId !== session.scopeTenantId
+      || requestedOrganizationId !== session.scopeOrganizationId
+    ) {
+      throw new SudoChallengeServiceError('Unable to verify sudo challenge', 403)
+    }
+
+    const scopeTenantId = session.scopeTenantId ?? null
+    const scopeOrganizationId = session.scopeOrganizationId ?? null
     const protection = await this.isProtected(
-      options.targetIdentifier,
+      session.targetIdentifier,
       scopeTenantId,
       scopeOrganizationId,
     )
     if (!protection.protected || !protection.config) {
       throw new SudoChallengeServiceError('Sudo protection is not configured for this target', 404)
+    }
+    if (
+      protection.config.id !== session.sudoConfigId
+      || protection.config.updatedAt.getTime() !== session.sudoConfigUpdatedAt?.getTime()
+    ) {
+      throw new SudoChallengeServiceError('Unable to verify sudo challenge', 403)
     }
 
     let verified = false
@@ -288,33 +306,73 @@ export class SudoChallengeService {
         userId: session.userId,
         tenantId: user.tenantId,
         organizationId: user.organizationId,
-        targetIdentifier: options.targetIdentifier,
+        targetIdentifier: session.targetIdentifier,
         method: methodUsed,
       })
       throw new SudoChallengeServiceError('Unable to verify sudo challenge', 401)
     }
 
-    const ttlSeconds = this.normalizeTtl(protection.config.ttlSeconds)
-    const expiresAt = new Date(Date.now() + ttlSeconds * 1000)
-    const sudoToken = this.signToken({
-      sid: session.id,
-      sub: session.userId,
-      tid: scopeTenantId,
-      oid: scopeOrganizationId,
-      tgt: options.targetIdentifier,
-      exp: expiresAt.getTime(),
-    })
+    const pendingToken = session.sessionToken
+    const { sudoToken, expiresAt, verifiedAt } = await this.em.transactional(async (transactionalEm) => {
+      await transactionalEm.execute('lock table "sudo_challenge_configs" in share mode')
+      const currentProtection = await this.resolveProtection(
+        transactionalEm,
+        session.targetIdentifier,
+        scopeTenantId,
+        scopeOrganizationId,
+      )
+      if (
+        !currentProtection.protected
+        || !currentProtection.config
+        || currentProtection.config.id !== session.sudoConfigId
+        || currentProtection.config.updatedAt.getTime() !== session.sudoConfigUpdatedAt.getTime()
+      ) {
+        throw new SudoChallengeServiceError('Unable to verify sudo challenge', 403)
+      }
 
+      const ttlSeconds = this.normalizeTtl(currentProtection.config.ttlSeconds)
+      const currentVerifiedAt = new Date()
+      const currentExpiresAt = new Date(Date.now() + ttlSeconds * 1000)
+      const currentSudoToken = this.signToken({
+        sid: session.id,
+        sub: session.userId,
+        tid: scopeTenantId,
+        oid: scopeOrganizationId,
+        tgt: session.targetIdentifier,
+        exp: currentExpiresAt.getTime(),
+      })
+      const consumedRows = await transactionalEm.nativeUpdate(
+        SudoSession,
+        {
+          id: session.id,
+          sessionToken: pendingToken,
+          verifiedAt: null,
+          expiresAt: { $gt: currentVerifiedAt },
+        },
+        {
+          sessionToken: currentSudoToken,
+          expiresAt: currentExpiresAt,
+          verifiedAt: currentVerifiedAt,
+        },
+      )
+      if (consumedRows !== 1) {
+        throw new SudoChallengeServiceError('Unable to verify sudo challenge', 400)
+      }
+      return {
+        sudoToken: currentSudoToken,
+        expiresAt: currentExpiresAt,
+        verifiedAt: currentVerifiedAt,
+      }
+    })
     session.sessionToken = sudoToken
-    session.challengeMethod = methodUsed
     session.expiresAt = expiresAt
-    await this.em.flush()
+    session.verifiedAt = verifiedAt
 
     await emitSecurityEvent('security.sudo.verified', {
       userId: session.userId,
       tenantId: scopeTenantId,
       organizationId: scopeOrganizationId,
-      targetIdentifier: options.targetIdentifier,
+      targetIdentifier: session.targetIdentifier,
       method: methodUsed,
       expiresAt: expiresAt.toISOString(),
     })
@@ -344,6 +402,10 @@ export class SudoChallengeService {
       id: payload.sid,
       userId: payload.sub,
       sessionToken: token,
+      targetIdentifier,
+      scopeTenantId: payload.tid,
+      scopeOrganizationId: payload.oid,
+      verifiedAt: { $ne: null },
     } as FilterQuery<SudoSession>)
 
     return Boolean(session && session.expiresAt.getTime() > Date.now())
@@ -463,12 +525,20 @@ export class SudoChallengeService {
     })
 
     if (existing) {
-      existing.isEnabled = true
-      existing.deletedAt = null
-      existing.ttlSeconds = this.normalizeTtl(input.ttlSeconds)
-      existing.challengeMethod = input.challengeMethod ?? ChallengeMethod.AUTO
-      existing.updatedAt = new Date()
-      await this.em.flush()
+      const ttlSeconds = this.normalizeTtl(input.ttlSeconds)
+      const challengeMethod = input.challengeMethod ?? ChallengeMethod.AUTO
+      const changed = !existing.isEnabled
+        || Boolean(existing.deletedAt)
+        || existing.ttlSeconds !== ttlSeconds
+        || existing.challengeMethod !== challengeMethod
+      if (changed) {
+        existing.isEnabled = true
+        existing.deletedAt = null
+        existing.ttlSeconds = ttlSeconds
+        existing.challengeMethod = challengeMethod
+        existing.updatedAt = new Date()
+        await this.em.flush()
+      }
       return
     }
 
@@ -573,10 +643,33 @@ export class SudoChallengeService {
   private resolveChallengeMethod(
     configuredMethod: ChallengeMethod,
     availableMfaMethodCount: number,
+    userId?: string,
+    targetIdentifier?: string,
   ): SudoMethod {
     if (this.securityConfig.mfa.emergencyBypass) {
+      let wouldHaveBeenMfa = false
+      try {
+        wouldHaveBeenMfa = this.resolveChallengeMethodWithoutBypass(configuredMethod, availableMfaMethodCount) === 'mfa'
+      } catch {
+        wouldHaveBeenMfa = configuredMethod === ChallengeMethod.MFA
+      }
+      if (wouldHaveBeenMfa) {
+        emitMfaEmergencyBypassActiveWarning('sudo challenge downgraded to password', {
+          configuredMethod,
+          availableMfaMethodCount,
+          userId,
+          targetIdentifier,
+        })
+      }
       return 'password'
     }
+    return this.resolveChallengeMethodWithoutBypass(configuredMethod, availableMfaMethodCount)
+  }
+
+  private resolveChallengeMethodWithoutBypass(
+    configuredMethod: ChallengeMethod,
+    availableMfaMethodCount: number,
+  ): SudoMethod {
     if (configuredMethod === ChallengeMethod.PASSWORD) return 'password'
     if (configuredMethod === ChallengeMethod.MFA) {
       if (availableMfaMethodCount === 0) {
@@ -585,6 +678,28 @@ export class SudoChallengeService {
       return 'mfa'
     }
     return availableMfaMethodCount > 0 ? 'mfa' : 'password'
+  }
+
+  private async resolveProtection(
+    em: EntityManager,
+    targetIdentifier: string,
+    tenantId: string | null,
+    organizationId: string | null,
+  ): Promise<SudoProtectionResolution> {
+    const candidates = await em.find(SudoChallengeConfig, {
+      targetIdentifier,
+      deletedAt: null,
+    })
+
+    const resolved = candidates
+      .filter((config) => this.matchesScope(config, tenantId, organizationId))
+      .sort((left, right) => this.compareConfigPriority(left, right, tenantId, organizationId))[0]
+
+    if (!resolved || !resolved.isEnabled) {
+      return { protected: false }
+    }
+
+    return { protected: true, config: resolved }
   }
 
   private matchesScope(config: SudoChallengeConfig, tenantId: string | null, organizationId: string | null): boolean {
@@ -624,15 +739,21 @@ export class SudoChallengeService {
     return 4
   }
 
-  private async getPendingSession(sessionId: string): Promise<SudoSession> {
+  private async getPendingSession(sessionId: string): Promise<BoundPendingSudoSession> {
     const session = await this.em.findOne(SudoSession, { id: sessionId })
     if (!session) {
       throw new SudoChallengeServiceError('Sudo challenge session not found', 404)
     }
+    if (!session.targetIdentifier || !session.sudoConfigId || !session.sudoConfigUpdatedAt) {
+      throw new SudoChallengeServiceError('Sudo challenge session not found', 404)
+    }
+    if (session.verifiedAt) {
+      throw new SudoChallengeServiceError('Unable to verify sudo challenge', 400)
+    }
     if (session.expiresAt.getTime() <= Date.now()) {
       throw new SudoChallengeServiceError('Sudo challenge session expired', 400)
     }
-    return session
+    return session as BoundPendingSudoSession
   }
 
   private async findUserScope(userId: string): Promise<UserScope | null> {

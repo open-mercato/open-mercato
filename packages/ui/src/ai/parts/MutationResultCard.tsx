@@ -79,7 +79,7 @@ export function MutationResultCard(props: MutationResultCardProps) {
 
   if (isSuccessStatus(status) && failedRecords && failedRecords.length > 0) {
     return (
-      <Alert variant="warning" data-ai-mutation-result="partial">
+      <Alert status="warning" data-ai-mutation-result="partial">
         <AlertTitle>
           {t(
             'ai_assistant.chat.mutation_cards.result.partialTitle',
@@ -116,7 +116,7 @@ export function MutationResultCard(props: MutationResultCardProps) {
     const recordId = result?.recordId ?? action.targetRecordId ?? null
     const href = payload.recordHref ?? null
     return (
-      <Alert variant="success" data-ai-mutation-result="success">
+      <Alert status="success" data-ai-mutation-result="success">
         <AlertTitle>
           {t('ai_assistant.chat.mutation_cards.result.successTitle', 'Action applied')}
         </AlertTitle>
@@ -281,7 +281,7 @@ export function MutationResultCard(props: MutationResultCardProps) {
       ? errorDetails!.issues!.filter((entry) => entry && (entry.message || entry.path))
       : []
     return (
-      <Alert variant="destructive" data-ai-mutation-result="failure">
+      <Alert status="error" data-ai-mutation-result="failure">
         <AlertTitle>
           {t(
             'ai_assistant.chat.mutation_cards.result.failureTitle',

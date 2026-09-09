@@ -1,9 +1,10 @@
 "use client"
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/customers/extension-points'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { DataTable, type DataTableExportFormat } from '@open-mercato/ui/backend/DataTable'
 import type { PreparedExport } from '@open-mercato/shared/lib/crud/exporters'
@@ -46,6 +47,7 @@ type CustomerTodosResponse = {
   page: number
   pageSize: number
   totalPages: number
+  totalIsCapped?: boolean
 }
 
 const TASKS_TAB_QUERY = 'tab=tasks'
@@ -253,7 +255,7 @@ export function CustomerTodosTable(): React.JSX.Element {
         setSearch(value)
         setPage(1)
       }}
-      perspective={{ tableId: 'customers.todos.list' }}
+      perspective={{ tableId: extensionPoints.hosts.todosTable.tableId }}
       rowActions={(row) => {
         const customerLink = buildCustomerHref(row)
         const todoHref = row.externalHref ?? resolveTodoHref(row.todoSource, row.todoId)
@@ -278,6 +280,7 @@ export function CustomerTodosTable(): React.JSX.Element {
         pageSize,
         total: data?.total ?? 0,
         totalPages: data?.totalPages ?? 0,
+        totalIsCapped: data?.totalIsCapped === true,
         onPageChange: setPage,
       }}
       isLoading={isLoading}

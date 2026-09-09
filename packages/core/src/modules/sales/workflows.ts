@@ -57,7 +57,7 @@ const orderApproval = defineWorkflow({
           config: {
             commandId: 'sales.orders.update',
             statusDictionary: 'sales.order_status',
-            input: { id: '{{context.id}}', statusValue: 'pending_approval' },
+            input: { id: '{{context.orderId}}', statusValue: 'pending_approval' },
           },
           retryPolicy: { maxAttempts: 3, initialIntervalMs: 1000, backoffCoefficient: 2, maxIntervalMs: 10000 },
         },
@@ -68,7 +68,7 @@ const orderApproval = defineWorkflow({
           async: true,
           config: {
             eventName: 'sales.order.approval.requested',
-            payload: { orderId: '{{context.id}}', workflowInstanceId: '{{workflow.instanceId}}' },
+            payload: { orderId: '{{context.orderId}}', workflowInstanceId: '{{workflow.instanceId}}' },
           },
         },
       ],
@@ -91,7 +91,7 @@ const orderApproval = defineWorkflow({
           config: {
             commandId: 'sales.orders.update',
             statusDictionary: 'sales.order_status',
-            input: { id: '{{context.id}}', statusValue: 'approved' },
+            input: { id: '{{context.orderId}}', statusValue: 'approved' },
           },
           retryPolicy: { maxAttempts: 3, initialIntervalMs: 1000, backoffCoefficient: 2, maxIntervalMs: 10000 },
         },
@@ -103,7 +103,7 @@ const orderApproval = defineWorkflow({
           config: {
             eventName: 'sales.order.approval.approved',
             payload: {
-              orderId: '{{context.id}}',
+              orderId: '{{context.orderId}}',
               workflowInstanceId: '{{workflow.instanceId}}',
               approvedBy: '{{context.completedBy}}',
               comments: '{{context.comments}}',
@@ -130,7 +130,7 @@ const orderApproval = defineWorkflow({
           config: {
             commandId: 'sales.orders.update',
             statusDictionary: 'sales.order_status',
-            input: { id: '{{context.id}}', statusValue: 'rejected' },
+            input: { id: '{{context.orderId}}', statusValue: 'rejected' },
           },
           retryPolicy: { maxAttempts: 3, initialIntervalMs: 1000, backoffCoefficient: 2, maxIntervalMs: 10000 },
         },
@@ -142,7 +142,7 @@ const orderApproval = defineWorkflow({
           config: {
             eventName: 'sales.order.approval.rejected',
             payload: {
-              orderId: '{{context.id}}',
+              orderId: '{{context.orderId}}',
               workflowInstanceId: '{{workflow.instanceId}}',
               rejectedBy: '{{context.completedBy}}',
               comments: '{{context.comments}}',
@@ -175,7 +175,10 @@ const orderApproval = defineWorkflow({
     name: 'Order Approval Trigger',
     description: 'Triggers when a new sales order is created',
     eventPattern: 'sales.order.created',
-    config: { entityType: 'SalesOrder' },
+    config: {
+      entityType: 'SalesOrder',
+      contextMapping: [{ targetKey: 'orderId', sourceExpression: 'id' }],
+    },
     enabled: true,
     priority: 0,
   }],

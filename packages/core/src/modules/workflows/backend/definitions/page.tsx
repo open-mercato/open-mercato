@@ -1,11 +1,12 @@
 "use client"
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/workflows/extension-points'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
@@ -61,6 +62,7 @@ type DefinitionsResponse = {
     limit: number
     offset: number
     hasMore: boolean
+    totalIsCapped?: boolean
   }
 }
 
@@ -85,6 +87,7 @@ export default function WorkflowDefinitionsListPage() {
   const [pageSize] = React.useState(20)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const t = useT()
   const router = useRouter()
   const queryClient = useQueryClient()
@@ -118,6 +121,7 @@ export default function WorkflowDefinitionsListPage() {
         setTotal(response.pagination.total || 0)
         const calculatedPages = Math.ceil((response.pagination.total || 0) / pageSize)
         setTotalPages(calculatedPages || 1)
+        setTotalIsCapped(response.pagination?.totalIsCapped === true)
       }
 
       return response?.data || []
@@ -429,7 +433,7 @@ export default function WorkflowDefinitionsListPage() {
           onFiltersClear={handleFiltersClear}
           onRowClick={(row) => router.push(`/backend/definitions/visual-editor?id=${row.id}`)}
           perspective={{
-            tableId: 'workflows.definitions.list',
+            tableId: extensionPoints.hosts.definitionsTable.tableId,
           }}
           emptyState={(
             <ListEmptyState
@@ -438,7 +442,7 @@ export default function WorkflowDefinitionsListPage() {
               createLabel={t('workflows.actions.create')}
             />
           )}
-          pagination={{ page, pageSize, total, totalPages, onPageChange: setPage }}
+          pagination={{ page, pageSize, total, totalPages, totalIsCapped, onPageChange: setPage }}
         />
         <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
           <DialogContent className="sm:max-w-md">
@@ -452,7 +456,7 @@ export default function WorkflowDefinitionsListPage() {
               <Button variant="outline" onClick={() => setDeleteTarget(null)}>
                 {t('common.cancel')}
               </Button>
-              <Button variant="destructive" onClick={confirmDelete}>
+              <Button variant="destructive-solid" onClick={confirmDelete}>
                 <Trash2/>
                 {t('common.delete')}
               </Button>

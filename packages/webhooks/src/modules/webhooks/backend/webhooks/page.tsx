@@ -1,10 +1,11 @@
 "use client"
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/webhooks/modules/webhooks/extension-points'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
@@ -41,6 +42,7 @@ type ResponsePayload = {
   total: number
   page: number
   totalPages: number
+  totalIsCapped?: boolean
 }
 
 export default function WebhooksListPage() {
@@ -48,6 +50,7 @@ export default function WebhooksListPage() {
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [search, setSearch] = React.useState('')
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const [isLoading, setIsLoading] = React.useState(true)
@@ -87,6 +90,7 @@ export default function WebhooksListPage() {
           setRows(Array.isArray(payload.items) ? payload.items : [])
           setTotal(payload.total || 0)
           setTotalPages(payload.totalPages || 1)
+          setTotalIsCapped(payload?.totalIsCapped === true)
         }
       } catch (error) {
         if (!cancelled) {
@@ -231,7 +235,7 @@ export default function WebhooksListPage() {
   return (
     <Page>
       <PageBody className="space-y-4">
-        <Alert variant="info">
+        <Alert status="information">
           <AlertTitle>{t('webhooks.list.description')}</AlertTitle>
           <AlertDescription>{t('webhooks.list.operatorTip')}</AlertDescription>
         </Alert>
@@ -256,7 +260,7 @@ export default function WebhooksListPage() {
             setFilterValues({})
             setPage(1)
           }}
-          perspective={{ tableId: 'webhooks.list' }}
+          perspective={{ tableId: extensionPoints.hosts.webhooksTable.tableId }}
           rowActions={(row) => {
             const items = [
               {
@@ -287,7 +291,7 @@ export default function WebhooksListPage() {
               createLabel={access.canManage ? t('webhooks.nav.create') : undefined}
             />
           )}
-          pagination={{ page, pageSize: 20, total, totalPages, onPageChange: setPage }}
+          pagination={{ page, pageSize: 20, total, totalPages, totalIsCapped, onPageChange: setPage }}
           isLoading={isLoading}
         />
       </PageBody>

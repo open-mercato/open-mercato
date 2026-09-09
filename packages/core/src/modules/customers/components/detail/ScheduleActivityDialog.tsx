@@ -29,6 +29,7 @@ import {
   LinkedEntitiesField,
 } from './schedule'
 import type { ActivityType, ScheduleActivityEditData } from './schedule'
+import { PRIORITY_NUMBER, priorityFromNumber, type EditorPriority } from '../../lib/calendar/editorPayload'
 
 const TYPE_TABS: Array<{ type: ActivityType; icon: React.ComponentType<{ className?: string }>; labelKey: string; fallback: string }> = [
   { type: 'meeting', icon: Users, labelKey: 'customers.schedule.types.meeting', fallback: 'Meeting' },
@@ -81,12 +82,33 @@ const CALL_OUTCOMES: Array<{ key: string; labelKey: string; labelFallback: strin
   { key: 'badnumber', labelKey: 'customers.schedule.call.outcome.badNumber', labelFallback: 'Bad number', dot: 'bg-status-error-icon' },
 ]
 
-const TASK_PRIORITIES: Array<{ key: string; labelKey: string; labelFallback: string; dot: string }> = [
-  { key: 'low', labelKey: 'customers.schedule.task.priority.low', labelFallback: 'Low', dot: 'bg-muted-foreground' },
-  { key: 'medium', labelKey: 'customers.schedule.task.priority.medium', labelFallback: 'Medium', dot: 'bg-status-info-icon' },
-  { key: 'high', labelKey: 'customers.schedule.task.priority.high', labelFallback: 'High', dot: 'bg-status-warning-icon' },
-  { key: 'urgent', labelKey: 'customers.schedule.task.priority.urgent', labelFallback: 'Urgent', dot: 'bg-status-error-icon' },
+// Task priority is the interaction's own nullable `priority` column (0-100), not a
+// custom field — the same scale `CalendarEventEditor` writes through
+// `PRIORITY_NUMBER` / `priorityFromNumber`. `null` means "no priority set", which the
+// column allows (#5943). Dot colours mirror the calendar editor's `PRIORITY_META` so
+// both controls render the same value identically.
+type TaskPriorityValue = EditorPriority | null
+
+const TASK_PRIORITIES: Array<{ key: TaskPriorityValue; labelKey: string; labelFallback: string; dot: string }> = [
+  { key: null, labelKey: 'customers.schedule.task.priority.none', labelFallback: 'None', dot: 'bg-muted' },
+  { key: 'low', labelKey: 'customers.schedule.task.priority.low', labelFallback: 'Low', dot: 'bg-status-info-icon' },
+  { key: 'medium', labelKey: 'customers.schedule.task.priority.medium', labelFallback: 'Medium', dot: 'bg-muted-foreground' },
+  { key: 'high', labelKey: 'customers.schedule.task.priority.high', labelFallback: 'High', dot: 'bg-status-error-icon' },
 ]
+
+function readTaskPriorityNumber(raw: { priority?: unknown } | null | undefined): number | null {
+  return typeof raw?.priority === 'number' && !Number.isNaN(raw.priority) ? raw.priority : null
+}
+
+// `TaskForm` writes any 0-100 value while these chips only offer three buckets, so a
+// save that did not touch the control must keep the stored number rather than snap it
+// to the bucket midpoint — `priority` is a sortable column, so rewriting 100 as 90
+// would silently reorder tasks the user never edited.
+function buildTaskPriorityPayload(level: TaskPriorityValue, seeded: number | null): number | null {
+  if (!level) return null
+  if (seeded !== null && priorityFromNumber(seeded) === level) return seeded
+  return PRIORITY_NUMBER[level]
+}
 
 interface ScheduleActivityDialogProps {
   open: boolean
@@ -99,6 +121,8 @@ interface ScheduleActivityDialogProps {
   onActivityCreated?: () => void
   /** When provided, dialog opens in edit mode with pre-filled data */
   editData?: ScheduleActivityEditData | null
+  /** Default country ISO2 code for phone number input when value is empty/unparsed */
+  defaultCountryIso2?: string
 }
 
 export function ScheduleActivityDialog({
@@ -111,6 +135,7 @@ export function ScheduleActivityDialog({
   entityType,
   onActivityCreated,
   editData,
+  defaultCountryIso2,
 }: ScheduleActivityDialogProps) {
   const t = useT()
   const state = useScheduleFormState({ open, editData: editData ?? null })
@@ -123,7 +148,8 @@ export function ScheduleActivityDialog({
   const [callOutcome, setCallOutcome] = React.useState<string | null>(null)
   const [callPhoneNumber, setCallPhoneNumber] = React.useState('')
   const [callPhoneError, setCallPhoneError] = React.useState<string | null>(null)
-  const [taskPriority, setTaskPriority] = React.useState<string>('medium')
+  const [taskPriority, setTaskPriority] = React.useState<TaskPriorityValue>(null)
+  const [seededTaskPriority, setSeededTaskPriority] = React.useState<number | null>(null)
   const callPhoneInvalidMessage = React.useMemo(
     () =>
       t(
@@ -142,7 +168,7 @@ export function ScheduleActivityDialog({
 
   React.useEffect(() => {
     if (!open) return
-    const raw = editData as (Record<string, unknown> & { customValues?: unknown; phoneNumber?: unknown }) | null | undefined
+    const raw = editData as (Record<string, unknown> & { customValues?: unknown; phoneNumber?: unknown; priority?: unknown }) | null | undefined
     const cv = (raw?.customValues && typeof raw.customValues === 'object' ? raw.customValues : null) as Record<string, unknown> | null
     setCallDirection(typeof cv?.callDirection === 'string' && cv.callDirection === 'inbound' ? 'inbound' : 'outbound')
     setCallOutcome(typeof cv?.callOutcome === 'string' ? cv.callOutcome : null)
@@ -157,7 +183,9 @@ export function ScheduleActivityDialog({
           : ''
     setCallPhoneNumber(seededPhone)
     setCallPhoneError(null)
-    setTaskPriority(typeof cv?.taskPriority === 'string' ? cv.taskPriority : 'medium')
+    const seededPriority = readTaskPriorityNumber(raw)
+    setSeededTaskPriority(seededPriority)
+    setTaskPriority(seededPriority === null ? null : priorityFromNumber(seededPriority))
   }, [open, editData])
 
   // Reset per-type chip state when the user switches activity type in create mode.
@@ -168,7 +196,8 @@ export function ScheduleActivityDialog({
     setCallOutcome(null)
     setCallPhoneNumber('')
     setCallPhoneError(null)
-    setTaskPriority('medium')
+    setTaskPriority(null)
+    setSeededTaskPriority(null)
   }, [state.activityType, open, isEditing])
 
   const handleCallPhoneChange = React.useCallback((next: string | undefined) => {
@@ -204,6 +233,7 @@ export function ScheduleActivityDialog({
   const initialSnapshotRef = React.useRef<string | null>(null)
   const snapshotOpenKeyRef = React.useRef<string | null>(null)
   const snapshotSettleCountRef = React.useRef(0)
+  const closeConfirmPendingRef = React.useRef(false)
   const openKey = open ? `${editData?.id ?? 'new'}` : null
   React.useEffect(() => {
     if (!open) {
@@ -229,21 +259,27 @@ export function ScheduleActivityDialog({
   }, [formSnapshot])
 
   const guardedClose = React.useCallback(async () => {
+    if (closeConfirmPendingRef.current) return
     if (!isDirty()) {
       onClose()
       return
     }
-    const ok = await confirm({
-      title: t('customers.schedule.discardConfirm.title', 'Discard unsaved changes?'),
-      description: t(
-        'customers.schedule.discardConfirm.description',
-        'You have unsaved edits in this activity. Save them first or continue to discard them.',
-      ),
-      confirmText: t('customers.schedule.discardConfirm.confirm', 'Discard'),
-      cancelText: t('customers.schedule.discardConfirm.cancel', 'Keep editing'),
-      variant: 'destructive',
-    })
-    if (ok) onClose()
+    closeConfirmPendingRef.current = true
+    try {
+      const ok = await confirm({
+        title: t('customers.schedule.discardConfirm.title', 'Discard unsaved changes?'),
+        description: t(
+          'customers.schedule.discardConfirm.description',
+          'You have unsaved edits in this activity. Save them first or continue to discard them.',
+        ),
+        confirmText: t('customers.schedule.discardConfirm.confirm', 'Discard'),
+        cancelText: t('customers.schedule.discardConfirm.cancel', 'Keep editing'),
+        variant: 'destructive',
+      })
+      if (ok) onClose()
+    } finally {
+      closeConfirmPendingRef.current = false
+    }
   }, [confirm, isDirty, onClose, t])
 
   const mutationContextId = React.useMemo(
@@ -378,9 +414,6 @@ export function ScheduleActivityDialog({
         if (callOutcome) customValues.callOutcome = callOutcome
         if (phoneNumberForPayload) customValues.callPhoneNumber = phoneNumberForPayload
       }
-      if (state.activityType === 'task') {
-        customValues.taskPriority = taskPriority
-      }
       const payload = {
         ...(isSaveEdit ? { id: editData!.id } : {}),
         entityId,
@@ -392,6 +425,9 @@ export function ScheduleActivityDialog({
         date: trimmedDate,
         time: state.allDay ? '00:00' : trimmedStartTime,
         phoneNumber: state.activityType === 'call' ? phoneNumberForPayload : undefined,
+        // Only tasks expose the priority control, so other types leave the column
+        // untouched rather than clearing it on a type switch (#5943).
+        priority: state.activityType === 'task' ? buildTaskPriorityPayload(taskPriority, seededTaskPriority) : undefined,
         scheduledAt,
         durationMinutes: visibleFields.has('duration') && !state.allDay ? state.duration : null,
         location: visibleFields.has('location') ? (state.location.trim() || null) : null,
@@ -459,14 +495,18 @@ export function ScheduleActivityDialog({
     } finally {
       state.setSaving(false)
     }
-  }, [callDirection, callOutcome, callPhoneInvalidMessage, callPhoneNumber, isDateMissing, isTimeMissing, state.activityType, state.allDay, state.date, state.description, dealId, state.duration, editData, entityId, state.guestPermissions, state.linkedEntities, state.location, onActivityCreated, onClose, state.participants, state.recurrenceCount, state.recurrenceDays, state.recurrenceEnabled, state.recurrenceEndDate, state.recurrenceEndType, state.reminderMinutes, runGuardedMutation, state.startTime, t, taskPriority, state.title, translateErrorMessage, trimmedCallPhone, trimmedDate, trimmedStartTime, state.visibility, visibleFields]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [callDirection, callOutcome, callPhoneInvalidMessage, callPhoneNumber, isDateMissing, isTimeMissing, state.activityType, state.allDay, state.date, state.description, dealId, state.duration, editData, entityId, state.guestPermissions, state.linkedEntities, state.location, onActivityCreated, onClose, state.participants, state.recurrenceCount, state.recurrenceDays, state.recurrenceEnabled, state.recurrenceEndDate, state.recurrenceEndType, state.reminderMinutes, runGuardedMutation, seededTaskPriority, state.startTime, t, taskPriority, state.title, translateErrorMessage, trimmedCallPhone, trimmedDate, trimmedStartTime, state.visibility, visibleFields]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleKeyDown = useDialogKeyHandler({ onConfirm: handleSave })
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) void guardedClose() }}>
-      {ConfirmDialogElement}
-      <DialogContent className="flex max-h-[90vh] flex-col overflow-hidden border-border p-0 shadow-xl sm:max-w-[760px] sm:rounded-xl [&>[data-dialog-close]]:hidden" onKeyDown={handleKeyDown} aria-describedby={undefined}>
+      <DialogContent
+        className="flex max-h-[90vh] flex-col overflow-hidden border-border p-0 shadow-xl sm:max-w-[760px] sm:rounded-xl [&>[data-dialog-close]]:hidden"
+        onKeyDown={handleKeyDown}
+        aria-describedby={undefined}
+      >
+        {ConfirmDialogElement}
         <VisuallyHidden>
           <DialogTitle>{isEditing ? t('customers.schedule.editTitle', 'Edit activity') : t(chrome.titleKey, chrome.titleFallback)}</DialogTitle>
         </VisuallyHidden>
@@ -497,7 +537,7 @@ export function ScheduleActivityDialog({
 
         {/* Conflict warning */}
         {state.conflict && (
-          <Alert variant="warning" className="rounded-lg">
+          <Alert status="warning" className="rounded-lg">
             <AlertTitle>
               {t('customers.schedule.conflict.title', 'Calendar conflict')}
             </AlertTitle>
@@ -644,7 +684,7 @@ export function ScheduleActivityDialog({
                 const isActive = taskPriority === opt.key
                 return (
                   <button
-                    key={opt.key}
+                    key={opt.key ?? 'none'}
                     type="button"
                     aria-pressed={isActive}
                     onClick={() => setTaskPriority(opt.key)}
@@ -689,6 +729,7 @@ export function ScheduleActivityDialog({
               externalError={callPhoneError}
               invalidLabel={callPhoneInvalidMessage}
               minDigits={7}
+              defaultCountryIso2={defaultCountryIso2}
             />
           </div>
         ) : (

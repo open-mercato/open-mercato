@@ -4,6 +4,7 @@ import { createContext, useContext } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { ChevronDown, ChevronLeft, Home, PanelLeftClose, PanelLeftOpen, Search, X } from 'lucide-react'
+import { useIsomorphicLayoutEffect } from '@open-mercato/ui/hooks/useIsomorphicLayoutEffect'
 import { Button } from '../primitives/button'
 import {
   Breadcrumb as BreadcrumbNav,
@@ -87,6 +88,7 @@ function isBooleanRecord(value: unknown): value is Record<string, boolean> {
 export type ShellLogo = {
   src: string
   alt?: string
+  preserveAspectRatio?: boolean
 }
 
 export type AppShellProps = {
@@ -184,6 +186,56 @@ function resolveInjectedMenuLabel(
 function shouldBypassLogoOptimization(src?: string | null): boolean {
   const value = src ?? ''
   return /^https?:\/\//.test(value) || /^\/api\/attachments\/(?:image|file)\//.test(value)
+}
+
+function ShellBrandLogo({
+  logo,
+  brandName,
+  unoptimized,
+  compact = false,
+  mobile = false,
+}: {
+  logo?: ShellLogo
+  brandName: string
+  unoptimized?: boolean
+  compact?: boolean
+  mobile?: boolean
+}) {
+  const src = logo?.src ?? '/open-mercato.svg'
+  const alt = logo?.alt ?? brandName
+  const isCustomLogo = Boolean(logo?.src)
+  const preserveAspectRatio = Boolean(logo?.preserveAspectRatio)
+  if (!isCustomLogo || !preserveAspectRatio) {
+    return (
+      <Image
+        src={src}
+        alt={alt}
+        width={mobile ? 28 : 40}
+        height={mobile ? 28 : 40}
+        className={`${mobile ? 'rounded' : 'rounded-full'} shrink-0 object-cover`}
+        unoptimized={unoptimized ? true : undefined}
+      />
+    )
+  }
+
+  const width = compact ? 40 : mobile ? 96 : 120
+  const height = mobile ? 28 : 40
+  const className = compact
+    ? 'h-10 max-w-10 w-auto shrink-0 object-contain'
+    : mobile
+      ? 'h-7 max-w-24 w-auto shrink-0 object-contain'
+      : 'h-10 max-w-[120px] w-auto shrink-0 object-contain'
+
+  return (
+    <Image
+      src={src}
+      alt={alt}
+      width={width}
+      height={height}
+      className={className}
+      unoptimized={unoptimized ? true : undefined}
+    />
+  )
 }
 
 function mergeSidebarItemsWithInjected(
@@ -357,6 +409,19 @@ function resolveItemKey(item: { id?: string; href: string }): string {
   const candidate = item.id?.trim()
   if (candidate && candidate.length > 0) return candidate
   return item.href
+}
+
+// Horizontal padding lives on each sidebar block rather than on the <aside>, so the scroll
+// container never needs a negative-margin bleed to reach the panel edges. The transition keeps the
+// compact/expanded padding step in sync with the aside's width animation.
+function sidebarBlockPadding(compact: boolean): string {
+  return `${compact ? 'px-2' : 'px-3'} transition-[padding] duration-200 ease-out`
+}
+
+// An InjectionSpot renders nothing when no widget is registered, so its wrapper must collapse
+// instead of surviving as an empty flex child that still costs a full `gap-3`.
+function sidebarInjectionWrapper(compact: boolean): string {
+  return `${sidebarBlockPadding(compact)} empty:hidden`
 }
 
 function SerializedIcon({ markup }: { markup: string }) {
@@ -720,21 +785,23 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
     setOpenGroups((prev) => (prev[key] === false ? { ...prev, [key]: true } : prev))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname, navGroups])
-  // Keep header state in sync with props (server-side updates)
-  React.useEffect(() => {
-    setHeaderTitle(currentTitle)
-    setHeaderBreadcrumb(breadcrumb)
-  }, [currentTitle, breadcrumb])
-  // Clear breadcrumb on client-side navigation so stale state doesn't persist;
-  // the new page's ApplyBreadcrumb (if any) will set the correct values
+  // Reset stale header state before applying server props and before the new
+  // page's passive ApplyBreadcrumb effect. The ordering matters for layouts
+  // that persist across client-side navigation.
   const prevPathname = React.useRef(pathname)
-  React.useEffect(() => {
+  useIsomorphicLayoutEffect(() => {
     if (pathname !== prevPathname.current) {
       prevPathname.current = pathname
       setHeaderTitle(undefined)
       setHeaderBreadcrumb(undefined)
     }
   }, [pathname])
+  // Keep header state in sync with props (server-side updates). A child page's
+  // ApplyBreadcrumb effect runs afterward and may refine this static trail.
+  useIsomorphicLayoutEffect(() => {
+    setHeaderTitle(currentTitle)
+    setHeaderBreadcrumb(breadcrumb)
+  }, [currentTitle, breadcrumb])
 
   // Keep navGroups in sync when server-provided groups change
   React.useEffect(() => {
@@ -750,32 +817,35 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
   ) {
     const sortedSections = [...sections].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
     const lastVisibleIndex = sortedSections.length - 1
+    const blockPadding = sidebarBlockPadding(compact)
 
     return (
       <div className="flex h-full flex-col gap-3">
         {!hideHeader && (
-          <div className="mb-2">
+          <div className={`mb-2 ${blockPadding}`}>
             <Link
               href="/backend"
               className={`flex items-center gap-3 rounded-xl transition-colors hover:bg-muted ${compact ? 'p-2 justify-center' : 'p-3'}`}
               aria-label={t('appShell.goToDashboard')}
             >
-              <Image src={resolvedLogo?.src ?? "/open-mercato.svg"} alt={resolvedLogo?.alt ?? resolvedBrandName} width={40} height={40} className="rounded-full shrink-0" unoptimized={resolvedLogoBypassesOptimization ? true : undefined} />
+              <ShellBrandLogo logo={resolvedLogo} brandName={resolvedBrandName} compact={compact} unoptimized={resolvedLogoBypassesOptimization} />
               {!compact && <span className="truncate text-sm font-medium text-foreground">{resolvedBrandName}</span>}
             </Link>
           </div>
         )}
         {!compact && !hideSearch && (
-          <SearchInput
-            value={navQuery}
-            onChange={setNavQuery}
-            placeholder={t('appShell.searchNavPlaceholder', 'Search...')}
-            aria-label={t('appShell.searchNavAria', 'Search navigation')}
-            clearLabel={t('appShell.searchNavClear', 'Clear search')}
-            className="mb-2"
-          />
+          <div className={blockPadding}>
+            <SearchInput
+              value={navQuery}
+              onChange={setNavQuery}
+              placeholder={t('appShell.searchNavPlaceholder', 'Search...')}
+              aria-label={t('appShell.searchNavAria', 'Search navigation')}
+              clearLabel={t('appShell.searchNavClear', 'Clear search')}
+              className="mb-2"
+            />
+          </div>
         )}
-        <div data-sidebar-scroll="true" className={`flex flex-1 flex-col gap-3 overflow-y-auto scrollbar-hide pr-1 ${compact ? '-ml-2 pl-2' : '-ml-3 pl-3'}`}>
+        <div data-sidebar-scroll="true" className="flex flex-1 flex-col gap-3 overflow-x-hidden overflow-y-auto scrollbar-hide">
           <nav className="flex flex-col gap-2">
           {sortedSections.map((section, sectionIndex) => {
             const sectionNavQueryActive = hideSearch ? false : navQueryActive
@@ -855,7 +925,11 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
             }
 
             return (
-              <div key={section.id}>
+              <div
+                key={section.id}
+                className={`${blockPadding} ${sectionIndex !== lastVisibleIndex ? 'border-b pb-2' : ''}`}
+                data-sidebar-group="true"
+              >
                 {!compact && (
                   <Button
                     variant="muted"
@@ -872,7 +946,6 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
                     {sortedItems.map((item) => renderSectionItem(item))}
                   </div>
                 )}
-                {sectionIndex !== lastVisibleIndex && <div className={`my-2 border-t ${compact ? '-ml-2 -mr-3' : '-ml-3 -mr-4'}`} />}
               </div>
             )
           })}
@@ -883,9 +956,12 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
   }
 
   function renderSidebar(compact: boolean, hideHeader?: boolean, forceMainOnly?: boolean) {
+    const blockPadding = sidebarBlockPadding(compact)
+    const injectionWrapper = sidebarInjectionWrapper(compact)
+
     if (!isChromeReady && isChromeLoading) {
       return (
-        <div className="flex flex-col min-h-full gap-3" data-testid="backend-chrome-loading">
+        <div className={`flex min-h-full flex-col gap-3 ${blockPadding}`} data-testid="backend-chrome-loading">
           {!hideHeader ? (
             <div className="mb-2">
               <Link
@@ -893,12 +969,12 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
                 className={`flex items-center gap-3 rounded-xl transition-colors hover:bg-muted ${compact ? 'p-2 justify-center' : 'p-3'}`}
                 aria-label={t('appShell.goToDashboard')}
               >
-                <Image src={resolvedLogo?.src ?? "/open-mercato.svg"} alt={resolvedLogo?.alt ?? resolvedBrandName} width={40} height={40} className="rounded-full shrink-0" unoptimized={resolvedLogoBypassesOptimization ? true : undefined} />
+                <ShellBrandLogo logo={resolvedLogo} brandName={resolvedBrandName} compact={compact} unoptimized={resolvedLogoBypassesOptimization} />
                 {!compact && <span className="truncate text-sm font-medium text-foreground">{resolvedBrandName}</span>}
               </Link>
             </div>
           ) : null}
-          <div className="flex flex-1 flex-col gap-3 pr-1">
+          <div className="flex flex-1 flex-col gap-3">
             <div className="space-y-3">
               <div className="h-8 rounded bg-muted/50" />
               <div className="space-y-2 pl-1">
@@ -953,34 +1029,38 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
     return (
       <div className="flex h-full flex-col gap-3">
         {!hideHeader && (
-          <div className="mb-2">
+          <div className={`mb-2 ${blockPadding}`}>
             <Link
               href="/backend"
               className={`flex items-center gap-3 rounded-xl transition-colors hover:bg-muted ${compact ? 'p-2 justify-center' : 'p-3'}`}
               aria-label={t('appShell.goToDashboard')}
             >
-              <Image src={resolvedLogo?.src ?? "/open-mercato.svg"} alt={resolvedLogo?.alt ?? resolvedBrandName} width={40} height={40} className="rounded-full shrink-0" unoptimized={resolvedLogoBypassesOptimization ? true : undefined} />
+              <ShellBrandLogo logo={resolvedLogo} brandName={resolvedBrandName} compact={compact} unoptimized={resolvedLogoBypassesOptimization} />
               {!compact && <span className="truncate text-sm font-medium text-foreground">{resolvedBrandName}</span>}
             </Link>
           </div>
         )}
         {shouldRenderSidebarInjectionSpots ? (
-          <InjectionSpot
-            spotId={BACKEND_SIDEBAR_TOP_INJECTION_SPOT_ID}
-            context={injectionContext}
-          />
+          <div className={injectionWrapper} data-sidebar-injection-wrapper="true">
+            <InjectionSpot
+              spotId={BACKEND_SIDEBAR_TOP_INJECTION_SPOT_ID}
+              context={injectionContext}
+            />
+          </div>
         ) : null}
         {!compact && (
-          <SearchInput
-            value={navQuery}
-            onChange={setNavQuery}
-            placeholder={t('appShell.searchNavPlaceholder', 'Search...')}
-            aria-label={t('appShell.searchNavAria', 'Search navigation')}
-            clearLabel={t('appShell.searchNavClear', 'Clear search')}
-            className="mb-2"
-          />
+          <div className={blockPadding}>
+            <SearchInput
+              value={navQuery}
+              onChange={setNavQuery}
+              placeholder={t('appShell.searchNavPlaceholder', 'Search...')}
+              aria-label={t('appShell.searchNavAria', 'Search navigation')}
+              clearLabel={t('appShell.searchNavClear', 'Clear search')}
+              className="mb-2"
+            />
+          </div>
         )}
-        <div data-sidebar-scroll="true" className={`flex flex-1 flex-col gap-3 overflow-y-auto scrollbar-hide pr-1 ${compact ? '-ml-2 pl-2' : '-ml-3 pl-3'}`}>
+        <div data-sidebar-scroll="true" className="flex flex-1 flex-col gap-3 overflow-x-hidden overflow-y-auto scrollbar-hide">
           {(() => {
               const isSettingsPath = (href: string) => {
                 if (href === '/backend/settings') return true
@@ -1009,10 +1089,12 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
                 <>
                   <nav className="flex flex-col gap-2" data-testid="sidebar">
                     {shouldRenderSidebarInjectionSpots ? (
-                      <InjectionSpot
-                        spotId={BACKEND_SIDEBAR_NAV_INJECTION_SPOT_ID}
-                        context={injectionContext}
-                      />
+                      <div className={injectionWrapper} data-sidebar-injection-wrapper="true">
+                        <InjectionSpot
+                          spotId={BACKEND_SIDEBAR_NAV_INJECTION_SPOT_ID}
+                          context={injectionContext}
+                        />
+                      </div>
                     ) : null}
                     {mainGroups.map((g, gi) => {
                       const groupId = resolveGroupKey(g)
@@ -1026,7 +1108,11 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
                       })
                       if (visibleItems.length === 0) return null
                       return (
-                        <div key={groupId}>
+                        <div
+                          className={`${blockPadding} ${gi !== mainLastVisibleGroupIndex ? 'border-b pb-2' : ''}`}
+                          key={groupId}
+                          data-sidebar-group="true"
+                        >
                           {!compact && (
                             <Button
                               variant="muted"
@@ -1119,7 +1205,6 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
                               })}
                             </div>
                           )}
-                          {gi !== mainLastVisibleGroupIndex && <div className={`my-2 border-t ${compact ? '-ml-2 -mr-3' : '-ml-3 -mr-4'}`} />}
                         </div>
                       )
                     })}
@@ -1128,7 +1213,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
               )
             })()}
         </div>
-        <div className="sticky bottom-0 bg-background pb-1">
+        <div className={`sticky bottom-0 bg-background pb-1 ${injectionWrapper}`} data-sidebar-injection-wrapper="true">
           {shouldRenderSidebarInjectionSpots ? (
             <InjectionSpot
               spotId={BACKEND_SIDEBAR_NAV_FOOTER_INJECTION_SPOT_ID}
@@ -1173,15 +1258,17 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
     if (!sections) return null
     return (
       <div className="flex h-full flex-col gap-2">
-        <Link
-          href="/backend"
-          className="inline-flex items-center gap-2 rounded-lg px-2 py-2 text-sm font-semibold text-foreground transition-colors hover:bg-muted"
-          data-testid="appshell-section-back-to-main"
-          aria-label={t('backend.nav.backToMain', 'Back to Main')}
-        >
-          <ChevronLeft className="size-4 shrink-0" aria-hidden />
-          <span className="truncate">{title}</span>
-        </Link>
+        <div className={sidebarBlockPadding(false)}>
+          <Link
+            href="/backend"
+            className="inline-flex items-center gap-2 rounded-lg px-2 py-2 text-sm font-semibold text-foreground transition-colors hover:bg-muted"
+            data-testid="appshell-section-back-to-main"
+            aria-label={t('backend.nav.backToMain', 'Back to Main')}
+          >
+            <ChevronLeft className="size-4 shrink-0" aria-hidden />
+            <span className="truncate">{title}</span>
+          </Link>
+        </div>
         <div className="min-h-0 flex-1">
           {renderSectionSidebar(sections, title, false, true, true)}
         </div>
@@ -1250,7 +1337,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
         {effectiveCollapsed ? <PanelLeftOpen className="size-4" /> : <PanelLeftClose className="size-4" />}
       </button>
       {/* Desktop main sidebar */}
-      <aside ref={sidebarAsideRef} className={`${asideClassesBase} ${effectiveCollapsed ? 'px-2' : 'px-3'} hidden lg:block lg:sticky lg:top-0 lg:h-svh lg:self-start lg:overflow-hidden lg:relative transition-[width,padding] duration-200 ease-out`} style={{ width: asideWidth }}>
+      <aside ref={sidebarAsideRef} className={`${asideClassesBase} px-0 hidden lg:block lg:sticky lg:top-0 lg:h-svh lg:self-start lg:overflow-hidden lg:relative transition-[width] duration-200 ease-out`} style={{ width: asideWidth }}>
         {renderSidebar(effectiveCollapsed, false, isSectionView)}
         {/* Scroll affordance — gradient fade + clickable chevron that flips up when
             the user reaches the bottom and disappears when nothing is scrollable
@@ -1295,7 +1382,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
           original swap behavior to fit the narrow width. */}
       {isSectionView ? (
         <aside
-          className={`${asideClassesBase} px-3 hidden lg:block lg:sticky lg:top-0 lg:h-svh lg:self-start lg:overflow-hidden lg:relative`}
+          className={`${asideClassesBase} px-0 hidden lg:block lg:sticky lg:top-0 lg:h-svh lg:self-start lg:overflow-hidden lg:relative`}
           style={{ width: '240px' }}
           data-testid="appshell-section-sidebar"
         >
@@ -1458,7 +1545,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
           <aside className="absolute left-0 top-0 flex h-full w-[280px] max-w-[85vw] flex-col bg-background border-r shadow-lg overflow-hidden">
             <div className="shrink-0 flex items-center justify-between gap-2 border-b px-4 py-3">
               <Link href="/backend" className="flex items-center gap-2 min-w-0 text-sm font-semibold" onClick={() => setMobileOpen(false)} aria-label={t('appShell.goToDashboard')}>
-                <Image src={resolvedLogo?.src ?? "/open-mercato.svg"} alt={resolvedLogo?.alt ?? resolvedBrandName} width={28} height={28} className="rounded shrink-0" unoptimized={resolvedLogoBypassesOptimization ? true : undefined} />
+                <ShellBrandLogo logo={resolvedLogo} brandName={resolvedBrandName} mobile unoptimized={resolvedLogoBypassesOptimization} />
                 <span className="truncate">{resolvedBrandName}</span>
               </Link>
               <IconButton variant="ghost" size="sm" onClick={() => setMobileOpen(false)} aria-label={t('appShell.closeMenu')}>
@@ -1517,7 +1604,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
                   ? `mobile-drawer-tab-${mobileDrawerView === 'main' ? 'main' : 'section'}`
                   : undefined
               }
-              className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-3"
+              className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden py-3"
             >
               {/* Force expanded sidebar in mobile drawer, hide its header and collapse toggle */}
               {renderSidebar(false, true, mobileDrawerView === 'main')}

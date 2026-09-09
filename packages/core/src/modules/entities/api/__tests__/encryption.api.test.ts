@@ -1,5 +1,5 @@
 /** @jest-environment node */
-import { GET, POST } from '@open-mercato/core/modules/entities/api/encryption'
+import { GET, POST, openApi } from '@open-mercato/core/modules/entities/api/encryption'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 
 // Deterministic version instants. The optimistic-lock check is a pure ISO-string
@@ -24,6 +24,12 @@ const mockEm = {
 const mockEncSvc = {
   invalidateMap: jest.fn(async () => {}),
 }
+const mockResolveOrganizationScopeForRequest = jest.fn(async () => ({
+  tenantId: 't-1',
+  selectedId: 'o-1',
+  filterIds: ['o-1'],
+  allowedIds: ['o-1'],
+}))
 
 let mockGuardService: any = null
 
@@ -43,6 +49,10 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: () => ({ sub: 'u-1', tenantId: 't-1', orgId: 'o-1', roles: ['admin'] }),
+}))
+
+jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
+  resolveOrganizationScopeForRequest: (...args: unknown[]) => mockResolveOrganizationScopeForRequest(...args),
 }))
 
 describe('entities/encryption API', () => {
@@ -74,6 +84,35 @@ describe('entities/encryption API', () => {
     expect(json.updatedAt).toBe(updatedAt.toISOString())
   })
 
+  it('reads the map from the request-selected organization', async () => {
+    mockResolveOrganizationScopeForRequest.mockResolvedValueOnce({
+      tenantId: 't-1',
+      selectedId: 'o-2',
+      filterIds: ['o-2'],
+      allowedIds: ['o-1', 'o-2'],
+    })
+    mockMapRepo.findOne.mockResolvedValueOnce({
+      id: 'm-2',
+      fieldsJson: [{ field: 'notes' }],
+      isActive: true,
+      updatedAt: CURRENT_VERSION,
+    })
+    const request = new Request('http://x/api/entities/encryption?entityId=example:todo', {
+      headers: { cookie: 'om_selected_org=o-2' },
+    })
+
+    const res = await GET(request)
+
+    expect(res.status).toBe(200)
+    expect(mockResolveOrganizationScopeForRequest).toHaveBeenCalledWith(expect.objectContaining({ request }))
+    expect(mockMapRepo.findOne).toHaveBeenCalledWith(expect.objectContaining({
+      entityId: 'example:todo',
+      tenantId: 't-1',
+      organizationId: 'o-2',
+    }))
+    await expect(res.json()).resolves.toMatchObject({ organizationId: 'o-2', fields: [{ field: 'notes' }] })
+  })
+
   it('creates map on POST and invalidates cache', async () => {
     mockMapRepo.findOne.mockResolvedValue(null)
     const payload = { entityId: 'auth:user', fields: [{ field: 'email', hashField: 'email_hash' }] }
@@ -87,6 +126,83 @@ describe('entities/encryption API', () => {
     expect(mockEm.persist).toHaveBeenCalled()
     expect(persistFlush).toHaveBeenCalled()
     expect(mockEncSvc.invalidateMap).toHaveBeenCalledWith('auth:user', 't-1', 'o-1')
+  })
+
+  it('creates and invalidates the map in the request-selected organization', async () => {
+    mockResolveOrganizationScopeForRequest.mockResolvedValueOnce({
+      tenantId: 't-1',
+      selectedId: 'o-2',
+      filterIds: ['o-2'],
+      allowedIds: ['o-1', 'o-2'],
+    })
+    mockMapRepo.findOne.mockResolvedValue(null)
+    const payload = { entityId: 'example:todo', fields: [{ field: 'notes' }] }
+    const request = new Request('http://x/api/entities/encryption', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+      headers: {
+        'content-type': 'application/json',
+        cookie: 'om_selected_org=o-2',
+      },
+    })
+
+    const res = await POST(request)
+
+    expect(res.status).toBe(200)
+    expect(mockResolveOrganizationScopeForRequest).toHaveBeenCalledWith(expect.objectContaining({ request }))
+    expect(mockMapRepo.findOne).toHaveBeenCalledWith(expect.objectContaining({
+      entityId: 'example:todo',
+      tenantId: 't-1',
+      organizationId: 'o-2',
+    }))
+    expect(mockMapRepo.create).toHaveBeenCalledWith(expect.objectContaining({
+      entityId: 'example:todo',
+      tenantId: 't-1',
+      organizationId: 'o-2',
+    }))
+    expect(mockEncSvc.invalidateMap).toHaveBeenCalledWith('example:todo', 't-1', 'o-2')
+  })
+
+  it('rejects a write when the explicitly selected organization is unavailable', async () => {
+    mockResolveOrganizationScopeForRequest.mockResolvedValueOnce({
+      tenantId: 't-1',
+      selectedId: 'o-1',
+      filterIds: ['o-1'],
+      allowedIds: ['o-1'],
+      selectionRejected: true,
+    })
+    const payload = { entityId: 'example:todo', fields: [{ field: 'notes' }] }
+
+    const res = await POST(new Request('http://x/api/entities/encryption', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+      headers: {
+        'content-type': 'application/json',
+        cookie: 'om_selected_org=unavailable-org',
+      },
+    }))
+
+    expect(res.status).toBe(422)
+    await expect(res.json()).resolves.toMatchObject({ code: 'organization_selection_invalid' })
+    expect(mockMapRepo.findOne).not.toHaveBeenCalled()
+    expect(mockMapRepo.create).not.toHaveBeenCalled()
+    expect(mockEm.persist).not.toHaveBeenCalled()
+    expect(persistFlush).not.toHaveBeenCalled()
+    expect(mockEncSvc.invalidateMap).not.toHaveBeenCalled()
+  })
+
+  it('documents the unavailable selected-organization response in OpenAPI', () => {
+    const response = openApi.methods.POST?.responses?.find((entry) => entry.status === 422)
+
+    expect(response?.description).toBe('Selected organization is unavailable')
+    expect(response?.schema?.safeParse({
+      error: 'Selected organization is unavailable',
+      code: 'organization_selection_invalid',
+    }).success).toBe(true)
+    expect(response?.schema?.safeParse({
+      error: 'Selected organization is unavailable',
+      code: 'unexpected_code',
+    }).success).toBe(false)
   })
 
   it('rejects a stale write to an existing map with a 409 conflict', async () => {

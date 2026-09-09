@@ -28,7 +28,10 @@ describe('module-facts customers fixture (T1 anti-drift guard)', () => {
   })
 
   it('locks customers events, acl, search, and notification surfaces', () => {
-    expect(facts.events).toHaveLength(49)
+    // 50 since #5114 added `customers.person.company_assignment.detached` — the profile-only
+    // sibling of the person_company_link CRUD events. Bump deliberately: this guard exists to
+    // make an event-surface change visible, not to be silenced.
+    expect(facts.events).toHaveLength(50)
     expect(facts.aclFeatures).toHaveLength(21)
     expect(facts.searchEntities).toEqual([
       'customers:customer_person_profile',
@@ -52,6 +55,7 @@ describe('module-facts customers fixture (T1 anti-drift guard)', () => {
       'customers.companies.list',
       'customers.deals.list',
       'customers.people.list',
+      'customers.todos.list',
     ])
     expect(facts.hostTokens.entityIds).toEqual(['customers:customer_entity'])
     expect(facts.diTokens).toEqual([])

@@ -121,6 +121,8 @@ yarn dev
 
 Open **http://localhost:3000/backend** and sign in with the credentials printed during setup.
 
+On Linux containers and sandbox environments where the process cannot raise host inotify limits, `yarn dev` automatically warns and uses Next.js Webpack so the app can still start. To force a choice, set `OM_DEV_BUNDLER=webpack` or `OM_DEV_BUNDLER=turbopack` before running `yarn dev`.
+
 ### Run multiple persistent standalone apps against the same PostgreSQL server
 
 `yarn setup`, `yarn dev`, and friends accept an optional `--database-name[=<name>]` flag that rewrites the database segment of `DATABASE_URL` in `./.env`. The flag is fully additive — without it, every script keeps its current behavior.

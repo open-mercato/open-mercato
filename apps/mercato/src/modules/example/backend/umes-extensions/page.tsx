@@ -10,7 +10,7 @@ import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widgets/component-registry'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 
 type TodoListProbe = {
   _example?: {

@@ -479,6 +479,10 @@ test.describe('TC-AI-RUNTIME-OVERRIDES-006: runtime model overrides', () => {
         expect(body).toHaveProperty('agentId');
         expect(body).toHaveProperty('allowRuntimeOverride');
         expect(body).toHaveProperty('providers');
+        // Both degradation fields are emitted unconditionally, so a healthy response
+        // pins them to the fully-resolved values rather than leaving them absent.
+        expect(body).toHaveProperty('degraded', false);
+        expect(body.degradedReason).toBeNull();
       }
     });
   });

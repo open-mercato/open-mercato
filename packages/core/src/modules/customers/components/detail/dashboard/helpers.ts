@@ -1,9 +1,10 @@
 import type { KpiTrend } from '@open-mercato/ui/backend/charts/KpiCard'
+import { isOpenDealStatus } from '../../../lib/dealStatus'
 import type { DealSummary, InteractionSummary, TodoLinkSummary } from '../../formConfig'
 
 export function sumActiveDeals(deals: DealSummary[]): number {
   return deals
-    .filter((d) => d.status !== 'won' && d.status !== 'lost' && d.status !== 'closed')
+    .filter((d) => isOpenDealStatus(d.status))
     .reduce((sum, d) => {
       const amount = typeof d.valueAmount === 'number' ? d.valueAmount : parseFloat(String(d.valueAmount ?? '0'))
       return sum + (Number.isFinite(amount) ? amount : 0)
@@ -11,7 +12,7 @@ export function sumActiveDeals(deals: DealSummary[]): number {
 }
 
 export function getActiveDeals(deals: DealSummary[]): DealSummary[] {
-  return deals.filter((d) => d.status !== 'won' && d.status !== 'lost' && d.status !== 'closed')
+  return deals.filter((d) => isOpenDealStatus(d.status))
 }
 
 export function getOpenTasks(todos: TodoLinkSummary[]): TodoLinkSummary[] {
@@ -68,7 +69,7 @@ export function computeActivityTrend(interactions: InteractionSummary[]): KpiTre
 }
 
 export function computeDealTrend(deals: DealSummary[]): KpiTrend | undefined {
-  const active = deals.filter((d) => d.status !== 'won' && d.status !== 'lost' && d.status !== 'closed')
+  const active = deals.filter((d) => isOpenDealStatus(d.status))
   if (active.length === 0) return undefined
   const now = Date.now()
   const monthMs = 30 * 86_400_000

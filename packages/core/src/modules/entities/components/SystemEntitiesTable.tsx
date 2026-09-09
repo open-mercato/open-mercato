@@ -1,7 +1,9 @@
 "use client"
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/entities/extension-points'
 import { useQuery } from '@tanstack/react-query'
-import type { ColumnDef, SortingState } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
+import type { SortingState } from '@tanstack/react-table'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -73,7 +75,7 @@ export default function SystemEntitiesTable() {
       sortable
       sorting={sorting}
       onSortingChange={setSorting}
-      perspective={{ tableId: 'entities.system.list' }}
+      perspective={{ tableId: extensionPoints.hosts.systemEntitiesTable.tableId }}
       rowActions={(row) => (
         <RowActions
           items={[

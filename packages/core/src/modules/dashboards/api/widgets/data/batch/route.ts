@@ -9,6 +9,8 @@ import {
   createWidgetDataService,
   type WidgetDataRequest,
   WidgetDataValidationError,
+  WidgetDataScanLimitError,
+  WidgetDataEncryptionUnavailableError,
 } from '../../../../services/widgetDataService'
 import { runWidgetDataBatch } from '../../../../lib/widgetDataBatch'
 import type { AnalyticsRegistry } from '../../../../services/analyticsRegistry'
@@ -16,6 +18,7 @@ import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib
 import { dashboardsTag, dashboardsErrorSchema } from '../../../openapi'
 import { widgetDataRequestSchema, widgetDataResponseSchema } from '../schema'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { resolveOptionalBaseCurrencyResolver } from '../../../../lib/optionalBaseCurrency'
 
 const logger = createLogger('dashboards').child({ component: 'widgets-data-batch' })
 
@@ -102,7 +105,13 @@ export async function POST(req: Request) {
   })()
 
   const cache = container.resolve<CacheStrategy>('cache')
-  const service = createWidgetDataService(em, { tenantId, organizationIds }, analyticsRegistry, cache)
+  const service = createWidgetDataService(
+    em,
+    { tenantId, organizationIds },
+    analyticsRegistry,
+    cache,
+    resolveOptionalBaseCurrencyResolver(container),
+  )
 
   const rbacService = container.resolve<{
     userHasAllFeatures: (
@@ -125,6 +134,8 @@ export async function POST(req: Request) {
       fetchOne: (request) => service.fetchWidgetData(request),
       describeError: (error) =>
         error instanceof WidgetDataValidationError
+        || error instanceof WidgetDataScanLimitError
+        || error instanceof WidgetDataEncryptionUnavailableError
           ? error.message
           : 'An error occurred while processing your request',
     })

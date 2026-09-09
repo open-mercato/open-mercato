@@ -133,6 +133,8 @@ describe('ConfirmationCard', () => {
     expect(
       document.querySelectorAll('[data-ai-confirmation-stale-record]').length,
     ).toBe(2)
+    expect(document.querySelectorAll('p p').length).toBe(0)
+    expect(document.querySelectorAll('p ul').length).toBe(0)
   })
 
   it('renders the schema_drift "Schema changed" alert', () => {

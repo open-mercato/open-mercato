@@ -64,9 +64,11 @@ import { CurrencyFilterPopover } from './components/CurrencyFilterPopover'
 import { AddStageLane } from './components/AddStageLane'
 import type { DealCardData } from './components/DealCard'
 import {
-  QuickDealDialog,
+  QuickDealDialog as DefaultQuickDealDialog,
+  QUICK_DEAL_DIALOG_COMPONENT_ID,
   type QuickDealContext,
   type QuickDealCompanyOption,
+  type QuickDealDialogProps,
 } from './components/QuickDealDialog'
 import { AddStageDialog, type AddStageContext } from './components/AddStageDialog'
 import { StatusFilterPopover } from './components/StatusFilterPopover'
@@ -80,6 +82,7 @@ import {
   type ActivityComposerContext,
 } from './components/ActivityComposerDialog'
 import { BulkActionsBar } from './components/BulkActionsBar'
+import { useRegisteredComponent } from '@open-mercato/ui/backend/injection/useRegisteredComponent'
 import { ChangeStageDialog } from './components/ChangeStageDialog'
 import { ChangeOwnerDialog } from './components/ChangeOwnerDialog'
 import { buildCrudExportUrl, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
@@ -410,6 +413,12 @@ function sortDeals(deals: DealCardData[], option: SortOption): DealCardData[] {
 
 export default function DealsKanbanPage(): React.ReactElement {
   const t = useT()
+  // Resolved through the component registry so downstream apps can replace,
+  // wrap, or props-transform the quick-add dialog without forking this page.
+  const QuickDealDialog = useRegisteredComponent<QuickDealDialogProps>(
+    QUICK_DEAL_DIALOG_COMPONENT_ID,
+    DefaultQuickDealDialog,
+  )
   const router = useRouter()
   const scopeVersion = useOrganizationScopeVersion()
   const queryClient = useQueryClient()
@@ -1757,7 +1766,7 @@ export default function DealsKanbanPage(): React.ReactElement {
   }, [invalidateKanbanData, scopeVersion, selectedPipelineId])
 
   const updateDealStatus = React.useCallback(
-    async (dealId: string, status: 'win' | 'loose') => {
+    async (dealId: string, status: 'win' | 'lost') => {
       const dealVersion = deals.find((deal) => deal.id === dealId)?.updatedAt ?? null
       setPendingDealId(dealId)
       try {
@@ -2339,7 +2348,7 @@ export default function DealsKanbanPage(): React.ReactElement {
       {
         id: 'mark-lost',
         label: translateWithFallback(t, 'customers.deals.kanban.menu.markLost', 'Mark as Lost'),
-        onSelect: () => void updateDealStatus(deal.id, 'loose'),
+        onSelect: () => void updateDealStatus(deal.id, 'lost'),
       },
       {
         id: 'delete',
@@ -2741,7 +2750,7 @@ export default function DealsKanbanPage(): React.ReactElement {
           </div>
         ) : firstError ? (
           <div className="max-w-xl">
-            <Alert variant="destructive">
+            <Alert status="error">
               <AlertTitle>{translateWithFallback(t, 'ui.errors.defaultTitle', 'Something went wrong')}</AlertTitle>
               <AlertDescription>
                 {firstError instanceof Error

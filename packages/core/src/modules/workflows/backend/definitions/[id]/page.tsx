@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { useRouter, useParams, usePathname } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
@@ -33,20 +33,12 @@ import { MobileDefinitionDetail } from '../../../components/mobile/MobileDefinit
 import { useIsMobile } from '@open-mercato/ui/hooks/useIsMobile'
 import type { WorkflowDefinitionTrigger } from '../../../data/entities'
 
-export default function EditWorkflowDefinitionPage() {
+export default function EditWorkflowDefinitionPage({ params }: { params?: { id?: string } }) {
   const router = useRouter()
-  const params = useParams()
   const pathname = usePathname()
   const t = useT()
   const isMobile = useIsMobile()
-
-  // Handle catch-all route: params.slug = ['definitions', 'uuid']
-  let definitionId: string | undefined
-  if (params?.slug && Array.isArray(params.slug)) {
-    definitionId = params.slug[1] // Second element is the ID
-  } else if (params?.id) {
-    definitionId = Array.isArray(params.id) ? params.id[0] : params.id
-  }
+  const definitionId = params?.id
 
   const { data: definition, isLoading, error } = useQuery({
     queryKey: ['workflow-definition', definitionId],
@@ -288,7 +280,7 @@ export default function EditWorkflowDefinitionPage() {
     <Page>
       <PageBody>
         {isCodeOnly && (
-          <Alert variant="info" className="mb-4">
+          <Alert status="information" className="mb-4">
             <AlertDescription className="flex items-center justify-between">
               <span>{t('workflows.source.code.readonlyBanner')}</span>
               <Button variant="outline" size="sm" onClick={handleCustomize}>
@@ -298,7 +290,7 @@ export default function EditWorkflowDefinitionPage() {
           </Alert>
         )}
         {isCodeOverride && (
-          <Alert variant="warning" className="mb-4">
+          <Alert status="warning" className="mb-4">
             <AlertDescription className="flex items-center justify-between">
               <span>{t('workflows.source.code_override.banner')}</span>
               <Button variant="outline" size="sm" onClick={handleResetToCode}>

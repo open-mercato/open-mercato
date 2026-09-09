@@ -15,6 +15,9 @@ echo "==> Checking version alignment across packages against root package.json..
 RELEASE_VERSION=$(jq -r '.version' package.json)
 echo "==> Releasing existing version ${RELEASE_VERSION}..."
 
+echo "==> Verifying the target version is not published yet..."
+./scripts/check-version-unpublished.sh "$RELEASE_VERSION"
+
 echo "==> Building packages..."
 yarn build:packages
 

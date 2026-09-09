@@ -118,7 +118,7 @@ export function FormFieldArrayEditor({
           <p className="text-xs text-muted-foreground mt-0.5">
             {t('workflows.fieldEditors.formFields.description')}
           </p>
-          {error && <p className="text-xs text-red-600 mt-1">{error}</p>}
+          {error && <p className="text-xs text-status-error-text mt-1">{error}</p>}
         </div>
         <Button
           type="button"
@@ -134,7 +134,7 @@ export function FormFieldArrayEditor({
 
       {/* JSON Schema Format Notice */}
       {isJsonSchemaFormat && (
-        <Alert variant="info">
+        <Alert status="information">
           <AlertDescription className="text-xs">
             {t('workflows.fieldEditors.formFields.jsonSchemaNotice')}
           </AlertDescription>

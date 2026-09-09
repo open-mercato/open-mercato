@@ -227,6 +227,7 @@ Transitions can execute activities as the workflow moves from one step to anothe
   "activities": [
     {
       "activityId": "send-approval-email",
+      "activityName": "Send Approval Email",
       "activityType": "SEND_EMAIL",
       "config": {
         "to": "{{context.requesterEmail}}",
@@ -236,12 +237,14 @@ Transitions can execute activities as the workflow moves from one step to anothe
     },
     {
       "activityId": "update-status",
+      "activityName": "Update Request Status",
       "activityType": "UPDATE_ENTITY",
       "config": {
-        "entityType": "PurchaseRequest",
-        "entityId": "{{context.requestId}}",
-        "updates": {
-          "status": "APPROVED"
+        "commandId": "sales.orders.update",
+        "statusDictionary": "sales.order_status",
+        "input": {
+          "id": "{{context.requestId}}",
+          "statusValue": "approved"
         }
       }
     }

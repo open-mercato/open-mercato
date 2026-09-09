@@ -67,8 +67,10 @@ export NPM_CONFIG_USERCONFIG="$NPMRC_TMP"
 
 echo "Bootstrapping Verdaccio at $REGISTRY_URL..."
 cd "$ROOT_DIR"
-reset_verdaccio_storage
-docker compose up -d verdaccio > /dev/null
+if [ "${OM_SKIP_VERDACCIO_BOOTSTRAP:-0}" != "1" ]; then
+  reset_verdaccio_storage
+  docker compose up -d verdaccio > /dev/null
+fi
 wait_for_verdaccio
 
 PACKAGES=()

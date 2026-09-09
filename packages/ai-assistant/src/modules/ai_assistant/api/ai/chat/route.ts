@@ -6,7 +6,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
-import { llmProviderRegistry } from '@open-mercato/shared/lib/ai/llm-provider-registry'
+import { llmProviderRegistry } from '../../../lib/llm-registry'
 import { loadAgentRegistry } from '../../../lib/agent-registry'
 import { checkAgentPolicy, type AgentPolicyDenyCode } from '../../../lib/agent-policy'
 import {
@@ -15,6 +15,7 @@ import {
   type AiAgentLoopBudgetPreset,
 } from '../../../lib/agent-runtime'
 import { AgentPolicyError } from '../../../lib/agent-tools'
+import { AiModerationBlockedError, AiModerationUnavailableError } from '../../../lib/moderation'
 import { readBaseurlAllowlist, isBaseurlAllowlisted } from '../../../lib/baseurl-allowlist'
 import {
   canonicalProviderId,
@@ -699,6 +700,15 @@ export async function POST(req: NextRequest): Promise<Response> {
   } catch (error) {
     if (error instanceof AgentPolicyError) {
       return jsonError(statusForDenyCode(error.code), error.message, error.code)
+    }
+    // Input pre-moderation outcomes (spec 2026-06-04). The blocked categories
+    // are NEVER sent to the client — only the typed code, which the chat UI
+    // maps to a generic translated message.
+    if (error instanceof AiModerationBlockedError) {
+      return jsonError(400, 'Input rejected by the content safety filter.', 'moderation_blocked')
+    }
+    if (error instanceof AiModerationUnavailableError) {
+      return jsonError(503, 'Content safety check temporarily unavailable.', 'moderation_unavailable')
     }
     logger.error('AI Chat Agent — Dispatch failure', { err: error })
     return jsonError(

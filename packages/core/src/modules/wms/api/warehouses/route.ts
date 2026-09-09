@@ -2,9 +2,9 @@ import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { parseScopedCommandInput, resolveCrudRecordId } from '@open-mercato/shared/lib/api/scoped'
-import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { E } from '#generated/entities.ids.generated'
+import { buildWarehouseListSearchOr } from '../warehouseSearch'
 import { Warehouse } from '../../data/entities'
 import { warehouseCreateSchema, warehouseUpdateSchema } from '../../data/validators'
 import { createPagedListResponseSchema, createWmsCrudOpenApi, defaultOkResponseSchema } from '../openapi'
@@ -77,6 +77,9 @@ const crud = makeCrudRoute({
       F.created_at,
       F.updated_at,
     ],
+    decorateCustomFields: {
+      entityIds: E.wms.warehouse,
+    },
     sortFieldMap: {
       name: F.name,
       code: F.code,
@@ -94,13 +97,7 @@ const crud = makeCrudRoute({
       if (isActive !== null) filters[F.is_active] = { $eq: isActive }
       const term = query.search?.trim()
       if (term) {
-        const like = `%${escapeLikePattern(term)}%`
-        filters.$or = [
-          { [F.name]: { $ilike: like } },
-          { [F.code]: { $ilike: like } },
-          { [F.city]: { $ilike: like } },
-          { [F.country]: { $ilike: like } },
-        ]
+        filters.$or = buildWarehouseListSearchOr(term)
       }
       return filters
     },
@@ -113,7 +110,10 @@ const crud = makeCrudRoute({
         const { translate } = await resolveTranslations()
         return parseScopedCommandInput(warehouseCreateSchema, raw ?? {}, ctx, translate)
       },
-      response: ({ result }) => ({ id: result?.warehouseId ?? null }),
+      response: ({ result }) => ({
+        id: result?.warehouseId ?? null,
+        updatedAt: result?.updatedAt ?? null,
+      }),
       status: 201,
     },
     update: {
@@ -166,6 +166,10 @@ export const openApi = createWmsCrudOpenApi({
   listResponseSchema: createPagedListResponseSchema(warehouseListItemSchema),
   create: {
     schema: warehouseCreateSchema,
+    responseSchema: z.object({
+      id: z.string().uuid().nullable(),
+      updatedAt: z.string().nullable(),
+    }),
     description: 'Creates a warehouse for inventory operations.',
   },
   update: {

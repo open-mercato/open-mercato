@@ -214,3 +214,22 @@ Dark:   --background: oklch(0.145 0 0)       /* near black */
 - [Foundations](./foundations.md) — scale definitions and guidelines
 - [Migration Tables](./migration-tables.md) — mapping old values to new tokens
 - [Enforcement](./enforcement.md) — ESLint rules enforcing token usage
+
+
+## Status solid role (added with #4651)
+
+Filled surfaces that carry text — chips, badges, labeled dots. One token pair
+per family; every pair holds WCAG AA 4.5:1 (verified by `yarn check:tokens`):
+
+| Family | `--status-{x}-solid` | Foreground | Contrast |
+|---|---|---|---|
+| error | red-600 #dc2626 | white | 4.83 |
+| success | green-700 #15803d | white | 5.02 |
+| warning | amber-700 #b45309 | white | 5.02 |
+| info | indigo-600 #4f46e5 | white | 6.29 |
+| neutral | neutral-600 #525252 | white | 7.81 |
+| pink | pink-700 #be185d | white | 6.04 |
+
+Same values in dark (saturated fills read on both surfaces; one value keeps
+chip identity across themes). The subtle anatomy (bg/text/border/icon) stays
+for alerts and callouts; solid is for emphasis surfaces only.

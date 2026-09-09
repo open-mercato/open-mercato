@@ -5,6 +5,7 @@ import type {
   FindOneOptions,
   FindOptions,
 } from '@mikro-orm/postgresql'
+import { warnOnEncryptedLikeFilter } from './likeFilterWarning'
 import { decryptEntitiesWithFallbackScope } from './subscriber'
 import type { TenantDataEncryptionService } from './tenantDataEncryptionService'
 
@@ -24,6 +25,13 @@ export async function findWithDecryption<Entity extends object, Hint extends str
   options?: AnyFindOptions<Entity, Hint>,
   scope?: DecryptionScope,
 ): Promise<Entity[]> {
+  await warnOnEncryptedLikeFilter({
+    em,
+    entityName,
+    where,
+    tenantId: scope?.tenantId,
+    encryptionService: scope?.encryptionService,
+  })
   const records = (await em.find<Entity, Hint, any, any>(entityName as any, where as any, options as any)) as any as
     | Entity[]
     | undefined
@@ -44,6 +52,13 @@ export async function findOneWithDecryption<Entity extends object, Hint extends 
   options?: AnyFindOneOptions<Entity, Hint>,
   scope?: DecryptionScope,
 ): Promise<Entity | null> {
+  await warnOnEncryptedLikeFilter({
+    em,
+    entityName,
+    where,
+    tenantId: scope?.tenantId,
+    encryptionService: scope?.encryptionService,
+  })
   const record = (await em.findOne<Entity, Hint, any, any>(entityName as any, where as any, options as any)) as any as
     | Entity
     | null
@@ -64,6 +79,13 @@ export async function findAndCountWithDecryption<Entity extends object, Hint ext
   options?: AnyFindOptions<Entity, Hint>,
   scope?: DecryptionScope,
 ): Promise<[Entity[], number]> {
+  await warnOnEncryptedLikeFilter({
+    em,
+    entityName,
+    where,
+    tenantId: scope?.tenantId,
+    encryptionService: scope?.encryptionService,
+  })
   const [recordsRaw, count] = await em.findAndCount<Entity, Hint, any, any>(
     entityName as any,
     where as any,

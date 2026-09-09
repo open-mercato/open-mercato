@@ -5,6 +5,7 @@ import { ActionLog } from '@open-mercato/core/modules/audit_logs/data/entities'
 import {
   actionLogCreateSchema,
   actionLogListSchema,
+  uuid,
   type ActionLogCreateInput,
   type ActionLogListQuery,
 } from '@open-mercato/core/modules/audit_logs/data/validators'
@@ -34,6 +35,55 @@ const SORT_FIELDS = {
   createdAt: 'action_logs.created_at',
 } as const
 const UUID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/
+// Mirrors what `uuid` (`data/validators.ts`) accepts — versions 1-8 plus the nil and
+// max UUIDs — and is used only when the zod runtime is unavailable, so the actor
+// sanitizer can never reject a value `actionLogCreateSchema` would have accepted.
+export const SCHEMA_UUID_REGEX = /^(?:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/
+const API_KEY_ACTOR_PREFIX = 'api_key:'
+const SYSTEM_ACTOR_PREFIX = 'system:'
+// `context.systemActor` names the automated principal behind an entry; `context.source`
+// (read by `deriveActionLogSource`) names the channel it arrived through. They are
+// siblings on purpose and never contradict each other: an entry carrying `systemActor`
+// has a null actor column, which already derives the `system` source.
+const SYSTEM_ACTOR_CONTEXT_KEY = 'systemActor'
+const SYSTEM_ACTOR_REFERENCE_MAX_LENGTH = 255
+
+function toNullableUuid(value: unknown): string | null {
+  return typeof value === 'string' && UUID_REGEX.test(value) ? value : null
+}
+
+function isSchemaUuid(value: string): boolean {
+  if (runtimeValidationAvailable === false) return SCHEMA_UUID_REGEX.test(value)
+
+  try {
+    return uuid.safeParse(value).success
+  } catch (err) {
+    if (isZodRuntimeMissing(err)) runtimeValidationAvailable = false
+    return SCHEMA_UUID_REGEX.test(value)
+  }
+}
+
+function readActorCandidate(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : null
+}
+
+function normalizeActorUserId(value: unknown): string | null {
+  const candidate = readActorCandidate(value)
+  if (!candidate) return null
+  const unwrapped = candidate.startsWith(API_KEY_ACTOR_PREFIX)
+    ? candidate.slice(API_KEY_ACTOR_PREFIX.length)
+    : candidate
+
+  return isSchemaUuid(unwrapped) ? unwrapped : null
+}
+
+function toSystemActorReference(candidate: string): string | null {
+  if (!candidate.startsWith(SYSTEM_ACTOR_PREFIX)) return null
+  if (candidate.length === SYSTEM_ACTOR_PREFIX.length) return null
+  return candidate.slice(0, SYSTEM_ACTOR_REFERENCE_MAX_LENGTH)
+}
 
 type ActionLogProjectionBackfillOptions = {
   batchSize?: number
@@ -202,6 +252,7 @@ export class ActionLogService {
   }
 
   private parseCreateInput(input: ActionLogCreateInput): ActionLogCreateInput {
+    const sanitized = this.sanitizeActor(input)
     let data: ActionLogCreateInput
     const schema = actionLogCreateSchema as typeof actionLogCreateSchema & { _zod?: unknown }
     const canValidate = Boolean(schema && typeof schema.parse === 'function')
@@ -209,7 +260,7 @@ export class ActionLogService {
 
     if (shouldValidate) {
       try {
-        data = schema.parse(input)
+        data = schema.parse(sanitized)
         runtimeValidationAvailable = true
       } catch (err) {
         if (!isZodRuntimeMissing(err) && !validationWarningLogged) {
@@ -217,13 +268,32 @@ export class ActionLogService {
           logger.warn('Falling back to permissive action log payload parser', { err })
         }
         if (isZodRuntimeMissing(err)) runtimeValidationAvailable = false
-        data = this.normalizeInput(input)
+        data = this.normalizeInput(sanitized)
       }
     } else {
-      data = this.normalizeInput(input)
+      data = this.normalizeInput(sanitized)
     }
 
     return data
+  }
+
+  private sanitizeActor(input: ActionLogCreateInput): ActionLogCreateInput {
+    if (!input) return input
+    const candidate = readActorCandidate(input.actorUserId)
+    const actorUserId = normalizeActorUserId(candidate)
+    const systemActorReference = candidate && !actorUserId ? toSystemActorReference(candidate) : null
+
+    if (!systemActorReference) {
+      if (actorUserId === (input.actorUserId ?? null)) return input
+      return { ...input, actorUserId }
+    }
+
+    const context = isRecord(input.context) ? { ...input.context } : {}
+    if (context[SYSTEM_ACTOR_CONTEXT_KEY] === undefined) {
+      context[SYSTEM_ACTOR_CONTEXT_KEY] = systemActorReference
+    }
+
+    return { ...input, actorUserId, context }
   }
 
   private createLogEntity(fork: EntityManager, data: ActionLogCreateInput): ActionLog {
@@ -286,13 +356,6 @@ export class ActionLogService {
       }
     }
 
-    const UUID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/
-    const toNullableUuid = (value: unknown) => {
-      if (typeof value !== 'string' || value.length === 0) return null
-      const candidate = value.startsWith('api_key:') ? value.slice('api_key:'.length) : value
-      return UUID_REGEX.test(candidate) ? candidate : null
-    }
-
     const normalizeRecordLike = (value: unknown): ActionLogCreateInput['changes'] => {
       if (value === null) return null
       if (Array.isArray(value)) return value
@@ -309,7 +372,7 @@ export class ActionLogService {
     return {
       tenantId: toNullableUuid(input.tenantId),
       organizationId: toNullableUuid(input.organizationId),
-      actorUserId: toNullableUuid(input.actorUserId),
+      actorUserId: normalizeActorUserId(input.actorUserId),
       commandId: typeof input.commandId === 'string' && input.commandId.length > 0 ? input.commandId : 'unknown',
       actionLabel: toOptionalString(input.actionLabel) ?? undefined,
       resourceKind: toOptionalString(input.resourceKind) ?? undefined,

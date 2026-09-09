@@ -39,6 +39,7 @@ type DealPersonItem = {
   subtitle: string | null
   kind: 'person'
   linkedAt: string
+  isPrimary: boolean
 }
 
 function matchesSearch(item: DealPersonItem, query: string): boolean {
@@ -101,8 +102,11 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
       throw notFound(translate('customers.errors.deal_not_found', 'Deal not found'))
     }
 
+    // Existence oracle (#5504): deny a cross-org read as not-found — identical to
+    // the parent-not-found above — so it cannot reveal that a deal exists in an
+    // organization the caller cannot see.
     if (!isOrganizationReadAccessAllowed({ scope, auth, organizationId: deal.organizationId })) {
-      throw new CrudHttpError(403, { error: translate('customers.errors.access_denied', 'Access denied') })
+      throw notFound(translate('customers.errors.deal_not_found', 'Deal not found'))
     }
 
     const entityScope = { tenantId: deal.tenantId, organizationId: deal.organizationId }
@@ -124,6 +128,7 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
           subtitle: person.primaryEmail ?? person.primaryPhone ?? null,
           kind: 'person',
           linkedAt: link.createdAt.toISOString(),
+          isPrimary: link.isPrimary === true,
         } satisfies DealPersonItem
       })
       .filter((item): item is DealPersonItem => item !== null)
@@ -169,6 +174,7 @@ export const openApi: OpenApiRouteDoc = {
                 subtitle: z.string().nullable(),
                 kind: z.literal('person'),
                 linkedAt: z.string(),
+                isPrimary: z.boolean(),
               }),
             ),
             total: z.number().int().nonnegative(),

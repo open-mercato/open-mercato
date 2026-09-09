@@ -1,4 +1,4 @@
-export type StarterPresetId = 'classic' | 'empty' | 'crm' | (string & {})
+export type StarterPresetId = 'classic' | 'empty' | 'crm' | 'wms' | (string & {})
 
 export type ModuleEntry = { id: string; from: string }
 
@@ -20,6 +20,7 @@ export type StarterPreset = {
 const CORE = '@open-mercato/core'
 const EVENTS = '@open-mercato/events'
 const AI_ASSISTANT = '@open-mercato/ai-assistant'
+const SEARCH = '@open-mercato/search'
 
 const EMPTY_MODULES: ModuleEntry[] = [
   { id: 'auth', from: CORE },
@@ -32,6 +33,22 @@ const EMPTY_MODULES: ModuleEntry[] = [
   { id: 'notifications', from: CORE },
   { id: 'dashboards', from: CORE },
   { id: 'events', from: EVENTS },
+  // The app shell renders the Cmd+K palette on the `search.global` feature, and a
+  // feature whose owning module is not enabled is stripped from every role's grants
+  // — superadmin included. `search` therefore has to be part of the baseline, not a
+  // CRM extra. It costs nothing to enable: `@open-mercato/search` is already pinned
+  // in the template's package.json, and `query_index` above owns the `search_tokens`
+  // table the token strategy reads, so the palette works with no Meilisearch and no
+  // embedding provider configured.
+  { id: 'search', from: SEARCH },
+  // `directory` above ships the organization branding page, whose logo picker uploads
+  // through `POST /api/attachments` — a route only the `attachments` module registers.
+  // Without it the upload 404s silently instead of failing visibly, so `attachments`
+  // belongs in the baseline rather than in a single preset's extras (issue #5897).
+  // It costs nothing to enable: it lives in `@open-mercato/core`, already pinned in the
+  // template's package.json, and every `OM_ATTACHMENT_*` / OCR / S3 setting defaults to
+  // a working local-filestore configuration.
+  { id: 'attachments', from: CORE },
 ]
 
 export const STARTER_PRESETS: Record<string, StarterPreset> = {
@@ -50,7 +67,8 @@ export const STARTER_PRESETS: Record<string, StarterPreset> = {
     description: 'Minimal builder-ready baseline',
     modules: { mode: 'replace', enabled: EMPTY_MODULES },
     ui: { startPageVariant: 'minimal', hideDemoLinks: true },
-    files: { remove: ['src/modules/example', 'src/modules/example_customers_sync'] },
+    // The example source ships in every preset and stays runtime-disabled through
+    // the generated `src/modules.ts`; never delete it here.
     constraints: { rejectWithReadyApps: true },
   },
 
@@ -63,6 +81,9 @@ export const STARTER_PRESETS: Record<string, StarterPreset> = {
       mode: 'patch',
       add: [
         { id: 'customers', from: CORE },
+        // `attachments` is inherited from EMPTY_MODULES; re-adding it here would make
+        // `resolvePreset` throw on duplicate module ids.
+        { id: 'messages', from: CORE },
         { id: 'dictionaries', from: CORE },
         { id: 'feature_toggles', from: CORE },
         { id: 'currencies', from: CORE },
@@ -71,6 +92,27 @@ export const STARTER_PRESETS: Record<string, StarterPreset> = {
       ],
     },
     ui: { startPageVariant: 'crm', hideDemoLinks: true },
+    constraints: { rejectWithReadyApps: true },
+  },
+
+  wms: {
+    id: 'wms',
+    label: 'WMS',
+    description: 'Empty preset plus warehouse and inventory capabilities',
+    extends: 'empty',
+    modules: {
+      mode: 'patch',
+      add: [
+        { id: 'customers', from: CORE },
+        { id: 'dictionaries', from: CORE },
+        { id: 'feature_toggles', from: CORE },
+        { id: 'catalog', from: CORE },
+        { id: 'sales', from: CORE },
+        { id: 'wms', from: CORE },
+        { id: 'currencies', from: CORE },
+      ],
+    },
+    ui: { startPageVariant: 'minimal', hideDemoLinks: true },
     constraints: { rejectWithReadyApps: true },
   },
 }

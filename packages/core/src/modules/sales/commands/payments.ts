@@ -539,10 +539,14 @@ const createPaymentCommand: CommandHandler<
           linkHref: `/backend/sales/orders/${order.id}`,
         })
 
-        await notificationService.createForFeature(notificationInput, {
-          tenantId: payment.tenantId,
-          organizationId: payment.organizationId ?? null,
-        })
+        // Bulk-import backfills opt out of the per-record notification fan-out (and its inline
+        // e-mail delivery); interactive creates are unaffected.
+        if (!ctx.bulkImport?.skipNotifications) {
+          await notificationService.createForFeature(notificationInput, {
+            tenantId: payment.tenantId,
+            organizationId: payment.organizationId ?? null,
+          })
+        }
       }
     } catch (err) {
       // Notification creation is non-critical, don't fail the command

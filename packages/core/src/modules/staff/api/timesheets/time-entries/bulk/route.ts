@@ -14,6 +14,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { StaffTimeEntry, StaffTeamMember, StaffTimeProject } from '../../../../data/entities'
 import { staffTimeEntryBulkSaveSchema } from '../../../../data/validators'
 import { staffTimeEntryCrudEvents } from '../../../../lib/crud'
+import { invalidateStaffTimeEntryCache } from '../../../../lib/timesheets/timeEntryCacheInvalidation'
 import {
   resolveUserFeatures,
   runStaffMutationGuardAfterSuccess,
@@ -229,6 +230,22 @@ export async function POST(req: Request) {
       })
     }
     await flushCrudSideEffects(dataEngine)
+
+    const invalidatedRecordIds = new Set<string>()
+    for (const change of pendingChanges) {
+      if (invalidatedRecordIds.has(change.entity.id)) continue
+      invalidatedRecordIds.add(change.entity.id)
+      await invalidateStaffTimeEntryCache(
+        container,
+        {
+          id: change.entity.id,
+          organizationId: change.entity.organizationId,
+          tenantId: change.entity.tenantId,
+        },
+        tenantId,
+        `bulk:${change.action}`,
+      )
+    }
 
     if (guardResult.afterSuccessCallbacks.length) {
       await runStaffMutationGuardAfterSuccess(guardResult.afterSuccessCallbacks, {

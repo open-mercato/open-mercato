@@ -73,6 +73,7 @@
   "currencies.list.columns.symbol": "Symbol",
   "currencies.list.columns.updatedAt": "Aktualisiert am",
   "currencies.list.confirmDelete": "Währung {{code}} löschen? Dadurch werden auch alle Wechselkurse für diese Währung entfernt.",
+  "currencies.list.description": "Wechselkurse werden jede Nacht aktualisiert.",
   "currencies.list.error.load": "Währungen konnten nicht geladen werden",
   "currencies.list.filters.active": "Aktiv",
   "currencies.list.filters.all": "Alle",

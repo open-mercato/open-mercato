@@ -9,6 +9,7 @@ The `data_sync` module provides a streaming data synchronization hub for import/
 ## Always
 
 - **Always scope by organizationId + tenantId** — every entity query
+- **Resolve the organization in API routes with `resolveActiveOrganizationId(auth)`** from `@open-mercato/shared/lib/auth/organizationScope`, never with raw `auth.orgId` — a super-admin viewing "all organizations" has `auth.orgId === null`. The fallback is tenant-aware: it never pairs the actor organization with a foreign selected tenant. When it returns `null` for an authenticated caller, answer with `organizationScopeRequiredResponse()` (400) — never 401, which sends `apiFetch` into a session-refresh loop
 - **Use the queue system** — never run syncs inline in API handlers
 - **New sync providers MUST support provider-owned env preconfiguration** when fresh installs need credentials or default mappings/locales/channels from deployment env
 - **Persist cursor after each batch** — enables resume on failure
@@ -53,6 +54,8 @@ packages/core/src/modules/data_sync/
 │   ├── adapter-registry.ts      # Register/get adapters by providerKey
 │   ├── id-mapping.ts            # External ID ↔ local ID lookup and storage
 │   ├── queue.ts                 # Queue helper for enqueuing sync jobs
+│   ├── batch-stream.ts          # Drives adapter streams; one root span per batch
+│   ├── run-parameters.ts        # Validate/coerce operator run parameters vs. adapter declaration
 │   ├── sync-engine.ts           # Orchestrates streaming import/export with progress
 │   └── sync-run-service.ts      # CRUD for SyncRun + cursor management
 ├── api/
@@ -96,21 +99,96 @@ Provider modules implement `DataSyncAdapter`:
 
 ```typescript
 interface DataSyncAdapter {
-  providerKey: string
-  direction: 'import' | 'export' | 'bidirectional'
-  supportedEntities: string[]
-  streamImport(entityType: string, cursor: string | null, config: SyncConfig): AsyncIterable<ImportBatch>
-  streamExport?(entityType: string, cursor: string | null, config: SyncConfig): AsyncIterable<ExportBatch>
-  getInitialCursor?(entityType: string): Promise<string | null>
-  getMapping?(entityType: string): Promise<FieldMapping[]>
-  validateConnection?(credentials: Record<string, unknown>): Promise<{ valid: boolean; message?: string }>
+  readonly providerKey: string
+  readonly direction: 'import' | 'export' | 'bidirectional'
+  readonly supportedEntities: string[]
+  readonly runMode?: 'generic' | 'provider'
+  readonly operationalTelemetry?: boolean
+  readonly runParameters?: RunParameter[]
+
+  streamImport?(input: StreamImportInput): AsyncIterable<ImportBatch>
+  streamExport?(input: StreamExportInput): AsyncIterable<ExportBatch>
+  getInitialCursor?(input: { entityType: string; scope: TenantScope }): Promise<string | null>
+  getMapping(input: { entityType: string; scope: TenantScope }): Promise<DataMapping>
+  persistsSharedCursor?(entityType: string): boolean
+  validateConnection?(input: {
+    entityType: string
+    credentials: Record<string, unknown>
+    mapping: DataMapping
+    scope: TenantScope
+  }): Promise<ValidationResult>
 }
 ```
+
+All hooks take a single input object — see `lib/adapter.ts` for the authoritative
+shapes.
 
 Register adapters in your provider module's `di.ts`:
 ```typescript
 registerDataSyncAdapter(myAdapter)
 ```
+
+### Run parameters
+
+Adapters may declare optional, operator-facing `runParameters`. The dashboard
+renders a generic input per declared parameter, the run API validates and
+coerces the submitted values against the declaration (`lib/run-parameters.ts`),
+and the normalized values are persisted on the run and passed back on
+`StreamImportInput.parameters` / `StreamExportInput.parameters`. Keep
+declarations provider-agnostic — never special-case a provider in `data_sync`.
+
+```typescript
+runParameters: [
+  { key: 'dryRun', label: 'Dry run', type: 'boolean', defaultValue: false,
+    description: 'Report what would change without writing.' },
+  { key: 'startId', label: 'Start id', type: 'number', min: 0 },
+  { key: 'mode', label: 'Mode', type: 'select',
+    options: [{ value: 'fast' }, { value: 'thorough' }] },
+  // Only offered when the orders entity is selected:
+  { key: 'bulk', label: 'Bulk reindex', type: 'boolean', entityType: 'sales_orders' },
+]
+```
+
+Supported types: `boolean`, `string`, `number`, `select`. A parameter may set
+`direction` to apply to only `import` or `export` runs, and `entityType`
+(a `supportedEntities` value or an array of them) to apply only when that
+entity is selected — use it when a knob only makes sense for one entity's run.
+Params without `direction` / `entityType` apply to every run. Blank values fall
+back to `defaultValue`; values are retained across retries.
+
+Run parameters are **operator-visible and stored in clear text** on
+`sync_runs.parameters`, and rendered read-only on the run detail page. Never
+declare a parameter that carries a secret — credentials belong in
+`integrationCredentialsService`.
+
+**Translation.** `label`, `description` and `placeholder` are literals, so an
+adapter shipping to more than one locale MUST also set `labelKey` /
+`descriptionKey` / `placeholderKey`; the dashboard prefers the key and falls
+back to the literal. Validation failures come back from the API as
+`{ key, code, params, message }` — the UI renders `code` through
+`data_sync.runParameters.errors.<code>` and only uses the English `message` as
+a fallback, so never rely on the sentence text.
+
+**Retry re-validates.** `POST /api/data_sync/runs/[id]/retry` re-runs the stored
+values through `normalizeRunParameters` against the *current* declaration:
+parameters you have since removed or re-scoped fall away, and a value that no
+longer satisfies its declaration fails the retry with a 422 instead of reaching
+the adapter. An adapter therefore never receives a set the run API would reject
+today — tighten a bound freely.
+
+The integration detail page's schedule table also starts runs, but has no room
+for a parameter form: it submits the declared defaults and refuses the run when
+an applicable parameter is `required` with no `defaultValue`, pointing the
+operator at the Data Sync dashboard. Declare a `defaultValue` for anything that
+should stay launchable from that table.
+
+**Recurring runs get your defaults, not operator values.** A `SyncSchedule`
+cannot yet pin a chosen value, but the scheduled worker normalizes an empty
+input against your declaration, so a scheduled run hands you the same set an
+untouched dashboard form would — never an empty object. Write your adapter
+against the defaults, not against `undefined`. A default that violates its own
+declaration skips the scheduled run with a logged error instead of starting it
+with a half-applied set.
 
 If the sync provider needs bootstrap credentials, mappings, locales, channels, or other default sync settings after a fresh install, implement a provider-owned env preset flow:
 
@@ -123,10 +201,14 @@ If the sync provider needs bootstrap credentials, mappings, locales, channels, o
 
 `pending` → `running` → `completed` | `failed` | `cancelled`
 
-- **Cursor persistence**: After each batch, cursor is saved to `SyncCursor`
+- **Cursor persistence**: After each batch, the cursor is saved on the run row and mirrored into the shared `SyncCursor` row
+- **Shared cursor opt-out**: An adapter returning `persistsSharedCursor(entityType) === false` keeps that entity type's cursor on the run row only — use it for whole-table backfills whose cursor is one run's scan state, not a durable log position. Those entity types resolve an incremental start position from the most recent run (`resolveResumeCursor`) instead of the shared row, and from `null` when that run completed
+- **Resetting an opt-out**: A reset flow that deletes the shared `SyncCursor` row MUST also call `syncRunService.resetResumePosition(integrationId, entityType, direction, scope)`. An opted-out entity type has no shared row to delete, so deleting only that leaves the resume position on the last interrupted run and the next incremental run re-imports just the tail of the walk it was reset against. The call is a no-op when nothing is interrupted, so make it unconditionally
 - **Resume**: Retry reads the last successful cursor, resumes from there
 - **Progress**: Linked to `ProgressJob` via `progressJobId` for `ProgressTopBar` display
-- **Cancellation**: Via `progressService.isCancellationRequested()`
+- **Cancellation**: The engine polls `progressService.isCancellationRequested()` in the batch handler AND on the heartbeat tick while a batch is still in flight, aborting `StreamImportInput.signal` / `StreamExportInput.signal`. Adapters SHOULD honour the signal wherever the work is divisible (per page, per record, around a long flush) and `return` — with the `return` ABOVE the `yield`, never below it, or the engine commits a cursor for a half-applied page. Adapters that ignore the signal keep the old between-batches behavior.
+- **Tracing**: The engine emits one **root** span per batch (`data_sync.import.batch` / `data_sync.export.batch`) linked back to the run, covering the adapter's read *and* the engine's bookkeeping. Adapters MUST NOT hand-roll their own batch span — they cannot root it, so a multi-day run would ride on the single sampling decision taken for the request that triggered it. Inner spans an adapter creates nest under the batch span normally. The final read — the one that finds the stream drained — is traced as `data_sync.import.drain` / `data_sync.export.drain`, so N batches emit exactly N `*.batch` spans plus one `*.drain`.
+- **Stream shape**: The engine drives the adapter's async iterator explicitly (`batch-stream.ts`) so the span wraps `next()`, where a generator does its real work before yielding. Closing follows the language's own `IteratorClose` rules, so `finally` blocks in an adapter generator behave exactly as under `for await`: no `return()` when the stream exhausts or `next()` throws (already closed), `return()` with its failure surfaced on an early stop, and `return()` with its failure swallowed when the engine's own handler threw (that error wins). Keep cleanup in `finally`.
 
 ## Queue Names
 
@@ -171,6 +253,8 @@ Data sync providers can leverage the **Unified Module Extension System (UMES)** 
 
 - `ProgressTopBar` and sync-run detail pages use `progress.job.*` SSE updates for live progress.
 - Create `ProgressJob` in `run`/`retry` endpoints; start/update/complete/fail in `sync-engine`.
+- The engine heartbeats (`touchJobHeartbeat`, forked-EM) on a timer while an adapter batch is being produced, because batches can outlast the 60s stale-job sweep — keep the `withHeartbeat` wrapper around `streamImport`/`streamExport` when touching the batch loops.
+- On redelivery the progress counter is seeded from the progress job's own `processedCount` (`progressService.getJob`), mirroring how `committedBatches` resumes — never reset it to zero (`updateProgress` writes absolute counts) and never seed it from the run's `created/updated/skipped/failed` columns: those count emitted items, while progress counts source records (`batch.processedCount`), and adapters may emit several items per source record.
 - Include `progressJob` details in run detail response.
 - SSE DOM bridge forwards only events with `clientBroadcast: true`.
 - `progress.job.*` events are marked `clientBroadcast: true` and must reach the browser from both web and worker processes.

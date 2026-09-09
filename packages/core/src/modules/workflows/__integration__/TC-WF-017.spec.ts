@@ -52,7 +52,10 @@ test.describe('TC-WF-017: branch failure cancels siblings and fails the instance
                 activityId: 'boom',
                 activityName: 'Boom',
                 activityType: 'EXECUTE_FUNCTION',
-                config: { functionId: 'qa-nonexistent-function-do-not-register' },
+                // functionName, not functionId — with the wrong key the activity
+                // failed on "requires functionName" rather than on the missing
+                // registration this test is actually about.
+                config: { functionName: 'qa-nonexistent-function-do-not-register' },
               },
             ],
           },

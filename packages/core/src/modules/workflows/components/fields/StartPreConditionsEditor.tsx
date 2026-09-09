@@ -332,7 +332,7 @@ export function StartPreConditionsEditor({
                         title={t('workflows.common.delete')}
                         disabled={disabled}
                       >
-                        <Trash2 className="h-4 w-4 text-red-600" />
+                        <Trash2 className="h-4 w-4 text-destructive" />
                       </Button>
                     }
                     title={t('workflows.fieldEditors.preConditions.removePreCondition')}

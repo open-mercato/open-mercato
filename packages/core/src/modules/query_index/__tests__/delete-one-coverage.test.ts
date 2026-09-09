@@ -12,6 +12,7 @@ const mockResolveQueryIndexRecordScope = jest.fn((input: any) => ({
   organizationId: input.payloadOrganizationId ?? null,
   tenantId: input.payloadTenantId ?? null,
 }))
+const mockIsReadProjectionAlwaysConsistent = jest.fn(() => false)
 
 jest.mock('../lib/indexer', () => ({
   markDeleted: (...args: unknown[]) => mockMarkDeleted(...(args as [])),
@@ -32,6 +33,10 @@ jest.mock('@open-mercato/shared/lib/indexers/error-log', () => ({
   recordIndexerError: (...args: unknown[]) => mockRecordIndexerError(...(args as [])),
 }))
 
+jest.mock('@open-mercato/shared/lib/data/consistency', () => ({
+  isReadProjectionAlwaysConsistent: () => mockIsReadProjectionAlwaysConsistent(),
+}))
+
 import handleDeleteOne from '../subscribers/delete_one'
 
 function createContext(getKysely: () => unknown = () => { throw new Error('no kysely in test') }) {
@@ -50,6 +55,34 @@ function createContext(getKysely: () => unknown = () => { throw new Error('no ky
   return { ctx, emitEvent }
 }
 
+function createAlwaysConsistentContext() {
+  const emitEvent = jest.fn(async () => undefined)
+  const eventBus = { emitEvent }
+  const rowQuery: Record<string, jest.Mock> = {
+    select: jest.fn(),
+    where: jest.fn(),
+    executeTakeFirst: jest.fn(async () => ({ deleted_at: new Date() })),
+  }
+  rowQuery.select.mockReturnValue(rowQuery)
+  rowQuery.where.mockReturnValue(rowQuery)
+  const trx = { selectFrom: jest.fn(() => rowQuery) }
+  const db = {
+    transaction: jest.fn(() => ({
+      execute: jest.fn(async (run: (executor: typeof trx) => Promise<void>) => run(trx)),
+    })),
+  }
+  const em = { getKysely: () => db }
+  const sourceEm = { fork: jest.fn(() => em) }
+  const ctx = {
+    resolve: jest.fn((name: string) => {
+      if (name === 'em') return sourceEm
+      if (name === 'eventBus') return eventBus
+      throw new Error(`Unexpected token: ${name}`)
+    }),
+  }
+  return { ctx, emitEvent, rowQuery, trx }
+}
+
 function flushFireAndForget() {
   return new Promise<void>((resolve) => setImmediate(resolve))
 }
@@ -63,6 +96,7 @@ describe('query_index delete_one coverage refresh throttling', () => {
 
   beforeEach(() => {
     jest.clearAllMocks()
+    mockIsReadProjectionAlwaysConsistent.mockReturnValue(false)
     jest.spyOn(Date, 'now').mockReturnValue(NOW)
     mockLoadQueryIndexRowScope.mockResolvedValue({ kind: 'missing' })
     mockResolveQueryIndexSourceMetadata.mockReturnValue({
@@ -101,6 +135,26 @@ describe('query_index delete_one coverage refresh throttling', () => {
     await flushFireAndForget()
 
     expect(coverageRefreshCalls(emitEvent)).toHaveLength(0)
+  })
+
+  it('never emits coverage.refresh when suppressCoverage is true in always-consistent mode', async () => {
+    mockIsReadProjectionAlwaysConsistent.mockReturnValue(true)
+    const { ctx, emitEvent } = createAlwaysConsistentContext()
+
+    await handleDeleteOne({
+      entityType: 'query_index:suppressed_consistent_entity',
+      recordId: 'r1',
+      tenantId: 't1',
+      organizationId: null,
+      suppressCoverage: true,
+    }, ctx)
+
+    expect(coverageRefreshCalls(emitEvent)).toHaveLength(0)
+    expect(emitEvent).toHaveBeenCalledWith(
+      'search.delete_record',
+      expect.objectContaining({ entityId: 'query_index:suppressed_consistent_entity', recordId: 'r1' }),
+      { rethrowHandlerErrors: true },
+    )
   })
 
   it('always emits coverage.refresh when an explicit coverageDelayMs is provided, regardless of throttle state', async () => {
@@ -157,5 +211,36 @@ describe('query_index delete_one coverage refresh throttling', () => {
     expect(selectFrom).toHaveBeenCalledWith('feature_toggles')
     expect(baseQuery.where).toHaveBeenCalledTimes(1)
     expect(baseQuery.where).toHaveBeenCalledWith('id', '=', 'toggle-1')
+  })
+
+  it('uses only the ID predicate for a global entity coverage probe in always-consistent mode', async () => {
+    mockIsReadProjectionAlwaysConsistent.mockReturnValue(true)
+    mockResolveQueryIndexSourceMetadata.mockReturnValue({
+      table: 'feature_toggles',
+      organizationColumn: null,
+      tenantColumn: null,
+    })
+    mockLoadQueryIndexRowScope.mockResolvedValue({ kind: 'global' })
+    mockResolveQueryIndexRecordScope.mockReturnValue({ organizationId: null, tenantId: null })
+    const { ctx, rowQuery, trx } = createAlwaysConsistentContext()
+
+    await handleDeleteOne({
+      entityType: 'feature_toggles:feature_toggle',
+      recordId: 'toggle-consistent-1',
+      organizationId: null,
+      tenantId: null,
+      suppressCoverage: true,
+    }, ctx)
+
+    expect(mockMarkDeleted).toHaveBeenCalledWith(expect.anything(), {
+      entityType: 'feature_toggles:feature_toggle',
+      recordId: 'toggle-consistent-1',
+      organizationId: null,
+      tenantId: null,
+      trx,
+    })
+    expect(trx.selectFrom).toHaveBeenCalledWith('feature_toggles')
+    expect(rowQuery.where).toHaveBeenCalledTimes(1)
+    expect(rowQuery.where).toHaveBeenCalledWith('id', '=', 'toggle-consistent-1')
   })
 })

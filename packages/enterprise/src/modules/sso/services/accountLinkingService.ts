@@ -24,8 +24,8 @@ export class AccountLinkingService {
       return existing
     }
 
-    if (idpPayload.emailVerified === false) {
-      throw new EmailNotVerifiedError('IdP explicitly reported email as unverified — cannot link or provision account')
+    if (idpPayload.emailVerified !== true) {
+      throw new EmailNotVerifiedError('IdP did not verify the email claim — cannot link or provision account')
     }
 
     const emailDomain = idpPayload.email.split('@')[1]?.toLowerCase()

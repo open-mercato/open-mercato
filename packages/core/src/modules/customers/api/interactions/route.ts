@@ -59,6 +59,7 @@ export const listSchema = z
     search: z.string().trim().min(1).optional(),
     from: z.coerce.date().optional(),
     to: z.coerce.date().optional(),
+    recurrenceMasters: z.enum(['true', 'false']).optional(),
     pinned: z.enum(['true', 'false']).optional(),
     sortField: interactionSortFieldSchema.optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
@@ -171,6 +172,7 @@ type InteractionListRow = {
   priority: number | null
   author_user_id: string | null
   owner_user_id: string | null
+  external_message_id: string | null
   appearance_icon: string | null
   appearance_color: string | null
   source: string | null
@@ -179,7 +181,7 @@ type InteractionListRow = {
   all_day: boolean | null
   recurrence_rule: string | null
   recurrence_end: Date | null
-  participants: Array<{ userId: string; name?: string; email?: string; status?: string }> | null
+  participants: Array<{ userId?: string; name?: string; email?: string; status?: string }> | null
   reminder_minutes: number | null
   visibility: string | null
   linked_entities: Array<{ id: string; type: string; label: string }> | null
@@ -303,6 +305,7 @@ const INTERACTION_LIST_COLUMNS = [
   'priority',
   'author_user_id',
   'owner_user_id',
+  'external_message_id',
   'appearance_icon',
   'appearance_color',
   'source',
@@ -360,11 +363,21 @@ function applyInteractionListFilters(
     const searchTerm = `%${escapeLikePattern(query.search)}%`
     q = q.where(sql<boolean>`coalesce(title, '') ilike ${searchTerm} or coalesce(body, '') ilike ${searchTerm}`)
   }
-  if (query.from) {
-    q = q.where(sql<boolean>`coalesce(occurred_at, scheduled_at, created_at) >= ${query.from}`)
-  }
-  if (query.to) {
-    q = q.where(sql<boolean>`coalesce(occurred_at, scheduled_at, created_at) <= ${query.to}`)
+  if (query.recurrenceMasters === 'true') {
+    q = q.where('recurrence_rule', 'is not', null)
+    if (query.from) {
+      q = q.where(sql<boolean>`recurrence_end is null or recurrence_end >= ${query.from}`)
+    }
+    if (query.to) {
+      q = q.where(sql<boolean>`coalesce(occurred_at, scheduled_at, created_at) <= ${query.to}`)
+    }
+  } else {
+    if (query.from) {
+      q = q.where(sql<boolean>`coalesce(occurred_at, scheduled_at, created_at) >= ${query.from}`)
+    }
+    if (query.to) {
+      q = q.where(sql<boolean>`coalesce(occurred_at, scheduled_at, created_at) <= ${query.to}`)
+    }
   }
   return q
 }
@@ -643,6 +656,7 @@ export async function GET(req: Request) {
       priority: row.priority ?? null,
       authorUserId: row.author_user_id ?? null,
       ownerUserId: row.owner_user_id ?? null,
+      externalMessageId: row.external_message_id ?? null,
       appearanceIcon: row.appearance_icon ?? null,
       appearanceColor: row.appearance_color ?? null,
       source: row.source ?? null,
@@ -722,6 +736,7 @@ const interactionListItemSchema = z
     priority: z.number().nullable(),
     authorUserId: z.string().uuid().nullable(),
     ownerUserId: z.string().uuid().nullable(),
+    externalMessageId: z.string().uuid().nullable().optional(),
     appearanceIcon: z.string().nullable().optional(),
     appearanceColor: z.string().nullable().optional(),
     source: z.string().nullable().optional(),
@@ -733,7 +748,13 @@ const interactionListItemSchema = z
     recurrenceEnd: z.string().nullable().optional(),
     participants: z.array(
       z.object({
-        userId: z.string().uuid(),
+        userId: z
+          .string()
+          .uuid()
+          .optional()
+          .describe(
+            'Absent for an external guest, who has no person/customer/staff record and is identified by email instead. Identify a participant by userId when present, otherwise by its normalized email.',
+          ),
         name: z.string().optional(),
         email: z.string().optional(),
         status: z.string().optional(),

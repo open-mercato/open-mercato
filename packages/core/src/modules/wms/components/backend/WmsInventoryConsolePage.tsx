@@ -1,8 +1,10 @@
 "use client"
 
 import * as React from 'react'
+import { extensionPoints } from '@open-mercato/core/modules/wms/extension-points'
 import Link from 'next/link'
-import type { ColumnDef, SortingState } from '@tanstack/react-table'
+import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
+import type { RowData, SortingState } from '@tanstack/react-table'
 import { useQuery } from '@tanstack/react-query'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
@@ -56,6 +58,7 @@ type PagedResponse<T> = {
   items: T[]
   total: number
   totalPages: number
+  totalIsCapped?: boolean
 }
 
 type InventoryBalanceRow = {
@@ -233,7 +236,7 @@ function buildInventoryQuery(
   return params.toString()
 }
 
-type InventoryDataTableSectionProps<T> = {
+type InventoryDataTableSectionProps<T extends RowData> = {
   sectionQueryKey: string
   endpoint: string
   titleKey: string
@@ -262,7 +265,7 @@ type InventoryDataTableSectionProps<T> = {
   emptyStateAction?: React.ReactNode
 }
 
-function InventoryDataTableSection<T>({
+function InventoryDataTableSection<T extends RowData>({
   sectionQueryKey,
   endpoint,
   titleKey,
@@ -355,6 +358,7 @@ function InventoryDataTableSection<T>({
           pageSize: 20,
           total: query.data?.total ?? 0,
           totalPages: query.data?.totalPages ?? 1,
+          totalIsCapped: query.data?.totalIsCapped === true,
           onPageChange: setPage,
         }}
         perspective={{ tableId }}
@@ -665,7 +669,7 @@ export function InventoryBalancesSection({
         emptyTitleFallback="No balance buckets"
         emptyDescriptionKey="wms.backend.inventory.balances.empty.description"
         emptyDescriptionFallback="Balances appear after receipts, adjustments, or moves create inventory buckets."
-        tableId="wms.inventory.balances"
+        tableId={extensionPoints.hosts.balancesTable.tableId}
         entityId={E.wms.inventory_balance}
         icon={<Boxes className="size-5" />}
         columns={columns}
@@ -896,7 +900,7 @@ export function InventoryReservationsSection({
         emptyTitleFallback="No reservations"
         emptyDescriptionKey="wms.backend.inventory.reservations.empty.description"
         emptyDescriptionFallback="Reservations show stock committed to orders, transfers, or manual holds."
-        tableId="wms.inventory.reservations"
+        tableId={extensionPoints.hosts.reservationsTable.tableId}
         entityId={E.wms.inventory_reservation}
         icon={<ShieldCheck className="size-5" />}
         columns={columns}
@@ -1058,7 +1062,7 @@ export function InventoryMovementsSection({
       emptyTitleFallback="No inventory movements"
       emptyDescriptionKey="wms.backend.inventory.movements.empty.description"
       emptyDescriptionFallback="Movement rows are created by receipts, reservations, moves, and reconciliation actions."
-      tableId="wms.inventory.movements"
+      tableId={extensionPoints.hosts.movementsTable.tableId}
       entityId={E.wms.inventory_movement}
       icon={<Route className="size-5" />}
       columns={columns}

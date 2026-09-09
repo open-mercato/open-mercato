@@ -49,6 +49,10 @@ const mockQueryEngine = {
 const mockRbac = {
   resolveVisibleOrganizations: jest.fn(async () => ['org']),
   loadAcl: jest.fn(async () => ({ isSuperAdmin: true, features: [], organizations: null })),
+  userHasAllFeatures: jest.fn(async (_userId: string, requiredFeatures: string[]) => {
+    const acl = await mockRbac.loadAcl()
+    return acl.isSuperAdmin || requiredFeatures.every((feature) => acl.features.includes(feature))
+  }),
 }
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({

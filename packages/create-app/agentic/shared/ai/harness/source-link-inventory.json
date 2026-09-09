@@ -1,0 +1,3550 @@
+{
+  "version": 1,
+  "generatedNote": "Derived asset — the app-facing projection of the repository source-link inventory, regenerated with `yarn workspace create-mercato-app harness:generate-source-link-inventory`. Never hand-edit. Harness cases resolve `context.sourceReferenceIds` against `referenceId` here; a record with `readStatus: \"qa-only\"` is validation evidence only and is refused as a case reference.",
+  "derived": {
+    "ownerCount": 30,
+    "recordCount": 138,
+    "sourceRequiredCount": 113,
+    "readableCount": 138,
+    "baselineSha": "f7c941570003f3abe920b1765995cbef98dcad0b"
+  },
+  "notCovered": [
+    "installed-package version and content hash: a record names the package and the path inside it, but version and hash belong to the install a given app made, so the evaluator reads them from that install rather than freezing them here.",
+    "External Figma publication remains not-evidenced; packed Code Connect source proves neither publication nor runtime export."
+  ],
+  "records": [
+    {
+      "referenceId": "guides/backend-ui:components/TodoForm.tsx",
+      "requirement": "source-required",
+      "originAsset": ".ai/guides/backend-ui.md",
+      "heading": "Canonical example source",
+      "href": "../../src/modules/example/components/TodoForm.tsx",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/components/TodoForm.tsx",
+      "moduleId": "example",
+      "capabilityIds": [
+        "ui.form-create",
+        "ui.form-edit"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ]
+    },
+    {
+      "referenceId": "guides/backend-ui:components/TodosTable.tsx",
+      "requirement": "source-required",
+      "originAsset": ".ai/guides/backend-ui.md",
+      "heading": "Canonical example source",
+      "href": "../../src/modules/example/components/TodosTable.tsx",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/components/TodosTable.tsx",
+      "moduleId": "example",
+      "capabilityIds": [
+        "ui.datatable",
+        "ui.datatable-perspectives-filters"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ]
+    },
+    {
+      "referenceId": "guides/backend-ui:node_modules/@open-mercato/ui/src/backend/DataTable.tsx",
+      "requirement": "source-required",
+      "originAsset": ".ai/guides/backend-ui.md",
+      "heading": "Canonical example source",
+      "href": "../../node_modules/@open-mercato/ui/src/backend/DataTable.tsx",
+      "targetKind": "installed-package",
+      "readStatus": "readable",
+      "resolvedPath": "node_modules/@open-mercato/ui/src/backend/DataTable.tsx",
+      "moduleId": null,
+      "capabilityIds": [],
+      "packageName": "@open-mercato/ui",
+      "packageRelativePath": "src/backend/DataTable.tsx",
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ]
+    },
+    {
+      "referenceId": "guides/backend-ui:references/surface-map.md",
+      "requirement": "source-required",
+      "originAsset": ".ai/guides/backend-ui.md",
+      "heading": "Canonical example source",
+      "href": "../../src/modules/example/references/surface-map.md",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/references/surface-map.md",
+      "moduleId": "example",
+      "capabilityIds": [],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ]
+    },
+    {
+      "referenceId": "guides/framework-contracts:node_modules/@open-mercato/shared/src/lib/commands/registry.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/guides/framework-contracts.md",
+      "heading": "Command handler and registry",
+      "href": "../../node_modules/@open-mercato/shared/src/lib/commands/registry.ts",
+      "targetKind": "installed-package",
+      "readStatus": "readable",
+      "resolvedPath": "node_modules/@open-mercato/shared/src/lib/commands/registry.ts",
+      "moduleId": null,
+      "capabilityIds": [],
+      "packageName": "@open-mercato/shared",
+      "packageRelativePath": "src/lib/commands/registry.ts",
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ]
+    },
+    {
+      "referenceId": "guides/framework-contracts:node_modules/@open-mercato/shared/src/lib/commands/runCrudCommandWrite.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/guides/framework-contracts.md",
+      "heading": "Atomic CRUD command writes",
+      "href": "../../node_modules/@open-mercato/shared/src/lib/commands/runCrudCommandWrite.ts",
+      "targetKind": "installed-package",
+      "readStatus": "readable",
+      "resolvedPath": "node_modules/@open-mercato/shared/src/lib/commands/runCrudCommandWrite.ts",
+      "moduleId": null,
+      "capabilityIds": [],
+      "packageName": "@open-mercato/shared",
+      "packageRelativePath": "src/lib/commands/runCrudCommandWrite.ts",
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ]
+    },
+    {
+      "referenceId": "guides/framework-contracts:node_modules/@open-mercato/shared/src/lib/commands/types.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/guides/framework-contracts.md",
+      "heading": "Command handler and registry",
+      "href": "../../node_modules/@open-mercato/shared/src/lib/commands/types.ts",
+      "targetKind": "installed-package",
+      "readStatus": "readable",
+      "resolvedPath": "node_modules/@open-mercato/shared/src/lib/commands/types.ts",
+      "moduleId": null,
+      "capabilityIds": [],
+      "packageName": "@open-mercato/shared",
+      "packageRelativePath": "src/lib/commands/types.ts",
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ]
+    },
+    {
+      "referenceId": "guides/framework-contracts:node_modules/@open-mercato/shared/src/lib/crud/factory.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/guides/framework-contracts.md",
+      "heading": "`makeCrudRoute`",
+      "href": "../../node_modules/@open-mercato/shared/src/lib/crud/factory.ts",
+      "targetKind": "installed-package",
+      "readStatus": "readable",
+      "resolvedPath": "node_modules/@open-mercato/shared/src/lib/crud/factory.ts",
+      "moduleId": null,
+      "capabilityIds": [],
+      "packageName": "@open-mercato/shared",
+      "packageRelativePath": "src/lib/crud/factory.ts",
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ]
+    },
+    {
+      "referenceId": "guides/framework-contracts:node_modules/@open-mercato/shared/src/lib/crud/optimistic-lock-command.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/guides/framework-contracts.md",
+      "heading": "Optimistic locking",
+      "href": "../../node_modules/@open-mercato/shared/src/lib/crud/optimistic-lock-command.ts",
+      "targetKind": "installed-package",
+      "readStatus": "readable",
+      "resolvedPath": "node_modules/@open-mercato/shared/src/lib/crud/optimistic-lock-command.ts",
+      "moduleId": null,
+      "capabilityIds": [],
+      "packageName": "@open-mercato/shared",
+      "packageRelativePath": "src/lib/crud/optimistic-lock-command.ts",
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ]
+    },
+    {
+      "referenceId": "guides/framework-contracts:node_modules/@open-mercato/shared/src/lib/data/engine.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/guides/framework-contracts.md",
+      "heading": "Data Engine ORM operations",
+      "href": "../../node_modules/@open-mercato/shared/src/lib/data/engine.ts",
+      "targetKind": "installed-package",
+      "readStatus": "readable",
+      "resolvedPath": "node_modules/@open-mercato/shared/src/lib/data/engine.ts",
+      "moduleId": null,
+      "capabilityIds": [],
+      "packageName": "@open-mercato/shared",
+      "packageRelativePath": "src/lib/data/engine.ts",
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ]
+    },
+    {
+      "referenceId": "guides/framework-contracts:node_modules/@open-mercato/shared/src/lib/http/readJsonSafe.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/guides/framework-contracts.md",
+      "heading": "Defensive JSON reads",
+      "href": "../../node_modules/@open-mercato/shared/src/lib/http/readJsonSafe.ts",
+      "targetKind": "installed-package",
+      "readStatus": "readable",
+      "resolvedPath": "node_modules/@open-mercato/shared/src/lib/http/readJsonSafe.ts",
+      "moduleId": null,
+      "capabilityIds": [],
+      "packageName": "@open-mercato/shared",
+      "packageRelativePath": "src/lib/http/readJsonSafe.ts",
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ]
+    },
+    {
+      "referenceId": "guides/framework-contracts:node_modules/@open-mercato/shared/src/modules/events/factory.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/guides/framework-contracts.md",
+      "heading": "Typed module events",
+      "href": "../../node_modules/@open-mercato/shared/src/modules/events/factory.ts",
+      "targetKind": "installed-package",
+      "readStatus": "readable",
+      "resolvedPath": "node_modules/@open-mercato/shared/src/modules/events/factory.ts",
+      "moduleId": null,
+      "capabilityIds": [],
+      "packageName": "@open-mercato/shared",
+      "packageRelativePath": "src/modules/events/factory.ts",
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "automation",
+        "core",
+        "migration"
+      ]
+    },
+    {
+      "referenceId": "om-backend-ui-design/crud-surfaces:README.md",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-backend-ui-design/references/crud-surfaces.md",
+      "heading": "Canonical example source",
+      "href": "../../../../src/modules/example/README.md",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/README.md",
+      "moduleId": "example",
+      "capabilityIds": [],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-backend-ui-design/crud-surfaces:backend/todos/[id]/edit/page.tsx",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-backend-ui-design/references/crud-surfaces.md",
+      "heading": "Canonical example source",
+      "href": "../../../../src/modules/example/backend/todos/%5Bid%5D/edit/page.tsx",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/backend/todos/[id]/edit/page.tsx",
+      "moduleId": "example",
+      "capabilityIds": [
+        "ui.form-edit"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-backend-ui-design/crud-surfaces:backend/todos/create/page.tsx",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-backend-ui-design/references/crud-surfaces.md",
+      "heading": "Canonical example source",
+      "href": "../../../../src/modules/example/backend/todos/create/page.tsx",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/backend/todos/create/page.tsx",
+      "moduleId": "example",
+      "capabilityIds": [
+        "ui.form-create"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-backend-ui-design/crud-surfaces:components/TodoForm.tsx",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-backend-ui-design/references/crud-surfaces.md",
+      "heading": "Canonical example source",
+      "href": "../../../../src/modules/example/components/TodoForm.tsx",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/components/TodoForm.tsx",
+      "moduleId": "example",
+      "capabilityIds": [
+        "ui.form-create",
+        "ui.form-edit"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-backend-ui-design/crud-surfaces:components/TodosTable.tsx",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-backend-ui-design/references/crud-surfaces.md",
+      "heading": "Canonical example source",
+      "href": "../../../../src/modules/example/components/TodosTable.tsx",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/components/TodosTable.tsx",
+      "moduleId": "example",
+      "capabilityIds": [
+        "ui.datatable",
+        "ui.datatable-perspectives-filters"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-backend-ui-design/crud-surfaces:widgets/components.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-backend-ui-design/references/crud-surfaces.md",
+      "heading": "Canonical example source",
+      "href": "../../../../src/modules/example/widgets/components.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/widgets/components.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "umes.component-replacement"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-backend-ui-design/crud-surfaces:widgets/injection/customer-priority-bulk-actions/widget.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-backend-ui-design/references/crud-surfaces.md",
+      "heading": "Canonical example source",
+      "href": "../../../../src/modules/example/widgets/injection/customer-priority-bulk-actions/widget.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/widgets/injection/customer-priority-bulk-actions/widget.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "umes.injection.datatable-bulk-action"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-backend-ui-design/crud-surfaces:widgets/injection/customer-priority-detail/widget.client.tsx",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-backend-ui-design/references/crud-surfaces.md",
+      "heading": "Canonical example source",
+      "href": "../../../../src/modules/example/widgets/injection/customer-priority-detail/widget.client.tsx",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/widgets/injection/customer-priority-detail/widget.client.tsx",
+      "moduleId": "example",
+      "capabilityIds": [
+        "umes.injection.rendered-widget"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/buttons.tsx",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+      "heading": "Exact Gallery and Foundation Sources",
+      "href": "../../../../node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/buttons.tsx",
+      "targetKind": "installed-package",
+      "readStatus": "readable",
+      "resolvedPath": "node_modules/@open-mercato/core/src/modules/design_system/gallery/entries/buttons.tsx",
+      "moduleId": null,
+      "capabilityIds": [],
+      "packageName": "@open-mercato/core",
+      "packageRelativePath": "src/modules/design_system/gallery/entries/buttons.tsx",
+      "referenceRole": "design-system-gallery",
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ],
+      "galleryItemIds": [
+        "buttons/button",
+        "buttons/button-group",
+        "buttons/fancy-button",
+        "buttons/icon-button",
+        "buttons/link-button",
+        "buttons/social-button"
+      ],
+      "visualReferences": [
+        {
+          "galleryItemId": "buttons/button",
+          "familyId": "buttons",
+          "entryId": "button",
+          "importPath": "@open-mercato/ui/primitives/button",
+          "route": "/backend/design-system?family=buttons&entry=button",
+          "availabilityByPreset": {
+            "classic": "source-only",
+            "crm": "source-only",
+            "empty": "source-only",
+            "wms": "source-only"
+          },
+          "featureId": "design_system.view",
+          "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
+          "provenanceHeadSha": "186af58044c7530885a889c41f53bb36a5093d82",
+          "baselineSha": "bf25803d7a8c85c8552db9e76c7cc4398d1768be",
+          "designFoundation": {
+            "prUrl": "https://github.com/open-mercato/open-mercato/pull/4277",
+            "landedPrUrl": "https://github.com/open-mercato/open-mercato/pull/4891",
+            "auditedHeadSha": "fb9b8ddfe4470ef11d312caa4628c46af7d48adf",
+            "baselineSha": "b2d26489c683edc44265212ac8a79be1b981774f",
+            "packageName": "@open-mercato/ui",
+            "packageVersion": "0.6.7",
+            "packageContentHash": null,
+            "tokenApplicability": "not-applicable",
+            "snapshotAvailability": "unavailable",
+            "snapshotSourceReferenceId": null,
+            "codeConnectStatus": "mapped",
+            "codeConnectArtifactAvailability": "installed-packed-auxiliary",
+            "codeConnectExportStatus": "not-exported",
+            "codeConnectSourceReferenceId": "node_modules/@open-mercato/ui/figma/button.figma.tsx",
+            "mappingCoverage": "partial",
+            "galleryNodeStatus": "absent",
+            "galleryNodeId": null,
+            "codeConnectNodeStatus": "placeholder",
+            "codeConnectNodeId": "0:1",
+            "nodeComparison": "not-comparable",
+            "publicationStatus": "not-evidenced",
+            "designSkillAvailability": "unavailable",
+            "designSkillSourceReferenceId": null,
+            "designSkillUnavailableReason": "the standalone skill manifest declares no \"design\" tier, om-figma-design-with-ds is not selected, no portable copy is emitted"
+          }
+        },
+        {
+          "galleryItemId": "buttons/icon-button",
+          "familyId": "buttons",
+          "entryId": "icon-button",
+          "importPath": "@open-mercato/ui/primitives/icon-button",
+          "route": "/backend/design-system?family=buttons&entry=icon-button",
+          "availabilityByPreset": {
+            "classic": "source-only",
+            "crm": "source-only",
+            "empty": "source-only",
+            "wms": "source-only"
+          },
+          "featureId": "design_system.view",
+          "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
+          "provenanceHeadSha": "186af58044c7530885a889c41f53bb36a5093d82",
+          "baselineSha": "bf25803d7a8c85c8552db9e76c7cc4398d1768be",
+          "designFoundation": {
+            "prUrl": "https://github.com/open-mercato/open-mercato/pull/4277",
+            "landedPrUrl": "https://github.com/open-mercato/open-mercato/pull/4891",
+            "auditedHeadSha": "fb9b8ddfe4470ef11d312caa4628c46af7d48adf",
+            "baselineSha": "b2d26489c683edc44265212ac8a79be1b981774f",
+            "packageName": "@open-mercato/ui",
+            "packageVersion": "0.6.7",
+            "packageContentHash": null,
+            "tokenApplicability": "not-applicable",
+            "snapshotAvailability": "unavailable",
+            "snapshotSourceReferenceId": null,
+            "codeConnectStatus": "unmapped",
+            "codeConnectArtifactAvailability": "not-emitted",
+            "codeConnectExportStatus": "not-exported",
+            "codeConnectSourceReferenceId": null,
+            "mappingCoverage": "none",
+            "galleryNodeStatus": "absent",
+            "galleryNodeId": null,
+            "codeConnectNodeStatus": "absent",
+            "codeConnectNodeId": null,
+            "nodeComparison": "not-comparable",
+            "publicationStatus": "not-evidenced",
+            "designSkillAvailability": "unavailable",
+            "designSkillSourceReferenceId": null,
+            "designSkillUnavailableReason": "the standalone skill manifest declares no \"design\" tier, om-figma-design-with-ds is not selected, no portable copy is emitted"
+          }
+        },
+        {
+          "galleryItemId": "buttons/link-button",
+          "familyId": "buttons",
+          "entryId": "link-button",
+          "importPath": "@open-mercato/ui/primitives/link-button",
+          "route": "/backend/design-system?family=buttons&entry=link-button",
+          "availabilityByPreset": {
+            "classic": "source-only",
+            "crm": "source-only",
+            "empty": "source-only",
+            "wms": "source-only"
+          },
+          "featureId": "design_system.view",
+          "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
+          "provenanceHeadSha": "186af58044c7530885a889c41f53bb36a5093d82",
+          "baselineSha": "bf25803d7a8c85c8552db9e76c7cc4398d1768be",
+          "designFoundation": {
+            "prUrl": "https://github.com/open-mercato/open-mercato/pull/4277",
+            "landedPrUrl": "https://github.com/open-mercato/open-mercato/pull/4891",
+            "auditedHeadSha": "fb9b8ddfe4470ef11d312caa4628c46af7d48adf",
+            "baselineSha": "b2d26489c683edc44265212ac8a79be1b981774f",
+            "packageName": "@open-mercato/ui",
+            "packageVersion": "0.6.7",
+            "packageContentHash": null,
+            "tokenApplicability": "not-applicable",
+            "snapshotAvailability": "unavailable",
+            "snapshotSourceReferenceId": null,
+            "codeConnectStatus": "unmapped",
+            "codeConnectArtifactAvailability": "not-emitted",
+            "codeConnectExportStatus": "not-exported",
+            "codeConnectSourceReferenceId": null,
+            "mappingCoverage": "none",
+            "galleryNodeStatus": "absent",
+            "galleryNodeId": null,
+            "codeConnectNodeStatus": "absent",
+            "codeConnectNodeId": null,
+            "nodeComparison": "not-comparable",
+            "publicationStatus": "not-evidenced",
+            "designSkillAvailability": "unavailable",
+            "designSkillSourceReferenceId": null,
+            "designSkillUnavailableReason": "the standalone skill manifest declares no \"design\" tier, om-figma-design-with-ds is not selected, no portable copy is emitted"
+          }
+        },
+        {
+          "galleryItemId": "buttons/social-button",
+          "familyId": "buttons",
+          "entryId": "social-button",
+          "importPath": "@open-mercato/ui/primitives/social-button",
+          "route": "/backend/design-system?family=buttons&entry=social-button",
+          "availabilityByPreset": {
+            "classic": "source-only",
+            "crm": "source-only",
+            "empty": "source-only",
+            "wms": "source-only"
+          },
+          "featureId": "design_system.view",
+          "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
+          "provenanceHeadSha": "186af58044c7530885a889c41f53bb36a5093d82",
+          "baselineSha": "bf25803d7a8c85c8552db9e76c7cc4398d1768be",
+          "designFoundation": {
+            "prUrl": "https://github.com/open-mercato/open-mercato/pull/4277",
+            "landedPrUrl": "https://github.com/open-mercato/open-mercato/pull/4891",
+            "auditedHeadSha": "fb9b8ddfe4470ef11d312caa4628c46af7d48adf",
+            "baselineSha": "b2d26489c683edc44265212ac8a79be1b981774f",
+            "packageName": "@open-mercato/ui",
+            "packageVersion": "0.6.7",
+            "packageContentHash": null,
+            "tokenApplicability": "not-applicable",
+            "snapshotAvailability": "unavailable",
+            "snapshotSourceReferenceId": null,
+            "codeConnectStatus": "unmapped",
+            "codeConnectArtifactAvailability": "not-emitted",
+            "codeConnectExportStatus": "not-exported",
+            "codeConnectSourceReferenceId": null,
+            "mappingCoverage": "none",
+            "galleryNodeStatus": "absent",
+            "galleryNodeId": null,
+            "codeConnectNodeStatus": "absent",
+            "codeConnectNodeId": null,
+            "nodeComparison": "not-comparable",
+            "publicationStatus": "not-evidenced",
+            "designSkillAvailability": "unavailable",
+            "designSkillSourceReferenceId": null,
+            "designSkillUnavailableReason": "the standalone skill manifest declares no \"design\" tier, om-figma-design-with-ds is not selected, no portable copy is emitted"
+          }
+        },
+        {
+          "galleryItemId": "buttons/fancy-button",
+          "familyId": "buttons",
+          "entryId": "fancy-button",
+          "importPath": "@open-mercato/ui/primitives/fancy-button",
+          "route": "/backend/design-system?family=buttons&entry=fancy-button",
+          "availabilityByPreset": {
+            "classic": "source-only",
+            "crm": "source-only",
+            "empty": "source-only",
+            "wms": "source-only"
+          },
+          "featureId": "design_system.view",
+          "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
+          "provenanceHeadSha": "186af58044c7530885a889c41f53bb36a5093d82",
+          "baselineSha": "bf25803d7a8c85c8552db9e76c7cc4398d1768be",
+          "designFoundation": {
+            "prUrl": "https://github.com/open-mercato/open-mercato/pull/4277",
+            "landedPrUrl": "https://github.com/open-mercato/open-mercato/pull/4891",
+            "auditedHeadSha": "fb9b8ddfe4470ef11d312caa4628c46af7d48adf",
+            "baselineSha": "b2d26489c683edc44265212ac8a79be1b981774f",
+            "packageName": "@open-mercato/ui",
+            "packageVersion": "0.6.7",
+            "packageContentHash": null,
+            "tokenApplicability": "not-applicable",
+            "snapshotAvailability": "unavailable",
+            "snapshotSourceReferenceId": null,
+            "codeConnectStatus": "unmapped",
+            "codeConnectArtifactAvailability": "not-emitted",
+            "codeConnectExportStatus": "not-exported",
+            "codeConnectSourceReferenceId": null,
+            "mappingCoverage": "none",
+            "galleryNodeStatus": "absent",
+            "galleryNodeId": null,
+            "codeConnectNodeStatus": "absent",
+            "codeConnectNodeId": null,
+            "nodeComparison": "not-comparable",
+            "publicationStatus": "not-evidenced",
+            "designSkillAvailability": "unavailable",
+            "designSkillSourceReferenceId": null,
+            "designSkillUnavailableReason": "the standalone skill manifest declares no \"design\" tier, om-figma-design-with-ds is not selected, no portable copy is emitted"
+          }
+        },
+        {
+          "galleryItemId": "buttons/button-group",
+          "familyId": "buttons",
+          "entryId": "button-group",
+          "importPath": "@open-mercato/ui/primitives/button-group",
+          "route": "/backend/design-system?family=buttons&entry=button-group",
+          "availabilityByPreset": {
+            "classic": "source-only",
+            "crm": "source-only",
+            "empty": "source-only",
+            "wms": "source-only"
+          },
+          "featureId": "design_system.view",
+          "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
+          "provenanceHeadSha": "186af58044c7530885a889c41f53bb36a5093d82",
+          "baselineSha": "bf25803d7a8c85c8552db9e76c7cc4398d1768be",
+          "designFoundation": {
+            "prUrl": "https://github.com/open-mercato/open-mercato/pull/4277",
+            "landedPrUrl": "https://github.com/open-mercato/open-mercato/pull/4891",
+            "auditedHeadSha": "fb9b8ddfe4470ef11d312caa4628c46af7d48adf",
+            "baselineSha": "b2d26489c683edc44265212ac8a79be1b981774f",
+            "packageName": "@open-mercato/ui",
+            "packageVersion": "0.6.7",
+            "packageContentHash": null,
+            "tokenApplicability": "not-applicable",
+            "snapshotAvailability": "unavailable",
+            "snapshotSourceReferenceId": null,
+            "codeConnectStatus": "unmapped",
+            "codeConnectArtifactAvailability": "not-emitted",
+            "codeConnectExportStatus": "not-exported",
+            "codeConnectSourceReferenceId": null,
+            "mappingCoverage": "none",
+            "galleryNodeStatus": "absent",
+            "galleryNodeId": null,
+            "codeConnectNodeStatus": "absent",
+            "codeConnectNodeId": null,
+            "nodeComparison": "not-comparable",
+            "publicationStatus": "not-evidenced",
+            "designSkillAvailability": "unavailable",
+            "designSkillSourceReferenceId": null,
+            "designSkillUnavailableReason": "the standalone skill manifest declares no \"design\" tier, om-figma-design-with-ds is not selected, no portable copy is emitted"
+          }
+        }
+      ]
+    },
+    {
+      "referenceId": "om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/figma/button.figma.tsx",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+      "heading": "Exact Gallery and Foundation Sources",
+      "href": "../../../../node_modules/@open-mercato/ui/figma/button.figma.tsx",
+      "targetKind": "installed-package",
+      "readStatus": "readable",
+      "resolvedPath": "node_modules/@open-mercato/ui/figma/button.figma.tsx",
+      "moduleId": null,
+      "capabilityIds": [],
+      "packageName": "@open-mercato/ui",
+      "packageRelativePath": "figma/button.figma.tsx",
+      "referenceRole": "figma-code-connect",
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ],
+      "galleryItemIds": [
+        "buttons/button"
+      ],
+      "visualReferences": [
+        {
+          "galleryItemId": "buttons/button",
+          "familyId": "buttons",
+          "entryId": "button",
+          "importPath": "@open-mercato/ui/primitives/button",
+          "route": "/backend/design-system?family=buttons&entry=button",
+          "availabilityByPreset": {
+            "classic": "source-only",
+            "crm": "source-only",
+            "empty": "source-only",
+            "wms": "source-only"
+          },
+          "featureId": "design_system.view",
+          "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
+          "provenanceHeadSha": "186af58044c7530885a889c41f53bb36a5093d82",
+          "baselineSha": "bf25803d7a8c85c8552db9e76c7cc4398d1768be",
+          "designFoundation": {
+            "prUrl": "https://github.com/open-mercato/open-mercato/pull/4277",
+            "landedPrUrl": "https://github.com/open-mercato/open-mercato/pull/4891",
+            "auditedHeadSha": "fb9b8ddfe4470ef11d312caa4628c46af7d48adf",
+            "baselineSha": "b2d26489c683edc44265212ac8a79be1b981774f",
+            "packageName": "@open-mercato/ui",
+            "packageVersion": "0.6.7",
+            "packageContentHash": null,
+            "tokenApplicability": "not-applicable",
+            "snapshotAvailability": "unavailable",
+            "snapshotSourceReferenceId": null,
+            "codeConnectStatus": "mapped",
+            "codeConnectArtifactAvailability": "installed-packed-auxiliary",
+            "codeConnectExportStatus": "not-exported",
+            "codeConnectSourceReferenceId": "node_modules/@open-mercato/ui/figma/button.figma.tsx",
+            "mappingCoverage": "partial",
+            "galleryNodeStatus": "absent",
+            "galleryNodeId": null,
+            "codeConnectNodeStatus": "placeholder",
+            "codeConnectNodeId": "0:1",
+            "nodeComparison": "not-comparable",
+            "publicationStatus": "not-evidenced",
+            "designSkillAvailability": "unavailable",
+            "designSkillSourceReferenceId": null,
+            "designSkillUnavailableReason": "the standalone skill manifest declares no \"design\" tier, om-figma-design-with-ds is not selected, no portable copy is emitted"
+          }
+        }
+      ]
+    },
+    {
+      "referenceId": "om-backend-ui-design/frontend-and-design-system:node_modules/@open-mercato/ui/src/primitives/button.tsx",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+      "heading": "Exact Gallery and Foundation Sources",
+      "href": "../../../../node_modules/@open-mercato/ui/src/primitives/button.tsx",
+      "targetKind": "installed-package",
+      "readStatus": "readable",
+      "resolvedPath": "node_modules/@open-mercato/ui/src/primitives/button.tsx",
+      "moduleId": null,
+      "capabilityIds": [],
+      "packageName": "@open-mercato/ui",
+      "packageRelativePath": "src/primitives/button.tsx",
+      "referenceRole": "design-system-implementation",
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ],
+      "galleryItemIds": [
+        "buttons/button"
+      ],
+      "visualReferences": [
+        {
+          "galleryItemId": "buttons/button",
+          "familyId": "buttons",
+          "entryId": "button",
+          "importPath": "@open-mercato/ui/primitives/button",
+          "route": "/backend/design-system?family=buttons&entry=button",
+          "availabilityByPreset": {
+            "classic": "source-only",
+            "crm": "source-only",
+            "empty": "source-only",
+            "wms": "source-only"
+          },
+          "featureId": "design_system.view",
+          "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
+          "provenanceHeadSha": "186af58044c7530885a889c41f53bb36a5093d82",
+          "baselineSha": "bf25803d7a8c85c8552db9e76c7cc4398d1768be",
+          "designFoundation": {
+            "prUrl": "https://github.com/open-mercato/open-mercato/pull/4277",
+            "landedPrUrl": "https://github.com/open-mercato/open-mercato/pull/4891",
+            "auditedHeadSha": "fb9b8ddfe4470ef11d312caa4628c46af7d48adf",
+            "baselineSha": "b2d26489c683edc44265212ac8a79be1b981774f",
+            "packageName": "@open-mercato/ui",
+            "packageVersion": "0.6.7",
+            "packageContentHash": null,
+            "tokenApplicability": "not-applicable",
+            "snapshotAvailability": "unavailable",
+            "snapshotSourceReferenceId": null,
+            "codeConnectStatus": "mapped",
+            "codeConnectArtifactAvailability": "installed-packed-auxiliary",
+            "codeConnectExportStatus": "not-exported",
+            "codeConnectSourceReferenceId": "node_modules/@open-mercato/ui/figma/button.figma.tsx",
+            "mappingCoverage": "partial",
+            "galleryNodeStatus": "absent",
+            "galleryNodeId": null,
+            "codeConnectNodeStatus": "placeholder",
+            "codeConnectNodeId": "0:1",
+            "nodeComparison": "not-comparable",
+            "publicationStatus": "not-evidenced",
+            "designSkillAvailability": "unavailable",
+            "designSkillSourceReferenceId": null,
+            "designSkillUnavailableReason": "the standalone skill manifest declares no \"design\" tier, om-figma-design-with-ds is not selected, no portable copy is emitted"
+          }
+        }
+      ]
+    },
+    {
+      "referenceId": "om-backend-ui-design/frontend-and-design-system:src/app/globals.css",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-backend-ui-design/references/frontend-and-design-system.md",
+      "heading": "Exact Gallery and Foundation Sources",
+      "href": "../../../../src/app/globals.css",
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": "src/app/globals.css",
+      "moduleId": null,
+      "capabilityIds": [],
+      "referenceRole": "design-foundation-token",
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ],
+      "galleryItemIds": [
+        "foundations/brand-colors",
+        "foundations/chart-palette",
+        "foundations/color-roles",
+        "foundations/color-tokens",
+        "foundations/corner-radius",
+        "foundations/state-tokens"
+      ],
+      "visualReferences": [
+        {
+          "galleryItemId": "foundations/brand-colors",
+          "familyId": "foundations",
+          "entryId": "brand-colors",
+          "importPath": "apps/mercato/src/app/globals.css",
+          "route": "/backend/design-system?family=foundations&entry=brand-colors",
+          "availabilityByPreset": {
+            "classic": "source-only",
+            "crm": "source-only",
+            "empty": "source-only",
+            "wms": "source-only"
+          },
+          "featureId": "design_system.view",
+          "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
+          "provenanceHeadSha": "186af58044c7530885a889c41f53bb36a5093d82",
+          "baselineSha": "bf25803d7a8c85c8552db9e76c7cc4398d1768be",
+          "designFoundation": {
+            "prUrl": "https://github.com/open-mercato/open-mercato/pull/4277",
+            "landedPrUrl": "https://github.com/open-mercato/open-mercato/pull/4891",
+            "auditedHeadSha": "fb9b8ddfe4470ef11d312caa4628c46af7d48adf",
+            "baselineSha": "b2d26489c683edc44265212ac8a79be1b981774f",
+            "packageName": null,
+            "packageVersion": null,
+            "packageContentHash": null,
+            "tokenApplicability": "local-css",
+            "snapshotAvailability": "unavailable",
+            "snapshotSourceReferenceId": null,
+            "codeConnectStatus": "not-applicable",
+            "codeConnectArtifactAvailability": "not-emitted",
+            "codeConnectExportStatus": "not-exported",
+            "codeConnectSourceReferenceId": null,
+            "mappingCoverage": "not-applicable",
+            "galleryNodeStatus": "known",
+            "galleryNodeId": "553:14956",
+            "codeConnectNodeStatus": "absent",
+            "codeConnectNodeId": null,
+            "nodeComparison": "not-comparable",
+            "publicationStatus": "not-evidenced",
+            "designSkillAvailability": "unavailable",
+            "designSkillSourceReferenceId": null,
+            "designSkillUnavailableReason": "the standalone skill manifest declares no \"design\" tier, om-figma-design-with-ds is not selected, no portable copy is emitted"
+          }
+        },
+        {
+          "galleryItemId": "foundations/color-roles",
+          "familyId": "foundations",
+          "entryId": "color-roles",
+          "importPath": "apps/mercato/src/app/globals.css",
+          "route": "/backend/design-system?family=foundations&entry=color-roles",
+          "availabilityByPreset": {
+            "classic": "source-only",
+            "crm": "source-only",
+            "empty": "source-only",
+            "wms": "source-only"
+          },
+          "featureId": "design_system.view",
+          "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
+          "provenanceHeadSha": "186af58044c7530885a889c41f53bb36a5093d82",
+          "baselineSha": "bf25803d7a8c85c8552db9e76c7cc4398d1768be",
+          "designFoundation": {
+            "prUrl": "https://github.com/open-mercato/open-mercato/pull/4277",
+            "landedPrUrl": "https://github.com/open-mercato/open-mercato/pull/4891",
+            "auditedHeadSha": "fb9b8ddfe4470ef11d312caa4628c46af7d48adf",
+            "baselineSha": "b2d26489c683edc44265212ac8a79be1b981774f",
+            "packageName": null,
+            "packageVersion": null,
+            "packageContentHash": null,
+            "tokenApplicability": "local-css",
+            "snapshotAvailability": "unavailable",
+            "snapshotSourceReferenceId": null,
+            "codeConnectStatus": "not-applicable",
+            "codeConnectArtifactAvailability": "not-emitted",
+            "codeConnectExportStatus": "not-exported",
+            "codeConnectSourceReferenceId": null,
+            "mappingCoverage": "not-applicable",
+            "galleryNodeStatus": "known",
+            "galleryNodeId": "553:14956",
+            "codeConnectNodeStatus": "absent",
+            "codeConnectNodeId": null,
+            "nodeComparison": "not-comparable",
+            "publicationStatus": "not-evidenced",
+            "designSkillAvailability": "unavailable",
+            "designSkillSourceReferenceId": null,
+            "designSkillUnavailableReason": "the standalone skill manifest declares no \"design\" tier, om-figma-design-with-ds is not selected, no portable copy is emitted"
+          }
+        },
+        {
+          "galleryItemId": "foundations/color-tokens",
+          "familyId": "foundations",
+          "entryId": "color-tokens",
+          "importPath": "apps/mercato/src/app/globals.css",
+          "route": "/backend/design-system?family=foundations&entry=color-tokens",
+          "availabilityByPreset": {
+            "classic": "source-only",
+            "crm": "source-only",
+            "empty": "source-only",
+            "wms": "source-only"
+          },
+          "featureId": "design_system.view",
+          "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
+          "provenanceHeadSha": "186af58044c7530885a889c41f53bb36a5093d82",
+          "baselineSha": "bf25803d7a8c85c8552db9e76c7cc4398d1768be",
+          "designFoundation": {
+            "prUrl": "https://github.com/open-mercato/open-mercato/pull/4277",
+            "landedPrUrl": "https://github.com/open-mercato/open-mercato/pull/4891",
+            "auditedHeadSha": "fb9b8ddfe4470ef11d312caa4628c46af7d48adf",
+            "baselineSha": "b2d26489c683edc44265212ac8a79be1b981774f",
+            "packageName": null,
+            "packageVersion": null,
+            "packageContentHash": null,
+            "tokenApplicability": "local-css",
+            "snapshotAvailability": "unavailable",
+            "snapshotSourceReferenceId": null,
+            "codeConnectStatus": "not-applicable",
+            "codeConnectArtifactAvailability": "not-emitted",
+            "codeConnectExportStatus": "not-exported",
+            "codeConnectSourceReferenceId": null,
+            "mappingCoverage": "not-applicable",
+            "galleryNodeStatus": "known",
+            "galleryNodeId": "553:14956",
+            "codeConnectNodeStatus": "absent",
+            "codeConnectNodeId": null,
+            "nodeComparison": "not-comparable",
+            "publicationStatus": "not-evidenced",
+            "designSkillAvailability": "unavailable",
+            "designSkillSourceReferenceId": null,
+            "designSkillUnavailableReason": "the standalone skill manifest declares no \"design\" tier, om-figma-design-with-ds is not selected, no portable copy is emitted"
+          }
+        },
+        {
+          "galleryItemId": "foundations/state-tokens",
+          "familyId": "foundations",
+          "entryId": "state-tokens",
+          "importPath": "apps/mercato/src/app/globals.css",
+          "route": "/backend/design-system?family=foundations&entry=state-tokens",
+          "availabilityByPreset": {
+            "classic": "source-only",
+            "crm": "source-only",
+            "empty": "source-only",
+            "wms": "source-only"
+          },
+          "featureId": "design_system.view",
+          "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
+          "provenanceHeadSha": "186af58044c7530885a889c41f53bb36a5093d82",
+          "baselineSha": "bf25803d7a8c85c8552db9e76c7cc4398d1768be",
+          "designFoundation": {
+            "prUrl": "https://github.com/open-mercato/open-mercato/pull/4277",
+            "landedPrUrl": "https://github.com/open-mercato/open-mercato/pull/4891",
+            "auditedHeadSha": "fb9b8ddfe4470ef11d312caa4628c46af7d48adf",
+            "baselineSha": "b2d26489c683edc44265212ac8a79be1b981774f",
+            "packageName": null,
+            "packageVersion": null,
+            "packageContentHash": null,
+            "tokenApplicability": "local-css",
+            "snapshotAvailability": "unavailable",
+            "snapshotSourceReferenceId": null,
+            "codeConnectStatus": "not-applicable",
+            "codeConnectArtifactAvailability": "not-emitted",
+            "codeConnectExportStatus": "not-exported",
+            "codeConnectSourceReferenceId": null,
+            "mappingCoverage": "not-applicable",
+            "galleryNodeStatus": "known",
+            "galleryNodeId": "553:14956",
+            "codeConnectNodeStatus": "absent",
+            "codeConnectNodeId": null,
+            "nodeComparison": "not-comparable",
+            "publicationStatus": "not-evidenced",
+            "designSkillAvailability": "unavailable",
+            "designSkillSourceReferenceId": null,
+            "designSkillUnavailableReason": "the standalone skill manifest declares no \"design\" tier, om-figma-design-with-ds is not selected, no portable copy is emitted"
+          }
+        },
+        {
+          "galleryItemId": "foundations/chart-palette",
+          "familyId": "foundations",
+          "entryId": "chart-palette",
+          "importPath": "apps/mercato/src/app/globals.css",
+          "route": "/backend/design-system?family=foundations&entry=chart-palette",
+          "availabilityByPreset": {
+            "classic": "source-only",
+            "crm": "source-only",
+            "empty": "source-only",
+            "wms": "source-only"
+          },
+          "featureId": "design_system.view",
+          "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
+          "provenanceHeadSha": "186af58044c7530885a889c41f53bb36a5093d82",
+          "baselineSha": "bf25803d7a8c85c8552db9e76c7cc4398d1768be",
+          "designFoundation": {
+            "prUrl": "https://github.com/open-mercato/open-mercato/pull/4277",
+            "landedPrUrl": "https://github.com/open-mercato/open-mercato/pull/4891",
+            "auditedHeadSha": "fb9b8ddfe4470ef11d312caa4628c46af7d48adf",
+            "baselineSha": "b2d26489c683edc44265212ac8a79be1b981774f",
+            "packageName": null,
+            "packageVersion": null,
+            "packageContentHash": null,
+            "tokenApplicability": "local-css",
+            "snapshotAvailability": "unavailable",
+            "snapshotSourceReferenceId": null,
+            "codeConnectStatus": "not-applicable",
+            "codeConnectArtifactAvailability": "not-emitted",
+            "codeConnectExportStatus": "not-exported",
+            "codeConnectSourceReferenceId": null,
+            "mappingCoverage": "not-applicable",
+            "galleryNodeStatus": "absent",
+            "galleryNodeId": null,
+            "codeConnectNodeStatus": "absent",
+            "codeConnectNodeId": null,
+            "nodeComparison": "not-comparable",
+            "publicationStatus": "not-evidenced",
+            "designSkillAvailability": "unavailable",
+            "designSkillSourceReferenceId": null,
+            "designSkillUnavailableReason": "the standalone skill manifest declares no \"design\" tier, om-figma-design-with-ds is not selected, no portable copy is emitted"
+          }
+        },
+        {
+          "galleryItemId": "foundations/corner-radius",
+          "familyId": "foundations",
+          "entryId": "corner-radius",
+          "importPath": "apps/mercato/src/app/globals.css",
+          "route": "/backend/design-system?family=foundations&entry=corner-radius",
+          "availabilityByPreset": {
+            "classic": "source-only",
+            "crm": "source-only",
+            "empty": "source-only",
+            "wms": "source-only"
+          },
+          "featureId": "design_system.view",
+          "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
+          "provenanceHeadSha": "186af58044c7530885a889c41f53bb36a5093d82",
+          "baselineSha": "bf25803d7a8c85c8552db9e76c7cc4398d1768be",
+          "designFoundation": {
+            "prUrl": "https://github.com/open-mercato/open-mercato/pull/4277",
+            "landedPrUrl": "https://github.com/open-mercato/open-mercato/pull/4891",
+            "auditedHeadSha": "fb9b8ddfe4470ef11d312caa4628c46af7d48adf",
+            "baselineSha": "b2d26489c683edc44265212ac8a79be1b981774f",
+            "packageName": null,
+            "packageVersion": null,
+            "packageContentHash": null,
+            "tokenApplicability": "local-css",
+            "snapshotAvailability": "unavailable",
+            "snapshotSourceReferenceId": null,
+            "codeConnectStatus": "not-applicable",
+            "codeConnectArtifactAvailability": "not-emitted",
+            "codeConnectExportStatus": "not-exported",
+            "codeConnectSourceReferenceId": null,
+            "mappingCoverage": "not-applicable",
+            "galleryNodeStatus": "absent",
+            "galleryNodeId": null,
+            "codeConnectNodeStatus": "absent",
+            "codeConnectNodeId": null,
+            "nodeComparison": "not-comparable",
+            "publicationStatus": "not-evidenced",
+            "designSkillAvailability": "unavailable",
+            "designSkillSourceReferenceId": null,
+            "designSkillUnavailableReason": "the standalone skill manifest declares no \"design\" tier, om-figma-design-with-ds is not selected, no portable copy is emitted"
+          }
+        }
+      ]
+    },
+    {
+      "referenceId": "om-backend-ui-design/page-and-navigation:backend/page.meta.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-backend-ui-design/references/page-and-navigation.md",
+      "heading": "Page and Navigation Branch",
+      "href": "../../../../src/modules/example/backend/page.meta.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/backend/page.meta.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "ui.page-shell"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-backend-ui-design/page-and-navigation:backend/page.tsx",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-backend-ui-design/references/page-and-navigation.md",
+      "heading": "Page and Navigation Branch",
+      "href": "../../../../src/modules/example/backend/page.tsx",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/backend/page.tsx",
+      "moduleId": "example",
+      "capabilityIds": [
+        "ui.page-shell"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-backend-ui-design/page-and-navigation:backend/todos/page.meta.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-backend-ui-design/references/page-and-navigation.md",
+      "heading": "Page and Navigation Branch",
+      "href": "../../../../src/modules/example/backend/todos/page.meta.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/backend/todos/page.meta.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "ui.page-shell"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-backend-ui-design/page-and-navigation:backend/todos/page.tsx",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-backend-ui-design/references/page-and-navigation.md",
+      "heading": "Page and Navigation Branch",
+      "href": "../../../../src/modules/example/backend/todos/page.tsx",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/backend/todos/page.tsx",
+      "moduleId": "example",
+      "capabilityIds": [
+        "ui.page-shell"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-backend-ui-design/page-and-navigation:frontend/example.tsx",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-backend-ui-design/references/page-and-navigation.md",
+      "heading": "Page and Navigation Branch",
+      "href": "../../../../src/modules/example/frontend/example.tsx",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/frontend/example.tsx",
+      "moduleId": "example",
+      "capabilityIds": [
+        "ui.frontend-page"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-backend-ui-design:references/surface-map.md",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-backend-ui-design/SKILL.md",
+      "heading": "Rules",
+      "href": "../../../src/modules/example/references/surface-map.md",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/references/surface-map.md",
+      "moduleId": "example",
+      "capabilityIds": [],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-data-model-design/integrity-and-concurrency:backend/todos/[id]/edit/page.tsx",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-data-model-design/references/integrity-and-concurrency.md",
+      "heading": "Integrity and Concurrency",
+      "href": "../../../../src/modules/example/backend/todos/%5Bid%5D/edit/page.tsx",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/backend/todos/[id]/edit/page.tsx",
+      "moduleId": "example",
+      "capabilityIds": [
+        "ui.form-edit"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-data-model-design/integrity-and-concurrency:commands/interceptors.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-data-model-design/references/integrity-and-concurrency.md",
+      "heading": "Integrity and Concurrency",
+      "href": "../../../../src/modules/example/commands/interceptors.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/commands/interceptors.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "commands.interceptors"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-data-model-design/integrity-and-concurrency:commands/todos.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-data-model-design/references/integrity-and-concurrency.md",
+      "heading": "Integrity and Concurrency",
+      "href": "../../../../src/modules/example/commands/todos.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/commands/todos.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "commands.undo-redo",
+        "commands.write",
+        "data.encryption-map",
+        "events.crud-indexer-bridge"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-data-model-design/migration-workflow:migrations/.snapshot-open-mercato.json",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-data-model-design/references/migration-workflow.md",
+      "heading": "Migration Workflow",
+      "href": "../../../../src/modules/example/migrations/.snapshot-open-mercato.json",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/migrations/.snapshot-open-mercato.json",
+      "moduleId": "example",
+      "capabilityIds": [
+        "data.migrations"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-data-model-design/migration-workflow:migrations/Migration20251030150038.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-data-model-design/references/migration-workflow.md",
+      "heading": "Migration Workflow",
+      "href": "../../../../src/modules/example/migrations/Migration20251030150038.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/migrations/Migration20251030150038.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "data.migrations"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-data-model-design/migration-workflow:migrations/Migration20260226161000_example.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-data-model-design/references/migration-workflow.md",
+      "heading": "Migration Workflow",
+      "href": "../../../../src/modules/example/migrations/Migration20260226161000_example.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/migrations/Migration20260226161000_example.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "data.migrations"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-data-model-design/schema-design:ce.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-data-model-design/references/schema-design.md",
+      "heading": "Schema Design",
+      "href": "../../../../src/modules/example/ce.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/ce.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "data.custom-fields"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-data-model-design/schema-design:data/entities.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-data-model-design/references/schema-design.md",
+      "heading": "Schema Design",
+      "href": "../../../../src/modules/example/data/entities.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/data/entities.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "data.encryption-map",
+        "data.entities"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-data-model-design/schema-design:data/validators.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-data-model-design/references/schema-design.md",
+      "heading": "Schema Design",
+      "href": "../../../../src/modules/example/data/validators.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/data/validators.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "data.validators"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-data-model-design:references/surface-map.md",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-data-model-design/SKILL.md",
+      "heading": "Rules",
+      "href": "../../../src/modules/example/references/surface-map.md",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/references/surface-map.md",
+      "moduleId": "example",
+      "capabilityIds": [],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-eject-and-customize/decision-and-procedure:acl.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-eject-and-customize/references/decision-and-procedure.md",
+      "heading": "Eject Decision and Procedure",
+      "href": "../../../../src/modules/example/acl.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/acl.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "module.acl-features"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-eject-and-customize/decision-and-procedure:data/entities.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-eject-and-customize/references/decision-and-procedure.md",
+      "heading": "Eject Decision and Procedure",
+      "href": "../../../../src/modules/example/data/entities.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/data/entities.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "data.encryption-map",
+        "data.entities"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-eject-and-customize/decision-and-procedure:index.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-eject-and-customize/references/decision-and-procedure.md",
+      "heading": "Eject Decision and Procedure",
+      "href": "../../../../src/modules/example/index.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/index.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "module.metadata"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-eject-and-customize/decision-and-procedure:migrations/.snapshot-open-mercato.json",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-eject-and-customize/references/decision-and-procedure.md",
+      "heading": "Eject Decision and Procedure",
+      "href": "../../../../src/modules/example/migrations/.snapshot-open-mercato.json",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/migrations/.snapshot-open-mercato.json",
+      "moduleId": "example",
+      "capabilityIds": [
+        "data.migrations"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-eject-and-customize/decision-and-procedure:setup.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-eject-and-customize/references/decision-and-procedure.md",
+      "heading": "Eject Decision and Procedure",
+      "href": "../../../../src/modules/example/setup.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/setup.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "module.setup-role-features",
+        "module.setup-scheduler-target"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-eject-and-customize/decision-and-procedure:src/modules.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-eject-and-customize/references/decision-and-procedure.md",
+      "heading": "Eject Decision and Procedure",
+      "href": "../../../../src/modules.ts",
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules.ts",
+      "moduleId": null,
+      "capabilityIds": [
+        "overrides.unified-registry"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-eject-and-customize:references/surface-map.md",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-eject-and-customize/SKILL.md",
+      "heading": "Rules",
+      "href": "../../../src/modules/example/references/surface-map.md",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/references/surface-map.md",
+      "moduleId": "example",
+      "capabilityIds": [],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-integration-builder/provider-families:di.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-integration-builder/references/provider-families.md",
+      "heading": "Canonical example source",
+      "href": "../../../../src/modules/example/di.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/di.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "integrations.local-bundle",
+        "module.di-registration"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-integration-builder/provider-families:lib/mock-gateway-adapter.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-integration-builder/references/provider-families.md",
+      "heading": "Canonical example source",
+      "href": "../../../../src/modules/example/lib/mock-gateway-adapter.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/lib/mock-gateway-adapter.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "integrations.mock-adapters"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-integration-builder/provider-families:lib/mock-shipping-adapter.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-integration-builder/references/provider-families.md",
+      "heading": "Canonical example source",
+      "href": "../../../../src/modules/example/lib/mock-shipping-adapter.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/lib/mock-shipping-adapter.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "integrations.mock-adapters"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-integration-builder/provider-families:lib/mock-webhook-endpoint-adapter.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-integration-builder/references/provider-families.md",
+      "heading": "Canonical example source",
+      "href": "../../../../src/modules/example/lib/mock-webhook-endpoint-adapter.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/lib/mock-webhook-endpoint-adapter.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "integrations.mock-adapters"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-module-scaffold/api-and-domain:README.md",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/references/api-and-domain.md",
+      "heading": "Canonical example source",
+      "href": "../../../../src/modules/example/README.md",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/README.md",
+      "moduleId": "example",
+      "capabilityIds": [],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-module-scaffold/api-and-domain:api/assignees/route.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/references/api-and-domain.md",
+      "heading": "Canonical example source",
+      "href": "../../../../src/modules/example/api/assignees/route.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/api/assignees/route.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "api.option-source-routes"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-module-scaffold/api-and-domain:api/customer-priorities/route.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/references/api-and-domain.md",
+      "heading": "Canonical example source",
+      "href": "../../../../src/modules/example/api/customer-priorities/route.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/api/customer-priorities/route.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "api.crud-factory"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-module-scaffold/api-and-domain:api/openapi.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/references/api-and-domain.md",
+      "heading": "Canonical example source",
+      "href": "../../../../src/modules/example/api/openapi.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/api/openapi.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "api.openapi"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-module-scaffold/api-and-domain:api/organizations/route.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/references/api-and-domain.md",
+      "heading": "Canonical example source",
+      "href": "../../../../src/modules/example/api/organizations/route.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/api/organizations/route.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "api.custom-route"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-module-scaffold/api-and-domain:api/tags/route.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/references/api-and-domain.md",
+      "heading": "Canonical example source",
+      "href": "../../../../src/modules/example/api/tags/route.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/api/tags/route.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "api.option-source-routes"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-module-scaffold/api-and-domain:api/todos/route.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/references/api-and-domain.md",
+      "heading": "Canonical example source",
+      "href": "../../../../src/modules/example/api/todos/route.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/api/todos/route.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "api.crud-query-engine-custom-fields",
+        "search.encrypted-column-list-filter"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-module-scaffold/api-and-domain:commands/todos.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/references/api-and-domain.md",
+      "heading": "Canonical example source",
+      "href": "../../../../src/modules/example/commands/todos.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/commands/todos.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "commands.undo-redo",
+        "commands.write",
+        "data.encryption-map",
+        "events.crud-indexer-bridge"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-module-scaffold/data-and-migrations:ce.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/references/data-and-migrations.md",
+      "heading": "Module Data and Migrations",
+      "href": "../../../../src/modules/example/ce.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/ce.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "data.custom-fields"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-module-scaffold/data-and-migrations:data/entities.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/references/data-and-migrations.md",
+      "heading": "Module Data and Migrations",
+      "href": "../../../../src/modules/example/data/entities.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/data/entities.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "data.encryption-map",
+        "data.entities"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-module-scaffold/data-and-migrations:data/validators.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/references/data-and-migrations.md",
+      "heading": "Module Data and Migrations",
+      "href": "../../../../src/modules/example/data/validators.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/data/validators.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "data.validators"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-module-scaffold/data-and-migrations:migrations/.snapshot-open-mercato.json",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/references/data-and-migrations.md",
+      "heading": "Module Data and Migrations",
+      "href": "../../../../src/modules/example/migrations/.snapshot-open-mercato.json",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/migrations/.snapshot-open-mercato.json",
+      "moduleId": "example",
+      "capabilityIds": [
+        "data.migrations"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-module-scaffold/data-and-migrations:migrations/Migration20260226161000_example.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/references/data-and-migrations.md",
+      "heading": "Module Data and Migrations",
+      "href": "../../../../src/modules/example/migrations/Migration20260226161000_example.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/migrations/Migration20260226161000_example.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "data.migrations"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-module-scaffold/module-surfaces:acl.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "heading": "Canonical example source",
+      "href": "../../../../src/modules/example/acl.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/acl.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "module.acl-features"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-module-scaffold/module-surfaces:ce.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "heading": "Canonical example source",
+      "href": "../../../../src/modules/example/ce.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/ce.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "data.custom-fields"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-module-scaffold/module-surfaces:cli.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "heading": "Canonical example source",
+      "href": "../../../../src/modules/example/cli.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/cli.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "module.cli-command"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-module-scaffold/module-surfaces:di.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "heading": "Canonical example source",
+      "href": "../../../../src/modules/example/di.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/di.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "integrations.local-bundle",
+        "module.di-registration"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-module-scaffold/module-surfaces:events.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "heading": "Canonical example source",
+      "href": "../../../../src/modules/example/events.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/events.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "events.portal-broadcast",
+        "events.typed-definitions"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-module-scaffold/module-surfaces:extension-points.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "heading": "Canonical example source",
+      "href": "../../../../src/modules/example/extension-points.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/extension-points.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "umes.extension-points"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-module-scaffold/module-surfaces:i18n/en.json",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "heading": "Canonical example source",
+      "href": "../../../../src/modules/example/i18n/en.json",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/i18n/en.json",
+      "moduleId": "example",
+      "capabilityIds": [
+        "module.i18n-catalogs"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-module-scaffold/module-surfaces:index.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "heading": "Canonical example source",
+      "href": "../../../../src/modules/example/index.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/index.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "module.metadata"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-module-scaffold/module-surfaces:notifications.client.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "heading": "Canonical example source",
+      "href": "../../../../src/modules/example/notifications.client.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/notifications.client.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "notifications.client-renderer"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-module-scaffold/module-surfaces:notifications.handlers.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "heading": "Canonical example source",
+      "href": "../../../../src/modules/example/notifications.handlers.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/notifications.handlers.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "notifications.reactive-handler"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-module-scaffold/module-surfaces:notifications.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "heading": "Canonical example source",
+      "href": "../../../../src/modules/example/notifications.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/notifications.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "notifications.type"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-module-scaffold/module-surfaces:references/surface-map.md",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "heading": "Canonical example source",
+      "href": "../../../../src/modules/example/references/surface-map.md",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/references/surface-map.md",
+      "moduleId": "example",
+      "capabilityIds": [],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-module-scaffold/module-surfaces:setup.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "heading": "Canonical example source",
+      "href": "../../../../src/modules/example/setup.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/setup.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "module.setup-role-features",
+        "module.setup-scheduler-target"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-module-scaffold/module-surfaces:translations.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "heading": "Canonical example source",
+      "href": "../../../../src/modules/example/translations.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/translations.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "module.translatable-fields"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-module-scaffold:README.md",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/SKILL.md",
+      "heading": "Scaffold a Complete Module",
+      "href": "../../../src/modules/example/README.md",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/README.md",
+      "moduleId": "example",
+      "capabilityIds": [],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-module-scaffold:references/surface-inventory.json",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-module-scaffold/SKILL.md",
+      "heading": "Scaffold a Complete Module",
+      "href": "../../../src/modules/example/references/surface-inventory.json",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/references/surface-inventory.json",
+      "moduleId": "example",
+      "capabilityIds": [],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-system-extension/extension-branches:api/interceptors.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "heading": "Canonical example source",
+      "href": "../../../../src/modules/example/api/interceptors.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/api/interceptors.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "api.interceptors"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-system-extension/extension-branches:commands/interceptors.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "heading": "Canonical example source",
+      "href": "../../../../src/modules/example/commands/interceptors.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/commands/interceptors.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "commands.interceptors"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-system-extension/extension-branches:data/enrichers.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "heading": "Canonical example source",
+      "href": "../../../../src/modules/example/data/enrichers.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/data/enrichers.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "umes.response-enricher"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-system-extension/extension-branches:data/guards.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "heading": "Canonical example source",
+      "href": "../../../../src/modules/example/data/guards.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/data/guards.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "umes.mutation-guard"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-system-extension/extension-branches:extension-points.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "heading": "Canonical example source",
+      "href": "../../../../src/modules/example/extension-points.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/extension-points.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "umes.extension-points"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-system-extension/extension-branches:notifications.client.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "heading": "Canonical example source",
+      "href": "../../../../src/modules/example/notifications.client.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/notifications.client.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "notifications.client-renderer"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-system-extension/extension-branches:notifications.handlers.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "heading": "Canonical example source",
+      "href": "../../../../src/modules/example/notifications.handlers.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/notifications.handlers.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "notifications.reactive-handler"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-system-extension/extension-branches:subscribers/audit-delete.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "heading": "Canonical example source",
+      "href": "../../../../src/modules/example/subscribers/audit-delete.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/subscribers/audit-delete.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "events.sync-subscribers"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-system-extension/extension-branches:subscribers/auto-default-priority.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "heading": "Canonical example source",
+      "href": "../../../../src/modules/example/subscribers/auto-default-priority.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/subscribers/auto-default-priority.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "events.sync-subscribers"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-system-extension/extension-branches:subscribers/example-event.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "heading": "Canonical example source",
+      "href": "../../../../src/modules/example/subscribers/example-event.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/subscribers/example-event.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "events.ephemeral-subscriber"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-system-extension/extension-branches:subscribers/prevent-uncomplete.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "heading": "Canonical example source",
+      "href": "../../../../src/modules/example/subscribers/prevent-uncomplete.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/subscribers/prevent-uncomplete.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "events.sync-subscribers"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-system-extension/extension-branches:widgets/components.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "heading": "Canonical example source",
+      "href": "../../../../src/modules/example/widgets/components.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/widgets/components.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "umes.component-replacement"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-system-extension/extension-branches:widgets/injection-table.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "heading": "Canonical example source",
+      "href": "../../../../src/modules/example/widgets/injection-table.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/widgets/injection-table.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "umes.injection-table"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-system-extension/extension-branches:widgets/injection/customer-priority-bulk-actions/widget.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "heading": "Canonical example source",
+      "href": "../../../../src/modules/example/widgets/injection/customer-priority-bulk-actions/widget.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/widgets/injection/customer-priority-bulk-actions/widget.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "umes.injection.datatable-bulk-action"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-system-extension/extension-branches:widgets/injection/customer-priority-column/widget.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "heading": "Canonical example source",
+      "href": "../../../../src/modules/example/widgets/injection/customer-priority-column/widget.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/widgets/injection/customer-priority-column/widget.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "umes.injection.datatable-column"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-system-extension/extension-branches:widgets/injection/customer-priority-detail/widget.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "heading": "Canonical example source",
+      "href": "../../../../src/modules/example/widgets/injection/customer-priority-detail/widget.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/widgets/injection/customer-priority-detail/widget.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "umes.injection.rendered-widget"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-system-extension/extension-branches:widgets/injection/customer-priority-field/widget.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "heading": "Canonical example source",
+      "href": "../../../../src/modules/example/widgets/injection/customer-priority-field/widget.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/widgets/injection/customer-priority-field/widget.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "umes.injection.crud-form-field"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-system-extension/extension-branches:widgets/injection/customer-priority-filter/widget.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "heading": "Canonical example source",
+      "href": "../../../../src/modules/example/widgets/injection/customer-priority-filter/widget.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/widgets/injection/customer-priority-filter/widget.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "umes.injection.datatable-filter"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-system-extension/extension-branches:widgets/injection/customer-priority-row-action/widget.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "heading": "Canonical example source",
+      "href": "../../../../src/modules/example/widgets/injection/customer-priority-row-action/widget.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/widgets/injection/customer-priority-row-action/widget.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "umes.injection.datatable-row-action"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-system-extension/extension-branches:widgets/injection/example-menus/widget.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "heading": "Canonical example source",
+      "href": "../../../../src/modules/example/widgets/injection/example-menus/widget.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/widgets/injection/example-menus/widget.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "umes.injection.menu-items"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-system-extension/extension-branches:widgets/injection/example-profile-menu/widget.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "heading": "Canonical example source",
+      "href": "../../../../src/modules/example/widgets/injection/example-profile-menu/widget.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/widgets/injection/example-profile-menu/widget.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "umes.injection.menu-items"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-system-extension/unified-overrides:src/modules.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-system-extension/references/unified-overrides.md",
+      "heading": "Rules",
+      "href": "../../../../src/modules.ts",
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules.ts",
+      "moduleId": null,
+      "capabilityIds": [
+        "overrides.unified-registry"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-system-extension:references/surface-map.md",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-system-extension/SKILL.md",
+      "heading": "Rules",
+      "href": "../../../src/modules/example/references/surface-map.md",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/references/surface-map.md",
+      "moduleId": "example",
+      "capabilityIds": [],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-troubleshooter/diagnosis-map:api/customer-priorities/route.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-troubleshooter/references/diagnosis-map.md",
+      "heading": "Known-good comparison points",
+      "href": "../../../../src/modules/example/api/customer-priorities/route.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/api/customer-priorities/route.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "api.crud-factory"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-troubleshooter/diagnosis-map:backend/todos/[id]/edit/page.tsx",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-troubleshooter/references/diagnosis-map.md",
+      "heading": "Known-good comparison points",
+      "href": "../../../../src/modules/example/backend/todos/%5Bid%5D/edit/page.tsx",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/backend/todos/[id]/edit/page.tsx",
+      "moduleId": "example",
+      "capabilityIds": [
+        "ui.form-edit"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-troubleshooter/diagnosis-map:backend/todos/page.meta.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-troubleshooter/references/diagnosis-map.md",
+      "heading": "Known-good comparison points",
+      "href": "../../../../src/modules/example/backend/todos/page.meta.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/backend/todos/page.meta.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "ui.page-shell"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-troubleshooter/diagnosis-map:commands/todos.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-troubleshooter/references/diagnosis-map.md",
+      "heading": "Known-good comparison points",
+      "href": "../../../../src/modules/example/commands/todos.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/commands/todos.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "commands.undo-redo",
+        "commands.write",
+        "data.encryption-map",
+        "events.crud-indexer-bridge"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-troubleshooter/diagnosis-map:components/TodosTable.tsx",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-troubleshooter/references/diagnosis-map.md",
+      "heading": "Known-good comparison points",
+      "href": "../../../../src/modules/example/components/TodosTable.tsx",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/components/TodosTable.tsx",
+      "moduleId": "example",
+      "capabilityIds": [
+        "ui.datatable",
+        "ui.datatable-perspectives-filters"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-troubleshooter/diagnosis-map:data/validators.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-troubleshooter/references/diagnosis-map.md",
+      "heading": "Known-good comparison points",
+      "href": "../../../../src/modules/example/data/validators.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/data/validators.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "data.validators"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-troubleshooter/diagnosis-map:index.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-troubleshooter/references/diagnosis-map.md",
+      "heading": "Known-good comparison points",
+      "href": "../../../../src/modules/example/index.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/index.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "module.metadata"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-troubleshooter/diagnosis-map:src/modules.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-troubleshooter/references/diagnosis-map.md",
+      "heading": "Known-good comparison points",
+      "href": "../../../../src/modules.ts",
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules.ts",
+      "moduleId": null,
+      "capabilityIds": [
+        "overrides.unified-registry"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-troubleshooter/diagnosis-map:widgets/injection-table.ts",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-troubleshooter/references/diagnosis-map.md",
+      "heading": "Known-good comparison points",
+      "href": "../../../../src/modules/example/widgets/injection-table.ts",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/widgets/injection-table.ts",
+      "moduleId": "example",
+      "capabilityIds": [
+        "umes.injection-table"
+      ],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "om-troubleshooter:references/surface-map.md",
+      "requirement": "source-required",
+      "originAsset": ".ai/skills/om-troubleshooter/SKILL.md",
+      "heading": "Rules",
+      "href": "../../../src/modules/example/references/surface-map.md",
+      "targetKind": "canonical-example",
+      "readStatus": "readable",
+      "resolvedPath": "src/modules/example/references/surface-map.md",
+      "moduleId": "example",
+      "capabilityIds": [],
+      "presets": [
+        "classic",
+        "crm",
+        "empty",
+        "wms"
+      ],
+      "tiers": [
+        "core"
+      ]
+    },
+    {
+      "referenceId": "rule:guides/testing-debugging#generated-output-is-not-a-patch-target",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/guides/testing-debugging.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/guides/testing-debugging.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
+      "referenceId": "rule:guides/testing-debugging#validation-gate",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/guides/testing-debugging.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/guides/testing-debugging.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
+      "referenceId": "rule:om-data-model-design/migration-workflow#migration-procedure",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-data-model-design/references/migration-workflow.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-data-model-design/references/migration-workflow.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
+      "referenceId": "rule:om-data-model-design/sensitive-data#decrypted-reads",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-data-model-design/references/sensitive-data.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-data-model-design/references/sensitive-data.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
+      "referenceId": "rule:om-data-model-design/sensitive-data#encryption-map-declaration",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-data-model-design/references/sensitive-data.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-data-model-design/references/sensitive-data.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
+      "referenceId": "rule:om-data-model-design/sensitive-data#encryption-seeding",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-data-model-design/references/sensitive-data.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-data-model-design/references/sensitive-data.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
+      "referenceId": "rule:om-eject-and-customize/decision-and-procedure#eject-command",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-eject-and-customize/references/decision-and-procedure.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-eject-and-customize/references/decision-and-procedure.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
+      "referenceId": "rule:om-eject-and-customize/decision-and-procedure#installed-module-identification",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-eject-and-customize/references/decision-and-procedure.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-eject-and-customize/references/decision-and-procedure.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
+      "referenceId": "rule:om-eject-and-customize/decision-and-procedure#post-eject-verification",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-eject-and-customize/references/decision-and-procedure.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-eject-and-customize/references/decision-and-procedure.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
+      "referenceId": "rule:om-integration-builder/package-and-activation#credential-and-state-ownership",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-integration-builder/references/package-and-activation.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-integration-builder/references/package-and-activation.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
+      "referenceId": "rule:om-integration-builder/package-and-activation#degraded-provider-tests",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-integration-builder/references/package-and-activation.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-integration-builder/references/package-and-activation.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
+      "referenceId": "rule:om-integration-builder/package-and-activation#generation-proof",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-integration-builder/references/package-and-activation.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-integration-builder/references/package-and-activation.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
+      "referenceId": "rule:om-integration-builder/package-and-activation#integration-descriptor-exports",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-integration-builder/references/package-and-activation.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-integration-builder/references/package-and-activation.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
+      "referenceId": "rule:om-integration-builder/package-and-activation#reusable-package-branch",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-integration-builder/references/package-and-activation.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-integration-builder/references/package-and-activation.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
+      "referenceId": "rule:om-integration-builder/provider-families#data-sync-branch",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-integration-builder/references/provider-families.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-integration-builder/references/provider-families.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
+      "referenceId": "rule:om-integration-builder/provider-families#payment-branch",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-integration-builder/references/provider-families.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-integration-builder/references/provider-families.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
+      "referenceId": "rule:om-integration-builder/provider-families#webhooks-branch",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-integration-builder/references/provider-families.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-integration-builder/references/provider-families.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
+      "referenceId": "rule:om-integration-builder/security-and-reliability#health-check-redaction",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-integration-builder/references/security-and-reliability.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-integration-builder/references/security-and-reliability.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
+      "referenceId": "rule:om-module-scaffold/module-surfaces#search-configuration",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-module-scaffold/references/module-surfaces.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
+      "referenceId": "rule:om-module-scaffold/verification#post-scaffold-gate",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-module-scaffold/references/verification.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-module-scaffold/references/verification.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
+      "referenceId": "rule:om-system-extension/verification#extension-gate",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-system-extension/references/verification.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-system-extension/references/verification.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
+      "referenceId": "rule:om-troubleshooter/diagnosis-map#symptom-routing",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-troubleshooter/references/diagnosis-map.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-troubleshooter/references/diagnosis-map.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
+      "referenceId": "rule:om-troubleshooter/regression-oracles#pre-fix-failure",
+      "requirement": "retained-normative-snippet",
+      "originAsset": ".ai/skills/om-troubleshooter/references/regression-oracles.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": ".ai/skills/om-troubleshooter/references/regression-oracles.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
+      "referenceId": "rule:root#generation-after-discovery-change",
+      "requirement": "retained-normative-snippet",
+      "originAsset": "AGENTS.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": "AGENTS.md",
+      "moduleId": null,
+      "capabilityIds": []
+    },
+    {
+      "referenceId": "rule:root#migration-probe-and-approval",
+      "requirement": "retained-normative-snippet",
+      "originAsset": "AGENTS.md",
+      "heading": null,
+      "targetKind": "local-owner",
+      "readStatus": "readable",
+      "resolvedPath": "AGENTS.md",
+      "moduleId": null,
+      "capabilityIds": []
+    }
+  ]
+}

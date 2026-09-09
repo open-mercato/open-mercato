@@ -1,8 +1,19 @@
 "use client"
 
 import * as React from 'react'
-import { Button } from '../../primitives/button'
-import { Input } from '../../primitives/input'
+import { DateRangePicker } from '../../primitives/date-range-picker'
+import { IconButton } from '../../primitives/icon-button'
+import {
+  SegmentedControl,
+  SegmentedControlItem,
+} from '../../primitives/segmented-control'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../../primitives/select'
 import type { ScheduleRange, ScheduleViewMode } from './types'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -27,17 +38,19 @@ const VIEW_OPTIONS: Array<{ id: ScheduleViewMode; labelKey: string; fallback: st
   { id: 'agenda', labelKey: 'schedule.view.agenda', fallback: 'Agenda' },
 ]
 
-function formatDateInputValue(value: Date): string {
-  const year = value.getFullYear()
-  const month = String(value.getMonth() + 1).padStart(2, '0')
-  const day = String(value.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
-}
-
-function parseDateInputValue(value: string, fallback: Date): Date {
-  if (!value) return fallback
-  const next = new Date(`${value}T00:00:00`)
-  return Number.isNaN(next.getTime()) ? fallback : next
+function getTimezoneOptions(current?: string): string[] {
+  const options = new Set<string>()
+  if (current) options.add(current)
+  options.add('UTC')
+  const resolved = Intl.DateTimeFormat().resolvedOptions().timeZone
+  if (resolved) options.add(resolved)
+  const intlWithSupportedValues = Intl as typeof Intl & { supportedValuesOf?: (input: 'timeZone') => string[] }
+  if (typeof intlWithSupportedValues.supportedValuesOf === 'function') {
+    intlWithSupportedValues.supportedValuesOf('timeZone').forEach((timezone) => {
+      if (timezone) options.add(timezone)
+    })
+  }
+  return Array.from(options).sort((a, b) => a.localeCompare(b))
 }
 
 export type ScheduleToolbarProps = {
@@ -120,68 +133,76 @@ export function ScheduleToolbar({
     onRangeChange({ start: nextStart, end: endOfDay(addDays(nextStart, rangeLength - 1)) })
   }, [onRangeChange, range.start, rangeLength, view])
 
+  const timezoneOptions = React.useMemo(() => getTimezoneOptions(timezone), [timezone])
+
   return (
-    <div className={cn('flex flex-col gap-3 rounded-xl border bg-card p-4 md:flex-row md:items-center md:justify-between', className)}>
-      <div className="flex flex-wrap items-center gap-2">
+    <div className={cn('flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border bg-card p-3', className)}>
+      <SegmentedControl
+        value={view}
+        onValueChange={(value) => {
+          const nextView = value as ScheduleViewMode
+          if (nextView === view) return
+          onViewChange(nextView)
+          onRangeChange(deriveRangeForView(new Date(), nextView))
+        }}
+        aria-label={t('schedule.view.label', 'Schedule view')}
+        className="shrink-0"
+      >
         {VIEW_OPTIONS.map((option) => (
-          <Button
-            key={option.id}
-            variant={view === option.id ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => {
-              if (option.id === view) return
-              onViewChange(option.id)
-              onRangeChange(deriveRangeForView(new Date(), option.id))
-            }}
-          >
+          <SegmentedControlItem key={option.id} value={option.id}>
             {t(option.labelKey, option.fallback)}
-          </Button>
+          </SegmentedControlItem>
         ))}
-      </div>
-      <div className="flex flex-wrap items-center gap-2">
-        <Button type="button" variant="outline" size="sm" onClick={() => shiftRange('prev')} aria-label={t('schedule.range.prev', 'Previous')}>
+      </SegmentedControl>
+      <div className="flex shrink-0 items-center gap-1">
+        <IconButton
+          type="button"
+          variant="outline"
+          onClick={() => shiftRange('prev')}
+          aria-label={t('schedule.range.prev', 'Previous')}
+        >
           <ChevronLeft className="size-4" aria-hidden />
-        </Button>
-        <div className="text-sm font-medium text-foreground">{rangeLabel}</div>
-        <Button type="button" variant="outline" size="sm" onClick={() => shiftRange('next')} aria-label={t('schedule.range.next', 'Next')}>
+        </IconButton>
+        <div className="min-w-0 whitespace-nowrap px-1 text-sm font-medium text-foreground">{rangeLabel}</div>
+        <IconButton
+          type="button"
+          variant="outline"
+          onClick={() => shiftRange('next')}
+          aria-label={t('schedule.range.next', 'Next')}
+        >
           <ChevronRight className="size-4" aria-hidden />
-        </Button>
+        </IconButton>
       </div>
-      <div className="flex flex-wrap items-center gap-3">
-        <label className="flex items-center gap-2 text-xs text-muted-foreground">
-          <span>{t('schedule.range.start', 'Start')}</span>
-          <Input
-            type="date"
-            value={formatDateInputValue(range.start)}
-            onChange={(event) => {
-              const nextStart = parseDateInputValue(event.target.value, range.start)
-              onRangeChange({ start: nextStart, end: range.end })
-            }}
-            className="h-8 w-full sm:w-[140px]"
-          />
-        </label>
-        <label className="flex items-center gap-2 text-xs text-muted-foreground">
-          <span>{t('schedule.range.end', 'End')}</span>
-          <Input
-            type="date"
-            value={formatDateInputValue(range.end)}
-            onChange={(event) => {
-              const nextEnd = parseDateInputValue(event.target.value, range.end)
-              onRangeChange({ start: range.start, end: nextEnd })
-            }}
-            className="h-8 w-full sm:w-[140px]"
-          />
-        </label>
-        <label className="flex items-center gap-2 text-xs text-muted-foreground">
-          <span>{t('schedule.range.timezone', 'Timezone')}</span>
-          <Input
-            type="text"
-            value={timezone ?? ''}
-            onChange={(event) => onTimezoneChange?.(event.target.value)}
-            className="h-8 w-full sm:w-[180px]"
-            placeholder={t('schedule.range.timezone.placeholder', 'UTC')}
-          />
-        </label>
+      <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 md:ml-auto">
+        <DateRangePicker
+          value={range}
+          onChange={(next) => {
+            if (!next) return
+            onRangeChange({ start: startOfDay(next.start), end: endOfDay(next.end) })
+          }}
+          size="sm"
+          showPresets={false}
+          numberOfMonths={2}
+          aria-label={t('schedule.range.label', 'Date range')}
+        />
+        {onTimezoneChange ? (
+          <Select value={timezone ?? undefined} onValueChange={onTimezoneChange}>
+            <SelectTrigger
+              size="sm"
+              className="w-auto min-w-[10rem]"
+              aria-label={t('schedule.range.timezone', 'Timezone')}
+            >
+              <SelectValue placeholder={t('schedule.range.timezone.placeholder', 'UTC')} />
+            </SelectTrigger>
+            <SelectContent>
+              {timezoneOptions.map((option) => (
+                <SelectItem key={option} value={option}>
+                  {option}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : null}
       </div>
     </div>
   )

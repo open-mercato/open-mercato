@@ -87,7 +87,8 @@ jest.mock('@open-mercato/shared/lib/crud/cache', () => ({
 }))
 
 import { registerEntityIds, getEntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
-import { registerModules } from '@open-mercato/shared/lib/modules/registry'
+import type { EntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
+import { registerModules, tryGetModules } from '@open-mercato/shared/lib/modules/registry'
 import type { Module } from '@open-mercato/shared/modules/registry'
 import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
 
@@ -193,9 +194,24 @@ function buildReducedModules(): Module[] {
 
 const reducedModules = buildReducedModules()
 
-beforeAll(() => {
+// The module registry and the entity-id registry are process-global, so this
+// suite must own its own snapshot of both instead of relying on whatever the
+// surrounding run happens to have registered.
+let previousModules: Module[] | null = null
+let previousEntityIds: EntityIds | null = null
+
+beforeEach(() => {
+  previousModules = tryGetModules()
+  previousEntityIds = getEntityIds(false)
   registerEntityIds(reducedE as any)
   registerModules(reducedModules)
+})
+
+afterEach(() => {
+  registerEntityIds(previousEntityIds ?? ({} as EntityIds))
+  registerModules(previousModules ?? [])
+  previousModules = null
+  previousEntityIds = null
 })
 
 describe('Module Decoupling', () => {
@@ -220,9 +236,17 @@ describe('Module Decoupling', () => {
 
   describe('2. attachments/partitions.ts — resolveDefaultPartitionCode', () => {
     it('returns privateAttachments for null, undefined, arbitrary strings, and catalog entity IDs', async () => {
-      const { resolveDefaultPartitionCode } = await import(
-        '@open-mercato/core/modules/attachments/lib/partitions'
-      )
+      // partitions.ts freezes its product-media entity ids at import time, so it
+      // has to be evaluated inside an isolated registry — a cached instance built
+      // from unmocked entity ids would silently answer 'productsMedia' here.
+      let resolveDefaultPartitionCode!: (entityId: string | null | undefined) => string
+      await jest.isolateModulesAsync(async () => {
+        const { E } = await import('#generated/entities.ids.generated')
+        expect((E as Record<string, unknown>).catalog).toBeUndefined()
+        ;({ resolveDefaultPartitionCode } = await import(
+          '@open-mercato/core/modules/attachments/lib/partitions'
+        ))
+      })
 
       expect(resolveDefaultPartitionCode(null)).toBe('privateAttachments')
       expect(resolveDefaultPartitionCode(undefined)).toBe('privateAttachments')

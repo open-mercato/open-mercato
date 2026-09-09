@@ -408,7 +408,7 @@ function PriceListEditor({
 
   return (
     <div className="space-y-4">
-      <Alert variant="info">
+      <Alert status="information">
         <AlertDescription>
           {t('checkout.linkTemplateForm.priceList.notices.singleCurrency')}
         </AlertDescription>
@@ -486,7 +486,7 @@ function PriceListEditor({
           </div>
         ) : (
           <div className="px-4 py-8">
-            <Alert variant="info">
+            <Alert status="information">
               <AlertDescription>
                 {t('checkout.linkTemplateForm.priceList.notices.empty')}
               </AlertDescription>
@@ -946,7 +946,7 @@ function CustomerDetailsSection({ values, setValue, errors }: CrudFormGroupCompo
 
       {collectCustomerDetails ? (
         <>
-          <Alert variant="info">
+          <Alert status="information">
             <AlertDescription>
               {t('checkout.linkTemplateForm.customerDetails.notices.simpleLink')}
             </AlertDescription>
@@ -959,7 +959,7 @@ function CustomerDetailsSection({ values, setValue, errors }: CrudFormGroupCompo
           />
         </>
       ) : (
-        <Alert variant="info">
+        <Alert status="information">
           <AlertDescription>
             {t('checkout.linkTemplateForm.customerDetails.notices.disabled')}
           </AlertDescription>
@@ -993,7 +993,7 @@ function LegalSection({ values, setValue, errors }: CrudFormGroupComponentProps)
 
   return (
     <div className="space-y-4">
-      <Alert variant="info">
+      <Alert status="information">
         <AlertDescription>
           {t('checkout.linkTemplateForm.legal.notice')}
         </AlertDescription>
@@ -1103,7 +1103,7 @@ function MessagesSection({ values, setValue, errors }: CrudFormGroupComponentPro
 
   return (
     <div className="space-y-4">
-      <Alert variant="info">
+      <Alert status="information">
         <AlertDescription>
           {t('checkout.linkTemplateForm.messages.notice')}
         </AlertDescription>
@@ -1202,7 +1202,7 @@ function EmailsSection({ values, setValue, errors }: CrudFormGroupComponentProps
 
   return (
     <div className="space-y-4">
-      <Alert variant="info">
+      <Alert status="information">
         <AlertDescription>
           {t('checkout.linkTemplateForm.emails.notice')}
         </AlertDescription>
@@ -1557,7 +1557,7 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
     [mode, recordId],
   )
   const lockedNotice = isLocked ? (
-    <Alert variant="warning">
+    <Alert status="warning">
       <AlertTitle>{t('checkout.linkTemplateForm.locked.title')}</AlertTitle>
       <AlertDescription>{t('checkout.linkTemplateForm.locked.description')}</AlertDescription>
     </Alert>

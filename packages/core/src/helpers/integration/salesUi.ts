@@ -652,6 +652,14 @@ async function createSalesDocumentFixture(
   };
   if (customerEntityId) payload.customerEntityId = customerEntityId;
   if (channelId) payload.channelId = channelId;
+  if (kind === 'order') {
+    // A sales order must contain at least one line (issue #4021). Seed a
+    // zero-priced placeholder line so the order is valid on creation without
+    // perturbing totals in specs that add their own priced lines afterwards.
+    payload.lines = [
+      { currencyCode: 'USD', quantity: 1, name: 'QA seed line', unitPriceNet: 0, unitPriceGross: 0 },
+    ];
+  }
 
   const response = await apiRequest(page.request, 'POST', kind === 'quote' ? '/api/sales/quotes' : '/api/sales/orders', {
     token,

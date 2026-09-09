@@ -9,6 +9,7 @@ import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWith
 
 const mockInjectionSpot = jest.fn()
 let mockPathname = '/backend/users'
+let mockInjectionSpotRendersNothing = false
 
 jest.mock('next/link', () => {
   const React = require('react')
@@ -39,6 +40,7 @@ jest.mock('next/navigation', () => ({
 jest.mock('../injection/InjectionSpot', () => ({
   InjectionSpot: (props: { spotId: string; context?: Record<string, unknown> }) => {
     mockInjectionSpot(props)
+    if (mockInjectionSpotRendersNothing) return null
     return <div data-testid={`injection-spot:${props.spotId}`} />
   },
 }))
@@ -55,7 +57,9 @@ jest.mock('../injection/eventBridge', () => ({
 }))
 
 jest.mock('../injection/StatusBadgeInjectionSpot', () => ({
-  StatusBadgeInjectionSpot: () => <div data-testid="status-badge-injection-spot" />,
+  StatusBadgeInjectionSpot: () => (
+    mockInjectionSpotRendersNothing ? null : <div data-testid="status-badge-injection-spot" />
+  ),
 }))
 
 jest.mock('../operations/LastOperationBanner', () => ({
@@ -117,6 +121,7 @@ describe('AppShell', () => {
   beforeEach(() => {
     mockInjectionSpot.mockClear()
     mockPathname = '/backend/users'
+    mockInjectionSpotRendersNothing = false
   })
 
   beforeAll(() => {
@@ -207,6 +212,27 @@ describe('AppShell', () => {
     )
   })
 
+  it('keeps the incoming page breadcrumb when the pathname change and ApplyBreadcrumb land in the same commit', () => {
+    const { rerender } = renderWithProviders(
+      <AppShell email="demo@example.com" groups={groups}>
+        <ApplyBreadcrumb breadcrumb={[{ label: 'Users List' }]} />
+      </AppShell>,
+      { dict },
+    )
+
+    mockPathname = '/backend/roles'
+    rerender(
+      <AppShell email="demo@example.com" groups={groups}>
+        <ApplyBreadcrumb breadcrumb={[{ label: 'Roles' }]} />
+      </AppShell>,
+    )
+
+    const breadcrumbNav = screen.getByRole('navigation', { name: 'Breadcrumb' })
+    const activePage = within(breadcrumbNav).getByText((_, el) => el?.getAttribute('data-slot') === 'breadcrumb-page')
+    expect(activePage).toHaveTextContent('Roles')
+    expect(within(breadcrumbNav).getByRole('link', { name: 'Dashboard' })).toHaveAttribute('href', '/backend')
+  })
+
   it('hides the backend footer status bar when requested', () => {
     renderWithProviders(
       <AppShell
@@ -226,7 +252,11 @@ describe('AppShell', () => {
     expect(screen.getByTestId('injection-spot:backend:layout:footer')).toBeInTheDocument()
   })
 
-  it('uses backend chrome brand logo when the selected organization has one', async () => {
+  it.each([
+    ['internal-file', '/api/attachments/file/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'],
+    ['internal-image-query', '/api/attachments/image/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/acme.svg?width=320&height=320'],
+    ['external-webp', 'https://example.com/acme-wide-logo.webp'],
+  ])('uses an aspect-ratio-preserving backend chrome brand logo when enabled for %s', async (variant, logoSrc) => {
     const previousFetch = global.fetch
     const previousWindowFetch = window.fetch
     const previousOriginalFetch = (window as Window & { __omOriginalFetch?: typeof fetch }).__omOriginalFetch
@@ -235,7 +265,62 @@ describe('AppShell', () => {
         brand: {
           name: 'Acme',
           logo: {
-            src: '/api/attachments/image/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/acme.png?width=320',
+            src: logoSrc,
+            alt: 'Acme logo',
+            preserveAspectRatio: true,
+          },
+        },
+        groups,
+        settingsSections: [],
+        settingsPathPrefixes: [],
+        profileSections: [],
+        profilePathPrefixes: [],
+        grantedFeatures: [],
+        roles: [],
+      }), { status: 200, headers: { 'content-type': 'application/json' } }),
+    ) as typeof fetch
+    global.fetch = fetchMock
+    window.fetch = fetchMock
+    ;(window as Window & { __omOriginalFetch?: typeof fetch }).__omOriginalFetch = fetchMock
+
+    try {
+      renderWithProviders(
+        <AppShell
+          email="demo@example.com"
+          groups={[]}
+          adminNavApi={`/api/auth/admin/nav-brand-logo-${variant}`}
+        >
+          <div>Child content</div>
+        </AppShell>,
+        { dict },
+      )
+
+      await waitFor(() => {
+        const logo = screen.getByAltText('Acme logo')
+        expect(logo).toHaveAttribute('src', logoSrc)
+        expect(logo).toHaveAttribute('data-unoptimized', 'true')
+        expect(logo).toHaveClass('object-contain')
+        expect(logo).not.toHaveClass('rounded-full')
+      })
+      expect(screen.getByText('Acme')).toBeInTheDocument()
+    } finally {
+      global.fetch = previousFetch
+      window.fetch = previousWindowFetch
+      ;(window as Window & { __omOriginalFetch?: typeof fetch }).__omOriginalFetch = previousOriginalFetch
+    }
+  })
+
+  it('uses the cropped icon treatment for backend chrome brand logos by default', async () => {
+    const previousFetch = global.fetch
+    const previousWindowFetch = window.fetch
+    const previousOriginalFetch = (window as Window & { __omOriginalFetch?: typeof fetch }).__omOriginalFetch
+    const logoSrc = 'https://example.com/acme-wide-logo.webp'
+    const fetchMock = jest.fn().mockResolvedValue(
+      new Response(JSON.stringify({
+        brand: {
+          name: 'Acme',
+          logo: {
+            src: logoSrc,
             alt: 'Acme logo',
           },
         },
@@ -257,7 +342,7 @@ describe('AppShell', () => {
         <AppShell
           email="demo@example.com"
           groups={[]}
-          adminNavApi="/api/auth/admin/nav-brand-logo"
+          adminNavApi="/api/auth/admin/nav-brand-logo-cropped"
         >
           <div>Child content</div>
         </AppShell>,
@@ -266,13 +351,12 @@ describe('AppShell', () => {
 
       await waitFor(() => {
         const logo = screen.getByAltText('Acme logo')
-        expect(logo).toHaveAttribute(
-          'src',
-          '/api/attachments/image/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/acme.png?width=320',
-        )
+        expect(logo).toHaveAttribute('src', logoSrc)
         expect(logo).toHaveAttribute('data-unoptimized', 'true')
+        expect(logo).toHaveClass('object-cover')
+        expect(logo).toHaveClass('rounded-full')
+        expect(logo).not.toHaveClass('object-contain')
       })
-      expect(screen.getByText('Acme')).toBeInTheDocument()
     } finally {
       global.fetch = previousFetch
       window.fetch = previousWindowFetch
@@ -392,6 +476,52 @@ describe('AppShell', () => {
     })
   })
 
+  it('keeps the new page breadcrumb after client-side navigation', async () => {
+    mockPathname = '/backend/documents'
+
+    const { rerender } = renderWithProviders(
+      <AppShell
+        email="demo@example.com"
+        groups={groups}
+        currentTitle="Documents"
+        breadcrumb={[{ label: 'Documents' }]}
+      >
+        <ApplyBreadcrumb title="Documents" breadcrumb={[{ label: 'Documents' }]} />
+        <div>Documents list</div>
+      </AppShell>,
+      { dict },
+    )
+
+    await waitFor(() => {
+      expect(within(screen.getByRole('navigation', { name: 'Breadcrumb' })).getByText('Documents')).toBeInTheDocument()
+    })
+
+    mockPathname = '/backend/documents/document-id'
+    rerender(
+      <AppShell
+        email="demo@example.com"
+        groups={groups}
+        currentTitle="Documents"
+        breadcrumb={[{ label: 'Documents' }]}
+      >
+        <ApplyBreadcrumb
+          title="Document"
+          breadcrumb={[
+            { label: 'Documents', href: '/backend/documents' },
+            { label: 'Document' },
+          ]}
+        />
+        <div>Document detail</div>
+      </AppShell>,
+    )
+
+    await waitFor(() => {
+      const breadcrumb = screen.getByRole('navigation', { name: 'Breadcrumb' })
+      expect(within(breadcrumb).getByRole('link', { name: 'Documents' })).toHaveAttribute('href', '/backend/documents')
+      expect(within(breadcrumb).getByText('Document')).toHaveAttribute('aria-current', 'page')
+    })
+  })
+
   it('keeps settings parent item active on descendant routes outside explicit child list', async () => {
     mockPathname = '/backend/entities/user/example%3Acalendar_entity'
 
@@ -496,6 +626,116 @@ describe('AppShell', () => {
       window.fetch = previousWindowFetch
       ;(window as Window & { __omOriginalFetch?: typeof fetch }).__omOriginalFetch = previousOriginalFetch
     }
+  })
+
+  describe('sidebar layout', () => {
+    const multiGroups = [
+      groups[0],
+      {
+        id: 'commerce',
+        name: 'Commerce',
+        items: [{ href: '/backend/orders', title: 'Orders' }],
+      },
+      {
+        id: 'ops',
+        name: 'Ops',
+        items: [{ href: '/backend/jobs', title: 'Jobs' }],
+      },
+    ]
+
+    it('collapses sidebar injection-spot wrappers when their spots render nothing', async () => {
+      mockInjectionSpotRendersNothing = true
+
+      const { container } = renderWithProviders(
+        <AppShell email="demo@example.com" groups={groups}>
+          <div>Child content</div>
+        </AppShell>,
+        { dict },
+      )
+
+      await waitFor(() => {
+        expect(screen.getByText('Users List')).toBeInTheDocument()
+      })
+
+      const wrappers = Array.from(container.querySelectorAll('[data-sidebar-injection-wrapper="true"]'))
+      expect(wrappers.length).toBeGreaterThan(0)
+      for (const wrapper of wrappers) {
+        // The spot rendered nothing, so the wrapper is an empty flex child of the sidebar's
+        // `gap-3` column and would still cost a full gap unless it collapses itself.
+        expect(wrapper.children).toHaveLength(0)
+        expect(wrapper).toHaveClass('empty:hidden')
+      }
+    })
+
+    it('keeps every sidebar injection spot inside a self-collapsing wrapper', async () => {
+      const { container } = renderWithProviders(
+        <AppShell email="demo@example.com" groups={groups}>
+          <div>Child content</div>
+        </AppShell>,
+        { dict },
+      )
+
+      await waitFor(() => {
+        expect(screen.getByText('Users List')).toBeInTheDocument()
+      })
+
+      const sidebarSpotIds = ['backend:sidebar:top', 'backend:sidebar:nav', 'backend:sidebar:nav:footer', 'backend:sidebar:footer']
+      for (const spotId of sidebarSpotIds) {
+        const spot = container.querySelector(`[data-testid="injection-spot:${spotId}"]`)
+        expect(spot).not.toBeNull()
+        expect(spot!.closest('[data-sidebar-injection-wrapper="true"]')).not.toBeNull()
+      }
+    })
+
+    it('renders group separators on the group wrapper itself, skipping the last visible group', async () => {
+      const { container } = renderWithProviders(
+        <AppShell email="demo@example.com" groups={multiGroups}>
+          <div>Child content</div>
+        </AppShell>,
+        { dict },
+      )
+
+      await waitFor(() => {
+        expect(screen.getByText('Orders')).toBeInTheDocument()
+      })
+
+      const sidebar = screen.getByTestId('sidebar')
+      const groupWrappers = Array.from(sidebar.querySelectorAll('[data-sidebar-group="true"]'))
+      expect(groupWrappers).toHaveLength(multiGroups.length)
+      groupWrappers.forEach((wrapper, index) => {
+        const isLast = index === groupWrappers.length - 1
+        expect(wrapper).toHaveClass(isLast ? 'px-3' : 'border-b')
+        expect(wrapper.classList.contains('border-b')).toBe(!isLast)
+        expect(wrapper.classList.contains('pb-2')).toBe(!isLast)
+      })
+
+      // The old standalone bleeding separator elements must not come back — they were what
+      // forced the scroll container's negative-margin bleed in the first place.
+      expect(container.querySelectorAll('[data-sidebar-scroll="true"] div.border-t')).toHaveLength(0)
+    })
+
+    it('pads sidebar content blocks instead of bleeding the scroll container out of the aside', async () => {
+      const { container } = renderWithProviders(
+        <AppShell email="demo@example.com" groups={groups}>
+          <div>Child content</div>
+        </AppShell>,
+        { dict },
+      )
+
+      await waitFor(() => {
+        expect(screen.getByText('Users List')).toBeInTheDocument()
+      })
+
+      const scrollContainers = Array.from(container.querySelectorAll('[data-sidebar-scroll="true"]'))
+      expect(scrollContainers.length).toBeGreaterThan(0)
+      for (const scroller of scrollContainers) {
+        expect(scroller).toHaveClass('overflow-x-hidden')
+        for (const className of Array.from(scroller.classList)) {
+          expect(className.startsWith('-ml-')).toBe(false)
+          expect(className.startsWith('-mr-')).toBe(false)
+        }
+      }
+    })
   })
 
   describe('two-level sidebar (settings/profile mode)', () => {

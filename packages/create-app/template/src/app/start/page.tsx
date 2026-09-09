@@ -1,7 +1,7 @@
 import { modules } from '@/.mercato/generated/modules.app.generated'
 import { frontendRoutes } from '@/.mercato/generated/frontend-routes.generated'
-import { backendRoutes } from '@/.mercato/generated/backend-routes.generated'
-import { apiRoutes } from '@/.mercato/generated/api-routes.generated'
+import { backendRouteMetadata } from '@/.mercato/generated/backend-route-metadata.generated'
+import { apiRouteMetadata } from '@/.mercato/generated/api-route-metadata.generated'
 import { StartPageContent } from '@/components/StartPageContent'
 import { resolveApiDocsBaseUrl } from '@open-mercato/core/modules/api_docs/lib/resources'
 import type { Metadata } from 'next'
@@ -10,12 +10,22 @@ import { cookies } from 'next/headers'
 import Image from 'next/image'
 import Link from 'next/link'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { bootstrap } from '@/bootstrap'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { isEmailDeliveryConfigured } from '@open-mercato/shared/lib/email/config'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { Tenant, Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { buildHomeQuickLinks } from '@/lib/homeQuickLinks'
 import { Fragment } from 'react'
+
+// Every other route that builds a request container bootstraps first, and this page needs it
+// twice over: `createRequestContainer` throws outright until `registerDiRegistrars` has run, and
+// the email transport `isEmailDeliveryConfigured` reads is registered by a module's DI
+// `register()`. Without this the process's first request answers `/start` with the database
+// panel in an error state and the onboarding CTA hidden on a fully configured instance, then
+// silently corrects itself once any API route bootstraps the process (#5817).
+bootstrap()
 
 function FeatureBadge({ label }: { label: string }) {
   return (
@@ -39,12 +49,12 @@ for (const route of frontendRoutes) {
   if (entry) entry.frontend += 1
 }
 
-for (const route of backendRoutes) {
+for (const route of backendRouteMetadata) {
   const entry = routeCountsByModule.get(route.moduleId)
   if (entry) entry.backend += 1
 }
 
-for (const route of apiRoutes) {
+for (const route of apiRouteMetadata) {
   const entry = routeCountsByModule.get(route.moduleId)
   if (entry) entry.api += route.methods.length
 }
@@ -77,7 +87,7 @@ export default async function StartPage() {
 
   const onboardingAvailable =
     process.env.SELF_SERVICE_ONBOARDING_ENABLED === 'true' &&
-    Boolean(process.env.RESEND_API_KEY && process.env.RESEND_API_KEY.trim()) &&
+    isEmailDeliveryConfigured() &&
     Boolean(process.env.APP_URL && process.env.APP_URL.trim())
 
   return (
