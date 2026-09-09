@@ -25,6 +25,20 @@ jest.mock('../injection/useInjectionDataWidgets', () => ({
   __esModule: true,
   useInjectionDataWidgets: () => ({ widgets: injectedFieldWidgets, isLoading: false, error: null }),
 }))
+// Passes through to the real hook so the persisted-order assertions exercise its
+// actual localStorage writes; the spy only captures what CrudForm hands it.
+let mockCapturedReorder: ((fromIndex: number, toIndex: number) => void) | null = null
+jest.mock('../crud/useGroupOrder', () => {
+  const actual = jest.requireActual('../crud/useGroupOrder')
+  return {
+    __esModule: true,
+    useGroupOrder: (pageType: string, defaultGroupIds: string[]) => {
+      const result = actual.useGroupOrder(pageType, defaultGroupIds)
+      mockCapturedReorder = result.reorder
+      return result
+    },
+  }
+})
 jest.mock('../utils/customFieldForms', () => ({
   __esModule: true,
   buildFormFieldFromCustomFieldDef: (...args: unknown[]) => buildFormFieldFromCustomFieldDefMock(...args),
@@ -33,7 +47,7 @@ jest.mock('../utils/customFieldForms', () => ({
 }))
 
 import * as React from 'react'
-import { fireEvent, waitFor } from '@testing-library/react'
+import { act, fireEvent, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { CrudForm, type CrudField, type CrudFormGroup } from '../CrudForm'
 
@@ -60,8 +74,19 @@ type RenderOptions = {
   noGroups?: boolean
   entityId?: string
   collapsibleGroups?: boolean
-  sortableGroups?: boolean
+  sortableGroups?: boolean | { pageType: string }
 }
+
+const ORDER_PAGE_TYPE = 'company-form'
+const ORDER_STORAGE_KEY = `om:group-order:${ORDER_PAGE_TYPE}`
+
+// One column, so the rendered card order is the persisted order rather than a
+// column split.
+const singleColumnGroups: CrudFormGroup[] = [
+  { id: 'details', title: 'Details', column: 1, fields: ['name'] },
+  { id: 'profile', title: 'Profile', column: 1, fields: ['legalName'] },
+  { id: 'notes', title: 'Notes', column: 1, fields: ['note'] },
+]
 
 function renderForm(options: RenderOptions = {}) {
   return renderWithProviders(
@@ -101,6 +126,8 @@ describe('CrudForm hiddenGroupIds', () => {
   afterEach(() => {
     injectedGroupWidgets = []
     injectedFieldWidgets = []
+    mockCapturedReorder = null
+    window.localStorage.clear()
     fetchCustomFieldFormStructureMock.mockReset()
     buildFormFieldFromCustomFieldDefMock.mockReset()
   })
@@ -181,6 +208,41 @@ describe('CrudForm hiddenGroupIds', () => {
         collapsibleGroups: true,
       })
       expect(container.querySelectorAll('button[aria-label="Drag to reorder"]').length).toBe(1)
+    })
+
+    // Hiding is presentation-only, so it must not mutate the user's stored
+    // preference: `useGroupOrder` drops every saved id missing from the defaults it
+    // is given and writes the pruned list back on the next reorder.
+    it('keeps a hidden group in the persisted order when another card is reordered', async () => {
+      window.localStorage.setItem(ORDER_STORAGE_KEY, JSON.stringify(['profile', 'notes', 'details']))
+      const { container } = renderForm({
+        formGroups: singleColumnGroups,
+        hiddenGroupIds: ['profile'],
+        sortableGroups: { pageType: ORDER_PAGE_TYPE },
+      })
+      await waitFor(() => expect(groupTitles(container)).toEqual(['Notes', 'Details']))
+
+      act(() => { mockCapturedReorder?.(0, 1) })
+
+      expect(JSON.parse(window.localStorage.getItem(ORDER_STORAGE_KEY) as string))
+        .toEqual(['notes', 'profile', 'details'])
+    })
+
+    it('restores a hidden group to its saved position once it is shown again', async () => {
+      window.localStorage.setItem(ORDER_STORAGE_KEY, JSON.stringify(['profile', 'notes', 'details']))
+      const hidden = renderForm({
+        formGroups: singleColumnGroups,
+        hiddenGroupIds: ['profile'],
+        sortableGroups: { pageType: ORDER_PAGE_TYPE },
+      })
+      await waitFor(() => expect(groupTitles(hidden.container)).toEqual(['Notes', 'Details']))
+      act(() => { mockCapturedReorder?.(0, 1) })
+
+      const shown = renderForm({
+        formGroups: singleColumnGroups,
+        sortableGroups: { pageType: ORDER_PAGE_TYPE },
+      })
+      await waitFor(() => expect(groupTitles(shown.container)).toEqual(['Notes', 'Profile', 'Details']))
     })
 
     it('renders no collapsible header or control for a hidden group', () => {

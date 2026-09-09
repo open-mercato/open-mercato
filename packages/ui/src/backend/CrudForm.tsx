@@ -379,6 +379,14 @@ export type CrudFormProps<TValues extends Record<string, unknown>> = {
    * host-supplied zod `schema` is NOT bypassed: do not hide a group whose
    * fields the schema requires unless defaults supply them.
    *
+   * Hiding an injection widget's card (`widget:<widgetId>`) hides the card only —
+   * the widget's handlers belong to the spot, not to its card, so `onBeforeSave`
+   * and `transformFormData` still run and its fields stay required. Do not hide a
+   * widget group that gates saving; disable the widget instead.
+   *
+   * A user's persisted group order is preserved across hiding: a hidden group
+   * keeps its saved position and returns to it once it is shown again.
+   *
    * Ids that match no declared group are ignored (dev-only warning). Strictly
    * additive: when the prop is absent or empty the form behaves exactly as
    * before.
@@ -2195,8 +2203,14 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   // ungrouped branch and render every field flat — the opposite of hiding them.
   const useGroupedLayout = declaredGroupsForLayout.length > 0
 
-  // Sortable group order
-  const defaultGroupIds = React.useMemo(() => resolvedGroupsForLayout.map((g) => g.id), [resolvedGroupsForLayout])
+  // Sortable group order. Keyed off the DECLARED ids, not the filtered ones:
+  // `useGroupOrder` prunes every saved id missing from its defaults and writes the
+  // pruned list back to localStorage on the next reorder, so passing the filtered
+  // list would permanently erase a hidden group's saved position — a persisted side
+  // effect from a presentation-only prop. Hidden ids are inert downstream: the
+  // rendered order sorts `resolvedGroupsForLayout` by index into this list, and the
+  // sortable context is built from the visible groups only.
+  const defaultGroupIds = React.useMemo(() => declaredGroupsForLayout.map((g) => g.id), [declaredGroupsForLayout])
   const { orderedIds: sortedGroupIds, reorder: reorderGroups } = useGroupOrder(
     sortablePageType,
     defaultGroupIds,
@@ -2296,11 +2310,14 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       if (fromCol2) return fromCol2
     }
 
+    // `allFields` is unfiltered, so a form whose groups are all hidden would fall
+    // through to a field that renders nowhere and hand autofocus a target the user
+    // cannot reach.
     for (const field of allFields) {
-      if (field?.id && !field.disabled) return field.id
+      if (field?.id && !field.disabled && !hiddenGroupFieldIds.has(field.id)) return field.id
     }
     return null
-  }, [allFields, resolveGroupFields, resolvedGroupsForLayout, useGroupedLayout])
+  }, [allFields, hiddenGroupFieldIds, resolveGroupFields, resolvedGroupsForLayout, useGroupedLayout])
 
   const requestSubmit = React.useCallback(() => {
     if (formReadOnly) return
