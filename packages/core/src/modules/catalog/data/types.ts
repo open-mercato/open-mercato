@@ -89,3 +89,11 @@ export type CatalogPricingScope = {
 export const CATALOG_PRICE_DISPLAY_MODES = ['including-tax', 'excluding-tax'] as const
 
 export type CatalogPriceDisplayMode = (typeof CATALOG_PRICE_DISPLAY_MODES)[number]
+
+export const CATALOG_PRICE_HISTORY_CHANGE_TYPES = ['create', 'update', 'delete', 'undo'] as const
+
+export type CatalogPriceHistoryChangeType = (typeof CATALOG_PRICE_HISTORY_CHANGE_TYPES)[number]
+
+export const CATALOG_PRICE_HISTORY_SOURCES = ['api', 'system'] as const
+
+export type CatalogPriceHistorySource = (typeof CATALOG_PRICE_HISTORY_SOURCES)[number]

@@ -239,6 +239,7 @@ export default function CreateVariantPage({ params }: { params?: { productId?: s
             taxRates={taxRates}
             showHeader={false}
             embedded
+            productId={productId}
           />
         ),
       },
@@ -285,7 +286,7 @@ export default function CreateVariantPage({ params }: { params?: { productId?: s
     })
 
     return list
-  }, [optionDefinitions, priceKinds, t, taxRates])
+  }, [optionDefinitions, priceKinds, productId, t, taxRates])
 
   if (!productId) {
     return (
@@ -371,6 +372,7 @@ export default function CreateVariantPage({ params }: { params?: { productId?: s
               sku: values.sku?.trim() || undefined,
               barcode: values.barcode?.trim() || undefined,
               gtinType: values.gtinType ?? null,
+              omnibusExempt: values.omnibusExempt ?? null,
               hsCode: values.hsCode?.trim() || null,
               isDefault: Boolean(values.isDefault),
               isActive: values.isActive !== false,

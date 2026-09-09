@@ -13,7 +13,7 @@
 **Scope:**
 - Price-history capture on every price `create` / `update` / `delete` / `undo` (catalog module, command layer).
 - Reference resolution with same-row net/gross selection, promotion anchoring, EU gating, and derogations (progressive reduction, perishable goods, new arrivals).
-- Read APIs (`prices/history`, `prices/omnibus-preview`), config API (`config/omnibus`), products-list enrichment with an `omnibus` block + personalization flags.
+- Read APIs (`prices/history`, `prices/omnibus-preview`), config folded into the canonical `catalog/settings` route, products-list enrichment with an `omnibus` block + personalization flags.
 - Admin UI (settings panel + price-editor reference row), i18n (en/pl/de/es), CLI backfill, immutable order/quote-line snapshot in sales.
 
 **Concerns:**
@@ -61,11 +61,12 @@ This feature gives Open Mercato a first-class, tenant-scoped mechanism to **reco
 
 - **Relationship to `SPEC-033-2026-02-18-omnibus-price-tracking.md`:** this spec **supersedes the intent** of the legacy SPEC-033 (which was authored against an older `develop`). SPEC-033 remains in the repo as the historical design record until intentionally normalized; this `{date}-{title}` document is the current source of truth (the project deprecated `SPEC-NNN-` filename prefixes). No content from SPEC-033 is dropped — all seven compliance gaps are carried forward here.
 - **Runtime dependencies (existing platform services):**
-  - `ModuleConfigService` (`configs` module) — tenant-scoped config storage (`catalog.omnibus` key).
+  - `ModuleConfigService` (`configs` module) — tenant-scoped config storage (module `catalog`, key `omnibus`), surfaced through the existing `catalog/api/settings` route.
   - `@open-mercato/cache` (DI key `cache`) — resolution result cache.
   - `eventBus` / catalog command bus — price writes that produce history.
   - `findWithDecryption` / `findOneWithDecryption` (`@open-mercato/shared`) — scoped reads.
-  - Mutation-guard registry (`@open-mercato/shared/lib/crud/mutation-guard-registry`) — config PATCH.
+  - Mutation guard (`@open-mercato/shared/lib/crud/mutation-guard`) — `validateCrudMutationGuard` / `runCrudMutationGuardAfterSuccess`, already wired into `catalog/api/settings/route.ts`.
+  - `catalog/lib/settings.ts` — `CATALOG_SETTINGS_MODULE_ID` and the settings key constants.
 - **Optional peer:** `sales` module consumes `catalogOmnibusService` defensively (snapshot capture); omnibus does **not** depend on sales.
 - **Non-goals (out of scope for this spec):** storefront customer-facing display of the reference price (deferred — see Future / Known Gaps); a first-class `Market` entity (per-channel config is used instead); price *selection* logic (handled by `catalogPricingService`; this feature only reads history and computes a reference).
 
@@ -144,7 +145,7 @@ recordPriceHistoryEntry ──► catalog_price_history_entries  (append-only; D
 - **Tenant isolation:** every history query filters `tenant_id` **and** `organization_id`; resolution context carries both; routes use feature guards.
 - **Module isolation:** catalog owns history + resolution. Sales is the **optional consumer** — resolves `catalogOmnibusService` via DI in `try/catch` (degrades to `null` if absent), references prices by FK id + denormalized snapshot. No cross-module ORM relations; verified by `packages/core/src/__tests__/module-decoupling.test.ts`.
 - **DI:** `catalogOmnibusService` registered in `catalog/di.ts` via `asFunction(({ moduleConfigService, cache }) => new DefaultCatalogOmnibusService(moduleConfigService, cache)).scoped()`.
-- **Caching:** DI-resolved `@open-mercato/cache` (5-min TTL; cache key is tenant/org/scope-specific and includes the promotion anchor day so sliding vs. anchored windows never collide). **Cache-miss behavior:** compute via the resolution algorithm, then `set`. **Invalidation (MUST):** every price write (`catalog.prices.create|update|delete` and their undos) MUST invalidate the omnibus cache tag for the affected `(tenant, org, product/variant, channel)` scope, **after the DB write commits** (never inside the write transaction — same rule as command side-effects, `packages/core/AGENTS.md` → withAtomicFlush / cache consistency). If a write path cannot invalidate precisely, the result is bounded-stale up to the 5-min TTL — an accepted fallback for admin reads, **not** a correctness guarantee for a storefront reference (see Known Gaps; for storefront use, precise post-commit invalidation is mandatory).
+- **Caching:** DI-resolved `@open-mercato/cache` (5-min TTL; cache key is tenant/org/scope-specific and includes the promotion anchor day so sliding vs. anchored windows never collide). **Cache-miss behavior:** compute via the resolution algorithm, then `set`. **Invalidation (MUST):** every price write (`catalog.prices.create|update|delete` and their undos) MUST invalidate the omnibus cache tag for the affected `(tenant, org, product/variant, channel)` scope, **after the DB write commits** (never inside the write transaction — same rule as command side-effects, `packages/core/AGENTS.md` → withAtomicFlush / cache consistency). If a write path cannot invalidate precisely, the result is bounded-stale up to the 5-min TTL — an accepted fallback for admin reads, **not** a correctness guarantee for a storefront reference. Building a cache tag without ever consuming it does **not** satisfy this (rule **M-5**).
 
 ### Commands & Events
 
@@ -155,7 +156,9 @@ recordPriceHistoryEntry ──► catalog_price_history_entries  (append-only; D
 
 ### CatalogPriceHistoryEntry (singular) — `catalog_price_history_entries`
 
-Immutable snapshot of a `CatalogProductPrice` at the moment of change. Never updated/deleted. **No** `created_at` / `updated_at` / `deleted_at` (append-only log — exempt from optimistic-lock and soft-delete conventions).
+Immutable snapshot of a `CatalogProductPrice` at the moment of change. Never updated/deleted.
+
+> **Source entity note:** `CatalogProductPrice` is backed by the physical table **`catalog_product_variant_prices`** (not `catalog_product_prices`), and that table has **no `deleted_at`** — price rows are hard-deleted. The history log is therefore the only record of a deleted price, which makes the `change_type='delete'` entry load-bearing; backfill must not assume a soft-delete column exists on the price row. **No** `created_at` / `updated_at` / `deleted_at` (append-only log — exempt from optimistic-lock and soft-delete conventions).
 
 | Column | Type | Notes |
 |--------|------|-------|
@@ -231,7 +234,9 @@ CREATE OR REPLACE TRIGGER history_immutable
 
 Six **immutable** columns captured at line creation, never recomputed on edit (the `numeric(18,4)` precision matches the sales line-amount columns, intentionally wider than the history table's `numeric(16,4)`): `omnibus_reference_net` / `omnibus_reference_gross` (numeric(18,4)?), `omnibus_promotion_anchor_at` (timestamptz?), `omnibus_applicability_reason` (string?), `is_personalized` (boolean?), `personalization_reason` (string?).
 
-### OmnibusConfig (`module-config-service`, key `catalog.omnibus`, tenant-scoped)
+### OmnibusConfig (`ModuleConfigService`, module `catalog`, key `omnibus`, tenant-scoped)
+
+Stored via `ModuleConfigService.setValue(CATALOG_SETTINGS_MODULE_ID, OMNIBUS_CONFIG_KEY, value, { tenantId })`, alongside the existing `unit_price_display_enabled` key. `OMNIBUS_CONFIG_KEY` is declared in `catalog/lib/settings.ts` next to the existing constants.
 
 ```ts
 {
@@ -256,7 +261,7 @@ Six **immutable** columns captured at line creation, never recomputed on edit (t
 }
 ```
 
-**Zod validation (PATCH):** UUIDs for `presentedPriceKindId`/`defaultPresentedPriceKindId`; `lookbackDays` integer [1,365]; `minimizationAxis` defaults `'gross'`; `enabledCountryCodes` valid alpha-2 (`'EU'` rejected); `channels[*].countryCode` valid alpha-2 if present; `noChannelMode` defaults `'best_effort'`; `progressiveMaxGapDays` defaults `7`. **Conditional requirement:** when `enabled = true`, a presented price kind MUST be resolvable for every in-scope EU channel — i.e. `defaultPresentedPriceKindId` is set, or each such channel sets its own `presentedPriceKindId`; the PATCH rejects (400) an `enabled:true` config that leaves any in-scope channel without one. History is captured for **all** price kinds; the presented-kind config controls only which kind is *queried* for the reference.
+**Zod validation (settings `PUT`, `omnibus` key):** UUIDs for `presentedPriceKindId`/`defaultPresentedPriceKindId`; `lookbackDays` integer [1,365]; `minimizationAxis` defaults `'gross'`; `enabledCountryCodes` valid alpha-2 (`'EU'` rejected); `channels[*].countryCode` valid alpha-2 if present; `noChannelMode` defaults `'best_effort'`; `progressiveMaxGapDays` defaults `7`. **Conditional requirement:** when `enabled = true`, a presented price kind MUST be resolvable for every in-scope EU channel — i.e. `defaultPresentedPriceKindId` is set, or each such channel sets its own `presentedPriceKindId`; the `PUT` rejects (400) an `enabled:true` config that leaves any in-scope channel without one. History is captured for **all** price kinds; the presented-kind config controls only which kind is *queried* for the reference.
 
 > **Encryption:** history columns are commercial pricing data, not PII/GDPR-relevant → no `encryption.ts` entry required. Reads still route through `findWithDecryption` so the feature stays correct if the catalog entity later adopts encrypted fields. No new PII introduced.
 
@@ -264,7 +269,7 @@ Six **immutable** columns captured at line creation, never recomputed on edit (t
 
 All routes export `openApi`, declare `metadata.requireFeatures`, authenticate via `getAuthFromRequest`, and scope every query by `tenant_id` + `organization_id`. All examples are illustrative but field-accurate. **Wire format for money:** all price fields are serialized as **fixed 4-decimal strings** (e.g. `"100.0000"`); the Worked Examples may abbreviate (`"100"`) for readability — the API always emits 4 decimals.
 
-> **Canonical-mechanism note:** `prices/history` and `prices/omnibus-preview` are intentionally **custom read-only routes** (not `makeCrudRoute`) — they are computed read endpoints, not CRUD over an entity, so the CRUD factory does not apply. `config/omnibus` is a **custom write route** and therefore wires the mutation-guard registry (below). The underlying price writes that *produce* history go through the existing `makeCrudRoute`/command path for `CatalogProductPrice`, which is where the canonical CRUD + command + undo contract lives.
+> **Canonical-mechanism note:** `prices/history` and `prices/omnibus-preview` are intentionally **custom read-only routes** (not `makeCrudRoute`) — they are computed read endpoints, not CRUD over an entity, so the CRUD factory does not apply. Omnibus configuration adds **no new write route at all**: it extends the existing custom write route `catalog/api/settings/route.ts`, reusing that route's already-wired mutation guard. The underlying price writes that *produce* history go through the existing `makeCrudRoute`/command path for `CatalogProductPrice`, which is where the canonical CRUD + command + undo contract lives.
 
 ### GET /api/catalog/prices/history
 - **Auth:** `catalog.price_history.view`
@@ -296,7 +301,7 @@ Errors: `401 {"error":"Unauthorized"}`; `400 {"error":"Invalid query","details":
 ### GET /api/catalog/prices/omnibus-preview
 - **Auth:** `catalog.price_history.view`
 - **Query:** `priceKindId` + `currencyCode` (required) + at least one of `productId | variantId | offerId` (+ optional `channelId`).
-- **Presented entry:** the route resolves the *presented entry* (the current active `CatalogProductPrice` of the requested `priceKindId` for the scope, mapped to its latest history entry, + `priceKindIsPromotion = kind.isPromotion`) and passes it to `resolveOmnibusBlock` — so the preview applies the same anchoring + EC-7 exclusion as the authoritative products-list path. (Known Gap: as-built passes `null`.)
+- **Presented entry:** the route resolves the *presented entry* (the current active `CatalogProductPrice` of the requested `priceKindId` for the scope, mapped to its latest history entry, + `priceKindIsPromotion = kind.isPromotion`) and passes it to `resolveOmnibusBlock` — so the preview applies the same anchoring + EC-7 exclusion as the authoritative products-list path. Passing `null` here is a defect (rule **M-3**).
 - **Response:** `OmnibusBlock | null` (null only when Omnibus disabled). Product read via `findOneWithDecryption`. `safeParse` → 400.
 
 Request: `GET /api/catalog/prices/omnibus-preview?priceKindId=PK&currencyCode=PLN&productId=PRD`
@@ -320,25 +325,37 @@ Request: `GET /api/catalog/prices/omnibus-preview?priceKindId=PK&currencyCode=PL
 }
 ```
 
-### GET | PATCH /api/catalog/config/omnibus
-- **GET auth:** `catalog.settings.view`; **PATCH auth:** `catalog.settings.manage`. (Follows the module's `<resource>.view` / `<resource>.manage` convention and reuses the pre-existing `catalog.settings.manage`; do **not** introduce a parallel `catalog.settings.edit`.)
-- **GET:** returns the resolved tenant-scoped `OmnibusConfig` (`{}` when unset).
-- **PATCH:** validates with zod, persists via `ModuleConfigService.setValue(..., scope)`. As a custom write route it follows the full 4-step mutation-guard contract (`packages/core/AGENTS.md` → API Routes): map to registry operation **`update`**; collect `getAllMutationGuardInstances()` and append `bridgeLegacyGuard(container)` when present; call `runMutationGuards(allGuards, input, { userFeatures })` before persisting; on block return `guardResult.errorBody`/`errorStatus`; merge `modifiedPayload`; run each `afterSuccessCallbacks` item after success (catching/logging callback failures). PATCH is `optimistic-lock-exempt` (single tenant config blob).
-- **422 gate:** enabling with an in-scope EU channel lacking coverage → 422.
+### GET | PUT /api/catalog/settings (omnibus block folded into the canonical catalog settings route)
+> **Decision (2026-07-21):** Omnibus configuration does **not** get its own endpoint. `develop` established `GET|PUT /api/catalog/settings` (`catalog/api/settings/route.ts` + `catalog/lib/settings.ts`) as the canonical catalog module-settings surface — `createRequestContainer` + `ModuleConfigService` + `validateCrudMutationGuard` / `runCrudMutationGuardAfterSuccess` + `createLogger('catalog')`. Omnibus config is an additive `omnibus` key on that route's request/response body. This supersedes the earlier `GET|PATCH /api/catalog/config/omnibus` design; no such route is created.
 
-PATCH request:
+- **GET auth:** the route already requires `catalog.products.view`; the omnibus block is additionally gated on **`catalog.settings.view`** — callers without it get the response **without** the `omnibus` key (omission, not `403`, so the existing `unitPriceDisplayEnabled` consumer is unaffected). **PUT auth:** `catalog.settings.manage` (unchanged; reuses the pre-existing feature — do **not** introduce a parallel `catalog.settings.edit`).
+- **GET:** returns `{ unitPriceDisplayEnabled, omnibus }` where `omnibus` is the resolved tenant-scoped `OmnibusConfig` (`{}` when unset).
+- **PUT:** body keys are independently optional — sending only `unitPriceDisplayEnabled` leaves omnibus untouched and vice versa. The `omnibus` value is validated with `omnibusConfigSchema` and persisted via `ModuleConfigService.setValue(CATALOG_SETTINGS_MODULE_ID, OMNIBUS_CONFIG_KEY, value, { tenantId })` — a **separate config key** (`omnibus`) alongside `unit_price_display_enabled`, not a merged blob, so the two settings cannot clobber each other.
+- **Mutation guard:** the route's existing single `validateCrudMutationGuard(...)` / `runCrudMutationGuardAfterSuccess(...)` pair is reused with `resourceKind: 'catalog.settings'` and `operation: 'custom'`; `resourceId` becomes the config key being written (`OMNIBUS_CONFIG_KEY` for an omnibus write). Do not add a second guard invocation. PUT stays `optimistic-lock-exempt` (single tenant config blob, no per-record version).
+- **422 gate:** setting `omnibus.enabled = true` while an in-scope EU channel lacks backfill coverage → 422; nothing is persisted (neither key).
+
+PUT request:
 ```json
-{ "enabled": true, "enabledCountryCodes": ["PL","DE"], "lookbackDays": 30,
-  "channels": { "ch-pl": { "presentedPriceKindId": "PK", "countryCode": "PL" } } }
+{ "omnibus": { "enabled": true, "enabledCountryCodes": ["PL","DE"], "lookbackDays": 30,
+  "channels": { "ch-pl": { "presentedPriceKindId": "PK", "countryCode": "PL" } } } }
 ```
 422 response (no backfill yet):
 ```json
-{ "field": "enabled", "error": "backfill_required_before_enable", "channels": ["ch-pl"] }
+{ "field": "omnibus.enabled", "error": "backfill_required_before_enable", "channels": ["ch-pl"] }
 ```
-200 response: the merged `OmnibusConfig`. Errors: `401`; `400 {"error":"Invalid config","details":{...}}` / `{"error":"Invalid JSON body"}`.
+200 response: `{ "unitPriceDisplayEnabled": true, "omnibus": { …merged OmnibusConfig… } }`. Errors: `401`; `400 {"error":"Invalid request","details":{...}}` (the route's existing `ZodError` shape).
 
 ### Extended price-resolution response (products list — `GET /api/catalog/products`)
-An `afterList` hook (`decorateProductsAfterList`) enriches each item — tenant/org scoped, resolved in parallel (no N+1). The products route's exported `openApi` MUST be updated to document these additive response fields (`omnibus` block + top-level `isPersonalized`/`personalizationReason`):
+An `afterList` hook (`decorateProductsAfterList`) enriches each item — tenant/org scoped, resolved concurrently. **Cost:** request-level facts (tenant config, presented price kind, personalization) are resolved **once per request**, and the remaining work is batched page-wide rather than fanned out per row — **a fixed number of queries per page, independent of page size**. `resolvePresentedPricesForProducts` issues four (price kinds; active prices; the id of each active price's newest history row; those rows), and `prefetchHistoryForProducts` issues one `aggregateOmnibusScopes` statement per distinct minimisation axis, which is one in every shipped configuration. Results are cached (5-min TTL, tag-invalidated) on top of that.
+
+Two properties make the batch safe to rely on. Every read is **bounded**: the newest-entry lookup returns exactly one row per price via `distinct on`, and the aggregate returns at most three rows per scope, so neither grows with the size of the history log. And a scope the batch cannot cover — a derogation path, an offer-anchored window, a variant-scoped request — is simply absent from the prefetch, at which point `computeLowestPrice` runs the same aggregate for that one scope; the answer is identical either way because it is the same statement.
+
+**Measured (2026-08-31, PostgreSQL 16, 110k history rows over 100 products — ~1100 rows per product, deliberately far past a realistic catalog):** the aggregate resolves a 100-scope page in **~290ms**. Two things were established while getting there and are worth not rediscovering:
+
+- The scope predicate must be emitted as plain equality (`h.product_id = s.product_id`) rather than the uniform `(s.product_id is null or h.product_id = s.product_id)`. The disjunction is opaque to the planner, so with more than one scope row it stops being a join key and becomes a per-row filter: **265ms against 20ms** for the identical plan shape. `narrowOn` in `omnibusAggregate.ts` emits the disjunction only for a genuinely mixed scope set.
+- Bounding the main scan at `window_start` and resolving the baseline through its own correlated `max()` was **tried, measured and rejected**. It reads fewer rows on paper, but the per-scope subquery re-scans (268k buffers against 2.7k for one pass) and the follow-up join on an unestimatable instant plans catastrophically: **688 seconds** against 776ms. The single upper-bounded scan stays.
+
+**History:** this replaced a per-item fan-out of ≈4 queries per row (~400 concurrent for a 100-item page), flagged as finding 4 of the PR #5192 review. The products route's exported `openApi` MUST be updated to document these additive response fields (`omnibus` block + top-level `isPersonalized`/`personalizationReason`):
 
 | Field | Type | Notes |
 |-------|------|-------|
@@ -417,7 +434,7 @@ function computeLowestPrice(em, ctx, config, presentedEntry):
   cache.set(...); return result
 ```
 
-`resolveProgressive`: fetch the offer's entries ASC by `recorded_at`; the sequence qualifies when it is monotonically non-increasing on `axis` **and** every gap **between consecutive entries** is `<= channel.progressiveMaxGapDays` (default 7). On qualify → `lowestRow = pre-campaign baseline` (the last entry strictly before the offer's first entry — the price before the first reduction), `previousRow = deepest campaign price` (the last/lowest offer entry), reason `progressive_reduction_frozen`; **if no pre-campaign baseline exists → return null (fall through to standard)**. `resolvePerishable`: `exempt` → `perishable_exempt`; `last_price` → reference = the **immediately-preceding entry** = the newest history entry strictly before the current/presented price (deterministic; ties broken by `id`), reason `perishable_last_price`. `resolveNewArrival`: product age (`now − first_listed_at`) `< lookbackDays` and `newArrivalRule = 'shorter_window'` → `effLookback = newArrivalsLookbackDays` (or, when `null`, the product's actual age), reason `new_arrival_reduced_window`. Idempotency on write: `23505` on `idempotency_key` swallowed as success.
+`resolveProgressive`: fetch the offer's entries ASC by `recorded_at`; the sequence qualifies when it is monotonically non-increasing on `axis` **and** every gap **between consecutive entries** is `<= channel.progressiveMaxGapDays` (default 7). On qualify → `lowestRow = pre-campaign baseline` (the last entry strictly before the offer's first entry — the price before the first reduction), `previousRow = deepest campaign price` (the last/lowest offer entry), reason `progressive_reduction_frozen`; **if no pre-campaign baseline exists → return null (fall through to standard)**. `resolvePerishable`: `exempt` → `perishable_exempt`; `last_price` → reference = the **immediately-preceding entry** = the newest history entry strictly before the current/presented price (deterministic; ties broken by `id`), reason `perishable_last_price`. **The presented entry MUST be passed in and excluded here too** — bound the query with `recorded_at < presentedEntry.recorded_at` and drop any same-instant row by the `isPresentedReduction` identity. The price on display is normally the newest row in the log, so "the newest entry" taken verbatim makes the reduction its own reference: EC-7 on the perishable path (rule **M-1** applies to this branch, not only to the standard window). `resolveNewArrival`: product age (`now − first_listed_at`) `< lookbackDays` and `newArrivalRule = 'shorter_window'` → `effLookback = newArrivalsLookbackDays` (or, when `null`, the product's actual age), reason `new_arrival_reduced_window`. Idempotency on write: `23505` on `idempotency_key` swallowed as success.
 
 ## Worked Examples (numeric)
 
@@ -428,7 +445,7 @@ All examples: tenant `T`, org `O`, product `PRD`, price kind `PK` (`isPromotion=
 - **Required legal outcome:** the reference price = lowest price in the 30 days **before** the reduction = **`100.00`**. The promo price (`80.00`) is what the customer pays now; it is **not** its own reference.
 - **How the algorithm must achieve it:** when resolving for the presented promo entry, `windowEnd = starts_at = 2026-06-01`, `windowStart = 2026-05-02`. The candidate set is the baseline + in-window entries **excluding the presented promo entry itself**. Baseline (`100.00` @ 05-01, the last row `≤ windowStart`) is the only candidate ⇒ `lowestPriceGross="100.0000"`, `applicable=true`, `announced_promotion`, `promotionAnchorAt="2026-06-01..."`.
 - **Implementation constraint (critical, enforced by the algorithm):** the presented reduction is excluded from its own reference set. The Resolution Algorithm does this with a single unambiguous rule (identical in pseudocode, EC-7, and test C16): candidates use an **inclusive** `recorded_at <= windowEnd` window, then drop (i) the exact presented entry via `isPresentedReduction` (`price_id` + `change_type` + `recorded_at` identity) **and** (ii) any row with `recorded_at >= anchor` when an anchor exists. With `anchor = starts_at = 2026-06-01`, the promo row (recorded at 06-01) is dropped by rule (ii) (`recorded_at >= anchor`), leaving baseline `100.00` as the only candidate. Without this the lowest would collapse to the promo price (`80.00`) — a compliance bug.
-- **Presented entry (both paths):** the products-list enrichment **and** the `omnibus-preview` route resolve the *presented entry* the same way — the current active `CatalogProductPrice` of the resolved presented price kind (`channel.presentedPriceKindId ?? defaultPresentedPriceKindId ?? ctx.priceKindId`), mapped to its latest history entry, with `priceKindIsPromotion = that kind.isPromotion`. (Known Gap: the as-built preview currently passes `null` — fix it to derive the presented entry so the preview matches the authoritative result. Storefront, when built, MUST also pass it.)
+- **Presented entry (both paths):** the products-list enrichment **and** the `omnibus-preview` route resolve the *presented entry* the same way — the current active `CatalogProductPrice` of the resolved presented price kind (`channel.presentedPriceKindId ?? defaultPresentedPriceKindId ?? ctx.priceKindId`), mapped to its latest history entry, with `priceKindIsPromotion = that kind.isPromotion`. Both paths MUST derive it (rule **M-3**); the storefront, when built, MUST also pass it.
 
 **E2 — Tax-only change (must NOT trigger).** History: net 81.30 / gross 100.00 @ 23% on 2026-05-01; net 81.30 / gross 102.44 @ 26% on 2026-06-05 (VAT change, net unchanged, no `starts_at`/`offer`). Preview: `applicable=false`, `not_announced`; storefront does not render an Omnibus reference.
 
@@ -466,8 +483,8 @@ All examples: tenant `T`, org `O`, product `PRD`, price kind `PK` (`isPromotion=
 | EC-16 | Perishable `omnibus_exempt=true`, rule `exempt` | `perishable_exempt` |
 | EC-17 | Variant `omnibus_exempt=null` | inherit product-level exemption |
 | EC-18 | New product (`first_listed_at` 5 days ago), `shorter_window` 7d | reduced window; `new_arrival_reduced_window`; `lookbackDays` in response = reduced |
-| EC-19 | `first_listed_at` null (legacy) | treat as not-new (new-arrival rule does not fire) — default-to-`created_at` on new rows prevents this going forward |
-| EC-20 | Enabling Omnibus with EU channel lacking backfill | PATCH → 422 `backfill_required_before_enable` |
+| EC-19 | `first_listed_at` null (legacy) | treat as not-new (new-arrival rule does not fire) — default-to-`created_at` on new rows prevents this going forward. **Every resolution path MUST read the column verbatim; none may fall back to `created_at` at read time.** Such a fallback shortens the window, raises the reference, overstates the reduction, and makes the admin preview disagree with the authoritative products-list result (the divergence rule **M-3** exists to prevent). |
+| EC-20 | Enabling Omnibus with EU channel lacking backfill | settings `PUT` → 422 `backfill_required_before_enable`; neither config key is persisted |
 | EC-21 | Backfill re-run | idempotent (existing-id skip); baseline `recorded_at = windowStart − 1ms` |
 | EC-22 | Direct SQL `UPDATE`/`DELETE` on history | DB trigger raises; no row changed |
 | EC-23 | Cross-org read attempt | every query filters `tenant_id`+`organization_id`; returns only caller-scoped rows; unknown product → empty |
@@ -482,15 +499,17 @@ Keys under `catalog.omnibus.*` (settings panel, price-editor row, applicability 
 
 ## UI/UX
 
-- **Omnibus Settings panel** (`OmnibusSettings`) on `/backend/config/catalog`: enable toggle, lookback, `enabledCountryCodes`, no-channel mode, default presented price kind, per-channel overrides (lookback, country, progressive/perishable/new-arrival), and a backfill-coverage warning when lookback increased since the last backfill. As a non-`CrudForm` host, the settings save MUST run through `useGuardedMutation(...).runMutation({ operation: 'update', ... })` (with `retryLastMutation` in the injection context) — it uses `apiCall*` under the hood (never raw `fetch`) and keeps the inline `optimistic-lock-exempt` marker (single tenant config blob, no per-record version). DS status tokens only.
+- **Omnibus Settings panel** (`OmnibusSettings`) on `/backend/config/catalog`: enable toggle, lookback, `enabledCountryCodes`, no-channel mode, default presented price kind, per-channel overrides (lookback, country, progressive/perishable/new-arrival), and a backfill-coverage warning when lookback increased since the last backfill. As a non-`CrudForm` host, the settings save MUST run through `useGuardedMutation(...).runMutation({ operation: 'update', ... })` (with `retryLastMutation` in the injection context) — it uses `apiCall*` under the hood (never raw `fetch`) and keeps the inline `optimistic-lock-exempt` marker (single tenant config blob, no per-record version). It `PUT`s `{ omnibus: … }` to `/api/catalog/settings` (the canonical route) and MUST NOT send `unitPriceDisplayEnabled`, so the sibling `UnitPriceDisplaySettings` panel is never clobbered. DS status tokens only.
 - **Accessibility / keyboard (DS canon):** icon-only controls carry `aria-label`; any modal/dialog introduced submits on `Cmd/Ctrl+Enter` and cancels on `Escape`; status is conveyed by semantic tokens + text, not color alone. The UI embeds into existing backend pages (no new heavy client bundle), so a full Frontend Architecture Contract is not required; if a future iteration adds a dedicated dialog/route, add the `"use client"` ledger + boundary map then.
+- **Product compliance section** (`ProductComplianceSection`): an *Omnibus (EU 2019/2161)* subsection carrying the two per-product derogation inputs — `first_listed_at` (date, drives the Art. 6a(4) shorter window; empty means "never a new arrival", per EC-19) and `omnibus_exempt` (checkbox, Art. 6a(3) perishable goods). Both explain that the rules themselves live per channel in catalog settings, so an operator is never left guessing why a flag appears inert.
+- **Variant `omnibus_exempt`** in `VariantBuilder`: a **tri-state** select — *Inherit from product* (`null`, the default), *Exempt*, *Not exempt* — because EC-17 requires an unset variant flag to defer to the product. A checkbox cannot express that third state, so the validator accepts `null` explicitly rather than treating it as absent.
 - **Price-editor reference row** (`PriceEditorOmnibusRow`) in the variant price editor: fetches `omnibus-preview`; renders the reference; handles `progressive_reduction_frozen` (reference = `lowestPrice`, current = `previousPrice`), `insufficient_history`, `not_in_eu_market`, `missing_channel_context`, default lowest-price. Tri-state (loading/none/block); `text-status-warning-text` for warnings.
 - **Storefront display:** deferred (Future / Known Gaps).
 
 ## Configuration
 
 - Per-tenant `OmnibusConfig` (above); no env vars for behavior.
-- `OM_OPTIMISTIC_LOCK` unrelated except the config PATCH is exempt by design.
+- `OM_OPTIMISTIC_LOCK` unrelated except the settings `PUT` is exempt by design.
 
 ## Migration & Compatibility
 
@@ -506,14 +525,14 @@ All changes are **additive-only** → no deprecation protocol required (per `BAC
 | Contract surface (BC category) | New / changed | Classification |
 |--------------------------------|---------------|----------------|
 | **DB schema** (§8) | New table `catalog_price_history_entries`; new columns `catalog_product.omnibus_exempt`/`first_listed_at`, `catalog_product_variant.omnibus_exempt`, 6 nullable columns on `sales_order_lines` + `sales_quote_lines` | Additive (defaults/nullable; new indexes + immutability trigger) |
-| **API routes** (§7) | New `GET /api/catalog/prices/history`, `GET /api/catalog/prices/omnibus-preview`, `GET|PATCH /api/catalog/config/omnibus`; extended `GET /api/catalog/products` response (optional `omnibus` block + `isPersonalized`/`personalizationReason`) | Additive (new routes; only optional response fields added to an existing route) |
+| **API routes** (§7) | New `GET /api/catalog/prices/history`, `GET /api/catalog/prices/omnibus-preview`; extended `GET\|PUT /api/catalog/settings` (optional `omnibus` key on request + response); extended `GET /api/catalog/products` response (optional `omnibus` block + `isPersonalized`/`personalizationReason`) | Additive (one new route family; only optional request/response fields added to existing routes — no method change, no field removal) |
 | **DI keys** (§9) | New `catalogOmnibusService` | Additive |
-| **ACL features** (§10) | New `catalog.price_history.view`, `catalog.settings.view`; **reuse** existing `catalog.settings.manage` | Additive (no rename/removal) |
+| **ACL features** (§10) | New `catalog.price_history.view` (history + preview routes), `catalog.settings.view` (gates the `omnibus` block inside the settings GET response); **reuse** existing `catalog.settings.manage` for the settings PUT | Additive (no rename/removal; the settings route's own `catalog.products.view` GET guard is unchanged) |
 | **CLI commands** (§12) | New `mercato catalog omnibus:backfill` | Additive |
 | **Public types/signatures** (§2/§3) | New exported types `OmnibusBlock`, `OmnibusConfig`, `OmnibusResolutionContext`, `OmnibusApplicabilityReason` enum (10 members) | Additive; STABLE once published — extend the enum only additively |
 | **Event IDs** (§5) | None new (history is an in-command side effect) | No change |
 | **Generated files** (§13) | `yarn generate` registers the new routes + CLI; no hand-edited generated files | Additive |
-| **Config blob** | `catalog.omnibus` key in `module_configs`; no `version` field (acceptable — additive optional keys only; if a breaking shape change is ever needed, add a `version` discriminator then) | Additive |
+| **Config blob** | `omnibus` key under module `catalog` in `module_configs`; no `version` field (acceptable — additive optional keys only; if a breaking shape change is ever needed, add a `version` discriminator then) | Additive (separate key; does not touch the existing `unit_price_display_enabled` row) |
 
 **Remaining contract surfaces (the other 4 of the 13 `BACKWARD_COMPATIBILITY.md` categories) — no change:** Auto-discovery file conventions (only **new** `route.ts`/`di.ts`/`acl.ts`/`cli.ts`/`components` files are added; none renamed/removed) · Import paths (new exports from `catalog/lib`/`services` are additive; nothing moved) · Widget injection spot IDs (none touched — no widget injection) · Notification type IDs (none — no notifications). All 13 categories are therefore additive or N/A.
 
@@ -523,6 +542,8 @@ All changes are **additive-only** → no deprecation protocol required (per `BAC
 
 **MVP = Phases 1–3** (history log + resolution + admin UI/backfill/ACL) — the minimum that makes the lowest-price-in-30-days reference correct and operable for EU channels. **Phases 4–5** (member-state derogations, sales snapshot + personalization) are additive enhancements deliverable independently afterward. Each phase leaves the application in a working, testable state.
 
+> **Delivery mode (2026-07-21):** implemented **fresh from this specification** on `feat/omnibus-price-tracking` (branched from `develop`). The unmerged prototype branch `feat/omnibus-rebased` is a **reference only** — useful for its migration DDL (immutability trigger, index set) and resolver structure, both verified correct — and MUST NOT be cherry-picked wholesale, because it predates the canonical `catalog/api/settings` route and the structured-logging gate, and it violates rules M-1 … M-6, M-9. Every phase below must satisfy the Mandatory Implementation Rules.
+
 ### Phase 1 — History foundation
 1. `CatalogPriceHistoryEntry` entity + migration (table, 6 lookback indexes, partial-unique idempotency index, **manual** immutability trigger + REVOKE runbook; update `.snapshot-open-mercato.json` excluding the manual DDL).
 2. `lib/omnibus.ts` (`buildHistoryEntry`, `recordPriceHistoryEntry`, idempotency key, `is_announced`) + `lib/omnibusTypes.ts`. Wire into price create/update/delete and **all** undo paths (after `flush`, forked EM, `try/catch`, `[internal]`-prefixed error log).
@@ -531,12 +552,12 @@ All changes are **additive-only** → no deprecation protocol required (per `BAC
 ### Phase 2 — Resolution service + preview + config
 1. `catalogOmnibusService` (baseline+window, same-row net/gross, anchoring, EU gating, `noChannelMode`, TTL cache w/ anchor-day key) + DI registration (`.scoped()`).
 2. `GET /api/catalog/prices/omnibus-preview`; products-list `afterList` enrichment (parallel, scoped).
-3. `GET|PATCH /api/catalog/config/omnibus` (zod, mutation-guard wiring, 422 backfill gate).
+3. Extend `GET|PUT /api/catalog/settings` with the `omnibus` key (zod via `omnibusConfigSchema`, `catalog.settings.view` gating on read, reuse of the route's existing mutation guard, 422 backfill gate). Add `OMNIBUS_CONFIG_KEY` to `catalog/lib/settings.ts`. **No new route file.**
 
 ### Phase 3 — Admin UI + backfill + ACL/setup
 1. `OmnibusSettings` + `PriceEditorOmnibusRow` (+ wire into `VariantBuilder`/variant pages); i18n en/pl/de/es.
 2. `omnibus:backfill` CLI (single + all-channel + unscoped).
-3. `acl.ts`: add **`catalog.price_history.view`** and **`catalog.settings.view`**, and **reuse the existing `catalog.settings.manage`** for the config PATCH (do not add `catalog.settings.edit` — it breaks the `view`/`manage` convention and overlaps `manage`). Sync into `setup.ts` `defaultRoleFeatures` (admin gets `catalog.*`; employee gets the two `view` features) and run `yarn mercato auth sync-role-acls`.
+3. `acl.ts`: add **`catalog.price_history.view`** and **`catalog.settings.view`**, and **reuse the existing `catalog.settings.manage`** for the settings `PUT` (do not add `catalog.settings.edit` — it breaks the `view`/`manage` convention and overlaps `manage`). Sync into `setup.ts` `defaultRoleFeatures` (admin gets `catalog.*`; employee gets the two `view` features) and run `yarn mercato auth sync-role-acls`.
 
 ### Phase 4 — Member-state derogations
 1. Product/variant `omnibus_exempt`; product `first_listed_at` (defaults to `created_at`).
@@ -553,7 +574,8 @@ All changes are **additive-only** → no deprecation protocol required (per `BAC
 | `catalog/data/validators.ts` | Modify | `omnibusConfigSchema`, product/variant fields |
 | `catalog/lib/omnibus.ts`, `lib/omnibusTypes.ts` | Create | History builder, idempotency, types |
 | `catalog/services/catalogOmnibusService.ts` | Create | Resolution + backfill |
-| `catalog/api/prices/history`, `prices/omnibus-preview`, `config/omnibus` | Create | Read + config routes |
+| `catalog/api/prices/history`, `prices/omnibus-preview` | Create | Computed read routes |
+| `catalog/api/settings/route.ts`, `catalog/lib/settings.ts` | Modify | Fold in the `omnibus` config key (no new config route) |
 | `catalog/api/products/route.ts` | Modify | `afterList` enrichment |
 | `catalog/commands/prices.ts`, `products.ts`, `variants.ts` | Modify | History recording, omnibus fields, undo/redo |
 | `catalog/cli.ts`, `acl.ts`, `setup.ts`, `di.ts` | Modify | Backfill CLI, features, grants, DI |
@@ -593,38 +615,41 @@ All changes are **additive-only** → no deprecation protocol required (per `BAC
 | # | Scenario | Assertion |
 |---|----------|-----------|
 | C1 | Promotion > 30 days | `windowEnd=starts_at`; reference = baseline at `starts_at−lookback`, not day-40 recalculated |
-| C2 | Tax-only change | `not_announced`; reference not rendered |
+| C2 | Tax-only change | `not_announced`; reference not rendered. Covered across all three layers: capture (a VAT reclassification records `is_announced=false` with no `starts_at`/`offer_id` while still storing the new rate), resolution (`applicable=false`, no anchor, plus a control that flips to `announced_promotion` when the same row gains a validity start), and display (`PriceEditorOmnibusRow` prints the explanation and withholds the computed figure). |
 | C3 | Progressive same offer | `progressive_reduction_frozen`; reference = pre-campaign baseline |
 | C4 | Progressive interrupted | standard rolling-MIN; `announced_promotion` |
 | C5 | Perishable exempt | `perishable_exempt` |
 | C6 | Perishable last-price | reference = immediately-preceding; `perishable_last_price` |
 | C7 | New arrival | reduced window; `new_arrival_reduced_window` |
 | C8 | Insufficient history | `insufficient_history`; `coverageStartAt` non-null |
-| C9 | Per-channel isolation | A's reference ≠ B's |
-| C10 | Offer-anchor fallback | `promotionAnchorAt=firstOfferEntry.recorded_at` |
+| C9 | Per-channel isolation | A's reference ≠ B's; every history query carries the channel filter, the two channels get distinct cache keys, and channels blend only when none is supplied and the mode allows it |
+| C10 | Offer-anchor fallback | `promotionAnchorAt=firstOfferEntry.recorded_at`, where `firstOfferEntry` MUST exclude backfilled rows (`source='system'`) — see the rule below |
 | C11 | Backfill baseline | `recorded_at=windowStart−1ms` |
 | C12 | DB immutability | `UPDATE`/`DELETE` raises; no row changed |
-| C13 | Enable without backfill | PATCH → 422 `backfill_required_before_enable` |
+| C13 | Enable without backfill | settings `PUT` → 422 `backfill_required_before_enable`; `unitPriceDisplayEnabled` unchanged |
 | C14 | Order snapshot persistence/immutability | 6 fields stored; unchanged after later price change |
 | C15 | Cross-org isolation | org A returns only org A entries |
 | C16 | Presented promo excluded from its own window (EC-7) | promo recorded at `starts_at`; reference = pre-reduction price (100), NOT the promo price (80) |
 
 ### Integration tests (shipped)
-- `TC-CAT-035` — `isPersonalized` present in products response.
-- `TC-CAT-036` — price-history coverage: announced `is_announced=true`, idempotency (single entry), org isolation, cursor pagination, undo entry (`change_type='undo'`).
+- `TC-CAT-037` — `isPersonalized` present in products response (top-level camelCase).
+- `TC-CAT-038` — price-history coverage: announced `is_announced=true`, idempotency (single entry), org isolation, cursor pagination, undo entry (`change_type='undo'`).
+- `TC-CAT-039` — reference-resolution parity: the SQL aggregate (`aggregateOmnibusScopes`) and its in-memory twin (`selectScopeAggregate`) return the same row for the same data, across both axes, ties, NULL axis values, withdrawn change types, boundary instants, anchored windows, EC-7 identity exclusion and microsecond `recorded_at`; plus the bounded newest-entry-per-price read (`latestHistoryEntryIdsByPrice`) that the products-list batch uses, including its tenant scoping. **This spec is an integration test rather than a unit test on purpose:** the resolution runs in SQL, so only a stage with a real PostgreSQL can prove the two implementations agree, and the integration runner is the only one CI provides.
+
+**First execution: 2026-08-11 — 6/6 passing** (`yarn mercato test:integration TC-CAT-037` / `TC-CAT-038`, ephemeral runner, app on `127.0.0.1:5001`). Both files had been written but never run until this date; the run also confirms the M-4 wire contract and the undo path against a real database rather than a mock.
 
 ## Compliance Gap Analysis
 
-External review vs Directive (EU) 2019/2161 + Commission Guidance (2021/C 526/02) identified seven gaps; all implemented.
+External review vs Directive (EU) 2019/2161 + Commission Guidance (2021/C 526/02) identified seven gaps. The **Status** column below states the *specification* coverage — each is fully designed here. Gaps 1 and 6 additionally depend on two implementation rules that a prior prototype omitted (EC-7 candidate exclusion and presented-entry derivation); those are **MUST** items, not optional polish — see Known Gaps.
 
 | # | Gap | Severity | Phase | Status |
 |---|-----|----------|-------|--------|
-| 1 | Fixed reference (sliding window) | **Critical** | 2 | **Implemented** — `starts_at`-anchored window + offer first-entry fallback |
+| 1 | Fixed reference (sliding window) | **Critical** | 2 | **Specified** — `starts_at`-anchored window + offer first-entry fallback. **Correct only together with the EC-7 exclusion**; anchoring alone still lets the promo row win `MIN`. |
 | 2 | Progressive reductions | **High** | 4 | **Implemented** — `progressiveReductionRule` + freeze-to-baseline |
 | 3 | Perishable goods | Medium | 4 | **Implemented** — `omnibus_exempt` + `perishableGoodsRule` |
 | 4 | New-arrivals shorter lookback | Medium | 4 | **Implemented** — `first_listed_at` + `newArrivalRule` |
 | 5 | Member-state variations | Medium | 4 | **Implemented** — per-channel rules + `countryCode` |
-| 6 | Announced vs. silent | Medium | 2 | **Implemented** — promotion-detection `applicable` + `is_announced` |
+| 6 | Announced vs. silent | Medium | 2 | **Specified** — promotion-detection `applicable` + `is_announced`. **Requires a non-null presented entry at every call site**, otherwise `applicable` degenerates to `priceKindIsPromotion` alone. |
 | 7 | Personalized disclosure | Low–Med | 5 | **Implemented (data)** — `isPersonalized`/`personalizationReason`; storefront rendering deferred |
 
 - **Gap 1:** `starts_at ⇒ windowEnd=starts_at`, `windowStart=starts_at−lookback`, fixed for the promotion's life; `promotionAnchorAt` exposed.
@@ -637,7 +662,7 @@ External review vs Directive (EU) 2019/2161 + Commission Guidance (2021/C 526/02
 
 ## Monitoring & Alerting
 
-Compliance failures are legal failures. **Implementation status:** structured logging is in place; the metrics/alerts below are **specified, not yet instrumented** (see Future / Known Gaps).
+Compliance failures are legal failures. **Implementation status:** the metrics/alerts below are **specified, not yet instrumented** (see Future / Known Gaps); structured logging via `createLogger` is required from day one (rule **M-8**).
 
 | Metric | Type | Alert |
 |--------|------|-------|
@@ -657,7 +682,7 @@ Compliance failures are legal failures. **Implementation status:** structured lo
 |---|----------|----------|---------------|------------|---------------|
 | R1 | History write fails after the price write commits | High | Compliance log completeness | best-effort forked-EM write logged `[internal]`; next mutation + `omnibus:backfill` re-create entries; `no_history`/`insufficient_history` alerts | transient log gap until next mutation/backfill (accepted to never block price writes) |
 | R2 | Presented promo included in its own window | **High** | Legal correctness (wrong reference) | algorithm excludes presented entry (inclusive `<= windowEnd` window, then drop the exact presented entry by identity + any row with `recorded_at >= anchor`); EC-7 + test C16 | none if implemented per algorithm; storefront path must pass the presented entry |
-| R3 | Stale cached reference after a price change | Medium | Storefront accuracy | post-commit cache-tag invalidation on price writes; 5-min TTL fallback | up to TTL staleness if precise invalidation not wired (Known Gap) |
+| R3 | Stale cached reference after a price change | Medium | Storefront accuracy | post-commit cache-tag invalidation on price writes (rule **M-5**); 5-min TTL fallback | up to TTL staleness if precise invalidation not wired |
 | R4 | Mixed-tax `MIN(net)`/`MIN(gross)` mismatch | High | Legal correctness | net+gross taken from the same lowest-axis row | none |
 | R5 | Cross-tenant/org data exposure | High | Security/isolation | every query filters `tenant_id`+`organization_id`; routes feature-guarded; tests C9/C15/EC-23 | none identified |
 | R6 | History tampering via raw SQL | High | Audit integrity | DB immutability trigger + `REVOKE UPDATE/DELETE` runbook | residual until `REVOKE` applied in prod (trigger active meanwhile) |
@@ -673,7 +698,7 @@ Compliance failures are legal failures. **Implementation status:** structured lo
 - **Residual risk (history atomicity):** because history is recorded best-effort *outside* the price-write transaction, a committed price change whose history write then fails leaves the compliance log missing that entry. **Mitigation:** the next mutation on the same price records a fresh entry; the periodic `omnibus:backfill` re-creates a baseline; `omnibus.resolution.no_history` / `insufficient_history` alerts surface the gap. **Residual:** a transient gap between the failed write and the next mutation/backfill — accepted in exchange for never blocking the price write. (Making history transactional with the price write is a possible future hardening.)
 
 ### Concurrency / Conflicts
-- Config: single tenant blob; PATCH optimistic-lock-exempt but mutation-guard-wired.
+- Config: single tenant blob; settings `PUT` optimistic-lock-exempt but mutation-guard-wired. Omnibus lives under its own config key, so a concurrent `unitPriceDisplayEnabled` write cannot clobber it.
 - Price edits: standard catalog optimistic locking (default ON) unaffected.
 
 ### Tenant / Security
@@ -695,16 +720,32 @@ Compliance failures are legal failures. **Implementation status:** structured lo
 ### Operational
 - Detection/observability via Monitoring & Alerting (resolution error rate, no-history/insufficient-history, backfill coverage gap, retention floor). Operator runbook: backfill-before-enable; re-backfill after increasing `lookbackDays`; watch the coverage-gap alert. Blast radius if misconfigured is bounded by `enabled` + `enabledCountryCodes` (a bad config affects only listed EU channels; non-EU channels are unaffected).
 
+## Mandatory Implementation Rules (learned from the prototype)
+
+A prototype of this feature (local branch `feat/omnibus-rebased`, never merged) implemented most of this spec but missed the following. They are **MUST** requirements of this specification, not deferred work — each was verified as a real defect in that prototype on 2026-07-21 (see [`analysis/ANALYSIS-2026-06-30-omnibus-price-tracking.md`](analysis/ANALYSIS-2026-06-30-omnibus-price-tracking.md)).
+
+| # | Rule | Why it matters |
+|---|------|----------------|
+| M-1 | **EC-7 candidate exclusion** — `computeLowestPrice` MUST filter candidates: drop the exact presented entry by `(price_id, change_type, recorded_at)` identity, **and** drop any row with `recorded_at >= anchor` when an anchor exists. Test **C16**. | Without it the promo row is inside its own reference window (`recorded_at <= windowEnd` where `windowEnd == anchor`) and wins `MIN` — the reference collapses to the promo price. **Legal failure.** |
+| M-2 | **`OmnibusHistoryRow` MUST carry `priceId` and `changeType`** (mapped in `mapRow`). | M-1's identity rule is not expressible otherwise. |
+| M-3 | **Every call site MUST pass a real presented entry** — products-list enrichment *and* `omnibus-preview` derive it as: active `CatalogProductPrice` for the resolved presented kind → its latest history entry, plus `priceKindIsPromotion = kind.isPromotion`. Passing `null` is not allowed. | M-1 is inert without it, `promotionAnchorAt` degrades to the offer fallback, and `applicable` degenerates to `priceKindIsPromotion` alone (always `false` in the preview) — the admin preview then contradicts the authoritative path. |
+| M-4 | **`isPersonalized` / `personalizationReason` MUST be top-level camelCase** per products-list item — never nested snake_case under `pricing`. | The authoritative wire contract (API Contracts). Once published, a wrong shape needs a permanent bridge under BC §7. |
+| M-5 | **Post-commit omnibus cache invalidation** on `catalog.prices.create|update|delete` **and all undo paths**, after the DB write commits (never inside `withAtomicFlush`). Building a cache tag without consuming it does not satisfy this. | Otherwise reads are stale up to the 5-min TTL after any price change. |
+| M-6 | **`omnibusPreviewQuerySchema` MUST `.refine()`** that at least one of `productId` / `variantId` / `offerId` is present. | A scope-less request otherwise triggers a tenant-wide history scan **and** a `product:undefined` cache key — a cross-scope cache-key collision inside the tenant. |
+| M-7 | **All reads go through `findWithDecryption` / `findOneWithDecryption`**, including the CLI backfill path. No raw `em.find` / `em.count` on catalog entities. | Contract compliance; keeps the feature correct if catalog later adopts encrypted columns. |
+| M-8 | **Structured logging only** — `createLogger('catalog'\|'sales')`; no raw `console.*` outside `cli.ts`. Omnibus failures MUST be caught and logged distinctly, never folded into an unrelated `catch` (e.g. the products-route unit-conversions handler). | `yarn logger:check-console:ci` is a hard CI gate with a zero baseline. |
+| M-10 | **The offer anchor MUST ignore backfilled rows** — `fetchFirstOfferEntry` filters `source != 'system'`. `omnibus:backfill` copies the price's `offer_id` onto the synthetic baseline it seeds, so without the filter that baseline becomes the campaign anchor: `windowEnd` freezes at the backfill moment, every later real reduction falls outside the window, and the reference resolves to nothing — or, once a promo row is the only in-window candidate, to the promotion itself. Verified live on 2026-08-11: a 168 → 79 reduction reported `no_history` before the fix and `lowestPriceGross=168` after. | A backfill is a precondition for enabling Omnibus (the 422 gate), so this fires on the **first** campaign of every tenant. |
+| M-11 | **An empty block MUST still report the anchor it used** — `buildEmptyBlock` carries `promotionAnchorAt` and `coverageStartAt` from the result instead of hard-coding `null`. | A response advertising `promotionAnchorAt: null` alongside an anchored `windowEnd` contradicts itself and makes a missing reference impossible to diagnose. |
+| M-12 | **Every DI registration whose factory destructures the cradle MUST call `.proxy()`** — the app container is built with `InjectionMode.CLASSIC` (`packages/shared/src/lib/di/container.ts`), which injects by parameter NAME. A destructuring pattern has no readable name, so CLASSIC silently passes `undefined` for every dependency. `catalogOmnibusService` was constructed with `moduleConfigService === undefined` and threw `Cannot read properties of undefined (reading 'getValue')` on its first call — the CLI backfill crashed outright, and the products-list enrichment swallowed it as a degraded read. Guarded by `catalog/__tests__/di.test.ts`. | Unit tests construct services directly with mocks, so this class of defect is invisible to them and only appears at runtime. |
+| M-9 | **Bulk-import guard** — the sales line snapshot MUST NOT resolve omnibus per line during bulk import (`ctx.bulkImport`); skip or batch-resolve. | `em.fork()` + `findOne` + resolve per line is an N+1 at import scale. |
+
 ## Future / Known Gaps (deferred)
 
 - **Storefront display** (Phase 5 UI) + `catalog.pricing.personalizedDisclosure` key — data captured, storefront UI not built.
-- **Monitoring instrumentation** — metrics/alerts specified, not yet emitted (logging in place).
+- **Monitoring instrumentation** — metrics/alerts specified, not yet emitted (structured logging in place).
 - **Retention / monthly partitioning** (`PARTITION BY RANGE (recorded_at)`) before high-volume EU production.
 - **`REVOKE UPDATE/DELETE`** on the app DB role as a production deploy step.
-- **`omnibus-preview` at-least-one-scope** zod refinement (currently all three optional, no `.refine()`).
-- **`isPersonalized` placement/signals** — the **authoritative contract is top-level camelCase** `isPersonalized` / `personalizationReason` on each products-list item (see API Contracts). An earlier implementation nested them snake_case under `pricing`; that is an as-built deviation to **fix to match this contract**, not an alternative shape. Signal-source mapping is currently minimal and should be expanded per Art. 6(1)(ea).
-- **EC-7 enforcement** — the spec now mandates excluding the presented reduction from its own window (RULE in EC-7, test C16). Verify the as-built resolver actually drops the presented entry at the `recorded_at ≤ windowEnd` boundary; if it does not, that is a correctness bug to fix.
-- **Cache invalidation on price write** — the spec requires price writes to invalidate the omnibus cache tag (Architecture → Caching). Verify the as-built price commands emit that invalidation; if they rely on TTL only, storefront reads may be stale up to 5 minutes after a price change.
+- **`isPersonalized` signal sources** — the shape is fixed by M-4; the signal-source mapping starts minimal and should be expanded per Art. 6(1)(ea).
 
 ## Final Compliance Report — 2026-06-30
 
@@ -721,7 +762,7 @@ root `AGENTS.md` (+ `.ai/ds-rules.md`, `.ai/ui-components.md`), `packages/core/A
 | root → DS rules | semantic status tokens; no arbitrary sizes | Compliant | `text-status-warning-text`; a11y note added |
 | root/shared → i18n | user-facing via `useT()`/`resolveTranslations()`; `[internal]` internal | Compliant | i18n §; EC-10 |
 | core → API Routes | export `openApi` on every route | Compliant | incl. updated `GET /api/catalog/products` openApi for new fields |
-| core → API Routes | custom write routes wire mutation-guard registry (4-step) | Compliant | config PATCH: `getAllMutationGuardInstances()` + `bridgeLegacyGuard` + `runMutationGuards` (op `update`) + `afterSuccessCallbacks` |
+| core → API Routes | custom write routes wire the mutation guard | Compliant | no new write route; reuses `catalog/api/settings` `validateCrudMutationGuard` + `runCrudMutationGuardAfterSuccess` (`resourceKind: 'catalog.settings'`, `operation: 'custom'`) |
 | core → CRUD Factory | CRUD via `makeCrudRoute` (+`indexer`) | Compliant (justified) | history/preview are computed reads; price writes use existing CRUD/command path |
 | core → Encryption | `findWithDecryption`/`findOneWithDecryption`; GDPR fields in `encryption.ts` | Compliant | reads scoped; no new PII → no `encryption.ts` (documented) |
 | core → Commands/undo | mutations via commands; undo via `extractUndoPayload`; all undo paths | Compliant | all undo paths record `change_type='undo'` |
@@ -731,7 +772,7 @@ root `AGENTS.md` (+ `.ai/ds-rules.md`, `.ai/ui-components.md`), `packages/core/A
 | cli/core → Migrations | additive SQL + snapshot; no `db:migrate` in PR | Compliant | manual DDL marked; snapshot excludes trigger/partial-index/DESC |
 | core → Module Config | `ModuleConfigService` with `scope`; tenant from auth | Compliant | key `catalog.omnibus`, scoped |
 | shared → Feature matching | wildcard-aware matching for raw feature arrays | Compliant | declarative `requireFeatures` + guard `userFeatures` |
-| cache → consistency | DI cache; tenant-scoped keys; invalidate **after commit** on write paths | Compliant (spec); as-built verify | invalidation mandated post-commit; if as-built is TTL-only it's a Known Gap |
+| cache → consistency | DI cache; tenant-scoped keys; invalidate **after commit** on write paths | Compliant | invalidation mandated post-commit as rule **M-5**; TTL-only is an explicit defect |
 | events | declare events; no undeclared events | Compliant | no new events |
 | BACKWARD_COMPATIBILITY §7–13 | contract surfaces additive-only | Compliant | see Backward Compatibility & Contract Surfaces |
 | catalog/AGENTS | use `selectBestPrice`/`catalogPricingService` for pricing | N/A | reads history + computes a reference; no price selection |
@@ -740,18 +781,31 @@ root `AGENTS.md` (+ `.ai/ds-rules.md`, `.ai/ui-components.md`), `packages/core/A
 
 ### Internal Consistency Check
 - **Algorithm ↔ EC-7 ↔ C16:** consistent — the exclusion rule is identical in the pseudocode, EC-7, and test C16 (inclusive `<= windowEnd` window; drop the exact presented entry by `(price_id, change_type, recorded_at)` identity + any row with `recorded_at >= anchor`).
-- **`isPersonalized` placement:** consistent — top-level camelCase is the single authoritative contract (API table + Known Gaps note the as-built deviation as a bug to fix).
-- **API auth ↔ ACL:** consistent — GET `catalog.settings.view` / PATCH `catalog.settings.manage`; no `settings.edit`.
+- **`isPersonalized` placement:** consistent — top-level camelCase is the single authoritative contract (API table + rule **M-4**).
+- **API auth ↔ ACL:** consistent — settings GET exposes the `omnibus` block only with `catalog.settings.view`; settings `PUT` requires `catalog.settings.manage`; no `settings.edit`.
 - **Compliance suite numbering:** consistent — C1–C16 in Testing, Risks, and Changelog.
 - **`applicabilityReason` enum:** consistent across Data/API/Algorithm/Worked Examples (10 members).
 - **Config `{}`-when-unset ↔ typing:** consistent — `defaultPresentedPriceKindId` optional, required only when `enabled=true`.
 
 ### Non-Compliant Items
-None blocking. Open **as-built verification** items (spec is compliant; implementation to confirm) are tracked in Future / Known Gaps: EC-7 exclusion enforced in code, post-commit cache invalidation on price writes, `isPersonalized` top-level placement, `omnibus-preview` at-least-one-scope refinement, Monitoring instrumentation.
+None blocking. The nine implementation rules **M-1 … M-9** (Mandatory Implementation Rules) capture every defect found in the unmerged prototype and are binding on this implementation; Monitoring instrumentation and the other items in Future / Known Gaps remain deliberately deferred.
 
 ### Verdict
-**Ready for PR (as a specification).** All MUST rules are Compliant or justified N/A; internal consistency checks pass. The listed as-built verification items are implementation follow-ups, not spec defects.
+**Ready for PR (as a specification).** All MUST rules are Compliant or justified N/A; internal consistency checks pass. Rules M-1 … M-9 are binding acceptance criteria for the implementation.
 
 ## Changelog
 
+- **2026-08-31 (c)** — Closed the last item the review asked for literally: a test that drives `applyOmnibusSnapshotToLine` through the **real** `DefaultCatalogOmnibusService` instead of a hand-built block. Only the aggregate executor is substituted (it needs a database); the config gating, window and anchor derivation, candidate selection and the returned `OmnibusBlock` are the production objects. It asserts the reference the resolver actually produces — 100.00 rather than the 80.00 announced reduction (EC-7) or the 10.00 withdrawn price (finding 3) — the frozen promotion anchor, and the personalization flags. Proven non-vacuous by restoring the original defect: sourcing personalization from the block again fails it.
+
+- **2026-08-31 (b)** — Second verification pass over the same code, this time reading it rather than the resolution notes. Three more defects, all in the aggregate. (1) **The NULL-axis cleanup was dead code.** It tested `Number.isFinite(Number(value))`, and `Number(null)` is `0`, so a row with no value on the minimisation axis was never dropped — the guard only ever fired for `undefined`, which the mapper does not produce. It also covered `lowest` alone. Both minima are now read through one `axisValue` helper shared with the in-memory twin, so "has no usable value" means one thing in the file rather than two. This mattered beyond parity: an empty `baselineLowest` is what makes `computeLowestPrice` report `insufficientHistory`, so a valueless baseline was presenting an incomplete history as a complete one. Pinned by a parity case that fails without the fix. (2) **The prefetch key named three of six scope dimensions** (`productId|priceKindId|currencyCode`), so a variant-scoped resolution computed the same key as the product-scoped one and would have read the wrong scope's answer out of the prefetch — silently, and only unreachable because the single caller that passes a prefetch never resolves variant-scoped. The key now carries every dimension `buildAggregateScope` narrows on. (3) **`prefetchHistoryForProducts`'s docstring still described the deleted design** — union window, in-memory slicing, a row cap — none of which survived the aggregate migration. Performance was measured for the first time on a realistic volume and one real optimisation landed (see API Contracts): emitting plain equality instead of the `is null or` disjunction cut a 100-scope page from 776ms to ~290ms. The alternative of bounding the scan at `window_start` was measured at 688 seconds and rejected.
+
+- **2026-08-31** — Review-response hardening pass over the PR #5192 findings, re-verifying each fix rather than trusting the resolution notes. Three defects found in code already marked resolved. (1) **The parity check between the SQL aggregate and its in-memory twin could never run in CI** — it was a Jest suite gated on an env var no CI stage sets, so `describe.skip` was its only behaviour on every pipeline run. Two implementations of a legally-binding calculation were therefore unverified in the only place that matters. It is now integration test `TC-CAT-039`, which runs on the ephemeral PostgreSQL the integration job already provisions; proven non-vacuous by mutation (admitting `delete` into the SQL candidate filter fails 10 of 16 parity cases). (2) **The batched presented-entry read was unbounded** — `resolvePresentedPricesForProducts` fetched every history row for the page's prices and kept the newest per id, which is linear in the size of the log (one row per price mutation, so ~730 rows for a price changed daily for two years, times a hundred prices on one page). This is the same defect as review finding 7, on the path the finding-4 batching introduced. It now resolves one winning row id per price with `distinct on` and reads only those rows through `findWithDecryption`, so it is bounded by the page; covered in `TC-CAT-039` including the descending-id tie-break that keeps it identical to the per-item read (**M-3**). (3) **`OFFERED_CHANGE_TYPES` existed in three copies** — inline in the SQL, in the in-memory twin and in the service's derogation filters — which is precisely the shape of finding 3, where the rule held on some paths and not others. It is now one exported constant in `lib/omnibusTypes.ts` (entity-free, so the aggregate does not pull the ORM graph in behind it) that all three read. Also: the sales-snapshot test's mock block is now typed as `OmnibusBlock`, so the compiler rejects the mock-carries-a-field-the-real-type-lacks drift that produced finding 1; dead code left by the aggregate migration removed (`buildPrefetchKeyFromEntry`, stale comment blocks); `IN_WINDOW_ROW_CAP` renamed `DEROGATION_ROW_CAP` to match its only remaining use; and the existing-tenant ACL rollout (finding 8) documented in `UPGRADE_NOTES.md` alongside the `backfill_required_before_enable` precondition, not only in the PR description. The API Contracts cost paragraph above, which still described the pre-batching per-item fan-out, was corrected.
+
+- **2026-08-11 (e)** — Products-list enrichment **verified live**, closing the last unverified surface. The earlier "cannot be exercised, the demo catalog resolves no product-level `pricing`" note was **wrong**: the demo prices are channel-scoped, and the query that produced that conclusion passed a channel id from a previous ephemeral database. With the correct channel the list resolves pricing normally and the `omnibus` block is populated. End-to-end on a running app: a 148 → 79 reduction returns `applicabilityReason="announced_promotion"`, `lowestPriceGross="138.0000"`, `applicable=true` and a promotion anchor, while the untouched products in the same response correctly report `no_history`. `138.00` rather than `148.00` is the specified behaviour, not a defect: the products-list path resolves product-scoped (`variantId: null`), so the window spans every variant of the product and the lowest prior price wins. `isPersonalized`/`personalizationReason` appear top-level on every item with no nested snake_case (**M-4**) on the same response. Also confirmed as a harness artefact rather than a product defect: running `omnibus:backfill` from a shell whose `CACHE_SQLITE_PATH` differs from the app's leaves the app serving its cached config for the 60s `ModuleConfigService` TTL, so an immediate `enabled: true` can spuriously 422. In a normal deployment both processes share the cache configuration and the CLI invalidation reaches the app.
+- **2026-08-11 (d)** — `C2` covered literally, completing the compliance suite at **16 of 16**. A tax-only change is now asserted at each layer it passes through: `buildHistoryEntry` records a VAT reclassification with `is_announced=false` and no announcement signal while still capturing the new rate (the thing that proves the gross moved for tax reasons); `resolveOmnibusBlock` returns `applicable=false` / `not_announced` and refuses to anchor the window, with a control case showing the same row flips to `announced_promotion` the moment it gains a `starts_at`; and `PriceEditorOmnibusRow` renders the explanation while withholding the figure the service computed. The display half matters most — the service deliberately still resolves the numbers, so "reference not rendered" is a property of the component, not of the resolver.
+- **2026-08-11 (c)** — Closed the last two gaps found by the coverage review. (1) **Admin UI for the per-product derogation inputs**: `omnibus_exempt` and `first_listed_at` existed end-to-end in the entity, migration, validators, commands and API projection but had no form field, so the Art. 6a(3)/6a(4) derogations could only be operated through the API, CLI or database. They now live in an *Omnibus* subsection of `ProductComplianceSection`, with the variant flag as a **tri-state** select in `VariantBuilder` (inherit / exempt / not exempt) so EC-17 inheritance is expressible; 10 new i18n keys in en/pl/de/es. Both write schemas had to start accepting `null` explicitly — `z.boolean().optional()` rejects it, so "inherit" and "clear the date" would have failed validation. (2) **`C9` and the second half of `C14`** are now covered: per-channel isolation (channel filter on every query, distinct cache keys, blending only in `best_effort` with no channel) and snapshot immutability (the capture helper overwrites unconditionally, which pins the caller `!existing` guard as the thing that actually protects the stored reference). Compliance suite coverage: **16 of 16**. `C2` is covered literally across capture, resolution and display rather than approximated by the silent-repricing case.
+- **2026-08-11 (b)** — **First live verification** against a running app + real PostgreSQL (`.ai/scripts/test-env-up.sh`, disposable `postgres:16`). Everything before this date had only ever been exercised by unit tests. Three further defects found and fixed, all of which unit tests structurally could not catch. (1) **`catalogOmnibusService` was constructed with `moduleConfigService === undefined`** — the container runs `InjectionMode.CLASSIC`, which injects by parameter name, so the cradle-destructuring factory received nothing; `.proxy()` was missing (rule **M-12**). The backfill CLI crashed on its first call and the products-list enrichment swallowed the same error as a degraded read, so the feature was dead at runtime while every unit test passed. (2) **The offer anchor accepted backfilled rows** (rule **M-10**): `omnibus:backfill` copies `offer_id` onto the synthetic baseline, which then anchored the window to the backfill moment — a live 168 → 79 reduction reported `no_history`, and in a neighbouring arrangement the reference collapsed to the promo price itself. (3) **`buildEmptyBlock` hard-coded `promotionAnchorAt: null`** while returning an anchored window (rule **M-11**). Also: the products-list personalization flags now write before the `targets.length` early return, so the Art. 6(1)(ea) disclosure no longer appears or vanishes depending on whether anything in the page happened to resolve a price. **Verified live:** schema (25 history columns, 7 indexes, partial-unique idempotency predicate), **C12** (`UPDATE`/`DELETE` both raise `catalog_price_history_entries is immutable`, row unchanged), **C11** (baseline at `now − 30d − 1ms`, `create`/`system`/`idempotency_key=NULL`; re-run inserted 0, skipped 12), **C13** (422 `backfill_required_before_enable`) and the 400 presented-price-kind gate with the exact specified bodies, history capture through the command layer (`update`/`api`/`is_announced=true`/key set), and end-to-end reference resolution returning `lowestPriceGross="168.0000"` with `applicabilityReason="announced_promotion"` for a 168 → 79 reduction — the promo excluded from its own window (EC-7) on real data. **`TC-CAT-037` and `TC-CAT-038` executed for the first time on the same day — 6/6 passing** (see Testing Strategy). Separately, a repo-level bug outside this feature was found and fixed: `turbo.json` ran in Turbo 2.x default `envMode: "strict"`, which stripped `DATABASE_URL` from `turbo run` tasks, so `yarn dev:ephemeral` initialized the developer's own local database instead of its throwaway container; `envMode: "loose"` plus a post-initialize assertion in `scripts/dev-ephemeral.ts` closes it.
+- **2026-08-11** — Post-implementation audit of the delivered code against this specification. Two correctness defects found and fixed: (1) **`perishable_last_price` resolved the reduction as its own reference** — the branch took "the newest history entry" without receiving or excluding the presented entry, which is normally that very row (EC-7 on the perishable path); it now bounds the query with `recorded_at < presented.recorded_at` plus an identity skip, and the algorithm section states the requirement explicitly. (2) **The preview route fell back to `created_at` when `first_listed_at` was null**, contradicting EC-19 and diverging from the products-list path, which reads the column verbatim — every product predating the migration has a null column, so recently-created ones got a shortened new-arrival window and an overstated reduction in the preview only. Also: the sales snapshot's price lookup moved to `findOneWithDecryption` (**M-7**); the history route's `includeTotal` `em.count` is documented as a deliberate M-7 exception (no decryption-aware count helper exists, and a scalar aggregate has nothing to decrypt); backfill now owns a forked `EntityManager` and clears it per batch, so a full-catalog run is no longer linear in memory and no longer mutates the caller's identity map. Performance: the tenant config, the presented price kind and the personalization flags are now resolved **once per request** instead of once per list row; the residual per-item query fan-out is measured and documented in API Contracts. Test coverage added for the previously untested surfaces — settings-route omnibus block incl. **C13** (16 tests), sales-line snapshot incl. **C14** (21), backfill baseline incl. **C11** (8), `PriceEditorOmnibusRow` (11), request-scoped config memo (3), perishable EC-7 (2). Suite: 7759 → **7820** tests.
+- **2026-08-10** — **Implemented** on `feat/omnibus-price-tracking`, built fresh from this specification (Phases 1–5). Landed: `CatalogPriceHistoryEntry` + immutability trigger and index set (`Migration20260721120000`/`120100`), `lib/omnibus.ts` / `lib/omnibusTypes.ts` / `lib/omnibusPresentation.ts`, `services/catalogOmnibusService.ts` (+ DI `.scoped()`), `GET /api/catalog/prices/history`, `GET /api/catalog/prices/omnibus-preview`, the `omnibus` key folded into `GET|PUT /api/catalog/settings`, products-list `afterList` enrichment, `OmnibusSettings` / `PriceEditorOmnibusRow` wired into the variant pages, i18n en/pl/de/es, the `omnibus:backfill` CLI, `catalog.price_history.view` / `catalog.settings.view` ACL + `setup.ts` grants, product/variant `omnibus_exempt` + `first_listed_at` with the three derogations, and the six immutable sales order/quote-line snapshot columns (`Migration20260721120200_sales`). All **M-1 … M-9** satisfied — notably M-1/M-2 (EC-7 candidate exclusion, `priceId`+`changeType` on `OmnibusHistoryRow`, test **C16**) and M-4 (top-level camelCase `isPersonalized`/`personalizationReason`). Coverage: 43 unit tests across `lib/__tests__/omnibus.test.ts` and `services/__tests__/catalogOmnibusService.test.ts` (gating, reference selection, EC-7/C16, progressive, perishable, new arrivals, caching) plus integration `TC-CAT-037` / `TC-CAT-038`. Deferred as before: storefront display, monitoring instrumentation, retention partitioning, the production `REVOKE UPDATE/DELETE` step, and the integration-level C1–C15 compliance run.
+- **2026-07-21** — Pre-implementation revision ahead of building the feature on `feat/omnibus-price-tracking`. (1) **Config API folded** into the canonical `GET|PUT /api/catalog/settings` route introduced on `develop` — the previously specified `GET|PATCH /api/catalog/config/omnibus` route is dropped; omnibus is a separate `omnibus` config key with `catalog.settings.view` gating the read block, reusing the settings route's existing mutation guard. (2) Added **Mandatory Implementation Rules M-1 … M-9**, derived from an audit of the unmerged prototype (`feat/omnibus-rebased`) — notably the **EC-7 candidate exclusion** (missing there, a legal-correctness defect) and mandatory presented-entry derivation. (3) Recorded the physical price table `catalog_product_variant_prices` and its lack of `deleted_at`. (4) Compliance Gap Analysis statuses for gaps 1 and 6 restated as *Specified* with their dependent MUST rules. (5) Integration tests renumbered `TC-CAT-035/036` → **`TC-CAT-037/038`** (035 is taken on `develop` by #3299). (6) Delivery-mode note: build fresh from the spec, prototype as reference only. Analysis: [`analysis/ANALYSIS-2026-06-30-omnibus-price-tracking.md`](analysis/ANALYSIS-2026-06-30-omnibus-price-tracking.md).
 - **2026-06-30** — Implementation-grade specification authored from the feature on `feat/omnibus-rebased` (port of `strzesniewski/feat/omnibus` onto current `develop`) per `om-spec-writing`. Adds Regulatory Background (Art. 6a / 6(1)(ea) + derogations), Worked Examples, exhaustive Edge Cases, full API request/response/error examples, algorithm pseudocode, Compliance Gap Analysis, Monitoring & Alerting, and the C1–C16 compliance suite. Supersedes the intent of the legacy `SPEC-033-2026-02-18-omnibus-price-tracking.md`; final relationship decided at merge.

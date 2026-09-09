@@ -5,6 +5,8 @@ import type {
   CatalogGtinType,
   CatalogHazmatPackingGroup,
   CatalogPriceDisplayMode,
+  CatalogPriceHistoryChangeType,
+  CatalogPriceHistorySource,
   CatalogProductOptionSchema,
   CatalogProductRelationType,
   CatalogProductType,
@@ -78,6 +80,7 @@ export class CatalogProduct {
     | 'containsLithiumBattery'
     | 'requiresShipping'
     | 'isQuoteOnly'
+    | 'omnibusExempt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -267,6 +270,12 @@ export class CatalogProduct {
 
   @Property({ name: 'deleted_at', type: Date, nullable: true })
   deletedAt?: Date | null
+
+  @Property({ name: 'omnibus_exempt', type: 'boolean', default: false })
+  omnibusExempt: boolean = false
+
+  @Property({ name: 'first_listed_at', type: Date, nullable: true })
+  firstListedAt?: Date | null
 
   @OneToMany(() => CatalogProductVariant, (variant) => variant.product)
   variants = new Collection<CatalogProductVariant>(this)
@@ -642,6 +651,9 @@ export class CatalogProductVariant {
   @Property({ name: 'deleted_at', type: Date, nullable: true })
   deletedAt?: Date | null
 
+  @Property({ name: 'omnibus_exempt', type: 'boolean', nullable: true })
+  omnibusExempt?: boolean | null
+
   @OneToMany(() => CatalogProductPrice, (price) => price.variant)
   prices = new Collection<CatalogProductPrice>(this)
 
@@ -862,4 +874,110 @@ export class CatalogProductPrice {
 
   @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
   updatedAt: Date = new Date()
+}
+
+// Append-only Omnibus price-history log (EU Directive 2019/2161, Art. 6a of 98/6/EC).
+// Deliberately exempt from the standard created_at/updated_at/deleted_at contract: rows are
+// immutable evidence, never edited and never soft-deleted. A DB trigger rejects UPDATE/DELETE.
+@Entity({ tableName: 'catalog_price_history_entries' })
+@Index({
+  name: 'catalog_price_history_product_channel_agnostic_idx',
+  properties: ['tenantId', 'organizationId', 'productId', 'priceKindId', 'currencyCode', 'recordedAt'],
+})
+@Index({
+  name: 'catalog_price_history_product_channel_scoped_idx',
+  properties: ['tenantId', 'organizationId', 'productId', 'channelId', 'priceKindId', 'currencyCode', 'recordedAt'],
+})
+@Index({
+  name: 'catalog_price_history_variant_channel_agnostic_idx',
+  properties: ['tenantId', 'organizationId', 'variantId', 'priceKindId', 'currencyCode', 'recordedAt'],
+})
+@Index({
+  name: 'catalog_price_history_variant_channel_scoped_idx',
+  properties: ['tenantId', 'organizationId', 'variantId', 'channelId', 'priceKindId', 'currencyCode', 'recordedAt'],
+})
+@Index({
+  name: 'catalog_price_history_offer_idx',
+  properties: ['tenantId', 'organizationId', 'offerId', 'priceKindId', 'currencyCode', 'recordedAt'],
+})
+@Index({
+  name: 'catalog_price_history_price_id_idx',
+  properties: ['tenantId', 'organizationId', 'priceId'],
+})
+export class CatalogPriceHistoryEntry {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'price_id', type: 'uuid' })
+  priceId!: string
+
+  @Property({ name: 'product_id', type: 'uuid' })
+  productId!: string
+
+  @Property({ name: 'variant_id', type: 'uuid', nullable: true })
+  variantId?: string | null
+
+  @Property({ name: 'offer_id', type: 'uuid', nullable: true })
+  offerId?: string | null
+
+  @Property({ name: 'channel_id', type: 'uuid', nullable: true })
+  channelId?: string | null
+
+  @Property({ name: 'price_kind_id', type: 'uuid' })
+  priceKindId!: string
+
+  @Property({ name: 'price_kind_code', type: 'text' })
+  priceKindCode!: string
+
+  @Property({ name: 'currency_code', type: 'text' })
+  currencyCode!: string
+
+  @Property({ name: 'unit_price_net', type: 'numeric', precision: 16, scale: 4, nullable: true })
+  unitPriceNet?: string | null
+
+  @Property({ name: 'unit_price_gross', type: 'numeric', precision: 16, scale: 4, nullable: true })
+  unitPriceGross?: string | null
+
+  @Property({ name: 'tax_rate', type: 'numeric', precision: 7, scale: 4, nullable: true })
+  taxRate?: string | null
+
+  @Property({ name: 'tax_amount', type: 'numeric', precision: 16, scale: 4, nullable: true })
+  taxAmount?: string | null
+
+  @Property({ name: 'min_quantity', type: 'integer', nullable: true })
+  minQuantity?: number | null
+
+  @Property({ name: 'max_quantity', type: 'integer', nullable: true })
+  maxQuantity?: number | null
+
+  @Property({ name: 'starts_at', type: Date, nullable: true })
+  startsAt?: Date | null
+
+  @Property({ name: 'ends_at', type: Date, nullable: true })
+  endsAt?: Date | null
+
+  // App-set UTC with millisecond precision and no DB default, so all window math uses one clock.
+  @Property({ name: 'recorded_at', type: Date })
+  recordedAt!: Date
+
+  @Property({ name: 'change_type', type: 'text' })
+  changeType!: CatalogPriceHistoryChangeType
+
+  @Property({ name: 'source', type: 'text' })
+  source!: CatalogPriceHistorySource
+
+  @Property({ name: 'is_announced', type: 'boolean', nullable: true })
+  isAnnounced?: boolean | null
+
+  @Property({ name: 'idempotency_key', type: 'text', nullable: true })
+  idempotencyKey?: string | null
+
+  @Property({ name: 'metadata', type: 'jsonb', nullable: true })
+  metadata?: Record<string, unknown> | null
 }

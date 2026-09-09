@@ -357,6 +357,13 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
                 : typeof record.gtinType === 'string'
                   ? record.gtinType
                   : null,
+            // Tri-state: only an explicit boolean overrides the product-level flag.
+            omnibusExempt:
+              typeof record.omnibus_exempt === 'boolean'
+                ? record.omnibus_exempt
+                : typeof record.omnibusExempt === 'boolean'
+                  ? record.omnibusExempt
+                  : null,
             hsCode:
               typeof record.hs_code === 'string'
                 ? record.hs_code
@@ -433,6 +440,8 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
             taxRates={taxRates}
             showHeader={false}
             embedded
+            productId={currentProductId}
+            variantId={isCreateSentinel ? null : variantId}
           />
         ),
       },
@@ -479,7 +488,7 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
     })
 
     return list
-  }, [optionDefinitions, priceKinds, t, taxRates])
+  }, [currentProductId, isCreateSentinel, optionDefinitions, priceKinds, t, taxRates, variantId])
 
   // Publish page-load record context to the AppShell-owned `backend:record:current`
   // mount so the enterprise record_locks widget resolves `catalog.variant` + id
@@ -632,6 +641,7 @@ export default function EditVariantPage({ params }: { params?: { productId?: str
               sku: values.sku?.trim() || undefined,
               barcode: values.barcode?.trim() || undefined,
               gtinType: values.gtinType ?? null,
+              omnibusExempt: values.omnibusExempt ?? null,
               hsCode: values.hsCode?.trim() || null,
               isDefault: Boolean(values.isDefault),
               isActive: values.isActive !== false,

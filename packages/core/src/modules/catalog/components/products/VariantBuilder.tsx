@@ -15,6 +15,7 @@ import {
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { ProductMediaManager } from './ProductMediaManager'
 import { MetadataEditor } from './MetadataEditor'
+import { PriceEditorOmnibusRow } from '../PriceEditorOmnibusRow'
 import type { PriceKindSummary, TaxRateSummary } from './productForm'
 import { formatTaxRateLabel } from './productForm'
 import type { OptionDefinition, VariantFormValues, VariantPriceDraft } from './variantForm'
@@ -28,6 +29,8 @@ type VariantBuilderProps = {
   optionDefinitions: OptionDefinition[]
   priceKinds: PriceKindSummary[]
   taxRates: TaxRateSummary[]
+  productId?: string | null
+  variantId?: string | null
 }
 
 type VariantSectionBaseProps = {
@@ -63,6 +66,8 @@ type VariantPricesSectionProps = {
   taxRates: TaxRateSummary[]
   showHeader?: boolean
   embedded?: boolean
+  productId?: string | null
+  variantId?: string | null
 }
 
 type VariantMediaSectionProps = {
@@ -78,6 +83,8 @@ export function VariantBuilder({
   optionDefinitions,
   priceKinds,
   taxRates,
+  productId = null,
+  variantId = null,
 }: VariantBuilderProps) {
   return (
     <div className="space-y-6">
@@ -85,7 +92,14 @@ export function VariantBuilder({
       <VariantOptionValuesSection values={values} setValue={setValue} optionDefinitions={optionDefinitions} />
       <VariantDimensionsSection values={values} setValue={setValue} />
       <VariantMetadataSection values={values} setValue={setValue} />
-      <VariantPricesSection values={values} setValue={setValue} priceKinds={priceKinds} taxRates={taxRates} />
+      <VariantPricesSection
+        values={values}
+        setValue={setValue}
+        priceKinds={priceKinds}
+        taxRates={taxRates}
+        productId={productId}
+        variantId={variantId}
+      />
       <VariantMediaSection values={values} setValue={setValue} />
     </div>
   )
@@ -154,6 +168,43 @@ export function VariantBasicsSection({ values, setValue, errors }: VariantSectio
             )}
           </p>
           {errors.gtinType ? <p className="text-xs text-status-error-text">{errors.gtinType}</p> : null}
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="catalog-variant-omnibus-exempt">
+            {t('catalog.variants.form.omnibusExemptLabel', 'Omnibus perishable exemption')}
+          </Label>
+          <Select
+            value={values.omnibusExempt === null || values.omnibusExempt === undefined ? 'inherit' : values.omnibusExempt ? 'yes' : 'no'}
+            onValueChange={(value) =>
+              setValue('omnibusExempt', value === 'inherit' ? null : value === 'yes')
+            }
+          >
+            <SelectTrigger id="catalog-variant-omnibus-exempt">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {/* Tri-state on purpose: "inherit" is the default and defers to the
+                  product-level flag, which is what EC-17 requires. */}
+              <SelectItem value="inherit">
+                {t('catalog.variants.form.omnibusExemptInherit', 'Inherit from product')}
+              </SelectItem>
+              <SelectItem value="yes">
+                {t('catalog.variants.form.omnibusExemptYes', 'Exempt (perishable)')}
+              </SelectItem>
+              <SelectItem value="no">
+                {t('catalog.variants.form.omnibusExemptNo', 'Not exempt')}
+              </SelectItem>
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            {t(
+              'catalog.variants.form.omnibusExemptHint',
+              'Art. 6a(3). Only takes effect on channels whose perishable-goods rule is set to exempt or last price.',
+            )}
+          </p>
+          {errors.omnibusExempt ? (
+            <p className="text-xs text-status-error-text">{errors.omnibusExempt}</p>
+          ) : null}
         </div>
         <div className="space-y-2">
           <Label htmlFor="catalog-variant-hs-code">
@@ -324,6 +375,8 @@ export function VariantPricesSection({
   taxRates,
   showHeader = true,
   embedded = false,
+  productId = null,
+  variantId = null,
 }: VariantPricesSectionProps) {
   const t = useT()
   const pricesRef = React.useRef(values.prices)
@@ -444,6 +497,14 @@ export function VariantPricesSection({
                   onChange={(event) => updatePrice(kind.id, { amount: event.target.value })}
                   placeholder="0.00"
                 />
+                {kind.currencyCode ? (
+                  <PriceEditorOmnibusRow
+                    priceKindId={kind.id}
+                    currencyCode={kind.currencyCode}
+                    productId={productId}
+                    variantId={variantId}
+                  />
+                ) : null}
               </div>
             )
           })

@@ -27,6 +27,8 @@ export type VariantFormValues = {
   sku: string
   barcode: string
   gtinType: string | null
+  // Tri-state: null inherits the product-level Omnibus exemption (EC-17).
+  omnibusExempt: boolean | null
   hsCode: string
   isDefault: boolean
   isActive: boolean
@@ -47,6 +49,7 @@ export const VARIANT_BASE_VALUES: VariantFormValues = {
   sku: '',
   barcode: '',
   gtinType: null,
+  omnibusExempt: null,
   hsCode: '',
   isDefault: false,
   isActive: true,
