@@ -41,6 +41,16 @@ function resolveDatabaseUrl(): string {
 }
 
 /**
+ * The same connection string `withClient` uses, for specs that need their own pool rather
+ * than a single `pg` client — a spec driving server-side library code that expects a Kysely
+ * instance, for example. Reuses the `.env` fallback so those specs resolve the database the
+ * same way every other fixture here does.
+ */
+export function resolveIntegrationDatabaseUrl(): string {
+  return resolveDatabaseUrl();
+}
+
+/**
  * The slice of `pg`'s client these fixtures use, declared structurally.
  *
  * `pg` publishes `Client` as a class merged with a namespace, and the app project's module
