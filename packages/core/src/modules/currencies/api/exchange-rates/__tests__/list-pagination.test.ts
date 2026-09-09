@@ -37,7 +37,8 @@ const makeRate = (i: number) => ({
   rate: (1 + i / 100).toFixed(6),
   date: new Date(`2026-01-${(i % 28 + 1).toString().padStart(2, '0')}T00:00:00.000Z`),
   source: 'TEST',
-  type: null,
+  type: i === 1 ? 'average' : null,
+  externalReference: i === 1 ? '163/A/NBP/2026' : null,
   isActive: true,
   createdAt: new Date('2026-01-01T00:00:00.000Z'),
   updatedAt: new Date('2026-01-02T00:00:00.000Z'),
@@ -93,5 +94,17 @@ describe('GET /api/currencies/exchange-rates pagination', () => {
     )
     const body = (await res.json()) as { items: { id: string }[] }
     expect(body.items.map((it) => it.id)).toEqual(rates.map((r) => r.id))
+  })
+
+  it('filters and serializes average-rate provenance', async () => {
+    em.findAndCount.mockResolvedValue([[makeRate(1)], 1])
+    const res = await GET(new Request('http://localhost/api/currencies/exchange-rates?type=average'))
+
+    expect(em.findAndCount.mock.calls[0][1]).toEqual(expect.objectContaining({ type: 'average' }))
+    const body = (await res.json()) as { items: Array<{ type: string | null; externalReference: string | null }> }
+    expect(body.items[0]).toEqual(expect.objectContaining({
+      type: 'average',
+      externalReference: '163/A/NBP/2026',
+    }))
   })
 })
