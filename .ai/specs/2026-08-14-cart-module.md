@@ -113,7 +113,7 @@ The mapping is direct because `SalesLineSnapshot` already carries `productId`, `
 
 **Promotion effects split by target**, per SPEC-055 §B.6 — they do not all become adjustment drafts. Only `appliesTo: 'order'` effects (`CART_DISCOUNT`, `DELIVERY_DISCOUNT`) become `SalesAdjustmentDraft`. A `LINE_DISCOUNT` becomes `SalesLineSnapshot.discountAmount` on the matching line, because `SalesAdjustmentDraft` carries no line reference and `sales` currently rejects a line-attributed draft outright (`documents.ts` — *"Line-scoped adjustments are not supported yet."*). Three rules bind this mapping, each of them a mispriced cart if broken:
 
-1. Always `discountAmountBasis: 'line'` with the effect's total `amount`, never `'unit'` with `unitAmount` — `sales` multiplies a `'unit'` basis by the line's **full** quantity, so a capped effect covering 5 of 8 units would discount 8.
+1. `discountAmount` is **per-unit over the line's full quantity**: assign `|amount| / lineQuantity` — never `unitAmount`, never the raw `amount`, and divide by `lineQuantity` rather than `appliedQuantity`. There is no basis flag to pick: `buildBaseLineResult` (`packages/core/src/modules/sales/lib/calculations.ts:80-123`) reads `discountAmount` as `discountPerUnit` and computes `min(max(discountPerUnit × quantity, 0), netSubtotalBeforeDiscount)` for every document kind. A benefit covering 5 of 8 units at −2.40 has `amount: "-12.00"`, so `discountAmount = 1.50` and `sales` reproduces `1.50 × 8 = 12.00`; assigning `unitAmount` would discount 19.20 and assigning `amount` 96.00. Where `lineQuantity` does not divide the total the 4 dp rounding (`calculations.ts:22-24`) leaves a sub-cent gap — the document total is authoritative, the effect's `amount` is the display figure.
 2. `discountAmount` is a positive magnitude on a **net** basis; take the absolute value, and convert when the effect's `basis` is `'gross'`.
 3. Several cumulative promotions on one line sum into that single scalar. Per-promotion attribution on the line does not survive; it lives in `PromotionUsage.effects_snapshot`.
 
@@ -530,8 +530,9 @@ export const features = [
 **Totals correctness (Phase 2 gate):**
 - Cart totals equal the totals of the `SalesOrder` produced from the same lines, across a tax matrix including compound rates, mixed rates within a cart, and rounding boundaries (R1)
 - Totals stored verbatim; no re-rounding on read
-- Order-scope promotion effects reach `salesCalculationService` as `SalesAdjustmentDraft`, line- and unit-scope effects as `SalesLineSnapshot.discountAmount` with `discountAmountBasis: 'line'`, and both are reflected in totals (SPEC-055 §B.6)
-- A partially covered line (`appliedQuantity < lineQuantity`) totals to `unitAmount × appliedQuantity`, not `unitAmount × lineQuantity` — asserted in both directions so a regression to the `'unit'` basis cannot pass (SPEC-055 A-R6 / `TC-PROM-060`)
+- Order-scope promotion effects reach `salesCalculationService` as `SalesAdjustmentDraft`, line- and unit-scope effects as `SalesLineSnapshot.discountAmount` carrying `|amount| / lineQuantity`, and both are reflected in totals (SPEC-055 §B.6)
+- A partially covered line (`appliedQuantity < lineQuantity`) discounts `unitAmount × appliedQuantity`, not `unitAmount × lineQuantity` — asserted in all three directions (correct mapping, `unitAmount` assigned directly, raw `amount` assigned) so neither mis-mapping can pass (SPEC-055 A-R6 / `TC-PROM-060`)
+- Where `lineQuantity` does not divide `|amount|` evenly, the byte-identical-totals assertion above compares document totals; the effect's `amount` may differ from the realised discount by up to the 4 dp rounding step
 
 **Pricing:**
 - Snapshot stable across repeated reads within the staleness budget
@@ -639,12 +640,19 @@ Approval routing, bulk lines, admin cart list, abandonment events.
 
 ## 18) Changelog
 
+### 2026-09-09 (rev 5 — the per-unit discount contract stated correctly)
+
+Rev 4's §3 rule 1 was specified against a `sales` API that does not exist. It mandated `discountAmountBasis: 'line'` and attributed the behaviour to `resolveLineDiscountTotal` in `sales/lib/calculations.ts`; neither identifier occurs anywhere in the repository. `SalesLineSnapshot` (`packages/core/src/modules/sales/lib/types.ts:35-63`) has no basis field, and `buildBaseLineResult` (`calculations.ts:80-123`) reads `discountAmount` as `discountPerUnit` and multiplies it by the line's full `quantity` unconditionally — the one basis rev 4 forbade, with no way to opt out. Followed as written, `cart` would have assigned the effect's total and discounted it `lineQuantity` times over: on SPEC-055 TC-PROM-065(a)'s figures, a 200.00 line free against an intended 40.00.
+
+- §3 rule 1: replaced with the real contract — `discountAmount = |amount| / lineQuantity` (the line's **full** quantity, not `appliedQuantity`), with both mis-mappings and their arithmetic named, and the sub-cent rounding residual stated.
+- §14: acceptance criteria restated against that mapping, the partial-coverage assertion widened from two directions to three, and the rounding gap called out against the byte-identical-totals gate.
+
 ### 2026-09-07 (rev 4 — promotion effect mapping corrected)
 
 Applied [SPEC-055](./SPEC-055-2026-02-23-promotions-module.md) §B.6. This document previously said promotion effects "map onto adjustment drafts" wholesale — a mapping the `sales` module rejects: `SalesAdjustmentDraft` carries no line reference, and `documents.ts` throws `400 "Line-scoped adjustments are not supported yet."` when a line-attributed draft arrives. Left as written, every per-line promotion would have either failed at order creation or silently detached its discount from the line.
 
-- §3: promotion effects now **split by target** — only `appliesTo: 'order'` effects become `SalesAdjustmentDraft`; `LINE_DISCOUNT` (targets `line` and `unit`) becomes `SalesLineSnapshot.discountAmount` on the matching line. Added the three binding rules: unconditional `discountAmountBasis: 'line'` (a `'unit'` basis multiplies by the line's full quantity and discards the promotion's quantity cap), positive magnitude on a net basis with gross→net conversion, and summation of cumulative promotions into the single line scalar with attribution deferred to `PromotionUsage.effects_snapshot`.
-- §14: split the promotion-adjustment acceptance criterion by target, and added the partial-coverage totals assertion in both directions (SPEC-055 A-R6 / `TC-PROM-060`).
+- §3: promotion effects now **split by target** — only `appliesTo: 'order'` effects become `SalesAdjustmentDraft`; `LINE_DISCOUNT` (targets `line` and `unit`) becomes `SalesLineSnapshot.discountAmount` on the matching line. Added the three binding rules: the per-unit amount (mis-stated here as a basis flag, corrected in rev 5), positive magnitude on a net basis with gross→net conversion, and summation of cumulative promotions into the single line scalar with attribution deferred to `PromotionUsage.effects_snapshot`.
+- §14: split the promotion-adjustment acceptance criterion by target, and added the partial-coverage totals assertion (widened in rev 5) (SPEC-055 A-R6 / `TC-PROM-060`).
 
 ### 2026-09-06 (rev 3 — sibling amendments applied)
 
