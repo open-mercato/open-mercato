@@ -177,6 +177,8 @@ export default async function handle(job: QueuedJob<CheckoutEmailJob>, ctx: Hand
       subject,
       from,
       replyTo,
+      tenantId: payload.tenantId,
+      organizationId: payload.organizationId,
       react: PaymentStartEmail({
         firstName,
         amount,
@@ -204,6 +206,8 @@ export default async function handle(job: QueuedJob<CheckoutEmailJob>, ctx: Hand
       subject,
       from,
       replyTo,
+      tenantId: payload.tenantId,
+      organizationId: payload.organizationId,
       react: PaymentSuccessEmail({
         firstName,
         amount,
@@ -233,6 +237,8 @@ export default async function handle(job: QueuedJob<CheckoutEmailJob>, ctx: Hand
       subject,
       from,
       replyTo,
+      tenantId: payload.tenantId,
+      organizationId: payload.organizationId,
       react: PaymentErrorEmail({
         firstName,
         linkTitle,
