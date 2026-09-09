@@ -24,7 +24,11 @@ import {
   stripAnsi,
 } from './dev-splash-helpers.mjs'
 import { purgeAppBuildCaches } from './dev-cache-purge.mjs'
-import { ensureDevInotifyLimits } from './dev-inotify-limits.mjs'
+import {
+  ensureDevInotifyLimits,
+  resolveDevBundlerDecision,
+  resolveRequestedDevBundler,
+} from './dev-inotify-limits.mjs'
 import { killProcessTree } from './dev-shutdown-utils.mjs'
 import { resolveSpawnCommand } from './dev-spawn-utils.mjs'
 import { createDevSplashCodingFlow } from './dev-splash-coding-flow.mjs'
@@ -361,12 +365,31 @@ function printDevLogLocation() {
 }
 
 function ensureDevFileWatchLimits() {
+  const requestedBundler = resolveRequestedDevBundler()
+  const requestedDecision = resolveDevBundlerDecision({ requestedBundler })
+  if (!requestedDecision.shouldCheckInotify) {
+    console.log('ℹ️ Using Next.js Webpack dev server; Linux inotify limits are not required')
+    return true
+  }
+
   const result = ensureDevInotifyLimits()
   if (result.fixed) {
     console.log('🔧 Raised Linux inotify file-watch limits for Turbopack')
     return true
   }
   if (result.ok) {
+    return true
+  }
+
+  const decision = resolveDevBundlerDecision({ requestedBundler, inotifyResult: result })
+  if (decision.fallback) {
+    process.env.OM_DEV_BUNDLER = 'webpack'
+    console.warn('⚠️ Linux inotify limits could not be raised; continuing with Next.js Webpack')
+    console.warn(`   Current values: ${JSON.stringify(result.current)}`)
+    console.warn('   To restore Turbopack, run `yarn dev:fix-wsl-watchers` or apply:')
+    for (const command of result.manualCommands ?? []) {
+      console.warn(`     ${command}`)
+    }
     return true
   }
 
