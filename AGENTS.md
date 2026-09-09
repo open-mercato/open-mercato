@@ -97,7 +97,7 @@ Guide shorthand: `<pkg>` = `packages/<pkg>/AGENTS.md` (so `core` = `packages/cor
 | New integration provider (adapter, health check, credentials, bundle wiring) | `.ai/skills/om-integration-builder/SKILL.md` + `core:integrations` + `core:data_sync` + `channel-*` |
 | **Packages** | |
 | Reusable utilities, encryption helpers, i18n (`useT`/`resolveTranslations`), boolean parsing, data engine types, request scoping | `shared` |
-| Structured logging / replacing raw `console.*` with the facade (`createLogger`, `child()`, `OM_LOG_LEVEL`), advisory `yarn logger:check-console` | `apps/docs/docs/framework/runtime/logging.mdx` + `.ai/specs/2026-07-02-structured-logging-facade.md` + `shared` |
+| Structured logging (`createLogger`, `child()`, `OM_LOG_LEVEL`, `yarn logger:check-console`); error reporting — a catch that records an error MUST also `reportError` | `apps/docs/docs/framework/runtime/{logging,error-reporting}.mdx` + `telemetry` + `shared` |
 | Forms (`CrudForm`), data tables (`DataTable`), loading/error states, flash messages, `FormHeader`/`FormFooter`, dialog UX | `ui` + `om-backend-ui-design` skill (+ `om-ds-guardian` for DS-token compliance) |
 | Reusing backend component families (charts/KPIs, filters, detail sections, schedule, messages, notifications, page scaffolding, banners) — check BEFORE building any from scratch | [`.ai/ui-backend-components.md`](.ai/ui-backend-components.md) + `ui` |
 | Backend page components, `apiCall` usage, `RowActions` ids, `LoadingMessage`/`ErrorMessage` | `ui:backend` + `om-backend-ui-design` skill |

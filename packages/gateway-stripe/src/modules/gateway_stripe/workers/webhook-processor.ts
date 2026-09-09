@@ -99,13 +99,16 @@ export default async function handle(job: QueuedJob<WebhookJobPayload>, ctx: Han
       unifiedStatus,
     })
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'Stripe webhook processing failed'
+    const message = error instanceof Error ? error.message : 'Unknown webhook processing error'
     if (scope) {
       await releaseWebhookClaim(em, event.idempotencyKey, 'stripe', scope)
       await integrationLogService.write({
         integrationId: 'gateway_stripe',
         level: 'error',
-        message: 'Stripe webhook processing failed',
+        // The cause belongs in the message, not only in `payload`: the payload is
+        // the durable record and never leaves the database, so an operator paged by
+        // the reported error would otherwise learn only that a webhook failed.
+        message: `Stripe webhook processing failed: ${message}`,
         code: 'stripe_webhook_processing_failed',
         payload: {
           error: message,

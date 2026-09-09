@@ -128,7 +128,7 @@ bridge, so the package is not loaded on the disabled path.
 | `withSpan(name, fn, opts?)` | Run `fn` in a provider-owned span. `opts.root` starts a new trace; `opts.links` attaches causal links (see [Long-lived jobs](#long-lived-jobs-root-spans)) |
 | `currentSpan()` / `setAttributes(attrs)` | Active span access |
 | `counter` / `histogram` / `gauge` | Metric helpers |
-| `reportError(err, ctx?)` | Span exception + shared error log + `om.errors` |
+| `reportError(err, ctx?)` | Span exception + shared error log + `om.errors{module, error.code}` + the provider's own error sink. Pass `ctx.code` — see [Error reporting](#error-reporting) |
 | `captureTraceContext()` / `continueTrace(...)` | Dedicated cross-boundary propagation |
 | `initTelemetry()` / `shutdownTelemetry()` | Opt-in bootstrap and flush |
 | `registerProvider(provider)` | Register a custom provider for an enabled backend name |
@@ -137,6 +137,74 @@ bridge, so the package is not loaded on the disabled path.
 `registerTelemetryForNextjs()` and `recordHttpDuration()` helpers.
 `@open-mercato/telemetry/nextjs-config` separately exports only
 `telemetryServerExternalPackages` for build configuration.
+
+### Error reporting
+
+`reportError` is the error funnel, and the policy around it is one rule:
+**recording an error is not reporting it.** A `catch` that persists a row, sets a
+`failed` status or dead-letters an item MUST also report — `logger.error` alone
+gives you a log record with no span exception, no `om.errors` sample and no
+fingerprint.
+
+```ts
+reportError(error, {
+  module: 'data_sync',
+  code: 'data_sync.item_failed',   // stable, enumerated `module.reason`
+  attributes: { runId, integrationId },
+})
+```
+
+`code` is a metric label and the key backends group on, so it MUST NOT be
+interpolated (`` `failed for ${id}` `` breaks grouping and metric cardinality —
+ids go in `attributes`). Every reported error is emitted: this facade adds no
+sampling or throttling, because the collector and the backend already own volume
+and drop it where an operator can see and adjust the drop.
+
+The full policy, the framework chokepoints that report for you, and the
+verification recipe live in
+`apps/docs/docs/framework/runtime/error-reporting.mdx`.
+
+#### A provider with its own error sink (Sentry-shaped backends)
+
+`TelemetryProvider.reportError?()` is optional and called **in addition to** the
+span/log/metric path, so implementing it can never make signal disappear — the
+provider owns its own de-duplication. Nothing vendor-specific ships upstream;
+plug it in from your app's bootstrap:
+
+```ts
+import { registerProvider, initTelemetry } from '@open-mercato/telemetry'
+import type { TelemetryProvider } from '@open-mercato/telemetry'
+
+const sentryProvider: TelemetryProvider = {
+  ...tracingDelegate,            // reuse an OTLP/console provider for spans, or no-op them
+  name: 'sentry',                // must equal TELEMETRY_BACKEND
+  supports: ['errors', 'logs'],
+  reportError(error, { module, code, attributes }) {
+    Sentry.captureException(new Error(error.message), {
+      fingerprint: code ? [code] : undefined,
+      tags: { module, code },
+      extra: attributes,
+    })
+  },
+}
+
+registerProvider(sentryProvider)
+await initTelemetry()
+```
+
+`error` arrives serialized and PII-redacted (name, message, stack) and
+`attributes` already redacted — never reach for the original thrown value.
+
+**The hook MUST NOT throw.** `reportError` is called from `catch` blocks that
+still have work to do after it — rethrowing the original error, returning a 500
+with its correlation header — so a hook that throws would replace the caller's
+error with yours. The facade wraps the call and degrades a throwing hook to a
+warning, but do not rely on that: swallow your SDK's failures inside the
+implementation, where you can decide what a dropped report means.
+
+`code` reaches your hook as `context.code`. It is deliberately **not** repeated in
+`attributes`, so putting it in both `tags` and `extra`, as the snippet above does
+with `tags`, is your choice rather than an accident of the payload.
 
 ### Long-lived jobs: root spans
 
