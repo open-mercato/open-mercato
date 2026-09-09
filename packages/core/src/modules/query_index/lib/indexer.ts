@@ -403,11 +403,14 @@ export async function reindexSearchTokensForRecord(
   })()
   // Rebuilt on the decrypted document: the aggregate stored in `entity_indexes` was
   // composed from the row as it sits at rest, so for every encryption-mapped field it
-  // holds ciphertext no user query can ever match (#5625). The config is resolved once
-  // here because `resolveSearchConfig` re-parses the environment on every call.
+  // holds ciphertext no user query can ever match (#5625). `resolveSearchConfig` re-parses
+  // the environment on every call, so it is resolved once and threaded into both the
+  // rebuild and the token writer — that also makes the aggregate's blocklist filter and
+  // the per-field one provably read the same snapshot, as the batch path already does.
+  const searchConfig = resolveSearchConfig()
   const searchDoc = rebuildAggregateSearchField(await tokenDoc, {
     entityType: args.entityType,
-    config: resolveSearchConfig(),
+    config: searchConfig,
   })
   await replaceSearchTokensForRecord(db, {
     entityType: args.entityType,
@@ -415,6 +418,7 @@ export async function reindexSearchTokensForRecord(
     organizationId: args.organizationId ?? null,
     tenantId: args.tenantId ?? null,
     doc: searchDoc,
+    config: searchConfig,
   }, { trx: args.trx })
 }
 

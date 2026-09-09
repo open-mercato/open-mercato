@@ -1,4 +1,4 @@
-import { rebuildAggregateSearchField } from '../lib/document'
+import { attachAggregateSearchField, rebuildAggregateSearchField } from '../lib/document'
 import { replaceSearchTokensForBatch, replaceSearchTokensForRecord } from '../lib/search-tokens'
 import { reindexSearchTokensForRecord } from '../lib/indexer'
 import { upsertIndexBatch, type AnyRow } from '../lib/batch'
@@ -83,7 +83,7 @@ describe('rebuildAggregateSearchField', () => {
     expect(rebuilt.search_text).not.toContain('Confidential decrypted note')
   })
 
-  it('drops a stale aggregate when every remaining field is blocklisted', () => {
+  it('blanks a stale aggregate when every remaining field is blocklisted', () => {
     process.env.OM_SEARCH_FIELD_BLOCKLIST = 'display_name'
 
     const rebuilt = rebuildAggregateSearchField(
@@ -91,7 +91,35 @@ describe('rebuildAggregateSearchField', () => {
       { entityType: PERSON },
     )
 
-    expect(rebuilt.search_text).toBeUndefined()
+    // Blank, not absent: an empty value yields no tokens, while keeping the key on the
+    // document so `replaceSearchTokensForRecord` — which scopes its DELETE to the
+    // document's own field names — still removes the ciphertext-derived rows.
+    expect(rebuilt.search_text).toBe('')
+    expect('search_text' in rebuilt).toBe(true)
+  })
+
+  it('leaves a document that never carried an aggregate without the key', () => {
+    process.env.OM_SEARCH_FIELD_BLOCKLIST = 'display_name'
+
+    const rebuilt = rebuildAggregateSearchField({ id: 'rec-1', display_name: PLAINTEXT_NAME }, { entityType: PERSON })
+
+    expect('search_text' in rebuilt).toBe(false)
+  })
+})
+
+describe('attachAggregateSearchField', () => {
+  it('leaves an existing aggregate alone when nothing survives the blocklist', () => {
+    process.env.OM_SEARCH_FIELD_BLOCKLIST = 'display_name'
+
+    // The blanking special case belongs to the rebuild path alone. This shared export is
+    // reached by `buildIndexDocument` and `buildIndexDoc` too, so it keeps its original
+    // contract for every caller inside and outside this repository.
+    const doc = attachAggregateSearchField(
+      { id: 'rec-1', display_name: PLAINTEXT_NAME, search_text: CIPHERTEXT_NAME },
+      { entityType: PERSON },
+    )
+
+    expect(doc.search_text).toBe(CIPHERTEXT_NAME)
   })
 })
 
@@ -111,6 +139,48 @@ describe('reindexSearchTokensForRecord', () => {
     expect(mockReplaceForRecord).toHaveBeenCalledTimes(1)
     const tokenDoc = mockReplaceForRecord.mock.calls[0][1].doc as Record<string, unknown>
     expect(tokenDoc.search_text).toBe(PLAINTEXT_NAME)
+  })
+
+  it('rebuilds on the decrypted copy without mutating the caller document when no searchTokenDoc is passed', async () => {
+    // The path every real write takes: nothing in the repository populates `searchTokenDoc`,
+    // so production always goes through the decrypt. `resolveTenantEncryptionService` is
+    // mocked to null here, which makes `decryptIndexDocForSearch` return the very object it
+    // was given — and that object is the one `upsertIndexRow` hands back to its caller. An
+    // in-place rebuild would therefore leak a plaintext aggregate into the stored document.
+    const em = { getKysely: () => ({}) } as any
+    const doc = { id: 'rec-1', display_name: PLAINTEXT_NAME, search_text: CIPHERTEXT_NAME }
+
+    await reindexSearchTokensForRecord(em, {
+      entityType: PERSON,
+      recordId: 'rec-1',
+      organizationId: 'org-1',
+      tenantId: 'tenant-1',
+      doc,
+    })
+
+    expect(mockReplaceForRecord).toHaveBeenCalledTimes(1)
+    const tokenDoc = mockReplaceForRecord.mock.calls[0][1].doc as Record<string, unknown>
+    expect(tokenDoc.search_text).toBe(PLAINTEXT_NAME)
+    expect(doc.search_text).toBe(CIPHERTEXT_NAME)
+    expect(tokenDoc).not.toBe(doc)
+  })
+
+  it('resolves the search config once and threads it into the token writer', async () => {
+    // The aggregate's blocklist filter and the per-field token filter must read one
+    // snapshot of the environment, as the batch path already guarantees. Passing the
+    // resolved config through makes that structural rather than incidental — and saves
+    // `resolveSearchConfig` re-parsing eleven env vars a second time on a hot write path.
+    const em = { getKysely: () => ({}) } as any
+
+    await reindexSearchTokensForRecord(em, {
+      entityType: PERSON,
+      recordId: 'rec-1',
+      organizationId: 'org-1',
+      tenantId: 'tenant-1',
+      doc: { id: 'rec-1', display_name: PLAINTEXT_NAME },
+    })
+
+    expect(mockReplaceForRecord.mock.calls[0][1].config).toBeDefined()
   })
 })
 

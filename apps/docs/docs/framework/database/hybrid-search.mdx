@@ -377,7 +377,10 @@ alongside it concatenates ciphertext for every field an encryption map covers. S
 are therefore built from a **decrypted** copy of the document, with `search_text` recomposed
 from those plaintext values — otherwise the aggregate would be tokenized from ciphertext and
 could never match what a user types. Indexes written before this behavior shipped keep their
-ciphertext-derived `search_text` tokens until the entity is reindexed.
+ciphertext-derived `search_text` tokens until they are rewritten: a record heals on its next
+ordinary write, which rebuilds its tokens, so a reindex
+(`yarn mercato query_index reindex --entity <entityType>`) is only needed to heal records
+nothing writes to again.
 
 ## Adding Custom Strategies
 
