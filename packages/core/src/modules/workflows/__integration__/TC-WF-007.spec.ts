@@ -214,7 +214,14 @@ test.describe('TC-WF-007: Visual editor renders a UI-created workflow', () => {
       // amount spinbutton + unit select) pre-filled from config.duration=PT5M,
       // plus a "Wait Until" date-time picker. Labels are the English strings
       // from workflows/i18n/en.json and ui.durationInput.* / ui.dateTimePicker.*.
-      await expect(dialog.getByText('WAIT FOR TIMER', { exact: true })).toBeVisible()
+      // Scoped to the step-type badge: the "Change step type" select now also
+      // shows the step's CURRENT type (it used to render blank — see #5988), so
+      // the bare text matches the badge, the combobox and its option. Assert
+      // both surfaces rather than loosening the match to `.first()`.
+      await expect(
+        dialog.locator('[data-slot="badge"]').filter({ hasText: /^WAIT FOR TIMER$/ }),
+      ).toBeVisible()
+      await expect(dialog.getByRole('combobox', { name: 'Step Type' })).toContainText('WAIT FOR TIMER')
       await expect(dialog.getByText('Timer Configuration', { exact: true })).toBeVisible()
       await expect(dialog.getByRole('spinbutton', { name: 'Duration amount' })).toHaveValue('5')
       await expect(dialog.getByRole('combobox', { name: 'Duration unit' })).toContainText('Minutes')

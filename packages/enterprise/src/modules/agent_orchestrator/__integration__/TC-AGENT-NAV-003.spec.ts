@@ -17,6 +17,7 @@ import {
   insertAgentRunFixtures,
 } from './helpers/agentPerfFixtures'
 import { deleteAgentProcessesForOrganization, insertAgentProcessFixture } from './helpers/agentUxFixtures'
+import { shortCaseId } from '../components/subjectRef'
 
 /**
  * TC-AGENT-NAV-003: Overview stuck queue "Open process" is workflowInstanceId-gated.
@@ -126,10 +127,13 @@ test.describe('TC-AGENT-NAV-003: overview open-process gating', () => {
       await loginAs(page, email, password)
       await page.goto('/backend/overview', { waitUntil: 'domcontentloaded' })
 
-      // Stuck rows fall back to the run-id prefix as their reference; use it to
-      // address each row unambiguously.
-      const workflowRow = page.locator('tr', { hasText: workflowRunId.slice(0, 12) })
-      const plainRow = page.locator('tr', { hasText: plainRunId.slice(0, 12) })
+      // Stuck rows fall back to the run's short case id as their reference; use
+      // it to address each row unambiguously. Derived through `shortCaseId` — the
+      // same helper the page renders with — so the spec tracks that convention
+      // instead of re-encoding it (it was a raw 12-char slice, which cut a UUID
+      // mid-group; see #5979).
+      const workflowRow = page.locator('tr', { hasText: shortCaseId(workflowRunId) })
+      const plainRow = page.locator('tr', { hasText: shortCaseId(plainRunId) })
       await expect(workflowRow).toBeVisible({ timeout: 15_000 })
       await expect(plainRow).toBeVisible({ timeout: 15_000 })
 
