@@ -22,7 +22,13 @@ type GlobalSearchResponse = { results?: SearchResultItem[] }
 const DEFAULT_STRATEGIES = ['fulltext', 'vector', 'tokens']
 const PERSON_PROFILE = 'customers:customer_person_profile'
 const COMPANY_PROFILE = 'customers:customer_company_profile'
-const LIST_SEARCH_PLACEHOLDER = 'Search by name, email, phone…'
+// Matched as a pattern, not the full string. The rendered placeholder is
+// `customers.{people,companies}.list.searchPlaceholder` — "Search by name, email, phone…" — whose
+// trailing ellipsis is a single U+2026 character and whose tail is ordinary copy. TC-CRM-001, -014,
+// -015, -029, -030, -033 and -065 all locate this same input with `/Search by name/i`; matching
+// the stable prefix keeps this spec failing on the palette contract it guards rather than on an
+// i18n copy edit.
+const LIST_SEARCH_PLACEHOLDER = /Search by name/i
 
 type Fixture = {
   label: 'person' | 'company'
