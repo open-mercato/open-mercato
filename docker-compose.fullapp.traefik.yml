@@ -55,6 +55,14 @@ services:
       - mercato-network-fullapp
 
   app:
+    environment:
+      TELEMETRY_BACKEND: ${TELEMETRY_BACKEND:-}
+      TELEMETRY_SAMPLING_RATIO: ${TELEMETRY_SAMPLING_RATIO:-}
+      TELEMETRY_TRUST_INBOUND_TRACE: ${TELEMETRY_TRUST_INBOUND_TRACE:-false}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-open-mercato}
+      OTEL_RESOURCE_ATTRIBUTES: ${OTEL_RESOURCE_ATTRIBUTES:-}
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=mercato-network-${DEPLOY_ENV:-local}"

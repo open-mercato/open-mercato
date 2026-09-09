@@ -72,16 +72,39 @@ export async function register(): Promise<void> {
   // Initialize telemetry (no-op unless TELEMETRY_BACKEND is set). OTEL's NodeSDK
   // is Node-only and incompatible with the edge runtime, so the telemetry
   // bootstrap — which can pull in the SDK — is imported only on the Node.js
-  // runtime. The helper owns init + graceful degrade + shutdown flush.
+  // runtime. The helper owns init + graceful degrade + shutdown flush; a
+  // deliberate configuration failure bubbles here so the host exits loudly.
   if (
     process.env.NEXT_RUNTIME === 'nodejs'
     && isTelemetryBackendEnabled()
   ) {
     const { registerTelemetryForNextjs } = await import('@open-mercato/telemetry/nextjs')
-    await registerTelemetryForNextjs()
+    try {
+      await registerTelemetryForNextjs()
+    } catch (err) {
+      const nodeProcess = process
+      nodeProcess.stderr.write(\`\${err instanceof Error ? err.message : String(err)}\\n\`)
+      nodeProcess.exit(1)
+    }
   }
 }
 `
+
+const MULTILINE_TELEMETRY_GUARD = `  if (
+    process.env.NEXT_RUNTIME === 'nodejs'
+    && isTelemetryBackendEnabled()
+  ) {`
+const INLINE_TELEMETRY_GUARD = `  if (process.env.NEXT_RUNTIME === 'nodejs' && isTelemetryBackendEnabled()) {`
+const LEGACY_NODE_TELEMETRY_GUARD = `  if (process.env.NEXT_RUNTIME === 'nodejs') {`
+const TELEMETRY_DYNAMIC_IMPORT = `    const { registerTelemetryForNextjs } = await import('@open-mercato/telemetry/nextjs')`
+const BARE_TELEMETRY_REGISTRATION = `    await registerTelemetryForNextjs()`
+const GUARDED_TELEMETRY_REGISTRATION = `    try {
+      await registerTelemetryForNextjs()
+    } catch (err) {
+      const nodeProcess = process
+      nodeProcess.stderr.write(\`\${err instanceof Error ? err.message : String(err)}\\n\`)
+      nodeProcess.exit(1)
+    }`
 
 const DISPATCHER_SNIPPET = `  // add near the other imports:
   import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
@@ -175,17 +198,45 @@ function patchInstrumentation(appDir: string, options: TelemetryInitOptions): St
   }
   const content = readFileSync(path, 'utf8')
   if (content.includes('registerTelemetryForNextjs')) {
-    if (content.includes('isTelemetryBackendEnabled')) {
+    const guardedBootstraps = [MULTILINE_TELEMETRY_GUARD, INLINE_TELEMETRY_GUARD]
+    const safeBootstrap = guardedBootstraps
+      .map((guard) => `${guard}\n${TELEMETRY_DYNAMIC_IMPORT}\n${GUARDED_TELEMETRY_REGISTRATION}`)
+      .find((bootstrap) => content.includes(bootstrap))
+    if (safeBootstrap) {
       return { file, status: 'skipped', detail: 'telemetry already wired' }
     }
-    const migrated =
-      `import { isTelemetryBackendEnabled } from '@open-mercato/shared/lib/telemetry/runtime'\n` +
-      content.replace(
-        `if (process.env.NEXT_RUNTIME === 'nodejs') {`,
-        `if (process.env.NEXT_RUNTIME === 'nodejs' && isTelemetryBackendEnabled()) {`,
+    const guardedLegacyBootstrap = guardedBootstraps
+      .map((guard) => `${guard}\n${TELEMETRY_DYNAMIC_IMPORT}\n${BARE_TELEMETRY_REGISTRATION}`)
+      .find((bootstrap) => content.includes(bootstrap))
+    if (guardedLegacyBootstrap) {
+      const migrated = content.replace(
+        guardedLegacyBootstrap,
+        guardedLegacyBootstrap.replace(BARE_TELEMETRY_REGISTRATION, GUARDED_TELEMETRY_REGISTRATION),
       )
-    if (!options.dryRun) writeFileSync(path, migrated)
-    return { file, status: 'patched', detail: 'added the explicit backend import guard' }
+      if (!options.dryRun) writeFileSync(path, migrated)
+      return { file, status: 'patched', detail: 'wrapped OTLP dependency failures with host termination' }
+    }
+    const nodeOnlyLegacyBootstrap = `${LEGACY_NODE_TELEMETRY_GUARD}\n${TELEMETRY_DYNAMIC_IMPORT}\n${BARE_TELEMETRY_REGISTRATION}`
+    if (content.includes(nodeOnlyLegacyBootstrap)) {
+      const guardedBootstrap = nodeOnlyLegacyBootstrap
+        .replace(LEGACY_NODE_TELEMETRY_GUARD, INLINE_TELEMETRY_GUARD)
+        .replace(BARE_TELEMETRY_REGISTRATION, GUARDED_TELEMETRY_REGISTRATION)
+      const importLine = `import { isTelemetryBackendEnabled } from '@open-mercato/shared/lib/telemetry/runtime'\n`
+      const withBootstrap = content.replace(nodeOnlyLegacyBootstrap, guardedBootstrap)
+      const migrated = withBootstrap.includes(importLine) ? withBootstrap : importLine + withBootstrap
+      if (!options.dryRun) writeFileSync(path, migrated)
+      return {
+        file,
+        status: 'patched',
+        detail: 'added the explicit backend guard and wrapped OTLP dependency failures with host termination',
+      }
+    }
+    return {
+      file,
+      status: 'manual',
+      detail: 'existing telemetry bootstrap needs the canonical Node guard and fail-closed host wrapper',
+      manualSnippet: INSTRUMENTATION_TS,
+    }
   }
   const anchor = content.match(/export\s+async\s+function\s+register\s*\([^)]*\)\s*:\s*Promise<void>\s*\{/)
   if (!anchor || anchor.index === undefined) {
@@ -201,7 +252,13 @@ function patchInstrumentation(appDir: string, options: TelemetryInitOptions): St
     `\n  // Initialize telemetry (no-op unless TELEMETRY_BACKEND is set); Node-only.` +
     `\n  if (process.env.NEXT_RUNTIME === 'nodejs' && isTelemetryBackendEnabled()) {` +
     `\n    const { registerTelemetryForNextjs } = await import('@open-mercato/telemetry/nextjs')` +
-    `\n    await registerTelemetryForNextjs()` +
+    `\n    try {` +
+    `\n      await registerTelemetryForNextjs()` +
+    `\n    } catch (err) {` +
+    `\n      const nodeProcess = process` +
+    `\n      nodeProcess.stderr.write(\`\${err instanceof Error ? err.message : String(err)}\\n\`)` +
+    `\n      nodeProcess.exit(1)` +
+    `\n    }` +
     `\n  }`
   const importLine = `import { isTelemetryBackendEnabled } from '@open-mercato/shared/lib/telemetry/runtime'\n`
   const withImport = content.includes('isTelemetryBackendEnabled')
