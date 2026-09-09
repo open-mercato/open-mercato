@@ -323,15 +323,28 @@ header. A calculator that needs to must switch the document to `computed` first.
 
 `paidTotalAmount`, `refundedTotalAmount` and `outstandingAmount` stay **core-owned** and derived, unchanged:
 `outstandingAmount = max(grandTotalGross − paid + refunded, 0)` (`lib/calculations.ts:314`, re-applied at
-`:456-467`; `commands/payments.ts:317` recomputes it from `order.grandTotalGrossAmount` and the payment
+`:456-467`; `commands/payments.ts:316` recomputes it from `order.grandTotalGrossAmount` and the payment
 rows). Because payments derive outstanding from the *persisted* header gross and never re-derive the
 header, **`sales.payments.*` needs no rule and no change at all** — under `external` it simply derives from
 the caller's gross instead of core's.
 
-Choosing `external` **requires** a complete specification: net, gross and tax on every line, and the header
-totals on the document. Partial specification is not a mode. This mirrors commercetools' rule for
-`TaxMode: ExternalAmount` — *"A Cart can be ordered only if the Cart and all Line Items, Custom Line Items,
-and the Shipping Method have an external tax amount and rate set."*
+Choosing `external` **requires** a complete specification: `unitPriceNet`, net, gross and tax on every
+line, and the header totals on the document. Partial specification is not a mode. This mirrors
+commercetools' rule for `TaxMode: ExternalAmount` — *"A Cart can be ordered only if the Cart and all Line
+Items, Custom Line Items, and the Shipping Method have an external tax amount and rate set."*
+
+**`unitPriceNet` is on that list because § 3's derivation consumes it**, not for symmetry. It is optional
+on the request (`data/validators.ts:337`) and `mapPersistedLine` coerces a missing one to zero
+(`lib/lineSnapshots.ts:30`, via a `toNumeric` that returns `0` for null), so an external line that omits it
+derives `discountAmount = 0 × quantity − totalNetAmount = −totalNetAmount`: the line's entire net,
+persisted into `sales_order_lines.discount_amount` and rendered in the items table as a discount. That is
+exactly the self-consistency § 3 keeps the discount derived in order to protect, and a mirroring caller has
+every reason to omit the field — under `external` core uses the unit price for nothing else the caller can
+observe. Requiring it is also the honest reading of the mode: a source that authors in gross does hold a
+unit net (§ Problem Statement), so nothing is being asked for that the caller does not have.
+
+A caller that genuinely has no unit price should not use `external` on that line; there is no
+partially-specified variant, by § 4's own rule.
 
 ### 5. Round trip
 
@@ -352,14 +365,16 @@ make one write correct; only a persisted column survives the next write to a sib
 
 ### 6. Every place that writes header totals, and its rule
 
-Exhaustive at `3076e5ccf`. **Seventeen sites: sixteen command-layer writers, and one inside the calculation
-engine** — the totals-calculator stage of § 4, which is not reachable by grepping the command files because
-it is registered as a module side effect. The rule is one sentence, applied uniformly:
+Exhaustive at `3076e5ccf`. **Twenty-three sites: twenty-two command-layer writers, and one inside the
+calculation engine.** Two of the groups below are invisible to a grep for `applyOrderTotals`, which is the
+helper the first three tables are built on: the totals-calculator stage of § 4, registered as a module side
+effect, and the undo path, which assigns the header field by field. The rule is one sentence, applied
+uniformly:
 
 > A command that would rewrite an external document's header either **refuses**, or **leaves the header
 > untouched** and records its own non-monetary effect. Nothing recomputes an external header implicitly.
 
-**`commands/documents.ts` — recalculate-and-persist via `applyOrderTotals` (`:3641`) / `applyQuoteTotals` (`:3634`)**
+**`commands/documents.ts` — recalculate-and-persist via `applyOrderTotals` (`:3653`) / `applyQuoteTotals` (`:3634`)**
 
 | command | decl | writes at | rule under `external` |
 |---|---:|---:|---|
@@ -390,13 +405,52 @@ it is registered as a module side effect. The rule is one sentence, applied unif
 | 545 → `em.persist(order)` 547 | `restoreReturnEffects` (`:411`) | `sales.returns.create` (`:811`), `sales.returns.delete` (`:1085`) | same |
 | 731 → `tx.persist(order)` 733 | `sales.returns.create` (`:571`) | — | same |
 
-**Inside the engine — the seventeenth site**
+**`commands/documents.ts` — undo/rollback via `restoreOrderGraph`, which bypasses `applyOrderTotals` entirely**
+
+`restoreOrderGraph` (`:4358`) calls `applyOrderSnapshot` (`:3983`), which assigns the header field by field
+— `subtotalNetAmount` at `:4039` through `lineItemCount` at `:4054` — without going near
+`applyOrderTotals`. Every order command in the first table has a second, unlisted header write behind it:
+
+| undo handler | restore at | rule under `external` |
+|---|---:|---|
+| `sales.orders.update` | 5705 | restore the mode columns **together with** the amounts |
+| `sales.orders.delete` | 6311 | same |
+| `sales.orders.lines.upsert` | 7387 | same |
+| `sales.orders.lines.delete` | 7569 | same |
+| `sales.orders.adjustments.upsert` | 8332 | same |
+| `sales.orders.adjustments.delete` | 8497 | same |
+
+**The amounts are not the hazard here — the mode columns are.** An undo restores the row's own previously
+persisted values, which for an external order are the caller's. But `OrderGraphSnapshot` (`:329`) and its
+nested `OrderLineSnapshot` (`:395`) are hand-maintained explicit field lists — the line entry already
+spells out `unitPriceNet` (`:417`), `discountAmount` (`:419`), `totalNetAmount` (`:423`) and
+`totalGrossAmount` (`:424`) — captured by `loadOrderSnapshot` (`:1801`) and restored by
+`applyOrderSnapshot`, field by field at both ends. `totals_mode` and `amounts_mode` have to be added to
+all three or they are silently dropped across an undo.
+
+The concrete failure, and it is the one this whole spec exists to prevent: an operator uses § 8's
+switch-back to flip an external order to `computed`, so `sales.orders.update` recomputes the header and
+every line and sets both columns to `computed`. The operator then undoes that update. `restoreOrderGraph`
+puts the caller's amounts back but, with the columns absent from the snapshot, leaves
+`totals_mode = 'computed'`. The document now holds the caller's legally filed header while advertising
+that core owns it — and the next write to any sibling line recalculates it away, silently. The
+mirror-image miss (column captured, amounts restored from a `computed`-era snapshot) produces the mixed
+state § 1's invariant forbids.
+
+So the rule is not "restore the mode" but **restore the mode and the amounts as one unit**: the pair must
+never be observably inconsistent, in either direction.
+
+`applyQuoteSnapshot` (`:3926`) is the quote twin, reached from seven quote-side handlers. Under § 1 quotes
+stay `computed`, so it needs no rule — but it is named here so the next reader does not have to
+re-establish that it was considered.
+
+**Inside the engine — the twenty-third site**
 
 | site | symbol | reached from | rule under `external` |
 |---|---|---|---|
 | `lib/providers/totals.ts:183`, rebuild at `:191`, returns at `:370` | the provider totals calculator, registered by `ensureProviderTotalsCalculator` (`:179`) via the `lib/providers/index.ts:5` module side effect | every order and quote write — the barrel is evaluated by `sales/index.ts:2` and by `data/validators.ts:6` (§ 4) | return `current` unchanged; and `calculateDocument` re-applies the supplied header after the whole registry regardless (§ 4) |
 
-This one is the reason § 4 is written as belt *and* braces. Every other site in this section is a command
+This last one is the reason § 4 is written as belt *and* braces. Every other site in this section is a command
 that can be guarded where it is called; this one is a hook installed by *importing a module*, so a guard
 placed at any call site would miss it, and so would a review that only reads the command files.
 
@@ -429,13 +483,27 @@ Setting `amountsMode: 'computed'` on `sales.orders.update` flips the order and *
 (the § 1 invariant forbids the mixed state), runs `calculateDocumentTotals` normally, and rewrites the
 header and every line from `unit_price_net`, `quantity` and `discount_*`.
 
-**The switch is lossy and the spec does not pretend otherwise.** Two things change and neither is
-recoverable:
+**The switch is lossy, and how lossy depends on the line.** Three cases, and only the first is exact:
 
-- Every line net returns to `unitPriceNet × quantity − discount`, so the differences the mode existed to
-  preserve are gone, and the header returns to the rollup.
-- A markup line's negative derived `discount_amount` (§ 3) meets `Math.max(…, 0)` at
-  `lib/calculations.ts:128` on the way back, so its discount clamps to `0` and its net **rises**.
+- **A discount line with `discount_percent = 0` round-trips exactly.** `mapPersistedLine` sets
+  `discountAmountFromStoredRow: true` (`lib/lineSnapshots.ts:38`), so `resolveLineDiscountTotal` reads the
+  stored amount as a line total rather than multiplying it out. Since § 3 derived that amount as
+  `unitPriceNet × quantity − totalNetAmount`, the recomputed net is
+  `unitPriceNet × quantity − (unitPriceNet × quantity − totalNetAmount) = totalNetAmount`. The caller's net
+  survives. This is the reason § 3 derives the discount instead of storing zero.
+- **A markup line loses the markup, and its net falls.** Its derived `discount_amount` is negative;
+  `Math.max(…, 0)` at `lib/calculations.ts:128` clamps that to `0`, so
+  `netSubtotal = unitPriceNet × quantity`, which for a markup line is *below* the external net by
+  definition. The markup is exactly what is lost.
+- **A line carrying a non-zero `discount_percent` re-derives from the percent.** Percentage-first
+  precedence (`lib/calculations.ts:102-105`) outranks the stored amount, so the net becomes whatever the
+  percent implies and the derived-discount identity above does not hold. `discount_percent` is persisted
+  as supplied but unused while the line is external, which makes it a latent trap: a caller that sends one
+  alongside external amounts gets an exact round-trip while external and a silently different net the
+  moment the document is switched back.
+
+The header returns to the line rollup in every case, so the per-rate-group difference the mode existed to
+carry is gone regardless of which case the lines fall into.
 
 The supplied values are **not** retained in shadow columns. A shadow copy is a second source of truth that
 nothing reads and nothing keeps correct, and the caller's own book of record still holds the originals.
@@ -459,7 +527,7 @@ SalesOrderLine   ───▶│  SalesLineSnapshot │───▶ buildBaseLin
   (lineSnapshots.ts:14)└────────────────────┘      ├─ external → net/gross/tax verbatim, no clamp (§3)
         ▲                                          └─ computed → today's derivation, unchanged
         │                                                   │
-        │                                    line calculator registry (:334-337) — runs either way
+        │                                    line calculator registry (:375-378) — runs either way
         │                                                   │
         │                                    external → re-apply supplied amounts (§3)
         │                                                   ▼
@@ -467,11 +535,11 @@ SalesOrderLine   ───▶│  SalesLineSnapshot │───▶ buildBaseLin
         │                                                   │
         ├──── persist (documents.ts:3185-3186) ◀────────────┤
         │                                                   ▼
-        │                                       buildBaseDocumentResult (:151)
+        │                                       buildBaseDocumentResult (:192)
         │                                          ├─ external → supplied header (§4)
         │                                          └─ computed → line rollup, unchanged
         │                                                   │
-        │                            totals calculator registry (:384-393) — runs either way
+        │                            totals calculator registry (:425-434) — runs either way
         │                            └─ provider hook (providers/totals.ts:183) no-ops if external
         │                                                   │
         │                            external → re-apply supplied header, recompute
@@ -520,6 +588,18 @@ Unchanged, and listed because § 3 depends on their existing shape:
 
 `numeric` is signed, so the markup case (§ 3) needs no type change.
 
+**Two module-private types must gain the columns too**, or the undo path drops them (§ 6):
+
+| type | file:line | add |
+|---|---|---|
+| `OrderGraphSnapshot` | `commands/documents.ts:329` | `totalsMode` |
+| `OrderLineSnapshot` | `commands/documents.ts:395` | `amountsMode` |
+
+Both are hand-maintained explicit field lists, captured by `loadOrderSnapshot` (`:1801`) and restored by
+`applyOrderSnapshot` (`:3983`) field by field at both ends, so a new column is not picked up implicitly.
+Neither type is exported, so this is not a contract change — but the undo *behaviour* it drives is
+observable, which is why the rule lives in § 6 rather than here.
+
 The generated migration adds two `ALTER TABLE … ADD COLUMN … DEFAULT 'computed' NOT NULL` statements and
 updates `packages/core/src/modules/sales/migrations/.snapshot-open-mercato.json`. Existing rows take the
 default in place; PostgreSQL has not rewritten a table for a defaulted column add since 11.
@@ -551,10 +631,10 @@ amountsMode: z.enum(['computed', 'external']).optional(),   // new; omitted ⇒ 
 can satisfy**. Neither schema can carry a header total today:
 
 ```ts
-const orderLineUpsertSchema = orderLineCreateSchema.extend({   // :6781 — line fields only
+const orderLineUpsertSchema = orderLineCreateSchema.extend({   // :6793 — line fields only
   id: z.string().uuid().optional(),
 })
-const orderLineDeleteSchema = z.object({                        // :6785
+const orderLineDeleteSchema = z.object({                        // :6797
   id: z.string().uuid(),
   orderId: z.string().uuid(),
 })
@@ -808,17 +888,23 @@ suppression is structural rather than a second gate someone has to remember to a
 4. **Markup.** A line with `totalNetAmount > unitPriceNet × quantity` round-trips exactly, and its derived
    `discount_amount` is negative. Covered explicitly, not incidentally — no clamp, at either the validator
    or the engine.
-5. **Completeness is enforced.** `amountsMode: 'external'` without a net, gross or tax on some line, or
-   without the header totals on the document, is a 4xx naming the missing field. Partial specification is
-   not a mode.
+5. **Completeness is enforced.** `amountsMode: 'external'` without a `unitPriceNet`, net, gross or tax on
+   some line, or without the header totals on the document, is a 4xx naming the missing field. Partial
+   specification is not a mode. The `unitPriceNet` case needs its own test rather than riding along with
+   the others: it is the one whose absence produces a *plausible* result instead of an obviously broken
+   one — `discount_amount = −totalNetAmount`, which criterion 4 would read as a legitimate markup.
 6. **No mixed documents.** The § 1 invariant holds: an external order has no computed line, a computed
    order has no external line, in both directions, on create and on update.
-7. **All seventeen sites covered.** The twelve `documents.ts` writers, the `convert_to_order` copy, the
-   three `returns.ts` writers, and the provider totals calculator each behave per its § 6 row. A change
-   covering `documents.ts` only would satisfy criteria 1–6 while leaving the return flows rewriting
-   external headers — the exact shape of defect the discount contract's D6 exists to prevent — and a change
-   covering all sixteen *command* sites would still fail criterion 3a, because the seventeenth is installed
-   by importing a module rather than by being called.
+7. **All twenty-three sites covered.** The twelve `documents.ts` writers, the `convert_to_order` copy, the
+   six `restoreOrderGraph` undo sites, the three `returns.ts` writers, and the provider totals calculator
+   each behave per its § 6 row. A change covering `documents.ts`'s `applyOrderTotals` call sites only would
+   satisfy criteria 1–6 while leaving the return flows rewriting external headers — the defect the discount
+   contract's D6 exists to prevent — and would still fail criteria 3a and 7a, because two of the groups are
+   reached by importing a module and by restoring a snapshot rather than by being called.
+7a. **Undo round-trips an external order.** Update an external order, undo the update, and both the amounts
+   and both mode columns return to their pre-update values *together*. Separately: switch an external order
+   to `computed`, undo that, and the order is external again with the caller's amounts — the case where
+   dropping the columns from the snapshot leaves a document whose mode contradicts its own numbers.
 8. **Payments are untouched.** Recording, updating and deleting a payment against an external order changes
    `paid`, `refunded` and `outstanding` and nothing else; `outstanding` derives from the caller's
    `grand_total_gross_amount`.
@@ -842,7 +928,12 @@ Unit — `packages/core/src/modules/sales/lib/__tests__/calculations.test.ts`:
 - external line returns supplied net/gross/tax verbatim across a table of
   `(quantity, unitPriceNet, discountPercent, discountAmount, totalNetAmount)` cases, including ones where
   every derivation would produce a different answer;
+- **an omitted `unitPriceNet` is rejected, not defaulted** — the case that otherwise derives
+  `discountAmount = −totalNetAmount` and is indistinguishable from a markup (§ 4, criterion 5);
 - the markup case, asserting the negative derived `discountAmount` and the absence of both clamps;
+- the three § 8 switch-back cases, which have three different outcomes and only one of which is exact: a
+  zero-percent discount line (net preserved), a markup line (net falls to `unitPriceNet × quantity`), and a
+  line carrying a non-zero `discount_percent` (net re-derived from the percent);
 - idempotency: `calculate(calculate(x)) === calculate(x)` for external lines, the same property the
   discount contract pinned for computed ones;
 - a document whose supplied header differs from the sum of its supplied lines keeps the supplied header;
@@ -862,8 +953,14 @@ wrong. Both need a *registered* calculator, not a mocked one:
 Unit — `lib/__tests__/lineSnapshots.test.ts`: `mapPersistedLine` carries `amounts_mode` and sets no other
 origin field; the § 2 separation invariant.
 
-Command — `commands/__tests__/`: one case per § 6 row. The three `returns.ts` sites need their own cases;
-they are not reachable from the `documents.ts` command tests.
+Command — `commands/__tests__/`: one case per § 6 row. Three groups need their own cases and are not
+reachable from the ordinary `documents.ts` command tests:
+
+- the three `returns.ts` sites;
+- the six `restoreOrderGraph` undo sites — update an external order then undo it, and assert the amounts
+  *and* both mode columns came back together (criterion 7a). A test that only checks the amounts passes
+  today, because the amounts were never the part at risk;
+- the completeness rejections, including the `unitPriceNet` one (criterion 5).
 
 Integration — `packages/core/src/modules/sales/__integration__/`, self-contained per `.ai/qa/AGENTS.md`
 (fixtures created in setup, cleaned up in teardown, no reliance on seeded data): create an external order
@@ -884,7 +981,7 @@ return create/delete cycle asserting the header is untouched; then the switch ba
 | A third-party module or report reads `discount_amount` assuming non-negative | medium | third-party modules, custom reports | `UPGRADE_NOTES.md` entry; only occurs on rows a caller explicitly opted in | a report that sums the column across mixed rows understates the discount total |
 | Two orthogonal mode-ish flags (`amountsMode`, `totalsFromStoredRow`) get conflated during implementation | medium | core | § 2's three-field table; criterion 12; the precedent comment at `lineSnapshots.ts:33-38` | the discount contract already lost a draft to exactly this conflation |
 | The § 1 invariant is enforced in commands only, so a direct DB write can produce a mixed document | low | direct SQL, seeds | criterion 6 covers the command layer; the engine treats an unknown/absent mode as `computed`, so a mixed row degrades to today's behaviour rather than to nonsense | a direct writer can still create a document whose header and lines disagree — as it can today |
-| Seventeen guard sites, one missed | low | core | § 6 enumerates all of them by `file:line`; criterion 7 names the returns flows and the engine-side hook specifically. The seventeenth was itself missed by this spec's first draft, which is the evidence that grepping the command files is not a sufficient method here | — |
+| Twenty-three guard sites, one missed | **medium** | core | § 6 enumerates all of them by `file:line`; criteria 7 and 7a name the returns flows, the engine-side hook and the undo path specifically | raised from low because the enumeration has now been found incomplete **twice** — the engine-side hook in one review, the undo path in the next — and both misses share one cause: the tables were built by grepping for `applyOrderTotals`, and neither of those sites calls it. A third site reached by some third mechanism is not hypothetical |
 
 Contract-surface classification: see § Migration & Backward Compatibility.
 
@@ -938,11 +1035,35 @@ Requested is answered — the three decisions change the shape of the change, no
 
 ## Changelog
 
+### 2026-09-09
+
+- § 6 gains the **undo path** as its own sub-table: `restoreOrderGraph` (`commands/documents.ts:4358`) →
+  `applyOrderSnapshot` (`:3983`) assigns the header field by field at `:4039-4054` without touching
+  `applyOrderTotals`, and is reached from six order-side handlers. Every order command already in the
+  table had a second, unlisted header write behind it. The site count goes from seventeen to twenty-three,
+  and § Data Models now requires `totalsMode`/`amountsMode` on `OrderGraphSnapshot` (`:329`) and
+  `OrderLineSnapshot` (`:395`) — hand-maintained field lists that would otherwise drop the columns across
+  an undo, leaving a document whose mode contradicts its own amounts. New criterion 7a covers it.
+- § 4's completeness rule now requires **`unitPriceNet`**. § 3's derived `discountAmount` consumes it, but
+  it is optional on the request (`data/validators.ts:337`) and `mapPersistedLine` coerces a missing one to
+  zero (`lib/lineSnapshots.ts:30`), so an external line that omitted it derived
+  `discountAmount = −totalNetAmount` — the line's whole net, shown as a discount, and indistinguishable
+  from a legitimate markup under criterion 4.
+- § 8's switch-back was **wrong about the direction** and is now three cases instead of one blanket claim.
+  A markup line's net *falls* to `unitPriceNet × quantity`, it does not rise. A zero-percent discount line
+  round-trips exactly, which is the reason § 3 derives the discount rather than storing zero. A line
+  carrying a non-zero `discount_percent` re-derives from the percent — a latent trap worth naming.
+- Six citations still carried pre-#5707 offsets and are corrected; the § Risks row on missed guard sites is
+  raised to medium, since the enumeration has now been found incomplete twice and both misses had the same
+  cause. `commands/payments.ts` outstanding is at `:316`, not `:317`.
+
 ### 2026-09-08 (later)
 
-- Rebased onto `develop` @ `3076e5ccf` and re-verified every citation against it. #5707 merged in the
+- Rebased onto `develop` @ `3076e5ccf` and re-verified the citations against it. #5707 merged in the
   meantime (`5f3843eb7`), moving `lib/calculations.ts` by 41 lines, `commands/documents.ts` by 12–14,
-  `lib/types.ts` by 9 and `lib/lineSnapshots.ts` by 23, so every line number in this spec was restated.
+  `lib/types.ts` by 9 and `lib/lineSnapshots.ts` by 23, so the line numbers throughout were restated.
+  (Six were missed and are corrected in the 2026-09-09 entry below; the "every line number" claim this
+  entry originally made was too strong.)
 - #5707 having landed settles what an earlier revision had to hedge as a landing-order dependency: the
   reconciliation warning now sits at `lib/calculations.ts:143-163` behind `totalsFromStoredRow`, and § 3's
   early return means an external line never reaches it. No second gate is needed, and § Out of Scope says
