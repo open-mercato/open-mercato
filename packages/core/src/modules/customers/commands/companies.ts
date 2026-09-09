@@ -1035,6 +1035,14 @@ const deleteCompanyCommand: CommandHandler<{ body?: Record<string, unknown>; que
         }
 
         await em.nativeUpdate(CustomerPersonProfile, { company: record }, { company: null })
+        // Soft-deleted person links keep their `company_entity_id` foreign key, so the hard
+        // delete below would violate it. The guard above already proved no active link
+        // remains, and restricting the filter to `deletedAt != null` keeps that guarantee.
+        await em.nativeDelete(CustomerPersonCompanyLink, {
+          company: record,
+          deletedAt: { $ne: null },
+          ...dependentScope,
+        })
         await em.nativeDelete(CustomerDealCompanyLink, { company: record })
         await em.nativeDelete(CustomerActivity, { entity: record, organizationId: record.organizationId, tenantId: record.tenantId })
         await em.nativeDelete(CustomerInteraction, { entity: record, organizationId: record.organizationId, tenantId: record.tenantId })
