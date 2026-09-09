@@ -58,6 +58,15 @@ test('Dockerfile installs dependencies from workspace manifests before copying s
     )
   }
 
+  const documentsManifestCopies = dockerfile.match(
+    /(?:COPY|COPY --from=builder) (?:\/app\/)?packages\/documents\/package\.json \.\/packages\/documents\//g,
+  ) ?? []
+  assert.equal(
+    documentsManifestCopies.length,
+    3,
+    'Dockerfile should copy the Documents manifest in builder, dev, and runner stages',
+  )
+
   const manifestCopyIndex = dockerfile.indexOf('COPY packages/shared/package.json ./packages/shared/')
   const installIndex = dockerfile.indexOf('RUN yarn install --immutable')
   const sourceCopyIndex = dockerfile.indexOf('COPY packages/ ./packages/')
@@ -66,6 +75,29 @@ test('Dockerfile installs dependencies from workspace manifests before copying s
   assert.ok(installIndex > manifestCopyIndex, 'expected immutable install after manifest copies')
   assert.ok(sourceCopyIndex > installIndex, 'expected full source copy after immutable install')
   assert.doesNotMatch(dockerfile, /^RUN yarn install$/m)
+})
+
+test('production runtime image supports Chromium for Documents PDF export', async () => {
+  const dockerfile = await readFile(new URL('../../Dockerfile', import.meta.url), 'utf8')
+
+  assert.match(dockerfile, /PUPPETEER_EXECUTABLE_PATH=\/usr\/bin\/chromium/)
+  assert.match(dockerfile, /apk add --no-cache ca-certificates chromium openssl sudo/)
+})
+
+test('production runtime Chromium install is opt-in via INSTALL_CHROMIUM build arg', async () => {
+  const dockerfile = await readFile(new URL('../../Dockerfile', import.meta.url), 'utf8')
+
+  assert.match(dockerfile, /ARG INSTALL_CHROMIUM=0/, 'runner stage should default INSTALL_CHROMIUM to 0')
+  assert.match(
+    dockerfile,
+    /if \[ "\$INSTALL_CHROMIUM" = "1" \]; then[\s\S]*?apk add --no-cache ca-certificates chromium openssl sudo/,
+    'chromium install should be guarded by the INSTALL_CHROMIUM build arg',
+  )
+  assert.match(
+    dockerfile,
+    /else[\s\S]*?apk add --no-cache ca-certificates openssl sudo/,
+    'opting out must still install the non-chromium runtime packages',
+  )
 })
 
 test('production Docker stage includes the telemetry workspace before focusing dependencies', async () => {

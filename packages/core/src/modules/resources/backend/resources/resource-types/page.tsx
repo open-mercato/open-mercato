@@ -45,6 +45,7 @@ type ResourceTypesResponse = {
   items?: Array<Record<string, unknown>>
   total?: number
   totalPages?: number
+  totalIsCapped?: boolean
 }
 
 type ResourceTypesMutationContext = {
@@ -63,6 +64,7 @@ export default function ResourcesResourceTypesPage() {
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'name', desc: false }])
   const [search, setSearch] = React.useState('')
   const [isLoading, setIsLoading] = React.useState(true)
@@ -232,6 +234,7 @@ export default function ResourcesResourceTypesPage() {
       setRows(items.map(mapApiResourceType))
       setTotal(typeof payload.total === 'number' ? payload.total : items.length)
       setTotalPages(typeof payload.totalPages === 'number' ? payload.totalPages : Math.max(1, Math.ceil(items.length / PAGE_SIZE)))
+      setTotalIsCapped(payload?.totalIsCapped === true)
     } catch (error) {
       logger.error('Failed to list resource types', { err: error })
       flash(translations.errors.load, 'error')
@@ -308,7 +311,7 @@ export default function ResourcesResourceTypesPage() {
           sortable
           sorting={sorting}
           onSortingChange={setSorting}
-          pagination={{ page, pageSize: PAGE_SIZE, total, totalPages, onPageChange: setPage }}
+          pagination={{ page, pageSize: PAGE_SIZE, total, totalPages, totalIsCapped, onPageChange: setPage }}
           rowActions={(row) => (
             <RowActions
               items={[

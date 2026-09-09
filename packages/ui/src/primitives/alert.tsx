@@ -252,9 +252,12 @@ const AlertTitle = React.forwardRef<HTMLHeadingElement, React.HTMLAttributes<HTM
 AlertTitle.displayName = 'AlertTitle'
 
 // Figma "Paragraph/Small": Inter Regular 14 / 20.
-const AlertDescription = React.forwardRef<HTMLParagraphElement, React.HTMLAttributes<HTMLParagraphElement>>(
+// Renders a <div>, not a <p>: callers routinely nest paragraphs, lists and other
+// block elements inside the description, which is invalid inside <p> and makes
+// React fail hydration with "In HTML, <p> cannot be a descendant of <p>".
+const AlertDescription = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
   ({ className, ...props }, ref) => (
-    <p ref={ref} className={cn('text-sm leading-5', className)} {...props} />
+    <div ref={ref} className={cn('text-sm leading-5', className)} {...props} />
   ),
 )
 AlertDescription.displayName = 'AlertDescription'

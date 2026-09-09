@@ -39,6 +39,7 @@ type SchedulesResponse = {
   total?: number
   page?: number
   totalPages?: number
+  totalIsCapped?: boolean
 }
 
 function mapApiItem(item: Record<string, unknown>): ScheduleRow | null {
@@ -82,6 +83,7 @@ export default function SchedulerPage() {
   const [pageSize] = React.useState(20)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [search, setSearch] = React.useState('')
   const [isLoading, setIsLoading] = React.useState(false)
   const scopeVersion = useOrganizationScopeVersion()
@@ -104,6 +106,7 @@ export default function SchedulerPage() {
       setRows(mapped)
       setTotal(result?.total ?? 0)
       setTotalPages(result?.totalPages ?? 1)
+      setTotalIsCapped(result?.totalIsCapped === true)
     } catch (error) {
       flash(t('scheduler.error.fetch_failed', 'Failed to load schedules'), 'error')
       setRows([])
@@ -282,7 +285,7 @@ export default function SchedulerPage() {
               createLabel={t('scheduler.action.create', 'New Schedule')}
             />
           )}
-          pagination={{ page, pageSize, total, totalPages, onPageChange: setPage }}
+          pagination={{ page, pageSize, total, totalPages, totalIsCapped, onPageChange: setPage }}
           isLoading={isLoading}
           searchValue={search}
           onSearchChange={(value) => { setSearch(value); setPage(1) }}

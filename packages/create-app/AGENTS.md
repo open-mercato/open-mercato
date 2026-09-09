@@ -52,7 +52,7 @@ When changes affect app shell behavior, verify all relevant template files are r
 
 1. `apps/mercato/src/app/layout.tsx` ↔ `packages/create-app/template/src/app/layout.tsx`
 2. `apps/mercato/src/app/(backend)/backend/layout.tsx` ↔ `packages/create-app/template/src/app/(backend)/backend/layout.tsx`
-3. `apps/mercato/src/components/*` wrappers used by layouts ↔ `packages/create-app/template/src/components/*`
+3. `apps/mercato/src/components/*` wrappers used by layouts ↔ `packages/create-app/template/src/components/*` — **including their `__tests__/*`**. Every file under the synced `src/{app,components,i18n,lib,modules}` folders is in scope for `yarn template:sync`, tests included, and a missing mirror fails it as `missing_in_template`. Mirror tests **byte-identically** and do not rewrite their imports: template tests execute nowhere — the monorepo does not run them, and `create-mercato-app` skips `__tests__`/`__integration__` while copying (`SKIP_DIRS` in `packages/create-app/src/index.ts`), so a scaffold ships none. They exist to keep the parity check honest, so `yarn template:sync` is the only thing that catches their drift (#5488)
 4. `scripts/dev.mjs` ↔ `packages/create-app/template/scripts/dev.mjs`
 5. `scripts/dev-log-files.mjs` ↔ `packages/create-app/template/scripts/dev-log-files.mjs`
 6. `scripts/dev-splash.html` ↔ `packages/create-app/template/scripts/dev-splash.html`

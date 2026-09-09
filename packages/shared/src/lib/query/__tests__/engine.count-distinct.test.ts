@@ -1,5 +1,12 @@
-import { BasicQueryEngine } from '../engine'
+import { BasicQueryEngine, clearColumnExistsCache } from '../engine'
 import { registerModules } from '../../i18n/server'
+
+// The column-existence answer is memoized on the module, not the instance (#5605), so
+// the per-test fake schemas below would otherwise inherit whatever the first test
+// probed for the same table names.
+beforeEach(() => {
+  clearColumnExistsCache()
+})
 
 // One entity extension on auth:user so includeExtensions exercises the joined-aggregate path.
 registerModules([
@@ -139,6 +146,22 @@ function createFakeKysely(selectsSink: any[], overrides?: FakeData) {
   }
 
   function builderFor(tableArg: any): any {
+    if (tableArg && typeof tableArg === 'object' && tableArg._ops) {
+      // selectFrom(subquery.as(alias)) — the capped-count probe shape.
+      const ops = {
+        table: '__subquery__',
+        alias: tableArg._ops.alias ?? null,
+        subquery: tableArg._ops,
+        wheres: [] as any[],
+        joins: [] as any[],
+        selects: [] as any[],
+        orderBys: [] as any[],
+        groups: [] as any[],
+        limits: 0,
+        offsets: 0,
+      }
+      return makeBuilder(ops, true)
+    }
     const parsed = parseTableSpec(tableArg)
     const ops = {
       table: parsed.table,
@@ -173,8 +196,28 @@ function findCountSql(selectsSink: any[]): string {
   return rawSqlText(countExprs[countExprs.length - 1]).toLowerCase()
 }
 
-describe('BasicQueryEngine — list COUNT query (issue #2227)', () => {
-  test('uses count(*) and no group-by when no joins can multiply base rows', async () => {
+// The count query is rebuilt from scope + filters only (#4552 Phase 2): cf
+// filters compile to correlated EXISTS semi-joins, projection joins are
+// dropped, so the count never needs DISTINCT or GROUP BY — completing the
+// direction #2227 started — and the LIMIT cap+1 probe actually bounds the scan.
+describe('BasicQueryEngine — rebuilt list COUNT query (#4552 Phase 2)', () => {
+  const originalCap = process.env.OM_LIST_COUNT_CAP
+  afterEach(() => {
+    if (originalCap === undefined) delete process.env.OM_LIST_COUNT_CAP
+    else process.env.OM_LIST_COUNT_CAP = originalCap
+  })
+
+  // The count-shape builder is the base-table call carrying the probe LIMIT
+  // (cap + 1); with the cap disabled it is the base call whose recorded select
+  // is the bare count aggregate.
+  function findCountShapeCall(fakeDb: any, table: string) {
+    const baseCalls = fakeDb._calls.filter((b: any) => b._ops.table === table)
+    const probed = baseCalls.find((b: any) => b._ops.limits === 10_001)
+    if (probed) return probed
+    return baseCalls.find((b: any) => b._ops.selects.some((s: any) => aliasName(s) === 'count'))
+  }
+
+  test('uses count(*) with no DISTINCT and no GROUP BY when nothing joins', async () => {
     const selects: any[] = []
     const fakeDb = createFakeKysely(selects)
     const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
@@ -184,11 +227,11 @@ describe('BasicQueryEngine — list COUNT query (issue #2227)', () => {
     expect(countSql).toContain('count(*)')
     expect(countSql).not.toContain('distinct')
 
-    const baseCall = fakeDb._calls.find((b: any) => b._ops.table === 'scheduled_jobs')
-    expect(baseCall._ops.groups.length).toBe(0)
+    const countCall = findCountShapeCall(fakeDb, 'scheduled_jobs')
+    expect(countCall._ops.groups.length).toBe(0)
   })
 
-  test('keeps count(distinct base.id) with group-by when extensions are joined', async () => {
+  test('drops extension projection joins from the count: count(*) over the bare base table', async () => {
     const selects: any[] = []
     const fakeDb = createFakeKysely(selects)
     const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
@@ -201,14 +244,20 @@ describe('BasicQueryEngine — list COUNT query (issue #2227)', () => {
     })
 
     const countSql = findCountSql(selects)
-    expect(countSql).toContain('count(distinct')
-    expect(countSql).not.toContain('count(*)')
+    expect(countSql).toContain('count(*)')
+    expect(countSql).not.toContain('distinct')
 
-    const baseCall = fakeDb._calls.find((b: any) => b._ops.table === 'users')
-    expect(baseCall._ops.groups.length).toBeGreaterThan(0)
+    // The display query keeps the extension join + GROUP BY …
+    const dataCall = fakeDb._calls.find((b: any) => b._ops.table === 'users' && b._ops.joins.length > 0)
+    expect(dataCall._ops.groups.length).toBeGreaterThan(0)
+    // … while the count shape carries neither: no join can multiply base rows,
+    // so no barrier sits between the probe LIMIT and the scan.
+    const countCall = findCountShapeCall(fakeDb, 'users')
+    expect(countCall._ops.joins.length).toBe(0)
+    expect(countCall._ops.groups.length).toBe(0)
   })
 
-  test('keeps count(distinct base.id) without group-by when an explicit relation join is configured', async () => {
+  test('explicit relation joins never reach the count: count(*), join filters stay EXISTS', async () => {
     const selects: any[] = []
     const fakeDb = createFakeKysely(selects)
     const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
@@ -216,14 +265,112 @@ describe('BasicQueryEngine — list COUNT query (issue #2227)', () => {
       tenantId: 't1',
       fields: ['id'],
       joins: [{ alias: 'owner', table: 'users', from: { field: 'owner_id' }, to: { field: 'id' } }],
+      filters: { 'owner.email': { $eq: 'a@b.c' } },
       page: { page: 1, pageSize: 20 },
     })
 
     const countSql = findCountSql(selects)
-    expect(countSql).toContain('count(distinct')
-    expect(countSql).not.toContain('count(*)')
+    expect(countSql).toContain('count(*)')
+    expect(countSql).not.toContain('distinct')
 
-    const baseCall = fakeDb._calls.find((b: any) => b._ops.table === 'scheduled_jobs')
-    expect(baseCall._ops.groups.length).toBe(0)
+    const countCall = findCountShapeCall(fakeDb, 'scheduled_jobs')
+    expect(countCall._ops.groups.length).toBe(0)
+    expect(countCall._ops.joins.length).toBe(0)
+    // The join filter is a semi-join on the count shape, not a join.
+    expect(countCall._ops.wheres.some((w: any) => Array.isArray(w) && w[0] === 'exists')).toBe(true)
+  })
+
+  test('cf filters compile to EXISTS over custom_field_values on the count shape', async () => {
+    const selects: any[] = []
+    const fakeDb = createFakeKysely(selects, {
+      custom_field_defs: [
+        { key: 'color', entity_id: 'scheduler:scheduled_job', is_active: true, tenant_id: null, kind: 'text', config_json: '{}' },
+      ],
+    })
+    const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
+    await engine.query('scheduler:scheduled_job', {
+      tenantId: 't1',
+      fields: ['id'],
+      filters: { cf_color: { $eq: 'red' } },
+      page: { page: 1, pageSize: 20 },
+    })
+
+    const countSql = findCountSql(selects)
+    expect(countSql).toContain('count(*)')
+    expect(countSql).not.toContain('distinct')
+
+    const countCall = findCountShapeCall(fakeDb, 'scheduled_jobs')
+    expect(countCall._ops.groups.length).toBe(0)
+    // No custom_field_values join on the count shape — the filter is an EXISTS
+    // whose subquery selects from custom_field_values.
+    expect(countCall._ops.joins.length).toBe(0)
+    const existsEntries = countCall._ops.wheres.filter((w: any) => Array.isArray(w) && w[0] === 'exists')
+    expect(existsEntries.length).toBeGreaterThan(0)
+    const existsSub = existsEntries[0][1]
+    expect(existsSub._ops.table).toBe('custom_field_values')
+    // The display query still resolves the same filter through its value join.
+    const dataCall = fakeDb._calls.find((b: any) =>
+      b._ops.table === 'scheduled_jobs' &&
+      b._ops.joins.some((j: any) => Object.values(j.aliasObj).includes('custom_field_values')))
+    expect(dataCall).toBeTruthy()
+  })
+
+  test('a cf leaf inside $or compiles to EXISTS on the count shape instead of being dropped (#5039)', async () => {
+    const selects: any[] = []
+    const fakeDb = createFakeKysely(selects, {
+      custom_field_defs: [
+        { key: 'color', entity_id: 'scheduler:scheduled_job', is_active: true, tenant_id: null, kind: 'text', config_json: '{}' },
+      ],
+      'information_schema.columns': [
+        { table_name: 'scheduled_jobs', column_name: 'id' },
+        { table_name: 'scheduled_jobs', column_name: 'tenant_id' },
+        { table_name: 'scheduled_jobs', column_name: 'status' },
+      ],
+    })
+    const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
+    await engine.query('scheduler:scheduled_job', {
+      tenantId: 't1',
+      fields: ['id'],
+      filters: { $or: [{ status: { $eq: 'closed' } }, { cf_color: { $eq: 'red' } }] },
+      page: { page: 1, pageSize: 20 },
+    })
+
+    const countCall = findCountShapeCall(fakeDb, 'scheduled_jobs')
+    expect(countCall._ops.joins.length).toBe(0)
+    // The whole disjunction lands in one OR where-entry whose parts include an
+    // EXISTS (the cf leaf) — dropping it would narrow the OR and undercount.
+    const orEntries = countCall._ops.wheres.filter((w: any) => Array.isArray(w) && w[0] === 'or')
+    expect(orEntries.length).toBeGreaterThan(0)
+    const hasExistsPart = orEntries.some((entry: any) =>
+      (entry[1] ?? []).some((part: any) => part?.kind === 'exists' || (part?.kind === 'and' && part.parts?.some((p: any) => p?.kind === 'exists'))))
+    expect(hasExistsPart).toBe(true)
+  })
+
+  test('the probe LIMIT is cap + 1 on the row-producing inner query, counted by an outer aggregate', async () => {
+    process.env.OM_LIST_COUNT_CAP = '100'
+    const selects: any[] = []
+    const fakeDb = createFakeKysely(selects)
+    const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
+    await engine.query('scheduler:scheduled_job', { tenantId: 't1', fields: ['id'], page: { page: 1, pageSize: 20 } })
+
+    const outer = fakeDb._calls.find((b: any) => b._ops.table === '__subquery__')
+    expect(outer).toBeTruthy()
+    expect(outer._ops.subquery.limits).toBe(101)
+    expect(outer._ops.subquery.groups.length).toBe(0)
+    const countSql = findCountSql(selects)
+    expect(countSql).toContain('count(*)')
+  })
+
+  test('OM_LIST_COUNT_CAP=0 disables the probe: a direct unbounded count(*)', async () => {
+    process.env.OM_LIST_COUNT_CAP = '0'
+    const selects: any[] = []
+    const fakeDb = createFakeKysely(selects)
+    const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
+    const result = await engine.query('scheduler:scheduled_job', { tenantId: 't1', fields: ['id'], page: { page: 1, pageSize: 20 } })
+
+    expect(fakeDb._calls.some((b: any) => b._ops.table === '__subquery__')).toBe(false)
+    const countSql = findCountSql(selects)
+    expect(countSql).toContain('count(*)')
+    expect(result.meta?.listCountCapWarning).toBeUndefined()
   })
 })

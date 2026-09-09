@@ -120,10 +120,13 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'inbox_ops', from: '@open-mercato/core' },
   { id: 'payment_gateways', from: '@open-mercato/core' },
   { id: 'checkout', from: '@open-mercato/checkout' },
+  { id: 'documents', from: '@open-mercato/documents' },
   { id: 'gateway_stripe', from: '@open-mercato/gateway-stripe' },
   // Per-user email channels for the Communications Hub (SPEC-045d / email
   // integration spec). Each provider package registers its `ChannelAdapter`
   // at import time via `setup.ts`; the hub picks them up by `providerKey`.
+  { id: 'channel_resend', from: '@open-mercato/channel-resend' },
+  { id: 'channel_ses', from: '@open-mercato/channel-ses' },
   { id: 'channel_imap', from: '@open-mercato/channel-imap' },
   { id: 'channel_gmail', from: '@open-mercato/channel-gmail' },
   // Mobile push providers for the push_notifications channel. Each registers a
@@ -132,6 +135,10 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'channel_apns', from: '@open-mercato/channel-apns' },
   { id: 'channel_expo', from: '@open-mercato/channel-expo' },
   { id: 'channel_fcm', from: '@open-mercato/channel-fcm' },
+  // Discord bot channel (SPEC 2026-06-19) — two-way Discord via REST + a
+  // provider-owned Gateway worker + a signed Interactions endpoint, plus an
+  // optional AI auto-reply subscriber.
+  { id: 'channel_discord', from: '@open-mercato/channel-discord' },
   { id: 'sync_akeneo', from: '@open-mercato/sync-akeneo' },
   { id: 'shipping_carriers', from: '@open-mercato/core' },
   { id: 'eudr', from: '@open-mercato/core' },

@@ -63,6 +63,7 @@ type ResourcesResponse = {
   total: number
   page: number
   totalPages: number
+  totalIsCapped?: boolean
 }
 
 type ResourceTypesResponse = {
@@ -81,6 +82,7 @@ export default function ResourcesResourcesPage() {
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [search, setSearch] = React.useState('')
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const [isLoading, setIsLoading] = React.useState(true)
@@ -360,6 +362,7 @@ export default function ResourcesResourcesPage() {
           setRows(mapped)
           setTotal(payload.total || 0)
           setTotalPages(payload.totalPages || 1)
+          setTotalIsCapped(payload?.totalIsCapped === true)
         }
       } catch (error) {
         if (!cancelled) {
@@ -546,7 +549,7 @@ export default function ResourcesResourcesPage() {
               createLabel={t('resources.resources.list.actions.create', 'New resource')}
             />
           )}
-          pagination={{ page, pageSize: PAGE_SIZE, total, totalPages, onPageChange: setPage }}
+          pagination={{ page, pageSize: PAGE_SIZE, total, totalPages, totalIsCapped, onPageChange: setPage }}
           isLoading={isLoading}
         />
       </PageBody>

@@ -23,6 +23,14 @@ delivery logic** (sender, providers, delivery rows, workers live in the `push_no
   — they carry undo snapshots, query-index side effects, and domain events.
 - Treat `push_token` as a secret: **never** include it in list/response field sets. Only
   `push_provider` and `push_token_updated_at` are exposed.
+- Serialize every GET response in **camelCase**, like every other module. The list routes run
+  `transformDeviceListItem` (`api/deviceList.ts`) over the query engine's raw projection and the admin
+  detail route uses `serializeDeviceDetail` (`api/deviceSerialization.ts`). Both also emit the legacy
+  snake_case keys as **deprecated aliases** via `toDeprecatedSnakeCaseAliases`, kept for one minor
+  version per `BACKWARD_COMPATIBILITY.md` § 7 and pinned by `TC-DEV-007`; when the bridge is dropped,
+  remove the alias spread from those two functions and the deprecated keys from `deviceListItemSchema`
+  / `deviceDetailItemSchema`. Adding a column means adding it to `deviceListFields`, the transform, and
+  the schemas. See `.ai/specs/2026-08-24-devices-api-camelcase-responses.md` (#5513).
 - Honor the `pushToken` tri-state on `PUT`: absent key = leave unchanged; explicit `null` = clear
   (revoked OS permission) and bump `push_token_updated_at`. The command uses own-property presence.
 - Keep the list route's CRUD cache tag aligned with the command's `resourceKind`. The list reads
@@ -89,8 +97,19 @@ write busts both caches (see cache-tag note above).
 ## ACL
 
 `devices.view`, `devices.manage` (self-serve), `devices.admin` (cross-user). Defaults in `setup.ts`:
-`superadmin`/`admin` get `devices.*`; `employee` gets `view` + `manage`. Run
+`superadmin`/`admin` get `devices.*` **plus `auth.users.list`**; `employee` gets `view` + `manage`. Run
 `yarn mercato auth sync-role-acls` after changing `acl.ts`/`setup.ts` to backfill existing tenants.
+
+`devices.admin` declares `dependsOn: ['auth.users.list']`: the admin screens name owners by person,
+and the register form's owner picker rejects values that do not resolve to a directory entry, so a
+role holding `devices.admin` without the dependency cannot complete that form. `dependsOn` only
+surfaces the gap in the ACL editor — it does not grant. Run the sync command above after deploying
+an ACL change here.
+
+The picker is `allowCustomValues: false`. That rejects free text and an id belonging to nobody; it
+does **not** reject a raw id that is already a known option, because `ComboboxInput` matches on
+`option.value` and `CrudForm` keeps the unfiltered first page as suggestions for the form's
+lifetime. Either way the submitted value is a real user in the caller's scope.
 
 ## Validation Commands
 

@@ -2,7 +2,11 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { StorageDriverFactory } from '../drivers'
 import type { AttachmentQuotaService } from '../quota-service'
-import { ScopedAttachmentUploadError, ScopedAttachmentUploadService } from '../scoped-upload-service'
+import {
+  isScopedAttachmentUploadError,
+  ScopedAttachmentUploadError,
+  ScopedAttachmentUploadService,
+} from '../scoped-upload-service'
 
 jest.mock('../partitions', () => ({
   ensureDefaultPartitions: jest.fn(async () => undefined),
@@ -163,5 +167,41 @@ describe('ScopedAttachmentUploadService', () => {
       status: 413,
     }))
     expect(driver.store).not.toHaveBeenCalled()
+  })
+})
+
+describe('ScopedAttachmentUploadError bundle-safe identity', () => {
+  // The production build emits this module into several server chunks, so a
+  // route's `instanceof` compares against a different copy of the class than the
+  // DI-resolved service threw from. The check then fails silently, the error
+  // escapes the caller's catch, and a deliberate 400 surfaces as a 500
+  // (TC-WC-028, shard 13). Only the `Symbol.for` marker survives duplication.
+  class DuplicateChunkCopy extends Error {
+    readonly [Symbol.for('@open-mercato/ScopedAttachmentUploadError')] = true
+    constructor(
+      public readonly code: string,
+      public readonly status: number,
+    ) {
+      super(code)
+      this.name = 'ScopedAttachmentUploadError'
+    }
+  }
+
+  it('recognizes an error thrown by another copy of the class', () => {
+    const fromOtherChunk = new DuplicateChunkCopy('dangerous_executable', 400)
+
+    expect(fromOtherChunk instanceof ScopedAttachmentUploadError).toBe(false)
+    expect(isScopedAttachmentUploadError(fromOtherChunk)).toBe(true)
+  })
+
+  it('recognizes errors thrown by this copy of the class', () => {
+    expect(isScopedAttachmentUploadError(new ScopedAttachmentUploadError('dangerous_executable', 400))).toBe(true)
+  })
+
+  it('does not claim unrelated errors or values', () => {
+    expect(isScopedAttachmentUploadError(new Error('nope'))).toBe(false)
+    expect(isScopedAttachmentUploadError({ code: 'dangerous_executable', status: 400 })).toBe(false)
+    expect(isScopedAttachmentUploadError(null)).toBe(false)
+    expect(isScopedAttachmentUploadError(undefined)).toBe(false)
   })
 })

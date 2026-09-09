@@ -96,6 +96,7 @@ describe('catalog computeCatalogMerchandisingPageContext (Step 5.15)', () => {
     expect(ctx.recordType).toBeNull()
     expect(ctx.recordId).toBe('')
     expect(ctx.extra.totalMatching).toBe(42)
+    expect(ctx.extra.totalMatchingIsCapped).toBe(false)
     expect(ctx.extra.selectedCount).toBe(0)
     expect(ctx.extra.filter).toEqual({
       categoryId: 'cat-a',
@@ -103,6 +104,18 @@ describe('catalog computeCatalogMerchandisingPageContext (Step 5.15)', () => {
       tags: ['tag-1', 'tag-2'],
       status: 'active',
     })
+  })
+
+  // A capped list count makes `total` a floor; the assistant must not present
+  // it to the model or the user as an exact match count.
+  it('carries the capped-count flag through to the page context', () => {
+    const ctx = computeCatalogMerchandisingPageContext({
+      filters: {},
+      totalMatching: 10000,
+      totalIsCapped: true,
+    })
+    expect(ctx.extra.totalMatching).toBe(10000)
+    expect(ctx.extra.totalMatchingIsCapped).toBe(true)
   })
 
   it('degrades gracefully when the DataTable has not supplied a total', () => {

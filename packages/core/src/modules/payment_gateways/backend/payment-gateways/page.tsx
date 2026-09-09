@@ -89,6 +89,7 @@ type TransactionsResponse = {
   page: number
   pageSize: number
   totalPages: number
+  totalIsCapped?: boolean
 }
 
 const STATUS_STYLES: Record<string, string> = {
@@ -183,6 +184,7 @@ export default function PaymentTransactionsPage() {
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const [search, setSearch] = React.useState('')
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const [isLoading, setIsLoading] = React.useState(true)
@@ -229,6 +231,7 @@ export default function PaymentTransactionsPage() {
       setRows(Array.isArray(call.result.items) ? call.result.items : [])
       setTotal(call.result.total ?? 0)
       setTotalPages(call.result.totalPages ?? 1)
+      setTotalIsCapped(call.result?.totalIsCapped === true)
     } else {
       flash(t('payment_gateways.transactions.error.load', 'Failed to load payment transactions'), 'error')
       setRows([])
@@ -474,7 +477,7 @@ export default function PaymentTransactionsPage() {
           onSearchChange={(value) => { setSearch(value); setPage(1) }}
           searchPlaceholder={t('payment_gateways.transactions.searchPlaceholder', 'Search by payment, transaction, session, or gateway id')}
           perspective={{ tableId: extensionPoints.hosts.transactionsTable.tableId }}
-          pagination={{ page, pageSize: 20, total, totalPages, onPageChange: setPage }}
+          pagination={{ page, pageSize: 20, total, totalPages, totalIsCapped, onPageChange: setPage }}
           isLoading={isLoading}
           onRowClick={(row) => setSelectedId((current) => current === row.id ? null : row.id)}
           rowActions={(row) => (

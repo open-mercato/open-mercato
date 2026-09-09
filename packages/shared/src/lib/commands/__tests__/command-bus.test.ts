@@ -49,6 +49,37 @@ describe('CommandBus', () => {
     expect(logEntry).toEqual({ id: 'log-entry' })
   })
 
+  it('records the system actor marker when a trusted command has no auth actor', async () => {
+    const logMock = jest.fn(async () => ({ id: 'system-log-entry' }))
+    registerCommand({
+      id: 'test.system-command',
+      execute: jest.fn(async () => ({ ok: true })),
+      buildLog: jest.fn(() => ({ actionLabel: 'System test', resourceKind: 'test', resourceId: 'system-123' })),
+    })
+
+    const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
+    container.register({ actionLogService: asValue({ log: logMock }) })
+
+    const bus = new CommandBus()
+    const ctx = {
+      container,
+      auth: null,
+      organizationScope: null,
+      selectedOrganizationId: null,
+      organizationIds: null,
+      systemActor: true,
+    }
+
+    await bus.execute('test.system-command', { input: {}, ctx })
+
+    expect(logMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actorUserId: undefined,
+        context: { systemActor: 'system:command' },
+      })
+    )
+  })
+
   it('passes captureAfter snapshot to buildLog as snapshots.after', async () => {
     const logMock = jest.fn(async () => ({ id: 'log-entry-2' }))
     const buildLogMock = jest.fn(() => ({

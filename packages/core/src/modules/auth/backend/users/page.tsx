@@ -351,7 +351,7 @@ export default function UsersListPage() {
   const { data: usersData, isLoading } = useQuery({
     queryKey: ['users', params, scopeVersion],
     queryFn: async () => {
-      const call = await apiCall<{ items: Row[]; total: number; totalPages: number; isSuperAdmin?: boolean }>(
+      const call = await apiCall<{ items: Row[]; total: number; totalPages: number; totalIsCapped?: boolean; isSuperAdmin?: boolean }>(
         `/api/auth/users?${params}`,
       )
       if (!call.ok) {
@@ -364,6 +364,7 @@ export default function UsersListPage() {
   const rows = usersData?.items || []
   const total = usersData?.total || 0
   const totalPages = usersData?.totalPages || 1
+  const totalIsCapped = usersData?.totalIsCapped === true
   const isSuperAdmin = !!usersData?.isSuperAdmin
   const rowsWithOrgNames: Row[] = React.useMemo(() => rows.map(row => ({
     ...row,
@@ -376,10 +377,10 @@ export default function UsersListPage() {
   )
   const columns = React.useMemo<ColumnDef<Row>[]>(() => {
     const base: ColumnDef<Row>[] = [
-      { accessorKey: 'email', header: 'Email' },
+      { accessorKey: 'email', header: t('auth.users.list.columns.email', 'Email') },
       { accessorKey: 'name', header: t('auth.users.list.columns.name', 'Display name') },
-      { accessorKey: 'organizationName', header: 'Organization' },
-      { accessorKey: 'roles', header: 'Roles', cell: ({ row }) => (row.original.roles || []).join(', ') },
+      { accessorKey: 'organizationName', header: t('auth.users.list.columns.organization', 'Organization') },
+      { accessorKey: 'roles', header: t('auth.users.list.columns.roles', 'Roles'), cell: ({ row }) => (row.original.roles || []).join(', ') },
       {
         accessorKey: 'isConfirmed',
         header: t('auth.users.list.columns.status', 'Status'),
@@ -391,7 +392,7 @@ export default function UsersListPage() {
       },
     ]
     if (showTenantColumn) {
-      base.splice(1, 0, { accessorKey: 'tenantName', header: 'Tenant' })
+      base.splice(1, 0, { accessorKey: 'tenantName', header: t('auth.users.list.columns.tenant', 'Tenant') })
     }
     return base
   }, [showTenantColumn, t])
@@ -456,7 +457,7 @@ export default function UsersListPage() {
               { id: 'delete', label: t('common.delete', 'Delete'), destructive: true, onSelect: () => { void handleDelete(row) } },
             ]} />
           )}
-          pagination={{ page, pageSize: 50, total, totalPages, onPageChange: setPage }}
+          pagination={{ page, pageSize: 50, total, totalPages, totalIsCapped, onPageChange: setPage }}
           isLoading={isLoading}
         />
       </PageBody>

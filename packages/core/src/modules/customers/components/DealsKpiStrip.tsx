@@ -63,13 +63,12 @@ export type DealsKpiStripProps = {
   onNeedsAttentionClick?: () => void
 }
 
-const compactNumberFormatter = new Intl.NumberFormat(undefined, {
-  notation: 'compact',
-  maximumFractionDigits: 1,
-})
-
-function formatCompact(value: number): string {
-  return compactNumberFormatter.format(value)
+function createCompactFormatter(locale: string): (value: number) => string {
+  const formatter = new Intl.NumberFormat(locale, {
+    notation: 'compact',
+    maximumFractionDigits: 1,
+  })
+  return (value: number) => formatter.format(value)
 }
 
 function buildCurrencySuffix(code: string | null, convertedAll: boolean): string {
@@ -136,6 +135,7 @@ export function DealsKpiStrip({
 }: DealsKpiStripProps) {
   const t = useT()
   const locale = useLocale()
+  const formatCompact = React.useMemo(() => createCompactFormatter(locale), [locale])
   const pluralCat = React.useCallback((count: number): string => {
     try {
       return new Intl.PluralRules(locale).select(count)

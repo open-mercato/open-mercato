@@ -62,6 +62,7 @@ type DefinitionsResponse = {
     limit: number
     offset: number
     hasMore: boolean
+    totalIsCapped?: boolean
   }
 }
 
@@ -86,6 +87,7 @@ export default function WorkflowDefinitionsListPage() {
   const [pageSize] = React.useState(20)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
+  const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const t = useT()
   const router = useRouter()
   const queryClient = useQueryClient()
@@ -119,6 +121,7 @@ export default function WorkflowDefinitionsListPage() {
         setTotal(response.pagination.total || 0)
         const calculatedPages = Math.ceil((response.pagination.total || 0) / pageSize)
         setTotalPages(calculatedPages || 1)
+        setTotalIsCapped(response.pagination?.totalIsCapped === true)
       }
 
       return response?.data || []
@@ -439,7 +442,7 @@ export default function WorkflowDefinitionsListPage() {
               createLabel={t('workflows.actions.create')}
             />
           )}
-          pagination={{ page, pageSize, total, totalPages, onPageChange: setPage }}
+          pagination={{ page, pageSize, total, totalPages, totalIsCapped, onPageChange: setPage }}
         />
         <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
           <DialogContent className="sm:max-w-md">

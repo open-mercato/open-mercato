@@ -166,6 +166,37 @@ describe('mapInteractionToCalendarItem', () => {
     ])
   })
 
+  it('keeps distinct guest participants that have no userId', () => {
+    const item = mapInteractionToCalendarItem(
+      makePayload({
+        id: 'guest-participants',
+        participants: [
+          { email: 'guest-one@example.org', name: 'Guest One' },
+          { email: 'guest-two@example.org', name: 'Guest Two' },
+        ],
+      }),
+      noColors,
+    )
+    expect(item!.participants).toEqual([
+      { email: 'guest-one@example.org', name: 'Guest One' },
+      { email: 'guest-two@example.org', name: 'Guest Two' },
+    ])
+  })
+
+  it('collapses the same guest listed twice under a different email casing', () => {
+    const item = mapInteractionToCalendarItem(
+      makePayload({
+        id: 'duplicate-guest',
+        participants: [
+          { email: 'guest@example.org', name: 'Guest' },
+          { email: ' Guest@Example.ORG ', name: 'Guest again' },
+        ],
+      }),
+      noColors,
+    )
+    expect(item!.participants).toEqual([{ email: 'guest@example.org', name: 'Guest' }])
+  })
+
   it('derives the category and keeps payload references', () => {
     const payload = makePayload({
       id: 'full',

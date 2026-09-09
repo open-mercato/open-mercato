@@ -122,6 +122,35 @@ describe('crud ids helpers', () => {
     expect(isIdsParamProvided(null)).toBe(false)
   })
 
+  // #5548: once the factory groups repeated params, `?ids=a&ids=b` reaches these
+  // helpers as an array. Treating that as "not supplied" would silently drop the
+  // filter and return the full list — the same side channel #4143 closed.
+  it('parseIdsParam accepts the repeated-parameter form', () => {
+    expect(parseIdsParam([idA, idB])).toEqual([idA, idB])
+    expect(parseIdsParam([`${idA},${idB}`, idC])).toEqual([idA, idB, idC])
+    expect(parseIdsParam([idA, idA])).toEqual([idA])
+    expect(parseIdsParam([idA, idB, idC], 2)).toEqual([idA, idB])
+    expect(parseIdsParam([])).toEqual([])
+    expect(parseIdsParam(['invalid', 'also-invalid'])).toEqual([])
+  })
+
+  it('isIdsParamProvided recognizes the repeated-parameter form', () => {
+    expect(isIdsParamProvided([idA, idB])).toBe(true)
+    expect(isIdsParamProvided(['not-a-uuid'])).toBe(true)
+    expect(isIdsParamProvided([])).toBe(false)
+    expect(isIdsParamProvided(['', '  '])).toBe(false)
+  })
+
+  // "Supplied" is about the raw occurrence, not about what survives parsing:
+  // `?ids=,,,` carries no usable value but was still requested, so it must match
+  // nothing rather than fall back to the unfiltered list.
+  it('isIdsParamProvided treats a value that parses to nothing as still supplied', () => {
+    expect(isIdsParamProvided(',,,')).toBe(true)
+    expect(parseIdsParam(',,,')).toEqual([])
+    expect(isIdsParamProvided([',', ','])).toBe(true)
+    expect(parseIdsParam([',', ','])).toEqual([])
+  })
+
   it('mergeIdFilter matches nothing when ids param was provided but all invalid', () => {
     // Malformed input: parseIdsParam yields [], but the param WAS provided.
     expect(mergeIdFilter({}, parseIdsParam('not-a-uuid'), { idsParamProvided: true })).toEqual({

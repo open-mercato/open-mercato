@@ -100,6 +100,18 @@ export type EmitOptions = {
   tenantId?: string | null
   /** Trusted organization scope for subscribers that must not rely on payload scope */
   organizationId?: string | null
+  /**
+   * Trusted multi-organization audience for subscribers that must not rely on
+   * payload scope. Mirrors the SSE audience contract where a clientBroadcast
+   * event may target several organizations at once.
+   */
+  organizationIds?: string[] | null
+  /**
+   * Module provenance stamped by `createModuleEvents` for private
+   * cross-process coordination events. Never derive this from payload data.
+   * @internal
+   */
+  emitterModuleId?: string
   /** Opt-in path for callers that need inline subscriber failures to reject the emit. */
   rethrowHandlerErrors?: boolean
 }

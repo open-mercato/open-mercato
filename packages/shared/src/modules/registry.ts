@@ -196,7 +196,19 @@ export type ModuleWorker = {
   concurrency: number
   lockDuration?: number
   maxStalledCount?: number
+  /**
+   * Reports a job the queue abandoned without running the handler.
+   *
+   * Present only for workers whose metadata declares it; the generator emits it as a lazy import
+   * beside the handler, because the registry serializes metadata as literals and a function cannot
+   * survive that.
+   */
+  onJobAbandoned?: (payload: unknown, info: { jobId: string | null; reason: string }) => void | Promise<void>
   handler: ModuleWorkerHandler
+  /** Opt-in flag exposing this queue as a user-facing scheduler target (issue #5213). */
+  schedulerSafe?: boolean
+  /** Creator features required beyond scheduler.jobs.manage when schedulerSafe is set. */
+  schedulerRequiredFeatures?: string[]
 }
 
 export type ModuleInfo = {
@@ -552,5 +564,33 @@ export function createLazyModuleWorker(
     )
     const handler = await handlerPromise
     return handler(job, ctx)
+  }
+}
+
+/**
+ * Resolves a worker's `metadata.onJobAbandoned` on first use.
+ *
+ * The generator serializes worker metadata as literals, so a function declared there cannot be
+ * emitted inline the way `concurrency` or `lockDuration` are. It is emitted as this thunk instead —
+ * the same lazy-import treatment the handler already gets — and only for workers whose metadata
+ * declares the callback, so no other queue acquires one (and with it, a sweep) by accident.
+ */
+export function createLazyModuleWorkerAbandonHook(
+  loadModule: () => Promise<unknown>,
+  id: string
+): (payload: unknown, info: { jobId: string | null; reason: string }) => Promise<void> {
+  let hookPromise: Promise<((payload: unknown, info: { jobId: string | null; reason: string }) => unknown) | null> | null = null
+  return async (payload, info) => {
+    hookPromise ??= loadModule().then((loaded) => {
+      const metadata = (loaded as { metadata?: { onJobAbandoned?: unknown } } | null)?.metadata
+      return typeof metadata?.onJobAbandoned === 'function'
+        ? (metadata.onJobAbandoned as (payload: unknown, info: { jobId: string | null; reason: string }) => unknown)
+        : null
+    })
+    const hook = await hookPromise
+    if (!hook) {
+      throw new Error(`[registry] Worker "${id}" was registered with an abandoned-job hook but its metadata no longer declares one`)
+    }
+    await hook(payload, info)
   }
 }
