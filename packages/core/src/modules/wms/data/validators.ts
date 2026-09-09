@@ -274,6 +274,27 @@ export const inventoryAdjustSchema = scopedSchema.extend({
   metadata: metadataSchema,
 })
 
+/**
+ * Command-only extension of {@link inventoryAdjustSchema}. `movementType` is
+ * intentionally NOT on the public adjust API — additive CSV import (#4105) may
+ * label a positive stock addition as `receipt` without duplicating adjust's
+ * balance/idempotency path. Public `POST /api/wms/inventory/adjust` keeps the
+ * base schema so clients cannot forge receipt ledger rows.
+ */
+export const inventoryAdjustCommandSchema = inventoryAdjustSchema
+  .extend({
+    movementType: z.enum(['adjust', 'receipt']).optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.movementType === 'receipt' && value.delta <= 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['delta'],
+        message: 'Receipt-labeled adjustments require a positive delta.',
+      })
+    }
+  })
+
 export const inventoryMoveSchema = scopedSchema.extend({
   warehouseId: uuid(),
   fromLocationId: uuid(),
@@ -340,6 +361,7 @@ export type InventoryReservationCreateInput = z.infer<typeof inventoryReservatio
 export type InventoryReservationReleaseInput = z.infer<typeof inventoryReservationReleaseSchema>
 export type InventoryReservationAllocateInput = z.infer<typeof inventoryReservationAllocateSchema>
 export type InventoryAdjustInput = z.infer<typeof inventoryAdjustSchema>
+export type InventoryAdjustCommandInput = z.infer<typeof inventoryAdjustCommandSchema>
 export type InventoryMoveInput = z.infer<typeof inventoryMoveSchema>
 export type InventoryCycleCountInput = z.infer<typeof inventoryCycleCountSchema>
 

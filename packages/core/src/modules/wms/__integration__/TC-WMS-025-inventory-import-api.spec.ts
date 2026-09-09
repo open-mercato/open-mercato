@@ -15,6 +15,7 @@ import {
   createCrudFixture,
   ensureRoleFeatures,
   fetchBalance,
+  fetchMovements,
   toNumber,
 } from './helpers/wmsFixtures'
 
@@ -193,6 +194,15 @@ test.describe('TC-WMS-025: Inventory CSV import API', () => {
       const balance = await fetchBalance(request, adminToken, warehouseId!, variantId)
       expect(toNumber(balance?.quantity_on_hand)).toBe(25)
 
+      // Regression check for the #4105 QA follow-up: additive imports must post a
+      // 'receipt' ledger entry (shown as "Przyjęcie"), not an 'adjust'/"Korekta" one.
+      const firstReceiptMovements = await fetchMovements(request, adminToken, {
+        warehouseId: warehouseId!,
+        catalogVariantId: variantId,
+        type: 'receipt',
+      })
+      expect(firstReceiptMovements.some((row) => toNumber(row.quantity) === 25)).toBe(true)
+
       // Regression check for #4105: importing a smaller quantity on top of an
       // existing balance must add to it, not reconcile the balance down to it.
       const secondValidateResponse = await apiRequest(request, 'POST', '/api/wms/inventory/import/validate', {
@@ -238,6 +248,13 @@ test.describe('TC-WMS-025: Inventory CSV import API', () => {
 
       const balanceAfterSecondImport = await fetchBalance(request, adminToken, warehouseId!, variantId)
       expect(toNumber(balanceAfterSecondImport?.quantity_on_hand)).toBe(30)
+
+      const secondReceiptMovements = await fetchMovements(request, adminToken, {
+        warehouseId: warehouseId!,
+        catalogVariantId: variantId,
+        type: 'receipt',
+      })
+      expect(secondReceiptMovements.some((row) => toNumber(row.quantity) === 5)).toBe(true)
 
       // Reconcile mode (opt-in checkbox) restores the pre-#4105 opening-balance semantics:
       // quantity is the absolute target balance, so it can reduce existing stock and warns.
@@ -290,6 +307,15 @@ test.describe('TC-WMS-025: Inventory CSV import API', () => {
 
       const balanceAfterReconcile = await fetchBalance(request, adminToken, warehouseId!, variantId)
       expect(toNumber(balanceAfterReconcile?.quantity_on_hand)).toBe(12)
+
+      // Reconcile-mode rows stay labeled as an 'adjust' ledger entry ("Korekta"),
+      // since they can move the balance in either direction, unlike a receipt.
+      const reconcileMovements = await fetchMovements(request, adminToken, {
+        warehouseId: warehouseId!,
+        catalogVariantId: variantId,
+        type: 'adjust',
+      })
+      expect(reconcileMovements.some((row) => toNumber(row.quantity) === -18)).toBe(true)
 
       const tamperedResponse = await apiRequest(request, 'POST', '/api/wms/inventory/import/apply', {
         token: adminToken,

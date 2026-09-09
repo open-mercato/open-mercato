@@ -333,7 +333,9 @@ describe('applyInventoryImport', () => {
 
     expect(executeMock).toHaveBeenCalledWith(
       'wms.inventory.adjust',
-      expect.objectContaining({ input: expect.objectContaining({ delta: 5 }) }),
+      expect.objectContaining({
+        input: expect.objectContaining({ delta: 5, movementType: 'receipt' }),
+      }),
     )
     expect(result.summary.applied).toBe(1)
   })
@@ -381,6 +383,7 @@ describe('applyInventoryImport', () => {
       expect.objectContaining({
         input: expect.objectContaining({
           delta: -3,
+          movementType: undefined,
           metadata: expect.objectContaining({ targetQuantity: 5 }),
         }),
       }),
