@@ -182,6 +182,68 @@ P&L variant (4xx vs 5xx) — is a distinct, larger piece of work
 (statutory formatting rules, not account arithmetic) and is out of
 scope here, tracked as a future document.
 
+**Turnover figures include every `JournalEntry.type` — no filtering by
+`NORMAL`/`OPENING`/`CLOSING`/`REVERSAL`.** `periodDebit`/`periodCredit`/
+`ytdDebit`/`ytdCredit` are raw `SUM(debit)`/`SUM(credit)` over every
+posted `JournalEntryLine` in range, regardless of the parent
+`JournalEntry`'s `type`. This has one visible consequence worth naming
+explicitly rather than leaving it to be discovered during review: once
+a year-end `CLOSING` entry is posted (#5663's own in-scope mechanism
+for zeroing Revenue/Expense to Retained Earnings — that document's
+Design decisions, "Fiscal period closing is a lock flag plus an entry
+type"), a revenue account's period debit will include the closing
+entry's own zeroing debit alongside its real credit-side turnover for
+the year, and symmetrically an expense account's period credit will
+include its own zeroing credit. This is not a defect: it is the same
+shape every introductory accounting text shows for a post-closing
+period (Kieso/Weygandt/Warfield, *Intermediate Accounting*, 17e, ch.
+3, "Closing Entries" — the illustrated closing journal entry debits
+every revenue account and credits every expense account for its
+full-year balance, exactly this document's `JournalEntryLine` shape).
+Excluding `CLOSING` (or `OPENING`) lines from the sum would also mean
+the period's total turnover no longer reconciles against the journal —
+the literal requirement art. 18 imposes (turnover must "zgadzać się z
+zapisami dziennika"). Filtering by type would additionally be a second
+code path this document doesn't otherwise need: `getAccountBalance`
+already includes every posted line regardless of type, and
+`getTrialBalance`'s turnover columns use the identical, unfiltered
+predicate for consistency with it. The closing (and, symmetrically,
+opening) *balance* is unaffected either way — a `CLOSING` entry's own
+lines are exactly what bring a revenue or expense account to zero,
+which is what `zeroSumCheck` and the per-row invariant in Testing
+Strategy actually verify.
+
+**The account-hierarchy and posting-side decisions above were checked
+against the standard literature, not invented from scratch.**
+Restricting posting to detail (leaf) accounts and deriving a summary
+account's balance recursively from its components is the canonical
+pattern (Fowler, *Analysis Patterns*, §6.3 "Summary Account": "We
+restrict the system to posting entries only to detail accounts and not
+to summary accounts... A summary account that contains summary
+accounts will look for entries in its components, its components'
+components, and so on, recursively"). This document does *not* adopt
+that restriction itself — Phase 1 of #5663 never restricted postings
+to leaves, so the rollup above deliberately also sums a syntetyk
+account's own direct postings (see Alternatives considered) — but the
+future Posting Rules Engine, when it does add that restriction, will
+be completing this exact standard pattern, not inventing a new one.
+Keeping `parentAccountId` a single-parent tree rather than a
+multi-parent DAG matches both references, too: Fowler's own
+multi-parent generalization (§6.15) immediately follows with a warning
+that an account summing over overlapping components "is more likely to
+be the product of accident than design," and Hay (*Data Model
+Patterns*, ch. 7, "Summarization") is more direct still — "if a
+company wanted to allow multiple roll-up paths... administering such
+an arrangement would be extremely difficult." Finally, the
+`normalBalance`-signed balance formula (Design decisions, "Balance
+sign follows normalBalance, always") matches Hay's own Table 7.1
+(Debits and Credits: Asset debit +, credit −; Liability/Equity debit
+−, credit +) and Kieso's identical treatment (ch. 3, "Debits and
+Credits") — the same convention, independently and consistently
+stated across a 1996 data-modeling text, a 1997 analysis-patterns
+text, and the current edition of the standard intermediate-accounting
+textbook.
+
 ### Alternatives considered
 
 | Alternative | Why Rejected |
@@ -399,6 +461,13 @@ read-only document should patch around.
   for an account/period belonging to a different tenant/organization.
 - Assert the balance route's `asOf` default (today) matches an
   explicit `asOf=<today's date>` call.
+- Post a year-end `CLOSING` entry that zeroes a revenue account (debit
+  equal to its full-year credit balance) and assert: the account's
+  `getAccountBalance` as of period end is `0`; the ZSiO row's
+  `periodDebit`/`ytdDebit` for that account includes the closing
+  entry's amount alongside its real turnover (Design decisions,
+  "Turnover figures include every `JournalEntry.type`"); and
+  `zeroSumCheck` still holds across the whole chart.
 
 ## Risks & Impact Review
 
@@ -532,12 +601,21 @@ written** — they were (see Changelog): posted-only Phase 1 scope
 (Q1, with a live cross-reference added to `2026-09-06-accounts-
 payable.md` the same day), live query over a maintained table (Q2),
 ZSiO-only scope excluding Bilans/P&L/Cash Flow (Q3), and `ledger`
-Phase 2 rather than a new module (Q4). Unlike #5663 and #5972 at their
-own first-draft stage, this document has not yet been through an
-independent, fresh-context review pass (the `om-spec-writing` Step 8
-scope-cohesion delegation, or an external maintainer PR review) — that
-should happen before this is treated as fully settled, the same
-recommendation already given for #5663 itself.
+Phase 2 rather than a new module (Q4). This document has also since
+been cross-checked against three references the team uses (David
+Hay's *Data Model Patterns*, Martin Fowler's *Analysis Patterns*, and
+Kieso/Weygandt/Warfield's *Intermediate Accounting*, 17e) — see Design
+decisions for what that check confirmed (the recursive summary-account
+pattern, the single-parent tree, the `normalBalance` sign convention)
+and the one substantive addition it produced (turnover figures include
+every `JournalEntry.type`, `CLOSING` included, resolved in favor of
+art. 18 journal-reconciliation over filtering by type). Unlike #5663
+and #5972 at their own first-draft stage, this document has not yet
+been through an independent, fresh-context review pass (the
+`om-spec-writing` Step 8 scope-cohesion delegation, or an external
+maintainer PR review) — that should happen before this is treated as
+fully settled, the same recommendation already given for #5663
+itself.
 
 ## Changelog
 
@@ -572,3 +650,22 @@ recommendation already given for #5663 itself.
   first recursive-CTE precedent in this codebase), Architecture, Data
   Models, API Contracts, Implementation Plan, Risks & Impact Review,
   Out of Scope, Final Compliance Report.
+- Corrected a stray citation-tool artifact (`` `contentReference` ``)
+  left in the Overview paragraph during drafting.
+- Cross-checked the design against three references in active use at
+  Commerce Weavers: David Hay's *Data Model Patterns* (ch. 7,
+  "Accounting" — confirmed the `normalBalance` sign convention and the
+  single-parent account-hierarchy rollup against Table 7.1 and the
+  "Summarization" section's warning against multi-parent roll-ups),
+  Martin Fowler's *Analysis Patterns* (§6.3 "Summary Account" —
+  confirmed the recursive summary-account rollup is the canonical
+  pattern, and that the canonical version restricts posting to leaf
+  accounts, which this document's Phase 1 deliberately does not
+  because #5663 itself doesn't yet), and Kieso/Weygandt/Warfield's
+  *Intermediate Accounting*, 17e (ch. 3 — confirmed the Debit/Credit
+  convention and, more substantively, that a `CLOSING` entry's own
+  zeroing debit/credit is expected to appear in a nominal account's
+  period turnover, not just its balance). This produced one new,
+  explicit Design decision ("Turnover figures include every
+  `JournalEntry.type`") plus a matching Testing Strategy assertion; no
+  other section changed as a result.
