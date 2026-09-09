@@ -56,6 +56,17 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
 }))
 
 import { POST } from '../route'
+import { PUT } from '../[id]/route'
+
+const updateRouteScheduleId = '3f8b1f1e-2c3d-4a5b-8c7d-9e0f1a2b3c4d'
+
+function updateRequest(scheduleValue = '1h') {
+  return new Request(`http://localhost/api/data_sync/schedules/${updateRouteScheduleId}`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ scheduleValue }),
+  })
+}
 
 function request(scheduleValue = '3600') {
   return new Request('http://localhost/api/data_sync/schedules', {
@@ -283,5 +294,33 @@ describe('data_sync schedule save write ordering', () => {
         err: compensationError,
       }),
     )
+  })
+
+  it('unregisters the registration it minted when the update route fails to flush', async () => {
+    mockFindOneWithDecryption.mockImplementation(async () => existingRow(null))
+    mockEm.flush.mockImplementation(async () => {
+      throw new Error('connection terminated unexpectedly')
+    })
+
+    const res = await PUT(updateRequest(), { params: { id: updateRouteScheduleId } })
+
+    expect(res.status).toBe(422)
+    expect(mockScheduler.exists).toHaveBeenCalledWith('schedule-1')
+    expect(mockScheduler.register).toHaveBeenCalledWith(expect.objectContaining({ id: 'schedule-1' }))
+    expect(mockScheduler.unregister).toHaveBeenCalledTimes(1)
+    expect(mockScheduler.unregister).toHaveBeenCalledWith('schedule-1')
+  })
+
+  it('leaves an inherited registration alone when the update route fails to flush', async () => {
+    mockFindOneWithDecryption.mockImplementation(async () => existingRow('job-1'))
+    mockEm.flush.mockImplementation(async () => {
+      throw new Error('connection terminated unexpectedly')
+    })
+
+    const res = await PUT(updateRequest(), { params: { id: updateRouteScheduleId } })
+
+    expect(res.status).toBe(422)
+    expect(mockScheduler.register).toHaveBeenCalledWith(expect.objectContaining({ id: 'job-1' }))
+    expect(mockScheduler.unregister).not.toHaveBeenCalled()
   })
 })
