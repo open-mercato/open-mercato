@@ -31,17 +31,18 @@ What actually exists right now, and where:
 | Accounts Payable (invoices) | `2026-09-06-accounts-payable.md` | `docs/accounts-payable` | Open, PR #5962 |
 | Accounts Payable (payments) | `2026-09-06-accounts-payable-payments.md` | `docs/accounts-payable` | Open, PR #5962 |
 | Journal Entry Line Dimension | `2026-09-06-journal-entry-line-dimension.md` | `docs/journal-entry-line-dimension` | Written, own branch |
-| Fixed Assets | `2026-09-06-fixed-assets.md` | `docs/fixed-assets` | Draft (TLDR + Design Decisions only), own branch, no PR yet |
-| Posting Rules Engine (konto 490) | `2026-09-06-posting-rules-engine.md` | `docs/posting-rules-engine` | Draft (TLDR + Design Decisions only), own branch, no PR yet |
-| This knowledge base | `2026-09-08-financial-module-knowledge-base.md` | `docs/financial-module-knowledge-base` | Reference doc, own branch, no PR yet |
+| Fixed Assets | `2026-09-06-fixed-assets.md` | `docs/fixed-assets` | Open, PR #6014 (draft — TLDR + Design Decisions only) |
+| Posting Rules Engine (konto 490) | `2026-09-06-posting-rules-engine.md` | `docs/posting-rules-engine` | Open, PR #6015 (draft — TLDR + Design Decisions only) |
+| This knowledge base | `2026-09-08-financial-module-knowledge-base.md` | `docs/financial-module-knowledge-base` | Open, PR #6016 |
 | Accounts Receivable, Cash & Bank, Multi-Currency, Budgeting, Cost Accounting | — | — | Not started (SPEC-024 only) |
 
 **Resolved 2026-09-09:** Fixed Assets and Posting Rules Engine used to
 live only as uncommitted files in one worktree — flagged here as a
-real risk of losing the work. Both now have their own `docs/` branch
-and English translations (they were originally drafted in Polish, like
-the early Accounts Payable draft), matching the rest of this module
-family's convention. Still draft-quality (TLDR + Design Decisions
+real risk of losing the work. Both now have their own `docs/` branch,
+English translations (they were originally drafted in Polish, like
+the early Accounts Payable draft), and open PRs (#6014, #6015). This
+document itself now has a branch and PR too (#6016). Still
+draft-quality for Fixed Assets and Posting Rules Engine (TLDR + Design Decisions
 only) — the remaining required sections (Overview, Problem Statement,
 Proposed Solution, User Stories, Architecture, Data Models, API
 Contracts, Implementation Plan, Testing Strategy, Risks & Impact
