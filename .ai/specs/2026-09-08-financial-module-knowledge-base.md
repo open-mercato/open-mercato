@@ -64,6 +64,26 @@ neither command had an explicit `FixedAsset.status` guard) plus two
 smaller gaps — see the spec's own Changelog for the full citation trail
 and review record. Ready for a real review pass.
 
+**Corrected 2026-09-09 (cont., again — accumulated-impairment account):**
+A wzorcowy plan kont (a reference chart of accounts, zespół 0–8, supplied
+directly by the accounting team) surfaced a real design defect that no
+adversarial review round had caught, because it wasn't a spec-internal
+inconsistency but a wrong accounting-practice assumption: the spec was
+reusing `ledgerAccumulatedDepreciationAccountId` as the credit target for
+impairment write-downs, when real Polish practice keeps accumulated
+depreciation (070/071, "Umorzenie") and impairment write-downs (072,
+"Odpisy aktualizujące") on genuinely separate synthetic accounts.
+`FixedAsset` now has a fourth required, immutable ledger-account field,
+`ledgerAccumulatedImpairmentAccountId`, and `disposeAsset` posts two
+separate debit lines (depreciation, impairment) instead of one combined
+figure. A third fresh-context adversarial review round found zero real
+defects in the correction itself (one unrelated, pre-existing stale
+cross-reference label was fixed in passing). Final Compliance Report is
+now rev. 3. This correction is sourced from the reference chart of
+accounts alone, not from Kieso or the UoR excerpt available in this
+session — neither reaches Polish chart-of-accounts numbering at this
+level of detail.
+
 Posting Rules Engine (#6015) remains draft-quality (TLDR + Design
 Decisions only) — the remaining required sections (Overview, Problem
 Statement, Proposed Solution, User Stories, Architecture, Data Models,
