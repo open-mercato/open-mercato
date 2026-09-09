@@ -29,7 +29,7 @@ art. 18 mandates a "zestawienie obrotów i sald" (ZSiO) — one row per
 general-ledger account, at minimum monthly, showing the opening
 balance, this period's turnover, cumulative turnover since the start
 of the fiscal year, and the closing balance, with the turnover figures
-required to reconcile against the journal (dziennik). `contentReference`
+required to reconcile against the journal (dziennik).
 This document adds that capability on top of #5663's already-reviewed
 schema, without touching it.
 
