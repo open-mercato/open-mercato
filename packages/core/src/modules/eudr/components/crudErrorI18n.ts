@@ -15,6 +15,37 @@ function translateEudrErrorToken(token: string, translate: Translator): string {
   return translated === trimmed ? token : translated
 }
 
+function readEudrErrorToken(err: unknown): string | null {
+  if (err == null || typeof err !== 'object') return null
+  const candidates = [
+    (err as { error?: unknown }).error,
+    (err as { message?: unknown }).message,
+  ]
+  for (const candidate of candidates) {
+    if (typeof candidate !== 'string') continue
+    const trimmed = candidate.trim()
+    if (EUDR_ERROR_KEY_PATTERN.test(trimmed)) return trimmed
+  }
+  return null
+}
+
+/**
+ * Resolves the user-facing message for a rejected EUDR mutation, preferring the
+ * server's `eudr.errors.*` token over the caller's generic copy so the reason
+ * survives to the user. Falls back to `fallbackMessage` when the rejection
+ * carries no known token (network errors, 5xx, unmapped tokens).
+ */
+export function translateEudrErrorMessage(
+  err: unknown,
+  translate: Translator,
+  fallbackMessage: string,
+): string {
+  const token = readEudrErrorToken(err)
+  if (!token) return fallbackMessage
+  const translated = translate(token)
+  return translated === token ? fallbackMessage : translated
+}
+
 export function translateEudrCrudError(err: unknown, translate: Translator): unknown {
   if (!(err instanceof Error)) return err
   const rawMessage = typeof err.message === 'string' ? err.message : ''

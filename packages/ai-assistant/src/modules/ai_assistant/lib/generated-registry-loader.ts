@@ -121,7 +121,11 @@ export async function compileAndImportGenerated(tsPath: string): Promise<Record<
   if (useJestCjsArtifact) {
     return requireFromHere(jsPath) as Record<string, unknown>
   }
-  return (await import(pathToFileURL(jsPath).href)) as Record<string, unknown>
+  return (await import(
+    /* webpackIgnore: true */
+    /* turbopackIgnore: true */
+    pathToFileURL(jsPath).href
+  )) as Record<string, unknown>
 }
 
 function isJestRuntime(): boolean {
@@ -169,7 +173,11 @@ async function compileAppLocalModuleEntries(
   if (specifiers.length === 0) return artifacts
 
   const generatedDir = path.join(appRoot, '.mercato', 'generated')
-  const { compileAppSourceFile } = await import('@open-mercato/shared/lib/bootstrap/dynamicLoader')
+  const { compileAppSourceFile } = await import(
+    /* webpackIgnore: true */
+    /* turbopackIgnore: true */
+    '@open-mercato/shared/lib/bootstrap/dynamicLoader'
+  )
 
   for (const specifier of specifiers) {
     const target = path.resolve(generatedDir, specifier)

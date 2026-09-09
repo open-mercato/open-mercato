@@ -2,6 +2,7 @@
 import * as React from 'react'
 import type { RowData } from '@tanstack/react-table'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
+import { useOptionalT } from '@open-mercato/shared/lib/i18n/context'
 import type { FilterFieldDef as AdvancedFilterFieldDef, FilterFieldType, FilterOption } from '@open-mercato/shared/lib/query/advanced-filter'
 import type { ColumnChooserField } from '../columns/ColumnChooserPanel'
 import type { CustomFieldDefDto } from './customFieldDefs'
@@ -61,6 +62,11 @@ export function useAutoDiscoveredFields<T extends RowData = RowData>({
   columns,
   customFieldDefs,
 }: UseAutoDiscoveredFieldsInput<T>): UseAutoDiscoveredFieldsResult {
+  // Optional translator: this hook is a public entry point third-party modules
+  // render, and it worked without an I18nProvider before it needed labels.
+  const t = useOptionalT()
+  const defaultGroupLabel = t?.('ui.columnChooser.defaultGroup', 'Columns') ?? 'Columns'
+  const customFieldsGroupLabel = t?.('ui.columnChooser.customFieldsGroup', 'Custom Fields') ?? 'Custom Fields'
   return React.useMemo(() => {
     const filterFields: AdvancedFilterFieldDef[] = []
     const chooserFields: ColumnChooserField[] = []
@@ -99,7 +105,7 @@ export function useAutoDiscoveredFields<T extends RowData = RowData>({
         chooserFields.push({
           key: accessorKey,
           label,
-          group: meta?.columnChooserGroup ?? 'Columns',
+          group: meta?.columnChooserGroup ?? defaultGroupLabel,
           alwaysVisible: meta?.alwaysVisible ?? i === 0,
           defaultVisible: true,
         })
@@ -118,7 +124,7 @@ export function useAutoDiscoveredFields<T extends RowData = RowData>({
           key: filterKey,
           label: def.label || def.key,
           type,
-          group: 'Custom Fields',
+          group: customFieldsGroupLabel,
         }
         if (type === 'select' && Array.isArray(def.options) && def.options.length) {
           field.options = normalizeCustomFieldFilterOptions(def.options)
@@ -130,12 +136,12 @@ export function useAutoDiscoveredFields<T extends RowData = RowData>({
         chooserFields.push({
           key: filterKey,
           label: def.label || def.key,
-          group: def.group?.title ?? 'Custom Fields',
+          group: def.group?.title ?? customFieldsGroupLabel,
           defaultVisible: false,
         })
       }
     }
 
     return { advancedFilterFields: filterFields, columnChooserFields: chooserFields }
-  }, [columns, customFieldDefs])
+  }, [columns, customFieldDefs, defaultGroupLabel, customFieldsGroupLabel])
 }

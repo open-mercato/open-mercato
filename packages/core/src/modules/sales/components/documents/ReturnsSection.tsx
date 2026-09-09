@@ -12,7 +12,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import {
   emitSalesDocumentTotalsRefresh,
   subscribeSalesDocumentTotalsRefresh,
@@ -41,15 +41,16 @@ type SalesReturnsSectionProps = {
   documentUpdatedAt?: string | null
 }
 
-function formatDisplayDate(value: string | null | undefined): string | null {
+export function formatDisplayDate(value: string | null | undefined, locale?: string): string | null {
   if (!value) return null
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return null
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(date)
+  return new Intl.DateTimeFormat(locale, { dateStyle: 'medium' }).format(date)
 }
 
 export function SalesReturnsSection({ orderId, currencyCode, documentUpdatedAt }: SalesReturnsSectionProps) {
   const t = useT()
+  const locale = useLocale()
   const { organizationId, tenantId } = useOrganizationScopeDetail()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [returns, setReturns] = React.useState<ReturnRow[]>([])
@@ -328,10 +329,10 @@ export function SalesReturnsSection({ orderId, currencyCode, documentUpdatedAt }
                 </div>
               </div>
               <div className="whitespace-nowrap text-right text-sm text-muted-foreground">
-                {formatDisplayDate(ret.returnedAt) ?? t('sales.returns.notSet', 'Not set')}
+                {formatDisplayDate(ret.returnedAt, locale) ?? t('sales.returns.notSet', 'Not set')}
               </div>
               <div className="whitespace-nowrap text-right text-sm font-medium">
-                {formatMoney(ret.total, currencyCode ?? null)}
+                {formatMoney(ret.total, currencyCode ?? null, locale)}
               </div>
               <div className="flex justify-end">
                 <RowActions

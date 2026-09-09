@@ -8,5 +8,8 @@ export const metadata = {
   pagePriority: 10,
   pageOrder: 30,
   icon: 'file-text',
-  breadcrumb: [{ label: 'Statements', labelKey: 'eudr.nav.statements' }],
+  breadcrumb: [
+    { label: 'EUDR', labelKey: 'eudr.nav.module', href: '/backend/eudr' },
+    { label: 'Statements', labelKey: 'eudr.nav.statements' },
+  ],
 }

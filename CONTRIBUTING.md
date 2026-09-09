@@ -90,7 +90,7 @@ Dispatch **Release Prepare** from the Actions tab with a `patch`, `minor` or `ma
 gh workflow run release-prepare.yml --ref main -f bump=patch
 ```
 
-It bumps every public package plus the root manifest, pushes `release/v<version>`, and opens a PR against `main`. It publishes nothing. The PR body confirms whether the changelog entry exists. Review and merge it as usual.
+It bumps every public package, the app workspaces (`apps/*`) and the root manifest, pushes `release/v<version>`, and opens a PR against `main`. It publishes nothing. The PR body confirms whether the changelog entry exists. Review and merge it as usual.
 
 > Opening the PR automatically requires _Settings → Actions → General → Workflow permissions → "Allow GitHub Actions to create and approve pull requests"_. Without it the branch is still pushed and the job summary links straight to the compare page — one click instead of zero.
 
@@ -104,7 +104,7 @@ gh workflow run release.yml --ref main
 
 The job requires approval from the `production` environment, then runs in a deliberate order — every reversible step before the irreversible one:
 
-1. **Preflight** — version alignment across packages, the version is not already on npm, and the changelog section exists. Nothing has happened yet if any of these fail.
+1. **Preflight** — version alignment across packages and app workspaces, the version is not already on npm, and the changelog section exists. Nothing has happened yet if any of these fail.
 2. **Build** — `build:packages`, `generate`, `build:packages`.
 3. **Tag** — pushes `v<version>`. A tag is cheap to delete; an npm version is not.
 4. **Publish** — `publish-packages.sh` with npm provenance, skipping anything already published.

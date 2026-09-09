@@ -38,6 +38,8 @@ import {
   inventoryRotationStrategyLabel,
 } from '../../lib/inventoryDisplayUi'
 import { LocationEditDialog } from './LocationEditDialog'
+import { WarehouseEditDialog, type WarehouseFormValues } from './WarehouseEditDialog'
+import { formatWarehouseCountryLabel } from './warehouseFormOptions'
 import { useWmsInventoryMutationAccess } from './useWmsInventoryMutationAccess'
 import { flashMutationError } from '../../lib/flashMutationError'
 
@@ -59,6 +61,9 @@ type WarehouseRow = {
   timezone?: string | null
   is_active?: boolean | null
   is_primary?: boolean | null
+  updated_at?: string | null
+  updatedAt?: string | null
+  customValues?: Record<string, unknown> | null
 }
 
 type LocationRow = {
@@ -106,19 +111,6 @@ type InventoryProfileRow = {
   safety_stock?: string | number | null
 }
 
-type WarehouseFormValues = {
-  name: string
-  code: string
-  city?: string
-  country?: string
-  timezone?: string
-  isActive: boolean
-  isPrimary: boolean
-}
-
-// `id` / `updatedAt` are carried in edit mode so CrudForm recognises the form as an edit
-// and derives the optimistic-lock header; the `cf_` index signature holds the values
-// collected from the injected custom-field inputs.
 type ZoneFormValues = {
   warehouseId: string
   code: string
@@ -144,19 +136,6 @@ type DialogMode<T> =
   | { mode: 'create' }
   | { mode: 'edit'; row: T }
 
-const warehouseFormSchema = z.object({
-  name: z.string().trim().min(1),
-  code: z.string().trim().min(1),
-  city: z.string().trim().optional(),
-  country: z.string().trim().optional(),
-  timezone: z.string().trim().optional(),
-  isActive: z.boolean().default(true),
-  isPrimary: z.boolean().default(false),
-})
-
-// passthrough so CrudForm's schema.safeParse keeps the `cf_*` custom field values
-// it collected from the injected custom-field inputs — a plain z.object strips them
-// before onSubmit ever sees them.
 const zoneFormSchema = z.object({
   warehouseId: z.string().uuid(),
   code: z.string().trim().min(1).max(80),
@@ -197,6 +176,7 @@ function mergeCreatedWarehouseIntoWarehousesCaches(
   queryClient: QueryClient,
   newId: string,
   values: WarehouseFormValues,
+  updatedAt?: string | null,
 ) {
   const row: WarehouseRow = {
     id: newId,
@@ -207,6 +187,8 @@ function mergeCreatedWarehouseIntoWarehousesCaches(
     timezone: values.timezone || null,
     is_active: values.isActive,
     is_primary: values.isPrimary,
+    updated_at: updatedAt ?? null,
+    updatedAt: updatedAt ?? null,
   }
   const haystack = `${values.name}\n${values.code}`.toLowerCase()
 
@@ -291,6 +273,7 @@ type ConfigSectionOptions = {
 
 export function WarehouseSection({ viewAllHref }: ConfigSectionOptions = {}) {
   const t = useT()
+  const locale = useLocale()
   const queryClient = useQueryClient()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const { runMutation } = useGuardedMutation<Record<string, unknown>>({ contextId: 'wms-config-warehouses' })
@@ -298,7 +281,6 @@ export function WarehouseSection({ viewAllHref }: ConfigSectionOptions = {}) {
   const [page, setPage] = React.useState(1)
   const [search, setSearch] = React.useState('')
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'updatedAt', desc: true }])
-  const [submitting, setSubmitting] = React.useState(false)
   const [dialog, setDialog] = React.useState<DialogMode<WarehouseRow> | null>(null)
 
   const handleSortingChange = React.useCallback((nextSorting: SortingState) => {
@@ -330,16 +312,6 @@ export function WarehouseSection({ viewAllHref }: ConfigSectionOptions = {}) {
     },
   })
 
-  const fields = React.useMemo<CrudField[]>(() => [
-    { id: 'name', type: 'text', label: t('wms.backend.config.warehouses.form.name', 'Name'), required: true },
-    { id: 'code', type: 'text', label: t('wms.backend.config.warehouses.form.code', 'Code'), required: true },
-    { id: 'city', type: 'text', label: t('wms.backend.config.warehouses.form.city', 'City') },
-    { id: 'country', type: 'text', label: t('wms.backend.config.warehouses.form.country', 'Country') },
-    { id: 'timezone', type: 'text', label: t('wms.backend.config.warehouses.form.timezone', 'Timezone') },
-    { id: 'isPrimary', type: 'checkbox', label: t('wms.backend.config.warehouses.form.primary', 'Primary warehouse') },
-    { id: 'isActive', type: 'checkbox', label: t('wms.backend.config.warehouses.form.active', 'Active') },
-  ], [t])
-
   const columns = React.useMemo<ColumnDef<WarehouseRow>[]>(() => [
     {
       accessorKey: 'name',
@@ -349,7 +321,7 @@ export function WarehouseSection({ viewAllHref }: ConfigSectionOptions = {}) {
     },
     { accessorKey: 'code', header: t('wms.backend.config.warehouses.columns.code', 'Code'), enableSorting: true },
     { accessorKey: 'city', header: t('wms.backend.config.warehouses.columns.city', 'City'), cell: ({ row }) => row.original.city || '—' },
-    { accessorKey: 'country', header: t('wms.backend.config.warehouses.columns.country', 'Country'), cell: ({ row }) => row.original.country || '—' },
+    { accessorKey: 'country', header: t('wms.backend.config.warehouses.columns.country', 'Country'), cell: ({ row }) => formatWarehouseCountryLabel(row.original.country, locale) },
     {
       accessorKey: 'is_primary',
       header: t('wms.backend.config.warehouses.columns.primary', 'Primary'),
@@ -366,34 +338,10 @@ export function WarehouseSection({ viewAllHref }: ConfigSectionOptions = {}) {
           ? t('wms.common.inactive', 'Inactive')
           : t('wms.common.active', 'Active'),
     },
-  ], [t])
-
-  const initialValues = React.useMemo<WarehouseFormValues>(() => {
-    if (dialog?.mode === 'edit') {
-      return {
-        name: dialog.row.name || '',
-        code: dialog.row.code || '',
-        city: dialog.row.city || '',
-        country: dialog.row.country || '',
-        timezone: dialog.row.timezone || '',
-        isActive: dialog.row.is_active !== false,
-        isPrimary: dialog.row.is_primary === true,
-      }
-    }
-    return {
-      name: '',
-      code: '',
-      city: '',
-      country: '',
-      timezone: '',
-      isActive: true,
-      isPrimary: false,
-    }
-  }, [dialog])
+  ], [locale, t])
 
   const closeDialog = React.useCallback(() => {
     setDialog(null)
-    setSubmitting(false)
   }, [])
 
   const refresh = React.useCallback(async () => {
@@ -402,61 +350,20 @@ export function WarehouseSection({ viewAllHref }: ConfigSectionOptions = {}) {
     await queryClient.refetchQueries({ queryKey: ['wms-config', 'warehouses'], type: 'all' })
   }, [queryClient])
 
-  const handleSubmit = React.useCallback(async (values: WarehouseFormValues) => {
-    if (!dialog) return
-    const submitMode = dialog.mode
-    setSubmitting(true)
-    try {
-      const call = await runMutation({
-        operation: async () => {
-          const result = await apiCall<{ id?: string | null }>(
-            '/api/wms/warehouses',
-            {
-              method: submitMode === 'edit' ? 'PUT' : 'POST',
-              body: JSON.stringify(
-                submitMode === 'edit'
-                  ? { id: dialog.row.id, ...values }
-                  : values,
-              ),
-            },
-          )
-          if (!result.ok) {
-            await raiseCrudError(result.response, t('wms.backend.config.warehouses.errors.save', 'Failed to save warehouse.'))
-          }
-          return result
-        },
-        context: {},
-        mutationPayload: submitMode === 'edit' ? { id: dialog.row.id, ...values } : values,
-      })
-      flash(
-        submitMode === 'edit'
-          ? t('wms.backend.config.warehouses.flash.updated', 'Warehouse updated')
-          : t('wms.backend.config.warehouses.flash.created', 'Warehouse created'),
-        'success',
-      )
-
-      const createdId =
-        submitMode === 'create' &&
-        call?.result &&
-        typeof call.result === 'object' &&
-        typeof (call.result as { id?: unknown }).id === 'string'
-          ? (call.result as { id: string }).id.trim()
-          : null
-
-      closeDialog()
-
-      if (submitMode === 'create' && createdId) {
-        mergeCreatedWarehouseIntoWarehousesCaches(queryClient, createdId, values)
-        setSearch('')
-        setPage(1)
-      }
-
-      await refresh()
-    } catch (error) {
-      flashMutationError(error, t('wms.backend.config.warehouses.errors.save', 'Failed to save warehouse.'), t)
-      setSubmitting(false)
+  const handleWarehouseSaved = React.useCallback(async (info: {
+    mode: 'create' | 'edit'
+    id?: string
+    values: WarehouseFormValues
+    updatedAt?: string | null
+  }) => {
+    closeDialog()
+    if (info.mode === 'create' && info.id) {
+      mergeCreatedWarehouseIntoWarehousesCaches(queryClient, info.id, info.values, info.updatedAt)
+      setSearch('')
+      setPage(1)
     }
-  }, [closeDialog, dialog, queryClient, refresh, runMutation, t])
+    await refresh()
+  }, [closeDialog, queryClient, refresh])
 
   const handleDelete = React.useCallback(async (row: WarehouseRow) => {
     const confirmed = await confirm({
@@ -545,28 +452,13 @@ export function WarehouseSection({ viewAllHref }: ConfigSectionOptions = {}) {
         />
       </SectionCard>
 
-      <Dialog open={dialog !== null} onOpenChange={(next) => !next && closeDialog()}>
-        <DialogContent className="max-w-3xl">
-          <DialogHeader>
-            <DialogTitle>
-              {dialog?.mode === 'edit'
-                ? t('wms.backend.config.warehouses.dialog.edit', 'Edit warehouse')
-                : t('wms.backend.config.warehouses.dialog.create', 'Create warehouse')}
-            </DialogTitle>
-          </DialogHeader>
-          <CrudForm<WarehouseFormValues>
-            schema={warehouseFormSchema}
-            fields={fields}
-            entityId={E.wms.warehouse}
-            initialValues={initialValues}
-            submitLabel={t('common.save', 'Save')}
-            onSubmit={handleSubmit}
-            embedded
-            isLoading={submitting}
-            twoColumn
-          />
-        </DialogContent>
-      </Dialog>
+      <WarehouseEditDialog
+        open={dialog !== null}
+        onOpenChange={(next) => { if (!next) closeDialog() }}
+        mode={dialog?.mode === 'edit' ? 'edit' : 'create'}
+        row={dialog?.mode === 'edit' ? dialog.row : null}
+        onSaved={handleWarehouseSaved}
+      />
       {ConfirmDialogElement}
     </>
   )

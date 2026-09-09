@@ -177,6 +177,78 @@ describe('AuthService', () => {
     expect(em.nativeUpdate).not.toHaveBeenCalled()
   })
 
+  // -------------------------------------------------------------------------
+  // Regression: the reset page must be able to check a token before rendering
+  // the form, without consuming it (issue #5533).
+  // -------------------------------------------------------------------------
+
+  it('isPasswordResetTokenValid accepts an unused, unexpired token without consuming it', async () => {
+    const { em } = makeEm()
+    em.findOne.mockResolvedValueOnce({
+      id: 'reset-1',
+      token: hashAuthToken('raw-token-value'),
+      expiresAt: new Date(Date.now() + 60000),
+      usedAt: null,
+      user: { id: 'u1' },
+    })
+    em.findOne.mockResolvedValueOnce({ id: 'u1' })
+    const svc = new AuthService(em)
+    await expect(svc.isPasswordResetTokenValid('raw-token-value')).resolves.toBe(true)
+    expect(em.nativeUpdate).not.toHaveBeenCalled()
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
+  it('isPasswordResetTokenValid rejects a live token whose user has been soft-deleted', async () => {
+    const { em } = makeEm()
+    em.findOne.mockResolvedValueOnce({
+      id: 'reset-1',
+      token: hashAuthToken('raw-token-value'),
+      expiresAt: new Date(Date.now() + 60000),
+      usedAt: null,
+      user: { id: 'u1' },
+    })
+    em.findOne.mockResolvedValueOnce(null)
+    const svc = new AuthService(em)
+    await expect(svc.isPasswordResetTokenValid('raw-token-value')).resolves.toBe(false)
+    expect((em.findOne as jest.Mock).mock.calls[1][1]).toEqual({ id: 'u1', deletedAt: null })
+    expect(em.nativeUpdate).not.toHaveBeenCalled()
+  })
+
+  it('isPasswordResetTokenValid rejects an already-used token', async () => {
+    const { em } = makeEm()
+    em.findOne.mockResolvedValueOnce({
+      id: 'reset-1',
+      token: hashAuthToken('raw-token-value'),
+      expiresAt: new Date(Date.now() + 60000),
+      usedAt: new Date(Date.now() - 1000),
+      user: { id: 'u1' },
+    })
+    const svc = new AuthService(em)
+    await expect(svc.isPasswordResetTokenValid('raw-token-value')).resolves.toBe(false)
+  })
+
+  it('isPasswordResetTokenValid rejects an expired token', async () => {
+    const { em } = makeEm()
+    em.findOne.mockResolvedValueOnce({
+      id: 'reset-1',
+      token: hashAuthToken('raw-token-value'),
+      expiresAt: new Date(Date.now() - 1000),
+      usedAt: null,
+      user: { id: 'u1' },
+    })
+    const svc = new AuthService(em)
+    await expect(svc.isPasswordResetTokenValid('raw-token-value')).resolves.toBe(false)
+  })
+
+  it('isPasswordResetTokenValid looks up by the hashed token only', async () => {
+    const { em } = makeEm()
+    em.findOne.mockResolvedValueOnce(null)
+    const svc = new AuthService(em)
+    await expect(svc.isPasswordResetTokenValid('raw-token-value')).resolves.toBe(false)
+    expect(em.findOne).toHaveBeenCalledTimes(1)
+    expect((em.findOne as jest.Mock).mock.calls[0][1]).toEqual({ token: hashAuthToken('raw-token-value') })
+  })
+
   it('deleteSessionById invokes nativeDelete with the id filter', async () => {
     const { em } = makeEm()
     const svc = new AuthService(em)

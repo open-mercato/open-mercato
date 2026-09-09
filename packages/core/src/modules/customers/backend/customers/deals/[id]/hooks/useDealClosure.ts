@@ -88,7 +88,7 @@ export function useDealClosure({
       const lossPayload = {
         id: currentDealId,
         closureOutcome: 'lost' as const,
-        status: 'loose',
+        status: 'lost',
         lossReasonId: input.lossReasonId,
         ...(input.lossNotes ? { lossNotes: input.lossNotes } : {}),
       }

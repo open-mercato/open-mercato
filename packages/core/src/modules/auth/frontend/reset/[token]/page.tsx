@@ -4,10 +4,14 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { PasswordInput } from '@open-mercato/ui/primitives/password-input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { formatPasswordRequirements, getPasswordPolicy, validatePassword } from '@open-mercato/shared/lib/auth/passwordPolicy'
+
+type TokenState = 'checking' | 'usable' | 'expired'
 
 export default function ResetWithTokenPage({ params }: { params: { token: string } }) {
   const router = useRouter()
@@ -15,6 +19,7 @@ export default function ResetWithTokenPage({ params }: { params: { token: string
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [clientReady, setClientReady] = useState(false)
+  const [tokenState, setTokenState] = useState<TokenState>('checking')
   const passwordPolicy = getPasswordPolicy()
   const passwordRequirements = formatPasswordRequirements(passwordPolicy, t)
   const passwordDescription = passwordRequirements
@@ -24,6 +29,30 @@ export default function ResetWithTokenPage({ params }: { params: { token: string
   useEffect(() => {
     setClientReady(true)
   }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    async function checkToken() {
+      const body = new FormData()
+      body.set('token', params.token)
+      // Fail open whenever the check cannot answer — an unreachable or failing
+      // endpoint must not strand a user holding a perfectly good link, and the
+      // confirm endpoint still rejects a dead token on submit.
+      try {
+        const { ok, result } = await apiCall<{ ok?: boolean; valid?: boolean }>(
+          '/api/auth/reset/validate',
+          { method: 'POST', body },
+        )
+        if (cancelled) return
+        setTokenState(ok && result?.valid === false ? 'expired' : 'usable')
+      } catch {
+        if (cancelled) return
+        setTokenState('usable')
+      }
+    }
+    void checkToken()
+    return () => { cancelled = true }
+  }, [params.token])
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -64,6 +93,51 @@ export default function ResetWithTokenPage({ params }: { params: { token: string
     } finally {
       setSubmitting(false)
     }
+  }
+
+  if (tokenState === 'checking') {
+    return (
+      <div className="min-h-svh flex items-center justify-center p-4">
+        <Card className="w-full max-w-sm">
+          <CardHeader>
+            <CardTitle>{t('auth.reset.title', 'Set a new password')}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center gap-2 text-sm text-muted-foreground" data-auth-token-state="checking">
+              <Spinner size="sm" />
+              <span>{t('auth.reset.token.checking', 'Checking your reset link...')}</span>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  if (tokenState === 'expired') {
+    return (
+      <div className="min-h-svh flex items-center justify-center p-4">
+        <Card className="w-full max-w-sm">
+          <CardHeader>
+            <CardTitle>{t('auth.reset.token.expiredTitle', 'This reset link is no longer valid')}</CardTitle>
+            <CardDescription>
+              {t('auth.reset.token.expiredSubtitle', 'It has already been used or has expired. Request a new link to set your password.')}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-3" data-auth-token-state="expired">
+              <Button asChild className="w-full">
+                <Link href="/reset">{t('auth.reset.token.requestNew', 'Request a new link')}</Link>
+              </Button>
+              <div className="text-center">
+                <Link href="/login" className="text-xs text-muted-foreground underline">
+                  {t('auth.reset.backToLogin', 'Back to login')}
+                </Link>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    )
   }
 
   return (

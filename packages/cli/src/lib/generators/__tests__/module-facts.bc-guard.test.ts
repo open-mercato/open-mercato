@@ -158,17 +158,37 @@ describe('module-facts BC resolve guard (T2)', () => {
     // `channel-apns` and `channel-expo` provider packages add their own facts,
     // provenance entries and override targets to every render. The
     // `warranty_claims` module (see above) and the additive Documents module
-    // land alongside it, so the cap absorbs all three additions. Both sides of
-    // that merge had raised the cap independently (3_950_000 for Documents,
-    // 4_000_000 for the rest); neither number covers the union, which measures
-    // ~4.09MB. Keep bounded headroom over the measured size only.
-    expect(Buffer.byteLength(completeJson)).toBeLessThan(4_150_000)
-    expect(Buffer.byteLength(completeJson) - Buffer.byteLength(legacyJson)).toBeLessThan(1_800_000)
+    // land alongside it.
+    //
+    // Raised again here for a reason unlike every raise above: those all tracked
+    // a schema or extraction change, this one tracks ordinary repo growth. The
+    // additive `channel_discord` module costs ~15.9KB JSON and ~9.2KB markdown
+    // (`channel_gmail` costs 6,886 / `channel_imap` 6,798; the difference is a
+    // gateway worker, a CLI command, a signed route and a subscriber, spread
+    // proportionally across overrideTargets, extensionSurfaces, factSources and
+    // ownedContracts — no duplicated payloads).
+    //
+    // The numbers below are MEASURED ON THE MERGED TREE, not transcribed from
+    // either side of the merge: neither side's cap covers the union. A cap that
+    // sits a fraction of a percent above the current measurement has stopped
+    // detecting blow-ups and started rejecting the next additive module of any
+    // size, whichever PR happens to add it — so keep bounded headroom over the
+    // measured size. A real blow-up here is multiplicative (a duplicated
+    // provenance payload, a contribution body copied per resolution), not one
+    // provider's worth of references.
+    expect(Buffer.byteLength(completeJson)).toBeLessThan(4_700_000)
+    // Measured on the merged tree (`yarn jest module-facts.bc-guard`):
+    //   completeJson 4,120,374 · legacy delta 1,795,214 · markdown 1,558,590 ·
+    //   directory markdown 1,709,511.
+    // The delta cap is raised alongside the JSON one for the same reason: at
+    // 1,800,000 it sat 0.27% above the measurement, which is not a guard.
+    expect(Buffer.byteLength(completeJson) - Buffer.byteLength(legacyJson)).toBeLessThan(2_050_000)
     // Markdown cap raised with the source-link contract: entities, events, ACL
     // features, DI tokens, search entities, notifications, UMES hosts and UMES
     // contributions all render a resolved Source cell, and contribution
-    // resolutions render as their own source-linked section.
-    expect(markdownBytes).toBeLessThan(1_750_000)
+    // resolutions render as their own source-linked section — plus the additive
+    // `channel_discord` module's own render, per the growth note above.
+    expect(markdownBytes).toBeLessThan(1_800_000)
     expect(directoryMarkdownBytes).toBeLessThan(2_050_000)
   })
 
