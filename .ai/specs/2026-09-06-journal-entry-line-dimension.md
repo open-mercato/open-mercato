@@ -4,15 +4,17 @@
 (GL's own Out of Scope section anticipates this table, and this
 document is the future spec it points to), [Posting Rules Engine](2026-09-06-posting-rules-engine.md)
 (first consumer — the 490 engine needs a CostCenter dimension on a
-line), [Fixed Assets](2026-09-06-fixed-assets.md) (second, independent
-future consumer — Phase 2's `transferAsset`; still an untracked
-sibling draft in this same working tree, not an externally-authored
-source — see Design Decisions)
+line; also an untracked sibling draft in this same working tree, not
+an externally-authored source, same caveat as Fixed Assets below —
+see Design Decisions), [Fixed Assets](2026-09-06-fixed-assets.md)
+(second, independent future consumer — Phase 2's `transferAsset`;
+still an untracked sibling draft in this same working tree, not an
+externally-authored source — see Design Decisions)
 
 ## TLDR
 
 A dedicated `journal_entry_line_dimension` table that lets **more than
-one** independent dimension (counterparty, cost centre/project, bank
+one** independent dimension (cost centre/project, bank
 account, fixed asset, currency) be attached to a single journal entry
 line — without exploding the chart of accounts into a cartesian
 product of combinations. This document builds only the table, its own
@@ -40,10 +42,11 @@ depending on each other.
 ## Problem Statement
 
 A single journal entry line (`JournalEntryLine`) can need **more than
-one** analytical dimension at the same time. Example: a purchase
-invoice posted to a cost account — the line needs both a counterparty
-(who we owe, for AP) and a cost centre/department (which cost bucket
-it belongs to, for the 490 engine / Posting Rules Engine). Trying to
+one** analytical dimension at the same time. Example: a fixed-asset
+purchase invoice line — it needs both a cost centre/department (which
+cost bucket it belongs to, for the 490 engine / Posting Rules Engine)
+and a fixed asset tag (which asset record it capitalizes, for Fixed
+Assets Phase 2). Trying to
 solve this through the chart-of-accounts hierarchy (`parentAccountId`,
 already in #5663) would explode the number of accounts — a separate
 account for every "department × project × region" combination, which
@@ -75,8 +78,8 @@ codebase actually reads across a hard dependency today.
 **A dedicated table, not a field on `JournalEntryLine`.** A single
 pair of columns (`dimensionType`/`dimensionId`, analogous to
 `referenceType`/`referenceId` elsewhere in the codebase) would only
-support **one** dimension per line — it cannot solve "counterparty
-*and* cost centre at the same time." One-to-many structure instead:
+support **one** dimension per line — it cannot solve "cost centre
+*and* fixed asset at the same time." One-to-many structure instead:
 
 ```typescript
 JournalEntryLineDimension {
@@ -90,8 +93,8 @@ JournalEntryLineDimension {
 }
 ```
 
-One line can have several rows in this table — a counterparty and a
-cost centre at once, with no conflict.
+One line can have several rows in this table — a cost centre and a
+fixed asset at once, with no conflict.
 
 **Excludes the counterparty.** The counterparty on a journal entry
 line is already handled by `contractorSnapshot: json` (nullable)
@@ -127,13 +130,16 @@ stronger: this table has **more than one independent consumer**.
 Separately, `2026-09-06-fixed-assets.md` (Design Decisions,
 `transferAsset`) already commits its own future Phase 2 to consuming
 this same table, independent of Posting Rules Engine. **Caveat, added
-this round**: unlike the #5663 check (an externally-authored,
-already-merged source on its own branch), `fixed-assets.md` is an
-untracked draft sitting in this same working tree, plausibly authored
-in the same pass as this document — it confirms the two-consumers
-claim textually, but carries less independent weight than the #5663
-check, and is worth re-confirming once `fixed-assets.md` itself goes
-through its own fresh-context review. Taking it at face value for now:
+this round, extended to both cited consumers**: unlike the #5663 check
+(an externally-authored, already-merged source on its own branch),
+both `posting-rules-engine.md` and `fixed-assets.md` are untracked
+drafts sitting in this same working tree, plausibly authored in the
+same pass as this document — confirmed via `git log`/`git ls-tree`
+against `upstream/develop` and this fork: neither has any commit
+history on any branch. Each confirms the two-consumers claim
+textually, but carries less independent weight than the #5663 check,
+and both are worth re-confirming once they go through their own
+fresh-context review. Taking them at face value for now:
 if this table's entity lived inside the `posting_rules` module, Fixed
 Assets Phase 2 would need a hard dependency on the entire
 `posting_rules` module (its event subscriber, its reconciliation
@@ -258,12 +264,32 @@ all inputs with zod; place validators in `data/validators.ts`" rule —
 a rule that applies to command inputs generally, not only HTTP API
 routes (real precedent: `sales/commands/documents.ts` defines
 `z.object({...})` schemas directly for its own custom, non-CRUD
-commands, e.g. `quoteConvertToOrderSchema`). Corrected:
+commands, e.g. `quoteConvertToOrderSchema`).
+
+**Corrected this round — closed enum, not `z.string().min(1)`.** An
+earlier draft validated `dimensionType` as any non-empty string, which
+would accept a typo'd or made-up dimension type at the command
+boundary with no error until a consumer's read silently found nothing.
+Corrected: `data/validators.ts` exports a module-owned constant
+`DIMENSION_TYPES = ['CostCenter', 'BankAccount', 'FixedAsset',
+'Currency'] as const` (the same four values already listed in Data
+Models) and validates against it with `z.enum(DIMENSION_TYPES)`. The
+`dimension_type` database column itself stays `text`, not a Postgres
+enum — adding a fifth type is still a one-line change to
+`DIMENSION_TYPES` plus a Zod-boundary deploy, not a migration; the
+enum lives at the validation layer, not the schema layer.
+
 `data/validators.ts` declares
 `setJournalEntryLineDimensionSchema = z.object({ journalEntryLineId:
-z.string().uuid(), dimensionType: z.string().min(1), dimensionIds:
-z.array(z.string().uuid()).min(1) })`, and the command's `execute`
-parses input through it before touching the database.
+z.string().uuid(), dimensionType: z.enum(DIMENSION_TYPES),
+dimensionIds: z.array(z.string().uuid()).min(1) }).refine((v) => new
+Set(v.dimensionIds).size === v.dimensionIds.length, { message:
+'dimensionIds must not contain duplicates', path: ['dimensionIds'] })`
+— the `.refine()` was added this round so a caller passing the same id
+twice in one call fails validation instead of relying on the
+database's `ON CONFLICT DO NOTHING` to silently absorb it. The
+command's `execute` parses input through it before touching the
+database.
 
 ## Alternatives Considered
 
@@ -416,6 +442,16 @@ identified caller — inconsistent with this same document's own YAGNI
 reasoning for deferring ACL/UI/events. Dropped; add it in Phase 2 if
 and when a real reporting screen needs it (tracked in Out of Scope).
 
+**Added this round — unique constraint on the insert.** A separate,
+non-speculative `UNIQUE` constraint on `(journal_entry_line_id,
+dimension_type, dimension_id, tenant_id, organization_id)` (distinct
+in purpose from the dropped reporting index above — this one enforces
+integrity, not a query shape) with `ON CONFLICT DO NOTHING` on the
+command's insert step. This makes a duplicate `dimensionId` within one
+call, or the same call retried, a no-op instead of a second identical
+row for the same tag — see Risks & Impact Review for what it does and
+does not protect against under real concurrency.
+
 ## API Contracts
 
 **None.** This module exposes no HTTP routes — the write happens
@@ -529,13 +565,24 @@ packages/core/src/modules/journal_entry_line_dimension/
 - **Severity**: Low
 - **Affected area**: `journal_entry_line_dimension` only — no
   financial data, no ledger balance is affected either way
-- **Mitigation**: `withAtomicFlush`/transaction wrapping around the
-  delete-then-insert makes each call atomic; the last call to commit
-  wins, an acceptable outcome for a tagging table with no independent
-  semantic ordering.
-- **Residual risk**: none identified — unlike a financial posting, two
-  callers racing here produce "the last one's tags for that type
-  stick," not a corrupted or unbalanced financial record.
+- **Mitigation**: `withAtomicFlush`/transaction wrapping makes each
+  call's own delete-then-insert atomic. **Corrected this round**: an
+  earlier draft claimed "the last call to commit wins" — checked
+  against the actual delete-then-insert shape and that claim doesn't
+  hold under real interleaving: if both transactions' deletes run
+  before either's insert (each sees no rows to remove), the result is
+  the **union** of both calls' rows, not the second call's rows alone.
+  The new unique constraint + `ON CONFLICT DO NOTHING` (see Data
+  Models) only prevents an *identical* row from being inserted twice;
+  it does not collapse two different `dimensionIds` sets down to one.
+- **Residual risk**: two overlapping calls for the same `(line, type)`
+  can leave a union of both sets of tags rather than either caller's
+  intended final state. Unlike a financial posting this doesn't
+  corrupt a balance, but it's a real (if unlikely, given today's single
+  writer per type) outcome, not the clean "last writer wins" the
+  earlier draft claimed — not addressed further in Phase 1 since no
+  two consumers write the same type today (see the disjoint-types risk
+  entry above and Out of Scope).
 
 ### Cascading failures & side effects
 
@@ -762,3 +809,50 @@ as the corresponding Design Decision added to
 posting tags" bullet (which had listed kontrahent as a candidate
 dimension type before this document settled on excluding it) — all
 three kept consistent.
+
+### 2026-09-09 — fixes from external maintainer PR review (#5972)
+
+Applied the technical fixes agreed during that review round, each
+checked directly against the current file state before editing (not
+taken at the reviewer's word):
+
+- **Dimension-pair examples corrected.** The TLDR, Problem Statement
+  example, dedicated-table rationale, and the "one line can have
+  several rows" sentence all previously paired *counterparty* with
+  *cost centre* as the motivating example — directly contradicting
+  this same document's own "Excludes the counterparty" Design
+  Decision two sections later. All four now use **CostCenter +
+  FixedAsset**, dimension types this table actually owns.
+- **Unique constraint + `ON CONFLICT DO NOTHING` added** on
+  `(journal_entry_line_id, dimension_type, dimension_id, tenant_id,
+  organization_id)` (Data Models), distinct in purpose from the
+  reporting index already dropped from Phase 1. A `.refine()` was
+  added to `setJournalEntryLineDimensionSchema` (Design Decisions) so
+  a caller passing a duplicate `dimensionId` in one call fails
+  validation rather than relying on the database to absorb it. The
+  "Concurrent `setJournalEntryLineDimension` calls" risk entry's
+  earlier "last call to commit wins" claim was checked against the
+  actual delete-then-insert shape and corrected: real interleaving can
+  produce a **union** of both calls' rows, which the new constraint
+  does not prevent (it only blocks an identical row from being
+  inserted twice).
+- **`dimensionType` validated against a closed enum, not
+  `z.string().min(1)`.** Added a module-owned `DIMENSION_TYPES`
+  constant (`data/validators.ts`) and switched the schema to
+  `z.enum(DIMENSION_TYPES)`; the database column itself stays `text`
+  so a new type is still a one-line constant change, not a migration.
+- **Untracked-draft caveat extended to `posting-rules-engine.md`.**
+  This document already flagged `fixed-assets.md`, wherever cited, as
+  an untracked sibling draft rather than an externally-authored
+  source. Checked `posting-rules-engine.md` the same way this round
+  (`git log`/`git ls-tree` against `upstream/develop` and this fork:
+  no commit history on either) and found it is equally untracked but
+  had never carried the same caveat — asymmetric treatment of two
+  equally-unverified sources. Extended the caveat to every place this
+  document cites `posting-rules-engine.md` (header Related section,
+  Design Decisions "Why this is a separate document").
+- Re-checked this document's one existing changelog claim that a
+  "corresponding correction" was made in `posting-rules-engine.md`
+  (2026-09-08 entry, re: the #5663 split-rationale citation) directly
+  against that file's current text — confirmed accurate (see its
+  "Korekta (2026-09-08)" note); left as-is.

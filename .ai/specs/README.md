@@ -111,6 +111,7 @@ Specs awaiting implementation or partially complete. Focus here for actionable w
 | [Customer Interaction Completion Event Reliability](2026-07-20-customer-interaction-completion-event-reliability.md) | 2026-07-20 | Customer Interaction Completion Event Reliability | Reliable scoped persistent publication with retry-safe per-interaction delivery state |
 | [Stable Workflow Activity Outputs](2026-07-20-stable-workflow-activity-outputs.md) | 2026-07-20 | Stable Workflow Activity Outputs | Additive `activities.<activityId>` result addressing across synchronous and asynchronous workflow activities |
 | [Backend Route Collision Guard](2026-07-23-backend-route-collision-guard.md) | 2026-07-23 | Backend Route Collision Guard | Build-time `mercato generate` guard that fails loud when two modules emit the same backend page URL (folder-derived), mirroring the duplicate-command-id guard; route overrides unaffected |
+| [Journal Entry Line Dimension](2026-09-06-journal-entry-line-dimension.md) | 2026-09-06 | Journal Entry Line Dimension | Multi-dimensional analytical tags (cost centre, bank account, fixed asset, currency) on a journal entry line — a small, standalone module with no consumer of its own, built so Posting Rules Engine and (independently) Fixed Assets Phase 2 can each depend on it without depending on each other |
 
 ### Implemented Specifications
 
@@ -205,7 +206,6 @@ Fully implemented and deployed. Canonical files live in [`implemented/`](impleme
 | [SPEC-066](implemented/SPEC-066-2026-03-15-official-modules-changesets-release-workflow.md) | 2026-03-15 | Official Modules Changesets Release Workflow | Changesets-based release workflow for official modules |
 | [Checkout Pay Links](implemented/2026-03-19-checkout-pay-links.md) | 2026-03-19 | Checkout Pay Links | Pay link generation and checkout flow (Phase A) |
 | [Checkout Wireframes](implemented/2026-03-19-checkout-pay-links-wireframes.md) | 2026-03-19 | Checkout Pay Links Wireframes | Companion wireframes for the Checkout Pay Links spec |
-| [Journal Entry Line Dimension](2026-09-06-journal-entry-line-dimension.md) | 2026-09-06 | Journal Entry Line Dimension | Multi-dimensional analytical tags (cost centre, bank account, fixed asset, currency) on a journal entry line — a small, standalone module with no consumer of its own, built so Posting Rules Engine and (independently) Fixed Assets Phase 2 can each depend on it without depending on each other |
 
 ## Specification Structure
 
