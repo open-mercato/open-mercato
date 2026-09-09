@@ -124,4 +124,48 @@ describe('POST /api/auth/locale', () => {
 
     expect(res.status).toBe(400)
   })
+
+  it('returns 400 for a non-string locale', async () => {
+    const res = await POST(new Request(`${BASE}/api/auth/locale`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ locale: 42 }),
+    }))
+
+    expect(res.status).toBe(400)
+  })
+
+  describe('canonicalizes the value it stores', () => {
+    // The cookie is compared against the served set verbatim by `detectLocale`,
+    // so writing back the caller's spelling would set a cookie that the next
+    // render silently ignores.
+    async function postLocale(locale: string) {
+      return POST(new Request(`${BASE}/api/auth/locale`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ locale }),
+      }))
+    }
+
+    it('lower-cases a mixed-case code', async () => {
+      const res = await postLocale('DE')
+
+      expect(res.status).toBe(200)
+      expect(res.headers.get('set-cookie')).toContain('locale=de')
+    })
+
+    it('folds a region subtag down to the supported base locale', async () => {
+      const res = await postLocale('de-AT')
+
+      expect(res.status).toBe(200)
+      expect(res.headers.get('set-cookie')).toContain('locale=de')
+    })
+
+    it('does the same on the GET redirect form', async () => {
+      const res = await GET(makeGetRequest({ locale: 'PL-pl' }))
+
+      expect(res.status).toBe(307)
+      expect(res.headers.get('set-cookie')).toContain('locale=pl')
+    })
+  })
 })

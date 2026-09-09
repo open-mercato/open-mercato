@@ -132,7 +132,7 @@ describe('LocaleManager remove affordance (issue #3318)', () => {
   it('renders an accessible IconButton per removable locale and removes it on click', () => {
     const mutate = jest.fn()
     mockUseMutation.mockReturnValue({ mutate, isPending: false })
-    mockUseQuery.mockReturnValue({ data: ['en', 'de', 'fr'], isLoading: false })
+    mockUseQuery.mockReturnValue({ data: { locales: ['en', 'de', 'fr'], servable: ['en', 'de'] }, isLoading: false })
 
     render(<LocaleManager />)
 
@@ -146,10 +146,72 @@ describe('LocaleManager remove affordance (issue #3318)', () => {
   })
 
   it('does not render a remove affordance when only one locale remains', () => {
-    mockUseQuery.mockReturnValue({ data: ['en'], isLoading: false })
+    mockUseQuery.mockReturnValue({ data: { locales: ['en'], servable: ['en'] }, isLoading: false })
 
     render(<LocaleManager />)
 
     expect(screen.queryByRole('button', { name: /^Remove/ })).toBeNull()
+  })
+})
+
+/**
+ * The stored selection drives two different things: which languages content can
+ * be translated into (any ISO 639-1 code) and which of those the admin UI can be
+ * shown in (only the ones the app ships a dictionary for). Adding a code with no
+ * dictionary used to look like it did both. UX findings 2 and 3.
+ */
+describe('LocaleManager honesty about what a locale actually does', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockUseMutation.mockReturnValue({ mutate: jest.fn(), isPending: false })
+    mockUseQueryClient.mockReturnValue({ setQueryData: jest.fn(), invalidateQueries: jest.fn() })
+  })
+
+  it('marks a locale the app cannot serve its own UI in as content only', () => {
+    mockUseQuery.mockReturnValue({
+      data: { locales: ['en', 'de', 'fr'], servable: ['en', 'de'] },
+      isLoading: false,
+    })
+
+    render(<LocaleManager />)
+
+    // One qualifier, on `fr` — the code with no UI dictionary behind it.
+    const qualifiers = screen.getAllByText('Content only')
+    expect(qualifiers).toHaveLength(1)
+    expect(qualifiers[0].closest('span')?.textContent).toContain('FR')
+  })
+
+  it('does not qualify a locale the app can serve', () => {
+    mockUseQuery.mockReturnValue({
+      data: { locales: ['en', 'de'], servable: ['en', 'de'] },
+      isLoading: false,
+    })
+
+    render(<LocaleManager />)
+
+    expect(screen.queryByText('Content only')).toBeNull()
+  })
+
+  it('refuses to remove the default locale, which stays served whatever is saved', () => {
+    const mutate = jest.fn()
+    mockUseMutation.mockReturnValue({ mutate, isPending: false })
+    mockUseQuery.mockReturnValue({
+      data: { locales: ['en', 'de'], servable: ['en', 'de'] },
+      isLoading: false,
+    })
+
+    render(<LocaleManager />)
+
+    const removeEnglish = screen.getByRole('button', {
+      name: 'English is the default language and is always served, so it cannot be removed.',
+    })
+    expect(removeEnglish).toBeDisabled()
+
+    fireEvent.click(removeEnglish)
+    expect(mutate).not.toHaveBeenCalled()
+
+    // Every other locale stays removable.
+    fireEvent.click(screen.getByRole('button', { name: 'Remove German' }))
+    expect(mutate).toHaveBeenCalledWith(['en'])
   })
 })

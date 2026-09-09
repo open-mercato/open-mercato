@@ -74,7 +74,7 @@ beforeEach(() => {
     async (url: string, init?: { method?: string; body?: string }) => {
       if (!init?.method) {
         if (url === '/api/translations/locales') {
-          return { ok: true, result: { locales: ['en', 'de'] } }
+          return { ok: true, result: { locales: ['en', 'de'], servable: ['en', 'de'] } }
         }
         // entity-translation GET
         return {
@@ -143,12 +143,10 @@ describe('LocaleManager guarded mutations (#3316)', () => {
 
     await screen.findByRole('button', { name: 'Add' })
 
-    // click a locale remove "X" button -> removeLocale -> guarded save
-    const removeButton = screen
-      .getAllByRole('button')
-      .find((button) => !/add/i.test(button.textContent || ''))
-    expect(removeButton).toBeDefined()
-    fireEvent.click(removeButton as HTMLElement)
+    // click a locale remove "X" button -> removeLocale -> guarded save.
+    // German, not English: the default locale is always served, so its remove
+    // control is deliberately disabled.
+    fireEvent.click(screen.getByRole('button', { name: 'Remove German' }))
 
     await waitFor(() => expect(runMutationMock).toHaveBeenCalledTimes(1))
 
@@ -157,7 +155,7 @@ describe('LocaleManager guarded mutations (#3316)', () => {
       mutationPayload?: Record<string, unknown>
     }
     expect(runInput.context.retryLastMutation).toBe(retryLastMutationMock)
-    expect(runInput.mutationPayload).toEqual({ locales: ['de'] })
+    expect(runInput.mutationPayload).toEqual({ locales: ['en'] })
     expect(apiCallMock).toHaveBeenCalledWith(
       '/api/translations/locales',
       expect.objectContaining({ method: 'PUT' }),

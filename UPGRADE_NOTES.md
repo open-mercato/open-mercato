@@ -24,6 +24,89 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.7.0 → 0.7.1 (unreleased)
 
+### `Locale` is now derived from an augmentable `LocaleRegistry` (no action required)
+
+`Locale` in `@open-mercato/shared/lib/i18n/config` used to be a closed union literal. It is now
+derived from an interface:
+
+```ts
+export interface LocaleRegistry { en: true; pl: true; es: true; de: true; ko: true }
+export type Locale = keyof LocaleRegistry & string
+```
+
+**Nothing changes for an application that does not opt in.** Unaugmented, `Locale` resolves to
+exactly `'en' | 'pl' | 'es' | 'de' | 'ko'` — the same assignability, the same exhaustiveness. Your
+existing `Record<Locale, T>` maps and `switch` statements keep compiling and keep failing when a
+member is missing. `locales` and `defaultLocale` are unchanged in name, type, value and order, and
+no new language is shipped. `detectLocale()` and `I18nProvider` each gained one **optional**
+parameter, so existing call sites are unaffected.
+
+**Action for module authors: none.** This entry exists because `Locale` is a published type and
+its *shape* changed even though its meaning did not.
+
+**To serve a language Open Mercato does not ship**, you no longer need to patch `node_modules`.
+Three steps, all in your own app:
+
+1. Widen the type from any file in your app's source tree:
+
+   ```ts
+   declare module '@open-mercato/shared/lib/i18n/config' {
+     interface LocaleRegistry { cs: true }
+   }
+   ```
+
+2. Register it at runtime, next to your `registerAppDictionaryLoader` call:
+
+   ```ts
+   import { registerLocales } from '@open-mercato/shared/lib/i18n/server'
+
+   registerLocales(['cs'])
+   ```
+
+3. Add `src/i18n/cs.json` and a `case 'cs':` arm in your app dictionary loader. Any key you have
+   not translated falls back to the default locale rather than rendering a raw key, so a partial
+   dictionary is a valid starting point.
+
+Note that the type layer is advisory: declaration merging applies when a package is *installed*,
+not when it is *enabled*, so the runtime registry — not the type — is what actually decides which
+locales are served.
+
+One published type gained a required field: `I18nContextValue.supportedLocales`. `I18nContext`
+itself is not exported, so nothing outside `@open-mercato/shared` can construct or inject that
+value — the only way to notice is annotating an object literal with the type.
+
+Full reasoning: `.ai/specs/2026-09-03-extensible-locale-set.md`.
+
+### ⚠️ `translations.supported_locales` now also drives the UI language switcher (check before upgrading)
+
+**This is the one change in 0.7.1 that can alter behaviour for an existing installation with no
+code change on your side. Review your saved selection before you deploy.**
+
+Settings → Module Configs → Translations (feature `translations.manage_locales`) writes a
+tenant-scoped `translations.supported_locales` config value. Until now that value governed only
+the **content-translation editor** — which languages you could enter product copy in. It now also
+governs the **UI locale set**: which languages the admin language switcher offers, and which ones
+`detectLocale()` will accept from a `locale` cookie or an `Accept-Language` header.
+
+**Who is affected.** Any tenant that has ever saved a narrowed selection on that screen. If you
+picked, say, `en` and `de` because those are the only two languages you translate content into,
+then after upgrading:
+
+- `pl`, `es` and `ko` disappear from the admin language switcher for that tenant, and
+- an admin whose `locale` cookie holds one of those is served English instead on their next page
+  load, with no explanation.
+
+**What to do.** Before upgrading, open Settings → Module Configs → Translations for each tenant
+and confirm the selection lists every language your **users** work in, not just the ones you
+translate content into. A tenant that has never saved a selection is unaffected — no stored value
+means "no opinion", and the full shipped set is served.
+
+**Guard rails.** A configured code with no dictionary behind it can never reach the switcher (the
+selection is intersected with what the app can actually serve), an empty intersection falls back
+to the full set, and `defaultLocale` is always kept in the served set — so a narrowed tenant can
+never end up rendering a language its own switcher does not offer.
+
+
 ### Sales line `discount_amount` is now read as a line total, and the percentage wins (#3757)
 
 `sales_order_lines.discount_amount` and `sales_quote_lines.discount_amount` have always been
