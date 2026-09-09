@@ -101,9 +101,18 @@ const integrationDetail = {
 function mockApiResponses() {
   apiCallMock.mockImplementation((url: unknown) => {
     const href = typeof url === 'string' ? url : ''
+    if (href.startsWith('/api/auth/feature-check')) {
+      return Promise.resolve({ ok: true, status: 200, result: { granted: [] } })
+    }
     if (href.includes('/logs')) return Promise.resolve({ ok: true, status: 200, result: { items: [] } })
     return Promise.resolve({ ok: true, status: 200, result: integrationDetail })
   })
+}
+
+function integrationRequestUrls() {
+  return apiCallMock.mock.calls
+    .map(([url]) => url)
+    .filter((url): url is string => typeof url === 'string' && url.startsWith('/api/integrations'))
 }
 
 describe('IntegrationDetailPage route id resolution', () => {
@@ -124,12 +133,12 @@ describe('IntegrationDetailPage route id resolution', () => {
     })
   })
 
-  it('shows an error and issues no request when the id is missing', async () => {
+  it('shows an error and issues no integration request when the id is missing', async () => {
     renderWithProviders(<IntegrationDetailPage params={{}} />)
 
     await waitFor(() => {
       expect(screen.getByText('Failed to load integration')).toBeInTheDocument()
     })
-    expect(apiCallMock).not.toHaveBeenCalled()
+    expect(integrationRequestUrls()).toEqual([])
   })
 })
