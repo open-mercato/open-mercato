@@ -61,6 +61,8 @@ A new module (`ledger`) providing:
    Closing a year is represented as an ordinary `JournalEntry` with
    `type: 'CLOSING'`, posted manually or by a script — there is no
    automated closing-entry generator (that stays in Out of scope).
+   Opening a year's balances is the same mechanism run in reverse,
+   `type: 'OPENING'` — see Design decisions.
 4. **Reversal**, not undo — correcting a posted entry means posting a
    new, opposite entry that references the original. The original is
    never mutated or deleted.
@@ -234,6 +236,35 @@ schema doesn't block (it stays in Out of scope). It also means a
 closed period's effects are always visible as ordinary ledger entries,
 not a flag with no traceable cause — required for audit, not just
 convenient.
+
+**Opening balances are the same mechanism as closing, run in
+reverse — an ordinary `JournalEntry` with `type: 'OPENING'`, not a
+first-entry special case.** Establishing an account's beginning-of-year
+balance (or, for a brand-new ledger, its balance at go-live) is a
+normal, balanced journal entry that debits/credits each permanent
+(balance-sheet: Asset/Liability/Equity) account for its carried-forward
+figure — posted manually or by a script, the same posture already
+taken for `CLOSING` above, not a bespoke initialization subsystem.
+Nominal (Revenue/Expense) accounts are not usually opened this way:
+`CLOSING` already zeroes them at the prior year-end (Design decisions
+above), so they start the new year at zero by construction, with no
+opening entry needed for them. `postJournalEntry` does not special-case
+`type: 'OPENING'` at all — it validates and persists it exactly like
+any other entry: balanced, subject to the covering `FiscalPeriod`'s
+lock check, atomically numbered by the same per-organization
+`sequenceNumber` counter. The one operational expectation worth naming
+explicitly, so it isn't left to be discovered later: an `OPENING`
+entry for fiscal year N+1 must be dated within — and therefore posted
+before locking — the first `FiscalPeriod` of year N+1, the same rule
+that governs every other entry. An automated opening-balance generator
+(deriving each account's carried-forward figures from the prior year's
+post-closing trial balance and emitting the entry automatically) is
+out of scope here, for the identical reason the equivalent
+`CLOSING`-generator is excluded below: computing "the prior year's
+closing figures" needs a real balance/trial-balance read side, which
+this phase does not build (see Out of scope, Balance calculation) —
+`2026-09-09-general-ledger-account-balances.md`'s Phase 2 is what makes
+that generator buildable later, not this one.
 
 **`referenceType`/`referenceId` are added now even though nothing
 populates them in this phase.** With no integration into `sales` or
@@ -922,6 +953,11 @@ Queries / API).
   return 403 without `ledger.periods.manage` and succeed with it.
 - Reverse a posted entry and assert a new, linked `REVERSAL` entry is
   created while the original is unchanged.
+- Post a balanced `OPENING` entry establishing a permanent account's
+  beginning-of-year balance and assert it persists and posts exactly
+  like a `NORMAL` entry — same balance check, same locked-period
+  rejection, same `sequenceNumber` allocation — since `postJournalEntry`
+  has no special-casing for `type: 'OPENING'` (Design decisions).
 - Post two journal entries concurrently for the same organization and
   assert they receive different, consecutive `sequenceNumber` values
   with no gap or collision; assert a failed post (e.g. unbalanced)
@@ -1004,15 +1040,20 @@ deploy independently of any other module.
   computation is a read-model concern that layers on later without
   changing the posting schema. Not listed as required by the Event
   Storming brief.
-- **Automated period-closing entry generation.** The `CLOSING`
-  `JournalEntry` type *is* in scope (see Proposed Solution / Design
-  decisions) — a year-end close is posted as an ordinary `CLOSING`
-  entry, by hand or by a script. What stays out of scope is an
-  automated generator that identifies the result accounts, computes
-  the transfer to Retained Earnings, and emits the closing entry's
-  lines. That generator is a distinct piece of work from the posting
-  engine and returns in a future phase; the `CLOSING` type keeps the
-  door open for it without requiring it now.
+- **Automated period-closing and period-opening entry generation.**
+  Both the `CLOSING` and `OPENING` `JournalEntry` types *are* in scope
+  (see Proposed Solution / Design decisions) — a year-end close and a
+  new year's opening balances are each posted as an ordinary entry, by
+  hand or by a script. What stays out of scope, symmetrically for both,
+  is an automated generator: for `CLOSING`, one that identifies the
+  result accounts, computes the transfer to Retained Earnings, and
+  emits the closing entry's lines; for `OPENING`, one that reads the
+  prior year's post-closing trial balance and emits the opening
+  entry's lines automatically. Both generators are a distinct piece of
+  work from the posting engine, need a real balance/trial-balance read
+  side to compute from (Balance calculation, above), and return in a
+  future phase; the `CLOSING`/`OPENING` types keep the door open for
+  them without requiring either now.
 - **Subsidiary ledgers (księgi pomocnicze).** Per-counterparty
   (kontrahent) sub-ledgers tracking receivables/payables in natural
   and monetary units (art. 13 ust. 1 pkt 3, art. 16 Ustawy o
@@ -1129,6 +1170,7 @@ spec — see Design decisions and Changelog.
 | Risks cover all write operations | Pass | Balance integrity, tenant isolation, and migration risk addressed |
 | API contracts match data models | Pass (fixed 2026-09-07) | `periodId`/`accountId` `journal-entries` filters now documented as resolving via `FiscalPeriod`/`JournalEntryLine` rather than implying nonexistent `JournalEntry` columns — gap found by an independent, fresh-context review that cross-referenced the real data model instead of trusting this document's own prior claims |
 | Scope cohesion | Pass (resolved 2026-09-07) | A fresh-context subagent was re-run against the *current* scope (not the pre-2026-09-01 five-piece set this row previously, inaccurately, claimed as still verified by inheritance) and returned SPLIT, not COHESIVE: fiscal-period locking is separable from posting, evidenced by this document's own 2026-09-01 → 2026-09-03 changelog. Escalated per the checklist and explicitly decided by the stakeholder: keep `FiscalPeriod` in this document — see Design decisions |
+| Every `JournalEntry.type` enum value is explained somewhere in Proposed Solution / Design decisions | Pass (fixed 2026-09-09) | `OPENING` appeared in the `type` enum (Architecture → Entities, API Contracts) since the first draft but was never otherwise discussed, unlike `NORMAL` (default case), `CLOSING` ("Fiscal period closing is a lock flag plus an entry type"), and `REVERSAL` ("Corrections are reversals, not undo") — caught while cross-referencing this document for `2026-09-09-general-ledger-account-balances.md`'s turnover design. Added the symmetric "Opening balances are the same mechanism as closing, run in reverse" Design decision |
 
 ### Non-Compliant Items
 
@@ -1570,3 +1612,37 @@ nothing reads would itself be speculative scope per the review
 checklist's anti-pattern check. This turns a silent gap into an
 intentional, documented one, without overstating how much of the
 eventual mechanism is actually decided.
+
+### 2026-09-09 (documented the `OPENING` entry type)
+
+While cross-referencing this document for
+`2026-09-09-general-ledger-account-balances.md` (Phase 2, ZSiO), found
+that `JournalEntry.type`'s `OPENING` value — present in the enum since
+the very first draft (Architecture → Entities, API Contracts) — had
+never been explained anywhere else in this document, unlike its three
+siblings: `NORMAL` (the implicit default), `CLOSING` ("Fiscal period
+closing is a lock flag plus an entry type"), and `REVERSAL`
+("Corrections are reversals, not undo"). A real gap, not a stylistic
+one: nothing here said who posts an `OPENING` entry, what it
+represents, or whether `postJournalEntry` treats it specially. Fixed:
+- Added a Design Decision, "Opening balances are the same mechanism as
+  closing, run in reverse" — an `OPENING` entry establishes an
+  account's beginning-of-year (or ledger-go-live) balance, posted
+  manually or by a script against permanent accounts only (nominal
+  accounts start the year at zero once `CLOSING` has run), with
+  `postJournalEntry` applying no special-casing to it (same balance
+  check, same locked-period rejection, same `sequenceNumber`
+  allocation as any other entry).
+- Extended the Out of scope "Automated period-closing entry
+  generation" bullet to cover both `CLOSING` and `OPENING`
+  generators symmetrically — renamed it "Automated period-closing and
+  period-opening entry generation."
+- Added a Proposed Solution cross-reference (point 3) and a Testing
+  Strategy assertion that an `OPENING` entry posts exactly like a
+  `NORMAL` one.
+- Added an Internal Consistency Check row recording the gap and its
+  fix.
+No architectural or scope change — this document already assumed
+`OPENING` entries exist (the enum has carried the value from the
+start); this only makes the assumption explicit instead of leaving the
+`2026-09-09` ZSiO spec's readers to infer it.
