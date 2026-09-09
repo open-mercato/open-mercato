@@ -40,6 +40,15 @@ export type CheckoutTemplateInput = {
     terms?: { title: string; markdown: string; required?: boolean }
     privacyPolicy?: { title: string; markdown: string; required?: boolean }
   }
+  sendStartEmail?: boolean
+  startEmailSubject?: string | null
+  startEmailBody?: string | null
+  sendSuccessEmail?: boolean
+  successEmailSubject?: string | null
+  successEmailBody?: string | null
+  sendErrorEmail?: boolean
+  errorEmailSubject?: string | null
+  errorEmailBody?: string | null
   displayCustomFieldsOnPage?: boolean
   password?: string | null
   maxCompletions?: number | null
