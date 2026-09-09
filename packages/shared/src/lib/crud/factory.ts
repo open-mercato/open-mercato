@@ -1967,15 +1967,19 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
               nextPage += 1
             }
           }
+          const exportPayload = { items: exportItems, total, page: 1, pageSize: exportItems.length, totalPages: 1, ...(res.meta ? { meta: res.meta } : {}) }
+          // Serialize only after `afterList` has run: the hook is the documented place to
+          // patch values the base query cannot compute, and an export built before it runs
+          // ships a different shape than the JSON list response for the same request (#5969).
+          await opts.hooks?.afterList?.(exportPayload, { ...ctx, query: validated as any })
+          profiler.mark('after_list_hook')
+          const finalExportItems = Array.isArray(exportPayload.items) ? exportPayload.items : exportItems
           const prepared = exportFullRequested
-            ? { columns: ensureColumns(exportItems), rows: exportItems }
-            : prepareExportData(exportItems, opts.list, validated as any, ctx)
+            ? { columns: ensureColumns(finalExportItems), rows: finalExportItems }
+            : prepareExportData(finalExportItems, opts.list, validated as any, ctx)
           const fallbackBase = `${opts.events?.entity || resourceKind || 'list'}${exportFullRequested ? '_full' : ''}`
           const filename = finalizeExportFilename(opts.list, requestedExport, fallbackBase)
           const serialized = serializeExport(prepared, requestedExport)
-          const exportPayload = { items: exportItems, total, page: 1, pageSize: exportItems.length, totalPages: 1, ...(res.meta ? { meta: res.meta } : {}) }
-          await opts.hooks?.afterList?.(exportPayload, { ...ctx, query: validated as any })
-          profiler.mark('after_list_hook')
           const response = new Response(serialized.body, {
             headers: {
               'content-type': serialized.contentType,
@@ -1998,7 +2002,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           finishProfile({
             result: 'export',
             cacheStatus,
-            itemCount: exportItems.length,
+            itemCount: finalExportItems.length,
             total,
           })
           return response
@@ -2170,14 +2174,17 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       profiler.mark('access_logged', accessLogResult)
       if (exportRequested && requestedExport) {
         const exportItems = exportFullRequested ? list.map(normalizeFullRecordForExport) : list
+        const exportPayload = { items: exportItems, total: exportItems.length, page: 1, pageSize: exportItems.length, totalPages: 1 }
+        // Same ordering contract as the query-engine export path above (#5969).
+        await opts.hooks?.afterList?.(exportPayload, { ...ctx, query: validated as any })
+        profiler.mark('after_list_hook')
+        const finalExportItems = Array.isArray(exportPayload.items) ? exportPayload.items : exportItems
         const prepared = exportFullRequested
-          ? { columns: ensureColumns(exportItems), rows: exportItems }
-          : prepareExportData(exportItems, opts.list, validated as any, ctx)
+          ? { columns: ensureColumns(finalExportItems), rows: finalExportItems }
+          : prepareExportData(finalExportItems, opts.list, validated as any, ctx)
         const fallbackBase = `${opts.events?.entity || resourceKind || 'list'}${exportFullRequested ? '_full' : ''}`
         const filename = finalizeExportFilename(opts.list, requestedExport, fallbackBase)
         const serialized = serializeExport(prepared, requestedExport)
-        await opts.hooks?.afterList?.({ items: exportItems, total: exportItems.length, page: 1, pageSize: exportItems.length, totalPages: 1 }, { ...ctx, query: validated as any })
-        profiler.mark('after_list_hook')
         const response = new Response(serialized.body, {
           headers: {
             'content-type': serialized.contentType,
@@ -2187,8 +2194,8 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         finishProfile({
           result: 'export',
           cacheStatus,
-          itemCount: exportItems.length,
-          total: exportItems.length,
+          itemCount: finalExportItems.length,
+          total: finalExportItems.length,
           branch: 'fallback',
         })
         return response

@@ -802,6 +802,84 @@ describe('CRUD Factory', () => {
     })
   })
 
+  describe('afterList hook ordering on the export paths', () => {
+    // Issue #5969: both export branches used to call serializeExport() before awaiting
+    // hooks.afterList, so a hook that patches values the base query cannot compute reached
+    // the JSON list response but never the exported file.
+    const patchTitles = (res: any) => {
+      for (const item of res.items) item.title = `patched:${item.title}`
+    }
+
+    it('GET applies afterList mutations to the query-engine export, matching the JSON list', async () => {
+      const hookedRoute = makeCrudRoute({
+        metadata: { GET: { requireAuth: true } },
+        orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+        indexer: { entityType: 'example.todo' },
+        list: {
+          schema: querySchema,
+          entityId: 'example.todo',
+          fields: ['id', 'title', 'is_done'],
+          sortFieldMap: { id: 'id' },
+          buildFilters: () => ({} as any),
+          transformItem: (i: any) => ({ id: i.id, title: i.title }),
+          allowCsv: true,
+          csv: { headers: ['id', 'title'], row: (t: any) => [t.id, t.title], filename: 'todos.csv' },
+        },
+        hooks: { afterList: patchTitles },
+      })
+
+      const jsonRes = await hookedRoute.GET(new Request('http://x/api/example/todos'))
+      expect((await jsonRes.json()).items[0].title).toBe('patched:A')
+
+      const csvRes = await hookedRoute.GET(new Request('http://x/api/example/todos?format=csv'))
+      expect((await csvRes.text()).split('\n')[1]).toBe('id-1,patched:A')
+    })
+
+    it('GET honors an afterList hook that replaces the export payload items', async () => {
+      const replacingRoute = makeCrudRoute({
+        metadata: { GET: { requireAuth: true } },
+        orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+        indexer: { entityType: 'example.todo' },
+        list: {
+          schema: querySchema,
+          entityId: 'example.todo',
+          fields: ['id', 'title', 'is_done'],
+          sortFieldMap: { id: 'id' },
+          buildFilters: () => ({} as any),
+          transformItem: (i: any) => ({ id: i.id, title: i.title }),
+          allowCsv: true,
+          csv: { headers: ['id', 'title'], row: (t: any) => [t.id, t.title], filename: 'todos.csv' },
+        },
+        hooks: { afterList: (res: any) => { res.items = [{ id: 'replaced', title: 'Z' }] } },
+      })
+
+      const csvRes = await replacingRoute.GET(new Request('http://x/api/example/todos?format=csv'))
+      expect((await csvRes.text()).split('\n').slice(1)).toEqual(['replaced,Z'])
+    })
+
+    it('GET applies afterList mutations to the ORM-fallback export', async () => {
+      db['id-1'] = { id: 'id-1', title: 'A', organizationId: defaultOrganizationId, tenantId: defaultTenantId }
+      const fallbackRoute = makeCrudRoute({
+        metadata: { GET: { requireAuth: true } },
+        orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+        list: {
+          schema: querySchema,
+          buildFilters: () => ({} as any),
+          allowCsv: true,
+          csv: { headers: ['id', 'title'], row: (t: any) => [t.id, t.title], filename: 'todos.csv' },
+        },
+        hooks: { afterList: patchTitles },
+      })
+
+      const jsonRes = await fallbackRoute.GET(new Request('http://x/api/example/todos'))
+      expect((await jsonRes.json()).items[0].title).toBe('patched:A')
+
+      db['id-1'] = { id: 'id-1', title: 'A', organizationId: defaultOrganizationId, tenantId: defaultTenantId }
+      const csvRes = await fallbackRoute.GET(new Request('http://x/api/example/todos?format=csv'))
+      expect((await csvRes.text()).split('\n')[1]).toBe('id-1,patched:A')
+    })
+  })
+
   describe('export loop termination', () => {
     const EXPORT_PAGE_SIZE = 1000
 
