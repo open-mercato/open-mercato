@@ -134,6 +134,18 @@ be computed safely.
 - **Cross-module staleness from catalog.** `wms.catalog-product-inventory` reads
   catalog variants, so a variant added to or removed from a product changes its
   enrichment. Handled by subscribing to the catalog variant events as well.
+- **Cross-module staleness from sales.** `wms.sales-order-inventory` reads the
+  order's lines, so a line's quantity changes `reservationSummary.status` and a
+  line's variant changes the `stockSummary` list — neither emits a WMS event.
+  Missed on the first pass (the risk above was written for catalog only) and
+  found on the 9 September re-review. Handled by subscribing to `sales.order.*`
+  and `sales.line.*` with the `warehouse` scope, which is declared by the
+  sales-order enricher alone and so leaves the catalog caches intact.
+- **Coarse tags may under-deliver the measured win.** Every
+  `wms.inventory_movement.*` drops `wms:inventory` tenant-wide across all
+  organizations, so under continuous picking the catalog enrichers may rarely see
+  a hit. Over-invalidating is the correct direction and is kept; the hit rate
+  should be measured on a realistic write load before #5780 is closed.
 
 ## Progress
 
@@ -160,3 +172,11 @@ PR: #5894
 
 - [x] 4.1 Extend the catalog products list integration test for post-invalidation freshness — TC-WMS-STOCK-COL-004
 - [x] 4.2 Run the full validation gate and fix any fallout — green
+
+### Phase 5: Re-review follow-ups (2026-09-09)
+
+- [x] 5.1 Invalidate the sales-order enricher on `sales.order.*` and `sales.line.*`, and extend the coverage test to assert it (major finding)
+- [x] 5.2 Document the additive-only precondition on `ResponseEnricher.cache` and log the skipped cache write instead of swallowing it
+- [x] 5.3 State in `computeAdditiveDelta` that additivity is detected at the top level only
+- [x] 5.4 Mark `cache.invalidateOn` as not implemented so it stops reading as a working hook
+- [x] 5.5 Drop the unused `WMS_ENRICHER_CACHE_TAGS` export and correct the integration test's cache-population comment

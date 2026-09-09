@@ -146,8 +146,11 @@ test.describe('TC-WMS-STOCK-COL-004: WMS enricher cache — products list reflec
         performedBy: scope.userId,
       })
 
-      // Two reads: the first populates the read-through cache, the second must
-      // hit it and still report the same figure.
+      // Two reads before the second adjustment, so the assertion that follows it
+      // is made against a populated cache entry. Neither read can observe a hit
+      // from here — the response is identical either way — so the hit/miss
+      // behaviour itself is proven by the runner unit tests, and what this file
+      // adds is that a real HTTP read after a real write is never stale.
       const seeded = await readProduct()
       expect(seeded, 'Expected product in response').toBeTruthy()
       expect(availableForVariant(seeded)).toBe(20)

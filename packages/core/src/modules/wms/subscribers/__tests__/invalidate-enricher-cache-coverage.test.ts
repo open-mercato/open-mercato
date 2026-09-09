@@ -56,4 +56,24 @@ describe('WMS inventory enricher cache invalidation coverage', () => {
       expect(patterns.some((meta) => matchEventPattern(eventId, meta.event))).toBe(true)
     }
   })
+
+  /**
+   * The sales-order enricher reads the order's lines, so a line edit changes
+   * `reservationSummary.status` and `stockSummary` without emitting any WMS
+   * event. The test above only enumerates `wms/events.ts`, so this cross-module
+   * dependency needs its own assertion or it stays uncovered while the suite
+   * still reads as proof of completeness.
+   */
+  it('covers the sales order and order line events the sales-order enricher depends on', () => {
+    for (const eventId of [
+      'sales.order.created',
+      'sales.order.updated',
+      'sales.order.deleted',
+      'sales.line.created',
+      'sales.line.updated',
+      'sales.line.deleted',
+    ]) {
+      expect(patterns.some((meta) => matchEventPattern(eventId, meta.event))).toBe(true)
+    }
+  })
 })

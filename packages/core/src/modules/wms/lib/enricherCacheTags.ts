@@ -27,8 +27,3 @@ export const WMS_WAREHOUSE_CACHE_TAG = 'wms:warehouse'
  * write surface added later without wiring invalidation.
  */
 export const WMS_ENRICHER_CACHE_TTL_MS = 30_000
-
-export const WMS_ENRICHER_CACHE_TAGS = [
-  WMS_INVENTORY_CACHE_TAG,
-  WMS_WAREHOUSE_CACHE_TAG,
-] as const

@@ -187,6 +187,18 @@ async function readEnricherCache<T>(
   }
 }
 
+/**
+ * The cache write was skipped because no safe envelope could be built. Logged
+ * rather than swallowed: from outside the runner a silently-skipped write is
+ * indistinguishable from a broken cache, and "this enricher is not purely
+ * additive" is the answer an author needs to see.
+ */
+function logSkippedCacheWrite(enricher: ResponseEnricher): void {
+  logger.debug('Skipped enricher cache write — enrichment is not purely additive or lacks usable record ids', {
+    enricherId: enricher.id,
+  })
+}
+
 async function writeEnricherCache(
   cache: CacheLike | null,
   key: string,
@@ -232,6 +244,13 @@ function isEnricherCacheEnvelope(value: unknown): value is EnricherCacheEnvelope
  * purely additive — it changed or dropped a key that was already there. A
  * non-additive enricher is never cached: replaying only its added keys onto a
  * later record would silently lose the change it made to the existing ones.
+ *
+ * Comparison is by identity at the top level only, so an enricher that mutates a
+ * nested object in place is indistinguishable from one that left the record
+ * alone: its nested change is absent from the delta and therefore lost on a
+ * later hit. That fails safe — the served record is under-enriched, never
+ * stale-wrong — and a deep clone of every record on every enriched response is
+ * not worth paying for the case.
  */
 function computeAdditiveDelta(
   input: Record<string, unknown>,
@@ -374,6 +393,8 @@ export async function applyResponseEnrichers<T extends Record<string, unknown>>(
             getEnricherCacheTtl(enricher),
             getEnricherCacheTags(enricher, context),
           )
+        } else {
+          logSkippedCacheWrite(enricher)
         }
       }
       enrichedBy.push(enricher.id)
@@ -468,6 +489,8 @@ export async function applyResponseEnricherToRecord<T extends Record<string, unk
             getEnricherCacheTtl(enricher),
             getEnricherCacheTags(enricher, context),
           )
+        } else {
+          logSkippedCacheWrite(enricher)
         }
       }
       enrichedBy.push(enricher.id)
