@@ -1144,6 +1144,18 @@ tables, zero changes to existing ones. `onTenantCreated` is idempotent
 - Automatic vendor/category-to-account mapping — waiting on the
   Posting Rules Engine (account 490), so the mechanism isn't
   duplicated.
+- **Cross-reference, added 2026-09-09**: `2026-09-09-general-ledger-
+  account-balances.md` (ZSiO / account-balance reporting on top of
+  GL) deliberately ships Phase 1 as posted-only — no read of this
+  module's draft/submitted (buffer) `VendorInvoice` rows, so it has
+  zero dependency on AP's own implementation progress. The workshop
+  wall's "Bufor Toggle" hot spot (Section 05) is *not* resolved by
+  that decision, only deferred: once this module's draft/submitted
+  states exist in a running system, implementing them is the trigger
+  to come back and design that toggle in the GL account-balances
+  document (a real cross-module read this module would then need to
+  expose or be read from, not a schema change here). Do not forget
+  this when Phase 1 of *this* document ships.
 
 ## Final Compliance Report — 2026-09-08
 
