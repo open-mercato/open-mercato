@@ -185,7 +185,12 @@ export function PortalShell({
   const orgSlug = portalCtx?.orgSlug ?? orgSlugProp
   const orgName = portalCtx?.tenant.organizationName ?? orgNameProp
   const user = portalCtx?.auth.user ?? null
-  const authenticated = authenticatedProp ?? !!user
+  // A context user wins over the prop. The layout that supplies `authenticated`
+  // sits above the [...slug] segment, so a client-side navigation never re-runs
+  // it and the prop can describe the route the visitor arrived on rather than
+  // the one being rendered. Trusting a stale `false` there painted the
+  // logged-out header over authenticated content (#5678).
+  const authenticated = !!user || (authenticatedProp ?? false)
   const onLogout = onLogoutProp ?? portalCtx?.auth.logout
   const userName = userNameProp ?? user?.displayName
   const userEmail = userEmailProp ?? user?.email

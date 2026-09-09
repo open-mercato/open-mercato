@@ -300,6 +300,16 @@ The query object is now built by `buildQueryParams` from `@open-mercato/shared/l
 
 **Action for module authors:** audit your own list-route schemas for filter params that clients may repeat. Where a param is genuinely multi-valued, widen it to `z.union([z.string(), z.array(z.string())])` (or `z.array(z.string())`) and normalize it with `toQueryValueList`. Where it is genuinely single-valued, no change is needed — a repeated occurrence should be rejected. No route URL, HTTP method, response field, `makeCrudRoute` signature, options type, or database column changes, so `BACKWARD_COMPATIBILITY.md` §2, §3 and §7 are not violated.
 
+### `PortalShell`'s `authenticated={false}` no longer overrides a signed-in portal context (#5678)
+
+`PortalShell` from `@open-mercato/ui/portal/PortalShell` resolved its chrome with `authenticatedProp ?? !!user`, so an explicit `authenticated={false}` won even when the `PortalProvider` above it held a real customer. That was not a safe default: the `(frontend)` layout that supplies the prop sits above the `[...slug]` segment precisely so portal navigation does not remount the client subtree, which means a client-side navigation never re-runs it and the prop can describe the route the visitor *arrived* on rather than the one being rendered. Entering the portal at `/{orgSlug}/portal` and following its `router.replace` to the dashboard left `false` in place, and the shell painted the logged-out header — Log In / Sign Up, no sidebar, and `enableEventBridge={false}` so the portal SSE bridge never mounted — around fully authenticated content.
+
+The precedence is now inverted: `!!user || (authenticatedProp ?? false)`. A context user upgrades the chrome, and a stale prop can no longer contradict what is actually rendered below it.
+
+**No prop was added, removed, or renamed, and the component's type is unchanged**, so nothing here breaks at compile time. What changes is the semantics of one value: `authenticated={false}` is now a *default* rather than a *veto*. For the documented use this is a no-op — public portal pages render `PortalShell` without a provider, where `user` is `null` anyway, and a test pins that case. The server layout was updated in the same change to withhold the session (`customerAuth`, `userName`, `userEmail`) on the public auth routes rather than only lowering the flag, which is what keeps `/portal/login`, `/signup`, `/invite`, `/reset-password` and `/verify` on the public chrome now that the context can win.
+
+**Action for module authors:** if you deliberately render force-public portal chrome for a signed-in customer — an unusual case, and none exists in this repository — `authenticated={false}` alone will no longer achieve it; render that surface outside the `PortalProvider`, or open an issue and an explicit opt-out prop can be added. No exported type, import path, widget spot ID, component-replacement handle, API route, event ID, DI key, or database column changes, so no `BACKWARD_COMPATIBILITY.md` protected surface is affected.
+
 ## 0.6.7 → 0.7.0 (2026-08-26)
 
 ### `PUT /api/auth/users/acl` merges omitted fields instead of clearing them (#5493)
