@@ -1682,4 +1682,51 @@ describe('progress service — stale-sweep recovery (GSM-314)', () => {
       resultSummary: { createdCount: 5 },
     }))
   })
+
+  it('markCancelled — broadcasts the flushed row rather than the pre-flush copy', async () => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+
+    const throttleSnapshot = {
+      id: 'job-1',
+      status: 'running',
+      jobType: 'catalog.categories.bulk_create',
+      processedCount: 0,
+      progressPercent: 0,
+      totalCount: 100,
+      cancellable: true,
+      meta: {},
+    } as unknown as ProgressJob
+    // Stands in for the database row. Every read returns a fresh copy the way
+    // disableIdentityMap does, so a payload built from the pre-flush copy is
+    // distinguishable from one built after the write landed.
+    const persistedRow: Record<string, unknown> = { ...(throttleSnapshot as unknown as Record<string, unknown>) }
+
+    em.findOneOrFail.mockResolvedValue(throttleSnapshot)
+    em.findOne.mockImplementation(() => Promise.resolve({ ...persistedRow } as unknown as ProgressJob))
+    em.nativeUpdate.mockImplementation((_entity: unknown, _filter: unknown, data: Record<string, unknown>) => {
+      Object.assign(persistedRow, data)
+      return Promise.resolve(1)
+    })
+
+    const service = createProgressService(em as never, eventBus)
+
+    await service.updateProgress('job-1', { processedCount: 0, meta: { lastCompletedRowIndex: 39 } }, baseCtx)
+    const writesBefore = em.nativeUpdate.mock.calls.length
+    await service.updateProgress('job-1', { meta: { resultSummary: { createdCount: 40 } } }, baseCtx)
+    // The summary write is throttled, so only markCancelled's flush can put it on the wire.
+    expect(em.nativeUpdate.mock.calls.length).toBe(writesBefore)
+
+    eventBus.emit.mockClear()
+    await service.markCancelled('job-1', baseCtx)
+
+    expect(eventBus.emit).toHaveBeenCalledWith(
+      PROGRESS_EVENTS.JOB_CANCELLED,
+      expect.objectContaining({
+        jobId: 'job-1',
+        status: 'cancelled',
+        meta: expect.objectContaining({ resultSummary: { createdCount: 40 } }),
+      }),
+    )
+  })
 })

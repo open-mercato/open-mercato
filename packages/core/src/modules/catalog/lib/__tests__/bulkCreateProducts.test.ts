@@ -272,6 +272,34 @@ describe('createCatalogProductsWithProgress', () => {
     expect(summary.failedItems).toEqual([])
   })
 
+  it('degrades to reclaiming nothing when resuming a job checkpointed under the legacy key shape', async () => {
+    // A job queued before `priorNaturalKeys` became the `priorKeyRows` bitset can still be in
+    // flight across a deploy. `decodePriorKeyRows` type-guards the array away, so the resume
+    // re-derives the snapshot from the database as it stands now — which already contains the
+    // rows the previous attempt created. Those rows are therefore classified as pre-existing
+    // and reported as conflicts, never reclaimed: the fail-safe direction.
+    const items: Row[] = [row('Alpha', { sku: 'sku-alpha' }), row('Beta', { sku: 'sku-beta' })]
+    const mocks = buildContainer({
+      existingJobMeta: { priorNaturalKeys: ['sku:sku-alpha'] },
+      existingSkus: ['sku-alpha'],
+    })
+
+    const summary = await createCatalogProductsWithProgress({
+      container: mocks.container,
+      progressJobId: 'job-1',
+      items,
+      scope: { organizationId: ORG, tenantId: TENANT },
+    })
+
+    const firstWrite = mocks.updateProgress.mock.calls[0][1] as { meta?: Record<string, unknown> }
+    expect(typeof firstWrite.meta?.priorKeyRows).toBe('string')
+    expect(summary.createdIds).not.toContain('existing-sku-alpha')
+    expect(summary.failedItems).toEqual([
+      { index: 0, title: 'Alpha', code: 'sku_taken', message: 'Product SKU already exists for this organization.' },
+    ])
+    expect(summary.createdCount + summary.failedCount).toBe(items.length)
+  })
+
   it('reports a resumed row whose sku belongs to a pre-existing record as a conflict', async () => {
     const items: Row[] = [row('Alpha', { sku: 'sku-alpha' }), row('Beta', { sku: 'sku-beta' })]
     const mocks = buildContainer({
@@ -403,8 +431,12 @@ describe('createCatalogProductsWithProgress', () => {
   })
 
   it('never hands the same reclaimed record to two rows', async () => {
-    // Row 0 is keyed by a handle the command derived for the product row 1 created by sku, so both
-    // rows resolve to the same id through different keys. Only the first claim may stand.
+    // Pins the `alreadyReclaimedIds` guard, which is deliberately defensive: it holds even when
+    // two rows resolve to the same record through different keys, a shape the current key index
+    // already prevents (`catalog.products.create` never derives a handle — it writes
+    // `handle: parsed.handle ?? null`). The guard must survive a future change to how keys are
+    // indexed, so the fixture constructs that shape directly rather than reproducing an
+    // observed one. Only the first claim may stand.
     const items: Row[] = [row('Alpha', { handle: 'derived-handle' }), row('Beta', { sku: 'S5' })]
     const mocks = buildContainer({
       existingJobMeta: { priorKeyRows: encodePriorKeyRows([], 2) },

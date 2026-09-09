@@ -614,13 +614,15 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
       job.finishedAt = finishedAt
       job.etaSeconds = 0
 
+      const persistedJob = (await loadFreshJob(jobId, ctx)) ?? job
+
       await eventBus.emit(PROGRESS_EVENTS.JOB_CANCELLED, {
-        ...buildJobPayload(job),
+        ...buildJobPayload(persistedJob),
         tenantId: ctx.tenantId,
-        organizationId: job.organizationId ?? null,
+        organizationId: persistedJob.organizationId ?? null,
       })
 
-      return job
+      return persistedJob
     },
 
     async isCancellationRequested(jobId, tenantId, organizationId) {

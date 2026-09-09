@@ -41,6 +41,31 @@ async function waitForProgressJob(
 }
 
 /**
+ * Teardown by search rather than by collected ids: the ids are only known after the
+ * assertions have run, so an early failure (a poll timeout, a lost race) would otherwise
+ * leave every row this test created behind in the shared database. `.ai/qa/AGENTS.md`
+ * asks for cleanup regardless of outcome, and the stamped prefix is unique per run.
+ */
+async function deleteCategoriesMatching(
+  request: APIRequestContext,
+  token: string,
+  search: string,
+): Promise<void> {
+  const response = await apiRequest(
+    request,
+    'GET',
+    `/api/catalog/categories?search=${encodeURIComponent(search)}&status=all&pageSize=100`,
+    { token },
+  )
+  if (!response.ok()) return
+  const body = (await response.json()) as { items?: Array<Record<string, unknown>> }
+  for (const row of body.items ?? []) {
+    const id = row.id
+    if (typeof id === 'string') await deleteCatalogCategoryIfExists(request, token, id)
+  }
+}
+
+/**
  * TC-CAT-036: Bulk create catalog categories
  *
  * Verifies the async POST /api/catalog/categories/bulk-create flow end-to-end:
@@ -108,9 +133,7 @@ test.describe('TC-CAT-036: Bulk create categories', () => {
         expect(listedIds.has(id), `Created category ${id} must appear in the list endpoint`).toBe(true)
       }
     } finally {
-      for (const id of createdIds) {
-        await deleteCatalogCategoryIfExists(request, token, id)
-      }
+      await deleteCategoriesMatching(request, token, String(stamp))
     }
   })
 
@@ -160,9 +183,7 @@ test.describe('TC-CAT-036: Bulk create categories', () => {
         'A cancelled batch must stop before creating every row',
       ).toBeLessThan(items.length)
     } finally {
-      for (const id of createdIds) {
-        await deleteCatalogCategoryIfExists(request, token, id)
-      }
+      await deleteCategoriesMatching(request, token, prefix)
     }
   })
 

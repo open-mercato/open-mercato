@@ -41,6 +41,31 @@ async function waitForProgressJob(
 }
 
 /**
+ * Teardown by search rather than by collected ids: the ids are only known after the
+ * assertions have run, so an early failure would otherwise leave every row this test
+ * created behind in the shared database. `.ai/qa/AGENTS.md` asks for cleanup regardless
+ * of outcome, and the stamped prefix is unique per run.
+ */
+async function deleteProductsMatching(
+  request: APIRequestContext,
+  token: string,
+  search: string,
+): Promise<void> {
+  const response = await apiRequest(
+    request,
+    'GET',
+    `/api/catalog/products?search=${encodeURIComponent(search)}&withDeleted=false&pageSize=100`,
+    { token },
+  )
+  if (!response.ok()) return
+  const body = (await response.json()) as { items?: Array<Record<string, unknown>> }
+  for (const row of body.items ?? []) {
+    const id = row.id
+    if (typeof id === 'string') await deleteCatalogProductIfExists(request, token, id)
+  }
+}
+
+/**
  * TC-CAT-037: Bulk create catalog products
  *
  * Verifies the async POST /api/catalog/products/bulk-create flow end-to-end:
@@ -107,9 +132,7 @@ test.describe('TC-CAT-037: Bulk create products', () => {
         expect(listedIds.has(id), `Created product ${id} must appear in the list endpoint`).toBe(true)
       }
     } finally {
-      for (const id of createdIds) {
-        await deleteCatalogProductIfExists(request, token, id)
-      }
+      await deleteProductsMatching(request, token, String(stamp))
     }
   })
 
