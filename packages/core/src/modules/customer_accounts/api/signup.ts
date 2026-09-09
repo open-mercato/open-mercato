@@ -140,10 +140,12 @@ export async function POST(req: Request) {
       ),
     }
 
-    void sendEmail({
+    await sendEmail({
       to: existing.email,
       subject,
       react: CustomerExistingAccountEmail({ loginUrl, copy }),
+      tenantId,
+      organizationId,
     }).catch((error) => {
       logger.error('Existing-account email failed', { err: error })
     })
@@ -193,10 +195,12 @@ export async function POST(req: Request) {
     ),
   }
 
-  void sendEmail({
+  await sendEmail({
     to: user.email,
     subject,
     react: CustomerSignupVerificationEmail({ verifyUrl, copy }),
+    tenantId,
+    organizationId,
   }).catch((error) => {
     logger.error('Verification email failed', { err: error })
   })
