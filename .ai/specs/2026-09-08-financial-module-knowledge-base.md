@@ -31,14 +31,22 @@ What actually exists right now, and where:
 | Accounts Payable (invoices) | `2026-09-06-accounts-payable.md` | `docs/accounts-payable` | Open, PR #5962 |
 | Accounts Payable (payments) | `2026-09-06-accounts-payable-payments.md` | `docs/accounts-payable` | Open, PR #5962 |
 | Journal Entry Line Dimension | `2026-09-06-journal-entry-line-dimension.md` | `docs/journal-entry-line-dimension` | Written, own branch |
-| Fixed Assets | `2026-09-06-fixed-assets.md` | *(none — untracked, local only)* | **Draft, not committed anywhere** |
-| Posting Rules Engine (konto 490) | `2026-09-06-posting-rules-engine.md` | *(none — untracked, local only)* | **Draft, not committed anywhere** |
+| Fixed Assets | `2026-09-06-fixed-assets.md` | `docs/fixed-assets` | Draft (TLDR + Design Decisions only), own branch, no PR yet |
+| Posting Rules Engine (konto 490) | `2026-09-06-posting-rules-engine.md` | `docs/posting-rules-engine` | Draft (TLDR + Design Decisions only), own branch, no PR yet |
+| This knowledge base | `2026-09-08-financial-module-knowledge-base.md` | `docs/financial-module-knowledge-base` | Reference doc, own branch, no PR yet |
 | Accounts Receivable, Cash & Bank, Multi-Currency, Budgeting, Cost Accounting | — | — | Not started (SPEC-024 only) |
 
-**Flag:** Fixed Assets and Posting Rules Engine currently live only as
-uncommitted files in this worktree. Worth putting each on its own `docs/`
-branch and pushing soon, the same way the other three were — right now
-they exist nowhere else and would be lost if this worktree were.
+**Resolved 2026-09-09:** Fixed Assets and Posting Rules Engine used to
+live only as uncommitted files in one worktree — flagged here as a
+real risk of losing the work. Both now have their own `docs/` branch
+and English translations (they were originally drafted in Polish, like
+the early Accounts Payable draft), matching the rest of this module
+family's convention. Still draft-quality (TLDR + Design Decisions
+only) — the remaining required sections (Overview, Problem Statement,
+Proposed Solution, User Stories, Architecture, Data Models, API
+Contracts, Implementation Plan, Testing Strategy, Risks & Impact
+Review, Final Compliance Report) are still open work, tracked as the
+next thing to pick up for each.
 
 ---
 
@@ -306,7 +314,7 @@ pointed at the wrong section.
   our own "Ideal vs. Real" progression — an idealized 1:1 asset-to-account
   mapping, then the real-world need for a many-to-many `ASSET ASSIGNMENT`
   between assets and accounts. This directly backs the Fixed Assets draft's
-  own Design Decision ("Własny rejestr aktywów, nie tylko `parentAccountId`") —
+  own Design Decision ("Its own asset register, not just `parentAccountId`") —
   worth citing there.
 
 **Chart of Accounts / `journal_entry_line_dimension`:**
@@ -330,7 +338,7 @@ pointed at the wrong section.
   example: inventory "holdings" per location × goods-type instead of money
   accounts). Actually relevant to a different live question: Fixed Assets'
   draft explicitly chose *not* to model the asset register as a subtyped
-  Account structure ("Własny rejestr aktywów, nie tylko `parentAccountId`") —
+  Account structure ("Its own asset register, not just `parentAccountId`") —
   6.14 is the pattern that alternative would have followed. Worth a
   one-line note in Fixed Assets' Design Decisions contrasting the choice
   made against this pattern, not adopting it as a citation.
