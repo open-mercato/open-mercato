@@ -77,9 +77,9 @@ function codeWorkflow(
   }
 }
 
-function fakeEntityManager(): EntityManager {
+function fakeEntityManager(runningInstances = 0): EntityManager {
   const em = {
-    count: jest.fn().mockResolvedValue(0),
+    count: jest.fn().mockResolvedValue(runningInstances),
     fork: jest.fn(() => em),
   }
   return em as unknown as EntityManager
@@ -92,8 +92,9 @@ function fakeContainer(): AwilixContainer {
 async function emitEvent(
   payload: Record<string, unknown>,
   tenantId: string = TENANT,
+  runningInstances = 0,
 ): Promise<{ triggered: number; skipped: number }> {
-  const result = await processEventTriggers(fakeEntityManager(), fakeContainer(), {
+  const result = await processEventTriggers(fakeEntityManager(runningInstances), fakeContainer(), {
     eventName: EVENT_NAME,
     payload,
     tenantId,
@@ -197,6 +198,31 @@ describe('processEventTriggers — trigger debounceMs (#5922)', () => {
 
     expect(otherNumericEntity).toEqual({ triggered: 1, skipped: 0 })
     expect(sameNumericEntity).toEqual({ triggered: 0, skipped: 1 })
+    expect(mockStartWorkflow).toHaveBeenCalledTimes(2)
+  })
+
+  it('reopens the window when the concurrency limit blocked the start', async () => {
+    registerCodeWorkflowEntries([
+      codeWorkflow('sales.order-followup', { debounceMs: DEBOUNCE_MS, maxConcurrentInstances: 1 }),
+    ])
+
+    const blocked = await emitEvent({ id: 'order-1' }, TENANT, 1)
+    const afterCapacityFreed = await emitEvent({ id: 'order-1' }, TENANT, 0)
+
+    expect(blocked).toEqual({ triggered: 0, skipped: 1 })
+    expect(afterCapacityFreed).toEqual({ triggered: 1, skipped: 0 })
+    expect(mockStartWorkflow).toHaveBeenCalledTimes(1)
+  })
+
+  it('reopens the window when starting the workflow threw', async () => {
+    registerCodeWorkflowEntries([codeWorkflow('sales.order-followup', { debounceMs: DEBOUNCE_MS })])
+    mockStartWorkflow.mockRejectedValueOnce(new Error('transient failure'))
+
+    const failed = await emitEvent({ id: 'order-1' })
+    const retry = await emitEvent({ id: 'order-1' })
+
+    expect(failed).toEqual({ triggered: 0, skipped: 0 })
+    expect(retry).toEqual({ triggered: 1, skipped: 0 })
     expect(mockStartWorkflow).toHaveBeenCalledTimes(2)
   })
 
