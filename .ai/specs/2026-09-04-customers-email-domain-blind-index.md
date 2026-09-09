@@ -57,7 +57,7 @@ The consequence is this spec's own failure class, one level up: an organization 
 
 ## 📝 Proposed Solution
 
-Add `primary_email_hash` to `customer_entities` and `domain_hash` to `customer_companies`, declare them via `hashField`, and make the lookup helpers query them. Three properties shape the design:
+Add `primary_email_hash` to `customer_entities` and `domain_hash` to `customer_companies`, declare them via `hashField`, and make the lookup helpers query them. Four properties shape the design:
 
 **The hash is a candidate filter, not the verdict.** `encryptFields` skips `null`/`undefined` values, so clearing `domain` to `NULL` leaves the previous `domain_hash` **stale** on the row. A reader that trusted hash equality alone would return a company whose domain was cleared. Every helper therefore confirms the match against the decrypted value it already loads — which also neutralises hash collisions and any future write-path drift. This costs nothing: the helpers already decrypt through `findWithDecryption`.
 
