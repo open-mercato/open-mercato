@@ -1,75 +1,76 @@
-# Fixed Assets — środki trwałe, amortyzacja, OT, RMK
+# Fixed Assets — asset register, depreciation, OT, RMK
 
 **Related:** [General Ledger core engine](2026-08-18-general-ledger-core-engine.md)
-(posting engine ten spec księguje do; `LedgerAccount.parentAccountId`
-już istnieje dla hierarchii planu kont), [Accounts Payable](2026-09-06-accounts-payable.md)
-(zwykłe źródło wejścia aktywa — zakup od dostawcy)
+(the posting engine this spec books into; `LedgerAccount.parentAccountId`
+already exists for the chart-of-accounts hierarchy), [Accounts Payable](2026-09-06-accounts-payable.md)
+(the usual asset-entry source — purchase from a vendor)
 
 ## TLDR
 
-Rejestr środków trwałych, tabela amortyzacyjna, dokument OT
-(przyjęcie środka trwałego) i naliczanie miesięcznej amortyzacji +
-RMK (rozliczenia międzyokresowe kosztów), księgujące się do GL.
-Zidentyfikowany jako nowy zakres z event stormingu (HS-05), poza
-dotychczasową kategoryzacją Month 1-3 dla #5663.
+An asset register, a depreciation schedule, an OT document (asset
+acceptance/put-into-service), and monthly depreciation accrual + RMK
+(rozliczenia międzyokresowe kosztów — accrued/deferred costs), posting
+to GL. Identified as new scope from the event-storming wall (HS-05),
+outside #5663's original Month 1-3 categorization.
 
 ## Design Decisions (2026-09-07 — resolved)
 
-**Wejście aktywa: zarówno przez AP (link), jak i ręcznie.** Bilans
-otwarcia, aport i migracja istniejących środków trwałych wymagają
-ścieżki niezależnej od AP — Fixed Assets nie ma twardej zależności od
-zbudowania AP najpierw.
+**Asset entry: both through AP (linked) and manually.** An opening
+balance, an in-kind contribution, and migrating existing fixed assets
+all need a path independent of AP — Fixed Assets has no hard
+dependency on AP being built first.
 
-**Metoda amortyzacji: liniowa w Fazie 1, pluggable pod degresywną
-później.** Liniowa to zdecydowana większość realnych przypadków;
-`DepreciationCalculator` jako podmienialna strategia (SPEC-024)
-zostawia miejsce na rozszerzenie bez przepisywania.
+**Depreciation method: straight-line in Phase 1, pluggable for a
+declining-balance method later.** Straight-line covers the large
+majority of real cases; `DepreciationCalculator` as a swappable
+strategy (SPEC-024) leaves room to extend without a rewrite.
 
-**Tabela amortyzacyjna jako materializowana encja, nie kalkulacja
-on-the-fly.** Spójne z filozofią GL (JournalEntry append-only/
-immutable) — historyczne wpisy amortyzacyjne nie mogą się cofnąć, gdy
-ktoś zmieni parametry aktywa później; wymóg audytowy.
+**The depreciation schedule is a materialized entity, not an
+on-the-fly calculation.** Consistent with GL's own philosophy
+(`JournalEntry` append-only/immutable) — historical depreciation
+entries must not change retroactively when someone edits the asset's
+parameters later; an audit requirement.
 
-**Naliczanie amortyzacji: manualny trigger w Fazie 1.** Automatyczny
-scheduler to Faza 2 — zmniejsza ryzyko operacyjne, zgodne z tym, jak
-#5663 samo odłożyło automatyczne zamknięcie roku.
+**Depreciation accrual: a manual trigger in Phase 1.** An automated
+scheduler is Phase 2 — this reduces operational risk, matching how
+#5663 itself deferred automated year-end closing.
 
-**Odrzucenie przez zablokowany `FiscalPeriod` przy manualnym
-naliczaniu — obsługa jeszcze niezaprojektowana.** Skoro naliczanie
-jest manualnym triggerem, ktoś może je odpalić dla okresu, który
-właśnie został zamknięty — `postJournalEntry` w #5663 odrzuci zapis
-(patrz `.ai/specs/2026-08-18-general-ledger-core-engine.md` → Design
-decisions). Do zaprojektowania: sprawdzenie stanu blokady *przed*
-próbą księgowania, nie tylko łapanie surowego błędu komendy po fakcie
-— żeby błąd był czytelny dla osoby odpalającej naliczenie.
+**Rejection by a locked `FiscalPeriod` on manual accrual — handling
+not yet designed.** Since accrual is a manual trigger, someone can run
+it for a period that was just locked — #5663's `postJournalEntry` will
+reject the write (see `.ai/specs/2026-08-18-general-ledger-core-engine.md`
+→ Design decisions). Still to design: checking the lock state *before*
+attempting to post, not just catching the raw command error after the
+fact — so the error is legible to whoever triggered the accrual.
 
-**RMK dzieli mechanizm z przyszłym Revenue Recognition — zostaje w
-Fixed Assets na razie, jako świadomy dług architektoniczny.**
-Strukturalna symetria: obie funkcjonalności to "kwota rozpoznawana
-stopniowo wg harmonogramu" — to jest najsilniejszy sygnał do
-wydzielenia generycznego mechanizmu spośród wszystkich rozważanych w
-tej rundzie review. Mimo to, zostaje tutaj w Fazie 1: Revenue
-Recognition to na razie tylko nazwa przyszłego modułu, bez własnego
-szkieletu — wydzielanie wspólnego mechanizmu harmonogramowania teraz,
-bez drugiego, realnego konsumenta przed oczami, ryzykuje zaprojektowanie
-złej abstrakcji (zgadywanie kształtu API na podstawie jednego
-przypadku użycia). Świadomie akceptujemy ryzyko przepisania RMK, gdy
-Revenue Recognition faktycznie powstanie i ujawni, czy wspólny
-mechanizm rzeczywiście pasuje do obu przypadków — bezpieczniejsze niż
-projektować generyczną abstrakcję na ślepo.
+**RMK shares a mechanism with the future Revenue Recognition
+module — stays inside Fixed Assets for now, as a deliberate
+architectural debt.** Structural symmetry: both capabilities are "an
+amount recognized gradually on a schedule" — the strongest signal, of
+everything considered in this review round, for extracting a generic
+mechanism. Even so, it stays here in Phase 1: Revenue Recognition is,
+for now, only the name of a future module, with no skeleton of its
+own — extracting a shared scheduling mechanism now, with no second,
+real consumer in view, risks designing the wrong abstraction (guessing
+an API's shape from a single use case). This deliberately accepts the
+risk of rewriting RMK once Revenue Recognition actually exists and
+reveals whether a shared mechanism genuinely fits both cases — safer
+than designing a generic abstraction blind.
 
-**Własny rejestr aktywów, nie tylko `parentAccountId`.** Środek trwały
-potrzebuje dużo więcej danych niż pozycja w hierarchii kont (data
-nabycia, wartość, stawka, umorzenie) — `parentAccountId` to tylko
-opcjonalny link raportowy do analitycznego konta w GL.
+**Its own asset register, not just `parentAccountId`.** A fixed asset
+needs far more data than a position in the account hierarchy
+(acquisition date, value, rate, accumulated depreciation) —
+`parentAccountId` is only an optional reporting link to an analytic
+account in GL.
 
-**Amortyzacja podatkowa: świadomie poza Fazą 1, ale zaprojektowana pod
-rozszerzenie.** Bilansowa i podatkowa mogą się różnić wg polskiego
-prawa (CIT/PIT vs UoR) — Faza 1 obsługuje tylko bilansową, z jawnie
-oflagowaną luką i architekturą gotową na drugi harmonogram.
+**Tax depreciation: deliberately outside Phase 1, but designed for
+extension.** Book and tax depreciation can differ under Polish law
+(CIT/PIT vs. UoR — the Accounting Act) — Phase 1 handles only book
+depreciation, with the gap explicitly flagged and the architecture
+ready for a second schedule.
 
-**`revalueAsset` i `transferAsset` — oba Faza 2.** Przeszacowanie to
-rzadkie, roczne zdarzenie (Wycena majątku); transfer do MPK i tak
-czeka na tabelę wymiarów (`2026-09-06-journal-entry-line-dimension.md`),
-która sama jest budowana jako osobny, wcześniejszy krok przed Fixed
-Assets Fazą 2.
+**`revalueAsset` and `transferAsset` — both Phase 2.** Revaluation is
+a rare, annual event (wycena majątku — asset appraisal); transfer to a
+cost centre (MPK) is waiting on the dimension table
+(`2026-09-06-journal-entry-line-dimension.md`) anyway, which is itself
+being built as a separate, earlier step ahead of Fixed Assets Phase 2.
