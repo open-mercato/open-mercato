@@ -166,6 +166,10 @@ export const REPO_WIDE_GUARDS = [
         path: 'src/modules/__tests__/cli-registry-boundary.test.ts',
         scans: 'packages/ and apps/ — runtime files reading the CLI-only module registry',
       },
+      {
+        path: 'src/lib/di/__tests__/di-injection-mode.test.ts',
+        scans: 'every di.ts and container.ts under packages/ and apps/ — argument-taking asFunction registrations that skip .proxy(), which CLASSIC injection resolves by parameter name and a bundler may rename. The registrations it guards live in core, enterprise and app modules rather than in shared, so the turbo filter never selects this workspace for the PRs that can break them (#5861).',
+      },
     ],
   },
   {
