@@ -159,6 +159,109 @@ Nothing that was previously accepted is now rejected. `loose` remains a read ali
 
 **Action for module authors:** replace `DEAL_STATUS_LOSE` with `DEAL_STATUS_LOST`. The old constant is still exported and still equals `'loose'`, now marked `@deprecated` and scheduled for removal no earlier than 0.9.0. Code comparing a status literally against `'loose'` should call `isLostDealStatus`, which matches both spellings; code that consumes `canonicalDealStatus` output must expect `'lost'` where it previously saw `'loose'`. See `.ai/specs/2026-08-24-deal-status-lost-spelling.md`.
 
+### Outbound system email now routes through the Communications Hub
+
+Transactional email (password reset, invitations, MFA email OTP, notifications, quotes,
+checkout, Messages) no longer talks to a provider SDK directly. It resolves a
+`communication_channels` row plus that tenant's integration credentials, and the concrete
+providers ship as pluggable packages (`@open-mercato/channel-resend`,
+`@open-mercato/channel-ses`).
+
+**No configuration change is required.** If your tenants predate this change and you configure
+email the way `.env.example` documents — `RESEND_API_KEY` plus one of
+`NOTIFICATIONS_EMAIL_FROM` / `EMAIL_FROM` / `ADMIN_EMAIL` — email keeps sending. A tenant with
+no email channel of its own falls back to those instance-wide environment credentials, and
+logs a warning each time it does so.
+
+**But a standalone app MUST enable the provider module, or all outbound email stops.** The
+provider is no longer compiled into `@open-mercato/shared`; the adapter is contributed by the
+`channel_resend` / `channel_ses` module, and `src/modules.ts` is your app's file, so upgrading
+the packages does not add it. An app scaffolded before 0.7.1 keeps sending nothing and throws
+`No ChannelAdapter registered for providerKey 'resend'` on the first send — a password reset or
+invitation — with no failure at boot to warn you. Add the dependency and the entry:
+
+```jsonc
+// package.json — match your other @open-mercato/* versions
+"@open-mercato/channel-resend": "0.7.1",
+// and "@open-mercato/channel-ses": "0.7.1" if you set SYSTEM_EMAIL_PROVIDER=ses
+```
+
+```ts
+// src/modules.ts — alongside the other channel_* entries
+{ id: 'channel_resend', from: '@open-mercato/channel-resend' },
+{ id: 'channel_ses', from: '@open-mercato/channel-ses' },
+```
+
+Enable the package matching `SYSTEM_EMAIL_PROVIDER` (default `resend`); the other is optional.
+The monorepo app (`apps/mercato`) and newly scaffolded apps already carry both.
+
+Only the **selected** provider's env preset seeds anything. Enabling both packages is therefore
+safe: with `SYSTEM_EMAIL_PROVIDER` unset or `resend`, the SES preset stores no credentials, creates
+no channel and leaves the SES integration disabled — which matters because `AWS_REGION` is not an
+email variable (`.env.example` ships it for vector search, and every AWS runtime injects it), so an
+ungated SES preset would advertise a connected channel nobody configured. Switching
+`SYSTEM_EMAIL_PROVIDER` and re-running `yarn mercato seed:defaults --module channel_<provider>`
+seeds the new provider.
+
+Credential resolution for a tenant-scoped send runs in this order:
+
+| Tenant state | Credentials used |
+|---|---|
+| Has credentials for the provider (seeded, or saved in the admin UI) | The tenant's own. The Hub channel row is created if missing. |
+| Has a configured channel but no credentials | **None — the send fails.** Never falls back to env. |
+| Has neither | Instance-wide env credentials, with a logged warning. |
+
+The middle row is deliberate: a tenant that configured its own provider must never silently
+send through the instance-wide account. Note also that a channel belonging to a *different
+organization* is never borrowed — organization is a scoping boundary, so that case reaches
+the environment fallback instead. `SYSTEM_EMAIL_CHANNEL_ID` narrows the lookup to one channel
+without lifting that boundary: the pinned row must be the sending organization's own or the
+tenant-wide (`organization_id IS NULL`) one, and a pin never falls back to the environment.
+
+**The table above describes a (tenant, organization) pair, not a tenant.** A send that carries no
+`organizationId` — a password reset for a user whose `organization_id` is null, which superadmins
+can be — probes only the tenant-wide (`organization_id IS NULL`) channel. The per-organization rows
+the env preset seeds are not visible to it, so such a send lands on the last row of the table and
+uses instance-wide environment credentials with the usual logged warning, even on a tenant that has
+finished configuring its own provider. This is deliberate: a send with no organization has no
+organization's credentials to reach for. If you want every send on a tenant to use that tenant's
+provider, give the tenant a tenant-wide channel row (`organization_id IS NULL`) as well as the
+per-organization ones, or pass `organizationId` from the caller.
+
+**An explicit `from` is always honoured.** When the caller passes `from` to `sendEmail`, that
+address is used verbatim; only a send that left `from` to the instance default
+(`NOTIFICATIONS_EMAIL_FROM` / `EMAIL_FROM` / `ADMIN_EMAIL`) is rewritten to the resolved channel's
+sender. One consequence worth naming, because the rule above invites the opposite assumption:
+notification email passes its own configured sender (`module_configs` →
+`strategies.email.from`), so notifications keep sending from that address rather than from the
+tenant channel's identity. Clear the notification strategy's `from` if you want notifications to
+follow the tenant sender too.
+
+**How far "the tenant's own credentials" goes depends on the provider.** For Resend the stored
+credentials include the API key, so each tenant genuinely sends through its own Resend account.
+For Amazon SES the stored credentials are the region, the sender identity and an optional
+configuration set — the AWS identity itself comes from the instance's default AWS credential
+chain (`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` or the container's IAM role), so every SES
+tenant sends through one AWS account and the fail-closed rule above protects the sender identity
+rather than the account. Choose Resend when tenants must bring their own provider account.
+
+**Recommended (not required):** move existing tenants onto the Hub so email is managed per
+tenant and visible in the admin UI. The seed hook is idempotent and safe to re-run — it
+iterates every organization of every tenant:
+
+```bash
+yarn mercato seed:defaults --module channel_resend
+```
+
+**For module authors:** `sendEmail(...)` from `@open-mercato/shared/lib/email/send` is
+unchanged, and remains the supported entry point. Pass `tenantId` and `organizationId`
+whenever you have them so the send resolves that tenant's provider rather than the
+instance-wide one. Code that calls a provider SDK directly should migrate to `sendEmail`.
+
+**One trap worth knowing:** the Resend env preset needs `RESEND_API_KEY` *and* a from-address.
+With the key but no from-address it previously seeded nothing in silence; it now logs a
+warning naming the missing variable.
+
 ### Interaction participants may omit `userId` — external calendar guests (#5115)
 
 `interactionParticipantSchema` required `participants[].userId` to be a UUID, so an attendee with no person/customer/staff record — an external guest identified only by their email — could not be recorded at all. `userId` is now optional; a participant must still be identifiable, so one without a `userId` **must** carry a valid email address (`participants[].email`), and one with neither is still rejected with a `400`.

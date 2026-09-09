@@ -3055,7 +3055,7 @@
     "mode": "one-shot",
     "evaluationKind": "routing",
     "risk": "high",
-    "prompt": "In a freshly scaffolded standalone Open Mercato app, first distinguish outbound transactional email from a connected Gmail/IMAP mailbox, then build the selected app-local provider with encrypted credentials, health, retry, redacted structured createLogger logs, and activation. A mailbox must use the installed communication_channels module and canonical ChannelAdapter contract with integration.ts hub metadata plus DI/setup registration, following installed channel_gmail/channel_imap precedent; transactional delivery must not pretend to be a mailbox adapter. Do not invent a packages workspace; separately published packaging requires an explicit reuse decision. Generated module facts are sufficient for routing; invoke framework context during implementation only after naming one missing exact-version symbol.",
+    "prompt": "In a freshly scaffolded standalone Open Mercato app, first distinguish outbound transactional email from a connected Gmail/IMAP mailbox and inspect the installed Resend/SES provider facts before proposing app-local code. Reuse an installed transactional provider when it matches; otherwise build the selected app-local provider with encrypted credentials, health, retry, redacted structured createLogger logs, and activation. A mailbox must use the installed communication_channels module and canonical ChannelAdapter contract with integration.ts hub metadata plus DI/setup registration, following installed channel_gmail/channel_imap precedent; transactional delivery must not pretend to be a mailbox adapter. Do not invent a packages workspace; separately published packaging requires an explicit reuse decision. Generated module facts are sufficient for routing; invoke framework context during implementation only after naming one missing exact-version symbol.",
     "tags": [
       "integration",
       "encrypted-credentials",
@@ -3089,7 +3089,9 @@
         ".ai/skills/om-integration-builder/SKILL.md",
         ".ai/guides/modules/communication_channels/index.md",
         ".ai/guides/modules/channel_gmail/index.md",
-        ".ai/guides/modules/channel_imap/index.md"
+        ".ai/guides/modules/channel_imap/index.md",
+        ".ai/guides/modules/channel_resend/index.md",
+        ".ai/guides/modules/channel_ses/index.md"
       ],
       "allowedExtra": [
         ".ai/guides/modules/integrations/index.md",
