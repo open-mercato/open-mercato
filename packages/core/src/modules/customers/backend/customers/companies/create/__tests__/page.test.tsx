@@ -3,10 +3,7 @@
  */
 import * as React from 'react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
-import {
-  crudFormExtensionSpotId,
-  extensionSpotChildId,
-} from '@open-mercato/shared/modules/widgets/extension-points'
+import { extensionSpotChildId } from '@open-mercato/shared/modules/widgets/extension-points'
 import { extensionPoints } from '@open-mercato/core/modules/customers/extension-points'
 import { E } from '#generated/entities.ids.generated'
 import CreateCompanyPage from '../page'
@@ -66,13 +63,8 @@ describe('company create page injection host', () => {
   it('does not fall back to the spot derived from the first entity id', () => {
     const props = renderCreatePage()
 
-    const entityIdFallbackSpotId = crudFormExtensionSpotId(
-      String(E.customers.customer_entity).replace(/[:]+/g, '.'),
-    )
-
-    expect(entityIdFallbackSpotId).toBe('crud-form:customers.customer_entity')
     expect(typeof props.injectionSpotId).toBe('string')
-    expect(props.injectionSpotId).not.toBe(entityIdFallbackSpotId)
+    expect(props.injectionSpotId).not.toBe('crud-form:customers.customer_entity')
   })
 
   it('exposes the same field-widget slot that the company edit surface exposes', () => {

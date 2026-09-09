@@ -309,7 +309,7 @@ Both link to `/backend/customer_accounts/{sourceEntityId}` for staff review.
 | `customers.person` | `account-status` | Alias for hosts requesting the bare `customers.person` entity spot |
 | `crud-form:customers.person` | `account-status` | Shows portal account status on the person v2 detail page (`people-v2/[id]`) |
 | `customers.company` | `company-users` | Alias for hosts requesting the bare `customers.company` entity spot |
-| `crud-form:customers.company` | `company-users` | Shows portal users on the company v2 detail page (`companies-v2/[id]`) |
+| `crud-form:customers.company` | `company-users` | Shows portal users on every company surface that publishes the host — the company v2 detail page (`companies-v2/[id]`) and the company create page (`companies/create`), where it has no `recordId` and renders its empty state |
 
 Both inject as column 2 groups with priority 200, gated by `customer_accounts.view` feature.
 
