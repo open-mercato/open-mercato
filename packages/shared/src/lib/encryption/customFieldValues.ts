@@ -2,6 +2,7 @@ import type { EntityManager } from '@mikro-orm/core'
 import { createLogger } from '../logger'
 import { encryptWithAesGcm, decryptWithAesGcm } from './aes'
 import { TenantDataEncryptionService } from './tenantDataEncryptionService'
+import { isTenantDataEncryptionEnabled } from './toggles'
 
 const logger = createLogger('shared').child({ component: 'encryption' })
 
@@ -75,29 +76,52 @@ async function resolveDekKey(
 /**
  * Whether the caller asked for a write that is supposed to end up encrypted.
  *
- * `resolveDekKey` returns `null` for four different situations, three of which
- * are intentional no-ops: there is no encryption service, the feature is turned
- * off (`TENANT_DATA_ENCRYPTION`), or the record has no tenant scope. Only when
- * all three hold and the key STILL comes back empty did key resolution actually
- * fail, and only then is a plaintext write a degradation worth reporting.
+ * `resolveDekKey` returns `null` for several situations. Two are intentional
+ * no-ops — no encryption service is wired, or the record has no tenant scope —
+ * and one is the operator deliberately running unencrypted
+ * (`TENANT_DATA_ENCRYPTION=no`). Anything else means the caller asked for an
+ * encrypted write that could not be performed, which is worth reporting.
+ *
+ * This deliberately checks the `TENANT_DATA_ENCRYPTION` env toggle rather than
+ * `service.isEnabled()`. `isEnabled()` folds the toggle together with KMS
+ * health, and an unreachable Vault with no fallback secret resolves to
+ * `NoopKmsService`, whose `isHealthy()` is false whenever encryption is on — so
+ * gating on it would stay silent during exactly the outage this warning exists
+ * to surface. The env toggle alone expresses the operator's intent.
  */
 function isEncryptionExpected(
   service: TenantDataEncryptionService | null,
   tenantId: string | null | undefined,
 ): boolean {
   if (!service || !(tenantId ?? null)) return false
-  return service.isEnabled()
+  return isTenantDataEncryptionEnabled()
 }
 
-// One warning per tenant/entity/field per process. A KMS outage makes this
-// branch run for every field of every write, and an operator only needs to
-// learn about each degraded field once.
+// One warning per tenant/entity/field per OUTAGE. A key-store outage makes this
+// branch run for every field of every write, so the warning is throttled — but
+// the entries for a tenant are dropped again as soon as one of its writes
+// encrypts successfully. Throttling for the lifetime of the process instead
+// would report the first outage and silently swallow every later one, which is
+// the failure this warning exists to make visible.
 const PLAINTEXT_FALLBACK_WARN_CAP = 5000
 const plaintextFallbackWarned = new Set<string>()
 
 /** Test seam: the warn-once cache is process-global by design. */
 export function resetEncryptedFieldPlaintextFallbackWarnCache(): void {
   plaintextFallbackWarned.clear()
+}
+
+/**
+ * Forget a tenant's plaintext-fallback warnings once its key resolves again, so
+ * a later outage is reported instead of being throttled away by the previous
+ * one. The `size` guard keeps the healthy path — an empty set — at O(1).
+ */
+function clearPlaintextFallbackWarnings(tenantId: string | null | undefined): void {
+  if (!plaintextFallbackWarned.size) return
+  const prefix = `${tenantId ?? null}|`
+  for (const warnKey of plaintextFallbackWarned) {
+    if (warnKey.startsWith(prefix)) plaintextFallbackWarned.delete(warnKey)
+  }
 }
 
 function warnOnPlaintextFallback(
@@ -146,6 +170,7 @@ export async function encryptCustomFieldValue(
     if (isEncryptionExpected(service, tenantId)) warnOnPlaintextFallback(tenantId, options)
     return value
   }
+  clearPlaintextFallbackWarnings(tenantId)
   const serialized = typeof value === 'string' ? value : JSON.stringify(value)
   return encryptWithAesGcm(serialized, key).value
 }

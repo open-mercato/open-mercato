@@ -19,6 +19,8 @@ const WARN_MESSAGE = 'Custom field configured as encrypted was stored as plainte
 const warnCalls = () =>
   loggerModule.__warn.mock.calls.filter(([message]) => message === WARN_MESSAGE)
 
+const fixedKey = Buffer.alloc(32, 1).toString('base64')
+
 /** Encryption is on and the tenant is scoped, but no DEK can be read or created. */
 function unresolvableDekService(overrides: Record<string, unknown> = {}) {
   return {
@@ -30,9 +32,17 @@ function unresolvableDekService(overrides: Record<string, unknown> = {}) {
 }
 
 describe('encryptCustomFieldValue plaintext fallback (regression: issue #5921)', () => {
+  const previousToggle = process.env.TENANT_DATA_ENCRYPTION
+
   beforeEach(() => {
     resetEncryptedFieldPlaintextFallbackWarnCache()
     loggerModule.__warn.mockClear()
+    delete process.env.TENANT_DATA_ENCRYPTION
+  })
+
+  afterAll(() => {
+    if (previousToggle === undefined) delete process.env.TENANT_DATA_ENCRYPTION
+    else process.env.TENANT_DATA_ENCRYPTION = previousToggle
   })
 
   it('warns when an encrypted field falls back to plaintext because the DEK is unavailable', async () => {
@@ -71,11 +81,33 @@ describe('encryptCustomFieldValue plaintext fallback (regression: issue #5921)',
     expect(warnCalls()[0][1]).toMatchObject({ tenantId: 'tenant-1', entity: null, field: null })
   })
 
-  it('stays silent for the intentional plaintext cases', async () => {
-    const disabled = { isEnabled: () => false, getDek: jest.fn(async () => null) } as any
+  // The issue's own reproduction: VAULT_ADDR points at an unreachable Vault and
+  // no fallback secret is set, so createKmsService() hands back a NoopKmsService
+  // whose isHealthy() is false while TENANT_DATA_ENCRYPTION is on — which makes
+  // service.isEnabled() false. Gating the warning on isEnabled() would go silent
+  // in exactly this case, so it must be driven by the env toggle instead.
+  it('warns when the KMS is unhealthy and the service therefore reports itself disabled', async () => {
+    const unhealthyKms = {
+      isEnabled: () => false,
+      getDek: jest.fn(async () => null),
+      createDek: jest.fn(async () => null),
+    } as any
 
-    // Encryption feature turned off.
-    expect(await encryptCustomFieldValue('plain', 'tenant-1', disabled)).toBe('plain')
+    const stored = await encryptCustomFieldValue('secret', 'tenant-1', unhealthyKms, undefined, {
+      entityId: 'customers:person',
+      fieldKey: 'national_id',
+    })
+
+    expect(stored).toBe('secret')
+    expect(warnCalls()).toHaveLength(1)
+  })
+
+  it('stays silent for the intentional plaintext cases', async () => {
+    // Operator deliberately runs unencrypted, so a plaintext write is correct.
+    process.env.TENANT_DATA_ENCRYPTION = 'no'
+    expect(await encryptCustomFieldValue('plain', 'tenant-1', unresolvableDekService())).toBe('plain')
+    delete process.env.TENANT_DATA_ENCRYPTION
+
     // No tenant scope, so there is no tenant DEK to resolve.
     expect(await encryptCustomFieldValue('plain', null, unresolvableDekService())).toBe('plain')
     expect(await encryptCustomFieldValue('plain', undefined, unresolvableDekService())).toBe('plain')
@@ -115,5 +147,36 @@ describe('encryptCustomFieldValue plaintext fallback (regression: issue #5921)',
     })
 
     expect(warnCalls()).toHaveLength(3)
+  })
+
+  // Throttling for the whole process lifetime would report the first outage and
+  // hide every later one — the exact blind spot this warning exists to remove.
+  it('reports a second outage after the key has recovered in between', async () => {
+    const field = { entityId: 'customers:person', fieldKey: 'national_id' }
+    const recovered = { isEnabled: () => true, getDek: async () => ({ key: fixedKey }) } as any
+
+    await encryptCustomFieldValue('a', 'tenant-1', unresolvableDekService(), undefined, field)
+    expect(warnCalls()).toHaveLength(1)
+
+    const encrypted = await encryptCustomFieldValue('b', 'tenant-1', recovered, undefined, field)
+    expect(encrypted).not.toBe('b')
+
+    await encryptCustomFieldValue('c', 'tenant-1', unresolvableDekService(), undefined, field)
+    expect(warnCalls()).toHaveLength(2)
+  })
+
+  it('does not let one tenant recovering unthrottle another tenant still degraded', async () => {
+    const field = { entityId: 'customers:person', fieldKey: 'national_id' }
+    const recovered = { isEnabled: () => true, getDek: async () => ({ key: fixedKey }) } as any
+
+    await encryptCustomFieldValue('a', 'tenant-1', unresolvableDekService(), undefined, field)
+    await encryptCustomFieldValue('b', 'tenant-2', unresolvableDekService(), undefined, field)
+    expect(warnCalls()).toHaveLength(2)
+
+    await encryptCustomFieldValue('c', 'tenant-1', recovered, undefined, field)
+
+    // tenant-2 never recovered, so its warning stays throttled.
+    await encryptCustomFieldValue('d', 'tenant-2', unresolvableDekService(), undefined, field)
+    expect(warnCalls()).toHaveLength(2)
   })
 })
