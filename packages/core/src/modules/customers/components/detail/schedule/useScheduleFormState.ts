@@ -32,6 +32,8 @@ export type ScheduleActivityEditData = {
    */
   occurredAt?: string | null
   durationMinutes?: number | null
+  /** Interaction priority column (0-100, nullable) backing the task priority control (#5943). */
+  priority?: number | null
   location?: string | null
   allDay?: boolean | null
   recurrenceRule?: string | null
