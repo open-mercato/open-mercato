@@ -127,3 +127,7 @@ New query parameter:
 - Phase 4: added per-reservation `balance_integrity_violation` isolation in `releaseInventoryForCancelledOrder` (prevents retry storm on cancelled-order automation when balance has drift)
 - Phase 6: added `commands/__tests__/inventory-actions.reserve-release.test.ts` (9 tests: reserve success, insufficient_stock, hold-lot skip, expired-lot skip, idempotent replay; allocate invalid_tracking_state guard; release success, drift throw, drift event emission)
 - UX: added `balance_integrity_violation` specific flash in `ReleaseReservationDialog` with actionable CLI hint; i18n key added to all 4 locales
+
+### 2026-08-20
+- Reservation mutation commands reject non-active reservations with `409 reservation_not_active` before changing balances; cancelled-order release automation treats the error as an idempotent per-reservation skip.
+- The release API documents its `409` responses, and the release dialog explains when a reservation was already released or fulfilled.

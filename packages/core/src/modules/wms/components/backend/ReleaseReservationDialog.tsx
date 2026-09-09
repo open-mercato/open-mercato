@@ -205,7 +205,7 @@ export function ReleaseReservationDialog({
           reasonCode: parsed.data.reasonCode,
         }
 
-        await runMutation({
+        const mutationResult = await runMutation({
           operation: async () => {
             const call = await apiCall<{ ok?: boolean }>('/api/wms/inventory/release', {
               method: 'POST',
@@ -221,7 +221,17 @@ export function ReleaseReservationDialog({
                   ),
                   'error',
                 )
-                return {}
+                return { handled: true as const }
+              }
+              if (call.response.status === 409 && (call.result as { error?: string } | null)?.error === 'invalid_reservation_state') {
+                flash(
+                  t(
+                    'wms.backend.inventory.release.errors.reservationNotActive',
+                    'This reservation is no longer active — it was already released or fulfilled. Refresh the list to see its current state.',
+                  ),
+                  'error',
+                )
+                return { handled: true as const }
               }
               await raiseCrudError(
                 call.response,
@@ -233,6 +243,8 @@ export function ReleaseReservationDialog({
           context: mutationContext,
           mutationPayload: payload,
         })
+
+        if ('handled' in mutationResult && mutationResult.handled) return
 
         flash(t('wms.backend.inventory.release.flash.success', 'Reservation released'), 'success')
         await queryClient.invalidateQueries({ queryKey: ['wms-inventory-console'] })
