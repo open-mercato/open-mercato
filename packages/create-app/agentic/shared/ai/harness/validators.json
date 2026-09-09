@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "catalog": {
-    "expectedCaseCount": 234,
+    "expectedCaseCount": 235,
     "maxContextFiles": 16,
     "maxInitialContextBytes": 98304,
     "maxTotalContextBytes": 1048576,

@@ -70,6 +70,7 @@ Telemetry / observability wiring (keep at parity when the `@open-mercato/telemet
 12. `apps/mercato/.env.example` telemetry block (`TELEMETRY_*` / `OTEL_*`) ↔ `packages/create-app/template/.env.example`
 13. `packages/cli/src/lib/telemetry-init.ts` (the `mercato telemetry init` adoption command) embeds copies of the `.env` telemetry block and the `instrumentation.ts` bootstrap so it can patch a pre-telemetry app — keep those constants in sync when items 9/12 change.
 14. `@open-mercato/telemetry` dep + `bullmq-otel` optionalDep ↔ `packages/create-app/template/package.json.template` (telemetry ships the `@opentelemetry/*` SDK as transitive `optionalDependencies`, so the template only pins `@open-mercato/telemetry`). Because the template pins every `@open-mercato` dep to `{{PACKAGE_VERSION}}`, the telemetry package version MUST stay in monorepo lockstep — `scripts/check-version-alignment.sh` enforces it, and a fresh scaffold's `yarn install` fails otherwise.
+15. Browser RUM wiring — the `{ id: 'telemetry', from: '@open-mercato/telemetry' }` entry in `apps/mercato/src/modules.ts` ↔ `packages/create-app/template/src/modules.ts`, and the backend-layout wiring (item 2): `BrowserTelemetry` from `@open-mercato/telemetry/browser` and `resolveBrowserTelemetryConfig` from the server-only `@open-mercato/telemetry/browser/server` — keep the two import paths split. The `TELEMETRY_BROWSER_*` env block follows items 12/13. `mercato telemetry init` reproduces all three edits, so `packages/cli/src/lib/telemetry-init.ts` must stay in step.
 
 ## Dev Runtime Expectations
 
