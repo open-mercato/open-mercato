@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Briefcase, Save } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
@@ -23,6 +24,8 @@ import { DealCreateSidebar } from './DealCreateSidebar'
 import { useDealPipelines } from './useDealPipelines'
 import { useDealCustomFields } from './useDealCustomFields'
 import { EMPTY_VALUES, type BaseValues } from './dealFormTypes'
+
+const logger = createLogger('customers')
 
 const CONTEXT_ID = 'customers.deals.create'
 const DEAL_ENTITY_ID = 'customers:customer_deal'
@@ -221,7 +224,14 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
       } else {
         await createDeal()
       }
-      await triggerDealFormEvent('onAfterSave', merged, injectionContext)
+      // Isolated exactly as `CrudForm` isolates its own `onAfterSave`: the deal already
+      // exists by this point, so a widget failing after the write must not be reported as
+      // a failed create or block the redirect.
+      try {
+        await triggerDealFormEvent('onAfterSave', merged, injectionContext)
+      } catch (err) {
+        logger.error('Error in onAfterSave', { spotId: DEAL_FORM_SPOT_ID, err })
+      }
       flash(tr('customers.people.detail.deals.success', 'Deal created.'), 'success')
       router.push(returnTo)
     } catch (err) {

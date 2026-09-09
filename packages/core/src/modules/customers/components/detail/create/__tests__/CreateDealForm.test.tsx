@@ -351,6 +351,24 @@ describe('CreateDealForm injection lifecycle (#5915 review)', () => {
     await waitFor(() => expect(mockCreateCrud).toHaveBeenCalled())
     expect(scopedHeaderCalls).toEqual([])
   })
+
+  it('keeps a completed create successful when a widget fails in onAfterSave', async () => {
+    // `CrudForm` isolates its own `onAfterSave` dispatch, so a widget failing after the
+    // write is logged and the save still succeeds. The create surface must not diverge:
+    // the deal already exists, so reporting a failure and skipping the redirect would
+    // strand the operator on a form whose record was in fact created.
+    mockTriggerSpotEvent.mockImplementation(async (event: string) => {
+      if (event === 'onAfterSave') throw new Error('widget exploded after the write')
+      return { ok: true }
+    })
+
+    render(<CreateDealForm returnTo="/backend/customers/deals" initialValues={{ title: 'Copperleaf renewal' }} />)
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Create deal' })[0])
+
+    await waitFor(() => expect(mockCreateCrud).toHaveBeenCalled())
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/backend/customers/deals'))
+  })
 })
 
 describe('CreateDealForm', () => {
