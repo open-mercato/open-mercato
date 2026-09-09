@@ -31,7 +31,7 @@ What actually exists right now, and where:
 | Accounts Payable (invoices) | `2026-09-06-accounts-payable.md` | `docs/accounts-payable` | Open, PR #5962 |
 | Accounts Payable (payments) | `2026-09-06-accounts-payable-payments.md` | `docs/accounts-payable` | Open, PR #5962 |
 | Journal Entry Line Dimension | `2026-09-06-journal-entry-line-dimension.md` | `docs/journal-entry-line-dimension` | Written, own branch |
-| Fixed Assets | `2026-09-06-fixed-assets.md` | `docs/fixed-assets` | Open, PR #6014 (draft — TLDR + Design Decisions only) |
+| Fixed Assets | `2026-09-06-fixed-assets.md` | `docs/fixed-assets` | Open, PR #6014 — full spec, adversarially reviewed, Final Compliance Report: fully compliant |
 | Posting Rules Engine (konto 490) | `2026-09-06-posting-rules-engine.md` | `docs/posting-rules-engine` | Open, PR #6015 (draft — TLDR + Design Decisions only) |
 | This knowledge base | `2026-09-08-financial-module-knowledge-base.md` | `docs/financial-module-knowledge-base` | Open, PR #6016 |
 | Accounts Receivable, Cash & Bank, Multi-Currency, Budgeting, Cost Accounting | — | — | Not started (SPEC-024 only) |
@@ -41,13 +41,35 @@ live only as uncommitted files in one worktree — flagged here as a
 real risk of losing the work. Both now have their own `docs/` branch,
 English translations (they were originally drafted in Polish, like
 the early Accounts Payable draft), and open PRs (#6014, #6015). This
-document itself now has a branch and PR too (#6016). Still
-draft-quality for Fixed Assets and Posting Rules Engine (TLDR + Design Decisions
-only) — the remaining required sections (Overview, Problem Statement,
-Proposed Solution, User Stories, Architecture, Data Models, API
-Contracts, Implementation Plan, Testing Strategy, Risks & Impact
+document itself now has a branch and PR too (#6016).
+
+**Updated 2026-09-09 (cont.):** Fixed Assets (#6014) is now a complete
+spec — Overview, Problem Statement, Proposed Solution, User Stories,
+Architecture, Data Models, API Contracts, Implementation Plan (Phase 1 +
+Phase 2), File Manifest, Testing Strategy, Risks & Impact Review with a
+Risk Register, Out of Scope, and a Final Compliance Report (verdict:
+fully compliant). It also picked up three scope additions during a
+knowledge-base verification pass against this doc's own sources —
+salvage/residual value (art. 32 ust. 2 UoR, optional, unlike Kieso's
+mandatory depreciable-base input), prospective-only useful-life/rate
+revision (art. 32 ust. 3 UoR, one of the few points where UoR and US GAAP
+agree), and impairment recognition plus mandatory reversal (art. 32 ust.
+4 / art. 35c UoR — the opposite of Kieso's prohibition on restoring an
+impairment for an asset held for use, the spec's most consequential
+divergence from the US-GAAP reference material). It then went through a
+fresh-context adversarial review, which found and fixed two blocking
+defects (the impairment/reversal commands weren't regenerating the
+depreciation schedule tail, which could drive net book value negative;
+neither command had an explicit `FixedAsset.status` guard) plus two
+smaller gaps — see the spec's own Changelog for the full citation trail
+and review record. Ready for a real review pass.
+
+Posting Rules Engine (#6015) remains draft-quality (TLDR + Design
+Decisions only) — the remaining required sections (Overview, Problem
+Statement, Proposed Solution, User Stories, Architecture, Data Models,
+API Contracts, Implementation Plan, Testing Strategy, Risks & Impact
 Review, Final Compliance Report) are still open work, tracked as the
-next thing to pick up for each.
+next thing to pick up.
 
 ---
 
