@@ -70,7 +70,11 @@ describe('useDealAssociations — 409 conflict handling', () => {
     )
 
     await act(async () => {
-      await result.current.handlePeopleAssociationsChange(['person-1'])
+      // The handler reports the failure and then re-throws, so the link dialog can keep the
+      // user's selection instead of closing over a conflict it never saw.
+      await expect(result.current.handlePeopleAssociationsChange(['person-1'])).rejects.toBe(
+        conflict,
+      )
     })
 
     expect(surfaceRecordConflictMock).toHaveBeenCalledTimes(1)
@@ -91,14 +95,47 @@ describe('useDealAssociations — 409 conflict handling', () => {
         data: baseData,
         setData: jest.fn(),
         runMutationWithContext,
+        onRefresh: jest.fn(),
       }),
     )
 
     await act(async () => {
-      await result.current.handleCompaniesAssociationsChange(['company-1'])
+      await expect(
+        result.current.handleCompaniesAssociationsChange(['company-1']),
+      ).rejects.toThrow('boom')
     })
 
     expect(surfaceRecordConflictMock).toHaveBeenCalledTimes(1)
     expect(flashMock).toHaveBeenCalledTimes(1)
+  })
+
+  test('a successful save resolves so the dialog can close, and refreshes the lock token', async () => {
+    const runMutationWithContext = jest.fn(async (operation: () => Promise<unknown>) =>
+      operation(),
+    ) as unknown as HookOptions['runMutationWithContext']
+    const onRefresh = jest.fn()
+
+    const { result } = renderHook(() =>
+      useDealAssociations({
+        currentDealId: 'deal-1',
+        data: baseData,
+        setData: jest.fn(),
+        runMutationWithContext,
+        onRefresh,
+      }),
+    )
+
+    await act(async () => {
+      await expect(
+        result.current.handlePeopleAssociationsChange(['person-1']),
+      ).resolves.toBeUndefined()
+    })
+
+    // #5757 made a links-only write advance `customer_deals.updated_at`, so the page MUST
+    // re-read the deal after a successful save. Without this the tab keeps its pre-save token
+    // and the very next unlink 409s against a change the same user just made.
+    expect(onRefresh).toHaveBeenCalledTimes(1)
+
+    expect(flashMock).not.toHaveBeenCalled()
   })
 })
