@@ -11,6 +11,7 @@ import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { decryptIndexDocForSearch } from '@open-mercato/shared/lib/encryption/indexDoc'
+import { buildCustomFieldKindMap, type CustomFieldKindMap } from '@open-mercato/shared/lib/custom-fields/kinds'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { extractFallbackPresenter } from './fallback-presenter'
 import { needsSearchResultEnrichment } from './search-result-enrichment'
@@ -33,6 +34,49 @@ function chunk<T>(array: T[], size: number): T[][] {
     chunks.push(array.slice(i, i + size))
   }
   return chunks
+}
+
+/**
+ * Load the `kind` of every active custom field on the entity types in this batch, keyed by
+ * entity type. Without it `decryptIndexDocForSearch` runs `JSON.parse` over decrypted
+ * string-typed values and returns `123` where `"123"` was stored (issue #5968).
+ *
+ * Fails open: a lookup error yields an empty map, which keeps the previous behavior rather
+ * than breaking search.
+ */
+async function fetchCustomFieldKindsByEntityType(
+  db: Kysely<any>,
+  entityTypes: string[],
+  tenantId: string,
+): Promise<Map<string, CustomFieldKindMap>> {
+  const byEntityType = new Map<string, CustomFieldKindMap>()
+  if (!entityTypes.length) return byEntityType
+  try {
+    const rows = await db
+      .selectFrom('custom_field_defs')
+      .select(['entity_id', 'key', 'kind'])
+      .where('entity_id', 'in', entityTypes)
+      .where('is_active', '=', true)
+      .where((eb: any) => eb.or([
+        eb('tenant_id', '=', tenantId),
+        eb('tenant_id', 'is', null),
+      ]))
+      .execute() as Array<{ entity_id: unknown; key: unknown; kind: unknown }>
+    const grouped = new Map<string, Array<{ key: unknown; kind: unknown }>>()
+    for (const row of rows) {
+      const entityType = typeof row.entity_id === 'string' ? row.entity_id : String(row.entity_id ?? '')
+      if (!entityType) continue
+      const group = grouped.get(entityType) ?? []
+      group.push({ key: row.key, kind: row.kind })
+      grouped.set(entityType, group)
+    }
+    for (const [entityType, group] of grouped) {
+      byEntityType.set(entityType, buildCustomFieldKindMap(group))
+    }
+  } catch (err) {
+    logWarning('Failed to resolve custom field kinds', { err })
+  }
+  return byEntityType
 }
 
 /**
@@ -306,7 +350,10 @@ export function createPresenterEnricher(
     }
 
     // Single batch query for all docs across all entity types
-    const rawDocs = await fetchDocsBatch(db, byEntityType, tenantId, organizationId)
+    const [rawDocs, kindsByEntityType] = await Promise.all([
+      fetchDocsBatch(db, byEntityType, tenantId, organizationId),
+      fetchCustomFieldKindsByEntityType(db, Array.from(byEntityType.keys()), tenantId),
+    ])
 
     // Decrypt docs in parallel using DEK cache for efficiency
     const dekCache = new Map<string | null, string | null>()
@@ -326,6 +373,7 @@ export function createPresenterEnricher(
             scope,
             encryptionService ?? null,
             dekCache,
+            kindsByEntityType.get(row.entity_type) ?? null,
           )
           return { ...row, doc: decryptedDoc }
         } catch (err) {
