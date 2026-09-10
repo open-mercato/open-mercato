@@ -1303,12 +1303,18 @@ deploy independently of any other module.
   see the 2026-09-10 `financial-pl`-side analysis) would need exactly
   this for its `Dziennik`/`KontoZapis` nodes, and could reuse #6013's
   ZSiO computation unchanged for its `ZOiS` node. Deliberately not
-  designed here: the actual shape (streaming vs. paginated, a
-  DI-resolved service vs. some other mechanism, real record volumes,
+  designed in this document: the actual shape (streaming vs. paginated,
+  a DI-resolved service vs. some other mechanism, real record volumes,
   which fields a real consumer needs) should come from that consumer's
   own spec once it's scheduled, not from guessing ahead of it — the
   same discipline already applied above to `soft_closed` period status
-  and to Bilans/P&L.
+  and to Bilans/P&L. **Update (2026-09-10, same day):** a first draft of
+  that interface now exists as its own document,
+  `2026-09-10-general-ledger-bulk-read-service.md` (own branch,
+  `docs/general-ledger-bulk-read-service`, not yet reviewed or PR'd) —
+  not folded into this spec or into #6013, for the same scope-cohesion
+  reasons named there. This bullet stays as the record of the gap;
+  that document is where it's actually designed.
 
 ## Final Compliance Report — 2026-08-27 (updated 2026-09-03, 2026-09-07, 2026-09-10)
 
@@ -1318,6 +1324,15 @@ Out of scope bullet, naming a future bulk cross-module read gap
 from `financial-pl`'s side) without designing it — see Changelog,
 "named a future bulk cross-module read gap." Purely a scope note, no
 design decision and no code surface changed, so it doesn't move the
+Compliance Matrix or the verdict below.
+
+A second same-day follow-up updated that same bullet again, once a
+first draft of the interface it names was actually written up as its
+own document (`2026-09-10-general-ledger-bulk-read-service.md`,
+un-reviewed) — see Changelog, "the read-service gap now has its own
+draft spec." Also purely a pointer update to this file (the bullet now
+names where the design lives instead of saying "not yet scheduled"),
+not a design decision made in *this* document — still doesn't move the
 Compliance Matrix or the verdict below.
 
 The 2026-09-10 update responds to a collaborator's discovery-pass PR
@@ -1988,3 +2003,16 @@ standard here. Added a new Out of scope bullet naming the gap and
 pointing at both #6013 (for the part that already exists) and the
 JPK_KR_PD analysis (for the part that doesn't), instead of a speculative
 design.
+
+### 2026-09-10 (cont., again — the read-service gap now has its own draft spec)
+
+Same-day follow-up: decided to actually write the interface named above,
+on the reasoning that the interface itself is derivable from what
+already shipped (#5663's journal entries, #6013's trial balance) even
+though JPK_KR_PD's own field-level requirements still aren't — a
+narrower, defensible case than speculatively designing ahead of a real
+consumer. Wrote it as its own document,
+`2026-09-10-general-ledger-bulk-read-service.md` (`docs/general-ledger-bulk-read-service`,
+not #6013 Phase 3 — reasoning for that placement is in that document's
+own Alternatives considered, not repeated here). Updated the Out of
+scope bullet above to point at it. Not yet reviewed or opened as a PR.
