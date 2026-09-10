@@ -30,7 +30,12 @@ import { SimpleTooltip } from '@open-mercato/ui/primitives/tooltip'
 import { Briefcase, AlertTriangle, X } from 'lucide-react'
 import { isLostDealStatus, isWonDealStatus } from '../../../lib/dealStatus'
 import { formatRelativeTime } from '@open-mercato/shared/lib/time'
-import { ViewTabsRow } from './pipeline/components/ViewTabsRow'
+import { useRegisteredComponent } from '@open-mercato/ui/backend/injection/useRegisteredComponent'
+import {
+  ViewTabsRow,
+  VIEW_TABS_ROW_COMPONENT_ID,
+  type ViewTabsRowProps,
+} from './pipeline/components/ViewTabsRow'
 import { DealsKpiStrip } from '../../../components/DealsKpiStrip'
 import { E } from '#generated/entities.ids.generated'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
@@ -195,6 +200,12 @@ function formatGroupedAmount(amount: number | null | undefined): string | null {
 
 export default function CustomersDealsPage() {
   const t = useT()
+  // Resolved through the component registry so downstream apps can hide a view
+  // (or replace the whole switcher) without forking this page.
+  const DealsViewTabsRow = useRegisteredComponent<ViewTabsRowProps>(
+    VIEW_TABS_ROW_COMPONENT_ID,
+    ViewTabsRow,
+  )
   const locale = useLocale()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const router = useRouter()
@@ -1064,7 +1075,7 @@ export default function CustomersDealsPage() {
   return (
     <Page>
       <PageBody>
-        <ViewTabsRow active="list" className="mb-4" />
+        <DealsViewTabsRow active="list" className="mb-4" />
         <DealsKpiStrip
           ownerNames={ownerNames}
           stageDictionary={dictionaryMaps['pipeline-stages'] ?? {}}
