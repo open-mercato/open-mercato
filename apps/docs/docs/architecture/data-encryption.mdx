@@ -172,6 +172,66 @@ production-only encryption map still needs a test.
 - Tenant bootstrap: generate + store DEK when `TENANT_DATA_ENCRYPTION` is enabled; warn otherwise.
 - Health/warning surfacing: warning record when Vault unavailable; telemetry hooks around map cache misses and KMS failures.
 
+## Turning encryption off
+
+`TENANT_DATA_ENCRYPTION=no` is a supported state, but it only governs **new** writes. Rows already
+encrypted stay ciphertext, and the decrypt-on-load hook that used to hide that is gone with the
+toggle. On a database that has never encrypted anything, set the flag and restart. Otherwise the
+order matters:
+
+```bash
+# 1. While encryption is still ON — this needs the DEK.
+yarn mercato entities decrypt-database --tenant <uuid> --confirm <uuid> --dry-run
+yarn mercato entities decrypt-database --tenant <uuid> --confirm <uuid> --deactivate-maps
+
+# 2. Only now flip the flag, and restart every replica (DEK and map caches are in-process).
+#    TENANT_DATA_ENCRYPTION=no
+
+# 3. Rebuild the search/filter indexes.
+yarn mercato query_index reindex --tenant <uuid>
+```
+
+**Flipping the flag before step 1 is the mistake to avoid.** Search tokens are hashes of
+*plaintext* — the indexer decrypts a document before tokenising it, which is what lets the token
+index survive encryption being switched on or off. With the toggle already off there is nothing to
+decrypt with, so a reindex would tokenise ciphertext. The write path detects the envelope by shape
+and preserves the existing tokens rather than replacing them, and logs a warning naming the
+affected fields, but those fields stay unsearchable until you decrypt and reindex properly.
+
+### Three states, not two
+
+Code that branches on encryption must distinguish an operator opt-out from a KMS outage. Use
+`resolveEncryptionMode(kms)` from `@open-mercato/shared/lib/encryption/kms`:
+
+| Mode | Meaning | Correct handling |
+| --- | --- | --- |
+| `disabled` | `TENANT_DATA_ENCRYPTION=no` | Plaintext is the intended outcome — degrade to it. |
+| `active` | Encryption on, DEK reachable | Encrypt. |
+| `unavailable` | Encryption on, no DEK reachable | Fail closed. Never write a secret in the clear. |
+
+Do **not** branch on `kmsService.isHealthy()` alone. `NoopKmsService.isHealthy()` is deliberately
+inverted — it reports healthy exactly when encryption is off, so that `enabled && healthy`
+collapses correctly — which means a bare `if (!kms.isHealthy())` reads the first and third rows as
+the same condition.
+
+### What still needs a decrypted database
+
+- **Integration credentials** are stored in the clear under `disabled`, but a blob sealed *before*
+  the toggle was flipped cannot be opened by any key. Reads raise
+  `CredentialsEncryptionUnavailableError` with `reason: 'sealed-while-disabled'` rather than
+  handing an adapter a garbage secret.
+- **Ephemeral session API key secrets** (MCP / AI chat) are stored in the clear under `disabled`.
+  Sessions minted while encryption was on are unrecoverable afterwards; they expire within 30
+  minutes, so re-issuing the session key is the remedy.
+
+### Search precision is a separate switch
+
+Disabling encryption does not by itself restore exact SQL `ILIKE` on list search. The token rewrite
+is gated on `OM_SEARCH_ENABLED` (default `true`), not on the encryption toggle. To get exact
+matching back on plaintext columns, set `OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS=true` — only
+then does the encryption toggle feed into that decision. `OM_SEARCH_ENABLED=false` turns the token
+machinery off entirely.
+
 ## Operational notes
 
 - Keep `TENANT_DATA_ENCRYPTION=yes` by default. Set `TENANT_DATA_ENCRYPTION=no` only for local dev or when KMS is down during incident response.

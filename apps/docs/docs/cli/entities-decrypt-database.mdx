@@ -59,6 +59,14 @@ Aliases: `--tenantId` for `--tenant`, `--organization`/`--organizationId` for `-
 
 ## Post-decryption steps
 
+:::warning Run this command BEFORE disabling encryption
+The command needs the tenant DEK, so it must run while `TENANT_DATA_ENCRYPTION` is still on.
+Flipping the flag first also leaves the search index stranded: tokens are hashes of plaintext, and
+with encryption already off a reindex has nothing to decrypt with. The indexer detects the envelope
+by shape and preserves the existing tokens instead of overwriting them with hashes of ciphertext,
+but the affected fields stay unsearchable until you decrypt and reindex in this order.
+:::
+
 After a successful run the following steps are required to complete the transition:
 
 1. Set `TENANT_DATA_ENCRYPTION=false` in your environment / secrets.

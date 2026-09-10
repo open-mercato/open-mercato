@@ -27,6 +27,31 @@ export class TenantDataEncryptionError extends Error {
   }
 }
 
+const BASE64_PART = /^[A-Za-z0-9+/]+={0,2}$/
+
+/**
+ * Keyless structural check for the `base64(iv):base64(ciphertext):base64(tag):v1` envelope
+ * {@link encryptWithAesGcm} emits.
+ *
+ * Answers "is this column holding ciphertext?" without a DEK, which is the only question
+ * available once encryption has been switched off — the KMS is a noop by then, so
+ * {@link decryptWithAesGcm} cannot distinguish ciphertext from plaintext. A 12-byte IV and a
+ * 16-byte tag encode to exactly 16 and 24 base64 characters, so the shape is specific enough
+ * that plaintext colliding with it is not a practical concern.
+ */
+export function looksLikeEncryptedPayload(value: unknown): boolean {
+  if (typeof value !== 'string') return false
+  const parts = value.split(':')
+  if (parts.length !== 4 || parts[3] !== 'v1') return false
+  const [iv, ciphertext, tag] = parts as [string, string, string, string]
+  return iv.length === 16
+    && tag.length === 24
+    && ciphertext.length > 0
+    && BASE64_PART.test(iv)
+    && BASE64_PART.test(ciphertext)
+    && BASE64_PART.test(tag)
+}
+
 export function generateDek(): string {
   return crypto.randomBytes(32).toString('base64')
 }
