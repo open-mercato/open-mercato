@@ -52,7 +52,7 @@ The default app and `create-mercato-app` template also export a non-applied `mod
 | Page routes | `routes.pages` | `'/backend/path'` or `'/frontend/path'` |
 | Event subscribers | `events.subscribers` | subscriber id |
 | Workers | `workers` | worker id |
-| Widget injection | `widgets.injection` | injection widget id |
+| Widget injection | `widgets.injection` | injection widget id — either the registry `key` (`module:widget:file`) or the widget's own `widgetId` (`module.injection.widget`) |
 | Component overrides | `widgets.components` | component handle |
 | Dashboard widgets | `widgets.dashboard` | widget id |
 | Notification types and handlers | `notifications.types`, `notifications.handlers` | type id / handler id |
@@ -184,6 +184,48 @@ overrides: {
   },
 }
 ```
+
+An injection widget is addressable by two ids: the generated registry `key`
+(`catalog:product-seo:widget`) and the widget module's own `widgetId`
+(`catalog.injection.product-seo`). Either spelling disables or replaces the widget
+in both the entries registry and every injection table that places it, so you never
+need to list both — and neither is reported as a stale override.
+
+The dispatcher must also run in the browser. `ClientBootstrap` re-registers the
+injection, dashboard and notification registries after hydration, so an app that
+forks it MUST call `applyModuleOverridesFromEnabledModules(enabledModules, { domains: ['widgets', 'notifications'] })`
+before those registrations — otherwise the raw generated registries overwrite the
+filtered ones and a disabled widget reappears once hydration finishes.
+
+:::warning Keep client-side overrides off server-only env gates
+
+Because the browser re-evaluates `src/modules.ts`, an `enabledModules` entry gated on
+a server-only environment variable **MUST NOT** carry `widgets` or `notifications`
+overrides. Next.js inlines only `NEXT_PUBLIC_*` values into the client bundle, so a
+gate such as `parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES, false)`
+is always `false` in the browser: the entry is absent there, the server dispatches its
+overrides and the client does not, and the widget the server correctly hid reappears
+the moment hydration finishes.
+
+```ts
+// ✗ the override is server-only — it never reaches the browser
+if (parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES, false)) {
+  enabledModules.push({
+    id: 'record_locks',
+    from: '@open-mercato/enterprise',
+    overrides: { widgets: { injection: { 'catalog.injection.product-seo': null } } },
+  })
+}
+
+// ✓ gate the module on the server variable, declare the override on an ungated entry
+//   (or gate it on a NEXT_PUBLIC_ variable, which is inlined into both bundles)
+```
+
+Outside production `ClientBootstrap` compares the browser's `enabledModules` against
+the build-time `enabled-module-ids.generated` list and warns for every module the
+browser cannot see, so the mismatch shows up in the console instead of silently.
+
+:::
 
 ### Notifications And Runtime Hooks
 

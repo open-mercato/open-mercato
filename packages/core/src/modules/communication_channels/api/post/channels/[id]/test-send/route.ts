@@ -37,15 +37,20 @@ export const metadata = {
   },
 }
 
-// `to` is deliberately NOT typed as an email here. The recipient shape depends
-// on the provider (an email address for Gmail/IMAP, a channel snowflake for
-// Discord), and the adapter is only known once the channel is loaded — so the
-// schema accepts any non-empty single-line string and `validateOutboundRecipient`
-// applies the provider-appropriate rules below, defaulting to email. The CR/LF
-// rejection stays at the schema level so a header-injection attempt is refused
-// before the request reaches the channel lookup or the mutation guard.
+// `to` is deliberately NOT typed as an email here, and deliberately optional.
+// The recipient shape depends on the provider (an email address for Gmail/IMAP,
+// a channel snowflake for Discord), and the adapter is only known once the
+// channel is loaded — so the schema accepts any non-empty single-line string and
+// `validateOutboundRecipient` applies the provider-appropriate rules below,
+// defaulting to email. Whether the recipient may be left out is provider-derived
+// too: an adapter that carries its own outbound target (Discord's
+// `defaultChannelId`) accepts a body with no `to` and posts there, which is the
+// smoke test the Discord spec documents; an email provider has no such default
+// and `validateOutboundRecipient` still refuses the request. The CR/LF rejection
+// stays at the schema level so a header-injection attempt is refused before the
+// request reaches the channel lookup or the mutation guard.
 const bodySchema = z.object({
-  to: z.string().min(1).max(MAX_OUTBOUND_RECIPIENT_LENGTH).regex(/^[^\r\n]*$/),
+  to: z.string().min(1).max(MAX_OUTBOUND_RECIPIENT_LENGTH).regex(/^[^\r\n]*$/).optional(),
   subject: z.string().min(1).max(500).optional(),
   body: z.string().max(50_000).optional(),
 })
@@ -232,7 +237,14 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
         tenantId: auth.tenantId as string,
         organizationId: channelCredentialsOrg,
       },
-      metadata: { to: body.to, subject: body.subject ?? 'Test send', testSend: true },
+      // `to` is omitted from the metadata rather than passed as `undefined` when
+      // the caller left it out, so an adapter reading `metadata.to` sees no key
+      // at all and falls through to its own configured target.
+      metadata: {
+        ...(body.to !== undefined ? { to: body.to } : {}),
+        subject: body.subject ?? 'Test send',
+        testSend: true,
+      },
     })
     await guard.afterSuccess()
     return NextResponse.json({

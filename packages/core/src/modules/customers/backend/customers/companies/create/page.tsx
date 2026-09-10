@@ -34,6 +34,7 @@ export default function CreateCompanyPage() {
       <PageBody>
         <CrudForm<CompanyFormValues>
           title={t('customers.companies.create.title')}
+          titleHeadingLevel={1}
           backHref={returnTo ?? '/backend/customers/companies'}
           fields={fields}
           groups={groups}
