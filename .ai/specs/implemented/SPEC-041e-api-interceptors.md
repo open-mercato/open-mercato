@@ -46,6 +46,12 @@ interface InterceptorBeforeResult {
 interface InterceptorAfterResult {
   merge?: Record<string, unknown>
   replace?: Record<string, unknown>
+  /**
+   * Response headers to add or overwrite. Names are matched case-insensitively and the last
+   * interceptor to run wins a collision, mirroring `merge`. An invalid name or a value carrying
+   * NUL/CR/LF fails the response through the runner's attributed 500.
+   */
+  headers?: Record<string, string>
 }
 
 interface InterceptorRequest {
@@ -412,3 +418,10 @@ export const interceptors: ApiInterceptor[] = [
 - [x] Example module interceptor file added (`example/api/interceptors.ts`)
 - [x] Unit tests added in `packages/shared/src/lib/crud/__tests__/crud-factory.test.ts`
 - [x] Playwright integration scenarios TC-UMES-I01..I09 covered in `apps/mercato/src/modules/example/__integration__/TC-UMES-004.spec.ts`
+
+## Changelog
+
+| Date | Change |
+|------|--------|
+| 2026-02-26 | Phase E shipped: interceptor contracts, registry, fail-closed runner, CRUD `before`/`after` integration, generator discovery. |
+| 2026-09-10 | `InterceptorAfterResult.headers` added, so an `after` hook can set a response header. Honoured on every custom-route call site and on every `makeCrudRoute` branch, including the three command-backed `actions.*` success responses. Names merge case-insensitively (last writer wins); an invalid name or a NUL/CR/LF value fails through the runner's attributed 500. See `.ai/specs/2026-08-28-custom-route-after-interceptor-headers.md`. |

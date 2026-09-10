@@ -47,6 +47,14 @@ export type InterceptorAfterResult = {
    * execution order, so the LAST interceptor to run wins a collision - the same precedence the
    * body `merge` already follows. Note interceptors run in descending `priority`, so the
    * lowest-priority entry is the one that wins.
+   *
+   * Names are matched case-insensitively: the runner lower-cases every name before merging, so
+   * `X-Foo` and `x-foo` are one header and the last writer wins. Without that they would survive
+   * as two object keys and `new Headers()` would APPEND them (`x-foo: a, b`) instead.
+   *
+   * A name that is not an RFC 9110 token, or a value containing NUL/CR/LF, fails the response
+   * with the runner's attributed 500 rather than throwing unattributed inside `new Headers()`
+   * at whichever call site builds the response.
    */
   headers?: Record<string, string>
 }

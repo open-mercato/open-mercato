@@ -73,6 +73,50 @@ function toErrorBody(interceptorId: string, error: unknown): Record<string, unkn
   return body
 }
 
+// RFC 9110 field-name token. `new Headers()` rejects anything else, and it does so at the call
+// site that builds the response rather than here - which is why the merge below validates
+// instead of letting the throw escape the runner's attribution.
+const HEADER_NAME_PATTERN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/
+
+class InvalidInterceptorHeaderError extends Error {
+  constructor(name: string) {
+    super(`Interceptor returned an invalid response header name or value: ${JSON.stringify(name)}`)
+    this.name = 'InvalidInterceptorHeaderError'
+  }
+}
+
+/**
+ * Merge interceptor-returned headers over the ones accumulated so far.
+ *
+ * Header names are case-insensitive, so the merge lower-cases them. Without that,
+ * `{ 'X-Foo': 'a' }` and `{ 'x-foo': 'b' }` survive as two distinct object keys and
+ * `new Headers(obj)` APPENDS them into `x-foo: a, b` - a concatenation rather than the
+ * last-wins collision rule `InterceptorAfterResult.headers` documents.
+ */
+function mergeResponseHeaders(
+  current: Record<string, string>,
+  incoming: Record<string, string>,
+): Record<string, string> {
+  const merged = { ...current }
+  for (const [rawName, rawValue] of Object.entries(incoming)) {
+    const name = String(rawName).toLowerCase()
+    const value = String(rawValue)
+    if (!HEADER_NAME_PATTERN.test(name) || /[\0\r\n]/.test(value)) {
+      throw new InvalidInterceptorHeaderError(rawName)
+    }
+    merged[name] = value
+  }
+  return merged
+}
+
+function normalizeResponseHeaders(input?: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const [name, value] of Object.entries(input ?? {})) {
+    out[String(name).toLowerCase()] = String(value)
+  }
+  return out
+}
+
 export async function runApiInterceptorsBefore(args: {
   routePath: string
   method: ApiInterceptorMethod
@@ -222,7 +266,7 @@ export async function runApiInterceptorsAfter(args: {
 }): Promise<RunInterceptorsAfterResult> {
   const { routePath, method, context } = args
   let body: Record<string, unknown> = { ...(args.response.body ?? {}) }
-  let headers: Record<string, string> = { ...(args.response.headers ?? {}) }
+  let headers: Record<string, string> = normalizeResponseHeaders(args.response.headers)
 
   const interceptors = getApiInterceptorsForRoute(routePath, method)
   for (const entry of interceptors) {
@@ -248,7 +292,7 @@ export async function runApiInterceptorsAfter(args: {
         body = { ...body, ...result.merge }
       }
       if (result.headers && typeof result.headers === 'object') {
-        headers = { ...headers, ...result.headers }
+        headers = mergeResponseHeaders(headers, result.headers)
       }
     } catch (error) {
       if (isTimeoutError(error)) {

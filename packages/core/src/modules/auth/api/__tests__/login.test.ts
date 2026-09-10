@@ -361,15 +361,30 @@ describe('POST /api/auth/login — after-interceptor response headers', () => {
     expect(res.headers.get('x-mfa-challenge')).toBe('c-1')
   })
 
-  test('carries the header onto a response the interceptor rejected', async () => {
+  test('carries a header accumulated before the throw onto the rejected response', async () => {
+    // Interceptors run in DESCENDING priority, so the header-setter (2) runs before the
+    // thrower (1) and its header is already in the runner's bag when the throw is caught.
+    // Asserting the header rather than only the status is what makes this discriminating:
+    // with a single throwing interceptor the bag is `{}`, and `NextResponse.json(body,
+    // { status: 500, headers: {} })` is indistinguishable from one built without headers.
     registerApiInterceptors([
       {
         moduleId: 'example',
         interceptors: [
           {
+            id: 'example.auth.login.header.before-throw',
+            targetRoute: 'auth/login',
+            methods: ['POST'],
+            priority: 2,
+            async after() {
+              return { headers: { 'x-correlation-id': 'c-1' } }
+            },
+          },
+          {
             id: 'example.auth.login.header.throws',
             targetRoute: 'auth/login',
             methods: ['POST'],
+            priority: 1,
             async after() {
               throw new Error('boom')
             },
@@ -383,9 +398,8 @@ describe('POST /api/auth/login — after-interceptor response headers', () => {
       body: makeFormData({ email: 'user@example.com', password: 'secret' }),
     }))
 
-    // 500 from the interceptor runner. The route seeds no headers, so this asserts the
-    // pass-through exists on the failure path rather than any particular header value.
     expect(res.status).toBe(500)
+    expect(res.headers.get('x-correlation-id')).toBe('c-1')
   })
 
   test('the auth cookies the route sets survive the interceptor headers', async () => {
