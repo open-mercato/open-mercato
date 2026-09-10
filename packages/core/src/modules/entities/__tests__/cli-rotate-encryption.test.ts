@@ -117,21 +117,7 @@ describe('entities rotate-encryption-key CLI', () => {
     const rotate = cli.find((c: any) => c.command === 'rotate-encryption-key')!
     const encryptedValue = 'iv:cipher:tag:v1'
 
-    find.mockImplementation(async (entity: any) => {
-      if (entity === EncryptionMap) {
-        return [{
-          entityId: 'audit_logs:access_log',
-          tenantId: 'tenant-1',
-          organizationId: 'org-1',
-          fieldsJson: [{ field: 'resource_id' }, { field: 'context_json' }],
-          deletedAt: null,
-        }]
-      }
-      if (entity === Organization) {
-        return [{ id: 'org-1', tenantId: 'tenant-1' }]
-      }
-      return []
-    })
+    singleMapFixture()
 
     execute.mockResolvedValueOnce([
       { id: 'row-1', resource_id: encryptedValue, context_json: encryptedValue },

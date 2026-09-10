@@ -554,6 +554,10 @@ const rotateEncryptionKey: ModuleCli = {
     // persists a tenant DEK in KMS/Vault the first time it runs for a tenant, so a
     // read-only preview would silently mutate KMS state (#5950). Probe read-only
     // once per tenant instead, and report what a real run would rewrite.
+    //
+    // The tenant id IS the key id here: this command skips every system-scoped
+    // entity above, and its service is built without `defaultEncryptionMaps`, so
+    // no map it sees can resolve to a `system:<entityId>` key.
     const dekAvailability = new Map<string, boolean>()
     const hasExistingDek = async (tenantId: string): Promise<boolean> => {
       const cached = dekAvailability.get(tenantId)
