@@ -274,6 +274,7 @@
   "customer_accounts.domainMapping.tls.diagnostics.title": "SSL 인증서 문제",
   "customer_accounts.domainMapping.tls.retryButton": "SSL 재시도",
   "customer_accounts.domainMapping.verifyNow": "지금 확인",
+  "customer_accounts.errors.emailAlreadyExists": "이 이메일 주소로 등록된 계정이 이미 있습니다",
   "customer_accounts.invitation.email.body": "이 보안 초대 링크를 사용하여 비밀번호를 생성하고 고객 포털에 액세스하세요.",
   "customer_accounts.invitation.email.cta": "초대 수락",
   "customer_accounts.invitation.email.hint": "이 초대 링크는 72시간 후에 만료됩니다. 이 초대를 예상하지 못했다면 이 이메일을 무시해도 됩니다.",

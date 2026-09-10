@@ -274,6 +274,7 @@
   "customer_accounts.domainMapping.tls.diagnostics.title": "Problem z certyfikatem SSL",
   "customer_accounts.domainMapping.tls.retryButton": "Ponów SSL",
   "customer_accounts.domainMapping.verifyNow": "Sprawdź teraz",
+  "customer_accounts.errors.emailAlreadyExists": "Konto z tym adresem e-mail już istnieje",
   "customer_accounts.invitation.email.body": "Użyj bezpiecznego linku zaproszenia, aby utworzyć hasło i uzyskać dostęp do portalu klienta.",
   "customer_accounts.invitation.email.cta": "Przyjmij zaproszenie",
   "customer_accounts.invitation.email.hint": "Ten link zaproszenia wygasa po 72 godzinach. Jeśli nie spodziewasz się tego zaproszenia, możesz zignorować tę wiadomość.",
