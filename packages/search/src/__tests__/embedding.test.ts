@@ -1,4 +1,7 @@
 jest.mock('ai', () => ({
+  // Only `embed` is stubbed. `RetryError` comes through unmocked so the unwrap below
+  // exercises the SDK's real `isInstance` predicate rather than a stand-in of it.
+  ...jest.requireActual('ai'),
   embed: jest.fn(),
 }))
 
@@ -42,8 +45,8 @@ describe('EmbeddingService', () => {
     })
 
     await expect(service.createEmbedding('test input')).rejects.toThrow(
-      '[vector.embedding] Ollama (Local) embedding request exceeded the 5ms deadline ' +
-        '(VECTOR_EMBEDDING_TIMEOUT_MS) before the provider answered.',
+      '[vector.embedding] Ollama (Local) embedding request exceeded the 5ms ' +
+        'VECTOR_EMBEDDING_TIMEOUT_MS deadline before the provider answered',
     )
   })
 
@@ -65,7 +68,9 @@ describe('EmbeddingService', () => {
       },
     })
 
-    await expect(service.createEmbedding('test input')).rejects.toThrow('exceeded the 5ms deadline')
+    await expect(service.createEmbedding('test input')).rejects.toThrow(
+      'exceeded the 5ms VECTOR_EMBEDDING_TIMEOUT_MS deadline',
+    )
     expect(capturedSignal).toBeInstanceOf(AbortSignal)
     expect(capturedSignal?.aborted).toBe(true)
   })
@@ -192,11 +197,33 @@ describe('EmbeddingService retry budget and error classification', () => {
       },
     })
 
-  it('does not retry by default, so the deadline cannot pre-empt the provider error', async () => {
+  // 1 rather than the SDK's 2: the deadline is a TOTAL budget, so the second backoff alone
+  // runs it out and the caller gets the fabricated timeout instead of the provider's error.
+  // 1 keeps the one recovery that fits inside the default 3000 ms.
+  it('spends at most one retry by default, so the deadline cannot pre-empt the provider error', async () => {
+    mockedEmbed.mockResolvedValue({ embedding: [0.1] } as Awaited<ReturnType<typeof embed>>)
+
+    await expect(service().createEmbedding('test input')).resolves.toEqual([0.1])
+    expect(mockedEmbed).toHaveBeenCalledWith(expect.objectContaining({ maxRetries: 1 }))
+  })
+
+  it('accepts an explicit 0, which is the only universally diagnostic setting', async () => {
+    // A provider answering `retry-after: 20` defeats any non-zero budget under a 3 s
+    // deadline, so 0 stays reachable for an operator who needs the provider's own error
+    // unconditionally.
+    process.env.VECTOR_EMBEDDING_MAX_RETRIES = '0'
     mockedEmbed.mockResolvedValue({ embedding: [0.1] } as Awaited<ReturnType<typeof embed>>)
 
     await expect(service().createEmbedding('test input')).resolves.toEqual([0.1])
     expect(mockedEmbed).toHaveBeenCalledWith(expect.objectContaining({ maxRetries: 0 }))
+  })
+
+  it('clamps an implausible value instead of taking it verbatim', async () => {
+    process.env.VECTOR_EMBEDDING_MAX_RETRIES = '3000'
+    mockedEmbed.mockResolvedValue({ embedding: [0.1] } as Awaited<ReturnType<typeof embed>>)
+
+    await expect(service().createEmbedding('test input')).resolves.toEqual([0.1])
+    expect(mockedEmbed).toHaveBeenCalledWith(expect.objectContaining({ maxRetries: 30 }))
   })
 
   it('honours VECTOR_EMBEDDING_MAX_RETRIES when an operator raises the deadline too', async () => {
@@ -208,13 +235,13 @@ describe('EmbeddingService retry budget and error classification', () => {
   })
 
   it.each([['not-a-number'], ['-1'], ['']])(
-    'falls back to no retries for the invalid value %p',
+    'falls back to the default budget for the invalid value %p',
     async (raw) => {
       process.env.VECTOR_EMBEDDING_MAX_RETRIES = raw
       mockedEmbed.mockResolvedValue({ embedding: [0.1] } as Awaited<ReturnType<typeof embed>>)
 
       await expect(service().createEmbedding('test input')).resolves.toEqual([0.1])
-      expect(mockedEmbed).toHaveBeenCalledWith(expect.objectContaining({ maxRetries: 0 }))
+      expect(mockedEmbed).toHaveBeenCalledWith(expect.objectContaining({ maxRetries: 1 }))
     },
   )
 
@@ -279,8 +306,9 @@ describe('EmbeddingService retry budget and error classification', () => {
     mockedEmbed.mockImplementation(() => new Promise(() => undefined))
 
     const err = await service().createEmbedding('test input').catch((e: Error) => e)
-    expect(err.message).toContain('exceeded the 5ms deadline (VECTOR_EMBEDDING_TIMEOUT_MS)')
-    expect(err.message).toContain('That is a deadline, not a diagnosis')
+    expect(err.message).toContain('exceeded the 5ms VECTOR_EMBEDDING_TIMEOUT_MS deadline')
+    // Names the deadline and the knob, and stops short of a cause - the point of the change.
+    expect(err.message).toContain('raise it to surface the provider\'s own error')
     // The point of the change: no unevidenced "Check <ENV KEY>" claim, and no
     // doubled prefix from the classifier's default branch.
     expect(err.message).not.toContain('Check OLLAMA_BASE_URL')

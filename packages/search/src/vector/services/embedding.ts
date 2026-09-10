@@ -1,4 +1,4 @@
-import { embed } from 'ai'
+import { embed, RetryError } from 'ai'
 import type { EmbeddingModel } from 'ai'
 import { createOpenAI } from '@ai-sdk/openai'
 
@@ -47,24 +47,29 @@ function resolveEmbeddingTimeoutMs(): number {
   return parsed
 }
 
-// The AI SDK retries a failed embedding call on its own schedule (two further
-// attempts, after 2s and then 4s of backoff), while createEmbedding() races the
-// WHOLE retry loop against VECTOR_EMBEDDING_TIMEOUT_MS. Those two budgets are
-// incompatible by construction: exhausting the SDK default needs more than 6s
-// and the deadline defaults to 3s, so the deadline always wins and the caller is
-// handed the fabricated timeoutError() below instead of whatever the provider
-// actually said.
+// createEmbedding() races the WHOLE SDK retry loop against
+// VECTOR_EMBEDDING_TIMEOUT_MS, so the deadline is a total budget and every retry
+// spends it. The SDK default of 2 cannot fit: the second backoff alone pushes the
+// loop past the 3s default, so the deadline always won and the caller was handed
+// the fabricated timeoutError() below instead of whatever the provider said.
 //
-// Reproduced against a stub provider answering 429 insufficient_quota in 115ms:
-// createEmbedding() rejected after 3006ms with "OpenAI request timed out after
-// 3000ms. Check OPENAI_API_KEY." The key was valid, nothing timed out, and the
-// classification switch further down already knows how to say "usage quota
-// exceeded" - it simply never saw the error.
+// 1 is the largest budget that fits. It keeps the one recovery that completes
+// inside the deadline - a fast transient failure then success resolves at ~2.2s -
+// while a permanent error still rejects at ~2.25s with an AI_RetryError that
+// unwrapRetryError() below turns back into the provider's own code. Operators who
+// raise VECTOR_EMBEDDING_TIMEOUT_MS can raise this alongside it.
 //
-// So default the retry budget to 0. Under the default deadline a retry could
-// never have completed anyway; it only spent the budget and hid the diagnosis.
-// Operators who raise VECTOR_EMBEDDING_TIMEOUT_MS can raise this alongside it.
-const DEFAULT_EMBEDDING_MAX_RETRIES = 0
+// The residual case, stated because it is the reason 0 exists as an option: when
+// the provider sends a Retry-After larger than the remaining budget, no non-zero
+// value is diagnostic - the deadline elapses during the wait. Set 0 to make the
+// provider's own error reach the classifier unconditionally, at the cost of that
+// one recovery.
+const DEFAULT_EMBEDDING_MAX_RETRIES = 1
+
+// The deadline already bounds the loop, so a high value cannot run away - but an
+// operator who typed an extra digit deserves the same clamp the repo's other
+// retry knob gets (webhooks/data/validators.ts).
+const MAX_EMBEDDING_MAX_RETRIES = 30
 
 function resolveEmbeddingMaxRetries(): number {
   const rawValue = process.env.VECTOR_EMBEDDING_MAX_RETRIES
@@ -73,23 +78,21 @@ function resolveEmbeddingMaxRetries(): number {
   if (!Number.isFinite(parsed) || parsed < 0) {
     return DEFAULT_EMBEDDING_MAX_RETRIES
   }
-  return parsed
+  return Math.min(parsed, MAX_EMBEDDING_MAX_RETRIES)
 }
 
 // With a non-zero retry budget the SDK wraps the provider error in an
 // AI_RetryError whose own statusCode/data are empty, so the classification below
 // falls through to its default branch and loses the provider's code. Unwrap to
-// the last real attempt first.
-//
-// This is not merely defensive about the setting above. Raising
-// VECTOR_EMBEDDING_TIMEOUT_MS is the remedy the timeout message implies, and it
-// lets the retry loop finish - at which point, without this, the same billing
-// failure is reported as "Failed after 3 attempts. ... Check OPENAI_API_KEY."
-// (measured: 6376ms, three attempts, still naming the key). Both halves are
-// needed for the real error to reach the operator.
+// the last real attempt first. This is load-bearing at the default budget of 1,
+// and again for any operator who raises the deadline and buys more retries back.
 function unwrapRetryError(err: unknown): unknown {
   const candidate = err as { name?: string; lastError?: unknown; errors?: unknown[] } | null
-  if (!candidate || candidate.name !== 'AI_RetryError') return err
+  if (!candidate) return err
+  // `isInstance` matches on a Symbol marker, so it survives a duplicate `ai` install
+  // where `instanceof` would not. The name check stays as a fallback for a provider
+  // package that mints the error shape without the marker.
+  if (!RetryError?.isInstance?.(err) && candidate.name !== 'AI_RetryError') return err
   if (candidate.lastError) return candidate.lastError
   if (Array.isArray(candidate.errors) && candidate.errors.length > 0) {
     return candidate.errors[candidate.errors.length - 1]
@@ -106,9 +109,8 @@ function timeoutError(providerId: EmbeddingProviderId, timeoutMs: number): Error
   const providerInfo = EMBEDDING_PROVIDERS[providerId]
   return new Error(
     `[vector.embedding] ${providerInfo.name} embedding request exceeded the ${timeoutMs}ms ` +
-      `deadline (VECTOR_EMBEDDING_TIMEOUT_MS) before the provider answered. That is a deadline, ` +
-      `not a diagnosis: the provider may be slow, unreachable, or rejecting the request. Raise ` +
-      `VECTOR_EMBEDDING_TIMEOUT_MS to let the underlying error surface.`,
+      `VECTOR_EMBEDDING_TIMEOUT_MS deadline before the provider answered; raise it to surface ` +
+      `the provider's own error.`,
   )
 }
 
