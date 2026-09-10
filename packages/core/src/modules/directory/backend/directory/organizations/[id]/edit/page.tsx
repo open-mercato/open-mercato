@@ -324,6 +324,7 @@ export default function EditOrganizationPage({ params }: { params?: { id?: strin
       <PageBody>
         <CrudForm
           title={t('directory.organizations.form.title.edit', 'Edit Organization')}
+          titleHeadingLevel={1}
           backHref="/backend/directory/organizations"
           versionHistory={{ resourceKind: 'directory.organization', resourceId: orgId ? String(orgId) : '' }}
           fields={fields}

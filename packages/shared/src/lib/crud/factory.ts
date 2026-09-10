@@ -75,7 +75,7 @@ import { parseExtensionHeaders } from '../umes/extension-headers'
 import { createGenericOptimisticLockReader } from './optimistic-lock'
 import { registerOptimisticLockReaderIfAbsent } from './optimistic-lock-store'
 import { createLogger } from '../logger'
-import { isTransientDbError } from '../db/pg-errors'
+import { getForeignKeyViolationConstraint, isForeignKeyViolation, isTransientDbError } from '../db/pg-errors'
 import { getTelemetryRuntime } from '../telemetry/runtime'
 import { randomUUID } from 'node:crypto'
 
@@ -630,6 +630,35 @@ function handleError(err: unknown, request?: Request): Response {
     return json(
       { error: 'Service temporarily unavailable' },
       { status: 503, headers: { 'Retry-After': '2' } },
+    )
+  }
+
+  if (isForeignKeyViolation(err)) {
+    // SQLSTATE 23503 covers both directions: a DELETE blocked by a dependent row
+    // and an INSERT/UPDATE pointing at a missing parent. Either way it is a
+    // data-state conflict the caller can act on, so answer 409 instead of 500.
+    // The constraint name stays in the log only: it maps internal table/column
+    // names and has no business in a client-facing body. The missing-parent
+    // direction is often a server-side defect, so the error is still reported to
+    // telemetry and carries a requestId exactly like the generic 500 below.
+    const requestId = resolveRequestId(request)
+    const constraint = getForeignKeyViolationConstraint(err)
+    logger.warn('Foreign key violation during CRUD handler', {
+      message: err instanceof Error ? err.message : undefined,
+      constraint,
+      requestId,
+    })
+    getTelemetryRuntime()?.reportError(err, {
+      module: 'crud',
+      attributes: { requestId, errorName: 'ForeignKeyViolation', constraint: constraint ?? undefined },
+    })
+    return json(
+      {
+        error: 'The record is still referenced by other data, or references a record that does not exist',
+        code: 'FOREIGN_KEY_VIOLATION',
+        requestId,
+      },
+      { status: 409, headers: { 'x-request-id': requestId } },
     )
   }
 
