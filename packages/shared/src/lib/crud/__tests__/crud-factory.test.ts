@@ -1614,6 +1614,120 @@ describe('CRUD Factory', () => {
     expect(commandBus.execute).toHaveBeenCalledWith('example.todo.delete', expect.anything())
   })
 
+  // A command-backed `actions.*` route forwarded after-interceptor headers on the rejection
+  // branch and built its SUCCESS response without them. That was inert while
+  // `InterceptorAfterResult` had no `headers` field; once it does, an interceptor targeting a
+  // command-wired entity silently loses its header while the same interceptor on a GET or on a
+  // legacy non-command write keeps it — a split invisible from `api/interceptors.ts`.
+  describe('command action routes carry after-interceptor response headers', () => {
+    const headerInterceptor = (methods: Array<'POST' | 'PUT' | 'DELETE'>) => registerApiInterceptors([
+      {
+        moduleId: 'example',
+        interceptors: [
+          {
+            id: 'example.todo.command.header',
+            targetRoute: 'example/todos/command',
+            methods,
+            async after() {
+              return { headers: { 'x-correlation-id': 'c-1' } }
+            },
+          },
+        ],
+      },
+    ])
+
+    it('POST create success response carries the header', async () => {
+      headerInterceptor(['POST'])
+      const commandRoute = makeCrudRoute({
+        metadata: { POST: { requireAuth: true } },
+        orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+        indexer: { entityType: 'example.todo' },
+        actions: {
+          create: { commandId: 'example.todo.create', schema: createSchema, response: () => ({ ok: true }) },
+        },
+      })
+
+      const res = await commandRoute.POST(new Request('http://x/api/example/todos/command', {
+        method: 'POST',
+        body: JSON.stringify({ title: 'A' }),
+        headers: { 'content-type': 'application/json' },
+      }))
+
+      expect(res.status).toBe(201)
+      expect(res.headers.get('x-correlation-id')).toBe('c-1')
+    })
+
+    it('PUT update success response carries the header', async () => {
+      headerInterceptor(['PUT'])
+      const commandRoute = makeCrudRoute({
+        metadata: { PUT: { requireAuth: true } },
+        orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+        indexer: { entityType: 'example.todo' },
+        actions: {
+          update: {
+            commandId: 'example.todo.update',
+            schema: z.object({ title: z.string() }),
+            mapInput: ({ parsed }: any) => ({ body: parsed }),
+            response: () => ({ ok: true }),
+          },
+        },
+      })
+
+      const res = await commandRoute.PUT(new Request('http://x/api/example/todos/command', {
+        method: 'PUT',
+        body: JSON.stringify({ title: 'B' }),
+        headers: { 'content-type': 'application/json' },
+      }))
+
+      expect(res.status).toBe(200)
+      expect(res.headers.get('x-correlation-id')).toBe('c-1')
+    })
+
+    it('DELETE success response carries the header', async () => {
+      headerInterceptor(['DELETE'])
+      const commandRoute = makeCrudRoute({
+        metadata: { DELETE: { requireAuth: true } },
+        orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+        indexer: { entityType: 'example.todo' },
+        actions: {
+          delete: { commandId: 'example.todo.delete', schema: z.any(), response: () => ({ ok: true }) },
+        },
+      })
+
+      const res = await commandRoute.DELETE(new Request('http://x/api/example/todos/command', {
+        method: 'DELETE',
+        body: JSON.stringify({}),
+        headers: { 'content-type': 'application/json' },
+      }))
+
+      expect(res.status).toBe(200)
+      expect(res.headers.get('x-correlation-id')).toBe('c-1')
+    })
+
+    // The operation header is attached after the interceptor headers are applied, so it must
+    // still win its own name rather than being overwritten by the merge.
+    it('leaves the operation header attached alongside the interceptor header', async () => {
+      headerInterceptor(['POST'])
+      const commandRoute = makeCrudRoute({
+        metadata: { POST: { requireAuth: true } },
+        orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+        indexer: { entityType: 'example.todo' },
+        actions: {
+          create: { commandId: 'example.todo.create', schema: createSchema, response: () => ({ ok: true }) },
+        },
+      })
+
+      const res = await commandRoute.POST(new Request('http://x/api/example/todos/command', {
+        method: 'POST',
+        body: JSON.stringify({ title: 'A' }),
+        headers: { 'content-type': 'application/json' },
+      }))
+
+      expect(res.headers.get('x-correlation-id')).toBe('c-1')
+      expect(res.status).toBe(201)
+    })
+  })
+
   it('POST is blocked by interceptor before hook', async () => {
     registerApiInterceptors([
       {
