@@ -371,7 +371,9 @@ Configurable via environment variables (`CUSTOMER_LOGIN_POINTS`, `CUSTOMER_LOGIN
 ### Email Privacy
 
 - Emails stored in plaintext but lookups use `hashForLookup` (deterministic hash)
-- Unique constraint on `(tenantId, emailHash)` prevents duplicates
+- Partial unique index on `(tenantId, emailHash) WHERE deleted_at IS NULL` prevents duplicate **active** accounts — a soft-deleted row no longer blocks re-inviting its email (#5532)
+- Every `CustomerUser` email lookup MUST therefore filter `deletedAt: null`; that predicate is load-bearing, not defensive, because two rows can legitimately share `(tenantId, emailHash)` once one is soft-deleted
+- Match lookups against `lookupHashCandidates(email)` rather than a single `hashForLookup(email)`, so rows still carrying the legacy digest are found
 - Error messages never confirm whether an email is registered
 
 ## Lib Utilities
