@@ -92,6 +92,8 @@ Deprecation protocol compliance (`BACKWARD_COMPATIBILITY.md` § Deprecation Prot
 | 4. Document in `UPGRADE_NOTES.md` | ✅ Entry under `0.7.0 → 0.7.1` |
 | 5. Reference a spec with a Migration & Backward Compatibility section | ✅ This document |
 
+`BACKWARD_COMPATIBILITY.md` § Contract Surface Categories → *2. Types* also gains a `SearchResultPresenter` / `VectorResultPresenter` row recording the field-level deprecation, its 0.9.0 target and the removal precondition. The five protocol steps do not require it, but that list is where a reviewer or a future removal PR checks a surface's contract status, and the file already records field-level deprecations the same way (`RefreshCredentialsInput.credentials._client`, `AiAgentExtension.suggestions`). Without the row, the 0.9.0 removal would have to re-derive both the window and the precondition from this spec and `UPGRADE_NOTES.md`.
+
 **Migration for module authors** — stop populating `presenter.badge` before 0.9.0 and move the value to the replacement matching what it holds:
 
 - **An entity-type label** (the common case): delete the `badge` and add a `search.entityType.<module>.<entity>` key. Every search surface already renders that label, so this is usually a pure deletion plus one key per entity. Without the key the label falls back to a humanized `entityId` such as `Warranty Claims · Warranty Claim`. Declare the key in **your own module's** `i18n/*.json`: the 47 pre-existing keys happen to live in the search package, which a third-party module cannot edit, but `loadDictionary` merges every module's dictionary into one flat namespace (`packages/shared/src/lib/i18n/server.ts:64-71`) and both i18n checkers collect keys globally, so a module-local `search.*` key resolves normally. The two modules migrated here are the in-repo precedent.
@@ -105,7 +107,7 @@ Deprecation protocol compliance (`BACKWARD_COMPATIBILITY.md` § Deprecation Prot
 
 1. **Add the missing `search.entityType.*` keys for `wms`, `eudr` and `documents` first.** These three have no key today (see Decision above), so their badges are the only localized type copy their results carry. Deleting `badge` before the keys exist silently downgrades eight entity labels to humanized ids. This step is a precondition, not a cleanup.
 2. Confirm no in-repo producer still sets `badge` (11 remain at the time of writing).
-3. Delete the field from **both** `SearchResultPresenter` and `VectorResultPresenter`, and the `<module>.search.badge.*` keys left unused.
+3. Delete the field from **both** `SearchResultPresenter` and `VectorResultPresenter`, and the `<module>.search.badge.*` keys left unused. Drop the `badge?` clause from the `BACKWARD_COMPATIBILITY.md` *Types* row at the same time, leaving the row itself for the fields that remain.
 4. Retire the `result_badge` column, the Meilisearch document field and the pgvector round-trip — this step *does* need a migration and should be assessed on its own.
 5. Correct the stale rendering claims inline in [`2026-05-20-search-presenter-i18n.md`](2026-05-20-search-presenter-i18n.md) (`:150`, `:182`), or retire that spec to `.ai/specs/implemented/`. This change adds a supersede banner at its head so the claims cannot mislead in the meantime, but leaves the flow diagram itself as the historical record.
 
@@ -117,4 +119,5 @@ Deprecation protocol compliance (`BACKWARD_COMPATIBILITY.md` § Deprecation Prot
 ## Changelog
 
 - **2026-08-28** — Deprecation implemented and shipped in #5731. Removal deferred to 0.9.0.
+- **2026-09-10** — `BACKWARD_COMPATIBILITY.md` § Types gains the `SearchResultPresenter` / `VectorResultPresenter` row, so the deprecation is recorded in the contract registry the removal PR will read rather than only in this spec, the JSDoc and `UPGRADE_NOTES.md`.
 - **2026-09-03** — Review follow-up on #5731: the deprecation extended to `VectorResultPresenter.badge`, the entity-type-label evidence narrowed to the producers that actually have a key (`wms`, `eudr` and `documents` do not, and now gate the removal), the replacement keys added for the two migrated modules from their own dictionaries, and the migration guidance told authors where to declare that key.
