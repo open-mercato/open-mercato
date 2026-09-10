@@ -1,0 +1,1037 @@
+<!doctype html>
+<html lang="en" data-prototype-id="ecommerce-store-admin">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Ecommerce Store Admin — interactive backend prototype</title>
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="components.css" />
+<link rel="stylesheet" href="screens.css" />
+<link rel="stylesheet" href="prototype.css" />
+</head>
+<body>
+
+<!-- Lucide icon sprite. Include only the paths the prototype uses. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<symbol id="ic-home" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></symbol>
+<symbol id="ic-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+<symbol id="ic-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+<symbol id="ic-chevron-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></symbol>
+<symbol id="ic-chevron-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></symbol>
+<symbol id="ic-chevron-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></symbol>
+<symbol id="ic-bell" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></symbol>
+<symbol id="ic-more" viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="5" cy="12" r="1.75"/><circle cx="12" cy="12" r="1.75"/><circle cx="19" cy="12" r="1.75"/></symbol>
+<symbol id="ic-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/></symbol>
+<symbol id="ic-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></symbol>
+<symbol id="ic-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+<symbol id="ic-pencil" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/></symbol>
+<symbol id="ic-trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></symbol>
+<symbol id="ic-save" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7H7v7"/><path d="M7 3v5h8"/></symbol>
+<symbol id="ic-filter" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></symbol>
+<symbol id="ic-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></symbol>
+<symbol id="ic-warn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
+<symbol id="ic-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></symbol>
+<symbol id="ic-store" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/><path d="M10 18h4"/></symbol>
+<symbol id="ic-external" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></symbol>
+<symbol id="ic-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+<symbol id="ic-link" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 17H7A5 5 0 0 1 7 7h2"/><path d="M15 7h2a5 5 0 1 1 0 10h-2"/><line x1="8" x2="16" y1="12" y2="12"/></symbol>
+<symbol id="ic-percent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 5 5 19"/><circle cx="7.5" cy="7.5" r="1.5"/><circle cx="16.5" cy="16.5" r="1.5"/></symbol>
+<symbol id="ic-tag" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/></symbol>
+<symbol id="ic-settings" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/><circle cx="12" cy="12" r="3"/></symbol>
+<symbol id="ic-palette" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22a1 1 0 0 1 0-20 10 9 0 0 1 10 9 5 5 0 0 1-5 5h-2.25a1.75 1.75 0 0 0-1.4 2.8l.3.4a1.75 1.75 0 0 1-1.4 2.8z"/><circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/></symbol>
+<symbol id="ic-archive" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></symbol>
+</defs></svg>
+
+<div class="doc-toolbar">
+  <strong style="font-size:0.875rem">Ecommerce Store Admin — prototype</strong>
+  <nav class="screen-nav" aria-label="Screens">
+    <a href="#s1">1 List</a>
+    <a href="#s2">2 List (empty)</a>
+    <a href="#s3">3 List (view-only)</a>
+    <a href="#s4">4 Create</a>
+    <a href="#s5">5 Archive</a>
+    <a href="#s6">6 General</a>
+    <a href="#s7">7 General (conflict)</a>
+    <a href="#s8">8 Branding</a>
+    <a href="#s9">9 Branding (error)</a>
+    <a href="#s10">10 Domains</a>
+    <a href="#s11">11 Domains (warn/error)</a>
+    <a href="#s12">12 Channels</a>
+    <a href="#s13">13 Channels (empty + notify)</a>
+    <a href="#s14">14 SEO</a>
+  </nav>
+  <button class="btn btn-outline btn-sm" id="theme-toggle" type="button">
+    <svg><use href="#ic-sun"/></svg> Theme
+  </button>
+</div>
+
+<div class="doc">
+
+<header class="doc-head">
+  <h1>Ecommerce Store Admin — screen inventory</h1>
+  <p class="muted" style="max-width:65ch;margin:0">
+    Interactive backend screens derived from <code class="t-mono">.ai/specs/SPEC-029-2026-02-17-ecommerce-storefront-module.md</code>
+    §10a (User Stories) and §11 (Admin UI). Scope is the admin/backoffice surface only — store
+    directory, general settings, branding, domain bindings, channel bindings and SEO defaults.
+    The shopper-facing storefront is a separate spec (10) and is not represented here. The shell,
+    page scaffolding, DataTable chrome, tabs and CrudForm layout mirror
+    <code class="t-mono">packages/ui/src/backend/</code>; colors and spacing come from
+    <code class="t-mono">globals.css</code>. Every screen lists its requirement and user-story coverage.
+  </p>
+</header>
+
+<!-- ============================================================ -->
+<!-- S1 — Store list, Tenant Admin -->
+<!-- ============================================================ -->
+<section class="screen" id="s1">
+  <div class="screen-meta">
+    <h2>1. Store list — Tenant Admin</h2>
+    <p>Northwind Fasteners runs five stores. The Tenant Admin scans status, primary domain and channel before opening one to configure.</p>
+    <div class="screen-refs"><span class="ref">§11</span><span class="ref">US-A1</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/ecommerce/stores</span></div>
+    <div class="app app-tall">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Northwind Fasteners</span></div>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Search</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Ecommerce</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items">
+            <span class="nav-item active"><svg><use href="#ic-store"/></svg> Stores</span>
+          </div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span class="here">Stores</span></div></div>
+          <div class="topbar-right">
+            <div class="topbar-search"><svg><use href="#ic-search"/></svg> Search</div>
+            <div style="position:relative">
+              <button class="icon-btn" aria-label="Notifications" data-goto="s13"><svg><use href="#ic-bell"/></svg><span class="badge-count">1</span></button>
+            </div>
+            <span class="avatar">AN</span>
+          </div>
+        </header>
+        <main class="page">
+          <div class="page-head">
+            <div><h1 class="t-page-title">Stores</h1><p>Every selling surface owned by this organization.</p></div>
+            <div class="page-actions"><button class="btn btn-primary" data-goto="s4"><svg><use href="#ic-plus"/></svg> New store</button></div>
+          </div>
+
+          <div class="dt">
+            <div class="dt-head">
+              <div class="dt-head-row">
+                <h2 class="t-table-title">5 stores</h2>
+                <div class="dt-head-actions"><button class="btn btn-outline btn-sm"><svg><use href="#ic-refresh"/></svg></button></div>
+              </div>
+              <div class="dt-toolbar">
+                <div class="dt-toolbar-row">
+                  <input class="input dt-search" placeholder="Search name or code…" />
+                  <div class="dt-toolbar-right">
+                    <button class="chip chip-active">All statuses</button>
+                    <button class="chip">Draft</button>
+                    <button class="chip">Active</button>
+                    <button class="chip">Archived</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <table class="table">
+              <thead><tr>
+                <th>Name</th><th>Code</th><th>Status</th><th>Primary domain</th><th>Channel</th><th>Created</th><th class="right">Actions</th>
+              </tr></thead>
+              <tbody>
+                <tr class="clickable" data-goto="s6">
+                  <td><span class="row-3"><svg style="width:1rem;height:1rem;color:var(--status-success-icon)"><use href="#ic-check"/></svg>Northwind Retail</span></td>
+                  <td class="t-mono">retail</td>
+                  <td><span class="badge badge-success">Active</span></td>
+                  <td class="t-mono">shop.northwindfasteners.com</td>
+                  <td>Retail Web (B2C)</td>
+                  <td class="num">2025-11-03</td>
+                  <td class="right"><span class="row-actions"><button class="btn btn-icon btn-sm" data-goto="s6"><svg><use href="#ic-pencil"/></svg></button><button class="btn btn-icon btn-sm" data-goto="s5"><svg><use href="#ic-archive"/></svg></button></span></td>
+                </tr>
+                <tr class="clickable" data-goto="s10">
+                  <td>Northwind Wholesale</td>
+                  <td class="t-mono">wholesale</td>
+                  <td><span class="badge badge-success">Active</span></td>
+                  <td class="t-mono">b2b.northwindfasteners.com</td>
+                  <td>Wholesale Portal (B2B)</td>
+                  <td class="num">2025-11-03</td>
+                  <td class="right"><span class="row-actions"><button class="btn btn-icon btn-sm" data-goto="s6"><svg><use href="#ic-pencil"/></svg></button><button class="btn btn-icon btn-sm" data-goto="s5"><svg><use href="#ic-archive"/></svg></button></span></td>
+                </tr>
+                <tr class="clickable" data-goto="s11" style="opacity:0.85">
+                  <td>Northwind EU</td>
+                  <td class="t-mono">eu-draft</td>
+                  <td><span class="badge badge-neutral">Draft</span></td>
+                  <td class="muted">— none yet</td>
+                  <td class="muted">—</td>
+                  <td class="num">2026-08-30</td>
+                  <td class="right"><span class="row-actions"><button class="btn btn-icon btn-sm" data-goto="s11"><svg><use href="#ic-pencil"/></svg></button><button class="btn btn-icon btn-sm" disabled><svg><use href="#ic-archive"/></svg></button></span></td>
+                </tr>
+                <tr>
+                  <td>Northwind Pro Tools</td>
+                  <td class="t-mono">pro-tools</td>
+                  <td><span class="badge badge-success">Active</span></td>
+                  <td class="t-mono">pro.northwindfasteners.com</td>
+                  <td><span class="badge badge-warning"><svg><use href="#ic-warn"/></svg>Missing default</span></td>
+                  <td class="num">2026-06-14</td>
+                  <td class="right"><span class="row-actions"><button class="btn btn-icon btn-sm" data-goto="s13"><svg><use href="#ic-pencil"/></svg></button><button class="btn btn-icon btn-sm" data-goto="s5"><svg><use href="#ic-archive"/></svg></button></span></td>
+                </tr>
+                <tr style="opacity:0.65">
+                  <td>Northwind Outlet (legacy)</td>
+                  <td class="t-mono">outlet</td>
+                  <td><span class="badge badge-neutral">Archived</span></td>
+                  <td class="muted t-mono">outlet.northwindfasteners.com</td>
+                  <td class="muted">—</td>
+                  <td class="num">2024-02-11</td>
+                  <td class="right muted t-hint">Read-only</td>
+                </tr>
+              </tbody>
+            </table>
+            <div class="dt-foot">
+              <span class="t-hint num">Showing 1 to 5 of 5 results</span>
+              <ul class="pager"><li><button class="nav" disabled><svg><use href="#ic-chevron-left"/></svg></button></li><li><button aria-current="page">1</button></li><li><button class="nav" disabled><svg><use href="#ic-chevron-right"/></svg></button></li></ul>
+            </div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span><nav class="row-3"><span>Terms</span><span>Privacy</span></nav></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>"Northwind EU" is the one <code class="t-mono">draft</code> store every fresh tenant is seeded with from organization metadata (§17 Phase 3) — there is no reachable "zero stores" state after setup.</span></div>
+    <div class="note"><b>2</b><span>"Northwind Pro Tools" is active but has no default channel binding — the warning badge and the bell (badge count 1) both point at the same underlying condition (§6.2, R7 §10 notification — see screen 13).</span></div>
+    <div class="note"><b>3</b><span>"Northwind Outlet"'s row has no edit or archive actions — an archived store's configuration is preserved but this list treats it as history, consistent with there being no unarchive transition in §5.1 (US-A3).</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S2 — Store list, filtered to no results -->
+<!-- ============================================================ -->
+<section class="screen" id="s2">
+  <div class="screen-meta">
+    <h2>2. Store list — filtered to no results</h2>
+    <p>Filtering to a status this tenant has none of. Distinct from S1's "one seeded draft" default — this is a genuine zero-row result set.</p>
+    <div class="screen-refs"><span class="ref">US-A1</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/ecommerce/stores?status=draft&amp;q=outlet</span></div>
+    <div class="app app-tall">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Northwind Fasteners</span></div>
+        <nav class="sidebar-nav"><div class="nav-group"><span>Ecommerce</span><svg><use href="#ic-chevron-down"/></svg></div><div class="nav-items"><span class="nav-item active"><svg><use href="#ic-store"/></svg> Stores</span></div></nav>
+      </aside>
+      <div class="main">
+        <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span class="here">Stores</span></div></div><div class="topbar-right"><span class="avatar">AN</span></div></header>
+        <main class="page">
+          <div class="page-head"><div><h1 class="t-page-title">Stores</h1></div><div class="page-actions"><button class="btn btn-primary" data-goto="s4"><svg><use href="#ic-plus"/></svg> New store</button></div></div>
+          <div class="dt">
+            <div class="dt-head">
+              <div class="dt-toolbar"><div class="dt-toolbar-row"><input class="input dt-search" value="outlet" /><div class="dt-toolbar-right"><button class="chip chip-active">Draft</button></div></div></div>
+            </div>
+            <div class="empty">
+              <div class="empty-icon"><svg><use href="#ic-search"/></svg></div>
+              <div class="t-card-title">No stores match this filter</div>
+              <p class="t-hint" style="max-width:38ch">No <span class="t-mono">draft</span> store matches "outlet". Try another status or clear the search.</p>
+              <button class="btn btn-outline btn-sm" data-goto="s1"><svg><use href="#ic-x"/></svg> Clear filters</button>
+            </div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Same empty-state family as the no-access pattern (S3) but a different icon and copy, so a screenshot alone distinguishes "no matches" from "no permission."</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S3 — Store list, Team Member (view-only) -->
+<!-- ============================================================ -->
+<section class="screen" id="s3">
+  <div class="screen-meta">
+    <h2>3. Store list — Team Member (view-only)</h2>
+    <p>A user holding only <code class="t-mono">ecommerce.stores.view</code> sees the same rows with every write action removed.</p>
+    <div class="screen-refs"><span class="ref">§9.3</span><span class="ref">US-A4</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/ecommerce/stores</span></div>
+    <div class="app app-tall">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Northwind Fasteners</span></div>
+        <nav class="sidebar-nav"><div class="nav-group"><span>Ecommerce</span><svg><use href="#ic-chevron-down"/></svg></div><div class="nav-items"><span class="nav-item active"><svg><use href="#ic-store"/></svg> Stores</span></div></nav>
+      </aside>
+      <div class="main">
+        <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span class="here">Stores</span></div></div><div class="topbar-right"><span class="avatar">SK</span></div></header>
+        <main class="page">
+          <div class="page-head"><div><h1 class="t-page-title">Stores</h1><p>You have view-only access to store configuration.</p></div></div>
+          <div class="dt">
+            <div class="dt-head"><div class="dt-head-row"><h2 class="t-table-title">5 stores</h2></div></div>
+            <table class="table">
+              <thead><tr><th>Name</th><th>Code</th><th>Status</th><th>Primary domain</th><th>Channel</th><th>Created</th><th class="right"></th></tr></thead>
+              <tbody>
+                <tr class="clickable" data-goto="s6"><td>Northwind Retail</td><td class="t-mono">retail</td><td><span class="badge badge-success">Active</span></td><td class="t-mono">shop.northwindfasteners.com</td><td>Retail Web (B2C)</td><td class="num">2025-11-03</td><td class="right muted t-hint">View only</td></tr>
+                <tr class="clickable" data-goto="s10"><td>Northwind Wholesale</td><td class="t-mono">wholesale</td><td><span class="badge badge-success">Active</span></td><td class="t-mono">b2b.northwindfasteners.com</td><td>Wholesale Portal (B2B)</td><td class="num">2025-11-03</td><td class="right muted t-hint">View only</td></tr>
+                <tr class="clickable" data-goto="s11"><td>Northwind EU</td><td class="t-mono">eu-draft</td><td><span class="badge badge-neutral">Draft</span></td><td class="muted">— none yet</td><td class="muted">—</td><td class="num">2026-08-30</td><td class="right muted t-hint">View only</td></tr>
+                <tr><td>Northwind Pro Tools</td><td class="t-mono">pro-tools</td><td><span class="badge badge-success">Active</span></td><td class="t-mono">pro.northwindfasteners.com</td><td><span class="badge badge-warning"><svg><use href="#ic-warn"/></svg>Missing default</span></td><td class="num">2026-06-14</td><td class="right muted t-hint">View only</td></tr>
+                <tr style="opacity:0.65"><td>Northwind Outlet (legacy)</td><td class="t-mono">outlet</td><td><span class="badge badge-neutral">Archived</span></td><td class="muted t-mono">outlet.northwindfasteners.com</td><td class="muted">—</td><td class="num">2024-02-11</td><td class="right muted t-hint">View only</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>No "New store" button in the page head, no row-action column at all — a Team Member cannot even see a disabled Save button, since there is nothing to submit.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S4 — Create Store dialog -->
+<!-- ============================================================ -->
+<section class="screen" id="s4">
+  <div class="screen-meta">
+    <h2>4. Create store dialog — duplicate code error</h2>
+    <p>The Tenant Admin tries to stand up a second wholesale storefront reusing an existing code.</p>
+    <div class="screen-refs"><span class="ref">§5.1</span><span class="ref">US-A2</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/ecommerce/stores/new</span></div>
+    <div class="drawer-scrim">
+      <div class="app app-tall">
+        <aside class="sidebar">
+          <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Northwind Fasteners</span></div>
+          <nav class="sidebar-nav"><div class="nav-group"><span>Ecommerce</span><svg><use href="#ic-chevron-down"/></svg></div><div class="nav-items"><span class="nav-item active"><svg><use href="#ic-store"/></svg> Stores</span></div></nav>
+        </aside>
+        <div class="main">
+          <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span class="here">Stores</span></div></div></header>
+          <main class="page"><div class="page-head"><div><h1 class="t-page-title">Stores</h1></div></div></main>
+        </div>
+      </div>
+      <div class="drawer">
+        <div class="drawer-head">
+          <div class="grow"><div class="t-card-title">New store</div><p class="t-hint" style="margin:0.25rem 0 0">Locale, currency and channel binding can all be changed later — this is just the store's identity.</p></div>
+          <button class="btn btn-ghost btn-icon btn-sm" data-goto="s1"><svg><use href="#ic-x"/></svg></button>
+        </div>
+        <div class="drawer-body">
+          <div class="field"><label>Name <span class="req">*</span></label><input class="input" value="Northwind Wholesale EU" /></div>
+          <div class="field">
+            <label>Code <span class="req">*</span></label>
+            <input class="input t-mono input-invalid" value="wholesale" />
+            <span class="field-error">Code "wholesale" is already used by "Northwind Wholesale" in this tenant.</span>
+          </div>
+          <div class="field"><label>Slug <span class="req">*</span></label><input class="input t-mono" value="northwind-wholesale-eu" /><span class="t-hint">URL-safe; unique within the tenant.</span></div>
+          <div class="form-grid form-grid-2">
+            <div class="field"><label>Default locale</label><select class="select"><option>en</option><option>de</option><option>pl</option></select></div>
+            <div class="field"><label>Default currency</label><select class="select"><option>EUR</option><option>USD</option><option>PLN</option></select></div>
+          </div>
+          <div class="row between">
+            <div class="col"><span class="t-label">Primary store</span><span class="t-hint">At most one per organization; enabling this unsets the current primary.</span></div>
+            <button class="switch" aria-checked="false" type="button"></button>
+          </div>
+        </div>
+        <div class="drawer-foot">
+          <button class="btn btn-outline" data-goto="s1">Cancel <span class="kbd" style="margin-left:0.375rem">Esc</span></button>
+          <button class="btn btn-primary" disabled><svg><use href="#ic-save"/></svg> Save <span class="kbd" style="margin-left:0.375rem">⌘⏎</span></button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Save stays disabled while the code collision is unresolved — inline validation, not a raw 409 surfaced only after submit.</span></div>
+    <div class="note"><b>2</b><span>New stores are created as <code class="t-mono">draft</code> regardless of this dialog; activation happens once a verified domain and a default channel binding exist.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S5 — Archive confirmation dialog -->
+<!-- ============================================================ -->
+<section class="screen" id="s5">
+  <div class="screen-meta">
+    <h2>5. Archive store — confirmation</h2>
+    <p>Archiving "Northwind Retail" stops it resolving publicly (§6.2, <code class="t-mono">410</code>). There is no undo action defined for this transition.</p>
+    <div class="screen-refs"><span class="ref">§5.1</span><span class="ref">§6.2</span><span class="ref">US-A3</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/ecommerce/stores</span></div>
+    <div class="modal-scrim">
+      <div class="app app-tall">
+        <aside class="sidebar">
+          <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Northwind Fasteners</span></div>
+          <nav class="sidebar-nav"><div class="nav-group"><span>Ecommerce</span><svg><use href="#ic-chevron-down"/></svg></div><div class="nav-items"><span class="nav-item active"><svg><use href="#ic-store"/></svg> Stores</span></div></nav>
+        </aside>
+        <div class="main"><header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span class="here">Stores</span></div></div></header><main class="page"></main></div>
+      </div>
+      <div class="modal" style="width:28rem">
+        <div class="modal-head">
+          <div class="row"><div class="empty-icon" style="width:2rem;height:2rem;color:var(--status-warning-icon);background:var(--status-warning-bg)"><svg style="width:1rem;height:1rem"><use href="#ic-archive"/></svg></div><span class="t-card-title">Archive "Northwind Retail"?</span></div>
+        </div>
+        <div class="modal-body">
+          <p class="t-body" style="margin:0">This store will stop serving publicly immediately:</p>
+          <ul class="t-body" style="margin:0;padding-left:1.25rem">
+            <li>Requests to <strong>shop.northwindfasteners.com</strong> will return <code class="t-mono">410 Gone</code></li>
+            <li>Configuration, branding and domain bindings are preserved, not deleted</li>
+          </ul>
+          <div class="alert alert-warning"><svg><use href="#ic-warn"/></svg><div><div class="alert-title">No unarchive action exists</div><div class="t-hint">§5.1 defines only <code class="t-mono">draft | active | archived</code> with no transition back to <code class="t-mono">active</code>. Treat this as effectively one-way until that gap is resolved.</div></div></div>
+        </div>
+        <div class="modal-foot">
+          <span class="t-hint"><span class="kbd">Esc</span> cancel · <span class="kbd">⌘⏎</span> confirm</span>
+          <div class="row"><button class="btn btn-outline" data-goto="s1">Cancel</button><button class="btn btn-destructive" data-goto="s1"><svg><use href="#ic-archive"/></svg> Archive store</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>This warning is not decorative: the story map (US-A3) deliberately did not invent an unarchive button the real spec doesn't define — a confirmation dialog is the honest way to gate a one-way action.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S6 — Store edit: General tab -->
+<!-- ============================================================ -->
+<section class="screen" id="s6">
+  <div class="screen-meta">
+    <h2>6. Store edit — General tab</h2>
+    <p>Editing "Northwind Wholesale"'s identity and localization. Removing "en" while it is still the default locale is rejected inline.</p>
+    <div class="screen-refs"><span class="ref">§5.1</span><span class="ref">US-B1</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/ecommerce/stores/wholesale</span></div>
+    <div class="app app-taller">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Northwind Fasteners</span></div>
+        <nav class="sidebar-nav"><div class="nav-group"><span>Ecommerce</span><svg><use href="#ic-chevron-down"/></svg></div><div class="nav-items"><span class="nav-item active"><svg><use href="#ic-store"/></svg> Stores</span></div></nav>
+      </aside>
+      <div class="main">
+        <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><a href="#s1" data-goto="s1" style="color:inherit;text-decoration:none">Stores</a><svg><use href="#ic-chevron-right"/></svg><span class="here">Northwind Wholesale</span></div></div><div class="topbar-right"><span class="avatar">AN</span></div></header>
+        <main class="page">
+          <div class="page-head"><div class="row-3"><span class="avatar avatar-lg">NW</span><div><h1 class="t-page-title">Northwind Wholesale</h1><p class="t-mono t-hint" style="margin:0">wholesale · northwind-wholesale</p></div></div></div>
+          <div class="tabs">
+            <button aria-selected="true"><svg><use href="#ic-settings"/></svg> General</button>
+            <button aria-selected="false" data-goto="s8"><svg><use href="#ic-palette"/></svg> Branding</button>
+            <button aria-selected="false" data-goto="s10"><svg><use href="#ic-link"/></svg> Domains</button>
+            <button aria-selected="false" data-goto="s12"><svg><use href="#ic-percent"/></svg> Channels</button>
+            <button aria-selected="false" data-goto="s14"><svg><use href="#ic-tag"/></svg> SEO</button>
+          </div>
+
+          <div class="form-layout">
+            <div class="form-col">
+              <div class="form-group">
+                <div class="title">Identity</div>
+                <div class="field"><label>Name <span class="req">*</span></label><input class="input" value="Northwind Wholesale" /></div>
+                <div class="form-grid form-grid-2">
+                  <div class="field"><label>Code</label><input class="input t-mono" value="wholesale" disabled /><span class="t-hint">Immutable after creation.</span></div>
+                  <div class="field"><label>Slug</label><input class="input t-mono" value="northwind-wholesale" /></div>
+                </div>
+              </div>
+              <div class="form-group">
+                <div class="title">Status</div>
+                <div class="field"><label>Status</label><select class="select"><option>Draft</option><option selected>Active</option><option>Archived</option></select></div>
+                <div class="row between">
+                  <div class="col"><span class="t-label">Primary store</span><span class="t-hint">"Northwind Retail" currently holds this.</span></div>
+                  <button class="switch" aria-checked="false" type="button"></button>
+                </div>
+              </div>
+            </div>
+            <div class="form-col">
+              <div class="form-group">
+                <div class="title">Localization</div>
+                <div class="field"><label>Default locale</label><select class="select"><option selected>en</option><option>de</option><option>pl</option></select></div>
+                <div class="field">
+                  <label>Supported locales</label>
+                  <div class="row" style="flex-wrap:wrap;gap:0.375rem">
+                    <span class="chip chip-active">en <svg style="width:0.625rem;height:0.625rem;margin-left:0.25rem"><use href="#ic-x"/></svg></span>
+                    <span class="chip chip-active">de <svg style="width:0.625rem;height:0.625rem;margin-left:0.25rem"><use href="#ic-x"/></svg></span>
+                    <span class="chip chip-active">pl <svg style="width:0.625rem;height:0.625rem;margin-left:0.25rem"><use href="#ic-x"/></svg></span>
+                    <button class="chip chip-dashed"><svg><use href="#ic-plus"/></svg> Add</button>
+                  </div>
+                  <span class="field-error">"en" is the default locale and cannot be removed from supported locales. Change the default first.</span>
+                </div>
+                <div class="field"><label>Default currency</label><select class="select"><option>USD</option><option selected>EUR</option><option>PLN</option></select></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-foot">
+            <div class="actions">
+              <button class="btn btn-destructive-outline" data-goto="s5"><svg><use href="#ic-archive"/></svg> Archive</button>
+              <button class="btn btn-outline" data-goto="s1">Cancel</button>
+              <button class="btn btn-primary" data-goto="s1"><svg><use href="#ic-save"/></svg> Save</button>
+            </div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span><nav class="row-3"><span>Terms</span><span>Privacy</span></nav></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Removing "en" from supported locales attempted a click on its chip's × — the field error appears immediately, before Save is even pressed, since "en" is still the default (§5.1).</span></div>
+    <div class="note"><b>2</b><span>Toggling "Primary store" on shows a hint naming the current holder rather than a silent switch — enabling it will unset "Northwind Retail" as primary.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S7 — Store edit: General tab, optimistic-lock conflict -->
+<!-- ============================================================ -->
+<section class="screen" id="s7">
+  <div class="screen-meta">
+    <h2>7. Store edit — General tab, optimistic-lock conflict</h2>
+    <p>A second admin saved a change to this store while this form was open. The conflict bar renders once above page content — the edit is not silently overwritten.</p>
+    <div class="screen-refs"><span class="ref">CrudForm optimistic locking</span><span class="ref">US-B1</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/ecommerce/stores/wholesale</span></div>
+    <div class="app app-taller">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Northwind Fasteners</span></div>
+        <nav class="sidebar-nav"><div class="nav-group"><span>Ecommerce</span><svg><use href="#ic-chevron-down"/></svg></div><div class="nav-items"><span class="nav-item active"><svg><use href="#ic-store"/></svg> Stores</span></div></nav>
+      </aside>
+      <div class="main">
+        <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><a href="#s1" data-goto="s1" style="color:inherit;text-decoration:none">Stores</a><svg><use href="#ic-chevron-right"/></svg><span class="here">Northwind Wholesale</span></div></div><div class="topbar-right"><span class="avatar">AN</span></div></header>
+        <main class="page">
+          <div class="page-head"><div class="row-3"><span class="avatar avatar-lg">NW</span><div><h1 class="t-page-title">Northwind Wholesale</h1></div></div></div>
+          <div class="tabs">
+            <button aria-selected="true"><svg><use href="#ic-settings"/></svg> General</button>
+            <button aria-selected="false" data-goto="s8"><svg><use href="#ic-palette"/></svg> Branding</button>
+            <button aria-selected="false" data-goto="s10"><svg><use href="#ic-link"/></svg> Domains</button>
+            <button aria-selected="false" data-goto="s12"><svg><use href="#ic-percent"/></svg> Channels</button>
+            <button aria-selected="false" data-goto="s14"><svg><use href="#ic-tag"/></svg> SEO</button>
+          </div>
+
+          <div class="conflict-bar" role="alert">
+            <div class="msg"><b>Record changed</b>Someone else updated this store 40 seconds ago. Refresh to see the latest version before saving.</div>
+            <div class="actions">
+              <button class="btn btn-outline btn-sm"><svg><use href="#ic-refresh"/></svg> Refresh</button>
+              <button class="icon-btn" aria-label="Dismiss"><svg><use href="#ic-x"/></svg></button>
+            </div>
+          </div>
+
+          <div class="form-layout">
+            <div class="form-col">
+              <div class="form-group">
+                <div class="title">Identity</div>
+                <div class="field"><label>Name <span class="req">*</span></label><input class="input" value="Northwind Wholesale" /></div>
+                <div class="field"><label>Slug</label><input class="input t-mono" value="northwind-wholesale" /></div>
+              </div>
+            </div>
+            <div class="form-col">
+              <div class="form-group">
+                <div class="title">Localization</div>
+                <div class="field"><label>Default currency</label><select class="select"><option selected>EUR</option></select></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-foot">
+            <div class="actions">
+              <button class="btn btn-outline" data-goto="s6">Cancel</button>
+              <button class="btn btn-primary" disabled><svg><use href="#ic-save"/></svg> Save</button>
+            </div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Copy and placement mirror the real, shared <code class="t-mono">RecordConflictBanner</code> — it renders once above page content and does not auto-dismiss; the admin resolves it by refreshing (which reloads <code class="t-mono">updatedAt</code>) or dismissing to keep editing at their own risk.</span></div>
+    <div class="note"><b>2</b><span>Save stays disabled while the conflict is unresolved — illustrated here rather than wired up.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S8 — Store edit: Branding tab -->
+<!-- ============================================================ -->
+<section class="screen" id="s8">
+  <div class="screen-meta">
+    <h2>8. Store edit — Branding tab, live preview</h2>
+    <p>"Northwind Retail" configures its brand colors and fonts. The preview updates live via <code class="t-mono">postMessage</code>; nothing here is saved until Save is pressed.</p>
+    <div class="screen-refs"><span class="ref">§7</span><span class="ref">US-C1</span><span class="ref">US-C2</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/ecommerce/stores/retail/branding</span></div>
+    <div class="app app-taller">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Northwind Fasteners</span></div>
+        <nav class="sidebar-nav"><div class="nav-group"><span>Ecommerce</span><svg><use href="#ic-chevron-down"/></svg></div><div class="nav-items"><span class="nav-item active"><svg><use href="#ic-store"/></svg> Stores</span></div></nav>
+      </aside>
+      <div class="main">
+        <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><a href="#s1" data-goto="s1" style="color:inherit;text-decoration:none">Stores</a><svg><use href="#ic-chevron-right"/></svg><span class="here">Northwind Retail</span></div></div><div class="topbar-right"><span class="avatar">AN</span></div></header>
+        <main class="page">
+          <div class="page-head"><div class="row-3"><span class="avatar avatar-lg">NR</span><div><h1 class="t-page-title">Northwind Retail</h1></div></div></div>
+          <div class="tabs">
+            <button aria-selected="false" data-goto="s6"><svg><use href="#ic-settings"/></svg> General</button>
+            <button aria-selected="true"><svg><use href="#ic-palette"/></svg> Branding</button>
+            <button aria-selected="false" data-goto="s10"><svg><use href="#ic-link"/></svg> Domains</button>
+            <button aria-selected="false" data-goto="s12"><svg><use href="#ic-percent"/></svg> Channels</button>
+            <button aria-selected="false" data-goto="s14"><svg><use href="#ic-tag"/></svg> SEO</button>
+          </div>
+
+          <div class="split split-side">
+            <div class="stack-4">
+              <div class="form-group">
+                <div class="title">Colors</div>
+                <div class="form-grid form-grid-2">
+                  <div class="field"><label>Primary</label><div class="input-group"><span class="addon" style="background:oklch(0.3 0.15 270);width:1.5rem;padding:0"></span><input class="input t-mono" value="oklch(0.3 0.15 270)" /></div></div>
+                  <div class="field"><label>Primary foreground</label><div class="input-group"><span class="addon" style="background:oklch(0.985 0 0);width:1.5rem;padding:0"></span><input class="input t-mono" value="oklch(0.985 0 0)" /></div></div>
+                  <div class="field"><label>Accent</label><div class="input-group"><span class="addon" style="background:oklch(0.94 0.06 90);width:1.5rem;padding:0"></span><input class="input t-mono" value="oklch(0.94 0.06 90)" /></div></div>
+                  <div class="field"><label>Background</label><div class="input-group"><span class="addon" style="background:oklch(1 0 0);width:1.5rem;padding:0;border:1px solid var(--border)"></span><input class="input t-mono" value="oklch(1 0 0)" /></div></div>
+                </div>
+              </div>
+              <div class="form-group">
+                <div class="title">Typography &amp; shape</div>
+                <div class="form-grid form-grid-2">
+                  <div class="field"><label>Heading font</label><select class="select"><option>Inherits base</option><option selected>Playfair Display</option></select></div>
+                  <div class="field"><label>Base font</label><select class="select"><option selected>Inter</option><option>System UI</option></select></div>
+                </div>
+                <div class="field"><label>Corner radius</label><input class="input" type="range" min="0" max="20" value="10" /><span class="t-hint">0.625rem — matches the DS default unless changed.</span></div>
+              </div>
+              <div class="form-group">
+                <div class="title">Logo &amp; favicon</div>
+                <div class="row-3"><span class="avatar avatar-lg" style="border-radius:var(--radius-md)">NR</span><button class="btn btn-outline btn-sm">Upload logo</button><button class="btn btn-outline btn-sm">Upload favicon</button></div>
+              </div>
+            </div>
+            <div class="stack-3">
+              <div class="t-label">Live preview</div>
+              <div class="brand-preview" style="--preview-primary:oklch(0.3 0.15 270);--preview-primary-fg:oklch(0.985 0 0);--preview-radius:0.625rem">
+                <div class="bp-nav"><span>Northwind Retail</span><span>Cart (0)</span></div>
+                <div class="bp-body">
+                  <div class="bp-title">Ergonomic Office Chair X200</div>
+                  <div class="bp-sub">$799.00 · In stock</div>
+                  <span class="bp-cta">Add to cart</span>
+                </div>
+              </div>
+              <p class="t-hint" style="margin:0">Rendered in a sandboxed iframe, receiving only validated values via <code class="t-mono">postMessage</code> (§7.2, §11).</p>
+            </div>
+          </div>
+
+          <div class="form-foot">
+            <div class="actions"><button class="btn btn-outline" data-goto="s6">Cancel</button><button class="btn btn-primary" data-goto="s6"><svg><use href="#ic-save"/></svg> Save</button></div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>The preview panel is illustrative: this static prototype does not actually re-render on input; in the real UI it updates continuously as fields change, with nothing persisted until Save (US-C2).</span></div>
+    <div class="note"><b>2</b><span>Unset fields (accent foreground, font URLs) fall back to the documented DS defaults in §7.1 — the form pre-fills those defaults rather than showing ambiguous blanks.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S9 — Store edit: Branding tab, invalid color error -->
+<!-- ============================================================ -->
+<section class="screen" id="s9">
+  <div class="screen-meta">
+    <h2>9. Store edit — Branding tab, rejected color value</h2>
+    <p>An admin pastes a malformed value into the Primary color field. It is rejected at the field, never escaped into the emitted stylesheet (R4).</p>
+    <div class="screen-refs"><span class="ref">§7.3</span><span class="ref">R4</span><span class="ref">US-C1</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/ecommerce/stores/retail/branding</span></div>
+    <div class="app app-taller">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Northwind Fasteners</span></div>
+        <nav class="sidebar-nav"><div class="nav-group"><span>Ecommerce</span><svg><use href="#ic-chevron-down"/></svg></div><div class="nav-items"><span class="nav-item active"><svg><use href="#ic-store"/></svg> Stores</span></div></nav>
+      </aside>
+      <div class="main">
+        <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><a href="#s1" data-goto="s1" style="color:inherit;text-decoration:none">Stores</a><svg><use href="#ic-chevron-right"/></svg><span class="here">Northwind Retail</span></div></div><div class="topbar-right"><span class="avatar">AN</span></div></header>
+        <main class="page">
+          <div class="page-head"><div class="row-3"><span class="avatar avatar-lg">NR</span><div><h1 class="t-page-title">Northwind Retail</h1></div></div></div>
+          <div class="tabs">
+            <button aria-selected="false" data-goto="s6"><svg><use href="#ic-settings"/></svg> General</button>
+            <button aria-selected="true"><svg><use href="#ic-palette"/></svg> Branding</button>
+            <button aria-selected="false" data-goto="s10"><svg><use href="#ic-link"/></svg> Domains</button>
+            <button aria-selected="false" data-goto="s12"><svg><use href="#ic-percent"/></svg> Channels</button>
+            <button aria-selected="false" data-goto="s14"><svg><use href="#ic-tag"/></svg> SEO</button>
+          </div>
+
+          <div class="form-group">
+            <div class="title">Colors</div>
+            <div class="field">
+              <label>Primary</label>
+              <input class="input t-mono input-invalid" value="red; } body { background: url(https://evil.example/) } :root {" />
+              <span class="field-error">Not a valid OKLCH or hex color. Only these two formats are accepted — the value is rejected, never written into the stylesheet.</span>
+            </div>
+          </div>
+
+          <div class="alert alert-error">
+            <svg><use href="#ic-warn"/></svg>
+            <div><div class="alert-title">This field is a CSS injection boundary</div><div class="t-hint">The emitted stylesheet is a fixed set of declarations with validated values — arbitrary CSS can never reach it, by construction rather than by escaping (§7.3).</div></div>
+          </div>
+
+          <div class="form-foot">
+            <div class="actions"><button class="btn btn-outline" data-goto="s8">Cancel</button><button class="btn btn-primary" disabled><svg><use href="#ic-save"/></svg> Save</button></div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Save stays disabled until every color field is valid — this is the fuzz-tested rejection path from R4's mitigation, not a cosmetic warning.</span></div>
+    <div class="note"><b>2</b><span>Permission variant (not pictured separately): a Tenant Admin holding <code class="t-mono">ecommerce.stores.manage</code> but not <code class="t-mono">ecommerce.branding.manage</code> sees this exact tab with every input disabled and no Save button — the feature gates the tab's write actions independently of store-level management.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S10 — Store edit: Domains tab -->
+<!-- ============================================================ -->
+<section class="screen" id="s10">
+  <div class="screen-meta">
+    <h2>10. Store edit — Domains tab</h2>
+    <p>"Northwind Wholesale" has two verified bindings. Switching which one is primary drives canonical URLs.</p>
+    <div class="screen-refs"><span class="ref">§5.2</span><span class="ref">US-D1</span><span class="ref">US-D3</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/ecommerce/stores/wholesale/domains</span></div>
+    <div class="app app-taller">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Northwind Fasteners</span></div>
+        <nav class="sidebar-nav"><div class="nav-group"><span>Ecommerce</span><svg><use href="#ic-chevron-down"/></svg></div><div class="nav-items"><span class="nav-item active"><svg><use href="#ic-store"/></svg> Stores</span></div></nav>
+      </aside>
+      <div class="main">
+        <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><a href="#s1" data-goto="s1" style="color:inherit;text-decoration:none">Stores</a><svg><use href="#ic-chevron-right"/></svg><span class="here">Northwind Wholesale</span></div></div><div class="topbar-right"><span class="avatar">AN</span></div></header>
+        <main class="page">
+          <div class="page-head"><div class="row-3"><span class="avatar avatar-lg">NW</span><div><h1 class="t-page-title">Northwind Wholesale</h1></div></div></div>
+          <div class="tabs">
+            <button aria-selected="false" data-goto="s6"><svg><use href="#ic-settings"/></svg> General</button>
+            <button aria-selected="false" data-goto="s8"><svg><use href="#ic-palette"/></svg> Branding</button>
+            <button aria-selected="true"><svg><use href="#ic-link"/></svg> Domains</button>
+            <button aria-selected="false" data-goto="s12"><svg><use href="#ic-percent"/></svg> Channels</button>
+            <button aria-selected="false" data-goto="s14"><svg><use href="#ic-tag"/></svg> SEO</button>
+          </div>
+
+          <div class="between">
+            <p class="t-hint" style="margin:0">Only already-verified domains in <code class="t-mono">customer_accounts</code> can be selected here.</p>
+            <button class="btn btn-primary btn-sm"><svg><use href="#ic-plus"/></svg> Bind domain</button>
+          </div>
+
+          <table class="table">
+            <thead><tr><th>Hostname</th><th>Path prefix</th><th>Verification</th><th>Primary</th><th class="right">Actions</th></tr></thead>
+            <tbody>
+              <tr>
+                <td class="t-mono">b2b.northwindfasteners.com</td>
+                <td class="muted">— (root)</td>
+                <td><span class="badge badge-success"><svg><use href="#ic-check"/></svg>Verified</span></td>
+                <td><button class="switch" aria-checked="true" type="button"></button></td>
+                <td class="right"><span class="row-actions"><button class="btn btn-icon btn-sm"><svg><use href="#ic-external"/></svg></button><button class="btn btn-icon btn-sm"><svg><use href="#ic-trash"/></svg></button></span></td>
+              </tr>
+              <tr>
+                <td class="t-mono">api-legacy.northwindfasteners.com</td>
+                <td class="muted">—</td>
+                <td><span class="badge badge-success"><svg><use href="#ic-check"/></svg>Verified</span></td>
+                <td><button class="switch" aria-checked="false" type="button"></button></td>
+                <td class="right"><span class="row-actions"><button class="btn btn-icon btn-sm"><svg><use href="#ic-external"/></svg></button><button class="btn btn-icon btn-sm"><svg><use href="#ic-trash"/></svg></button></span></td>
+              </tr>
+            </tbody>
+          </table>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>The external-link icon opens the read-only domain record in <code class="t-mono">customer_accounts</code> — DNS verification, TLS and provider state live there, not here (§5.2).</span></div>
+    <div class="note"><b>2</b><span>Toggling primary on <code class="t-mono">api-legacy…</code> would visibly un-set it on <code class="t-mono">b2b…</code> — at most one <code class="t-mono">is_primary</code> per store is enforced, not silently allowed to drift (US-D3).</span></div>
+    <div class="note"><b>3</b><span>Not a conflict: <code class="t-mono">b2b.northwindfasteners.com/eu</code> is bound separately, with path prefix <code class="t-mono">/eu</code>, to the "Northwind EU" store. Two bindings on one host with different prefixes resolve independently by longest-prefix match (R6) — this tab only shows this store's own bindings.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S11 — Store edit: Domains tab, unverified + dangling -->
+<!-- ============================================================ -->
+<section class="screen" id="s11">
+  <div class="screen-meta">
+    <h2>11. Store edit — Domains tab, unverified warning &amp; dangling binding</h2>
+    <p>"Northwind EU" is still being set up: one hostname is awaiting DNS verification, and another binding's underlying domain mapping was deleted in <code class="t-mono">customer_accounts</code>.</p>
+    <div class="screen-refs"><span class="ref">§6.2</span><span class="ref">R3</span><span class="ref">US-D1</span><span class="ref">US-D2</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/ecommerce/stores/eu-draft/domains</span></div>
+    <div class="app app-taller">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Northwind Fasteners</span></div>
+        <nav class="sidebar-nav"><div class="nav-group"><span>Ecommerce</span><svg><use href="#ic-chevron-down"/></svg></div><div class="nav-items"><span class="nav-item active"><svg><use href="#ic-store"/></svg> Stores</span></div></nav>
+      </aside>
+      <div class="main">
+        <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><a href="#s1" data-goto="s1" style="color:inherit;text-decoration:none">Stores</a><svg><use href="#ic-chevron-right"/></svg><span class="here">Northwind EU</span></div></div><div class="topbar-right"><span class="avatar">AN</span></div></header>
+        <main class="page">
+          <div class="page-head"><div class="row-3"><span class="avatar avatar-lg">NE</span><div><h1 class="t-page-title">Northwind EU</h1><p class="t-hint" style="margin:0"><span class="badge badge-neutral">Draft</span></p></div></div></div>
+          <div class="tabs">
+            <button aria-selected="false" data-goto="s6"><svg><use href="#ic-settings"/></svg> General</button>
+            <button aria-selected="false" data-goto="s8"><svg><use href="#ic-palette"/></svg> Branding</button>
+            <button aria-selected="true"><svg><use href="#ic-link"/></svg> Domains</button>
+            <button aria-selected="false" data-goto="s12"><svg><use href="#ic-percent"/></svg> Channels</button>
+            <button aria-selected="false" data-goto="s14"><svg><use href="#ic-tag"/></svg> SEO</button>
+          </div>
+
+          <table class="table">
+            <thead><tr><th>Hostname</th><th>Path prefix</th><th>Verification</th><th class="right">Actions</th></tr></thead>
+            <tbody>
+              <tr>
+                <td class="t-mono">eu.northwindfasteners.com</td>
+                <td class="muted">—</td>
+                <td><span class="badge badge-warning"><svg><use href="#ic-warn"/></svg>Unverified</span></td>
+                <td class="right"><span class="row-actions"><button class="btn btn-icon btn-sm"><svg><use href="#ic-external"/></svg></button><button class="btn btn-icon btn-sm"><svg><use href="#ic-trash"/></svg></button></span></td>
+              </tr>
+              <tr>
+                <td class="t-mono muted">legacy-eu.northwindfasteners.com</td>
+                <td class="muted">—</td>
+                <td><span class="badge badge-error"><svg><use href="#ic-x"/></svg>Domain removed</span></td>
+                <td class="right"><span class="row-actions"><button class="btn btn-icon btn-sm"><svg><use href="#ic-trash"/></svg></button></span></td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div class="alert alert-warning">
+            <svg><use href="#ic-warn"/></svg>
+            <div><div class="alert-title">eu.northwindfasteners.com will not serve yet</div><div class="t-hint">This binding points at a domain still awaiting DNS verification in <code class="t-mono">customer_accounts</code>. The resolver refuses to serve an unverified host even though the binding itself is valid (§6.2).</div></div>
+          </div>
+          <div class="alert alert-error">
+            <svg><use href="#ic-warn"/></svg>
+            <div><div class="alert-title">legacy-eu.northwindfasteners.com — domain removed</div><div class="t-hint">The underlying <code class="t-mono">DomainMapping</code> was deleted elsewhere in <code class="t-mono">customer_accounts</code>; this binding now dangles. This is a distinguishable diagnostic, not the generic 404 an unmapped host would produce (R3). <a href="#" style="color:inherit">Open domain management <svg style="width:0.75rem;height:0.75rem;display:inline;vertical-align:-1px"><use href="#ic-external"/></svg></a></div></div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Two distinct diagnostics, deliberately not collapsed into one generic "domain problem" banner — an operator fixing DNS needs a different next step than one restoring a deleted mapping.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S12 — Store edit: Channels tab -->
+<!-- ============================================================ -->
+<section class="screen" id="s12">
+  <div class="screen-meta">
+    <h2>12. Store edit — Channels tab</h2>
+    <p>"Northwind Wholesale"'s default channel binding, with a live assortment-scope product count and a flagged empty-intersection case for one buyer group.</p>
+    <div class="screen-refs"><span class="ref">§5.3</span><span class="ref">R7</span><span class="ref">US-E1</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/ecommerce/stores/wholesale/channels</span></div>
+    <div class="app app-taller">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Northwind Fasteners</span></div>
+        <nav class="sidebar-nav"><div class="nav-group"><span>Ecommerce</span><svg><use href="#ic-chevron-down"/></svg></div><div class="nav-items"><span class="nav-item active"><svg><use href="#ic-store"/></svg> Stores</span></div></nav>
+      </aside>
+      <div class="main">
+        <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><a href="#s1" data-goto="s1" style="color:inherit;text-decoration:none">Stores</a><svg><use href="#ic-chevron-right"/></svg><span class="here">Northwind Wholesale</span></div></div><div class="topbar-right"><span class="avatar">AN</span></div></header>
+        <main class="page">
+          <div class="page-head"><div class="row-3"><span class="avatar avatar-lg">NW</span><div><h1 class="t-page-title">Northwind Wholesale</h1></div></div></div>
+          <div class="tabs">
+            <button aria-selected="false" data-goto="s6"><svg><use href="#ic-settings"/></svg> General</button>
+            <button aria-selected="false" data-goto="s8"><svg><use href="#ic-palette"/></svg> Branding</button>
+            <button aria-selected="false" data-goto="s10"><svg><use href="#ic-link"/></svg> Domains</button>
+            <button aria-selected="true"><svg><use href="#ic-percent"/></svg> Channels</button>
+            <button aria-selected="false" data-goto="s14"><svg><use href="#ic-tag"/></svg> SEO</button>
+          </div>
+
+          <div class="form-group">
+            <div class="row between">
+              <div class="row-3"><span class="badge badge-info">Default</span><span class="t-card-title" style="font-size:0.875rem">Wholesale Portal (B2B)</span></div>
+              <span class="t-hint num">428 products match this scope</span>
+            </div>
+            <div class="form-grid form-grid-2">
+              <div class="field"><label>Price kind override</label><select class="select"><option>— channel default —</option><option selected>Wholesale NET-30</option></select></div>
+              <div class="field"><label>Excluded products</label><input class="input" value="3" disabled /></div>
+            </div>
+            <div class="field">
+              <label>Assortment scope — categories</label>
+              <div class="row" style="flex-wrap:wrap;gap:0.375rem">
+                <span class="chip chip-active">Fasteners</span>
+                <span class="chip chip-active">Hardware</span>
+                <button class="chip chip-dashed"><svg><use href="#ic-plus"/></svg> Add</button>
+              </div>
+            </div>
+            <div class="field">
+              <label>Assortment scope — tags</label>
+              <div class="row" style="flex-wrap:wrap;gap:0.375rem">
+                <span class="chip chip-active">b2b-only</span>
+                <button class="chip chip-dashed"><svg><use href="#ic-plus"/></svg> Add</button>
+              </div>
+              <span class="t-hint">Intersects with each buyer's own group scope — neither side can widen the other (§5.3).</span>
+            </div>
+          </div>
+
+          <div class="alert alert-warning">
+            <svg><use href="#ic-warn"/></svg>
+            <div><div class="alert-title">Empty assortment for one buyer group</div><div class="t-hint">Buyers in customer group "EU Distributors" resolve <strong>0 products</strong> here — their group scope excludes every category this channel allows. This is surfaced as a warning event, not shown as an ordinary small catalogue (R7).</div></div>
+          </div>
+
+          <div class="form-foot">
+            <div class="actions"><button class="btn btn-outline" data-goto="s10">Cancel</button><button class="btn btn-primary" data-goto="s10"><svg><use href="#ic-save"/></svg> Save</button></div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>The product count is illustrative — the real UI recomputes it on every scope edit; this static prototype freezes it at 428.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S13 — Store edit: Channels tab, empty + admin notification -->
+<!-- ============================================================ -->
+<section class="screen" id="s13">
+  <div class="screen-meta">
+    <h2>13. Store edit — Channels tab (no binding) + admin notification</h2>
+    <p>"Northwind Pro Tools" is active but has no default channel binding — a real, standing misconfiguration risk (§6.2). The bell shows the resulting proactive alert.</p>
+    <div class="screen-refs"><span class="ref">§6.2</span><span class="ref">§10 notifications.ts</span><span class="ref">US-E2</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/ecommerce/stores/pro-tools/channels</span></div>
+    <div class="app app-taller">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Northwind Fasteners</span></div>
+        <nav class="sidebar-nav"><div class="nav-group"><span>Ecommerce</span><svg><use href="#ic-chevron-down"/></svg></div><div class="nav-items"><span class="nav-item active"><svg><use href="#ic-store"/></svg> Stores</span></div></nav>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><a href="#s1" data-goto="s1" style="color:inherit;text-decoration:none">Stores</a><svg><use href="#ic-chevron-right"/></svg><span class="here">Northwind Pro Tools</span></div></div>
+          <div class="topbar-right">
+            <div style="position:relative">
+              <button class="icon-btn" aria-label="Notifications"><svg><use href="#ic-bell"/></svg><span class="badge-count">1</span></button>
+              <div class="popover notif-panel">
+                <div class="notif-head"><span class="t-card-title" style="font-size:0.8125rem">Notifications</span></div>
+                <div class="notif-item">
+                  <div class="empty-icon" style="color:var(--status-warning-icon);background:var(--status-warning-bg)"><svg><use href="#ic-warn"/></svg></div>
+                  <div>
+                    <div class="t-label">No default channel binding</div>
+                    <div class="t-hint">"Northwind Pro Tools" has no channel marked default. Storefront requests to this store will fail with <code class="t-mono">503</code> until one is added.</div>
+                    <div class="t-hint" style="margin-top:0.25rem">2 minutes ago</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <span class="avatar">AN</span>
+          </div>
+        </header>
+        <main class="page">
+          <div class="page-head"><div class="row-3"><span class="avatar avatar-lg">PT</span><div><h1 class="t-page-title">Northwind Pro Tools</h1></div></div></div>
+          <div class="tabs">
+            <button aria-selected="false" data-goto="s6"><svg><use href="#ic-settings"/></svg> General</button>
+            <button aria-selected="false" data-goto="s8"><svg><use href="#ic-palette"/></svg> Branding</button>
+            <button aria-selected="false" data-goto="s10"><svg><use href="#ic-link"/></svg> Domains</button>
+            <button aria-selected="true"><svg><use href="#ic-percent"/></svg> Channels</button>
+            <button aria-selected="false" data-goto="s14"><svg><use href="#ic-tag"/></svg> SEO</button>
+          </div>
+
+          <div class="empty">
+            <div class="empty-icon" style="color:var(--status-warning-icon);background:var(--status-warning-bg)"><svg><use href="#ic-percent"/></svg></div>
+            <div class="t-card-title">No channel binding yet</div>
+            <p class="t-hint" style="max-width:42ch">Without a default channel binding, this store cannot resolve prices for any request — every uncached hit fails with <code class="t-mono">503</code> plus this admin notification (§6.2).</p>
+            <button class="btn btn-primary btn-sm"><svg><use href="#ic-plus"/></svg> Add channel binding</button>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>The notification is proactive — delivered in-app (<code class="t-mono">notifications.ts</code>, §10) rather than something the admin has to discover by hitting the storefront themselves.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S14 — Store edit: SEO tab -->
+<!-- ============================================================ -->
+<section class="screen" id="s14">
+  <div class="screen-meta">
+    <h2>14. Store edit — SEO tab</h2>
+    <p>"Northwind Retail"'s search-engine defaults. Unlike Branding, this subtree has no documented per-field defaults (§5.1.1) — unset fields are shown genuinely empty.</p>
+    <div class="screen-refs"><span class="ref">§5.1.1</span><span class="ref">US-F1</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/ecommerce/stores/retail/seo</span></div>
+    <div class="app app-taller">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Northwind Fasteners</span></div>
+        <nav class="sidebar-nav"><div class="nav-group"><span>Ecommerce</span><svg><use href="#ic-chevron-down"/></svg></div><div class="nav-items"><span class="nav-item active"><svg><use href="#ic-store"/></svg> Stores</span></div></nav>
+      </aside>
+      <div class="main">
+        <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><a href="#s1" data-goto="s1" style="color:inherit;text-decoration:none">Stores</a><svg><use href="#ic-chevron-right"/></svg><span class="here">Northwind Retail</span></div></div><div class="topbar-right"><span class="avatar">AN</span></div></header>
+        <main class="page">
+          <div class="page-head"><div class="row-3"><span class="avatar avatar-lg">NR</span><div><h1 class="t-page-title">Northwind Retail</h1></div></div></div>
+          <div class="tabs">
+            <button aria-selected="false" data-goto="s6"><svg><use href="#ic-settings"/></svg> General</button>
+            <button aria-selected="false" data-goto="s8"><svg><use href="#ic-palette"/></svg> Branding</button>
+            <button aria-selected="false" data-goto="s10"><svg><use href="#ic-link"/></svg> Domains</button>
+            <button aria-selected="false" data-goto="s12"><svg><use href="#ic-percent"/></svg> Channels</button>
+            <button aria-selected="true"><svg><use href="#ic-tag"/></svg> SEO</button>
+          </div>
+
+          <div class="form-group">
+            <div class="title">Search &amp; indexing</div>
+            <div class="field"><label>Site name</label><input class="input" value="Northwind Retail" /></div>
+            <div class="field"><label>Default meta description</label><textarea class="textarea">Quality fasteners and hardware, shipped fast across the EU.</textarea></div>
+            <div class="field"><label>Google site verification</label><input class="input t-mono" placeholder="Not set" /><span class="t-hint">Pasted verbatim into a meta tag; no default exists for this field.</span></div>
+            <div class="field"><label>robots.txt</label><textarea class="textarea t-mono">User-agent: *
+Allow: /</textarea></div>
+          </div>
+
+          <div class="form-foot">
+            <div class="actions"><button class="btn btn-outline" data-goto="s6">Cancel</button><button class="btn btn-primary" data-goto="s6"><svg><use href="#ic-save"/></svg> Save</button></div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>"Google site verification" is shown genuinely blank, not pre-filled with a placeholder default — a freshly created store like "Northwind EU" would show every field on this tab this way, since §5.1.1's <code class="t-mono">seo</code> subtree documents no fallbacks the way <code class="t-mono">branding</code> does.</span></div>
+  </div>
+</section>
+
+</div>
+
+<script>
+(function () {
+  var btn = document.getElementById('theme-toggle');
+  btn.addEventListener('click', function () {
+    document.documentElement.classList.toggle('dark');
+  });
+})();
+</script>
+<script src="comments.js"></script>
+<script src="prototype.js"></script>
+</body>
+</html>

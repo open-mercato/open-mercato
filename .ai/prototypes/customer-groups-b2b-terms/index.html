@@ -1,0 +1,1222 @@
+<!doctype html>
+<html lang="en" data-prototype-id="customer-groups-b2b-terms">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Customer Groups &amp; B2B Terms — interactive backend prototype</title>
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="components.css" />
+<link rel="stylesheet" href="screens.css" />
+<link rel="stylesheet" href="prototype.css" />
+</head>
+<body>
+
+<!-- Lucide icon sprite. Include only the paths the prototype uses. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<symbol id="ic-home" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></symbol>
+<symbol id="ic-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+<symbol id="ic-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+<symbol id="ic-chevron-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></symbol>
+<symbol id="ic-chevron-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></symbol>
+<symbol id="ic-chevron-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></symbol>
+<symbol id="ic-bell" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></symbol>
+<symbol id="ic-more" viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="5" cy="12" r="1.75"/><circle cx="12" cy="12" r="1.75"/><circle cx="19" cy="12" r="1.75"/></symbol>
+<symbol id="ic-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/></symbol>
+<symbol id="ic-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></symbol>
+<symbol id="ic-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+<symbol id="ic-pencil" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/></symbol>
+<symbol id="ic-trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></symbol>
+<symbol id="ic-save" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7H7v7"/><path d="M7 3v5h8"/></symbol>
+<symbol id="ic-filter" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></symbol>
+<symbol id="ic-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></symbol>
+<symbol id="ic-warn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
+<symbol id="ic-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></symbol>
+<symbol id="ic-users" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+<symbol id="ic-building" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/><path d="M10 18h4"/></symbol>
+<symbol id="ic-credit-card" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></symbol>
+<symbol id="ic-ledger" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h.01"/><path d="M3 18h.01"/><path d="M3 6h.01"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M8 6h13"/></symbol>
+<symbol id="ic-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></symbol>
+<symbol id="ic-link" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 17H7A5 5 0 0 1 7 7h2"/><path d="M15 7h2a5 5 0 1 1 0 10h-2"/><line x1="8" x2="16" y1="12" y2="12"/></symbol>
+<symbol id="ic-grip" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="12" r="1"/><circle cx="9" cy="5" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="19" r="1"/></symbol>
+<symbol id="ic-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></symbol>
+<symbol id="ic-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+<symbol id="ic-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></symbol>
+<symbol id="ic-external" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></symbol>
+<symbol id="ic-ban" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></symbol>
+<symbol id="ic-layers" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/></symbol>
+<symbol id="ic-tag" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/></symbol>
+<symbol id="ic-calendar" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/></symbol>
+<symbol id="ic-dollar" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><path d="M12 18V6"/></symbol>
+<symbol id="ic-circle-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></symbol>
+<symbol id="ic-key" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15.5 7.5 2.3 2.3a1 1 0 0 0 1.4 0l2.1-2.1a1 1 0 0 0 0-1.4L19 4"/><path d="m21 2-9.6 9.6"/><circle cx="7.5" cy="15.5" r="5.5"/></symbol>
+</defs></svg>
+
+<div class="doc-toolbar">
+  <strong style="font-size:0.875rem">Customer Groups &amp; B2B Terms — prototype</strong>
+  <nav class="screen-nav" aria-label="Screens">
+    <a href="#s1">1 Groups (empty)</a>
+    <a href="#s2">2 Groups</a>
+    <a href="#s3">3 Groups (no access)</a>
+    <a href="#s4">4 Group form</a>
+    <a href="#s5">5 Delete confirm</a>
+    <a href="#s6">6 Reconcile</a>
+    <a href="#s7">7 Reconcile (empty)</a>
+    <a href="#s8">8 Memberships</a>
+    <a href="#s9">9 Explain terms</a>
+    <a href="#s10">10 Terms (empty)</a>
+    <a href="#s11">11 Terms (conflict)</a>
+    <a href="#s12">12 Price picker</a>
+    <a href="#s13">13 Price picker (orphan)</a>
+    <a href="#s14">14 Tax rate picker</a>
+    <a href="#s15">15 Credit accounts</a>
+    <a href="#s16">16 Credit + ledger</a>
+    <a href="#s17">17 Credit (conflict)</a>
+    <a href="#s18">18 Approvals</a>
+  </nav>
+  <!-- prototype.js injects the review-mode controls. -->
+  <button class="btn btn-outline btn-sm" id="theme-toggle" type="button">
+    <svg><use href="#ic-sun"/></svg> Theme
+  </button>
+</div>
+
+<div class="doc">
+
+<header class="doc-head">
+  <h1>Customer Groups &amp; B2B Commercial Terms — screen inventory</h1>
+  <p class="muted" style="max-width:65ch;margin:0">
+    Interactive backend screens derived from <code class="t-mono">.ai/specs/2026-08-14-customer-groups-and-b2b-terms.md</code>
+    and its §17 user story map. The shell, page scaffolding, DataTable chrome, and CrudForm layout mirror
+    <code class="t-mono">packages/ui/src/backend/</code>; colors and spacing come from
+    <code class="t-mono">globals.css</code>. All records below are synthetic (tenant "Northwind Fasteners Co.").
+    Every screen lists its requirement and user-story coverage.
+  </p>
+</header>
+
+<!-- ============================================================ -->
+<!-- S1 — Customer Groups list, first-run empty state -->
+<!-- ============================================================ -->
+<section class="screen" id="s1">
+  <div class="screen-meta">
+    <h2>1. Customer Groups — List (first-run empty)</h2>
+    <p>An operator on a brand-new tenant opens the module before any group exists.</p>
+    <div class="screen-refs"><span class="ref">§5.1</span><span class="ref">§9</span><span class="ref">US-A1</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar">
+      <div class="frame-dots"><i></i><i></i><i></i></div>
+      <span class="frame-url">/backend/customer-groups</span>
+    </div>
+    <div class="app app-narrow">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Northwind Fasteners</span></div>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Search</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Customer Groups</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items">
+            <span class="nav-item active"><svg><use href="#ic-layers"/></svg> Groups</span>
+            <a class="nav-item" href="#s15" data-goto="s15"><svg><use href="#ic-credit-card"/></svg> Credit Accounts</a>
+            <a class="nav-item" href="#s18" data-goto="s18"><svg><use href="#ic-shield"/></svg> Approvals<span class="count">2</span></a>
+          </div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left">
+            <div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span class="here">Customer Groups</span></div>
+          </div>
+          <div class="topbar-right">
+            <div class="topbar-search"><svg><use href="#ic-search"/></svg> Search</div>
+            <button class="icon-btn" aria-label="Notifications"><svg><use href="#ic-bell"/></svg></button>
+            <span class="avatar">AN</span>
+          </div>
+        </header>
+        <main class="page">
+          <div class="page-head">
+            <div><h1 class="t-page-title">Customer Groups</h1><p>Commercial tiers that price rows, tax rates, and checkout terms resolve against.</p></div>
+            <div class="page-actions">
+              <button class="btn btn-primary" data-goto="s4"><svg><use href="#ic-plus"/></svg> New group</button>
+            </div>
+          </div>
+          <div class="empty">
+            <div class="empty-icon"><svg><use href="#ic-layers"/></svg></div>
+            <div class="t-card-title">No customer groups yet</div>
+            <p class="t-hint" style="max-width:38ch">Groups give <code class="t-mono">customer_group_id</code> an owner. Create your first group — for example "Wholesale" — to start pricing B2B buyers differently from retail.</p>
+            <button class="btn btn-primary btn-sm" data-goto="s4"><svg><use href="#ic-plus"/></svg> Create your first group</button>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span><nav class="row-3"><span>Terms</span><span>Privacy</span></nav></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Empty state replaces the DataTable card entirely — no bare zero-row table, per US-A1 AC.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S2 — Customer Groups list, populated + orphan banner -->
+<!-- ============================================================ -->
+<section class="screen" id="s2">
+  <div class="screen-meta">
+    <h2>2. Customer Groups — List (populated, orphan banner, drag-reorder)</h2>
+    <p>The operator's steady state: five groups with explicit priority, one flagged default, and an orphan-reference banner surfacing §8.2's reconciliation gap.</p>
+    <div class="screen-refs"><span class="ref">§5.1</span><span class="ref">§8.2</span><span class="ref">R3</span><span class="ref">R4</span><span class="ref">US-A1</span><span class="ref">US-A2</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar">
+      <div class="frame-dots"><i></i><i></i><i></i></div>
+      <span class="frame-url">/backend/customer-groups</span>
+    </div>
+    <div class="app app-tall">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Northwind Fasteners</span></div>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Search</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Customer Groups</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items">
+            <span class="nav-item active"><svg><use href="#ic-layers"/></svg> Groups</span>
+            <a class="nav-item" href="#s15" data-goto="s15"><svg><use href="#ic-credit-card"/></svg> Credit Accounts</a>
+            <a class="nav-item" href="#s18" data-goto="s18"><svg><use href="#ic-shield"/></svg> Approvals<span class="count">2</span></a>
+          </div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span class="here">Customer Groups</span></div></div>
+          <div class="topbar-right">
+            <div class="topbar-search"><svg><use href="#ic-search"/></svg> Search</div>
+            <button class="icon-btn" aria-label="Notifications"><span class="badge-count">3</span><svg><use href="#ic-bell"/></svg></button>
+            <span class="avatar">AN</span>
+          </div>
+        </header>
+        <main class="page">
+          <div class="page-head">
+            <div><h1 class="t-page-title">Customer Groups</h1><p>Drag rows to change precedence. The default group applies to customers with no explicit membership.</p></div>
+            <div class="page-actions"><button class="btn btn-primary" data-goto="s4"><svg><use href="#ic-plus"/></svg> New group</button></div>
+          </div>
+
+          <div class="alert alert-warning" data-goto="s6" style="cursor:pointer">
+            <svg><use href="#ic-warn"/></svg>
+            <div>
+              <div class="alert-title">1 orphaned group reference found</div>
+              <div class="t-hint">A price row references <code class="t-mono">customer_group_id</code> <code class="t-mono">4f2a91c3-…</code>, which matches no group. Open the reconciliation report →</div>
+            </div>
+          </div>
+
+          <div class="dt">
+            <div class="dt-head">
+              <div class="dt-head-row">
+                <h2 class="t-table-title">5 groups</h2>
+                <div class="dt-head-actions"><button class="btn btn-outline btn-sm"><svg><use href="#ic-refresh"/></svg></button></div>
+              </div>
+              <div class="dt-toolbar">
+                <div class="dt-toolbar-row">
+                  <input class="input dt-search" placeholder="Search code or name…" />
+                  <div class="dt-toolbar-right">
+                    <button class="chip"><svg><use href="#ic-filter"/></svg> Kind</button>
+                    <button class="chip chip-dashed">Show inactive</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <table class="table">
+              <thead><tr>
+                <th class="right" style="width:2rem"></th>
+                <th>Code</th><th>Name</th><th>Kind</th><th>Priority</th><th>Parent</th><th>Default</th><th>Active</th><th class="right">Actions</th>
+              </tr></thead>
+              <tbody>
+                <tr class="clickable" data-goto="s10">
+                  <td class="right"><svg style="width:1rem;height:1rem;color:var(--muted-foreground);cursor:grab"><use href="#ic-grip"/></svg></td>
+                  <td class="t-mono">internal-staff</td><td>Internal Staff</td><td><span class="badge badge-neutral">internal</span></td>
+                  <td class="num">200</td><td class="muted">—</td><td class="muted">—</td><td><span class="badge badge-success">Active</span></td>
+                  <td class="right"><span class="row-actions"><button class="btn btn-icon btn-sm" data-goto="s10"><svg><use href="#ic-pencil"/></svg></button><button class="btn btn-icon btn-sm" data-goto="s5"><svg><use href="#ic-trash"/></svg></button></span></td>
+                </tr>
+                <tr class="clickable" data-goto="s10">
+                  <td class="right"><svg style="width:1rem;height:1rem;color:var(--muted-foreground);cursor:grab"><use href="#ic-grip"/></svg></td>
+                  <td class="t-mono">wholesale-t1</td><td>Wholesale — Tier 1</td><td><span class="badge badge-info">b2b</span></td>
+                  <td class="num">100</td><td class="muted">—</td><td class="muted">—</td><td><span class="badge badge-success">Active</span></td>
+                  <td class="right"><span class="row-actions"><button class="btn btn-icon btn-sm" data-goto="s10"><svg><use href="#ic-pencil"/></svg></button><button class="btn btn-icon btn-sm" data-goto="s5"><svg><use href="#ic-trash"/></svg></button></span></td>
+                </tr>
+                <tr class="clickable" data-goto="s11">
+                  <td class="right"><svg style="width:1rem;height:1rem;color:var(--muted-foreground);cursor:grab"><use href="#ic-grip"/></svg></td>
+                  <td class="t-mono">wholesale-t2</td><td>Wholesale — Tier 2</td><td><span class="badge badge-info">b2b</span></td>
+                  <td class="num">80</td><td>Wholesale — Tier 1</td><td class="muted">—</td><td><span class="badge badge-success">Active</span></td>
+                  <td class="right"><span class="row-actions"><button class="btn btn-icon btn-sm" data-goto="s11"><svg><use href="#ic-pencil"/></svg></button><button class="btn btn-icon btn-sm" data-goto="s5"><svg><use href="#ic-trash"/></svg></button></span></td>
+                </tr>
+                <tr class="clickable" data-goto="s10">
+                  <td class="right"><svg style="width:1rem;height:1rem;color:var(--muted-foreground);cursor:grab"><use href="#ic-grip"/></svg></td>
+                  <td class="t-mono">promo-q3-2026</td><td>Q3 Promo Tier</td><td><span class="badge badge-info">b2b</span></td>
+                  <td class="num">60</td><td class="muted">—</td><td class="muted">—</td><td><span class="badge badge-success">Active</span></td>
+                  <td class="right"><span class="row-actions"><button class="btn btn-icon btn-sm" data-goto="s10"><svg><use href="#ic-pencil"/></svg></button><button class="btn btn-icon btn-sm" data-goto="s5"><svg><use href="#ic-trash"/></svg></button></span></td>
+                </tr>
+                <tr class="clickable" data-goto="s10">
+                  <td class="right"><svg style="width:1rem;height:1rem;color:var(--muted-foreground);cursor:grab"><use href="#ic-grip"/></svg></td>
+                  <td class="t-mono">retail</td><td>Retail</td><td><span class="badge badge-pink">b2c</span></td>
+                  <td class="num">10</td><td class="muted">—</td><td><span class="badge badge-success"><svg><use href="#ic-check"/></svg>Default</span></td><td><span class="badge badge-success">Active</span></td>
+                  <td class="right"><span class="row-actions"><button class="btn btn-icon btn-sm" data-goto="s10"><svg><use href="#ic-pencil"/></svg></button><button class="btn btn-icon btn-sm" disabled><svg><use href="#ic-trash"/></svg></button></span></td>
+                </tr>
+              </tbody>
+            </table>
+            <div class="dt-foot">
+              <span class="t-hint num">Showing 1 to 5 of 5 results</span>
+              <ul class="pager"><li><button class="nav" disabled><svg><use href="#ic-chevron-left"/></svg></button></li><li><button aria-current="page">1</button></li><li><button class="nav" disabled><svg><use href="#ic-chevron-right"/></svg></button></li></ul>
+            </div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span><nav class="row-3"><span>Terms</span><span>Privacy</span></nav></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Illustrative only: dragging the grip handle reorders rows and rewrites <code class="t-mono">priority</code> for every affected row in one transaction (R4). No drag interaction is wired up in this static prototype.</span></div>
+    <div class="note"><b>2</b><span>"Wholesale — Tier 2" shows its parent inline so precedence and inheritance are visible without opening the row.</span></div>
+    <div class="note"><b>3</b><span>The default group's delete action is disabled — deleting the tenant's only default would leave ungrouped customers with no fallback terms.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S3 — Customer Groups list, no-access -->
+<!-- ============================================================ -->
+<section class="screen" id="s3">
+  <div class="screen-meta">
+    <h2>3. Customer Groups — List (no access)</h2>
+    <p>A user whose role lacks <code class="t-mono">customer_groups.groups.view</code> opens the same URL.</p>
+    <div class="screen-refs"><span class="ref">§9.1</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/customer-groups</span></div>
+    <div class="app app-narrow">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Northwind Fasteners</span></div>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Search</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Sales</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items"><a class="nav-item" href="#s14" data-goto="s14"><svg><use href="#ic-tag"/></svg> Tax Rates</a></div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span class="here">Customer Groups</span></div></div>
+          <div class="topbar-right"><div class="topbar-search"><svg><use href="#ic-search"/></svg> Search</div><button class="icon-btn" aria-label="Notifications"><svg><use href="#ic-bell"/></svg></button><span class="avatar">SK</span></div>
+        </header>
+        <main class="page">
+          <div class="empty">
+            <div class="empty-icon"><svg><use href="#ic-key"/></svg></div>
+            <div class="t-card-title">You don't have access to this page</div>
+            <p class="t-hint" style="max-width:38ch">Viewing customer groups requires the <code class="t-mono">customer_groups.groups.view</code> permission. Ask an administrator to grant it on your role.</p>
+            <button class="btn btn-outline btn-sm" data-goto="s1"><svg><use href="#ic-chevron-left"/></svg> Back to dashboard</button>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>No-access is a distinct empty state from "no groups yet" (S1) — same layout family, different icon and copy, so support can tell the two apart from a screenshot.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S4 — Group Create/Edit drawer -->
+<!-- ============================================================ -->
+<section class="screen" id="s4">
+  <div class="screen-meta">
+    <h2>4. Customer Group — Create drawer</h2>
+    <p>Creating "Wholesale — Tier 1" from the empty state. The parent picker and priority field carry the constraints from §5.1.</p>
+    <div class="screen-refs"><span class="ref">§5.1</span><span class="ref">US-A1</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/customer-groups/new</span></div>
+    <div class="drawer-scrim">
+      <div class="app app-tall">
+        <aside class="sidebar">
+          <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Northwind Fasteners</span></div>
+          <nav class="sidebar-nav">
+            <div class="nav-group"><span>Customer Groups</span><svg><use href="#ic-chevron-down"/></svg></div>
+            <div class="nav-items"><span class="nav-item active"><svg><use href="#ic-layers"/></svg> Groups</span></div>
+          </nav>
+        </aside>
+        <div class="main">
+          <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span class="here">Customer Groups</span></div></div></header>
+          <main class="page"><div class="page-head"><div><h1 class="t-page-title">Customer Groups</h1></div></div></main>
+        </div>
+      </div>
+      <div class="drawer">
+        <div class="drawer-head">
+          <div class="grow"><div class="t-card-title">New customer group</div><p class="t-hint" style="margin:0.25rem 0 0">Groups own precedence and hierarchy; commercial terms are set separately on the group detail page.</p></div>
+          <button class="btn btn-ghost btn-icon btn-sm" data-goto="s1"><svg><use href="#ic-x"/></svg></button>
+        </div>
+        <div class="drawer-body">
+          <div class="field"><label>Name <span class="req">*</span></label><input class="input" value="Wholesale — Tier 1" /></div>
+          <div class="field"><label>Code <span class="req">*</span></label><input class="input t-mono" value="wholesale-t1" /><span class="t-hint">Unique within the tenant. Used in imports and rule authoring.</span></div>
+          <div class="field"><label>Kind</label>
+            <select class="select"><option>b2b</option><option>b2c</option><option>internal</option><option>partner</option></select>
+          </div>
+          <div class="field"><label>Parent group</label>
+            <select class="select"><option>— none —</option><option>Wholesale — Tier 1</option><option>Q3 Promo Tier</option></select>
+            <span class="t-hint">Membership in a child implies the ancestors. Depth is capped at 5 and cycles are rejected.</span>
+          </div>
+          <div class="field"><label>Priority <span class="req">*</span></label><input class="input num" value="100" /><span class="t-hint">Unique within the tenant. Higher wins when several of a customer's groups match a rule row.</span></div>
+          <div class="row between">
+            <div class="col"><span class="t-label">Default group</span><span class="t-hint">Applied to customers with no explicit membership.</span></div>
+            <button class="switch" aria-checked="false" type="button"></button>
+          </div>
+          <div class="alert alert-warning">
+            <svg><use href="#ic-warn"/></svg>
+            <div><div class="alert-title">Replacing the current default</div><div class="t-hint">"Retail" is currently the tenant default. Enabling this will unset it — illustrative only.</div></div>
+          </div>
+          <div class="row between">
+            <div class="col"><span class="t-label">Active</span><span class="t-hint">Inactive groups are excluded from resolution but keep their history.</span></div>
+            <button class="switch" aria-checked="true" type="button"></button>
+          </div>
+        </div>
+        <div class="drawer-foot">
+          <button class="btn btn-outline" data-goto="s1">Cancel <span class="kbd" style="margin-left:0.375rem">Esc</span></button>
+          <button class="btn btn-primary" data-goto="s2"><svg><use href="#ic-save"/></svg> Save <span class="kbd" style="margin-left:0.375rem">⌘⏎</span></button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Unique-code and unique-priority validation runs inline before submit — a collision surfaces a <code class="t-mono">field-error</code> under the input, not a raw 409 after Save.</span></div>
+    <div class="note"><b>2</b><span>The default-conflict warning is illustrative: it only appears once the switch above it is toggled on while another group already holds the default.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S5 — Group delete confirm dialog -->
+<!-- ============================================================ -->
+<section class="screen" id="s5">
+  <div class="screen-meta">
+    <h2>5. Customer Group — Delete confirm dialog</h2>
+    <p>Deleting "Wholesale — Tier 2", which has active memberships and a terms row.</p>
+    <div class="screen-refs"><span class="ref">US-A1</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/customer-groups</span></div>
+    <div class="modal-scrim">
+      <div class="app app-tall">
+        <aside class="sidebar">
+          <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Northwind Fasteners</span></div>
+          <nav class="sidebar-nav"><div class="nav-group"><span>Customer Groups</span><svg><use href="#ic-chevron-down"/></svg></div><div class="nav-items"><span class="nav-item active"><svg><use href="#ic-layers"/></svg> Groups</span></div></nav>
+        </aside>
+        <div class="main"><header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span class="here">Customer Groups</span></div></div></header><main class="page"></main></div>
+      </div>
+      <div class="modal" style="width:28rem">
+        <div class="modal-head">
+          <div class="row"><div class="empty-icon" style="width:2rem;height:2rem;color:var(--status-error-icon);background:var(--status-error-bg)"><svg style="width:1rem;height:1rem"><use href="#ic-trash"/></svg></div><span class="t-card-title">Delete "Wholesale — Tier 2"?</span></div>
+        </div>
+        <div class="modal-body">
+          <p class="t-body" style="margin:0">This group has dependent records that will lose their reference:</p>
+          <ul class="t-body" style="margin:0;padding-left:1.25rem">
+            <li><strong>3</strong> active memberships (Bolt &amp; Beam Supply and 2 others)</li>
+            <li><strong>1</strong> commercial terms row</li>
+            <li><strong>2</strong> catalog price rows referencing this group's id</li>
+          </ul>
+          <div class="alert alert-error"><svg><use href="#ic-warn"/></svg><div><div class="alert-title">This cannot be undone</div><div class="t-hint">Price rows referencing this id become orphaned and stop matching, exactly like §8's dangling-column problem this module exists to fix.</div></div></div>
+        </div>
+        <div class="modal-foot">
+          <span class="t-hint"><span class="kbd">Esc</span> cancel · <span class="kbd">⌘⏎</span> confirm</span>
+          <div class="row"><button class="btn btn-outline" data-goto="s2">Cancel</button><button class="btn btn-destructive" data-goto="s2"><svg><use href="#ic-trash"/></svg> Delete group</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Dependent counts are computed and named, not a generic "Are you sure?" — the whole point of orphan reconciliation (§8.2) is that silent breakage is what created this problem for <code class="t-mono">customer_group_id</code> in the first place.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S6 — Orphan Reconciliation Report, populated -->
+<!-- ============================================================ -->
+<section class="screen" id="s6">
+  <div class="screen-meta">
+    <h2>6. Orphan Reconciliation — Report (populated)</h2>
+    <p>Reached from the S2 banner. Lists every <code class="t-mono">customer_group_id</code> referenced by price rows or tax rates that matches no group.</p>
+    <div class="screen-refs"><span class="ref">§8.2</span><span class="ref">R3</span><span class="ref">US-A2</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/customer-groups/reconcile</span></div>
+    <div class="app app-tall">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Northwind Fasteners</span></div>
+        <nav class="sidebar-nav"><div class="nav-group"><span>Customer Groups</span><svg><use href="#ic-chevron-down"/></svg></div><div class="nav-items"><a class="nav-item" href="#s2" data-goto="s2"><svg><use href="#ic-layers"/></svg> Groups</a></div></nav>
+      </aside>
+      <div class="main">
+        <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><a class="t-mono" data-goto="s2" style="color:var(--muted-foreground);text-decoration:none">Customer Groups</a><svg><use href="#ic-chevron-right"/></svg><span class="here">Reconcile</span></div></div></header>
+        <main class="page">
+          <div class="page-head"><div><h1 class="t-page-title">Orphan reconciliation</h1><p>Every distinct id referenced by price rows or tax rates with no matching group.</p></div>
+            <div class="page-actions"><button class="btn btn-outline"><svg><use href="#ic-download"/></svg> Export CSV</button></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><span class="t-card-title t-mono">4f2a91c3-8b1e-4a3c-9d2f-7e6a5b4c3d21</span><button class="btn btn-outline btn-sm"><svg><use href="#ic-refresh"/></svg> Adopt as inactive group</button></div>
+            <div class="card-body stack-3">
+              <div class="row-4"><span class="t-hint">Referenced by</span><span class="badge badge-neutral">2 price rows</span><span class="badge badge-neutral">1 tax rate</span></div>
+              <table class="table">
+                <thead><tr><th>Source</th><th>Row</th><th>Product / Rate</th><th class="right"></th></tr></thead>
+                <tbody>
+                  <tr><td><span class="badge badge-info">catalog</span></td><td class="t-mono">price-08f1</td><td>Steel Hex Bolt M10 — bulk tier</td><td class="right"><button class="btn btn-ghost btn-xs"><svg><use href="#ic-external"/></svg> Open</button></td></tr>
+                  <tr><td><span class="badge badge-info">catalog</span></td><td class="t-mono">price-08f4</td><td>Steel Hex Bolt M12 — bulk tier</td><td class="right"><button class="btn btn-ghost btn-xs"><svg><use href="#ic-external"/></svg> Open</button></td></tr>
+                  <tr><td><span class="badge badge-pink">sales</span></td><td class="t-mono">tax-0231</td><td>Reduced-rate — legacy import</td><td class="right"><button class="btn btn-ghost btn-xs"><svg><use href="#ic-external"/></svg> Open</button></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>"Adopt as inactive group" creates <code class="t-mono">code: orphan-4f2a91c3</code>, <code class="t-mono">is_active: false</code>, priority at the bottom — a real write behind a confirm, since it changes what subsequently matches (§8.2).</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S7 — Orphan Reconciliation Report, empty -->
+<!-- ============================================================ -->
+<section class="screen" id="s7">
+  <div class="screen-meta">
+    <h2>7. Orphan Reconciliation — Report (no orphans)</h2>
+    <p>Same screen after the operator resolves every orphan — the banner on S2 disappears once this is the state.</p>
+    <div class="screen-refs"><span class="ref">§8.2</span><span class="ref">US-A2</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/customer-groups/reconcile</span></div>
+    <div class="app app-narrow">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Northwind Fasteners</span></div>
+        <nav class="sidebar-nav"><div class="nav-group"><span>Customer Groups</span><svg><use href="#ic-chevron-down"/></svg></div><div class="nav-items"><a class="nav-item" href="#s2" data-goto="s2"><svg><use href="#ic-layers"/></svg> Groups</a></div></nav>
+      </aside>
+      <div class="main">
+        <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><a class="t-mono" data-goto="s2" style="color:var(--muted-foreground);text-decoration:none">Customer Groups</a><svg><use href="#ic-chevron-right"/></svg><span class="here">Reconcile</span></div></div></header>
+        <main class="page">
+          <div class="page-head"><div><h1 class="t-page-title">Orphan reconciliation</h1></div></div>
+          <div class="empty">
+            <div class="empty-icon" style="background:var(--status-success-bg);color:var(--status-success-icon)"><svg><use href="#ic-check"/></svg></div>
+            <div class="t-card-title">No orphaned references</div>
+            <p class="t-hint" style="max-width:36ch">Every <code class="t-mono">customer_group_id</code> in catalog price rows and sales tax rates matches a real group.</p>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>The groups-list banner (S2) is conditional on this report's count &gt; 0 — this screen is what it looks like once that count reaches zero.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S8 — Customer Detail: Group Memberships tab -->
+<!-- ============================================================ -->
+<section class="screen" id="s8">
+  <div class="screen-meta">
+    <h2>8. Customer Detail — Group Memberships tab</h2>
+    <p>Acme Hardware Ltd belongs to two overlapping groups; a third membership already expired. Assigning a new one opens the drawer at the bottom of the frame.</p>
+    <div class="screen-refs"><span class="ref">§5.2</span><span class="ref">§2.3</span><span class="ref">US-B1</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/customers/acme-hardware-ltd</span></div>
+    <div class="drawer-scrim">
+      <div class="app app-taller">
+        <aside class="sidebar">
+          <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Northwind Fasteners</span></div>
+          <nav class="sidebar-nav"><div class="nav-group"><span>Customers</span><svg><use href="#ic-chevron-down"/></svg></div><div class="nav-items"><span class="nav-item active"><svg><use href="#ic-building"/></svg> Companies</span></div></nav>
+        </aside>
+        <div class="main">
+          <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span>Customers</span><svg><use href="#ic-chevron-right"/></svg><span class="here">Acme Hardware Ltd</span></div></div>
+            <div class="topbar-right"><span class="avatar">AN</span></div>
+          </header>
+          <main class="page">
+            <div class="page-head"><div class="row-3"><span class="avatar avatar-lg">AH</span><div><h1 class="t-page-title">Acme Hardware Ltd</h1><p>acme-hardware · Wholesale account since 2024-11-03</p></div></div></div>
+            <div class="tabs">
+              <button aria-selected="false">Overview</button>
+              <button aria-selected="false">Company</button>
+              <button aria-selected="true"><svg><use href="#ic-users"/></svg> Group Memberships <span class="tab-count">3</span></button>
+              <button aria-selected="false" data-goto="s9"><svg><use href="#ic-info"/></svg> Commercial Terms</button>
+              <button aria-selected="false">Credit</button>
+            </div>
+            <div class="between">
+              <p class="t-hint" style="margin:0">Overlapping memberships in different groups are expected — this customer buys at both the base wholesale tier and a seasonal promo tier.</p>
+              <button class="btn btn-primary btn-sm" data-goto="s8"><svg><use href="#ic-plus"/></svg> Assign to group</button>
+            </div>
+            <table class="table">
+              <thead><tr><th>Group</th><th>Source</th><th>Valid from</th><th>Valid until</th><th>Status</th><th class="right"></th></tr></thead>
+              <tbody>
+                <tr><td>Wholesale — Tier 1</td><td><span class="badge badge-neutral">manual</span></td><td class="num">2024-11-03</td><td class="muted">Indefinite</td><td><span class="badge badge-success">Current</span></td><td class="right"><button class="btn btn-ghost btn-xs">Remove</button></td></tr>
+                <tr><td>Q3 Promo Tier</td><td><span class="badge badge-neutral">manual</span></td><td class="num">2026-07-01</td><td class="num">2026-09-30</td><td><span class="badge badge-success">Current</span></td><td class="right"><button class="btn btn-ghost btn-xs">Remove</button></td></tr>
+                <tr style="opacity:0.65"><td>Wholesale — Tier 2</td><td><span class="badge badge-neutral">import</span></td><td class="num">2025-01-15</td><td class="num">2025-12-31</td><td><span class="badge badge-neutral">Expired</span></td><td class="right muted t-hint">Read-only</td></tr>
+              </tbody>
+            </table>
+          </main>
+        </div>
+      </div>
+      <div class="drawer">
+        <div class="drawer-head"><div class="grow"><div class="t-card-title">Assign Acme Hardware Ltd to a group</div></div><button class="btn btn-ghost btn-icon btn-sm" data-goto="s8"><svg><use href="#ic-x"/></svg></button></div>
+        <div class="drawer-body">
+          <div class="field"><label>Group <span class="req">*</span></label><select class="select"><option>— select —</option><option>Internal Staff</option><option>Retail</option></select></div>
+          <div class="field-error" style="display:none">Already a member of this group as of 2024-11-03.</div>
+          <div class="form-grid form-grid-2">
+            <div class="field"><label>Valid from</label><div class="input-group"><input class="input" value="2026-08-31" /><span class="addon"><svg><use href="#ic-calendar"/></svg></span></div><span class="t-hint">Defaults to now.</span></div>
+            <div class="field"><label>Valid until</label><div class="input-group"><input class="input" placeholder="Indefinite" /><span class="addon"><svg><use href="#ic-calendar"/></svg></span></div></div>
+          </div>
+          <div class="field"><label>Source</label><select class="select"><option>manual</option><option>import</option><option>rule</option><option>onboarding</option></select></div>
+          <div class="field"><label>Notes</label><textarea class="textarea" placeholder="Optional — visible on the explain-terms trace"></textarea></div>
+        </div>
+        <div class="drawer-foot"><button class="btn btn-outline" data-goto="s8">Cancel</button><button class="btn btn-primary" data-goto="s8"><svg><use href="#ic-save"/></svg> Assign</button></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Assigning to a group the customer already (non-expired) belongs to shows the inline error above the date fields instead of a raw constraint violation, per §5.2's unique-membership rule.</span></div>
+    <div class="note"><b>2</b><span>The expired row has no row actions — history, not something to undo.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S9 — Customer Detail: Explain Terms panel -->
+<!-- ============================================================ -->
+<section class="screen" id="s9">
+  <div class="screen-meta">
+    <h2>9. Customer Detail — Commercial Terms tab (explain-terms panel)</h2>
+    <p>Support needs to answer "why does this buyer have net-30 instead of net-60" without cross-referencing four groups by hand (R5).</p>
+    <div class="screen-refs"><span class="ref">§6.1</span><span class="ref">R5</span><span class="ref">US-C2</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/customers/acme-hardware-ltd</span></div>
+    <div class="app app-tall">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Northwind Fasteners</span></div>
+        <nav class="sidebar-nav"><div class="nav-group"><span>Customers</span><svg><use href="#ic-chevron-down"/></svg></div><div class="nav-items"><span class="nav-item active"><svg><use href="#ic-building"/></svg> Companies</span></div></nav>
+      </aside>
+      <div class="main">
+        <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span>Customers</span><svg><use href="#ic-chevron-right"/></svg><span class="here">Acme Hardware Ltd</span></div></div></header>
+        <main class="page">
+          <div class="page-head"><div class="row-3"><span class="avatar avatar-lg">AH</span><div><h1 class="t-page-title">Acme Hardware Ltd</h1></div></div></div>
+          <div class="tabs">
+            <button aria-selected="false">Overview</button>
+            <button aria-selected="false">Company</button>
+            <button aria-selected="false" data-goto="s8"><svg><use href="#ic-users"/></svg> Group Memberships <span class="tab-count">3</span></button>
+            <button aria-selected="true"><svg><use href="#ic-info"/></svg> Commercial Terms</button>
+            <button aria-selected="false">Credit</button>
+          </div>
+          <div class="card">
+            <div class="card-head"><span class="t-card-title">Resolved terms</span><span class="t-hint">Highest-priority group with a non-null value wins, per field, independently</span></div>
+            <div class="card-body" style="padding:0">
+              <table class="table">
+                <thead><tr><th>Field</th><th>Resolved value</th><th>Source</th></tr></thead>
+                <tbody>
+                  <tr><td>Price kind</td><td>Wholesale Net (excl. tax)</td><td><span class="chip chip-active" data-goto="s10">Wholesale — Tier 1 <svg><use href="#ic-external"/></svg></span></td></tr>
+                  <tr><td>Payment terms</td><td>Net 30 days</td><td><span class="chip chip-active" data-goto="s11">Wholesale — Tier 2 <svg><use href="#ic-external"/></svg></span></td></tr>
+                  <tr><td>Purchase on account</td><td><span class="badge badge-success">Allowed</span></td><td><span class="chip chip-active" data-goto="s10">Wholesale — Tier 1 <svg><use href="#ic-external"/></svg></span></td></tr>
+                  <tr><td>Approval required above</td><td class="num">15,000.00 PLN</td><td><span class="chip chip-active" data-goto="s11">Wholesale — Tier 2 <svg><use href="#ic-external"/></svg></span></td></tr>
+                  <tr><td>Min order value</td><td class="num">250.00 PLN</td><td><span class="chip chip-active" data-goto="s10">Wholesale — Tier 1 <svg><use href="#ic-external"/></svg></span></td></tr>
+                  <tr><td>Assortment scope</td><td class="muted">All categories</td><td><span class="chip">tenant default</span></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div class="card card-pad">
+            <div class="t-card-title" style="margin-bottom:0.75rem">Resolution trace — Payment terms</div>
+            <div class="row-3" style="flex-wrap:wrap">
+              <span class="chip">Wholesale — Tier 1 <span class="muted">(no value set)</span></span>
+              <svg style="width:1rem;height:1rem;color:var(--muted-foreground)"><use href="#ic-chevron-right"/></svg>
+              <span class="chip chip-active">Wholesale — Tier 2 <span class="strong">→ Net 30</span></span>
+              <svg style="width:1rem;height:1rem;color:var(--muted-foreground)"><use href="#ic-chevron-right"/></svg>
+              <span class="chip">Tenant default <span class="muted">(not reached)</span></span>
+            </div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Even though "Wholesale — Tier 1" has the higher priority (100 vs. 80), it supplies Price kind because Tier 2 leaves that field null — inheritance is resolved per field independently (§6.1), which the trace makes visible rather than implying "the top group wins everything."</span></div>
+    <div class="note"><b>2</b><span>A field with no group source at all is labeled "tenant default", never left blank.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S10 — Group Detail: Commercial Terms tab, empty/inherited -->
+<!-- ============================================================ -->
+<section class="screen" id="s10">
+  <div class="screen-meta">
+    <h2>10. Group Detail — Commercial Terms tab (no terms row yet)</h2>
+    <p>"Internal Staff" has never had terms configured — everything falls through to tenant defaults.</p>
+    <div class="screen-refs"><span class="ref">§5.3</span><span class="ref">US-C1</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/customer-groups/internal-staff</span></div>
+    <div class="app app-tall">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Northwind Fasteners</span></div>
+        <nav class="sidebar-nav"><div class="nav-group"><span>Customer Groups</span><svg><use href="#ic-chevron-down"/></svg></div><div class="nav-items"><a class="nav-item active" href="#s2" data-goto="s2"><svg><use href="#ic-layers"/></svg> Groups</a></div></nav>
+      </aside>
+      <div class="main">
+        <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><a class="t-mono" data-goto="s2" style="color:var(--muted-foreground);text-decoration:none">Customer Groups</a><svg><use href="#ic-chevron-right"/></svg><span class="here">Internal Staff</span></div></div></header>
+        <main class="page">
+          <div class="form-head"><a class="back-link" data-goto="s2"><svg><use href="#ic-chevron-left"/></svg> Customer Groups</a></div>
+          <div class="page-head"><div><h1 class="t-page-title">Internal Staff</h1><p class="row"><span class="badge badge-neutral">internal</span><span class="t-hint">priority 200</span></p></div></div>
+          <div class="tabs">
+            <button aria-selected="false">General</button>
+            <button aria-selected="true">Commercial Terms</button>
+            <button aria-selected="false">Members <span class="tab-count">6</span></button>
+          </div>
+          <div class="empty">
+            <div class="empty-icon"><svg><use href="#ic-info"/></svg></div>
+            <div class="t-card-title">No terms set for this group</div>
+            <p class="t-hint" style="max-width:40ch">Every field is inheriting from this group's parent, then the tenant default. Set an explicit value below to override.</p>
+            <button class="btn btn-primary btn-sm">Configure terms</button>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>The empty state reads "inheriting", not a form pre-filled with blank fields that could be mistaken for explicit zeros — that ambiguity is exactly what §6's inheritance model needs to avoid.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S11 — Group Detail: Commercial Terms tab, edit + conflict -->
+<!-- ============================================================ -->
+<section class="screen" id="s11">
+  <div class="screen-meta">
+    <h2>11. Group Detail — Commercial Terms tab (edit form, optimistic-lock conflict)</h2>
+    <p>Editing "Wholesale — Tier 2" terms. A second operator saved a change to <code class="t-mono">approval_required_above</code> moments earlier.</p>
+    <div class="screen-refs"><span class="ref">§5.3</span><span class="ref">§16</span><span class="ref">US-C1</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/customer-groups/wholesale-t2</span></div>
+    <div class="app app-taller">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Northwind Fasteners</span></div>
+        <nav class="sidebar-nav"><div class="nav-group"><span>Customer Groups</span><svg><use href="#ic-chevron-down"/></svg></div><div class="nav-items"><a class="nav-item active" href="#s2" data-goto="s2"><svg><use href="#ic-layers"/></svg> Groups</a></div></nav>
+      </aside>
+      <div class="main">
+        <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><a class="t-mono" data-goto="s2" style="color:var(--muted-foreground);text-decoration:none">Customer Groups</a><svg><use href="#ic-chevron-right"/></svg><span class="here">Wholesale — Tier 2</span></div></div></header>
+        <main class="page">
+          <div class="form-head"><a class="back-link" data-goto="s2"><svg><use href="#ic-chevron-left"/></svg> Customer Groups</a></div>
+          <div class="page-head"><div><h1 class="t-page-title">Wholesale — Tier 2</h1><p class="row"><span class="badge badge-info">b2b</span><span class="t-hint">priority 80 · parent Wholesale — Tier 1</span></p></div></div>
+          <div class="tabs"><button aria-selected="false">General</button><button aria-selected="true">Commercial Terms</button><button aria-selected="false">Members <span class="tab-count">3</span></button></div>
+
+          <div class="alert alert-warning">
+            <svg><use href="#ic-warn"/></svg>
+            <div class="grow">
+              <div class="alert-title">This record changed since you opened it</div>
+              <div class="t-hint">Grace Liu changed <strong>Approval required above</strong> to <span class="num">18,000.00 PLN</span> 2 minutes ago. Saving now would overwrite that change.</div>
+              <div class="row" style="margin-top:0.5rem"><button class="btn btn-outline btn-sm">Reload their version</button><button class="btn btn-outline btn-sm">Keep mine, save anyway</button></div>
+            </div>
+          </div>
+
+          <div class="form-layout">
+            <div class="form-col">
+              <div class="form-group">
+                <div class="title">Pricing &amp; tax</div>
+                <div class="field"><label>Price kind</label><select class="select"><option>— none —</option><option selected>Wholesale Net (excl. tax)</option><option>Retail Gross (incl. tax)</option></select><span class="t-hint">Gross/net display is derived from this price kind's own <code class="t-mono">displayMode</code> — there is no separate tax-mode field (§6.1a).</span></div>
+              </div>
+              <div class="form-group">
+                <div class="title">Payment &amp; ordering</div>
+                <div class="form-grid form-grid-2">
+                  <div class="field"><label>Payment terms (days)</label><input class="input num" value="30" /></div>
+                  <div class="field"><label>Min order value</label><input class="input num" value="250.00" /></div>
+                </div>
+                <div class="row between"><div class="col"><span class="t-label">Allow purchase on account</span></div><button class="switch" aria-checked="true" type="button"></button></div>
+              </div>
+              <div class="form-group input-invalid" style="border-color:var(--status-warning-border);background:color-mix(in oklab, var(--status-warning-bg) 40%, var(--card))">
+                <div class="title">Credit &amp; approval</div>
+                <div class="form-grid form-grid-2">
+                  <div class="field"><label>Default credit limit</label><input class="input num" value="50000.00" /></div>
+                  <div class="field"><label>Credit currency</label><input class="input t-mono" value="PLN" /></div>
+                </div>
+                <div class="field"><label>Approval required above</label><input class="input num input-invalid" value="15000.00" /><span class="field-error">Conflicts with Grace Liu's saved value of 18,000.00 — resolve above before saving.</span></div>
+              </div>
+            </div>
+            <div class="form-col">
+              <div class="form-group">
+                <div class="title">Assortment scope</div>
+                <p class="t-hint" style="margin:0">Same category/tag/exclude picker as channel-binding scope elsewhere in the app.</p>
+                <div class="chip chip-active">All fastener categories</div>
+                <div class="chip chip-dashed"><svg><use href="#ic-plus"/></svg> Add scope</div>
+              </div>
+              <div class="form-group">
+                <div class="title">Record</div>
+                <div class="t-hint">Last updated 2026-08-31 09:12 by Grace Liu</div>
+              </div>
+            </div>
+          </div>
+        </main>
+        <footer class="app-foot"></footer>
+        <div class="form-foot" style="padding:0.75rem 1.5rem;border-top:1px solid var(--border)">
+          <span class="t-hint"><span class="kbd">Esc</span> cancel · <span class="kbd">⌘⏎</span> save</span>
+          <div class="actions"><button class="btn btn-outline" data-goto="s2">Cancel</button><button class="btn btn-primary is-disabled"><svg><use href="#ic-save"/></svg> Save</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Conflict bar copy names the concurrent editor, the field, and the value — matching <code class="t-mono">surfaceRecordConflict</code>'s pattern (root <code class="t-mono">AGENTS.md</code>), not a generic "please refresh."</span></div>
+    <div class="note"><b>2</b><span>Save stays disabled while the conflicted field is unresolved, illustrated here rather than wired up.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S12 — Catalog Price Row: Group Picker, valid selection -->
+<!-- ============================================================ -->
+<section class="screen" id="s12">
+  <div class="screen-meta">
+    <h2>12. Catalog Price Row — Group Picker (valid selection)</h2>
+    <p>The picker widget <code class="t-mono">customer_groups</code> injects into <code class="t-mono">crud-form:catalog.catalog_product_price:fields</code>, replacing the old free-text UUID input.</p>
+    <div class="screen-refs"><span class="ref">§7.1</span><span class="ref">§7.3</span><span class="ref">US-D1</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/catalog/products/steel-hex-bolt-m10/prices/price-0812</span></div>
+    <div class="app app-tall">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Northwind Fasteners</span></div>
+        <nav class="sidebar-nav"><div class="nav-group"><span>Catalog</span><svg><use href="#ic-chevron-down"/></svg></div><div class="nav-items"><span class="nav-item active"><svg><use href="#ic-tag"/></svg> Prices</span></div></nav>
+      </aside>
+      <div class="main">
+        <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span>Catalog</span><svg><use href="#ic-chevron-right"/></svg><span class="here">Steel Hex Bolt M10 — price row</span></div></div></header>
+        <main class="page">
+          <div class="page-head"><div><h1 class="t-page-title">Edit price row</h1><p>Steel Hex Bolt M10 · bulk tier</p></div></div>
+          <div class="form-layout">
+            <div class="form-col">
+              <div class="form-group">
+                <div class="title">Amount</div>
+                <div class="form-grid form-grid-2">
+                  <div class="field"><label>Price</label><input class="input num" value="4.85" /></div>
+                  <div class="field"><label>Currency</label><input class="input t-mono" value="PLN" /></div>
+                </div>
+              </div>
+              <div class="form-group">
+                <div class="title">Matching</div>
+                <div class="field"><label>Customer group <span class="t-hint" style="font-weight:400">(injected widget)</span></label>
+                  <div class="input-group" style="border:1px solid var(--input);border-radius:var(--radius-md);padding:0.375rem 0.5rem;box-shadow:var(--shadow-xs)">
+                    <svg style="width:1rem;height:1rem;color:var(--muted-foreground)"><use href="#ic-layers"/></svg>
+                    <span class="grow">Wholesale — Tier 1</span>
+                    <span class="t-hint num">priority 100</span>
+                    <svg style="width:1rem;height:1rem;color:var(--muted-foreground)"><use href="#ic-chevron-down"/></svg>
+                  </div>
+                  <span class="t-hint">Searchable by code or name; priority shown inline since it decides which matching row wins.</span>
+                </div>
+              </div>
+            </div>
+            <div class="form-col">
+              <div class="form-group"><div class="title">Scoring</div><p class="t-hint" style="margin:0">A group match scores <span class="strong">+3</span> in specificity. Among several matching group rows, the one whose group has the highest priority wins (§3.2).</p></div>
+            </div>
+          </div>
+        </main>
+        <div class="form-foot" style="padding:0.75rem 1.5rem;border-top:1px solid var(--border)"><span></span><div class="actions"><button class="btn btn-destructive-outline"><svg><use href="#ic-trash"/></svg> Delete</button><button class="btn btn-outline">Cancel</button><button class="btn btn-primary"><svg><use href="#ic-save"/></svg> Save</button></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>This is one widget rendered inside <code class="t-mono">catalog</code>'s own price-row form — <code class="t-mono">catalog</code> gains no new <code class="t-mono">requires</code> entry on <code class="t-mono">customer_groups</code> (§7.3).</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S13 — Catalog Price Row: Group Picker, Unknown group error -->
+<!-- ============================================================ -->
+<section class="screen" id="s13">
+  <div class="screen-meta">
+    <h2>13. Catalog Price Row — Group Picker ("Unknown group" error state)</h2>
+    <p>A legacy price row's <code class="t-mono">customer_group_id</code> matches nothing — the exact orphan scenario from §2.1, now visible instead of silent.</p>
+    <div class="screen-refs"><span class="ref">§7.3</span><span class="ref">R3</span><span class="ref">US-D1</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/catalog/products/steel-hex-bolt-m10/prices/price-08f1</span></div>
+    <div class="app app-tall">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Northwind Fasteners</span></div>
+        <nav class="sidebar-nav"><div class="nav-group"><span>Catalog</span><svg><use href="#ic-chevron-down"/></svg></div><div class="nav-items"><span class="nav-item active"><svg><use href="#ic-tag"/></svg> Prices</span></div></nav>
+      </aside>
+      <div class="main">
+        <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span>Catalog</span><svg><use href="#ic-chevron-right"/></svg><span class="here">Steel Hex Bolt M10 — price row</span></div></div></header>
+        <main class="page">
+          <div class="page-head"><div><h1 class="t-page-title">Edit price row</h1><p>Steel Hex Bolt M10 · legacy import tier</p></div></div>
+          <div class="form-layout">
+            <div class="form-col">
+              <div class="form-group">
+                <div class="title">Amount</div>
+                <div class="form-grid form-grid-2"><div class="field"><label>Price</label><input class="input num" value="4.20" /></div><div class="field"><label>Currency</label><input class="input t-mono" value="PLN" /></div></div>
+              </div>
+              <div class="form-group">
+                <div class="title">Matching</div>
+                <div class="field"><label>Customer group <span class="t-hint" style="font-weight:400">(injected widget)</span></label>
+                  <div class="chip" style="border-color:var(--status-error-border);background:var(--status-error-bg);color:var(--status-error-text);cursor:default">
+                    <svg><use href="#ic-warn"/></svg> Unknown group (4f2a91c3-8b1e-4a3c-9d2f-7e6a5b4c3d21)
+                  </div>
+                  <span class="field-error">This id matches no customer group. The row still matches customers however <code class="t-mono">customerGroupIds</code> resolves — it is not hidden, only flagged.</span>
+                  <button class="btn btn-outline btn-sm" data-goto="s6" style="align-self:flex-start;margin-top:0.25rem"><svg><use href="#ic-external"/></svg> Open in reconciliation report</button>
+                </div>
+              </div>
+            </div>
+            <div class="form-col">
+              <div class="form-group"><div class="title">Why this matters</div><p class="t-hint" style="margin:0">Before this module, a typo here silently meant "this price never applies" with no error anywhere (§2.1). Now the id is checked against real groups and the mismatch is explicit.</p></div>
+            </div>
+          </div>
+        </main>
+        <div class="form-foot" style="padding:0.75rem 1.5rem;border-top:1px solid var(--border)"><span></span><div class="actions"><button class="btn btn-outline">Cancel</button><button class="btn btn-primary"><svg><use href="#ic-save"/></svg> Save</button></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>The error chip replaces the picker's normal selected-value display in place — never hidden, per §7.3.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S14 — Sales Tax Rate: Group Picker, same widget -->
+<!-- ============================================================ -->
+<section class="screen" id="s14">
+  <div class="screen-meta">
+    <h2>14. Sales Tax Rate — Group Picker (second host form)</h2>
+    <p>The identical injected widget in <code class="t-mono">crud-form:sales.sales_tax_rate:fields</code> — one widget, two host forms.</p>
+    <div class="screen-refs"><span class="ref">§7.2</span><span class="ref">§7.3</span><span class="ref">US-D1</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/sales/tax-rates/tax-0198</span></div>
+    <div class="app app-tall">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Northwind Fasteners</span></div>
+        <nav class="sidebar-nav"><div class="nav-group"><span>Sales</span><svg><use href="#ic-chevron-down"/></svg></div><div class="nav-items"><span class="nav-item active"><svg><use href="#ic-tag"/></svg> Tax Rates</span></div></nav>
+      </aside>
+      <div class="main">
+        <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span>Sales</span><svg><use href="#ic-chevron-right"/></svg><span class="here">Tax rate</span></div></div></header>
+        <main class="page">
+          <div class="page-head"><div><h1 class="t-page-title">Edit tax rate</h1><p>PL VAT — wholesale exemption tier</p></div></div>
+          <div class="form-layout">
+            <div class="form-col">
+              <div class="form-group">
+                <div class="title">Rate</div>
+                <div class="form-grid form-grid-2"><div class="field"><label>Rate (%)</label><input class="input num" value="0.00" /></div><div class="field"><label>Priority</label><input class="input num" value="50" /></div></div>
+              </div>
+              <div class="form-group">
+                <div class="title">Matching</div>
+                <div class="field"><label>Customer group <span class="t-hint" style="font-weight:400">(injected widget)</span></label>
+                  <div class="input-group" style="border:1px solid var(--input);border-radius:var(--radius-md);padding:0.375rem 0.5rem;box-shadow:var(--shadow-xs)">
+                    <svg style="width:1rem;height:1rem;color:var(--muted-foreground)"><use href="#ic-layers"/></svg>
+                    <span class="grow">Wholesale — Tier 1</span><span class="t-hint num">priority 100</span>
+                    <svg style="width:1rem;height:1rem;color:var(--muted-foreground)"><use href="#ic-chevron-down"/></svg>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="form-col">
+              <div class="form-group"><div class="title">Rule side unchanged</div><p class="t-hint" style="margin:0"><code class="t-mono">SalesTaxRate.customerGroupId</code> stays a single column — only the buyer-context side becomes a set (§7.2).</p></div>
+            </div>
+          </div>
+        </main>
+        <div class="form-foot" style="padding:0.75rem 1.5rem;border-top:1px solid var(--border)"><span></span><div class="actions"><button class="btn btn-outline">Cancel</button><button class="btn btn-primary"><svg><use href="#ic-save"/></svg> Save</button></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Same component as S12/S13, not a second implementation — per the story map's cross-cutting rule for Epic D.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S15 — Credit Accounts List -->
+<!-- ============================================================ -->
+<section class="screen" id="s15">
+  <div class="screen-meta">
+    <h2>15. Credit Accounts — List</h2>
+    <p>One row per customer per currency. On-hold accounts are flagged regardless of computed exposure.</p>
+    <div class="screen-refs"><span class="ref">§5.4</span><span class="ref">§9</span><span class="ref">US-E1</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/customer-groups/credit-accounts</span></div>
+    <div class="app app-tall">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Northwind Fasteners</span></div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Customer Groups</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items">
+            <a class="nav-item" href="#s2" data-goto="s2"><svg><use href="#ic-layers"/></svg> Groups</a>
+            <span class="nav-item active"><svg><use href="#ic-credit-card"/></svg> Credit Accounts</span>
+            <a class="nav-item" href="#s18" data-goto="s18"><svg><use href="#ic-shield"/></svg> Approvals<span class="count">2</span></a>
+          </div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span class="here">Credit Accounts</span></div></div></header>
+        <main class="page">
+          <div class="page-head"><div><h1 class="t-page-title">Credit Accounts</h1><p>Purchase-on-account exposure, computed as <span class="t-mono">SUM(amount)</span> over each account's ledger — never a stored counter (§4.3).</p></div>
+            <div class="page-actions"><button class="btn btn-primary"><svg><use href="#ic-plus"/></svg> New account</button></div>
+          </div>
+          <div class="dt">
+            <div class="dt-head">
+              <div class="dt-head-row"><h2 class="t-table-title">3 accounts</h2></div>
+              <div class="dt-toolbar"><div class="dt-toolbar-row"><input class="input dt-search" placeholder="Search customer…" /><div class="dt-toolbar-right"><button class="chip chip-dashed">On hold only</button></div></div></div>
+            </div>
+            <table class="table">
+              <thead><tr><th>Customer</th><th>Currency</th><th class="right">Limit</th><th class="right">Exposure</th><th class="right">Available</th><th>Status</th><th class="right"></th></tr></thead>
+              <tbody>
+                <tr class="clickable" data-goto="s16">
+                  <td class="row"><span class="avatar avatar-sm">AH</span> Acme Hardware Ltd</td><td class="t-mono">USD</td>
+                  <td class="right num">100,000.00</td><td class="right num">82,400.00</td><td class="right num">17,600.00</td>
+                  <td><span class="badge badge-success">In good standing</span></td>
+                  <td class="right"><button class="btn btn-ghost btn-xs" data-goto="s16">Open</button></td>
+                </tr>
+                <tr class="clickable">
+                  <td class="row"><span class="avatar avatar-sm">BB</span> Bolt &amp; Beam Supply</td><td class="t-mono">PLN</td>
+                  <td class="right num">60,000.00</td><td class="right num">18,540.00</td><td class="right num">41,460.00</td>
+                  <td><span class="badge badge-warning">Pending approval</span></td>
+                  <td class="right"><button class="btn btn-ghost btn-xs" data-goto="s18">Open</button></td>
+                </tr>
+                <tr class="clickable" data-goto="s17">
+                  <td class="row"><span class="avatar avatar-sm">MF</span> Meridian Fasteners GmbH</td><td class="t-mono">EUR</td>
+                  <td class="right num">50,000.00</td><td class="right num">31,200.00</td><td class="right num">18,800.00</td>
+                  <td><span class="badge badge-error"><svg><use href="#ic-ban"/></svg> On hold</span></td>
+                  <td class="right"><button class="btn btn-ghost btn-xs" data-goto="s17">Open</button></td>
+                </tr>
+              </tbody>
+            </table>
+            <div class="dt-foot"><span class="t-hint num">Showing 1 to 3 of 3 results</span></div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>"On hold" blocks purchase-on-account regardless of available headroom — Meridian has 18,800 available but cannot buy on account until the hold clears.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S16 — Credit Account Detail + Ledger + Adjust dialog -->
+<!-- ============================================================ -->
+<section class="screen" id="s16">
+  <div class="screen-meta">
+    <h2>16. Credit Account Detail — Overview + Ledger (Adjust dialog)</h2>
+    <p>Acme Hardware Ltd's USD account. The ledger is read-only and append-only; "Adjust" is the only way to write a correction.</p>
+    <div class="screen-refs"><span class="ref">§5.4</span><span class="ref">§5.5</span><span class="ref">§9</span><span class="ref">US-E1</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/customer-groups/credit-accounts/acme-hardware-usd</span></div>
+    <div class="modal-scrim">
+      <div class="app app-taller">
+        <aside class="sidebar">
+          <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Northwind Fasteners</span></div>
+          <nav class="sidebar-nav"><div class="nav-group"><span>Customer Groups</span><svg><use href="#ic-chevron-down"/></svg></div><div class="nav-items"><a class="nav-item" href="#s2" data-goto="s2"><svg><use href="#ic-layers"/></svg> Groups</a><span class="nav-item active"><svg><use href="#ic-credit-card"/></svg> Credit Accounts</span></div></nav>
+        </aside>
+        <div class="main">
+          <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><a class="t-mono" data-goto="s15" style="color:var(--muted-foreground);text-decoration:none">Credit Accounts</a><svg><use href="#ic-chevron-right"/></svg><span class="here">Acme Hardware Ltd · USD</span></div></div></header>
+          <main class="page">
+            <div class="form-head"><a class="back-link" data-goto="s15"><svg><use href="#ic-chevron-left"/></svg> Credit Accounts</a><div class="row"><button class="btn btn-outline btn-sm"><svg><use href="#ic-pencil"/></svg> Edit limit</button></div></div>
+            <div class="kpis">
+              <div class="card kpi"><span class="t-hint">Credit limit</span><span class="v num">100,000.00</span><span class="t-hint">USD</span></div>
+              <div class="card kpi"><span class="t-hint">Exposure <span class="t-hint" style="font-weight:400">(SUM ledger)</span></span><span class="v num">82,400.00</span></div>
+              <div class="card kpi"><span class="t-hint">Available</span><span class="v num up">17,600.00</span></div>
+              <div class="card kpi"><span class="t-hint">Status</span><span class="badge badge-success" style="margin-top:0.25rem">In good standing</span></div>
+            </div>
+            <div class="card">
+              <div class="card-head"><span class="t-card-title"><svg style="width:1rem;height:1rem;display:inline;vertical-align:-2px;margin-right:0.25rem"><use href="#ic-ledger"/></svg> Ledger</span><button class="btn btn-outline btn-sm" data-goto="s16"><svg><use href="#ic-plus"/></svg> Adjust</button></div>
+              <table class="table">
+                <thead><tr><th>When</th><th>Type</th><th>Source</th><th class="right">Amount</th><th class="right">Balance after</th><th>Note</th></tr></thead>
+                <tbody>
+                  <tr><td class="t-mono">2026-08-20 09:14</td><td><span class="badge badge-info">reserve</span></td><td class="t-mono">checkout · CO-4821</td><td class="right num">+45,000.00</td><td class="right num muted">45,000.00</td><td class="t-hint">—</td></tr>
+                  <tr><td class="t-mono">2026-08-22 11:02</td><td><span class="badge badge-neutral">settle</span></td><td class="t-mono">invoice · INV-2091</td><td class="right num">−12,600.00</td><td class="right num muted">32,400.00</td><td class="t-hint">Partial settlement</td></tr>
+                  <tr><td class="t-mono">2026-08-25 14:37</td><td><span class="badge badge-info">reserve</span></td><td class="t-mono">checkout · CO-4903</td><td class="right num">+30,000.00</td><td class="right num muted">62,400.00</td><td class="t-hint">—</td></tr>
+                  <tr><td class="t-mono">2026-08-29 16:05</td><td><span class="badge badge-warning">adjust</span></td><td class="t-mono">manual · GL</td><td class="right num">+20,000.00</td><td class="right num muted">82,400.00</td><td class="t-hint">Corrects a reserve posted against the wrong currency account, per finance review</td></tr>
+                </tbody>
+                <tfoot><tr><td colspan="3">Exposure = SUM(amount)</td><td class="right num">82,400.00</td><td colspan="2"></td></tr></tfoot>
+              </table>
+            </div>
+          </main>
+        </div>
+      </div>
+      <div class="modal">
+        <div class="modal-head"><span class="t-card-title">Post a credit adjustment</span></div>
+        <div class="modal-body">
+          <p class="t-body" style="margin:0">Adjustments append a compensating ledger entry. There is no edit or delete on existing rows (§5.5).</p>
+          <div class="form-grid form-grid-2"><div class="field"><label>Amount <span class="req">*</span></label><input class="input num" placeholder="e.g. -5000.00 or 5000.00" /></div><div class="field"><label>Currency</label><input class="input t-mono" value="USD" disabled /></div></div>
+          <div class="field"><label>Note <span class="req">*</span></label><textarea class="textarea" placeholder="Required — this is the audit trail a dispute will be resolved from"></textarea></div>
+        </div>
+        <div class="modal-foot"><span class="t-hint"><span class="kbd">Esc</span> cancel</span><div class="row"><button class="btn btn-outline" data-goto="s16">Cancel</button><button class="btn btn-primary" data-goto="s16"><svg><use href="#ic-save"/></svg> Post adjustment</button></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>The KPI row never surfaces <code class="t-mono">balance_after</code> as the primary exposure number — only the ledger table shows it, and only as a per-row audit annotation, per §5.5.</span></div>
+    <div class="note"><b>2</b><span>The ledger table has no row-level edit or delete action anywhere — "Adjust" is the only write path, and it is additive.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S17 — Credit Account Detail: optimistic-lock conflict -->
+<!-- ============================================================ -->
+<section class="screen" id="s17">
+  <div class="screen-meta">
+    <h2>17. Credit Account Detail — Optimistic-lock conflict on save</h2>
+    <p>Editing Meridian Fasteners GmbH's on-hold account. A second finance operator released the hold while this form was open.</p>
+    <div class="screen-refs"><span class="ref">§5.4</span><span class="ref">US-E1</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/customer-groups/credit-accounts/meridian-eur</span></div>
+    <div class="app app-tall">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Northwind Fasteners</span></div>
+        <nav class="sidebar-nav"><div class="nav-group"><span>Customer Groups</span><svg><use href="#ic-chevron-down"/></svg></div><div class="nav-items"><a class="nav-item" href="#s2" data-goto="s2"><svg><use href="#ic-layers"/></svg> Groups</a><a class="nav-item active" href="#s15" data-goto="s15"><svg><use href="#ic-credit-card"/></svg> Credit Accounts</a></div></nav>
+      </aside>
+      <div class="main">
+        <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><a class="t-mono" data-goto="s15" style="color:var(--muted-foreground);text-decoration:none">Credit Accounts</a><svg><use href="#ic-chevron-right"/></svg><span class="here">Meridian Fasteners GmbH · EUR</span></div></div></header>
+        <main class="page">
+          <div class="form-head"><a class="back-link" data-goto="s15"><svg><use href="#ic-chevron-left"/></svg> Credit Accounts</a></div>
+          <div class="alert alert-warning">
+            <svg><use href="#ic-warn"/></svg>
+            <div class="grow"><div class="alert-title">This record changed since you opened it</div><div class="t-hint">Hans Vogel released the hold ("Payment 45 days overdue on INV-1987" → cleared) 1 minute ago. Saving now would silently put the account back on hold.</div>
+              <div class="row" style="margin-top:0.5rem"><button class="btn btn-outline btn-sm">Reload their version</button><button class="btn btn-outline btn-sm">Keep mine, save anyway</button></div>
+            </div>
+          </div>
+          <div class="form-layout">
+            <div class="form-col">
+              <div class="form-group">
+                <div class="title">Limit</div>
+                <div class="form-grid form-grid-2"><div class="field"><label>Credit limit</label><input class="input num" value="50000.00" /></div><div class="field"><label>Currency</label><input class="input t-mono" value="EUR" disabled /></div></div>
+              </div>
+              <div class="form-group">
+                <div class="title">Hold</div>
+                <div class="row between"><div class="col"><span class="t-label">On hold</span><span class="t-hint">Blocks purchase on account regardless of exposure.</span></div><button class="switch" aria-checked="true" type="button"></button></div>
+                <div class="field"><label>Hold reason <span class="req">*</span></label><textarea class="textarea">Payment 45 days overdue on INV-1987</textarea><span class="t-hint">Required while the hold switch is on.</span></div>
+              </div>
+            </div>
+          </div>
+        </main>
+        <div class="form-foot" style="padding:0.75rem 1.5rem;border-top:1px solid var(--border)"><span class="t-hint"><span class="kbd">Esc</span> cancel · <span class="kbd">⌘⏎</span> save</span><div class="actions"><button class="btn btn-outline" data-goto="s15">Cancel</button><button class="btn btn-primary is-disabled"><svg><use href="#ic-save"/></svg> Save</button></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Same conflict-bar component as S11 — one pattern, reused across Group Terms and Credit Account per the story map's cross-cutting rule.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S18 — Purchase Approvals: pending list + decide + conflict + expired -->
+<!-- ============================================================ -->
+<section class="screen" id="s18">
+  <div class="screen-meta">
+    <h2>18. Purchase Approvals — Pending list, Decide dialog, double-decision conflict, expired</h2>
+    <p>Three approvals in different states: pending (being decided in the dialog), already decided by another approver (conflict), and expired.</p>
+    <div class="screen-refs"><span class="ref">§5.6</span><span class="ref">R8</span><span class="ref">US-F1</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/customer-groups/approvals</span></div>
+    <div class="modal-scrim">
+      <div class="app app-taller">
+        <aside class="sidebar">
+          <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Northwind Fasteners</span></div>
+          <nav class="sidebar-nav"><div class="nav-group"><span>Customer Groups</span><svg><use href="#ic-chevron-down"/></svg></div><div class="nav-items"><a class="nav-item" href="#s2" data-goto="s2"><svg><use href="#ic-layers"/></svg> Groups</a><a class="nav-item" href="#s15" data-goto="s15"><svg><use href="#ic-credit-card"/></svg> Credit Accounts</a><span class="nav-item active"><svg><use href="#ic-shield"/></svg> Approvals<span class="count">2</span></span></div></nav>
+        </aside>
+        <div class="main">
+          <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span class="here">Purchase Approvals</span></div></div></header>
+          <main class="page">
+            <div class="page-head"><div><h1 class="t-page-title">Purchase Approvals</h1><p>An over-threshold order routes here per the buying group's <span class="t-mono">approval_required_above</span> term.</p></div></div>
+            <div class="dt">
+              <div class="dt-head"><div class="dt-head-row"><h2 class="t-table-title">3 requests</h2></div></div>
+              <table class="table">
+                <thead><tr><th>Customer</th><th>Requested by</th><th>Subject</th><th class="right">Amount</th><th>Status</th><th>Expires</th><th class="right"></th></tr></thead>
+                <tbody>
+                  <tr style="outline:2px solid var(--ring);outline-offset:-2px">
+                    <td class="row"><span class="avatar avatar-sm">BB</span> Bolt &amp; Beam Supply</td><td>Tomasz Nowak</td><td><span class="badge badge-neutral">cart</span></td>
+                    <td class="right num">18,540.00 PLN</td><td><span class="badge badge-warning"><svg><use href="#ic-clock"/></svg> Pending</span></td><td class="num t-hint">in 22h</td>
+                    <td class="right"><button class="btn btn-outline btn-sm" data-goto="s18">Decide</button></td>
+                  </tr>
+                  <tr>
+                    <td class="row"><span class="avatar avatar-sm">AH</span> Acme Hardware Ltd</td><td>Priya Shah</td><td><span class="badge badge-neutral">checkout_session</span></td>
+                    <td class="right num">61,200.00 USD</td><td><span class="badge badge-success"><svg><use href="#ic-check"/></svg> Approved</span></td><td class="t-hint">Grace Liu · 2026-08-28</td>
+                    <td class="right muted t-hint">Read-only</td>
+                  </tr>
+                  <tr style="opacity:0.65">
+                    <td class="row"><span class="avatar avatar-sm">MF</span> Meridian Fasteners GmbH</td><td>Hans Vogel</td><td><span class="badge badge-neutral">quote</span></td>
+                    <td class="right num">9,800.00 EUR</td><td><span class="badge badge-neutral">Expired</span></td><td class="t-hint">2026-08-27 09:00</td>
+                    <td class="right muted t-hint">Read-only</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </main>
+        </div>
+      </div>
+      <div class="modal" style="width:32rem">
+        <div class="modal-head"><div class="row"><span class="t-card-title">Decide — Bolt &amp; Beam Supply</span><span class="badge badge-neutral" style="margin-left:auto">cart</span></div><p class="t-hint" style="margin:0.375rem 0 0">18,540.00 PLN · requested by Tomasz Nowak · expires in 22h</p></div>
+        <div class="modal-body">
+          <div class="alert alert-error">
+            <svg><use href="#ic-warn"/></svg>
+            <div><div class="alert-title">Already decided</div><div class="t-hint">Grace Liu approved this request 8 seconds ago while you had it open. Deciding again would be a double-decision (R8) — reload to see her decision instead.</div></div>
+          </div>
+          <div class="field" style="opacity:0.5;pointer-events:none"><label>Decision note</label><textarea class="textarea" placeholder="Optional context for the requester"></textarea></div>
+        </div>
+        <div class="modal-foot">
+          <span class="t-hint"><span class="kbd">Esc</span> cancel</span>
+          <div class="row"><button class="btn btn-outline" data-goto="s18">Reload</button><button class="btn btn-destructive-outline is-disabled"><svg><use href="#ic-circle-x"/></svg> Reject</button><button class="btn btn-primary is-disabled"><svg><use href="#ic-check"/></svg> Approve</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Approve/Reject disable once the conflict is detected — illustrative here since the real check is <code class="t-mono">enforceCommandOptimisticLock</code> on the server, surfaced through <code class="t-mono">surfaceRecordConflict</code> (§5.6).</span></div>
+    <div class="note"><b>2</b><span>The expired row has no Decide action — past <code class="t-mono">expires_at</code>, the background job (§11) already transitioned it.</span></div>
+    <div class="note"><b>3</b><span>This screen decides the pending request in-app; who is authorized to decide (an internal account manager here) versus a customer-portal buyer self-approving a subordinate's order is a portal-surface question out of scope for this backend prototype.</span></div>
+  </div>
+</section>
+
+</div>
+
+<script>
+(function () {
+  var btn = document.getElementById('theme-toggle');
+  btn.addEventListener('click', function () {
+    document.documentElement.classList.toggle('dark');
+  });
+})();
+</script>
+<script src="comments.js"></script>
+<script src="prototype.js"></script>
+</body>
+</html>

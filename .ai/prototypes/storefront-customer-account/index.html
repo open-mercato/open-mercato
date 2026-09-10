@@ -1,0 +1,1189 @@
+<!doctype html>
+<html lang="en" data-prototype-id="storefront-customer-account">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Customer Portal — interactive prototype (deliberate scope exception)</title>
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="components.css" />
+<link rel="stylesheet" href="screens.css" />
+<link rel="stylesheet" href="prototype.css" />
+<style>
+  /* Mirrors packages/ui/src/portal/PortalShell.tsx's real, documented structure:
+     240px sidebar (brand, "Portal"/"Account" nav groups, user row + logout),
+     64px header (mobile toggle + notification bell), main, footer. This is a
+     first-class, DS-documented extension surface (packages/ui/AGENTS.md → Portal
+     Extension) — closer to in-scope than the raw storefront chrome used in the
+     storefront-app/checkout-simple-checkout prototypes, but om-mockup-prototype's
+     own boundary still names "portal" as routed elsewhere, so this remains a
+     deliberate exception at the requester's explicit request. List/form content
+     reuses the real backend .dt/table/form-layout classes verbatim, since portal
+     pages use the same DataTable/CrudForm components as the backoffice. */
+  .portal-shell{display:flex;min-height:34rem;background:var(--background)}
+  .portal-sidebar{width:15rem;flex-shrink:0;border-right:1px solid var(--border);display:flex;flex-direction:column}
+  .portal-sidebar-brand{display:flex;align-items:center;gap:0.625rem;height:4rem;padding:0 1.25rem;border-bottom:1px solid var(--border);font-size:0.875rem;font-weight:600}
+  .portal-nav{flex:1;overflow-y:auto;padding:1.25rem 0.75rem}
+  .portal-nav-group{margin-bottom:1.75rem}
+  .portal-nav-label{margin:0 0 0.5rem 0.75rem;font-size:0.6875rem;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;color:var(--muted-foreground)}
+  .portal-nav-item{display:flex;align-items:center;gap:0.625rem;border-radius:var(--radius-md);padding:0.5rem 0.75rem;font-size:0.875rem;font-weight:500;color:var(--muted-foreground);text-decoration:none;margin-bottom:0.125rem;cursor:pointer}
+  .portal-nav-item svg{width:0.9rem;height:0.9rem;flex-shrink:0}
+  .portal-nav-item.active{background:var(--foreground);color:var(--background)}
+  .portal-nav-item:not(.active):hover{background:var(--muted)}
+  .portal-sidebar-user{border-top:1px solid var(--border);padding:0.75rem}
+  .portal-user-row{display:flex;align-items:center;gap:0.625rem;border-radius:var(--radius-md);padding:0.5rem 0.75rem}
+  .portal-user-name{font-size:0.875rem;font-weight:500;line-height:1.2}
+  .portal-user-email{font-size:0.6875rem;color:var(--muted-foreground)}
+  .portal-logout{display:flex;align-items:center;gap:0.625rem;border-radius:var(--radius-md);padding:0.5rem 0.75rem;font-size:0.875rem;color:var(--muted-foreground);margin-top:0.125rem}
+  .portal-body{display:flex;flex-direction:column;flex:1;min-width:0}
+  .portal-header{height:4rem;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:flex-end;padding:0 1.25rem}
+  .portal-main{flex:1;padding:1.75rem 2rem;overflow:auto}
+  .portal-footer{border-top:1px solid var(--border);padding:1rem 2rem;font-size:0.6875rem;color:var(--muted-foreground)}
+  .portal-page-head{margin-bottom:1.25rem}
+  .portal-page-head h1{font-size:1.25rem;font-weight:600;margin:0 0 0.25rem}
+  .kpi-row{display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;margin-bottom:1.5rem}
+  .kpi-card{border:1px solid var(--border);border-radius:var(--radius-lg);padding:1rem}
+  .kpi-card .num{font-size:1.5rem;font-weight:600;display:block}
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<symbol id="ic-home" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></symbol>
+<symbol id="ic-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+<symbol id="ic-chevron-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></symbol>
+<symbol id="ic-chevron-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></symbol>
+<symbol id="ic-bell" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></symbol>
+<symbol id="ic-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></symbol>
+<symbol id="ic-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+<symbol id="ic-save" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7H7v7"/><path d="M7 3v5h8"/></symbol>
+<symbol id="ic-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></symbol>
+<symbol id="ic-warn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
+<symbol id="ic-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></symbol>
+<symbol id="ic-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+<symbol id="ic-package" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73Z"/><path d="M12 22V12"/><path d="M3.29 7 12 12l8.71-5"/><path d="m7.5 4.27 9 5.15"/></symbol>
+<symbol id="ic-mail" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></symbol>
+<symbol id="ic-phone" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13.832 16.568a1 1 0 0 0 1.213-.303l.355-.465A2 2 0 0 1 17 15h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2A18 18 0 0 1 2 4a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2v3a2 2 0 0 1-.8 1.6l-.468.351a1 1 0 0 0-.292 1.233 14 14 0 0 0 6.392 6.384"/></symbol>
+<symbol id="ic-map-pin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0"/><circle cx="12" cy="10" r="3"/></symbol>
+<symbol id="ic-truck" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14"/><circle cx="17" cy="18" r="2"/><circle cx="7" cy="18" r="2"/></symbol>
+<symbol id="ic-credit-card" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></symbol>
+<symbol id="ic-file-text" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></symbol>
+<symbol id="ic-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></symbol>
+<symbol id="ic-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></symbol>
+<symbol id="ic-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.06 12.35a1 1 0 0 1 0-.7 10.75 10.75 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-19.88 0"/><circle cx="12" cy="12" r="3"/></symbol>
+<symbol id="ic-layers" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/></symbol>
+<symbol id="ic-users" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+<symbol id="ic-heart" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.29 1.51 4.04 3 5.5l7 7Z"/></symbol>
+<symbol id="ic-building" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/><path d="M10 18h4"/></symbol>
+<symbol id="ic-log-out" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></symbol>
+<symbol id="ic-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/></symbol>
+<symbol id="ic-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+<symbol id="ic-pencil" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/></symbol>
+<symbol id="ic-trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></symbol>
+<symbol id="ic-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/></symbol>
+</defs></svg>
+
+<div class="doc-toolbar">
+  <strong style="font-size:0.875rem">Customer Portal — prototype</strong>
+  <nav class="screen-nav" aria-label="Screens">
+    <a href="#s1">1 Overview</a>
+    <a href="#s2">2 Orders</a>
+    <a href="#s3">3 Order detail</a>
+    <a href="#s4">4 Reorder preview</a>
+    <a href="#s5">5 Quotes</a>
+    <a href="#s6">6 Addresses</a>
+    <a href="#s7">7 Profile</a>
+    <a href="#s8">8 Wishlist</a>
+    <a href="#s9">9 Saved carts</a>
+    <a href="#s10">10 Returns</a>
+    <a href="#s11">11 Company (B2B)</a>
+    <a href="#s12">12 Buyers (B2B)</a>
+    <a href="#s13">13 Approvals (B2B)</a>
+    <a href="#s14">14 Credit (B2B)</a>
+    <a href="#s15">15 POs (B2B)</a>
+    <a href="#s16">16 Price list (B2B)</a>
+    <a href="#s17">17 Orders (company_summary)</a>
+    <a href="#s18">18 Order — denied</a>
+    <a href="#s19">19 Approvals — conflict</a>
+  </nav>
+  <button class="btn btn-outline btn-sm" id="theme-toggle" type="button"><svg><use href="#ic-sun"/></svg> Theme</button>
+</div>
+
+<div class="doc">
+
+<header class="doc-head">
+  <h1>Customer Portal — screen inventory</h1>
+  <p class="muted" style="max-width:74ch;margin:0">
+    Derived from <code class="t-mono">.ai/specs/2026-08-14-storefront-customer-account.md</code>. Every screen mirrors
+    <code class="t-mono">PortalShell</code> (240px sidebar, "Portal"/"Account" nav groups, header, footer —
+    <code class="t-mono">packages/ui/src/portal/PortalShell.tsx</code>) and reuses the real backend
+    <code class="t-mono">.dt</code>/table/form-layout classes, since portal pages are built from the same
+    <code class="t-mono">DataTable</code>/<code class="t-mono">CrudForm</code> components as the backoffice
+    (<code class="t-mono">packages/ui/AGENTS.md</code> → Portal Extension). Screens 1–10 are the shared segment
+    (§6.1); 11–16 are B2B-only (§6.2, buyer Dana Ruiz — Ironclad Supply Co., <span class="t-mono">company_admin</span>
+    + <span class="t-mono">purchase_approver</span>); 17–19 exercise the spec's single load-bearing risk, the order
+    visibility policy (§4, R1/R2/R6) — a colleague's <span class="t-mono">company_summary</span> view, cross-company
+    denial, and an approval decided twice (optimistic-lock conflict). Not drawn: back-in-stock subscribe/unsubscribe
+    (lives on the PDP and in email, not an account page) and GDPR cascade deletion (a backend subscriber, no screen).
+    Tenant: Northwind Fasteners.
+  </p>
+</header>
+
+<!-- ============================================================ -->
+<!-- S1 — Overview -->
+<!-- ============================================================ -->
+<section class="screen" id="s1">
+  <div class="screen-meta">
+    <h2>1. Overview</h2>
+    <p>Alex Morgan — B2C buyer, <span class="t-mono">own</span> scope. Recent orders, open approvals (empty for a solo buyer), saved carts.</p>
+    <div class="screen-refs"><span class="ref">§6.1</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">shop.northwind.example/portal/dashboard</span></div>
+    <div class="portal-shell">
+      <aside class="portal-sidebar">
+        <div class="portal-sidebar-brand"><svg style="width:1.1rem;height:1.1rem"><use href="#ic-home"/></svg> Northwind Fasteners</div>
+        <nav class="portal-nav">
+          <div class="portal-nav-group">
+            <div class="portal-nav-label">Portal</div>
+            <a class="portal-nav-item active"><svg><use href="#ic-home"/></svg> Overview</a>
+            <a class="portal-nav-item" data-goto="s2"><svg><use href="#ic-package"/></svg> Orders</a>
+            <a class="portal-nav-item" data-goto="s5"><svg><use href="#ic-file-text"/></svg> Quotes</a>
+            <a class="portal-nav-item" data-goto="s8"><svg><use href="#ic-heart"/></svg> Wishlists</a>
+            <a class="portal-nav-item" data-goto="s9"><svg><use href="#ic-package"/></svg> Saved carts</a>
+            <a class="portal-nav-item" data-goto="s10"><svg><use href="#ic-refresh"/></svg> Returns</a>
+          </div>
+          <div class="portal-nav-group">
+            <div class="portal-nav-label">Account</div>
+            <a class="portal-nav-item" data-goto="s6"><svg><use href="#ic-map-pin"/></svg> Addresses</a>
+            <a class="portal-nav-item" data-goto="s7"><svg><use href="#ic-users"/></svg> Profile</a>
+          </div>
+        </nav>
+        <div class="portal-sidebar-user">
+          <div class="portal-user-row"><div class="avatar avatar-sm">AM</div><div><div class="portal-user-name">Alex Morgan</div><div class="portal-user-email">alex.morgan@example.com</div></div></div>
+          <a class="portal-logout"><svg style="width:0.9rem;height:0.9rem"><use href="#ic-log-out"/></svg> Log out</a>
+        </div>
+      </aside>
+      <div class="portal-body">
+        <header class="portal-header"><button class="icon-btn" aria-label="Notifications"><svg><use href="#ic-bell"/></svg></button></header>
+        <main class="portal-main">
+          <div class="portal-page-head"><h1>Welcome back, Alex</h1></div>
+          <div class="kpi-row">
+            <div class="kpi-card"><span class="t-hint">Orders this year</span><span class="num">7</span></div>
+            <div class="kpi-card"><span class="t-hint">Saved carts</span><span class="num">2</span></div>
+            <div class="kpi-card"><span class="t-hint">Wishlist items</span><span class="num">4</span></div>
+          </div>
+          <div class="dt">
+            <div class="dt-head"><div class="dt-head-row"><h2 class="t-table-title">Recent orders</h2></div></div>
+            <table class="table">
+              <thead><tr><th>Order</th><th>Date</th><th>Status</th><th class="right">Total</th></tr></thead>
+              <tbody>
+                <tr class="clickable" data-goto="s3"><td class="t-mono">#SO-10482</td><td class="t-hint">Today</td><td><span class="badge badge-success">Delivered</span></td><td class="right num">301,00 zł</td></tr>
+                <tr class="clickable" data-goto="s3"><td class="t-mono">#SO-10310</td><td class="t-hint">3 weeks ago</td><td><span class="badge badge-neutral">Shipped</span></td><td class="right num">129,00 zł</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </main>
+        <footer class="portal-footer">© Northwind Fasteners</footer>
+      </div>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>"Open approvals" and "Credit summary" widgets are B2B-only — omitted for Alex's solo B2C account (§6.1 lists them as conditional content).</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S2 — Orders (own scope) -->
+<!-- ============================================================ -->
+<section class="screen" id="s2">
+  <div class="screen-meta">
+    <h2>2. Orders — list (<span class="t-mono">own</span> scope)</h2>
+    <p>Default scope, per §4.2 — a first deployment can never disclose colleagues' orders by default.</p>
+    <div class="screen-refs"><span class="ref">§4.1</span><span class="ref">§4.2</span><span class="ref">§6.1</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">shop.northwind.example/portal/orders</span></div>
+    <div class="portal-shell">
+      <aside class="portal-sidebar">
+        <div class="portal-sidebar-brand"><svg style="width:1.1rem;height:1.1rem"><use href="#ic-home"/></svg> Northwind Fasteners</div>
+        <nav class="portal-nav">
+          <div class="portal-nav-group">
+            <div class="portal-nav-label">Portal</div>
+            <a class="portal-nav-item" data-goto="s1"><svg><use href="#ic-home"/></svg> Overview</a>
+            <a class="portal-nav-item active"><svg><use href="#ic-package"/></svg> Orders</a>
+            <a class="portal-nav-item" data-goto="s5"><svg><use href="#ic-file-text"/></svg> Quotes</a>
+            <a class="portal-nav-item" data-goto="s8"><svg><use href="#ic-heart"/></svg> Wishlists</a>
+            <a class="portal-nav-item" data-goto="s9"><svg><use href="#ic-package"/></svg> Saved carts</a>
+            <a class="portal-nav-item" data-goto="s10"><svg><use href="#ic-refresh"/></svg> Returns</a>
+          </div>
+          <div class="portal-nav-group">
+            <div class="portal-nav-label">Account</div>
+            <a class="portal-nav-item" data-goto="s6"><svg><use href="#ic-map-pin"/></svg> Addresses</a>
+            <a class="portal-nav-item" data-goto="s7"><svg><use href="#ic-users"/></svg> Profile</a>
+          </div>
+        </nav>
+        <div class="portal-sidebar-user"><div class="portal-user-row"><div class="avatar avatar-sm">AM</div><div><div class="portal-user-name">Alex Morgan</div><div class="portal-user-email">alex.morgan@example.com</div></div></div><a class="portal-logout"><svg style="width:0.9rem;height:0.9rem"><use href="#ic-log-out"/></svg> Log out</a></div>
+      </aside>
+      <div class="portal-body">
+        <header class="portal-header"><button class="icon-btn" aria-label="Notifications"><svg><use href="#ic-bell"/></svg></button></header>
+        <main class="portal-main">
+          <div class="portal-page-head"><h1>Orders</h1></div>
+          <div class="dt">
+            <div class="dt-head"><div class="dt-head-row"><h2 class="t-table-title">7 orders</h2></div><div class="dt-toolbar"><div class="dt-toolbar-row"><input class="input dt-search" placeholder="Search order number…" /></div></div></div>
+            <table class="table">
+              <thead><tr><th>Order</th><th>Date</th><th>Status</th><th class="right">Total</th><th class="right">Actions</th></tr></thead>
+              <tbody>
+                <tr class="clickable" data-goto="s3"><td class="t-mono">#SO-10482</td><td class="t-hint">Today</td><td><span class="badge badge-success">Delivered</span></td><td class="right num">301,00 zł</td><td class="right"><button class="btn btn-icon btn-sm" data-goto="s3"><svg><use href="#ic-eye"/></svg></button></td></tr>
+                <tr class="clickable" data-goto="s3"><td class="t-mono">#SO-10310</td><td class="t-hint">3 weeks ago</td><td><span class="badge badge-neutral">Shipped</span></td><td class="right num">129,00 zł</td><td class="right"><button class="btn btn-icon btn-sm" data-goto="s3"><svg><use href="#ic-eye"/></svg></button></td></tr>
+                <tr><td class="t-mono">#SO-09981</td><td class="t-hint">2 months ago</td><td><span class="badge badge-success">Delivered</span></td><td class="right num">84,00 zł</td><td class="right"><button class="btn btn-icon btn-sm"><svg><use href="#ic-eye"/></svg></button></td></tr>
+              </tbody>
+            </table>
+            <div class="dt-foot"><span class="t-hint num">Showing 1 to 3 of 7 results</span></div>
+          </div>
+        </main>
+        <footer class="portal-footer">© Northwind Fasteners</footer>
+      </div>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>Every row here is composed through <code class="t-mono">buildOrderVisibilityFilter</code> (§4.3) — the same helper every order-reading endpoint uses, never re-derived per endpoint.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S3 — Order detail -->
+<!-- ============================================================ -->
+<section class="screen" id="s3">
+  <div class="screen-meta">
+    <h2>3. Order detail</h2>
+    <p>Lines, totals, addresses, shipment tracking, payments, documents, reorder — the full page content list from §6.1.</p>
+    <div class="screen-refs"><span class="ref">§6.1</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">shop.northwind.example/portal/orders/SO-10482</span></div>
+    <div class="portal-shell">
+      <aside class="portal-sidebar">
+        <div class="portal-sidebar-brand"><svg style="width:1.1rem;height:1.1rem"><use href="#ic-home"/></svg> Northwind Fasteners</div>
+        <nav class="portal-nav">
+          <div class="portal-nav-group"><div class="portal-nav-label">Portal</div>
+            <a class="portal-nav-item" data-goto="s1"><svg><use href="#ic-home"/></svg> Overview</a>
+            <a class="portal-nav-item" data-goto="s2"><svg><use href="#ic-package"/></svg> Orders</a>
+            <a class="portal-nav-item" data-goto="s5"><svg><use href="#ic-file-text"/></svg> Quotes</a>
+            <a class="portal-nav-item" data-goto="s8"><svg><use href="#ic-heart"/></svg> Wishlists</a>
+            <a class="portal-nav-item" data-goto="s9"><svg><use href="#ic-package"/></svg> Saved carts</a>
+            <a class="portal-nav-item" data-goto="s10"><svg><use href="#ic-refresh"/></svg> Returns</a>
+          </div>
+          <div class="portal-nav-group"><div class="portal-nav-label">Account</div>
+            <a class="portal-nav-item" data-goto="s6"><svg><use href="#ic-map-pin"/></svg> Addresses</a>
+            <a class="portal-nav-item" data-goto="s7"><svg><use href="#ic-users"/></svg> Profile</a>
+          </div>
+        </nav>
+        <div class="portal-sidebar-user"><div class="portal-user-row"><div class="avatar avatar-sm">AM</div><div><div class="portal-user-name">Alex Morgan</div><div class="portal-user-email">alex.morgan@example.com</div></div></div><a class="portal-logout"><svg style="width:0.9rem;height:0.9rem"><use href="#ic-log-out"/></svg> Log out</a></div>
+      </aside>
+      <div class="portal-body">
+        <header class="portal-header"><button class="icon-btn" aria-label="Notifications"><svg><use href="#ic-bell"/></svg></button></header>
+        <main class="portal-main">
+          <div class="form-head"><a class="back-link" data-goto="s2"><svg><use href="#ic-chevron-right" style="transform:rotate(180deg)"/></svg> Orders</a></div>
+          <div class="portal-page-head"><h1>Order #SO-10482</h1><span class="badge badge-success">Delivered</span></div>
+
+          <div class="form-layout">
+            <div class="form-col">
+              <div class="dt">
+                <div class="dt-head"><div class="dt-head-row"><h2 class="t-table-title">Items</h2></div></div>
+                <table class="table"><tbody>
+                  <tr><td>M8 Hex Bolt (Bulk Pack, 500ct) × 2</td><td class="right num">168,00 zł</td></tr>
+                  <tr><td>TorquePro X1 Wrench × 1</td><td class="right num">99,00 zł</td></tr>
+                  <tr><td>Shipping — Express</td><td class="right num">34,00 zł</td></tr>
+                  <tr><td style="font-weight:600">Total</td><td class="right num" style="font-weight:600">301,00 zł</td></tr>
+                </tbody></table>
+              </div>
+              <div class="form-group" style="margin-top:1rem">
+                <div class="title">Shipment</div>
+                <div class="row-3"><svg style="width:1rem;height:1rem"><use href="#ic-truck"/></svg><div><div class="t-body">Delivered 2026-08-29</div><div class="t-hint t-mono">Tracking: DPD-8841-PL</div></div></div>
+              </div>
+            </div>
+            <div class="form-col">
+              <div class="form-group"><div class="title">Shipping address</div><div class="t-hint">Alex Morgan, ul. Grunwaldzka 12/4, 80-244 Gdańsk</div></div>
+              <div class="form-group"><div class="title">Payment</div><div class="t-hint">Card ending 4242 · Captured</div></div>
+              <div class="form-group">
+                <div class="title">Documents</div>
+                <div class="row between"><span class="t-hint row"><svg style="width:0.9rem;height:0.9rem"><use href="#ic-file-text"/></svg> Invoice #INV-8821</span><button class="btn btn-outline btn-sm"><svg><use href="#ic-download"/></svg></button></div>
+              </div>
+              <button class="btn btn-primary" style="width:100%" data-goto="s4"><svg><use href="#ic-refresh"/></svg> Reorder</button>
+            </div>
+          </div>
+        </main>
+        <footer class="portal-footer">© Northwind Fasteners</footer>
+      </div>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>Document download is fetched by id through the visibility filter and <code class="t-mono">allow_document_download</code> — see screen 18 for the denied case, indistinguishable from not-found (R6).</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S4 — Reorder preview -->
+<!-- ============================================================ -->
+<section class="screen" id="s4">
+  <div class="screen-meta">
+    <h2>4. Reorder preview — every difference class (R3)</h2>
+    <p>Never a one-click cart. Every line difference named with a reason before any cart is created.</p>
+    <div class="screen-refs"><span class="ref">§2.4</span><span class="ref">§7</span><span class="ref">R3</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">shop.northwind.example/portal/orders/SO-10482/reorder</span></div>
+    <div class="portal-shell">
+      <aside class="portal-sidebar">
+        <div class="portal-sidebar-brand"><svg style="width:1.1rem;height:1.1rem"><use href="#ic-home"/></svg> Northwind Fasteners</div>
+        <nav class="portal-nav">
+          <div class="portal-nav-group"><div class="portal-nav-label">Portal</div>
+            <a class="portal-nav-item" data-goto="s1"><svg><use href="#ic-home"/></svg> Overview</a>
+            <a class="portal-nav-item" data-goto="s2"><svg><use href="#ic-package"/></svg> Orders</a>
+            <a class="portal-nav-item" data-goto="s5"><svg><use href="#ic-file-text"/></svg> Quotes</a>
+            <a class="portal-nav-item" data-goto="s8"><svg><use href="#ic-heart"/></svg> Wishlists</a>
+            <a class="portal-nav-item" data-goto="s9"><svg><use href="#ic-package"/></svg> Saved carts</a>
+            <a class="portal-nav-item" data-goto="s10"><svg><use href="#ic-refresh"/></svg> Returns</a>
+          </div>
+          <div class="portal-nav-group"><div class="portal-nav-label">Account</div>
+            <a class="portal-nav-item" data-goto="s6"><svg><use href="#ic-map-pin"/></svg> Addresses</a>
+            <a class="portal-nav-item" data-goto="s7"><svg><use href="#ic-users"/></svg> Profile</a>
+          </div>
+        </nav>
+        <div class="portal-sidebar-user"><div class="portal-user-row"><div class="avatar avatar-sm">AM</div><div><div class="portal-user-name">Alex Morgan</div><div class="portal-user-email">alex.morgan@example.com</div></div></div><a class="portal-logout"><svg style="width:0.9rem;height:0.9rem"><use href="#ic-log-out"/></svg> Log out</a></div>
+      </aside>
+      <div class="portal-body">
+        <header class="portal-header"><button class="icon-btn" aria-label="Notifications"><svg><use href="#ic-bell"/></svg></button></header>
+        <main class="portal-main">
+          <div class="portal-page-head"><h1>Reorder from #SO-10482</h1><p class="t-hint">Reviewed before anything is added to your cart — 6 of 8 original lines carried forward unchanged.</p></div>
+          <div class="dt">
+            <table class="table">
+              <thead><tr><th>Line</th><th>Then</th><th>Now</th><th>Issue</th></tr></thead>
+              <tbody>
+                <tr><td>M8 Hex Bolt (Bulk Pack)</td><td class="num">2 × 84,00 zł</td><td class="num">2 × 84,00 zł</td><td><span class="badge badge-success">Unchanged</span></td></tr>
+                <tr><td>Legacy Wing Nut Kit</td><td class="num">1 × 22,00 zł</td><td class="t-hint">—</td><td><span class="badge badge-error">Unavailable</span> <span class="t-hint">discontinued</span></td></tr>
+                <tr><td>Q3 Preview Torque Wrench</td><td class="num">1 × 99,00 zł</td><td class="t-hint">—</td><td><span class="badge badge-warning">Not permitted</span> <span class="t-hint">outside your current assortment</span></td></tr>
+                <tr><td>Hex Nut Kit — Size M</td><td class="num">1 × 18,00 zł</td><td class="t-hint">—</td><td><span class="badge badge-error">Variant gone</span> <span class="t-hint">size discontinued</span></td></tr>
+                <tr><td>Standard Wood Screw 4×40</td><td class="num">10 × 6,50 zł</td><td class="num">10 × 7,20 zł</td><td><span class="badge badge-warning">Price changed</span> <span class="t-hint">+0,70 zł each</span></td></tr>
+                <tr><td>Flat Washer Assortment</td><td class="num">5 × 18,00 zł</td><td class="num">2 available</td><td><span class="badge badge-warning">Partial stock</span> <span class="t-hint">3 short</span></td></tr>
+                <tr><td>Bulk Bolt Case</td><td class="num">7 × 4,00 zł</td><td class="num">6 × 4,00 zł</td><td><span class="badge badge-warning">Quantity adjusted</span> <span class="t-hint">sold in packs of 6</span></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="row between" style="margin-top:1rem"><span class="t-hint">4 lines will be added as shown; 3 need your attention above.</span><button class="btn btn-primary" data-goto="s9">Add accepted lines to cart</button></div>
+        </main>
+        <footer class="portal-footer">© Northwind Fasteners</footer>
+      </div>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>All six difference classes from §7 step 2 in one worked example — this is the screen that makes R3 ("a reorder that quietly drops two of eight lines produces a wrong order the buyer believes is right") concrete.</span></div>
+    <div class="note"><b>2</b><span>Confirming creates a cart containing exactly the accepted lines via <code class="t-mono">cart.lines.bulkAdd</code> (§7 step 5) — never a direct write, and never before this screen is seen.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S5 — Quotes -->
+<!-- ============================================================ -->
+<section class="screen" id="s5">
+  <div class="screen-meta">
+    <h2>5. Quotes</h2>
+    <p>Merchant-issued quotes; accepting converts to an order via <code class="t-mono">sales</code>'s existing conversion, not reimplemented here.</p>
+    <div class="screen-refs"><span class="ref">§6.1</span><span class="ref">§8</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">shop.northwind.example/portal/quotes</span></div>
+    <div class="portal-shell">
+      <aside class="portal-sidebar">
+        <div class="portal-sidebar-brand"><svg style="width:1.1rem;height:1.1rem"><use href="#ic-home"/></svg> Northwind Fasteners</div>
+        <nav class="portal-nav">
+          <div class="portal-nav-group"><div class="portal-nav-label">Portal</div>
+            <a class="portal-nav-item" data-goto="s1"><svg><use href="#ic-home"/></svg> Overview</a>
+            <a class="portal-nav-item" data-goto="s2"><svg><use href="#ic-package"/></svg> Orders</a>
+            <a class="portal-nav-item active"><svg><use href="#ic-file-text"/></svg> Quotes</a>
+            <a class="portal-nav-item" data-goto="s8"><svg><use href="#ic-heart"/></svg> Wishlists</a>
+            <a class="portal-nav-item" data-goto="s9"><svg><use href="#ic-package"/></svg> Saved carts</a>
+            <a class="portal-nav-item" data-goto="s10"><svg><use href="#ic-refresh"/></svg> Returns</a>
+          </div>
+          <div class="portal-nav-group"><div class="portal-nav-label">Account</div>
+            <a class="portal-nav-item" data-goto="s6"><svg><use href="#ic-map-pin"/></svg> Addresses</a>
+            <a class="portal-nav-item" data-goto="s7"><svg><use href="#ic-users"/></svg> Profile</a>
+          </div>
+        </nav>
+        <div class="portal-sidebar-user"><div class="portal-user-row"><div class="avatar avatar-sm">DR</div><div><div class="portal-user-name">Dana Ruiz</div><div class="portal-user-email">Ironclad Supply Co.</div></div></div><a class="portal-logout"><svg style="width:0.9rem;height:0.9rem"><use href="#ic-log-out"/></svg> Log out</a></div>
+      </aside>
+      <div class="portal-body">
+        <header class="portal-header"><button class="icon-btn" aria-label="Notifications"><svg><use href="#ic-bell"/></svg></button></header>
+        <main class="portal-main">
+          <div class="portal-page-head"><h1>Quotes</h1></div>
+          <div class="dt">
+            <table class="table">
+              <thead><tr><th>Quote</th><th>Requested</th><th>Total</th><th>Status</th><th class="right">Actions</th></tr></thead>
+              <tbody>
+                <tr><td class="t-mono">#Q-1042</td><td class="t-hint">2 days ago</td><td class="right num">12 400,00 zł</td><td><span class="badge badge-info">Ready to accept</span></td><td class="right"><button class="btn btn-primary btn-sm">Accept</button></td></tr>
+                <tr><td class="t-mono">#Q-0998</td><td class="t-hint">last month</td><td class="right num">4 200,00 zł</td><td><span class="badge badge-success">Converted to order</span></td><td class="right"><button class="btn btn-outline btn-sm" disabled>View order</button></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </main>
+        <footer class="portal-footer">© Northwind Fasteners</footer>
+      </div>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>"Accept" delegates to <code class="t-mono">sales</code>'s existing quote→order conversion — a non-approver attempting this is refused (§11).</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S6 — Addresses -->
+<!-- ============================================================ -->
+<section class="screen" id="s6">
+  <div class="screen-meta">
+    <h2>6. Addresses</h2>
+    <p>CRUD over <code class="t-mono">customers.CustomerAddress</code> — default shipping and billing.</p>
+    <div class="screen-refs"><span class="ref">§5.4</span><span class="ref">§6.1</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">shop.northwind.example/portal/addresses</span></div>
+    <div class="portal-shell">
+      <aside class="portal-sidebar">
+        <div class="portal-sidebar-brand"><svg style="width:1.1rem;height:1.1rem"><use href="#ic-home"/></svg> Northwind Fasteners</div>
+        <nav class="portal-nav">
+          <div class="portal-nav-group"><div class="portal-nav-label">Portal</div>
+            <a class="portal-nav-item" data-goto="s1"><svg><use href="#ic-home"/></svg> Overview</a>
+            <a class="portal-nav-item" data-goto="s2"><svg><use href="#ic-package"/></svg> Orders</a>
+            <a class="portal-nav-item" data-goto="s5"><svg><use href="#ic-file-text"/></svg> Quotes</a>
+            <a class="portal-nav-item" data-goto="s8"><svg><use href="#ic-heart"/></svg> Wishlists</a>
+            <a class="portal-nav-item" data-goto="s9"><svg><use href="#ic-package"/></svg> Saved carts</a>
+            <a class="portal-nav-item" data-goto="s10"><svg><use href="#ic-refresh"/></svg> Returns</a>
+          </div>
+          <div class="portal-nav-group"><div class="portal-nav-label">Account</div>
+            <a class="portal-nav-item active"><svg><use href="#ic-map-pin"/></svg> Addresses</a>
+            <a class="portal-nav-item" data-goto="s7"><svg><use href="#ic-users"/></svg> Profile</a>
+          </div>
+        </nav>
+        <div class="portal-sidebar-user"><div class="portal-user-row"><div class="avatar avatar-sm">AM</div><div><div class="portal-user-name">Alex Morgan</div><div class="portal-user-email">alex.morgan@example.com</div></div></div><a class="portal-logout"><svg style="width:0.9rem;height:0.9rem"><use href="#ic-log-out"/></svg> Log out</a></div>
+      </aside>
+      <div class="portal-body">
+        <header class="portal-header"><button class="icon-btn" aria-label="Notifications"><svg><use href="#ic-bell"/></svg></button></header>
+        <main class="portal-main">
+          <div class="portal-page-head"><h1>Addresses</h1></div>
+          <div class="row" style="gap:1rem;flex-wrap:wrap">
+            <div class="card" style="width:18rem;padding:1rem"><span class="badge badge-info" style="margin-bottom:0.5rem">Default shipping</span><div class="t-body">Alex Morgan</div><div class="t-hint">ul. Grunwaldzka 12/4, 80-244 Gdańsk</div><div class="row" style="margin-top:0.5rem;gap:0.375rem"><button class="btn btn-outline btn-sm"><svg><use href="#ic-pencil"/></svg></button><button class="btn btn-outline btn-sm"><svg><use href="#ic-trash"/></svg></button></div></div>
+            <div class="card" style="width:18rem;padding:1rem"><span class="badge badge-neutral" style="margin-bottom:0.5rem">Default billing</span><div class="t-body">Alex Morgan</div><div class="t-hint">ul. Długa 3, 80-827 Gdańsk</div><div class="row" style="margin-top:0.5rem;gap:0.375rem"><button class="btn btn-outline btn-sm"><svg><use href="#ic-pencil"/></svg></button><button class="btn btn-outline btn-sm"><svg><use href="#ic-trash"/></svg></button></div></div>
+            <button class="card" style="width:18rem;padding:1rem;display:flex;align-items:center;justify-content:center;gap:0.5rem;border-style:dashed;color:var(--muted-foreground)"><svg><use href="#ic-plus"/></svg> Add address</button>
+          </div>
+        </main>
+        <footer class="portal-footer">© Northwind Fasteners</footer>
+      </div>
+    </div>
+  </div>
+  <div class="notes"><div class="note"><b>1</b><span>Reused verbatim in the checkout funnel's Address step — same underlying <code class="t-mono">CustomerAddress</code> records.</span></div></div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S7 — Profile -->
+<!-- ============================================================ -->
+<section class="screen" id="s7">
+  <div class="screen-meta">
+    <h2>7. Profile</h2>
+    <p>Name, email, phone, password, locale, communication preferences.</p>
+    <div class="screen-refs"><span class="ref">§6.1</span><span class="ref">§8.1</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">shop.northwind.example/portal/profile</span></div>
+    <div class="portal-shell">
+      <aside class="portal-sidebar">
+        <div class="portal-sidebar-brand"><svg style="width:1.1rem;height:1.1rem"><use href="#ic-home"/></svg> Northwind Fasteners</div>
+        <nav class="portal-nav">
+          <div class="portal-nav-group"><div class="portal-nav-label">Portal</div>
+            <a class="portal-nav-item" data-goto="s1"><svg><use href="#ic-home"/></svg> Overview</a>
+            <a class="portal-nav-item" data-goto="s2"><svg><use href="#ic-package"/></svg> Orders</a>
+            <a class="portal-nav-item" data-goto="s5"><svg><use href="#ic-file-text"/></svg> Quotes</a>
+            <a class="portal-nav-item" data-goto="s8"><svg><use href="#ic-heart"/></svg> Wishlists</a>
+            <a class="portal-nav-item" data-goto="s9"><svg><use href="#ic-package"/></svg> Saved carts</a>
+            <a class="portal-nav-item" data-goto="s10"><svg><use href="#ic-refresh"/></svg> Returns</a>
+          </div>
+          <div class="portal-nav-group"><div class="portal-nav-label">Account</div>
+            <a class="portal-nav-item" data-goto="s6"><svg><use href="#ic-map-pin"/></svg> Addresses</a>
+            <a class="portal-nav-item active"><svg><use href="#ic-users"/></svg> Profile</a>
+          </div>
+        </nav>
+        <div class="portal-sidebar-user"><div class="portal-user-row"><div class="avatar avatar-sm">AM</div><div><div class="portal-user-name">Alex Morgan</div><div class="portal-user-email">alex.morgan@example.com</div></div></div><a class="portal-logout"><svg style="width:0.9rem;height:0.9rem"><use href="#ic-log-out"/></svg> Log out</a></div>
+      </aside>
+      <div class="portal-body">
+        <header class="portal-header"><button class="icon-btn" aria-label="Notifications"><svg><use href="#ic-bell"/></svg></button></header>
+        <main class="portal-main">
+          <div class="portal-page-head"><h1>Profile</h1></div>
+          <div class="form-group" style="max-width:28rem">
+            <div class="field"><label>Full name</label><input class="input" value="Alex Morgan" /></div>
+            <div class="field"><label><svg style="width:0.85rem;height:0.85rem;display:inline;vertical-align:-1px"><use href="#ic-mail"/></svg> Email</label><input class="input" value="alex.morgan@example.com" /></div>
+            <div class="field"><label><svg style="width:0.85rem;height:0.85rem;display:inline;vertical-align:-1px"><use href="#ic-phone"/></svg> Phone</label><input class="input" value="+48 601 222 333" /></div>
+            <div class="field"><label>Password</label><button class="btn btn-outline btn-sm">Change password</button></div>
+            <div class="field"><label>Locale</label><select class="select"><option selected>Polski (pl-PL)</option><option>English (en-US)</option></select></div>
+            <label class="row" style="margin-top:0.5rem;font-size:0.875rem"><input type="checkbox" checked style="margin-right:0.5rem" /> Order and shipment emails</label>
+            <label class="row" style="margin-top:0.375rem;font-size:0.875rem"><input type="checkbox" style="margin-right:0.5rem" /> Marketing offers</label>
+            <button class="btn btn-primary" style="margin-top:1rem"><svg><use href="#ic-save"/></svg> Save changes</button>
+          </div>
+        </main>
+        <footer class="portal-footer">© Northwind Fasteners</footer>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S8 — Wishlists -->
+<!-- ============================================================ -->
+<section class="screen" id="s8">
+  <div class="screen-meta">
+    <h2>8. Wishlists — detail</h2>
+    <p>B2B buyers wishlist a quantity, not just an item; <span class="t-mono">company</span> visibility is a B2B affordance — a proposed order a colleague converts to a cart.</p>
+    <div class="screen-refs"><span class="ref">§5.1</span><span class="ref">§6.1</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">shop.northwind.example/portal/wishlists/restock</span></div>
+    <div class="portal-shell">
+      <aside class="portal-sidebar">
+        <div class="portal-sidebar-brand"><svg style="width:1.1rem;height:1.1rem"><use href="#ic-home"/></svg> Northwind Fasteners</div>
+        <nav class="portal-nav">
+          <div class="portal-nav-group"><div class="portal-nav-label">Portal</div>
+            <a class="portal-nav-item" data-goto="s1"><svg><use href="#ic-home"/></svg> Overview</a>
+            <a class="portal-nav-item" data-goto="s2"><svg><use href="#ic-package"/></svg> Orders</a>
+            <a class="portal-nav-item" data-goto="s5"><svg><use href="#ic-file-text"/></svg> Quotes</a>
+            <a class="portal-nav-item active"><svg><use href="#ic-heart"/></svg> Wishlists</a>
+            <a class="portal-nav-item" data-goto="s9"><svg><use href="#ic-package"/></svg> Saved carts</a>
+            <a class="portal-nav-item" data-goto="s10"><svg><use href="#ic-refresh"/></svg> Returns</a>
+          </div>
+          <div class="portal-nav-group"><div class="portal-nav-label">Account</div>
+            <a class="portal-nav-item" data-goto="s6"><svg><use href="#ic-map-pin"/></svg> Addresses</a>
+            <a class="portal-nav-item" data-goto="s7"><svg><use href="#ic-users"/></svg> Profile</a>
+          </div>
+        </nav>
+        <div class="portal-sidebar-user"><div class="portal-user-row"><div class="avatar avatar-sm">DR</div><div><div class="portal-user-name">Dana Ruiz</div><div class="portal-user-email">Ironclad Supply Co.</div></div></div><a class="portal-logout"><svg style="width:0.9rem;height:0.9rem"><use href="#ic-log-out"/></svg> Log out</a></div>
+      </aside>
+      <div class="portal-body">
+        <header class="portal-header"><button class="icon-btn" aria-label="Notifications"><svg><use href="#ic-bell"/></svg></button></header>
+        <main class="portal-main">
+          <div class="portal-page-head"><h1>Q4 Restock</h1><span class="badge badge-info">Visible to company</span></div>
+          <div class="dt">
+            <table class="table">
+              <thead><tr><th>Product</th><th>Qty wanted</th><th>Note</th></tr></thead>
+              <tbody>
+                <tr><td>M8 Hex Bolt (Bulk Pack)</td><td class="num">40</td><td class="t-hint">warehouse restock</td></tr>
+                <tr><td>Standard Wood Screw 4×40</td><td class="num">200</td><td class="t-hint">—</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <button class="btn btn-primary" style="margin-top:1rem" data-goto="s9">Add all to cart</button>
+        </main>
+        <footer class="portal-footer">© Northwind Fasteners</footer>
+      </div>
+    </div>
+  </div>
+  <div class="notes"><div class="note"><b>1</b><span>"Add all to cart" skips items outside the current assortment and says so, the same reorder-preview honesty principle applied here (§11 Integration Coverage).</span></div></div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S9 — Saved carts -->
+<!-- ============================================================ -->
+<section class="screen" id="s9">
+  <div class="screen-meta">
+    <h2>9. Saved carts</h2>
+    <p>Realizes cart spec Open Question 1. A template is copied on use rather than resumed.</p>
+    <div class="screen-refs"><span class="ref">§5.2</span><span class="ref">§6.1</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">shop.northwind.example/portal/saved-carts</span></div>
+    <div class="portal-shell">
+      <aside class="portal-sidebar">
+        <div class="portal-sidebar-brand"><svg style="width:1.1rem;height:1.1rem"><use href="#ic-home"/></svg> Northwind Fasteners</div>
+        <nav class="portal-nav">
+          <div class="portal-nav-group"><div class="portal-nav-label">Portal</div>
+            <a class="portal-nav-item" data-goto="s1"><svg><use href="#ic-home"/></svg> Overview</a>
+            <a class="portal-nav-item" data-goto="s2"><svg><use href="#ic-package"/></svg> Orders</a>
+            <a class="portal-nav-item" data-goto="s5"><svg><use href="#ic-file-text"/></svg> Quotes</a>
+            <a class="portal-nav-item" data-goto="s8"><svg><use href="#ic-heart"/></svg> Wishlists</a>
+            <a class="portal-nav-item active"><svg><use href="#ic-package"/></svg> Saved carts</a>
+            <a class="portal-nav-item" data-goto="s10"><svg><use href="#ic-refresh"/></svg> Returns</a>
+          </div>
+          <div class="portal-nav-group"><div class="portal-nav-label">Account</div>
+            <a class="portal-nav-item" data-goto="s6"><svg><use href="#ic-map-pin"/></svg> Addresses</a>
+            <a class="portal-nav-item" data-goto="s7"><svg><use href="#ic-users"/></svg> Profile</a>
+          </div>
+        </nav>
+        <div class="portal-sidebar-user"><div class="portal-user-row"><div class="avatar avatar-sm">AM</div><div><div class="portal-user-name">Alex Morgan</div><div class="portal-user-email">alex.morgan@example.com</div></div></div><a class="portal-logout"><svg style="width:0.9rem;height:0.9rem"><use href="#ic-log-out"/></svg> Log out</a></div>
+      </aside>
+      <div class="portal-body">
+        <header class="portal-header"><button class="icon-btn" aria-label="Notifications"><svg><use href="#ic-bell"/></svg></button></header>
+        <main class="portal-main">
+          <div class="portal-page-head"><h1>Saved carts</h1></div>
+          <div class="dt">
+            <table class="table">
+              <thead><tr><th>Name</th><th>Items</th><th>Last used</th><th></th><th class="right">Actions</th></tr></thead>
+              <tbody>
+                <tr><td>Monthly restock</td><td class="num">6</td><td class="t-hint">14 days ago</td><td></td><td class="right"><button class="btn btn-outline btn-sm">Resume</button></td></tr>
+                <tr><td>Standard workshop kit</td><td class="num">4</td><td class="t-hint">—</td><td><span class="badge badge-info">Template</span></td><td class="right"><button class="btn btn-outline btn-sm">Copy to new cart</button></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </main>
+        <footer class="portal-footer">© Northwind Fasteners</footer>
+      </div>
+    </div>
+  </div>
+  <div class="notes"><div class="note"><b>1</b><span>A template is copied (new cart each time); an ordinary saved cart is resumed (same cart continues) — different verbs, different action labels, deliberately not the same button.</span></div></div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S10 — Returns -->
+<!-- ============================================================ -->
+<section class="screen" id="s10">
+  <div class="screen-meta">
+    <h2>10. Returns</h2>
+    <p>Request a return against a delivered order; status tracking. This spec exposes the request only — approval/RMA/refund belongs to WMS Phase 5 (§13 Q4).</p>
+    <div class="screen-refs"><span class="ref">§6.1</span><span class="ref">§13</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">shop.northwind.example/portal/returns</span></div>
+    <div class="portal-shell">
+      <aside class="portal-sidebar">
+        <div class="portal-sidebar-brand"><svg style="width:1.1rem;height:1.1rem"><use href="#ic-home"/></svg> Northwind Fasteners</div>
+        <nav class="portal-nav">
+          <div class="portal-nav-group"><div class="portal-nav-label">Portal</div>
+            <a class="portal-nav-item" data-goto="s1"><svg><use href="#ic-home"/></svg> Overview</a>
+            <a class="portal-nav-item" data-goto="s2"><svg><use href="#ic-package"/></svg> Orders</a>
+            <a class="portal-nav-item" data-goto="s5"><svg><use href="#ic-file-text"/></svg> Quotes</a>
+            <a class="portal-nav-item" data-goto="s8"><svg><use href="#ic-heart"/></svg> Wishlists</a>
+            <a class="portal-nav-item" data-goto="s9"><svg><use href="#ic-package"/></svg> Saved carts</a>
+            <a class="portal-nav-item active"><svg><use href="#ic-refresh"/></svg> Returns</a>
+          </div>
+          <div class="portal-nav-group"><div class="portal-nav-label">Account</div>
+            <a class="portal-nav-item" data-goto="s6"><svg><use href="#ic-map-pin"/></svg> Addresses</a>
+            <a class="portal-nav-item" data-goto="s7"><svg><use href="#ic-users"/></svg> Profile</a>
+          </div>
+        </nav>
+        <div class="portal-sidebar-user"><div class="portal-user-row"><div class="avatar avatar-sm">AM</div><div><div class="portal-user-name">Alex Morgan</div><div class="portal-user-email">alex.morgan@example.com</div></div></div><a class="portal-logout"><svg style="width:0.9rem;height:0.9rem"><use href="#ic-log-out"/></svg> Log out</a></div>
+      </aside>
+      <div class="portal-body">
+        <header class="portal-header"><button class="icon-btn" aria-label="Notifications"><svg><use href="#ic-bell"/></svg></button></header>
+        <main class="portal-main">
+          <div class="portal-page-head"><h1>Returns</h1></div>
+          <div class="dt">
+            <table class="table"><thead><tr><th>Order</th><th>Item</th><th>Reason</th><th>Status</th></tr></thead>
+            <tbody><tr><td class="t-mono">#SO-09981</td><td>Hex Nut Assortment Kit</td><td class="t-hint">Wrong size</td><td><span class="badge badge-warning">Requested</span></td></tr></tbody></table>
+          </div>
+          <button class="btn btn-outline btn-sm" style="margin-top:1rem" data-goto="s2">Request a new return</button>
+        </main>
+        <footer class="portal-footer">© Northwind Fasteners</footer>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S11 — Company (B2B) -->
+<!-- ============================================================ -->
+<section class="screen" id="s11">
+  <div class="screen-meta">
+    <h2>11. Company — profile, billing, terms (B2B)</h2>
+    <p>Dana Ruiz, <span class="t-mono">company_admin</span>.</p>
+    <div class="screen-refs"><span class="ref">§6.2</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">shop.northwind.example/portal/company</span></div>
+    <div class="portal-shell">
+      <aside class="portal-sidebar">
+        <div class="portal-sidebar-brand"><svg style="width:1.1rem;height:1.1rem"><use href="#ic-home"/></svg> Northwind Fasteners</div>
+        <nav class="portal-nav">
+          <div class="portal-nav-group"><div class="portal-nav-label">Portal</div>
+            <a class="portal-nav-item" data-goto="s1"><svg><use href="#ic-home"/></svg> Overview</a>
+            <a class="portal-nav-item" data-goto="s2"><svg><use href="#ic-package"/></svg> Orders</a>
+            <a class="portal-nav-item" data-goto="s5"><svg><use href="#ic-file-text"/></svg> Quotes</a>
+            <a class="portal-nav-item" data-goto="s8"><svg><use href="#ic-heart"/></svg> Wishlists</a>
+            <a class="portal-nav-item" data-goto="s9"><svg><use href="#ic-package"/></svg> Saved carts</a>
+            <a class="portal-nav-item" data-goto="s10"><svg><use href="#ic-refresh"/></svg> Returns</a>
+            <a class="portal-nav-item active"><svg><use href="#ic-building"/></svg> Company</a>
+            <a class="portal-nav-item" data-goto="s12"><svg><use href="#ic-users"/></svg> Buyers</a>
+            <a class="portal-nav-item" data-goto="s13"><svg><use href="#ic-shield"/></svg> Approvals</a>
+            <a class="portal-nav-item" data-goto="s14"><svg><use href="#ic-credit-card"/></svg> Credit</a>
+            <a class="portal-nav-item" data-goto="s15"><svg><use href="#ic-file-text"/></svg> Purchase orders</a>
+            <a class="portal-nav-item" data-goto="s16"><svg><use href="#ic-file-text"/></svg> Price list</a>
+          </div>
+          <div class="portal-nav-group"><div class="portal-nav-label">Account</div>
+            <a class="portal-nav-item" data-goto="s6"><svg><use href="#ic-map-pin"/></svg> Addresses</a>
+            <a class="portal-nav-item" data-goto="s7"><svg><use href="#ic-users"/></svg> Profile</a>
+          </div>
+        </nav>
+        <div class="portal-sidebar-user"><div class="portal-user-row"><div class="avatar avatar-sm">DR</div><div><div class="portal-user-name">Dana Ruiz</div><div class="portal-user-email">Ironclad Supply Co.</div></div></div><a class="portal-logout"><svg style="width:0.9rem;height:0.9rem"><use href="#ic-log-out"/></svg> Log out</a></div>
+      </aside>
+      <div class="portal-body">
+        <header class="portal-header"><button class="icon-btn" aria-label="Notifications"><svg><use href="#ic-bell"/></svg></button></header>
+        <main class="portal-main">
+          <div class="portal-page-head"><h1>Company</h1></div>
+          <div class="form-group" style="max-width:32rem">
+            <div class="field"><label>Company name</label><input class="input" value="Ironclad Supply Co." /></div>
+            <div class="field"><label>VAT ID</label><input class="input" value="PL5252525252" /></div>
+            <div class="field"><label>Billing address</label><input class="input" value="ul. Portowa 8, 80-560 Gdańsk" /></div>
+            <div class="field"><label>Payment terms</label><input class="input" value="NET-30, purchase on account" disabled /></div>
+            <button class="btn btn-primary" style="margin-top:0.75rem"><svg><use href="#ic-save"/></svg> Save changes</button>
+          </div>
+        </main>
+        <footer class="portal-footer">© Northwind Fasteners</footer>
+      </div>
+    </div>
+  </div>
+  <div class="notes"><div class="note"><b>1</b><span>Payment terms are read-only here — set by the merchant's <code class="t-mono">customer_groups</code> configuration (spec 1), not editable by the buyer.</span></div></div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S12 — Buyers (B2B) -->
+<!-- ============================================================ -->
+<section class="screen" id="s12">
+  <div class="screen-meta">
+    <h2>12. Buyers — roster (B2B)</h2>
+    <p>Invite, assign roles, deactivate. <span class="t-mono">company_admin</span>.</p>
+    <div class="screen-refs"><span class="ref">§6.2</span><span class="ref">§10 R2</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">shop.northwind.example/portal/company/buyers</span></div>
+    <div class="portal-shell">
+      <aside class="portal-sidebar">
+        <div class="portal-sidebar-brand"><svg style="width:1.1rem;height:1.1rem"><use href="#ic-home"/></svg> Northwind Fasteners</div>
+        <nav class="portal-nav">
+          <div class="portal-nav-group"><div class="portal-nav-label">Portal</div>
+            <a class="portal-nav-item" data-goto="s1"><svg><use href="#ic-home"/></svg> Overview</a>
+            <a class="portal-nav-item" data-goto="s2"><svg><use href="#ic-package"/></svg> Orders</a>
+            <a class="portal-nav-item" data-goto="s5"><svg><use href="#ic-file-text"/></svg> Quotes</a>
+            <a class="portal-nav-item" data-goto="s8"><svg><use href="#ic-heart"/></svg> Wishlists</a>
+            <a class="portal-nav-item" data-goto="s9"><svg><use href="#ic-package"/></svg> Saved carts</a>
+            <a class="portal-nav-item" data-goto="s10"><svg><use href="#ic-refresh"/></svg> Returns</a>
+            <a class="portal-nav-item" data-goto="s11"><svg><use href="#ic-building"/></svg> Company</a>
+            <a class="portal-nav-item active"><svg><use href="#ic-users"/></svg> Buyers</a>
+            <a class="portal-nav-item" data-goto="s13"><svg><use href="#ic-shield"/></svg> Approvals</a>
+            <a class="portal-nav-item" data-goto="s14"><svg><use href="#ic-credit-card"/></svg> Credit</a>
+            <a class="portal-nav-item" data-goto="s15"><svg><use href="#ic-file-text"/></svg> Purchase orders</a>
+            <a class="portal-nav-item" data-goto="s16"><svg><use href="#ic-file-text"/></svg> Price list</a>
+          </div>
+          <div class="portal-nav-group"><div class="portal-nav-label">Account</div>
+            <a class="portal-nav-item" data-goto="s6"><svg><use href="#ic-map-pin"/></svg> Addresses</a>
+            <a class="portal-nav-item" data-goto="s7"><svg><use href="#ic-users"/></svg> Profile</a>
+          </div>
+        </nav>
+        <div class="portal-sidebar-user"><div class="portal-user-row"><div class="avatar avatar-sm">DR</div><div><div class="portal-user-name">Dana Ruiz</div><div class="portal-user-email">Ironclad Supply Co.</div></div></div><a class="portal-logout"><svg style="width:0.9rem;height:0.9rem"><use href="#ic-log-out"/></svg> Log out</a></div>
+      </aside>
+      <div class="portal-body">
+        <header class="portal-header"><button class="icon-btn" aria-label="Notifications"><svg><use href="#ic-bell"/></svg></button></header>
+        <main class="portal-main">
+          <div class="portal-page-head"><h1>Buyers</h1></div>
+          <div class="dt">
+            <div class="dt-head"><div class="dt-head-row"><h2 class="t-table-title">4 buyers</h2></div><div class="dt-toolbar"><div class="dt-toolbar-row"><span class="grow"></span><button class="btn btn-primary btn-sm"><svg><use href="#ic-plus"/></svg> Invite buyer</button></div></div></div>
+            <table class="table">
+              <thead><tr><th>Name</th><th>Email</th><th>Roles</th><th>Status</th><th class="right">Actions</th></tr></thead>
+              <tbody>
+                <tr><td>Dana Ruiz</td><td class="t-hint">dana.ruiz@ironclad.example</td><td><span class="chip chip-active">company_admin</span> <span class="chip chip-active">purchase_approver</span></td><td><span class="badge badge-success">Active</span></td><td class="right"><button class="btn btn-icon btn-sm"><svg><use href="#ic-pencil"/></svg></button></td></tr>
+                <tr><td>Marco Ito</td><td class="t-hint">marco.ito@ironclad.example</td><td><span class="chip">buyer</span></td><td><span class="badge badge-success">Active</span></td><td class="right"><button class="btn btn-icon btn-sm"><svg><use href="#ic-pencil"/></svg></button></td></tr>
+                <tr><td>Priya Shah <span class="t-hint">(ex-employee)</span></td><td class="t-hint">priya.shah@ironclad.example</td><td><span class="chip">buyer</span></td><td><span class="badge badge-neutral">Deactivated</span></td><td class="right"><button class="btn btn-icon btn-sm" disabled><svg><use href="#ic-pencil"/></svg></button></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </main>
+        <footer class="portal-footer">© Northwind Fasteners</footer>
+      </div>
+    </div>
+  </div>
+  <div class="notes"><div class="note"><b>1</b><span>Deactivating Priya Shah terminates her active sessions and invalidates her cached visibility policy immediately (§10 R2) — not on next TTL expiry.</span></div></div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S13 — Approvals (B2B) -->
+<!-- ============================================================ -->
+<section class="screen" id="s13">
+  <div class="screen-meta">
+    <h2>13. Approvals — inbox (B2B)</h2>
+    <p>Pending purchase-approval requests; approve or reject with a note. <span class="t-mono">purchase_approver</span>.</p>
+    <div class="screen-refs"><span class="ref">§6.2</span><span class="ref">§8</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">shop.northwind.example/portal/company/approvals</span></div>
+    <div class="portal-shell">
+      <aside class="portal-sidebar">
+        <div class="portal-sidebar-brand"><svg style="width:1.1rem;height:1.1rem"><use href="#ic-home"/></svg> Northwind Fasteners</div>
+        <nav class="portal-nav">
+          <div class="portal-nav-group"><div class="portal-nav-label">Portal</div>
+            <a class="portal-nav-item" data-goto="s1"><svg><use href="#ic-home"/></svg> Overview</a>
+            <a class="portal-nav-item" data-goto="s2"><svg><use href="#ic-package"/></svg> Orders</a>
+            <a class="portal-nav-item" data-goto="s5"><svg><use href="#ic-file-text"/></svg> Quotes</a>
+            <a class="portal-nav-item" data-goto="s8"><svg><use href="#ic-heart"/></svg> Wishlists</a>
+            <a class="portal-nav-item" data-goto="s9"><svg><use href="#ic-package"/></svg> Saved carts</a>
+            <a class="portal-nav-item" data-goto="s10"><svg><use href="#ic-refresh"/></svg> Returns</a>
+            <a class="portal-nav-item" data-goto="s11"><svg><use href="#ic-building"/></svg> Company</a>
+            <a class="portal-nav-item" data-goto="s12"><svg><use href="#ic-users"/></svg> Buyers</a>
+            <a class="portal-nav-item active"><svg><use href="#ic-shield"/></svg> Approvals</a>
+            <a class="portal-nav-item" data-goto="s14"><svg><use href="#ic-credit-card"/></svg> Credit</a>
+            <a class="portal-nav-item" data-goto="s15"><svg><use href="#ic-file-text"/></svg> Purchase orders</a>
+            <a class="portal-nav-item" data-goto="s16"><svg><use href="#ic-file-text"/></svg> Price list</a>
+          </div>
+          <div class="portal-nav-group"><div class="portal-nav-label">Account</div>
+            <a class="portal-nav-item" data-goto="s6"><svg><use href="#ic-map-pin"/></svg> Addresses</a>
+            <a class="portal-nav-item" data-goto="s7"><svg><use href="#ic-users"/></svg> Profile</a>
+          </div>
+        </nav>
+        <div class="portal-sidebar-user"><div class="portal-user-row"><div class="avatar avatar-sm">DR</div><div><div class="portal-user-name">Dana Ruiz</div><div class="portal-user-email">Ironclad Supply Co.</div></div></div><a class="portal-logout"><svg style="width:0.9rem;height:0.9rem"><use href="#ic-log-out"/></svg> Log out</a></div>
+      </aside>
+      <div class="portal-body">
+        <header class="portal-header"><button class="icon-btn" aria-label="Notifications"><svg><use href="#ic-bell"/></svg></button></header>
+        <main class="portal-main">
+          <div class="portal-page-head"><h1>Approvals</h1></div>
+          <div class="dt">
+            <table class="table">
+              <thead><tr><th>Requested by</th><th>Amount</th><th>Requested</th><th class="right">Decision</th></tr></thead>
+              <tbody>
+                <tr><td>Marco Ito</td><td class="right num">18 200,00 zł</td><td class="t-hint">2 hours ago</td><td class="right"><button class="btn btn-primary btn-sm" data-goto="s19">Approve</button> <button class="btn btn-outline btn-sm">Reject</button></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </main>
+        <footer class="portal-footer">© Northwind Fasteners</footer>
+      </div>
+    </div>
+  </div>
+  <div class="notes"><div class="note"><b>1</b><span>Lists only requests assigned to this user — not every company request (§11). Clicking Approve goes to screen 19, the already-decided conflict, to illustrate that risk in this same worked example.</span></div></div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S14 — Credit (B2B) -->
+<!-- ============================================================ -->
+<section class="screen" id="s14">
+  <div class="screen-meta">
+    <h2>14. Credit (B2B)</h2>
+    <p>Limit, exposure, available, ledger extract — must reconcile exactly with <code class="t-mono">customerGroupsService</code>. Gated on <span class="t-mono">allow_price_visibility</span>.</p>
+    <div class="screen-refs"><span class="ref">§6.2</span><span class="ref">§11</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">shop.northwind.example/portal/company/credit</span></div>
+    <div class="portal-shell">
+      <aside class="portal-sidebar">
+        <div class="portal-sidebar-brand"><svg style="width:1.1rem;height:1.1rem"><use href="#ic-home"/></svg> Northwind Fasteners</div>
+        <nav class="portal-nav">
+          <div class="portal-nav-group"><div class="portal-nav-label">Portal</div>
+            <a class="portal-nav-item" data-goto="s1"><svg><use href="#ic-home"/></svg> Overview</a>
+            <a class="portal-nav-item" data-goto="s2"><svg><use href="#ic-package"/></svg> Orders</a>
+            <a class="portal-nav-item" data-goto="s5"><svg><use href="#ic-file-text"/></svg> Quotes</a>
+            <a class="portal-nav-item" data-goto="s8"><svg><use href="#ic-heart"/></svg> Wishlists</a>
+            <a class="portal-nav-item" data-goto="s9"><svg><use href="#ic-package"/></svg> Saved carts</a>
+            <a class="portal-nav-item" data-goto="s10"><svg><use href="#ic-refresh"/></svg> Returns</a>
+            <a class="portal-nav-item" data-goto="s11"><svg><use href="#ic-building"/></svg> Company</a>
+            <a class="portal-nav-item" data-goto="s12"><svg><use href="#ic-users"/></svg> Buyers</a>
+            <a class="portal-nav-item" data-goto="s13"><svg><use href="#ic-shield"/></svg> Approvals</a>
+            <a class="portal-nav-item active"><svg><use href="#ic-credit-card"/></svg> Credit</a>
+            <a class="portal-nav-item" data-goto="s15"><svg><use href="#ic-file-text"/></svg> Purchase orders</a>
+            <a class="portal-nav-item" data-goto="s16"><svg><use href="#ic-file-text"/></svg> Price list</a>
+          </div>
+          <div class="portal-nav-group"><div class="portal-nav-label">Account</div>
+            <a class="portal-nav-item" data-goto="s6"><svg><use href="#ic-map-pin"/></svg> Addresses</a>
+            <a class="portal-nav-item" data-goto="s7"><svg><use href="#ic-users"/></svg> Profile</a>
+          </div>
+        </nav>
+        <div class="portal-sidebar-user"><div class="portal-user-row"><div class="avatar avatar-sm">DR</div><div><div class="portal-user-name">Dana Ruiz</div><div class="portal-user-email">Ironclad Supply Co.</div></div></div><a class="portal-logout"><svg style="width:0.9rem;height:0.9rem"><use href="#ic-log-out"/></svg> Log out</a></div>
+      </aside>
+      <div class="portal-body">
+        <header class="portal-header"><button class="icon-btn" aria-label="Notifications"><svg><use href="#ic-bell"/></svg></button></header>
+        <main class="portal-main">
+          <div class="portal-page-head"><h1>Credit</h1></div>
+          <div class="kpi-row">
+            <div class="kpi-card"><span class="t-hint">Credit limit</span><span class="num">50 000,00 zł</span></div>
+            <div class="kpi-card"><span class="t-hint">Exposure</span><span class="num">12 800,00 zł</span></div>
+            <div class="kpi-card"><span class="t-hint">Available</span><span class="num" style="color:var(--status-success-text)">37 200,00 zł</span></div>
+          </div>
+          <div class="dt">
+            <div class="dt-head"><div class="dt-head-row"><h2 class="t-table-title">Ledger extract</h2></div></div>
+            <table class="table"><thead><tr><th>Date</th><th>Description</th><th class="right">Amount</th></tr></thead>
+            <tbody>
+              <tr><td class="t-hint">2026-08-31</td><td>Order #SO-10482 reserved</td><td class="right num">−301,00 zł</td></tr>
+              <tr><td class="t-hint">2026-08-15</td><td>Invoice #INV-8801 settled</td><td class="right num" style="color:var(--status-success-text)">+12 000,00 zł</td></tr>
+            </tbody></table>
+          </div>
+        </main>
+        <footer class="portal-footer">© Northwind Fasteners</footer>
+      </div>
+    </div>
+  </div>
+  <div class="notes"><div class="note"><b>1</b><span>Reservations are not released on order completion — they stand as exposure until invoicing settles them (checkout spec §8.3) — this page's "Exposure" figure reflects that.</span></div></div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S15 — Purchase orders (B2B) -->
+<!-- ============================================================ -->
+<section class="screen" id="s15">
+  <div class="screen-meta">
+    <h2>15. Purchase orders (B2B)</h2>
+    <p>PO numbers against orders, searchable.</p>
+    <div class="screen-refs"><span class="ref">§6.2</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">shop.northwind.example/portal/company/purchase-orders</span></div>
+    <div class="portal-shell">
+      <aside class="portal-sidebar">
+        <div class="portal-sidebar-brand"><svg style="width:1.1rem;height:1.1rem"><use href="#ic-home"/></svg> Northwind Fasteners</div>
+        <nav class="portal-nav">
+          <div class="portal-nav-group"><div class="portal-nav-label">Portal</div>
+            <a class="portal-nav-item" data-goto="s1"><svg><use href="#ic-home"/></svg> Overview</a>
+            <a class="portal-nav-item" data-goto="s2"><svg><use href="#ic-package"/></svg> Orders</a>
+            <a class="portal-nav-item" data-goto="s5"><svg><use href="#ic-file-text"/></svg> Quotes</a>
+            <a class="portal-nav-item" data-goto="s8"><svg><use href="#ic-heart"/></svg> Wishlists</a>
+            <a class="portal-nav-item" data-goto="s9"><svg><use href="#ic-package"/></svg> Saved carts</a>
+            <a class="portal-nav-item" data-goto="s10"><svg><use href="#ic-refresh"/></svg> Returns</a>
+            <a class="portal-nav-item" data-goto="s11"><svg><use href="#ic-building"/></svg> Company</a>
+            <a class="portal-nav-item" data-goto="s12"><svg><use href="#ic-users"/></svg> Buyers</a>
+            <a class="portal-nav-item" data-goto="s13"><svg><use href="#ic-shield"/></svg> Approvals</a>
+            <a class="portal-nav-item" data-goto="s14"><svg><use href="#ic-credit-card"/></svg> Credit</a>
+            <a class="portal-nav-item active"><svg><use href="#ic-file-text"/></svg> Purchase orders</a>
+            <a class="portal-nav-item" data-goto="s16"><svg><use href="#ic-file-text"/></svg> Price list</a>
+          </div>
+          <div class="portal-nav-group"><div class="portal-nav-label">Account</div>
+            <a class="portal-nav-item" data-goto="s6"><svg><use href="#ic-map-pin"/></svg> Addresses</a>
+            <a class="portal-nav-item" data-goto="s7"><svg><use href="#ic-users"/></svg> Profile</a>
+          </div>
+        </nav>
+        <div class="portal-sidebar-user"><div class="portal-user-row"><div class="avatar avatar-sm">DR</div><div><div class="portal-user-name">Dana Ruiz</div><div class="portal-user-email">Ironclad Supply Co.</div></div></div><a class="portal-logout"><svg style="width:0.9rem;height:0.9rem"><use href="#ic-log-out"/></svg> Log out</a></div>
+      </aside>
+      <div class="portal-body">
+        <header class="portal-header"><button class="icon-btn" aria-label="Notifications"><svg><use href="#ic-bell"/></svg></button></header>
+        <main class="portal-main">
+          <div class="portal-page-head"><h1>Purchase orders</h1></div>
+          <div class="dt">
+            <div class="dt-toolbar"><div class="dt-toolbar-row"><input class="input dt-search" placeholder="Search PO number…" /></div></div>
+            <table class="table"><thead><tr><th>PO number</th><th>Order</th><th>Date</th><th class="right">Total</th></tr></thead>
+            <tbody>
+              <tr><td class="t-mono">PO-2026-0417</td><td class="t-mono">#SO-10482</td><td class="t-hint">Today</td><td class="right num">301,00 zł</td></tr>
+              <tr><td class="t-mono">PO-2026-0390</td><td class="t-mono">#SO-10310</td><td class="t-hint">3 weeks ago</td><td class="right num">129,00 zł</td></tr>
+            </tbody></table>
+          </div>
+        </main>
+        <footer class="portal-footer">© Northwind Fasteners</footer>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S16 — Price list (B2B) -->
+<!-- ============================================================ -->
+<section class="screen" id="s16">
+  <div class="screen-meta">
+    <h2>16. Price list (B2B)</h2>
+    <p>"Nearly free" per §6.2 — <code class="t-mono">GET /products</code> with the buyer's context, rendered as a table with <span class="t-mono">priceTiers</span> instead of a grid. Exportable, audit-logged (R7).</p>
+    <div class="screen-refs"><span class="ref">§6.2</span><span class="ref">§10 R7</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">shop.northwind.example/portal/company/price-list</span></div>
+    <div class="portal-shell">
+      <aside class="portal-sidebar">
+        <div class="portal-sidebar-brand"><svg style="width:1.1rem;height:1.1rem"><use href="#ic-home"/></svg> Northwind Fasteners</div>
+        <nav class="portal-nav">
+          <div class="portal-nav-group"><div class="portal-nav-label">Portal</div>
+            <a class="portal-nav-item" data-goto="s1"><svg><use href="#ic-home"/></svg> Overview</a>
+            <a class="portal-nav-item" data-goto="s2"><svg><use href="#ic-package"/></svg> Orders</a>
+            <a class="portal-nav-item" data-goto="s5"><svg><use href="#ic-file-text"/></svg> Quotes</a>
+            <a class="portal-nav-item" data-goto="s8"><svg><use href="#ic-heart"/></svg> Wishlists</a>
+            <a class="portal-nav-item" data-goto="s9"><svg><use href="#ic-package"/></svg> Saved carts</a>
+            <a class="portal-nav-item" data-goto="s10"><svg><use href="#ic-refresh"/></svg> Returns</a>
+            <a class="portal-nav-item" data-goto="s11"><svg><use href="#ic-building"/></svg> Company</a>
+            <a class="portal-nav-item" data-goto="s12"><svg><use href="#ic-users"/></svg> Buyers</a>
+            <a class="portal-nav-item" data-goto="s13"><svg><use href="#ic-shield"/></svg> Approvals</a>
+            <a class="portal-nav-item" data-goto="s14"><svg><use href="#ic-credit-card"/></svg> Credit</a>
+            <a class="portal-nav-item" data-goto="s15"><svg><use href="#ic-file-text"/></svg> Purchase orders</a>
+            <a class="portal-nav-item active"><svg><use href="#ic-file-text"/></svg> Price list</a>
+          </div>
+          <div class="portal-nav-group"><div class="portal-nav-label">Account</div>
+            <a class="portal-nav-item" data-goto="s6"><svg><use href="#ic-map-pin"/></svg> Addresses</a>
+            <a class="portal-nav-item" data-goto="s7"><svg><use href="#ic-users"/></svg> Profile</a>
+          </div>
+        </nav>
+        <div class="portal-sidebar-user"><div class="portal-user-row"><div class="avatar avatar-sm">DR</div><div><div class="portal-user-name">Dana Ruiz</div><div class="portal-user-email">Ironclad Supply Co.</div></div></div><a class="portal-logout"><svg style="width:0.9rem;height:0.9rem"><use href="#ic-log-out"/></svg> Log out</a></div>
+      </aside>
+      <div class="portal-body">
+        <header class="portal-header"><button class="icon-btn" aria-label="Notifications"><svg><use href="#ic-bell"/></svg></button></header>
+        <main class="portal-main">
+          <div class="portal-page-head"><h1>Price list</h1></div>
+          <div class="dt">
+            <div class="dt-head"><div class="dt-head-row"><h2 class="t-table-title">Contracted prices</h2></div><div class="dt-toolbar"><div class="dt-toolbar-row"><span class="grow"></span><button class="btn btn-outline btn-sm"><svg><use href="#ic-download"/></svg> Export CSV</button></div></div></div>
+            <table class="table"><thead><tr><th>Product</th><th class="right">1–49</th><th class="right">50–199</th><th class="right">200+</th></tr></thead>
+            <tbody>
+              <tr><td>M8 Hex Bolt (Bulk Pack)</td><td class="right num">84,00 zł</td><td class="right num">78,00 zł</td><td class="right num">71,00 zł</td></tr>
+              <tr><td>Standard Wood Screw 4×40</td><td class="right num">7,20 zł</td><td class="right num">6,60 zł</td><td class="right num">5,90 zł</td></tr>
+            </tbody></table>
+          </div>
+        </main>
+        <footer class="portal-footer">© Northwind Fasteners</footer>
+      </div>
+    </div>
+  </div>
+  <div class="notes"><div class="note"><b>1</b><span>"Export CSV" is audit-logged with user and timestamp, and the file is watermarked with the company name and generation time (R7) — traceability, not prevention, is the accepted mitigation for a forwarded export.</span></div></div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S17 — Orders, company_summary scope -->
+<!-- ============================================================ -->
+<section class="screen" id="s17">
+  <div class="screen-meta">
+    <h2>17. Orders — <span class="t-mono">company_summary</span> scope</h2>
+    <p>A colleague without <span class="t-mono">allow_price_visibility</span> sees company order headers only — no lines, no per-line prices, no documents.</p>
+    <div class="screen-refs"><span class="ref">§4.1</span><span class="ref">§4.2</span><span class="ref">§11</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">shop.northwind.example/portal/orders</span></div>
+    <div class="portal-shell">
+      <aside class="portal-sidebar">
+        <div class="portal-sidebar-brand"><svg style="width:1.1rem;height:1.1rem"><use href="#ic-home"/></svg> Northwind Fasteners</div>
+        <nav class="portal-nav">
+          <div class="portal-nav-group"><div class="portal-nav-label">Portal</div>
+            <a class="portal-nav-item" data-goto="s1"><svg><use href="#ic-home"/></svg> Overview</a>
+            <a class="portal-nav-item active"><svg><use href="#ic-package"/></svg> Orders</a>
+            <a class="portal-nav-item" data-goto="s5"><svg><use href="#ic-file-text"/></svg> Quotes</a>
+            <a class="portal-nav-item" data-goto="s8"><svg><use href="#ic-heart"/></svg> Wishlists</a>
+            <a class="portal-nav-item" data-goto="s9"><svg><use href="#ic-package"/></svg> Saved carts</a>
+            <a class="portal-nav-item" data-goto="s10"><svg><use href="#ic-refresh"/></svg> Returns</a>
+          </div>
+          <div class="portal-nav-group"><div class="portal-nav-label">Account</div>
+            <a class="portal-nav-item" data-goto="s6"><svg><use href="#ic-map-pin"/></svg> Addresses</a>
+            <a class="portal-nav-item" data-goto="s7"><svg><use href="#ic-users"/></svg> Profile</a>
+          </div>
+        </nav>
+        <div class="portal-sidebar-user"><div class="portal-user-row"><div class="avatar avatar-sm">MI</div><div><div class="portal-user-name">Marco Ito</div><div class="portal-user-email">Ironclad Supply Co.</div></div></div><a class="portal-logout"><svg style="width:0.9rem;height:0.9rem"><use href="#ic-log-out"/></svg> Log out</a></div>
+      </aside>
+      <div class="portal-body">
+        <header class="portal-header"><button class="icon-btn" aria-label="Notifications"><svg><use href="#ic-bell"/></svg></button></header>
+        <main class="portal-main">
+          <div class="portal-page-head"><h1>Orders</h1><p class="t-hint">Showing company orders — headers only. Line items and prices are visible to approvers and admins.</p></div>
+          <div class="dt">
+            <table class="table"><thead><tr><th>Order</th><th>Placed by</th><th>Date</th><th>Status</th></tr></thead>
+            <tbody>
+              <tr><td class="t-mono">#SO-10482</td><td>Dana Ruiz</td><td class="t-hint">Today</td><td><span class="badge badge-success">Delivered</span></td></tr>
+              <tr><td class="t-mono">#SO-10444</td><td>Dana Ruiz</td><td class="t-hint">1 week ago</td><td><span class="badge badge-neutral">Processing</span></td></tr>
+            </tbody></table>
+          </div>
+        </main>
+        <footer class="portal-footer">© Northwind Fasteners</footer>
+      </div>
+    </div>
+  </div>
+  <div class="notes"><div class="note"><b>1</b><span>No "Total" column and no row-click into detail — <span class="t-mono">company_summary</span> is number/date/status only by definition (§4.1); this is a different table shape from screen 2, not the same table with cells blanked out.</span></div></div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S18 — Order detail, cross-company denied -->
+<!-- ============================================================ -->
+<section class="screen" id="s18">
+  <div class="screen-meta">
+    <h2>18. Order detail — cross-company access denied (R1/R6)</h2>
+    <p>Marco Ito guesses an order id belonging to a different company. Identical to a nonexistent order — not-permitted and not-found are indistinguishable (R6).</p>
+    <div class="screen-refs"><span class="ref">§4.1</span><span class="ref">§10 R1</span><span class="ref">§10 R6</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">shop.northwind.example/portal/orders/SO-77120</span></div>
+    <div class="portal-shell">
+      <aside class="portal-sidebar">
+        <div class="portal-sidebar-brand"><svg style="width:1.1rem;height:1.1rem"><use href="#ic-home"/></svg> Northwind Fasteners</div>
+        <nav class="portal-nav">
+          <div class="portal-nav-group"><div class="portal-nav-label">Portal</div>
+            <a class="portal-nav-item" data-goto="s1"><svg><use href="#ic-home"/></svg> Overview</a>
+            <a class="portal-nav-item" data-goto="s17"><svg><use href="#ic-package"/></svg> Orders</a>
+            <a class="portal-nav-item" data-goto="s5"><svg><use href="#ic-file-text"/></svg> Quotes</a>
+            <a class="portal-nav-item" data-goto="s8"><svg><use href="#ic-heart"/></svg> Wishlists</a>
+            <a class="portal-nav-item" data-goto="s9"><svg><use href="#ic-package"/></svg> Saved carts</a>
+            <a class="portal-nav-item" data-goto="s10"><svg><use href="#ic-refresh"/></svg> Returns</a>
+          </div>
+          <div class="portal-nav-group"><div class="portal-nav-label">Account</div>
+            <a class="portal-nav-item" data-goto="s6"><svg><use href="#ic-map-pin"/></svg> Addresses</a>
+            <a class="portal-nav-item" data-goto="s7"><svg><use href="#ic-users"/></svg> Profile</a>
+          </div>
+        </nav>
+        <div class="portal-sidebar-user"><div class="portal-user-row"><div class="avatar avatar-sm">MI</div><div><div class="portal-user-name">Marco Ito</div><div class="portal-user-email">Ironclad Supply Co.</div></div></div><a class="portal-logout"><svg style="width:0.9rem;height:0.9rem"><use href="#ic-log-out"/></svg> Log out</a></div>
+      </aside>
+      <div class="portal-body">
+        <header class="portal-header"><button class="icon-btn" aria-label="Notifications"><svg><use href="#ic-bell"/></svg></button></header>
+        <main class="portal-main">
+          <div class="empty" style="padding:4rem 1rem">
+            <div class="empty-icon"><svg><use href="#ic-eye"/></svg></div>
+            <div class="t-card-title">Order not found</div>
+            <p class="t-hint" style="max-width:38ch">This order doesn't exist, or isn't visible to you.</p>
+            <button class="btn btn-outline btn-sm" data-goto="s17">Back to orders</button>
+          </div>
+        </main>
+        <footer class="portal-footer">© Northwind Fasteners</footer>
+      </div>
+    </div>
+  </div>
+  <div class="notes"><div class="note"><b>1</b><span>The identical message and status code an ordinary deleted/nonexistent order id would produce — a portal buyer probing sequential order ids cannot learn which ids are real for a different company (R1). The same pattern applies to a denied document download (R6).</span></div></div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S19 — Approvals, already-decided conflict -->
+<!-- ============================================================ -->
+<section class="screen" id="s19">
+  <div class="screen-meta">
+    <h2>19. Approvals — already-decided conflict (optimistic lock)</h2>
+    <p>Another approver decided this request moments ago. Deciding an already-decided request surfaces the conflict rather than double-deciding it (§11).</p>
+    <div class="screen-refs"><span class="ref">§8</span><span class="ref">§11</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">shop.northwind.example/portal/company/approvals</span></div>
+    <div class="portal-shell">
+      <aside class="portal-sidebar">
+        <div class="portal-sidebar-brand"><svg style="width:1.1rem;height:1.1rem"><use href="#ic-home"/></svg> Northwind Fasteners</div>
+        <nav class="portal-nav">
+          <div class="portal-nav-group"><div class="portal-nav-label">Portal</div>
+            <a class="portal-nav-item" data-goto="s1"><svg><use href="#ic-home"/></svg> Overview</a>
+            <a class="portal-nav-item" data-goto="s2"><svg><use href="#ic-package"/></svg> Orders</a>
+            <a class="portal-nav-item" data-goto="s5"><svg><use href="#ic-file-text"/></svg> Quotes</a>
+            <a class="portal-nav-item" data-goto="s8"><svg><use href="#ic-heart"/></svg> Wishlists</a>
+            <a class="portal-nav-item" data-goto="s9"><svg><use href="#ic-package"/></svg> Saved carts</a>
+            <a class="portal-nav-item" data-goto="s10"><svg><use href="#ic-refresh"/></svg> Returns</a>
+            <a class="portal-nav-item" data-goto="s11"><svg><use href="#ic-building"/></svg> Company</a>
+            <a class="portal-nav-item" data-goto="s12"><svg><use href="#ic-users"/></svg> Buyers</a>
+            <a class="portal-nav-item active"><svg><use href="#ic-shield"/></svg> Approvals</a>
+            <a class="portal-nav-item" data-goto="s14"><svg><use href="#ic-credit-card"/></svg> Credit</a>
+            <a class="portal-nav-item" data-goto="s15"><svg><use href="#ic-file-text"/></svg> Purchase orders</a>
+            <a class="portal-nav-item" data-goto="s16"><svg><use href="#ic-file-text"/></svg> Price list</a>
+          </div>
+          <div class="portal-nav-group"><div class="portal-nav-label">Account</div>
+            <a class="portal-nav-item" data-goto="s6"><svg><use href="#ic-map-pin"/></svg> Addresses</a>
+            <a class="portal-nav-item" data-goto="s7"><svg><use href="#ic-users"/></svg> Profile</a>
+          </div>
+        </nav>
+        <div class="portal-sidebar-user"><div class="portal-user-row"><div class="avatar avatar-sm">DR</div><div><div class="portal-user-name">Dana Ruiz</div><div class="portal-user-email">Ironclad Supply Co.</div></div></div><a class="portal-logout"><svg style="width:0.9rem;height:0.9rem"><use href="#ic-log-out"/></svg> Log out</a></div>
+      </aside>
+      <div class="portal-body">
+        <header class="portal-header"><button class="icon-btn" aria-label="Notifications"><svg><use href="#ic-bell"/></svg></button></header>
+        <main class="portal-main">
+          <div class="portal-page-head"><h1>Approvals</h1></div>
+          <div class="alert alert-warning">
+            <svg><use href="#ic-warn"/></svg>
+            <div><div class="alert-title">This record changed since you opened it</div><div class="t-hint">Priya Shah already rejected Marco Ito's 18 200,00 zł request 2 minutes ago. Your decision was not recorded.</div></div>
+          </div>
+          <div class="dt" style="margin-top:1rem"><table class="table"><thead><tr><th>Requested by</th><th>Amount</th><th>Status</th></tr></thead><tbody><tr><td>Marco Ito</td><td class="right num">18 200,00 zł</td><td><span class="badge badge-error">Rejected</span></td></tr></tbody></table></div>
+        </main>
+        <footer class="portal-footer">© Northwind Fasteners</footer>
+      </div>
+    </div>
+  </div>
+  <div class="notes"><div class="note"><b>1</b><span>This route resolves visibility only and delegates the actual decision to <code class="t-mono">customer_groups</code>'s existing optimistic-locked decide command (§8's cross-module coupling note) — the conflict bar here is that command's own <code class="t-mono">surfaceRecordConflict</code>, not a second implementation.</span></div></div>
+</section>
+
+</div>
+
+<script>
+(function () {
+  var btn = document.getElementById('theme-toggle');
+  btn.addEventListener('click', function () {
+    document.documentElement.classList.toggle('dark');
+  });
+})();
+</script>
+<script src="comments.js"></script>
+<script src="prototype.js"></script>
+</body>
+</html>
