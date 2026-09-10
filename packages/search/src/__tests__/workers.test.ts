@@ -57,6 +57,8 @@ jest.mock('../modules/search/lib/reindex-progress', () => ({
 
 import { handleVectorIndexJob } from '../modules/search/workers/vector-index.worker'
 import { handleFulltextIndexJob } from '../modules/search/workers/fulltext-index.worker'
+import { recordIndexerLog } from '@open-mercato/shared/lib/indexers/status-log'
+import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
 import { updateReindexProgress, clearReindexLock } from '../modules/search/lib/reindex-lock'
 import { hasActiveReindexProgress, incrementReindexProgress } from '../modules/search/lib/reindex-progress'
 import { refreshCoverageSnapshot } from '@open-mercato/core/modules/query_index/lib/coverage'
@@ -676,4 +678,92 @@ describe('Fulltext Index Worker', () => {
       'Fulltext search is not available'
     )
   })
+
+  // The organization is the only axis that correlates a fulltext index write with
+  // the record it wrote. Dropping it from the audit trail makes every row's
+  // organization_id NULL regardless of the record's real organization, which is
+  // indistinguishable from a genuinely organization-less write. The vector worker
+  // has always logged it; these pin the fulltext worker to the same contract.
+  it('records the organization on the status log for a single index', async () => {
+    const job = createMockJob<FulltextIndexJobPayload>({
+      jobType: 'index',
+      tenantId: 'tenant-123',
+      organizationId: 'org-456',
+      entityType: 'test:entity',
+      recordId: 'rec-1',
+    })
+
+    await handleFulltextIndexJob(job, createMockJobContext(), mockContainer)
+
+    expect(recordIndexerLog).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        handler: 'worker:fulltext:index',
+        tenantId: 'tenant-123',
+        organizationId: 'org-456',
+      }),
+    )
+  })
+
+  it('records the organization on the status log for a batch index', async () => {
+    mockSearchIndexer.indexRecordsById.mockResolvedValueOnce({ indexed: 1, skipped: 0 })
+    const job = createMockJob<FulltextIndexJobPayload>({
+      jobType: 'batch-index',
+      tenantId: 'tenant-123',
+      organizationId: 'org-456',
+      records: [{ entityId: 'test:entity', recordId: 'rec-1' }],
+    })
+
+    await handleFulltextIndexJob(job, createMockJobContext(), mockContainer)
+
+    expect(recordIndexerLog).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        handler: 'worker:fulltext:batch-index',
+        tenantId: 'tenant-123',
+        organizationId: 'org-456',
+      }),
+    )
+  })
+
+  it('records the organization on the error log when indexing throws', async () => {
+    mockSearchIndexer.indexRecordById.mockRejectedValueOnce(new Error('boom'))
+    const job = createMockJob<FulltextIndexJobPayload>({
+      jobType: 'index',
+      tenantId: 'tenant-123',
+      organizationId: 'org-456',
+      entityType: 'test:entity',
+      recordId: 'rec-1',
+    })
+
+    await expect(handleFulltextIndexJob(job, createMockJobContext(), mockContainer)).rejects.toThrow('boom')
+
+    expect(recordIndexerError).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        handler: 'worker:fulltext:index',
+        tenantId: 'tenant-123',
+        organizationId: 'org-456',
+      }),
+    )
+  })
+
+  // `delete` and `purge` payloads carry no organization at all, so null here is
+  // the honest value rather than a dropped field. Pinned so a later payload
+  // change is a deliberate decision, not a silent one.
+  it('logs a null organization for a purge, whose payload carries none', async () => {
+    const job = createMockJob<FulltextIndexJobPayload>({
+      jobType: 'purge',
+      tenantId: 'tenant-123',
+      entityId: 'test:entity',
+    })
+
+    await handleFulltextIndexJob(job, createMockJobContext(), mockContainer)
+
+    expect(recordIndexerLog).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ handler: 'worker:fulltext:purge', tenantId: 'tenant-123' }),
+    )
+  })
+
 })
