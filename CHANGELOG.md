@@ -1,3 +1,9 @@
+# Unreleased
+
+## Features
+
+- Add Atlas Cloud as an optional OpenAI-compatible AI Assistant provider.
+
 # 0.7.0 (2026-08-26)
 
 ## Highlights

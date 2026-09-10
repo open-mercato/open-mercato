@@ -66,7 +66,7 @@ describe('OpenAIAdapter (OpenAI-compatible provider factory)', () => {
     )
     expect(flagged).toEqual(new Set(['openrouter', 'requesty', 'litellm']))
     // Non-gateway backends stay unflagged.
-    for (const id of ['openai', 'deepinfra', 'together', 'fireworks', 'groq', 'azure']) {
+    for (const id of ['openai', 'deepinfra', 'atlas-cloud', 'together', 'fireworks', 'groq', 'azure']) {
       const preset = OPENAI_COMPATIBLE_PRESETS.find((p) => p.id === id)!
       expect(preset.usesVendorPrefixedModelIds).toBeFalsy()
     }
@@ -150,6 +150,13 @@ describe('OpenAIAdapter (OpenAI-compatible provider factory)', () => {
     expect(preset.baseURLEnvKeys).toContain('DEEPINFRA_BASE_URL')
   })
 
+  it('atlas-cloud preset declares its endpoint and env keys', () => {
+    const preset = OPENAI_COMPATIBLE_PRESETS.find((p) => p.id === 'atlas-cloud')!
+    expect(preset.baseURL).toBe('https://api.atlascloud.ai/v1')
+    expect(preset.baseURLEnvKeys).toContain('ATLASCLOUD_BASE_URL')
+    expect(preset.envKeys).toContain('ATLASCLOUD_API_KEY')
+  })
+
   it('groq preset declares GROQ_BASE_URL in baseURLEnvKeys', () => {
     const preset = OPENAI_COMPATIBLE_PRESETS.find((p) => p.id === 'groq')!
     expect(preset.baseURLEnvKeys).toContain('GROQ_BASE_URL')
@@ -195,6 +202,7 @@ describe('OPENAI_COMPATIBLE_PRESETS built-in catalog', () => {
     const ids = OPENAI_COMPATIBLE_PRESETS.map((p) => p.id)
     expect(ids).toContain('openai')
     expect(ids).toContain('deepinfra')
+    expect(ids).toContain('atlas-cloud')
     expect(ids).toContain('groq')
     expect(ids).toContain('together')
     expect(ids).toContain('fireworks')
