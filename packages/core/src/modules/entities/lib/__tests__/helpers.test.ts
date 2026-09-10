@@ -145,12 +145,14 @@ describe('setRecordCustomFields', () => {
 
     expect(remove).not.toHaveBeenCalled()
     expect(nativeDelete).toHaveBeenCalledTimes(1)
-    // Scope-free on purpose (#5970): the replacement must also clear rows written under a
-    // scope the record has since left, so organizationId/tenantId are NOT part of the filter.
+    // Organization-free on purpose (#5970): the replacement must also clear rows written
+    // under an organization the record has since left. The tenant boundary stays — the
+    // filter reaches the caller's tenant and the instance-global NULL tenant, nothing else.
     expect(nativeDelete).toHaveBeenCalledWith(CustomFieldValue, {
       entityId: 'customers:customer_deal',
       recordId: 'deal-1',
       fieldKey: 'segments',
+      $or: [{ tenantId: 'tenant-1' }, { tenantId: null }],
     })
     expect(persist).toHaveBeenCalledTimes(1)
     expect(persist).toHaveBeenCalledWith([
@@ -178,14 +180,15 @@ describe('setRecordCustomFields', () => {
       const nativeDelete = jest.fn(async () => rows.length)
       const create = jest.fn((entity: unknown, data: Record<string, unknown>) => ({ ...data, entity }))
       const persist = jest.fn()
+      const find = jest.fn(async (entity: unknown) => (entity === CustomFieldDef ? [definition] : rows))
       const emMock = {
-        find: jest.fn(async (entity: unknown) => (entity === CustomFieldDef ? [definition] : rows)),
+        find,
         create,
         persist,
         nativeDelete,
         flush: jest.fn(async () => undefined),
       }
-      return { emMock, em: emMock as unknown as EntityManager, nativeDelete, create, persist }
+      return { emMock, em: emMock as unknown as EntityManager, find, nativeDelete, create, persist }
     }
 
     it('deletes the row left behind by the record\'s previous organization instead of adding a second one', async () => {
@@ -242,6 +245,28 @@ describe('setRecordCustomFields', () => {
       expect(create).not.toHaveBeenCalled()
       expect(persist).not.toHaveBeenCalled()
       expect(nativeDelete).toHaveBeenCalledWith(CustomFieldValue, { id: { $in: ['value-duplicate'] } })
+    })
+
+    it('never reaches past the tenant boundary when looking for stale rows', async () => {
+      const { em, find } = makeEm([])
+
+      await setRecordCustomFields(em, {
+        entityId: 'example:todo',
+        recordId: 'record-1',
+        organizationId: 'org-b',
+        tenantId: 'tenant-1',
+        values: { priority: 7 },
+      })
+
+      // Organization is deliberately absent from the filter; tenant is not. Another
+      // tenant's rows for a colliding (entityId, recordId) must stay invisible to this
+      // write, because a cross-tenant delete is a worse failure than a duplicate row.
+      expect(find).toHaveBeenCalledWith(CustomFieldValue, {
+        entityId: 'example:todo',
+        recordId: 'record-1',
+        fieldKey: 'priority',
+        $or: [{ tenantId: 'tenant-1' }, { tenantId: null }],
+      })
     })
 
     it('does not delete anything when the record has never left its scope', async () => {

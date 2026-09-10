@@ -113,6 +113,15 @@ export async function setRecordCustomFields(
     encryptionService = resolveTenantEncryptionService(em as any, opts.encryptionService)
     return encryptionService
   }
+  // A write owns every value row a reader in ITS OWN tenant scope could return for this
+  // record: same logical key (entityId, recordId, fieldKey), any organization, and either
+  // the caller's tenant or the instance-global NULL tenant — exactly what the Query Engine
+  // matches. Organization is left out because no read path filters on it, so a row from a
+  // scope the record has left is indistinguishable from the live one (#5970). The tenant
+  // boundary is kept: another tenant's rows are never visible to this caller's readers and
+  // must never be deleted by its writes. Spelled as an explicit $or rather than
+  // `$in: [tenantId, null]` because SQL `IN (NULL)` never matches a NULL row.
+  const tenantScopeFilter = { $or: [{ tenantId }, { tenantId: null }] }
   const keys = Object.keys(values)
   const presentKeyCount = keys.filter((key) => values[key] !== undefined).length
   if (preferDefs && presentKeyCount > MAX_CUSTOM_FIELD_KEYS_PER_RECORD) {
@@ -158,12 +167,11 @@ export async function setRecordCustomFields(
     // the replacement atomic without letting old-row cleanup target new rows.
     if (isArray) {
       const arr = raw as Primitive[]
-      // The delete deliberately omits organizationId/tenantId. A record has exactly one
-      // current scope, so a write owns every row for (entityId, recordId, fieldKey);
-      // pinning the scope here left the rows written under the record's PREVIOUS scope
-      // alive next to the replacements (#5970), and readers match the logical key
-      // without pinning organization_id, so both generations answered the same lookup.
-      await em.nativeDelete(CustomFieldValue, { entityId, recordId, fieldKey })
+      // Reconciling delete (see tenantScopeFilter): pinning organizationId here left the
+      // rows written under the record's PREVIOUS organization alive next to the
+      // replacements, and no read path filters organization_id, so both generations
+      // answered the same lookup (#5970).
+      await em.nativeDelete(CustomFieldValue, { entityId, recordId, fieldKey, ...tenantScopeFilter })
       for (const val of arr) {
         const col: keyof CustomFieldValue = encrypted ? 'valueText' : def ? columnFromKind(def.kind) : columnFromJsValue(val)
         const cf = em.create(CustomFieldValue, { entityId, recordId, organizationId, tenantId, fieldKey, createdAt: new Date() })
@@ -189,14 +197,14 @@ export async function setRecordCustomFields(
       ? await encryptCustomFieldValue(raw as Primitive, tenantId, getEncryptionService(), encryptionCache)
       : raw
 
-    // Same logical key as the multi-value branch: load every row for
-    // (entityId, recordId, fieldKey), reuse the one already in the current scope and
-    // drop the rest, so rows left behind by a previous organization/tenant scope — and
+    // Same reconciliation as the multi-value branch (see tenantScopeFilter): load every
+    // reachable row for the logical key, reuse the one already in the caller's exact
+    // scope and drop the rest, so a row left behind by a previous organization — and
     // same-scope duplicates from two writes that both missed the lookup — cannot
-    // survive (#5970). The scope comparison runs in JS on purpose: as a SQL predicate
-    // it falls through Postgres three-valued logic on NULL scopes and spares exactly
-    // the stale rows this is meant to remove.
-    const existingRows = await em.find(CustomFieldValue, { entityId, recordId, fieldKey })
+    // survive (#5970). Picking the survivor in JS rather than narrowing the query keeps
+    // NULL organizations out of SQL three-valued logic, where an inequality predicate
+    // would silently spare exactly the stale rows this is meant to remove.
+    const existingRows = await em.find(CustomFieldValue, { entityId, recordId, fieldKey, ...tenantScopeFilter })
     let cf = existingRows.find((row) => (row.organizationId ?? null) === organizationId && (row.tenantId ?? null) === tenantId) ?? null
     const staleIds = existingRows.filter((row) => row !== cf).map((row) => row.id)
     if (staleIds.length) await em.nativeDelete(CustomFieldValue, { id: { $in: staleIds } })
