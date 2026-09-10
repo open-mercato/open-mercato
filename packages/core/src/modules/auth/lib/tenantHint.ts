@@ -9,10 +9,11 @@
 
 const TENANT_HINT_PARAM = 'tenant'
 
-function normalizeTenantHint(tenantId: unknown): string | null {
-  if (tenantId == null) return null
-  const value = String(tenantId).trim()
-  return value.length > 0 ? value : null
+export type TenantHintSource = string | null | undefined
+
+function normalizeTenantHint(tenantId: TenantHintSource): string | null {
+  const value = tenantId?.trim()
+  return value ? value : null
 }
 
 /**
@@ -20,7 +21,7 @@ function normalizeTenantHint(tenantId: unknown): string | null {
  * links). Returns the URL unchanged for tenantless users or an unparsable URL,
  * so a hint can never cost a user their working link.
  */
-export function withTenantHintUrl(url: string, tenantId: unknown): string {
+export function withTenantHintUrl(url: string, tenantId: TenantHintSource): string {
   const tenant = normalizeTenantHint(tenantId)
   if (!tenant) return url
   try {
@@ -35,11 +36,14 @@ export function withTenantHintUrl(url: string, tenantId: unknown): string {
 /**
  * Adds the tenant hint to an app-relative path (the redirect handed back to the
  * browser after a successful reset). Returns the path unchanged for tenantless
- * users.
+ * users. Encoding and replace-don't-duplicate semantics match
+ * {@link withTenantHintUrl}.
  */
-export function withTenantHintPath(path: string, tenantId: unknown): string {
+export function withTenantHintPath(path: string, tenantId: TenantHintSource): string {
   const tenant = normalizeTenantHint(tenantId)
   if (!tenant) return path
-  const separator = path.includes('?') ? '&' : '?'
-  return `${path}${separator}${TENANT_HINT_PARAM}=${encodeURIComponent(tenant)}`
+  const [pathname, existingQuery = ''] = path.split('?')
+  const params = new URLSearchParams(existingQuery)
+  params.set(TENANT_HINT_PARAM, tenant)
+  return `${pathname}?${params.toString()}`
 }

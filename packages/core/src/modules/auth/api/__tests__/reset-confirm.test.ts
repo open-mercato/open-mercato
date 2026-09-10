@@ -157,7 +157,6 @@ describe('POST /api/auth/reset/confirm — tenant continuity in the success redi
     const res = await POST(makeConfirmRequest())
     const { redirect } = await res.json() as { redirect: string }
 
-    expect(redirect).toBe('/login?tenant=a%26b%3Dc')
     const parsed = new URL(redirect, 'https://app.example.com')
     expect(parsed.pathname).toBe('/login')
     expect([...parsed.searchParams.keys()]).toEqual(['tenant'])

@@ -43,11 +43,26 @@ describe('withTenantHintPath', () => {
   })
 
   test('encodes a tenant id containing url-significant characters', () => {
-    expect(withTenantHintPath('/login', 'a&b=c d')).toBe('/login?tenant=a%26b%3Dc%20d')
+    const redirect = withTenantHintPath('/login', 'a&b=c d')
+    const parsed = new URL(redirect, 'https://app.example.com')
+
+    expect([...parsed.searchParams.keys()]).toEqual(['tenant'])
+    expect(parsed.searchParams.get('tenant')).toBe('a&b=c d')
   })
 
   test('joins onto a path that already carries a query string', () => {
     expect(withTenantHintPath('/login?next=%2Fbackend', 'tenant-1'))
       .toBe('/login?next=%2Fbackend&tenant=tenant-1')
+  })
+
+  test('replaces rather than duplicates an existing tenant parameter', () => {
+    expect(withTenantHintPath('/login?tenant=forged', 'tenant-1')).toBe('/login?tenant=tenant-1')
+  })
+
+  test('encodes both helpers identically for the same tenant id', () => {
+    const fromUrl = new URL(withTenantHintUrl('https://app.example.com/reset/tok', 'a&b=c d')).search
+    const fromPath = withTenantHintPath('/login', 'a&b=c d').slice('/login'.length)
+
+    expect(fromPath).toBe(fromUrl)
   })
 })
