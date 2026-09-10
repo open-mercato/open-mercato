@@ -32,10 +32,11 @@ test.describe('TC-ADMIN-001: Create API Key', () => {
       await expect(page.getByRole('heading', { name: 'API Keys', level: 1 })).toBeVisible();
       await expect(page.locator('main h1')).toHaveCount(1);
 
-      // Click Create. Use { exact: true } to disambiguate from the topbar
-      // "Create sales document" widget which also exposes a `<a>` matching the
-      // partial "Create" name.
-      await page.getByRole('link', { name: 'Create', exact: true }).click();
+      // Click Create. Scope to `main` to exclude the topbar "Create sales
+      // document" widget, and take the first match: when the list is empty the
+      // `ListEmptyState` CTA renders a second link to the same route under the
+      // same "Create" label, and the header button precedes it in the DOM.
+      await page.locator('main').getByRole('link', { name: 'Create', exact: true }).first().click();
       await expect(page).toHaveURL(/\/backend\/api-keys\/create$/);
       await expect(page.getByRole('heading', { name: 'Create API Key', level: 1 })).toBeVisible();
       await expect(page.locator('main h1')).toHaveCount(1);
