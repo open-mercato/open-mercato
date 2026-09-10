@@ -363,10 +363,33 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
 
     async incrementProgress(jobId, delta, ctx) {
       const entry = await ensureThrottleEntry(jobId, ctx)
-      const job = entry.job
+      let job = entry.job
       if (TERMINAL_STATUSES.includes(job.status)) {
-        const revived = job.status === 'failed' && (await startJobViaCas(em, job, ctx, { staleSweptOnly: true }))
-        if (!revived) {
+        let writable = false
+        if (job.status === 'failed') {
+          writable = (await startJobViaCas(em, job, ctx, { staleSweptOnly: true })) != null
+          if (!writable) {
+            // The cached snapshot's status lags the row whenever another writer — typically
+            // the forked heartbeat in touchJobHeartbeat — already revived this job: the start
+            // CAS then misses because the row is `running`, not `failed`. Increments are
+            // relative, so returning here would lose the caller's delta for good (unlike
+            // updateProgress, whose next absolute write self-corrects). Unlike
+            // persistAndMaybeBroadcast, the re-read happens after the CAS rather than before
+            // it: startJobViaCas filters on database state, so retrying it against the fresh
+            // row could not change whether it matches.
+            const fresh = await loadFreshJob(jobId, ctx)
+            if (fresh) {
+              job = fresh
+              writable = PROGRESS_WRITABLE_STATUSES.includes(fresh.status)
+              // Adopting the fresh row cannot desync entry.pendingDelta, which is provably 0
+              // here: this guard is only reachable on a cached terminal status, and the only
+              // writers that cache one — ensureThrottleEntry's initial load and
+              // persistAndMaybeBroadcast's post-persist assignment — both leave the buffer empty.
+              if (writable) entry.job = fresh
+            }
+          }
+        }
+        if (!writable) {
           forgetJobThrottle(jobId)
           return job
         }

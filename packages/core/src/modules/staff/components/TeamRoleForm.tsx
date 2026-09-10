@@ -143,6 +143,7 @@ export function TeamRoleForm(props: TeamRoleFormProps) {
   return (
     <CrudForm<TeamRoleFormValues>
       title={title}
+      titleHeadingLevel={1}
       backHref={backHref}
       cancelHref={cancelHref}
       versionHistory={initialValues.id

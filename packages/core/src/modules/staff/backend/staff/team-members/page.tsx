@@ -419,7 +419,8 @@ export default function StaffTeamMembersPage() {
     <Page>
       <PageBody>
         <DataTable<TeamMemberRow>
-          title={labels.title}
+        title={labels.title}
+        titleHeadingLevel={1}
           data={rows}
           columns={columns}
           isLoading={isLoading}
@@ -648,4 +649,3 @@ function renderLabelPills(values: string[]): React.ReactNode {
     </div>
   )
 }
-
