@@ -170,4 +170,56 @@ test.describe('TC-RESO-009: Resource list search & filters', () => {
       await deleteResourceTypeIfExists(request, token, typeId);
     }
   });
+
+  /**
+   * Issue #5803: a list search for an exact value returned a NEIGHBOURING record. The engines used
+   * to rewrite a declared `ilike` into a hashed-token match on every column, and the tokenizer
+   * drops fragments shorter than `OM_SEARCH_MIN_LEN` (3), so `2026-08` and `2026-01` reduce to the
+   * same token set — a picker then bound the document to the wrong entity. The fix applies the
+   * declared containment per word instead, which is why the case above (`Warehouse <stamp>`
+   * matching `Warehouse A <stamp>`) keeps passing alongside this one.
+   */
+  test('search for an exact value returns that record, not a neighbour differing by a short fragment (#5803)', async ({ request }) => {
+    test.slow();
+    const token = await getAuthToken(request, 'admin');
+    const stamp = Date.now();
+
+    const january = `Period 2026-01 ${stamp}`;
+    const august = `Period 2026-08 ${stamp}`;
+    const resourceIds: string[] = [];
+    try {
+      resourceIds.push(await createResource(request, token, { name: january, isActive: true }));
+      resourceIds.push(await createResource(request, token, { name: august, isActive: true }));
+
+      // Barrier: both fixtures are readable before any assertion about which one matches.
+      await expect
+        .poll(async () => namesOf(await fetchList(request, token, `?search=${stamp}&pageSize=100`)).length, {
+          timeout: 10000,
+          message: 'both period fixtures should be readable',
+        })
+        .toBe(2);
+
+      // The reported failure: the fragment that tells the two periods apart is exactly what the
+      // tokenizer discarded, so this search used to answer with the January row.
+      await expect
+        .poll(
+          async () => namesOf(await fetchList(request, token, `?search=${encodeURIComponent(`Period 2026-08 ${stamp}`)}&pageSize=100`)),
+          { timeout: 8000, message: 'searching the exact value returns only that record' },
+        )
+        .toEqual([august]);
+
+      // Words are still matched independently of their order and of anything between them, which is
+      // what the token index provided and what the per-word ANDing preserves.
+      await expect
+        .poll(
+          async () => namesOf(await fetchList(request, token, `?search=${encodeURIComponent(`${stamp} Period`)}&pageSize=100`)),
+          { timeout: 8000, message: 'reversed word order still matches both period rows' },
+        )
+        .toEqual([january, august].sort((a, b) => a.localeCompare(b)));
+    } finally {
+      for (const id of resourceIds) {
+        await deleteResourceIfExists(request, token, id);
+      }
+    }
+  });
 });

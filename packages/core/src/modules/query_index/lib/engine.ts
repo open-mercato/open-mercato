@@ -31,6 +31,7 @@ import {
   type SearchTokenProbeQueryBuilder,
 } from '@open-mercato/shared/lib/search/availability'
 import { tokenizeText } from '@open-mercato/shared/lib/search/tokenize'
+import { buildContainmentPatterns } from '@open-mercato/shared/lib/search/containment'
 import { runBeforeQueryPipeline, runAfterQueryPipeline, type QueryExtensionContext } from '@open-mercato/shared/lib/query/query-extension-runner'
 import { warnOnCiphertextLikeFallback } from '@open-mercato/shared/lib/query/ciphertext-search-warning'
 import { resolveEncryptedSortFields, resolveEncryptedSortMaxRows, sortRowsInMemory } from '@open-mercato/shared/lib/query/encrypted-sort'
@@ -525,13 +526,16 @@ export class HybridQueryEngine implements QueryEngine {
         searchConfig.useIlikeForNonEncryptedFields === true &&
         sourceSearchFilters.some((filter) => !String(filter.field).startsWith('cf:'))
       ) {
+        // Gated on OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS (default true since #5803; set it
+        // to false to restore the pre-existing rewrite-everything behavior).
         // `ignoreRuntimeHealth` asks the on-disk question -- a column holds ciphertext even while
         // the KMS is down -- so an outage keeps encrypted columns on the token path (#4622).
         // `organizationId: null` is deliberate, not an omission: the service then unions in every
         // organization's map (`fetchAllOrganizationFieldNames`), so a field any org encrypts stays
         // on the token path -- a wider set fails safe. Passing the request's org instead would
         // silently break encrypted-column search for orgs without their own map. That union is an
-        // UNCACHED `encryption_maps` read, one extra round-trip per searched list request.
+        // uncached `encryption_maps` read, which `resolveEncryptedLikeFieldSet` memoizes per
+        // (entity, tenant) behind a short TTL so it costs one round-trip per minute, not per request.
         try {
           const encryptionService = this.getEncryptionService()
           const readEncryptedFieldNames = encryptionService?.getEncryptedFieldNames?.bind(encryptionService)
@@ -1935,6 +1939,20 @@ export class HybridQueryEngine implements QueryEngine {
         ? sql<boolean>`false`
         : sql<boolean>`true`
     }
+    // Reaching here with a resolved encryption map means this is a PLAINTEXT column the gate above
+    // deliberately kept off the token path. Apply the declared containment per word so the token
+    // path's word-order-independent matching survives the reroute (#5803 / TC-RESO-009).
+    if (
+      (filter.op === 'like' || filter.op === 'ilike') &&
+      typeof filter.value === 'string' &&
+      searchRuntime?.enabled &&
+      searchRuntime.encryptedFields != null
+    ) {
+      const patterns = buildContainmentPatterns(filter.value)
+      if (patterns.length > 1) {
+        return eb.and(patterns.map((pattern) => eb(qualify(baseField), filter.op, pattern)))
+      }
+    }
     return this.buildColumnFilterExpression(eb, qualify(baseField), filter.op, filter.value)
   }
 
@@ -2618,6 +2636,21 @@ export class HybridQueryEngine implements QueryEngine {
       return q
     }
     const col: any = column
+    // A PLAINTEXT column the gate kept off the token path: AND one containment predicate per word,
+    // which is what the token subquery matched (#5803 / TC-RESO-009). Chained `where`s ARE the AND.
+    if (
+      (filter.op === 'like' || filter.op === 'ilike') &&
+      typeof filter.value === 'string' &&
+      search?.enabled &&
+      search.encryptedFields != null
+    ) {
+      const patterns = buildContainmentPatterns(filter.value)
+      if (patterns.length > 1) {
+        let next = q
+        for (const pattern of patterns) next = next.where(col, filter.op, pattern as any)
+        return next
+      }
+    }
     switch (filter.op) {
       case 'eq':
         return filter.value === null

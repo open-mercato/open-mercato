@@ -1,6 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { HybridQueryEngine, coerceSortDirection } from '../../query_index/lib/engine'
-import { BasicQueryEngine } from '@open-mercato/shared/lib/query/engine'
+import { BasicQueryEngine, clearEncryptedLikeFieldsCache } from '@open-mercato/shared/lib/query/engine'
 import { SortDir } from '@open-mercato/shared/lib/query/types'
 import { clearSearchTokenPresenceCache } from '@open-mercato/shared/lib/search/availability'
 
@@ -1924,5 +1924,151 @@ describe('HybridQueryEngine like/ilike routing by column encryption (applyColumn
     const legacy = (engine as any).buildBaseFilterExpression(eb, { field: 'display_name', op: 'ilike', value: 'ZK' }, resolveBase, qualify, 'customers:customer_entity', { ...runtime(undefined) })
     expect(JSON.stringify(known.toOperationNode())).toEqual(JSON.stringify(sql`false`.toOperationNode()))
     expect(JSON.stringify(legacy.toOperationNode())).toEqual(JSON.stringify(sql`true`.toOperationNode()))
+  })
+
+  // #5803 regression guard. The token subquery required every token to be present in any order,
+  // so `?search=Warehouse <stamp>` matched `Warehouse A <stamp>` -- behavior TC-RESO-009 pins.
+  // A single verbatim `ILIKE '%Warehouse <stamp>%'` cannot match across the `A `, so a plaintext
+  // column taken off the token path has to AND one containment predicate per word instead.
+  test('a multi-word term on a plaintext column ANDs one containment predicate per word', () => {
+    const { engine, tokensSpy } = makeEngine()
+    const { q, wheres } = makeBuilder()
+    ;(engine as any).applyColumnFilter(q, 'b.display_name', { field: 'display_name', op: 'ilike', value: '%Warehouse 1757%' }, runtime(new Set(['other_column'])))
+    expect(tokensSpy).not.toHaveBeenCalled()
+    expect(wheres).toEqual([
+      { args: ['b.display_name', 'ilike', '%Warehouse%'] },
+      { args: ['b.display_name', 'ilike', '%1757%'] },
+    ])
+  })
+
+  test('buildBaseFilterExpression: a multi-word OR-leaf on a plaintext column ANDs its words too', () => {
+    // `?search=` reaches the engine as an OR group across searchable columns, so the expression
+    // path -- not just the builder path above -- is what the reported grid actually hits.
+    const { engine } = makeEngine()
+    const eb: any = Object.assign(
+      (column: string, op: string, value: string) => ({ __cmp: [column, op, value] }),
+      {
+        or: (parts: any[]) => ({ __or: parts }),
+        and: (parts: any[]) => ({ __and: parts }),
+        exists: (sub: any) => ({ __exists: sub }),
+      },
+    )
+    const expression = (engine as any).buildBaseFilterExpression(
+      eb,
+      { field: 'display_name', op: 'ilike', value: '%Warehouse 1757%' },
+      (field: string) => field,
+      (column: string) => `b.${column}`,
+      'customers:customer_entity',
+      { ...runtime(new Set(['other_column'])) },
+    )
+    expect(expression).toEqual({
+      __and: [
+        { __cmp: ['b.display_name', 'ilike', '%Warehouse%'] },
+        { __cmp: ['b.display_name', 'ilike', '%1757%'] },
+      ],
+    })
+  })
+
+  test('buildBaseFilterExpression: a single-word OR-leaf reaches SQL exactly as declared', () => {
+    // The #5803 reproduction itself: `%2026-08%` must not be reinterpreted, or the exact period
+    // cannot come back at all.
+    const { engine } = makeEngine()
+    const eb: any = Object.assign(
+      (column: string, op: string, value: string) => ({ __cmp: [column, op, value] }),
+      {
+        or: (parts: any[]) => ({ __or: parts }),
+        and: (parts: any[]) => ({ __and: parts }),
+        exists: (sub: any) => ({ __exists: sub }),
+      },
+    )
+    const expression = (engine as any).buildBaseFilterExpression(
+      eb,
+      { field: 'period_code', op: 'ilike', value: '%2026-08%' },
+      (field: string) => field,
+      (column: string) => `b.${column}`,
+      'accounting:accounting_period',
+      { ...runtime(new Set(['other_column'])), field: 'period_code' },
+    )
+    expect(expression).toEqual({ __cmp: ['b.period_code', 'ilike', '%2026-08%'] })
+  })
+})
+
+describe('HybridQueryEngine like/ilike routing default (#5803)', () => {
+  // The unit-level suite above injects `encryptedFields` directly, so it pins how the runtime is
+  // USED but not whether the runtime gets a resolved set in the first place. That decision lives
+  // behind `searchConfig.useIlikeForNonEncryptedFields` in `query()`, and the hybrid engine is the
+  // one the app actually resolves (`query_index/di.ts`) -- the engine #5803 was reported against.
+  // Without a query()-level case the default could regress here while the shared-engine and
+  // config suites both stayed green.
+  const originalFlag = process.env.OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS
+
+  beforeEach(() => {
+    clearEncryptedLikeFieldsCache()
+    delete process.env.OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS
+  })
+
+  afterEach(() => {
+    if (originalFlag === undefined) delete process.env.OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS
+    else process.env.OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS = originalFlag
+  })
+
+  const buildEngine = () => {
+    const db = createFakeKysely({
+      baseTable: 'todos', hasIndexAny: true, baseCount: 10, indexCount: 10, customFieldKeys: {},
+    })
+    const em = buildEm(db)
+    const readEncryptedFieldNames = jest.fn().mockResolvedValue([])
+    const engine = new HybridQueryEngine(
+      em,
+      new BasicQueryEngine(em),
+      undefined,
+      undefined,
+      () => ({ getEncryptedFieldNames: readEncryptedFieldNames }) as any,
+    )
+    jest.spyOn(engine as any, 'searchAvailability').mockReturnValue({
+      staticEnabled: async () => true,
+      hasTokens: async () => true,
+      anySourceHasTokens: async () => true,
+    })
+    return { engine, readEncryptedFieldNames }
+  }
+
+  // `2026-08` tokenizes to {202, 2026} -- exactly the set `2026-01` produces -- so reaching the
+  // token path at all is what made the reported list search answer with the wrong period.
+  const search = (engine: HybridQueryEngine) => engine.query('example:todo', {
+    fields: ['id'],
+    organizationId: 'org1',
+    tenantId: 't1',
+    filters: [{ field: 'title', op: 'ilike', value: '%2026-08%' }],
+  } as any)
+
+  // The gate reads the map with `ignoreRuntimeHealth` -- a column holds ciphertext even while the
+  // KMS is down -- and no other caller of `getEncryptedFieldNames` passes that option, so it is the
+  // signature that tells the gate's read apart from the decoration path's.
+  // Reading the encryption map is what SWITCHES the gate on: `searchRuntime.encryptedFields` is
+  // only populated from that read, and `buildBaseFilterExpression` sends everything through tokens
+  // while it stays nullish. Whether the read happens is therefore the query()-level signal that the
+  // per-column carve-out is active -- the routing it then drives is pinned by the
+  // `applyColumnFilter` suite above, which the fake builder cannot exercise because it never
+  // invokes Kysely's expression callbacks.
+  test('with the env var unset, query() resolves the encryption map so plaintext columns keep ILIKE', async () => {
+    const { engine, readEncryptedFieldNames } = buildEngine()
+
+    await search(engine)
+
+    expect(readEncryptedFieldNames).toHaveBeenCalledWith(
+      'example:todo', 't1', null, { ignoreRuntimeHealth: true },
+    )
+  })
+
+  test('with the env var set to false, query() never consults the map and every column stays on tokens', async () => {
+    process.env.OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS = 'false'
+    const { engine, readEncryptedFieldNames } = buildEngine()
+
+    await search(engine)
+
+    expect(readEncryptedFieldNames).not.toHaveBeenCalledWith(
+      expect.anything(), expect.anything(), expect.anything(), { ignoreRuntimeHealth: true },
+    )
   })
 })

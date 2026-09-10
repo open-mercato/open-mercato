@@ -24,6 +24,46 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.7.0 → 0.7.1 (unreleased)
 
+### CRUD list `search` on plaintext columns is now a per-word ILIKE (#5803)
+
+Both query engines used to replace a declared base-column `$like` / `$ilike` with an approximate
+`search_tokens` match whenever tokens existed for the entity in the caller's scope — on **every**
+column, not just the encrypted ones the rewrite was built for. Tokenization splits on
+non-alphanumerics and drops fragments shorter than `OM_SEARCH_MIN_LEN` (3), so a list search was
+lossy in a way that returned the **wrong record** rather than merely extra ones:
+`?search=2026-08` answered with the `2026-01` row, and `?search=08` — which tokenizes to nothing —
+dropped the predicate entirely and matched every row. A picker built on such a route silently bound
+the document to a different entity.
+
+`OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS`, introduced as an opt-in carve-out in #4622, now
+**defaults to `true`**. A `like` / `ilike` on a plaintext base column is applied as SQL ILIKE against
+the column itself; columns the tenant encryption map reports as encrypted keep the token path,
+because ILIKE against ciphertext cannot match. When the encryption map cannot be read at all, the
+previous rewrite-everything behavior is still kept — guessing "plaintext" there would run ILIKE
+against ciphertext and silently return nothing.
+
+A multi-word term is applied as **one containment predicate per word, ANDed**: `?search=Warehouse 12`
+becomes `name ILIKE '%Warehouse%' AND name ILIKE '%12%'`. That is deliberate. The token subquery
+matched a value carrying every token in any order with anything between them, so replacing it with a
+single literal `ILIKE '%Warehouse 12%'` would stop matching `Warehouse A 12` and would trade one
+broken list search for another. Word-order independence is therefore **preserved** — `smith john`
+still matches a `John Smith` value.
+
+**What to check when upgrading.** One capability narrows: with `OM_SEARCH_ENABLE_PARTIALS` on, the
+token index also matched prefixes, so `?search=warehou` could match `Warehouse` through expanded
+tokens even where the fragment was not a contiguous substring of the stored value. Containment
+matches only real substrings. A term shorter than `OM_SEARCH_MIN_LEN` now filters instead of being
+silently ignored, which is the other half of the #5803 fix. Fuzzy, typo-tolerant search belongs on
+`SearchService` (`/api/search`, `/api/search/global`), which is unaffected by this change. If a
+deployment depends on the old list behavior — or on the token lookup being cheaper than an unanchored
+ILIKE without a trigram index — restore it explicitly:
+
+```bash
+OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS=false
+```
+
+Encrypted-column search is unchanged in both settings, and no schema, route, or response shape moved.
+
 ### Sales line `discount_amount` is now read as a line total, and the percentage wins (#3757)
 
 `sales_order_lines.discount_amount` and `sales_quote_lines.discount_amount` have always been

@@ -20,6 +20,7 @@ import {
   type SearchTokenProbeQueryBuilder,
 } from '../search/availability'
 import { tokenizeText } from '../search/tokenize'
+import { buildContainmentPatterns } from '../search/containment'
 import { fieldNameCandidates } from './encrypted-sort'
 import { isTenantDataEncryptionEnabled } from '../encryption/toggles'
 import { runBeforeQueryPipeline, runAfterQueryPipeline, type QueryExtensionContext } from './query-extension-runner'
@@ -445,9 +446,9 @@ export class BasicQueryEngine implements QueryEngine {
       ? await this.searchAvailability().hasTokens(String(entity), opts.tenantId ?? null, orgScope)
       : false
     const searchActive = searchEnabled && hasSearchTokens
-    // Opt-in via OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS (default false: the pre-existing
-    // rewrite-everything behavior is kept). When enabled, base-column like/ilike is rerouted
-    // through search tokens ONLY for encrypted columns, where
+    // Gated on OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS (default true since #5803; set it to
+    // false to restore the pre-existing rewrite-everything behavior). When enabled, base-column
+    // like/ilike is rerouted through search tokens ONLY for encrypted columns, where
     // ILIKE against ciphertext cannot match. On a plaintext column SQL ILIKE is exact, and the token
     // rewrite silently changes the result set: tokenization splits on non-alphanumerics and drops
     // tokens shorter than minTokenLength, so a document-number search like "ZK 1/2026" degrades to
@@ -457,8 +458,9 @@ export class BasicQueryEngine implements QueryEngine {
     // `organizationId: null` is deliberate, not an omission: the service then unions in every
     // organization's map (`fetchAllOrganizationFieldNames`), so a field any org encrypts stays on
     // the token path -- a wider set fails safe. Passing the request's org instead would silently
-    // break encrypted-column search for orgs without their own map. That union is an UNCACHED
-    // `encryption_maps` read, one extra round-trip per searched list request. `null` means
+    // break encrypted-column search for orgs without their own map. That union is an uncached
+    // `encryption_maps` read, which `resolveEncryptedLikeFieldSet` memoizes per (entity, tenant)
+    // behind a short TTL so it costs one round-trip per minute rather than one per request. `null` means
     // the encryption service could not answer at all; keep the pre-existing rewrite-everything
     // behavior then, because guessing "plaintext" would turn encrypted-column search into an
     // ILIKE-on-ciphertext that matches nothing.
@@ -614,6 +616,24 @@ export class BasicQueryEngine implements QueryEngine {
             field: fieldName,
             value,
           })
+        }
+      }
+      // A PLAINTEXT column the gate above kept off the token path: apply the declared containment
+      // once per word so the token subquery's word-order-independent matching survives the reroute
+      // (#5803 / TC-RESO-009). Chained `where`s ARE the AND the token `having count(distinct)` did.
+      if (
+        (op === 'like' || op === 'ilike') &&
+        typeof value === 'string' &&
+        searchActive &&
+        fieldName &&
+        encryptedLikeFields !== null &&
+        !isEncryptedLikeField(encryptedLikeFields, fieldName)
+      ) {
+        const patterns = buildContainmentPatterns(value)
+        if (patterns.length > 1) {
+          let next = builder
+          for (const pattern of patterns) next = this.applyColumnOp(next, column, op, pattern)
+          return next
         }
       }
       return this.applyColumnOp(builder, column, op, value)
