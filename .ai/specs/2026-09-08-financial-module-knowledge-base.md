@@ -113,17 +113,21 @@ play.
 That module matters here because of JPK_KR_PD — Poland's electronic-
 accounting-books filing, phased in from 2026 (Ministry of Finance
 brochure and `gov.pl/kas`, both now in §3/§5 as Tier 1 sources).
-Extending `financial-pl` to support it would be that module's
-first-ever cross-module *read* from `ledger`, in bulk — a different
-shape of dependency than AP's existing write-side one. Full analysis:
-`2026-09-10-jpk-kr-pd-financial-pl-analysis.md` (delivered directly to
-the user, not committed anywhere — research/analysis, not a spec). One
-concrete outcome already has a real spec in *this* repo, listed in the
-table above: `2026-09-10-general-ledger-bulk-read-service.md` — the
-cross-module read contract a future `SPEC-010` (JPK_KR_PD, in
-`official-modules`, not yet written) would depend on. The GL core
-engine spec's Out of scope section (2026-09-10, twice) tracks the same
-gap and points at the same document.
+**Confirmed target (2026-09-10, internal decision):** Commerce Weavers
+needs JPK_KR_PD support and has decided to build it — no longer a
+hypothetical scoping question. Extending `financial-pl` to support it
+is that module's first-ever cross-module *read* from `ledger`, in
+bulk — a different shape of dependency than AP's existing write-side
+one. Full analysis: `2026-09-10-jpk-kr-pd-financial-pl-analysis.md`
+(delivered directly to the user, not committed anywhere —
+research/analysis, not a spec). One concrete outcome already has a real
+spec in *this* repo, listed in the table above:
+`2026-09-10-general-ledger-bulk-read-service.md` (PR #6038) — the
+cross-module read contract `SPEC-010` (JPK_KR_PD, in `official-modules`,
+still not written — needs its own primary-source XSD verification
+pass first) will depend on. The GL core engine spec's Out of scope
+section (2026-09-10, three times now) tracks the same gap and points
+at the same document.
 
 ---
 
