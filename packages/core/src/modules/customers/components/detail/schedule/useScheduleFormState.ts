@@ -1,5 +1,6 @@
 import * as React from 'react'
 import type { ActivityType } from './fieldConfig'
+import { isDateRequired } from './fieldConfig'
 
 export type RsvpStatus = 'pending' | 'accepted' | 'declined' | 'tentative'
 
@@ -124,8 +125,15 @@ export function useScheduleFormState({ open, editData }: UseScheduleFormStatePar
         const seedDateValid = !Number.isNaN(seedDate.getTime())
         const fallbackNow = new Date()
         const dateForForm = seedDateValid ? seedDate : fallbackNow
-        setDate(formatLocalDateInput(dateForForm))
-        setStartTime(formatLocalTimeInput(dateForForm))
+        // An undated task must stay undated: falling back to "today" here would
+        // silently give a backlog item a due date on the next save (#5941).
+        if (!sourceTimestamp && !isDateRequired(resolvedType)) {
+          setDate('')
+          setStartTime('')
+        } else {
+          setDate(formatLocalDateInput(dateForForm))
+          setStartTime(formatLocalTimeInput(dateForForm))
+        }
         setDuration(editData.durationMinutes ?? 30)
         setAllDay(editData.allDay ?? false)
         setDescription(editData.body ?? '')

@@ -137,6 +137,10 @@ jest.mock('@open-mercato/ui/backend/inputs', () => ({
 
 jest.mock('../schedule', () => ({
   useScheduleFormState: () => mockScheduleState,
+  // Requiredness is the behavior under test in the #5941 cases below, so it
+  // keeps the real per-type rules rather than a stub.
+  isDateRequired: jest.requireActual('../schedule/fieldConfig').isDateRequired,
+  isTimeRequired: jest.requireActual('../schedule/fieldConfig').isTimeRequired,
   FIELD_VISIBILITY: {
     meeting: new Set(['duration']),
     call: new Set(['duration']),
@@ -263,6 +267,79 @@ describe('ScheduleActivityDialog', () => {
     ).not.toThrow()
 
     expect(screen.getByText('Update activity')).toBeInTheDocument()
+  })
+
+  describe('undated backlog task (regression #5941)', () => {
+    function lastSavedPayload() {
+      const requestInit = apiCallOrThrowMock.mock.calls.at(-1)?.[1] as { body?: string } | undefined
+      return JSON.parse(String(requestInit?.body ?? '{}')) as Record<string, unknown>
+    }
+
+    function renderDialog() {
+      renderWithProviders(
+        <ScheduleActivityDialog
+          open
+          onClose={() => undefined}
+          entityId="person-1"
+          entityType="person"
+        />,
+      )
+    }
+
+    it('saves a task with no due date and posts an explicit null instead of an invalid timestamp', async () => {
+      mockScheduleState = createScheduleState({
+        activityType: 'task' as const,
+        title: 'Call back after their vacation',
+        date: '',
+        startTime: '',
+      })
+
+      renderDialog()
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: /^Save task$/ }))
+      })
+
+      expect(apiCallOrThrowMock).toHaveBeenCalled()
+      const payload = lastSavedPayload()
+      expect(payload.scheduledAt).toBeNull()
+      expect(payload.date).toBeNull()
+      expect(payload.time).toBeNull()
+      expect(flashMock).not.toHaveBeenCalledWith('Date is required', 'error')
+    })
+
+    it('leaves the save button enabled for a dateless task', () => {
+      mockScheduleState = createScheduleState({
+        activityType: 'task' as const,
+        title: 'Call back after their vacation',
+        date: '',
+        startTime: '',
+      })
+
+      renderDialog()
+
+      expect(screen.getByRole('button', { name: /^Save task$/ })).not.toBeDisabled()
+    })
+
+    it('still blocks a calendar-bound meeting that has no date', async () => {
+      mockScheduleState = createScheduleState({
+        activityType: 'meeting' as const,
+        title: 'Quarterly review',
+        date: '',
+        startTime: '',
+      })
+
+      renderDialog()
+
+      const saveButton = screen.getByRole('button', { name: /^Save activity$/ })
+      expect(saveButton).toBeDisabled()
+
+      await act(async () => {
+        fireEvent.click(saveButton)
+      })
+
+      expect(apiCallOrThrowMock).not.toHaveBeenCalled()
+    })
   })
 
   describe('task priority (regression #5943)', () => {

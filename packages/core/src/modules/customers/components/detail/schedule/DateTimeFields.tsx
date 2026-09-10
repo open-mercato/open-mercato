@@ -15,7 +15,7 @@ import {
   SelectValue,
 } from '@open-mercato/ui/primitives/select'
 import type { ActivityType, ScheduleFieldId } from './fieldConfig'
-import { isVisible, getFieldLabel } from './fieldConfig'
+import { isVisible, isDateRequired, isTimeRequired, getFieldLabel } from './fieldConfig'
 
 function parseIsoDate(value: string): Date | null {
   if (!value) return null
@@ -99,8 +99,10 @@ export function DateTimeFields({
   const showAllDay = isVisible(activityType, 'allDay')
   const showRecurrence = isVisible(activityType, 'recurrence')
 
-  const dateMissing = !date.trim()
-  const timeMissing = showStartTime && !allDay && !startTime.trim()
+  const dateRequired = isDateRequired(activityType)
+  const timeRequired = isTimeRequired(activityType)
+  const dateMissing = dateRequired && !date.trim()
+  const timeMissing = timeRequired && showStartTime && !allDay && !startTime.trim()
   const dateErrorId = 'schedule-date-error'
   const timeErrorId = 'schedule-time-error'
 
@@ -111,13 +113,18 @@ export function DateTimeFields({
         <div className="flex min-w-0 flex-[1.5] flex-col gap-1.5">
           <label className="text-overline font-semibold text-muted-foreground tracking-wider">
             {getFieldLabel(activityType, 'date', t, 'customers.schedule.date', 'Date')}
-            <span aria-hidden="true" className="ml-1 text-status-error-foreground">*</span>
+            {dateRequired ? (
+              <span aria-hidden="true" className="ml-1 text-status-error-foreground">*</span>
+            ) : null}
           </label>
           <DatePicker
             value={parseIsoDate(date)}
             onChange={(next) => setDate(formatIsoDate(next))}
             placeholder={t('customers.schedule.date.placeholder', 'Pick a date')}
-            required
+            required={dateRequired}
+            // An optional date seeds to today, so the picker needs a way back to
+            // "no due date"; the default apply/cancel footer cannot reach null.
+            footer={dateRequired ? undefined : 'today-clear'}
             aria-describedby={dateMissing ? dateErrorId : undefined}
             className={cn(
               'h-10',
@@ -134,7 +141,9 @@ export function DateTimeFields({
           <div className="flex min-w-0 flex-1 flex-col gap-1.5">
             <label className="text-overline font-semibold text-muted-foreground tracking-wider">
               {getFieldLabel(activityType, 'startTime', t, 'customers.schedule.start', 'Start')}
-              <span aria-hidden="true" className="ml-1 text-status-error-foreground">*</span>
+              {timeRequired ? (
+                <span aria-hidden="true" className="ml-1 text-status-error-foreground">*</span>
+              ) : null}
             </label>
             <TimePicker
               value={startTime || null}
@@ -146,7 +155,7 @@ export function DateTimeFields({
                 timeMissing ? 'border-status-error-border' : undefined,
               )}
               showNowButton
-              showClearButton={false}
+              showClearButton={!timeRequired}
             />
             {timeMissing ? (
               <p id={timeErrorId} className="text-xs text-status-error-foreground">
