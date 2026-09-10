@@ -24,6 +24,95 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.7.0 → 0.7.1 (unreleased)
 
+### Sales line `discount_amount` is now read as a line total, and the percentage wins (#3757)
+
+`sales_order_lines.discount_amount` and `sales_quote_lines.discount_amount` have always been
+*written* as the discount for the whole line, but the totals engine read them back as a
+per-**unit** rate. Every recalculation therefore multiplied the discount by the line quantity
+again, so on a discounted line with `quantity > 1` the stored discount grew on each pass —
+`12.75 → 38.25 → 114.75 → 255` on the reported 3 × 85.00 line — until it equalled the line's
+whole subtotal and the line's net collapsed to `0` while its gross stayed correct.
+
+The column's meaning is now normative (a **line total**, net, quantity-inclusive) and the read
+path was corrected to match. The full reasoning is in
+`.ai/specs/2026-08-07-sales-line-discount-amount-contract.md`.
+
+**Three behaviour changes affect callers of `/api/sales/orders`, `/api/sales/quotes`,
+`/api/sales/order-lines` and `/api/sales/quote-lines`.** All three follow from the new
+precedence rule: when `discount_percent` is set and non-zero it wins, and a stored
+`discount_amount` of `0` counts as *absent* rather than as a suppressing value.
+
+| you send | before | now |
+|---|---|---|
+| a percent **and** a different amount | the amount won | **the percent wins** — your amount is dropped |
+| only `discountAmount`, onto a line whose stored `discount_percent` is non-zero | the amount won | **the inherited percent wins** — your amount is dropped, with nothing in your own request to warn you |
+| `discountPercent: 12` together with `discountAmount: 0` | no discount was applied | **the 12% is applied** |
+
+**The third row is the dangerous one, and it is different in kind from the other two.** It
+*inverts* behaviour rather than dropping a value. `discountAmount: 0` used to be a working way
+to suppress a percentage, and sending it is exactly the workaround an integration would have
+built to defend itself against this very defect — quite possibly while already netting the
+discount out of the unit price it sends. Such an integration will now discount **twice**, and
+the resulting totals are larger, not smaller, so it fails in the direction nobody notices.
+Audit for `discountAmount: 0` before upgrading.
+
+For the first two rows the migration is mechanical: **send `discountPercent: 0` alongside your
+explicit amount** and it will be honoured.
+
+#### Keeping an explicit amount, and the new `discountAmountBasis`
+
+A supplied `discountAmount` is still interpreted **per unit** by default, so no existing caller
+has to change how it computes the value. An optional `discountAmountBasis: 'unit' | 'line'` was
+added to the order and quote line request schemas; omitting it reproduces today's documented
+meaning exactly. Send `'line'` when the amount you are posting is already the whole line's
+discount:
+
+```jsonc
+// 60 units at 50.00 net, discounting 300.00 across the line
+{ "quantity": 60, "unitPriceNet": 50.00, "discountAmount": 5.00 }                            // per unit — 300.00 total
+{ "quantity": 60, "unitPriceNet": 50.00, "discountAmount": 300.00, "discountAmountBasis": "line" }
+```
+
+The field is additive and is never persisted or returned; it only describes how an input is
+read. `sales_invoice_lines.discount_amount` is unaffected — invoice lines never pass through the
+calculation engine, so no basis field was added to the invoice schema.
+
+#### Existing data
+
+Recalculation now *changes* totals on documents whose rows are currently wrong, and it does so
+on the next write to each document rather than at deploy time. Two of the three affected row
+shapes repair themselves, because they still carry the percentage the discount derives from:
+
+- `discount_amount = 0` with `discount_percent > 0` (the discount was dropped) — **heals**.
+- `discount_amount` inflated with `discount_percent > 0` — **heals**, the amount is re-derived.
+- `discount_amount` inflated with **no** percentage — **does not heal.** Nothing in the row
+  records how many times it was multiplied. An opt-in operator repair tool is tracked in #5641;
+  until then, `discount_amount := max(unit_price_net × quantity − total_net_amount, 0)`
+  recovers the correct value wherever the persisted `total_net_amount` is trustworthy.
+
+Affected rows are self-detecting without instrumentation: a supplied `totalGrossAmount` is kept
+verbatim while net is recomputed, so any line whose `total_net_amount × (1 + taxRate)` diverges
+materially from `total_gross_amount` is a candidate, with undiscounted lines as the baseline.
+
+### Search tokens fold `ł`, `ø`, `đ` and friends — affected records need a reindex (#5666)
+
+The search tokenizer in `@open-mercato/shared/lib/search/tokenize` normalized text with NFKD followed by combining-mark stripping. That folds every diacritic composed of a base letter plus a mark (`ą`, `ó`, `ś`, `ż`, `ć`, `ü`, `é`), but a number of Latin letters are atomic codepoints with no decomposition at all — `ł`/`Ł`, `ø`/`Ø`, `đ`/`Đ`, `ð`/`Ð`, `þ`/`Þ`, `ħ`/`Ħ`, `ı`, `ĸ`, `ŋ`/`Ŋ`, `ŧ`/`Ŧ`, the `æ`/`œ` ligatures and `ß`. Those survived normalization and were then eaten by the token splitter, which treats any non-`[a-z0-9]` character as a separator. `Łukasz` indexed as `ukasz`, `Łódź` as `odz`, `Zażółć` was cut mid-word to `zazo`, and `Guðmundsdóttir` was split into `gu` and `mundsdottir`. Because the same function runs on both sides, an affected record was unreachable from the diacritic spelling *and* from the ASCII one. The tokenizer now applies an explicit fold for those letters, so `Łukasz` and `lukasz` produce the same token — and therefore the same hash — from either side. The fold runs *after* NFKD and mark stripping, which additionally covers the characters that decompose into one of those letters rather than being one — `ǿ` (U+01FF → `ø` + combining acute), `ǽ`, `ǣ` and `ℏ` among them.
+
+The fold table covers every letter in Latin-1 Supplement and Latin Extended-A that NFKD leaves un-folded, and a range test pins that so a gap cannot silently reopen. Note that `Đ` (U+0110) and `Ð` (U+00D0) are distinct codepoints that render identically in uppercase; both now fold to `d`, so the same rendered name is findable whichever one your data happens to contain.
+
+No exported signature changes: `tokenizeText`, `hashToken` and `TokenizationResult` are untouched, and the fold is internal to the private `normalizeText`. What changes is the **token value**, and by extension the `token_hash` written to `search_tokens`.
+
+**Action for operators:** this is an index-format change for the affected records only. Rows already written for text containing one of those letters still hold the old truncated hashes, so those records stay unfindable until they are reindexed:
+
+```bash
+yarn mercato search reindex          # query_index projection + search_tokens
+yarn mercato query_index rebuild-all # equivalent when driving query_index directly
+```
+
+Records whose indexed text contains none of these characters produce byte-identical hashes before and after, so a reindex is only required where the bug actually applied — but reindexing everything is harmless and is the simpler operational choice. Installations running Meilisearch may not have noticed the bug in global search (its own normalizer handles `ł` correctly), yet the backend users-list filter routes through the token path regardless, so the reindex still applies.
+
+**Action for module authors:** none, unless you persisted `tokenizeText` output outside `search_tokens`. If you did, recompute it; comparing a stored pre-fix token against a freshly computed one will not match for affected text.
+
 ### `AlertDescription` renders a `<div>` instead of a `<p>` (#5487)
 
 `AlertDescription` from `@open-mercato/ui/primitives/alert` rendered a `<p>`, which may only contain phrasing content. Every caller that nested a paragraph, a list, or any other block element inside it therefore produced invalid HTML: the browser's parser closed the paragraph early, the resulting DOM stopped matching what React rendered on the server, and hydration failed with `In HTML, <p> cannot be a descendant of <p>`. Eleven call sites across `ui`, `ai-assistant`, `core`, `enterprise`, and `scheduler` were nesting block children this way. The primitive now renders a `<div>` with the same `text-sm leading-5` classes, which removes the whole class of bug at once.
@@ -58,6 +147,120 @@ Nothing changes at runtime beyond the tag name — no prop was added, removed, o
 Request-side contracts are untouched — query parameters, the `sortField` values (`lastSeenAt`, `createdAt`, `updatedAt`, already camelCase), request bodies, and the `POST`/`PUT`/`DELETE` response shapes are unchanged, as are the database columns themselves. The one behavior difference for a caller already reading the snake_case keys is that timestamp columns now always serialize as ISO-8601 strings under both spellings. `push_token` remains absent from every response under either spelling.
 
 **Action for API consumers:** switch to the camelCase keys. A client that keeps reading the snake_case ones works unchanged until the aliases are removed.
+### The lost-deal status is spelled `lost`, not `loose`
+
+`customer_deals.status` used `loose` as its canonical lost-deal spelling, a misspelling of `lost` that no other surface shared: `closure_outcome` stores `lost`, the AI tool `customers.update_deal_stage` writes `lost`, and every operator-facing label reads "Lost". `lost` is now the canonical status. Writers persist it, `canonicalDealStatus` normalizes `loose` to `lost` rather than the reverse, and the seeded `deal_status` and `pipeline_stage` dictionaries ship `{ value: 'lost', label: 'Lost' }`.
+
+Nothing that was previously accepted is now rejected. `loose` remains a read alias in `LOST_DEAL_STATUS_LIST`, `expandDealStatusAliases`, `TERMINAL_PIPELINE_STAGE_LABELS` and the win/loss SQL, so a status filter, a KPI count and a closure-outcome derivation all behave identically whichever spelling a row carries. The deal `status` field was already a free-form `z.string().max(50)`, and the `closureOutcome` enum (`won` / `lost`) is unchanged.
+
+`Migration20260824180000_deal_status_lost` rewrites stored `loose` values in `customer_deals.status` and `customer_deals.pipeline_stage`, renames the `loose` dictionary entry for the `deal_status` and `pipeline_stage` kinds, and replaces the seeded `Loose` stage label with `Lost`. It deletes nothing. A dictionary entry is left alone when the same scope already holds a `lost` entry, because `customer_dictionary_entries_unique` covers (organization, tenant, kind, normalized value), and a label is only corrected when it is still the seeded `Loose`, so a tenant that renamed the option keeps its own wording. Rows the migration deliberately skips keep classifying correctly through the read aliases.
+
+**Deploy order matters in one direction only, and it is the rollback.** Running the new code before the migration is safe: every reader accepts both spellings, so an un-migrated instance keeps classifying its `loose` rows correctly. Rolling the *code* back to 0.7.0 after the migration has run is not. `lib/dealsSummaryQueries.ts` at 0.7.0 matches `status = 'loose'`, the rows now say `lost`, and the quarter win/loss KPI and the monthly trend series report **zero lost deals** on an instance whose data is perfectly fine. Nothing errors, so the only symptom is a blank number. `down()` is a documented no-op, so there is no automated way back either: if you must roll the code back, either reverse the status values by hand (`update customer_deals set status = 'loose' where status = 'lost'`, which is lossy for any deal that was already `lost` before the migration) or stay on 0.7.1.
+
+**Action for module authors:** replace `DEAL_STATUS_LOSE` with `DEAL_STATUS_LOST`. The old constant is still exported and still equals `'loose'`, now marked `@deprecated` and scheduled for removal no earlier than 0.9.0. Code comparing a status literally against `'loose'` should call `isLostDealStatus`, which matches both spellings; code that consumes `canonicalDealStatus` output must expect `'lost'` where it previously saw `'loose'`. See `.ai/specs/2026-08-24-deal-status-lost-spelling.md`.
+
+### Outbound system email now routes through the Communications Hub
+
+Transactional email (password reset, invitations, MFA email OTP, notifications, quotes,
+checkout, Messages) no longer talks to a provider SDK directly. It resolves a
+`communication_channels` row plus that tenant's integration credentials, and the concrete
+providers ship as pluggable packages (`@open-mercato/channel-resend`,
+`@open-mercato/channel-ses`).
+
+**No configuration change is required.** If your tenants predate this change and you configure
+email the way `.env.example` documents — `RESEND_API_KEY` plus one of
+`NOTIFICATIONS_EMAIL_FROM` / `EMAIL_FROM` / `ADMIN_EMAIL` — email keeps sending. A tenant with
+no email channel of its own falls back to those instance-wide environment credentials, and
+logs a warning each time it does so.
+
+**But a standalone app MUST enable the provider module, or all outbound email stops.** The
+provider is no longer compiled into `@open-mercato/shared`; the adapter is contributed by the
+`channel_resend` / `channel_ses` module, and `src/modules.ts` is your app's file, so upgrading
+the packages does not add it. An app scaffolded before 0.7.1 keeps sending nothing and throws
+`No ChannelAdapter registered for providerKey 'resend'` on the first send — a password reset or
+invitation — with no failure at boot to warn you. Add the dependency and the entry:
+
+```jsonc
+// package.json — match your other @open-mercato/* versions
+"@open-mercato/channel-resend": "0.7.1",
+// and "@open-mercato/channel-ses": "0.7.1" if you set SYSTEM_EMAIL_PROVIDER=ses
+```
+
+```ts
+// src/modules.ts — alongside the other channel_* entries
+{ id: 'channel_resend', from: '@open-mercato/channel-resend' },
+{ id: 'channel_ses', from: '@open-mercato/channel-ses' },
+```
+
+Enable the package matching `SYSTEM_EMAIL_PROVIDER` (default `resend`); the other is optional.
+The monorepo app (`apps/mercato`) and newly scaffolded apps already carry both.
+
+Only the **selected** provider's env preset seeds anything. Enabling both packages is therefore
+safe: with `SYSTEM_EMAIL_PROVIDER` unset or `resend`, the SES preset stores no credentials, creates
+no channel and leaves the SES integration disabled — which matters because `AWS_REGION` is not an
+email variable (`.env.example` ships it for vector search, and every AWS runtime injects it), so an
+ungated SES preset would advertise a connected channel nobody configured. Switching
+`SYSTEM_EMAIL_PROVIDER` and re-running `yarn mercato seed:defaults --module channel_<provider>`
+seeds the new provider.
+
+Credential resolution for a tenant-scoped send runs in this order:
+
+| Tenant state | Credentials used |
+|---|---|
+| Has credentials for the provider (seeded, or saved in the admin UI) | The tenant's own. The Hub channel row is created if missing. |
+| Has a configured channel but no credentials | **None — the send fails.** Never falls back to env. |
+| Has neither | Instance-wide env credentials, with a logged warning. |
+
+The middle row is deliberate: a tenant that configured its own provider must never silently
+send through the instance-wide account. Note also that a channel belonging to a *different
+organization* is never borrowed — organization is a scoping boundary, so that case reaches
+the environment fallback instead. `SYSTEM_EMAIL_CHANNEL_ID` narrows the lookup to one channel
+without lifting that boundary: the pinned row must be the sending organization's own or the
+tenant-wide (`organization_id IS NULL`) one, and a pin never falls back to the environment.
+
+**The table above describes a (tenant, organization) pair, not a tenant.** A send that carries no
+`organizationId` — a password reset for a user whose `organization_id` is null, which superadmins
+can be — probes only the tenant-wide (`organization_id IS NULL`) channel. The per-organization rows
+the env preset seeds are not visible to it, so such a send lands on the last row of the table and
+uses instance-wide environment credentials with the usual logged warning, even on a tenant that has
+finished configuring its own provider. This is deliberate: a send with no organization has no
+organization's credentials to reach for. If you want every send on a tenant to use that tenant's
+provider, give the tenant a tenant-wide channel row (`organization_id IS NULL`) as well as the
+per-organization ones, or pass `organizationId` from the caller.
+
+**An explicit `from` is always honoured.** When the caller passes `from` to `sendEmail`, that
+address is used verbatim; only a send that left `from` to the instance default
+(`NOTIFICATIONS_EMAIL_FROM` / `EMAIL_FROM` / `ADMIN_EMAIL`) is rewritten to the resolved channel's
+sender. One consequence worth naming, because the rule above invites the opposite assumption:
+notification email passes its own configured sender (`module_configs` →
+`strategies.email.from`), so notifications keep sending from that address rather than from the
+tenant channel's identity. Clear the notification strategy's `from` if you want notifications to
+follow the tenant sender too.
+
+**How far "the tenant's own credentials" goes depends on the provider.** For Resend the stored
+credentials include the API key, so each tenant genuinely sends through its own Resend account.
+For Amazon SES the stored credentials are the region, the sender identity and an optional
+configuration set — the AWS identity itself comes from the instance's default AWS credential
+chain (`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` or the container's IAM role), so every SES
+tenant sends through one AWS account and the fail-closed rule above protects the sender identity
+rather than the account. Choose Resend when tenants must bring their own provider account.
+
+**Recommended (not required):** move existing tenants onto the Hub so email is managed per
+tenant and visible in the admin UI. The seed hook is idempotent and safe to re-run — it
+iterates every organization of every tenant:
+
+```bash
+yarn mercato seed:defaults --module channel_resend
+```
+
+**For module authors:** `sendEmail(...)` from `@open-mercato/shared/lib/email/send` is
+unchanged, and remains the supported entry point. Pass `tenantId` and `organizationId`
+whenever you have them so the send resolves that tenant's provider rather than the
+instance-wide one. Code that calls a provider SDK directly should migrate to `sendEmail`.
+
+**One trap worth knowing:** the Resend env preset needs `RESEND_API_KEY` *and* a from-address.
+With the key but no from-address it previously seeded nothing in silence; it now logs a
+warning naming the missing variable.
 
 ### Interaction participants may omit `userId` — external calendar guests (#5115)
 

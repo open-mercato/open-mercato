@@ -301,7 +301,8 @@ export default function EudrRiskAssessmentsPage() {
     <Page>
       <PageBody>
         <DataTable<RiskAssessmentRow>
-          title={translate('eudr.riskAssessments.list.title')}
+        title={translate('eudr.riskAssessments.list.title')}
+        titleHeadingLevel={1}
           columns={columns}
           data={rows}
           searchValue={search}

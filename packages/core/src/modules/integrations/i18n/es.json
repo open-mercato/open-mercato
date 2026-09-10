@@ -11,6 +11,7 @@
   "integrations.detail.back": "Volver a integraciones",
   "integrations.detail.backToList": "Volver a integraciones",
   "integrations.detail.credentials.bundleShared": "Credenciales compartidas del paquete: {bundle}",
+  "integrations.detail.credentials.noPermission": "No tiene permiso para gestionar las credenciales de esta integración.",
   "integrations.detail.credentials.notConfigured": "No hay credenciales configuradas",
   "integrations.detail.credentials.save": "Guardar credenciales",
   "integrations.detail.credentials.saveError": "No se pudieron guardar las credenciales",

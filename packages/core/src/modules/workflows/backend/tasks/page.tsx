@@ -337,7 +337,8 @@ export default function UserTasksListPage() {
     <Page>
       <PageBody>
         <DataTable
-          title={t('workflows.tasks.list.title')}
+        title={t('workflows.tasks.list.title')}
+        titleHeadingLevel={1}
           columns={columns}
           data={data || []}
           filters={filters}

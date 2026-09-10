@@ -23,13 +23,13 @@ import { FilterPopoverShell } from './FilterPopoverShell'
  * Filter options exposed to the operator.
  *
  * The deal `status` column is dictionary-driven (`deal-statuses`); the seeded dictionary
- * carries five values (`open`, `closed`, `win`, `loose`, `in_progress`) plus any
+ * carries five values (`open`, `closed`, `win`, `lost`, `in_progress`) plus any
  * tenant-custom entries. We render every dictionary entry de-duplicated by canonical
  * spelling so the kanban Status pill stays aligned with the list page's advanced filter
  * (which also uses the dictionary). A hard-coded fallback keeps the popover usable while
  * the dictionary is loading or when a tenant has no entries.
  *
- * `won` / `lost` are accepted as aliases for `win` / `loose` at the API layer (see
+ * `won` / `loose` are accepted as aliases for `win` / `lost` at the API layer (see
  * `lib/dealStatus.ts:expandDealStatusAliases`, shared by the deals list route and the
  * kanban aggregate route). The UI only exposes the canonical values to avoid duplicate
  * pills, but `canonicalDealStatus` normalizes any alias passed in through `values` so
@@ -57,7 +57,7 @@ const FALLBACK_STATUS_OPTIONS: Array<{
     dotClass: 'bg-status-success-icon',
   },
   {
-    value: 'loose',
+    value: 'lost',
     labelKey: 'customers.deals.kanban.filter.status.lost',
     labelFallback: 'Lost',
     dotClass: 'bg-status-error-icon',

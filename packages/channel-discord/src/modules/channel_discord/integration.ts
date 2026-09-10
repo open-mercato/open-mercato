@@ -85,8 +85,9 @@ export const integration: IntegrationDefinition = {
         required: false,
         placeholder: '123456789012345678',
         helpText:
-          'Default text channel the adapter posts to when an outbound message names no Discord channel. The hub'
-          + ' test-send endpoint accepts a channel snowflake as its recipient, so you can use it to verify this end to end.',
+          'Default text channel the adapter posts to when an outbound message names no Discord channel. To verify it, call the'
+          + ' hub test-send endpoint with an empty JSON body ({}) so no recipient is named, or pass a channel snowflake as the'
+          + ' recipient to post somewhere else.',
       },
     ],
   },

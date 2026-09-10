@@ -49,6 +49,17 @@ export function createSalesOrderLineDraft(
   const catalogSnapshot = payload.catalogSnapshot && typeof payload.catalogSnapshot === 'object'
     ? payload.catalogSnapshot as Record<string, unknown>
     : null
+  // `payload` is forwarded verbatim to the create API, where a supplied
+  // `discountAmount` is read per unit unless the caller says otherwise, while
+  // `record` below drives the grid, which shows the discount for the whole
+  // line. The multiplication is therefore the conversion between the two, not a
+  // second copy of the per-unit misreading the calculation engine used to hold
+  // — but it has to stop when the caller has explicitly said the amount is
+  // already a line total, or the grid would show the discount quantity times
+  // over while the persisted order shows it once.
+  const draftDiscountAmount = payload.discountAmountBasis === 'line'
+    ? normalizeNumber(payload.discountAmount, 0)
+    : normalizeNumber(payload.discountAmount, 0) * quantity
 
   return {
     id,
@@ -65,7 +76,7 @@ export function createSalesOrderLineDraft(
       currencyCode: typeof payload.currencyCode === 'string' ? payload.currencyCode : null,
       unitPriceNet,
       unitPriceGross,
-      discountAmount: normalizeNumber(payload.discountAmount, 0) * quantity,
+      discountAmount: draftDiscountAmount,
       discountPercent: normalizeNumber(payload.discountPercent, 0),
       taxRate,
       totalNet,

@@ -106,7 +106,18 @@ export function buildPortalUrlPattern(origin: string | null | undefined): string
   return `${normalizeOrigin(origin)}/${PORTAL_ORG_SLUG_PLACEHOLDER}/portal`
 }
 
-/** Portal entry point used by the "Open Portal" action on admin pages. */
-export function buildPortalRootUrl(origin: string | null | undefined): string {
-  return `${normalizeOrigin(origin)}/portal`
+/**
+ * Portal entry point used by the "Open Portal" action on admin pages.
+ *
+ * Portal pages are only ever mounted at `frontend/[orgSlug]/portal/**`, so a URL
+ * without the organization segment cannot resolve and renders a 404 (#5668).
+ * The slug stays optional to keep this signature backward compatible; callers
+ * that cannot resolve one should hide the action rather than link to the
+ * slugless fallback.
+ */
+export function buildPortalRootUrl(origin: string | null | undefined, orgSlug?: string | null): string {
+  const base = normalizeOrigin(origin)
+  const slug = typeof orgSlug === 'string' ? orgSlug.trim() : ''
+  if (!slug) return `${base}/portal`
+  return `${base}/${encodeURIComponent(slug)}/portal`
 }

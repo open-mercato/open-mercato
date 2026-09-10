@@ -11,6 +11,7 @@
   "integrations.detail.back": "Zurück zu Integrationen",
   "integrations.detail.backToList": "Zurück zu Integrationen",
   "integrations.detail.credentials.bundleShared": "Gemeinsame Zugangsdaten aus Paket: {bundle}",
+  "integrations.detail.credentials.noPermission": "Sie haben keine Berechtigung, die Zugangsdaten für diese Integration zu verwalten.",
   "integrations.detail.credentials.notConfigured": "Noch keine Zugangsdaten konfiguriert",
   "integrations.detail.credentials.save": "Zugangsdaten speichern",
   "integrations.detail.credentials.saveError": "Zugangsdaten konnten nicht gespeichert werden",

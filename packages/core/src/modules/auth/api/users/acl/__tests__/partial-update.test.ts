@@ -144,6 +144,25 @@ describe('user ACL partial updates', () => {
     })
   })
 
+  it('rejects a partial update when the preserved feature is outside the actor grant', async () => {
+    storedAcl = {
+      id: 'acl-1',
+      isSuperAdmin: false,
+      featuresJson: ['catalog.manage'],
+      organizationsJson: null,
+      updatedAt: null,
+    }
+
+    const res = await PUT(putRequest({
+      userId: TARGET_USER_ID,
+      organizations: [ACME_ORGANIZATION_ID],
+    }))
+
+    expect(res.status).toBe(403)
+    await expect(res.json()).resolves.toEqual({ error: 'Cannot grant feature catalog.manage.' })
+    expect(mockCommandBus.execute).not.toHaveBeenCalled()
+  })
+
   it('preserves the stored organization scope when only features are submitted', async () => {
     storedAcl = {
       id: 'acl-1',

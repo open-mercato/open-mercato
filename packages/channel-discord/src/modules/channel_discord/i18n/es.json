@@ -5,6 +5,7 @@
   "channel_discord.aiAutoReply.errors.aiUnavailable": "La respuesta automática necesita el módulo de asistente de IA, que no está instalado en este despliegue",
   "channel_discord.aiAutoReply.errors.load": "No se pudo cargar la configuración de respuesta automática de IA",
   "channel_discord.aiAutoReply.errors.loadChannels": "No se pudieron cargar los canales de Discord",
+  "channel_discord.aiAutoReply.errors.missingChannelId": "Ningún canal seleccionado.",
   "channel_discord.aiAutoReply.errors.save": "No se pudo guardar la configuración de respuesta automática de IA",
   "channel_discord.aiAutoReply.fields.agent": "Agente",
   "channel_discord.aiAutoReply.fields.agentHelp": "Solo los agentes que producen salida estructurada pueden responder en un canal. Concede al usuario bot del inquilino los permisos que exige el agente antes de elegir uno de otro módulo.",
