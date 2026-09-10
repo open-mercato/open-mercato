@@ -18,7 +18,11 @@ describe('module-facts customers fixture (T1 anti-drift guard)', () => {
 
   it('locks the source-derived customers entity surface in colon-form ids', () => {
     expect(facts.module).toBe('customers')
-    expect(facts.entities).toHaveLength(25)
+    // 26 since the email conversation-share feature added
+    // `CustomerEmailConversationShare` (the read grant backing owner-controlled
+    // conversation sharing). Bump deliberately: this guard exists to make an
+    // entity-surface change visible, not to be silenced.
+    expect(facts.entities).toHaveLength(26)
     expect(facts.entities.every((entity) => entity.id.startsWith('customers:'))).toBe(true)
     expect(facts.entities[0]).toMatchObject({ id: 'customers:customer_entity' })
     for (const entity of facts.entities) {
@@ -31,8 +35,15 @@ describe('module-facts customers fixture (T1 anti-drift guard)', () => {
     // 50 since #5114 added `customers.person.company_assignment.detached` — the profile-only
     // sibling of the person_company_link CRUD events. Bump deliberately: this guard exists to
     // make an event-surface change visible, not to be silenced.
-    expect(facts.events).toHaveLength(50)
-    expect(facts.aclFeatures).toHaveLength(21)
+    //
+    // 51 since the email conversation-share feature added
+    // `customers.email.conversation_visibility_changed` (audit trail for the
+    // owner-controlled share/un-share act), and 22 ACL features since it added
+    // `customers.email.share_conversation` (owner-scoped: it only ever lets you
+    // share your OWN conversation, so the existing `customers.*` admin wildcard
+    // grants no escalation).
+    expect(facts.events).toHaveLength(51)
+    expect(facts.aclFeatures).toHaveLength(22)
     expect(facts.searchEntities).toEqual([
       'customers:customer_person_profile',
       'customers:customer_company_profile',

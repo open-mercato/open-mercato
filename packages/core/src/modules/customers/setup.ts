@@ -103,6 +103,7 @@ export const setup: ModuleSetupConfig = {
       'customers.roles.view',
       'customers.roles.manage',
       'customers.email.compose',
+      'customers.email.share_conversation',
     ],
   },
 }

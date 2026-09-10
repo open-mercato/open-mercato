@@ -2,6 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CustomerInteraction } from '../data/entities'
 import { buildEmailVisibilityMikroFilter } from './visibilityFilter'
+import type { ConversationShareGrant } from './conversationShares'
 
 /**
  * Read model that turns a Person's email `CustomerInteraction` rows into
@@ -56,6 +57,13 @@ export type BuildPersonEmailThreadsOptions = {
   organizationId: string | null
   viewerUserId: string | null
   userFeatures: string[] | null | undefined
+  /**
+   * Conversation shares that widen this viewer's access. Optional and fail-closed:
+   * omitting it yields the strict owner-only view.
+   */
+  sharedConversations?: ConversationShareGrant[]
+  /** Channels marked as shared team mailboxes; optional and fail-closed. */
+  sharedChannelIds?: string[]
   maxThreads?: number
   maxMessagesPerThread?: number
 }
@@ -128,6 +136,8 @@ export async function buildPersonEmailThreads(
     organizationId,
     viewerUserId,
     userFeatures,
+    sharedConversations,
+    sharedChannelIds,
     maxThreads = DEFAULT_MAX_THREADS,
     maxMessagesPerThread = DEFAULT_MAX_MESSAGES_PER_THREAD,
   } = opts
@@ -154,10 +164,18 @@ export async function buildPersonEmailThreads(
   //     CRM history is never silently hidden.
   // Fail-closed: a null viewer (API-key caller) never matches the author arm, so
   // it only ever sees shared/legacy rows — never anyone's private email.
-  interactionWhere.$or = buildEmailVisibilityMikroFilter({
-    currentUserId: viewerUserId,
-    userFeatures,
-  }).$or
+  // Merge the WHOLE fragment. Cherry-picking `.$or` here would silently discard
+  // any other arm the predicate grows, which fails OPEN at a compile-clean call
+  // site — the exact hazard the fragment contract now documents.
+  Object.assign(
+    interactionWhere,
+    buildEmailVisibilityMikroFilter({
+      currentUserId: viewerUserId,
+      userFeatures,
+      sharedConversations,
+      sharedChannelIds,
+    }),
+  )
 
   // `customer_interaction.title`/`body` are encrypted at rest, so reads go
   // through `findWithDecryption` even though we only consume non-encrypted
