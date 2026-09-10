@@ -13,10 +13,10 @@ export function createVisibleDefinitionScopeClause(scope: DefinitionScopeClauseI
   const tenantId = scope.tenantId ?? null
 
   const organizationCandidates = [{ organizationId: null as string | null }]
-  if (organizationId) organizationCandidates.unshift({ organizationId })
+  if (organizationId !== null) organizationCandidates.unshift({ organizationId })
 
   const tenantCandidates = [{ tenantId: null as string | null }]
-  if (tenantId) tenantCandidates.unshift({ tenantId })
+  if (tenantId !== null) tenantCandidates.unshift({ tenantId })
 
   return {
     $and: [
