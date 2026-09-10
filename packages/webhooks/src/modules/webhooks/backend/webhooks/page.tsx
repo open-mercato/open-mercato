@@ -240,7 +240,8 @@ export default function WebhooksListPage() {
           <AlertDescription>{t('webhooks.list.operatorTip')}</AlertDescription>
         </Alert>
         <DataTable
-          title={t('webhooks.list.title')}
+        title={t('webhooks.list.title')}
+        titleHeadingLevel={1}
           actions={access.canManage ? (
             <Button asChild>
               <Link href="/backend/webhooks/create">{t('webhooks.nav.create')}</Link>
