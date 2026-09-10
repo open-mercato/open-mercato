@@ -1,4 +1,4 @@
-import { buildCustomFieldKindMap, resolveCustomFieldKind } from '../kinds'
+import { buildCustomFieldKindMap, mergeCustomFieldKindMaps, resolveCustomFieldKind } from '../kinds'
 
 describe('custom-fields/kinds', () => {
   it('indexes a definition under both its authored key and its sanitized alias', () => {
@@ -38,6 +38,33 @@ describe('custom-fields/kinds', () => {
     expect(map['numeric-kind']).toBeNull()
     expect(map['123']).toBe('text')
     expect(Object.keys(map)).not.toContain('')
+  })
+
+  it('lets the earliest source win when several define the same key', () => {
+    // The query engine reads a cf value with `coalesce(source0, source1, ...)`, so the kind
+    // has to come from the same source the value did.
+    const base = buildCustomFieldKindMap([{ key: 'code', kind: 'text' }])
+    const joined = buildCustomFieldKindMap([
+      { key: 'code', kind: 'integer' },
+      { key: 'extra', kind: 'boolean' },
+    ])
+
+    expect(mergeCustomFieldKindMaps([base, joined])).toEqual({ code: 'text', extra: 'boolean' })
+    expect(mergeCustomFieldKindMaps([joined, base])).toEqual({ code: 'integer', extra: 'boolean' })
+  })
+
+  it('ignores absent sources when merging', () => {
+    const map = buildCustomFieldKindMap([{ key: 'code', kind: 'text' }])
+
+    expect(mergeCustomFieldKindMaps([null, map, undefined, {}])).toEqual({ code: 'text' })
+    expect(mergeCustomFieldKindMaps([])).toEqual({})
+  })
+
+  it('keeps a null kind from an earlier source instead of falling through', () => {
+    const base = buildCustomFieldKindMap([{ key: 'code' }])
+    const joined = buildCustomFieldKindMap([{ key: 'code', kind: 'integer' }])
+
+    expect(mergeCustomFieldKindMaps([base, joined]).code).toBeNull()
   })
 
   it('resolves both index-document key shapes', () => {
