@@ -161,6 +161,7 @@ production-only encryption map still needs a test.
 - **Rotation** – future addition: new version stored under suffix `tenant_key_<tenantId>_v2` with dual-read, single-write strategy; current design keeps a single active DEK per tenant.
 - **Caching** – DEKs cached with TTL (e.g., 15 minutes) and proactive refresh on expiry; invalidated if KMS returns a new version.
 - **Derived-key fallback** – when running without Vault and with a dedicated fallback secret, the derived KMS hashes the chosen secret to a root key and produces per-tenant DEKs with PBKDF2-SHA512 using the tenant id as salt, encoded base64. The key stays stable for a tenant while the secret is unchanged.
+- **Lazy provisioning is a state change** – `encryptEntityPayload` provisions the tenant's DEK on first use, which writes real key material to Vault. Callers that only preview or check ("would this row be encrypted?") MUST pass `{ createMissingDek: false }` so KMS stays untouched; the payload then comes back unchanged, exactly as when KMS declines a key. `getDek(keyId)` is the read-only probe for "does a key exist yet", and `resolveEncryptionKeyId(entityId, keyScope, tenantId)` derives the id a map's payloads are sealed under (`system:<entityId>` for system-scoped maps). The `--dry-run` modes of `mercato entities rotate-encryption-key` and `mercato entities backfill-system-encryption` use this path, so they report the rows a real run would rewrite without creating a key (#5950).
 
 ## Integration points to implement
 

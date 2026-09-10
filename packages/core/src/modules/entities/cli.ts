@@ -22,6 +22,7 @@ import {
 import {
   TenantDataEncryptionService,
   parseDecryptedFieldValue,
+  resolveEncryptionKeyId,
 } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { resolveEntityIdFromMetadata } from '@open-mercato/shared/lib/encryption/entityIds'
 import { listEntityMetadata } from '@open-mercato/shared/lib/db/entityMetadata'
@@ -549,6 +550,23 @@ const rotateEncryptionKey: ModuleCli = {
     }
 
     const oldDekCache = new Map<string, TenantDek | null>()
+    // A dry run must not provision key material. `encryptEntityPayload` creates and
+    // persists a tenant DEK in KMS/Vault the first time it runs for a tenant, so a
+    // read-only preview would silently mutate KMS state (#5950). Probe read-only
+    // once per tenant instead, and report what a real run would rewrite.
+    const dekAvailability = new Map<string, boolean>()
+    const hasExistingDek = async (tenantId: string): Promise<boolean> => {
+      const cached = dekAvailability.get(tenantId)
+      if (cached !== undefined) return cached
+      const available = Boolean(await encryptionService.getDek(tenantId))
+      dekAvailability.set(tenantId, available)
+      if (!available) {
+        console.warn(
+          `[dry-run] Tenant ${tenantId} has no data-encryption key yet. Reporting the rows a real run would encrypt; no key material was provisioned.`,
+        )
+      }
+      return available
+    }
     const processScope = async (
       entityId: string,
       meta: any,
@@ -576,6 +594,7 @@ const rotateEncryptionKey: ModuleCli = {
       const rows = await conn.execute(selectSql, [scope.tenantId, scope.organizationId])
       const list = Array.isArray(rows) ? rows : []
       if (!list.length) return 0
+      const dekAvailable = dryRun ? await hasExistingDek(scope.tenantId) : true
       let updated = 0
       for (const row of list) {
         const payload: Record<string, unknown> = {}
@@ -611,11 +630,26 @@ const rotateEncryptionKey: ModuleCli = {
             payload[rule.field] = parseDecryptedFieldValue(decrypted)
           }
         }
+        if (!dekAvailable) {
+          // Nothing was encrypted because no key exists and this run refuses to
+          // create one. Count the rows a real run would rewrite by applying the
+          // same plaintext/ciphertext filters the update path uses below.
+          const wouldChange = fields.some((rule) => {
+            const col = resolveProperty(meta, rule.field)?.columnName
+            if (!col) return false
+            const value = row[col]
+            if (value === null || value === undefined) return false
+            return rotate ? isEncryptedPayload(value) : !isEncryptedPayload(value)
+          })
+          if (wouldChange) updated += 1
+          continue
+        }
         const encrypted = await encryptionService.encryptEntityPayload(
           entityId,
           payload,
           scope.tenantId,
           scope.organizationId,
+          { createMissingDek: !dryRun },
         )
         const updates: Record<string, unknown> = {}
         for (const rule of fields) {
@@ -1129,6 +1163,17 @@ const backfillSystemEncryption: ModuleCli = {
       const columnList = Array.from(columns)
       const selectList = columnList.map((column) => `"${column}"`).join(', ')
 
+      // Same dry-run guarantee as rotate-encryption-key: previewing must not make
+      // the KMS provision this entity's system DEK as a side effect (#5950).
+      const systemDekAvailable = dryRun
+        ? Boolean(await encryptionService.getDek(resolveEncryptionKeyId(entityId, 'system', null)))
+        : true
+      if (!systemDekAvailable) {
+        console.warn(
+          `[dry-run] ${entityId} has no system data-encryption key yet. Reporting the rows a real run would encrypt; no key material was provisioned.`,
+        )
+      }
+
       let cursor: unknown = null
       let entityRowsScanned = 0
       let entityRowsUpdated = 0
@@ -1160,8 +1205,19 @@ const backfillSystemEncryption: ModuleCli = {
             }
           }
           if (!hasPlaintext) continue
+          if (!systemDekAvailable) {
+            // `hasPlaintext` already means a real run would rewrite this row.
+            entityRowsUpdated += 1
+            continue
+          }
 
-          const encrypted = await encryptionService.encryptEntityPayload(entityId, payload, null, null)
+          const encrypted = await encryptionService.encryptEntityPayload(
+            entityId,
+            payload,
+            null,
+            null,
+            { createMissingDek: !dryRun },
+          )
           const updates: Record<string, unknown> = {}
           for (const rule of map.fields) {
             const resolved = resolveProperty(meta, rule.field)
