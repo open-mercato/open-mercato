@@ -702,7 +702,8 @@ export default function TimesheetProjectsPage() {
           </div>
         ) : (
           <DataTable<ProjectRow>
-            title={labels.title}
+        title={labels.title}
+        titleHeadingLevel={1}
             data={rows}
             columns={columns}
             isLoading={isLoading}

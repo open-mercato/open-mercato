@@ -24,6 +24,38 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.7.0 → 0.7.1 (unreleased)
 
+### `entry.overrides` now actually applies in CLI, worker and scheduler processes (#5582)
+
+`entry.overrides` declared in your app's `src/modules.ts` used to take effect only in the Next.js
+runtime. Every process that boots through `bootstrapFromAppRoot()` instead — `yarn mercato …`
+commands, the event/queue workers, and the scheduler — never dispatched them at all, so each
+declaration was a silent no-op there. It is now dispatched in both paths.
+
+**This flips runtime behavior for apps that already declare overrides, with no code change on your
+side.** Overrides you wrote expecting them to apply everywhere will now finally do so; overrides you
+wrote against the Next runtime only will start affecting your CLI and background processes too. The
+domains that become newly effective in those processes are `encryption`, `acl`, `cli`, `workers`,
+`events`, `setup`, `di`, and `ai`.
+
+Concrete cases to re-check before upgrading:
+
+- `overrides.encryption.maps` — `mercato entities seed-encryption` previously seeded the **base**
+  module maps while reporting success, leaving override-added fields written as plaintext at rest.
+  It now seeds your overridden maps. **Re-run it after upgrading** and re-encrypt any field that was
+  silently skipped.
+- `overrides.cli['<command>'] = null` — that command now genuinely disappears from the `mercato` CLI.
+- `overrides.setup.seedDefaults: false` — `mercato setup` now genuinely stops seeding for that module.
+- `overrides.workers` / `overrides.events` — worker and subscriber overrides now apply to the queue
+  and event workers, not just to in-request handlers.
+
+**Action:** review every `entry.overrides` entry in your `src/modules.ts` and confirm the CLI/worker
+behavior it now produces is the behavior you intended.
+
+A second, related change: a `src/modules.ts` that is **present but fails to compile or import** now
+aborts the CLI/worker bootstrap with an explicit error instead of logging and continuing with an
+empty override set. Continuing was what let `seed-encryption` print success while seeding base maps.
+An app with **no** `src/modules.ts` at all is still skipped without error, as before.
+
 ### Sales line `discount_amount` is now read as a line total, and the percentage wins (#3757)
 
 `sales_order_lines.discount_amount` and `sales_quote_lines.discount_amount` have always been

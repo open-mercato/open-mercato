@@ -87,11 +87,32 @@ jest.mock('@open-mercato/ui/backend/DataTable', () => ({
     ...mappedRow,
     ...Object.fromEntries(Object.entries(sourceItem).filter(([key]) => key.startsWith('_'))),
   }),
-  DataTable: ({ title, data = [], children }: any) => {
+  DataTable: ({
+    title,
+    titleHeadingLevel,
+    data = [],
+    children,
+  }: {
+    title?: React.ReactNode
+    titleHeadingLevel?: 1 | 2
+    data?: Array<{
+      title?: React.ReactNode
+      label?: React.ReactNode
+      name?: React.ReactNode
+      code?: React.ReactNode
+      value?: React.ReactNode
+      id?: React.ReactNode
+    }>
+    children?: React.ReactNode
+  }) => {
     const key = typeof title === 'string' ? title.replace(/\\s+/g, '-').toLowerCase() : 'table'
+    const TitleHeading = titleHeadingLevel === 1 ? 'h1' : 'h2'
+    const titleContent = typeof title === 'string' || titleHeadingLevel
+      ? <TitleHeading>{title}</TitleHeading>
+      : title
     return (
       <div>
-        {title ? <h2>{title}</h2> : null}
+        {titleContent}
         <div data-testid={`data-table-count-${key}`}>{Array.isArray(data) ? data.length : 0}</div>
         <div>{children}</div>
         {Array.isArray(data)
@@ -465,6 +486,10 @@ describe('sales components', () => {
     })
     render(<SalesChannelOffersPanel channelId="channel-1" channelName="Online" />)
     await waitFor(() => expect(screen.getAllByTestId('data-row').length).toBeGreaterThan(0))
+    const heading = screen.getByRole('heading', { level: 2, name: 'Offers for Online' })
+    expect(heading).toBeVisible()
+    expect(heading).not.toHaveTextContent('Override product presentation and pricing per channel.')
+    expect(screen.getByText('Override product presentation and pricing per channel.')).toBeVisible()
   })
 
   it('renders channel offer form in create mode', async () => {
