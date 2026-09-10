@@ -2,8 +2,8 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
 import { ArrowLeft, Check, CircleAlert, Info, Paperclip, RefreshCw, ShieldCheck, Trash2, TriangleAlert } from 'lucide-react'
+import { navigateWithPageReload } from '@open-mercato/core/modules/portal/lib/navigation'
 import { useLocale, useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { localizeDictionaryLabel } from '@open-mercato/core/modules/warranty_claims/lib/dictionaryLabels'
 import { formatQuantity } from '@open-mercato/core/modules/warranty_claims/lib/quantity'
@@ -330,7 +330,6 @@ const DARK_BUTTON_CLASS = 'rounded-md px-3 py-2 text-sm font-medium'
 export default function WarrantyClaimPortalDetailPage({ params }: Props) {
   const t = useT()
   const locale = useLocale()
-  const router = useRouter()
   const { auth } = usePortalContext()
   const { user, loading } = auth
   const guardedMutation = useGuardedMutation<Record<string, unknown>>({
@@ -354,11 +353,13 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
   const replacementInputRef = React.useRef<HTMLInputElement | null>(null)
   const replacementTargetRef = React.useRef<PortalAttachment | null>(null)
 
+  // Leaving an authenticated page for the login page crosses the public/authenticated
+  // boundary, so it must be a full page load — see `navigateWithPageReload`.
   React.useEffect(() => {
     if (!loading && !user) {
-      router.replace(`/${params.orgSlug}/portal/login`)
+      navigateWithPageReload(`/${params.orgSlug}/portal/login`)
     }
-  }, [loading, user, router, params.orgSlug])
+  }, [loading, user, params.orgSlug])
 
   const refreshEvents = React.useCallback(async (claimId: string) => {
     const result = await apiCall<EventResponse>(`/api/warranty_claims/portal/events?claimId=${encodeURIComponent(claimId)}`)

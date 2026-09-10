@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { ChevronRight, Plus, ShieldCheck } from 'lucide-react'
+import { navigateWithPageReload } from '@open-mercato/core/modules/portal/lib/navigation'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { formatRelativeTime } from '@open-mercato/shared/lib/time'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -72,11 +73,13 @@ export default function WarrantyClaimsPortalListPage({ params }: Props) {
   const [stateGroup, setStateGroup] = React.useState<'all' | 'open' | 'resolved'>('all')
   const [tabCounts, setTabCounts] = React.useState<Partial<Record<'all' | 'open' | 'resolved', number>>>({})
 
+  // Leaving an authenticated page for the login page crosses the public/authenticated
+  // boundary, so it must be a full page load — see `navigateWithPageReload`.
   React.useEffect(() => {
     if (!loading && !user) {
-      router.replace(`/${params.orgSlug}/portal/login`)
+      navigateWithPageReload(`/${params.orgSlug}/portal/login`)
     }
-  }, [loading, user, router, params.orgSlug])
+  }, [loading, user, params.orgSlug])
 
   const statusFilter = typeof filterValues.status === 'string' ? filterValues.status : ''
 

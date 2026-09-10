@@ -1,7 +1,7 @@
 "use client"
 import { useEffect, useMemo } from 'react'
 import { extensionPoints } from '@open-mercato/core/modules/portal/extension-points'
-import { useRouter } from 'next/navigation'
+import { navigateWithPageReload } from '@open-mercato/core/modules/portal/lib/navigation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
@@ -14,15 +14,16 @@ type Props = { params: { orgSlug: string } }
 
 export default function PortalProfilePage({ params }: Props) {
   const t = useT()
-  const router = useRouter()
   const { auth } = usePortalContext()
   const { user, roles, resolvedFeatures, isPortalAdmin, loading } = auth
 
+  // Leaving an authenticated page for the login page crosses the public/authenticated
+  // boundary, so it must be a full page load — see `navigateWithPageReload`.
   useEffect(() => {
     if (!loading && !user) {
-      router.replace(`/${params.orgSlug}/portal/login`)
+      navigateWithPageReload(`/${params.orgSlug}/portal/login`)
     }
-  }, [loading, user, router, params.orgSlug])
+  }, [loading, user, params.orgSlug])
 
   const injectionContext = useMemo(
     () => ({ orgSlug: params.orgSlug, user, roles, resolvedFeatures, isPortalAdmin }),
