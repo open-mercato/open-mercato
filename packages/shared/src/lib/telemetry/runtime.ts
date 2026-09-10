@@ -2,6 +2,8 @@ export type TelemetryTraceCarrier = Record<string, string>
 
 export type TelemetrySpanAttributes = Record<string, string | number | boolean | undefined>
 
+export type TelemetryMetricLabels = Record<string, string | number | boolean | undefined>
+
 export type TelemetrySpanKind = 'internal' | 'server' | 'client' | 'producer' | 'consumer'
 
 /** The subset of the telemetry package's `Span` that bridge consumers need. */
@@ -43,6 +45,12 @@ export type TelemetryRuntime = {
    * running `fn` untraced.
    */
   withSpan?<T>(name: string, fn: (span: TelemetrySpan) => T, options?: TelemetrySpanOptions): T
+  recordHistogram?(
+    name: string,
+    value: number,
+    labels?: TelemetryMetricLabels,
+    unit?: string,
+  ): void
   recordHttpDuration(method: string, route: string, status: number, startedAt: number): void
   reportError(
     error: unknown,
