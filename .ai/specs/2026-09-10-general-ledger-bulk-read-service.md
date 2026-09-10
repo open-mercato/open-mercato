@@ -63,12 +63,18 @@ one is filed).
 
 **Concerns:**
 
-- **No real consumer exists yet.** JPK_KR_PD's own spec (`SPEC-010` in
-  `official-modules`) hasn't been written. This document is deliberately
-  scoped generically (five named methods, not a JPK_KR_PD-shaped API) so
-  it's useful to any future bulk consumer, but every field/method here
-  should be re-checked against SPEC-010's actual requirements once that
-  document exists, not assumed correct in advance.
+- **A real consumer is now confirmed, its spec is not written yet.**
+  Update (2026-09-10): JPK_KR_PD is a confirmed target for
+  `financial-pl` — this is no longer a hypothetical future consumer,
+  Commerce Weavers has decided to build it. `SPEC-010` itself (in
+  `official-modules`) still doesn't exist — the primary-source JPK_KR_PD
+  XSD verification it needs hasn't happened yet — so this document
+  stays deliberately scoped generically (five named methods, not a
+  JPK_KR_PD-shaped API) rather than guessing field-level requirements
+  ahead of that verification. Every field/method here should still be
+  re-checked against `SPEC-010`'s actual requirements once it's written,
+  but "will this get used" is no longer the open question — "will this
+  shape survive contact with the real requirements" is.
 - **Cross-repo contract stability.** Once `financial_pl` (in
   `official-modules`) depends on this service's shape, changing that
   shape is a breaking change across two separate git repositories, not
@@ -421,3 +427,13 @@ not from memory.
   `JournalEntryLine`", 2026-09-10) and to the 2026-09-10 `financial-pl`
   JPK_KR_PD analysis that surfaced it. Not yet reviewed; no
   implementation exists yet.
+
+### 2026-09-10 (cont. — JPK_KR_PD confirmed as a real target)
+
+Internal decision, not a document change on its own: JPK_KR_PD is now a
+confirmed target for `financial-pl` (Commerce Weavers needs it). This
+document's design doesn't change — it was already scoped generically
+rather than guessing JPK_KR_PD's field-level requirements, since the
+primary-source XSD verification `SPEC-010` needs still hasn't happened.
+What changes is the framing in Concerns, above: this is no longer a
+speculative future consumer.
