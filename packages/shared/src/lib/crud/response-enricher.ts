@@ -17,6 +17,8 @@ export interface EnricherContext {
   organizationId: string
   tenantId: string
   userId: string
+  /** Concrete entity currently being enriched, including for wildcard enrichers. */
+  targetEntity?: string
   em: unknown
   container: unknown
   requestedFields?: string[]
@@ -53,7 +55,7 @@ export interface ResponseEnricher<TRecord = any, TEnriched = any> {
   /** Unique identifier: `<module>.<enricher-name>` */
   id: string
 
-  /** Target entity to enrich: `<module>.<entity>` (e.g., 'customers.person') */
+  /** Target entity to enrich: `<module>.<entity>` (e.g., 'customers.person') or `*` for all entities. */
   targetEntity: string
 
   /** ACL features required for this enricher to run */

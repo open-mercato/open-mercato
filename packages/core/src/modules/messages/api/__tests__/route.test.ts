@@ -123,7 +123,7 @@ function mockListContext(options: {
   return { em, cache }
 }
 
-function mockMessageRows() {
+function mockMessageRows(actionData: unknown = null) {
   findWithDecryptionMock.mockImplementation(async (_em, entity) => {
     if (entity?.name === 'Message') {
       return [{
@@ -138,7 +138,7 @@ function mockMessageRows() {
         subject: 'Subject',
         senderUserId: userId,
         priority: 'normal',
-        actionData: null,
+        actionData,
         actionTaken: null,
         sentAt: new Date('2026-06-18T06:00:00.000Z'),
         threadId: messageId,
@@ -234,6 +234,35 @@ describe('messages /api/messages POST', () => {
 
     expect(response.status).toBe(201)
     expect(commandBus.execute).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('messages /api/messages GET hasActions', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    isCrudCacheEnabledMock.mockReturnValue(false)
+  })
+
+  it('reports hasActions true when actionData round-trips as an encrypted JSON string', async () => {
+    mockMessageRows(JSON.stringify({ actions: [{ id: 'approve', label: 'Approve' }] }))
+    mockListContext()
+
+    const response = await GET(new Request('http://localhost/api/messages?folder=inbox'))
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.items[0].hasActions).toBe(true)
+  })
+
+  it('reports hasActions false when actionData has no actions', async () => {
+    mockMessageRows(null)
+    mockListContext()
+
+    const response = await GET(new Request('http://localhost/api/messages?folder=inbox'))
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.items[0].hasActions).toBe(false)
   })
 })
 
