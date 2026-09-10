@@ -27,10 +27,16 @@ export function navigateWithPageReload(path: string): void {
  * Full page load that replaces the current session-history entry — the document-loading
  * counterpart of `router.replace`.
  *
- * Use this for redirects the user should not be able to navigate back into: an auth guard sending
- * an unauthenticated visitor to the login page, or the portal landing page forwarding a signed-in
- * customer to the dashboard. `navigateWithPageReload` would leave the redirecting page in history,
- * so pressing Back would land on it and immediately bounce forward again.
+ * Use this where the client-router call being replaced was a `router.replace`: an auth guard
+ * sending an unauthenticated visitor to the login page, or the portal landing page forwarding a
+ * signed-in customer to the dashboard.
+ *
+ * Note that for those call sites specifically, `navigateWithPageReload` was measured to behave
+ * identically: they redirect from an effect during page load, and a browser treats a navigation
+ * started then as a client redirect, replacing the entry rather than pushing it whichever method
+ * is used. This helper exists so the call site states which semantics it means instead of relying
+ * on that heuristic — and so a redirect that later moves behind a user gesture, where the
+ * distinction does bite, keeps the behaviour it was written with.
  */
 export function replaceWithPageReload(path: string): void {
   window.location.replace(path)
