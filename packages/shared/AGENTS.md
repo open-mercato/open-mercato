@@ -56,6 +56,7 @@ yarn workspace @open-mercato/shared build
 | `openapi/` | When generating CRUD OpenAPI specs | `@open-mercato/shared/lib/openapi/crud` |
 | `profiler/` | When profiling with `OM_PROFILE` env flag | `@open-mercato/shared/lib/profiler` |
 | `search/` | When resolving record ids from the `search_tokens` index — MUST use instead of hand-rolling the Kysely lookup, and MUST be unioned into (or replace) any `$ilike` filter on a column an encryption map covers | `@open-mercato/shared/lib/search/tokenLookup` |
+| `scope/` | When reading the organization/tenant selection cookies — the canonical cookie names, the `__all__` sentinel, and the parsers. A blank selection cookie reads as "no selection"; use `readScopeCookieRaw`/`decodeScopeCookieValue` only when absent and blank must genuinely differ | `@open-mercato/shared/lib/scope/cookies` |
 | `string.ts` | When parsing comma-separated lists from CLI args/query params, or coercing a string to `undefined` when blank | `@open-mercato/shared/lib/string` |
 | `testing/` | When bootstrapping tests — register only what the test needs | `@open-mercato/shared/lib/testing/bootstrap` |
 

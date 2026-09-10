@@ -4,6 +4,13 @@ import { isMfaPendingJwtPayload, verifyJwt } from './jwt'
 import { isMfaPendingAccessAllowed } from './mfaPendingAccess'
 import { getSharedApiKeyAuthCache } from './apiKeyAuthCache'
 import { isTransientDbError } from '@open-mercato/shared/lib/db/pg-errors'
+import {
+  ALL_ORGANIZATIONS_COOKIE_VALUE,
+  SELECTED_ORGANIZATION_COOKIE,
+  SELECTED_TENANT_COOKIE,
+  decodeScopeCookieValue,
+  readScopeCookieRaw,
+} from '@open-mercato/shared/lib/scope/cookies'
 
 function readRequestPathname(req: Request): string | null {
   try {
@@ -13,9 +20,6 @@ function readRequestPathname(req: Request): string | null {
   }
 }
 
-const TENANT_COOKIE_NAME = 'om_selected_tenant'
-const ORGANIZATION_COOKIE_NAME = 'om_selected_org'
-const ALL_ORGANIZATIONS_COOKIE_VALUE = '__all__'
 const SUPERADMIN_ROLE = 'superadmin'
 
 export type AuthContext = {
@@ -95,28 +99,6 @@ function readTrustedAuthContext(request: Request): TrustedAuthContextEnvelope | 
   return candidate
 }
 
-function decodeCookieValue(raw: string | undefined): string | null {
-  if (raw === undefined) return null
-  try {
-    const decoded = decodeURIComponent(raw)
-    return decoded ?? null
-  } catch {
-    return raw ?? null
-  }
-}
-
-function readCookieFromHeader(header: string | null | undefined, name: string): string | undefined {
-  if (!header) return undefined
-  const parts = header.split(';')
-  for (const part of parts) {
-    const trimmed = part.trim()
-    if (trimmed.startsWith(`${name}=`)) {
-      return trimmed.slice(name.length + 1)
-    }
-  }
-  return undefined
-}
-
 /**
  * A blank `om_selected_tenant` is "no selection", not a deliberate "no tenant".
  *
@@ -129,7 +111,7 @@ function readCookieFromHeader(header: string | null | undefined, name: string): 
  */
 function resolveTenantOverride(raw: string | undefined): CookieOverride {
   if (raw === undefined) return { applied: false, value: null }
-  const decoded = decodeCookieValue(raw)
+  const decoded = decodeScopeCookieValue(raw)
   if (!decoded) return { applied: false, value: null }
   const trimmed = decoded.trim()
   if (!trimmed) return { applied: false, value: null }
@@ -138,7 +120,7 @@ function resolveTenantOverride(raw: string | undefined): CookieOverride {
 
 function resolveOrganizationOverride(raw: string | undefined): CookieOverride {
   if (raw === undefined) return { applied: false, value: null }
-  const decoded = decodeCookieValue(raw)
+  const decoded = decodeScopeCookieValue(raw)
   if (!decoded || decoded === ALL_ORGANIZATIONS_COOKIE_VALUE) {
     return { applied: true, value: null }
   }
@@ -377,8 +359,8 @@ export async function resolveAuthFromCookiesDetailed(): Promise<AuthResolution> 
     if (isMfaPendingJwtPayload(payload)) return { auth: null, status: 'invalid' }
     const canonicalAuth = await resolveCanonicalInteractiveAuthContext(payload)
     if (!canonicalAuth) return { auth: null, status: 'invalid' }
-    const tenantCookie = cookieStore.get(TENANT_COOKIE_NAME)?.value
-    const orgCookie = cookieStore.get(ORGANIZATION_COOKIE_NAME)?.value
+    const tenantCookie = cookieStore.get(SELECTED_TENANT_COOKIE)?.value
+    const orgCookie = cookieStore.get(SELECTED_ORGANIZATION_COOKIE)?.value
     return {
       auth: applySuperAdminScope(canonicalAuth, tenantCookie, orgCookie),
       status: 'authenticated',
@@ -404,8 +386,8 @@ export async function resolveAuthFromRequestDetailed(req: Request): Promise<Auth
     }
   }
   const cookieHeader = req.headers.get('cookie') || ''
-  const tenantCookie = readCookieFromHeader(cookieHeader, TENANT_COOKIE_NAME)
-  const orgCookie = readCookieFromHeader(cookieHeader, ORGANIZATION_COOKIE_NAME)
+  const tenantCookie = readScopeCookieRaw(cookieHeader, SELECTED_TENANT_COOKIE)
+  const orgCookie = readScopeCookieRaw(cookieHeader, SELECTED_ORGANIZATION_COOKIE)
   const authHeader = (req.headers.get('authorization') || '').trim()
   let token: string | undefined
   let hadInvalidInteractiveToken = false
