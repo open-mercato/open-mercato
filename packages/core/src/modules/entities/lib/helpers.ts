@@ -78,7 +78,7 @@ export async function setRecordCustomFields(
       isActive: true,
       deletedAt: null,
       ...createVisibleDefinitionScopeClause({ organizationId, tenantId }),
-    } as any)
+    })
     const scopeScore = (def: CustomFieldDef) => (def.tenantId ? 2 : 0) + (def.organizationId ? 1 : 0)
     defsByKey = {}
     for (const d of defs) {

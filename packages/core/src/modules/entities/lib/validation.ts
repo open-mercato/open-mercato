@@ -20,7 +20,7 @@ export async function validateCustomFieldValuesServer(
     isActive: true,
     deletedAt: null,
     ...createVisibleDefinitionScopeClause({ organizationId, tenantId }),
-  } as any)
+  })
 
   // Prefer the most specific scope and newest definition for duplicate keys.
   const scopeScore = (def: CustomFieldDef) => (def.tenantId ? 2 : 0) + (def.organizationId ? 1 : 0)
