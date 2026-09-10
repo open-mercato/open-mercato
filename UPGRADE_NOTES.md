@@ -24,6 +24,56 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.7.0 → 0.7.1 (unreleased)
 
+### A super-admin grant now only counts inside the user's own tenant
+
+`RbacService.isGlobalSuperAdmin` named no tenant at all in either of its two lookups, so a
+`user_acls` or `role_acls` row flagged `is_super_admin` conferred platform-wide authority
+regardless of which tenant stamped it. Both lookups are now bound to `users.tenant_id`:
+the user-level grant must carry that tenant, and a role-level grant must reach the user
+through a role in that tenant *and* carry that tenant on its ACL row.
+
+**Two grant shapes stop conferring super-admin**, and the second one is the consequential
+one:
+
+1. A grant whose `tenant_id` differs from the user's own. This is the defect being fixed —
+   such a grant should never have applied outside its tenant.
+2. **Any grant held by a user whose `users.tenant_id` is NULL.** A tenant-less "global"
+   staff account is a shape the codebase supports deliberately, and for such a principal
+   this change removes *all* authorization, not only the super-admin flag: `loadAcl`
+   resolves its tenant as `scope.tenantId || user.tenantId`, both are null here, and it
+   short-circuits to `{ isSuperAdmin: false, features: [], organizations: null }` — so
+   every feature check fails and the account has no path back through the admin UI.
+
+**Action for operators: run these before upgrading.** If either returns rows, give those
+users a `tenant_id` (or re-stamp the grant into the tenant they administer) first.
+
+```sql
+-- user-level grants that will stop conferring super-admin
+SELECT ua.user_id, u.tenant_id AS user_tenant, ua.tenant_id AS grant_tenant
+FROM user_acls ua
+JOIN users u ON u.id = ua.user_id
+WHERE ua.is_super_admin
+  AND (u.tenant_id IS NULL OR u.tenant_id <> ua.tenant_id);
+
+-- role-level grants that will stop conferring super-admin
+SELECT ur.user_id, u.tenant_id AS user_tenant, r.tenant_id AS role_tenant, ra.tenant_id AS grant_tenant
+FROM user_roles ur
+JOIN users u ON u.id = ur.user_id
+JOIN roles r ON r.id = ur.role_id
+JOIN role_acls ra ON ra.role_id = r.id
+WHERE ra.is_super_admin
+  AND (u.tenant_id IS NULL OR r.tenant_id IS DISTINCT FROM u.tenant_id OR ra.tenant_id <> u.tenant_id);
+```
+
+After upgrading, the tenant-less case is also reported at runtime: `RbacService` logs
+`User has no tenant of their own, so no grant can confer super-admin` with the user id. The
+foreign-tenant cases cannot be reported without an extra query per check, so the audit above
+is the only signal for those — run it.
+
+**Action for module authors:** none. No exported signature changes;
+`isGlobalSuperAdmin` is private and its memo stays keyed by user id, since the answer now
+depends only on a property of the user.
+
 ### Sales line `discount_amount` is now read as a line total, and the percentage wins (#3757)
 
 `sales_order_lines.discount_amount` and `sales_quote_lines.discount_amount` have always been
