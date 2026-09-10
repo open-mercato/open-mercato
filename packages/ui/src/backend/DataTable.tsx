@@ -43,7 +43,7 @@ import { Popover, PopoverTrigger, PopoverContent } from '../primitives/popover'
 import { formatWithPublicDateFormat, normalizeDateFormatPattern } from '../primitives/date-format'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { readVersionedPreference, writeVersionedPreference, clearVersionedPreference } from '@open-mercato/shared/lib/browser/versionedPreference'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { flash } from './FlashMessages'
 import { useConfirmDialog } from './confirm-dialog'
 import { surfaceRecordConflict } from './conflicts'
@@ -509,9 +509,16 @@ function collectUniqueById<T extends { id: string }>(
   return Array.from(byId.values())
 }
 
+const DEFAULT_VIEW_EXPORT_TITLE = 'Export what you view'
+const DEFAULT_FULL_EXPORT_TITLE = 'Full data export'
+
 type ResolvedExportSection = {
   key: string
   title: string
+  // Seeds the default download filename. Kept separate from `title` because
+  // `defaultExportFilename` strips every non-ASCII character, so a translated
+  // title would collapse to underscores in locales like ko.
+  filenameBase: string
   description?: string
   formats: DataTableExportFormat[]
   getUrl?: (format: DataTableExportFormat) => string
@@ -520,13 +527,20 @@ type ResolvedExportSection = {
   disabled: boolean
 }
 
-function resolveExportSections(config: DataTableExportConfig | null | undefined): ResolvedExportSection[] {
+function resolveExportSections(config: DataTableExportConfig | null | undefined, t: TranslateFn): ResolvedExportSection[] {
   if (!config) return []
   const sections: ResolvedExportSection[] = []
   const baseFormats = config.formats && config.formats.length > 0 ? config.formats : DEFAULT_EXPORT_FORMATS
-  const addSection = (key: string, section: DataTableExportSectionConfig | undefined | null, fallbackTitle: string) => {
+  const addSection = (
+    key: string,
+    section: DataTableExportSectionConfig | undefined | null,
+    fallbackTitle: string,
+    fallbackFilenameBase: string,
+  ) => {
     if (!section || (!section.getUrl && !section.prepare)) return
-    const title = section.title?.trim().length ? section.title!.trim() : fallbackTitle
+    const explicitTitle = section.title?.trim().length ? section.title!.trim() : null
+    const title = explicitTitle ?? fallbackTitle
+    const filenameBase = explicitTitle ?? fallbackFilenameBase
     const seen = new Set<DataTableExportFormat>()
     const formatsSource = section.formats && section.formats.length > 0 ? section.formats : baseFormats
     const formats = formatsSource.filter((format) => {
@@ -538,6 +552,7 @@ function resolveExportSections(config: DataTableExportConfig | null | undefined)
     sections.push({
       key,
       title,
+      filenameBase,
       description: section.description,
       formats,
       getUrl: section.getUrl,
@@ -556,19 +571,21 @@ function resolveExportSections(config: DataTableExportConfig | null | undefined)
 
   // Allow legacy config (getUrl without sections/view)
   const hasExplicitSections = Array.isArray(config.sections) && config.sections.length > 0
+  const viewTitle = t('ui.dataTable.export.viewTitle', DEFAULT_VIEW_EXPORT_TITLE)
   if (!config.view && !config.full && !hasExplicitSections && config.getUrl) {
-    addSection('view', { getUrl: config.getUrl, formats: config.formats }, 'Export what you view')
+    addSection('view', { getUrl: config.getUrl, formats: config.formats }, viewTitle, DEFAULT_VIEW_EXPORT_TITLE)
   } else {
-    addSection('view', config.view, 'Export what you view')
+    addSection('view', config.view, viewTitle, DEFAULT_VIEW_EXPORT_TITLE)
   }
 
   if (hasExplicitSections) {
     config.sections!.forEach((section, idx) => {
-      addSection(`section-${idx}`, section, section.title?.trim().length ? section.title! : `Export ${idx + 1}`)
+      const numberedTitle = t('ui.dataTable.export.sectionTitle', 'Export {index}', { index: idx + 1 })
+      addSection(`section-${idx}`, section, numberedTitle, `Export ${idx + 1}`)
     })
   }
 
-  addSection('full', config.full, 'Full data export')
+  addSection('full', config.full, t('ui.dataTable.export.fullTitle', DEFAULT_FULL_EXPORT_TITLE), DEFAULT_FULL_EXPORT_TITLE)
   return sections
 }
 
@@ -871,7 +888,7 @@ function ExportMenu({ config, sections }: { config: DataTableExportConfig; secti
           preparedResult.filename
           ?? section.filename?.(format)
           ?? config.filename?.(format)
-          ?? defaultExportFilename(section.title, format)
+          ?? defaultExportFilename(section.filenameBase, format)
         if (typeof window !== 'undefined') {
           const blob = new Blob([serialized.body], { type: serialized.contentType })
           const href = URL.createObjectURL(blob)
@@ -3218,7 +3235,7 @@ export function DataTable<T extends RowData>({
   const hasActions = actions !== undefined && actions !== null && actions !== false
   const shouldReserveActionsSpace = actions === null || actions === false
   const exportConfig = exporter === false ? null : exporter || null
-  const resolvedExportSections = React.useMemo(() => resolveExportSections(exportConfig), [exportConfig])
+  const resolvedExportSections = React.useMemo(() => resolveExportSections(exportConfig, t), [exportConfig, t])
   const hasExport = resolvedExportSections.length > 0
   const refreshButtonConfig = refreshButton
   const hasRefreshButton = Boolean(refreshButtonConfig)
