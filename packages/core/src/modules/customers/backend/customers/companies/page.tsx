@@ -873,6 +873,7 @@ export default function CustomersCompaniesPage() {
           stickyFirstColumn
           stickyActionsColumn
           title={t('customers.companies.list.title')}
+          titleHeadingLevel={1}
           refreshButton={{
             label: t('customers.companies.list.actions.refresh'),
             onRefresh: () => { setSearch(''); setPage(1); handleRefresh() },
