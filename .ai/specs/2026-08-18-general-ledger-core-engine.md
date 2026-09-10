@@ -35,6 +35,29 @@ Revenue, Expense) and each type carries a normal balance side, which
 is what the accounting equation is built on — this isn't a design
 choice, it's how double-entry accounting works.
 
+**Not yet "księgi rachunkowe" in the art. 13 ust. 1 sense.** This spec
+covers the dziennik, konta księgi głównej, and konta ksiąg pomocniczych
+mechanics, but not `zestawienie obrotów i sald` (art. 18 UoR) — that
+read-model is `2026-09-09-general-ledger-account-balances.md` (#6013),
+sequenced as this engine's own Phase 2. Until #6013 ships, this module
+alone does not constitute a complete set of statutory books; it is the
+write-side foundation they're built on.
+
+**Relationship to the July 2026 scoping decision (#2585).** #2585
+closed with two decisions: build the financial module in core, and keep
+KSeF integration as a separate official module, delivered in phases.
+This spec and its seven siblings (#5955, #5962, #5972, #6013, #6014,
+#6015, #6016 — see `2026-09-08-financial-module-knowledge-base.md`,
+§1, for the current module map against SPEC-024) are the execution of
+the first half: a family of core modules, not one monolith, each
+independently reviewable. The second half is honored the same way —
+see Out of scope, "Country-specific tax/compliance plugins" (the
+generic exclusion this module already carries, which KSeF falls under
+as one such plugin, even though the bullet doesn't spell out "KSeF" by
+name). Recorded here explicitly so a reader doesn't have to infer
+whether #2585 was superseded or overlooked: it wasn't either — this is
+what it asked for, just never cross-referenced until now.
+
 ## Problem Statement
 
 - No entity, table, or command anywhere in `packages/core` represents
@@ -276,6 +299,42 @@ is a real migration. The dependent `sales-invoice-gl-posting` spec
 (planned, not yet drafted) is the first real consumer, and it needs no
 schema change to use them.
 
+**`JournalEntry` gains four statutory entry-content fields, added now
+for the identical empty-table reason as `referenceType`/`referenceId`
+above — art. 23 ust. 2 Ustawy o rachunkowości.** Read against the
+primary text directly (not recalled): a zapis księgowy must carry at
+least the date of the business operation; the source document's type
+and identifying number, plus its own date when that differs from the
+operation date; a comprehensible description; and the amount/date of
+the entry itself — five elements, only the last two of which
+(`postedAt`, `description`) this entity already had. Added:
+`operationDate` (`date`, not nullable — every entry has a business
+operation date) — distinct from `postedAt`, which records when the
+entry was recorded, not when the underlying event happened;
+`documentType` (`string`, nullable in Phase 1), the dowód category
+from art. 20 ust. 2–3 (`external_foreign`/`external_own`/`internal`/
+`collective`/`corrective`/`substitute`); `documentNumber` (`string`,
+nullable in Phase 1), the source document's own identifying number as
+an auditor would read it (e.g. `FV/2026/09/00123`) — legible business
+data, not a surrogate key; `documentDate` (`date`, nullable), populated
+only when it differs from `operationDate`, per the Act's own "jeżeli
+różni się ona od daty dokonania operacji" qualifier. `documentType`/
+`documentNumber` stay nullable in this phase rather than required,
+because this engine's own Phase 1 has no document-producing caller
+(see User Stories) — the fields exist so `postJournalEntry`'s first
+real callers (Accounts Payable's `postVendorInvoice`, already posting
+today; the planned `sales-invoice-gl-posting` spec) populate them from
+day one instead of leaving a statutory gap for a downstream module to
+discover later. **Not the same field as `referenceType`/`referenceId`
+above.** Those answer "which record in this system caused this entry"
+(an internal FK, meaningful only inside this database); these answer
+"what source document does the Act require this entry to point at" (an
+auditor-legible identifier, meaningful outside it). A `VendorInvoice`
+posting populates both: `referenceType`/`referenceId` point at the
+`VendorInvoice` row, `documentType`/`documentNumber`/`operationDate`
+carry the invoice's own type/number/date as a human would read them —
+neither substitutes for the other.
+
 **Currency is reused from the existing `currencies` module, not
 reinvented.** `packages/core/src/modules/currencies` already owns
 tenant/org-scoped `Currency` (code, symbol, decimal precision,
@@ -483,6 +542,41 @@ outweigh shipping a complete accounting control in one reviewable unit.
   independently-deployable capabilities into one spec and one PR. See
   Out of scope.
 
+**Divergences from `SPEC-024-2026-02-11-financial-module.md`'s GL sketch
+— named explicitly, since a reviewer comparing the two otherwise has no
+way to tell a deliberate rejection from an oversight:**
+
+- **A three-state `PeriodStatus` (`open`/`soft_closed`/`hard_closed`)**
+  instead of a boolean `isLocked` — rejected for Phase 1. This spec's
+  own "Fiscal period closing is a lock flag... not a separate
+  subsystem" decision (above) is the rationale: a `soft_closed` state
+  (open for adjusting entries only, e.g. `ADJUSTING`/`CLOSING` types,
+  closed to `NORMAL` postings) is a real SPEC-024 capability this
+  engine doesn't build, not a rejected idea — tracked as a Phase 2
+  extension of `FiscalPeriod.isLocked` into a richer status, not a
+  closed question.
+- **`entryNumber` sequential within the fiscal period** instead of
+  per-organization — rejected; see "Numbering stays scoped per
+  organization, not per fiscal year" above. Per-organization numbering
+  already satisfies art. 14 ust. 2; scoping it more narrowly per period
+  remains a reversible future change.
+- **Cost centre as a column on the journal line** instead of a separate
+  dimension table — rejected; see `2026-09-06-journal-entry-line-
+  dimension.md`, whose whole rationale is that cost centre, bank
+  account, fixed asset, and currency can each apply independently and
+  sometimes simultaneously to one line, which a single column (or one
+  column per dimension) can't express without an account-explosion
+  problem a dimension table avoids.
+- **`entryDate` separate from `postingDate`** — not rejected, already
+  the design once art. 23 ust. 2's fields land: `operationDate` (added
+  above) is SPEC-024's `entryDate`; `postedAt` is its `postingDate`.
+  Naming the mapping explicitly here so it isn't read as a sixth
+  unaddressed divergence.
+- **Attachments on the journal entry** — genuinely not addressed
+  anywhere in this document; no rationale exists for cutting it, unlike
+  the four above. Recorded honestly as an open gap rather than an
+  implied rejection — see Out of scope, "Entry-level attachments."
+
 ## User Stories
 
 - An implementer of a downstream financial capability (AP, AR, Cash
@@ -501,6 +595,49 @@ outweigh shipping a complete accounting control in one reviewable unit.
 - A future integrator (an invoice-posting flow, a legacy-data import)
   can trace a journal entry back to the record that caused it via
   `referenceType`/`referenceId`, without a schema change.
+
+## Invariants
+
+The User Stories above describe what an actor can do; these describe
+what must always hold, regardless of actor — the properties a test
+suite asserts against, not a workflow it walks through.
+
+- A posted `JournalEntry`'s lines always sum to zero in the base
+  currency — enforced in application code before the write, and again
+  by a deferred DB constraint trigger at commit, so no code path
+  (including a bug in a command handler) can persist an unbalanced
+  entry.
+- A posted `JournalEntry`/`JournalEntryLine` is never modified or
+  deleted. Correcting one always means posting a new `REVERSAL` entry
+  that references the original — never a direct edit, regardless of
+  the covering `FiscalPeriod`'s lock state (see Design decisions, Art.
+  25 ust. 2).
+- `JournalEntry.sequenceNumber` has no gaps and never mixes across
+  organizations — allocated atomically inside the same transaction as
+  the posting, per `(tenant_id, organization_id)`, and rolled back
+  together with a failed post (see Design decisions).
+- A locked `FiscalPeriod` rejects a post before any write —
+  `postJournalEntry` checks `isLocked` ahead of every other side
+  effect, not after.
+- A `REVERSAL` entry always references the original via
+  `referenceType`/`referenceId`, and the original stays visible,
+  unmodified, in every query — reversal, not undo.
+- `LedgerAccountType.normalBalance`/`accountGroupId` and
+  `LedgerAccount.accountTypeId` are immutable once any account of that
+  type has posted entries — reassigning them would silently
+  reinterpret already-posted history (see Design decisions).
+- Every posted entry carries its business-operation date —
+  `operationDate` is required on every `JournalEntry`, per art. 23 ust.
+  2 Ustawy o rachunkowości, and is never left to be reconstructed after
+  the fact. `documentType`/`documentNumber`/`documentDate` (the source
+  document's own type, number, and date) are captured whenever the
+  poster has one to report, but stay nullable in this phase — Phase 1
+  has no document-producing caller yet (see Design decisions,
+  "Statutory entry-content fields") — so this is not yet a hard
+  invariant for those three, only for `operationDate`.
+- A `JournalEntryLine`'s `debit` and `credit` never both hold a
+  non-zero value, and never both hold zero — enforced by a check
+  constraint plus an application-level guard (see Design decisions).
 
 ## Architecture
 
@@ -530,8 +667,11 @@ outweigh shipping a complete accounting control in one reviewable unit.
   delete — see Design decisions).
 - `JournalEntry` — `sequenceNumber` (`bigint`, unique per
   `(tenant_id, organization_id)`, allocated atomically — see Design
-  decisions), `postedAt`,
-  `description`, `type` (`NORMAL`/`OPENING`/`CLOSING`/`REVERSAL`), `currencyId`
+  decisions), `postedAt`, `operationDate` (`date`, not nullable — art.
+  23 ust. 2, see Design decisions), `documentType` (`string`, nullable
+  in Phase 1), `documentNumber` (`string`, nullable in Phase 1),
+  `documentDate` (`date`, nullable), `description`, `type`
+  (`NORMAL`/`OPENING`/`CLOSING`/`REVERSAL`), `currencyId`
   (FK-id, `uuid`, references `currencies.Currency.id` — no ORM
   relation), `exchangeRate`, `referenceType`, `referenceId`,
   tenant/org scoped. No `updatedAt` — append-only, immutable once
@@ -647,8 +787,11 @@ on `journal_entry` backs the `referenceType`/`referenceId` pair.
 
 - `postJournalEntry` — validates the `FiscalPeriod` covering
   `postedAt` is not `isLocked` (rejects before any write), validates
-  debit/credit balance, atomically allocates the next per-organization
-  `sequenceNumber`, persists entry + lines in one transaction. Emits
+  debit/credit balance, requires `operationDate` (art. 23 ust. 2 — see
+  Design decisions; `documentType`/`documentNumber`/`documentDate` are
+  accepted but optional in this phase), atomically allocates the next
+  per-organization `sequenceNumber`, persists entry + lines in one
+  transaction. Emits
   `ledger.journal_entry.posted` (ephemeral) after commit — see Events
   below; this is the only way other modules (e.g. Posting Rules
   Engine) may react, per `packages/events/AGENTS.md`'s ban on direct
@@ -749,7 +892,9 @@ Standard `makeCrudRoute` paginated list.
   range filter — `JournalEntry` has no `periodId` column or FK either
   (see Data Models). Both are supported by indexes named in Migration.
 - **Response 200**: `{ items: JournalEntryDto[], total: number, page: number, pageSize: number }`
-  where `JournalEntryDto` is `{ id, sequenceNumber, postedAt, description, type, currencyId, exchangeRate, referenceType, referenceId, lines: { id, accountId, debit, credit, amountCurrency }[] }`.
+  where `JournalEntryDto` is `{ id, sequenceNumber, postedAt, operationDate, documentType, documentNumber, documentDate, description, type, currencyId, exchangeRate, referenceType, referenceId, lines: { id, accountId, debit, credit, amountCurrency }[] }`
+  (`operationDate`/`documentType`/`documentNumber`/`documentDate` —
+  art. 23 ust. 2, see Design decisions).
 - **Response 403**: caller lacks `ledger.entries.view`.
 - No `POST`/`PUT`/`DELETE` on this route — posting only happens
   through `postJournalEntry`/`reverseJournalEntry`.
@@ -839,6 +984,15 @@ allocated atomically as part of the same transaction that inserts the
 entry, so a failed post never consumes a number (see Design
 decisions).
 
+`operationDate`, `documentType`, `documentNumber`, `documentDate` are
+the art. 23 ust. 2 statutory entry-content fields (see Design
+decisions) — `operationDate` is required on every entry;
+`documentType`/`documentNumber` stay nullable in this phase since no
+Phase 1 caller produces a source document, `documentDate` is nullable
+by the Act's own "only when it differs" condition. Distinct from
+`referenceType`/`referenceId`, which point at an internal record, not
+a source document.
+
 `JournalEntryLine.contractorSnapshot` (nullable `json`) captures a
 point-in-time copy of the counterparty's name, NIP, bank account and
 Biała Lista verification status at posting time — see Design decisions
@@ -862,7 +1016,9 @@ Queries / API).
 
 1. Add `FiscalPeriod`, `LedgerAccountType`, `LedgerAccount`
    (including the nullable, self-referencing `parentAccountId`),
-   `JournalEntry` (including `sequenceNumber`), `JournalEntryLine`
+   `JournalEntry` (including `sequenceNumber` and the art. 23 ust. 2
+   fields `operationDate`/`documentType`/`documentNumber`/
+   `documentDate`), `JournalEntryLine`
    (including the nullable `contractorSnapshot` `json` column)
    entities (with `updated_at` on the three editable ones) and their
    migration, including the deferred balance-check constraint trigger
@@ -969,6 +1125,11 @@ Queries / API).
   organizations within a tenant).
 - Assert `referenceType`/`referenceId` persist correctly when
   provided, and remain null when omitted.
+- Assert `postJournalEntry` rejects an entry with no `operationDate`
+  (art. 23 ust. 2 is not optional), and persists `documentType`/
+  `documentNumber`/`documentDate` correctly when provided, leaving them
+  null when omitted (regression coverage for the statutory
+  entry-content fields — see Design decisions).
 - Assert `updateLedgerAccountType` rejects a `normalBalance` or
   `accountGroupId` change once an account of that type has posted
   entries, and allows either beforehand.
@@ -1039,7 +1200,36 @@ deploy independently of any other module.
   validate Chart of Accounts + Journal Entries first. Balance
   computation is a read-model concern that layers on later without
   changing the posting schema. Not listed as required by the Event
-  Storming brief.
+  Storming brief — the brief's own domain-events list for reporting
+  (Sekcja 6, "Raportowanie, Zamknięcie Miesiąca i Podatki") names
+  "Wygenerowano ZSiO," "Wygenerowano Bilans," "Wygenerowano P&L" as the
+  actual required outputs, none of which this route was; ZSiO/Balance
+  now ship as `2026-09-09-general-ledger-account-balances.md` (#6013),
+  this engine's own Phase 2.
+- **Entry-level attachments.** SPEC-024 lists document-attachment
+  support on the journal entry as a core requirement (§1.2, "Link
+  documents to entries"). Not addressed anywhere in this phase — no
+  rationale exists for cutting it, unlike the items above. Recorded
+  honestly as an open gap: a future phase needs either a generic
+  attachment table keyed to `JournalEntry.id`, or a decision that
+  attachments belong on the source document (`VendorInvoice`, etc.)
+  instead of the entry itself.
+- **Manual journal-entry creation and an approval workflow
+  (draft → pending_approval → posted).** SPEC-024 models a
+  multi-state `EntryStatus`; this engine posts directly, with no
+  intermediate state. The Event Storming brief itself flags exactly
+  this as an open hot spot rather than this spec overlooking it: HS-08
+  ("W którym momencie dokument trafia do dziennika? Case buforów" →
+  "Obsługa stanów Draft/Bufor vs zaksięgowany na stałe") and HS-09
+  ("Bufor jest kwestią z domeny księgi, nie rejestru?"), both listed
+  under the brief's own "Nowe względem naszego obecnego zakresu — do
+  rozważenia w kolejnych fazach" for the PR #5663 comparison. Deferring
+  is consistent with this phase having no manual entry-creation UI at
+  all (see User Stories) — every Phase 1 posting comes from a
+  downstream command call, not a human filling a form, so an approval
+  gate has nothing to attach to yet. Whether the target customer needs
+  one once manual entry creation ships is a real product-policy
+  question for that future phase, not decided here.
 - **Automated period-closing and period-opening entry generation.**
   Both the `CLOSING` and `OPENING` `JournalEntry` types *are* in scope
   (see Proposed Solution / Design decisions) — a year-end close and a
@@ -1102,7 +1292,18 @@ deploy independently of any other module.
   a future Multi-Currency spec, not this posting engine.
 - Country-specific tax/compliance plugins.
 
-## Final Compliance Report — 2026-08-27 (updated 2026-09-03, 2026-09-07)
+## Final Compliance Report — 2026-08-27 (updated 2026-09-03, 2026-09-07, 2026-09-10)
+
+The 2026-09-10 update responds to a collaborator's discovery-pass PR
+review (matgren) — art. 23 ust. 2 statutory entry-content fields, an
+explicit #2585/SPEC-024 cross-reference, all six SPEC-024 divergences
+matgren raised now named (four with rejection rationale, one recorded
+as an honest gap, one deferred with rationale), and a new Invariants
+section (see Changelog for the full account). Not an AGENTS.md-compliance finding — these are
+spec-completeness and legal-citation gaps, checked against the actual
+UoR text and SPEC-024's real definitions, not against this repo's own
+conventions — so nothing here changes the Non-Compliant Items verdict
+below, only the Internal Consistency Check.
 
 The 2026-09-01 update was a consistency pass reflecting the Fiscal
 Period / Balance calculation scope reduction; the 2026-09-03 update
@@ -1171,6 +1372,8 @@ spec — see Design decisions and Changelog.
 | API contracts match data models | Pass (fixed 2026-09-07) | `periodId`/`accountId` `journal-entries` filters now documented as resolving via `FiscalPeriod`/`JournalEntryLine` rather than implying nonexistent `JournalEntry` columns — gap found by an independent, fresh-context review that cross-referenced the real data model instead of trusting this document's own prior claims |
 | Scope cohesion | Pass (resolved 2026-09-07) | A fresh-context subagent was re-run against the *current* scope (not the pre-2026-09-01 five-piece set this row previously, inaccurately, claimed as still verified by inheritance) and returned SPLIT, not COHESIVE: fiscal-period locking is separable from posting, evidenced by this document's own 2026-09-01 → 2026-09-03 changelog. Escalated per the checklist and explicitly decided by the stakeholder: keep `FiscalPeriod` in this document — see Design decisions |
 | Every `JournalEntry.type` enum value is explained somewhere in Proposed Solution / Design decisions | Pass (fixed 2026-09-09) | `OPENING` appeared in the `type` enum (Architecture → Entities, API Contracts) since the first draft but was never otherwise discussed, unlike `NORMAL` (default case), `CLOSING` ("Fiscal period closing is a lock flag plus an entry type"), and `REVERSAL` ("Corrections are reversals, not undo") — caught while cross-referencing this document for `2026-09-09-general-ledger-account-balances.md`'s turnover design. Added the symmetric "Opening balances are the same mechanism as closing, run in reverse" Design decision |
+| `JournalEntry`'s art. 23 ust. 2 fields are threaded consistently | Pass (added 2026-09-10) | `operationDate`/`documentType`/`documentNumber`/`documentDate` appear consistently across Design decisions, Architecture → Entities/Commands, Data Models, API Contracts, Testing Strategy, Implementation Plan, and the new Invariants section — verified by re-reading each in sequence after the addition, not just at the point each was written |
+| Divergences from SPEC-024 are each either named with rationale or recorded as an honest gap | Pass (added 2026-09-10) | Six checked line-by-line against SPEC-024's actual DDL/types on `develop`. Five named in Alternatives considered: four (period-status granularity, entry-numbering scope, cost centre as dimension vs. column, entryDate/postingDate mapping) with real rejection rationale; the fifth (attachments) recorded as an honest, unrationalized gap, not a false "considered rejection." The sixth (entry approval/manual-entry workflow) is addressed separately in Out of scope, deferred with rationale (brief hot-spots HS-08/HS-09) rather than left silent |
 
 ### Non-Compliant Items
 
@@ -1646,3 +1849,91 @@ No architectural or scope change — this document already assumed
 `OPENING` entries exist (the enum has carried the value from the
 start); this only makes the assumption explicit instead of leaving the
 `2026-09-09` ZSiO spec's readers to infer it.
+
+### 2026-09-10 (review response — statutory entry-content fields, SPEC-024/#2585 cross-references, Invariants)
+
+A collaborator's discovery-pass review (matgren, on this PR) checked
+this document against art. 9–25 UoR directly (not from a section-title
+skim — full text read) and against SPEC-024's actual type definitions,
+and raised six points. All six were independently re-verified against
+the same primary sources (the UoR excerpt available in this repo's
+working materials, and `SPEC-024-2026-02-11-financial-module.md` on
+`develop`) before acting on any of them — every citation held up.
+Resolved:
+
+- **Art. 23 ust. 2 (statutory entry-content fields).** `JournalEntry`
+  had `postedAt`/`description` but nothing for the entry's other three
+  required elements: the business-operation date, and the source
+  document's type/number/date. Added `operationDate` (required),
+  `documentType`/`documentNumber`/`documentDate` (nullable in this
+  phase — no Phase 1 caller produces a source document yet), on the
+  same "cheap while the table is empty" logic this document already
+  used for `referenceType`/`referenceId` and `parentAccountTypeId`/
+  `parentAccountId`. Distinct from `referenceType`/`referenceId`: those
+  point at an internal record, these carry the auditor-legible source
+  document itself. Threaded through Design decisions, Architecture →
+  Entities/Commands, Data Models, API Contracts, Testing Strategy,
+  Implementation Plan. `2026-09-06-accounts-payable.md`'s
+  `postVendorInvoice` — already calling `postJournalEntry` today — is
+  the intended first populator (`operationDate` from
+  `VendorInvoice.invoiceDate`, `documentType` from the dowód category,
+  `documentNumber` from `VendorInvoice.invoiceNumber`); tracked as a
+  follow-up edit to that document, not silently left to whoever writes
+  the code.
+- **Relationship to #2585 and to SPEC-024.** Neither was previously
+  named anywhere in this document, so a reader had no way to tell
+  whether #2585's July 2026 scoping decision was superseded or simply
+  never revisited. Re-read against the actual decision text: #2585
+  asked for two things — the financial module built in core, and KSeF
+  kept as a separate, phased official module. Checked this document's
+  own Out of scope: "Country-specific tax/compliance plugins" is a
+  generic exclusion, not a KSeF-specific one, but KSeF falls squarely
+  under it as one such plugin. The current eight-spec family (see
+  `2026-09-08-financial-module-knowledge-base.md`, §1) is the execution
+  of the first half; the second half was already being honored, just
+  never cross-referenced. Added a paragraph to Overview stating this
+  explicitly rather than leaving it inferable.
+- **SPEC-024 divergences named explicitly.** Six real differences
+  between this engine and SPEC-024's GL sketch, verified line-by-line
+  against SPEC-024's actual DDL/type definitions
+  (`PeriodStatus`, `entry_number ... Sequential within fiscal period`,
+  `CostCenterId` on `JournalLine`, "Attachment support," `entry_date`/
+  `posting_date`, `EntryStatus`). Five now have their rejection (or, for
+  attachments, an honest "not addressed, no rationale exists")
+  recorded in Alternatives considered / Out of scope, cross-referenced
+  to SPEC-024 by name: period-status granularity, entry-numbering
+  scope, cost centre as a dimension vs. a column, the `entryDate`/
+  `postingDate` mapping (resolved by `operationDate` above), and
+  attachments (recorded as a genuine, unaddressed gap — not a claimed
+  rejection). The sixth, entry approval/workflow, is addressed
+  separately below.
+- **Entry approval / manual-entry workflow.** Confirmed this is a real
+  product-policy question, not a schema afterthought — and confirmed
+  it isn't an oversight either: the Event Storming brief already
+  flagged the underlying "bufor" (draft-before-posting) concept as
+  HS-08/HS-09 and listed it under its own "new relative to current
+  scope — for a later phase" section when it was compared against this
+  PR. Quoted verbatim in Out of scope, next to a written argument for
+  why Phase 1's lack of a manual entry-creation UI makes an approval
+  gate premature now (nothing to attach it to yet) without deciding the
+  longer-term question.
+- **Event Storming brief citations made independently checkable.** The
+  brief itself isn't committed to this repo (deliberately — it's
+  working research material, not a spec), so a reviewer couldn't verify
+  "HS-06," "HS-11," "Sekcja 04/05," or "not listed as required by the
+  Event Storming brief" against anything. Rather than committing the
+  whole document, quoted the specific referenced text inline at each
+  citation point instead: the ZSiO/Bilans/P&L reporting requirements
+  (Out of scope, "Balance calculation") and the HS-08/HS-09 hot-spot
+  text (Out of scope, entry-approval bullet above) are now verbatim
+  quotes with their section/ID, not bare references.
+- **Invariants section.** Added, after User Stories — the properties
+  that must always hold (balance, immutability, gapless numbering,
+  locked-period rejection, reversal traceability, type/account-type
+  immutability, statutory entry-content, single-sided lines), several
+  of which were previously only implicit across scattered Design
+  decisions. Gives Testing Strategy and future reviewers one place to
+  check against instead of reconstructing them from prose.
+
+No change to any already-settled design decision — this is closing
+gaps the review surfaced, not revisiting prior conclusions.
