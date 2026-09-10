@@ -922,6 +922,29 @@ describe('CRUD Factory', () => {
     expect(mockDataEngine.emitOrmEntityEvent).not.toHaveBeenCalled()
   })
 
+  it('returns a correlated 409 without leaking the constraint name when a handler hits a foreign key violation', async () => {
+    setRecordCustomFields.mockImplementationOnce(async () => {
+      // Mirror MikroORM's wrapping: the pg error sits behind `previous`, and the
+      // wrapper only carries the message.
+      throw Object.assign(
+        new Error('update or delete on table "users" violates foreign key constraint "sidebar_variants_user_id_foreign" on table "sidebar_variants"'),
+        { previous: { code: '23503', constraint: 'sidebar_variants_user_id_foreign' } },
+      )
+    })
+    const res = await route.POST(new Request('http://x/api/example/todos', { method: 'POST', body: JSON.stringify({ title: 'Referenced', is_done: true, cf_priority: 3 }), headers: { 'content-type': 'application/json' } }))
+    expect(res.status).toBe(409)
+    const body = await res.json()
+    expect(body.code).toBe('FOREIGN_KEY_VIOLATION')
+    // Internal schema names stay in the server log, never in the client body.
+    expect(body.constraint).toBeUndefined()
+    expect(JSON.stringify(body)).not.toContain('sidebar_variants_user_id_foreign')
+    // Same correlation contract as the generic 500 path.
+    expect(typeof body.requestId).toBe('string')
+    expect(res.headers.get('x-request-id')).toBe(body.requestId)
+    expect(Object.values(db)).toHaveLength(0)
+    expect(mockDataEngine.emitOrmEntityEvent).not.toHaveBeenCalled()
+  })
+
   it('POST surfaces CRUD side-effect failures after custom field writes', async () => {
     mockDataEngine.emitOrmEntityEvent.mockImplementationOnce(async () => {
       throw new Error('index write failed')

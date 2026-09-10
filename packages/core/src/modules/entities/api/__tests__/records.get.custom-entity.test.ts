@@ -1,5 +1,6 @@
 /** @jest-environment node */
 import { GET } from '@open-mercato/core/modules/entities/api/records'
+import { CustomFieldDef } from '@open-mercato/core/modules/entities/data/entities'
 
 const mockQE = {
   query: jest.fn(async (_entityId: string, _options: { filters?: Record<string, unknown> }) => ({
@@ -12,7 +13,22 @@ const mockQE = {
   })),
 }
 
+function defRow(key: string, kind: string) {
+  return {
+    key,
+    kind,
+    isActive: true,
+    deletedAt: null,
+    organizationId: 'org',
+    tenantId: 't1',
+    updatedAt: new Date('2024-10-01T00:00:00Z'),
+  }
+}
+
 const mockEm = {
+  find: jest.fn(async (entityClass: unknown) => (
+    entityClass === CustomFieldDef ? [defRow('date', 'boolean'), defRow('how_long', 'integer')] : []
+  )),
   findOne: jest.fn(async () => ({ id: 'ce-1', entityId: 'example:custom' })),
 }
 
