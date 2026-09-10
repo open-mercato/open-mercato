@@ -52,6 +52,10 @@
       "types": "./src/lib/events/patterns.ts",
       "default": "./dist/lib/events/patterns.js"
     },
+    "./lib/db/duplicateEntityClassNames": {
+      "types": "./src/lib/db/duplicateEntityClassNames.ts",
+      "default": "./dist/lib/db/duplicateEntityClassNames.js"
+    },
     "./lib/data/consistency": {
       "types": "./src/lib/data/consistency.ts",
       "default": "./dist/lib/data/consistency.js"

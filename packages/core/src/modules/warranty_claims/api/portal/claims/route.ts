@@ -5,12 +5,14 @@ import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { runRouteMutationGuards, type RouteMutationGuardResult } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
-import { getCustomerAuthFromRequest, type CustomerAuthContext } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
+import type { CustomerAuthContext } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
+import { resolveLinkedCustomerAuth } from '../../../lib/portalAuthGuard'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { WarrantyClaim, WarrantyClaimLine } from '../../../data/entities'
 import {
@@ -153,14 +155,9 @@ function serializePortalClaim(claim: WarrantyClaim, lines: WarrantyClaimLine[]) 
 }
 
 async function resolvePortalContext(req: Request): Promise<PortalContext | Response> {
-  const { translate } = await resolveTranslations()
-  const auth = await getCustomerAuthFromRequest(req)
-  if (!auth) {
-    return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.unauthorized', 'Unauthorized') }, { status: 401 })
-  }
-  if (!auth.customerEntityId) {
-    return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.customerAccountNotLinked', 'Customer account is not linked to a customer record') }, { status: 403 })
-  }
+  const authOrResponse = await resolveLinkedCustomerAuth(req)
+  if (authOrResponse instanceof Response) return authOrResponse
+  const auth = authOrResponse
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
   const commandAuth: NonNullable<AuthContext> = {
@@ -521,6 +518,10 @@ export async function POST(req: Request) {
   } catch (err) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
+    }
+    const interceptorRejection = getCommandInterceptorHttpRejection(err)
+    if (interceptorRejection) {
+      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
     }
     throw err
   }
