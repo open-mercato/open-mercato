@@ -3,7 +3,7 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { ArrowLeft, Check, CircleAlert, Info, Paperclip, RefreshCw, ShieldCheck, Trash2, TriangleAlert } from 'lucide-react'
-import { navigateWithPageReload } from '@open-mercato/core/modules/portal/lib/navigation'
+import { replaceWithPageReload } from '@open-mercato/core/modules/portal/lib/navigation'
 import { useLocale, useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { localizeDictionaryLabel } from '@open-mercato/core/modules/warranty_claims/lib/dictionaryLabels'
 import { formatQuantity } from '@open-mercato/core/modules/warranty_claims/lib/quantity'
@@ -354,10 +354,10 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
   const replacementTargetRef = React.useRef<PortalAttachment | null>(null)
 
   // Leaving an authenticated page for the login page crosses the public/authenticated
-  // boundary, so it must be a full page load — see `navigateWithPageReload`.
+  // boundary, so it must be a full page load — see `replaceWithPageReload`.
   React.useEffect(() => {
     if (!loading && !user) {
-      navigateWithPageReload(`/${params.orgSlug}/portal/login`)
+      replaceWithPageReload(`/${params.orgSlug}/portal/login`)
     }
   }, [loading, user, params.orgSlug])
 

@@ -2,7 +2,7 @@
 import { useEffect, useMemo } from 'react'
 import { extensionPoints } from '@open-mercato/core/modules/portal/extension-points'
 import Link from 'next/link'
-import { navigateWithPageReload } from '@open-mercato/core/modules/portal/lib/navigation'
+import { replaceWithPageReload } from '@open-mercato/core/modules/portal/lib/navigation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
@@ -20,10 +20,10 @@ export default function PortalLandingPage({ params }: Props) {
   const { auth, tenant } = usePortalContext()
 
   // Redirect authenticated users to dashboard. This crosses the public/authenticated
-  // boundary, so it must be a full page load — see `navigateWithPageReload`.
+  // boundary, so it must be a full page load — see `replaceWithPageReload`.
   useEffect(() => {
     if (!auth.loading && auth.user) {
-      navigateWithPageReload(`/${orgSlug}/portal/dashboard`)
+      replaceWithPageReload(`/${orgSlug}/portal/dashboard`)
     }
   }, [auth.loading, auth.user, orgSlug])
 

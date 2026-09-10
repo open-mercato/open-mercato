@@ -1,7 +1,7 @@
 "use client"
 import React, { useEffect, useMemo, useState, useCallback } from 'react'
 import { extensionPoints } from '@open-mercato/core/modules/portal/extension-points'
-import { navigateWithPageReload } from '@open-mercato/core/modules/portal/lib/navigation'
+import { replaceWithPageReload } from '@open-mercato/core/modules/portal/lib/navigation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
@@ -47,10 +47,10 @@ export default function PortalDashboardPage({ params }: Props) {
   }
 
   // Leaving an authenticated page for the login page crosses the public/authenticated
-  // boundary, so it must be a full page load — see `navigateWithPageReload`.
+  // boundary, so it must be a full page load — see `replaceWithPageReload`.
   useEffect(() => {
     if (!loading && !user) {
-      navigateWithPageReload(`/${params.orgSlug}/portal/login`)
+      replaceWithPageReload(`/${params.orgSlug}/portal/login`)
     }
   }, [loading, user, params.orgSlug])
 
