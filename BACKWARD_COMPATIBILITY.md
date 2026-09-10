@@ -440,21 +440,28 @@ platform-wide catalogues, and gives both index readers the matching NULL branch.
 | Surface | Change | Classification |
 |---------|--------|----------------|
 | Function signatures | `reindexEntity`, `createPresenterEnricher`, `TokenSearchStrategy.search` — all unchanged | ✓ No change |
-| Stored scope | The projection of a **declared** tenant-global entity type is written under `tenant_id = NULL` instead of the caller's tenant | ⚠ Deliberate behaviour change, declared types only |
+| Stored scope | The projection of a **declared** tenant-global entity type is written under `tenant_id = NULL, organization_id = NULL` instead of the caller's tenant and organization | ⚠ Deliberate behaviour change, declared types only |
 | Read scope | Both index readers match `tenant_id = X OR (tenant_id IS NULL AND entity_type IN <declared>)` instead of `tenant_id = X` | ⚠ Deliberate behaviour change, declared types only |
-| Coverage / purge scope | `entity_index_coverage` rows, `purgeOrphans` and the force purge follow the projection to the null tenant for declared types | ⚠ Consequential, same set |
-| Job scope | `entity_index_jobs` keeps the caller's tenant | ✓ No change |
+| Coverage / purge scope | `entity_index_coverage` rows, `purgeOrphans`, the force purge, the vector purge and the vectorize payloads all follow the projection to the null tenant AND null organization for declared types | ⚠ Consequential, same set |
+| Job scope | `entity_index_jobs` keeps the caller's tenant and organization | ✓ No change |
 | Import paths, type definitions, event IDs, API routes, DB schema, DI names, ACL features, notification IDs, CLI commands, generated files | No change | ✓ n/a |
 
 **No migration.** Adding `tenant_id_coalesced` to `entity_indexes_type_entity_org_coalesced_unique`
-was considered and is not needed: a declared catalogue has no tenant-scoped variant to
-coexist with, since its source table has no tenant column and every writer resolves the
-same record to the same null scope.
+was considered and is not needed: a declared catalogue has no scoped variant to coexist
+with, since its source table has NEITHER scope column and all three writers now resolve
+the same record to the same `(NULL, NULL)` scope - the sweep, the event path through
+`resolveQueryIndexRecordScope()`, and the force purge.
+
+That is a claim about the whole scope, not just the tenant half, and it only became true
+with the organization axis. While the sweep still stamped the caller's organization, two
+tenants reindexing from their own backends produced `(NULL, orgA)` and `(NULL, orgB)`, and
+the event path's slot was a third, `(NULL, NULL)` - three rows for one record under a key
+that coalesces only the organization.
 
 **Contract commitments**: the widening is gated on `isTenantGlobalEntityType()` and MUST
 NOT be reduced to a bare `tenant_id IS NULL` predicate. A table with neither scope column
-is stored under the null tenant whether it is a catalogue or private data — thirteen of
-the fourteen such entity types in this repository are private — so the entity-type
+is stored under the null tenant whether it is a catalogue or private data — fourteen of
+the fifteen such entity types in this repository are private — so the entity-type
 conjunct is the only thing separating the two. Reader and writer MUST move together; a
 reader-only change publishes whatever an unscoped reindex left behind, and a writer-only
 change makes catalogues unfindable for everyone.

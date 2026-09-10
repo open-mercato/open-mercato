@@ -15,6 +15,10 @@ const REINDEX_REFUSAL_MESSAGES: Record<ReindexRefusalReason, string> = {
   'column-probe-failed':
     'the source table\'s columns could not be read, so no scope could be proven. This is usually ' +
     'transient - retry the reindex.',
+  'declared-global-but-org-scoped':
+    'the entity type is declared tenant-global but its table carries an organization_id column. ' +
+    'A global projection requires a table with neither scope column; remove the declaration or ' +
+    'the column.',
 }
 
 export const metadata = { event: 'query_index.reindex', persistent: true }

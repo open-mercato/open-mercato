@@ -32,7 +32,9 @@ function warnIfReindexRefused(entityType: string, result: ReindexJobResult): voi
   if (!result.refused) return
   const detail = result.refused === 'no-tenant-column'
     ? 'the source table has no tenant_id column and the entity type is not declared tenant-global'
-    : "the source table's columns could not be read, so no scope could be proven (usually transient)"
+    : result.refused === 'declared-global-but-org-scoped'
+      ? 'the entity type is declared tenant-global but its table carries an organization_id column'
+      : "the source table's columns could not be read, so no scope could be proven (usually transient)"
   console.warn(`  -> ${entityType}: reindex REFUSED, nothing was indexed - ${detail}`)
 }
 import { purgeIndexScope } from './lib/purge'

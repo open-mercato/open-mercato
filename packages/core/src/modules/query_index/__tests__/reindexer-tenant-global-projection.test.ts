@@ -58,6 +58,13 @@ const mockFinalizeJob = finalizeJob as jest.MockedFunction<typeof finalizeJob>
 const mockPurgeOrphans = purgeOrphans as jest.MockedFunction<typeof purgeOrphans>
 
 const TENANT = '0e40f2bf-a7ab-465c-8040-20abbd8ad398'
+/**
+ * The value the reachable path actually supplies. `/api/query_index/reindex` REJECTS a
+ * request without `auth.orgId` and then puts it on the payload, which the subscriber passes
+ * straight into `reindexEntity` - so `organizationId: null` is the one input a real reindex
+ * never sends, and it is the input on which `scopeOverrides.orgId` is already unset.
+ */
+const ORG = 'b7c1c0f0-3d2b-4a91-9a4a-2f3f0a1b2c3d'
 const CATALOGUE = 'feature_toggles:feature_toggle'
 const SCOPED = 'example:todo'
 
@@ -177,8 +184,9 @@ describe('a tenant-scoped sweep of a declared platform-wide catalogue', () => {
 
     await reindexEntity(em, { entityType: CATALOGUE, tenantId: TENANT, organizationId: null })
 
-    // No `tenantId` key at all: `upsertIndexRow` writes `tenant_id: args.tenantId ?? null`,
-    // so an absent override is the null stamp.
+    // No `tenantId` key at all. The sweep goes through `upsertIndexBatch`, where an absent
+    // override falls back to the row's own `tenant_id` - `undefined -> null` for a
+    // tenant-less table - so an absent override is the null stamp.
     expect(stampedScope()).toEqual({})
   })
 
@@ -276,6 +284,104 @@ describe('a tenant-scoped sweep of a declared platform-wide catalogue', () => {
     // The caller's tenant must appear in no predicate of the purge; if it did, the purge
     // would delete a scope this run does not rebuild.
     expect(purge!.predicates.join('|')).not.toContain(TENANT)
+  })
+
+  // Every case above passes `organizationId: null`, which is exactly the value that leaves
+  // `scopeOverrides.orgId` unset - so they asserted the stamp was empty on the only input
+  // where that was already true, while the reachable path always supplies a real
+  // organization. These cases pass one.
+  describe('with the organization the reachable path actually supplies', () => {
+    it('files the projection under the null organization, not the caller\'s', async () => {
+      const { em } = makeEm(CATALOGUE, 'feature_toggles', TENANT_LESS_COLUMNS, [{ id: 'toggle-1' }])
+
+      await reindexEntity(em, { entityType: CATALOGUE, tenantId: TENANT, organizationId: ORG })
+
+      // Not `{ orgId: ORG }`: the tenant predicate was widened and the organization
+      // predicate would have re-narrowed the same row to one organization, so the
+      // catalogue would still not be findable by anyone else - and `(NULL, orgA)` /
+      // `(NULL, orgB)` / `(NULL, NULL)` would be three rows for one record under
+      // `entity_indexes`' (entity_type, entity_id, organization_id_coalesced) key.
+      expect(stampedScope()).toEqual({})
+    })
+
+    it('purges orphans under the null organization too', async () => {
+      const { em } = makeEm(CATALOGUE, 'feature_toggles', TENANT_LESS_COLUMNS, [{ id: 'toggle-1' }])
+
+      await reindexEntity(em, { entityType: CATALOGUE, tenantId: TENANT, organizationId: ORG })
+
+      expect(mockPurgeOrphans).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ entityType: CATALOGUE, tenantId: null, organizationId: null }),
+      )
+    })
+
+    it('accounts coverage against the null organization', async () => {
+      const { em } = makeEm(CATALOGUE, 'feature_toggles', TENANT_LESS_COLUMNS, [{ id: 'toggle-1' }])
+
+      const result = await reindexEntity(em, {
+        entityType: CATALOGUE,
+        tenantId: TENANT,
+        organizationId: ORG,
+      })
+
+      expect(mockApplyCoverageAdjustments).toHaveBeenCalledWith(
+        expect.anything(),
+        [expect.objectContaining({ tenantId: null, organizationId: null })],
+      )
+      expect(result.scopes).toEqual([{ tenantId: null, organizationId: null }])
+    })
+
+    it('binds the pre-sweep force purge to neither the caller\'s tenant nor organization', async () => {
+      const { em, deletes } = makeEm(CATALOGUE, 'feature_toggles', TENANT_LESS_COLUMNS, [{ id: 'toggle-1' }])
+
+      await reindexEntity(em, {
+        entityType: CATALOGUE,
+        tenantId: TENANT,
+        organizationId: ORG,
+        force: true,
+        resetCoverage: true,
+      })
+
+      const purge = deletes.find((entry) => entry.table === 'entity_indexes')
+      expect(purge).toBeDefined()
+      expect(purge!.predicates.join('|')).not.toContain(TENANT)
+      expect(purge!.predicates.join('|')).not.toContain(ORG)
+    })
+
+    it('keeps the JOB under the caller\'s organization, which records who ran it', async () => {
+      const { em } = makeEm(CATALOGUE, 'feature_toggles', TENANT_LESS_COLUMNS, [{ id: 'toggle-1' }])
+
+      await reindexEntity(em, { entityType: CATALOGUE, tenantId: TENANT, organizationId: ORG })
+
+      expect(mockPrepareJob).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ tenantId: TENANT, organizationId: ORG }),
+        'reindexing',
+        expect.anything(),
+      )
+    })
+  })
+
+  // `writesGlobalProjection` keys on BOTH scope columns being absent, matching
+  // `loadQueryIndexRowScope()`. A declaration this module cannot honour fails closed and
+  // says so, rather than silently taking the ordinary branch and stamping the caller.
+  it('refuses a declared type whose table carries organization_id but not tenant_id', async () => {
+    registerTenantGlobalEntityTypes('billing:org_plan')
+    const { em } = makeEm(
+      'billing:org_plan',
+      'org_plans',
+      ['id', 'organization_id', 'code'],
+      [{ id: 'plan-1' }],
+    )
+
+    const result = await reindexEntity(em, {
+      entityType: 'billing:org_plan',
+      tenantId: TENANT,
+      organizationId: ORG,
+    })
+
+    expect(result.refused).toBe('declared-global-but-org-scoped')
+    expect(mockUpsertIndexBatch).not.toHaveBeenCalled()
   })
 })
 
