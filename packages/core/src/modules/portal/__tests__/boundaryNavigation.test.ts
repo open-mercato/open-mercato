@@ -38,6 +38,12 @@ const PUBLIC_PORTAL_ROUTES = ['login', 'signup', 'verify', 'reset-password', 'in
 /** The only module allowed to reload the document directly; every portal call site goes through it. */
 const PAGE_RELOAD_HELPER = path.join(REPO_ROOT, 'packages/shared/src/lib/navigation/pageReload.ts')
 
+/** Each helper stands in for one client-router call, and must keep that call's history semantics. */
+const PAGE_RELOAD_HELPER_CONTRACT: Array<{ helper: string; documentApi: string }> = [
+  { helper: 'navigateWithPageReload', documentApi: 'window.location.assign(path)' },
+  { helper: 'replaceWithPageReload', documentApi: 'window.location.replace(path)' },
+]
+
 const CLIENT_NAV = /router\.(push|replace)\(/
 const PORTAL_PATH_LITERAL = /\/portal\//
 const PUBLIC_ROUTE_LITERAL = new RegExp(String.raw`\/portal\/(${PUBLIC_PORTAL_ROUTES.join('|')})\b`)
@@ -122,7 +128,7 @@ describe('portal boundary-crossing navigation guard', () => {
     expect(violations).toEqual([])
   })
 
-  it('routes every portal page reload through navigateWithPageReload', () => {
+  it('routes every portal page reload through the shared helpers', () => {
     const violations = scan(
       portalSourceFiles().filter((file) => file !== PAGE_RELOAD_HELPER),
       ({ line }) => RAW_PAGE_RELOAD.test(line),
@@ -131,7 +137,12 @@ describe('portal boundary-crossing navigation guard', () => {
     expect(violations).toEqual([])
   })
 
-  it('keeps navigateWithPageReload as the single place the document is reloaded', () => {
-    expect(fs.readFileSync(PAGE_RELOAD_HELPER, 'utf8')).toContain('window.location.assign(path)')
-  })
+  it.each(PAGE_RELOAD_HELPER_CONTRACT)(
+    'keeps $helper as the single place the document is reloaded via $documentApi',
+    ({ helper, documentApi }) => {
+      const contents = fs.readFileSync(PAGE_RELOAD_HELPER, 'utf8')
+      expect(contents).toContain(`export function ${helper}(path: string): void {`)
+      expect(contents).toContain(documentApi)
+    },
+  )
 })

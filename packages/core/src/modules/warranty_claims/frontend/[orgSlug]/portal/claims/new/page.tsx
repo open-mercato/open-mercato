@@ -4,7 +4,7 @@ import * as React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { ArrowLeft, ArrowRight, FileText, Plus, Send, Trash2 } from 'lucide-react'
-import { navigateWithPageReload } from '@open-mercato/core/modules/portal/lib/navigation'
+import { replaceWithPageReload } from '@open-mercato/core/modules/portal/lib/navigation'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
@@ -309,10 +309,10 @@ export default function WarrantyClaimPortalNewPage({ params }: Props) {
   const isMountedRef = React.useRef(true)
 
   // Leaving an authenticated page for the login page crosses the public/authenticated
-  // boundary, so it must be a full page load — see `navigateWithPageReload`.
+  // boundary, so it must be a full page load — see `replaceWithPageReload`.
   React.useEffect(() => {
     if (!loading && !user) {
-      navigateWithPageReload(`/${params.orgSlug}/portal/login`)
+      replaceWithPageReload(`/${params.orgSlug}/portal/login`)
     }
   }, [loading, user, params.orgSlug])
 
