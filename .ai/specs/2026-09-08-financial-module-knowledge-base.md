@@ -34,6 +34,7 @@ What actually exists right now, and where:
 | Fixed Assets | `2026-09-06-fixed-assets.md` | `docs/fixed-assets` | Open, PR #6014 — full spec, adversarially reviewed, Final Compliance Report: fully compliant |
 | Posting Rules Engine (konto 490) | `2026-09-06-posting-rules-engine.md` | `docs/posting-rules-engine` | Open, PR #6015 (draft — TLDR + Design Decisions only) |
 | This knowledge base | `2026-09-08-financial-module-knowledge-base.md` | `docs/financial-module-knowledge-base` | Open, PR #6016 |
+| GL bulk cross-module read service | `2026-09-10-general-ledger-bulk-read-service.md` | `docs/general-ledger-bulk-read-service` | Draft, not reviewed, no PR yet — prerequisite for JPK_KR_PD's future `SPEC-010` (see note below the table) |
 | Accounts Receivable, Cash & Bank, Multi-Currency, Budgeting, Cost Accounting | — | — | Not started (SPEC-024 only) |
 
 **Resolved 2026-09-09:** Fixed Assets and Posting Rules Engine used to
@@ -90,6 +91,39 @@ Statement, Proposed Solution, User Stories, Architecture, Data Models,
 API Contracts, Implementation Plan, Testing Strategy, Risks & Impact
 Review, Final Compliance Report) are still open work, tracked as the
 next thing to pick up.
+
+**New 2026-09-10 — a second, real repository entered the picture.**
+`financial-pl` (Polish KSeF 2.0 e-invoicing + JPK_V7/VAT compliance)
+already exists as a substantial, real module — but not in *this* repo.
+It lives in `open-mercato/official-modules`, a separate git repository
+wired in as an optional, currently-uninstalled submodule
+(`external/official-modules/`, see this repo's `official-modules.json` —
+`activated: []`), on an unmerged branch (`feat/financial-pl-invoice-ux`).
+Confirmed by direct inspection, not assumed: its `index.ts` declares no
+`requires: ['ledger']` today, and every JPK_V7 field is sourced from its
+own invoice tables (`ReceivedInvoice`, `PurchaseVatRecord`), never from
+GL. **This is a correction of an earlier statement in this session** —
+`financial-pl` was initially, wrongly, described as not existing yet; it
+does exist, just in a sibling repo and on a feature branch, which this
+document's module map above (scoped to *this* repo's `.ai/specs/`) has
+no way to show. Worth remembering for any future reader of this doc: the
+module map above is not the whole picture once `official-modules` is in
+play.
+
+That module matters here because of JPK_KR_PD — Poland's electronic-
+accounting-books filing, phased in from 2026 (Ministry of Finance
+brochure and `gov.pl/kas`, both now in §3/§5 as Tier 1 sources).
+Extending `financial-pl` to support it would be that module's
+first-ever cross-module *read* from `ledger`, in bulk — a different
+shape of dependency than AP's existing write-side one. Full analysis:
+`2026-09-10-jpk-kr-pd-financial-pl-analysis.md` (delivered directly to
+the user, not committed anywhere — research/analysis, not a spec). One
+concrete outcome already has a real spec in *this* repo, listed in the
+table above: `2026-09-10-general-ledger-bulk-read-service.md` — the
+cross-module read contract a future `SPEC-010` (JPK_KR_PD, in
+`official-modules`, not yet written) would depend on. The GL core
+engine spec's Out of scope section (2026-09-10, twice) tracks the same
+gap and points at the same document.
 
 ---
 
@@ -182,6 +216,13 @@ grep-check on any new spec's code samples before finalizing.
   GAAP** (FASB ASC 405 "Liabilities") — only relevant if/when
   multi-jurisdiction support beyond Poland is actually built (SPEC-024's
   Layer 3 country-plugin architecture anticipates this).
+- **Ministry of Finance JPK_KR_PD brochure** (podatki.gov.pl, published
+  26.08.2024) and **gov.pl/kas, "Elektroniczne księgi rachunkowe w
+  podatku PIT w 2026 r."** — the primary regulatory sources for
+  JPK_KR_PD's structure and phase-in dates (fetched and read directly
+  2026-09-10, see the `financial-pl` analysis). Same tier as UoR: a
+  government source, directly on-point, ahead of any secondary
+  tax-advisory explainer.
 
 **Tier 2 — textbook/terminology (cite these when you need the *named*
 pattern "control account" / "subsidiary ledger" in English, since neither
@@ -397,6 +438,8 @@ pointed at the wrong section.
 ## 5. Quick links
 
 - Ustawa o rachunkowości: https://isap.sejm.gov.pl/isap.nsf/DocDetails.xsp?id=WDU19941210591
+- MF JPK_KR_PD brochure: https://www.podatki.gov.pl/media/if5hycxm/broszura_informacyjna-dotycz%C4%85ca-struktury-jpk_kr_pd-1-26082024.pdf
+- gov.pl/kas, electronic accounting books (PIT, 2026): https://www.gov.pl/web/kas/elektroniczne-ksiegi-rachunkowe-w-podatku-pit-w-2026-r
 - Lumen Learning, "Subsidiary Ledgers and Control Accounts": https://courses.lumenlearning.com/finaccounting/chapter/subsidiary-ledgers-and-control-accounts
 - Kieso, Weygandt, Warfield, *Intermediate Accounting*, 17th Ed. (Wiley, 2019, ISBN 978-1-119503682) — verified directly, see §3
 - IAS 37 (IFRS Foundation, 2025 text): https://www.ifrs.org/content/dam/ifrs/publications/html-standards/english/2025/issued/ias37.html
