@@ -19,12 +19,20 @@ if (!TEST_APP_ROOT) {
   process.env.QUEUE_BASE_DIR = APP_QUEUE_BASE_DIR
 }
 
+/**
+ * The drained count is returned rather than discarded because it distinguishes the two ways this
+ * batch can reach a terminal state. `ephemeral-integration` runs the app with AUTO_SPAWN_WORKERS
+ * defaulting to true, so the server's own worker competes with this drain for the same job: 0
+ * means the server had already claimed it and this drain was a no-op, 1 means this process ran the
+ * batch. #6008 turns on whether both of them ran it, and that is invisible from the job row alone
+ * — the drain child's own logs are suppressed unless OM_DRAIN_DEBUG=1.
+ */
 async function waitForProgressJob(
   request: APIRequestContext,
   token: string,
   jobId: string,
-): Promise<Record<string, unknown>> {
-  await drainIntegrationQueue(QUEUE_NAME, { appRoot: APP_ROOT })
+): Promise<{ job: Record<string, unknown>; drained: number }> {
+  const drained = await drainIntegrationQueue(QUEUE_NAME, { appRoot: APP_ROOT })
   const deadline = Date.now() + POLL_TIMEOUT_MS
   let last: Record<string, unknown> | null = null
   while (Date.now() < deadline) {
@@ -33,11 +41,11 @@ async function waitForProgressJob(
       const body = (await response.json()) as Record<string, unknown>
       last = body
       const status = body.status as string | undefined
-      if (status === 'completed' || status === 'failed' || status === 'cancelled') return body
+      if (status === 'completed' || status === 'failed' || status === 'cancelled') return { job: body, drained }
     }
     await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS))
   }
-  throw new Error(`Progress job ${jobId} did not finish within ${POLL_TIMEOUT_MS}ms (last status: ${JSON.stringify(last)})`)
+  throw new Error(`Progress job ${jobId} did not finish within ${POLL_TIMEOUT_MS}ms (drained ${drained}, last status: ${JSON.stringify(last)})`)
 }
 
 /**
@@ -104,7 +112,7 @@ test.describe('TC-CAT-037: Bulk create products', () => {
       expect(enqueueBody.ok).toBe(true)
       expect(typeof enqueueBody.progressJobId, 'response must carry a progressJobId').toBe('string')
 
-      const finalJob = await waitForProgressJob(request, token, enqueueBody.progressJobId!)
+      const { job: finalJob, drained } = await waitForProgressJob(request, token, enqueueBody.progressJobId!)
       expect(finalJob.status, `progress job final status: ${JSON.stringify(finalJob)}`).toBe('completed')
 
       const summary = finalJob.resultSummary as {
@@ -117,7 +125,7 @@ test.describe('TC-CAT-037: Bulk create products', () => {
       // only "Expected: 2, Received: 1" and aborted before the `failedItems` assertions, so the
       // reason a row did not get created was never in the log and #6008 stayed undiagnosed across
       // four reproductions. The assertions are unchanged; only what they print when they fail is.
-      const summaryContext = `bulk-create summary: ${JSON.stringify(summary)}`
+      const summaryContext = `bulk-create summary (drained ${drained}): ${JSON.stringify(summary)}`
       expect(summary?.createdCount, summaryContext).toBe(2)
       expect(summary?.failedCount, summaryContext).toBe(1)
       expect(summary?.failedItems?.[0]?.index, summaryContext).toBe(2)
