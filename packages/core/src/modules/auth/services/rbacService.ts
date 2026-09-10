@@ -1,4 +1,4 @@
-import type { EntityManager } from '@mikro-orm/postgresql'
+import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import type { CacheStrategy } from '@open-mercato/cache'
 import { getCurrentCacheTenant, runWithCacheTenant } from '@open-mercato/cache'
 import { UserAcl, RoleAcl, User, UserRole } from '@open-mercato/core/modules/auth/data/entities'
@@ -11,7 +11,10 @@ import {
   resolveEffectiveFeatures,
 } from '@open-mercato/shared/security/featurePolicy'
 import { filterGrantsByEnabledModules } from '@open-mercato/shared/security/enabledModulesRegistry'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { resolveRoleOrganizationScope, roleAclAllowsOrganization } from './roleOrganizationScope'
+
+const logger = createLogger('auth').child({ component: 'rbac' })
 
 interface AclData {
   isSuperAdmin: boolean
@@ -215,14 +218,27 @@ export class RbacService {
     if (this.globalSuperAdminCache.has(userId)) return this.globalSuperAdminCache.get(userId)!
     if (!userTenantId) {
       // A user with no tenant of their own has no tenant to be a super-admin of.
+      //
+      // Reported rather than returned silently, because the consequence is larger than
+      // the flag: `loadAcl` derives its tenant as `scope.tenantId || user.tenantId`, and
+      // for such a principal both are null - `resolveCanonicalStaffAuthContext` pins
+      // `auth.tenantId` to `user.tenantId`, and `applySuperAdminScope` cannot override it
+      // from the cookie because it requires `auth.isSuperAdmin`, which is already false
+      // here. So the result is `{ isSuperAdmin: false, features: [], organizations: null }`
+      // and EVERY feature check fails. A tenant-less account is a shape the codebase
+      // supports deliberately (see commands/acl.ts), so an operator whose only platform
+      // administrator has one deserves a line in the log rather than a locked-out UI with
+      // no in-product signal. The foreign-tenant branches below cannot warn without an
+      // extra query; this one costs nothing.
+      logger.warn('User has no tenant of their own, so no grant can confer super-admin', { userId })
       this.globalSuperAdminCache.set(userId, false)
       return false
     }
     const userSuper = await em.findOne(UserAcl, {
-      user: userId as any,
+      user: userId,
       tenantId: userTenantId,
       isSuperAdmin: true,
-    } as any)
+    } as FilterQuery<UserAcl>)
     if (userSuper && (userSuper as any).isSuperAdmin) {
       this.globalSuperAdminCache.set(userId, true)
       return true
@@ -234,7 +250,7 @@ export class RbacService {
       // `resolveCanonicalStaffAuthContext` already requires. The encryption
       // scope stays `{ null, null }` as before — this change is about which rows
       // count, not about which key decrypts them.
-      { user: userId as any, role: { tenantId: userTenantId } } as any,
+      { user: userId, role: { tenantId: userTenantId } } as FilterQuery<UserRole>,
       { populate: ['role'] },
       { tenantId: null, organizationId: null },
     )
@@ -254,8 +270,8 @@ export class RbacService {
     const roleSupers = await em.find(RoleAcl, {
       isSuperAdmin: true,
       tenantId: userTenantId,
-      role: { $in: roleIds as any },
-    } as any)
+      role: { $in: roleIds },
+    } as FilterQuery<RoleAcl>)
     const result = roleSupers.some((roleAcl) => (
       !!roleAcl.isSuperAdmin && !isRestrictedRoleAcl(roleAcl)
     ))

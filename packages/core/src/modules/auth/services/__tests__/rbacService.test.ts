@@ -4,6 +4,7 @@ import { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
 import { createMemoryStrategy } from '@open-mercato/cache'
 import type { CacheStrategy } from '@open-mercato/cache'
 import * as enabledModulesRegistry from '@open-mercato/shared/security/enabledModulesRegistry'
+import { registerLoggerExtension, type LoggerExtensionRecord } from '@open-mercato/shared/lib/logger'
 import {
   applyAclFeatureOverrides,
   resetModuleContractOverridesForTests,
@@ -1689,8 +1690,22 @@ describe('RbacService', () => {
         [RoleAcl, []],
       ]))
 
-      await expect(service.loadAcl('user-2', { tenantId: null, organizationId: null }))
-        .resolves.toEqual({ isSuperAdmin: false, features: [], organizations: null })
+      const records: LoggerExtensionRecord[] = []
+      const dispose = registerLoggerExtension({ emit: (record) => { records.push(record) } })
+      try {
+        await expect(service.loadAcl('user-2', { tenantId: null, organizationId: null }))
+          .resolves.toEqual({ isSuperAdmin: false, features: [], organizations: null })
+
+        // The consequence is larger than the flag - `loadAcl` short-circuits on a null
+        // tenant, so EVERY feature check fails for this principal - and a tenant-less
+        // staff account is a shape the codebase supports deliberately. Returning false in
+        // silence leaves an operator with a locked-out UI and no in-product signal.
+        expect(records.map((record) => record.message)).toContain(
+          'User has no tenant of their own, so no grant can confer super-admin',
+        )
+      } finally {
+        dispose()
+      }
     })
 
     it('grants nothing when the grant outlives the user row it names', async () => {
