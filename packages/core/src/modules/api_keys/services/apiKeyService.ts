@@ -4,8 +4,8 @@ import { hash, compare } from 'bcryptjs'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { Role } from '@open-mercato/core/modules/auth/data/entities'
 import { ApiKey } from '../data/entities'
-import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
-import { encryptWithAesGcm, decryptWithAesGcm } from '@open-mercato/shared/lib/encryption/aes'
+import { createKmsService, resolveEncryptionMode } from '@open-mercato/shared/lib/encryption/kms'
+import { encryptWithAesGcm, decryptWithAesGcm, looksLikeEncryptedPayload } from '@open-mercato/shared/lib/encryption/aes'
 import { getSharedApiKeyAuthCache } from '@open-mercato/shared/lib/auth/apiKeyAuthCache'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -19,8 +19,16 @@ const BCRYPT_COST = 10
 // =============================================================================
 
 /**
- * Encrypt an API key secret for storage.
- * Uses tenant-specific DEK if available, otherwise returns null.
+ * Seal an ephemeral session API key secret for storage in `session_secret_encrypted`.
+ *
+ * Returns null when the secret cannot be stored at all, which costs the caller MCP session-token
+ * auth (the secret is unrecoverable and `findSessionApiKeyWithSecret` gives up).
+ *
+ * Under `TENANT_DATA_ENCRYPTION=no` the secret is stored as-is. That is the same bargain the rest
+ * of the system already strikes in that mode -- emails, integration credentials and the search
+ * index all sit in plaintext -- and it is what keeps the AI chat working when an operator opts
+ * out. A DEK that is merely unreachable is a different situation and still yields null: writing a
+ * secret in the clear because Vault happens to be down is not a downgrade anyone asked for.
  */
 async function encryptSessionSecret(
   secret: string,
@@ -29,7 +37,16 @@ async function encryptSessionSecret(
   if (!tenantId) return null
 
   const kms = createKmsService()
-  if (!kms.isHealthy()) return null
+  const mode = resolveEncryptionMode(kms)
+  if (mode === 'disabled') return secret
+  if (mode === 'unavailable') {
+    logger.warn(
+      'Tenant data encryption is enabled but no DEK is reachable; session secret not stored. '
+        + 'MCP session-token auth will fail until the KMS recovers.',
+      { tenantId },
+    )
+    return null
+  }
 
   const dek = await kms.getTenantDek(tenantId)
   if (!dek) {
@@ -45,22 +62,31 @@ async function encryptSessionSecret(
 }
 
 /**
- * Decrypt an API key secret from storage.
- * Returns null if decryption fails or no DEK available.
+ * Recover a session API key secret written by {@link encryptSessionSecret}.
+ * Returns null if it cannot be recovered.
  */
 async function decryptSessionSecret(
-  encrypted: string,
+  stored: string,
   tenantId: string | null
 ): Promise<string | null> {
-  if (!tenantId || !encrypted) return null
+  if (!tenantId || !stored) return null
 
   const kms = createKmsService()
-  if (!kms.isHealthy()) return null
+  const mode = resolveEncryptionMode(kms)
+  if (mode === 'disabled') {
+    // Written in the clear by the branch above -- unless it predates the toggle being flipped, in
+    // which case it is a sealed envelope no key can open and null is the honest answer.
+    return looksLikeEncryptedPayload(stored) ? null : stored
+  }
+  if (mode === 'unavailable') {
+    logger.warn('Tenant data encryption is enabled but no DEK is reachable; cannot recover session secret', { tenantId })
+    return null
+  }
 
   const dek = await kms.getTenantDek(tenantId)
   if (!dek) return null
 
-  return decryptWithAesGcm(encrypted, dek.key)
+  return decryptWithAesGcm(stored, dek.key)
 }
 
 export type CreateApiKeyInput = {

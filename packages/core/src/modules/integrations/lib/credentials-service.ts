@@ -1,7 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { decryptWithAesGcm, encryptWithAesGcm } from '@open-mercato/shared/lib/encryption/aes'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
+import { createKmsService, resolveEncryptionMode } from '@open-mercato/shared/lib/encryption/kms'
 import { parseDecryptedFieldValue } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import {
   getBundle,
@@ -21,20 +21,45 @@ const ENCRYPTED_CREDENTIALS_BLOB_KEY = '__om_encrypted_credentials_blob_v1'
  * configured. The credentials path deliberately fails closed instead of using
  * a hardcoded fallback secret; see security tracker finding #7.
  */
+export type CredentialsEncryptionUnavailableReason = 'no-dek' | 'sealed-while-disabled'
+
+const CREDENTIALS_ENCRYPTION_REMEDY: Record<CredentialsEncryptionUnavailableReason, string> = {
+  'no-dek':
+    'no tenant DEK is available. Configure Vault (VAULT_ADDR/VAULT_TOKEN) or ' +
+    'set TENANT_DATA_ENCRYPTION_FALLBACK_KEY in the environment.',
+  'sealed-while-disabled':
+    'they were sealed while TENANT_DATA_ENCRYPTION was on and it is now off, so no key can open ' +
+    'them. Re-enable TENANT_DATA_ENCRYPTION to read them again, or re-enter the credentials — ' +
+    'saving them while the toggle is off stores them in the clear. Note that ' +
+    '`mercato entities decrypt-database` does not reach this blob: it decrypts the columns an ' +
+    'encryption map covers, and this envelope sits inside the decrypted value.',
+}
+
 export class CredentialsEncryptionUnavailableError extends Error {
   readonly code = 'CREDENTIALS_ENCRYPTION_UNAVAILABLE'
-  constructor(tenantId: string) {
+  readonly reason: CredentialsEncryptionUnavailableReason
+  constructor(tenantId: string, reason: CredentialsEncryptionUnavailableReason = 'no-dek') {
     super(
       `Cannot encrypt or decrypt integration credentials for tenant ${tenantId}: ` +
-        `no tenant DEK is available. Configure Vault (VAULT_ADDR/VAULT_TOKEN) or ` +
-        `set TENANT_DATA_ENCRYPTION_FALLBACK_KEY in the environment.`,
+        CREDENTIALS_ENCRYPTION_REMEDY[reason],
     )
     this.name = 'CredentialsEncryptionUnavailableError'
+    this.reason = reason
   }
 }
 
 export function isCredentialsEncryptionUnavailableError(error: unknown): error is CredentialsEncryptionUnavailableError {
   return error instanceof CredentialsEncryptionUnavailableError
+}
+
+/**
+ * The one unavailable-reason an operator can act on without restoring a key: the blob predates
+ * `TENANT_DATA_ENCRYPTION=no` and no key exists to open it, so re-entering the credentials is the
+ * only way forward. The admin credentials route degrades to an empty form on this so that the
+ * re-entry is possible at all; `no-dek` (encryption on, KMS unreachable) still fails closed.
+ */
+export function isCredentialsSealedWhileDisabledError(error: unknown): boolean {
+  return isCredentialsEncryptionUnavailableError(error) && error.reason === 'sealed-while-disabled'
 }
 
 function isRecordValue(value: unknown): value is Record<string, unknown> {
@@ -112,8 +137,21 @@ export function createCredentialsService(em: EntityManager) {
     existing.isActive = true
   }
 
-  async function resolveCredentialsDek(scope: IntegrationScope): Promise<string> {
+  /**
+   * Resolve the DEK this tenant's credentials blob is sealed with, or `null` when the operator
+   * has switched tenant data encryption off.
+   *
+   * The `null` is the whole point of going through {@link resolveEncryptionMode} rather than
+   * asking the KMS directly. Under `TENANT_DATA_ENCRYPTION=no` the KMS is a noop and hands back
+   * nothing, which is indistinguishable — to `getTenantDek` alone — from Vault being down. Those
+   * two need opposite answers: an operator who turned encryption off expects plaintext, whereas a
+   * Vault outage must not silently downgrade a secret that is supposed to be sealed. So only
+   * `unavailable` throws.
+   */
+  async function resolveCredentialsDek(scope: IntegrationScope): Promise<string | null> {
     const kms = createKmsService()
+    if (resolveEncryptionMode(kms) === 'disabled') return null
+
     const existing = await kms.getTenantDek(scope.tenantId)
     if (existing?.key) return existing.key
 
@@ -128,6 +166,7 @@ export function createCredentialsService(em: EntityManager) {
     scope: IntegrationScope,
   ): Promise<Record<string, unknown>> {
     const dek = await resolveCredentialsDek(scope)
+    if (!dek) return credentials
     const payload = encryptWithAesGcm(JSON.stringify(credentials), dek)
     return { [ENCRYPTED_CREDENTIALS_BLOB_KEY]: payload.value }
   }
@@ -140,7 +179,14 @@ export function createCredentialsService(em: EntityManager) {
     const encrypted = credentials[ENCRYPTED_CREDENTIALS_BLOB_KEY]
     if (typeof encrypted !== 'string' || !encrypted) return credentials
 
+    // A sealed blob written before encryption was switched off. There is no key to open it with,
+    // and returning the envelope as if it were the credentials would hand an adapter a garbage
+    // secret, so this stays an error even in `disabled` mode rather than a silent empty credential
+    // set. The remedy is re-entering the credentials (see the reason's message); the admin route
+    // catches this specific reason so the form can load empty and accept them.
     const dek = await resolveCredentialsDek(scope)
+    if (!dek) throw new CredentialsEncryptionUnavailableError(scope.tenantId, 'sealed-while-disabled')
+
     const decryptedRaw = decryptWithAesGcm(encrypted, dek)
     if (!decryptedRaw) return {}
 

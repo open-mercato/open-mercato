@@ -6,6 +6,7 @@ import {
   type SearchConfig,
 } from '@open-mercato/shared/lib/search/config'
 import { tokenizeText } from '@open-mercato/shared/lib/search/tokenize'
+import { looksLikeEncryptedPayload } from '@open-mercato/shared/lib/encryption/aes'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -68,6 +69,51 @@ function collectTextValues(value: unknown): string[] {
   return []
 }
 
+/**
+ * Fields whose value is an AES-GCM envelope rather than the text it is supposed to hold.
+ *
+ * Search tokens are hashes of PLAINTEXT: the indexer decrypts a document before tokenising it
+ * (`indexer.ts` -> `decryptIndexDocForSearch`), which is what lets the token index survive
+ * encryption being switched on or off. That decrypt step is a no-op once
+ * `TENANT_DATA_ENCRYPTION=no`, so an operator who flips the toggle before running
+ * `mercato entities decrypt-database` starts feeding ciphertext into the tokeniser. The tokens
+ * that come out are hashes of base64 noise and match nothing, and because a write REPLACES a
+ * record's tokens, the good plaintext tokens already in the table would be deleted to make room
+ * for them -- turning a recoverable misordering into permanent search loss.
+ *
+ * Detecting the envelope by shape (no DEK is reachable in that state, so decryption cannot be the
+ * test) lets the write skip those fields and leave what is already indexed alone.
+ */
+function ciphertextFieldsOf(doc: Record<string, unknown> | null | undefined): Set<string> {
+  const fields = new Set<string>()
+  if (!doc) return fields
+  for (const [field, value] of Object.entries(doc)) {
+    const values = collectTextValues(value)
+    if (values.length && values.some((text) => looksLikeEncryptedPayload(text))) fields.add(field)
+  }
+  return fields
+}
+
+const warnedCiphertextEntities = new Set<string>()
+
+function warnCiphertextSkipped(entityType: string, fields: Set<string>): void {
+  if (!fields.size) return
+  // Once per entity type per process: a full reindex would otherwise emit this per record.
+  if (warnedCiphertextEntities.has(entityType)) return
+  warnedCiphertextEntities.add(entityType)
+  logger.warn(
+    'Search indexing skipped ciphertext fields and preserved their existing tokens. '
+      + 'This means TENANT_DATA_ENCRYPTION was switched off while encrypted data was still at rest. '
+      + 'Run `mercato entities decrypt-database` and reindex; until then these fields are not searchable.',
+    { entityType, fields: Array.from(fields).sort((left, right) => left.localeCompare(right)) },
+  )
+}
+
+/** Test seam: the warning above fires once per entity type per process. */
+export function resetCiphertextSkipWarnings(): void {
+  warnedCiphertextEntities.clear()
+}
+
 function shouldIndexField(
   field: string,
   value: unknown,
@@ -97,9 +143,12 @@ export function buildSearchTokenRows(params: BuildTokenOptions): SearchTokenRow[
   const limits = resolveSearchTokenLimits(config)
   const recordLimit = limits.maxTokensPerRecord > 0 ? limits.maxTokensPerRecord : Number.POSITIVE_INFINITY
   const fieldLimit = limits.maxTokensPerField > 0 ? limits.maxTokensPerField : Number.POSITIVE_INFINITY
+  const ciphertextFields = ciphertextFieldsOf(params.doc)
+  warnCiphertextSkipped(params.entityType, ciphertextFields)
 
   for (const [field, rawValue] of Object.entries(params.doc)) {
     if (tokens.length >= recordLimit) break
+    if (ciphertextFields.has(field)) continue
     if (!shouldIndexField(field, rawValue, config, params.entityType)) continue
     const values = collectTextValues(rawValue)
     const seen = new Set<string>()
@@ -149,11 +198,18 @@ export function buildSearchTokenRows(params: BuildTokenOptions): SearchTokenRow[
   return tokens
 }
 
-function buildFieldPairs(recordId: string, doc?: Record<string, unknown> | null): EntityFieldPair[] {
+function buildFieldPairs(
+  recordId: string,
+  doc?: Record<string, unknown> | null,
+  skipFields?: Set<string>,
+): EntityFieldPair[] {
   if (!doc) return []
   const pairs: EntityFieldPair[] = []
   const dedupe = new Set<string>()
   for (const field of Object.keys(doc)) {
+    // The delete below is scoped to these pairs, so omitting a field here is what preserves the
+    // tokens already stored for it rather than merely declining to write new ones.
+    if (skipFields?.has(field)) continue
     const key = `${recordId}|${field}`
     if (dedupe.has(key)) continue
     dedupe.add(key)
@@ -226,7 +282,16 @@ export async function replaceSearchTokensForRecord(
   if (!config.enabled) return
   const organizationId = params.organizationId ?? null
   const tenantId = params.tenantId ?? null
-  const fieldPairs = buildFieldPairs(String(params.recordId), params.doc)
+  const ciphertextFields = ciphertextFieldsOf(params.doc)
+  const fieldPairs = buildFieldPairs(String(params.recordId), params.doc, ciphertextFields)
+
+  // An empty pair list normally means the document is gone, and the delete below then purges the
+  // record wholesale. It can now also mean every field was skipped as ciphertext, where a purge
+  // would destroy precisely the tokens the skip exists to protect. Distinguish the two.
+  if (params.doc && ciphertextFields.size && !fieldPairs.length) {
+    debug('record.preserve-ciphertext', { entityType: params.entityType, recordId: params.recordId })
+    return
+  }
 
   // Same comparison #5402 gave the batch path, over the scope this path actually writes: the
   // delete below is narrowed to the document's own `(entity_id, field)` pairs, so the comparison
@@ -325,11 +390,27 @@ export async function deleteSearchTokensForRecord(
 
 export async function replaceSearchTokensForBatch(
   db: Kysely<any>,
-  payloads: Array<BuildTokenOptions & { doc: Record<string, unknown> }>
+  allPayloads: Array<BuildTokenOptions & { doc: Record<string, unknown> }>
 ): Promise<void> {
-  if (!payloads.length) return
+  if (!allPayloads.length) return
   const config = resolveSearchConfig()
   if (!config.enabled) return
+
+  // A record carrying ciphertext drops out of the batch entirely, rather than being rewritten
+  // without its encrypted fields. This path deletes by `entity_id` -- it cannot express "replace
+  // these fields and leave those alone" the way the per-record path can -- so partial handling
+  // here would still delete the tokens we are trying to protect. Skipping the record leaves every
+  // one of its tokens, encrypted-field and plaintext-field alike, exactly as it was. The state is
+  // transient by construction: `decrypt-database` followed by a reindex rebuilds all of it.
+  const preservedRecordIds = new Set<string>()
+  const payloads = allPayloads.filter((payload) => {
+    const ciphertextFields = ciphertextFieldsOf(payload.doc)
+    if (!ciphertextFields.size) return true
+    warnCiphertextSkipped(payload.entityType, ciphertextFields)
+    preservedRecordIds.add(String(payload.recordId))
+    return false
+  })
+  if (!payloads.length) return
 
   const rows = payloads.flatMap((payload) => buildSearchTokenRows({ ...payload, config }))
   if (!rows.length) {
@@ -438,6 +519,7 @@ export async function replaceSearchTokensForBatch(
     entityType: payloads[0].entityType,
     recordCount: payloads.length,
     changedCount: changedRecordKeys.size,
+    preservedCiphertextRecordCount: preservedRecordIds.size,
   })
   if (!changedRecordKeys.size) return
 

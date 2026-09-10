@@ -18,7 +18,10 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn(),
 }))
 
+// `resolveEncryptionMode` stays real: it is the function under test on the disabled/unavailable
+// split, and it reads only the env toggle plus the mocked KMS's `isHealthy()`.
 jest.mock('@open-mercato/shared/lib/encryption/kms', () => ({
+  ...jest.requireActual('@open-mercato/shared/lib/encryption/kms'),
   createKmsService: jest.fn(),
 }))
 
@@ -194,6 +197,94 @@ describe('integration credentials service encryption', () => {
       'utf8',
     )
     expect(source).not.toContain('om-emergency-fallback-rotate-me')
+  })
+})
+
+/**
+ * `TENANT_DATA_ENCRYPTION=no` is a supported deployment, not an outage.
+ *
+ * Both states hand the KMS factory a service that produces no DEK, which is why this path used to
+ * answer 503 for an operator who had simply opted out: `getTenantDek` returning null looks the
+ * same either way. The distinction is the env toggle, and only the outage half may fail closed —
+ * degrading a secret to plaintext because Vault blinked is the downgrade the fail-closed rule
+ * exists to prevent (spec 2026-05-29, security finding #7).
+ */
+describe('integration credentials with tenant data encryption disabled', () => {
+  const previousToggle = process.env.TENANT_DATA_ENCRYPTION
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    process.env.TENANT_DATA_ENCRYPTION = 'no'
+  })
+
+  afterEach(() => {
+    if (previousToggle === undefined) delete process.env.TENANT_DATA_ENCRYPTION
+    else process.env.TENANT_DATA_ENCRYPTION = previousToggle
+  })
+
+  it('stores credentials as plaintext instead of answering 503', async () => {
+    mockKms(null)
+    mockFindOneWithDecryption.mockResolvedValue(null)
+    const { em, persisted } = createMockEntityManager()
+    const service = createCredentialsService(em as never)
+
+    await service.save('gateway_test', { apiKey: 'sk_test_secret' }, scope)
+
+    const credentialsRow = persisted.find((row) =>
+      typeof row === 'object'
+      && row !== null
+      && (row as { integrationId?: unknown }).integrationId === 'gateway_test'
+    ) as { credentials?: Record<string, unknown> } | undefined
+
+    expect(credentialsRow?.credentials).toEqual({ apiKey: 'sk_test_secret' })
+    expect(credentialsRow?.credentials).not.toHaveProperty(encryptedBlobKey)
+  })
+
+  it('round-trips a plaintext blob through getRaw', async () => {
+    mockKms(null)
+    mockFindOneWithDecryption.mockResolvedValue({
+      credentials: { apiKey: 'sk_test_secret' },
+    } as never)
+    const { em } = createMockEntityManager()
+    const service = createCredentialsService(em as never)
+
+    await expect(service.getRaw('gateway_test', scope)).resolves.toEqual({ apiKey: 'sk_test_secret' })
+  })
+
+  it('still refuses to guess at a blob sealed before the toggle was flipped', async () => {
+    const dek = generateDek()
+    const encrypted = encryptWithAesGcm(JSON.stringify({ apiKey: 'sk_test_secret' }), dek).value
+    mockKms(null)
+    mockFindOneWithDecryption.mockResolvedValue({
+      credentials: { [encryptedBlobKey]: encrypted },
+    } as never)
+    const { em } = createMockEntityManager()
+    const service = createCredentialsService(em as never)
+
+    // Returning the envelope, or an empty credential set, would hand the adapter a silently broken
+    // secret. Say what happened instead -- and name a remedy that exists: `decrypt-database` does
+    // NOT unseal this blob (it decrypts the columns an encryption map covers, and this envelope
+    // sits inside the decrypted value), so an operator who follows that advice lands right back
+    // here. Re-entering the credentials is what actually works.
+    const error = await service.getRaw('gateway_test', scope).catch((err: unknown) => err)
+    expect(error).toBeInstanceOf(CredentialsEncryptionUnavailableError)
+    expect((error as CredentialsEncryptionUnavailableError).reason).toBe('sealed-while-disabled')
+    expect((error as Error).message).toContain('re-enter the credentials')
+    expect((error as Error).message).toContain('does not reach this blob')
+  })
+
+  it('keeps failing closed when encryption is ON but the KMS is merely unreachable', async () => {
+    process.env.TENANT_DATA_ENCRYPTION = 'yes'
+    mockKms(null)
+    const { em, persisted } = createMockEntityManager()
+    const service = createCredentialsService(em as never)
+
+    const error = await service
+      .save('gateway_test', { apiKey: 'sk_test_secret' }, scope)
+      .catch((err: unknown) => err)
+    expect(error).toBeInstanceOf(CredentialsEncryptionUnavailableError)
+    expect((error as CredentialsEncryptionUnavailableError).reason).toBe('no-dek')
+    expect(persisted).toEqual([])
   })
 })
 
