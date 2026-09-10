@@ -596,7 +596,23 @@ async seedDefaults({ em, tenantId, organizationId }) {
   — `ModuleConfigService`, see Data Models — **the same configuration
   value that `accounts_payable_payments` reads later**), with
   `referenceType: 'accounts_payable:vendor_invoice'`,
-  `referenceId: invoice.id`. Sets `postedJournalEntryId` and emits
+  `referenceId: invoice.id`, `operationDate: invoice.invoiceDate`,
+  `documentType: 'external_foreign'` (a vendor invoice is a dowód
+  zewnętrzny obcy — received from the contractor, not issued by this
+  organization — art. 20 ust. 2 pkt 1 Ustawy o rachunkowości),
+  `documentNumber: invoice.invoiceNumber` (the first real populator of
+  GL's art. 23 ust. 2 statutory entry-content fields — see
+  `2026-08-18-general-ledger-core-engine.md`, Design decisions,
+  "Statutory entry-content fields"; `documentDate` is left unset here,
+  since this module has no field distinct from `invoiceDate` to supply
+  it from — the Act only requires it when the document's own date
+  differs from the operation date). Note `operationDate` is GL's own
+  business-operation-date field, distinct from `referenceType`/
+  `referenceId` above: those trace the entry back to *this* row in
+  *this* database, `operationDate`/`documentType`/`documentNumber`
+  carry the source document's own identity as an auditor would read
+  it — both are populated from the one invoice, for different reasons.
+  Sets `postedJournalEntryId` and emits
   `accounts_payable.vendor_invoice.posted` (see Events) only after
   success (idempotency guard — a repeat call on an invoice that
   already has `postedJournalEntryId` is a no-op, not a duplicate
@@ -965,6 +981,11 @@ module first, the sibling module second.
   correct `referenceType`/`referenceId`, a second call to
   `postVendorInvoice` on the same invoice is a no-op (idempotency
   guard).
+- Assert the posted `JournalEntry` carries `operationDate ===
+  invoice.invoiceDate`, `documentType === 'external_foreign'`, and
+  `documentNumber === invoice.invoiceNumber` — regression coverage for
+  `postVendorInvoice` populating GL's art. 23 ust. 2 fields (see
+  Architecture → Commands).
 - Post an invoice with `invoiceDate` in a locked period; assert a
   `422 FISCAL_PERIOD_LOCKED` response, the invoice stays `APPROVED`.
 - Account-300 regression test: post two invoices with lines on account
@@ -1157,7 +1178,7 @@ tables, zero changes to existing ones. `onTenantCreated` is idempotent
   expose or be read from, not a schema change here). Do not forget
   this when Phase 1 of *this* document ships.
 
-## Final Compliance Report — 2026-09-08
+## Final Compliance Report — 2026-09-08 (updated 2026-09-10)
 
 ### AGENTS.md Files Reviewed
 
@@ -1199,6 +1220,7 @@ tables, zero changes to existing ones. `onTenantCreated` is idempotent
 | Scope cohesion vs. other modules | Pass | Single capability (vendor invoice lifecycle), independently deployable given its one hard dependency (`ledger`) — payments split out per Q1 resolution below |
 | Scope cohesion *within* this document | Pass | One entity group, one lifecycle, one GL integration seam — the prior bundling of payments (a second, separate GL integration seam and ACL group) was resolved by the split recorded in Design decisions |
 | Cross-module coupling mechanism matches dependency type | Pass | Hard dependency (`ledger`) via `commandBus` + `ModuleInfo.requires`; plain FK-id reference to `Contractor` (no coupling mechanism needed, no service resolved) |
+| `postVendorInvoice` populates every field GL's `postJournalEntry` accepts | Pass (added 2026-09-10) | `operationDate`/`documentType`/`documentNumber` now sent alongside `referenceType`/`referenceId`, once GL added the art. 23 ust. 2 fields (see Changelog) — this module is GL's first real Phase 1 consumer of them |
 
 ### Non-Compliant Items
 
@@ -1485,3 +1507,29 @@ before being fixed, not accepted on the review's word alone:
   planned, not written yet, wherever cited by path.
 - Updated the Final Compliance Report (Compliance Matrix, Non-Compliant
   Items) to record all of the above.
+
+### 2026-09-10 (GL's art. 23 ust. 2 fields — this module is the first real populator)
+
+`2026-08-18-general-ledger-core-engine.md` (#5663) added four
+statutory entry-content fields to `JournalEntry` — `operationDate`
+(required), `documentType`/`documentNumber`/`documentDate` (nullable
+in GL's Phase 1) — in response to a PR review, on the same reasoning
+GL already applied to `referenceType`/`referenceId`: cheap while the
+table is empty, and GL itself has no document-producing caller to
+populate them from. This module's `postVendorInvoice` already calls
+`ledger.postJournalEntry` today, and `VendorInvoice` already has
+`invoiceDate`/`invoiceNumber` — the exact data those fields need — so
+leaving them unpopulated here would defeat the point of adding them:
+GL's one real Phase 1 consumer would still post entries with a
+statutory gap. Fixed: `postVendorInvoice` now also sends
+`operationDate: invoice.invoiceDate`, `documentType:
+'external_foreign'` (a vendor invoice is a dowód zewnętrzny obcy —
+art. 20 ust. 2 pkt 1 UoR), and `documentNumber: invoice.invoiceNumber`
+alongside the existing `referenceType`/`referenceId` pair — distinct
+purposes, both populated from the one invoice. `documentDate` is left
+unset; this module has no field distinct from `invoiceDate` to supply
+it from, and the Act only requires it when it differs from the
+operation date. Threaded through Architecture → Commands
+(`postVendorInvoice`) and Testing Strategy. No schema change in this
+document — `VendorInvoice` already had both source fields; this only
+changes what `postVendorInvoice` sends downstream.
