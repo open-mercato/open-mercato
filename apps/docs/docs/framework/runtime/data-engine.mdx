@@ -12,6 +12,14 @@ API
   - Persists custom field values (using definitions where available).
   - Emits `<module>.<entity>.updated` with `{ id, organizationId, tenantId }` when `notify !== false` (default true).
 
+## Scope reconciliation on write
+
+A custom field value's logical key is `(entity_id, record_id, field_key)` — the organization and tenant columns record which scope the value was written under, they are not part of the identity. Read paths follow that rule: the Query Engine's value join matches the three key columns and tolerates a `NULL` tenant, and never filters on `organization_id` at all.
+
+Each `setCustomFields` write is therefore authoritative over the whole logical key, not just over the rows in the caller's own scope. When a record's `organizationId` or `tenantId` has changed since the field was last written, the write removes the rows left behind by the previous scope instead of adding a second live row next to them; the same pass collapses same-scope duplicates from two writes that raced. Reconciliation happens per field key, only for keys present in `values`, so a field a record never writes again keeps whatever rows it already has.
+
+The table intentionally carries **no** unique constraint on that key: a multi-value custom field stores one row per selected value, all sharing `(entity_id, record_id, field_key, organization_id, tenant_id)` and differing only in the value column. The `cf_values_entity_record_key_idx` index backs the reconciliation lookup and the reader join, but the "one live row per single-value field" invariant is enforced by the write path in `packages/core/src/modules/entities/lib/helpers.ts`. Any code that writes `custom_field_values` directly rather than through `setCustomFields` bypasses that guarantee.
+
 DI registration
 - Resolved via `dataEngine` from the request container:
   - `packages/shared/src/lib/di/container.ts`

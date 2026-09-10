@@ -158,7 +158,12 @@ export async function setRecordCustomFields(
     // the replacement atomic without letting old-row cleanup target new rows.
     if (isArray) {
       const arr = raw as Primitive[]
-      await em.nativeDelete(CustomFieldValue, { entityId, recordId, organizationId, tenantId, fieldKey })
+      // The delete deliberately omits organizationId/tenantId. A record has exactly one
+      // current scope, so a write owns every row for (entityId, recordId, fieldKey);
+      // pinning the scope here left the rows written under the record's PREVIOUS scope
+      // alive next to the replacements (#5970), and readers match the logical key
+      // without pinning organization_id, so both generations answered the same lookup.
+      await em.nativeDelete(CustomFieldValue, { entityId, recordId, fieldKey })
       for (const val of arr) {
         const col: keyof CustomFieldValue = encrypted ? 'valueText' : def ? columnFromKind(def.kind) : columnFromJsValue(val)
         const cf = em.create(CustomFieldValue, { entityId, recordId, organizationId, tenantId, fieldKey, createdAt: new Date() })
@@ -184,7 +189,17 @@ export async function setRecordCustomFields(
       ? await encryptCustomFieldValue(raw as Primitive, tenantId, getEncryptionService(), encryptionCache)
       : raw
 
-    let cf = await em.findOne(CustomFieldValue, { entityId, recordId, organizationId, tenantId, fieldKey })
+    // Same logical key as the multi-value branch: load every row for
+    // (entityId, recordId, fieldKey), reuse the one already in the current scope and
+    // drop the rest, so rows left behind by a previous organization/tenant scope — and
+    // same-scope duplicates from two writes that both missed the lookup — cannot
+    // survive (#5970). The scope comparison runs in JS on purpose: as a SQL predicate
+    // it falls through Postgres three-valued logic on NULL scopes and spares exactly
+    // the stale rows this is meant to remove.
+    const existingRows = await em.find(CustomFieldValue, { entityId, recordId, fieldKey })
+    let cf = existingRows.find((row) => (row.organizationId ?? null) === organizationId && (row.tenantId ?? null) === tenantId) ?? null
+    const staleIds = existingRows.filter((row) => row !== cf).map((row) => row.id)
+    if (staleIds.length) await em.nativeDelete(CustomFieldValue, { id: { $in: staleIds } })
     if (!cf) {
       cf = em.create(CustomFieldValue, { entityId, recordId, organizationId, tenantId, fieldKey, createdAt: new Date() })
       toPersist.push(cf)

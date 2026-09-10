@@ -16,8 +16,7 @@ describe('setRecordCustomFields', () => {
     const persist = jest.fn()
     const create = jest.fn((entity: unknown, data: Record<string, unknown>) => ({ ...data, entity }))
     const em = {
-      find: jest.fn(async () => [definition]),
-      findOne: jest.fn(async () => null),
+      find: jest.fn(async (entity: unknown) => (entity === CustomFieldDef ? [definition] : [])),
       create,
       persist,
       flush: jest.fn(async () => undefined),
@@ -58,8 +57,7 @@ describe('setRecordCustomFields', () => {
     const persist = jest.fn()
     const create = jest.fn((entity: unknown, data: Record<string, unknown>) => ({ ...data, entity }))
     const em = {
-      find: jest.fn(async () => [definition]),
-      findOne: jest.fn(async () => null),
+      find: jest.fn(async (entity: unknown) => (entity === CustomFieldDef ? [definition] : [])),
       create,
       persist,
       flush: jest.fn(async () => undefined),
@@ -86,7 +84,6 @@ describe('setRecordCustomFields', () => {
     const create = jest.fn((entity: unknown, data: Record<string, unknown>) => ({ ...data, entity }))
     const em = {
       find: jest.fn(async () => []),
-      findOne: jest.fn(async () => null),
       create,
       persist,
       flush: jest.fn(async () => undefined),
@@ -126,7 +123,6 @@ describe('setRecordCustomFields', () => {
         if (entity === CustomFieldValue) return []
         return []
       }),
-      findOne: jest.fn(async () => null),
       create,
       remove,
       nativeDelete,
@@ -149,11 +145,11 @@ describe('setRecordCustomFields', () => {
 
     expect(remove).not.toHaveBeenCalled()
     expect(nativeDelete).toHaveBeenCalledTimes(1)
+    // Scope-free on purpose (#5970): the replacement must also clear rows written under a
+    // scope the record has since left, so organizationId/tenantId are NOT part of the filter.
     expect(nativeDelete).toHaveBeenCalledWith(CustomFieldValue, {
       entityId: 'customers:customer_deal',
       recordId: 'deal-1',
-      organizationId: 'org-1',
-      tenantId: 'tenant-1',
       fieldKey: 'segments',
     })
     expect(persist).toHaveBeenCalledTimes(1)
@@ -166,5 +162,102 @@ describe('setRecordCustomFields', () => {
     expect(emMock.begin).toHaveBeenCalledTimes(1)
     expect(emMock.commit).toHaveBeenCalledTimes(1)
     expect(emMock.rollback).not.toHaveBeenCalled()
+  })
+
+  describe('logical-key reconciliation (#5970)', () => {
+    const definition = {
+      key: 'priority',
+      kind: 'integer',
+      organizationId: null,
+      tenantId: 'tenant-1',
+      updatedAt: new Date('2026-09-01T00:00:00.000Z'),
+      configJson: {},
+    }
+
+    const makeEm = (rows: Array<Partial<CustomFieldValue>>) => {
+      const nativeDelete = jest.fn(async () => rows.length)
+      const create = jest.fn((entity: unknown, data: Record<string, unknown>) => ({ ...data, entity }))
+      const persist = jest.fn()
+      const emMock = {
+        find: jest.fn(async (entity: unknown) => (entity === CustomFieldDef ? [definition] : rows)),
+        create,
+        persist,
+        nativeDelete,
+        flush: jest.fn(async () => undefined),
+      }
+      return { emMock, em: emMock as unknown as EntityManager, nativeDelete, create, persist }
+    }
+
+    it('deletes the row left behind by the record\'s previous organization instead of adding a second one', async () => {
+      const staleRow = { id: 'value-org-a', organizationId: 'org-a', tenantId: 'tenant-1', valueInt: 3 }
+      const { em, nativeDelete, create, persist } = makeEm([staleRow])
+
+      await setRecordCustomFields(em, {
+        entityId: 'example:todo',
+        recordId: 'record-1',
+        organizationId: 'org-b',
+        tenantId: 'tenant-1',
+        values: { priority: 7 },
+      })
+
+      // Without the fix the org-a row is invisible to the scoped lookup and survives next to
+      // the org-b row, so (entity_id, record_id, field_key) resolves to two live values.
+      expect(nativeDelete).toHaveBeenCalledWith(CustomFieldValue, { id: { $in: ['value-org-a'] } })
+      expect(create).toHaveBeenCalledTimes(1)
+      expect(persist).toHaveBeenCalledWith([
+        expect.objectContaining({ fieldKey: 'priority', organizationId: 'org-b', valueInt: 7 }),
+      ])
+      expect(nativeDelete.mock.invocationCallOrder[0]).toBeLessThan(create.mock.invocationCallOrder[0])
+    })
+
+    it('removes a stale NULL-scoped row that a SQL inequality predicate would have spared', async () => {
+      const staleRow = { id: 'value-unscoped', organizationId: null, tenantId: null, valueInt: 1 }
+      const { em, nativeDelete } = makeEm([staleRow])
+
+      await setRecordCustomFields(em, {
+        entityId: 'example:todo',
+        recordId: 'record-1',
+        organizationId: 'org-b',
+        tenantId: 'tenant-1',
+        values: { priority: 7 },
+      })
+
+      expect(nativeDelete).toHaveBeenCalledWith(CustomFieldValue, { id: { $in: ['value-unscoped'] } })
+    })
+
+    it('updates the row already in the current scope and collapses same-scope duplicates', async () => {
+      const current = { id: 'value-current', organizationId: 'org-b', tenantId: 'tenant-1', valueInt: 3 }
+      const duplicate = { id: 'value-duplicate', organizationId: 'org-b', tenantId: 'tenant-1', valueInt: 4 }
+      const { em, nativeDelete, create, persist } = makeEm([current, duplicate])
+
+      await setRecordCustomFields(em, {
+        entityId: 'example:todo',
+        recordId: 'record-1',
+        organizationId: 'org-b',
+        tenantId: 'tenant-1',
+        values: { priority: 7 },
+      })
+
+      expect(current.valueInt).toBe(7)
+      expect(create).not.toHaveBeenCalled()
+      expect(persist).not.toHaveBeenCalled()
+      expect(nativeDelete).toHaveBeenCalledWith(CustomFieldValue, { id: { $in: ['value-duplicate'] } })
+    })
+
+    it('does not delete anything when the record has never left its scope', async () => {
+      const current = { id: 'value-current', organizationId: 'org-b', tenantId: 'tenant-1', valueInt: 3 }
+      const { em, nativeDelete } = makeEm([current])
+
+      await setRecordCustomFields(em, {
+        entityId: 'example:todo',
+        recordId: 'record-1',
+        organizationId: 'org-b',
+        tenantId: 'tenant-1',
+        values: { priority: 7 },
+      })
+
+      expect(nativeDelete).not.toHaveBeenCalled()
+      expect(current.valueInt).toBe(7)
+    })
   })
 })
