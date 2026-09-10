@@ -113,18 +113,19 @@ function legacySettingsSectionSlug(groupLabel: string): string {
 }
 
 /**
- * Groups the settings-context nav entries into ordered sections.
+ * Groups the nav entries declaring `pageContext` into ordered sections for that context's sidebar.
  *
  * `sectionOrder` is keyed by the untranslated group id (`AdminNavItem.groupId`, i.e. the page's
  * `pageGroupKey` when it declares one) — the same convention the main sidebar's `defaultGroupOrder`
  * follows. Keying off the rendered label instead made every non-English deployment miss its weights
  * and fall back to the catch-all bucket (#4843).
  */
-export function buildSettingsSections(
+function buildContextSections(
   entries: AdminNavItem[],
-  sectionOrder: Record<string, number>
+  sectionOrder: Record<string, number>,
+  pageContext: 'settings' | 'profile'
 ): SettingsSection[] {
-  const settingsItems = entries.filter(e => e.pageContext === 'settings')
+  const contextItems = entries.filter(e => e.pageContext === pageContext)
 
   const sectionMap = new Map<string, SettingsSection>()
 
@@ -142,7 +143,7 @@ export function buildSettingsSections(
     }
   }
 
-  for (const item of settingsItems) {
+  for (const item of contextItems) {
     const sectionId = item.groupId
     const order = sectionOrder[sectionId] ?? sectionOrder[legacySettingsSectionSlug(item.group)] ?? 999
 
@@ -173,6 +174,75 @@ export function buildSettingsSections(
   }
 
   return sections
+}
+
+/**
+ * Groups the settings-context nav entries into ordered sections for the settings sidebar.
+ */
+export function buildSettingsSections(
+  entries: AdminNavItem[],
+  sectionOrder: Record<string, number>
+): SettingsSection[] {
+  return buildContextSections(entries, sectionOrder, 'settings')
+}
+
+/**
+ * Groups the profile-context nav entries into ordered sections for the profile sidebar.
+ *
+ * The profile sidebar used to render a hard-coded list, so per-user pages contributed by other
+ * modules (notification preferences, communication channels) were reachable from the profile
+ * dropdown but missing from the sidebar (#5594). Deriving them from `pageContext: 'profile'` keeps
+ * both surfaces in sync, including for third-party modules.
+ */
+export function buildProfileSections(
+  entries: AdminNavItem[],
+  sectionOrder: Record<string, number>
+): SettingsSection[] {
+  return buildContextSections(entries, sectionOrder, 'profile')
+}
+
+/**
+ * Folds discovered sections into a statically declared baseline, keyed by section id and item href.
+ *
+ * The baseline carries entries that route discovery cannot see — a `navHidden` page such as
+ * `/backend/profile/change-password` never reaches `buildAdminNav`'s output — so it wins on
+ * conflicts and keeps its declared position, while discovered items extend the matching section or
+ * append a new one.
+ *
+ * The baseline is never mutated: sections, their item arrays and any nested `children` are copied
+ * before sorting, because callers pass module-level constants that outlive a single request.
+ */
+export function mergeSectionsWithDiscovered(
+  baseline: SettingsSection[],
+  discovered: SettingsSection[]
+): SettingsSection[] {
+  const merged = baseline.map((section) => ({ ...section, items: [...section.items] }))
+  const byId = new Map(merged.map((section) => [section.id, section]))
+  const knownHrefs = new Set(merged.flatMap((section) => section.items.map((item) => item.href)))
+
+  for (const section of discovered) {
+    const items = section.items.filter((item) => !knownHrefs.has(item.href))
+    items.forEach((item) => knownHrefs.add(item.href))
+    if (items.length === 0) continue
+    const existing = byId.get(section.id)
+    if (existing) {
+      existing.items.push(...items)
+      continue
+    }
+    const added = { ...section, items }
+    byId.set(added.id, added)
+    merged.push(added)
+  }
+
+  const sortItems = (items: SettingsSectionItem[]): SettingsSectionItem[] =>
+    [...items]
+      .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+      .map((item) => (item.children?.length ? { ...item, children: sortItems(item.children) } : item))
+
+  merged.sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+  for (const section of merged) section.items = sortItems(section.items)
+
+  return merged
 }
 
 export function computeSettingsPathPrefixes(sections: SettingsSection[]): string[] {

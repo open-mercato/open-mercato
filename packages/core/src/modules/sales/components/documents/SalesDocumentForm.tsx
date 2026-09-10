@@ -1515,6 +1515,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
   return (
     <CrudForm<SalesDocumentFormValues>
       title={t('sales.documents.form.title', 'Create sales document')}
+      titleHeadingLevel={1}
       backHref={cancelHref}
       fields={fields}
       groups={groups}
