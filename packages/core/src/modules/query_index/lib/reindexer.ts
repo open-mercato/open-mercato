@@ -16,6 +16,7 @@ import { prepareJob, updateJobProgress, finalizeJob, type JobScope } from './job
 import { purgeOrphans } from './stale'
 import type { VectorIndexService } from '@open-mercato/search/vector'
 import { isSearchDebugEnabled } from './search-tokens'
+import { isTenantGlobalEntityType } from './tenant-global'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('query_index').child({ component: 'reindexer' })
@@ -37,11 +38,34 @@ export type ReindexJobOptions = {
   vectorService?: VectorIndexService | null
 }
 
+/**
+ * Why a sweep did no work, when it did none on purpose.
+ *
+ * A refused run is otherwise byte-identical to a successful sweep that found zero rows,
+ * and the surfaces an operator reads - `indexer_status_logs`, the indexer status page,
+ * the CLI's `0 / 0 (0.00%)` - report the second. The allowlist's safety argument is that
+ * a missing `registerTenantGlobalEntityTypes()` declaration "shows up in the log", so the
+ * log the product surfaces has to be able to say it.
+ */
+export type ReindexRefusalReason =
+  /** The source table has no `tenant_id` column and the type is not a declared catalogue. */
+  | 'no-tenant-column'
+  /** `information_schema` could not be read, so no column could be proven to exist. */
+  | 'column-probe-failed'
+  /**
+   * The type IS declared tenant-global, but its table carries `organization_id` while
+   * lacking `tenant_id`. A global projection means both scope columns absent - the same
+   * definition `loadQueryIndexRowScope()` uses - so the declaration cannot be honoured.
+   */
+  | 'declared-global-but-org-scoped'
+
 export type ReindexJobResult = {
   processed: number
   total: number
   tenantScopes: Array<string | null>
   scopes: Array<{ tenantId: string | null; organizationId: string | null }>
+  /** Absent on a sweep that ran. Present, with the reason, on one that deliberately did not. */
+  refused?: ReindexRefusalReason
 }
 
 export const DEFAULT_REINDEX_PARTITIONS = 5
@@ -110,7 +134,16 @@ function toNumber(value: unknown): number {
   return 0
 }
 
-async function getColumnSet(db: Kysely<any>, tableName: string): Promise<Set<string>> {
+/**
+ * Returns `null` - never an empty set - when the probe itself fails.
+ *
+ * An empty set is indistinguishable from "this table has no columns we care about", so a
+ * transient failure (an aborted transaction on the same connection, a statement timeout, a
+ * blip during a partition-parallel sweep) would make every entity type look tenant-less and
+ * refuse every tenant-scoped reindex, reported as a successful zero-row run. Failing closed
+ * is right; failing closed silently and globally is the hardest state to diagnose.
+ */
+async function getColumnSet(db: Kysely<any>, tableName: string): Promise<Set<string> | null> {
   try {
     const rows = await db
       .selectFrom('information_schema.columns' as any)
@@ -119,8 +152,12 @@ async function getColumnSet(db: Kysely<any>, tableName: string): Promise<Set<str
       .where('table_name' as any, '=', tableName)
       .execute() as Array<{ column_name: string }>
     return new Set(rows.map((row) => String(row.column_name).toLowerCase()))
-  } catch {
-    return new Set<string>()
+  } catch (error) {
+    logger.warn('Failed to read information_schema.columns for a reindex target', {
+      table: tableName,
+      error: error instanceof Error ? error.message : String(error),
+    })
+    return null
   }
 }
 
@@ -181,9 +218,94 @@ export async function reindexEntity(
     }
   }
   const columns = await getColumnSet(db, table)
+  // A probe failure proves nothing about the table, so it cannot be read as "no tenant
+  // column". Refuse with its own reason rather than letting a database blip masquerade as
+  // a permanent classification - and refuse rather than proceed, because proceeding would
+  // drop the tenant predicate and stamp the caller's tenant, which is the defect this guard
+  // exists for.
+  if (columns === null) {
+    logger.warn("Refusing reindex: could not read the source table's columns", {
+      entityType,
+      table,
+      tenantId,
+    })
+    return { processed: 0, total: 0, tenantScopes: [], scopes: [], refused: 'column-probe-failed' }
+  }
   const hasOrgCol = columns.has('organization_id')
   const hasTenantCol = columns.has('tenant_id')
   const hasDeletedCol = columns.has('deleted_at')
+
+  // `applyBaseWhere()` below can only apply the tenant predicate when the source
+  // table HAS a `tenant_id` column; when it does not, it silently drops the
+  // predicate the caller asked for. `scopeOverrides.tenantId` further down then
+  // stamps every swept row with the caller's tenant anyway. A tenant-scoped
+  // reindex of a tenant-less table therefore does two wrong things at once: it
+  // reads every tenant's rows, and it files them under whichever tenant happened
+  // to run it. Nothing downstream corrects that, because both readers ask for an
+  // exact tenant match with no NULL branch, so the rows become searchable and
+  // readable as that tenant's own.
+  //
+  // The condition is derived, not enumerated: it is exactly the set of inputs
+  // where a predicate is dropped AND an override is stamped. A `tenantId` of
+  // `undefined` or `null` sets no override, so those rows land under
+  // `tenant_id = NULL` — invisible to both readers, but filed under nobody — and
+  // are deliberately left alone here.
+  //
+  // Indexing every tenant-less table under NULL was considered as the general fix
+  // and rejected: an unqualified NULL branch in the readers overloads a value that
+  // also means "written by an unscoped reindex", so every mis-scoped row would
+  // become globally visible — fail-open, in a fix whose whole value is failing
+  // closed. `isTenantGlobalEntityType` is the narrow allowlist for the catalogue
+  // case instead; see its comment in ./tenant-global. The readers widen for exactly
+  // that declared set and for nothing else, and the projection of a declared type is
+  // written under the null tenant just below.
+  // A declared platform-wide catalogue has one row per record for every tenant to
+  // share, so its projection belongs to no tenant and no organization in particular and
+  // is written under `tenant_id = NULL, organization_id = NULL`. That is already where
+  // the incremental path files these rows: `resolveQueryIndexRecordScope()` resolves a
+  // source table with NEITHER scope column to `kind: 'global'` and requires an explicitly
+  // null tenant AND organization. Before this, the sweep disagreed with it and stamped the
+  // caller's scope, and since `entity_indexes` is unique on
+  // (entity_type, entity_id, organization_id_coalesced) the last caller to reindex simply
+  // took the catalogue from the previous one. Both readers in `@open-mercato/search` now
+  // carry the matching NULL branch for declared types.
+  //
+  // The condition matches `loadQueryIndexRowScope()`'s definition of global exactly -
+  // NEITHER column, not just no tenant column. Keying on the tenant column alone would let
+  // a third-party declaration of a table that HAS `organization_id` take the global branch
+  // for a record the event path never classifies as global, so the two writers would
+  // disagree again on a different axis.
+  //
+  // Only the PROJECTION scope moves. `jobScope` keeps the caller's tenant and organization:
+  // it records who ran the sweep, so two tenants reindexing the catalogue remain two jobs
+  // rather than one that blocks the other behind the active-job guard.
+  const writesGlobalProjection =
+    !hasTenantCol && !hasOrgCol && isTenantGlobalEntityType(entityType)
+  const projectionTenantId = writesGlobalProjection ? null : tenantId
+  const projectionOrganizationId = writesGlobalProjection ? null : organizationId
+
+  // Refuse anything tenant-less that is not writing a global projection. That is the
+  // no-tenant-column case, and also a declaration this module cannot honour: a declared
+  // type whose table carries `organization_id` but no `tenant_id`. Letting the second
+  // through would silently drop the tenant predicate and stamp the caller's tenant - the
+  // exact defect the guard exists for - while the author believes the declaration took
+  // effect. Fail closed and name it, in the spirit of the allowlist itself.
+  if (!hasTenantCol && tenantId != null && !writesGlobalProjection) {
+    const declaredButOrgScoped = isTenantGlobalEntityType(entityType)
+    logger.warn(
+      declaredButOrgScoped
+        ? 'Refusing tenant-scoped reindex: entity type is declared tenant-global but its table has an organization_id column'
+        : 'Refusing tenant-scoped reindex of a table with no tenant_id column',
+      { entityType, table, tenantId },
+    )
+    return {
+      processed: 0,
+      total: 0,
+      tenantScopes: [],
+      scopes: [],
+      refused: declaredButOrgScoped ? 'declared-global-but-org-scoped' : 'no-tenant-column',
+    }
+  }
 
   const jobScope: JobScope = {
     entityType,
@@ -268,18 +390,18 @@ export async function reindexEntity(
     for (const row of rows) {
       const bucketTenant = groupByTenant
         ? ((row as any)?.tenant_id ?? null)
-        : (tenantId === undefined ? null : tenantId ?? null)
+        : (projectionTenantId === undefined ? null : projectionTenantId ?? null)
       const bucketOrg = groupByOrg
         ? ((row as any)?.organization_id ?? null)
-        : (organizationId === undefined ? null : organizationId ?? null)
+        : (projectionOrganizationId === undefined ? null : projectionOrganizationId ?? null)
       registerBaseCount(bucketTenant, bucketOrg, toNumber((row as any)?.count))
     }
   } else {
     const row = await applyBaseWhere(
       db.selectFrom(`${table} as b` as any).select(sql<number>`count(*)`.as('count')),
     ).executeTakeFirst() as { count: unknown } | undefined
-    const bucketTenant = tenantId === undefined ? null : tenantId ?? null
-    const bucketOrg = organizationId === undefined ? null : organizationId ?? null
+    const bucketTenant = projectionTenantId === undefined ? null : projectionTenantId ?? null
+    const bucketOrg = projectionOrganizationId === undefined ? null : projectionOrganizationId ?? null
     registerBaseCount(bucketTenant, bucketOrg, toNumber(row?.count))
   }
 
@@ -301,11 +423,11 @@ export async function reindexEntity(
     : undefined
 
   const scopeOverrides: { tenantId?: string; orgId?: string } = {}
-  if (tenantId !== undefined && tenantId !== null) {
-    scopeOverrides.tenantId = String(tenantId)
+  if (projectionTenantId !== undefined && projectionTenantId !== null) {
+    scopeOverrides.tenantId = String(projectionTenantId)
   }
-  if (organizationId !== undefined && organizationId !== null) {
-    scopeOverrides.orgId = String(organizationId)
+  if (projectionOrganizationId !== undefined && projectionOrganizationId !== null) {
+    scopeOverrides.orgId = String(projectionOrganizationId)
   }
 
   const scopeEntries = Array.from(baseCounts.values()).map((entry) => ({
@@ -334,11 +456,11 @@ export async function reindexEntity(
       let purgeQuery = db
         .deleteFrom('entity_indexes' as any)
         .where('entity_type' as any, '=', entityType)
-      if (tenantId !== undefined) {
-        purgeQuery = purgeQuery.where(sql<boolean>`tenant_id is not distinct from ${tenantId ?? null}`)
+      if (projectionTenantId !== undefined) {
+        purgeQuery = purgeQuery.where(sql<boolean>`tenant_id is not distinct from ${projectionTenantId ?? null}`)
       }
-      if (organizationId !== undefined) {
-        purgeQuery = purgeQuery.where(sql<boolean>`organization_id is not distinct from ${organizationId ?? null}`)
+      if (projectionOrganizationId !== undefined) {
+        purgeQuery = purgeQuery.where(sql<boolean>`organization_id is not distinct from ${projectionOrganizationId ?? null}`)
       }
       if (usingPartitions && partitionIndex !== null) {
         purgeQuery = purgeQuery.where(
@@ -363,12 +485,12 @@ export async function reindexEntity(
   // leaves it to the caller that owns the fan-out (`api/reindex.ts` queues it once, before
   // dispatching any partition).
   if (force && resetCoverage && !usingPartitions && emitVectorize && eventBus) {
-    if (tenantId !== undefined) {
+    if (projectionTenantId !== undefined) {
       const payload: Record<string, unknown> = {
         entityType,
-        tenantId: tenantId ?? null,
+        tenantId: projectionTenantId ?? null,
       }
-      if (organizationId !== undefined) payload.organizationId = organizationId ?? null
+      if (projectionOrganizationId !== undefined) payload.organizationId = projectionOrganizationId ?? null
       try {
         await eventBus.emitEvent('query_index.vectorize_purge', payload)
       } catch (err) {
@@ -473,11 +595,11 @@ export async function reindexEntity(
 
       const coverageDeltas = new Map<string, { tenantId: string | null; organizationId: string | null; delta: number }>()
       for (const row of writtenRows) {
-        const scopeTenant = tenantId !== undefined
-          ? tenantId ?? null
+        const scopeTenant = projectionTenantId !== undefined
+          ? projectionTenantId ?? null
           : (hasTenantCol ? ((row as AnyRow).tenant_id ?? null) : null)
-        const scopeOrg = organizationId !== undefined
-          ? organizationId ?? null
+        const scopeOrg = projectionOrganizationId !== undefined
+          ? projectionOrganizationId ?? null
           : (hasOrgCol ? ((row as AnyRow).organization_id ?? null) : (deriveOrg ? deriveOrg(row) ?? null : null))
         const key = scopeKey(scopeTenant ?? null, scopeOrg ?? null)
         const existingDelta = coverageDeltas.get(key)
@@ -505,13 +627,13 @@ export async function reindexEntity(
       if (emitVectorize && eventBus) {
         await Promise.all(
           writtenRows.map((row) => {
-            const scopeOrg = organizationId !== undefined
-              ? organizationId ?? null
+            const scopeOrg = projectionOrganizationId !== undefined
+              ? projectionOrganizationId ?? null
               : hasOrgCol
                 ? ((row as AnyRow).organization_id ?? null)
                 : (deriveOrg ? deriveOrg(row) ?? null : null)
-            const scopeTenant = tenantId !== undefined
-              ? tenantId ?? null
+            const scopeTenant = projectionTenantId !== undefined
+              ? projectionTenantId ?? null
               : (hasTenantCol ? ((row as AnyRow).tenant_id ?? null) : null)
             return eventBus
               .emitEvent('query_index.vectorize_one', {
@@ -543,8 +665,8 @@ export async function reindexEntity(
     } else {
       await purgeOrphans(db, {
         entityType,
-        tenantId,
-        organizationId,
+        tenantId: projectionTenantId,
+        organizationId: projectionOrganizationId,
         partitionIndex: usingPartitions ? partitionIndex : null,
         partitionCount: usingPartitions ? partitionCountRaw : null,
         startedAt: jobStartedAt,
@@ -556,8 +678,8 @@ export async function reindexEntity(
       try {
         await vectorService.removeOrphans({
           entityId: entityType,
-          tenantId,
-          organizationId,
+          tenantId: projectionTenantId,
+          organizationId: projectionOrganizationId,
           olderThan: jobStartedAt,
         })
       } catch (error) {
