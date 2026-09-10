@@ -32,10 +32,37 @@ What actually exists right now, and where:
 | Accounts Payable (payments) | `2026-09-06-accounts-payable-payments.md` | `docs/accounts-payable` | Open, PR #5962 |
 | Journal Entry Line Dimension | `2026-09-06-journal-entry-line-dimension.md` | `docs/journal-entry-line-dimension` | Written, own branch |
 | Fixed Assets | `2026-09-06-fixed-assets.md` | `docs/fixed-assets` | Open, PR #6014 — full spec, adversarially reviewed, Final Compliance Report: fully compliant |
-| Posting Rules Engine (konto 490) | `2026-09-06-posting-rules-engine.md` | `docs/posting-rules-engine` | Open, PR #6015 (draft — TLDR + Design Decisions only) |
+| Posting Rules Engine (konto 490) | `2026-09-06-posting-rules-engine.md` | `docs/posting-rules-engine` | Open, PR #6015 — full spec, one independent adversarial review pass (nine issues fixed) |
 | This knowledge base | `2026-09-08-financial-module-knowledge-base.md` | `docs/financial-module-knowledge-base` | Open, PR #6016 |
 | GL bulk cross-module read service | `2026-09-10-general-ledger-bulk-read-service.md` | `docs/general-ledger-bulk-read-service` | Draft, not reviewed, no PR yet — prerequisite for JPK_KR_PD's future `SPEC-010` (see note below the table) |
-| Accounts Receivable, Cash & Bank, Multi-Currency, Budgeting, Cost Accounting | — | — | Not started (SPEC-024 only) |
+| Accounts Receivable (sales invoice → GL posting) | `2026-08-18-sales-invoice-gl-posting.md` | `docs/sales-invoice-gl-posting` | Open, PR #6046 — full spec, one independent adversarial review pass (eleven issues fixed) plus a structured Final Compliance Matrix pass; not yet reviewed by a human/maintainer |
+| Cash & Bank Management, Multi-Currency, Budgeting & Forecasting, Cost Accounting | — | — | Not started (SPEC-024 only) |
+
+**New 2026-09-10 — Accounts Receivable started.**
+`2026-08-18-sales-invoice-gl-posting.md` is the sell-side mirror of
+Accounts Payable — an explicit `postSalesInvoiceToLedger` command that
+reads `sales.SalesInvoice`/`SalesInvoiceLine` directly (no duplication)
+and posts Dr receivable / Cr per-line revenue / Cr VAT output. It had
+been named as a future dependency by the GL core engine's own Out of
+scope (#5663), Accounts Payable (#5962), and Contractor Registry since
+2026-09-06, without ever being written, until now. Went through one
+independent adversarial review pass (eleven issues fixed, including a
+real double-entry balance bug from an unhandled header-level discount
+and a misattributed `contractorBankWhitelistCheck` citation) plus a
+second, structured pass that added the required Final Compliance
+Matrix this document's own `om-spec-writing` skill mandates (the first
+pass had left it narrative-only) and a fresh-context scope-cohesion
+check (verdict: cohesive). It reuses this section's own §2 conventions
+correctly — no new subsidiary ledger (`sales.SalesInvoice.outstandingAmount`
+already is one), FK-id-only cross-module links, Phase 1 manual
+account-mapping matching AP's own stance — without needing a new
+external-literature citation, since it introduces no accounting-pattern
+claim beyond what GL/AP/Contractor Registry already established and
+this doc already indexes. It leaves the `customers.CustomerEntity` ↔
+`contractors.Contractor` identity bridge a named, unresolved gap
+(Contractor Registry itself only ever named this document as an
+undesigned, indirect consumer — no automatic-resolution need is
+confirmed anywhere in the codebase yet).
 
 **Resolved 2026-09-09:** Fixed Assets and Posting Rules Engine used to
 live only as uncommitted files in one worktree — flagged here as a
