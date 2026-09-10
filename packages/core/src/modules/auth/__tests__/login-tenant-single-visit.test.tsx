@@ -12,14 +12,21 @@
  * so every self-serve signup passed through it exactly once and then carried
  * the "you are signing in to <tenant>" banner on /login permanently.
  *
- * What must NOT change: the hidden `tenantId` input still carries the parameter
- * into POST /api/auth/login, which is the disambiguation that path needs when
- * one e-mail address exists in two tenants. And a visit that DOES carry the
- * parameter still resolves the tenant and still reports an unknown one. Only
- * the persistence is gone.
+ * What must NOT change: POST /api/auth/login still receives a `tenantId`, which is the
+ * disambiguation that path needs when one e-mail address exists in two tenants -
+ * `findUsersByEmail` deliberately treats an ambiguous match as no user and falls through
+ * to the uniform 401 (issue #2242), and the form has no tenant selector, so with no hint
+ * at all such a user has no in-app way back in. The app lands them on a BARE /login
+ * routinely: session refresh, logout, and the 401 handler in @open-mercato/ui.
+ *
+ * So the BANNER is visit-scoped (the defect) while the SUBMITTED value falls back to a
+ * per-tab, per-address hint (the disambiguation). sessionStorage removes the 14-day weld
+ * and the cross-session surprise; keying on the address removes the other half of the old
+ * behaviour's cost - a stale hint narrowing the lookup for a different person on the same
+ * tab, who would get a 401 with nothing on screen to explain it.
  */
 import * as React from 'react'
-import { act, render } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import LoginPage from '../frontend/login'
 
 const mockTranslate = (key: string, fallback?: string, params?: Record<string, string | number>) => {
@@ -82,6 +89,13 @@ jest.mock('@open-mercato/ui/backend/injection/useRegisteredComponent', () => ({
 const TENANT_ID = '2b8a4f16-0d5e-4a2a-9f7c-1c0f0f2a7e11'
 const TENANT_NAME = 'Acme Workspace'
 const LEGACY_KEY = 'om_login_tenant'
+const HINT_KEY = 'om_login_tenant_hint'
+const EMAIL = 'ada@example.com'
+
+async function typeEmail(container: HTMLElement, value: string) {
+  const input = container.querySelector('input[name="email"]') as HTMLInputElement
+  await act(async () => { fireEvent.change(input, { target: { value } }) })
+}
 
 function respondWithTenant(found: boolean) {
   mockApiCall.mockImplementation(async (url: string) => {
@@ -113,6 +127,7 @@ beforeAll(() => {
 beforeEach(() => {
   jest.clearAllMocks()
   window.localStorage.clear()
+  window.sessionStorage.clear()
   document.cookie = `${LEGACY_KEY}=; path=/; max-age=0`
   respondWithTenant(true)
 })
@@ -169,13 +184,87 @@ describe('LoginPage — ?tenant= is a single-visit hint', () => {
   it('clearing the tenant drops the parameter from the URL', async () => {
     const { container, unmount } = await renderLogin(`tenant=${TENANT_ID}&redirect=%2Fbackend`)
 
-    const clear = Array.from(container.querySelectorAll('button')).find(
-      (b) => (b.textContent || '').trim().length > 0 && b.getAttribute('type') === 'button',
-    ) as HTMLButtonElement | undefined
-    expect(clear).toBeTruthy()
-    await act(async () => { clear!.click() })
+    const clear = screen.getByRole('button', { name: 'Clear' }) as HTMLButtonElement
+    await act(async () => { clear.click() })
 
     expect(mockReplace).toHaveBeenCalledWith('/login?redirect=%2Fbackend')
+    unmount()
+  })
+
+  it('clearing also drops the per-tab hint and expires the onboarding cookie', async () => {
+    // "Clear" is the only in-app way to drop `om_login_tenant`, which @open-mercato/
+    // onboarding sets server-side for 14 days and reads back as the sole authorization
+    // input to its status endpoint.
+    document.cookie = `${LEGACY_KEY}=${TENANT_ID}; path=/`
+    window.sessionStorage.setItem(HINT_KEY, JSON.stringify({ email: EMAIL, tenantId: TENANT_ID }))
+
+    const { unmount } = await renderLogin(`tenant=${TENANT_ID}`)
+    await act(async () => { (screen.getByRole('button', { name: 'Clear' }) as HTMLButtonElement).click() })
+
+    expect(window.sessionStorage.getItem(HINT_KEY)).toBeNull()
+    expect(document.cookie).not.toContain(`${LEGACY_KEY}=${TENANT_ID}`)
+    unmount()
+  })
+})
+
+describe('LoginPage — the submitted tenant survives an in-app bounce, the banner does not', () => {
+  it('submits the remembered tenant on a bare /login for the address it was issued to', async () => {
+    // The lockout this guards: session refresh / logout / the 401 handler all land a
+    // multi-tenant user on a bare /login, where an ambiguous address resolves to no user
+    // and returns the uniform 401 with no tenant selector to recover through.
+    window.sessionStorage.setItem(HINT_KEY, JSON.stringify({ email: EMAIL, tenantId: TENANT_ID }))
+
+    const { container, unmount } = await renderLogin('')
+    await typeEmail(container, EMAIL)
+
+    expect((container.querySelector('input[name="tenantId"]') as HTMLInputElement | null)?.value)
+      .toBe(TENANT_ID)
+    // ...and the banner still does NOT show, which is the defect this PR is about.
+    expect(container.textContent).not.toContain(TENANT_NAME)
+    unmount()
+  })
+
+  it('ignores the hint for a different address on the same tab', async () => {
+    // Without the address key, a second person signing in on this tab would be narrowed
+    // to somebody else's tenant and handed the uniform 401 with nothing to explain it.
+    window.sessionStorage.setItem(HINT_KEY, JSON.stringify({ email: EMAIL, tenantId: TENANT_ID }))
+
+    const { container, unmount } = await renderLogin('')
+    await typeEmail(container, 'someone.else@example.com')
+
+    expect(container.querySelector('input[name="tenantId"]')).toBeNull()
+    unmount()
+  })
+
+  it('does not resurrect the legacy localStorage entry or cookie', async () => {
+    window.localStorage.setItem(LEGACY_KEY, TENANT_ID)
+    document.cookie = `${LEGACY_KEY}=${TENANT_ID}; path=/`
+
+    const { container, unmount } = await renderLogin('')
+    await typeEmail(container, EMAIL)
+
+    expect(container.querySelector('input[name="tenantId"]')).toBeNull()
+    expect(container.textContent).not.toContain(TENANT_NAME)
+    unmount()
+  })
+
+  it('writes the hint only for this tab, and only on a submit that carried the parameter', async () => {
+    const { container, unmount } = await renderLogin(`tenant=${TENANT_ID}`)
+    await typeEmail(container, EMAIL)
+
+    // Nothing is written until a sign-in is attempted: /login takes no `email`
+    // parameter, so the submit is the first moment both halves are known.
+    expect(window.sessionStorage.getItem(HINT_KEY)).toBeNull()
+
+    const form = container.querySelector('form') as HTMLFormElement
+    await act(async () => { form.requestSubmit ? form.requestSubmit() : form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })) })
+
+    expect(JSON.parse(window.sessionStorage.getItem(HINT_KEY) || 'null')).toEqual({
+      email: EMAIL,
+      tenantId: TENANT_ID,
+    })
+    // Still nothing in localStorage, and no cookie of our own.
+    expect(window.localStorage.length).toBe(0)
     unmount()
   })
 })
