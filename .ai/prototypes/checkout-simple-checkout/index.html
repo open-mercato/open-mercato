@@ -49,6 +49,7 @@
 <symbol id="ic-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
 <symbol id="ic-save" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7H7v7"/><path d="M7 3v5h8"/></symbol>
 <symbol id="ic-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></symbol>
+<symbol id="ic-trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></symbol>
 <symbol id="ic-warn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
 <symbol id="ic-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></symbol>
 <symbol id="ic-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
@@ -80,6 +81,7 @@
     <a href="#s9">9 Confirmation (quote)</a>
     <a href="#s10">10 price_changed</a>
     <a href="#s11">11 stock_shortfall</a>
+    <a href="#s19">19 Assortment loss</a>
     <a href="#s12">12 credit_refused</a>
     <a href="#s13">13 Approval required</a>
     <a href="#s14">14 Awaiting approval</a>
@@ -506,6 +508,68 @@
   </div>
   <div class="notes">
     <div class="note"><b>1</b><span>Nothing to undo at this failure point (§7.1) — this is why preconditions are checked before any side effect.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S19 — cart line flagged product_unavailable (assortment loss) -->
+<!-- ============================================================ -->
+<section class="screen" id="s19">
+  <div class="screen-meta">
+    <h2>19. Lock refused — a line is no longer in the buyer's assortment</h2>
+    <p>The buyer's Wholesale membership lapsed between adding the line and reaching checkout, so the whole-cart re-visibility pass flagged it. The line is kept and disclosed; the cart refuses to lock until the buyer resolves it.</p>
+    <div class="screen-refs"><span class="ref">cart §6a.1</span><span class="ref">cart §6a.2</span><span class="ref">cart §6a.3</span><span class="ref">§7.2 step 1</span></div>
+  </div>
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">shop.northwind.example/checkout — step: review (lock refused)</span></div>
+    <div style="background:var(--background);border-radius:0 0 var(--radius-lg) var(--radius-lg);overflow:hidden">
+      <header class="sf-header"><span class="sf-logo">Northwind Fasteners</span></header>
+      <div class="co-page">
+        <div class="sf-container co-narrow">
+          <div class="alert alert-warning">
+            <svg><use href="#ic-warn"/></svg>
+            <div>
+              <div class="alert-title">One item in your basket is no longer available</div>
+              <div class="t-hint">Remove or replace it to continue. Everything else in the basket is unchanged.</div>
+            </div>
+          </div>
+
+          <div class="card" style="margin-top:1rem">
+            <div class="card-head"><span class="t-card-title">Your basket</span><span class="t-hint">3 items</span></div>
+            <div class="card-body">
+              <div class="co-summary-line"><span>M8 Hex Bolt (Bulk Pack, 500ct) <span class="t-hint">× 4</span></span><span class="num">356.00 PLN</span></div>
+              <div class="co-summary-line" style="align-items:flex-start">
+                <span>
+                  <span class="strong">Anchor Bolt M12 — Contractor Line</span> <span class="t-hint">× 2</span><br />
+                  <span class="badge badge-warning" style="margin-top:0.25rem">Not available</span>
+                  <span class="t-hint" style="display:block;margin-top:0.25rem">This item can&#39;t be purchased on this account right now.</span>
+                  <span class="row-3" style="margin-top:0.5rem">
+                    <button class="btn btn-outline btn-sm"><svg><use href="#ic-trash"/></svg> Remove item</button>
+                    <button class="btn btn-ghost btn-sm">Find a replacement</button>
+                  </span>
+                </span>
+                <span class="num muted">— </span>
+              </div>
+              <div class="co-summary-line"><span>Threadlocker 50ml <span class="t-hint">× 1</span></span><span class="num">42.00 PLN</span></div>
+            </div>
+          </div>
+
+          <div class="card card-pad" style="margin-top:1rem">
+            <div class="between">
+              <span class="t-hint" style="max-width:38ch">Checkout stays closed while a basket line is unavailable — nothing is reserved and no payment is started.</span>
+              <button class="btn btn-primary" disabled>Continue to checkout</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <footer class="sf-footer"><span>© Northwind Fasteners</span><span>Terms · Privacy</span></footer>
+    </div>
+  </div>
+  <div class="notes">
+    <div class="note"><b>1</b><span>The line is <strong>flagged, never deleted</strong> (cart §6a.2): silently dropping a buyer&#39;s line is the disclosure failure R2/R4 already guard against. The <code class="t-mono">active → locked</code> transition is refused while any line carries <code class="t-mono">product_unavailable</code>, the same way an over-threshold B2B cart cannot lock.</span></div>
+    <div class="note"><b>2</b><span>The wording is deliberately identical for a restricted product and a nonexistent or deleted one (cart §6a.3). Distinguishing them here would hand back the enumeration oracle the read path closes by collapsing both into one 404 — so this screen must not gain a more &quot;helpful&quot; message.</span></div>
+    <div class="note"><b>3</b><span>What a static screen cannot show: the flag is written by the whole-cart re-visibility pass on trigger 2 (login, logout, membership change) and trigger 5 (checkout requesting the lock, never skipped) — not by anything the buyer did on this screen. If the buyer regains access, the next re-price clears the flag and the button re-enables.</span></div>
+    <div class="note"><b>4</b><span>Enforcement is keyed on whether a <code class="t-mono">StoreContext</code> resolved, so <code class="t-mono">pos</code>, <code class="t-mono">pay_link</code>, <code class="t-mono">agent</code> and <code class="t-mono">api</code> carts never reach this state (cart §6a.4) — a staff POS sale is a different trust boundary.</span></div>
   </div>
 </section>
 

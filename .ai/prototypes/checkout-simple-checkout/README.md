@@ -2,13 +2,14 @@
 
 This directory contains a static, pre-implementation prototype derived from `.ai/specs/2026-03-19-checkout-simple-checkout.md`.
 
-**Scope note.** Screens 1–16 are the buyer-facing funnel (`apps/storefront`'s `checkout/` route) — the same
+**Scope note.** Screens 1–16 and 19 are the buyer-facing funnel (`apps/storefront`'s `checkout/` route) — the same
 deliberate `om-mockup-prototype` scope exception as the `storefront-app` prototype, storefront top-nav chrome
 rather than the backend AppShell. Screens 17–18 are the module's one genuine backend surface (`checkout.sessions.view`/
 `.manage`, spec §9) and use the real AppShell — no exception needed there. This set targets full behavioral coverage:
 every funnel step, both submit outcomes (order/quote), every named submit failure and compensation trigger with
 buyer-visible behavior (R1–R10), the B2B approval gate plus its re-approval edge case (R8), the cart-lock conflict a
-second tab sees, and the admin session/event-trail viewer. Not drawn: literal field-validation combinatorics, and the
+second tab sees, the assortment-visibility lock refusal added by `cart` §6a (screen 19), and the admin
+session/event-trail viewer. Not drawn: literal field-validation combinatorics, and the
 already-shipped Phase A pay-link entry mode (noted in-line instead).
 
 ## Review
