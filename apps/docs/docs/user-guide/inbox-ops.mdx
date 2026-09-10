@@ -7,6 +7,10 @@ description: Set up the email-to-ERP agent to automatically extract orders, quot
 
 Set up the email-to-ERP agent so your team can forward customer email threads and have Open Mercato automatically extract orders, quotes, contacts, and reply drafts.
 
+:::info Resend-specific receiving flow
+The Communications Hub system email transport can use Resend or Amazon SES for outbound transactional email, but Inbox Ops receiving still uses Resend webhooks to fetch inbound email content. Setting `SYSTEM_EMAIL_PROVIDER=ses` for outbound transactional emails does not replace the Resend webhook setup described here.
+:::
+
 ## How It Works
 
 1. Your employees email customers from their normal email accounts

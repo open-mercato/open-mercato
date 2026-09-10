@@ -1100,6 +1100,49 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
   const indexerConfig = opts.indexer as CrudIndexerConfig | undefined
   const eventsConfig = opts.events as CrudEventsConfig | undefined
 
+  // Command-backed verbs (`actions.*`) never reach the built-in `markOrmEntityChange` calls
+  // below — the handler owns the mark and the command bus owns the flush. Hand the route's
+  // declared `indexer:` to the data engine for the duration of the command so a handler that
+  // marks `events:` only still writes the projection the route promised, using the handler's
+  // own entity and identifiers. Without this the declaration reaches no code at all (#5741).
+  const withRouteIndexerDeclaration = async <TResult>(
+    ctx: CrudCtx,
+    operation: CrudEventAction,
+    commandId: string,
+    run: () => Promise<TResult>,
+  ): Promise<TResult> => {
+    if (!indexerConfig || !ormCfg.entity) return run()
+    let de: DataEngine | null = null
+    try {
+      de = ctx.container.resolve('dataEngine') as DataEngine
+    } catch {
+      de = null
+    }
+    if (!de || typeof de.setDefaultIndexerConfig !== 'function') return run()
+    de.setDefaultIndexerConfig({ indexer: indexerConfig, entityClass: ormCfg.entity })
+    try {
+      const result = await run()
+      if (de.hasIndexedDefaultEntityClass?.() === false) {
+        // The one genuinely undiagnosable case: a handler that marks no side effect at all,
+        // so neither the route nor the command maintains the projection. One line per dropped
+        // write — far narrower than warning at construction time, though not literally false-
+        // positive-free: the flag tracks the route's own entity class, so a handler that
+        // discharges the projection through a different class (marking a parent aggregate with
+        // its own explicit `indexer:`) would also be warned about. No route in this repository
+        // does that today; widen the flag to "any indexer discharged" if one ever needs to.
+        logger.warn('CRUD route declares an indexer that its command handler did not discharge; the query index was not updated for this write', {
+          resourceKind,
+          operation,
+          commandId,
+          entityType: indexerConfig.entityType,
+        })
+      }
+      return result
+    } finally {
+      de.setDefaultIndexerConfig(null)
+    }
+  }
+
   const inferFieldValue = (item: Record<string, unknown>, keys: string[]): string | null => {
     for (const key of keys) {
       const value = item[key]
@@ -2286,7 +2329,9 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           context: { cacheAliases: resourceTargets },
         }
         const metadataToSend = mergeCommandMetadata(baseMetadata, userMetadata)
-        const { result, logEntry } = await commandBus.execute(action.commandId, { input, ctx, metadata: metadataToSend })
+        const { result, logEntry } = await withRouteIndexerDeclaration(ctx, 'created', action.commandId, () =>
+          commandBus.execute(action.commandId, { input, ctx, metadata: metadataToSend }),
+        )
 
         // Sync after-event (*.created) — command path
         if (createLifecycleCmd.afterEventId && ctx.auth.tenantId) {
@@ -2337,9 +2382,11 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
             requestHeaders: request.headers,
           })
         }
-        // Note: side effects (events + indexing) are already flushed by CommandBus.execute()
-        // via flushCrudSideEffects(). Calling markCommandResultForIndexing here would cause
-        // duplicate event emissions.
+        // Note: side effects are already flushed by CommandBus.execute() via
+        // flushCrudSideEffects(). Re-marking the result here would emit a duplicate domain
+        // event, so the route does not. The route's `indexer:` declaration still reaches
+        // that flush: withRouteIndexerDeclaration() hands it to the data engine as the
+        // default for marks the handler makes without one (#5741).
         return response
       }
 
@@ -2612,7 +2659,9 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         }
         if (candidateId) baseMetadata.resourceId = candidateId
         const metadataToSend = mergeCommandMetadata(baseMetadata, userMetadata)
-        const { result, logEntry } = await commandBus.execute(action.commandId, { input, ctx, metadata: metadataToSend })
+        const { result, logEntry } = await withRouteIndexerDeclaration(ctx, 'updated', action.commandId, () =>
+          commandBus.execute(action.commandId, { input, ctx, metadata: metadataToSend }),
+        )
         const payload = action.response ? action.response({ result, logEntry, ctx }) : result
         let resolvedPayload = await Promise.resolve(payload)
         if (interceptorRequestPayload && resolvedPayload && typeof resolvedPayload === 'object' && !Array.isArray(resolvedPayload)) {
@@ -2659,9 +2708,11 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           }
         }
 
-        // Note: side effects (events + indexing) are already flushed by CommandBus.execute()
-        // via flushCrudSideEffects(). Calling markCommandResultForIndexing here would cause
-        // duplicate event emissions.
+        // Note: side effects are already flushed by CommandBus.execute() via
+        // flushCrudSideEffects(). Re-marking the result here would emit a duplicate domain
+        // event, so the route does not. The route's `indexer:` declaration still reaches
+        // that flush: withRouteIndexerDeclaration() hands it to the data engine as the
+        // default for marks the handler makes without one (#5741).
         return response
       }
 
@@ -2945,7 +2996,9 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         }
         if (candidateId) baseMetadata.resourceId = candidateId
         const metadataToSend = mergeCommandMetadata(baseMetadata, userMetadata)
-        const { result, logEntry } = await commandBus.execute(action.commandId, { input, ctx, metadata: metadataToSend })
+        const { result, logEntry } = await withRouteIndexerDeclaration(ctx, 'deleted', action.commandId, () =>
+          commandBus.execute(action.commandId, { input, ctx, metadata: metadataToSend }),
+        )
         const payload = action.response ? action.response({ result, logEntry, ctx }) : result
         let resolvedPayload = await Promise.resolve(payload)
         if (interceptorRequestPayload && resolvedPayload && typeof resolvedPayload === 'object' && !Array.isArray(resolvedPayload)) {
@@ -2991,9 +3044,11 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           }
         }
 
-        // Note: side effects (events + indexing) are already flushed by CommandBus.execute()
-        // via flushCrudSideEffects(). Calling markCommandResultForIndexing here would cause
-        // duplicate event emissions.
+        // Note: side effects are already flushed by CommandBus.execute() via
+        // flushCrudSideEffects(). Re-marking the result here would emit a duplicate domain
+        // event, so the route does not. The route's `indexer:` declaration still reaches
+        // that flush: withRouteIndexerDeclaration() hands it to the data engine as the
+        // default for marks the handler makes without one (#5741).
         return response
       }
 
