@@ -192,10 +192,15 @@ in both the entries registry and every injection table that places it, so you ne
 need to list both — and neither is reported as a stale override.
 
 The dispatcher must also run in the browser. `ClientBootstrap` re-registers the
-injection, dashboard and notification registries after hydration, so an app that
-forks it MUST call `applyModuleOverridesFromEnabledModules(enabledModules, { domains: ['widgets', 'notifications'] })`
+injection, dashboard and notification registries after hydration, and
+`ComponentOverridesBootstrap` re-registers the component overrides, so an app that
+forks either one MUST call `applyModuleOverridesFromEnabledModules(enabledModules, { domains: ['widgets', 'notifications'] })`
 before those registrations — otherwise the raw generated registries overwrite the
-filtered ones and a disabled widget reappears once hydration finishes.
+filtered ones and a disabled widget or component override reappears once hydration
+finishes. Each of those browser registrations MUST also run its own domain filter
+(`applyInjectionWidgetOverridesToEntries`, `applyComponentOverridesToEntries`, …)
+before registering, exactly as the server bootstrap does; dispatching alone only
+fills the override stores, it does not filter anything.
 
 :::warning Keep client-side overrides off server-only env gates
 
