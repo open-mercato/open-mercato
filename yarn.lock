@@ -8448,6 +8448,7 @@ __metadata:
     "@open-mercato/documents": "workspace:*"
     "@open-mercato/enterprise": "workspace:*"
     "@open-mercato/events": "workspace:*"
+    "@open-mercato/gateway-autopay": "workspace:*"
     "@open-mercato/gateway-stripe": "workspace:*"
     "@open-mercato/onboarding": "workspace:*"
     "@open-mercato/queue": "workspace:*"
@@ -9009,6 +9010,27 @@ __metadata:
     pg: "npm:8.23.0"
     ts-jest: "npm:^29.4.12"
     typescript: "npm:7.0.2"
+  languageName: unknown
+  linkType: soft
+
+"@open-mercato/gateway-autopay@workspace:*, @open-mercato/gateway-autopay@workspace:packages/gateway-autopay":
+  version: 0.0.0-use.local
+  resolution: "@open-mercato/gateway-autopay@workspace:packages/gateway-autopay"
+  dependencies:
+    "@open-mercato/core": "workspace:*"
+    "@open-mercato/shared": "workspace:*"
+    "@open-mercato/ui": "workspace:*"
+    "@types/jest": "npm:^30.0.0"
+    esbuild: "npm:^0.28.1"
+    glob: "npm:^13.0.6"
+    jest: "npm:^30.4.2"
+    ts-jest: "npm:^29.4.12"
+    typescript: "npm:7.0.2"
+  peerDependencies:
+    "@mikro-orm/postgresql": ^7.0.14
+    "@open-mercato/shared": "workspace:*"
+    react: ^19.0.0
+    react-dom: ^19.0.0
   languageName: unknown
   linkType: soft
 
