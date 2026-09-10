@@ -1291,8 +1291,34 @@ deploy independently of any other module.
   change here. Revaluation is a scheduled, balance-level recompute —
   a future Multi-Currency spec, not this posting engine.
 - Country-specific tax/compliance plugins.
+- **A bulk, cross-module read/export path for `JournalEntry`/
+  `JournalEntryLine`.** Every read surface this engine and #6013 expose
+  today is shaped for a person through a UI: `GET
+  /api/ledger/journal-entries` is a paginated list, and #6013's
+  balance/ZSiO routes answer one account or one period at a time.
+  Nothing lets another backend module pull a full fiscal year's journal
+  in bulk, in-process, the way AP already consumes this engine's write
+  side through `commandBus`. A concrete future consumer exists: a
+  Poland-jurisdiction JPK_KR_PD filing (electronic accounting books —
+  see the 2026-09-10 `financial-pl`-side analysis) would need exactly
+  this for its `Dziennik`/`KontoZapis` nodes, and could reuse #6013's
+  ZSiO computation unchanged for its `ZOiS` node. Deliberately not
+  designed here: the actual shape (streaming vs. paginated, a
+  DI-resolved service vs. some other mechanism, real record volumes,
+  which fields a real consumer needs) should come from that consumer's
+  own spec once it's scheduled, not from guessing ahead of it — the
+  same discipline already applied above to `soft_closed` period status
+  and to Bilans/P&L.
 
 ## Final Compliance Report — 2026-08-27 (updated 2026-09-03, 2026-09-07, 2026-09-10)
+
+A same-day follow-up to the 2026-09-10 update below added one further
+Out of scope bullet, naming a future bulk cross-module read gap
+(`JournalEntry`/`JournalEntryLine`, surfaced by researching JPK_KR_PD
+from `financial-pl`'s side) without designing it — see Changelog,
+"named a future bulk cross-module read gap." Purely a scope note, no
+design decision and no code surface changed, so it doesn't move the
+Compliance Matrix or the verdict below.
 
 The 2026-09-10 update responds to a collaborator's discovery-pass PR
 review (matgren) — art. 23 ust. 2 statutory entry-content fields, an
@@ -1937,3 +1963,28 @@ Resolved:
 
 No change to any already-settled design decision — this is closing
 gaps the review surfaced, not revisiting prior conclusions.
+
+### 2026-09-10 (cont. — named a future bulk cross-module read gap)
+
+Researching how JPK_KR_PD (Poland's electronic-accounting-books filing)
+would work from the `financial-pl` official module's side surfaced a
+real gap on this side of the boundary: nothing this engine or #6013
+exposes today lets another module read `JournalEntry`/`JournalEntryLine`
+in bulk, in-process — every existing read path (the journal-entries
+list, #6013's balance/ZSiO routes) is shaped for a UI, one account or
+period at a time. AP's existing GL dependency doesn't cover this either;
+that's a write-side `commandBus` call, not a read.
+
+Considered and rejected designing the actual service now (as a Phase 3
+addition to #6013, since `getZois` would just be a new access path to
+logic #6013 already has): rejected because raw `JournalEntry`/
+`JournalEntryLine` bulk iteration isn't #6013's scope at all — it's
+this document's own entities — and because there is no real consumer
+yet to design against (SPEC-010 for JPK_KR_PD, in the `official-modules`
+repo, doesn't exist yet). Speculatively designing an interface without
+a real consumer is exactly what this document already declined to do
+for `soft_closed` period status and for Bilans/P&L; applying the same
+standard here. Added a new Out of scope bullet naming the gap and
+pointing at both #6013 (for the part that already exists) and the
+JPK_KR_PD analysis (for the part that doesn't), instead of a speculative
+design.
