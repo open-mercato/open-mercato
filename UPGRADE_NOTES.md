@@ -55,9 +55,12 @@ field as well as un-tokenise it, put it on the global list instead.
    reads a field whose name contains `password`, `token`, `secret` or `hash`
    will now receive `undefined` for it** in global-search enrichment, which reads
    the stored document. Rename the field, or scope the read to `checksumSource`.
-   Fields covered by an entity encryption rule's `hashField` are re-injected by
-   `encryptIndexDocForStorage()` and are unaffected, so encrypted exact-match
-   lookup keeps working.
+   This includes a column named by an entity encryption rule's `hashField`: it
+   is stripped like any other match and is **not** re-injected later, because
+   `encryptFields()` skips a value that already decrypts under the current DEK
+   before it reaches the `hashField` block. Encrypted exact-match lookup is
+   unaffected — it goes through the base table's deterministic `*_hash` column,
+   not through `entity_indexes.doc`.
 2. **Existing rows are not cleaned.** The change governs writes only; a row
    already in `entity_indexes` keeps its stored credential until that record is
    next indexed. To remove the stored copies now, run `mercato query_index

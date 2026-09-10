@@ -80,13 +80,33 @@ document and only borrows `attachAggregateSearchField()`. Stripping the batch
 path alone would give a reindex that removes the column and an ordinary write
 that puts it straight back.
 
-**Before encryption, deliberately.** `encryptIndexDocForStorage()` sets each
-encryption rule's `hashField` on the document — `auth:user.email_hash`,
-`messages:message.external_email_hash` — as a deterministic lookup hash.
-Stripping first and letting encryption re-inject its own key is what keeps
-encrypted exact-match lookup working while an unruled column (`password_hash`,
-`*_token`, `*_secret`) is removed for good. Stripping afterwards would silently
-break encrypted lookup for every ruled entity.
+**Before encryption, deliberately** — so encryption sees exactly the document
+that gets stored. Stripping afterwards would seal a credential and then delete
+the sealed copy, making the ordering silently dependent on which step ran last.
+
+An earlier draft justified the ordering differently, claiming that
+`encryptIndexDocForStorage()` re-injects each encryption rule's `hashField`
+(`auth:user.email_hash`, `messages:message.external_email_hash`) so a ruled
+lookup hash survives the strip. **That is not what happens.** `encryptFields()`
+skips a value that already decrypts under the current DEK, and that `continue`
+sits before the `hashField` block:
+
+```ts
+// packages/shared/src/lib/encryption/tenantDataEncryptionService.ts:413
+if (isEncryptedWithDek(value, dek)) continue
+…
+if (rule.hashField) { … }   // never reached on the skip
+```
+
+In steady state the base column IS already ciphertext — the encryption
+subscriber encrypts on flush and `buildIndexDoc()` reads the base row raw — so
+the skip is the normal path, and a blocklisted `*_hash` is absent from the
+document for good. That outcome is harmless, which is why it is recorded rather
+than fixed: strict equality on an encrypted field is documented to go through
+the base table's deterministic `*_hash` column
+(`packages/shared/src/lib/query/engine.ts`), not through `entity_indexes.doc`,
+and that column is untouched. `search-index-doc-blocklist` coverage pins the
+real outcome so the two cannot drift apart again.
 
 ### Two exemptions
 
@@ -149,7 +169,13 @@ Verified against `develop`, not assumed:
 
 The one presenter that names a blocklisted field is
 `messages:message`, which puts `external_email_hash` into `checksumSource` only
-— never into a title or subtitle — and encryption re-injects that key anyway.
+— never into a title or subtitle. `checksumSource` is built over query-engine
+records, not over the stored document, so it keeps reading the base table's own
+column; and the presenter enricher discards everything `buildSource` returns
+except `presenter` and `links`, so the stored copy was never what fed it. (An
+earlier draft said encryption re-injects that key into the document; see
+*Before encryption, deliberately* above for why it does not, and why that is
+harmless.)
 
 ## Migration & Backward Compatibility
 

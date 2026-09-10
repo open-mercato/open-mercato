@@ -121,8 +121,11 @@ export function buildIndexDocument(
   for (const [key, value] of Object.entries(baseRow)) {
     doc[key] = value
   }
-  // Strip before the `cf:`/`l10n:` keys below are merged in, so a base column
-  // that happens to share a custom field's name cannot reach their exemption.
+  // Strip the base row before the `cf:` keys below are bucketed in, so the strip only ever
+  // sees base columns. A base column cannot in fact collide with a custom field here - they
+  // are namespaced under `cf:<key>` - so the ordering is not load-bearing in THIS builder;
+  // it is kept explicit so the two builders read the same way. In `buildIndexDoc()`, which
+  // also merges `l10n:` keys, the same ordering genuinely is load-bearing.
   stripBlocklistedDocFields(doc, config)
 
   const scopeOrg = normalizeScopeValue(scope.organizationId ?? null)

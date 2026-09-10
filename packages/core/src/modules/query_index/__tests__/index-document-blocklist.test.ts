@@ -1,6 +1,7 @@
 import { buildIndexDocument } from '../lib/document'
-import { stripBlocklistedDocFields } from '@open-mercato/shared/lib/search/config'
-import { resolveSearchConfig } from '@open-mercato/shared/lib/search/config'
+import { resolveSearchConfig, stripBlocklistedDocFields } from '@open-mercato/shared/lib/search/config'
+import { encryptWithAesGcm } from '@open-mercato/shared/lib/encryption/aes'
+import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 
 const INTERACTION = 'customers:customer_interaction'
 const USER = 'auth:user'
@@ -145,5 +146,48 @@ describe('stripBlocklistedDocFields keeps the keys the document is the only stor
     const returned = stripBlocklistedDocFields(doc, resolveSearchConfig())
     expect(returned).toBe(doc)
     expect(Object.prototype.hasOwnProperty.call(doc, 'token')).toBe(false)
+  })
+
+  // An earlier draft of this change claimed, in four documents, that a column named by an
+  // encryption rule's `hashField` survives the strip because `encryptIndexDocForStorage()`
+  // re-injects it afterwards. It does not, and no gate could see the difference: the claim
+  // lived only in prose while the outcome lived in a `continue` two packages away. These two
+  // cases pin the outcome and the mechanism, so the prose cannot drift from the code again.
+  it('strips a `hashField` column like any other blocklisted match', () => {
+    delete process.env.OM_SEARCH_FIELD_BLOCKLIST
+    const doc = buildIndexDocument(
+      { id: 'u1', name: 'Ada', email: 'sealed-ciphertext', email_hash: 'deadbeef' },
+      [],
+      {},
+      { entityType: USER },
+    )
+    expect(Object.prototype.hasOwnProperty.call(doc, 'email_hash')).toBe(false)
+    // The base column itself is not blocklisted, so it stays - only the hash matches.
+    expect(doc.email).toBe('sealed-ciphertext')
+  })
+
+  it('does not re-inject the hash for an already-sealed value, which is the steady state', () => {
+    // `buildIndexDoc()` reads the base row raw and the encryption subscriber has already
+    // encrypted on flush, so by the time `encryptIndexDocForStorage()` runs the column IS
+    // ciphertext. `encryptFields()` skips a value that decrypts under the current DEK, and
+    // that `continue` precedes the `hashField` block - so the hash is never written back.
+    const key = Buffer.alloc(32, 1).toString('base64')
+    const service = new TenantDataEncryptionService({} as never) as unknown as {
+      encryptFields: (
+        obj: Record<string, unknown>,
+        fields: { field: string; hashField?: string | null }[],
+        dek: { key: string },
+      ) => Record<string, unknown>
+    }
+    const alreadySealed = encryptWithAesGcm('ada@example.com', key).value as string
+
+    const out = service.encryptFields(
+      { id: 'u1', email: alreadySealed },
+      [{ field: 'email', hashField: 'email_hash' }],
+      { key } as never,
+    )
+
+    expect(out.email).toBe(alreadySealed)
+    expect(out.email_hash).toBeUndefined()
   })
 })

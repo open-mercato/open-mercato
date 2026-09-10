@@ -413,7 +413,7 @@ document in full.
 | `search_text` and `search_tokens` | No change — those paths already excluded these fields (#4624) | ✓ No change |
 | Entity-scoped blocklist entries (`<entityType>@<field>`) | No change — still un-tokenise, still stored | ✓ No change |
 | `cf:` and `l10n:` document keys | No change — exempt from the strip | ✓ No change |
-| Encryption rule `hashField` values | No change — re-injected by `encryptIndexDocForStorage()` after the strip | ✓ No change |
+| Encryption rule `hashField` values | A `*_hash` column matching the global blocklist is stripped like any other and is **not** re-injected: `encryptFields()` skips a value that already decrypts under the current DEK, and that `continue` precedes the `hashField` block, so in steady state - where the base column is already ciphertext - the hash is never written back | ⚠ Deliberate behaviour narrowing. Nothing reads a `*_hash` out of the document: strict equality on an encrypted field goes through the base table's deterministic column (`packages/shared/src/lib/query/engine.ts`), which is untouched |
 | Import paths, type definitions, event IDs, API routes, DB schema, DI names, ACL features, CLI commands, generated files | No change | ✓ n/a |
 
 **The Emergency Security Exception is not invoked, and does not need to be.** Nothing is
@@ -426,6 +426,8 @@ than a private list — agreement between the aggregate, the token path and the 
 the invariant, and a fourth list is how the aggregate drifted in the first place (#4624).
 The `cf:`/`l10n:` exemption MUST hold: the document is those keys' only store, so
 stripping them is data loss rather than the removal of a duplicate. The strip MUST run
-before `encryptIndexDocForStorage()`, which re-injects each rule's `hashField`. Scope MAY
-widen to entity-scoped entries only alongside a way for a presenter to keep reading a
-scoped field out of the document.
+before `encryptIndexDocForStorage()`, so encryption sees exactly the document that gets
+stored - stripping afterwards would seal a credential and then delete the sealed copy,
+leaving the ordering silently dependent on which ran last. Scope MAY widen to entity-scoped
+entries only alongside a way for a presenter to keep reading a scoped field out of the
+document.
