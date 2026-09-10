@@ -1,6 +1,7 @@
 import {
   isSearchFieldBlocklisted,
   resolveSearchConfig,
+  stripBlocklistedDocFields,
   type SearchConfig,
 } from '@open-mercato/shared/lib/search/config'
 
@@ -115,10 +116,17 @@ export function buildIndexDocument(
   scope: IndexDocumentScope = {},
   options: AggregateSearchOptions = {},
 ): Record<string, unknown> {
+  const config = options.config ?? resolveSearchConfig()
   const doc: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(baseRow)) {
     doc[key] = value
   }
+  // Strip the base row before the `cf:` keys below are bucketed in, so the strip only ever
+  // sees base columns. A base column cannot in fact collide with a custom field here - they
+  // are namespaced under `cf:<key>` - so the ordering is not load-bearing in THIS builder;
+  // it is kept explicit so the two builders read the same way. In `buildIndexDoc()`, which
+  // also merges `l10n:` keys, the same ordering genuinely is load-bearing.
+  stripBlocklistedDocFields(doc, config)
 
   const scopeOrg = normalizeScopeValue(scope.organizationId ?? null)
   const scopeTenant = normalizeScopeValue(scope.tenantId ?? null)
@@ -154,5 +162,5 @@ export function buildIndexDocument(
     }
   }
 
-  return attachAggregateSearchField(doc, options)
+  return attachAggregateSearchField(doc, { ...options, config })
 }

@@ -212,6 +212,74 @@ describe('Indexer', () => {
     }
   })
 
+  test('buildIndexDoc strips a globally blocklisted column from the stored document', async () => {
+    // The event path — every ordinary write — builds its document itself rather
+    // than through `buildIndexDocument`, so it needs its own strip. Without one,
+    // a reindex would clean the column and the next write would restore it.
+    const originalBlocklist = process.env.OM_SEARCH_FIELD_BLOCKLIST
+    delete process.env.OM_SEARCH_FIELD_BLOCKLIST
+    try {
+      const fake = createFakeKysely({
+        baseTable: 'users',
+        baseRows: [{
+          id: '1',
+          name: 'Ada Lovelace',
+          password_hash: '$2b$10$abcdefghijklmnopqrstuv',
+          session_token: 'sess_7c41f0ab',
+          organization_id: 'org1',
+          tenant_id: 't1',
+        }],
+        cfValues: [],
+      })
+      const em: any = { getKysely: () => fake.db }
+
+      const doc = await buildIndexDoc(em, {
+        entityType: 'auth:user',
+        recordId: '1',
+        organizationId: 'org1',
+        tenantId: 't1',
+      })
+
+      expect(doc).toBeTruthy()
+      expect(Object.prototype.hasOwnProperty.call(doc!, 'password_hash')).toBe(false)
+      expect(Object.prototype.hasOwnProperty.call(doc!, 'session_token')).toBe(false)
+      expect(doc!.name).toBe('Ada Lovelace')
+      expect(JSON.stringify(doc)).not.toContain('$2b$10$abcdefghijklmnopqrstuv')
+    } finally {
+      if (originalBlocklist === undefined) delete process.env.OM_SEARCH_FIELD_BLOCKLIST
+      else process.env.OM_SEARCH_FIELD_BLOCKLIST = originalBlocklist
+    }
+  })
+
+  test('buildIndexDoc keeps an entity-scoped blocklisted column in the document', async () => {
+    // Companion to the aggregate test above: the scoped entry marks a field as
+    // too bulky to tokenise, not as secret, and a presenter reads that field
+    // back out of `doc`. It stays stored while staying out of `search_text`.
+    const originalBlocklist = process.env.OM_SEARCH_FIELD_BLOCKLIST
+    process.env.OM_SEARCH_FIELD_BLOCKLIST = 'example:todo@title'
+    try {
+      const fake = createFakeKysely({
+        baseTable: 'todos',
+        baseRows: [{ id: '1', title: 'Blocked title', organization_id: 'org1', tenant_id: 't1' }],
+        cfValues: [],
+      })
+      const em: any = { getKysely: () => fake.db }
+
+      const doc = await buildIndexDoc(em, {
+        entityType: 'example:todo',
+        recordId: '1',
+        organizationId: 'org1',
+        tenantId: 't1',
+      })
+
+      expect(doc?.title).toBe('Blocked title')
+      expect(String(doc?.search_text ?? '')).not.toContain('Blocked title')
+    } finally {
+      if (originalBlocklist === undefined) delete process.env.OM_SEARCH_FIELD_BLOCKLIST
+      else process.env.OM_SEARCH_FIELD_BLOCKLIST = originalBlocklist
+    }
+  })
+
   test('buildIndexDoc keeps encrypted payload (no decryption on write)', async () => {
     resolveEncryptionMock.mockReturnValue({
       isEnabled: () => true,
