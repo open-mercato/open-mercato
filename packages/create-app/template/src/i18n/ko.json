@@ -1112,6 +1112,8 @@
   "ui.rating.summary.ariaLabel": "{max} 중 {value}",
   "ui.recordNotFound.backToList": "목록으로 돌아가기",
   "ui.rowActions.openActions": "작업 메뉴 열기",
+  "ui.sectionHeader.collapse": "{title} 섹션 접기",
+  "ui.sectionHeader.expand": "{title} 섹션 펼치기",
   "ui.sidebar.chevron.scrollBottom": "맨 아래로 스크롤",
   "ui.sidebar.chevron.scrollTop": "맨 위로 스크롤",
   "ui.spinner.ariaLabel": "로딩 중",
