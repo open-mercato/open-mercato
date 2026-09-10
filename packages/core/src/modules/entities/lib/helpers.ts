@@ -6,6 +6,7 @@ import {
   TOO_MANY_CUSTOM_FIELDS_ERROR,
 } from '@open-mercato/shared/modules/entities/validation'
 import { CustomFieldDef, CustomFieldValue } from '../data/entities'
+import { createVisibleDefinitionScopeClause } from './definition-scope-where'
 
 type Primitive = string | number | boolean | null | undefined
 type PrimitiveOrArray = Primitive | Primitive[]
@@ -76,9 +77,8 @@ export async function setRecordCustomFields(
       entityId,
       isActive: true,
       deletedAt: null,
-      organizationId: { $in: [organizationId, null] as any },
-      tenantId: { $in: [tenantId, null] as any },
-    })
+      ...createVisibleDefinitionScopeClause({ organizationId, tenantId }),
+    } as any)
     const scopeScore = (def: CustomFieldDef) => (def.tenantId ? 2 : 0) + (def.organizationId ? 1 : 0)
     defsByKey = {}
     for (const d of defs) {

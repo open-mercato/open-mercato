@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/core'
 import { CustomFieldDef } from '../data/entities'
 import { validateValuesAgainstDefs } from '@open-mercato/shared/modules/entities/validation'
+import { createVisibleDefinitionScopeClause } from './definition-scope-where'
 
 export async function validateCustomFieldValuesServer(
   em: EntityManager,
@@ -18,18 +19,7 @@ export async function validateCustomFieldValuesServer(
     entityId: opts.entityId,
     isActive: true,
     deletedAt: null,
-    $and: [
-      {
-        $or: organizationId === null
-          ? [{ organizationId: null }]
-          : [{ organizationId }, { organizationId: null }],
-      },
-      {
-        $or: tenantId === null
-          ? [{ tenantId: null }]
-          : [{ tenantId }, { tenantId: null }],
-      },
-    ],
+    ...createVisibleDefinitionScopeClause({ organizationId, tenantId }),
   } as any)
 
   // Prefer the most specific scope and newest definition for duplicate keys.
