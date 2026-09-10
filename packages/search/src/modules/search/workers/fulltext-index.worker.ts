@@ -84,20 +84,32 @@ async function advanceFulltextReindexProgress(params: {
  * every job a no-op. The bare `return` that follows leaves BullMQ reporting
  * `completed` with zero failures and writes no `indexer_status_logs` row, so
  * "fulltext is not configured" and "everything indexed fine" are
- * indistinguishable from both signals an operator has. Absence of a row is the
- * only trace, and absence is what a healthy never-ran system looks like too.
- *
- * So: write a `warn` row into the same table that answers "did indexing run?",
- * and log through `searchError` rather than `searchDebugWarn` — a
- * misconfiguration that voids every indexing job should not need
- * `OM_SEARCH_DEBUG=1` to be readable.
+ * indistinguishable from both signals an operator has.
  *
  * Deliberately does NOT throw. A deployment may legitimately run without
  * Meilisearch, and throwing would retry these jobs forever, turning a
  * configuration choice into a queue backlog. The `isAvailable()` check further
  * down throws precisely because a registered-but-unreachable Meili is expected
  * to recover; an unregistered strategy is not.
+ *
+ * Reported ONCE per (tenant, job type, reason) per process, deliberately.
+ * `searchStrategies` and `searchIndexer` are registered together in one
+ * `container.register` call, from a `strategies` array that only receives a
+ * `FullTextSearchStrategy` when the driver exists - so the outcome of this guard
+ * is static for the lifetime of the process and rows 2..N carry exactly the
+ * information of row 1. The surface an operator reads is the newest 100
+ * `indexer_status_logs` rows across ALL sources, so an unthrottled row per job
+ * would saturate that window under ordinary write traffic and push out every
+ * other source's rows - trading invisibility for a panel showing one signal a
+ * hundred times. Do not "fix" this back to per-job.
  */
+const reportedSkipKeys = new Set<string>()
+
+/** Test seam: the memo above is process-scoped, so a suite must be able to clear it. */
+export function __resetSkippedWithoutIndexingMemo(): void {
+  reportedSkipKeys.clear()
+}
+
 async function reportSkippedWithoutIndexing(params: {
   em: EntityManager | null
   jobType: FulltextIndexJobType
@@ -106,8 +118,17 @@ async function reportSkippedWithoutIndexing(params: {
   jobId: string
   reason: string
 }): Promise<void> {
+  const memoKey = `${params.tenantId}:${params.jobType}:${params.reason}`
+  if (reportedSkipKeys.has(memoKey)) return
+  reportedSkipKeys.add(memoKey)
+
   const message = `${params.reason}; job skipped without indexing`
-  searchError('fulltext-index.worker', message, {
+  // `searchWarn`, not `searchError`: this is an operational warning about a
+  // configuration the guard above calls legitimate, it is the level the sibling
+  // vector worker uses for the same skip, and it agrees with the `level: 'warn'`
+  // of the row written beside it. It is un-gated by OM_SEARCH_DEBUG either way,
+  // which is the property this fix needs.
+  searchWarn('fulltext-index.worker', message, {
     jobId: params.jobId,
     tenantId: params.tenantId,
     jobType: params.jobType,
@@ -120,8 +141,18 @@ async function reportSkippedWithoutIndexing(params: {
       level: 'warn',
       message,
       tenantId: params.tenantId,
-      organizationId: params.organizationId,
-      details: { jobId: params.jobId, jobType: params.jobType, skippedWithoutIndexing: true },
+      // No `organizationId`: every other recordIndexerLog call in this handler
+      // omits it, so all existing `source: 'fulltext'` rows persist with
+      // organization_id = NULL - and the unrestricted indexer-status view filters
+      // on `organization_id IS NULL` (query_index/api/status.ts). A non-null org
+      // here would hide this row in exactly the view an operator lands on when
+      // asking "did indexing run?". The value stays in `details` for triage.
+      details: {
+        jobId: params.jobId,
+        jobType: params.jobType,
+        organizationId: params.organizationId,
+        skippedWithoutIndexing: true,
+      },
     },
   )
 }
@@ -174,10 +205,12 @@ export async function handleFulltextIndexJob(
   try {
     searchIndexer = ctx.resolve<SearchIndexer>('searchIndexer')
   } catch {
-    // Not a skip on its own: delete/purge never touch the indexer, and the
-    // index/batch-index branches throw explicitly when they need it. Still
-    // worth reading without OM_SEARCH_DEBUG, because it precedes those throws.
-    searchWarn('fulltext-index.worker', 'searchIndexer not available')
+    // Left at debug level to match vector-index.worker.ts for the identical
+    // condition. It is also close to unreachable: `searchIndexer` and
+    // `searchStrategies` are registered in the same `container.register` call, so
+    // the only way this throws is that search DI never ran - in which case the
+    // next guard reports it anyway.
+    searchDebugWarn('fulltext-index.worker', 'searchIndexer not available')
   }
 
   // Resolve fulltext strategy
