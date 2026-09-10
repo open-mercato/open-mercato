@@ -269,6 +269,9 @@ describe('createCatalogProductsWithProgress', () => {
     }))
     expect(summary.createdCount).toBe(2)
     expect(summary.createdIds).toEqual(['existing-sku-alpha', 'created-Beta'])
+    // No durable checkpoint preceded this resume, so nothing was counted without its id being
+    // collected: `createdIds` is short of `createdCount` only by what a checkpoint had counted.
+    expect(summary.createdIds).toHaveLength(summary.createdCount)
     expect(summary.failedItems).toEqual([])
   })
 
