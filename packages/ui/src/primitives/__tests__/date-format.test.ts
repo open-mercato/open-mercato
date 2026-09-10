@@ -174,10 +174,10 @@ describe('toDateInputValue', () => {
 // which one a field gets is a correctness question, not a style one.
 //
 // In a UTC runner the two are the same function, so these cases cannot fail there — and CI runs
-// in UTC. That is why `yarn test` runs this file a second time under `TZ=America/New_York` (the
-// `test:tz` script): the frame decision is enforced by the same command everywhere, rather than
-// waiting on a runner that happens to sit west of UTC. Setting `process.env.TZ` inside the file
-// does not work — Node resolves the zone once at startup.
+// in UTC. `jest.config.base.cjs` therefore pins the whole suite to `America/New_York`, so the frame
+// decision is enforced everywhere rather than only on a runner that happens to sit west of UTC.
+// Setting `process.env.TZ` inside this file would NOT work: jest gives each test file a sandboxed
+// copy of `process.env`, so the assignment never reaches V8's timezone cache.
 describe('toUtcDateInputValue', () => {
   // The shape that actually arrives from the API for a date-only column: the editor submits a bare
   // `yyyy-MM-dd`, `z.coerce.date()` stores UTC midnight, the route returns it with a `Z`.

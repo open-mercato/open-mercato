@@ -53,9 +53,9 @@ class ResizeObserverMock {
   disconnect() {}
 }
 
-// Run twice by `yarn test`: once in the runner's zone, once under `TZ=America/New_York` via the
-// `test:tz` script. In UTC the local and UTC readings coincide, so this case can only fail west
-// of UTC — without the second pass the guard is inert on CI.
+// In UTC the local and UTC readings coincide, so this case can only fail west of UTC. It stays a
+// real guard because `jest.config.base.cjs` pins the whole suite to `America/New_York` — see the
+// note there for why the zone cannot be set from inside a test file.
 //
 // `received_at` is a `timestamptz` written from a date input: `PaymentDialog` sends
 // `new Date('2026-07-01')`, `z.coerce.date()` stores UTC midnight, and the API returns it
