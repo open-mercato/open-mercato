@@ -54,6 +54,22 @@ export function buildCustomFieldKindMap(rows: Iterable<CustomFieldKindRow>): Cus
 }
 
 /**
+ * Merges per-source maps into one, with earlier maps winning. Callers pass their sources in
+ * the same priority order the value itself resolves in, so a key defined by more than one
+ * source is typed by the source the value actually came from.
+ */
+export function mergeCustomFieldKindMaps(maps: Array<CustomFieldKindMap | null | undefined>): CustomFieldKindMap {
+  const merged: CustomFieldKindMap = {}
+  for (const map of maps) {
+    if (!map) continue
+    for (const [key, kind] of Object.entries(map)) {
+      if (!(key in merged)) merged[key] = kind
+    }
+  }
+  return merged
+}
+
+/**
  * Resolves the `kind` for a `cf:`/`cf_`-prefixed index-document key. Returns `null` when the
  * key has no active definition — callers then keep the historical no-`kind` behavior rather
  * than guessing, so an unresolved lookup degrades instead of corrupting the value.

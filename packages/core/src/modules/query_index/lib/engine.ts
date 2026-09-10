@@ -12,9 +12,11 @@ import type { VectorIndexService } from '@open-mercato/search/vector'
 import { decryptIndexDocCustomFields } from '@open-mercato/shared/lib/encryption/indexDoc'
 import {
   buildCustomFieldKindMap,
+  mergeCustomFieldKindMaps,
   type CustomFieldKindMap,
-  type CustomFieldKindRow,
 } from '@open-mercato/shared/lib/custom-fields/kinds'
+
+type CustomFieldDefRow = { entityId: string; key: string; kind: unknown }
 import { parseBooleanToken, parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import {
   applyJoinFilters,
@@ -205,7 +207,7 @@ function createQueryProfiler(entity: string): Profiler {
 
 export class HybridQueryEngine implements QueryEngine {
   private coverageStatsTtlMs: number
-  private customFieldDefsCache = new Map<string, { expiresAt: number; value: CustomFieldKindRow[] }>()
+  private customFieldDefsCache = new Map<string, { expiresAt: number; value: CustomFieldDefRow[] }>()
   private customFieldKeysTtlMs: number
   private columnCache = new Map<string, boolean>()
   private customEntityCache = new Map<string, boolean>()
@@ -2192,7 +2194,7 @@ export class HybridQueryEngine implements QueryEngine {
   private async resolveCustomFieldDefs(
     entityIds: string[],
     tenantId: string | null,
-  ): Promise<CustomFieldKindRow[]> {
+  ): Promise<CustomFieldDefRow[]> {
     if (!entityIds.length) return []
     const cacheKey = this.customFieldKeysCacheKey(entityIds, tenantId)
     const now = Date.now()
@@ -2202,22 +2204,22 @@ export class HybridQueryEngine implements QueryEngine {
     const db = this.getDb() as any
     const rows = await db
       .selectFrom('custom_field_defs')
-      .select(['key', 'kind'])
+      .select(['entity_id', 'key', 'kind'])
       .where('entity_id', 'in', entityIds)
       .where('is_active', '=', true)
       .where((eb: any) => eb.or([
         eb('tenant_id', '=', tenantId),
         eb('tenant_id', 'is', null),
       ]))
-      .execute() as Array<{ key: unknown; kind: unknown }>
-    const byKey = new Map<string, CustomFieldKindRow>()
+      .execute() as Array<{ entity_id: unknown; key: unknown; kind: unknown }>
+    const result: CustomFieldDefRow[] = []
     for (const row of rows) {
       const key = row.key
       const normalized = typeof key === 'string' ? key.trim() : key == null ? '' : String(key)
       if (!normalized.length) continue
-      if (!byKey.has(normalized)) byKey.set(normalized, { key: normalized, kind: row.kind })
+      const entityId = typeof row.entity_id === 'string' ? row.entity_id : String(row.entity_id ?? '')
+      result.push({ entityId, key: normalized, kind: row.kind })
     }
-    const result = Array.from(byKey.values())
     if (this.customFieldKeysTtlMs > 0) {
       this.customFieldDefsCache.set(cacheKey, { expiresAt: now + this.customFieldKeysTtlMs, value: result })
     }
@@ -2226,7 +2228,7 @@ export class HybridQueryEngine implements QueryEngine {
 
   private async resolveAvailableCustomFieldKeys(entityIds: string[], tenantId: string | null): Promise<string[]> {
     const defs = await this.resolveCustomFieldDefs(entityIds, tenantId)
-    return defs.map((def) => String(def.key))
+    return Array.from(new Set(defs.map((def) => def.key)))
   }
 
   /**
@@ -2234,13 +2236,27 @@ export class HybridQueryEngine implements QueryEngine {
    * custom fields keep their type on read instead of being `JSON.parse`d back into numbers
    * or booleans (issue #5968). Backed by the same TTL cache as the key lookup, so this adds
    * no round trip on a warm cache and fails open to `{}` on a cold-cache error.
+   *
+   * `entityIds` MUST arrive in `indexSources` order: `buildCfJsonExprSql` reads a `cf` value
+   * with `coalesce(source0, source1, …)`, so a key defined by several sources has to be typed
+   * by the same source the value came from — hence the priority-ordered merge rather than
+   * whatever order the rows happen to come back in.
    */
   private async resolveCustomFieldKindMap(
     entityIds: string[],
     tenantId: string | null,
   ): Promise<CustomFieldKindMap> {
     try {
-      return buildCustomFieldKindMap(await this.resolveCustomFieldDefs(entityIds, tenantId))
+      const defs = await this.resolveCustomFieldDefs(entityIds, tenantId)
+      const byEntityId = new Map<string, CustomFieldDefRow[]>()
+      for (const def of defs) {
+        const group = byEntityId.get(def.entityId) ?? []
+        group.push(def)
+        byEntityId.set(def.entityId, group)
+      }
+      return mergeCustomFieldKindMaps(
+        entityIds.map((entityId) => buildCustomFieldKindMap(byEntityId.get(entityId) ?? [])),
+      )
     } catch (err) {
       logger.warn('Failed to resolve custom field kinds', { entityIds, err })
       return {}
