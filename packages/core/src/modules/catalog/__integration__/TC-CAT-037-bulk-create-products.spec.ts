@@ -113,10 +113,15 @@ test.describe('TC-CAT-037: Bulk create products', () => {
         createdIds?: string[]
         failedItems?: Array<{ index: number; title?: string; message: string }>
       } | undefined
-      expect(summary?.createdCount).toBe(2)
-      expect(summary?.failedCount).toBe(1)
-      expect(summary?.failedItems?.[0]?.index).toBe(2)
-      expect(summary?.failedItems?.[0]?.message).toContain('SKU already exists')
+      // The summary rides every assertion in this block. When this test failed on CI it reported
+      // only "Expected: 2, Received: 1" and aborted before the `failedItems` assertions, so the
+      // reason a row did not get created was never in the log and #6008 stayed undiagnosed across
+      // four reproductions. The assertions are unchanged; only what they print when they fail is.
+      const summaryContext = `bulk-create summary: ${JSON.stringify(summary)}`
+      expect(summary?.createdCount, summaryContext).toBe(2)
+      expect(summary?.failedCount, summaryContext).toBe(1)
+      expect(summary?.failedItems?.[0]?.index, summaryContext).toBe(2)
+      expect(summary?.failedItems?.[0]?.message, summaryContext).toContain('SKU already exists')
       createdIds.push(...(summary?.createdIds ?? []))
       expect(createdIds).toHaveLength(2)
 
