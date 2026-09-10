@@ -1035,6 +1035,7 @@ export default function SyncRunsDashboardPage() {
         <DataTable
           stickyActionsColumn
           title={t('data_sync.dashboard.title')}
+          titleHeadingLevel={1}
           columns={columns}
           data={rows}
           filters={filters}

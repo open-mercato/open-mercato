@@ -1606,6 +1606,7 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
             title={recordId
               ? t(mode === 'link' ? 'checkout.linkTemplateForm.titles.editLink' : 'checkout.linkTemplateForm.titles.editTemplate')
               : t(mode === 'link' ? 'checkout.linkTemplateForm.titles.createLink' : 'checkout.linkTemplateForm.titles.createTemplate')}
+            titleHeadingLevel={1}
             backHref={mode === 'link' ? '/backend/checkout/pay-links' : '/backend/checkout/templates'}
             cancelHref={mode === 'link' ? '/backend/checkout/pay-links' : '/backend/checkout/templates'}
             fields={fields}

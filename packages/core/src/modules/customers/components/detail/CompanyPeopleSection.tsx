@@ -480,11 +480,24 @@ export function CompanyPeopleSection({
         confirmButtonLabel: translate('customers.linking.person.confirmButton', 'Link person'),
         showLinkSettings: true,
         roleOptions: [
-          { id: 'decision_maker', label: 'Decision maker' },
-          { id: 'budget_holder', label: 'Budget holder' },
-          { id: 'stakeholder', label: 'Stakeholder' },
-          { id: 'contact', label: 'Contact' },
+          {
+            id: 'decision_maker',
+            label: translate('customers.linking.person.role.decisionMaker', 'Decision maker'),
+          },
+          {
+            id: 'budget_holder',
+            label: translate('customers.linking.person.role.budgetHolder', 'Budget holder'),
+          },
+          {
+            id: 'stakeholder',
+            label: translate('customers.linking.person.role.stakeholder', 'Stakeholder'),
+          },
+          {
+            id: 'contact',
+            label: translate('customers.linking.person.role.contact', 'Contact'),
+          },
         ],
+        allFilterLabel: translate('customers.linking.person.role.all', 'All'),
         excludeLinkedCompanyId: companyId,
         addNew: {
           title: translate('customers.linking.person.addNew', 'Add new contact'),

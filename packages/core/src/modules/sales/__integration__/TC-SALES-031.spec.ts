@@ -3,7 +3,7 @@ import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration
 import { deleteSalesEntityIfExists } from '@open-mercato/core/helpers/integration/salesFixtures'
 
 /**
- * TC-SALES-031: Credit memo create / read / delete via API.
+ * TC-SALES-031: Credit memo create / read / update / delete via API.
  *
  * Issue #2459 scenario "TC-SALES-030 — Credit Memo Creation and Linking via API" (P0).
  * Renumbered to 031: TC-SALES-030 is already taken (read-model totals, #2455/#2457).
@@ -11,9 +11,6 @@ import { deleteSalesEntityIfExists } from '@open-mercato/core/helpers/integratio
  * Credit memos are a standalone sales document with an active CRUD API
  * (`/api/sales/credit-memos`, gated by `sales.credit_memos.manage`). The create command
  * returns `{ creditMemoId }` — not the full record — so field values are read back via GET.
- *
- * Scope note: `PUT /api/sales/credit-memos` (update) currently returns 500, so the update leg is not
- *    exercised; this spec covers create → read → delete, which all work.
  */
 
 type JsonRecord = Record<string, unknown>
@@ -34,8 +31,14 @@ function listItems(body: JsonRecord): JsonRecord[] {
   return Array.isArray(body.items) ? (body.items as JsonRecord[]) : []
 }
 
-test.describe('TC-SALES-031 credit memo create/read/delete', () => {
-  test('creates, reads, and deletes a credit memo', async ({ request }) => {
+function num(value: unknown): number {
+  if (typeof value === 'number') return value
+  if (typeof value === 'string' && value.trim().length) return Number(value)
+  return Number.NaN
+}
+
+test.describe('TC-SALES-031 credit memo create/read/update/delete', () => {
+  test('creates, reads, updates, and deletes a credit memo', async ({ request }) => {
     test.slow()
     const token = await getAuthToken(request, 'admin')
     const stamp = Date.now()
@@ -71,6 +74,24 @@ test.describe('TC-SALES-031 credit memo create/read/delete', () => {
       expect((created.credit_memo_number as string).length).toBeGreaterThan(0)
       // The validated order reference is persisted and returned as the memo's order link.
       expect(created.order_id).toBe(orderId)
+
+      const updatedReason = `QA credit updated ${stamp}`
+      const updatedGrossTotal = 37.5
+      const updateResponse = await apiRequest(request, 'PUT', '/api/sales/credit-memos', {
+        token,
+        data: { id: creditMemoId, reason: updatedReason, grandTotalGrossAmount: updatedGrossTotal },
+      })
+      expect(updateResponse.status(), 'PUT /api/sales/credit-memos should be 200').toBe(200)
+      expect((await readJson(updateResponse)).creditMemoId).toBe(creditMemoId)
+
+      const updated = listItems(
+        await readJson(
+          await apiRequest(request, 'GET', `/api/sales/credit-memos?id=${encodeURIComponent(creditMemoId)}`, { token }),
+        ),
+      ).find((row) => row.id === creditMemoId) ?? {}
+      expect(updated.id).toBe(creditMemoId)
+      expect(updated.reason).toBe(updatedReason)
+      expect(num(updated.grand_total_gross_amount)).toBe(updatedGrossTotal)
 
       const deleteResponse = await apiRequest(
         request,

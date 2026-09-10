@@ -1506,6 +1506,7 @@ export default function EditCatalogProductPage({
       <PageBody>
         <CrudForm<ProductFormValues>
           title={t("catalog.products.edit.title", "Edit product")}
+          titleHeadingLevel={1}
           backHref="/backend/catalog/products"
           versionHistory={{
             resourceKind: "catalog.product",

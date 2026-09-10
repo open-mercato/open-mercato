@@ -15,13 +15,17 @@ const DEMO_CREDENTIALS = [
 
 export type CustomerAccountsSettingsPageClientProps = {
   portalOrigin: string
+  portalOrgSlug?: string | null
 }
 
-export function CustomerAccountsSettingsPageClient({ portalOrigin }: CustomerAccountsSettingsPageClientProps) {
+export function CustomerAccountsSettingsPageClient({ portalOrigin, portalOrgSlug = null }: CustomerAccountsSettingsPageClientProps) {
   const t = useT()
 
   const portalUrl = useMemo(() => buildPortalUrlPattern(portalOrigin), [portalOrigin])
-  const portalRootUrl = useMemo(() => buildPortalRootUrl(portalOrigin), [portalOrigin])
+  const portalRootUrl = useMemo(
+    () => (portalOrgSlug ? buildPortalRootUrl(portalOrigin, portalOrgSlug) : null),
+    [portalOrigin, portalOrgSlug],
+  )
 
   return (
     <>
@@ -47,13 +51,15 @@ export function CustomerAccountsSettingsPageClient({ portalOrigin }: CustomerAcc
               {portalUrl}
             </code>
           </div>
-          <div>
-            <Button type="button" variant="outline" size="sm" asChild>
-              <a href={portalRootUrl} target="_blank" rel="noopener noreferrer">
-                {t('customer_accounts.settings.portal_access.open_portal', 'Open Portal')}
-              </a>
-            </Button>
-          </div>
+          {portalRootUrl ? (
+            <div>
+              <Button type="button" variant="outline" size="sm" asChild>
+                <a href={portalRootUrl} target="_blank" rel="noopener noreferrer">
+                  {t('customer_accounts.settings.portal_access.open_portal', 'Open Portal')}
+                </a>
+              </Button>
+            </div>
+          ) : null}
           <p className="text-xs text-muted-foreground">
             {t(
               'customer_accounts.settings.portal_access.slug_note',
