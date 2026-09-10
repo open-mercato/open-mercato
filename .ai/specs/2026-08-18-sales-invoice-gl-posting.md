@@ -449,7 +449,9 @@ before the first posting (see Migration & Deployment).
 
 - `postSalesInvoiceToLedger` — the only mutating command. Input:
   `{ salesInvoiceId: string, lineAccounts: { salesInvoiceLineId: string, accountId: string }[], contractorId?: string }`.
-  Rejects if a `SalesInvoiceGlPosting` already exists for
+  Input shape is validated against a zod schema (`data/validators.ts`)
+  before any business-rule check below runs. Rejects if a
+  `SalesInvoiceGlPosting` already exists for
   `salesInvoiceId` (idempotency — see Invariants). Loads the
   `SalesInvoice` and its lines directly via `entityManager`
   (`sales.SalesInvoice`/`SalesInvoiceLine`, scoped by
@@ -526,15 +528,39 @@ in this family).
 
 ### Backend Pages
 
-**None in Phase 1.** Posting is triggered from within `sales`'s own
-invoice detail page via a widget-injection action (the third of
-`packages/core/AGENTS.md`'s three sanctioned cross-module coupling
-mechanisms, alongside Events and FK-id+snapshot) — already used twice
-elsewhere in this document family (Accounts Payable's and Contractor
-Registry's own approval-task widgets, both injected into a host page's
-declared spot ID the same way), not a new mechanism this document
-introduces. Designing the specific UI integration is left to
-implementation; this document specifies only the command it calls.
+**None owned by this module in Phase 1** — no page under its own route.
+Two pieces of UI, both hosted by other modules:
+
+- **The posting action** is triggered from within `sales`'s own invoice
+  detail page via a widget-injection action (the third of
+  `packages/core/AGENTS.md`'s three sanctioned cross-module coupling
+  mechanisms, alongside Events and FK-id+snapshot) — already used twice
+  elsewhere in this document family (Accounts Payable's and Contractor
+  Registry's own approval-task widgets, both injected into a host
+  page's declared spot ID the same way), not a new mechanism this
+  document introduces. The action reads posting status via `apiCall`
+  against the `GET` route above and renders it with `<StatusBadge>`
+  (semantic status tokens only — `bg-status-success-bg` for "posted,"
+  no hardcoded `bg-green-*`); the "Post to ledger" trigger itself is a
+  labelled button (not icon-only, so no `aria-label` gap) wrapped in
+  `useGuardedMutation(...).runMutation(...)` with `retryLastMutation`
+  passed in the injection context, since `postSalesInvoiceToLedger` is
+  a custom, non-`CrudForm` write. All labels and the posted/not-posted
+  status text go through `useT()` (client-side), matching every
+  sibling module in this family — no hard-coded strings.
+- **The module-config settings page** (`backend/settings/page.tsx`,
+  File Manifest) is a minimal `<CrudForm>` (from
+  `@open-mercato/ui/backend/CrudForm`) with two `<FormField>`-wrapped
+  `LedgerAccount` pickers (`receivableAccountId`, `vatOutputAccountId`),
+  submitted via `updateCrud` against `ModuleConfigService`'s own config
+  endpoint — the same construction Accounts Payable's own
+  `vatInputAccountId`/`liabilityAccountId` settings page already uses.
+  Field labels and validation errors go through `resolveTranslations()`
+  server-side / `useT()` client-side.
+
+Designing the exact placement/spot ID of the widget injection is left
+to implementation; this document specifies the mechanism and the
+primitives it must use, not the pixel layout.
 
 ## Data Models
 
@@ -584,10 +610,20 @@ detail page action (see Backend Pages), not a public route in Phase 1.
 - `GET /api/sales-invoice-gl-posting/postings/:salesInvoiceId` — thin
   read route returning the `SalesInvoiceGlPosting` row (or 404) for a
   given invoice, so `sales`'s own UI can show "posted on {date}, entry
-  #{sequenceNumber}" without a second command. Requires
-  `sales_invoice_gl_posting.invoices.post` (the same feature — reading
-  whether an invoice a user is allowed to post has already been posted
-  is not a separate privilege in Phase 1).
+  #{sequenceNumber}" without a second command. The route file exports
+  `metadata` with `GET: { requireAuth: true, requireFeatures:
+  ['sales_invoice_gl_posting.invoices.post'] }` (no top-level `export
+  const requireAuth`), per `packages/core/AGENTS.md` — the same feature
+  the command itself requires (reading whether an invoice a user is
+  allowed to post has already been posted is not a separate privilege
+  in Phase 1). Called from the widget-injection action (see Backend
+  Pages) via `apiCall`, never raw `fetch`.
+
+**Caching:** none in Phase 1. The one read route is a point lookup
+keyed by the same unique index (`organization_id, sales_invoice_id`)
+that backs the idempotency check in the command — low cardinality, no
+list/aggregate query — so no cache layer, tags, or TTL are declared;
+see the Compliance Matrix below.
 
 ## Migration & Deployment
 
@@ -761,54 +797,114 @@ configuration is in place.
 - Detecting or reacting to a `sales`-side edit to an already-posted
   invoice — named in Risks, not designed around.
 
-## Final Compliance Report
+## Final Compliance Report — 2026-09-10 (rev. 2 — structured Compliance Matrix)
 
-Went through one independent, fresh-context adversarial review pass
+The initial draft's Final Compliance Report (see Changelog, "Initial
+full first draft" and "Independent review pass, eleven issues fixed")
+documented one independent, fresh-context adversarial review pass
 against real `sales` source code (entities, commands, generated docs),
 `2026-08-18-general-ledger-core-engine.md`,
 `2026-09-06-accounts-payable.md`, and
-`2026-09-06-contractor-registry.md` before this draft settled, which
-found and fixed: three mis-citations of `contractorBankWhitelistCheck`/
-`tryResolve` to the wrong AP sibling module (the pattern belongs to
-`accounts_payable_payments`, not the `accounts_payable` invoices
-document this spec cites — corrected, with the fail-open-vs-fail-
-closed policy difference now stated explicitly rather than implied);
-a false "first genuine use of widget-injection in this document
-family" claim (both Accounts Payable's and Contractor Registry's own
-approval-task widgets already use it); a real double-entry balance
-failure for any invoice with a nonzero header-level
-`discountTotalAmount` (Σ line amounts would not equal
-`grandTotalGrossAmount`, and `ledger.postJournalEntry`'s own balance
-check would correctly reject it) — fixed by making Phase 1 explicitly
-reject such invoices rather than silently mis-designing around them;
-an undesigned `currencyCode`-to-`currencyId` resolution step
-(`sales.SalesInvoice` has no `currencyId`, unlike AP's own
-`VendorInvoice`) — fixed by adding a `currencies.Currency` lookup and
-a third hard dependency; an unhandled nullable `issueDate` mapping
-into GL's non-nullable `operationDate` — fixed by an explicit
-rejection rather than a guessed substitute date; an unnamed multi-tax-
-rate aggregation gap (JPK_V7 needs a per-rate breakdown this posting
-alone can't reconstruct) — named explicitly in Risks and Out of scope;
-a missing named risk for `sales` editing an invoice's lines after this
-module has posted it; a mischaracterization of Accounts Payable's own
-VAT-posting design as something this document simplifies away from,
-when it in fact mirrors it; an inexact "verbatim" quote claim; and six
-Testing Strategy gaps (Invariant 2, Invariant 5, the new read route,
-and the three new rejection paths). All fixed in place above. Every
-specific claim about `sales`'s real schema (`SalesInvoice`/
-`SalesInvoiceLine` fields, the `customerEntityId`/`customerSnapshot`
-location, the dictionary-driven `status` mechanism, the
-`sales.invoice.created`/`updated` events) was checked directly against
+`2026-09-06-contractor-registry.md`, and fixed eleven issues there
+(mis-cited `contractorBankWhitelistCheck` ownership, a real
+double-entry balance bug from an unhandled header discount, an
+undesigned currency-resolution gap, and eight others — full list in
+the Changelog entries below). That pass verified every specific claim
+about `sales`'s real schema directly against
 `packages/core/src/modules/sales/data/entities.ts`,
-`commands/documents.ts`, and the module's own generated docs
-(`apps/docs/docs/framework/modules/sales/*.mdx`) this session — not
-recalled from memory. The Contractor Registry citation (this document
-named as an "indirect… planned, not yet written" consumer) was checked
-directly against that document's current, correct text on
-`docs/contractor-registry` (confirmed to differ from an earlier, stale
-local copy — the version used here is the one actually committed).
-Compliance Matrix and a formal pass/fail verdict are deferred to a
-maintainer review, matching this project's established practice.
+`commands/documents.ts`, and the module's own generated docs — not
+recalled from memory — and confirmed the Contractor Registry citation
+against that document's current, correct committed text.
+
+That report was narrative only; it did not follow this skill's own
+[Final Compliance Review](../skills/om-spec-writing/references/compliance-review.md)
+gate in its required form (an AGENTS.md-by-AGENTS.md Compliance
+Matrix, an Internal Consistency Check, and an explicit Verdict) — the
+gap Fixed Assets' own Final Compliance Report (`docs/fixed-assets`)
+correctly fills and this revision now closes. A separate,
+fresh-context scope-cohesion check (checklist §1.2, delegated per the
+skill's own requirement — "the author cannot adversarially re-read its
+own spec") returned **COHESIVE — one capability, ship as one module**:
+every piece (the command, the two entities, the settings page, the
+read route, the contractor-snapshot handling) exists solely to support
+the one integration seam named in the TLDR, and no text in the
+document ever admits a part functions independently of the others.
+
+This revision also added, rather than retroactively claimed, the
+concrete spec content the matrix below cites: the settings page's and
+widget-injection action's actual construction (`<CrudForm>`,
+`<StatusBadge>`, `useGuardedMutation`, `apiCall`, `useT()` — Backend
+Pages), the `GET` route's `metadata`/`requireFeatures` export and its
+explicit no-caching rationale (API Contracts), and the command's
+zod-validation step (Commands) — none of that UI/route detail existed
+in the draft this matrix would otherwise have to mark non-compliant.
+
+One workflow step this document did not follow: the skill's Step
+3–4 Skeleton Spec + Open Questions gate. The full draft was written
+directly, per the maintainer's explicit go-ahead, on the strength of
+Accounts Payable's already-proven, directly-analogous pattern (same
+posting shape, same Phase-1 manual-mapping stance) — not because the
+gate was overlooked. Writing a skeleton retroactively, after a
+reviewed full draft already exists, would not surface anything the
+review above hasn't already covered.
+
+### AGENTS.md Files Reviewed
+
+- `AGENTS.md` (root)
+- `packages/core/AGENTS.md`
+- `packages/ui/AGENTS.md`
+- `packages/ui/src/backend/AGENTS.md`
+- `packages/cache/AGENTS.md`
+- `packages/events/AGENTS.md`
+
+### Compliance Matrix
+
+| Rule Source | Rule | Status | Notes |
+|-------------|------|--------|-------|
+| root AGENTS.md | No direct ORM relationships between modules | Compliant | `SalesInvoiceGlPosting.salesInvoiceId`/`journalEntryId`/`contractorId` and `SalesInvoiceLineRevenueAccount.salesInvoiceLineId`/`accountId` are all plain FK-ids, explicitly "no ORM relation" (Architecture → Entities) |
+| root AGENTS.md | Filter by `organization_id` | Compliant | Both new entities are tenant/org-scoped (Data Models); the command scopes every `sales`/`ledger`/`currencies` read by `tenantId`/`organizationId` (Commands) |
+| packages/core/AGENTS.md → API Routes | API routes MUST export `openApi` | Compliant | The one route (`GET /api/sales-invoice-gl-posting/postings/:salesInvoiceId`) is `openApi`-documented per File Manifest and Implementation Plan step 5 |
+| packages/core/AGENTS.md → API Routes | `metadata` export with per-method `requireAuth`/`requireFeatures` | Compliant | Added this revision (API Contracts): `GET: { requireAuth: true, requireFeatures: ['sales_invoice_gl_posting.invoices.post'] }`, no top-level `export const requireAuth` |
+| packages/core/AGENTS.md → CRUD Factory | CRUD APIs use `makeCrudRoute` | N/A | No CRUD collection in Phase 1 — the only mutation is a command invoked via `commandBus` from a widget-injection action, not an HTTP route; the sole HTTP route is a bespoke single-record GET, not a CRUD list/detail surface |
+| packages/core/AGENTS.md | All user input validated with zod before persistence | Compliant | `postSalesInvoiceToLedger`'s input shape is validated via `data/validators.ts` before any business-rule check runs (Commands, updated this revision) |
+| packages/core/AGENTS.md → Encryption | Encryption maps for PII/GDPR columns | N/A | Neither new entity carries a free-text or PII field (FK-ids + timestamps only); the one PII value in this flow (`contractorSnapshot`: name, NIP) is written onto `ledger.JournalEntryLine.contractorSnapshot` — that module's own column and encryption surface, not this module's, mirroring Accounts Payable's established precedent exactly |
+| packages/core/AGENTS.md | Optimistic locking (`updatedAt`) on user-editable entities | N/A | Both entities are write-once/append-only by design — no `updatedAt` on either, matching `JournalEntry`'s own immutable-posting precedent (a correction is a new `ledger.reverseJournalEntry`, never an edit to these rows) |
+| packages/core/AGENTS.md | Cross-module touchpoints name mechanism, owner, and module-absent behavior | Compliant | `sales`/`ledger` (hard `requires`, direct-entity-read / `commandBus`) and `contractors` (optional peer, `tryResolve`, fails open, degrades to "no `contractorSnapshot`") are all named explicitly in Cross-module integration |
+| packages/events/AGENTS.md | No direct cross-module calls; events for side effects | Compliant | Zero direct cross-module calls; writes into `ledger` go through `commandBus.execute('ledger.postJournalEntry', ...)`; no events declared in Phase 1 since no downstream consumer exists yet (named explicitly, not silently skipped) |
+| packages/cache/AGENTS.md | Cache resolved via DI; tenant-scoped tags; invalidation declared per write path | N/A | No caching declared — the one read route is a point lookup on the same unique index backing the idempotency check (`organization_id, sales_invoice_id`), not a list/aggregate query (added explicitly to API Contracts this revision) |
+| packages/ui/AGENTS.md | Backend forms use `<CrudForm>`; non-`CrudForm` writes use `useGuardedMutation` | Compliant | Added this revision (Backend Pages): the settings page uses `<CrudForm>`/`<FormField>`; the widget-injection posting action uses `useGuardedMutation(...).runMutation(...)` with `retryLastMutation` in the injection context |
+| packages/ui/src/backend/AGENTS.md | All HTTP goes through `apiCall`/`apiCallOrThrow` (never raw `fetch`) | Compliant | The widget's status read and the settings page's save both go through `apiCall`, added explicitly this revision — no raw `fetch` |
+| root AGENTS.md (Design System Rules) | Semantic status tokens, Tailwind text scale, shared primitives, `aria-label` on icon-only buttons | Compliant | Added this revision: `<StatusBadge>` for posted/not-posted status (semantic tokens only, e.g. `bg-status-success-bg`, never `bg-green-*`); neither new control is icon-only, so no `aria-label` gap applies |
+| checklist §5 | i18n keys planned for all user-facing strings | Compliant | Added this revision: settings-page labels/errors and the widget's status text go through `useT()` (client) / `resolveTranslations()` (server) — no hard-coded strings |
+| checklist §1.2 | Spec covers ONE independently deployable capability (fresh-context subagent check) | Compliant | **COHESIVE** verdict from an isolated, fresh-context review given only this spec file — no text in the document admits any part functions independently of the others (see narrative above) |
+
+### Internal Consistency Check
+
+| Check | Status | Notes |
+|-------|--------|-------|
+| Data models match API contracts | Pass | Every field the `GET` route returns traces to a `SalesInvoiceGlPosting` column; no field appears in one section and not the other |
+| API contracts match UI/UX section | Pass | The one route (posting status) is exactly what the widget-injection status pill reads; the settings page maps 1:1 to the two Module Config values |
+| Risks cover all write operations | Pass | The sole mutating command (`postSalesInvoiceToLedger`) has named Risk entries covering wrong-account misposting, the discount rejection, post-posting `sales`-side edits desyncing the entry, and the VAT per-rate aggregation gap |
+| Commands defined for all mutations | Pass | `postSalesInvoiceToLedger` is the only mutation; both new entities are written exclusively by it, in one transaction |
+| Cache strategy covers all read APIs | N/A | No caching declared (see Compliance Matrix) |
+
+### Non-Compliant Items
+
+None outstanding. This revision's additions (the `metadata`/
+`requireFeatures` wording, the zod-validation sentence, the settings-
+page and widget UI construction, the i18n plan, and the explicit
+no-caching rationale) closed every gap the prior narrative-only report
+had left implicit rather than explicitly answered or marked N/A. See
+the Changelog entry below for the full list of what changed this
+revision.
+
+### Verdict
+
+- **Fully compliant** — approved for implementation. Not yet reviewed
+  by a human/maintainer. The `customers` ↔ `contractors` identity
+  bridge remains a flagged, unresolved gap by design (see Design
+  decisions, Risks, Out of scope) — a named gap, not a compliance
+  failure.
 
 ## Changelog
 
@@ -866,3 +962,37 @@ Not yet reviewed by a human/maintainer. The `customers` ↔ `contractors`
 identity bridge remains a flagged, unresolved gap by design — this
 document names it rather than speculatively solving it, matching this
 project's "don't design ahead of a confirmed need" discipline.
+
+### 2026-09-10 (cont., again) — Structured Compliance Matrix, UI/route detail, scope-cohesion check
+
+The prior "eleven issues fixed" pass verified every technical claim
+directly but never actually ran this project's own
+`om-spec-writing`/`compliance-review.md` gate in its required
+structured form — a real process gap, not just a documentation one,
+caught by comparing this document against Fixed Assets' (`docs/fixed-
+assets`) own Final Compliance Report. This pass closes it:
+
+- Ran an isolated, fresh-context scope-cohesion check (checklist §1.2)
+  against this spec file alone. Verdict: **COHESIVE** — no text in the
+  document admits any part (command, settings page, read route,
+  contractor snapshot) functions independently of the others.
+- Added concrete spec content that had been silently absent rather
+  than marked N/A: the settings page's and widget-injection action's
+  actual UI construction (`<CrudForm>`, `<FormField>`, `<StatusBadge>`
+  with semantic tokens, `useGuardedMutation`, `apiCall`, `useT()`/
+  `resolveTranslations()` for i18n — Backend Pages), the `GET` route's
+  `metadata`/`requireFeatures` export (API Contracts), an explicit
+  no-caching rationale for that same route (API Contracts), and the
+  command's zod-validation step (Commands).
+- Replaced the narrative-only Final Compliance Report with the
+  skill's actual required structure: an AGENTS.md Files Reviewed list,
+  a rule-by-rule Compliance Matrix (16 rows, all Compliant or N/A with
+  justification, zero silently-skipped items), an Internal Consistency
+  Check, a Non-Compliant Items section (none outstanding), and an
+  explicit Verdict (fully compliant).
+- Named, rather than silently skipped, the one workflow step not
+  followed: the Skeleton Spec + Open Questions gate (Steps 3–4) — the
+  full draft was written directly on Accounts Payable's already-proven
+  pattern, per the maintainer's explicit go-ahead, not by oversight.
+
+Not yet reviewed by a human/maintainer.
