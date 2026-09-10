@@ -238,7 +238,8 @@ export default function DirectoryOrganizationsPage() {
     <Page>
       <PageBody>
         <DataTable
-          title={t('directory.organizations.list.title', 'Organizations')}
+        title={t('directory.organizations.list.title', 'Organizations')}
+        titleHeadingLevel={1}
           actions={canManage ? (
             <Button asChild>
               <Link href="/backend/directory/organizations/create">

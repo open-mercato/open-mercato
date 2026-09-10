@@ -134,6 +134,28 @@ describe('admin customer invitations listing route', () => {
     expect(scope).toEqual({ tenantId, organizationId })
   })
 
+  // #5499: person_entity_id is optional on an invitation, so the account-status
+  // widget falls back to the recipient address. That filter must match the stored
+  // deterministic hash — including the legacy digest — and never the raw email.
+  it('matches by recipient email on the deterministic lookup hash', async () => {
+    const { lookupHashCandidates } = await import('@open-mercato/shared/lib/encryption/aes')
+    const { GET } = await import('../users-invite')
+
+    const response = await GET(makeListRequest('email=Buyer%40Example.com&pageSize=1'))
+
+    expect(response.status).toBe(200)
+    const [, , where] = mockFindAndCountWithDecryption.mock.calls[0]
+    expect(where).toEqual(expect.objectContaining({
+      tenantId,
+      organizationId,
+      emailHash: { $in: lookupHashCandidates('Buyer@Example.com') },
+      acceptedAt: null,
+      cancelledAt: null,
+    }))
+    expect(where.personEntityId).toBeUndefined()
+    expect(JSON.stringify(where)).not.toContain('Buyer@Example.com')
+  })
+
   it('falls back to the default paging window when page/pageSize are not numbers', async () => {
     const { GET } = await import('../users-invite')
 
