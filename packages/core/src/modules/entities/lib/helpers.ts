@@ -116,11 +116,22 @@ export async function setRecordCustomFields(
   // A write owns every value row a reader in ITS OWN tenant scope could return for this
   // record: same logical key (entityId, recordId, fieldKey), any organization, and either
   // the caller's tenant or the instance-global NULL tenant — exactly what the Query Engine
-  // matches. Organization is left out because no read path filters on it, so a row from a
-  // scope the record has left is indistinguishable from the live one (#5970). The tenant
-  // boundary is kept: another tenant's rows are never visible to this caller's readers and
-  // must never be deleted by its writes. Spelled as an explicit $or rather than
-  // `$in: [tenantId, null]` because SQL `IN (NULL)` never matches a NULL row.
+  // matches. Organization is left out because the Query Engine's value join does not filter
+  // it (engine.ts, the cf join and the EXISTS subquery), so a row from a scope the record
+  // has left is indistinguishable from the live one (#5970). The query-index reader does
+  // scope organization_id, but it never sees another organization's row for a record it is
+  // indexing, so dropping the column here cannot widen what it returns.
+  //
+  // This relies on recordId being unique across organizations and tenants for a given
+  // entityId — true of every caller, which passes the record's own primary key. A caller
+  // that passed a per-organization natural key would have one organization's write delete
+  // another's live rows.
+  //
+  // Scope of the delete, precisely: another TENANT's own rows are never touched. Rows with a
+  // NULL tenant are, deliberately — they are instance-global and answer every tenant's reads,
+  // so leaving one behind would reproduce the very duplicate this reconciles. Spelled as an
+  // explicit $or rather than `$in: [tenantId, null]` because SQL `IN (NULL)` never matches a
+  // NULL row.
   const tenantScopeFilter = { $or: [{ tenantId }, { tenantId: null }] }
   const keys = Object.keys(values)
   const presentKeyCount = keys.filter((key) => values[key] !== undefined).length
@@ -169,8 +180,8 @@ export async function setRecordCustomFields(
       const arr = raw as Primitive[]
       // Reconciling delete (see tenantScopeFilter): pinning organizationId here left the
       // rows written under the record's PREVIOUS organization alive next to the
-      // replacements, and no read path filters organization_id, so both generations
-      // answered the same lookup (#5970).
+      // replacements, and the Query Engine's value join does not filter organization_id,
+      // so both generations answered the same lookup (#5970).
       await em.nativeDelete(CustomFieldValue, { entityId, recordId, fieldKey, ...tenantScopeFilter })
       for (const val of arr) {
         const col: keyof CustomFieldValue = encrypted ? 'valueText' : def ? columnFromKind(def.kind) : columnFromJsValue(val)
@@ -205,7 +216,13 @@ export async function setRecordCustomFields(
     // NULL organizations out of SQL three-valued logic, where an inequality predicate
     // would silently spare exactly the stale rows this is meant to remove.
     const existingRows = await em.find(CustomFieldValue, { entityId, recordId, fieldKey, ...tenantScopeFilter })
-    let cf = existingRows.find((row) => (row.organizationId ?? null) === organizationId && (row.tenantId ?? null) === tenantId) ?? null
+    // A soft-deleted row is never the survivor: writing the new value onto it would leave
+    // deleted_at set, hiding the field from loadCustomFieldValues while the live row it
+    // replaced goes into staleIds. Tombstones still get deleted as stale — the Query
+    // Engine's join does not filter deleted_at, so one left behind would answer reads.
+    let cf = existingRows.find((row) => !row.deletedAt
+      && (row.organizationId ?? null) === organizationId
+      && (row.tenantId ?? null) === tenantId) ?? null
     const staleIds = existingRows.filter((row) => row !== cf).map((row) => row.id)
     if (staleIds.length) await em.nativeDelete(CustomFieldValue, { id: { $in: staleIds } })
     if (!cf) {

@@ -176,11 +176,11 @@ describe('setRecordCustomFields', () => {
       configJson: {},
     }
 
-    const makeEm = (rows: Array<Partial<CustomFieldValue>>) => {
+    const makeEm = (rows: Array<Partial<CustomFieldValue>>, def: Record<string, unknown> = definition) => {
       const nativeDelete = jest.fn(async () => rows.length)
       const create = jest.fn((entity: unknown, data: Record<string, unknown>) => ({ ...data, entity }))
       const persist = jest.fn()
-      const find = jest.fn(async (entity: unknown) => (entity === CustomFieldDef ? [definition] : rows))
+      const find = jest.fn(async (entity: unknown) => (entity === CustomFieldDef ? [def] : rows))
       const emMock = {
         find,
         create,
@@ -267,6 +267,49 @@ describe('setRecordCustomFields', () => {
         fieldKey: 'priority',
         $or: [{ tenantId: 'tenant-1' }, { tenantId: null }],
       })
+    })
+
+    it('never writes the new value onto a soft-deleted row', async () => {
+      const tombstone = { id: 'value-tombstone', organizationId: 'org-b', tenantId: 'tenant-1', valueInt: 3, deletedAt: new Date('2026-09-01T00:00:00.000Z') }
+      const live = { id: 'value-live', organizationId: 'org-b', tenantId: 'tenant-1', valueInt: 4 }
+      const { em, nativeDelete, create } = makeEm([tombstone, live])
+
+      await setRecordCustomFields(em, {
+        entityId: 'example:todo',
+        recordId: 'record-1',
+        organizationId: 'org-b',
+        tenantId: 'tenant-1',
+        values: { priority: 7 },
+      })
+
+      // Picking the tombstone would leave deleted_at set on the surviving row, hiding the
+      // field from loadCustomFieldValues while the live row it replaced is deleted as stale.
+      expect(live.valueInt).toBe(7)
+      expect(tombstone.valueInt).toBe(3)
+      expect(create).not.toHaveBeenCalled()
+      // The tombstone is still removed: the Query Engine's join does not filter deleted_at.
+      expect(nativeDelete).toHaveBeenCalledWith(CustomFieldValue, { id: { $in: ['value-tombstone'] } })
+    })
+
+    it('collapses a multi-value field to one row when the caller writes a scalar', async () => {
+      const multiDefinition = { ...definition, configJson: { multi: true } }
+      const first = { id: 'value-a', organizationId: 'org-b', tenantId: 'tenant-1', valueInt: 1 }
+      const second = { id: 'value-b', organizationId: 'org-b', tenantId: 'tenant-1', valueInt: 2 }
+      const { em, nativeDelete } = makeEm([first, second], multiDefinition)
+
+      await setRecordCustomFields(em, {
+        entityId: 'example:todo',
+        recordId: 'record-1',
+        organizationId: 'org-b',
+        tenantId: 'tenant-1',
+        values: { priority: 7 },
+      })
+
+      // The branch is chosen by Array.isArray(raw), not by the definition's multi flag, so a
+      // scalar payload is a set-to-one write. Deliberate: leaving the other selections alive
+      // is what produced the ambiguous multi-row read this reconciliation removes.
+      expect(first.valueInt).toBe(7)
+      expect(nativeDelete).toHaveBeenCalledWith(CustomFieldValue, { id: { $in: ['value-b'] } })
     })
 
     it('does not delete anything when the record has never left its scope', async () => {
