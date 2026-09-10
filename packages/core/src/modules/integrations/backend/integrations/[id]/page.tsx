@@ -1118,7 +1118,8 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
       <PageBody className="space-y-6">
         <FormHeader
           backHref="/backend/integrations"
-          title={resolvedIntegration.title}
+        title={resolvedIntegration.title}
+        titleHeadingLevel={1}
           actions={{
             cancelHref: showCredentialActions ? '/backend/integrations' : undefined,
             submit: showCredentialActions

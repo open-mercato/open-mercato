@@ -322,6 +322,7 @@ export default function EditWorkflowDefinitionPage({ params }: { params?: { id?:
         <CrudForm
           key={definitionId}
           title={isCodeOnly ? definition?.workflowName || t('workflows.edit.title') : t('workflows.edit.title')}
+          titleHeadingLevel={1}
           backHref="/backend/definitions"
           schema={workflowDefinitionFormSchema}
           fields={fields}

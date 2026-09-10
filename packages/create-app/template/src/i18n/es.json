@@ -106,6 +106,7 @@
   "appShell.sidebarCustomizationVariantsEmpty": "No saved variants yet",
   "appShell.sidebarRoleHasPreset": "usa esta configuración",
   "appShell.sidebarRoleWillClear": "se eliminará la configuración",
+  "appShell.skipToMainContent": "Saltar al contenido principal",
   "appShell.toggleSidebar": "Alternar barra lateral",
   "appShell.userFallback": "Usuario",
   "appShell.version": "Versión {{version}}",

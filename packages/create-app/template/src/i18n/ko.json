@@ -106,6 +106,7 @@
   "appShell.sidebarCustomizationVariantsEmpty": "아직 저장된 변형이 없습니다",
   "appShell.sidebarRoleHasPreset": "이 프리셋을 사용 중",
   "appShell.sidebarRoleWillClear": "프리셋이 초기화됩니다",
+  "appShell.skipToMainContent": "본문으로 건너뛰기",
   "appShell.toggleSidebar": "사이드바 전환",
   "appShell.userFallback": "사용자",
   "appShell.version": "버전 {{version}}",

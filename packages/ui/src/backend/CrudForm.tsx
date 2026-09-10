@@ -349,6 +349,8 @@ export type CrudFormProps<TValues extends Record<string, unknown>> = {
   // Legacy field-only grid toggle. Use `groups` for advanced layout.
   twoColumn?: boolean
   title?: string
+  /** Semantic level for the form title. Defaults to 2 for section-level compatibility. */
+  titleHeadingLevel?: 1 | 2
   backHref?: string
   // Optional extra action buttons rendered next to Delete/Cancel/Save
   // Useful for custom links like "Show Records" etc.
@@ -726,6 +728,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   disableOptimisticLock = false,
   twoColumn = false,
   title,
+  titleHeadingLevel = 2,
   backHref,
   entityId,
   entityIds,
@@ -3677,6 +3680,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
             backHref={backHref}
             backLabel={backLabel}
             title={title}
+            titleHeadingLevel={titleHeadingLevel}
             actions={{
               extraActions: headerExtraActions,
               showDelete: !formReadOnly && showDelete,
@@ -3759,6 +3763,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           backHref={backHref}
           backLabel={backLabel}
           title={title}
+          titleHeadingLevel={titleHeadingLevel}
           actions={{
             extraActions: headerExtraActions,
             showDelete: !formReadOnly && showDelete,
