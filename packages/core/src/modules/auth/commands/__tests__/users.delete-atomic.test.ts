@@ -25,11 +25,16 @@ jest.mock('@open-mercato/shared/lib/commands/helpers', () => {
   }
 })
 
+jest.mock('@open-mercato/shared/lib/commands/customFieldSnapshots', () => {
+  const actual = jest.requireActual('@open-mercato/shared/lib/commands/customFieldSnapshots')
+  return { ...actual, loadCustomFieldSnapshot: jest.fn(async () => ({})) }
+})
+
 import '@open-mercato/core/modules/auth/commands/users'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { User } from '../../data/entities'
+import { User, UserAcl, UserRole } from '../../data/entities'
 
 /**
  * Regression coverage for issue #2339 — the auth.users.delete cascade deleted
@@ -46,6 +51,7 @@ describe('auth.users.delete atomic cascade (issue #2339)', () => {
     rollback: number
     flush: number
     nativeDelete: number
+    find: Array<{ entity: unknown; where: unknown }>
   }
 
   function makeEm(calls: TxnCalls): EntityManager {
@@ -67,7 +73,10 @@ describe('auth.users.delete atomic cascade (issue #2339)', () => {
         calls.nativeDelete += 1
         return 0
       },
-      find: async () => [],
+      find: async (entity: unknown, where: unknown) => {
+        calls.find.push({ entity, where })
+        return []
+      },
       findOne: async (entity: unknown) => (entity === User
         ? { id: userId, organizationId: 'org-1', tenantId: 'tenant-1', deletedAt: null }
         : null),
@@ -101,24 +110,31 @@ describe('auth.users.delete atomic cascade (issue #2339)', () => {
 
   it('commits after every cascade delete succeeds', async () => {
     const handler = commandRegistry.get('auth.users.delete') as CommandHandler<{ query?: Record<string, unknown> }, unknown>
-    const calls: TxnCalls = { begin: 0, commit: 0, rollback: 0, flush: 0, nativeDelete: 0 }
+    const calls: TxnCalls = { begin: 0, commit: 0, rollback: 0, flush: 0, nativeDelete: 0, find: [] }
     const em = makeEm(calls)
     const dataEngine = {
       deleteOrmEntity: jest.fn(async () => ({ id: userId, organizationId: 'org-1', tenantId: 'tenant-1' })),
     }
+    const ctx = makeCtx(em, dataEngine)
 
-    await handler.execute({ query: { id: userId } }, makeCtx(em, dataEngine))
+    await handler.prepare!({ query: { id: userId } }, ctx)
+    await handler.execute({ query: { id: userId } }, ctx)
 
     expect(calls.begin).toBe(1)
     expect(calls.commit).toBe(1)
     expect(calls.rollback).toBe(0)
     expect(calls.nativeDelete).toBe(4)
     expect(dataEngine.deleteOrmEntity).toHaveBeenCalledTimes(1)
+    expect(calls.find.find(({ entity }) => entity === UserAcl)?.where).toMatchObject({ deletedAt: null })
+    expect(calls.find.find(({ entity }) => entity === UserRole)?.where).toMatchObject({
+      deletedAt: null,
+      role: { deletedAt: null },
+    })
   })
 
   it('rolls back the whole cascade when the user delete fails', async () => {
     const handler = commandRegistry.get('auth.users.delete') as CommandHandler<{ query?: Record<string, unknown> }, unknown>
-    const calls: TxnCalls = { begin: 0, commit: 0, rollback: 0, flush: 0, nativeDelete: 0 }
+    const calls: TxnCalls = { begin: 0, commit: 0, rollback: 0, flush: 0, nativeDelete: 0, find: [] }
     const em = makeEm(calls)
     const dataEngine = {
       deleteOrmEntity: jest.fn(async () => {

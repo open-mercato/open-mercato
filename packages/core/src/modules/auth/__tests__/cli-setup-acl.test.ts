@@ -3,6 +3,7 @@ import { registerModules } from '@open-mercato/shared/lib/modules/registry'
 import { registerCliModules } from '@open-mercato/shared/modules/registry'
 import type { Module } from '@open-mercato/shared/modules/registry'
 import cli from '@open-mercato/core/modules/auth/cli'
+import { RoleAcl, UserRole } from '@open-mercato/core/modules/auth/data/entities'
 
 // Register modules so that ensureDefaultRoleAcls can read defaultRoleFeatures
 const testModules: Module[] = [
@@ -152,5 +153,11 @@ describe('auth CLI setup seeds ACLs', () => {
       'translations.view',
       'translations.manage',
     ]))
+    const roleAclLookups = findOne.mock.calls.filter(([entity]) => entity === RoleAcl)
+    expect(roleAclLookups.length).toBeGreaterThan(0)
+    expect(roleAclLookups.every(([, where]) => where.deletedAt === null)).toBe(true)
+    const userRoleLookups = findOne.mock.calls.filter(([entity]) => entity === UserRole)
+    expect(userRoleLookups.length).toBeGreaterThan(0)
+    expect(userRoleLookups.every(([, where]) => where.deletedAt === null)).toBe(true)
   }, 20000)
 })

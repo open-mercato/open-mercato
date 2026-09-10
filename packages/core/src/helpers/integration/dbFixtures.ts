@@ -99,7 +99,7 @@ export async function setUserAclInDb(input: {
 }): Promise<void> {
   await withClient(async (client) => {
     const existing = await client.query<{ id: string }>(
-      'select id from user_acls where user_id = $1 and tenant_id = $2 limit 1',
+      'select id from user_acls where user_id = $1 and tenant_id = $2 and deleted_at is null limit 1',
       [input.userId, input.tenantId],
     );
     const featuresJson = JSON.stringify(input.features);

@@ -622,7 +622,7 @@ function captureRoleSnapshots(
 }
 
 async function loadRoleAclSnapshots(em: EntityManager, roleId: string): Promise<RoleAclSnapshot[]> {
-  const entries = await findWithDecryption(em, RoleAcl, { role: roleId as unknown as Role }, {}, { tenantId: null, organizationId: null })
+  const entries = await findWithDecryption(em, RoleAcl, { role: roleId as unknown as Role, deletedAt: null }, {}, { tenantId: null, organizationId: null })
   return entries.map((entry) => ({
     id: entry.id ? String(entry.id) : null,
     tenantId: String(entry.tenantId),

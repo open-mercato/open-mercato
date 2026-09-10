@@ -148,7 +148,7 @@ describe('user ACL tenant resolution', () => {
 
     // The ACL lookup must carry a concrete tenant, never an undefined predicate.
     const aclLookup = mockEm.findOne.mock.calls.find(([ctor]) => ctor === UserAcl)
-    expect(aclLookup?.[1]).toMatchObject({ tenantId: TARGET_TENANT_ID })
+    expect(aclLookup?.[1]).toMatchObject({ tenantId: TARGET_TENANT_ID, deletedAt: null })
   })
 
   it('does not read the target user when the actor has a tenant', async () => {
@@ -219,7 +219,7 @@ describe('user ACL tenant resolution', () => {
     expect(body.updatedAt).toBe('2026-08-07T10:00:00.000Z')
 
     const aclLookup = mockEm.findOne.mock.calls.find(([ctor]) => ctor === UserAcl)
-    expect(aclLookup?.[1]).toMatchObject({ tenantId: TARGET_TENANT_ID })
+    expect(aclLookup?.[1]).toMatchObject({ tenantId: TARGET_TENANT_ID, deletedAt: null })
   })
 
   it('honours an explicit tenant for a super admin on both verbs', async () => {

@@ -1088,7 +1088,13 @@ async function syncUserRoles(em: EntityManager, user: User, desiredRoles: string
   }
 
   const desiredIds = new Set(resolvedRoles.map((r) => String(r.id)))
-  const currentLinks = await findWithDecryption(em, UserRole, { user }, {}, { tenantId: null, organizationId: null })
+  const currentLinks = await findWithDecryption(
+    em,
+    UserRole,
+    { user, deletedAt: null, role: { deletedAt: null } } as FilterQuery<UserRole>,
+    {},
+    { tenantId: null, organizationId: null },
+  )
   const currentRoleIds = new Map(
     currentLinks.map((link) => {
       const roleId = String(link.role?.id ?? (link.role as unknown as string) ?? '')
@@ -1115,7 +1121,11 @@ async function loadUserRoleNames(em: EntityManager, userId: string): Promise<str
   const links = await findWithDecryption(
     em,
     UserRole,
-    { user: userId as unknown as User },
+    {
+      user: userId as unknown as User,
+      deletedAt: null,
+      role: { deletedAt: null },
+    } as FilterQuery<UserRole>,
     { populate: ['role'] },
     { tenantId: null, organizationId: null },
   )
@@ -1162,7 +1172,7 @@ function captureUserSnapshots(
 }
 
 async function loadUserAclSnapshots(em: EntityManager, userId: string): Promise<UserAclSnapshot[]> {
-  const list = await findWithDecryption(em, UserAcl, { user: userId as unknown as User }, {}, { tenantId: null, organizationId: null })
+  const list = await findWithDecryption(em, UserAcl, { user: userId as unknown as User, deletedAt: null }, {}, { tenantId: null, organizationId: null })
   return list.map((acl) => ({
     tenantId: String(acl.tenantId),
     features: Array.isArray(acl.featuresJson) ? [...acl.featuresJson] : null,

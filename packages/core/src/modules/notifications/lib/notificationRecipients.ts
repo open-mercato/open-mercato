@@ -64,9 +64,12 @@ export async function getRecipientUserIdsForRole(
   const builder: any = db
   const userRoles = await builder
     .selectFrom('user_roles')
+    .innerJoin('roles', 'user_roles.role_id', 'roles.id')
     .innerJoin('users', 'user_roles.user_id', 'users.id')
     .where('user_roles.role_id', '=', roleId)
     .where('user_roles.deleted_at', 'is', null)
+    .where('roles.deleted_at', 'is', null)
+    .where('roles.tenant_id', '=', tenantId)
     .where('users.deleted_at', 'is', null)
     .where('users.tenant_id', '=', tenantId)
     .select('users.id as user_id')
@@ -101,10 +104,13 @@ export async function getRecipientUserIdsForFeature(
 
   const roleAcls = await builder
     .selectFrom('role_acls')
+    .innerJoin('roles', 'role_acls.role_id', 'roles.id')
     .innerJoin('user_roles', 'role_acls.role_id', 'user_roles.role_id')
     .innerJoin('users', 'user_roles.user_id', 'users.id')
     .where('role_acls.tenant_id', '=', tenantId)
     .where('role_acls.deleted_at', 'is', null)
+    .where('roles.deleted_at', 'is', null)
+    .where('roles.tenant_id', '=', tenantId)
     .where('user_roles.deleted_at', 'is', null)
     .where('users.deleted_at', 'is', null)
     .where('users.tenant_id', '=', tenantId)
