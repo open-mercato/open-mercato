@@ -10,6 +10,11 @@ import { readCoverageSnapshot, refreshCoverageSnapshot } from './coverage'
 import { createProfiler, shouldEnableProfiler, type Profiler } from '@open-mercato/shared/lib/profiler'
 import type { VectorIndexService } from '@open-mercato/search/vector'
 import { decryptIndexDocCustomFields } from '@open-mercato/shared/lib/encryption/indexDoc'
+import {
+  buildCustomFieldKindMap,
+  type CustomFieldKindMap,
+  type CustomFieldKindRow,
+} from '@open-mercato/shared/lib/custom-fields/kinds'
 import { parseBooleanToken, parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import {
   applyJoinFilters,
@@ -200,7 +205,7 @@ function createQueryProfiler(entity: string): Profiler {
 
 export class HybridQueryEngine implements QueryEngine {
   private coverageStatsTtlMs: number
-  private customFieldKeysCache = new Map<string, { expiresAt: number; value: string[] }>()
+  private customFieldDefsCache = new Map<string, { expiresAt: number; value: CustomFieldKindRow[] }>()
   private customFieldKeysTtlMs: number
   private columnCache = new Map<string, boolean>()
   private customEntityCache = new Map<string, boolean>()
@@ -1198,6 +1203,18 @@ export class HybridQueryEngine implements QueryEngine {
       const listCountCapWarning: ListCountCapWarning | undefined = counted.warning
 
       const dekKeyCache = new Map<string | null, string | null>()
+      // Resolved lazily and only once per query: rows share one kind map, and a query whose
+      // rows carry no encrypted custom fields never pays for the lookup.
+      let customFieldKinds: Promise<CustomFieldKindMap> | null = null
+      const resolveCustomFieldKinds = (): Promise<CustomFieldKindMap> => {
+        if (!customFieldKinds) {
+          customFieldKinds = this.resolveCustomFieldKindMap(
+            Array.from(new Set(indexSources.map((src) => String(src.entityId)))),
+            opts.tenantId ?? null,
+          )
+        }
+        return customFieldKinds
+      }
 
       const decryptRow = async (item: Record<string, unknown>): Promise<Record<string, unknown>> => {
         let next = item
@@ -1225,6 +1242,7 @@ export class HybridQueryEngine implements QueryEngine {
                 organizationId: (next?.organization_id ?? next?.organizationId ?? null) as string | null,
               },
               encSvc as any, dekKeyCache,
+              await resolveCustomFieldKinds(),
             )
           } catch { /* keep next as-is */ }
         }
@@ -2171,35 +2189,62 @@ export class HybridQueryEngine implements QueryEngine {
     return !!exists
   }
 
-  private async resolveAvailableCustomFieldKeys(entityIds: string[], tenantId: string | null): Promise<string[]> {
+  private async resolveCustomFieldDefs(
+    entityIds: string[],
+    tenantId: string | null,
+  ): Promise<CustomFieldKindRow[]> {
     if (!entityIds.length) return []
     const cacheKey = this.customFieldKeysCacheKey(entityIds, tenantId)
     const now = Date.now()
-    const cached = this.customFieldKeysCache.get(cacheKey)
+    const cached = this.customFieldDefsCache.get(cacheKey)
     if (cached && cached.expiresAt > now) return cached.value.slice()
 
     const db = this.getDb() as any
     const rows = await db
       .selectFrom('custom_field_defs')
-      .select('key')
+      .select(['key', 'kind'])
       .where('entity_id', 'in', entityIds)
       .where('is_active', '=', true)
       .where((eb: any) => eb.or([
         eb('tenant_id', '=', tenantId),
         eb('tenant_id', 'is', null),
       ]))
-      .execute() as Array<{ key: unknown }>
-    const keys = new Set<string>()
+      .execute() as Array<{ key: unknown; kind: unknown }>
+    const byKey = new Map<string, CustomFieldKindRow>()
     for (const row of rows) {
       const key = row.key
-      if (typeof key === 'string' && key.trim().length) keys.add(key.trim())
-      else if (key != null) keys.add(String(key))
+      const normalized = typeof key === 'string' ? key.trim() : key == null ? '' : String(key)
+      if (!normalized.length) continue
+      if (!byKey.has(normalized)) byKey.set(normalized, { key: normalized, kind: row.kind })
     }
-    const result = Array.from(keys)
+    const result = Array.from(byKey.values())
     if (this.customFieldKeysTtlMs > 0) {
-      this.customFieldKeysCache.set(cacheKey, { expiresAt: now + this.customFieldKeysTtlMs, value: result })
+      this.customFieldDefsCache.set(cacheKey, { expiresAt: now + this.customFieldKeysTtlMs, value: result })
     }
     return result.slice()
+  }
+
+  private async resolveAvailableCustomFieldKeys(entityIds: string[], tenantId: string | null): Promise<string[]> {
+    const defs = await this.resolveCustomFieldDefs(entityIds, tenantId)
+    return defs.map((def) => String(def.key))
+  }
+
+  /**
+   * Kind lookup for the `cf:`/`cf_` keys of an index document, so encrypted string-typed
+   * custom fields keep their type on read instead of being `JSON.parse`d back into numbers
+   * or booleans (issue #5968). Backed by the same TTL cache as the key lookup, so this adds
+   * no round trip on a warm cache and fails open to `{}` on a cold-cache error.
+   */
+  private async resolveCustomFieldKindMap(
+    entityIds: string[],
+    tenantId: string | null,
+  ): Promise<CustomFieldKindMap> {
+    try {
+      return buildCustomFieldKindMap(await this.resolveCustomFieldDefs(entityIds, tenantId))
+    } catch (err) {
+      logger.warn('Failed to resolve custom field kinds', { entityIds, err })
+      return {}
+    }
   }
 
   private async entityHasActiveCustomFields(entityId: string, tenantId: string | null): Promise<boolean> {
