@@ -75,9 +75,24 @@ function dismissalKey(status: RuntimeStatus, issue: RuntimeIssue | null): string
   return `${status.generation}:${issue?.fingerprint ?? status.health}`
 }
 
+// The dev bridge answers 403 whenever the per-run token is stale — routine after
+// a `yarn dev` restart leaves an already-open tab holding the previous run's
+// token — and 404 once diagnostics are off. Neither is a staff-auth event, so
+// both of `apiFetch`'s redirect hooks are switched off. Without this it throws
+// `ForbiddenError` instead of returning the response, the poll below swallows
+// the throw, and the banner freezes on the dead runtime's incident rather than
+// clearing itself.
+function devRuntimeRequestHeaders(token: string): Record<string, string> {
+  return {
+    [DEV_RUNTIME_TOKEN_HEADER]: token,
+    'x-om-unauthorized-redirect': '0',
+    'x-om-forbidden-redirect': '0',
+  }
+}
+
 async function fetchRuntimeStatus(token: string, signal: AbortSignal): Promise<RuntimeStatus | null> {
   const response = await apiCall<RuntimeStatus>(DEV_RUNTIME_STATUS_PATH, {
-    headers: { [DEV_RUNTIME_TOKEN_HEADER]: token },
+    headers: devRuntimeRequestHeaders(token),
     cache: 'no-store',
     signal,
   })
@@ -182,7 +197,7 @@ export function DevRuntimeDiagnosticsBanner() {
     if (!token) return
     try {
       const response = await apiCall<DevRuntimeLogSnapshot>(`${DEV_RUNTIME_LOGS_PATH}?cursor=0`, {
-        headers: { [DEV_RUNTIME_TOKEN_HEADER]: token },
+        headers: devRuntimeRequestHeaders(token),
         cache: 'no-store',
       })
       setLogs(response.ok ? response.result : null)
@@ -213,7 +228,7 @@ export function DevRuntimeDiagnosticsBanner() {
     try {
       const response = await apiCall<{ error?: { message?: string } }>(`${DEV_RUNTIME_ACTIONS_PATH}/${action}`, {
         method: 'POST',
-        headers: { [DEV_RUNTIME_TOKEN_HEADER]: token },
+        headers: devRuntimeRequestHeaders(token),
         cache: 'no-store',
       })
       if (!response.ok) {

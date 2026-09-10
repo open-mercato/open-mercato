@@ -334,6 +334,32 @@ describe('DevRuntimeDiagnosticsBanner', () => {
     expect(screen.queryByTestId('dev-runtime-diagnostics-banner')).toBeNull()
   })
 
+  // Restarting `yarn dev` mints a new supervisor token while an already-open tab
+  // keeps the previous one in its <meta>, so every poll answers 403. That must
+  // clear the banner, not freeze the dead runtime's incident on screen — and it
+  // must not route a routine dev-overlay 403 through the staff-auth pipeline.
+  it('clears the banner when a stale token starts answering 403', async () => {
+    enableBanner()
+    let status: RuntimeStatus | null = createStatus()
+    fetchMock.mockImplementation(async () => (
+      status
+        ? new Response(JSON.stringify(status), { status: 200, headers: { 'content-type': 'application/json' } })
+        : new Response(JSON.stringify({ error: { code: 'forbidden', message: 'Invalid dev runtime token.' } }), {
+          status: 403,
+          headers: { 'content-type': 'application/json' },
+        })
+    ))
+    renderBanner()
+
+    await screen.findByTestId('dev-runtime-diagnostics-banner')
+
+    status = null
+    await waitFor(
+      () => expect(screen.queryByTestId('dev-runtime-diagnostics-banner')).toBeNull(),
+      { timeout: 6000 },
+    )
+  }, 10000)
+
   it('lets the action row wrap instead of scrolling on narrow viewports', async () => {
     enableBanner({ logsUrl: 'http://localhost:4000' })
     mockStatusResponses(createStatus())
