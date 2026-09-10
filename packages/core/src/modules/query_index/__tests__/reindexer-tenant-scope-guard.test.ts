@@ -13,9 +13,11 @@ class ReachedSweep extends Error {}
 /**
  * A kysely-shaped stub that answers the `information_schema.columns` probe and
  * throws for every other table. Two things make it load-bearing:
- *  - `getColumnSet()` swallows exceptions and returns an EMPTY set, which would
- *    make every case look tenant-less and pass vacuously. The negative controls
- *    below, which need `hasTenantCol` to come back true, are what stop that.
+ *  - a probe FAILURE would make every case look tenant-less and pass vacuously.
+ *    `getColumnSet()` now returns `null` rather than an empty set for exactly that
+ *    reason, so such a run refuses with `column-probe-failed` instead - and the
+ *    negative controls below, which need `hasTenantCol` to come back true, remain
+ *    the check that the probe is really being answered.
  *  - `seen` records every table touched, so a refusal can assert that the source
  *    table was never read and no job row was written.
  */
@@ -88,7 +90,13 @@ describe('reindexEntity refuses a tenant-scoped sweep it cannot scope', () => {
       organizationId: null,
     })
 
-    expect(result).toEqual({ processed: 0, total: 0, tenantScopes: [], scopes: [] })
+    expect(result).toEqual({
+      processed: 0,
+      total: 0,
+      tenantScopes: [],
+      scopes: [],
+      refused: 'no-tenant-column',
+    })
     // The refusal happens before anything is read or written: not the source
     // table, and not `entity_index_jobs` / `entity_index_coverage` either, so the
     // indexer panel gains no permanent `base N / indexed 0` gap.
@@ -125,6 +133,75 @@ describe('reindexEntity refuses a tenant-scoped sweep it cannot scope', () => {
 
     expect(result.processed).toBe(0)
     expect(seen).toEqual(['information_schema.columns'])
+  })
+
+  // A refusal used to be byte-identical to a successful zero-row sweep, so the surfaces an
+  // operator reads - indexer_status_logs, the status page, the CLI's `0 / 0 (0.00%)` -
+  // reported a green completion. That undercut the guard's own safety argument.
+  it('reports WHY it refused, so the caller can tell it apart from an empty sweep', async () => {
+    const { em } = makeEm(TENANT_LESS)
+
+    const result = await reindexEntity(em, { entityType: 'auth:user_role', tenantId: TENANT })
+
+    expect(result.refused).toBe('no-tenant-column')
+  })
+
+  // A probe failure proves nothing about the table. Read as an empty column set it made
+  // EVERY entity type look tenant-less, so one transient database error refused the whole
+  // sweep and reported it as a successful zero-row run - failing closed silently and
+  // globally, which is the hardest state to diagnose.
+  it('distinguishes a failed column probe from a table with no tenant column', async () => {
+    const em: any = {
+      getKysely: () => ({
+        selectFrom: () => {
+          const chain: any = new Proxy({}, {
+            get(_t, prop: string | symbol) {
+              if (prop === 'execute' || prop === 'executeTakeFirst') {
+                return async () => { throw new Error('current transaction is aborted') }
+              }
+              if (prop === 'then') return undefined
+              return () => chain
+            },
+          })
+          return chain
+        },
+      }),
+      getMetadata: () => ({ find: (className: string) => ({ tableName: className }), getAll: () => [] }),
+    }
+
+    const result = await reindexEntity(em, { entityType: 'auth:user_role', tenantId: TENANT })
+
+    expect(result.refused).toBe('column-probe-failed')
+    expect(records.map((record) => record.message)).toContain(
+      "Refusing reindex: could not read the source table's columns",
+    )
+  })
+
+  // The probe failure must refuse even for a type the allowlist would otherwise let
+  // through: an unreadable schema cannot prove the table is tenant-less either.
+  it('refuses a declared catalogue too when the probe fails', async () => {
+    registerTenantGlobalEntityTypes('billing:plan')
+    const em: any = {
+      getKysely: () => ({
+        selectFrom: () => {
+          const chain: any = new Proxy({}, {
+            get(_t, prop: string | symbol) {
+              if (prop === 'execute' || prop === 'executeTakeFirst') {
+                return async () => { throw new Error('statement timeout') }
+              }
+              if (prop === 'then') return undefined
+              return () => chain
+            },
+          })
+          return chain
+        },
+      }),
+      getMetadata: () => ({ find: (className: string) => ({ tableName: className }), getAll: () => [] }),
+    }
+
+    const result = await reindexEntity(em, { entityType: 'billing:plan', tenantId: TENANT })
+
+    expect(result.refused).toBe('column-probe-failed')
   })
 
   it('still sweeps a platform-wide catalogue every tenant is meant to read', async () => {

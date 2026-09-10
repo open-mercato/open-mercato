@@ -62,7 +62,19 @@ cross-tenant rows being written, it does not clean up old ones. A deployment tha
 run a tenant-scoped reindex of a tenant-less entity type should delete the
 `entity_indexes` and `search_tokens` rows for those entity types and let the event
 path refile the ones that still matter. Entity types whose table has no `tenant_id`
-column, and which are not catalogues, are the ones to check first.
+column, and which are not catalogues, are the ones to check first. Delete the matching
+`entity_index_coverage` rows in the same pass: the guard returns before
+`refreshCoverageSnapshot()`, so a coverage row written by an earlier tenant-scoped run
+is never refreshed again and the indexer status page keeps reporting a stale
+base/indexed pair for that entity type.
+
+A refused sweep is now reported as one. `reindexEntity()` returns
+`refused: 'no-tenant-column' | 'column-probe-failed'`, the reindex subscriber writes it
+into `indexer_status_logs` at `level: 'warn'` with the reason, and the CLI prints
+`reindex REFUSED, nothing was indexed`. Previously a refusal was byte-identical to a
+successful zero-row sweep on all three surfaces, so a module author who forgot the
+`registerTenantGlobalEntityTypes()` call saw a green completion on the one screen built
+to answer "why is this entity type not indexed".
 
 ### `AlertDescription` renders a `<div>` instead of a `<p>` (#5487)
 

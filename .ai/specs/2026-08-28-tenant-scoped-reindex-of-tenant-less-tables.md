@@ -57,13 +57,17 @@ no tenant counterpart anywhere, which matters twice over: it is why the wrongly
 filed rows are readable by the wrong tenant, and it is why the obvious fix does
 not work (below).
 
-**This is reachable today.** Fourteen entity types in this repository resolve to
-a table with no `tenant_id` column. Thirteen of them are private rows —
+**This is reachable today.** Fifteen entity types in this repository resolve to
+a table with no `tenant_id` column. Fourteen of them are private rows —
 `directory:tenant` (one row per tenant, with `name` tokenised into
 `search_tokens`), `auth:user_role`, `auth:session`, `auth:password_reset`,
 `customers:customer_deal_person_link`, `customer_accounts:customer_user_role`,
 `messages:message_recipient`, `messages:message_object`,
-`messages:message_access_token` and the rest of that shape. It was found by
+`messages:message_access_token`, `example:example_item` (the scaffold's own
+sample entity, which carries neither scope column, has no `indexer:` registration
+and appears nowhere outside its own entity file and migration — harmless, but it
+belongs in an enumeration a reader uses to check the classification) and the rest
+of that shape. It was found by
 auditing a production deployment's `entity_indexes`, where a tenant-scoped bulk
 reindex had filed nearly every row of several of these types under a tenant they
 do not belong to, spread across several other tenants' data.
@@ -203,6 +207,16 @@ event path refile the ones that still matter.
   `feature_toggles:feature_toggle` the two writers therefore disagree about where
   the row belongs. Worth a follow-up; it is a question about what NULL means to
   the readers, not about the guard.
+- **The organization axis has the same shape and is deliberately left alone
+  here.** `applyBaseWhere()` drops the `organization_id` predicate when
+  `hasOrgCol` is false in exactly the way it drops the tenant one, while
+  `scopeOverrides.orgId` is stamped unconditionally. It is not the same security
+  class — when the table does carry `tenant_id` the tenant predicate still holds,
+  so the effect is to narrow a tenant-wide row to one organization rather than to
+  cross a tenant boundary — but the "derived, not enumerated" framing above
+  invites the question, so it is answered rather than left implicit. The stacked
+  PR that makes a declared catalogue's projection tenant-null closes the
+  organization half for that case; the general asymmetry is a follow-up.
 - **`entity_indexes_entity_unique (entity_type, entity_id)`** allows a
   tenant-less row exactly ONE tenant stamp, so a genuinely global catalogue row
   resolves its presenter for one arbitrary tenant while other tenants get a

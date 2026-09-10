@@ -38,11 +38,28 @@ export type ReindexJobOptions = {
   vectorService?: VectorIndexService | null
 }
 
+/**
+ * Why a sweep did no work, when it did none on purpose.
+ *
+ * A refused run is otherwise byte-identical to a successful sweep that found zero rows,
+ * and the surfaces an operator reads - `indexer_status_logs`, the indexer status page,
+ * the CLI's `0 / 0 (0.00%)` - report the second. The allowlist's safety argument is that
+ * a missing `registerTenantGlobalEntityTypes()` declaration "shows up in the log", so the
+ * log the product surfaces has to be able to say it.
+ */
+export type ReindexRefusalReason =
+  /** The source table has no `tenant_id` column and the type is not a declared catalogue. */
+  | 'no-tenant-column'
+  /** `information_schema` could not be read, so no column could be proven to exist. */
+  | 'column-probe-failed'
+
 export type ReindexJobResult = {
   processed: number
   total: number
   tenantScopes: Array<string | null>
   scopes: Array<{ tenantId: string | null; organizationId: string | null }>
+  /** Absent on a sweep that ran. Present, with the reason, on one that deliberately did not. */
+  refused?: ReindexRefusalReason
 }
 
 export const DEFAULT_REINDEX_PARTITIONS = 5
@@ -111,7 +128,16 @@ function toNumber(value: unknown): number {
   return 0
 }
 
-async function getColumnSet(db: Kysely<any>, tableName: string): Promise<Set<string>> {
+/**
+ * Returns `null` - never an empty set - when the probe itself fails.
+ *
+ * An empty set is indistinguishable from "this table has no columns we care about", so a
+ * transient failure (an aborted transaction on the same connection, a statement timeout, a
+ * blip during a partition-parallel sweep) would make every entity type look tenant-less and
+ * refuse every tenant-scoped reindex, reported as a successful zero-row run. Failing closed
+ * is right; failing closed silently and globally is the hardest state to diagnose.
+ */
+async function getColumnSet(db: Kysely<any>, tableName: string): Promise<Set<string> | null> {
   try {
     const rows = await db
       .selectFrom('information_schema.columns' as any)
@@ -120,8 +146,12 @@ async function getColumnSet(db: Kysely<any>, tableName: string): Promise<Set<str
       .where('table_name' as any, '=', tableName)
       .execute() as Array<{ column_name: string }>
     return new Set(rows.map((row) => String(row.column_name).toLowerCase()))
-  } catch {
-    return new Set<string>()
+  } catch (error) {
+    logger.warn('Failed to read information_schema.columns for a reindex target', {
+      table: tableName,
+      error: error instanceof Error ? error.message : String(error),
+    })
+    return null
   }
 }
 
@@ -182,6 +212,19 @@ export async function reindexEntity(
     }
   }
   const columns = await getColumnSet(db, table)
+  // A probe failure proves nothing about the table, so it cannot be read as "no tenant
+  // column". Refuse with its own reason rather than letting a database blip masquerade as
+  // a permanent classification - and refuse rather than proceed, because proceeding would
+  // drop the tenant predicate and stamp the caller's tenant, which is the defect this guard
+  // exists for.
+  if (columns === null) {
+    logger.warn("Refusing reindex: could not read the source table's columns", {
+      entityType,
+      table,
+      tenantId,
+    })
+    return { processed: 0, total: 0, tenantScopes: [], scopes: [], refused: 'column-probe-failed' }
+  }
   const hasOrgCol = columns.has('organization_id')
   const hasTenantCol = columns.has('tenant_id')
   const hasDeletedCol = columns.has('deleted_at')
@@ -221,6 +264,7 @@ export async function reindexEntity(
       total: 0,
       tenantScopes: [],
       scopes: [],
+      refused: 'no-tenant-column',
     }
   }
 
