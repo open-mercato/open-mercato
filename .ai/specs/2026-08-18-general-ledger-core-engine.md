@@ -1298,10 +1298,10 @@ deploy independently of any other module.
   balance/ZSiO routes answer one account or one period at a time.
   Nothing lets another backend module pull a full fiscal year's journal
   in bulk, in-process, the way AP already consumes this engine's write
-  side through `commandBus`. A concrete future consumer exists: a
+  side through `commandBus`. A concrete consumer exists: a
   Poland-jurisdiction JPK_KR_PD filing (electronic accounting books —
-  see the 2026-09-10 `financial-pl`-side analysis) would need exactly
-  this for its `Dziennik`/`KontoZapis` nodes, and could reuse #6013's
+  see the 2026-09-10 `financial-pl`-side analysis) needs exactly
+  this for its `Dziennik`/`KontoZapis` nodes, and can reuse #6013's
   ZSiO computation unchanged for its `ZOiS` node. Deliberately not
   designed in this document: the actual shape (streaming vs. paginated,
   a DI-resolved service vs. some other mechanism, real record volumes,
@@ -1310,11 +1310,17 @@ deploy independently of any other module.
   same discipline already applied above to `soft_closed` period status
   and to Bilans/P&L. **Update (2026-09-10, same day):** a first draft of
   that interface now exists as its own document,
-  `2026-09-10-general-ledger-bulk-read-service.md` (own branch,
-  `docs/general-ledger-bulk-read-service`, not yet reviewed or PR'd) —
+  `2026-09-10-general-ledger-bulk-read-service.md`, opened as PR #6038 —
   not folded into this spec or into #6013, for the same scope-cohesion
-  reasons named there. This bullet stays as the record of the gap;
-  that document is where it's actually designed.
+  reasons named there. **Update (2026-09-10, again — confirmed target):**
+  JPK_KR_PD is no longer a hypothetical future consumer — Commerce
+  Weavers has decided to build it in `financial-pl`. `SPEC-010` (its own
+  spec, in `official-modules`) still isn't written — it needs a
+  primary-source XSD verification pass first — so this bullet's
+  "deliberately not designed here" still holds for the field-level
+  detail, but the "if this happens" framing above no longer applies.
+  This bullet stays as the record of the gap; PR #6038 is where the
+  interface is actually designed.
 
 ## Final Compliance Report — 2026-08-27 (updated 2026-09-03, 2026-09-07, 2026-09-10)
 
@@ -1334,6 +1340,13 @@ draft spec." Also purely a pointer update to this file (the bullet now
 names where the design lives instead of saying "not yet scheduled"),
 not a design decision made in *this* document — still doesn't move the
 Compliance Matrix or the verdict below.
+
+A third same-day follow-up records an internal business decision, not
+a spec change: JPK_KR_PD is now a confirmed target for `financial-pl`
+(see Changelog, "JPK_KR_PD confirmed as a real target"). Wording-only
+update to the same bullet ("needs" instead of "would need"); no design
+decision in this document changes, so this doesn't move the Compliance
+Matrix or the verdict below either.
 
 The 2026-09-10 update responds to a collaborator's discovery-pass PR
 review (matgren) — art. 23 ust. 2 statutory entry-content fields, an
@@ -2016,3 +2029,13 @@ consumer. Wrote it as its own document,
 not #6013 Phase 3 — reasoning for that placement is in that document's
 own Alternatives considered, not repeated here). Updated the Out of
 scope bullet above to point at it. Not yet reviewed or opened as a PR.
+
+### 2026-09-10 (cont., again — JPK_KR_PD confirmed as a real target)
+
+Internal decision: JPK_KR_PD is now a confirmed target for
+`financial-pl` (Commerce Weavers needs it, not a hypothetical future
+consumer anymore). Opened the bulk-read-service draft as PR #6038.
+Updated the Out of scope bullet's wording accordingly ("needs" instead
+of "would need"). No design decision in *this* document changes — the
+bulk-read interface's field-level detail still waits on `SPEC-010`'s
+own primary-source XSD verification, same as before this decision.
