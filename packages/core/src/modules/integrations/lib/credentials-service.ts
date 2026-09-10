@@ -29,8 +29,10 @@ const CREDENTIALS_ENCRYPTION_REMEDY: Record<CredentialsEncryptionUnavailableReas
     'set TENANT_DATA_ENCRYPTION_FALLBACK_KEY in the environment.',
   'sealed-while-disabled':
     'they were sealed while TENANT_DATA_ENCRYPTION was on and it is now off, so no key can open ' +
-    'them. Re-enable TENANT_DATA_ENCRYPTION, or run `mercato entities decrypt-database` before ' +
-    'disabling it.',
+    'them. Re-enable TENANT_DATA_ENCRYPTION to read them again, or re-enter the credentials — ' +
+    'saving them while the toggle is off stores them in the clear. Note that ' +
+    '`mercato entities decrypt-database` does not reach this blob: it decrypts the columns an ' +
+    'encryption map covers, and this envelope sits inside the decrypted value.',
 }
 
 export class CredentialsEncryptionUnavailableError extends Error {
@@ -48,6 +50,16 @@ export class CredentialsEncryptionUnavailableError extends Error {
 
 export function isCredentialsEncryptionUnavailableError(error: unknown): error is CredentialsEncryptionUnavailableError {
   return error instanceof CredentialsEncryptionUnavailableError
+}
+
+/**
+ * The one unavailable-reason an operator can act on without restoring a key: the blob predates
+ * `TENANT_DATA_ENCRYPTION=no` and no key exists to open it, so re-entering the credentials is the
+ * only way forward. The admin credentials route degrades to an empty form on this so that the
+ * re-entry is possible at all; `no-dek` (encryption on, KMS unreachable) still fails closed.
+ */
+export function isCredentialsSealedWhileDisabledError(error: unknown): boolean {
+  return isCredentialsEncryptionUnavailableError(error) && error.reason === 'sealed-while-disabled'
 }
 
 function isRecordValue(value: unknown): value is Record<string, unknown> {
@@ -169,8 +181,9 @@ export function createCredentialsService(em: EntityManager) {
 
     // A sealed blob written before encryption was switched off. There is no key to open it with,
     // and returning the envelope as if it were the credentials would hand an adapter a garbage
-    // secret, so this stays an error even in `disabled` mode -- the remedy is
-    // `mercato entities decrypt-database`, not a silent empty credential set.
+    // secret, so this stays an error even in `disabled` mode rather than a silent empty credential
+    // set. The remedy is re-entering the credentials (see the reason's message); the admin route
+    // catches this specific reason so the form can load empty and accept them.
     const dek = await resolveCredentialsDek(scope)
     if (!dek) throw new CredentialsEncryptionUnavailableError(scope.tenantId, 'sealed-while-disabled')
 

@@ -65,6 +65,12 @@ Flipping the flag first also leaves the search index stranded: tokens are hashes
 with encryption already off a reindex has nothing to decrypt with. The indexer detects the envelope
 by shape and preserves the existing tokens instead of overwriting them with hashes of ciphertext,
 but the affected fields stay unsearchable until you decrypt and reindex in this order.
+
+This command also does not reach **integration credentials**. It decrypts the columns an encryption
+map covers, and those credentials carry a second envelope (`__om_encrypted_credentials_blob_v1`)
+*inside* the decrypted value. After disabling encryption, re-enter each integration's credentials
+from the admin UI once — see
+[Turning encryption off](../architecture/data-encryption#turning-encryption-off).
 :::
 
 After a successful run the following steps are required to complete the transition:

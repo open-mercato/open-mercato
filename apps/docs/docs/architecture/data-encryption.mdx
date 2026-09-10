@@ -189,6 +189,8 @@ yarn mercato entities decrypt-database --tenant <uuid> --confirm <uuid> --deacti
 
 # 3. Rebuild the search/filter indexes.
 yarn mercato query_index reindex --tenant <uuid>
+
+# 4. Re-save every configured integration's credentials from the admin UI (see below).
 ```
 
 **Flipping the flag before step 1 is the mistake to avoid.** Search tokens are hashes of
@@ -220,6 +222,14 @@ the same condition.
   the toggle was flipped cannot be opened by any key. Reads raise
   `CredentialsEncryptionUnavailableError` with `reason: 'sealed-while-disabled'` rather than
   handing an adapter a garbage secret.
+
+  `decrypt-database` does **not** fix this, and step 4 above is not optional: credentials carry a
+  second, service-level envelope under `__om_encrypted_credentials_blob_v1` *inside* the
+  `integration_credentials.credentials` value. The command decrypts the column that the encryption
+  map covers; the envelope inside it survives. **Every integration's credentials must be re-entered
+  once after the flag flips.** The admin credentials form loads as if nothing were configured (the
+  route degrades on this reason specifically), and saving stores them in the clear. Until then the
+  adapter itself fails loudly rather than running with a broken secret.
 - **Ephemeral session API key secrets** (MCP / AI chat) are stored in the clear under `disabled`.
   Sessions minted while encryption was on are unrecoverable afterwards; they expire within 30
   minutes, so re-issuing the session key is the remedy.

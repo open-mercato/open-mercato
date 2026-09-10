@@ -262,11 +262,15 @@ describe('integration credentials with tenant data encryption disabled', () => {
     const service = createCredentialsService(em as never)
 
     // Returning the envelope, or an empty credential set, would hand the adapter a silently broken
-    // secret. The operator skipped `decrypt-database`; say so.
+    // secret. Say what happened instead -- and name a remedy that exists: `decrypt-database` does
+    // NOT unseal this blob (it decrypts the columns an encryption map covers, and this envelope
+    // sits inside the decrypted value), so an operator who follows that advice lands right back
+    // here. Re-entering the credentials is what actually works.
     const error = await service.getRaw('gateway_test', scope).catch((err: unknown) => err)
     expect(error).toBeInstanceOf(CredentialsEncryptionUnavailableError)
     expect((error as CredentialsEncryptionUnavailableError).reason).toBe('sealed-while-disabled')
-    expect((error as Error).message).toContain('decrypt-database')
+    expect((error as Error).message).toContain('re-enter the credentials')
+    expect((error as Error).message).toContain('does not reach this blob')
   })
 
   it('keeps failing closed when encryption is ON but the KMS is merely unreachable', async () => {

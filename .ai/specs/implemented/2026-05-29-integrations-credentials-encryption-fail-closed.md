@@ -104,8 +104,13 @@ object as-is with no `__om_encrypted_credentials_blob_v1` marker, so the on-disk
 self-describing and re-enabling the toggle re-seals on the next write.
 
 Reads of a blob sealed *before* the toggle was flipped still raise, now with
-`reason: 'sealed-while-disabled'` and a message naming `mercato entities decrypt-database` — the
-previous message pointed at Vault, which is not the remedy for that case.
+`reason: 'sealed-while-disabled'`. The previous message pointed at Vault, which is not the remedy
+for that case — and neither is `mercato entities decrypt-database`, which decrypts the columns an
+encryption map covers while this envelope sits *inside* the decrypted `credentials` value. The only
+remedy is re-entering the credentials, so `GET`/`PUT /api/integrations/:id/credentials` catch this
+one reason and degrade to an empty form instead of 503, letting the operator do exactly that. Every
+other unavailable reason still fails closed on both verbs, and adapters reading through the service
+still get the error rather than a silently empty credential set.
 
 ## Changelog
 
