@@ -3,6 +3,7 @@ import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { parseAvailabilityRuleWindow } from '@open-mercato/core/modules/planner/lib/availabilitySchedule'
+import { zonedDateKey, zonedWallTimeToInstant } from '@open-mercato/core/modules/planner/lib/availabilityTimezone'
 import { PlannerAvailabilityRule } from '../data/entities'
 import {
   plannerAvailabilityDateSpecificReplaceSchema,
@@ -52,22 +53,9 @@ type DateSpecificUndoPayload = {
   after: AvailabilityRuleSnapshot[]
 }
 
-function parseTimeInput(value: string): { hours: number; minutes: number } | null {
-  const [hours, minutes] = value.split(':').map((part) => Number(part))
-  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null
-  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null
-  return { hours, minutes }
-}
-
-function toDateForDay(value: string, time: string): Date | null {
-  if (!value) return null
-  const parsed = parseTimeInput(time)
-  if (!parsed) return null
-  const parts = value.split('-').map((part) => Number(part))
-  if (parts.length !== 3 || parts.some((part) => Number.isNaN(part))) return null
-  const [year, month, day] = parts
-  const date = new Date(year, month - 1, day, parsed.hours, parsed.minutes, 0, 0)
-  return Number.isNaN(date.getTime()) ? null : date
+function toDateForDay(dateKey: string, time: string, timeZone: string): Date | null {
+  if (!dateKey) return null
+  return zonedWallTimeToInstant(dateKey, time, timeZone)
 }
 
 function formatDuration(minutes: number): string {
@@ -86,18 +74,11 @@ function buildAvailabilityRrule(start: Date, end: Date): string {
   return `DTSTART:${dtStart}\nDURATION:${duration}\nRRULE:FREQ=DAILY;COUNT=1`
 }
 
-function buildFullDayRrule(date: string): string | null {
-  const start = toDateForDay(date, '00:00')
+function buildFullDayRrule(date: string, timeZone: string): string | null {
+  const start = toDateForDay(date, '00:00', timeZone)
   if (!start) return null
   const end = new Date(start.getTime() + 24 * 60 * 60 * 1000)
   return buildAvailabilityRrule(start, end)
-}
-
-function formatDateKey(value: Date): string {
-  const year = value.getFullYear()
-  const month = String(value.getMonth() + 1).padStart(2, '0')
-  const day = String(value.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
 }
 
 function toAvailabilityRuleSnapshot(record: PlannerAvailabilityRule): AvailabilityRuleSnapshot {
@@ -140,7 +121,7 @@ async function loadDateSpecificSnapshots(
     .filter((rule) => {
       const window = parseAvailabilityRuleWindow(rule)
       if (window.repeat !== 'once') return false
-      return params.dates.has(formatDateKey(window.startAt))
+      return params.dates.has(zonedDateKey(window.startAt, rule.timezone))
     })
     .map(toAvailabilityRuleSnapshot)
 }
@@ -223,7 +204,7 @@ const replaceDateSpecificAvailabilityCommand: CommandHandler<PlannerAvailability
         const toDelete = existing.filter((rule) => {
           const window = parseAvailabilityRuleWindow(rule)
           if (window.repeat !== 'once') return false
-          return dates.has(formatDateKey(window.startAt))
+          return dates.has(zonedDateKey(window.startAt, rule.timezone))
         })
         enforceCommandOptimisticLock({
           resourceKind: AVAILABILITY_RULE_RESOURCE_KIND,
@@ -244,7 +225,7 @@ const replaceDateSpecificAvailabilityCommand: CommandHandler<PlannerAvailability
 
       if (!isAvailable) {
         dates.forEach((date) => {
-          const rrule = buildFullDayRrule(date)
+          const rrule = buildFullDayRrule(date, parsed.timezone)
           if (!rrule) return
           const record = trx.create(PlannerAvailabilityRule, {
             tenantId: parsed.tenantId,
@@ -266,8 +247,8 @@ const replaceDateSpecificAvailabilityCommand: CommandHandler<PlannerAvailability
       } else {
         dates.forEach((date) => {
           windows.forEach((window) => {
-            const start = toDateForDay(date, window.start)
-            const end = toDateForDay(date, window.end)
+            const start = toDateForDay(date, window.start, parsed.timezone)
+            const end = toDateForDay(date, window.end, parsed.timezone)
             if (!start || !end || start >= end) return
             const rrule = buildAvailabilityRrule(start, end)
             const record = trx.create(PlannerAvailabilityRule, {

@@ -709,6 +709,65 @@ jobs:
         # scans — the whole set is ~10 s, so it stays on the common PR path.
         run: yarn test:repo-wide-guards
 
+  # ── Core suite under a non-UTC timezone ────────────────────────────────────
+  # Runners default to UTC, where wall-clock/timezone defects are invisible: the
+  # planner DTSTART bug (#5862) was built from the host clock, yet every suite
+  # passed at TZ=UTC with it fully present, because the fixtures only ever used
+  # `...Z` values. This job re-runs @open-mercato/core under a positive-offset
+  # zone whose local date differs from UTC for part of the day, so host-clock
+  # leakage fails the build instead of shipping. Kept as its own job rather than
+  # a step in `test`, which is sharded and would repeat the run per shard.
+  core-timezone:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [prepare, audit-scope, audit, lint]
+    if: |
+      always() &&
+      needs.prepare.result == 'success' &&
+      needs.audit-scope.result == 'success' &&
+      (needs.audit.result == 'success' || needs.audit.result == 'skipped') &&
+      needs.lint.result == 'success'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Cache Yarn packages
+        uses: actions/cache@v6
+        with:
+          path: .yarn/cache
+          key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+          restore-keys: yarn-${{ runner.os }}-
+
+      - name: Cache node_modules
+        id: nm-cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            node_modules
+            packages/*/node_modules
+            apps/*/node_modules
+          key: node-modules-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+
+      - name: Install dependencies
+        if: steps.nm-cache.outputs.cache-hit != 'true'
+        run: yarn install --immutable
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: build-artifacts
+
+      - name: Run core suite at TZ=Pacific/Auckland
+        run: yarn workspace @open-mercato/core test:tz
+
   # ── Documents multi-instance durability ────────────────────────────────────
   # The standard Documents Jest suite intentionally skips this infrastructure
   # regression. Run it as a dedicated required job on GitHub's Docker-capable
