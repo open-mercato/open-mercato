@@ -257,6 +257,14 @@ Stack-agnostic — install them all with one command:
 npx skills add open-mercato/skills --skill '*'
 ```
 
+If you're working inside this monorepo, use the repo-specific command instead — it installs this repo's committed local-tier skills together with the full shared collection into the gitignored `.agents/skills/` directory:
+
+```bash
+yarn install-skills
+```
+
+See [`.ai/skills/README.md`](.ai/skills/README.md) for the tier system, and the [local setup guide](https://docs.openmercato.com/installation/setup) for when to run it.
+
 [![Open Mercato Skills](https://img.shields.io/badge/GitHub-open--mercato%2Fskills-181717?logo=github)](https://github.com/open-mercato/skills)
 
 ---
