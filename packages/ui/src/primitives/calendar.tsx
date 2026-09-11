@@ -10,6 +10,14 @@ import { cn } from '@open-mercato/shared/lib/utils'
 
 export type CalendarProps = DayPickerProps
 
+// `LLLL`/`LLL`, not `MMMM`/`MMM`: these labels name a month on its own, and languages that
+// inflect month names — Polish among the five this repo ships — spell that differently from a
+// month inside a full date. `MMMM` is the inflected (genitive) form, so a Polish header read
+// "stycznia" ("of January") where it should read "styczeń". The two tokens are identical in
+// English, which is why the bug was invisible until a non-English tenant opened a picker.
+const STANDALONE_MONTH_YEAR = 'LLLL yyyy'
+const STANDALONE_MONTH_SHORT = 'LLL'
+
 const navButtonClassName = cn(
   'h-9 w-9 inline-flex items-center justify-center rounded-md shrink-0',
   'border border-border bg-background text-muted-foreground transition-colors',
@@ -32,7 +40,7 @@ function MonthNavButton({
   }
   const target = direction === 'prev' ? dayPicker.previousMonth : dayPicker.nextMonth
   const Icon = direction === 'prev' ? ChevronLeft : ChevronRight
-  const targetLabel = format(target ?? new Date(), 'MMMM yyyy', locale ? { locale } : undefined)
+  const targetLabel = format(target ?? new Date(), STANDALONE_MONTH_YEAR, locale ? { locale } : undefined)
   const ariaLabel = `Go to ${direction === 'prev' ? 'previous' : 'next'} month: ${targetLabel}`
   return (
     <button
@@ -61,7 +69,7 @@ function buildMonthCaption(
     calendarMonth: CalendarMonth
     displayIndex?: number
   }) {
-    const label = format(calendarMonth.date, 'MMMM yyyy', locale ? { locale } : undefined)
+    const label = format(calendarMonth.date, STANDALONE_MONTH_YEAR, locale ? { locale } : undefined)
     const index = typeof displayIndex === 'number' ? displayIndex : 0
     // For multi-month layouts (e.g. range pickers) only the leftmost month
     // exposes the previous-month chevron and only the rightmost exposes the
@@ -128,7 +136,7 @@ function MonthGrid({
   const monthLabels = React.useMemo(
     () =>
       Array.from({ length: 12 }, (_, monthIndex) =>
-        format(new Date(year, monthIndex, 1), 'MMM', locale ? { locale } : undefined),
+        format(new Date(year, monthIndex, 1), STANDALONE_MONTH_SHORT, locale ? { locale } : undefined),
       ),
     [year, locale],
   )

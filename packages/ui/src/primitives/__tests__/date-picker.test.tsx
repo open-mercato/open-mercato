@@ -1,5 +1,6 @@
 import * as React from 'react'
 import { act, fireEvent, render, screen } from '@testing-library/react'
+import { pl } from 'date-fns/locale/pl'
 import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
 import { DatePicker } from '../date-picker'
 import { DatePicker as LegacyDatePicker } from '../../backend/inputs/DatePicker'
@@ -241,6 +242,46 @@ describe('DatePicker primitive', () => {
     const selectedCell = document.querySelector('td[data-selected="true"]')
     expect(selectedCell).not.toBeNull()
     expect((selectedCell as HTMLElement).className).toMatch(/!bg-primary/)
+  })
+})
+
+describe('DatePicker calendar under a non-English locale', () => {
+  async function openPolishCalendar() {
+    renderWithI18n(
+      <DatePicker value={new Date(2026, 0, 15)} onChange={() => {}} locale={pl} />,
+    )
+    await openPopover()
+  }
+
+  it('names the month in the standalone form, not the genitive one used inside a date', async () => {
+    await openPolishCalendar()
+    expect(screen.getByText(/styczeń 2026/)).toBeInTheDocument()
+    expect(screen.queryByText(/stycznia 2026/)).not.toBeInTheDocument()
+  })
+
+  it('labels the month navigation buttons with the standalone month form', async () => {
+    await openPolishCalendar()
+    const navLabels = screen
+      .getAllByRole('button')
+      .map((button) => button.getAttribute('aria-label') ?? '')
+      .filter((label) => /^Go to (previous|next) month: /.test(label))
+    expect(navLabels).toEqual([
+      'Go to previous month: grudzień 2025',
+      'Go to next month: luty 2026',
+    ])
+  })
+
+  // 2025-12-29 is a Monday and 2025-12-28 the Sunday before it, so the first cell of the
+  // January 2026 grid says which day the calendar treats as the start of the week.
+  it('starts the week on the day the locale starts it on', async () => {
+    await openPolishCalendar()
+    expect(screen.getAllByRole('gridcell')[0]).toHaveAttribute('data-day', '2025-12-29')
+  })
+
+  it('keeps the picker default week start when no locale is passed', async () => {
+    renderWithI18n(<DatePicker value={new Date(2026, 0, 15)} onChange={() => {}} />)
+    await openPopover()
+    expect(screen.getAllByRole('gridcell')[0]).toHaveAttribute('data-day', '2025-12-28')
   })
 })
 

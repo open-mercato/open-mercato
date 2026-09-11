@@ -6,6 +6,7 @@ import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { DatePicker } from '@open-mercato/ui/primitives/date-picker'
+import { useDateFnsLocale } from '@open-mercato/ui/primitives/date-locale'
 import { TimePicker } from '@open-mercato/ui/backend/inputs/TimePicker'
 import {
   Select,
@@ -91,6 +92,7 @@ export function DateTimeFields({
   setRecurrenceEndDate,
 }: DateTimeFieldsProps) {
   const t = useT()
+  const dateLocale = useDateFnsLocale()
 
   if (!visible.has('date')) return null
 
@@ -117,6 +119,7 @@ export function DateTimeFields({
             value={parseIsoDate(date)}
             onChange={(next) => setDate(formatIsoDate(next))}
             placeholder={t('customers.schedule.date.placeholder', 'Pick a date')}
+            locale={dateLocale}
             required
             aria-describedby={dateMissing ? dateErrorId : undefined}
             className={cn(

@@ -7,8 +7,37 @@ jest.mock('remark-gfm', () => ({ __esModule: true, default: {} }))
 
 import * as React from 'react'
 import { renderToString } from 'react-dom/server'
+import { pl } from 'date-fns/locale/pl'
 import { CrudForm, type CrudField } from '../CrudForm'
 import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
+
+function renderFormWithLocale(
+  fields: CrudField[],
+  locale: string,
+  initialValues?: Record<string, unknown>,
+): string {
+  return renderToString(
+    React.createElement(
+      I18nProvider as React.ComponentType<{
+        locale: string
+        dict: Record<string, string>
+        children: React.ReactNode
+      }>,
+      { locale, dict: {} },
+      React.createElement(CrudForm as React.ComponentType<{
+        title: string
+        fields: CrudField[]
+        initialValues?: Record<string, unknown>
+        onSubmit: () => void
+      }>, {
+        title: 'Form',
+        fields,
+        initialValues,
+        onSubmit: () => {},
+      })
+    )
+  )
+}
 
 function renderForm(
   fields: CrudField[],
@@ -95,5 +124,38 @@ describe('CrudForm — datetime field types render correct picker component', ()
     // Legacy TimePicker shim renders the trigger in 12h "HH:MM AM/PM" format to
     // match the slot list inside the popover.
     expect(html).toContain('02:30 PM')
+  })
+})
+
+describe('CrudForm — date and time fields agree on the app locale', () => {
+  const DATE_AND_TIME: CrudField[] = [
+    { id: 'due_date', label: 'Due Date', type: 'datepicker' },
+    { id: 'sync_time', label: 'Sync Time', type: 'time' },
+  ]
+  const VALUES = { due_date: '2026-01-15', sync_time: '14:30' }
+
+  // A date field and a time field sitting in the same form must not disagree about which
+  // language they speak: before #5942 the date picker defaulted to English while the time
+  // picker defaulted to a 12h clock, and fixing only one of them is worse than fixing neither.
+  it('localizes both fields for a non-English app', () => {
+    const html = renderFormWithLocale(DATE_AND_TIME, 'pl', VALUES)
+    expect(html).toContain('15 sty 2026')
+    expect(html).toContain('14:30')
+    expect(html).not.toContain('PM')
+  })
+
+  it('leaves both fields on the English defaults for an English app', () => {
+    const html = renderFormWithLocale(DATE_AND_TIME, 'en', VALUES)
+    expect(html).toContain('Jan 15, 2026')
+    expect(html).toContain('02:30 PM')
+  })
+
+  it('lets a field pin its own locale ahead of the app locale', () => {
+    const html = renderFormWithLocale(
+      [{ id: 'due_date', label: 'Due Date', type: 'datepicker', locale: pl }],
+      'en',
+      { due_date: '2026-01-15' },
+    )
+    expect(html).toContain('15 sty 2026')
   })
 })
