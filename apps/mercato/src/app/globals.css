@@ -209,7 +209,8 @@ TODO: Fix that latter to have reference by the package names
   --radius: 0.625rem;
   /* Vertical space a viewport-pinned floating CTA needs to clear: its bottom
      offset (1.5rem) plus its own height, rounded up to the spacing scale.
-     Consumed by the `body[data-demo-feedback-fab]` safe-area rule below. */
+     Consumed by the `body[data-demo-feedback-fab]` safe-area rule below.
+     Pure spacing — theme-invariant (no .dark override). */
   --om-floating-cta-safe-area: 5rem;
   /* Brand lime + yellow — theme-invariant (no .dark override). Brand violet is themed (see below + .dark). */
   --brand-lime: #B4F372;
