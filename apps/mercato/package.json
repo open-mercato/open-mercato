@@ -48,6 +48,7 @@
     "@open-mercato/documents": "workspace:*",
     "@open-mercato/enterprise": "workspace:*",
     "@open-mercato/events": "workspace:*",
+    "@open-mercato/gateway-autopay": "workspace:*",
     "@open-mercato/gateway-stripe": "workspace:*",
     "@open-mercato/onboarding": "workspace:*",
     "@open-mercato/queue": "workspace:*",

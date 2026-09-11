@@ -1,0 +1,17 @@
+{
+  "gateway_autopay.title": "Autopay",
+  "gateway_autopay.description": "Przyjmuj płatności PLN przez hostowaną stronę Autopay (przelewy, BLIK, karty).",
+  "gateway_autopay.feature.view": "Podgląd konfiguracji Autopay",
+  "gateway_autopay.feature.configure": "Konfiguracja ustawień Autopay",
+  "gateway_autopay.config.serviceId": "Identyfikator Serwisu (Service ID)",
+  "gateway_autopay.config.sharedKey": "Klucz współdzielony",
+  "gateway_autopay.config.hashAlgorithm": "Algorytm skrótu",
+  "gateway_autopay.config.gatewayUrl": "Adres inicjacji płatności",
+  "gateway_autopay.config.help": "Zarejestruj własny Serwis Partnera na https://portal.autopay.eu/, żeby otrzymać Service ID, klucz współdzielony i adres bramki, a następnie wpisz je tutaj.",
+  "gateway_autopay.errors.plnOnly": "Ta integracja Autopay obsługuje wyłącznie płatności w PLN.",
+  "gateway_autopay.errors.customerEmailRequired": "Autopay wymaga adresu e-mail klienta dla każdej sesji płatności.",
+  "gateway_autopay.errors.captureUnsupported": "Autopay nie obsługuje osobnego zatwierdzania płatności — rozliczenie następuje natychmiast po zakończeniu przekierowania przez płatnika.",
+  "gateway_autopay.errors.cancelFailed": "Nie udało się anulować płatności w Autopay. Transakcja mogła zostać już rozliczona — spróbuj wykonać zwrot.",
+  "gateway_autopay.errors.refundPending": "Zlecenie zwrotu zostało przyjęte przez Autopay i jest przetwarzane. Sprawdź status ponownie za chwilę.",
+  "gateway_autopay.tabs.settings": "Ustawienia Autopay"
+}
