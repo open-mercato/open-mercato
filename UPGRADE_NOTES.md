@@ -332,6 +332,37 @@ The query object is now built by `buildQueryParams` from `@open-mercato/shared/l
 
 **Action for module authors:** audit your own list-route schemas for filter params that clients may repeat. Where a param is genuinely multi-valued, widen it to `z.union([z.string(), z.array(z.string())])` (or `z.array(z.string())`) and normalize it with `toQueryValueList`. Where it is genuinely single-valued, no change is needed — a repeated occurrence should be rejected. No route URL, HTTP method, response field, `makeCrudRoute` signature, options type, or database column changes, so `BACKWARD_COMPATIBILITY.md` §2, §3 and §7 are not violated.
 
+### The person create form publishes `crud-form:customers.person`, not the derived `crud-form:customers.customer_entity` (#5882)
+
+The customers module declares one canonical CrudForm host per entity in `extension-points.ts`, but only the *edit* surfaces passed them. `backend/customers/people/create/page.tsx` rendered its `CrudForm` with `entityIds` and no `injectionSpotId`, so `CrudForm` fell back to deriving the spot from the **first** entity id and published `crud-form:customers.customer_entity` — an id the module never declared. The two surfaces of the same logical form therefore consulted different hosts, and a widget keyed on the declared `crud-form:customers.person` reached person *editing* only. The create page now passes `injectionSpotId={extensionPoints.hosts.personForm.spotId}`, read from the module's own declaration so the surfaces cannot drift apart again. The `CreatePersonDialog` used by "Add new person" on a company detail page is bound the same way, so **every** person surface — create page, create dialog and edit page — now publishes one host. The companion fix for deals is described below. Companies have the same defect; #5881 fixes it the same way but has not landed yet, so `crud-form:customers.customer_entity` is still the id the company create page publishes until that PR merges — do not drop a company-side registration on the strength of this note.
+
+**This is a breaking change under `BACKWARD_COMPATIBILITY.md` §6, accepted for this release without a bridge.** §6 ("Widget Injection Spot IDs — FROZEN") says a change MUST NOT remove an existing spot ID from a page, and that is exactly what this does: the person create page — and, in the same change, the `CreatePersonDialog` "Add new person" dialog opened from a company detail page — stop publishing `crud-form:customers.customer_entity` and its `:fields` child. The removal is accepted rather than bridged because the id was never a *declared* host: no `extension-points.ts` entry ever named it, it existed only as a byproduct of `CrudForm` deriving a spot from the first entry in `entityIds`, and the deprecation protocol's dual-publish bridge is not reachable without changing `CrudForm` itself (the `:fields` child is resolved internally from the resolved spot id, and the `aliases`/`fallbacks` fields on a host declaration are consumed by the facts generator only — nothing honors them at runtime, so declaring one would make the tooling agree while widgets still went dark). The migration below is therefore required rather than optional, and is the whole of the upgrade path.
+
+No *other* frozen surface is touched: `entityIds` still drives custom-field resolution and the component-replacement handle, `CrudForm`'s fallback spot resolution is unchanged for every other host, the context shape published at the surviving spots is unchanged, and no prop, API route, event or database column changes.
+
+**Action for module authors — required if you target the legacy id.** If your module registers a widget or field widget against `crud-form:customers.customer_entity` (or its `:fields` child) in order to reach a person create surface, add the canonical key to your `injection-table.ts`:
+
+```ts
+// widgets/injection-table.ts
+'crud-form:customers.person:fields': { widgetId: 'my_module.injection.my-field', priority: 40 },
+```
+
+The in-repo `example` module already registers both ids, so its priority field is unaffected. Note also that widgets already registered on `crud-form:customers.person` now render on the create form as well — `customer_accounts`' "Account Status" group is the shipped example. It reads `context.recordId`, finds none in create mode and renders its empty state, so a record-scoped widget of your own should guard on `recordId` the same way.
+
+### Deal creation publishes the declared `crud-form:customers.deal` host (#5882)
+
+`backend/customers/deals/create/page.tsx` renders the hand-rolled `CreateDealForm`, not a `CrudForm`, so no spot id was derived for it and `extensionPoints.hosts.dealForm` was unreachable during deal creation — the create surface published **no** injection host at all. `CreateDealForm` now mounts that declared spot itself, with a context matching the one `CrudForm` publishes on the edit page (`formId`, `entityId`, `resourceKind`, `operation: 'create'`, and no `recordId`).
+
+This is purely additive: a spot that previously did not exist starts resolving. No existing widget changes host.
+
+The **save lifecycle is dispatched**, in `CrudForm`'s own order: `onBeforeSave` (a `false` / `{ ok: false }` result blocks the save and surfaces the widget's message and field errors, and any `requestHeaders` it returns are applied to the create call), then `onSave`, then `onAfterSave` once the deal exists. Widgets also receive the merged form state — base values plus `cf_*` custom-field keys — as `data`, matching what `CrudForm` passes on the edit page.
+
+**Known limitations, all a consequence of the create form not being a `CrudForm`.** Deal creation gains full parity only when that form is migrated onto `CrudForm`; until then:
+
+- **The `crud-form:customers.deal:fields` child spot is not rendered on create.** Rendering an injected field means composing it into the host's field list and value model, which is `CrudForm` machinery the hand-rolled form does not have. Field widgets targeting that spot continue to work on the deal edit page.
+- **Only the save phases of `CRUD_FORM_LIFECYCLE_PHASES` fire.** `onBeforeSave`, `onSave` and `onAfterSave` are dispatched; the four delete phases are inapplicable on a create form; and `transformFormData`, `transformValidation`, `transformDisplayData`, `onFieldChange`, `onBeforeNavigate`, `onAppEvent` and `onVisibilityChange` are **not** dispatched here. A widget that relies on one of those runs on the deal edit page only.
+- **`placement` metadata is not honored on create.** `CrudForm` wraps a `kind: 'group'` widget in a titled group card and routes it to column 1 or 2; the create form renders every widget for this spot in document order in the left-hand stack, using each widget's own markup. Give a widget you target at this host self-contained chrome if it must look the same on both surfaces.
+
 ## 0.6.7 → 0.7.0 (2026-08-26)
 
 ### `PUT /api/auth/users/acl` merges omitted fields instead of clearing them (#5493)
