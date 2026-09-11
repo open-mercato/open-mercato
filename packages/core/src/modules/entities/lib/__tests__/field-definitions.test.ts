@@ -83,6 +83,92 @@ describe('ensureCustomFieldDefinitions (issue #1399)', () => {
     expect(notes.configJson.priority).toBeUndefined()
   })
 
+  it('passes a declared encrypted flag through to configJson (#5920)', async () => {
+    const em = createMockEm()
+    const sets = [
+      {
+        entity: 'a:one',
+        fields: [
+          { key: 'ssn', kind: 'text' as const, encrypted: true },
+          { key: 'notes', kind: 'text' as const },
+        ],
+      },
+    ]
+
+    await ensureCustomFieldDefinitions(em as any, sets, scope)
+
+    const [ssn, notes] = em.persisted as Array<{ key: string; configJson: Record<string, unknown> }>
+    expect(ssn.key).toBe('ssn')
+    expect(ssn.configJson.encrypted).toBe(true)
+    expect(notes.configJson.encrypted).toBeUndefined()
+  })
+
+  it('keeps a declared encrypted flag idempotent across reinstalls (#5920)', async () => {
+    const existing = [
+      { entityId: 'a:one', key: 'ssn', kind: 'text', configJson: { encrypted: true }, isActive: true, deletedAt: null },
+    ]
+    const em = createMockEm(existing)
+    const sets = [{ entity: 'a:one', fields: [{ key: 'ssn', kind: 'text' as const, encrypted: true }] }]
+
+    const result = await ensureCustomFieldDefinitions(em as any, sets, scope)
+
+    expect(result).toEqual({ created: 0, updated: 0, unchanged: 1 })
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
+  it('preserves an admin-enabled encryption flag the declaration omits (#5920)', async () => {
+    const existing = [
+      { entityId: 'a:one', key: 'ssn', kind: 'text', configJson: { label: 'SSN', encrypted: true }, isActive: true, deletedAt: null },
+    ]
+    const em = createMockEm(existing)
+    const sets = [{ entity: 'a:one', fields: [{ key: 'ssn', kind: 'text' as const, label: 'Social security number' }] }]
+
+    const result = await ensureCustomFieldDefinitions(em as any, sets, scope)
+
+    // The label is rebuilt from the declaration, but dropping `encrypted` would leave
+    // stored ciphertext that the read path no longer decrypts.
+    expect(result).toEqual({ created: 0, updated: 1, unchanged: 0 })
+    expect(existing[0].configJson).toEqual({ label: 'Social security number', encrypted: true })
+  })
+
+  it('reports no change when only the preserved encryption flag would be re-added (#5920)', async () => {
+    const existing = [
+      { entityId: 'a:one', key: 'ssn', kind: 'text', configJson: { label: 'SSN', encrypted: true }, isActive: true, deletedAt: null },
+    ]
+    const em = createMockEm(existing)
+    const sets = [{ entity: 'a:one', fields: [{ key: 'ssn', kind: 'text' as const, label: 'SSN' }] }]
+
+    const result = await ensureCustomFieldDefinitions(em as any, sets, scope)
+
+    expect(result).toEqual({ created: 0, updated: 0, unchanged: 1 })
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
+  it('lets an explicit encrypted: false in the declaration turn encryption off (#5920)', async () => {
+    const existing = [
+      { entityId: 'a:one', key: 'ssn', kind: 'text', configJson: { encrypted: true }, isActive: true, deletedAt: null },
+    ]
+    const em = createMockEm(existing)
+    const sets = [{ entity: 'a:one', fields: [{ key: 'ssn', kind: 'text' as const, encrypted: false }] }]
+
+    const result = await ensureCustomFieldDefinitions(em as any, sets, scope)
+
+    expect(result).toEqual({ created: 0, updated: 1, unchanged: 0 })
+    expect(existing[0].configJson).toEqual({ encrypted: false })
+  })
+
+  it('does not resurrect encryption for a definition that never had it (#5920)', async () => {
+    const existing = [
+      { entityId: 'a:one', key: 'notes', kind: 'text', configJson: { encrypted: false }, isActive: true, deletedAt: null },
+    ]
+    const em = createMockEm(existing)
+    const sets = [{ entity: 'a:one', fields: [{ key: 'notes', kind: 'text' as const, label: 'Notes' }] }]
+
+    await ensureCustomFieldDefinitions(em as any, sets, scope)
+
+    expect((existing[0].configJson as Record<string, unknown>).encrypted).toBeUndefined()
+  })
+
   it('does not query or flush on a dry run', async () => {
     const em = createMockEm()
     const sets = [{ entity: 'a:one', fields: [{ key: 'foo', kind: 'text' as const }] }]
