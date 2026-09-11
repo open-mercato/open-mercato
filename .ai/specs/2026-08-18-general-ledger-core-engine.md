@@ -1320,7 +1320,13 @@ deploy independently of any other module.
   "deliberately not designed here" still holds for the field-level
   detail, but the "if this happens" framing above no longer applies.
   This bullet stays as the record of the gap; PR #6038 is where the
-  interface is actually designed.
+  interface is actually designed. **Update (2026-09-11):** a first draft
+  of `SPEC-010` now exists — `2026-09-11-jpk-kr-pd-financial-pl.md`,
+  staged temporarily in `open-mercato`'s own `.ai/specs/` (not yet moved
+  to `official-modules`, not yet reviewed). "Still isn't written" no
+  longer holds; the primary-source XSD verification pass and the
+  dependency on `#6038` merging still do — see that document's own
+  status banner and Open Questions.
 
 ## Final Compliance Report — 2026-08-27 (updated 2026-09-03, 2026-09-07, 2026-09-10)
 
@@ -1347,6 +1353,13 @@ a spec change: JPK_KR_PD is now a confirmed target for `financial-pl`
 update to the same bullet ("needs" instead of "would need"); no design
 decision in this document changes, so this doesn't move the Compliance
 Matrix or the verdict below either.
+
+A fourth follow-up, 2026-09-11: a first draft of `SPEC-010` itself now
+exists (see Changelog, "SPEC-010 first draft now exists"). Another
+pointer-only update to the same Out of scope bullet — "still isn't
+written" no longer holds, the primary-source XSD pass and the `#6038`
+dependency still do — no design decision in this document changes, so
+this doesn't move the Compliance Matrix or the verdict below either.
 
 The 2026-09-10 update responds to a collaborator's discovery-pass PR
 review (matgren) — art. 23 ust. 2 statutory entry-content fields, an
@@ -2039,3 +2052,14 @@ Updated the Out of scope bullet's wording accordingly ("needs" instead
 of "would need"). No design decision in *this* document changes — the
 bulk-read interface's field-level detail still waits on `SPEC-010`'s
 own primary-source XSD verification, same as before this decision.
+
+### 2026-09-11 (SPEC-010 first draft now exists)
+
+A first draft of `SPEC-010` (JPK_KR_PD) has been written —
+`2026-09-11-jpk-kr-pd-financial-pl.md`, staged temporarily in
+`open-mercato`'s own `.ai/specs/` pending its move to `official-modules`,
+not yet reviewed, still blocked on `#6038` merging and on its own
+primary-source XSD verification pass. Updated the Out of scope bullet's
+wording accordingly ("still isn't written" removed). No design decision
+in *this* document changes — the bulk-read interface's field-level
+detail still waits on `#6038`, same as before this update.
