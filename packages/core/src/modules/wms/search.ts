@@ -104,7 +104,7 @@ function buildLotPresenter(
 
 function buildSitePresenter(t: TranslateFn, record: Record<string, unknown>): SearchResultPresenter {
   const label = t('wms.search.badge.site', 'Site')
-  return { title: pickString(record.name, record.code, record.id) ?? label, subtitle: pickString(record.code) ?? undefined, icon: 'factory', badge: label }
+  return { title: pickString(record.name, record.code, record.id) ?? label, subtitle: pickString(record.code) ?? undefined, icon: 'warehouse', badge: label }
 }
 
 export const searchConfig: SearchModuleConfig = {

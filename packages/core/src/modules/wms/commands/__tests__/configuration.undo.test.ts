@@ -277,6 +277,9 @@ describe('WMS configuration commands — undoable contract', () => {
                 flush: jest.fn(async () => { flushed.push('flush') }),
                 create: jest.fn(),
                 persist: jest.fn(),
+                begin: jest.fn(async () => undefined),
+                commit: jest.fn(async () => undefined),
+                rollback: jest.fn(async () => undefined),
               }),
             }
           }
@@ -294,7 +297,7 @@ describe('WMS configuration commands — undoable contract', () => {
     expect(record.deletedAt).toBeNull()
     expect(record.name).toBe(before.name)
     expect(record.code).toBe(before.code)
-    expect(flushed).toHaveLength(1)
+    expect(flushed).toHaveLength(3)
   })
 
   it('undo of update restores `before` snapshot fields (warehouse)', async () => {

@@ -145,7 +145,6 @@ export function SiteFormClient({ siteId }: { siteId?: string }) {
         schema={schema}
         fields={fields}
         groups={groups}
-        contentMinHeight="none"
         entityId={E.wms.site}
         entityIds={[E.wms.site]}
         injectionSpotId={extensionPoints.hosts.siteForm.spotId}

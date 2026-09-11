@@ -8,6 +8,18 @@ export function warehouseLabel(row: SiteWarehouseRoleRow): string {
   return row.warehouse.name || row.warehouse.code || row.warehouse.id;
 }
 
+export function sortSiteWarehouseRoleRows(
+  rows: SiteWarehouseRoleRow[],
+): SiteWarehouseRoleRow[] {
+  return [...rows].sort((left, right) => {
+    const roleOrder = left.role.localeCompare(right.role);
+    if (roleOrder !== 0) return roleOrder;
+    if (left.isDefault !== right.isDefault) return left.isDefault ? -1 : 1;
+    const labelOrder = warehouseLabel(left).localeCompare(warehouseLabel(right));
+    return labelOrder || left.warehouse.id.localeCompare(right.warehouse.id) || left.id.localeCompare(right.id);
+  });
+}
+
 export function buildSiteWarehouseRoleColumns(
   t: Translate,
 ): ColumnDef<SiteWarehouseRoleRow>[] {

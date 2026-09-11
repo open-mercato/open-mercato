@@ -4,7 +4,6 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { type Kysely, sql, type RawBuilder } from 'kysely'
 import {
   applyJoinFilters,
-  buildJoinChain,
   normalizeFilters,
   partitionFilters,
   resolveJoins,
@@ -682,14 +681,6 @@ export class BasicQueryEngine implements QueryEngine {
       if (s.field.startsWith('cf:')) {
         resolvedSorts.push(s)
       } else {
-        const [alias, joinedColumn] = s.field.split('.')
-        if (joinedColumn && joinMap.has(alias)) {
-          const joinedTable = aliasTables.get(alias)
-          if (joinedTable && await this.columnExists(joinedTable, joinedColumn)) {
-            resolvedSorts.push({ ...s, field: `${alias}.${joinedColumn}` })
-          }
-          continue
-        }
         const column = await this.resolveBaseColumn(table, s.field)
         if (column) resolvedSorts.push({ ...s, field: column })
       }
@@ -817,31 +808,6 @@ export class BasicQueryEngine implements QueryEngine {
         columnExists: (tbl, column) => this.columnExists(tbl, column),
       })
 
-      if (!isCountProjection) {
-        const attachedSortJoins = new Set<string>()
-        for (const sortEntry of resolvedSorts) {
-          const [alias, column] = sortEntry.field.split('.')
-          if (!column || !joinMap.has(alias)) continue
-          const chain = buildJoinChain(alias, joinMap, table)
-          for (const join of chain) {
-            if (attachedSortJoins.has(join.alias)) continue
-            const parentAlias = join.fromAlias === 'base' || join.fromAlias === table ? table : join.fromAlias
-            const parentField = `${parentAlias}.${join.fromField}`
-            const joinMethod = join.type === 'inner' ? 'innerJoin' : 'leftJoin'
-            q = q[joinMethod](`${join.table} as ${join.alias}`, (joinBuilder: any) =>
-              joinBuilder.onRef(`${join.alias}.${join.toField}`, '=', parentField),
-            )
-            q = await applyAliasScopes(q, join.alias)
-            attachedSortJoins.add(join.alias)
-          }
-        }
-      }
-
-      const qualifySortField = (field: string) => {
-        const [alias, column] = field.split('.')
-        return column && joinMap.has(alias) ? `${alias}.${column}` : qualify(field)
-      }
-
       // Selection (base columns only here; cf:* handled later)
       if (isCountProjection) {
         // The caller owns the count query's SELECT (a constant inside the
@@ -855,7 +821,7 @@ export class BasicQueryEngine implements QueryEngine {
           q = q.select(sql.ref(qualify('organization_id')).as('organization_id'))
         }
         for (const s of resolvedSorts) {
-          if (!s.field.startsWith('cf:')) q = q.select(sql.ref(qualifySortField(s.field)).as(s.field))
+          if (!s.field.startsWith('cf:')) q = q.select(sql.ref(qualify(s.field)).as(s.field))
         }
       } else if (opts.fields && opts.fields.length) {
         const cols = new Set(opts.fields.filter((f) => !f.startsWith('cf:')))
@@ -1254,7 +1220,7 @@ export class BasicQueryEngine implements QueryEngine {
             q = q.orderBy(alias, (s.dir ?? 'asc') as any)
           }
         } else {
-          if (!requiresPlaintextSort) q = q.orderBy(qualifySortField(s.field), (s.dir ?? 'asc') as any)
+          if (!requiresPlaintextSort) q = q.orderBy(qualify(s.field), (s.dir ?? 'asc') as any)
         }
       }
 
@@ -1265,10 +1231,7 @@ export class BasicQueryEngine implements QueryEngine {
         Object.keys(cfValueExprByKey).length > 0
       )
       if (hasJoinedAggregates) {
-        const joinedSortFields = resolvedSorts
-          .filter((sortEntry) => sortEntry.field.includes('.') && joinMap.has(sortEntry.field.split('.')[0]))
-          .map((sortEntry) => qualifySortField(sortEntry.field))
-        q = q.groupBy([...new Set([`${table}.id`, ...joinedSortFields])])
+        q = q.groupBy(`${table}.id`)
       }
 
       return { builder: q, hasJoinedAggregates, cfJsonAliases, cfMultiAliasByAlias, resolvedCustomFieldDefinitions }

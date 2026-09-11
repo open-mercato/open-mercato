@@ -34,6 +34,7 @@ import {
 } from "./wmsSitesShared";
 import {
   buildSiteWarehouseRoleColumns,
+  sortSiteWarehouseRoleRows,
   warehouseLabel,
 } from "./siteWarehouseRoleColumns";
 
@@ -94,7 +95,10 @@ export function SiteWarehouseRolesClient({
       ) as SiteWarehouseRoleType[],
     [defaultsQuery.data?.items],
   );
-  const rows = query.data?.items ?? [];
+  const rows = React.useMemo(
+    () => sortSiteWarehouseRoleRows(query.data?.items ?? []),
+    [query.data?.items],
+  );
   const refresh = React.useCallback(async () => {
     await Promise.all([
       queryClient.invalidateQueries({

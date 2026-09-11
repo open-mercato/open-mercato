@@ -82,9 +82,17 @@ function createWarehouseStore(initial: WarehouseRecord[] = []) {
       }
       return null
     }),
-    find: jest.fn(async (_entity: unknown, filters: Record<string, unknown>) =>
-      [...records.values()].filter((record) => matchesWarehouseFilters(record, filters)),
-    ),
+    find: jest.fn(async (
+      _entity: unknown,
+      filters: Record<string, unknown>,
+      options?: { orderBy?: { createdAt?: string; id?: string }; limit?: number },
+    ) => {
+      const matching = [...records.values()].filter((record) => matchesWarehouseFilters(record, filters))
+      if (options?.orderBy?.createdAt) {
+        matching.sort((left, right) => left.createdAt.getTime() - right.createdAt.getTime() || left.id.localeCompare(right.id))
+      }
+      return options?.limit ? matching.slice(0, options.limit) : matching
+    }),
     nativeUpdate: jest.fn(async (_entity: unknown, filters: Record<string, unknown>, update: Record<string, unknown>) => {
       for (const record of records.values()) {
         if (matchesWarehouseFilters(record, filters)) {
@@ -315,19 +323,141 @@ describe('WMS warehouse primary enforcement', () => {
     expect(primary.isPrimary).toBe(false)
     expect(fallback.isPrimary).toBe(true)
     expect(fallback.updatedAt.getTime()).toBeGreaterThan(fallbackUpdatedAt.getTime())
-    expect(store.em.flush).toHaveBeenCalledTimes(2)
+    expect(store.em.flush).toHaveBeenCalledTimes(3)
     expect(store.em.nativeUpdate).not.toHaveBeenCalled()
     expect(store.em.find).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
+        id: { $ne: PRIMARY_ID },
         tenantId: TENANT,
         organizationId: ORG,
+        deletedAt: null,
+        isActive: true,
+        isPrimary: false,
+      }),
+      expect.objectContaining({
+        limit: 1,
+        lockMode: expect.anything(),
+        orderBy: { createdAt: 'asc', id: 'asc' },
+      }),
+    )
+    expect(emitWmsEventMock).toHaveBeenCalledWith(
+      'wms.warehouse.updated',
+      expect.objectContaining({ id: SECONDARY_ID }),
+    )
+  })
+
+  it('maps a delete-primary promotion race to the stable 409 conflict', async () => {
+    const store = createWarehouseStore([
+      {
+        id: PRIMARY_ID,
+        organizationId: ORG,
+        tenantId: TENANT,
+        name: 'Primary DC',
+        code: 'PRIMARY',
+        isActive: true,
+        isPrimary: true,
+        deletedAt: null,
+        addressLine1: null,
+        city: null,
+        postalCode: null,
+        country: null,
+        timezone: null,
+        metadata: null,
+        createdAt: new Date('2026-04-15T00:00:00.000Z'),
+        updatedAt: new Date('2026-04-15T00:00:00.000Z'),
+      },
+      {
+        id: SECONDARY_ID,
+        organizationId: ORG,
+        tenantId: TENANT,
+        name: 'Secondary DC',
+        code: 'SECONDARY',
         isActive: true,
         isPrimary: false,
         deletedAt: null,
-      }),
-      expect.objectContaining({ limit: 1 }),
+        addressLine1: null,
+        city: null,
+        postalCode: null,
+        country: null,
+        timezone: null,
+        metadata: null,
+        createdAt: new Date('2026-04-15T00:00:00.000Z'),
+        updatedAt: new Date('2026-04-15T00:00:00.000Z'),
+      },
+    ])
+    const conflict = new Error(
+      'duplicate key value violates unique constraint "wms_warehouses_org_primary_unique_idx"',
     )
+    ;(conflict as { code?: string }).code = '23505'
+    store.em.flush.mockRejectedValueOnce(conflict)
+
+    await expect(
+      commandRegistry.get('wms.warehouses.delete')!.execute!(
+        { id: PRIMARY_ID },
+        createCtx(store.em) as never,
+      ),
+    ).rejects.toMatchObject({ status: 409 })
+    expect(store.em.rollback).toHaveBeenCalled()
+  })
+
+  it('undoes primary deletion atomically and refreshes the demoted fallback', async () => {
+    const deletedPrimary = {
+      id: PRIMARY_ID,
+      organizationId: ORG,
+      tenantId: TENANT,
+      name: 'Primary DC',
+      code: 'PRIMARY',
+      isActive: true,
+      isPrimary: false,
+      deletedAt: new Date('2026-09-11T09:00:00.000Z'),
+      addressLine1: null,
+      city: null,
+      postalCode: null,
+      country: null,
+      timezone: null,
+      metadata: null,
+      createdAt: new Date('2026-04-15T00:00:00.000Z'),
+      updatedAt: new Date('2026-09-11T09:00:00.000Z'),
+    }
+    const fallback = {
+      ...deletedPrimary,
+      id: SECONDARY_ID,
+      name: 'Fallback DC',
+      code: 'FALLBACK',
+      isPrimary: true,
+      deletedAt: null,
+      createdAt: new Date('2026-05-15T00:00:00.000Z'),
+    }
+    const store = createWarehouseStore([deletedPrimary, fallback])
+    const emitWmsEventMock = jest.mocked(emitWmsEvent)
+    emitWmsEventMock.mockClear()
+
+    await commandRegistry.get('wms.warehouses.delete')!.undo!({
+      input: {},
+      logEntry: {
+        commandPayload: {
+          undo: {
+            before: {
+              ...deletedPrimary,
+              isPrimary: true,
+              deletedAt: undefined,
+              createdAt: deletedPrimary.createdAt.toISOString(),
+              updatedAt: deletedPrimary.updatedAt.toISOString(),
+            },
+          },
+        },
+      },
+      ctx: createCtx(store.em),
+      undoToken: 'undo-primary-delete',
+    } as never)
+
+    expect(store.records.get(PRIMARY_ID)).toMatchObject({ isPrimary: true, deletedAt: null })
+    expect(store.records.get(SECONDARY_ID)).toMatchObject({ isPrimary: false })
+    expect(store.em.begin).toHaveBeenCalledTimes(1)
+    expect(store.em.commit).toHaveBeenCalledTimes(1)
+    expect(store.em.rollback).not.toHaveBeenCalled()
+    expect(store.em.nativeUpdate).not.toHaveBeenCalled()
     expect(emitWmsEventMock).toHaveBeenCalledWith(
       'wms.warehouse.updated',
       expect.objectContaining({ id: SECONDARY_ID }),

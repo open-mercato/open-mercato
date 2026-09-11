@@ -10,5 +10,5 @@ export const metadata = {
     { label: 'WMS', labelKey: 'wms.backend.nav.title', href: '/backend/wms' },
     { label: 'Sites', labelKey: 'wms.sites.title' },
   ],
-  icon: 'factory',
+  icon: 'warehouse',
 } as const

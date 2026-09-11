@@ -413,6 +413,8 @@ async function runWithSiteWarehouseLocks<TResult>(
         const siteProbe = await loadSite(transaction, ctx, targetSiteId);
         const assignmentProbe = await transaction.find(SiteWarehouseRole, {
           site: siteProbe,
+          tenantId: siteProbe.tenantId,
+          organizationId: siteProbe.organizationId,
           deletedAt: null,
         });
         const warehouseIds = [
@@ -430,7 +432,12 @@ async function runWithSiteWarehouseLocks<TResult>(
         const site = await loadSite(transaction, ctx, targetSiteId, true);
         const assignments = await transaction.find(
           SiteWarehouseRole,
-          { site, deletedAt: null },
+          {
+            site,
+            tenantId: site.tenantId,
+            organizationId: site.organizationId,
+            deletedAt: null,
+          },
           { lockMode: LockMode.PESSIMISTIC_WRITE },
         );
         const currentWarehouseIds = [
@@ -552,6 +559,8 @@ async function roleAfterSnapshot(
   const currentSite = await loadSite(manager, ctx, siteId(record.site));
   const siblings = await manager.find(SiteWarehouseRole, {
     site: currentSite,
+    tenantId: currentSite.tenantId,
+    organizationId: currentSite.organizationId,
     role: record.role,
     deletedAt: null,
   });

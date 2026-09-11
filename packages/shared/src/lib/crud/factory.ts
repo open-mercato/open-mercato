@@ -94,7 +94,7 @@ function resolveSortParams(queryParams: Record<string, unknown>, defaultSort?: C
     queryParams.sortDir ?? queryParams.order ?? (requestedSortField ? 'asc' : defaultSort?.dir ?? 'asc')
   const normalizedDir = typeof rawSortDir === 'string' ? rawSortDir.trim().toLowerCase() : 'asc'
   const sortDir = normalizedDir === 'desc' ? SortDir.Desc : SortDir.Asc
-  return { sortField, sortDir, requestedSortField }
+  return { sortField, sortDir }
 }
 
 function normalizeSortFieldSelector(sortField: string): string {
@@ -228,11 +228,6 @@ export type ListConfig<TList> = {
    * pins the order itself.
    */
   defaultSort?: CrudDefaultSort
-  /**
-   * Ordered default sorts used when the request does not provide a sort field.
-   * Each field is resolved through `sortFieldMap` and applied before pagination.
-   */
-  defaultSorts?: CrudDefaultSort[]
   /**
    * Appended as a secondary ascending sort whenever it differs from the resolved
    * primary sort, so rows sharing a primary value keep a stable order across pages
@@ -1832,20 +1827,12 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           const mapped = (sortFieldMap && sortFieldMap[field]) || field
           return typeof mapped === 'string' ? normalizeSortFieldSelector(mapped) : mapped
         }
-        const { sortField: sortFieldRaw, sortDir: sortDirRaw, requestedSortField } = resolveSortParams(
+        const { sortField: sortFieldRaw, sortDir: sortDirRaw } = resolveSortParams(
           queryParams as Record<string, unknown>,
           opts.list.defaultSort,
         )
-        const configuredDefaultSorts = opts.list.defaultSorts?.length
-          ? opts.list.defaultSorts
-          : [{ field: sortFieldRaw, dir: sortDirRaw }]
-        const sort: Sort[] = requestedSortField
-          ? [{ field: resolveSortSelector(sortFieldRaw) as any, dir: sortDirRaw } as any]
-          : configuredDefaultSorts.map((entry) => ({
-              field: resolveSortSelector(entry.field) as any,
-              dir: entry.dir === 'desc' ? SortDir.Desc : SortDir.Asc,
-            }))
-        const sortField = sort[0]?.field
+        const sortField = resolveSortSelector(sortFieldRaw)
+        const sort: Sort[] = [{ field: sortField as any, dir: sortDirRaw } as any]
         if (opts.list.tiebreakSortField) {
           const tiebreakField = resolveSortSelector(opts.list.tiebreakSortField)
           if (tiebreakField !== sortField) sort.push({ field: tiebreakField as any, dir: SortDir.Asc } as any)

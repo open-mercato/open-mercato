@@ -49,8 +49,6 @@ const listSchema = z
         "isDefault",
         "createdAt",
         "updatedAt",
-        "warehouseName",
-        "warehouseCode",
         "warehouseId",
       ])
       .optional(),
@@ -87,26 +85,10 @@ const crud = makeCrudRoute({
       isDefault: "is_default",
       createdAt: "created_at",
       updatedAt: "updated_at",
-      warehouseName: "warehouse.name",
-      warehouseCode: "warehouse.code",
-      warehouseId: "warehouse.id",
+      warehouseId: "warehouse_id",
     },
-    joins: [
-      {
-        alias: "warehouse",
-        entityId: E.wms.warehouse,
-        from: { field: "warehouse_id" },
-        to: { field: "id" },
-        type: "inner",
-      },
-    ],
-    defaultSorts: [
-      { field: "role", dir: "asc" },
-      { field: "isDefault", dir: "desc" },
-      { field: "warehouseName", dir: "asc" },
-      { field: "warehouseCode", dir: "asc" },
-      { field: "warehouseId", dir: "asc" },
-    ],
+    defaultSort: { field: "role", dir: "asc" },
+    tiebreakSortField: "id",
     buildFilters: async (query) => {
       const filters: Record<string, unknown> = {};
       if (query.siteId) filters.site_id = { $eq: query.siteId };
