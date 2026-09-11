@@ -27,12 +27,17 @@ An activity is a discrete unit of work performed by the workflow engine. While s
 | **UPDATE_ENTITY** | Modify records through a command | Update order status, mark tasks complete, change flags |
 | **CALL_WEBHOOK** | Call external HTTP endpoints | Integrate with Zapier, Slack, custom services |
 | **EXECUTE_FUNCTION** | Run a registered workflow function | Custom business logic, complex transformations |
-| **WAIT** | Pause the workflow | Cool-off periods, scheduled follow-ups |
+| **SET_VARIABLE** | Write values into workflow context | Set flags, compute defaults, stage data for later steps |
+| **WAIT** | Pause for a duration or until a timestamp | Cool-off periods, scheduled follow-ups |
 
 > ⚠️ **Calling third-party services**: use **CALL_WEBHOOK**, not CALL_API. `CALL_API` targets this
 > application only — it rejects any endpoint whose host differs from `APP_URL` (SSRF prevention).
 
 ## Configuring Activities
+
+Each activity type has a dedicated configuration form in the visual editor — for example SEND_EMAIL shows recipient, subject, and body fields, and EMIT_EVENT offers an event picker. The raw JSON editor is still available under the collapsed **Advanced** section of every activity for copy-pasting or fields the form doesn't cover.
+
+Configurations are validated against each type's schema when you save. Problems appear as **warnings** in the editor — they don't block saving, so existing definitions keep working while you fix them.
 
 ### SEND_EMAIL
 
@@ -68,26 +73,27 @@ Only these fields are forwarded to the email service — `cc` / `bcc` are not su
 
 ### CALL_API
 
-Call this application's own `/api/*` endpoints. The engine authenticates the request with a
-one-time API key that it creates and deletes around the call, so no credentials belong in the
-configuration.
+Call one of the application's own API endpoints. (For third-party HTTP calls, use [CALL_WEBHOOK](#call_webhook) — it is the one that goes off-instance and is SSRF-guarded.)
+The engine authenticates the request with a one-time API key that it creates and deletes around
+the call, so no credentials belong in the configuration.
 
 **Configuration:**
 
 ```json
 {
-  "activityId": "reserve-stock",
-  "activityName": "Reserve Stock for Order",
+  "activityId": "create-order",
+  "activityName": "Create Sales Order",
   "activityType": "CALL_API",
   "config": {
-    "endpoint": "/api/inventory/reservations",
+    "endpoint": "/api/sales/orders",
     "method": "POST",
     "headers": {
       "Content-Type": "application/json"
     },
     "body": {
-      "orderId": "{{context.orderId}}",
-      "quantity": "{{context.quantity}}"
+      "customerEntityId": "{{context.customer.id}}",
+      "currencyCode": "{{context.cart.currency}}",
+      "placedAt": "{{now}}"
     }
   },
   "async": true,
@@ -101,11 +107,20 @@ configuration.
 ```
 
 **Parameters:**
-- `endpoint`: Path or URL to call (required) — a relative path must start with `/api/`
-- `method`: HTTP method (default `GET`)
+- `endpoint`: the API path to call, e.g. `/api/sales/orders` (supports variable interpolation)
+- `method`: HTTP method (GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS) — defaults to `GET`
 - `headers`: Request headers
 - `body`: Request body (object or string)
+- `timeout`: per-call timeout in milliseconds
 - `validateTenantMatch`: Verify the response belongs to the workflow's tenant (default `true`)
+
+#### Picking the Endpoint
+
+You do not have to know the path by heart. The **endpoint field opens a picker** listing the application's documented API surface: browse or search by path, method, tag and summary, then pick one. The picker fills in the method, shows the endpoint's declared parameters as typed rows instead of a raw query string, and free text remains available for anything the catalogue does not cover.
+
+When the chosen endpoint declares a **response schema**, that schema becomes the activity's output contract: the variable picker at every later step then offers the response's fields with real types instead of `unknown`. Endpoints without a declared response schema stay honestly untyped rather than guessing.
+
+The picker is specific to `CALL_API`, because it browses *this* application's endpoints. `CALL_WEBHOOK`'s URL is a free-text field — it points at somebody else's service.
 
 > ⚠️ **Internal endpoints only**: relative paths are resolved against `APP_URL` and must start
 > with `/api/`; an absolute URL must resolve to the same host as `APP_URL`. Anything else fails
@@ -118,19 +133,18 @@ When an activity runs asynchronously, its output is merged into the workflow con
 
 ```json
 {
-  "reserve-stock_result": {
-    "status": 200,
-    "statusText": "OK",
-    "body": {
-      "reservationId": "res_123"
+  "activities": {
+    "create-order": {
+      "output": {
+        "id": "ord_123",
+        "status": "draft"
+      }
     }
   }
 }
 ```
 
-Access response data in subsequent steps: `{{context.reserve-stock_result.body.reservationId}}`.
-Synchronous activities are not written to the context — have them update a record, or run them
-asynchronously when a later step needs the result.
+Access response data in subsequent steps: `{{activities.create-order.output.id}}`
 
 ### EMIT_EVENT
 
@@ -266,11 +280,35 @@ Run a function registered in the DI container under `workflowFunction:<functionN
 - `functionName`: Registered function name (required)
 - `args`: Object passed to the function as its first argument (default `{}`)
 
+### SET_VARIABLE
+
+Write values directly into workflow context. Each assignment lands at its dot path in top-level context (unlike other activities, whose output is namespaced under the activity name).
+
+**Configuration:**
+
+```json
+{
+  "activityId": "stage-approval-data",
+  "activityName": "Stage Approval Data",
+  "activityType": "SET_VARIABLE",
+  "config": {
+    "assignments": [
+      { "path": "approval.required", "value": true },
+      { "path": "approval.threshold", "value": 10000 },
+      { "path": "requesterName", "value": "{{context.customerName}}" }
+    ]
+  }
+}
+```
+
+**Parameters:**
+- `assignments`: List of `{ path, value }` pairs (at least one). `path` is a dot path into workflow context; `value` accepts any JSON value and supports variable interpolation.
+
+After this activity runs, later steps can read `{{context.approval.required}}` or use `context.approval.threshold` in transition conditions.
+
 ### WAIT
 
 Pause the workflow for a relative duration or until an absolute moment.
-
-**Configuration:**
 
 ```json
 {
@@ -325,6 +363,8 @@ The workflow continues immediately while the activity runs in the background on 
 - Processing can happen in parallel
 
 > 💡 **Tip**: Long-running API calls should be async to avoid blocking the workflow.
+
+> ⚠️ **Note**: Not every activity type can run asynchronously. `CALL_API` is sync-only — marking it `async` is refused immediately with a clear error when the workflow tries to enqueue it, instead of failing later in the background worker.
 
 ## Retry Policies
 
@@ -385,6 +425,48 @@ array rather than a string.
   }
 }
 ```
+
+You do not have to type these paths by hand: template-capable fields carry a **variable picker** that lists exactly what is available at that step, with type badges and *maybe* markers for values that only exist on some paths. References to context nothing produces surface as warnings in the editor's Problems panel. To verify an activity's config against sample data without running the workflow, use the [Test step panel](./creating-workflows#testing-a-step) — side-effecting activities are simulated, never executed.
+
+### Transform Pipelines
+
+A token can pipe its value through one or more **transforms** before it is inserted, so you rarely need an extra step just to format something:
+
+```
+{{ context.order.total | number(2) }}
+{{ context.customer.name | title }}
+{{ context.order.placedAt | date('yyyy-MM-dd') }}
+{{ context.customer.nickname | default('there') }}
+{{ context.order.lines | pick(0) | pick('sku') }}
+{{ context.order.reference | upper | prepend('#') }}
+```
+
+The grammar is deliberately small — a lookup path, then `|`-separated transform calls whose arguments are plain literals (quoted strings, numbers, `true`, `false`, `null`). There are no expressions and nothing is evaluated as code.
+
+| Transform | Arguments | Result |
+|-----------|-----------|--------|
+| `date` | optional format string (`yyyy`, `MM`, `dd`, `HH`, `mm`, `ss`, `SSS`, in UTC) | Formats a date value; with no argument, ISO-8601 |
+| `number` | optional decimals, optional locale | Fixed decimals, or a locale-formatted number when a locale is given |
+| `upper` / `lower` / `title` | none | Upper-cases, lower-cases, or title-cases text |
+| `concat` | one string | Appends it |
+| `prepend` | one string | Prepends it |
+| `default` | one value | Substitutes it when the value is missing, `null` or empty |
+| `pick` | field name or array index | Reads one field out of an object, or one element out of an array |
+
+A token with no `|` behaves exactly as it always has.
+
+:::note A pipe inside `{{ }}` is now a transform
+Before transforms existed, a `|` inside `{{ }}` was part of the lookup path. If you have a definition whose context genuinely contains a key with a `|` in it, that token now parses as a transform pipeline instead.
+:::
+
+### Strict Interpolation
+
+A definition can declare how it treats a token it cannot resolve, through `definition.interpolation`:
+
+- **`lenient`** — an unresolved token or a failed transform is left alone and execution carries on. This is how workflows have always behaved, and it stays the behaviour for every definition that does not say otherwise.
+- **`strict`** — an unresolved token or a failed transform fails the step instead of quietly producing a literal `{{context.missing}}` in an email or an API body.
+
+**New workflows are created in strict mode**; the toggle sits in the workflow's details panel. Existing definitions are never switched for you — updating an old definition keeps whatever mode it had.
 
 ## Common Patterns
 

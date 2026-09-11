@@ -11,9 +11,9 @@ Read these file pairs and compare versions:
 | Node.js | `.nvmrc` | `.devcontainer/Dockerfile` | `.nvmrc` content vs `FROM node:<ver>-slim` major version |
 | Node.js (engines) | `package.json` `engines.node` | `.devcontainer/Dockerfile` | Engine range vs image major version |
 | Yarn | `package.json` `packageManager` | `.devcontainer/Dockerfile` | Exact version in `corepack prepare yarn@<ver>` |
-| PostgreSQL | `docker-compose.yml` postgres `image:` | `.devcontainer/docker-compose.yml` postgres `image:` | Image tags must match |
-| Redis | `docker-compose.yml` redis `image:` | `.devcontainer/docker-compose.yml` redis `image:` | Image tags must match |
-| Meilisearch | `docker-compose.yml` meilisearch `image:` | `.devcontainer/docker-compose.yml` meilisearch `image:` | Image tags must match |
+| PostgreSQL | `starters/docker/compose.infra.yml` postgres `image:` | `.devcontainer/docker-compose.yml` postgres `image:` | Image tags must match |
+| Redis | `starters/docker/compose.infra.yml` redis `image:` | `.devcontainer/docker-compose.yml` redis `image:` | Image tags must match |
+| Meilisearch | `starters/docker/compose.infra.yml` meilisearch `image:` | `.devcontainer/docker-compose.yml` meilisearch `image:` | Image tags must match |
 
 **Action on mismatch**: Update the dev container file to match the regular source.
 
@@ -21,7 +21,7 @@ Read these file pairs and compare versions:
 
 Compare services required for development:
 
-1. Read `docker-compose.yml` (root) — list all infrastructure services (ignore app/verdaccio/opencode)
+1. Read `starters/docker/compose.infra.yml` — list all infrastructure services (ignore app/verdaccio/opencode)
 2. Read `.devcontainer/docker-compose.yml` — list all services except `workspace`
 3. Any infrastructure service in root but missing from devcontainer needs to be added
 
@@ -31,7 +31,7 @@ For each service, verify:
 - Health check exists
 - Environment variables match (credentials, config)
 
-**Also check** `docker-compose.fullapp.dev.yml` if it exists — it may reference services not in the base `docker-compose.yml`.
+**Also check** `starters/docker/compose.fullapp.dev.yml` if it exists — it may reference services not in the base `starters/docker/compose.infra.yml`.
 
 ## 3. Environment Variable Sync
 

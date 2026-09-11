@@ -1,6 +1,8 @@
+import { asValue } from 'awilix'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { bootstrap } from '@open-mercato/core/bootstrap'
 import { applicationLifecycleEvents } from '@open-mercato/shared/lib/runtime/events'
+import { webResearchAdapterEntries } from '@/.mercato/generated/web-research-adapters.generated'
 
 const APP_BOOTSTRAP_STARTED_EMITTED_KEY = '__openMercatoApplicationBootstrapStartedEventEmitted__'
 const APP_BOOTSTRAP_COMPLETED_EMITTED_KEY = '__openMercatoApplicationBootstrapCompletedEventEmitted__'
@@ -77,5 +79,10 @@ export async function register(container: AppContainer) {
     APP_BOOTSTRAP_COMPLETED_EMITTED_KEY,
     basePayload
   )
+  // Which web-research adapter packages are installed is an app-level fact, so
+  // the app owns the generated registry and passes it down. Packages cannot
+  // import from the app, and the specifiers must stay static for the bundler.
+  container.register({ webResearchAdapterEntries: asValue(webResearchAdapterEntries) })
+
   // App-level overrides can follow here
 }

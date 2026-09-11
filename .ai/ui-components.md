@@ -864,6 +864,21 @@ Set `showCount` + `maxLength` to render a `current/max` indicator below the text
 
 `aria-live="polite"` on the counter so screen readers announce the changing count.
 
+### Auto-resize
+
+Set `autoResize` to let the field grow with its content instead of hiding the tail behind an inner scrollbar. The cap is expressed in **rows** (`maxRows`, default `12`) so it follows the element's own type scale rather than a magic pixel height; past the cap the field scrolls. `autoResize` implies `resize-none` — the height is owned by the content, so a manual grabber would fight it.
+
+```tsx
+<Textarea
+  autoResize
+  maxRows={10}
+  value={description}
+  onChange={(e) => setDescription(e.target.value)}
+/>
+```
+
+Reach for this on prose fields the author cannot see the end of otherwise (descriptions, notes, composers). Do NOT hand-roll `element.style.height = scrollHeight` in a page — that pattern was duplicated three times before this prop existed.
+
 ### Composition with FormField
 
 ```tsx
@@ -886,6 +901,8 @@ import { Textarea } from '@open-mercato/ui/primitives/textarea'
 | Prop | Default | Notes |
 |---|---|---|
 | `showCount` | `false` | Render `length/maxLength` counter below |
+| `autoResize` | `false` | Grow with content; implies `resize-none` |
+| `maxRows` | `12` | Rows to grow to before scrolling (`autoResize` only) |
 | `wrapperClassName` | — | Applied to outer wrapper when counter visible |
 | `className` | — | Applied to the `<textarea>` element |
 | All native textarea props | — | `value`, `onChange`, `placeholder`, `disabled`, `required`, `maxLength`, `rows`, etc. |
@@ -896,7 +913,8 @@ import { Textarea } from '@open-mercato/ui/primitives/textarea'
 - For form fields with label + error, wrap with `FormField`.
 - Keep `min-h-[80px]` default (matches Figma) — only override when a specific design demands it.
 - For `showCount`, ALWAYS set `maxLength` — without it, the counter shows just `length` which is less actionable.
-- `resize-y` is allowed (user grows vertically); avoid `resize-none` unless layout breaks.
+- `resize-y` is allowed (user grows vertically); avoid `resize-none` unless layout breaks or `autoResize` owns the height.
+- **NEVER hand-roll auto-grow** (`el.style.height = el.scrollHeight`) in page code — pass `autoResize` instead.
 
 ---
 

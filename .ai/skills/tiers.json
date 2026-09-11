@@ -3,7 +3,7 @@
   "default": ["core"],
   "external": {
     "source": "open-mercato/skills",
-    "description": "Skills installed from the shared open-mercato/skills collection via `npx skills add` (see scripts/install-skills.sh). A folder under .ai/skills/ matching one of these names is a repo-local override read by the external skill, never symlinked into the harness directories.",
+    "description": "Skills installed from the shared open-mercato/skills collection via `npx skills add` (see scripts/install-skills.mjs). A folder under .ai/skills/ matching one of these names is a repo-local override read by the external skill, never symlinked into the harness directories.",
     "skills": [
       "om-approve-merge-pr",
       "om-auto-continue-pr",
@@ -48,6 +48,7 @@
         "om-fix-specs",
         "om-migrate-mikro-orm",
         "om-create-ai-agent",
+        "om-create-web-research-adapter",
         "om-help",
         "om-refresh-standalone-harness",
         "om-judge-agent-session",

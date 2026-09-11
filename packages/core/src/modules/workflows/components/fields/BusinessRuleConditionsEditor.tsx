@@ -4,9 +4,11 @@ import { useState, useEffect } from 'react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
-import { Plus, Trash2, AlertCircle } from 'lucide-react'
+import { Plus, Trash2, AlertCircle, Pencil } from 'lucide-react'
 import type { CrudCustomFieldRenderProps } from '@open-mercato/ui/backend/CrudForm'
+import { InlineRuleEditor } from '@open-mercato/core/modules/business_rules/components/InlineRuleEditor'
 import { BusinessRulesSelector, type BusinessRule } from '../BusinessRulesSelector'
+import { BusinessRuleUsagePanel } from '../BusinessRuleUsagePanel'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
@@ -32,6 +34,7 @@ interface ConditionWithDetails {
   required: boolean
   ruleName?: string
   ruleType?: string
+  recordId?: string
   loading?: boolean
   error?: boolean
 }
@@ -65,7 +68,9 @@ export function BusinessRuleConditionsEditor({
 }: BusinessRuleConditionsEditorProps) {
   const t = useT()
   const [isModalOpen, setIsModalOpen] = useState(false)
+  const [editingRule, setEditingRule] = useState<{ recordId: string; ruleId: string } | null>(null)
   const [conditionsWithDetails, setConditionsWithDetails] = useState<ConditionWithDetails[]>([])
+  const [detailsRefreshToken, setDetailsRefreshToken] = useState(0)
 
   const conditions = Array.isArray(value) ? value : []
 
@@ -82,7 +87,7 @@ export function BusinessRuleConditionsEditor({
     normalized.forEach((condition, index) => {
       fetchRuleDetails(condition.ruleId, index)
     })
-  }, [JSON.stringify(conditions.map(normalizeCondition))])
+  }, [JSON.stringify(conditions.map(normalizeCondition)), detailsRefreshToken])
 
   const fetchRuleDetails = async (ruleId: string, index: number) => {
     try {
@@ -100,6 +105,7 @@ export function BusinessRuleConditionsEditor({
               ...updated[index],
               ruleName: rule?.ruleName || ruleId,
               ruleType: rule?.ruleType,
+              recordId: rule?.id,
               loading: false,
               error: !rule,
             }
@@ -231,17 +237,31 @@ export function BusinessRuleConditionsEditor({
                     />
                   </div>
 
+                  {condition.recordId && !condition.loading && !condition.error ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      disabled={disabled}
+                      className="ml-2 flex-shrink-0"
+                      aria-label={t('workflows.businessRules.editRule')}
+                      onClick={() => setEditingRule({ recordId: condition.recordId as string, ruleId: condition.ruleId })}
+                    >
+                      <Pencil className="size-4" />
+                    </Button>
+                  ) : null}
+
                   {/* Delete Button */}
                   <ConfirmDialog
                     trigger={
                       <Button
                         type="button"
-                        variant="ghost"
+                        variant="destructive-ghost"
                         size="sm"
                         disabled={disabled}
                         className="ml-2 flex-shrink-0"
                       >
-                        <Trash2 className="size-4 text-destructive" />
+                        <Trash2 className="size-4" />
                       </Button>
                     }
                     title={t('workflows.fieldEditors.businessRuleConditions.removeCondition')}
@@ -267,6 +287,18 @@ export function BusinessRuleConditionsEditor({
         filterEntityType={filterEntityType}
         filterRuleType={filterRuleType}
         onlyEnabled={true}
+      />
+
+      {/* Inline rule editor (business_rules-owned) with the workflows usage panel */}
+      <InlineRuleEditor
+        open={editingRule !== null}
+        onOpenChange={(open) => { if (!open) setEditingRule(null) }}
+        recordId={editingRule?.recordId ?? null}
+        onSaved={() => {
+          setEditingRule(null)
+          setDetailsRefreshToken((token) => token + 1)
+        }}
+        usagePanel={<BusinessRuleUsagePanel ruleId={editingRule?.ruleId ?? null} />}
       />
     </div>
   )

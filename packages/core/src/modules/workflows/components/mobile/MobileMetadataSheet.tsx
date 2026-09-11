@@ -24,6 +24,16 @@ export interface MobileMetadataSheetProps {
   metadataHandlers: WorkflowMetadataHandlers
 }
 
+/**
+ * @deprecated Use `DefinitionMetadataDrawer` (`components/DefinitionMetadataDrawer.tsx`).
+ *
+ * This sheet was a second, divergent copy of the definition-metadata form and
+ * it never grew the fields the desktop one gained — `contextSchema`, the
+ * interpolation mode and the definition-level error handler were simply not
+ * editable on mobile. Both surfaces now render the shared drawer. Kept
+ * exported for one minor per the deprecation protocol; it has no call site
+ * left in this module.
+ */
 export function MobileMetadataSheet({
   open,
   onOpenChange,

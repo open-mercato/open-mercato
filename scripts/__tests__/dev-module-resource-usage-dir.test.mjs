@@ -32,6 +32,9 @@ function runMonorepoDevWrapper({ envFiles = {}, shellOverride } = {}) {
     OM_DEV_AUTO_OPEN: '0',
     OM_DEV_LOG_TEE: '0',
     OM_DEV_SPLASH_PORT: 'off',
+    // The wrapper restarts a crashed app runtime by default; this fixture's
+    // child exits on purpose, so opt out to keep the exit-code contract below.
+    OM_DEV_APP_RESTART: '0',
   }
   delete env.OM_MODULE_RESOURCE_USAGE_DIR
   if (shellOverride !== undefined) {

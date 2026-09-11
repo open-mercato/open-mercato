@@ -7,11 +7,11 @@ import { fileURLToPath } from 'node:url'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 
-const COMPOSE_FILES = ['docker-compose.fullapp.dev.yml', 'docker-compose.fullapp.yml']
+const COMPOSE_FILES = ['starters/docker/compose.fullapp.dev.yml', 'starters/docker/compose.fullapp.yml']
 
 const REPRESENTATIVE_TEXT_FILES = [
-  'docker-compose.fullapp.dev.yml',
-  'docker-compose.fullapp.yml',
+  'starters/docker/compose.fullapp.dev.yml',
+  'starters/docker/compose.fullapp.yml',
   'package.json',
   '.gitattributes',
 ]

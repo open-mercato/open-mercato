@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://open-mercato.dev/schemas/skills/tiers.schema.json",
   "title": "Open Mercato skills tier manifest",
-  "description": "Manifest mapping skill folders under .ai/skills/ to install tiers consumed by scripts/install-skills.sh.",
+  "description": "Manifest mapping skill folders under .ai/skills/ to install tiers consumed by scripts/install-skills.mjs.",
   "type": "object",
   "additionalProperties": false,
   "required": ["default", "tiers"],
@@ -17,16 +17,16 @@
         "type": "string",
         "minLength": 1
       },
-      "description": "Tier names installed when install-skills.sh is invoked with no flags."
+      "description": "Tier names installed when install-skills.mjs is invoked with no flags."
     },
     "agents": {
       "type": "object",
       "additionalProperties": false,
-      "description": "Agent harness settings for install-skills.sh. Skills always install into the canonical .agents/skills/ directory; per-agent symlinks are created only for agents that cannot read it.",
+      "description": "Agent harness settings for install-skills.mjs. Skills always install into the canonical .agents/skills/ directory; per-agent links are created only for agents that cannot read it.",
       "properties": {
         "ignore": {
           "type": "array",
-          "description": "Agents whose directories install-skills.sh must never write. Overridden by --ignore-agents.",
+          "description": "Agents whose directories install-skills.mjs must never write. Overridden by --ignore-agents.",
           "items": {
             "type": "string",
             "enum": ["claude-code", "codex", "cursor"]

@@ -74,7 +74,7 @@ describe('SegmentedControl', () => {
     const { container } = render(<Controlled />)
     const root = container.querySelector('[data-slot="segmented-control"]') as HTMLElement
     expect(root.className).toContain('h-8')
-    expect(root.className).toContain('rounded-full')
+    expect(root.className).toContain('rounded-lg')
     const item = container.querySelector('[data-slot="segmented-control-item"]') as HTMLElement
     expect(item.className).toContain('h-7')
     expect(item.className).toContain('text-sm')
@@ -123,7 +123,7 @@ describe('SegmentedControl', () => {
     )
     const root = container.querySelector('[data-slot="segmented-control"]') as HTMLElement
     expect(root.className).toContain('custom-class')
-    expect(root.className).toContain('rounded-full')
+    expect(root.className).toContain('rounded-lg')
     expect(root.className).toContain('bg-muted')
   })
 })

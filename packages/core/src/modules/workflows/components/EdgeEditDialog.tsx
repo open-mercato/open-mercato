@@ -27,8 +27,10 @@ import {ChevronDown, Plus, Trash2} from 'lucide-react'
 import {type BusinessRule, BusinessRulesSelector} from './BusinessRulesSelector'
 import {JsonBuilder} from '@open-mercato/ui/backend/JsonBuilder'
 import {useT} from '@open-mercato/shared/lib/i18n/context'
+import {useActivityTypeOptions} from './fields/useActivityTypeOptions'
 import {useDialogKeyHandler} from '@open-mercato/ui/hooks/useDialogKeyHandler'
 import {useConfirmDialog} from '@open-mercato/ui/backend/confirm-dialog'
+import {DurationInput} from '@open-mercato/ui/backend/inputs/DurationInput'
 
 export interface EdgeEditDialogProps {
   edge: Edge | null
@@ -56,6 +58,7 @@ interface TransitionCondition {
  */
 export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: EdgeEditDialogProps) {
   const t = useT()
+  const activityTypeOptions = useActivityTypeOptions()
   const { confirm: confirmDialog, ConfirmDialogElement } = useConfirmDialog()
   const [transitionName, setTransitionName] = useState('')
   const [trigger, setTrigger] = useState('auto')
@@ -538,7 +541,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                           <div className="border-t border-border pt-3">
                             <Button
                               type="button"
-                              variant="destructive"
+                              variant="destructive-outline"
                               size="sm"
                               onClick={() => removePreCondition(index)}
                             >
@@ -684,7 +687,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                           <div className="border-t border-border pt-3">
                             <Button
                               type="button"
-                              variant="destructive"
+                              variant="destructive-outline"
                               size="sm"
                               onClick={() => removePostCondition(index)}
                             >
@@ -788,13 +791,11 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
-                                <SelectItem value="SEND_EMAIL">{t('workflows.activities.types.SEND_EMAIL')}</SelectItem>
-                                <SelectItem value="CALL_API">{t('workflows.activities.types.CALL_API')}</SelectItem>
-                                <SelectItem value="UPDATE_ENTITY">{t('workflows.activities.types.UPDATE_ENTITY')}</SelectItem>
-                                <SelectItem value="EMIT_EVENT">{t('workflows.activities.types.EMIT_EVENT')}</SelectItem>
-                                <SelectItem value="CALL_WEBHOOK">{t('workflows.activities.types.CALL_WEBHOOK')}</SelectItem>
-                                <SelectItem value="EXECUTE_FUNCTION">{t('workflows.activities.types.EXECUTE_FUNCTION')}</SelectItem>
-                                <SelectItem value="WAIT">{t('workflows.activities.types.WAIT')}</SelectItem>
+                                {activityTypeOptions.map((type) => (
+                                  <SelectItem key={type.value} value={type.value}>
+                                    {type.label}
+                                  </SelectItem>
+                                ))}
                               </SelectContent>
                             </Select>
                           </div>
@@ -802,12 +803,10 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                           {/* Timeout */}
                           <div>
                             <label className="block text-xs font-medium text-foreground mb-1">{t('workflows.edgeEditor.timeout')}</label>
-                            <Input
-                              type="text"
-                              size="sm"
+                            <DurationInput
                               value={activity.timeout || ''}
-                              onChange={(e) => updateActivity(index, 'timeout', e.target.value)}
-                              placeholder={t('workflows.edgeEditor.timeoutPlaceholder')}
+                              onChange={(value) => updateActivity(index, 'timeout', value)}
+                              aria-label={t('workflows.edgeEditor.timeout')}
                             />
                             <p className="text-xs text-muted-foreground mt-0.5">{t('workflows.edgeEditor.timeoutHint')}</p>
                           </div>
@@ -911,7 +910,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
                           <div className="border-t border-border pt-3">
                             <Button
                               type="button"
-                              variant="destructive"
+                              variant="destructive-outline"
                               size="sm"
                               onClick={() => removeActivity(index)}
                             >
@@ -959,7 +958,7 @@ export function EdgeEditDialog({ edge, isOpen, onClose, onSave, onDelete }: Edge
         <DialogFooter className="flex justify-between">
           <Button
             type="button"
-            variant="destructive"
+            variant="destructive-outline"
             onClick={handleDelete}
           >
             <Trash2 className="size-4" />

@@ -1,13 +1,29 @@
 "use client"
 
+/**
+ * Form-editor configuration — DEPRECATED (spec section 10).
+ *
+ * The form editor is retired: `/backend/definitions/create` and
+ * `/backend/definitions/[id]` now forward to the Studio, and nothing in this
+ * module builds a workflow `CrudForm` any more. Every export below stays for at
+ * least one minor release so third-party pages that embed the definition form
+ * keep compiling (BACKWARD_COMPATIBILITY.md deprecation protocol); they are
+ * scheduled for removal one minor after the UPGRADE_NOTES entry.
+ *
+ * @deprecated Author workflows in `/backend/definitions/visual-editor`.
+ */
+
 import * as React from 'react'
 import { z } from 'zod'
 import type { CrudField, CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
+import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import type { WorkflowDefinitionTrigger } from '../data/entities'
 
 /**
  * Form Values Type
  * Represents the structure of form data for creating/editing workflow definitions
+ *
+ * @deprecated Retired with the form editor (spec section 10) — author workflows in the Studio.
  */
 export type WorkflowDefinitionFormValues = {
   workflowId: string
@@ -28,6 +44,8 @@ export type WorkflowDefinitionFormValues = {
   steps: any[]
   transitions: any[]
   triggers: WorkflowDefinitionTrigger[]
+  loadedDefinition?: Record<string, unknown> | null
+  loadedMetadata?: Record<string, unknown> | null
   id?: string
   updatedAt?: string | null
 }
@@ -35,6 +53,8 @@ export type WorkflowDefinitionFormValues = {
 /**
  * Form Validation Schema
  * Extends the API schema with additional client-side validation
+ *
+ * @deprecated Retired with the form editor (spec section 10) — author workflows in the Studio.
  */
 export const workflowDefinitionFormSchema = z.object({
   workflowId: z.string()
@@ -64,6 +84,8 @@ export const workflowDefinitionFormSchema = z.object({
 
 /**
  * Default Form Values
+ *
+ * @deprecated Retired with the form editor (spec section 10) — author workflows in the Studio.
  */
 export const defaultFormValues: WorkflowDefinitionFormValues = {
   workflowId: '',
@@ -84,6 +106,8 @@ export const defaultFormValues: WorkflowDefinitionFormValues = {
 /**
  * Create Field Definitions
  * Returns field configurations for the CrudForm
+ *
+ * @deprecated Retired with the form editor (spec section 10) — author workflows in the Studio.
  */
 export function createFieldDefinitions(t: (key: string) => string): CrudField[] {
   return [
@@ -159,12 +183,17 @@ export function createFieldDefinitions(t: (key: string) => string): CrudField[] 
 /**
  * Create Form Groups
  * Returns grouped layout configuration for the CrudForm
+ *
+ * @deprecated Retired with the form editor (spec section 10) — author workflows in the Studio.
  */
 export function createFormGroups(
   t: (key: string) => string,
   StepsEditorComponent: React.ComponentType<any>,
-  TransitionsEditorComponent: React.ComponentType<any>
+  TransitionsEditorComponent: React.ComponentType<any>,
+  options?: { onInvalidActivityConfigsChange?: (activityLabels: string[]) => void }
 ): CrudFormGroup[] {
+  const onInvalidActivityConfigsChange = options?.onInvalidActivityConfigsChange
+
   // Wrapper components to adapt CrudForm props
   const StepsEditorWrapper = (props: { value: any; setValue: (v: any) => void; error?: string; values?: any }) => {
     return <StepsEditorComponent value={props.value} onChange={props.setValue} error={props.error} />
@@ -172,7 +201,15 @@ export function createFormGroups(
 
   const TransitionsEditorWrapper = (props: { value: any; setValue: (v: any) => void; error?: string; values?: any }) => {
     // Pass the steps from values (all form values) so transitions can reference them
-    return <TransitionsEditorComponent value={props.value} onChange={props.setValue} steps={props.values?.steps || []} error={props.error} />
+    return (
+      <TransitionsEditorComponent
+        value={props.value}
+        onChange={props.setValue}
+        steps={props.values?.steps || []}
+        error={props.error}
+        onInvalidActivityConfigsChange={onInvalidActivityConfigsChange}
+      />
+    )
   }
 
   return [
@@ -231,10 +268,33 @@ export function createFormGroups(
   ]
 }
 
+/**
+ * Save gate for invalid activity configuration JSON.
+ *
+ * The activity config textareas keep invalid text local (so keystrokes are not
+ * lost), which means the form values still hold the last VALID config. Without
+ * this gate, saving while a textarea holds invalid JSON silently persists the
+ * stale config. Pages wire `createFormGroups`'s `onInvalidActivityConfigsChange`
+ * into state and call this at the top of their submit handler.
+ *
+ * @deprecated Retired with the form editor (spec section 10) — author workflows in the Studio.
+ */
+export function assertNoInvalidActivityConfigs(
+  invalidActivityLabels: string[],
+  t: (key: string, params?: Record<string, string | number>) => string,
+): void {
+  if (invalidActivityLabels.length === 0) return
+  throw createCrudFormError(
+    t('workflows.validation.invalidActivityConfigJson', { activity: invalidActivityLabels.join(', ') }),
+  )
+}
+
 import { toDateInputValue } from '@open-mercato/shared/lib/date/format'
 
 /**
  * Parse workflow definition to form values
+ *
+ * @deprecated Retired with the form editor (spec section 10) — author workflows in the Studio.
  */
 export function parseWorkflowToFormValues(workflow: any): WorkflowDefinitionFormValues {
   const updatedAt = workflow.updatedAt ?? workflow.updated_at ?? null
@@ -254,6 +314,8 @@ export function parseWorkflowToFormValues(workflow: any): WorkflowDefinitionForm
     steps: workflow.definition?.steps || [],
     transitions: workflow.definition?.transitions || [],
     triggers: workflow.definition?.triggers || [],
+    loadedDefinition: workflow.definition || null,
+    loadedMetadata: workflow.metadata || null,
     id: workflow.id,
     updatedAt: typeof updatedAt === 'string' ? updatedAt : updatedAt ? String(updatedAt) : null,
   }
@@ -261,6 +323,8 @@ export function parseWorkflowToFormValues(workflow: any): WorkflowDefinitionForm
 
 /**
  * Build API payload from form values
+ *
+ * @deprecated Retired with the form editor (spec section 10) — author workflows in the Studio.
  */
 export function buildWorkflowPayload(values: WorkflowDefinitionFormValues) {
   const triggers = values.triggers ?? []
@@ -269,11 +333,14 @@ export function buildWorkflowPayload(values: WorkflowDefinitionFormValues) {
   const category = (values['metadata.category'] || '').trim()
   const icon = (values['metadata.icon'] || '').trim()
   const tags = Array.isArray(values['metadata.tags']) ? values['metadata.tags'] : []
-  const metadata = {
+  const metadata: Record<string, unknown> = {
+    ...(values.loadedMetadata ?? {}),
     tags,
-    ...(category ? { category } : {}),
-    ...(icon ? { icon } : {}),
   }
+  if (category) metadata.category = category
+  else delete metadata.category
+  if (icon) metadata.icon = icon
+  else delete metadata.icon
   return {
     workflowId: values.workflowId,
     workflowName: values.workflowName,
@@ -283,10 +350,17 @@ export function buildWorkflowPayload(values: WorkflowDefinitionFormValues) {
     effectiveFrom: values.effectiveFrom || null,
     effectiveTo: values.effectiveTo || null,
     metadata,
-    definition: {
-      steps: values.steps,
-      transitions: values.transitions,
-      ...(triggers.length > 0 ? { triggers } : {}),
-    },
+    definition: buildLegacyDefinition(values, triggers),
   }
+}
+
+function buildLegacyDefinition(values: WorkflowDefinitionFormValues, triggers: WorkflowDefinitionTrigger[]) {
+  const definition: Record<string, unknown> = {
+    ...(values.loadedDefinition ?? {}),
+    steps: values.steps,
+    transitions: values.transitions,
+  }
+  if (triggers.length > 0) definition.triggers = triggers
+  else delete definition.triggers
+  return definition
 }

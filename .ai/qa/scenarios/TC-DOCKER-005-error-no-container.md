@@ -19,11 +19,11 @@ Verify that `docker-exec.mjs` prints a clear, actionable error message when no O
 ## Test Steps
 | Step | Action | Expected Result |
 |------|--------|-----------------|
-| 1 | Ensure no containers are running: `docker compose -f docker-compose.fullapp.dev.yml down` | Confirms no running containers |
+| 1 | Ensure no containers are running: `docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml down` | Confirms no running containers |
 | 2 | Run `yarn docker:generate` | Process does NOT hang; exits quickly with a non-zero code |
 | 3 | Read error output | Message starts with `Error: No running Open Mercato app container found.` |
-| 4 | Verify startup instructions are printed | Output includes `docker compose -f docker-compose.fullapp.dev.yml up --build` and `docker compose -f docker-compose.fullapp.yml up --build` |
-| 5 | Verify DOCKER_COMPOSE_FILE override hint is printed | Output mentions `DOCKER_COMPOSE_FILE=<file>` override |
+| 4 | Verify startup instructions are printed | Output includes `docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml up --build` and `docker compose --project-directory . -f starters/docker/compose.fullapp.yml up --build` |
+| 5 | Verify custom-compose-file hints are printed | Output mentions naming an override `starters/docker/compose.*dev*.local.yml` for auto-discovery (legacy root `docker-compose.*dev*.local.yml` files are also discovered) and the `DOCKER_COMPOSE_FILE=<file>` override |
 
 ## Expected Results
 - Exit code is 1 (non-zero)

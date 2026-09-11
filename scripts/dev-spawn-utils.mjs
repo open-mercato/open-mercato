@@ -54,6 +54,39 @@ export function resolveProjectBinary(command, options = {}) {
   return safeCommand
 }
 
+// Prefer invoking the mercato CLI's JS entry with the current Node executable
+// instead of a `mercato.cmd` shim. Yarn Berry prepends a temp bin folder of
+// generated .cmd wrappers to PATH when running package scripts; those wrappers
+// embed absolute paths written as UTF-8, but cmd.exe decodes batch files with
+// the OEM code page — a project path with non-ASCII characters (e.g. a Polish
+// user profile) turns into mojibake and Node fails with MODULE_NOT_FOUND.
+// Spawning `node <entry>` keeps every path inside wide-char argv, immune to
+// code-page translation, and also sidesteps the Node >= 18.20 EINVAL rules
+// for .cmd files.
+const MERCATO_CLI_ENTRY_SEGMENTS = ['node_modules', '@open-mercato', 'cli', 'bin', 'mercato']
+
+export function resolveMercatoInvocation(options = {}) {
+  const cwd = options.cwd ?? process.cwd()
+  const platform = options.platform ?? process.platform
+  const execPath = options.execPath ?? process.execPath
+
+  let currentDir = path.resolve(cwd)
+  for (;;) {
+    const candidate = path.join(currentDir, ...MERCATO_CLI_ENTRY_SEGMENTS)
+    if (fs.existsSync(candidate)) {
+      return { command: execPath, args: [candidate] }
+    }
+    const parentDir = path.dirname(currentDir)
+    if (parentDir === currentDir) break
+    currentDir = parentDir
+  }
+
+  return {
+    command: resolveProjectBinary(platform === 'win32' ? 'mercato.cmd' : 'mercato', { cwd, platform }),
+    args: [],
+  }
+}
+
 export function resolveSpawnCommand(command, commandArgs = [], options = {}) {
   const platform = options.platform ?? process.platform
   const safeCommand = assertProcessSafeValue(command, 'Process command')

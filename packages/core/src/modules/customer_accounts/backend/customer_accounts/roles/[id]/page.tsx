@@ -42,6 +42,8 @@ const PORTAL_FEATURES = [
   { id: 'portal.users.view', labelKey: 'customer_accounts.admin.portalFeatures.users.view', fallback: 'View team members', descriptionKey: 'customer_accounts.admin.portalFeatures.users.view.description', descriptionFallback: 'Allows viewing other team members in the organization' },
   { id: 'portal.users.invite', labelKey: 'customer_accounts.admin.portalFeatures.users.invite', fallback: 'Invite team members', descriptionKey: 'customer_accounts.admin.portalFeatures.users.invite.description', descriptionFallback: 'Allows sending portal invitations to new team members' },
   { id: 'portal.users.manage', labelKey: 'customer_accounts.admin.portalFeatures.users.manage', fallback: 'Manage team members', descriptionKey: 'customer_accounts.admin.portalFeatures.users.manage.description', descriptionFallback: 'Allows editing roles and removing team members' },
+  { id: 'portal.tasks.view', labelKey: 'customer_accounts.admin.portalFeatures.tasks.view', fallback: 'View tasks', descriptionKey: 'customer_accounts.admin.portalFeatures.tasks.view.description', descriptionFallback: 'Allows viewing workflow tasks assigned to this customer' },
+  { id: 'portal.tasks.complete', labelKey: 'customer_accounts.admin.portalFeatures.tasks.complete', fallback: 'Complete tasks', descriptionKey: 'customer_accounts.admin.portalFeatures.tasks.complete.description', descriptionFallback: 'Allows submitting and completing assigned workflow tasks' },
 ]
 
 const FEATURE_GROUPS: Array<{ id: string; labelKey: string; fallback: string; features: string[] }> = (() => {

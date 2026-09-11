@@ -1,0 +1,230 @@
+{
+  "id": "order-approval",
+  "nameKey": "workflows.templates.order-approval.name",
+  "descriptionKey": "workflows.templates.order-approval.description",
+  "category": "Sales",
+  "icon": "check-circle",
+  "definition": {
+    "steps": [
+      {
+        "stepId": "start",
+        "stepName": "Start",
+        "stepType": "START",
+        "description": "Initialize order approval workflow"
+      },
+      {
+        "stepId": "pending_approval",
+        "stepName": "Pending Approval",
+        "stepType": "USER_TASK",
+        "description": "Order awaiting approval decision",
+        "userTaskConfig": {
+          "formSchema": {
+            "type": "object",
+            "required": ["decision"],
+            "properties": {
+              "decision": {
+                "enum": ["approve", "reject"],
+                "type": "string",
+                "title": "Decision",
+                "description": "Approve or reject the order"
+              },
+              "comments": {
+                "type": "string",
+                "title": "Comments",
+                "description": "Optional comments for the decision"
+              }
+            }
+          },
+          "assignedToRoles": ["employee"],
+          "slaDuration": "PT24H"
+        }
+      },
+      {
+        "stepId": "approved",
+        "stepName": "Approved",
+        "stepType": "AUTOMATED",
+        "description": "Order has been approved"
+      },
+      {
+        "stepId": "rejected",
+        "stepName": "Rejected",
+        "stepType": "AUTOMATED",
+        "description": "Order has been rejected"
+      },
+      {
+        "stepId": "end",
+        "stepName": "Complete",
+        "stepType": "END",
+        "description": "Workflow complete"
+      }
+    ],
+    "transitions": [
+      {
+        "transitionId": "start_to_pending",
+        "transitionName": "Submit for Approval",
+        "fromStepId": "start",
+        "toStepId": "pending_approval",
+        "trigger": "auto",
+        "priority": 100,
+        "continueOnActivityFailure": true,
+        "activities": [
+          {
+            "activityId": "set_pending_status",
+            "activityName": "Set Order to Pending Approval",
+            "activityType": "UPDATE_ENTITY",
+            "async": false,
+            "config": {
+              "commandId": "sales.orders.update",
+              "statusDictionary": "sales.order_status",
+              "input": { "id": "{{context.id}}", "statusValue": "pending_approval" }
+            },
+            "retryPolicy": {
+              "maxAttempts": 3,
+              "initialIntervalMs": 1000,
+              "backoffCoefficient": 2,
+              "maxIntervalMs": 10000
+            }
+          },
+          {
+            "activityId": "emit_approval_requested",
+            "activityName": "Emit Approval Requested Event",
+            "activityType": "EMIT_EVENT",
+            "async": true,
+            "config": {
+              "eventName": "sales.order.approval.requested",
+              "payload": {
+                "orderId": "{{context.id}}",
+                "workflowInstanceId": "{{workflow.instanceId}}"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "transitionId": "pending_to_approved",
+        "transitionName": "Approve Order",
+        "fromStepId": "pending_approval",
+        "toStepId": "approved",
+        "trigger": "auto",
+        "priority": 100,
+        "preConditions": [
+          { "ruleId": "workflow_order_approval_check_approved", "required": true }
+        ],
+        "continueOnActivityFailure": true,
+        "activities": [
+          {
+            "activityId": "set_approved_status",
+            "activityName": "Set Order to Approved",
+            "activityType": "UPDATE_ENTITY",
+            "async": false,
+            "config": {
+              "commandId": "sales.orders.update",
+              "statusDictionary": "sales.order_status",
+              "input": { "id": "{{context.id}}", "statusValue": "approved" }
+            },
+            "retryPolicy": {
+              "maxAttempts": 3,
+              "initialIntervalMs": 1000,
+              "backoffCoefficient": 2,
+              "maxIntervalMs": 10000
+            }
+          },
+          {
+            "activityId": "emit_order_approved",
+            "activityName": "Emit Order Approved Event",
+            "activityType": "EMIT_EVENT",
+            "async": true,
+            "config": {
+              "eventName": "sales.order.approval.approved",
+              "payload": {
+                "orderId": "{{context.id}}",
+                "workflowInstanceId": "{{workflow.instanceId}}",
+                "approvedBy": "{{context.completedBy}}",
+                "comments": "{{context.comments}}"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "transitionId": "pending_to_rejected",
+        "transitionName": "Reject Order",
+        "fromStepId": "pending_approval",
+        "toStepId": "rejected",
+        "trigger": "auto",
+        "priority": 90,
+        "preConditions": [
+          { "ruleId": "workflow_order_approval_check_rejected", "required": true }
+        ],
+        "continueOnActivityFailure": true,
+        "activities": [
+          {
+            "activityId": "set_rejected_status",
+            "activityName": "Set Order to Rejected",
+            "activityType": "UPDATE_ENTITY",
+            "async": false,
+            "config": {
+              "commandId": "sales.orders.update",
+              "statusDictionary": "sales.order_status",
+              "input": { "id": "{{context.id}}", "statusValue": "rejected" }
+            },
+            "retryPolicy": {
+              "maxAttempts": 3,
+              "initialIntervalMs": 1000,
+              "backoffCoefficient": 2,
+              "maxIntervalMs": 10000
+            }
+          },
+          {
+            "activityId": "emit_order_rejected",
+            "activityName": "Emit Order Rejected Event",
+            "activityType": "EMIT_EVENT",
+            "async": true,
+            "config": {
+              "eventName": "sales.order.approval.rejected",
+              "payload": {
+                "orderId": "{{context.id}}",
+                "workflowInstanceId": "{{workflow.instanceId}}",
+                "rejectedBy": "{{context.completedBy}}",
+                "comments": "{{context.comments}}"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "transitionId": "approved_to_end",
+        "transitionName": "Complete After Approval",
+        "fromStepId": "approved",
+        "toStepId": "end",
+        "trigger": "auto",
+        "priority": 100,
+        "continueOnActivityFailure": true
+      },
+      {
+        "transitionId": "rejected_to_end",
+        "transitionName": "Complete After Rejection",
+        "fromStepId": "rejected",
+        "toStepId": "end",
+        "trigger": "auto",
+        "priority": 100,
+        "continueOnActivityFailure": true
+      }
+    ],
+    "triggers": [
+      {
+        "triggerId": "order_created_trigger",
+        "name": "Order Created Trigger",
+        "description": "Starts the approval flow when a new sales order is created",
+        "eventPattern": "sales.order.created",
+        "config": {
+          "contextMapping": [
+            { "targetKey": "id", "sourceExpression": "payload.id" }
+          ]
+        },
+        "enabled": true,
+        "priority": 0
+      }
+    ]
+  }
+}

@@ -389,6 +389,8 @@ export const directRuleExecutionContextSchema = z.object({
   organizationId: z.uuid('organizationId must be a valid UUID'),
   executedBy: z.string().optional(),
   dryRun: z.boolean().optional(),
+  // See `ruleIdExecutionContextSchema.skipActions`.
+  skipActions: z.boolean().optional(),
   entityType: z.string().optional(),
   entityId: z.string().optional(),
   eventType: z.string().optional(),
@@ -409,6 +411,10 @@ export const ruleIdExecutionContextSchema = z.object({
   organizationId: z.uuid('organizationId must be a valid UUID'),
   executedBy: z.string().optional(),
   dryRun: z.boolean().optional(),
+  // Evaluate the conditions but do not run the rule's success/failure ACTIONS.
+  // `dryRun` only suppresses the execution LOG, so it is not the flag a caller
+  // that must produce no side effects can rely on.
+  skipActions: z.boolean().optional(),
   entityType: z.string().optional(),
   entityId: z.string().optional(),
   eventType: z.string().optional(),

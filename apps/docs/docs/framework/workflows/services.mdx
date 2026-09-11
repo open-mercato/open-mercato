@@ -358,6 +358,100 @@ async function approveRequest(taskId: string, comments: string) {
 }
 ```
 
+### Completing with a decision
+
+When the step authored decision buttons, pass the id of the one that was pressed:
+
+```typescript
+await apiFetch(`/api/workflows/tasks/${taskId}/complete`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ formData: { comments }, decisionId: 'reject' }),
+})
+```
+
+`decisionId` is optional and additive — a task without decisions completes exactly as before. When present it does two things: it **selects the outgoing route** (the decision's durable `transitionId` wins over the default first-valid-transition evaluation) and it is **recorded** on the completion, under the reserved `__decision` key in `user_tasks.form_data` and in the `USER_TASK_COMPLETED` event. Because form data is merged into the run context, a downstream route condition can branch on `context.__decision`.
+
+The lookup is constrained to routes **leaving the step the task is parked on**, and error and SLA-breach routes are excluded — a button can never send a run down a route that starts elsewhere, or down a path only a failure may reach. An unknown `decisionId` is resolved *before* anything is mutated and answered `400`, so the task is left untouched rather than completed down the wrong route. A decision whose route no longer exists on the step logs a warning and falls back to normal routing instead of stranding the run.
+
+A task inside a **parallel branch** records the decision but does not route on it: a branch advances through `resumeBranch` with its own token, and overriding its outgoing route is a parallel-execution change rather than a task-surface one.
+
+## Work Inbox
+
+```
+GET  /api/workflows/work-inbox        # merged, filtered, ordered work items
+POST /api/workflows/work-inbox/next   # claim the top claimable item
+POST /api/workflows/tasks/{id}/unclaim  # release a claim back to its queue
+```
+
+`GET /api/workflows/work-inbox` (feature `workflows.tasks.view`) merges every registered source. Query parameters: `kind`, `module`, `entityType`, `role`, `priority`, `status`, `overdue`, `myWork` (alias `myTasks`), `assignedTo`, `workflowInstanceId`, `limit`, `offset`.
+
+```typescript
+{
+  data: [ /* rows */ ],
+  pagination: { total, limit, offset, hasMore },
+  meta: { kinds: ['user_task'], degradedKinds: [] },
+}
+```
+
+- **Ordering** is priority → due date → created (oldest first), with the row id breaking the final tie so the order is total and stable across sources. An unset priority ranks *with* `medium`.
+- **`limit` is clamped to 100**, silently: an over-large request succeeds with the clamped page rather than failing.
+- **A row is a strict superset of a task-list row.** The provider payload is spread *under* the common projection, so a `user_task` row still carries every field `GET /api/workflows/tasks` returns (including `proposalId`) alongside `kind`, `moduleId`, `entityTypes`, `entityBindings`, `detailHref` and `actions`.
+- **`meta.degradedKinds`** names sources whose `list()` threw. Render the queue and say it may be incomplete; do not fail the page.
+- **`GET /api/workflows/tasks` is unchanged** and keeps its full response shape — the inbox is a new route beside it, not a replacement of it.
+
+`POST /api/workflows/work-inbox/next` (feature `workflows.tasks.claim`) walks the caller's claimable queue in inbox order and claims the first item it wins, returning the claimed row. Nothing claimable is a `200` with `data: null`, not a `404`. It accepts the same query string as the list, so the candidate set can be narrowed.
+
+Claiming is a **compare-and-set**: `claimUserTask` takes the row with a conditional `UPDATE … WHERE status = 'PENDING' AND claimed_by IS NULL`. The candidate list is a plain read and is expected to be stale; two callers racing therefore never receive the same item — the loser's update affects zero rows and the handler moves on to the next candidate instead of failing.
+
+Resolve the service directly when you need the same queue server-side:
+
+```typescript
+const workInboxService = container.resolve('workInboxService')
+const { rows, total, kinds, degradedKinds } = await workInboxService.listWorkInbox(query, {
+  scope: { tenantId, organizationIds, userId, roles },
+  resolve: (name) => container.resolve(name),
+})
+```
+
+## Task Administration and Portal Tasks
+
+```
+POST /api/workflows/tasks/{id}/reassign   # feature workflows.tasks.reassign
+GET  /api/workflows/task-settings         # feature workflows.tasks.view_all
+PUT  /api/workflows/task-settings         # feature workflows.tasks.manage
+GET  /api/workflows/portal/tasks          # customer feature portal.tasks.view
+GET  /api/workflows/portal/tasks/{id}     # customer feature portal.tasks.view
+POST /api/workflows/portal/tasks/{id}/complete  # customer feature portal.tasks.complete
+```
+
+Every one of these is a **new** route; no existing route's URL, method or response fields changed. Which rows the existing task routes return did change — see [**Task Visibility**](./task-visibility) for the full model, which is required reading before integrating against any of them.
+
+```typescript
+// Take a colleague's task before acting on it. `view_all` grants reading, never acting:
+// completing somebody else's task answers 409 TASK_ASSIGNED_TO_ANOTHER_USER.
+await apiFetch(`/api/workflows/tasks/${taskId}/reassign`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ assignedTo: myUserId, reason: 'Owner on leave' }),
+})
+```
+
+Reassignment stamps `reassigned_by` / `reassigned_at` / `reassign_reason`, logs a `USER_TASK_REASSIGNED` event, releases an in-flight claim, and returns an `IN_PROGRESS` task to `PENDING`. It honours `x-om-ext-optimistic-lock-expected-updated-at` when a client sends one. Its gate is **visibility, not ownership** — which is what makes it the remedy for a task nobody owns (`403 TASK_NOT_ACTIONABLE` on the act routes).
+
+The portal routes are a **new surface, not a relaxation**: they take a portal session (not a bearer token), refuse a backoffice principal with `401`, and the backoffice task routes still refuse a portal session with `401`. `GET /api/workflows/portal/tasks/{id}` additionally returns `canComplete`, which is `false` for a company administrator reading a member's task. Every portal refusal is the same `404` body.
+
+## Task Deadlines and Reminders
+
+A USER_TASK with a `deadline` schedules its reminders and its breach **once, at task creation**, as delayed jobs on the existing `workflow-activities` queue (job kind `task_sla`) — the same absolute-deadline backstop `WAIT_FOR_CONDITION` uses. A new queue would need its own worker registration and its own database connection budget for jobs that are one row read plus an event.
+
+- `deadlineAt` is an **absolute** ISO instant on the payload and is never recomputed by the worker, so a queue running behind cannot silently extend an author's deadline.
+- The handler is **idempotent**: a task that is no longer `PENDING`/`IN_PROGRESS` makes the job a no-op, the breach is claimed with a conditional `UPDATE … WHERE status IN (…) AND escalated_at IS NULL`, and a reminder is skipped once the task has escalated or the deadline has passed. At-least-once delivery therefore still fires each phase exactly once.
+- A task with **no deadline schedules nothing at all**.
+- On breach the resolution is pure and fail-safe (`lib/breach-routing.ts`): an outgoing transition with `kind: 'slaBreach'` wins, otherwise the step's `onBreach` action applies (`route` bound to a durable transition id, `reassign` to a user id *or* a role name, or `notify`), otherwise nothing routes — which is exactly the previous behavior. A `route` whose transition no longer exists on the step resolves to "nothing", never to "follow whichever route happens to be valid": auto-routing a breach would advance the run past work the author never said could be skipped.
+- A routed breach sets `status = 'ESCALATED'` — an existing `UserTaskStatus`, so no state-machine change.
+- A task in a **parallel branch** does not follow its breach route; the skip is logged as `route_skipped_branch`.
+
 ## Event Listeners
 
 Subscribe to workflow events to react to state changes:
@@ -421,14 +515,35 @@ Context is updated automatically through:
 - Signal payloads (merged at root level)
 - User task form data (merged at root level)
 
-For custom updates, use the service layer:
+For custom updates from outside the engine, patch the instance context over HTTP:
 
-```typescript
-await workflowService.updateContext(instanceId, {
-  customField: 'value',
-  updatedAt: new Date().toISOString()
-})
+```http
+PATCH /api/workflows/instances/{instanceId}/context
+Content-Type: application/json
+
+{
+  "context": {
+    "gridApproval": { "status": "APPROVED", "reference": "GA-4471" }
+  }
+}
 ```
+
+```json
+{
+  "ok": true,
+  "instanceId": "instance-uuid",
+  "woken": ["await_grid_approval"]
+}
+```
+
+The patch is **merged** into the run context, and any `WAIT_FOR_CONDITION` step whose predicate now holds is woken in the same call — `woken` names the step ids that resumed. The per-waiter poll job remains the durability backstop, so a missed call here costs latency, never correctness.
+
+Rules worth knowing before you call it:
+
+- It requires the **`workflows.instances.update_context`** ACL feature. This is deliberately *not* folded into `workflows.instances.signal`: writing arbitrary run context is a strictly broader capability than sending a named signal.
+- The read is tenant- and organization-scoped, so a cross-tenant instance id answers `404`, not `403`.
+- Engine-owned keys are **rejected**, not silently dropped: `__result`, `_pendingAsyncActivities`, `__park` and `__error`. Overwriting any of them would corrupt a running instance.
+- The write goes through the command optimistic-lock guard, so a stale write is refused rather than clobbering a concurrent update.
 
 ## Error Handling
 

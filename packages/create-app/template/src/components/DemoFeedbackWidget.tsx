@@ -34,6 +34,28 @@ function todayKey(): string {
   return new Date().toISOString().slice(0, 10)
 }
 
+// Body attribute mirrored from the floating CTA's own visibility. `globals.css`
+// turns it into a bottom safe area on the app shell's <main>, so page content
+// that ends at the bottom of the scroll container (compact-viewport palettes,
+// in-flow form footers) is never trapped underneath the fixed button.
+const FLOATING_CTA_BODY_ATTRIBUTE = 'data-demo-feedback-fab'
+
+// Modal surfaces that own the viewport while they are open. Dialog marks its
+// content with `data-dialog-content`; Drawer and Sheet mark theirs with the DS
+// `data-slot` contract; `dialog[open]` covers native modals. All three DS
+// primitives are Radix Dialogs, so they carry `data-state` on the content node.
+const OVERLAY_SURFACE_SELECTOR = [
+  '[data-dialog-content][data-state="open"]',
+  '[data-slot="drawer-content"][data-state="open"]',
+  '[data-slot="sheet-content"][data-state="open"]',
+  'dialog[open]',
+].join(', ')
+
+function isOverlaySurfaceOpen(): boolean {
+  if (typeof document === 'undefined') return false
+  return document.querySelector(OVERLAY_SURFACE_SELECTOR) !== null
+}
+
 const CAPTIONS: Array<{ key: string; fallback: string }> = [
   { key: 'demoFeedback.button.feedback', fallback: 'Feedback' },
   { key: 'demoFeedback.button.askQuestion', fallback: 'Ask a question' },
@@ -73,21 +95,18 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
     setHiddenByFlag(isContactWidgetHidden())
   }, [])
 
-  // Track whether another Radix Dialog or native <dialog> modal is currently open.
-  // The floating button + auto-popup must defer while the user is mid-task in another modal —
-  // stacking the feedback dialog on top deactivates the underlying dialog (Radix DismissableLayer)
-  // and leaves it with pointer-events:none, which the user perceives as a frozen page.
+  // Track whether another modal surface (Dialog, Drawer, Sheet or native <dialog>)
+  // is currently open. The floating button + auto-popup must defer while the user is
+  // mid-task in another modal — stacking the feedback dialog on top deactivates the
+  // underlying dialog (Radix DismissableLayer) and leaves it with pointer-events:none,
+  // which the user perceives as a frozen page. Drawers and Sheets count too: their
+  // footers sit in the same bottom-right corner as the floating button (#5984).
   useEffect(() => {
     if (!mounted || open) {
       setOtherModalOpen(false)
       return
     }
-    const check = () => {
-      if (typeof document === 'undefined') return false
-      if (document.querySelector('[data-dialog-content][data-state="open"]')) return true
-      if (document.querySelector('dialog[open]')) return true
-      return false
-    }
+    const check = () => isOverlaySurfaceOpen()
     setOtherModalOpen(check())
     const observer = new MutationObserver(() => setOtherModalOpen(check()))
     observer.observe(document.body, { subtree: true, attributes: true, attributeFilter: ['data-state', 'open'], childList: true })
@@ -112,18 +131,11 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
     if (getCookie(SUPPRESS_COOKIE) === '1') return
     if (getCookie(SHOWN_TODAY_COOKIE) === todayKey()) return
 
-    function isAnotherModalOpen() {
-      if (typeof document === 'undefined') return false
-      if (document.querySelector('[data-dialog-content][data-state="open"]')) return true
-      if (document.querySelector('dialog[open]')) return true
-      return false
-    }
-
     function resetTimer() {
       if (inactivityTimer.current) clearTimeout(inactivityTimer.current)
       inactivityTimer.current = setTimeout(() => {
         if (autoShownRef.current) return
-        if (isAnotherModalOpen()) {
+        if (isOverlaySurfaceOpen()) {
           inactivityTimer.current = setTimeout(resetTimer, 5_000)
           return
         }
@@ -213,6 +225,18 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
     }
   }, [submitState, resetForm])
 
+  const floatingButtonVisible = mounted && !hiddenByFlag && !aiDockActive && !(otherModalOpen && !open)
+
+  // Mirror the CTA's visibility onto <body> so the shell can reserve the matching
+  // bottom safe area (see `--om-floating-cta-safe-area` in globals.css). Without
+  // it, whatever sits last in the page scroll container stays pinned under the
+  // button once the operator scrolls to the end of the page (#5984).
+  useEffect(() => {
+    if (typeof document === 'undefined' || !floatingButtonVisible) return
+    document.body.setAttribute(FLOATING_CTA_BODY_ATTRIBUTE, 'visible')
+    return () => { document.body.removeAttribute(FLOATING_CTA_BODY_ATTRIBUTE) }
+  }, [floatingButtonVisible])
+
   if (!mounted || hiddenByFlag) return null
 
   const caption = CAPTIONS[captionIndex]
@@ -221,13 +245,18 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
   if (otherModalOpen && !open) return null
 
   // Brand-gradient floating CTA. Uses brand CSS vars (no hardcoded hex) +
-  // z-banner so it stays DS-compliant while keeping the bespoke 135deg /
-  // 0-50-100 gradient that the marketing visual depends on. The text is
-  // pinned to `text-black` because the gradient (lime → yellow → violet)
-  // is a fixed light surface in BOTH themes — `text-foreground` flips to
-  // near-white in dark mode and disappears against the pale gradient.
-  // Mirrors the `FancyButton` primitive's `text-white` precedent on its
-  // fixed dark gradient. The `om-demo-feedback-floating` class hooks into
+  // z-sticky so it stays DS-compliant while keeping the bespoke 135deg /
+  // 0-50-100 gradient that the marketing visual depends on. `z-sticky` (10)
+  // is the layer for viewport-pinned chrome: it floats over page content but
+  // stays BELOW every overlay band — dropdown (20), modal backdrop (30),
+  // dialog/drawer/sheet (40/45), toast (50) and tooltip (60) — so an open
+  // surface always covers the CTA instead of intercepting clicks on its own
+  // primary action (#5984). The text is pinned to `text-black` because the
+  // gradient (lime → yellow → violet) is a fixed light surface in BOTH
+  // themes — `text-foreground` flips to near-white in dark mode and
+  // disappears against the pale gradient. Mirrors the `FancyButton`
+  // primitive's `text-white` precedent on its fixed dark gradient. The
+  // `om-demo-feedback-floating` class hooks into
   // `body[data-ai-chat-open="true"] .om-demo-feedback-floating` in
   // globals.css so the FAB hides while the AI dock surface is open
   // (anchored on the right edge of the viewport); the same `aiDockActive`
@@ -236,7 +265,7 @@ export function DemoFeedbackWidget({ demoModeEnabled }: { demoModeEnabled: boole
     <button
       type="button"
       onClick={() => { setOpen(true); if (submitState === 'sent') resetForm() }}
-      className="om-demo-feedback-floating fixed bottom-6 right-6 z-banner flex max-w-[calc(100vw-3rem)] items-center gap-2 rounded-full px-5 py-3 text-sm font-semibold text-black shadow-xl transition-all hover:scale-105 hover:shadow-2xl active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 animate-[subtle-bounce_2s_ease-in-out_infinite]"
+      className="om-demo-feedback-floating fixed bottom-6 right-6 z-sticky flex max-w-[calc(100vw-3rem)] items-center gap-2 rounded-full px-5 py-3 text-sm font-semibold text-black shadow-xl transition-all hover:scale-105 hover:shadow-2xl active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 animate-[subtle-bounce_2s_ease-in-out_infinite]"
       style={{
         backgroundImage: 'linear-gradient(135deg, var(--brand-lime, #B4F372) 0%, #EEFB63 50%, var(--brand-violet, #BC9AFF) 100%)',
       }}

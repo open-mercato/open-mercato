@@ -326,10 +326,10 @@ export function FormFieldArrayEditor({
                     </div>
 
                     {/* Delete Button */}
-                    <div className="border-t border-gray-200 pt-3">
+                    <div className="border-t border-border pt-3">
                       <Button
                         type="button"
-                        variant="destructive"
+                        variant="destructive-outline"
                         size="sm"
                         onClick={() => removeFormField(index)}
                         disabled={disabled}

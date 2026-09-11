@@ -1,0 +1,335 @@
+"use client"
+
+import * as React from 'react'
+import { useSearchParams } from 'next/navigation'
+import { Activity, FlaskConical, LayoutGrid, SlidersHorizontal, FolderTree, Calculator } from 'lucide-react'
+import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@open-mercato/ui/primitives/tabs'
+import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
+import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import {
+  mapAgentDetail,
+  mapAgentWindowMetrics,
+  formatNumber,
+  type AgentDetailView,
+  type SkillDetailView,
+  type AgentWindowMetricsView,
+} from '../../../components/types'
+import { SkillDrawer } from '../../../components/SkillDrawer'
+import { OPTIONAL_REQUEST_INIT } from '../../../components/optionalRequest'
+import { normalizeAgentTags } from '../../../data/agentTags'
+import { isAgentPreviewUiEnabled } from '../../../lib/featureFlags'
+import { AgentHeaderCard, ICON_DEFAULT } from './components/AgentHeaderCard'
+import { AgentConfigDrawer } from './components/AgentConfigDrawer'
+import { OverviewTab } from './components/OverviewTab'
+import { ActivityTab } from './components/ActivityTab'
+import { ConfigurationTab } from './components/ConfigurationTab'
+import EvaluationTab from './components/EvaluationTab'
+import { FilesTab } from './components/FilesTab'
+import { TokenCalculatorTab } from './components/TokenCalculatorTab'
+import { computeAgentMetrics, computeRuntimeTokens, type Autonomy, type WorkspaceTab } from './components/workspaceShared'
+
+type PageState = 'loading' | 'notFound' | 'forbidden' | 'error' | 'ready'
+type EvalSection = 'assertions' | 'cases' | 'runs'
+
+const TAB_IDS: WorkspaceTab[] = ['overview', 'activity', 'evaluation', 'configuration', 'files', 'tokens']
+
+async function fetchItems(path: string): Promise<Array<Record<string, unknown>>> {
+  const call = await apiCall<{ items?: Array<Record<string, unknown>> }>(path, OPTIONAL_REQUEST_INIT, { fallback: { items: [] } })
+  if (!call.ok || !Array.isArray(call.result?.items)) return []
+  return call.result.items
+}
+
+export default function AgentDetailPage({ params }: { params?: { id?: string } }) {
+  const t = useT()
+  const locale = useLocale()
+  const searchParams = useSearchParams()
+  const agentId = params?.id ?? ''
+
+  const initialTab = ((): WorkspaceTab => {
+    const raw = searchParams?.get('tab')
+    return raw && (TAB_IDS as string[]).includes(raw) ? (raw as WorkspaceTab) : 'overview'
+  })()
+  const initialSection = ((): EvalSection => {
+    const raw = searchParams?.get('section')
+    return raw === 'assertions' || raw === 'cases' || raw === 'runs' ? raw : 'assertions'
+  })()
+
+  const [state, setState] = React.useState<PageState>('loading')
+  const [agent, setAgent] = React.useState<AgentDetailView | null>(null)
+  const [runs, setRuns] = React.useState<Array<Record<string, unknown>>>([])
+  const [proposals, setProposals] = React.useState<Array<Record<string, unknown>>>([])
+  const [activeSkill, setActiveSkill] = React.useState<SkillDetailView | null>(null)
+  const [autonomy, setAutonomy] = React.useState<Autonomy>('review')
+  const [configOpen, setConfigOpen] = React.useState(false)
+  const [windowMetrics, setWindowMetrics] = React.useState<AgentWindowMetricsView | null>(null)
+  const [reloadKey, setReloadKey] = React.useState(0)
+  const [activeTab, setActiveTab] = React.useState<WorkspaceTab>(initialTab)
+  const [evalSection, setEvalSection] = React.useState<EvalSection>(initialSection)
+
+  React.useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setState('loading')
+      // `load()` has no catch, and a thrown 403 would leave the page spinning
+      // forever — the `forbidden` state below is only reachable when the denial
+      // comes back as a status.
+      const call = await apiCall<Record<string, unknown>>(
+        `/api/agent_orchestrator/agents/${encodeURIComponent(agentId)}`,
+        OPTIONAL_REQUEST_INIT,
+      )
+      if (cancelled) return
+      if (!call.ok) {
+        if (call.status === 404) setState('notFound')
+        else if (call.status === 403) setState('forbidden')
+        else setState('error')
+        return
+      }
+      const mapped = call.result ? mapAgentDetail(call.result) : null
+      if (!mapped) {
+        setState('notFound')
+        return
+      }
+      // UI heuristic until the backend exposes a real autonomy setting.
+      setAutonomy(mapped.resultKind === 'researcher' ? 'auto' : 'review')
+      const [runItems, proposalItems, metricsCall] = await Promise.all([
+        fetchItems(`/api/agent_orchestrator/runs?agentId=${encodeURIComponent(agentId)}&pageSize=100`),
+        fetchItems(`/api/agent_orchestrator/proposals?agentId=${encodeURIComponent(agentId)}&pageSize=100`),
+        apiCall<{ items?: Array<Record<string, unknown>> }>(
+          `/api/agent_orchestrator/metrics/agents?window=7d&ids=${encodeURIComponent(agentId)}`,
+          OPTIONAL_REQUEST_INIT,
+          { fallback: { items: [] } },
+        ),
+      ])
+      if (cancelled) return
+      setAgent(mapped)
+      setRuns(runItems)
+      setProposals(proposalItems)
+      const metricsItem =
+        metricsCall.ok && Array.isArray(metricsCall.result?.items) && metricsCall.result.items[0]
+          ? mapAgentWindowMetrics(metricsCall.result.items[0] as Record<string, unknown>)
+          : null
+      setWindowMetrics(metricsItem)
+      setState('ready')
+    }
+    if (agentId) load()
+    else setState('notFound')
+    return () => {
+      cancelled = true
+    }
+  }, [agentId, reloadKey])
+
+  const { runMutation, retryLastMutation } = useGuardedMutation<{ retryLastMutation: () => Promise<boolean> }>({
+    contextId: 'agent_orchestrator.agents.detail',
+    blockedMessage: t('agent_orchestrator.proposal.flash.blocked'),
+  })
+  const [savingIcon, setSavingIcon] = React.useState(false)
+  const [savingTags, setSavingTags] = React.useState(false)
+
+  const updateIcon = React.useCallback(
+    async (value: string) => {
+      if (!agent) return
+      const nextIcon = value === ICON_DEFAULT ? null : value
+      if (nextIcon === (agent.icon ?? null)) return
+      setSavingIcon(true)
+      try {
+        let saved: { icon: string | null; updatedAt: string } | null = null
+        await runMutation({
+          operation: () =>
+            withScopedApiRequestHeaders(buildOptimisticLockHeader(agent.iconUpdatedAt), async () => {
+              const call = await apiCallOrThrow<{ icon: string | null; updatedAt: string }>(
+                `/api/agent_orchestrator/agents/${encodeURIComponent(agent.id)}/settings`,
+                {
+                  method: 'PUT',
+                  headers: { 'content-type': 'application/json' },
+                  body: JSON.stringify({ icon: nextIcon, updatedAt: agent.iconUpdatedAt }),
+                },
+              )
+              saved = call.result ?? null
+            }),
+          context: { retryLastMutation },
+          mutationPayload: { icon: nextIcon },
+        })
+        setAgent((prev) =>
+          prev && saved ? { ...prev, icon: saved.icon as AgentDetailView['icon'], iconUpdatedAt: saved.updatedAt } : prev,
+        )
+        flash(t('agent_orchestrator.agentDetail.icon.saved', 'Icon updated'), 'success')
+      } catch (err) {
+        if (surfaceRecordConflict(err, t)) {
+          setReloadKey((key) => key + 1)
+          return
+        }
+        flash(err instanceof Error ? err.message : t('agent_orchestrator.agentDetail.icon.error', 'Could not update icon'), 'error')
+      } finally {
+        setSavingIcon(false)
+      }
+    },
+    [agent, runMutation, retryLastMutation, t],
+  )
+
+  const updateTags = React.useCallback(
+    async (next: string[]) => {
+      if (!agent) return
+      const nextTags = normalizeAgentTags(next)
+      if (nextTags.length === agent.tags.length && nextTags.every((tag, index) => tag === agent.tags[index])) return
+      setSavingTags(true)
+      try {
+        let saved: { tags: string[]; updatedAt: string } | null = null
+        await runMutation({
+          operation: () =>
+            withScopedApiRequestHeaders(buildOptimisticLockHeader(agent.iconUpdatedAt), async () => {
+              const call = await apiCallOrThrow<{ tags: string[]; updatedAt: string }>(
+                `/api/agent_orchestrator/agents/${encodeURIComponent(agent.id)}/settings`,
+                {
+                  method: 'PUT',
+                  headers: { 'content-type': 'application/json' },
+                  body: JSON.stringify({ tags: nextTags, updatedAt: agent.iconUpdatedAt }),
+                },
+              )
+              saved = call.result ?? null
+            }),
+          context: { retryLastMutation },
+          mutationPayload: { tags: nextTags },
+        })
+        setAgent((prev) =>
+          prev && saved ? { ...prev, tags: normalizeAgentTags(saved.tags), iconUpdatedAt: saved.updatedAt } : prev,
+        )
+        flash(t('agent_orchestrator.agents.tags.saved', 'Tags updated'), 'success')
+      } catch (err) {
+        if (surfaceRecordConflict(err, t)) {
+          setReloadKey((key) => key + 1)
+          return
+        }
+        flash(err instanceof Error ? err.message : t('agent_orchestrator.agents.tags.error', 'Could not update tags'), 'error')
+      } finally {
+        setSavingTags(false)
+      }
+    },
+    [agent, runMutation, retryLastMutation, t],
+  )
+
+  const metrics = React.useMemo(() => computeAgentMetrics(runs, proposals), [runs, proposals])
+  const runtimeTokens = React.useMemo(() => computeRuntimeTokens(runs), [runs])
+
+  const selectTab = React.useCallback((tab: WorkspaceTab, section?: EvalSection) => {
+    setActiveTab(tab)
+    if (section) setEvalSection(section)
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href)
+      url.searchParams.set('tab', tab)
+      if (tab === 'evaluation' && section) url.searchParams.set('section', section)
+      else url.searchParams.delete('section')
+      window.history.replaceState(window.history.state, '', url.toString())
+    }
+  }, [])
+
+  if (state === 'loading') {
+    return <Page><PageBody><LoadingMessage label={t('agent_orchestrator.agentDetail.title')} /></PageBody></Page>
+  }
+  if (state === 'notFound' || state === 'forbidden') {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={state === 'forbidden' ? t('agent_orchestrator.agentDetail.forbidden') : t('agent_orchestrator.agentDetail.notFound')}
+            description={state === 'forbidden' ? t('agent_orchestrator.agentDetail.forbiddenDescription') : t('agent_orchestrator.agentDetail.notFoundDescription')}
+            backHref="/backend/agents"
+            backLabel={t('agent_orchestrator.agentDetail.back')}
+          />
+        </PageBody>
+      </Page>
+    )
+  }
+  if (state === 'error' || !agent) {
+    return <Page><PageBody><ErrorMessage label={t('agent_orchestrator.agentDetail.error')} /></PageBody></Page>
+  }
+
+  // File-defined (opencode) agents surface a read-only Files browser + a Token
+  // calculator in place of Configuration; native agents keep Configuration and
+  // get neither. `activeValue` guards against a stale `?tab=` from the other set.
+  const fileDefined = agent.runtime === 'opencode'
+  const allowedTabs: WorkspaceTab[] = fileDefined
+    ? ['overview', 'activity', 'evaluation', 'files', 'tokens']
+    : ['overview', 'activity', 'evaluation', 'configuration']
+  const activeValue: WorkspaceTab = allowedTabs.includes(activeTab) ? activeTab : 'overview'
+
+  return (
+    <Page>
+      <PageBody className="space-y-4">
+        <AgentHeaderCard
+          agent={agent}
+          metrics={metrics}
+          windowMetrics={windowMetrics}
+          autonomy={autonomy}
+          savingIcon={savingIcon}
+          savingTags={savingTags}
+          onIconChange={updateIcon}
+          onTagsChange={updateTags}
+          onConfigure={() => setConfigOpen(true)}
+        />
+
+        <Tabs value={activeValue} onValueChange={(value) => selectTab(value as WorkspaceTab)} variant="underline">
+          <TabsList>
+            <TabsTrigger value="overview" leading={<LayoutGrid className="size-4" />}>
+              {t('agent_orchestrator.agentDetail.tabs.overview', 'Overview')}
+            </TabsTrigger>
+            <TabsTrigger value="activity" leading={<Activity className="size-4" />} count={metrics.runCount > 0 ? formatNumber(metrics.runCount, locale) : undefined}>
+              {t('agent_orchestrator.agentDetail.tabs.activity', 'Activity')}
+            </TabsTrigger>
+            <TabsTrigger value="evaluation" leading={<FlaskConical className="size-4" />}>
+              {t('agent_orchestrator.agentDetail.tabs.evaluation', 'Evaluation')}
+            </TabsTrigger>
+            {fileDefined ? (
+              <>
+                <TabsTrigger value="files" leading={<FolderTree className="size-4" />}>
+                  {t('agent_orchestrator.agentDetail.tabs.files', 'Files')}
+                </TabsTrigger>
+                <TabsTrigger value="tokens" leading={<Calculator className="size-4" />}>
+                  {t('agent_orchestrator.agentDetail.tabs.tokens', 'Token calculator')}
+                </TabsTrigger>
+              </>
+            ) : (
+              <TabsTrigger value="configuration" leading={<SlidersHorizontal className="size-4" />}>
+                {t('agent_orchestrator.agentDetail.tabs.configuration', 'Configuration')}
+              </TabsTrigger>
+            )}
+          </TabsList>
+
+          <TabsContent value="overview" className="pt-4">
+            <OverviewTab agentId={agent.id} metrics={metrics} runs={runs} active={activeValue === 'overview'} onNavigate={selectTab} />
+          </TabsContent>
+          <TabsContent value="activity" className="pt-4">
+            <ActivityTab runs={runs} proposals={proposals} />
+          </TabsContent>
+          <TabsContent value="evaluation" className="pt-4">
+            <EvaluationTab agentId={agent.id} agentLabel={agent.label || agent.id} active={activeValue === 'evaluation'} initialSection={evalSection} />
+          </TabsContent>
+          {fileDefined ? (
+            <>
+              <TabsContent value="files" className="pt-4">
+                <FilesTab agentId={agent.id} agent={agent} active={activeValue === 'files'} />
+              </TabsContent>
+              <TabsContent value="tokens" className="pt-4">
+                <TokenCalculatorTab />
+              </TabsContent>
+            </>
+          ) : (
+            <TabsContent value="configuration" className="pt-4">
+              <ConfigurationTab agent={agent} runtimeTokens={runtimeTokens} onSkillClick={setActiveSkill} />
+            </TabsContent>
+          )}
+        </Tabs>
+
+        <SkillDrawer open={!!activeSkill} onOpenChange={(open) => { if (!open) setActiveSkill(null) }} skill={activeSkill} />
+        {isAgentPreviewUiEnabled() ? (
+          <AgentConfigDrawer open={configOpen} onOpenChange={setConfigOpen} agent={agent} autonomy={autonomy} />
+        ) : null}
+      </PageBody>
+    </Page>
+  )
+}

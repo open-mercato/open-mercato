@@ -9,99 +9,52 @@ The workflow engine is designed for extensibility. This guide shows how to creat
 
 ## Creating Custom Activity Types
 
-Custom activities allow you to extend the workflow engine with domain-specific actions.
+Activity types are registry-driven. A single `ActivityTypeEntry` declares everything the engine and the visual editor need: the execute function, the config validation schema, the editor form spec, async capability, and dry-run behavior. The definition schema enum, the editor's type pickers, and the OpenAPI document all derive from the registry — registering the entry is the whole integration.
 
-### 1. Define the Activity Executor
-
-Create a new file in `src/modules/workflows/lib/activities/`:
+### 1. Register the Activity Type
 
 ```typescript
-// src/modules/workflows/lib/activities/send-sms.ts
-import { ActivityDefinition, ActivityExecutionContext, ActivityResult } from '../types'
-import { SmsService } from '@/modules/notifications/lib/sms-service'
+import { z } from 'zod'
+import { registerActivityType } from '@open-mercato/core/modules/workflows/lib/activity-registry'
+import type { SmsService } from '@/modules/notifications/lib/sms-service'
 
-export async function executeSendSmsActivity(
-  definition: ActivityDefinition,
-  context: ActivityExecutionContext
-): Promise<ActivityResult> {
-  const { to, message } = definition.config
+const sendSmsConfigSchema = z.looseObject({
+  to: z.string().min(1, 'SEND_SMS requires "to"'),
+  message: z.string().min(1, 'SEND_SMS requires "message"'),
+})
 
-  // Variable interpolation
-  const interpolatedTo = interpolateVariables(to, context.workflowContext)
-  const interpolatedMessage = interpolateVariables(message, context.workflowContext)
-
-  try {
-    // Inject SMS service via DI
-    const smsService = context.container.resolve<SmsService>('smsService')
-
-    // Send SMS
-    const result = await smsService.send({
-      to: interpolatedTo,
-      message: interpolatedMessage
-    })
-
-    return {
-      success: true,
-      output: {
-        messageId: result.messageId,
-        sentAt: new Date().toISOString(),
-        to: interpolatedTo
-      }
-    }
-  } catch (error: any) {
-    return {
-      success: false,
-      error: error.message,
-      retryable: error.code === 'NETWORK_ERROR'
-    }
-  }
-}
-
-function interpolateVariables(template: string, context: any): string {
-  return template.replace(/\{\{(.+?)\}\}/g, (match, path) => {
-    const value = path.split('.').reduce((obj: any, key: string) => obj?.[key], context)
-    return value !== undefined ? String(value) : match
-  })
-}
+registerActivityType<z.infer<typeof sendSmsConfigSchema>>({
+  id: 'SEND_SMS',
+  icon: 'MessageSquare',
+  i18nKey: 'workflows.activities.types.SEND_SMS',
+  configSchema: sendSmsConfigSchema,
+  form: [
+    { id: 'to', component: 'text', required: true },
+    { id: 'message', component: 'textarea', required: true },
+  ],
+  execute: async (config, ctx, deps) => {
+    const smsService = deps.container.resolve<SmsService>('smsService')
+    const result = await smsService.send({ to: config.to, message: config.message })
+    return { messageId: result.messageId, sentAt: new Date().toISOString() }
+  },
+  async: { capable: true },
+})
 ```
 
-### 2. Register the Activity Executor
+Entry contract:
 
-Add your executor to the activity registry:
+- `configSchema` — zod schema checked when a definition is saved; failures surface as **non-blocking warnings** in the editor and the definitions API (strict mode is a later opt-in)
+- `form` — field specs the editor renders as a typed configuration form; the raw JSON editor stays available as the collapsed "Advanced" escape hatch
+- `i18nKey` — label key; add `workflows.activities.types.SEND_SMS` to your module's locale files
+- `async` — `{ capable: true }` or `{ capable: false, reason }`; activities of a non-capable type are refused at enqueue time with a clear error instead of failing later in the worker
+- `executeAsync` — optional worker-side variant; the worker falls back to `execute` when absent
+- `enqueueDelayMs(config)` — optional delay before the async job runs (used by `WAIT`)
+- `mock` — `((config, ctx) => unknown) | 'refuse'`; powers the mock-first Test-step endpoint (see below). Return a would-do payload (e.g. `{ sent: false, simulated: true, wouldSendTo }`) for side-effecting types, or declare `'refuse'` when the activity cannot be safely simulated
+- `outputContract` — optional `(config) => ZodTypeAny | 'unknown'` output-shape resolver feeding the context ledger (see below and command output schemas)
 
-```typescript
-// src/modules/workflows/lib/activity-executor.ts
-import { executeSendSmsActivity } from './activities/send-sms'
-import { executeSendEmailActivity } from './activities/send-email'
-import { executeCallApiActivity } from './activities/call-api'
+Variable interpolation (`{{context.*}}`, `{{workflow.*}}`, `{{now}}`, allow-listed `{{env.*}}`) is applied by the engine before your `execute` receives the config — at dispatch time for sync activities and at enqueue time for async ones. Do not re-implement it.
 
-export const activityExecutors = {
-  SEND_EMAIL: executeSendEmailActivity,
-  CALL_API: executeCallApiActivity,
-  SEND_SMS: executeSendSmsActivity, // Register custom activity
-  EMIT_EVENT: executeEmitEventActivity,
-  UPDATE_ENTITY: executeUpdateEntityActivity,
-  CALL_WEBHOOK: executeCallWebhookActivity,
-  EXECUTE_FUNCTION: executeExecuteFunctionActivity
-}
-
-export async function executeActivity(
-  definition: ActivityDefinition,
-  context: ActivityExecutionContext
-): Promise<ActivityResult> {
-  const executor = activityExecutors[definition.activityType]
-
-  if (!executor) {
-    throw new Error(`Unknown activity type: ${definition.activityType}`)
-  }
-
-  return await executor(definition, context)
-}
-```
-
-### 3. Use the Custom Activity
-
-Now you can use the custom activity in workflow definitions:
+### 2. Use the Custom Activity
 
 ```json
 {
@@ -115,35 +68,204 @@ Now you can use the custom activity in workflow definitions:
 }
 ```
 
-### Async Activity Support
+## Workflow Function Descriptors (EXECUTE_FUNCTION)
 
-For long-running activities, support async execution:
+`EXECUTE_FUNCTION` resolves functions through DI at run time. To make a function discoverable in the editor's picker, register a descriptor:
 
 ```typescript
-export async function executeSendSmsActivity(
-  definition: ActivityDefinition,
-  context: ActivityExecutionContext
-): Promise<ActivityResult> {
-  // Check if activity should run async
-  if (definition.async) {
-    // Enqueue for background processing
-    await context.queue.add('send-sms', {
-      activityId: definition.activityId,
-      workflowInstanceId: context.workflowInstanceId,
-      to: definition.config.to,
-      message: definition.config.message
-    })
+import { registerWorkflowFunctions } from '@open-mercato/core/modules/workflows/lib/workflow-function-registry'
 
-    return {
-      success: true,
-      output: { status: 'QUEUED' }
-    }
-  }
+registerWorkflowFunctions([
+  { name: 'calculateVolumeDiscount', labelKey: 'my_module.workflows.functions.calculateVolumeDiscount' },
+])
+```
 
-  // Synchronous execution
-  // ...
+`listWorkflowFunctions()` returns all registered descriptors; the picker keeps a free-text fallback for unregistered names.
+
+## Workflow-Safe Commands (UPDATE_ENTITY)
+
+`UPDATE_ENTITY` executes commands through the command bus, but only commands explicitly declared workflow-safe are allowed — anything else is rejected at execution time. Register the allowlist from the module that owns the command:
+
+```typescript
+import { registerWorkflowSafeCommands } from '@open-mercato/core/modules/workflows/lib/workflow-safe-commands'
+
+registerWorkflowSafeCommands([
+  { commandId: 'my_module.things.update', requiredFeatures: ['my_module.edit'] },
+])
+```
+
+`requiredFeatures` are checked against the workflow user's ACL before the command runs. `listWorkflowSafeCommands()` backs the editor's command picker via `GET /api/workflows/commands`.
+
+## Command Output Schemas
+
+Command handlers can declare an `outputSchema` so workflow tooling knows what an `UPDATE_ENTITY` activity returns:
+
+```typescript
+import { z } from 'zod'
+import type { CommandHandler } from '@open-mercato/shared/lib/commands/types'
+
+const updateThingCommand: CommandHandler<UpdateThingInput, { thingId: string }> = {
+  id: 'my_module.things.update',
+  outputSchema: z.object({ thingId: z.string().uuid() }),
+  async execute(input, ctx) { /* ... */ },
 }
 ```
+
+`commandRegistry.outputSchemaOf(commandId)` returns the declared schema (or `null`). `UPDATE_ENTITY`'s registry entry uses it for its output contract and degrades honestly to `'unknown'` when a command has not declared one.
+
+## Event Payload Schemas (Typed Triggers)
+
+`EventDefinition` accepts an optional `payloadSchema` so workflow triggers can offer typed payload paths instead of asking authors to type them from memory. It is a **flat field list**, not a nested JSON Schema — nested shapes are declared as dot-paths:
+
+```typescript
+const events = [
+  {
+    id: 'my_module.widget.scored',
+    label: 'Widget Scored',
+    entity: 'widget',
+    category: 'lifecycle',
+    payloadSchema: {
+      fields: [
+        { path: 'id', type: 'text' },
+        { path: 'score', type: 'number' },
+        { path: 'customer.id', type: 'text', optional: true },
+      ],
+    },
+  },
+] as const
+```
+
+- Field `type` is the same small vocabulary the rest of the editor uses (`text`, `number`, `boolean`, `date`, `object`, …); mark a field `optional` when the emitter does not always send it.
+- **Platform CRUD after-events get one for free.** An event with `category: 'crud'` whose id ends in `.created` / `.updated` / `.deleted` is given `DEFAULT_CRUD_PAYLOAD_SCHEMA` (`id`, `organizationId?`, `tenantId?`, `syncOrigin?`) at registration time, matching what the data engine actually emits.
+- Declared schemas are exposed through `getDeclaredEvents()` and `GET /api/events`, which is what the trigger editor's filter builder and context-mapping pickers read. An event without one still works — the editor falls back to free text and says the payload is untyped.
+- The field is **additive**: existing declarations are unchanged, and nothing rejects an event for lacking it.
+
+Only declare fields the emitter verifiably sends. A wrong declaration is worse than none, because the editor will offer paths that never arrive.
+
+## Transition Conditions (`condition`)
+
+`workflowTransitionSchema` accepts an optional `condition`, typed by `business_rules`' own `conditionExpressionSchema`:
+
+```json
+{
+  "transitionId": "qualified",
+  "fromStepId": "qualify_gate",
+  "toStepId": "contact_attempted",
+  "trigger": "auto",
+  "condition": { "operator": "AND", "rules": [{ "field": "leadScore", "operator": ">", "value": 60 }] }
+}
+```
+
+:::warning This field used to be stripped on save
+The engine has always evaluated `transition.condition`, but the definition schema did not declare it — so Zod's object-stripping silently discarded it on every save. If you have a definition whose inline route conditions never seemed to take effect, this is why; re-saving it through the current schema preserves them.
+:::
+
+Conditions inherit the business-rules safety bounds (nesting depth, rules per group, field-path length), and the `WAIT_FOR_CONDITION` step's predicate is validated by the same API validator.
+
+## Endpoint Catalog (CALL_API)
+
+`GET /api/workflows/endpoints` serves a trimmed, in-process projection of the application's OpenAPI surface — path, method, summary, tag, parameters and declared request/response schemas — for the `CALL_API` endpoint picker. Paths are `/api`-prefixed to match `CALL_API`'s own URL contract.
+
+An endpoint whose response is not declared with a Zod schema simply **omits `responseSchema`**, and consumers degrade to `unknown` typing rather than inventing a shape. Declaring typed responses on your own routes is therefore what makes the ledger downstream of a `CALL_API` step useful: the resolved response schema becomes the activity's output contract, wired through the `bindCallApiResponseSchemaResolver` seam. Endpoints outside the catalogue remain authorable as free text.
+
+## Agent Outcome Contracts (INVOKE_AGENT)
+
+When the enterprise agent-orchestration module is present, `INVOKE_AGENT`'s output contract is resolved through an **optional** method on the existing `agentWorkflowBridge` DI service, `listAgentOutcomeContracts()`, read duck-typed by core. Core never imports the enterprise module, no new DI key is introduced, and when the peer is absent every agent contract degrades to `unknown` instead of throwing. See the agent-orchestrator module guide for the enterprise side.
+
+## The Context Ledger
+
+The editor's variable picker and unresolved-reference warnings are fed by a **per-step context ledger** — a pure computation of which context paths are available when each step runs.
+
+- `computeContextLedger(definition, { resolveOutputContract })` in `lib/context-ledger.ts` is pure and dependency-free (no React, ORM, DI, or registry imports). It runs a topological fixpoint over the step graph: entries carry `{ path, type, presence: 'always' | 'maybe', source }`, joins degrade presence to `maybe`, cycles are tolerated, and opaque producers stay honest `unknown` entries.
+- Output-contract resolution is an **injected seam**: server callers (the context-schema API route) inject `resolveServerOutputContract` from `lib/server-output-contract.ts`, which looks up the registry entry's `outputContract` and flattens the resolved Zod schema with `flattenSchemaToContract` from `lib/ledger-schema-flatten.ts` (object roots flatten to dot paths, scalars map to ledger types, unmappable shapes become `unknown`). The browser never resolves contracts locally — it consumes `GET /api/workflows/definitions/[id]/context-schema` (optionally `?stepId=`), gated on `workflows.definitions.view`.
+- Two engine facts the ledger deliberately reflects: an AUTOMATED step's **sync** activity outputs are stored only in `stepInstance.outputData` and never merged into `instance.context`, and a SUB_WORKFLOW step's `outputMapping` results likewise never reach `instance.context`. Do not model either as available downstream context in your own tooling.
+
+## Test-Step Endpoint (Mock-First)
+
+`POST /api/workflows/definitions/[id]/test-step` dry-runs a single activity config against a caller-supplied sample context. It is gated on the `workflows.definitions.test_run` ACL feature and is strictly **mock-first**: the route never calls `entry.execute`. The config is interpolated exactly like real execution (via the exported `interpolateVariables`), then:
+
+- If the registry entry declares a `mock` function, its return value is the test output (with `simulated`/would-do fields by convention)
+- If the entry declares `mock: 'refuse'` or has no mock, the route responds `200` with a structured `{ refused: true, reason }` body — a refusal is a normal, renderable outcome, not an error
+
+Declare a `mock` on your custom activity types so workflow authors can test steps that use them.
+
+## Work Inbox Sources (`WorkInboxSourceProvider`)
+
+The Work Inbox (`GET /api/workflows/work-inbox`) is a **projection over several sources**, not a table. Core registers the `user_task` source; any module can contribute its own kind of work to the same queue by registering a provider.
+
+Register from your module's `di.ts`, at module-DI load time:
+
+```typescript
+import {
+  registerWorkInboxSources,
+  type WorkInboxSourceProvider,
+} from '@open-mercato/core/modules/workflows/lib/work-inbox/provider'
+
+const approvalSource: WorkInboxSourceProvider = {
+  kind: 'my_module_approval',
+  moduleId: 'my_module',
+  // Injection spot id the task detail view renders for this kind, when any.
+  render: 'work-inbox:my_module_approval:detail',
+  actions: [
+    {
+      id: 'claim',
+      labelKey: 'my_module.approvals.actions.claim',
+      endpoint: '/api/my_module/approvals/{id}/claim',
+      appliesTo: 'claimable',
+    },
+  ],
+  async list(query, context) {
+    const em = context.resolve<EntityManager>('em')
+    // MUST filter on context.scope.tenantId, and on scope.organizationIds
+    // when it is non-null (null is the unrestricted-operator wildcard).
+    const rows = await loadApprovals(em, query, context.scope)
+    return { rows, total: rows.length }
+  },
+}
+
+registerWorkInboxSources([{ moduleId: 'my_module', sources: [approvalSource] }])
+```
+
+Contract notes:
+
+- **Registration merges by module id.** Re-registering the same module replaces that module's providers and leaves every other module's alone, so load order between modules is irrelevant and re-registration is idempotent.
+- **`resolve` is a runtime seam, not an import.** Providers resolve their own services through `context.resolve`, so a provider registered by another module never drags that module's internals into workflows. The type is structural — there is no Awilix import.
+- **A provider that throws is degraded, not fatal.** Its kind is reported in the response's `meta.degradedKinds` and the rest of the queue still renders. One module's outage must not hide another module's work.
+- **A provider that is not registered simply contributes nothing.** Without the enterprise module the inbox shows workflow tasks and raises no error anywhere.
+- **Actions are declarative data** (an id, a translation key, a POST endpoint template with `{id}`, and a row predicate: `claimable` / `claimed-by-me` / `open` / `always`), so the page renders every provider's actions through one code path and no provider ships UI into the inbox bundle.
+- **Ordering is applied by the merge service**, not by your provider: priority → due date → created. Return your source's own window and its own true total; `deriveWorkInboxOverdue` and `normalizeWorkInboxPriority` are exported so your rows use the same derivations.
+- **`POST /api/workflows/work-inbox/next` claims `user_task` rows only.** `taskHandler` is the claim seam for that kind, and a provider-generic claim would need every source to expose a server-side claim of its own. Other kinds stay claimable through the endpoints their rows advertise in `actions`.
+
+## Task Form Renderers (`formKey`)
+
+A USER_TASK step can declare `userTaskConfig.formKey` to render its form with a module-supplied component instead of the built-in field renderer. Register the renderer once, keyed by that string:
+
+```typescript
+import {
+  registerTaskFormRenderer,
+} from '@open-mercato/core/modules/workflows/lib/task-form-registry'
+
+registerTaskFormRenderer({
+  formKey: 'my_module.credit_review',
+  titleKey: 'my_module.credit_review.formTitle',
+  Renderer: CreditReviewForm, // ({ context, onChange }) => JSX
+  inputSchema: creditReviewPrefillSchema,   // optional
+  outputSchema: creditReviewPayloadSchema,  // optional
+})
+```
+
+The renderer receives a typed `TaskFormRendererContext` — task id and name, the resolved `formKey`, the authored `formSchema`, the task's `entityBindings`, the decision ids the surface will render beside the form, current `values`, a `disabled` flag while a completion is in flight, and the surrounding locale — and calls `onChange(values)` so the host keeps owning the state, exactly as the built-in form does.
+
+Contract notes:
+
+- The module is **pure by contract**: type-only imports, no React, ORM or Awilix at module scope, so the worker and the browser can both load it.
+- **Duplicate registration throws**, mirroring `registerActivityType`: two modules silently fighting over one key is a bug that must surface at load time, not a race whose winner depends on import order.
+- **Resolution never throws.** `resolveTaskForm(formKey)` returns `{ kind: 'builtin' }` when no key is authored, `{ kind: 'registered', entry }` on a hit, and `{ kind: 'missing', formKey }` when the author asked for a renderer that is not loaded. `missing` is deliberately distinct from `builtin`: both fall back to the built-in form, but `missing` is something the surface must say out loud rather than quietly render something else. A blank screen is the one outcome this must never produce.
+- The `formKey` is **re-resolved per request** from the instance's pinned definition, never copied onto a column, so a definition that gains a renderer key starts using it with no migration.
+
+## Structured Validation Error Bodies
+
+Schema failures on the definitions POST/PUT respond `400` with `{ error: 'Validation failed', details: [...] }`. Each `details` entry is normalized by `lib/definition-error-body.ts` to `{ path, code, message, expected?, got? }` — `path` and `message` are preserved from the previous shape, so existing parsers (including `formatWorkflowValidationError`) keep working, while `code`/`expected`/`got` enable precise editor diagnostics.
 
 ## Custom Step Handlers
 

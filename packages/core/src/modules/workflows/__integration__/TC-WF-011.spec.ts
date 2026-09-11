@@ -3,6 +3,14 @@ import { login } from '@open-mercato/core/modules/core/__integration__/helpers/a
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import { readJsonSafe } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
 import { deleteWorkflowDefinitionIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/workflowsFixtures'
+import {
+  WORKFLOW_RESET_TO_CODE_MENU_ITEM_LABEL,
+  expectWorkflowHeaderAction,
+  invokeWorkflowHeaderAction,
+  openWorkflowDetailsDrawer,
+  workflowInspector,
+  workflowStepNodes,
+} from '@open-mercato/core/helpers/integration/workflowsUi'
 
 /**
  * TC-WF-011: Code-Based Workflows — Customize / Reset matrix across all 4 UI surfaces
@@ -77,7 +85,7 @@ async function openWorkflowDefinition(
   definitionId: string,
   readyText: string,
 ): Promise<void> {
-  const detailUrl = `/backend/definitions/${encodeURIComponent(definitionId)}`
+  const detailUrl = `/backend/definitions/visual-editor?id=${encodeURIComponent(definitionId)}`
   const readyLocator = page.getByText(readyText)
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -154,7 +162,7 @@ test.describe('TC-WF-011: Code workflows — Customize / Reset matrix', () => {
       await login(page, 'admin')
       await ensureCleanState(request, apiToken)
 
-      await page.goto(`/backend/definitions/${encodeURIComponent(CODE_WORKFLOW_API_ID)}`)
+      await page.goto(`/backend/definitions/visual-editor?id=${encodeURIComponent(CODE_WORKFLOW_API_ID)}`)
       await expect(
         page.getByText('This workflow is defined in code. Customize it to make changes.'),
       ).toBeVisible()
@@ -164,7 +172,9 @@ test.describe('TC-WF-011: Code workflows — Customize / Reset matrix', () => {
       const [customizeResponse] = await Promise.all([
         page.waitForResponse(
           (res) =>
-            res.url().includes(`/api/workflows/definitions/${encodeURIComponent(CODE_WORKFLOW_API_ID)}/customize`) &&
+            // NOT encodeURIComponent: Chromium leaves `:` unescaped in a path,
+            // so the observed URL carries `code:sales…`, never `code%3Asales…`.
+            res.url().includes(`/api/workflows/definitions/${CODE_WORKFLOW_API_ID}/customize`) &&
             res.request().method() === 'POST',
           { timeout: 30_000 },
         ),
@@ -172,14 +182,14 @@ test.describe('TC-WF-011: Code workflows — Customize / Reset matrix', () => {
       ])
       expect(customizeResponse.status(), 'POST /customize should succeed').toBe(200)
 
-      await page.waitForURL(/\/backend\/definitions\/[0-9a-f-]{36}(?:\?.*)?$/i, { timeout: 30_000 })
-      overrideId = page.url().match(/\/backend\/definitions\/([0-9a-f-]{36})/i)?.[1] ?? null
+      await page.waitForURL(/\/backend\/definitions\/visual-editor\?id=[0-9a-f-]{36}/i, { timeout: 30_000 })
+      overrideId = page.url().match(/[?&]id=([0-9a-f-]{36})/i)?.[1] ?? null
       expect(overrideId).toBeTruthy()
 
       await expect(
         page.getByText('This workflow has been customized from its code-defined version.'),
       ).toBeVisible()
-      await expect(page.getByRole('button', { name: 'Reset to code version', exact: true })).toBeVisible()
+      await expectWorkflowHeaderAction(page, WORKFLOW_RESET_TO_CODE_MENU_ITEM_LABEL)
     } finally {
       if (overrideId) await deleteWorkflowDefinitionIfExists(request, apiToken, overrideId)
       await ensureCleanState(request, apiToken)
@@ -202,17 +212,17 @@ test.describe('TC-WF-011: Code workflows — Customize / Reset matrix', () => {
         'This workflow has been customized from its code-defined version.',
       )
 
-      // Edit description through the CrudForm (full payload PUT on UUID).
+      // Edit the description in the Studio (full payload PUT on UUID). The
+      // definition fields live in the details Drawer, which starts closed.
       const newDescription = `QA WF-011 edit ${Date.now()}`
-      const descriptionField = page
-        .getByPlaceholder('Optional: Describe the purpose of this workflow')
-        .first()
+      const editDrawer = await openWorkflowDetailsDrawer(page)
+      const descriptionField = editDrawer.locator('#description')
       await expect(descriptionField).toBeEditable()
       await descriptionField.fill(newDescription)
 
-      const updateButton = page
-        .locator('button[type="submit"]', { hasText: 'Update Workflow' })
-        .first()
+      // Scoped to the drawer: the header Update and the drawer footer Update
+      // share an accessible name while the drawer is open.
+      const updateButton = editDrawer.getByRole('button', { name: 'Update', exact: true })
       await expect(updateButton).toBeVisible()
       const [putResponse] = await Promise.all([
         page.waitForResponse(
@@ -240,14 +250,12 @@ test.describe('TC-WF-011: Code workflows — Customize / Reset matrix', () => {
         overrideId,
         'This workflow has been customized from its code-defined version.',
       )
-      const resetButton = page.getByRole('button', { name: 'Reset to code version', exact: true })
-      await expect(resetButton).toBeVisible()
-      await resetButton.click()
+      await invokeWorkflowHeaderAction(page, WORKFLOW_RESET_TO_CODE_MENU_ITEM_LABEL)
 
       const confirmDialog = page.getByRole('alertdialog')
       await expect(confirmDialog).toBeVisible()
       await Promise.all([
-        page.waitForURL(/\/backend\/definitions\/code(?::|%3A)/i, { timeout: 30_000 }),
+        page.waitForURL(/\/backend\/definitions\/visual-editor\?id=code(?::|%3A)/i, { timeout: 30_000 }),
         confirmDialog.getByRole('button', { name: 'Reset to code version' }).click(),
       ])
       await expect(
@@ -274,8 +282,15 @@ test.describe('TC-WF-011: Code workflows — Customize / Reset matrix', () => {
         `/backend/definitions/visual-editor?id=${encodeURIComponent(CODE_WORKFLOW_API_ID)}`,
       )
 
-      const workflowIdInput = page.locator('#workflowId')
-      await expect(workflowIdInput).toHaveValue(CODE_WORKFLOW_ID, { timeout: 30_000 })
+      // Definition metadata lives in the details Drawer, which starts closed.
+      const readOnlyDrawer = await openWorkflowDetailsDrawer(page)
+      await expect(readOnlyDrawer.locator('#workflowId')).toHaveValue(CODE_WORKFLOW_ID, { timeout: 30_000 })
+
+      // Metadata fields are disabled (the form is wrapped in a `<fieldset disabled>`).
+      await expect(readOnlyDrawer.locator('#workflowName')).toBeDisabled()
+      await expect(readOnlyDrawer.locator('#description')).toBeDisabled()
+      await page.keyboard.press('Escape')
+      await expect(readOnlyDrawer).toBeHidden({ timeout: 10_000 })
 
       // Source banner is shown and Save/Update is replaced by Customize.
       await expect(
@@ -285,20 +300,17 @@ test.describe('TC-WF-011: Code workflows — Customize / Reset matrix', () => {
       const customizeButton = page.getByRole('button', { name: 'Customize', exact: true })
       await expect(customizeButton).toBeVisible()
 
-      // Metadata fields are disabled (the form is wrapped in a `<fieldset disabled>`).
-      await expect(page.locator('#workflowName')).toBeDisabled()
-      await expect(page.locator('#description')).toBeDisabled()
-
       // Step palette is hidden in read-only mode (no way to add nodes).
       await expect(page.getByRole('heading', { name: 'Step Palette' })).toHaveCount(0)
 
-      // Clicking a node MUST NOT open the node edit dialog.
-      const firstNode = page.locator('.react-flow__node').first()
+      // Clicking a node MUST NOT open the step inspector. Assert on the
+      // inspector's own `data-slot` rather than on `getByRole('dialog')`: the
+      // editor mounts other dialogs, and the marker is what identifies THIS
+      // surface whichever layout it renders in.
+      const firstNode = workflowStepNodes(page).first()
       await expect(firstNode).toBeVisible({ timeout: 10_000 })
       await firstNode.click()
-      // The node edit dialog (NodeEditDialog/CrudForm) renders as a modal
-      // dialog. In read-only mode it must not appear.
-      await expect(page.getByRole('dialog')).toHaveCount(0)
+      await expect(workflowInspector(page)).toHaveCount(0)
 
       // Click Customize → POST /customize → redirect back to the visual editor
       // pointed at the new override UUID.
@@ -322,12 +334,15 @@ test.describe('TC-WF-011: Code workflows — Customize / Reset matrix', () => {
 
       // Now editable: Save/Update is back, fields are enabled, banner is the
       // "customized" variant with a Reset button.
-      await expect(page.locator('#workflowName')).toBeEnabled({ timeout: 15_000 })
+      const editableDrawer = await openWorkflowDetailsDrawer(page)
+      await expect(editableDrawer.locator('#workflowName')).toBeEnabled({ timeout: 15_000 })
+      await page.keyboard.press('Escape')
+      await expect(editableDrawer).toBeHidden({ timeout: 10_000 })
       await expect(page.getByRole('button', { name: /^(Update|Save)$/ })).toBeVisible()
       await expect(
         page.getByText('This workflow has been customized from its code-defined version.'),
       ).toBeVisible()
-      await expect(page.getByRole('button', { name: 'Reset to code version', exact: true })).toBeVisible()
+      await expectWorkflowHeaderAction(page, WORKFLOW_RESET_TO_CODE_MENU_ITEM_LABEL)
 
       const detail = await apiRequest(
         request,
@@ -356,18 +371,20 @@ test.describe('TC-WF-011: Code workflows — Customize / Reset matrix', () => {
 
       await page.goto(`/backend/definitions/visual-editor?id=${encodeURIComponent(overrideId)}`)
 
-      const workflowIdInput = page.locator('#workflowId')
-      await expect(workflowIdInput).toHaveValue(CODE_WORKFLOW_ID, { timeout: 30_000 })
+      // Definition metadata lives in the details Drawer, which starts closed.
+      const saveDrawer = await openWorkflowDetailsDrawer(page)
+      await expect(saveDrawer.locator('#workflowId')).toHaveValue(CODE_WORKFLOW_ID, { timeout: 30_000 })
 
       // Edit a metadata field — the visual editor's PUT used to send only
       // `{definition, enabled}`, silently dropping every other change. Asserting
       // the description round-trips guards that regression.
       const newDescription = `QA WF-011 visual edit ${Date.now()}`
-      const descriptionField = page.locator('#description')
+      const descriptionField = saveDrawer.locator('#description')
       await expect(descriptionField).toBeEditable()
       await descriptionField.fill(newDescription)
 
-      const saveButton = page.getByRole('button', { name: /^(Update|Save)$/ })
+      // Scoped to the drawer to avoid the duplicate header/footer save button.
+      const saveButton = saveDrawer.getByRole('button', { name: /^(Update|Save)$/ })
       await expect(saveButton).toBeVisible({ timeout: 30_000 })
 
       const [putResponse] = await Promise.all([
@@ -380,7 +397,11 @@ test.describe('TC-WF-011: Code workflows — Customize / Reset matrix', () => {
         saveButton.click(),
       ])
       expect(putResponse.status(), 'PUT on UUID override should succeed').toBe(200)
-      await expect(page.getByText('Workflow updated successfully!').first()).toBeVisible({ timeout: 10_000 })
+      // Substring match: the toast copy comes from the i18n catalog
+      // (workflows.messages.workflowUpdated = "Workflow updated successfully")
+      // since the visual editor's hardcoded "…successfully!" literal was
+      // migrated to the locale files.
+      await expect(page.getByText('Workflow updated successfully').first()).toBeVisible({ timeout: 10_000 })
 
       const detail = await apiRequest(
         request,

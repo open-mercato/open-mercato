@@ -1,0 +1,216 @@
+---
+title: Task Visibility
+description: Who can see and act on a workflow user task, how entity access is evaluated, and what the model deliberately does not guarantee
+---
+
+# Task Visibility
+
+A workflow user task is somebody's work. Since the task-permission model shipped, **who a task belongs to** decides who reads it and who finishes it; the `workflows.tasks.*` features gate *administration* — reading other people's work, moving it, and administering the queue.
+
+This page documents the rule as implemented, including where it stops.
+
+## The rule
+
+```
+visible   = SCOPE ∧ (RELATIONSHIP ∨ ADMINISTRATIVE) ∧ ENTITY
+actable   = SCOPE ∧ RELATIONSHIP ∧ ENTITY ∧ workable(status) ∧ owns-the-row
+claimable = actable ∧ unassigned ∧ unclaimed ∧ PENDING ∧ role overlap
+```
+
+| Clause | Meaning |
+|---|---|
+| **SCOPE** | The task's tenant is the caller's tenant, and its organization is one the caller may see. Never overridable — not by a feature, not by superadmin, not by the tenant opt-out. |
+| **RELATIONSHIP** | The caller is the assignee, holds the claim, or holds one of the task's assigned roles. |
+| **ADMINISTRATIVE** | The caller holds `workflows.tasks.view_all` (or is a superadmin), or the task is an unassigned administrative-queue item and the caller holds that queue's declared feature. |
+| **ENTITY** | For **every** record the task is bound to, the caller may view records of that type. |
+| **owns-the-row** | The row's owner is `claimedBy ?? assignedTo`. A claim outranks an assignment, so holding a queue's role lets you *claim* an open row — never finish one a colleague already claimed. |
+
+`ENTITY` uses `every`, not `some`: a task bound to a sensitive deal *and* a harmless customer must not leak through the harmless one. The cost is real — a legitimately assigned worker can be blinded by a binding they cannot see — and it is paid for by an author-time warning in the Studio's Problems panel and by a diagnostic marker in the inbox, not by weakening the rule.
+
+## Where the rule lives
+
+| File | Role |
+|---|---|
+| `lib/task-visibility.ts` | **The one decision point.** Pure by contract — no ORM, no DI, no React, no entity registry. |
+| `lib/task-visibility-request.ts` | Backoffice per-request wiring: one ACL load, one entity classification pass, one tenant-setting read per request, plus the `WHERE` builders and the refusal policy. |
+| `lib/portal-task-access.ts` | Portal per-request wiring: company scoping, the owned-record set, and the portal `WHERE`. |
+
+Every surface routes through `decideTaskVisibility` — task list, task detail, claim, unclaim, complete, reassign, the Work Inbox, the record-page pending-work panel, and the portal routes. **A second copy of the rule anywhere is a review failure.**
+
+## What "entity access" actually means
+
+It is **entity-type access plus scope**, and on the portal **record ownership**. Concretely:
+
+- The binding's authored `entityType` (`customers:deal`, `sales:order`, …) is normalized to a generated entity id through a shared alias table, and resolved to the ACL features required to view records of that type.
+- The caller's granted features are matched against those, wildcard-aware (`customers.*`, `*`).
+- Tenant and organization scoping is applied to the task row itself.
+- On the portal, the bound record id must be in the principal's own owned-record set.
+
+**There is no per-record ACL in the platform, and this change does not add one.** Passing the entity clause means "you may view records of this type in this scope" — it does **not** mean the platform re-checked that you may view *this particular record*. If your deployment needs row-level guarantees, that is a separate layer you have to build; do not read this model as providing it.
+
+Two related limits, stated rather than implied:
+
+- Bindings are **not re-scope-checked per record**. The task's own tenant/organization are checked; the bound record's are not re-fetched.
+- A task bound to a **tenant's own custom entity** is handled by the same classification path as a built-in one. Reading the model as "only known platform entity types resolve" would have hidden every task bound to a custom entity, which is why classification is shared with the entities module rather than hard-coded.
+
+### Failure is closed; absence is not
+
+| Situation | Result |
+|---|---|
+| The authored `entityType` resolves to no entity id (a typo) | **deny** — `denied:unknown-entity-type` |
+| The per-request access map has no key for a binding's type | **deny** — a key the resolver never produced is a resolution failure, never a pass |
+| The resolver threw | **deny** |
+| The task has **no** bindings, backoffice caller | **pass, vacuously** |
+| The task has **no** bindings, portal caller | **deny** — `denied:portal-unbound` |
+
+The last two rows are the asymmetry the whole model turns on. Every `UserTask` written before entity bindings existed carries none, so reading "no bindings ⇒ deny" would have made the entire pre-existing corpus invisible to its own assignees on upgrade — an outage, not a narrowing. A portal principal is the mirror image: they carry no organization-membership grant at all, so **the binding to their own record *is* the authorization**, and an unbound task is visible to nobody.
+
+## The entity gate is SQL, not a post-filter
+
+The task list filters on the denormalized `user_tasks.entity_types text[]` column (GIN-indexed) rather than post-filtering a page in JavaScript. A post-filter would make `pagination.total` lie and return short pages — the list would say "42 results" and show six.
+
+`entity_types` is written at task creation from the same resolved bindings that populate `entity_bindings`, so the two cannot drift. Rows written before the column exists stay `NULL`, and the serializer derives the set from the bindings for those, so a legacy row's stored column and its projected `entityTypes` never disagree.
+
+## Administration features
+
+Three additive feature ids. Nothing was renamed or removed.
+
+| Feature | Depends on | Grants |
+|---|---|---|
+| `workflows.tasks.view_all` | `workflows.tasks.view` | See tasks you have no relationship to. **Grants no act.** |
+| `workflows.tasks.reassign` | `workflows.tasks.view_all` | Move a task to another assignee or role queue. |
+| `workflows.tasks.manage` | `workflows.tasks.view_all` | Administrative mutations that are not reassignment: force-unclaim, cancel, bulk operations, and writing the tenant setting below. |
+
+The two older ids stay load-bearing: `workflows.tasks.view` admits a caller to the task API (the visibility rule then decides which rows come back), and `workflows.view_tasks` still guards the task pages. `workflows.tasks.claim` and `workflows.tasks.complete` remain on their routes — holding `.complete` admits you to the endpoint, it no longer completes anyone else's task.
+
+Adding features to `acl.ts` grants them to **new** tenants through `setup.ts`. Existing tenants receive nothing until you run:
+
+```bash
+yarn mercato auth sync-role-acls
+```
+
+## Administration widens seeing, never acting
+
+An administrator who can see a colleague's task cannot complete it. The completion endpoint answers `409 TASK_ASSIGNED_TO_ANOTHER_USER`. The supported path is to **take the task first**:
+
+```
+POST /api/workflows/tasks/[id]/reassign
+{ "assignedTo": "<user-id>", "reason": "why" }
+```
+
+Reassignment requires `workflows.tasks.reassign`, stamps `reassigned_by` / `reassigned_at` / `reassign_reason` on the row, logs a `USER_TASK_REASSIGNED` workflow event, releases an in-flight claim, and returns an `IN_PROGRESS` task to `PENDING`. **No new task status was added.** It honours the optimistic-lock header (`x-om-ext-optimistic-lock-expected-updated-at`) when a client sends one.
+
+This is what keeps "who approved this, and how did it reach them?" answerable after the fact.
+
+The reassign gate deliberately checks **visibility, not ownership** — requiring ownership would make the one case below unrescuable by definition.
+
+### The decision travels; the UI never re-derives it
+
+`GET /api/workflows/tasks/[id]` returns the predicate's own answer alongside the row, so a page renders what the server permits instead of guessing from `status`:
+
+| Field | Means |
+|---|---|
+| `canComplete` | `actable` — may complete or decide. **`workflows.tasks.view_all` alone yields `false`.** |
+| `canClaim` | `claimable` — may take it off its role queue. |
+| `canRelease` | Holds the claim on an `IN_PROGRESS` row and may release it. |
+| `canReassign` | Visible **and** holds `workflows.tasks.reassign` **and** the row is still open — the gate the reassign endpoint applies, ownership included nowhere. |
+| `actBlockedReason` | Why `canComplete` is `false`: `not-workable` · `owned-by-another` · `not-in-your-queue` · `unowned` · `unavailable`. `null` when it is `true`. |
+
+All six are **additive** and every pre-existing field is unchanged. `resolveTaskAffordances` (`lib/task-visibility.ts`, pure) computes them from the same `decideTaskVisibility` result the read gate used — a second copy of the rule in a client is a review failure, exactly as it is on the server.
+
+`actBlockedReason` names only distinctions the caller can already draw from the same payload (`status`, `assignedTo`, `claimedBy`, `assignedToRoles`). `unavailable` is the deliberate exception: it stands for the entity-gate refusal reachable under the tenant opt-out, which the act routes answer as a bare 404, so it names neither the binding nor the reason code. Widening it would hand a caller precisely what that 404 withholds.
+
+The backoffice task page gates Complete, Claim, Release and Reassign on these flags, states the reason when an action is unavailable, and offers the reassign control inline wherever reassignment is the named remedy.
+
+### The owner-less task
+
+A `USER_TASK` authored with no assignee, no role queue and no claim belongs to nobody, so nobody can complete it. The act endpoints answer `403 TASK_NOT_ACTIONABLE` and name reassignment as the remedy.
+
+The Studio flags this shape as a **warning** in the Problems panel, not a save-blocking error — making it an error would have made every definition authored before the rule existed unsaveable, including a shipped gallery template.
+
+## 404 versus 403
+
+| Caller | Answer |
+|---|---|
+| Wrong tenant, invisible organization, or no relationship at all | `404 { "error": "Task not found" }` — byte-identical to a nonexistent id |
+| Holds `view_all` (or superadmin) and the **entity** clause refused | `403` naming `reason` and the blocking `entityType` |
+
+A caller with no legitimate knowledge that the row exists learns nothing from the refusal — not even which binding blocked them. A caller who already sees the row in a list needs to know why its contents are hidden, which is what the diagnostic 403 and the inbox's "hidden — entity access" marker are for.
+
+The act routes look the row up **with tenant and organization in the query**, before the predicate and long before any write — which is what keeps a conditional claim `UPDATE` from ever touching another tenant's row.
+
+## Portal principals
+
+`user_tasks.assignee_kind` (`'user' | 'customer'`, default `'user'`) discriminates whose id `assigned_to` holds. A task addressed to a portal principal:
+
+- is authored with `userTaskConfig.assigneeKind: "customer"` plus an `assignedTo` that resolves to a `CustomerUser` id;
+- forces `assignedToRoles` to null (portal roles are a different namespace, and a portal principal cannot claim from a backoffice queue);
+- is reachable **only** through `/api/workflows/portal/tasks*`, gated by the new customer features `portal.tasks.view` and `portal.tasks.complete`.
+
+> **Authoring today is Code-view only.** `assigneeKind` is a definition field with no picker in the task inspector yet — set it in the Studio's Code view (or in a definition JSON you POST). A Studio picker is a follow-up.
+
+The backoffice task routes were **not** loosened: a portal session still gets 401 there, and a backoffice bearer token gets 401 on the portal routes.
+
+### Why the portal branch reads no features at all
+
+`CustomerRbacService.userHasAllFeatures` returns `true` for **every** feature when the caller's role carries `isPortalAdmin` — it short-circuits before any matching, and `customerAuth` resolves such a principal's grants to the literal `['*']`. An implementation that asked "does this principal hold the feature?" would therefore have handed a portal admin every task in the organization, across customers.
+
+So the portal principal carries **no feature array**: ownership is a `Set.has` against the ids the principal actually owns (their own customer/person record, plus every company-member record when they are a portal admin), and `isPortalAdmin` is consulted **last** and only to widen `visible` — never `actable`, never ownership. A portal admin reads their company's work; they never finish it.
+
+A portal user with no company association owns nothing and is refused with `403 { "error": "No company association" }`, the same answer the rest of the portal gives.
+
+Every other portal refusal is the same `404`. There is no portal analogue of the diagnostic 403: telling a portal admin "this task exists but is not yours" is precisely the cross-customer disclosure the ownership check prevents.
+
+### Live updates
+
+A portal-assigned task emits `workflows.task.portal_assigned` — a **separate** event carrying only `{ taskId, recipientUserId, tenantId, organizationId }`, not `portalBroadcast` on `workflows.task.assigned`. The portal SSE bridge only narrows to a single recipient when the payload carries `recipientUserId`; `workflows.task.assigned` carries none, and it carries task names and entity bindings, so broadcasting it would have leaked both across customers. The receiver asks the authorized portal API what the task is; the bridge never carries the answer.
+
+## Administrative queues
+
+Some work items have no assignee by design — an agent-disposition task is a queue, not somebody's inbox. A work-inbox source declares the feature that admits a principal to its unassigned rows:
+
+```ts
+registerWorkInboxSources([{
+  moduleId: 'my_module',
+  sources: [{ kind: 'my_item', administrativeQueueFeature: 'my_module.items.view', /* … */ }],
+}])
+```
+
+Without a declared feature the class falls back to core's own `workflows.tasks.view_all`. The unassigned-queue arm only appears in the query when the caller actually holds the declared feature, so it can never widen a list for someone who does not.
+
+## The tenant opt-out
+
+One tenant-scoped boolean, `workflows` / `task_permissions_business_context`, default **`true`** (the new model).
+
+```
+GET  /api/workflows/task-settings   # requires workflows.tasks.view_all
+PUT  /api/workflows/task-settings   # requires workflows.tasks.manage
+{ "taskPermissionsBusinessContext": false }
+```
+
+Setting it to `false` restores the **read** filter that existed before the change — `SCOPE ∧ workflows.tasks.view` — on the task list, the task detail and the Work Inbox. That is all it does:
+
+- completing someone else's task is still refused;
+- claiming a queue you do not belong to is still refused;
+- tenant and organization scoping are not reachable by a setting;
+- the portal routes ignore it entirely.
+
+It is a `SELECT` filter, not an authorization mode. A config read that fails defaults to `true` — only an explicitly stored, explicitly `false` value opts a tenant out, because a broken settings row must never silently reopen every task in the tenant.
+
+**It is a migration aid with a removal date: one minor release.** A permanent opt-out is a permanent second security model to test.
+
+## Known limits
+
+Read these before assuming a guarantee the model does not make.
+
+- **Role queues match on role NAMES, not ids.** `assignedToRoles` stores names end to end — the Studio picker writes them, the engine copies them onto the task, and the claim check compares them against the caller's server-derived `auth.roles`. Names are not caller-supplied, so they are not client-spoofable, but they are tenant-mutable: **renaming a role silently orphans every assignment authored against the old name.** Moving to immutable ids is a coordinated data + authored-definition migration and is deliberately not half-done.
+- **No per-record ACL.** Repeated here because it is the single easiest thing to misread on this page.
+- **`defaultCustomerRoleFeatures` reaches new tenants only during setup.** An already-provisioned tenant receives `portal.tasks.*` after running [`yarn mercato customer_accounts sync-customer-role-acls`](/cli/customer-accounts-sync-customer-role-acls) — the customer-role counterpart of `auth sync-role-acls`. It is additive, wildcard-aware, and never creates roles.
+- **Portal ACLs are cached for five minutes.** A fresh portal grant is not immediately visible to a signed-in portal user. Do not debug a working system for five minutes.
+- **Portal identity claims are read from the JWT.** `customerEntityId` / `personEntityId` are not re-verified per request, so a user moved between companies keeps stale ownership until their token turns over.
+
+## See Also
+
+- [**User Tasks**](/user-guide/workflows/user-tasks) — the same model from the operator's side
+- [**Extending Workflows**](./extending) — registering a work-inbox source
+- [**Workflow Architecture**](./architecture) — the `user_tasks` columns and the domain events

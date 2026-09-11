@@ -2,6 +2,10 @@ import { test, expect, type Page } from '@playwright/test'
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth'
 import { getAuthToken, apiRequest } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import { deleteWorkflowDefinitionIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/workflowsFixtures'
+import {
+  openWorkflowDetailsDrawer,
+  workflowStepNodes,
+} from '@open-mercato/core/helpers/integration/workflowsUi'
 
 async function fillText(page: Page, locator: ReturnType<Page['locator']>, value: string): Promise<void> {
   await locator.fill('')
@@ -27,15 +31,22 @@ async function findDefinitionIdByWorkflowId(
 /**
  * TC-WF-006: Create and delete a workflow definition entirely through the admin UI.
  *
- * Verifies the Create form (CrudForm with StepsEditor + TransitionsEditor) actually
- * produces a persisted definition, that the new entry surfaces on the list page,
- * and that the row-action delete flow + confirm dialog removes it.
+ * Verifies that the Studio's create path (list → Create Workflow → template
+ * gallery → canvas → Save) actually produces a persisted definition, that the new
+ * entry surfaces on the list page, and that the row-action delete flow + confirm
+ * dialog removes it. Retargeted from the retired form editor (spec section 10).
  *
  * Every asserted interaction goes through the browser — API calls only run in the
  * finally block as a safety net if a UI step throws before the UI-level delete.
  */
 test.describe('TC-WF-006: Create and delete workflow definition via UI', () => {
-  test('creates a definition through the form and deletes it via row actions', async ({ page, request }) => {
+  test('creates a definition in the studio and deletes it via row actions', async ({ page, request }) => {
+    // A full UI round trip — login, list, template gallery, Studio boot, details
+    // drawer, save, back to the list, search, row menu, confirm delete — behind
+    // the shared 20s per-test budget, which several of the individual waits
+    // below are already allowed to consume most of on their own. Matches the
+    // budget the sibling Studio journeys (TC-WF-033/034/036/037) use.
+    test.setTimeout(120_000)
     const timestamp = Date.now()
     const workflowId = `qa-wf-006-${timestamp}`
     const workflowName = `QA TC-WF-006 ${timestamp}`
@@ -48,48 +59,31 @@ test.describe('TC-WF-006: Create and delete workflow definition via UI', () => {
       await page.goto('/backend/definitions')
       await expect(page.getByRole('heading', { name: /workflow definitions/i })).toBeVisible()
 
-      // Open the Create form via the list page toolbar button.
-      // The empty-list state (#772 ListEmptyState) also renders a "Create Workflow"
-      // link with the same accessible name, so target the first (toolbar) match.
-      await page.getByRole('link', { name: /^create workflow$/i }).first().click()
-      await expect(page).toHaveURL(/\/backend\/definitions\/create/)
-
-      // Basic fields
-      await fillText(page, page.getByPlaceholder('checkout_workflow'), workflowId)
-      await fillText(page, page.getByPlaceholder('Enter a descriptive workflow name'), workflowName)
-
-      // Steps: add START and END
-      const addStepBtn = page.getByRole('button', { name: /^add step$/i })
-      await addStepBtn.click()
-      await fillText(page, page.locator('#step-0-id'), 'start')
-      await fillText(page, page.locator('#step-0-name'), 'Start')
-      // Radix Select: trigger has the id, options live in portal
-      const pickRadix = async (triggerId: string, optionLabel: string | RegExp) => {
-        await page.locator(`#${triggerId}`).click()
-        const opt = typeof optionLabel === 'string'
-          ? page.getByRole('option', { name: optionLabel, exact: true })
-          : page.getByRole('option', { name: optionLabel })
-        await opt.first().click()
-      }
-      await pickRadix('step-0-type', 'Start')
-
-      await addStepBtn.click()
-      await fillText(page, page.locator('#step-1-id'), 'end')
-      await fillText(page, page.locator('#step-1-name'), 'End')
-      await pickRadix('step-1-type', 'End')
-
-      // Transition: start → end
-      await page.getByRole('button', { name: /^add transition$/i }).click()
-      await fillText(page, page.locator('#transition-0-id'), 'start-to-end')
-      await fillText(page, page.locator('#transition-0-name'), 'Auto advance')
-      await pickRadix('transition-0-from', /^start$/i)
-      await pickRadix('transition-0-to', /^end$/i)
-
-      // Submit (two identical buttons — header + footer; click the first)
+      // Open the studio via the list page toolbar button. It opens the template
+      // gallery; the empty-list state (#772 ListEmptyState) opens the same
+      // gallery, so target the first (toolbar) match.
       await page.getByRole('button', { name: /^create workflow$/i }).first().click()
+      const gallery = page.getByRole('dialog')
+      await expect(gallery).toBeVisible({ timeout: 10_000 })
+      await page.getByTestId('template-card-task-escalation').click()
 
-      // Back to list — entry should be visible
-      await expect(page).toHaveURL(/\/backend\/definitions(\?|$|\/)/, { timeout: 15_000 })
+      await expect(page).toHaveURL(/\/backend\/definitions\/visual-editor\?template=task-escalation/, { timeout: 15_000 })
+      await expect(workflowStepNodes(page).first()).toBeVisible({ timeout: 15_000 })
+
+      // Overwrite the template's identifiers so parallel runs cannot collide.
+      // They live in the details Drawer, which starts closed.
+      const drawer = await openWorkflowDetailsDrawer(page)
+      await fillText(page, drawer.locator('#workflowId'), workflowId)
+      await fillText(page, drawer.locator('#workflowName'), workflowName)
+
+      // Saving keeps the author on the canvas and switches the URL into edit
+      // mode. Save from inside the drawer — with it open, the header Save and
+      // the drawer footer Save share an accessible name.
+      await drawer.getByRole('button', { name: /^save$/i }).click()
+      await expect(page).toHaveURL(/\/backend\/definitions\/visual-editor\?id=[0-9a-f-]{36}/i, { timeout: 15_000 })
+
+      // Back to the list — the entry should be visible
+      await page.goto('/backend/definitions')
       await expect(page.getByRole('heading', { name: /workflow definitions/i })).toBeVisible()
 
       const searchBox = page.getByPlaceholder(/search/i).first()
@@ -99,7 +93,12 @@ test.describe('TC-WF-006: Create and delete workflow definition via UI', () => {
         await searchBox.press('Enter').catch(() => undefined)
       }
 
-      const row = page.getByRole('row').filter({ hasText: workflowId })
+      // Match on the NAME, not the id: the list dropped its "Workflow ID"
+      // column and moved the id into a portaled hover tooltip on the name, so
+      // the id is never inside the row element. The search box above still
+      // narrows by id (the `search` filter matches workflowId OR workflowName),
+      // so the row this resolves to is still unambiguously ours.
+      const row = page.getByRole('row').filter({ hasText: workflowName })
       await expect(row).toBeVisible({ timeout: 10_000 })
 
       // Delete via row action menu → confirm dialog.
@@ -117,12 +116,19 @@ test.describe('TC-WF-006: Create and delete workflow definition via UI', () => {
       await triggerBtn.hover()
       await page.getByRole('menuitem', { name: /^delete$/i }).click()
 
-      const deleteDialog = page.getByRole('dialog', { name: /delete workflow/i })
+      // The definition list no longer hand-rolls its delete confirmation as a
+      // Radix `Dialog`: it goes through the shared `ConfirmDialog`, which is a
+      // native `<dialog role="alertdialog">`. Playwright matches ARIA roles
+      // exactly, so `getByRole('dialog')` never resolves it — every other spec
+      // that drives this component (TC-WF-034, TC-CRM-014, …) uses
+      // `alertdialog`. The confirmation step itself is unchanged: the row is
+      // only removed after the dialog's Delete is clicked.
+      const deleteDialog = page.getByRole('alertdialog', { name: /delete workflow/i })
       await expect(deleteDialog).toBeVisible()
       await deleteDialog.getByRole('button', { name: /^delete$/i }).click()
 
       // Row should disappear. The flash toast may be transient, so assert on row removal instead.
-      await expect(page.getByRole('row').filter({ hasText: workflowId })).toHaveCount(0, { timeout: 10_000 })
+      await expect(page.getByRole('row').filter({ hasText: workflowName })).toHaveCount(0, { timeout: 10_000 })
     } finally {
       if (token) {
         const leftoverId = await findDefinitionIdByWorkflowId(request, token, workflowId)

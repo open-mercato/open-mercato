@@ -8,7 +8,18 @@ import { defineWorkflow, createWorkflowsModuleConfig } from '@open-mercato/share
 import { registerWorkflowSafeCommands } from '@open-mercato/core/modules/workflows/lib/workflow-safe-commands'
 
 registerWorkflowSafeCommands([
-  { commandId: 'sales.orders.update', requiredFeatures: ['sales.orders.manage'] },
+  {
+    commandId: 'sales.orders.update',
+    requiredFeatures: ['sales.orders.manage'],
+    labelKey: 'sales.workflows.commands.orders.update',
+    // GRANDFATHERED: the only command reachable by UPDATE_ENTITY before the
+    // tenant enablement setting existed, and the one `sales.order-approval`
+    // (shipped above, and as a gallery template) runs on every transition. A
+    // tenant that never opens the settings page must keep executing it, so this
+    // flag is what makes the gate ship without changing anybody's behaviour.
+    // New candidates MUST NOT copy it — see workflow-safe-commands.ts.
+    defaultEnabled: true,
+  },
 ])
 
 const orderApproval = defineWorkflow({

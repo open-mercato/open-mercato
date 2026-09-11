@@ -9,6 +9,7 @@ import type {
   EventDefinition,
   EventModuleConfig,
   EventPayload,
+  EventPayloadSchema,
   EmitOptions,
   CreateModuleEventsOptions,
   ModuleEventEmitter,
@@ -101,18 +102,44 @@ function getEventRegistryState(): EventRegistryState {
   }
 }
 
+const CRUD_AFTER_EVENT_SUFFIXES = ['.created', '.updated', '.deleted'] as const
+
+/**
+ * Generated payload schema for platform-emitted CRUD after-events. Mirrors the
+ * default payload built by the data engine's `emitOrmEntityEvent` when no
+ * `buildPayload` override is configured: `{ id, organizationId, tenantId }`
+ * plus `syncOrigin` when the write originated from a sync. organizationId and
+ * tenantId keys are always present but may be null, so they are `optional`.
+ */
+export const DEFAULT_CRUD_PAYLOAD_SCHEMA: EventPayloadSchema = {
+  fields: [
+    { path: 'id', type: 'text' },
+    { path: 'organizationId', type: 'text', optional: true },
+    { path: 'tenantId', type: 'text', optional: true },
+    { path: 'syncOrigin', type: 'text', optional: true },
+  ],
+}
+
+function applyDefaultCrudPayloadSchema(event: EventDefinition): EventDefinition {
+  if (event.payloadSchema) return event
+  if (event.category !== 'crud') return event
+  if (!CRUD_AFTER_EVENT_SUFFIXES.some(suffix => event.id.endsWith(suffix))) return event
+  return { ...event, payloadSchema: DEFAULT_CRUD_PAYLOAD_SCHEMA }
+}
+
 function addDeclaredEvent(event: EventDefinition): void {
+  const declared = applyDefaultCrudPayloadSchema(event)
   const state = getEventRegistryState()
-  state.declaredEventIds.add(event.id)
-  const existingIndex = state.declaredEvents.findIndex((candidate) => candidate.id === event.id)
+  state.declaredEventIds.add(declared.id)
+  const existingIndex = state.declaredEvents.findIndex((candidate) => candidate.id === declared.id)
   if (existingIndex < 0) {
-    state.declaredEvents.push(event)
+    state.declaredEvents.push(declared)
     return
   }
   // Refresh a module's own definition in place during HMR without allowing a
   // duplicate declaration from another module to take over the event id.
-  if (state.declaredEvents[existingIndex]?.module === event.module) {
-    state.declaredEvents[existingIndex] = event
+  if (state.declaredEvents[existingIndex]?.module === declared.module) {
+    state.declaredEvents[existingIndex] = declared
   }
 }
 
@@ -271,11 +298,15 @@ export function createModuleEvents<
   // Build set of valid event IDs for runtime validation
   const validEventIds = new Set(events.map(e => e.id))
 
-  // Build full event definitions with module added
-  const fullEvents: EventDefinition[] = events.map(e => ({
-    ...e,
-    module: moduleId,
-  }))
+  // Build full event definitions with module added and the generated CRUD
+  // payload-schema default applied, so config consumers and the global
+  // registry see the same definitions.
+  const fullEvents: EventDefinition[] = events.map(e =>
+    applyDefaultCrudPayloadSchema({
+      ...e,
+      module: moduleId,
+    }),
+  )
 
   // Register all event IDs and definitions in the global registry.
   for (const event of fullEvents) {

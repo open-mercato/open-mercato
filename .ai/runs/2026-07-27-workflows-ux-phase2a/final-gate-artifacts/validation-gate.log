@@ -1,0 +1,72 @@
+===== yarn build:packages =====
+EXIT=0
+[1mCached:    [1m20 cached[0m, 21 total[0m
+[1m  Time:    [1m2.827s[0m [0m
+
+===== yarn generate =====
+EXIT=0
+[1mCached:    [1m0 cached[0m, 1 total[0m
+[1m  Time:    [1m4.677s[0m [0m
+
+===== yarn build:packages =====
+EXIT=0
+[1mCached:    [1m21 cached[0m, 21 total[0m
+[1m  Time:    [1m171ms[0m [1m[38;2;18;45;128m>[0m[0;1m[1m[38;2;4;45;162m>[0m[0;1m[1m[38;2;1;45;194m>[0m[0;1m[1m[38;2;6;45;221m [0m[0;1m[1m[38;2;21;45;241mF[0m[0;1m[1m[38;2;44;45;252mU[0m[0;1m[1m[38;2;73;45;254mL[0m[0;1m[1m[38;2;106;45;247mL[0m[0;1m[1m[38;2;141;45;230m [0m[0;1m[1m[38;2;175;45;206mT[0m[0;1m[1m[38;2;205;45;176mU[0m[0;1m[1m[38;2;229;45;142mR[0m[0;1m[1m[38;2;246;45;107mB[0m[0;1m[1m[38;2;254;45;74mO[0m[0;1m[0m[0m
+
+===== yarn i18n:check-sync =====
+EXIT=0
+[0m
+
+[32mAll translation files are in sync.[0m
+===== yarn i18n:check-usage =====
+EXIT=0
+[2mSkipped 459 dynamic t()/translate() calls (non-string-literal arguments)
+[0m
+Summary: [33m3779 unused keys (advisory)[0m
+===== yarn typecheck =====
+EXIT=0
+[1mCached:    [1m20 cached[0m, 21 total[0m
+[1m  Time:    [1m1.303s[0m [0m
+
+===== yarn test =====
+EXIT=FAIL
+[34m@open-mercato/core:test: [0m    [31m+   "packages/core/src/modules/workflows/lib/context-ledger.ts:497",[39m
+[34m@open-mercato/core:test: [0m    [31m+ ][39m
+[34m@open-mercato/core:test: [0m[2m[22m
+[34m@open-mercato/core:test: [0m[2m    [0m [90m 136 |[39m       }[22m
+[34m@open-mercato/core:test: [0m[2m     [90m 137 |[39m     }[22m
+[34m@open-mercato/core:test: [0m[2m    [31m[1m>[22m[2m[39m[90m 138 |[39m     expect(violations)[33m.[39mtoEqual([])[22m
+[34m@open-mercato/core:test: [0m[2m     [90m     |[39m                        [31m[1m^[22m[2m[39m[22m
+[34m@open-mercato/core:test: [0m[2m     [90m 139 |[39m   })[22m
+[34m@open-mercato/core:test: [0m[2m     [90m 140 |[39m })[22m
+[34m@open-mercato/core:test: [0m[2m     [90m 141 |[39m[0m[22m
+[34m@open-mercato/core:test: [0m[2m[22m
+[34m@open-mercato/core:test: [0m[2m      [2mat Object.<anonymous> ([22m[2m[0m[36msrc/__tests__/explicit-sort-comparators.test.ts[39m[0m[2m:138:24)[22m[2m[22m
+[34m@open-mercato/core:test: [0m
+[34m@open-mercato/core:test: [0m
+[34m@open-mercato/core:test: [0m[1mTest Suites: [22m[1m[31m1 failed[39m[22m, [1m[32m1074 passed[39m[22m, 1075 total
+[34m@open-mercato/core:test: [0m[1mTests:       [22m[1m[31m1 failed[39m[22m, [1m[32m8323 passed[39m[22m, 8324 total
+[34m@open-mercato/core:test: [0m[1mSnapshots:   [22m0 total
+[34m@open-mercato/core:test: [0m[1mTime:[22m        65.069 s
+[34m@open-mercato/core:test: [0m[2mRan all test suites[22m[2m.[22m
+[35m@open-mercato/cli:test: [0m[0m[7m[1m[32m PASS [39m[22m[27m[0m [2msrc/lib/__tests__/[22m[1mutils.test.ts[22m
+[35m@open-mercato/cli:test: [0m[0m[7m[1m[32m PASS [39m[22m[27m[0m [2msrc/lib/__tests__/[22m[1mmodule-package.test.ts[22m
+[32m@open-mercato/channel-gmail:test: [0mcache bypass, force executing [2m9ad06c94e1996484[0m
+[1m@open-mercato/core#test: [0m[31m[1m ERROR [0m [31m[1mcommand (/Users/pat-lewczuk/projects/open-mercato/2/open-mercato/.ai/tmp/om-auto-create-pr-loop/workflows-ux-phase2a-20260727-145110/packages/core) /private/var/folders/5b/v__l5j8x7rb3nrsd24xr4p980000gn/T/xfs-ed512e56/yarn run test exited (1)[0m
+
+[1m Tasks:    [32m[1m20 successful[0m, 23 total[0m
+[1mCached:    [1m0 cached[0m, 23 total[0m
+[1m  Time:    [1m1m10.619s[0m [0m
+[1mFailed:    [31m[1m@open-mercato/core#test[0m[0m
+
+[31;40m ERROR [0m [31;49mrun failed: command  exited (1)[0m
+===== yarn test (rerun after comparator fix) =====
+EXIT=0
+[1mCached:    [1m0 cached[0m, 23 total[0m
+[1m  Time:    [1m1m11.332s[0m [0m
+
+===== yarn build:app =====
+EXIT=0
+[1mCached:    [1m0 cached[0m, 1 total[0m
+[1m  Time:    [1m48.015s[0m [0m
+

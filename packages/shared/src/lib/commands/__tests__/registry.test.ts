@@ -1,3 +1,4 @@
+import { z } from 'zod'
 import { commandRegistry, registerCommand, registerCommandLoaders } from '@open-mercato/shared/lib/commands'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -102,6 +103,40 @@ describe('command registry registration', () => {
     expect(commandRegistry.has('test.command.lazy')).toBe(true)
     expect(commandRegistry.list()).toContain('test.command.lazy')
     expect(commandRegistry.list()).not.toContain('test:commands:fallback')
+  })
+
+  it('returns the outputSchema for a registered handler that declares one and null otherwise', () => {
+    const outputSchema = z.object({ dealId: z.string().uuid() })
+
+    registerCommand({
+      id: 'test.command.with-output',
+      execute: jest.fn(),
+      outputSchema,
+    })
+    registerCommand({
+      id: 'test.command.without-output',
+      execute: jest.fn(),
+    })
+
+    expect(commandRegistry.outputSchemaOf('test.command.with-output')).toBe(outputSchema)
+    expect(commandRegistry.outputSchemaOf('test.command.without-output')).toBeNull()
+    expect(commandRegistry.outputSchemaOf('test.command.never-registered')).toBeNull()
+  })
+
+  it('does not trigger lazy loaders when resolving output schemas', () => {
+    const load = jest.fn(async () => {})
+
+    registerCommandLoaders([
+      {
+        moduleId: 'test',
+        id: 'test.command.lazy-output',
+        key: 'test:commands:lazy-output',
+        load,
+      },
+    ])
+
+    expect(commandRegistry.outputSchemaOf('test.command.lazy-output')).toBeNull()
+    expect(load).not.toHaveBeenCalled()
   })
 
   it('loads sibling module command files with an exact lazy command', async () => {

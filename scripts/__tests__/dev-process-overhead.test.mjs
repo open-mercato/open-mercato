@@ -24,7 +24,10 @@ test('consolidated package watch runs as a direct Node child while legacy watch 
 })
 
 test('monorepo app runtime runs its script directly from the app workspace', () => {
-  const body = functionBody('launchMonorepoAppDev')
+  // The spawn moved into `runAppLifecycle` when the app gained the same
+  // restart-on-crash supervisor the MCP runtime has; `launchMonorepoAppDev`
+  // is now only the entry point that starts it.
+  const body = functionBody('runAppLifecycle')
 
   assert.match(body, /const appArgs = \[monorepoAppDevScript\]/)
   assert.match(body, /spawnCommand\(process\.execPath, appArgs/)

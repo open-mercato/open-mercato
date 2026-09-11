@@ -11,7 +11,8 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
-import { completeUserTask } from '../../../../lib/task-handler'
+import type { TaskHandlerService } from '../../../../lib/task-handler'
+import { gateTaskAction } from '../../../../lib/task-visibility-request'
 import {
   workflowsTag,
   completeTaskRequestSchema as openApiCompleteTaskSchema,
@@ -31,6 +32,11 @@ export const metadata = {
 const completeTaskSchema = z.object({
   formData: z.record(z.string(), z.any()),
   comments: z.string().optional(),
+  /**
+   * The decision button the assignee pressed. Optional and additive: a task
+   * without decisions completes through the plain form exactly as before.
+   */
+  decisionId: z.string().min(1).optional(),
 })
 
 /**
@@ -89,29 +95,40 @@ export async function POST(
       )
     }
 
-    const { formData, comments } = parseResult.data
+    const { formData, comments, decisionId } = parseResult.data
 
-    // Verify task belongs to this tenant/org before completing
-    const { UserTask } = await import('../../../../data/entities')
-    const task = await em.findOne(UserTask, {
-      id: params.id,
-      tenantId,
+    // §6.4 replaces the bare tenant/organization check that used to stand here.
+    // The narrowing D-1 keeps `workflows.tasks.complete` on the route and still
+    // demands: holding it no longer completes anyone ELSE's task. Refusals are
+    // indistinguishable from a nonexistent id unless the caller already sees the
+    // row.
+    const gate = await gateTaskAction({
+      container,
+      em,
+      auth: { userId: auth.sub, tenantId, roleNames: auth.roles ?? [] },
+      taskId: params.id,
       organizationId,
+      // Complete is the one act where the gate, not the handler, decides
+      // ownership: the handler leaves an OWNERLESS row open to anyone holding
+      // the feature, which is exactly the pre-change semantics §6.4 narrows.
+      requireOwnership: true,
     })
 
-    if (!task) {
-      return NextResponse.json(
-        { error: 'Task not found' },
-        { status: 404 }
-      )
+    if (!gate.allowed) {
+      return NextResponse.json(gate.refusal.body, { status: gate.refusal.status })
     }
 
+    const { UserTask } = await import('../../../../data/entities')
+
     // Call task handler to complete task and resume workflow
-    await completeUserTask(em, container, {
+    const taskHandler = container.resolve<TaskHandlerService>('taskHandler')
+    await taskHandler.completeUserTask(em, container, {
       taskId: params.id,
       formData,
       userId: auth.sub,
       comments,
+      decisionId,
+      scope: { tenantId, organizationId },
     })
 
     // Fetch updated task
@@ -130,6 +147,20 @@ export async function POST(
 
     // Handle specific error codes from task-handler
     if (error instanceof Error) {
+      if ((error as { code?: unknown }).code === 'UNKNOWN_DECISION') {
+        return NextResponse.json(
+          { error: error.message },
+          { status: 400 }
+        )
+      }
+      // "Task is assigned to another user" matches none of the message arms
+      // below, so this refusal used to answer 500. It is a conflict.
+      if ((error as { code?: unknown }).code === 'TASK_ASSIGNED_TO_ANOTHER_USER') {
+        return NextResponse.json(
+          { error: error.message },
+          { status: 409 }
+        )
+      }
       if (error.message.includes('not found')) {
         return NextResponse.json(
           { error: error.message },
@@ -177,7 +208,8 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 400, description: 'Invalid request body, validation failed, or missing context', schema: workflowErrorSchema },
         { status: 401, description: 'Unauthorized', schema: workflowErrorSchema },
-        { status: 404, description: 'Task not found', schema: workflowErrorSchema },
+        { status: 403, description: 'The task is visible to the caller but is not theirs to act on — it has no assignee and no role queue, so it must be reassigned first (§6.4: administration widens seeing, never acting).', schema: workflowErrorSchema },
+        { status: 404, description: 'Task not found, or not visible to the caller', schema: workflowErrorSchema },
         { status: 409, description: 'Task already completed', schema: workflowErrorSchema },
         { status: 500, description: 'Internal server error', schema: workflowErrorSchema },
       ],

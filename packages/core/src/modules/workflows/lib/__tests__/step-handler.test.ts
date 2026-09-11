@@ -1,6 +1,7 @@
 import { describe, test, expect, jest, beforeEach } from '@jest/globals'
 import type { EntityManager } from '@mikro-orm/core'
 import * as stepHandler from '../step-handler'
+import { WorkflowEvent } from '../../data/entities'
 import type {
   WorkflowDefinition,
   WorkflowInstance,
@@ -365,6 +366,155 @@ describe('Step Handler (Unit Tests)', () => {
   })
 
   // ============================================================================
+  // executeStep() Tests - IF_ELSE / SWITCH branching steps (transition sugar)
+  // ============================================================================
+
+  describe('executeStep - branching steps', () => {
+    const branchingDefinition: Partial<WorkflowDefinition> = {
+      ...mockDefinition,
+      definition: {
+        steps: [
+          { stepId: 'start', stepName: 'Start', stepType: 'START' },
+          { stepId: 'if-else-step', stepName: 'Amount Check', stepType: 'IF_ELSE' },
+          { stepId: 'switch-step', stepName: 'Channel Switch', stepType: 'SWITCH' },
+          { stepId: 'end', stepName: 'End', stepType: 'END' },
+        ],
+        transitions: [
+          {
+            transitionId: 'e_if-else-step_end',
+            fromStepId: 'if-else-step',
+            toStepId: 'end',
+            trigger: 'auto',
+            priority: 10,
+            condition: { field: 'total', operator: '>', value: 100 },
+          },
+        ],
+      },
+    }
+
+    function stepInstanceFor(stepId: string, stepType: string): StepInstance {
+      return {
+        id: `step-instance-${stepId}`,
+        workflowInstanceId: testInstanceId,
+        stepId,
+        stepName: stepId,
+        stepType,
+        status: 'ACTIVE',
+        enteredAt: new Date(),
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+        retryCount: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      } as unknown as StepInstance
+    }
+
+    test('should complete an IF_ELSE step immediately without executing anything', async () => {
+      mockEm.findOne.mockResolvedValue(branchingDefinition as WorkflowDefinition)
+      mockEm.create.mockReturnValue(stepInstanceFor('if-else-step', 'IF_ELSE'))
+
+      const result = await stepHandler.executeStep(
+        mockEm,
+        mockInstance as WorkflowInstance,
+        'if-else-step',
+        { workflowContext: { total: 250 } }
+      )
+
+      expect(result.status).toBe('COMPLETED')
+      expect(result.outputData.stepType).toBe('IF_ELSE')
+      expect(result.nextSteps).toBeUndefined()
+      expect(result.waitReason).toBeUndefined()
+    })
+
+    test('should complete a SWITCH step immediately without executing anything', async () => {
+      mockEm.findOne.mockResolvedValue(branchingDefinition as WorkflowDefinition)
+      mockEm.create.mockReturnValue(stepInstanceFor('switch-step', 'SWITCH'))
+
+      const result = await stepHandler.executeStep(
+        mockEm,
+        mockInstance as WorkflowInstance,
+        'switch-step',
+        { workflowContext: { channel: 'web' } }
+      )
+
+      expect(result.status).toBe('COMPLETED')
+      expect(result.outputData.stepType).toBe('SWITCH')
+      expect(result.nextSteps).toBeUndefined()
+      expect(result.waitReason).toBeUndefined()
+    })
+
+    test('should leave routing to the transition evaluator, not the step handler', async () => {
+      mockEm.findOne.mockResolvedValue(branchingDefinition as WorkflowDefinition)
+      mockEm.create.mockReturnValue(stepInstanceFor('if-else-step', 'IF_ELSE'))
+
+      const matched = await stepHandler.executeStep(
+        mockEm,
+        mockInstance as WorkflowInstance,
+        'if-else-step',
+        { workflowContext: { total: 250 } }
+      )
+
+      jest.clearAllMocks()
+      mockEm.findOne.mockResolvedValue(branchingDefinition as WorkflowDefinition)
+      mockEm.create.mockReturnValue(stepInstanceFor('if-else-step', 'IF_ELSE'))
+
+      const unmatched = await stepHandler.executeStep(
+        mockEm,
+        mockInstance as WorkflowInstance,
+        'if-else-step',
+        { workflowContext: { total: 1 } }
+      )
+
+      expect(unmatched.status).toBe(matched.status)
+      expect(unmatched.outputData.stepType).toBe(matched.outputData.stepType)
+    })
+
+    test('should keep the executed trace of a legacy definition unchanged', async () => {
+      const trace: Array<Record<string, unknown>> = []
+      mockEm.create.mockImplementation(((entity: unknown, payload: Record<string, unknown>) => {
+        if (entity === WorkflowEvent) {
+          trace.push({
+            eventType: payload.eventType,
+            stepInstanceId: payload.stepInstanceId,
+            eventData: payload.eventData,
+          })
+          return payload as unknown as WorkflowEvent
+        }
+        return payload as unknown as StepInstance
+      }) as never)
+      mockEm.findOne.mockResolvedValue(mockDefinition as WorkflowDefinition)
+
+      for (const stepId of ['start', 'automated-step', 'end']) {
+        await stepHandler.executeStep(
+          mockEm,
+          mockInstance as WorkflowInstance,
+          stepId,
+          { workflowContext: { orderId: '12345' } }
+        )
+      }
+
+      expect(
+        trace.map((entry) => {
+          const eventData = entry.eventData as {
+            stepId?: string
+            stepType?: string
+            status?: string
+            hasOutput?: boolean
+          }
+          return [entry.eventType, eventData.stepId, eventData.stepType ?? eventData.status, eventData.hasOutput]
+        }),
+      ).toEqual([
+        ['STEP_ENTERED', 'start', 'START', undefined],
+        ['STEP_EXITED', 'start', 'COMPLETED', true],
+        ['STEP_ENTERED', 'automated-step', 'AUTOMATED', undefined],
+        ['STEP_EXITED', 'automated-step', 'COMPLETED', true],
+        ['STEP_ENTERED', 'end', 'END', undefined],
+        ['STEP_EXITED', 'end', 'COMPLETED', true],
+      ])
+    })
+  })
+
+  // ============================================================================
   // executeStep() Tests - USER_TASK step
   // ============================================================================
 
@@ -420,6 +570,98 @@ describe('Step Handler (Unit Tests)', () => {
       expect(result.waitReason).toBe('USER_TASK')
       expect(result.outputData).toBeDefined()
       expect(result.outputData.userTaskId).toBe('user-task-1')
+    })
+
+    // Dry-run isolation (spec section 8.2): the USER_TASK step is the one place
+    // a run creates a task row, so it is the one place the suppression has to
+    // hold. No row means no `workflows.task.assigned` event, therefore no
+    // notification row, no SLA queue jobs, and nothing for any Work Inbox or
+    // task-list query to return.
+    test('a dry run raises NO UserTask row, and still waits so the author can simulate the decision', async () => {
+      mockEm.findOne
+        .mockResolvedValueOnce(mockDefinition as WorkflowDefinition)
+        .mockResolvedValueOnce(mockDefinition as WorkflowDefinition)
+
+      const mockStepInstance = {
+        id: 'step-instance-1',
+        workflowInstanceId: testInstanceId,
+        stepId: 'user-task-step',
+        stepName: 'User Task Step',
+        stepType: 'USER_TASK',
+        status: 'ACTIVE',
+        enteredAt: new Date(),
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+        retryCount: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      } as StepInstance
+
+      const createdEntities: unknown[] = []
+      mockEm.create.mockImplementation(((entity: unknown, payload: Record<string, unknown>) => {
+        createdEntities.push(entity)
+        return createdEntities.length === 1 ? mockStepInstance : payload
+      }) as never)
+
+      const result = await stepHandler.executeStep(
+        mockEm,
+        { ...mockInstance, isDryRun: true } as WorkflowInstance,
+        'user-task-step',
+        { workflowContext: {} }
+      )
+
+      expect(result.status).toBe('WAITING')
+      expect(result.waitReason).toBe('USER_TASK')
+      expect(result.outputData).toEqual({ simulated: true, wouldRaiseTask: 'User Task Step' })
+      expect(result.outputData.userTaskId).toBeUndefined()
+
+      const createdNames = createdEntities.map((entity) =>
+        typeof entity === 'function' ? entity.name : String(entity)
+      )
+      expect(createdNames).not.toContain('UserTask')
+      // Only the StepInstance and the WorkflowEvent rows the run log needs.
+      expect(new Set(createdNames)).toEqual(new Set(['StepInstance', 'WorkflowEvent']))
+    })
+
+    test('a dry run reports who the task WOULD have gone to, so the report is actionable', async () => {
+      mockEm.findOne
+        .mockResolvedValueOnce(mockDefinition as WorkflowDefinition)
+        .mockResolvedValueOnce(mockDefinition as WorkflowDefinition)
+
+      const mockStepInstance = {
+        id: 'step-instance-1',
+        workflowInstanceId: testInstanceId,
+        stepId: 'user-task-step',
+        stepName: 'User Task Step',
+        stepType: 'USER_TASK',
+        status: 'ACTIVE',
+        enteredAt: new Date(),
+        tenantId: testTenantId,
+        organizationId: testOrgId,
+        retryCount: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      } as StepInstance
+
+      const events: Array<Record<string, unknown>> = []
+      let call = 0
+      mockEm.create.mockImplementation(((entity: unknown, payload: Record<string, unknown>) => {
+        call += 1
+        if (typeof payload?.eventType === 'string') events.push(payload)
+        return call === 1 ? mockStepInstance : payload
+      }) as never)
+
+      await stepHandler.executeStep(
+        mockEm,
+        { ...mockInstance, isDryRun: true } as WorkflowInstance,
+        'user-task-step',
+        { workflowContext: {} }
+      )
+
+      const simulated = events.find((event) => event.eventType === 'USER_TASK_SIMULATED')
+      expect(simulated).toBeDefined()
+      expect(events.some((event) => event.eventType === 'USER_TASK_CREATED')).toBe(false)
+      expect((simulated?.eventData as Record<string, unknown>).taskName).toBe('User Task Step')
     })
 
     test('should create user task with form schema and assignment', async () => {
@@ -544,6 +786,81 @@ describe('Step Handler (Unit Tests)', () => {
       const userTaskCall = (mockEm.create as jest.Mock).mock.calls[2] as [string, any] // Third call is user task
       expect(userTaskCall[1].assignedTo).toBeNull()
       expect(userTaskCall[1].assignedToRoles).toEqual(['manager', 'admin'])
+    })
+
+    const buildDeadlineDefinition = (slaDuration: string) => ({
+      ...mockDefinition,
+      definition: {
+        ...mockDefinition.definition,
+        steps: [
+          {
+            stepId: 'user-task-deadline',
+            stepName: 'Deadline Task',
+            stepType: 'USER_TASK',
+            userTaskConfig: { assignedTo: 'manager@example.com', slaDuration },
+          },
+        ],
+      },
+    })
+
+    const primeDeadlineMocks = (slaDuration: string) => {
+      const definition = buildDeadlineDefinition(slaDuration)
+      mockEm.findOne
+        .mockResolvedValueOnce(definition as WorkflowDefinition)
+        .mockResolvedValueOnce(definition as WorkflowDefinition)
+        .mockResolvedValueOnce(null)
+
+      mockEm.create
+        .mockReturnValueOnce({
+          id: 'step-instance-1',
+          workflowInstanceId: testInstanceId,
+          stepId: 'user-task-deadline',
+          stepName: 'Deadline Task',
+          stepType: 'USER_TASK',
+          status: 'ACTIVE',
+          tenantId: testTenantId,
+          organizationId: testOrgId,
+          retryCount: 0,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        } as StepInstance)
+        .mockReturnValueOnce({} as any) // event
+        .mockReturnValueOnce({ id: 'user-task-1' } as UserTask)
+        .mockReturnValueOnce({} as any) // event
+    }
+
+    test('should honour a sub-day deadline instead of defaulting to one day', async () => {
+      primeDeadlineMocks('PT30M')
+      const before = Date.now()
+
+      await stepHandler.executeStep(
+        mockEm,
+        mockInstance as WorkflowInstance,
+        'user-task-deadline',
+        { workflowContext: {} }
+      )
+
+      const userTaskCall = (mockEm.create as jest.Mock).mock.calls[2] as [string, any]
+      const dueDate = userTaskCall[1].dueDate as Date
+      const offsetMs = dueDate.getTime() - before
+
+      expect(offsetMs).toBeGreaterThanOrEqual(30 * 60 * 1000)
+      expect(offsetMs).toBeLessThan(31 * 60 * 1000)
+    })
+
+    test('should fail the step when the deadline cannot be parsed', async () => {
+      primeDeadlineMocks('sometime next week')
+
+      const result = await stepHandler.executeStep(
+        mockEm,
+        mockInstance as WorkflowInstance,
+        'user-task-deadline',
+        { workflowContext: {} }
+      )
+
+      expect(result.status).toBe('FAILED')
+      expect(result.error).toContain('sometime next week')
+      expect((mockEm.create as jest.Mock).mock.calls).toHaveLength(2)
     })
   })
 
