@@ -218,8 +218,8 @@ export const activityCreateSchema = scopedSchema.extend({
   activityType: z.string().min(1).max(100),
   subject: z.string().max(200).optional(),
   body: z.string().max(8000).optional(),
-  date: z.string().trim().min(1, ACTIVITY_DATE_REQUIRED_MESSAGE_KEY).optional(),
-  time: z.string().trim().min(1, ACTIVITY_TIME_REQUIRED_MESSAGE_KEY).optional(),
+  date: z.string().trim().min(1, ACTIVITY_DATE_REQUIRED_MESSAGE_KEY).optional().nullable(),
+  time: z.string().trim().min(1, ACTIVITY_TIME_REQUIRED_MESSAGE_KEY).optional().nullable(),
   phoneNumber: interactionPhoneNumberSchema,
   occurredAt: z.coerce.date().optional(),
   dealId: uuid().optional(),
@@ -499,8 +499,10 @@ const interactionCreateBaseSchema = scopedSchema.extend({
   // rows, external writers, and the dispatch-crm MCP keep working. Open/terminal semantics
   // live in lib/interactionStatus.ts, not in this validator.
   status: z.string().max(50).optional().default('planned'),
-  date: z.string().trim().min(1, ACTIVITY_DATE_REQUIRED_MESSAGE_KEY).optional(),
-  time: z.string().trim().min(1, ACTIVITY_TIME_REQUIRED_MESSAGE_KEY).optional(),
+  // Nullable like the sibling `scheduledAt` below: an undated activity (a
+  // backlog task) says "no date" with an explicit null, not by omission (#5941).
+  date: z.string().trim().min(1, ACTIVITY_DATE_REQUIRED_MESSAGE_KEY).optional().nullable(),
+  time: z.string().trim().min(1, ACTIVITY_TIME_REQUIRED_MESSAGE_KEY).optional().nullable(),
   phoneNumber: interactionPhoneNumberSchema,
   scheduledAt: z.coerce.date().optional().nullable(),
   occurredAt: z.coerce.date().optional().nullable(),
@@ -514,7 +516,7 @@ const interactionCreateBaseSchema = scopedSchema.extend({
   ...interactionExtendedFields,
 })
 
-function deriveScheduledAtFromDateTime(date?: string, time?: string): Date | null {
+function deriveScheduledAtFromDateTime(date?: string | null, time?: string | null): Date | null {
   if (!date || typeof date !== 'string') return null
   const trimmedDate = date.trim()
   if (!trimmedDate) return null
@@ -566,8 +568,8 @@ const interactionUpdateBaseSchema = z
         title: z.string().trim().max(500).optional().nullable(),
         body: z.string().trim().max(10000).optional().nullable(),
         status: z.string().max(50).optional(),
-        date: z.string().trim().min(1, ACTIVITY_DATE_REQUIRED_MESSAGE_KEY).optional(),
-        time: z.string().trim().min(1, ACTIVITY_TIME_REQUIRED_MESSAGE_KEY).optional(),
+        date: z.string().trim().min(1, ACTIVITY_DATE_REQUIRED_MESSAGE_KEY).optional().nullable(),
+        time: z.string().trim().min(1, ACTIVITY_TIME_REQUIRED_MESSAGE_KEY).optional().nullable(),
         phoneNumber: interactionPhoneNumberSchema,
         scheduledAt: z.coerce.date().optional().nullable(),
         occurredAt: z.coerce.date().optional().nullable(),
@@ -607,6 +609,9 @@ export const interactionUpdateSchema = interactionUpdateBaseSchema
   // the update doesn't silently leave `scheduled_at` stale.
   .transform((value) => {
     if (value.scheduledAt !== undefined) return value
+    // An explicit `date: null` is how a caller drops the due date; mirror it
+    // onto `scheduledAt` rather than leaving the old timestamp behind (#5941).
+    if (value.date === null) return { ...value, scheduledAt: null }
     if (!value.date && !value.time) return value
     const derived = deriveScheduledAtFromDateTime(value.date, value.time)
     return derived ? { ...value, scheduledAt: derived } : value
