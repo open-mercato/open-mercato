@@ -25,7 +25,11 @@ import {
   stripAnsi,
 } from './dev-splash-helpers.mjs'
 import { purgeAppBuildCaches } from './dev-cache-purge.mjs'
-import { ensureDevInotifyLimits } from './dev-inotify-limits.mjs'
+import {
+  ensureDevInotifyLimits,
+  resolveDevBundlerDecision,
+  resolveRequestedDevBundler,
+} from './dev-inotify-limits.mjs'
 import { killProcessTree } from './dev-shutdown-utils.mjs'
 import {
   MCP_HEALTH_POLL_INTERVAL_MS,
@@ -47,8 +51,13 @@ import {
 import { resolveSpawnCommand } from './dev-spawn-utils.mjs'
 import { createDevSplashCodingFlow } from './dev-splash-coding-flow.mjs'
 import { createDevSplashGitRepoFlow } from './dev-splash-git-repo-flow.mjs'
-import { resolveSplashBindHost } from './dev-splash-shared.mjs'
+import { assertLocalSplashRequest, resolveSplashBindHost } from './dev-splash-shared.mjs'
 import { normalizeSplashDisplayState } from './dev-splash-state.mjs'
+import { DevRuntimeConfigError, resolveDevRuntimeConfig } from './dev-runtime-config.mjs'
+import { createDevRuntimeSupervisor } from './dev-runtime-supervisor.mjs'
+import { createDevRuntimeGateway } from './dev-runtime-gateway.mjs'
+import { createDevRuntimeActionRunner } from './dev-runtime-actions.mjs'
+import { isMatchingDevRuntimeToken } from './dev-runtime-diagnostics.mjs'
 import {
   resolveDevBaseUrl,
   resolveSplashUrl as resolveSplashAccessUrl,
@@ -232,6 +241,21 @@ const standaloneStageTotal = setupMode ? 5 : 4
 const splashEnabled = !classic && !appOnly && splashPortConfig.enabled
 const autoOpenSplash = splashEnabled && process.stdout.isTTY && process.env.CI !== 'true' && process.env.OM_DEV_AUTO_OPEN !== '0'
 const splashBindHost = resolveSplashBindHost(process.env)
+const publicAppPort = resolveDevBaseUrl(process.env).port ?? 3000
+const devRuntimeConfig = (() => {
+  try {
+    return resolveDevRuntimeConfig(process.env, { splashEnabled, publicPort: publicAppPort })
+  } catch (error) {
+    if (error instanceof DevRuntimeConfigError) {
+      console.error(`❌ ${error.message}`)
+      process.exit(1)
+    }
+    throw error
+  }
+})()
+// The gateway owns the public port only when explicitly opted in; `direct` mode
+// keeps the historical topology where Next.js binds it.
+const gatewayMode = devRuntimeConfig.mode === 'proxy'
 const standaloneRuntimeScript = path.join(process.cwd(), 'scripts', 'dev-runtime.mjs')
 const monorepoPackageWatchScript = path.join(process.cwd(), 'scripts', 'watch-packages.mjs')
 const monorepoAppDir = path.join(process.cwd(), 'apps', 'mercato')
@@ -307,6 +331,15 @@ const children = new Set()
 let shuttingDown = false
 let splashServer = null
 let splashUrl = null
+let devGateway = null
+let devUpstreamPort = null
+let managedAppChild = null
+let restartRequestedReason = null
+// Gateway mode answers a startup-stage failure by keeping the supervisor alive
+// instead of shutting down, so the startup pipeline has to stop itself. Without
+// this latch the remaining stages — and the app launch — would run against a
+// tree that already failed to build.
+let startupAborted = false
 let splashChildStateFile = null
 let splashLogoSvg = null
 let splashHtmlTemplate = null
@@ -340,6 +373,38 @@ const splashState = {
     : (setupMode ? 'Preparing project setup' : 'Preparing app runtime'),
   activities: [],
 }
+const devRuntime = createDevRuntimeSupervisor({
+  enabled: devRuntimeConfig.diagnosticsEnabled,
+  config: devRuntimeConfig,
+  stateDirectory: path.join(process.cwd(), '.mercato'),
+  publicUrl: resolveDevBaseUrl(process.env).url,
+  configuredPort: publicAppPort,
+  resolveBaseUrl: () => resolveRuntimeProbeBaseUrl(),
+  readChildState: () => readSplashChildState(),
+  // Drains recovery requests queued by the dev-only app route (in-app banner).
+  runAction: (action) => devRuntimeActions.run(action),
+})
+// Recovery actions map a fixed enum onto lifecycle steps the supervisor already
+// owns. They never build a command from request input.
+const devRuntimeActions = createDevRuntimeActionRunner({
+  state: devRuntime,
+  handlers: {
+    generate: async () => {
+      const exitCode = await runRecoveryCommand('Regenerating module artifacts', ['generate'])
+      if (exitCode === 0) restartManagedRuntime('generate action')
+      return exitCode
+    },
+    migrate: async () => {
+      const exitCode = await runRecoveryCommand('Applying database migrations', ['db:migrate'])
+      if (exitCode === 0) restartManagedRuntime('migrate action')
+      return exitCode
+    },
+    restart: async () => {
+      restartManagedRuntime('restart action')
+      return 0
+    },
+  },
+})
 const codingFlow = createDevSplashCodingFlow({
   env: process.env,
   platform: process.platform,
@@ -364,6 +429,14 @@ function resolveExpectedAppBaseUrl() {
   return resolveDevBaseUrl(process.env).url
 }
 
+// The continuous probe always talks to the managed runtime directly, so in
+// gateway mode it must target the internal loopback port rather than the public
+// gateway it is meant to diagnose.
+function resolveRuntimeProbeBaseUrl() {
+  if (gatewayMode && devUpstreamPort) return `http://127.0.0.1:${devUpstreamPort}`
+  return resolveExpectedAppBaseUrl()
+}
+
 function resolveExpectedBackendUrl() {
   return `${resolveExpectedAppBaseUrl()}/backend`
 }
@@ -382,12 +455,31 @@ function printDevLogLocation() {
 }
 
 function ensureDevFileWatchLimits() {
+  const requestedBundler = resolveRequestedDevBundler()
+  const requestedDecision = resolveDevBundlerDecision({ requestedBundler })
+  if (!requestedDecision.shouldCheckInotify) {
+    console.log('ℹ️ Using Next.js Webpack dev server; Linux inotify limits are not required')
+    return true
+  }
+
   const result = ensureDevInotifyLimits()
   if (result.fixed) {
     console.log('🔧 Raised Linux inotify file-watch limits for Turbopack')
     return true
   }
   if (result.ok) {
+    return true
+  }
+
+  const decision = resolveDevBundlerDecision({ requestedBundler, inotifyResult: result })
+  if (decision.fallback) {
+    process.env.OM_DEV_BUNDLER = 'webpack'
+    console.warn('⚠️ Linux inotify limits could not be raised; continuing with Next.js Webpack')
+    console.warn(`   Current values: ${JSON.stringify(result.current)}`)
+    console.warn('   To restore Turbopack, run `yarn dev:fix-wsl-watchers` or apply:')
+    for (const command of result.manualCommands ?? []) {
+      console.warn(`     ${command}`)
+    }
     return true
   }
 
@@ -595,6 +687,7 @@ function buildSplashChildEnv(options = {}) {
   if (!splashChildStateFile) {
     const env = {
       ...childEnv,
+      ...devRuntime.childEnv(),
       OM_DEV_SHUTDOWN_NOTICE_OWNER: 'parent',
     }
     return Object.keys(env).length > 0 ? env : undefined
@@ -602,6 +695,9 @@ function buildSplashChildEnv(options = {}) {
 
   return {
     ...childEnv,
+    ...devRuntime.childEnv(),
+    // Lets the in-app banner link "View logs" back to the standalone splash.
+    ...(splashUrl ? { OM_DEV_RUNTIME_SPLASH_URL: splashUrl } : {}),
     OM_DEV_SPLASH_CHILD_STATE_FILE: splashChildStateFile,
     OM_DEV_WARMUP_READY_FILE: warmupReadyFilePath,
     OM_DEV_SPLASH_MODE: splashMode,
@@ -711,6 +807,9 @@ function buildAppDevEnv(options = {}) {
     ...(buildSplashChildEnv(options) ?? {}),
     ...(memoryTraceEnabled ? { OM_DEV_MEMORY_TRACE_OWNER: 'parent' } : {}),
     ...buildMcpAppEnv(),
+    // In gateway mode the managed runtime binds the internal loopback port and
+    // the gateway keeps the public one.
+    ...(gatewayMode && devUpstreamPort ? { PORT: String(devUpstreamPort) } : {}),
   })
   if (isMonorepo) {
     // `yarn workspace ... dev` used to inject the workspace binaries into PATH.
@@ -724,6 +823,7 @@ function buildAppDevEnv(options = {}) {
 }
 
 function launchStandaloneDev(options = {}) {
+  if (startupAborted) return
   if (!fs.existsSync(standaloneRuntimeScript)) {
     console.error(`❌ Standalone dev runtime not found at ${standaloneRuntimeScript}`)
     shutdown(1)
@@ -757,15 +857,60 @@ function launchStandaloneDev(options = {}) {
     activity,
   })
 
+  writeSplashChildStateFileClear()
+  devRuntime.beginGeneration('standalone app runtime launch')
   const app = spawnCommand(process.execPath, runtimeArgs, {
     stdio: 'inherit',
     env: buildAppDevEnv({ stageCurrent, stageTotal }),
   })
+  managedAppChild = app
 
   app.on('close', (code) => {
-    if (!shuttingDown) {
-      shutdown(code ?? 0)
-    }
+    if (shuttingDown) return
+    if (consumeRequestedRestart()) return
+    recordManagedRuntimeExit(code ?? 0, null)
+    if (keepSupervisorAliveAfterFailure()) return
+    shutdown(code ?? 0)
+  })
+}
+
+// A restart requested through a recovery action is an expected exit, so it
+// relaunches instead of tearing the supervisor down.
+function consumeRequestedRestart() {
+  if (!restartRequestedReason) return false
+  const reason = restartRequestedReason
+  restartRequestedReason = null
+  managedAppChild = null
+  relaunchManagedRuntime(reason)
+  return true
+}
+
+// Only the gateway can keep serving feedback once the managed runtime is gone,
+// so only gateway mode survives a failure. Direct mode keeps its existing
+// shutdown behavior.
+function keepSupervisorAliveAfterFailure() {
+  if (!gatewayMode || shuttingDown) return false
+  managedAppChild = null
+  console.error('⚠️ The app runtime stopped. The dev gateway stays available for diagnostics and recovery actions.')
+  return true
+}
+
+// A managed runtime that dies on its own is the strongest possible signal that
+// the public URL cannot serve anything, so it always produces a blocking
+// incident regardless of how far startup had progressed.
+function recordManagedRuntimeExit(exitCode, signal) {
+  if (!devRuntime.enabled) return
+  if (exitCode === 0 && !signal) return
+  const cause = signal ? `signal ${signal}` : `exit code ${exitCode}`
+  devRuntime.recordSignal({
+    source: 'process',
+    code: 'runtime_process_exited',
+    title: 'App runtime stopped',
+    detail: `The managed app runtime terminated with ${cause}`,
+    message: `app runtime terminated with ${cause}`,
+    failureCommand: 'yarn dev',
+    failureStage: 'App runtime',
+    blocking: true,
   })
 }
 
@@ -990,6 +1135,15 @@ async function reportStageFailure(label, commandArgs, capturedLines, code, optio
   const failureLines = extractFailureLines(capturedLines)
   const detail = resolveFailureDetail(label, capturedLines)
 
+  devRuntime.recordSignal({
+    source: 'process',
+    message: failureLines.join('\n') || detail,
+    detail,
+    failureLines,
+    failureCommand: Array.isArray(commandArgs) ? commandArgs.join(' ') : undefined,
+    failureStage: label,
+  })
+
   updateSplashState({
     phase: `${label} failed`,
     detail,
@@ -1012,7 +1166,18 @@ async function reportStageFailure(label, commandArgs, capturedLines, code, optio
   }
 
   await waitForSplashFailureRender()
+  if (keepSupervisorAliveAfterStageFailure(label)) return
   shutdown(code ?? 1)
+}
+
+// Gateway mode keeps the supervisor alive after a startup-stage failure so the
+// developer can run an allowlisted recovery action without restarting the
+// terminal process. Direct mode preserves its existing shutdown behavior.
+function keepSupervisorAliveAfterStageFailure(label) {
+  if (!gatewayMode || shuttingDown) return false
+  startupAborted = true
+  console.error(`⚠️ "${label}" failed. The dev gateway stays available on ${resolveExpectedAppBaseUrl()} for diagnostics and recovery actions.`)
+  return true
 }
 
 function readSplashChildState() {
@@ -1026,11 +1191,23 @@ function readSplashChildState() {
 
 function getMergedSplashState() {
   const childState = readSplashChildState()
-  const mergedState = childState ? normalizeSplashDisplayState({
+  devRuntime.ingestChildState(childState)
+  const runtimeStatus = devRuntime.enabled ? devRuntime.getStatus() : null
+
+  // `runtimeSignals` is the child's raw hand-off channel; it is consumed by the
+  // collector and must never reach the splash payload.
+  const { runtimeSignals: _ignoredChildSignals, ...childDisplayState } = childState ?? {}
+
+  const mergedState = normalizeSplashDisplayState({
     ...splashState,
-    ...childState,
-    activities: mergeActivities(splashState.activities, childState.activities),
-  }) : normalizeSplashDisplayState({ ...splashState })
+    ...childDisplayState,
+    ...(childState ? { activities: mergeActivities(splashState.activities, childState.activities) } : {}),
+    // The structured runtime state is the authority for ready/failed once the
+    // collector is active, so a post-ready incident is no longer normalized away.
+    ...(runtimeStatus
+      ? { runtime: runtimeStatus, ready: runtimeStatus.ready, failed: runtimeStatus.failed }
+      : {}),
+  })
 
   mergedState.codingFlow = codingFlow.getSnapshot({
     ready: mergedState.ready,
@@ -1057,6 +1234,9 @@ function renderSplashHtml(req) {
     localeLabels,
     codingFlow: codingFlow.getBootstrapPayload(),
     gitRepoFlow: gitRepoFlow.getBootstrapPayload(),
+    // Per-run token for the additive recovery endpoint. It never leaves the
+    // local dev browser and is regenerated on every supervisor start.
+    runtimeToken: devRuntime.enabled ? devRuntime.token : null,
   })
   return loadSplashHtmlTemplate()
     .replace('__SPLASH_INITIAL_LOCALE__', initialLocale)
@@ -1101,6 +1281,69 @@ async function startSplashServer() {
         failed: mergedState.failed,
       })
       res.end(JSON.stringify(enrichedState))
+      return
+    }
+
+    if (req.url === '/runtime/status') {
+      res.setHeader('Content-Type', 'application/json; charset=utf-8')
+      const guard = assertLocalSplashRequest(req, process.env)
+      if (!guard.ok) {
+        res.statusCode = guard.status
+        res.end(JSON.stringify({ error: { code: 'forbidden', message: guard.error } }))
+        return
+      }
+      res.end(JSON.stringify(devRuntime.enabled ? devRuntime.getStatus() : { error: { code: 'diagnostics_disabled', message: 'Dev runtime diagnostics are disabled.' } }))
+      return
+    }
+
+    // Additive recovery endpoint for the default direct topology. Existing
+    // splash routes and their response shapes are untouched.
+    if (req.method === 'POST' && req.url.startsWith('/runtime/actions/')) {
+      res.setHeader('Content-Type', 'application/json; charset=utf-8')
+      const guard = assertLocalSplashRequest(req, process.env)
+      if (!guard.ok) {
+        res.statusCode = guard.status
+        res.end(JSON.stringify({ error: { code: 'forbidden', message: guard.error } }))
+        return
+      }
+      if (!devRuntime.enabled) {
+        res.statusCode = 404
+        res.end(JSON.stringify({ error: { code: 'diagnostics_disabled', message: 'Dev runtime diagnostics are disabled.' } }))
+        return
+      }
+      if (!isMatchingDevRuntimeToken(devRuntime.token, req.headers['x-om-dev-runtime-token'])) {
+        res.statusCode = 403
+        res.end(JSON.stringify({ error: { code: 'forbidden', message: 'Invalid dev runtime token.' } }))
+        return
+      }
+
+      const action = req.url.slice('/runtime/actions/'.length).split('?')[0]
+      const result = await devRuntimeActions.run(action)
+      if (!result.ok) {
+        res.statusCode = result.status
+        res.end(JSON.stringify({ error: { code: result.code, message: result.message } }))
+        return
+      }
+      res.statusCode = 202
+      res.end(JSON.stringify({ accepted: true, actionId: result.actionId, generation: result.generation }))
+      return
+    }
+
+    if (req.url.startsWith('/runtime/logs')) {
+      res.setHeader('Content-Type', 'application/json; charset=utf-8')
+      const guard = assertLocalSplashRequest(req, process.env)
+      if (!guard.ok) {
+        res.statusCode = guard.status
+        res.end(JSON.stringify({ error: { code: 'forbidden', message: guard.error } }))
+        return
+      }
+      if (!devRuntime.enabled) {
+        res.statusCode = 404
+        res.end(JSON.stringify({ error: { code: 'diagnostics_disabled', message: 'Dev runtime diagnostics are disabled.' } }))
+        return
+      }
+      const cursor = Number.parseInt(new URL(req.url, 'http://localhost').searchParams.get('cursor') ?? '', 10)
+      res.end(JSON.stringify(devRuntime.getDiagnosticLines(Number.isInteger(cursor) ? cursor : 0)))
       return
     }
 
@@ -1187,11 +1430,162 @@ async function startSplashServer() {
   console.log('ℹ️ Open either URL manually while the runtime is starting.')
 }
 
+// Runs one allowlisted lifecycle command for a recovery action. Unlike
+// `runStage` it never shuts the supervisor down: a failed recovery becomes an
+// incident so the developer can try another action.
+// `waitForClose` only settles on 'close', which needs every stdio pipe to drain.
+// A recovery child that fails to spawn — or leaves a grandchild holding the
+// pipes — would therefore never settle, wedging the single-action latch until
+// the action timeout. Settling on 'exit'/'error' too keeps the latch honest.
+function waitForRecoveryChildExit(child) {
+  return new Promise((resolve) => {
+    let settled = false
+    const settle = (result) => {
+      if (settled) return
+      settled = true
+      resolve(result)
+    }
+    child.on('close', (code, signal) => settle({ code, signal }))
+    child.on('exit', (code, signal) => settle({ code, signal }))
+    child.on('error', () => settle({ code: 1, signal: null }))
+  })
+}
+
+async function runRecoveryCommand(label, commandArgs) {
+  console.log(`🛠️ ${label}...`)
+  updateSplashState({ phase: label, detail: 'Recovery action in progress', activity: `${label} started` })
+
+  const child = spawnCommand(yarnCommand, commandArgs, { label, logFile: getDevRunnerLog() })
+  const capturedLines = []
+  const capture = (line) => {
+    const normalized = normalizeCapturedLine(line)
+    devRuntime.appendDiagnosticLine(normalized, { source: 'process' })
+    capturedLines.push(normalized)
+    if (capturedLines.length > 200) capturedLines.shift()
+  }
+  connectLineStream(child.stdout, capture)
+  connectLineStream(child.stderr, capture)
+
+  const exitCode = resolveChildExitCode(await waitForRecoveryChildExit(child))
+  if (exitCode !== 0) {
+    devRuntime.recordSignal({
+      source: 'process',
+      message: extractFailureLines(capturedLines).join('\n') || `${label} failed`,
+      detail: resolveFailureDetail(label, capturedLines),
+      failureLines: extractFailureLines(capturedLines),
+      failureCommand: `${yarnCommand} ${commandArgs.join(' ')}`,
+      failureStage: label,
+    })
+    console.error(`❌ ${label} failed with exit code ${exitCode}`)
+    return exitCode
+  }
+
+  console.log(`✅ ${label} completed`)
+  return 0
+}
+
+// Restarts the managed runtime through the existing launcher so stage ordering
+// and process ownership stay in one place. The child's close handler relaunches
+// it, which also opens a fresh generation.
+function restartManagedRuntime(reason) {
+  if (!managedAppChild || managedAppChild.killed) {
+    relaunchManagedRuntime(reason)
+    return
+  }
+  restartRequestedReason = reason
+  killProcessTree(managedAppChild, 'SIGTERM')
+}
+
+function relaunchManagedRuntime(reason) {
+  // A recovery action is the deliberate answer to the failure that latched the
+  // pipeline, so relaunching clears it.
+  startupAborted = false
+  console.log(`🔁 Restarting the app runtime (${reason})`)
+  if (isMonorepo) {
+    launchMonorepoAppDev()
+    return
+  }
+  launchStandaloneDev()
+}
+
+// Picks an ephemeral loopback port for the managed runtime by letting the OS
+// assign one and releasing it immediately. The window between release and the
+// child's bind is small and local; a collision surfaces as a clear child error.
+function reserveLoopbackPort() {
+  return new Promise((resolve, reject) => {
+    const probe = createServer()
+    probe.once('error', reject)
+    probe.listen(0, '127.0.0.1', () => {
+      const { port } = probe.address()
+      probe.close(() => resolve(port))
+    })
+  })
+}
+
+async function startDevRuntimeGateway() {
+  if (!gatewayMode) return true
+
+  try {
+    devUpstreamPort = devRuntimeConfig.upstreamPort ?? await reserveLoopbackPort()
+  } catch (error) {
+    console.error(`❌ Unable to reserve an internal port for the dev runtime gateway: ${error instanceof Error ? error.message : String(error)}`)
+    shutdown(1)
+    return false
+  }
+
+  devGateway = createDevRuntimeGateway({
+    token: devRuntime.token,
+    env: process.env,
+    logger: console,
+    getStatus: () => (devRuntime.enabled ? devRuntime.getStatus() : null),
+    getDiagnosticLines: (cursor) => devRuntime.getDiagnosticLines(cursor),
+    recordBrowserReport: (report) => {
+      devRuntime.recordSignal({
+        source: 'browser',
+        severity: 'error',
+        message: report.message,
+        digest: report.digest,
+        path: report.path,
+        blocking: false,
+      })
+      return devRuntime.getStatus().issueSummary?.id ?? null
+    },
+    runAction: (action) => devRuntimeActions.run(action),
+    resolveUpstream: () => (devUpstreamPort ? { host: '127.0.0.1', port: devUpstreamPort } : null),
+    renderSplashHtml: (req) => renderSplashHtml(req),
+  })
+
+  try {
+    await devGateway.listen(publicAppPort, splashBindHost)
+  } catch (error) {
+    const reason = error?.code === 'EADDRINUSE'
+      ? `port ${publicAppPort} is already in use`
+      : (error instanceof Error ? error.message : String(error))
+    console.error(`❌ Unable to start the dev runtime gateway: ${reason}`)
+    console.error('   Free the port, choose another PORT, or set OM_DEV_RUNTIME_MODE=direct.')
+    devGateway = null
+    shutdown(1)
+    return false
+  }
+
+  devRuntime.setUpstream({ configuredPort: publicAppPort, actualPort: devUpstreamPort })
+  console.log(`🛡️ Dev runtime gateway on ${resolveExpectedAppBaseUrl()} → managed runtime on 127.0.0.1:${devUpstreamPort}`)
+  return true
+}
+
+function closeDevRuntimeGateway() {
+  if (!devGateway) return
+  void devGateway.close()
+  devGateway = null
+}
+
 function closeSplashServer() {
   if (splashServer) {
     splashServer.close()
     splashServer = null
   }
+  closeDevRuntimeGateway()
+  devRuntime.stop()
   writeSplashChildStateFileClear()
 }
 
@@ -1553,6 +1947,7 @@ function classifyStageMarker(commandArgs) {
 }
 
 async function runStage(label, commandArgs, options = {}) {
+  if (startupAborted) return
   const startedAt = Date.now()
   const stageTotal = options.stageTotal ?? (greenfield ? 5 : 3)
   const stageCurrent = options.stageCurrent
@@ -1645,6 +2040,7 @@ async function runStage(label, commandArgs, options = {}) {
 }
 
 async function runPassthroughStage(label, commandArgs, options = {}) {
+  if (startupAborted) return
   const startedAt = Date.now()
   const stageOrder = {
     'build:packages': 1,
@@ -1754,6 +2150,7 @@ function resolveActiveWatchScope(watchScopeEnv = buildWatchScopeEnv()) {
 }
 
 function startPackageWatch() {
+  if (startupAborted) return
   const watchScript = resolveWatchPackagesScript()
   const watchCommand = watchScript === 'watch:packages'
     ? { command: process.execPath, args: [monorepoPackageWatchScript] }
@@ -2110,17 +2507,29 @@ async function runAppLifecycle() {
   let fastCrashes = 0
   while (!shuttingDown) {
     const startedAt = Date.now()
+    writeSplashChildStateFileClear()
+    devRuntime.beginGeneration('app runtime launch')
     const app = spawnCommand(process.execPath, appArgs, {
       cwd: monorepoAppDir,
       stdio: 'inherit',
       env: buildAppDevEnv({ stageCurrent, stageTotal }),
     })
+    managedAppChild = app
+
     const result = await waitForClose(app)
     if (shuttingDown || isGracefulShutdownResult(result)) return
+    // A recovery action relaunches the runtime itself, so this supervisor steps
+    // aside rather than racing it with a second child.
+    if (consumeRequestedRestart()) return
 
     // Unexpected child exit MUST surface as non-zero even if the child reported
     // code 0 — hiding a broken runtime as success masks failures from scripts/CI.
     const childCode = resolveChildExitCode(result, 1)
+    recordManagedRuntimeExit(childCode, result?.signal)
+    // Gateway mode keeps serving diagnostics without the runtime, so it owns the
+    // aftermath and this loop must not restart underneath it.
+    if (keepSupervisorAliveAfterFailure()) return
+
     const exitCode = childCode === 0 ? 1 : childCode
     if (!restartEnabled) {
       shutdown(exitCode)
@@ -2135,11 +2544,13 @@ async function runAppLifecycle() {
     const delay = nextMcpRestartDelayMs(fastCrashes)
     console.warn(`⚠️ App runtime exited (code ${exitCode}) — restarting in ${Math.round(delay / 1000)}s (OM_DEV_APP_RESTART=0 disables restarts)`)
     updateSplashState({ activity: `App runtime crashed — restarting in ${Math.round(delay / 1000)}s` })
+    managedAppChild = null
     await sleepUnlessShuttingDown(delay)
   }
 }
 
 function launchMonorepoAppDev() {
+  if (startupAborted) return
   startMcpRuntime()
   void runAppLifecycle().catch((error) => {
     console.error(`❌ App runtime supervisor failed: ${error instanceof Error ? error.message : String(error)}`)
@@ -2248,7 +2659,9 @@ async function runClassicStandaloneDev() {
 
 async function main() {
   printDevLogLocation()
+  devRuntime.start()
   await startSplashServer()
+  if (!await startDevRuntimeGateway()) return
   if (!ensureDevFileWatchLimits()) return
 
   if (!isMonorepo) {

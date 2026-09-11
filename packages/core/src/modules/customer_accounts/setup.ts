@@ -2,6 +2,7 @@ import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { hash } from 'bcryptjs'
 import { hashForLookup } from '@open-mercato/shared/lib/encryption/aes'
+import { EXAMPLE_PORTAL_ACCOUNTS } from '@open-mercato/core/modules/customer_accounts/lib/exampleAccounts'
 import {
   CustomerRole,
   CustomerRoleAcl,
@@ -224,13 +225,8 @@ export const setup: ModuleSetupConfig = {
 
   async seedExamples({ em, tenantId, organizationId }) {
     const BCRYPT_COST = 10
-    const exampleUsers = [
-      { email: 'alice.johnson@example.com', displayName: 'Alice Johnson', password: 'Password123!', roleSlug: 'portal_admin' },
-      { email: 'bob.smith@example.com', displayName: 'Bob Smith', password: 'Password123!', roleSlug: 'buyer' },
-      { email: 'carol.white@example.com', displayName: 'Carol White', password: 'Password123!', roleSlug: 'viewer' },
-    ]
 
-    for (const entry of exampleUsers) {
+    for (const entry of EXAMPLE_PORTAL_ACCOUNTS) {
       const emailHash = hashForLookup(entry.email)
       const existing = await em.findOne(CustomerUser, { emailHash, tenantId, deletedAt: null })
       if (existing) continue
