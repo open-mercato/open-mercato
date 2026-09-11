@@ -31,6 +31,8 @@
   "data_sync.dashboard.schedule.interval": "간격",
   "data_sync.dashboard.schedule.intervalHelp": "예: 반복 간격으로 `1h`, `6h`, `24h`를 사용하세요.",
   "data_sync.dashboard.schedule.intervalValue": "간격",
+  "data_sync.dashboard.schedule.invalidCron": "`0 * * * *`와 같이 5개 필드로 구성된 cron 표현식을 입력하세요.",
+  "data_sync.dashboard.schedule.invalidInterval": "`15m`, `1h`, `24h`처럼 정수 뒤에 s, m, h 또는 d를 붙여 1분 이상으로 입력하세요.",
   "data_sync.dashboard.schedule.invalidValue": "저장하기 전에 일정 값을 입력하세요.",
   "data_sync.dashboard.schedule.lastRun": "마지막 예약 실행: {value}",
   "data_sync.dashboard.schedule.neverRun": "저장되었지만 아직 완료된 예약 실행이 없습니다.",

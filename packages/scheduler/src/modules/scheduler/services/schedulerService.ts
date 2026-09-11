@@ -4,6 +4,7 @@ import { calculateNextRunForWrite } from '../lib/nextRunCalculator.js'
 import { enforceTenantActiveScheduleLimit } from '../lib/activeScheduleLimits.js'
 import type { BullMQSchedulerService } from './bullmqSchedulerService.js'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { createInvalidScheduleValueError } from '@open-mercato/shared/lib/schedule/invalidScheduleValue'
 
 const logger = createLogger('scheduler')
 
@@ -53,7 +54,11 @@ export class SchedulerService {
     )
     
     if (!nextRunAt) {
-      throw new Error(`Failed to calculate next run time for schedule: ${registration.id}`)
+      throw createInvalidScheduleValueError(
+        registration.scheduleType,
+        registration.scheduleValue,
+        `Failed to calculate next run time for schedule: ${registration.id}`,
+      )
     }
     
     // Check if schedule already exists
@@ -186,7 +191,11 @@ export class SchedulerService {
       )
       : null
     if (scheduleChanged && !nextRunAt) {
-      throw new Error(`Failed to calculate next run time for schedule: ${scheduleId}`)
+      throw createInvalidScheduleValueError(
+        changes.scheduleType ?? schedule.scheduleType,
+        changes.scheduleValue ?? schedule.scheduleValue,
+        `Failed to calculate next run time for schedule: ${scheduleId}`,
+      )
     }
     
     // Apply changes

@@ -31,6 +31,8 @@
   "data_sync.dashboard.schedule.interval": "Interval",
   "data_sync.dashboard.schedule.intervalHelp": "Example: `1h`, `6h`, or `24h` for repeating intervals.",
   "data_sync.dashboard.schedule.intervalValue": "Interval",
+  "data_sync.dashboard.schedule.invalidCron": "Introduce una expresión cron de cinco campos, por ejemplo `0 * * * *`.",
+  "data_sync.dashboard.schedule.invalidInterval": "Introduce un número entero seguido de s, m, h o d (por ejemplo `15m`, `1h` o `24h`), de al menos un minuto.",
   "data_sync.dashboard.schedule.invalidValue": "Provide a schedule value before saving.",
   "data_sync.dashboard.schedule.lastRun": "Last scheduled run: {value}",
   "data_sync.dashboard.schedule.neverRun": "Saved, but no scheduled execution has completed yet.",

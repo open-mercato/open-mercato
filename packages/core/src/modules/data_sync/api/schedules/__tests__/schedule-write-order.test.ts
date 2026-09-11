@@ -1,5 +1,7 @@
 /** @jest-environment node */
 
+import { createInvalidScheduleValueError } from '@open-mercato/shared/lib/schedule/invalidScheduleValue'
+
 const mockGetAuthFromRequest = jest.fn()
 
 const mockEm = {
@@ -10,7 +12,11 @@ const mockEm = {
 
 const mockScheduler = {
   register: jest.fn(async () => {
-    throw new Error('Failed to calculate next run time for schedule: some-id')
+    throw createInvalidScheduleValueError(
+      'cron',
+      'not a cron',
+      'Failed to calculate next run time for schedule: some-id',
+    )
   }),
   unregister: jest.fn(async () => undefined),
 }
@@ -46,7 +52,7 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
 
 import { POST } from '../route'
 
-function request() {
+function request(overrides: Record<string, unknown> = {}) {
   return new Request('http://localhost/api/data_sync/schedules', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -54,11 +60,12 @@ function request() {
       integrationId: 'sync_excel',
       entityType: 'customers.person',
       direction: 'import',
-      scheduleType: 'interval',
-      scheduleValue: '3600',
+      scheduleType: 'cron',
+      scheduleValue: 'not a cron',
       timezone: 'UTC',
       fullSync: false,
       isEnabled: true,
+      ...overrides,
     }),
   })
 }
@@ -73,10 +80,32 @@ describe('data_sync schedule save write ordering', () => {
     const res = await POST(request())
 
     expect(res.status).toBe(422)
-    const body = await res.json()
-    expect(body.error).toContain('Failed to calculate next run time')
 
     expect(mockScheduler.register).toHaveBeenCalledTimes(1)
+    expect(mockEm.create).not.toHaveBeenCalled()
+    expect(mockEm.persist).not.toHaveBeenCalled()
+    expect(mockEm.flush).not.toHaveBeenCalled()
+  })
+
+  it('reports a scheduler-rejected value as a scheduleValue field error instead of the internal message', async () => {
+    const res = await POST(request())
+    const body = await res.json()
+
+    expect(body.error).toBe('Invalid payload')
+    expect(body.details.fieldErrors.scheduleValue).toHaveLength(1)
+    expect(JSON.stringify(body)).not.toContain('Failed to calculate next run time')
+    expect(JSON.stringify(body)).not.toContain('some-id')
+  })
+
+  it('rejects an unparseable interval at the schema layer, before the scheduler is reached', async () => {
+    const res = await POST(request({ scheduleType: 'interval', scheduleValue: '3600' }))
+
+    expect(res.status).toBe(422)
+    const body = await res.json()
+    expect(body.error).toBe('Invalid payload')
+    expect(body.details.fieldErrors.scheduleValue).toHaveLength(1)
+
+    expect(mockScheduler.register).not.toHaveBeenCalled()
     expect(mockEm.create).not.toHaveBeenCalled()
     expect(mockEm.persist).not.toHaveBeenCalled()
     expect(mockEm.flush).not.toHaveBeenCalled()

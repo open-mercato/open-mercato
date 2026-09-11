@@ -21,7 +21,9 @@ import {
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { isValidScheduleInterval } from '@open-mercato/shared/lib/schedule/interval'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { hasScheduleValueFieldError } from '../lib/schedule-value'
 import { getSyncSummaryVariant } from '../lib/syncRunStatus'
 import type { RunParameter } from '../lib/adapter'
 import { getApplicableRunParameters } from '../lib/run-parameters'
@@ -122,6 +124,10 @@ function buildScheduleKey(entityType: string, direction: 'import' | 'export'): s
   return `${entityType}:${direction}`
 }
 
+function buildScheduleValueErrorId(scheduleKey: string): string {
+  return `data-sync-schedule-value-error-${scheduleKey.replace(/[^a-zA-Z0-9]+/g, '-')}`
+}
+
 function buildScheduleEditors(
   entityTypes: string[],
   directions: Array<'import' | 'export'>,
@@ -163,6 +169,13 @@ export function IntegrationScheduleTab(props: IntegrationScheduleTabProps) {
   const [runningKey, setRunningKey] = React.useState<string | null>(null)
   const [savingKey, setSavingKey] = React.useState<string | null>(null)
   const [deletingKey, setDeletingKey] = React.useState<string | null>(null)
+  const [invalidValueKeys, setInvalidValueKeys] = React.useState<Record<string, boolean>>({})
+
+  const describeScheduleValueError = React.useCallback((scheduleType: 'cron' | 'interval') => (
+    scheduleType === 'cron'
+      ? t('data_sync.dashboard.schedule.invalidCron', 'Enter a five-field cron expression, for example `0 * * * *`.')
+      : t('data_sync.dashboard.schedule.invalidInterval', 'Enter a whole number followed by s, m, h or d (for example `15m`, `1h` or `24h`), at least one minute long.')
+  ), [t])
 
   const load = React.useCallback(async () => {
     setIsLoading(true)
@@ -214,6 +227,9 @@ export function IntegrationScheduleTab(props: IntegrationScheduleTabProps) {
         ...patch,
       },
     }))
+    if (patch.scheduleValue !== undefined || patch.scheduleType !== undefined) {
+      setInvalidValueKeys((current) => (current[key] ? { ...current, [key]: false } : current))
+    }
   }, [])
 
   const handleStartSync = React.useCallback(async (entityType: string, direction: 'import' | 'export', scheduleKey: string) => {
@@ -281,6 +297,19 @@ export function IntegrationScheduleTab(props: IntegrationScheduleTabProps) {
 
   const handleSaveSchedule = React.useCallback(async (entityType: string, direction: 'import' | 'export', scheduleKey: string) => {
     const scheduleState = schedules[scheduleKey] ?? buildDefaultScheduleState(entityType)
+    const scheduleValue = scheduleState.scheduleValue.trim()
+
+    // The documented interval format is checked here so a value the scheduler
+    // can never run never reaches the API; cron stays server-validated and
+    // comes back through the same inline field error.
+    const isValueAcceptable = scheduleValue.length > 0
+      && (scheduleState.scheduleType !== 'interval' || isValidScheduleInterval(scheduleValue))
+    if (!isValueAcceptable) {
+      setInvalidValueKeys((current) => ({ ...current, [scheduleKey]: true }))
+      return
+    }
+
+    setInvalidValueKeys((current) => (current[scheduleKey] ? { ...current, [scheduleKey]: false } : current))
     setSavingKey(scheduleKey)
     try {
       // Keyed upsert (POST). When the server resolves an existing row the save
@@ -297,7 +326,7 @@ export function IntegrationScheduleTab(props: IntegrationScheduleTabProps) {
               entityType,
               direction,
               scheduleType: scheduleState.scheduleType,
-              scheduleValue: scheduleState.scheduleValue,
+              scheduleValue,
               timezone: scheduleState.timezone,
               fullSync: scheduleState.fullSync,
               isEnabled: scheduleState.isEnabled,
@@ -309,7 +338,7 @@ export function IntegrationScheduleTab(props: IntegrationScheduleTabProps) {
           entityType,
           direction,
           scheduleType: scheduleState.scheduleType,
-          scheduleValue: scheduleState.scheduleValue,
+          scheduleValue,
           timezone: scheduleState.timezone,
           fullSync: scheduleState.fullSync,
           isEnabled: scheduleState.isEnabled,
@@ -322,6 +351,10 @@ export function IntegrationScheduleTab(props: IntegrationScheduleTabProps) {
       })
 
       if (!call.ok || !call.result) {
+        if (hasScheduleValueFieldError(call.result)) {
+          setInvalidValueKeys((current) => ({ ...current, [scheduleKey]: true }))
+          return
+        }
         const conflictError = Object.assign(
           new Error((call.result as { error?: string } | null)?.error ?? 'Failed to save schedule'),
           {
@@ -498,6 +531,7 @@ export function IntegrationScheduleTab(props: IntegrationScheduleTabProps) {
                 const isSaving = savingKey === row.key
                 const isDeleting = deletingKey === row.key
                 const controlsDisabled = isRunning || isSaving || isDeleting
+                const hasInvalidValue = invalidValueKeys[row.key] === true
                 return (
                   <tr key={row.key} className="border-t align-top">
                     <td className="px-3 py-3 font-medium">{formatEntityTypeLabel(row.entityType)}</td>
@@ -525,7 +559,17 @@ export function IntegrationScheduleTab(props: IntegrationScheduleTabProps) {
                         onChange={(event) => updateScheduleEditor(row.key, { scheduleValue: event.target.value }, row.entityType)}
                         disabled={controlsDisabled}
                         placeholder={scheduleState.scheduleType === 'cron' ? '0 * * * *' : '1h'}
+                        aria-invalid={hasInvalidValue || undefined}
+                        aria-describedby={hasInvalidValue ? buildScheduleValueErrorId(row.key) : undefined}
+                        aria-label={scheduleState.scheduleType === 'cron'
+                          ? t('data_sync.dashboard.schedule.cronValue', 'Cron expression')
+                          : t('data_sync.dashboard.schedule.intervalValue', 'Interval')}
                       />
+                      {hasInvalidValue ? (
+                        <p id={buildScheduleValueErrorId(row.key)} className="mt-1 text-xs text-destructive">
+                          {describeScheduleValueError(scheduleState.scheduleType)}
+                        </p>
+                      ) : null}
                     </td>
                     <td className="px-3 py-3">
                       <Input
