@@ -121,6 +121,29 @@ describe('IntegrationScheduleTab — schedule value validation', () => {
     expect(runMutationMock.mock.calls[0][0].mutationPayload.scheduleValue).toBe('2h')
   })
 
+  it('distinguishes an empty value from a malformed one', async () => {
+    await renderTab()
+
+    fireEvent.change(intervalInput(), { target: { value: '   ' } })
+    fireEvent.click(saveButton())
+
+    await waitFor(() => expect(intervalInput()).toHaveAttribute('aria-invalid', 'true'))
+    expect(screen.getByText(/provide a schedule value/i)).toBeInTheDocument()
+    expect(runMutationMock).not.toHaveBeenCalled()
+  })
+
+  it('drops a stale inline error when the tab reloads', async () => {
+    await renderTab()
+
+    fireEvent.change(intervalInput(), { target: { value: '3600' } })
+    fireEvent.click(saveButton())
+    await waitFor(() => expect(intervalInput()).toHaveAttribute('aria-invalid', 'true'))
+
+    fireEvent.click(screen.getByRole('button', { name: /refresh/i }))
+
+    await waitFor(() => expect(intervalInput()).not.toHaveAttribute('aria-invalid'))
+  })
+
   it('renders a server-reported scheduleValue error inline instead of flashing it', async () => {
     runMutationMock.mockResolvedValue({
       ok: false,

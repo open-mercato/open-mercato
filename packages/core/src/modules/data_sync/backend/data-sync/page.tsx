@@ -131,6 +131,17 @@ const DEFAULT_TIMEZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UT
 
 const SCHEDULE_VALUE_ERROR_ID = 'data-sync-dashboard-schedule-value-error'
 
+type ScheduleValueError = 'empty' | 'format' | null
+
+function detectScheduleValueError(
+  scheduleType: 'cron' | 'interval',
+  scheduleValue: string,
+): ScheduleValueError {
+  if (scheduleValue.length === 0) return 'empty'
+  if (scheduleType === 'interval' && !isValidScheduleInterval(scheduleValue)) return 'format'
+  return null
+}
+
 function formatEntityTypeLabel(entityType: string): string {
   return entityType
     .replace(/[_-]+/g, ' ')
@@ -173,7 +184,7 @@ export default function SyncRunsDashboardPage() {
   const [isLoadingSchedule, setIsLoadingSchedule] = React.useState(false)
   const [isSavingSchedule, setIsSavingSchedule] = React.useState(false)
   const [isDeletingSchedule, setIsDeletingSchedule] = React.useState(false)
-  const [hasInvalidScheduleValue, setHasInvalidScheduleValue] = React.useState(false)
+  const [scheduleValueError, setScheduleValueError] = React.useState<ScheduleValueError>(null)
   const [reloadToken, setReloadToken] = React.useState(0)
   const scopeVersion = useOrganizationScopeVersion()
   const t = useT()
@@ -317,6 +328,7 @@ export default function SyncRunsDashboardPage() {
       }
 
       const record = Array.isArray(call.result?.items) ? call.result?.items[0] : undefined
+      setScheduleValueError(null)
       if (!record) {
         setScheduleEditor(buildDefaultScheduleState(selectedEntityType))
         setIsLoadingSchedule(false)
@@ -343,13 +355,15 @@ export default function SyncRunsDashboardPage() {
   const updateScheduleEditor = React.useCallback((changes: Partial<SyncScheduleEditorState>) => {
     setScheduleEditor((current) => ({ ...current, ...changes }))
     if (changes.scheduleValue !== undefined || changes.scheduleType !== undefined) {
-      setHasInvalidScheduleValue(false)
+      setScheduleValueError(null)
     }
   }, [])
 
-  const scheduleValueErrorMessage = scheduleEditor.scheduleType === 'cron'
-    ? t('data_sync.dashboard.schedule.invalidCron', 'Enter a five-field cron expression, for example `0 * * * *`.')
-    : t('data_sync.dashboard.schedule.invalidInterval', 'Enter a whole number followed by s, m, h or d (for example `15m`, `1h` or `24h`), at least one minute long.')
+  const scheduleValueErrorMessage = scheduleValueError === 'empty'
+    ? t('data_sync.dashboard.schedule.invalidValue', 'Provide a schedule value before saving.')
+    : scheduleEditor.scheduleType === 'cron'
+      ? t('data_sync.dashboard.schedule.invalidCron', 'Enter a cron expression the scheduler can parse, for example `0 * * * *`.')
+      : t('data_sync.dashboard.schedule.invalidInterval', 'Enter a whole number followed by s, m, h or d (for example `15m`, `1h` or `24h`), at least one minute long.')
 
   const handleCancel = React.useCallback(async (row: SyncRunRow) => {
     // optimistic-lock-exempt: run lifecycle action endpoint (cancel), not a concurrent record edit
@@ -453,14 +467,13 @@ export default function SyncRunsDashboardPage() {
     // The documented interval format is checked here so a value the scheduler
     // can never run never reaches the API; cron stays server-validated and
     // comes back through the same inline field error.
-    const isValueAcceptable = scheduleValue.length > 0
-      && (scheduleEditor.scheduleType !== 'interval' || isValidScheduleInterval(scheduleValue))
-    if (!isValueAcceptable) {
-      setHasInvalidScheduleValue(true)
+    const valueError = detectScheduleValueError(scheduleEditor.scheduleType, scheduleValue)
+    if (valueError) {
+      setScheduleValueError(valueError)
       return
     }
 
-    setHasInvalidScheduleValue(false)
+    setScheduleValueError(null)
     setIsSavingSchedule(true)
     try {
       const call = await runMutation({
@@ -504,7 +517,7 @@ export default function SyncRunsDashboardPage() {
 
       if (!call.ok || !call.result) {
         if (hasScheduleValueFieldError(call.result)) {
-          setHasInvalidScheduleValue(true)
+          setScheduleValueError('format')
           return
         }
         const conflictError = Object.assign(
@@ -940,10 +953,10 @@ export default function SyncRunsDashboardPage() {
                       onChange={(event) => updateScheduleEditor({ scheduleValue: event.target.value })}
                       disabled={isLoadingSchedule || isSavingSchedule || isDeletingSchedule || !selectedIntegration || !selectedEntityType}
                       placeholder={scheduleEditor.scheduleType === 'cron' ? '0 * * * *' : '1h'}
-                      aria-invalid={hasInvalidScheduleValue || undefined}
-                      aria-describedby={hasInvalidScheduleValue ? SCHEDULE_VALUE_ERROR_ID : undefined}
+                      aria-invalid={scheduleValueError ? true : undefined}
+                      aria-describedby={scheduleValueError ? SCHEDULE_VALUE_ERROR_ID : undefined}
                     />
-                    {hasInvalidScheduleValue ? (
+                    {scheduleValueError ? (
                       <p id={SCHEDULE_VALUE_ERROR_ID} className="text-xs text-destructive">
                         {scheduleValueErrorMessage}
                       </p>

@@ -34,6 +34,13 @@ describe('createSyncScheduleSchema', () => {
     expect(fieldErrorsFor(result).scheduleValue).toHaveLength(1)
   })
 
+  it('rejects surrounding whitespace, which the scheduler parser would reject later', () => {
+    const result = createSyncScheduleSchema.safeParse({ ...baseCreatePayload, scheduleValue: ' 1h ' })
+
+    expect(result.success).toBe(false)
+    expect(fieldErrorsFor(result).scheduleValue).toHaveLength(1)
+  })
+
   it('leaves cron expressions to the scheduler', () => {
     const result = createSyncScheduleSchema.safeParse({
       ...baseCreatePayload,

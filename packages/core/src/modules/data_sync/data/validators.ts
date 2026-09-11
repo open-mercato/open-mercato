@@ -51,8 +51,10 @@ export const listSyncSchedulesQuerySchema = z.object({
 /**
  * The documented interval format is part of the API contract, so a value the
  * scheduler can never run (`"3600"`) is rejected here instead of surfacing an
- * internal scheduler message from deep inside the write path. Cron is left to
- * the scheduler's own parser, which reports back through the same
+ * internal scheduler message from deep inside the write path. The value is
+ * checked exactly as the scheduler will receive it — surrounding whitespace is
+ * not tolerated here, because the scheduler's anchored parser would reject it
+ * later. Cron is left to that parser, which reports back through the same
  * `scheduleValue` field error.
  */
 function refineScheduleValueFormat(
@@ -60,7 +62,7 @@ function refineScheduleValueFormat(
   ctx: z.RefinementCtx,
 ): void {
   if (value.scheduleType !== 'interval' || typeof value.scheduleValue !== 'string') return
-  if (isValidScheduleInterval(value.scheduleValue.trim())) return
+  if (isValidScheduleInterval(value.scheduleValue)) return
   ctx.addIssue({
     code: 'custom',
     path: [SCHEDULE_VALUE_FIELD],
