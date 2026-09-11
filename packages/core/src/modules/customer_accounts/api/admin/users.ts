@@ -6,6 +6,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { CustomerUserService } from '@open-mercato/core/modules/customer_accounts/services/customerUserService'
 import { CustomerUser, CustomerUserRole, CustomerRole } from '@open-mercato/core/modules/customer_accounts/data/entities'
+import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { adminCreateUserSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
@@ -181,20 +182,33 @@ export async function GET(req: Request) {
     else rolesByUserId.set(linkUserId, [entry])
   }
 
-  const items = users.map((user) => ({
-    id: user.id,
-    email: user.email,
-    displayName: user.displayName,
-    emailVerified: !!user.emailVerifiedAt,
-    isActive: user.isActive,
-    lockedUntil: user.lockedUntil || null,
-    lastLoginAt: user.lastLoginAt || null,
-    customerEntityId: user.customerEntityId || null,
-    personEntityId: user.personEntityId || null,
-    createdAt: user.createdAt,
-    updatedAt: user.updatedAt || null,
-    roles: rolesByUserId.get(user.id) ?? [],
-  }))
+  const pageOrganizationIds = Array.from(new Set(
+    users.map((user) => user.organizationId).filter((organizationId): organizationId is string => !!organizationId),
+  ))
+  const organizations = pageOrganizationIds.length > 0
+    ? await em.find(Organization, { id: { $in: pageOrganizationIds }, tenant: auth.tenantId, deletedAt: null })
+    : []
+  const organizationNameById = new Map(organizations.map((organization) => [organization.id, organization.name]))
+
+  const items = users.map((user) => {
+    const organizationId = user.organizationId ?? null
+    return {
+      id: user.id,
+      email: user.email,
+      displayName: user.displayName,
+      emailVerified: !!user.emailVerifiedAt,
+      isActive: user.isActive,
+      lockedUntil: user.lockedUntil || null,
+      lastLoginAt: user.lastLoginAt || null,
+      customerEntityId: user.customerEntityId || null,
+      personEntityId: user.personEntityId || null,
+      organizationId,
+      organizationName: organizationId ? organizationNameById.get(organizationId) ?? null : null,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt || null,
+      roles: rolesByUserId.get(user.id) ?? [],
+    }
+  })
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
 
@@ -335,6 +349,8 @@ const userSchema = z.object({
   lastLoginAt: z.string().datetime().nullable(),
   customerEntityId: z.string().uuid().nullable(),
   personEntityId: z.string().uuid().nullable(),
+  organizationId: z.string().uuid().nullable().describe('Organization the customer user belongs to'),
+  organizationName: z.string().nullable().describe('Resolved organization display name'),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime().nullable(),
   roles: z.array(roleSchema),
