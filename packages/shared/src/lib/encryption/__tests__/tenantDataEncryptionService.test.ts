@@ -297,3 +297,123 @@ describe('TenantDataEncryptionService.getEncryptedFieldNames', () => {
     )
   })
 })
+
+describe('TenantDataEncryptionService tenant-wide scope parity (issue #5949)', () => {
+  const originalToggle = process.env.TENANT_DATA_ENCRYPTION
+  const tenantId = 'tenant-5949'
+
+  beforeEach(() => {
+    process.env.TENANT_DATA_ENCRYPTION = 'yes'
+  })
+
+  afterEach(() => {
+    if (originalToggle === undefined) delete process.env.TENANT_DATA_ENCRYPTION
+    else process.env.TENANT_DATA_ENCRYPTION = originalToggle
+  })
+
+  // A base (organization-less) map declaring `display_name`, plus an organization-scoped map that
+  // declares the extra `description` field. `getMap` only ever resolves the base map for
+  // organizationId = null; the all-organizations aggregate is the 2-parameter query.
+  function makeService(entityId: string) {
+    const execute = jest.fn(async (_sql: string, params: unknown[]) => {
+      if (params.length === 3) {
+        return params[2] === null
+          ? [{ entity_id: entityId, fields_json: [{ field: 'display_name' }] }]
+          : []
+      }
+      return [{ fields_json: [{ field: 'description', hashField: 'description_hash' }] }]
+    })
+    const service = new TenantDataEncryptionService(
+      { getConnection: () => ({ execute }) } as never,
+      {
+        kms: {
+          getTenantDek: jest.fn(async (keyId: string) => (
+            keyId === tenantId ? { tenantId: keyId, key: fixedKey, fetchedAt: new Date() } : null
+          )),
+          createTenantDek: jest.fn(async () => null),
+          isHealthy: () => true,
+        },
+      } as never,
+    )
+    return { service, execute }
+  }
+
+  it('encrypts fields declared only on an organization-scoped map at the tenant-wide scope', async () => {
+    const entityId = 'test:parity_encrypt_entity'
+    const { service } = makeService(entityId)
+
+    const encrypted = await service.encryptEntityPayload(
+      entityId,
+      { display_name: 'Acme Corp', description: 'confidential note' },
+      tenantId,
+      null,
+    )
+
+    expect(decryptWithAesGcm(encrypted.display_name as string, fixedKey)).toBe('Acme Corp')
+    expect(encrypted.description).not.toBe('confidential note')
+    expect(decryptWithAesGcm(encrypted.description as string, fixedKey)).toBe('confidential note')
+    expect(encrypted.description_hash).toBe(hashForLookup('confidential note'))
+  })
+
+  it('decrypts fields declared only on an organization-scoped map at the tenant-wide scope', async () => {
+    const entityId = 'test:parity_decrypt_entity'
+    const { service } = makeService(entityId)
+
+    const decrypted = await service.decryptEntityPayload(
+      entityId,
+      {
+        display_name: encryptWithAesGcm('Acme Corp', fixedKey).value as string,
+        description: encryptWithAesGcm('confidential note', fixedKey).value as string,
+      },
+      tenantId,
+      null,
+    )
+
+    expect(decrypted.display_name).toBe('Acme Corp')
+    expect(decrypted.description).toBe('confidential note')
+  })
+
+  it('reports exactly the fields the payload functions act on at the tenant-wide scope', async () => {
+    const entityId = 'test:parity_reported_entity'
+    const { service } = makeService(entityId)
+
+    const reported = await service.getEncryptedFieldNames(entityId, tenantId, null)
+    const encrypted = await service.encryptEntityPayload(
+      entityId,
+      { display_name: 'Acme Corp', description: 'confidential note' },
+      tenantId,
+      null,
+    )
+
+    expect(reported).toEqual(['display_name', 'description'])
+    const actuallyEncrypted = reported.filter((field) => encrypted[field] !== undefined
+      && decryptWithAesGcm(encrypted[field] as string, fixedKey) !== null)
+    expect(actuallyEncrypted).toEqual(reported)
+  })
+
+  it('leaves an organization-scoped call on its own map without the all-organizations read', async () => {
+    const entityId = 'test:parity_org_scoped_entity'
+    const { service, execute } = makeService(entityId)
+
+    const encrypted = await service.encryptEntityPayload(
+      entityId,
+      { display_name: 'Acme Corp', description: 'confidential note' },
+      tenantId,
+      'org-1',
+    )
+
+    expect(encrypted.description).toBe('confidential note')
+    expect(execute).not.toHaveBeenCalledWith(expect.anything(), [entityId, tenantId])
+  })
+
+  it('caches the all-organizations aggregate across payload calls', async () => {
+    const entityId = 'test:parity_cached_entity'
+    const { service, execute } = makeService(entityId)
+
+    await service.encryptEntityPayload(entityId, { description: 'first' }, tenantId, null)
+    await service.encryptEntityPayload(entityId, { description: 'second' }, tenantId, null)
+
+    const aggregateReads = execute.mock.calls.filter(([, params]) => (params as unknown[]).length === 2)
+    expect(aggregateReads).toHaveLength(1)
+  })
+})
