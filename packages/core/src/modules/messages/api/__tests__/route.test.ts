@@ -218,6 +218,32 @@ describe('messages /api/messages POST', () => {
     )
   })
 
+  it.each([
+    ['defaults omitted public delivery intent to true', {}, true],
+    ['preserves explicit false for a public message', { sendViaEmail: false }, false],
+  ])('%s', async (_label, deliveryInput, expected) => {
+    const response = await POST(new Request('http://localhost', {
+      method: 'POST',
+      body: JSON.stringify({
+        type: 'default',
+        visibility: 'public',
+        externalEmail: 'customer@example.com',
+        recipients: [],
+        subject: 'Subject',
+        body: 'Body',
+        ...deliveryInput,
+      }),
+    }))
+
+    expect(response.status).toBe(201)
+    expect(commandBus.execute).toHaveBeenCalledWith(
+      'messages.messages.compose',
+      expect.objectContaining({
+        input: expect.objectContaining({ sendViaEmail: expected }),
+      }),
+    )
+  })
+
   it('passes draft compose input to command bus without route side effects', async () => {
     const response = await POST(new Request('http://localhost', {
       method: 'POST',

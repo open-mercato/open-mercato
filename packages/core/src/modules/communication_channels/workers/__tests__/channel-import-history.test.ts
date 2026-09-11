@@ -11,6 +11,7 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import handler, { metadata } from '../channel-import-history'
 import type { QueuedJob } from '@open-mercato/queue'
 import type { ChannelImportHistoryJobPayload } from '../../commands/queue-import-history'
+import { COMMUNICATION_CHANNELS_IMPORT_INBOUND_COMMAND_ID } from '../../commands/ingest-inbound-message'
 
 const TENANT = '11111111-1111-4111-8111-111111111111'
 const ORG = '22222222-2222-4222-8222-222222222222'
@@ -126,7 +127,7 @@ describe('channel-import-history worker', () => {
     )
   })
 
-  it('drains pages, dispatches ingest command per message, completes the job', async () => {
+  it('drains pages, dispatches the silent import command per message, completes the job', async () => {
     ;(findOneWithDecryption as jest.Mock).mockResolvedValue(buildChannel())
     const importHistory = jest
       .fn()
@@ -149,6 +150,9 @@ describe('channel-import-history worker', () => {
     expect(importHistory).toHaveBeenCalledTimes(2)
     expect(importHistory.mock.calls[1][0].cursor).toBe('page2')
     expect(commandBus.execute).toHaveBeenCalledTimes(3)
+    for (const [commandId] of commandBus.execute.mock.calls) {
+      expect(commandId).toBe(COMMUNICATION_CHANNELS_IMPORT_INBOUND_COMMAND_ID)
+    }
     expect(progressService.completeJob).toHaveBeenCalledWith(
       'progress-1',
       expect.objectContaining({

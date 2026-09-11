@@ -162,6 +162,18 @@ describe('messages.messages.compose idempotency', () => {
     expect(emFork.transactional).toHaveBeenCalledTimes(1)
   })
 
+  it('preserves explicit false in the sent event for public authored messages', async () => {
+    const { command, ctx } = createHarness()
+
+    await command.execute(composeInput({ idempotencyKey: undefined, sendViaEmail: false }), ctx)
+
+    expect(emitMessagesEventMock).toHaveBeenCalledWith(
+      'messages.message.sent',
+      expect.objectContaining({ sendViaEmail: false }),
+      { persistent: true },
+    )
+  })
+
   it('skips the audit log + undo entry on an idempotent replay (no spurious soft-delete handle)', async () => {
     const { command } = createHarness()
     const buildLog = (command as unknown as {

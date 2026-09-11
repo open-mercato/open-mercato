@@ -2,6 +2,7 @@ import { createModuleEvents } from '@open-mercato/shared/modules/events'
 
 const events = [
   { id: 'messages.message.sent', label: 'Message Sent', entity: 'message', category: 'custom', clientBroadcast: true },
+  { id: 'messages.message.ingested', label: 'Message Ingested', entity: 'message', category: 'custom', clientBroadcast: true },
   { id: 'messages.message.read', label: 'Message Read', entity: 'message', category: 'custom', clientBroadcast: true },
   { id: 'messages.message.marked_unread', label: 'Message Marked Unread', entity: 'message', category: 'custom', clientBroadcast: true },
   { id: 'messages.message.archived', label: 'Message Archived', entity: 'message', category: 'custom', clientBroadcast: true },
