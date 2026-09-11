@@ -16,7 +16,7 @@ type SlotInteractiveState = 'default' | 'hover' | 'active' | 'disabled'
 type DurationInteractiveState = SlotInteractiveState
 type StatusInteractiveState = 'default' | 'hover' | 'selected' | 'disabled'
 
-type TimeFormat = '12h' | '24h'
+export type TimeFormat = '12h' | '24h'
 
 type LegacyFooterAction = {
   label: string
