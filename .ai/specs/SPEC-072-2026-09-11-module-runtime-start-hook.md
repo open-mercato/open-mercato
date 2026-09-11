@@ -14,9 +14,9 @@ must publish installation instructions telling each host to edit `src/instrument
 This proposes `runtime.ts`, a root convention file alongside the existing `setup.ts`, `acl.ts`,
 `ce.ts` and friends.
 
-**Status:** proposal. No implementation in this PR — per the Spec Driven Development section of
-`CONTRIBUTING.md`, the design is put up for agreement first. Implementation notes below are
-included so the cost is visible, not because the shape is settled.
+**Status:** proposed, with a working implementation of the `worker` role in this PR. The `server`
+role is specified but deliberately not wired — building it surfaced a constraint that is a
+maintainer's call, described under *The `server` role* below.
 
 ---
 
@@ -125,14 +125,42 @@ export default runtime
 
 ### Where it is invoked
 
-Two call sites, both in `packages/cli/src/mercato.ts`:
+**`mercato queue worker --all`** — implemented. Runtimes start after the queue workers are bound
+and before the process announces itself up, and their `stop()` is registered with the existing
+`registerWorkerShutdownHook`. Zero host wiring: a module that ships `runtime.ts` gets a worker-role
+runtime in every deployment that runs this command.
 
-- `mercato server start` — after the app container is built, before Next is spawned.
-- `mercato queue worker` — next to where module workers are bound, before
-  `[worker] All workers started`.
+Only on `--all`, which is the process a deployment runs and the one `server start` spawns. A
+single-queue worker is a targeted invocation, and starting every module's runtime in each of N of
+them would run N copies of each.
 
-`mercato scheduler start` gets the `scheduler` role for symmetry; nothing is expected to opt into
-it initially.
+`mercato scheduler start` gets the `scheduler` role for symmetry; nothing opts into it yet, and it
+is not in the default role set.
+
+### The `server` role — a constraint worth a decision
+
+`mercato server start` is a **supervisor**: it spawns `next start` as a child process, along with
+the workers and the scheduler. It is not the application process. A `server`-role runtime started
+there would run in the supervisor, without the app's container — the wrong process entirely.
+
+The application process is Next, whose only entry point is the app's own `src/instrumentation.ts`.
+Every app in the wild hand-writes that file; there is no shared OM helper it re-exports. So the
+`server` role cannot be made zero-wiring the way the worker role can, without deciding one of:
+
+1. **A shared instrumentation helper** — OM exports `startModuleRuntimesForNextjs()`; an app calls
+   it once from `instrumentation.ts`. One generic line per app, forever, rather than one per module
+   — which is most of the win. Explicit, and starts at boot.
+2. **Arm it from `onModulesRegistered()`** (`packages/shared/src/lib/modules/registry.ts`), which
+   already fires at the end of every `registerModules()`. Zero wiring — but bootstrap in the web
+   tier happens on the first request, so runtimes would start on first traffic rather than at boot,
+   and a replica receiving none would never start them. That is a real behavioural difference and
+   is why this PR does not simply do it.
+3. **Scaffold it** into `create-mercato-app`'s `instrumentation.ts`, which fixes new apps and
+   leaves existing ones to a migration note.
+
+(1) is the recommendation — explicit, boot-time, and a single line that never grows. (2) is
+tempting and quietly changes when work starts. Guidance welcome; the worker role does not depend
+on this choice.
 
 ### Contract
 
@@ -189,20 +217,24 @@ module runtime is not what they are for.
 
 ---
 
-## Implementation Notes
+## Implementation
 
-Roughly, if the design is agreed:
+Landed in this PR:
 
-1. `packages/shared/src/modules/runtime.ts` — the types above.
+1. `packages/shared/src/modules/runtime.ts` — the types above, plus `moduleRuntimeAppliesTo`.
 2. `packages/shared/src/modules/registry.ts` — `runtime?: ModuleRuntime` on `Module`.
-3. `packages/cli/src/lib/generators/module-registry.ts` — discover `runtime.ts` next to `setup.ts`;
-   both generated-registry code paths.
-4. `packages/cli/src/mercato.ts` — a `startModuleRuntimes(container, role)` helper returning a stop
-   function; called from `server start` and `queue worker`, wired into the existing shutdown hook
-   (`registerWorkerShutdownHook`).
-5. Tests: ordering, once-per-process, a throwing `start` failing startup, `stop` awaited in reverse,
-   both timeouts, and the build-phase skip.
-6. Docs: the module authoring guide's convention-file list, and `.ai/docs/`.
+3. `packages/cli/src/lib/generators/module-registry.ts` — `runtime.ts` discovered next to
+   `setup.ts` in all **three** generator variants (legacy, app, CLI), so whichever registry a
+   process reads carries the field.
+4. `packages/cli/src/lib/module-runtimes.ts` — `startModuleRuntimes()`, kept out of `mercato.ts`
+   so the contract is directly testable: ordering, failure semantics, shutdown and both timeouts
+   are the substance of this hook and none of them are reachable through a CLI command in a test.
+5. `packages/cli/src/mercato.ts` — wired into `queue worker --all`, with `stop()` on the existing
+   `registerWorkerShutdownHook`.
+6. `packages/cli/src/__tests__/module-runtimes.test.ts` — 12 tests.
+
+Still to do, once the `server` role question above is settled: the Next-side entry, the module
+authoring guide's convention-file list, and `.ai/docs/`.
 
 ### Compatibility
 
@@ -227,3 +259,7 @@ holds a watch or drives a loop meets the same wall.
 ## Changelog
 
 - **2026-09-11** — Initial proposal.
+- **2026-09-11** — Implemented the `worker` role end to end (types, `Module.runtime`, discovery in
+  all three generator variants, `startModuleRuntimes` + 12 tests, `queue worker --all` wiring).
+  Recorded that `mercato server start` is a supervisor, so the `server` role needs a decision
+  between a shared instrumentation helper, arming from `onModulesRegistered()`, and scaffolding.
