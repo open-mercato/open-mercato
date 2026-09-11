@@ -51,8 +51,8 @@
   "dependencies": {
     "@aws-sdk/client-sesv2": "^3.946.0",
     "@open-mercato/core": "workspace:*",
-    "@types/nodemailer": "^8.0.0",
-    "nodemailer": "^9.0.0"
+    "@types/nodemailer": "^8.0.1",
+    "nodemailer": "^9.0.6"
   },
   "peerDependencies": {
     "@mikro-orm/postgresql": "^7.0.14",
@@ -67,13 +67,13 @@
     "@open-mercato/shared": "workspace:*",
     "@open-mercato/ui": "workspace:*",
     "@types/jest": "^30.0.0",
-    "@types/react": "^19.2.17",
-    "@types/react-dom": "^19.2.3",
-    "esbuild": "^0.28.1",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.5",
+    "esbuild": "^0.28.2",
     "glob": "^13.0.6",
     "jest": "^30.4.2",
-    "react": "19.2.7",
-    "react-dom": "19.2.7",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
     "ts-jest": "^29.4.11",
     "typescript": "7.0.2"
   },

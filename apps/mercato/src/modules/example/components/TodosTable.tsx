@@ -265,7 +265,8 @@ export default function TodosTable() {
   return (
     <>
       <DataTable
-        title={t('example.todos.table.title')}
+      title={t('example.todos.table.title')}
+      titleHeadingLevel={1}
         actions={(
           <Button asChild>
             <Link href="/backend/todos/create">{t('example.todos.table.actions.create')}</Link>
