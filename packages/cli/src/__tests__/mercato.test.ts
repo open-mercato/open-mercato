@@ -313,6 +313,110 @@ describe('db command failure output', () => {
   })
 })
 
+describe('module command exit signal propagation', () => {
+  let consoleErrorSpy: jest.SpyInstance
+  let consoleLogSpy: jest.SpyInstance
+
+  beforeEach(() => {
+    jest.restoreAllMocks()
+    consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+  })
+
+  afterEach(() => {
+    consoleErrorSpy.mockRestore()
+    consoleLogSpy.mockRestore()
+    process.exitCode = undefined
+  })
+
+  it('propagates a non-zero process.exitCode set by a command that does not throw', async () => {
+    registerCliModules([
+      {
+        id: 'reporting',
+        cli: [{
+          command: 'export',
+          run: jest.fn().mockImplementation(async () => {
+            process.exitCode = 1
+          }),
+        }],
+      } as any,
+    ])
+
+    const exitCode = await run(['node', 'mercato', 'reporting', 'export'])
+
+    expect(exitCode).toBe(1)
+  })
+
+  it('preserves the exact exit code a command signals rather than collapsing it to 1', async () => {
+    registerCliModules([
+      {
+        id: 'reporting',
+        cli: [{
+          command: 'export',
+          run: jest.fn().mockImplementation(async () => {
+            process.exitCode = 42
+          }),
+        }],
+      } as any,
+    ])
+
+    const exitCode = await run(['node', 'mercato', 'reporting', 'export'])
+
+    expect(exitCode).toBe(42)
+  })
+
+  it('returns 0 for a command that completes without signalling a failure', async () => {
+    registerCliModules([
+      {
+        id: 'reporting',
+        cli: [{ command: 'export', run: jest.fn().mockResolvedValue(undefined) }],
+      } as any,
+    ])
+
+    const exitCode = await run(['node', 'mercato', 'reporting', 'export'])
+
+    expect(exitCode).toBe(0)
+  })
+
+  it('ignores a non-zero process.exitCode inherited from before the command ran', async () => {
+    process.exitCode = 7
+
+    registerCliModules([
+      {
+        id: 'reporting',
+        cli: [{ command: 'export', run: jest.fn().mockResolvedValue(undefined) }],
+      } as any,
+    ])
+
+    const exitCode = await run(['node', 'mercato', 'reporting', 'export'])
+
+    expect(exitCode).toBe(0)
+    expect(process.exitCode).toBe(7)
+  })
+
+  it('still reports 1 when a command throws, regardless of process.exitCode', async () => {
+    process.exitCode = 7
+
+    registerCliModules([
+      {
+        id: 'reporting',
+        cli: [{
+          command: 'export',
+          run: jest.fn().mockImplementation(async () => {
+            process.exitCode = 3
+            throw new Error('export failed')
+          }),
+        }],
+      } as any,
+    ])
+
+    const exitCode = await run(['node', 'mercato', 'reporting', 'export'])
+
+    expect(exitCode).toBe(1)
+    expect(process.exitCode).toBe(7)
+  })
+})
+
 describe('init command failure output', () => {
   const originalDatabaseUrl = process.env.DATABASE_URL
 

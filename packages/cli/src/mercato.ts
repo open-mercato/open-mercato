@@ -2680,12 +2680,14 @@ export async function run(argv = process.argv) {
     : rest
   console.log(`🚀 Running ${modName}:${cmdName} ${loggedArgs.join(' ')}`)
   try {
-    await cmd.run(rest)
+    const commandExitCode = await runWithCapturedExitCode(async () => {
+      await cmd.run(rest)
+    })
     if (modName !== 'deploy' || cmdName !== 'railway') {
       const ms = Date.now() - started
       console.log(`⏱️ Done in ${ms}ms`)
     }
-    return 0
+    return commandExitCode
   } catch (e: any) {
     console.error(`💥 Failed: ${formatCliFailureMessage(modName, cmdName, e)}`)
     return 1
