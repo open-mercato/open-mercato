@@ -38,6 +38,19 @@ export interface EventDefinition {
   crossProcessBroadcast?: boolean
   /** When true, this event is bridged to the customer portal via SSE (Portal Event Bridge). Default: false */
   portalBroadcast?: boolean
+  /**
+   * When true, browser deliveries of this event coalesce: within
+   * OM_BROADCAST_COALESCE_INTERVAL_MS only the newest payload per
+   * (event, tenant, organization) reaches the SSE bridges, and a trailing flush
+   * guarantees the last one is delivered. Subscribers, webhooks and the queue are
+   * unaffected — the domain event still fires once per record.
+   *
+   * Declare it only on events whose browser consumers react to the fact that
+   * something changed (a list refresh), never to each occurrence. Cannot be
+   * combined with crossProcessBroadcast: delaying private coordination would let
+   * another process serve stale data. Default: false
+   */
+  broadcastCoalescing?: boolean
 }
 
 // =============================================================================

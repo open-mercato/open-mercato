@@ -7,9 +7,11 @@ import { matchEventPattern } from '@open-mercato/shared/lib/events/patterns'
 import { getRedisUrlOrThrow } from '@open-mercato/shared/lib/redis/connection'
 import {
   isBroadcastEvent,
+  isCoalescedBroadcastEvent,
   isCrossProcessBroadcastEvent,
   isPrivateCrossProcessEventEmitter,
 } from '@open-mercato/shared/modules/events'
+import { flushPendingBroadcasts, submitBroadcast } from './broadcast-coalescer'
 import {
   inferModuleIdFromResourceId,
   withModuleResourceUsage,
@@ -95,6 +97,32 @@ function resolveCrossProcessEmitOptions(
   }
 }
 
+/**
+ * Coalescing key for the browser dispatch of one event.
+ *
+ * Scope is part of the key by necessity, not for granularity: a key of event id
+ * alone would let a burst in one tenant suppress another tenant's delivery and
+ * then deliver the first tenant's payload in its place.
+ */
+function buildBroadcastCoalesceKey(event: string, options?: EmitOptions): string {
+  const tenantId = typeof options?.tenantId === 'string' ? options.tenantId.trim() : ''
+  const organizationScopes = new Set<string>()
+  if (typeof options?.organizationId === 'string' && options.organizationId.trim().length > 0) {
+    organizationScopes.add(options.organizationId.trim())
+  }
+  if (Array.isArray(options?.organizationIds)) {
+    for (const organizationId of options.organizationIds) {
+      if (typeof organizationId !== 'string') continue
+      const trimmed = organizationId.trim()
+      if (trimmed) organizationScopes.add(trimmed)
+    }
+  }
+  // Sorted so a multi-organization audience keys identically however the caller
+  // ordered it, and explicitly comparator-ed per the #3620 guard.
+  const sortedScopes = Array.from(organizationScopes).sort((left, right) => left.localeCompare(right))
+  return `${event}::${tenantId}::${sortedScopes.join(',')}`
+}
+
 function getGlobalEventTaps(): Set<GlobalEventTap> {
   const existing = (globalThis as Record<string, unknown>)[GLOBAL_EVENT_TAPS_KEY]
   if (existing instanceof Set) {
@@ -139,6 +167,7 @@ type EventJobData = {
 // base dir is cwd-relative, so it stays per-bus.
 const EVENTS_PRODUCER_QUEUE_KEY = '__openMercatoEventsProducerQueues__'
 const EVENTS_PRODUCER_SHUTDOWN_KEY = '__openMercatoEventsProducerShutdown__'
+const BROADCAST_COALESCER_SHUTDOWN_KEY = '__openMercatoBroadcastCoalescerShutdown__'
 
 function isSharedProducerEnabled(): boolean {
   return parseBooleanWithDefault(process.env.OM_EVENTS_SHARED_PRODUCER, true)
@@ -166,6 +195,29 @@ function registerProducerShutdownHook(): void {
   process.once('SIGTERM', shutdown)
   process.once('SIGINT', shutdown)
   ;(globalThis as Record<string, unknown>)[EVENTS_PRODUCER_SHUTDOWN_KEY] = true
+}
+
+/**
+ * Deliver the tail of any in-flight coalesced burst on the way out, so stopping
+ * a worker mid-import does not leave browsers a window behind. Registered
+ * independently of the producer hook: coalescing is in play whether or not this
+ * process ever opened an async producer queue.
+ *
+ * `beforeExit` matters as much as the signals here. The trailing timer is
+ * unref'd so a pending browser delivery never holds a process open, which means
+ * a short-lived emitter — a CLI import, a one-shot script — reaches a natural
+ * exit with the tail still queued and no signal ever fired. `beforeExit` runs
+ * exactly when the loop has drained, which is precisely that case.
+ */
+function registerBroadcastCoalescerShutdownHook(): void {
+  if ((globalThis as Record<string, unknown>)[BROADCAST_COALESCER_SHUTDOWN_KEY]) return
+  const shutdown = () => {
+    void flushPendingBroadcasts().catch(() => {})
+  }
+  process.once('SIGTERM', shutdown)
+  process.once('SIGINT', shutdown)
+  process.once('beforeExit', shutdown)
+  ;(globalThis as Record<string, unknown>)[BROADCAST_COALESCER_SHUTDOWN_KEY] = true
 }
 
 /**
@@ -199,6 +251,8 @@ function registerProducerShutdownHook(): void {
  * ```
  */
 export function createEventBus(opts: CreateBusOptions): EventBus {
+  registerBroadcastCoalescerShutdownHook()
+
   // In-memory listeners for immediate event delivery
   const listeners = new Map<string, Set<RegisteredSubscriber>>()
   // Subscribers registered as persistent (worker-dispatched). Used by the
@@ -439,13 +493,54 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
     payload: EventPayload,
     options?: EmitOptions
   ): Promise<void> {
-    const taps = getGlobalEventTaps()
-    for (const tap of taps) {
-      try {
-        await Promise.resolve(tap(event, payload, options))
-      } catch (error) {
-        logger.error('Global tap error', { event, err: error })
+    const runGlobalTaps = async (): Promise<void> => {
+      const taps = getGlobalEventTaps()
+      for (const tap of taps) {
+        try {
+          await Promise.resolve(tap(event, payload, options))
+        } catch (error) {
+          logger.error('Global tap error', { event, err: error })
+        }
       }
+    }
+
+    // Resolved at call time, never hoisted. Private coordination always requires
+    // trusted envelope scope and module provenance. Legacy declared browser events
+    // may promote their typed scope for raw EventBus compatibility; tenant-managed
+    // workflow adapters pass authoritative scope in options, which always wins over
+    // payload values. Computing it lazily keeps the non-coalesced path resolving
+    // scope at exactly the point it always did — after inline delivery — so an
+    // event that did not opt in cannot observe this change at all.
+    const publishToOtherProcesses = async (): Promise<void> => {
+      const crossProcessOptions = resolveCrossProcessEmitOptions(event, payload, options)
+      if (
+        !isCrossProcessBroadcastEvent(event)
+        || !hasTrustedTenantScope(crossProcessOptions)
+        || !isPrivateCrossProcessEventEmitter(event, crossProcessOptions?.emitterModuleId)
+      ) return
+      try {
+        await publishCrossProcessEvent(event, payload, crossProcessOptions)
+      } catch (error) {
+        logger.error('Cross-process publish error', { event, err: error })
+      }
+    }
+
+    // The two sinks that exist only so browsers see the change: the global taps
+    // (which both SSE endpoints subscribe through) and the pg_notify publish that
+    // reaches connections held by other processes. Neither carries domain meaning,
+    // so an opted-in event may coalesce them without touching subscriber, webhook
+    // or queue semantics below.
+    const coalesceBrowserDelivery = isCoalescedBroadcastEvent(event)
+    if (coalesceBrowserDelivery) {
+      await submitBroadcast(
+        buildBroadcastCoalesceKey(event, resolveCrossProcessEmitOptions(event, payload, options) ?? options),
+        async () => {
+          await runGlobalTaps()
+          await publishToOtherProcesses()
+        },
+      )
+    } else {
+      await runGlobalTaps()
     }
 
     // Deliver to in-memory handlers first. Under single-delivery, persistent
@@ -468,21 +563,10 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
       inlinePersistentFailed = delivered.persistentFailures > 0
     }
 
-    // Private coordination always requires trusted envelope scope and module
-    // provenance. Legacy declared browser events may promote their typed scope
-    // for raw EventBus compatibility; tenant-managed workflow adapters pass
-    // authoritative scope in options, which always wins over payload values.
-    const crossProcessOptions = resolveCrossProcessEmitOptions(event, payload, options)
-    if (
-      isCrossProcessBroadcastEvent(event)
-      && hasTrustedTenantScope(crossProcessOptions)
-      && isPrivateCrossProcessEventEmitter(event, crossProcessOptions?.emitterModuleId)
-    ) {
-      try {
-        await publishCrossProcessEvent(event, payload, crossProcessOptions)
-      } catch (error) {
-        logger.error('Cross-process publish error', { event, err: error })
-      }
+    // Already dispatched with the taps when this event coalesces its browser
+    // delivery; otherwise it publishes here, exactly where it always has.
+    if (!coalesceBrowserDelivery) {
+      await publishToOtherProcesses()
     }
 
     // If persistent, also enqueue for async processing

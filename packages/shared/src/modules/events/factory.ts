@@ -186,6 +186,20 @@ export function isPrivateCrossProcessEventEmitter(
 }
 
 /**
+ * Check whether an event opted into coalesced browser delivery.
+ * Read by the event bus before it hands a browser dispatch to the coalescer.
+ */
+export function isCoalescedBroadcastEvent(eventId: string): boolean {
+  const event = getEventRegistryState().declaredEvents.find(e => e.id === eventId)
+  if (event?.broadcastCoalescing !== true) return false
+  // Private cross-process coordination must never be delayed, and an event with
+  // no browser sink has nothing to coalesce. Both are rejected at declaration
+  // time, so this is defence in depth for events registered by other paths.
+  if (event.crossProcessBroadcast === true) return false
+  return event.clientBroadcast === true || event.portalBroadcast === true
+}
+
+/**
  * Check if an event has portalBroadcast enabled.
  * Used by the portal SSE endpoint to filter events for the Portal Event Bridge.
  */
@@ -276,6 +290,23 @@ export function createModuleEvents<
     ...e,
     module: moduleId,
   }))
+
+  for (const event of fullEvents) {
+    if (event.broadcastCoalescing !== true) continue
+    if (event.crossProcessBroadcast === true) {
+      throw new Error(
+        `[internal] Event "${event.id}" declared by module "${moduleId}" combines crossProcessBroadcast with ` +
+        'broadcastCoalescing. Private cross-process coordination must be delivered immediately — delaying it ' +
+        'would let another process serve stale data. Drop one of the two flags.',
+      )
+    }
+    if (event.clientBroadcast !== true && event.portalBroadcast !== true) {
+      throw new Error(
+        `[internal] Event "${event.id}" declared by module "${moduleId}" sets broadcastCoalescing without ` +
+        'clientBroadcast or portalBroadcast. There is no browser delivery to coalesce.',
+      )
+    }
+  }
 
   // Register all event IDs and definitions in the global registry.
   for (const event of fullEvents) {
