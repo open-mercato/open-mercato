@@ -2144,11 +2144,11 @@
       "checks": [],
       "triggers": [],
       "foreignKeys": {
-        "wms_sales_order_warehouse_assignments_warehouse_id_foreign": {
+        "wms_sowa_warehouse_id_foreign": {
           "columnNames": [
             "warehouse_id"
           ],
-          "constraintName": "wms_sales_order_warehouse_assignments_warehouse_id_foreign",
+          "constraintName": "wms_sowa_warehouse_id_foreign",
           "localTableName": "public.wms_sales_order_warehouse_assignments",
           "referencedColumnNames": [
             "id"

@@ -410,7 +410,10 @@ export class SalesOrderWarehouseAssignment extends WmsScopedEntity {
   @Property({ name: 'sales_order_id', type: 'uuid' })
   salesOrderId!: string
 
-  @ManyToOne(() => Warehouse, { fieldName: 'warehouse_id' })
+  @ManyToOne(() => Warehouse, {
+    fieldName: 'warehouse_id',
+    foreignKeyName: 'wms_sowa_warehouse_id_foreign',
+  })
   warehouse!: Warehouse
 
   @Property({ name: 'assigned_by', type: 'uuid', nullable: true })

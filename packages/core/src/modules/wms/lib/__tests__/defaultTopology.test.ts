@@ -25,11 +25,16 @@ function buildEntityManager() {
   const create = jest.fn((_entity: unknown, data: Record<string, unknown>) => data)
   const persist = jest.fn()
   const flush = jest.fn().mockResolvedValue(undefined)
+  const transaction = { create, persist, flush } as unknown as EntityManager
+  const transactional = jest.fn(async (operation: (transaction: EntityManager) => Promise<boolean>) =>
+    operation(transaction),
+  )
   return {
-    em: { create, persist, flush } as unknown as EntityManager,
+    em: { transactional } as unknown as EntityManager,
     create,
     persist,
     flush,
+    transactional,
   }
 }
 
@@ -40,7 +45,7 @@ describe('seedWmsDefaultTopology', () => {
 
   it('creates one default site, warehouse, and finished-goods assignment for an empty WMS topology', async () => {
     mockFindOneWithDecryption.mockResolvedValue(null)
-    const { em, create, persist, flush } = buildEntityManager()
+    const { em, create, persist, flush, transactional } = buildEntityManager()
 
     await expect(seedWmsDefaultTopology(em, scope)).resolves.toBe(true)
 
@@ -68,6 +73,7 @@ describe('seedWmsDefaultTopology', () => {
     )
     expect(persist).toHaveBeenCalledTimes(3)
     expect(flush).toHaveBeenCalledTimes(1)
+    expect(transactional).toHaveBeenCalledTimes(1)
   })
 
   it.each([
@@ -80,21 +86,23 @@ describe('seedWmsDefaultTopology', () => {
     mockFindOneWithDecryption.mockImplementation(async (_em, candidate) =>
       candidate === entity ? ({ id: 'existing' } as never) : null,
     )
-    const { em, create, persist, flush } = buildEntityManager()
+    const { em, create, persist, flush, transactional } = buildEntityManager()
 
     await expect(seedWmsDefaultTopology(em, scope)).resolves.toBe(false)
 
     expect(create).not.toHaveBeenCalled()
     expect(persist).not.toHaveBeenCalled()
     expect(flush).not.toHaveBeenCalled()
+    expect(transactional).toHaveBeenCalledTimes(1)
   })
 
   it('treats a unique-constraint race as an idempotent no-op', async () => {
     mockFindOneWithDecryption.mockResolvedValue(null)
-    const { em, flush } = buildEntityManager()
+    const { em, flush, transactional } = buildEntityManager()
     flush.mockRejectedValue({ code: '23505' })
 
     await expect(seedWmsDefaultTopology(em, scope)).resolves.toBe(false)
     expect(flush).toHaveBeenCalledTimes(1)
+    expect(transactional).toHaveBeenCalledTimes(1)
   })
 })
