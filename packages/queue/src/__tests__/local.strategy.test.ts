@@ -991,4 +991,418 @@ describe('Queue - local strategy', () => {
     }
   })
 
+  describe('coalescing', () => {
+    const queueName = 'coalesce-queue'
+    const queueDir = path.join('.mercato', 'queue', queueName)
+    const queuePath = path.join(queueDir, 'queue.json')
+    const activePath = path.join(queueDir, 'active.json')
+
+    type Payload = { value: number }
+
+    /** Runs `body` while a job sits inside its handler, which is the only state dedup treats as active. */
+    async function whileFirstJobIsRunning(
+      queue: ReturnType<typeof createQueue<Payload>>,
+      body: () => Promise<void>,
+    ): Promise<number[]> {
+      const runs: number[] = []
+      let release!: () => void
+      const released = new Promise<void>((resolve) => { release = resolve })
+      let started!: () => void
+      const startedPromise = new Promise<void>((resolve) => { started = resolve })
+
+      const processing = queue.process(async (job) => {
+        runs.push(job.payload.value)
+        started()
+        await released
+      }, { limit: 1 })
+
+      try {
+        await within(startedPromise, 2000)
+        await body()
+      } finally {
+        release()
+        await processing
+      }
+      return runs
+    }
+
+    test('a burst on one key collapses to a single job and a single run', async () => {
+      const queue = createQueue<Payload>(queueName, 'local')
+      const ids: string[] = []
+      const runs: number[] = []
+
+      for (let value = 1; value <= 10; value++) {
+        ids.push(await queue.enqueue({ value }, { coalesce: { key: 'order-totals:42' } }))
+      }
+
+      expect(readJson(queuePath)).toHaveLength(1)
+      expect(new Set(ids).size).toBe(1)
+
+      await queue.process((job) => { runs.push(job.payload.value) }, { limit: 10 })
+      expect(runs).toEqual([1])
+
+      await queue.close()
+    })
+
+    test('separate keys and uncoalesced jobs are untouched', async () => {
+      const queue = createQueue<Payload>(queueName, 'local')
+      const runs: number[] = []
+
+      await queue.enqueue({ value: 1 }, { coalesce: { key: 'order-totals:a' } })
+      await queue.enqueue({ value: 2 }, { coalesce: { key: 'order-totals:a' } })
+      await queue.enqueue({ value: 3 }, { coalesce: { key: 'order-totals:b' } })
+      await queue.enqueue({ value: 4 })
+      await queue.enqueue({ value: 5 })
+
+      await queue.process((job) => { runs.push(job.payload.value) }, { limit: 10 })
+      expect(runs).toEqual([1, 3, 4, 5])
+
+      await queue.close()
+    })
+
+    test('a key is released once its job finishes', async () => {
+      const queue = createQueue<Payload>(queueName, 'local')
+
+      const first = await queue.enqueue({ value: 1 }, { coalesce: { key: 'order-totals:42' } })
+      await queue.process(() => {}, { limit: 10 })
+      const second = await queue.enqueue({ value: 2 }, { coalesce: { key: 'order-totals:42' } })
+
+      expect(second).not.toBe(first)
+      expect(readJson(queuePath)).toHaveLength(1)
+
+      await queue.close()
+    })
+
+    // A job that exhausts its attempts is finalized, not merely gone: leaving its key behind would
+    // collapse every later enqueue onto a record that no longer exists.
+    test('a key is released when its job exhausts every attempt', async () => {
+      const queue = createQueue<Payload>(queueName, 'local')
+
+      const first = await queue.enqueue({ value: 1 }, { coalesce: { key: 'order-totals:42' } })
+      const jobs = readJson(queuePath)
+      jobs[0].attemptCount = 2
+      fs.writeFileSync(queuePath, JSON.stringify(jobs, null, 2), 'utf8')
+
+      await queue.process(() => { throw new Error('permanent') }, { limit: 10 })
+      expect(readJson(queuePath)).toHaveLength(0)
+
+      const second = await queue.enqueue({ value: 2 }, { coalesce: { key: 'order-totals:42' } })
+      expect(second).not.toBe(first)
+      expect(readJson(queuePath)).toHaveLength(1)
+
+      await queue.close()
+    })
+
+    test('a key survives a retry, so enqueues during backoff still coalesce', async () => {
+      const queue = createQueue<Payload>(queueName, 'local')
+
+      const first = await queue.enqueue({ value: 1 }, { coalesce: { key: 'order-totals:42' } })
+      await queue.process(() => { throw new Error('transient') }, { limit: 10 })
+
+      const retrying = readJson(queuePath)
+      expect(retrying).toHaveLength(1)
+      expect(retrying[0].attemptCount).toBe(1)
+
+      const second = await queue.enqueue({ value: 2 }, { coalesce: { key: 'order-totals:42' } })
+      expect(second).toBe(first)
+      expect(readJson(queuePath)).toHaveLength(1)
+
+      await queue.close()
+    })
+
+    // The guarantee the whole feature exists for: the running job read its input before the later
+    // enqueues arrived, so exactly one more run has to happen, and it has to carry the last payload.
+    test('an enqueue during a run produces exactly one more run, with the latest payload', async () => {
+      const consumer = createQueue<Payload>(queueName, 'local')
+      // A second instance stands in for a producer process: a pass proves the active state was read
+      // from disk rather than from the consumer's in-memory in-flight set.
+      const producer = createQueue<Payload>(queueName, 'local')
+      const coalesce = { coalesce: { key: 'order-totals:42' } }
+      const parked: string[] = []
+
+      const first = await producer.enqueue({ value: 1 }, coalesce)
+      const runs = await whileFirstJobIsRunning(consumer, async () => {
+        parked.push(await producer.enqueue({ value: 2 }, coalesce))
+        parked.push(await producer.enqueue({ value: 3 }, coalesce))
+      })
+
+      // Both enqueues were answered with the running job's id, and only the last one survived.
+      expect(parked).toEqual([first, first])
+      const pending = readJson(queuePath)
+      expect(pending).toHaveLength(1)
+      expect(pending[0].payload).toEqual({ value: 3 })
+      expect(pending[0].coalesceKey).toBe('order-totals:42')
+
+      await consumer.process((job) => { runs.push(job.payload.value) }, { limit: 10 })
+      expect(runs).toEqual([1, 3])
+
+      await consumer.close()
+      await producer.close()
+    })
+
+    test('the follow-up job keeps the id its producer was given', async () => {
+      const consumer = createQueue<Payload>(queueName, 'local')
+      const producer = createQueue<Payload>(queueName, 'local')
+      const coalesce = { coalesce: { key: 'order-totals:42' } }
+      let parkedId = ''
+
+      await producer.enqueue({ value: 1 }, coalesce)
+      await whileFirstJobIsRunning(consumer, async () => {
+        // The id a caller is handed must name the run that eventually serves its payload.
+        await producer.enqueue({ value: 2 }, coalesce)
+        parkedId = readJson(queuePath)[0].coalesceNext.id
+      })
+
+      expect(readJson(queuePath)[0].id).toBe(parkedId)
+
+      await consumer.close()
+      await producer.close()
+    })
+
+    // The queue-level resolver exists so a chain of workers cannot lose coalescing to one call site
+    // that forgot the option — the key is declared once, where the queue is built.
+    test('a queue-level coalesceBy keys every enqueue without the call site passing anything', async () => {
+      const queue = createQueue<{ orderId: number }>(queueName, 'local', {
+        coalesceBy: (payload) => `order:${payload.orderId}`,
+      })
+      const runs: number[] = []
+
+      await queue.enqueue({ orderId: 42 })
+      await queue.enqueue({ orderId: 42 })
+      await queue.enqueue({ orderId: 7 })
+
+      const stored = readJson(queuePath)
+      expect(stored).toHaveLength(2)
+      expect(stored.map((job: { coalesceKey: string }) => job.coalesceKey)).toEqual(['order:42', 'order:7'])
+
+      await queue.process((job) => { runs.push(job.payload.orderId) }, { limit: 10 })
+      expect(runs).toEqual([42, 7])
+
+      await queue.close()
+    })
+
+    test('a coalesceBy returning null leaves that payload uncoalesced', async () => {
+      const queue = createQueue<{ orderId: number | null }>(queueName, 'local', {
+        coalesceBy: (payload) => (payload.orderId === null ? null : `order:${payload.orderId}`),
+      })
+
+      await queue.enqueue({ orderId: null })
+      await queue.enqueue({ orderId: null })
+
+      const stored = readJson(queuePath)
+      expect(stored).toHaveLength(2)
+      expect(stored[0].coalesceKey).toBeUndefined()
+
+      await queue.close()
+    })
+
+    test('an explicit coalesce key overrides the queue-level one', async () => {
+      const queue = createQueue<{ orderId: number }>(queueName, 'local', {
+        coalesceBy: (payload) => `order:${payload.orderId}`,
+      })
+
+      await queue.enqueue({ orderId: 42 })
+      await queue.enqueue({ orderId: 42 }, { coalesce: { key: 'something-else' } })
+
+      const stored = readJson(queuePath)
+      expect(stored.map((job: { coalesceKey: string }) => job.coalesceKey))
+        .toEqual(['order:42', 'something-else'])
+
+      await queue.close()
+    })
+
+    test('an enqueue while the twin is merely waiting parks nothing', async () => {
+      const queue = createQueue<Payload>(queueName, 'local')
+      const coalesce = { coalesce: { key: 'order-totals:42' } }
+      const runs: number[] = []
+
+      await queue.enqueue({ value: 1 }, coalesce)
+      await queue.enqueue({ value: 2 }, coalesce)
+
+      expect(readJson(queuePath)[0].coalesceNext).toBeUndefined()
+      await queue.process((job) => { runs.push(job.payload.value) }, { limit: 10 })
+      expect(runs).toEqual([1])
+      expect(readJson(queuePath)).toEqual([])
+
+      await queue.close()
+    })
+
+    test('the active lease is published to disk for other processes to read', async () => {
+      const queue = createQueue<Payload>(queueName, 'local')
+      const jobId = await queue.enqueue({ value: 1 })
+      let lease: { jobIds: string[]; pid: number; host: string } | null = null
+
+      await whileFirstJobIsRunning(queue, async () => {
+        lease = readJson(activePath)
+      })
+
+      expect(lease).toMatchObject({ jobIds: [jobId], pid: process.pid, host: os.hostname() })
+      // Released once the batch's closing write has removed the jobs it named.
+      expect(fs.existsSync(activePath)).toBe(false)
+
+      await queue.close()
+    })
+
+    test('getJobCounts reports the running job as active rather than waiting', async () => {
+      const queue = createQueue<Payload>(queueName, 'local')
+      await queue.enqueue({ value: 1 })
+      await queue.enqueue({ value: 2 })
+      let counts: { waiting: number; active: number } | null = null
+
+      await whileFirstJobIsRunning(queue, async () => {
+        counts = await queue.getJobCounts()
+      })
+
+      expect(counts).toMatchObject({ waiting: 1, active: 1 })
+
+      await queue.close()
+    })
+
+    test('a lease left behind by a dead process is not treated as active', async () => {
+      const queue = createQueue<Payload>(queueName, 'local')
+      const jobId = await queue.enqueue({ value: 1 }, { coalesce: { key: 'order-totals:42' } })
+      // A pid that cannot be running: the owner died without releasing its lease.
+      fs.writeFileSync(activePath, JSON.stringify({
+        jobIds: [jobId],
+        since: Date.now(),
+        pid: 0x7ffffffe,
+        host: os.hostname(),
+      }), 'utf8')
+
+      await queue.enqueue({ value: 2 }, { coalesce: { key: 'order-totals:42' } })
+
+      expect(readJson(queuePath)[0].coalesceNext).toBeUndefined()
+
+      await queue.close()
+    })
+
+    test('a starting consumer clears a lease no running consumer owns', async () => {
+      const queue = createQueue<Payload>(queueName, 'local')
+      const jobId = await queue.enqueue({ value: 1 })
+      fs.writeFileSync(activePath, JSON.stringify({
+        jobIds: [jobId],
+        since: Date.now(),
+        pid: process.pid,
+        host: os.hostname(),
+      }), 'utf8')
+
+      expect((await queue.getJobCounts()).active).toBe(1)
+
+      await queue.process(() => {}, { limit: 10 })
+
+      expect(fs.existsSync(activePath)).toBe(false)
+      expect(readJson(queuePath)).toEqual([])
+
+      await queue.close()
+    })
+
+    test('clear and scoped removal free the key for later enqueues', async () => {
+      const queue = createQueue<{ tenantId: string; value: number }>(queueName, 'local')
+
+      const first = await queue.enqueue({ tenantId: 'tenant-1', value: 1 }, { coalesce: { key: 'order-totals:42' } })
+      await queue.clear()
+      const second = await queue.enqueue({ tenantId: 'tenant-1', value: 2 }, { coalesce: { key: 'order-totals:42' } })
+      expect(second).not.toBe(first)
+
+      await queue.removeQueuedJobsByScope!({ tenantId: 'tenant-1' })
+      const third = await queue.enqueue({ tenantId: 'tenant-1', value: 3 }, { coalesce: { key: 'order-totals:42' } })
+      expect(third).not.toBe(second)
+      expect(readJson(queuePath)).toHaveLength(1)
+
+      await queue.close()
+    })
+
+    // Deduplication exists to remove work. Rewriting queue.json on a dropped enqueue would rename
+    // the file, wake the consumer's watcher for a job that does not exist, and rewrite every stored
+    // job to record nothing.
+    test('a dropped enqueue does not rewrite the queue file', async () => {
+      const queue = createQueue<Payload>(queueName, 'local')
+
+      await queue.enqueue({ value: 1 }, { coalesce: { key: 'order-totals:42' } })
+      const before = fs.statSync(queuePath)
+
+      await queue.enqueue({ value: 2 }, { coalesce: { key: 'order-totals:42' } })
+      await queue.enqueue({ value: 3 }, { coalesce: { key: 'order-totals:42' } })
+
+      const after = fs.statSync(queuePath)
+      expect(after.ino).toBe(before.ino)
+      expect(after.mtimeMs).toBe(before.mtimeMs)
+
+      await queue.close()
+    })
+
+    // The mirror image of queue.json's fail-closed quarantine: a lease holds nothing recoverable,
+    // and the cost of losing one is a duplicate run, which the queue's contract already permits.
+    test('an unparsable lease is discarded rather than failing the enqueue', async () => {
+      const queue = createQueue<Payload>(queueName, 'local')
+      await queue.enqueue({ value: 1 }, { coalesce: { key: 'order-totals:42' } })
+      fs.writeFileSync(activePath, 'not json at all', 'utf8')
+
+      await expect(queue.enqueue({ value: 2 }, { coalesce: { key: 'order-totals:42' } }))
+        .resolves.toEqual(expect.any(String))
+      expect(fs.existsSync(activePath)).toBe(false)
+      expect(queueLoggerError).toHaveBeenCalledWith(
+        'Failed to parse the active-job lease; discarding it',
+        expect.objectContaining({ err: expect.any(Error) }),
+      )
+      expect(await queue.getJobCounts()).toMatchObject({ waiting: 1, active: 0 })
+
+      await queue.close()
+    })
+
+    test('records written before coalescing existed still process', async () => {
+      const queue = createQueue<Payload>(queueName, 'local')
+      const runs: number[] = []
+      fs.mkdirSync(queueDir, { recursive: true })
+      fs.writeFileSync(queuePath, JSON.stringify([
+        { id: 'legacy-1', payload: { value: 1 }, createdAt: new Date().toISOString() },
+      ]), 'utf8')
+
+      await queue.process((job) => { runs.push(job.payload.value) }, { limit: 10 })
+      expect(runs).toEqual([1])
+
+      await queue.close()
+    })
+
+    test('a continuous worker collapses a producer burst into one follow-up run', async () => {
+      const baseDir = path.join(tmp, 'coalesce-continuous')
+      const consumer = createQueue<Payload>(queueName, 'local', { baseDir, pollInterval: 20 })
+      const producer = createQueue<Payload>(queueName, 'local', { baseDir })
+      const coalesce = { coalesce: { key: 'order-totals:42' } }
+      const runs: number[] = []
+
+      let releaseFirst!: () => void
+      const firstReleased = new Promise<void>((resolve) => { releaseFirst = resolve })
+      let firstStarted!: () => void
+      const firstStartedPromise = new Promise<void>((resolve) => { firstStarted = resolve })
+      let resolveSecondRun!: (value: number) => void
+      const secondRun = new Promise<number>((resolve) => { resolveSecondRun = resolve })
+
+      try {
+        await consumer.process(async (job) => {
+          runs.push(job.payload.value)
+          if (runs.length === 1) {
+            firstStarted()
+            await firstReleased
+            return
+          }
+          resolveSecondRun(job.payload.value)
+        })
+
+        await producer.enqueue({ value: 1 }, coalesce)
+        await within(firstStartedPromise, 2000)
+        for (let value = 2; value <= 6; value++) {
+          await producer.enqueue({ value }, coalesce)
+        }
+        releaseFirst()
+
+        await expect(within(secondRun, 2000)).resolves.toBe(6)
+        expect(runs).toEqual([1, 6])
+      } finally {
+        releaseFirst()
+        await consumer.close()
+        await producer.close()
+      }
+    })
+  })
 })

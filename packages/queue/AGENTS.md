@@ -14,6 +14,7 @@ Use `@open-mercato/queue` for all background job processing. MUST NOT implement 
 1. **MUST make workers idempotent** — jobs may be retried on failure; duplicate execution MUST NOT corrupt data
 2. **MUST export `metadata`** with `{ queue, id?, concurrency? }` from every worker file
 3. **MUST test with both strategies** — verify workers process correctly with `local` and `async`
+4. **MUST coalesce recompute-from-state jobs** — give the queue a `coalesceBy: (payload) => '<entity>:<id>'` (or pass `{ coalesce: { key } }` per enqueue) for any job that recomputes an aggregate, projection or broadcast, so a burst of triggers runs it once and the last trigger still gets a run that sees it. Prefer `coalesceBy` on the queue: it is declared once and no call site can forget it. MUST NOT hand-roll coalescing inside the worker.
 
 ## Ask First
 
@@ -32,6 +33,12 @@ Use `@open-mercato/queue` for all background job processing. MUST NOT implement 
 yarn generate
 yarn workspace @open-mercato/queue test
 yarn workspace @open-mercato/queue build
+
+# Exercise the async strategy against a real BullMQ instead of the mock. Skipped
+# unless QUEUE_TEST_REDIS_URL is set; point it at a disposable server. CI sets it on
+# the `test` job, where the suite runs as part of the ordinary queue tests.
+docker run -d --rm --name om-queue-test-redis -p 6579:6379 redis:7-alpine
+QUEUE_TEST_REDIS_URL=redis://127.0.0.1:6579/0 yarn workspace @open-mercato/queue test:redis
 ```
 
 ## Concurrency Guidelines

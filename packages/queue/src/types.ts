@@ -54,7 +54,12 @@ export type QueueStrategyType = 'local' | 'async'
 /**
  * Options for local (file-based) queue strategy.
  */
-export type LocalQueueOptions = {
+export type LocalQueueOptions<T = unknown> = {
+  /**
+   * Derives a coalescing key from every payload this queue enqueues, so no call site has to
+   * remember to pass one. An explicit `EnqueueOptions.coalesce` overrides it.
+   */
+  coalesceBy?: CoalesceKeyResolver<T>
   /** Base directory for queue files. Defaults to QUEUE_BASE_DIR or '.mercato/queue' */
   baseDir?: string
   /** Number of concurrent job processors. Defaults to 1 */
@@ -88,7 +93,12 @@ export type RedisConnectionOptions = {
 /**
  * Options for async (BullMQ) queue strategy.
  */
-export type AsyncQueueOptions = {
+export type AsyncQueueOptions<T = unknown> = {
+  /**
+   * Derives a coalescing key from every payload this queue enqueues, so no call site has to
+   * remember to pass one. An explicit `EnqueueOptions.coalesce` overrides it.
+   */
+  coalesceBy?: CoalesceKeyResolver<T>
   /** Redis connection configuration */
   connection?: RedisConnectionOptions
   /** Number of concurrent job processors. Defaults to 1 */
@@ -142,9 +152,45 @@ export type AbandonedJobInfo = {
  * Conditional options type based on strategy.
  * Local strategy gets file options, async gets Redis options.
  */
-export type QueueOptions<S extends QueueStrategyType> = S extends 'async'
-  ? AsyncQueueOptions
-  : LocalQueueOptions
+export type QueueOptions<S extends QueueStrategyType, T = unknown> = S extends 'async'
+  ? AsyncQueueOptions<T>
+  : LocalQueueOptions<T>
+
+/**
+ * Collapses repeated enqueues of the same logical work into a single job.
+ *
+ * The guarantee, which holds however many enqueues arrive: **the last one always gets a run that
+ * sees it.** Enqueues that arrive while a job for the key is merely waiting add nothing — that job
+ * has not read anything yet, so it will observe their writes. Enqueues that arrive while a job for
+ * the key is *running* are parked, and exactly one follow-up run starts when it finishes, carrying
+ * the latest payload. At most one active plus one waiting job exists per key at any time.
+ *
+ * Ten triggers in a burst therefore produce at most two runs rather than ten, and none of them is
+ * lost. Keying it on the entity being recomputed is what makes that useful:
+ *
+ * ```typescript
+ * await queue.enqueue({ orderId }, { coalesce: { key: `order-totals:${orderId}` } })
+ * ```
+ *
+ * The word is deliberate. This is not "deduplication" in the drop-the-duplicate sense that SQS FIFO
+ * and Cloud Tasks mean, and that BullMQ's bare `deduplication: { id }` does: there, an enqueue
+ * landing mid-run is discarded, the running job finishes on input that predates it, and the
+ * recomputed state stays stale until some unrelated trigger happens along. That mode is not exposed
+ * here — the loss is silent, and the run it saves is a run this package already requires workers to
+ * tolerate (see the idempotency rule in the package's AGENTS.md). Should a caller ever genuinely
+ * want it, adding an opt-out field is additive.
+ */
+export type CoalesceOptions = {
+  /** Coalescing key, scoped to one queue. Key it on the entity the job acts on. */
+  key: string
+}
+
+/**
+ * Derives a coalescing key from a job's payload, set once when the queue is built.
+ *
+ * Return `null` or `undefined` to leave a payload uncoalesced.
+ */
+export type CoalesceKeyResolver<T = unknown> = (payload: T) => string | null | undefined
 
 /**
  * Optional job scheduling options.
@@ -154,6 +200,14 @@ export type EnqueueOptions = {
    * Delay job execution by this many milliseconds.
    */
   delayMs?: number
+  /**
+   * Collapse this enqueue into outstanding work sharing the same key.
+   *
+   * Overrides the queue's own `coalesceBy`, if it has one. Best-effort per strategy: an
+   * implementation that does not honour coalescing MUST still enqueue the job. Degrading toward a
+   * duplicate run is acceptable; dropping one is not.
+   */
+  coalesce?: CoalesceOptions
 }
 
 // ============================================================================
@@ -258,10 +312,10 @@ export interface Queue<T = unknown> {
 /**
  * Discriminated union for queue creation options.
  */
-export type CreateQueueConfig<S extends QueueStrategyType = QueueStrategyType> =
+export type CreateQueueConfig<S extends QueueStrategyType = QueueStrategyType, T = unknown> =
   S extends 'async'
-    ? { strategy: 'async' } & AsyncQueueOptions
-    : { strategy: 'local' } & LocalQueueOptions
+    ? { strategy: 'async' } & AsyncQueueOptions<T>
+    : { strategy: 'local' } & LocalQueueOptions<T>
 
 /**
  * Factory function signature for creating queues.
@@ -269,7 +323,7 @@ export type CreateQueueConfig<S extends QueueStrategyType = QueueStrategyType> =
 export type CreateQueueFn = <T = unknown>(
   name: string,
   strategy: QueueStrategyType,
-  options?: QueueOptions<QueueStrategyType>
+  options?: QueueOptions<QueueStrategyType, T>
 ) => Queue<T>
 
 // ============================================================================

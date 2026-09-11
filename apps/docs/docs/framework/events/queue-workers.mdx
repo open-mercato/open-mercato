@@ -57,6 +57,7 @@ const queue = createQueue<MyJobData>('my-queue', 'local', {
   my-queue/
     queue.json   # Array of queued jobs
     state.json   # Processing state (last processed ID)
+    active.json  # Jobs the consumer has started (created on demand)
 ```
 
 **Characteristics:**
@@ -104,7 +105,7 @@ interface Queue<T> {
   readonly strategy: 'local' | 'async'
 
   // Add a job to the queue
-  enqueue(data: T): Promise<string>
+  enqueue(data: T, options?: EnqueueOptions): Promise<string>
 
   // Process jobs from the queue
   process(handler: JobHandler<T>, options?: ProcessOptions): Promise<ProcessResult>
@@ -124,6 +125,66 @@ interface Queue<T> {
   }>
 }
 ```
+
+### Enqueue Options
+
+```typescript
+type EnqueueOptions = {
+  delayMs?: number
+  coalesce?: { key: string }
+}
+```
+
+## Coalescing
+
+A job that recomputes something from current state — order totals, a leaderboard, a cached
+aggregate, a realtime broadcast — does not need to run once per trigger. It needs to run once per
+*burst*, on the latest state. Give the enqueue a key and repeated triggers collapse into the job
+already outstanding for it:
+
+```typescript
+await queue.enqueue({ orderId }, { coalesce: { key: `order-totals:${orderId}` } })
+```
+
+Ten line-item edits in a minute then produce at most two runs instead of ten.
+
+The guarantee is that **the last trigger always gets a run that sees it**. Triggers arriving while a
+job for the key is merely *waiting* add nothing, because that job has not read anything yet and will
+observe their writes. Triggers arriving while it is *running* are parked, and exactly one follow-up
+run starts when it finishes, carrying the latest payload. At most one active plus one waiting job
+exists per key.
+
+`enqueue` returns the id of the job that will serve your payload — which, when your enqueue was
+collapsed into an outstanding one, is a job you did not create.
+
+### Declaring the key on the queue
+
+A key passed at every call site is a key one call site can forget. Declare it once instead, and
+every enqueue inherits it:
+
+```typescript
+export function getOrderTotalsQueue() {
+  return createModuleQueue<RecalculateTotals>('order-totals', {
+    concurrency: 3,
+    coalesceBy: (payload) => `order-totals:${payload.orderId}`,
+  })
+}
+```
+
+Return `null` from `coalesceBy` to leave a payload uncoalesced. An explicit `coalesce` on an
+individual `enqueue` overrides the queue's resolver.
+
+### Why there is no drop-the-duplicate mode
+
+Most queues spell this "deduplication" and mean it literally: while a job is outstanding, further
+enqueues are discarded. That is a correctness bug for anything that recomputes from state — the
+running job read its input before the discarded trigger arrived, so it finishes on stale data and
+nothing re-runs. This package does not expose that mode. The run it would save is one workers are
+already required to tolerate, since jobs may be retried.
+
+Both strategies implement coalescing. The async strategy maps it onto BullMQ's deduplication with
+`keepLastIfActive`; the local strategy implements the same semantics on its file-backed store, so
+development and integration runs behave like production.
 
 ## Job Handler
 
