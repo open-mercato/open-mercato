@@ -1,6 +1,10 @@
 import type { EntityManager } from '@mikro-orm/core'
+import { createLogger } from '../logger'
 import { encryptWithAesGcm, decryptWithAesGcm } from './aes'
 import { TenantDataEncryptionService } from './tenantDataEncryptionService'
+import { isTenantDataEncryptionEnabled } from './toggles'
+
+const logger = createLogger('shared').child({ component: 'encryption' })
 
 /**
  * Custom field kinds that ALWAYS round-trip as a string. The encrypt path
@@ -69,15 +73,104 @@ async function resolveDekKey(
   return key
 }
 
+/**
+ * Whether the caller asked for a write that is supposed to end up encrypted.
+ *
+ * `resolveDekKey` returns `null` for several situations. Two are intentional
+ * no-ops — no encryption service is wired, or the record has no tenant scope —
+ * and one is the operator deliberately running unencrypted
+ * (`TENANT_DATA_ENCRYPTION=no`). Anything else means the caller asked for an
+ * encrypted write that could not be performed, which is worth reporting.
+ *
+ * This deliberately checks the `TENANT_DATA_ENCRYPTION` env toggle rather than
+ * `service.isEnabled()`. `isEnabled()` folds the toggle together with KMS
+ * health, and an unreachable Vault with no fallback secret resolves to
+ * `NoopKmsService`, whose `isHealthy()` is false whenever encryption is on — so
+ * gating on it would stay silent during exactly the outage this warning exists
+ * to surface. The env toggle alone expresses the operator's intent.
+ */
+function isEncryptionExpected(
+  service: TenantDataEncryptionService | null,
+  tenantId: string | null | undefined,
+): boolean {
+  if (!service || !(tenantId ?? null)) return false
+  return isTenantDataEncryptionEnabled()
+}
+
+// One warning per tenant/entity/field per OUTAGE. A key-store outage makes this
+// branch run for every field of every write, so the warning is throttled — but
+// the entries for a tenant are dropped again as soon as one of its writes
+// encrypts successfully. Throttling for the lifetime of the process instead
+// would report the first outage and silently swallow every later one, which is
+// the failure this warning exists to make visible.
+const PLAINTEXT_FALLBACK_WARN_CAP = 5000
+const plaintextFallbackWarned = new Set<string>()
+
+/** Test seam: the warn-once cache is process-global by design. */
+export function resetEncryptedFieldPlaintextFallbackWarnCache(): void {
+  plaintextFallbackWarned.clear()
+}
+
+/**
+ * Forget a tenant's plaintext-fallback warnings once its key resolves again, so
+ * a later outage is reported instead of being throttled away by the previous
+ * one. The `size` guard keeps the healthy path — an empty set — at O(1).
+ */
+function clearPlaintextFallbackWarnings(tenantId: string | null | undefined): void {
+  if (!plaintextFallbackWarned.size) return
+  const prefix = `${tenantId ?? null}|`
+  for (const warnKey of plaintextFallbackWarned) {
+    if (warnKey.startsWith(prefix)) plaintextFallbackWarned.delete(warnKey)
+  }
+}
+
+function warnOnPlaintextFallback(
+  tenantId: string | null | undefined,
+  options?: EncryptCustomFieldOptions,
+): void {
+  try {
+    const scopedTenantId = tenantId ?? null
+    const entity = options?.entityId ?? null
+    const field = options?.fieldKey ?? null
+    const warnKey = `${scopedTenantId}|${entity ?? 'unknown'}|${field ?? 'unknown'}`
+    if (plaintextFallbackWarned.has(warnKey)) return
+    if (plaintextFallbackWarned.size >= PLAINTEXT_FALLBACK_WARN_CAP) plaintextFallbackWarned.clear()
+    plaintextFallbackWarned.add(warnKey)
+    logger.warn('Custom field configured as encrypted was stored as plaintext', {
+      tenantId: scopedTenantId,
+      entity,
+      field,
+      hint: 'The tenant data encryption key could not be read or created (KMS/Vault unavailable, or DEK creation failed), so the value was written unencrypted. Restore key access and re-save the affected records.',
+    })
+  } catch {
+    // A diagnostic must never break the write it is diagnosing.
+  }
+}
+
+export type EncryptCustomFieldOptions = {
+  /** Entity the value belongs to, e.g. `customers:person`. Used only to identify the field in diagnostics. */
+  entityId?: string | null
+  /** Custom field key, e.g. from `CustomFieldDef.key`. Used only to identify the field in diagnostics. */
+  fieldKey?: string | null
+}
+
 export async function encryptCustomFieldValue(
   value: unknown,
   tenantId: string | null | undefined,
   service: TenantDataEncryptionService | null,
   cache?: Map<string | null, string | null>,
+  options?: EncryptCustomFieldOptions,
 ): Promise<unknown> {
   if (value === undefined || value === null) return value
   const key = await resolveDekKey(service, tenantId, cache, { createIfMissing: true })
-  if (!key) return value
+  if (!key) {
+    // Key resolution failed for a field the operator configured as encrypted.
+    // The write still goes through as plaintext (failing it would drop data on
+    // a transient outage), but it must not be silent — issue #5921.
+    if (isEncryptionExpected(service, tenantId)) warnOnPlaintextFallback(tenantId, options)
+    return value
+  }
+  clearPlaintextFallbackWarnings(tenantId)
   const serialized = typeof value === 'string' ? value : JSON.stringify(value)
   return encryptWithAesGcm(serialized, key).value
 }
