@@ -737,6 +737,7 @@
   "ui.advancedFilter.error.textTooShort": "Type at least 3 characters",
   "ui.advancedFilter.fieldPicker.hint": "Tip: Type to search, ↑↓ to navigate, Enter to select",
   "ui.advancedFilter.fieldPicker.search": "Search field…",
+  "ui.advancedFilter.fieldPicker.ungrouped": "More",
   "ui.advancedFilter.limitDepthHint": "You've reached the maximum nesting depth ({max} levels). Use the connector word to flip this group's combinator instead.",
   "ui.advancedFilter.limitDepthReached": "Maximum nesting depth reached",
   "ui.advancedFilter.limitTotalReached": "Maximum {max} conditions reached",

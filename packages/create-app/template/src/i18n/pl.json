@@ -737,6 +737,7 @@
   "ui.advancedFilter.error.textTooShort": "Wpisz co najmniej 3 znaki",
   "ui.advancedFilter.fieldPicker.hint": "Wskazówka: pisz, aby wyszukać, ↑↓ aby nawigować, Enter aby wybrać",
   "ui.advancedFilter.fieldPicker.search": "Wyszukaj pole…",
+  "ui.advancedFilter.fieldPicker.ungrouped": "Więcej",
   "ui.advancedFilter.limitDepthHint": "Osiągnięto maksymalną głębokość zagnieżdżenia ({max} poziomy). Użyj słowa łączącego, aby zmienić łącznik tej grupy.",
   "ui.advancedFilter.limitDepthReached": "Osiągnięto maksymalną głębokość zagnieżdżenia",
   "ui.advancedFilter.limitTotalReached": "Osiągnięto maksimum {max} warunków",

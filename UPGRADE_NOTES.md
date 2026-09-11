@@ -332,6 +332,19 @@ The query object is now built by `buildQueryParams` from `@open-mercato/shared/l
 
 **Action for module authors:** audit your own list-route schemas for filter params that clients may repeat. Where a param is genuinely multi-valued, widen it to `z.union([z.string(), z.array(z.string())])` (or `z.array(z.string())`) and normalize it with `toQueryValueList`. Where it is genuinely single-valued, no change is needed — a repeated occurrence should be rejected. No route URL, HTTP method, response field, `makeCrudRoute` signature, options type, or database column changes, so `BACKWARD_COMPATIBILITY.md` §2, §3 and §7 are not violated.
 
+### `columnChooserGroup` / `filterGroup` are resolved as translation keys when they look like one (#5924)
+
+The column chooser (`ColumnChooserPanel`) and the advanced-filter field picker (`FilterFieldPicker`) used to render a column's declared group string verbatim. Both now run it through `resolveGroupLabel` from `@open-mercato/ui/backend/utils/groupLabels`, so a group that is *shaped like a translation key* — dot-separated, no whitespace, e.g. `customers.columnGroups.crm` — is looked up in the active dictionary and falls back to the raw string when no key is registered. The bundled customers pages now declare their 12 group labels this way and ship them translated in `en`, `pl`, `de`, `es` and `ko`.
+
+**This is opt-in and additive for module authors.** A group string that is not key-shaped (`'Contact'`, `'Basic Info'`, and every plain-English label third-party modules pass today) renders exactly as before. To localize your own groups, declare the group as a dotted key and register it in your module's locale files.
+
+**Two behavior changes to be aware of.**
+
+- **Group *identity* no longer depends on the active locale.** Fields and columns that declare no group are collected under an internal sentinel (`UNGROUPED_GROUP_ID`) and only translated at render time; previously the translated fallback label itself was the grouping key. A column or filter field that explicitly declares the literal group `'Other'` (column chooser) or `'More'` (field picker) therefore no longer merges into the ungrouped bucket under `en` — it renders as its own group in every locale, which is what it already did in every non-English locale. If you were relying on that English-only merge, drop the explicit group instead.
+- **Tenant-authored group titles are never treated as keys.** Custom-field fieldset titles reach the column chooser through `useAutoDiscoveredFields`, and those are free text a tenant types into the product. The key-shape gate is what keeps a tenant who happens to type a dotted string from having their label silently replaced by a dictionary value.
+
+**One limitation, stated plainly:** the 12 `customers.columnGroups.*` keys this ships are defined by the `customers` module dictionary, and `loadDictionary` (`packages/shared/src/lib/i18n/server.ts`) merges module dictionaries **over** the host app's `src/i18n/<locale>.json`. Adding those keys to your app locale file therefore does **not** override them. Overriding a module-owned key from an app dictionary is not supported today; only keys no module defines — such as the new `ui.advancedFilter.fieldPicker.ungrouped` — are host-overridable.
+
 ## 0.6.7 → 0.7.0 (2026-08-26)
 
 ### `PUT /api/auth/users/acl` merges omitted fields instead of clearing them (#5493)

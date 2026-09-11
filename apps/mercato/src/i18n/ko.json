@@ -737,6 +737,7 @@
   "ui.advancedFilter.error.textTooShort": "3자 이상 입력하세요",
   "ui.advancedFilter.fieldPicker.hint": "팁: 입력해 검색, ↑↓로 이동, Enter로 선택",
   "ui.advancedFilter.fieldPicker.search": "필드 검색…",
+  "ui.advancedFilter.fieldPicker.ungrouped": "기타",
   "ui.advancedFilter.limitDepthHint": "최대 중첩 깊이({max}단계)에 도달했습니다. 대신 연결어를 사용해 이 그룹의 결합 방식을 전환하세요.",
   "ui.advancedFilter.limitDepthReached": "최대 중첩 깊이에 도달했습니다",
   "ui.advancedFilter.limitTotalReached": "최대 {max}개 조건에 도달했습니다",
