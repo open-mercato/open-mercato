@@ -327,7 +327,11 @@ export async function createRequestContainer(): Promise<AppContainer> {
     const tenantEncryptionService = container.hasRegistration('tenantEncryptionService')
       ? (container.resolve('tenantEncryptionService') as any)
       : null
-    if (emForEnc && tenantEncryptionService && getCachedEncryptionConfigured()) {
+    // The subscriber calls `service.isEnabled()` on every read/write, so a DI
+    // override supplying a service without it would throw per operation. Keep
+    // the shape check that the old health-probe helper performed.
+    const serviceCanReportEnabled = typeof tenantEncryptionService?.isEnabled === 'function'
+    if (emForEnc && serviceCanReportEnabled && getCachedEncryptionConfigured()) {
       const { registerTenantEncryptionSubscriber } = await import('@open-mercato/shared/lib/encryption/subscriber')
       registerTenantEncryptionSubscriber(emForEnc, tenantEncryptionService)
     }

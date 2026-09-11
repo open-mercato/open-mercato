@@ -259,6 +259,22 @@ describe('bootstrap once-guard cache', () => {
     expect(subscriberRegistered).toHaveBeenCalledTimes(2)
   })
 
+  it('skips registration when the encryption service cannot report its enabled state', async () => {
+    process.env.OM_BOOTSTRAP_CACHE = '1'
+    bootstrapMock.mockImplementationOnce(async (container: any) => {
+      container.register({
+        cache: asValue({ __value: 'cache-value' }),
+        eventBus: asValue({ __value: 'event-bus-value' }),
+        // A DI override supplying a partial service: the subscriber would throw
+        // on every read/write calling isEnabled(), so it must not be registered.
+        tenantEncryptionService: asValue({ __value: 'no-isEnabled' }),
+      })
+    })
+    const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
+    await createRequestContainer()
+    expect(subscriberRegistered).not.toHaveBeenCalled()
+  })
+
   it('does not register the encryption subscriber when encryption is disabled by config', async () => {
     process.env.OM_BOOTSTRAP_CACHE = '1'
     const originalToggle = process.env.TENANT_DATA_ENCRYPTION
