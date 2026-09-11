@@ -1502,6 +1502,7 @@ async function runInitialGenerate() {
     if (exitCode !== 0) {
       markMemoryTrace('generate:failure', 'Generating app artifacts', { exitCode })
       shutdown(exitCode)
+      return
     }
     markMemoryTrace('generate:end', 'Generating app artifacts', { durationMs: Date.now() - startedAt })
     return
