@@ -54,7 +54,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import type { FilterOptionTone } from '@open-mercato/shared/lib/query/advanced-filter'
-import { ViewTabsRow } from './components/ViewTabsRow'
+import { ViewTabsRow, VIEW_TABS_ROW_COMPONENT_ID, type ViewTabsRowProps } from './components/ViewTabsRow'
 import { LANE_WIDTH_CLASS } from './components/constants'
 import { useCurrencyDictionary } from '../../../../components/detail/hooks/useCurrencyDictionary'
 import { FilterBarRow, type KanbanFilterChip } from './components/FilterBarRow'
@@ -418,6 +418,12 @@ export default function DealsKanbanPage(): React.ReactElement {
   const QuickDealDialog = useRegisteredComponent<QuickDealDialogProps>(
     QUICK_DEAL_DIALOG_COMPONENT_ID,
     DefaultQuickDealDialog,
+  )
+  // Same reason: an app that does not use one of the three views hides it with a
+  // props override on this handle instead of forking all three deals pages.
+  const DealsViewTabsRow = useRegisteredComponent<ViewTabsRowProps>(
+    VIEW_TABS_ROW_COMPONENT_ID,
+    ViewTabsRow,
   )
   const router = useRouter()
   const scopeVersion = useOrganizationScopeVersion()
@@ -2558,7 +2564,7 @@ export default function DealsKanbanPage(): React.ReactElement {
   return (
     <Page>
       <PageBody>
-        <ViewTabsRow active="kanban" className="mb-4" />
+        <DealsViewTabsRow active="kanban" className="mb-4" />
         <div className="flex flex-col gap-2">
           <Breadcrumb>
             <BreadcrumbList>
