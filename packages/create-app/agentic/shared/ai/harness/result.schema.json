@@ -17,6 +17,7 @@
     "selectedSkills": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
     "selectedContext": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
     "decisions": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+    "decisionVocabulary": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
     "violations": { "type": "array", "items": { "type": "string", "maxLength": 300 } },
     "attempts": { "type": "integer", "minimum": 1, "maximum": 3 },
     "corrections": { "type": "integer", "minimum": 0, "maximum": 2 },

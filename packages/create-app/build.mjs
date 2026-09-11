@@ -151,8 +151,8 @@ try {
 
 // The app-local example is disabled in every preset, so it is never a package module and
 // never enters the normal outputs. It is projected into its own reference bundle from the
-// template root here; scaffold setup and `mercato agentic:init` recompute the same bundle
-// from the generated app's own `src/modules/example`.
+// template root here; scaffold setup and `mercato agentic:init` copy this prebuilt bundle
+// verbatim. Live app-local projections come from `yarn generate` (app-modules sheets).
 const REFERENCE_MODULE_IDS = ['example']
 
 const sources = discoverPackageModuleSources(createResolver(resolve(packagesDir, '..')))

@@ -16406,7 +16406,7 @@
     ],
     "owner": {
       "kind": "skill",
-      "path": ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",
+      "path": ".ai/skills/om-module-scaffold/references/library-contract.md",
       "ruleIds": [
         "BC-01",
         "BC-02",
@@ -16451,6 +16451,7 @@
         ".ai/guides/extensions.md",
         ".ai/skills/om-module-scaffold/SKILL.md",
         ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",
+        ".ai/skills/om-module-scaffold/references/library-contract.md",
         ".ai/skills/om-module-scaffold/references/api-and-domain.md",
         ".ai/skills/om-module-scaffold/references/module-surfaces.md",
         ".ai/skills/om-data-model-design/SKILL.md",
@@ -17346,7 +17347,7 @@
     ],
     "owner": {
       "kind": "skill",
-      "path": ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",
+      "path": ".ai/skills/om-module-scaffold/references/library-contract.md",
       "ruleIds": [
         "BC-01",
         "BC-02",
@@ -17385,6 +17386,7 @@
         ".ai/guides/extensions.md",
         ".ai/skills/om-module-scaffold/SKILL.md",
         ".ai/skills/om-module-scaffold/references/business-one-shot-blueprints.md",
+        ".ai/skills/om-module-scaffold/references/library-contract.md",
         ".ai/skills/om-module-scaffold/references/api-and-domain.md",
         ".ai/skills/om-module-scaffold/references/module-surfaces.md",
         ".ai/skills/om-data-model-design/SKILL.md",

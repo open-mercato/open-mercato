@@ -102,16 +102,15 @@ Read `.agents/skills/<id>/SKILL.md` AND any `.ai/skills/<id>/SKILL.md` override.
 
 ### Token-Efficient Assembly Policy
 
-- Load matched guides once, then only needed references/facts.
-- Hard budgets: guide > skill > references; open a reference only for its named subject.
+- Load matched guides once, then only needed references/facts; never bulk-read trees.
+- Budgets: guide > skill > references; open a reference only for its named subject.
 - `spec-pr` reads template via spec-delivery.
 - Inspect app call sites before bounded `framework-context`.
 - Additive page/form/table/conflict UI skips it.
-- Never bulk-read guide, skill, fact, or source trees.
 
 ## Module-Specific Facts
 
-Mechanisms: events/subscribers→events; long operation/progress→progress; provider settings/health/OAuth→integrations; sync/import→data_sync. Hosts: session/auth→auth; customer/contact/deal/pipeline→customers; product/price/stock/inventory→catalog; currency/money→currencies; cart/checkout/shopper→checkout; portal→portal+customer_accounts; quote/order/invoice/sales assistant→sales; notification→notifications; webhook/callback→webhooks; schedule/reminder→scheduler; workflow/activity/user task→workflows; assistant→ai_assistant; maintained query index/reindex→query_index; search convergence→search. staff/employee≠optional staff; audit/record-who≠audit_logs unless extended. App primitives skip api_docs/search/query_index unless changed. Big fact-sheets: read in sections.
+Mechanisms: events/subscribers→events; long operation→progress; provider settings/health/OAuth→integrations; sync/import→data_sync. Hosts: session/auth→auth; customer/contact/deal/pipeline→customers; product/price/stock/inventory→catalog; currency/money→currencies; cart/checkout/shopper→checkout; portal→portal+customer_accounts; quote/order/invoice/sales assistant→sales; notification→notifications; webhook/callback→webhooks; schedule/reminder→scheduler; workflow/activity/user task→workflows; assistant→ai_assistant; query index/reindex→query_index; search convergence→search. staff/employee≠optional staff; audit/record-who≠audit_logs unless extended. App primitives skip api_docs/search/query_index unless changed. Other domains→no installed host: a new app module owns them (module-data); never force-map a host.
 
 <!-- om:module-guides:start -->
 <!-- om:module-guides:end -->

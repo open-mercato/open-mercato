@@ -101,6 +101,7 @@ skills-lock.json
 
 # on-demand installed framework context and local LLM evaluation evidence
 .ai/framework-context/
+.ai/guides/app-modules/
 .ai/harness/results/
 
 # raw agent transcripts may contain credentials, private prompts, and tool output

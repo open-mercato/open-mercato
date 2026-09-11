@@ -1025,6 +1025,12 @@ function pathReferenceExists(root, reference) {
     const generatedModuleRoot = path.join(root, '.ai', 'guides', 'modules')
     return !fs.existsSync(generatedModuleRoot) || fs.existsSync(path.resolve(root, reference))
   }
+  // App-local sheets exist only after `yarn generate` runs in a prepared target, so a
+  // case may reference one the controller has not generated yet.
+  if (reference.startsWith('.ai/guides/app-modules/')) {
+    const appModuleRoot = path.join(root, '.ai', 'guides', 'app-modules')
+    return !fs.existsSync(appModuleRoot) || fs.existsSync(path.resolve(root, reference))
+  }
   if (reference.includes('*') || reference.includes('?')) {
     return walkFiles(root).some((file) => globToRegExp(reference).test(file))
   }
@@ -1279,6 +1285,8 @@ function validateCatalog({ root, cases, registry, releaseMatrix, fixtures, seeds
       add(id, 'decisionVocabulary must include every required decision')
     } else if (item.decisionVocabulary && item.decisionVocabulary.length === item.requiredDecisions.length) {
       add(id, 'decisionVocabulary must add at least one contrastive decision')
+    } else if (!item.decisionVocabulary && effectiveDecisionVocabulary(item, cases).length <= (item.requiredDecisions ?? []).length) {
+      add(id, 'assembled decision vocabulary must add at least one distractor')
     }
     for (const message of validateSpecRoutingDeclaration(item)) add(id, message)
     if (!isUniqueStringArray(item.forbiddenPatterns, { min: 1 })) add(id, 'forbiddenPatterns must not be empty')
@@ -2571,6 +2579,7 @@ export function observedContext(stdout, root, caseRecord, writable, reviewExpect
 function isInitialContextPath(relative) {
   return !relative.includes('/references/')
     && !relative.startsWith('.ai/framework-context/')
+    && !relative.startsWith('.ai/guides/app-modules/')
     && !relative.startsWith('.ai/guides/modules/')
     && !relative.startsWith('.ai/guides/reference-modules/')
     && !relative.startsWith('.ai/guides/upstream/')
@@ -2617,7 +2626,7 @@ function contextStats(root, paths, metadata = {}) {
   }
 }
 
-function evaluateRouting(caseRecord, response, stats, readOrder = [], observedWrites = []) {
+function evaluateRouting(caseRecord, response, stats, readOrder = [], observedWrites = [], offeredDecisions = undefined) {
   const failures = [...evaluateSpecRoutingDecision(caseRecord, response, observedWrites)]
   const selectedRoutes = new Set(response.selectedRouter)
   for (const required of caseRecord.expectedRouter.required) if (!selectedRoutes.has(required)) failures.push(`missing route ${required}`)
@@ -2686,7 +2695,7 @@ function evaluateRouting(caseRecord, response, stats, readOrder = [], observedWr
     }
   }
   const selectedDecisions = new Set(response.decisions)
-  const decisionVocabulary = new Set(caseRecord.decisionVocabulary ?? caseRecord.requiredDecisions)
+  const decisionVocabulary = new Set(offeredDecisions ?? caseRecord.decisionVocabulary ?? caseRecord.requiredDecisions)
   for (const required of caseRecord.requiredDecisions) if (!selectedDecisions.has(required)) failures.push(`missing decision ${required}`)
   for (const selected of selectedDecisions) {
     if (!decisionVocabulary.has(selected)) failures.push(`unexpected decision ${selected}`)
@@ -2754,12 +2763,41 @@ function runnerVersion(runner, root) {
   return String(result.stdout || result.stderr).trim().slice(0, 200)
 }
 
-function buildPrompt(caseRecord, root, writable, frameworkContextEntries = []) {
+// A case without an authored decisionVocabulary used to receive its requiredDecisions verbatim,
+// which made the decisions dimension a distractor-free answer key. The effective vocabulary is
+// assembled deterministically instead: required labels plus seeded distractors from the case's
+// family pool, then the whole-catalog pool, sorted so required labels are not positionally
+// identifiable. Seeding by case id and required labels keeps every prompt reproducible for one
+// catalog version.
+export function effectiveDecisionVocabulary(caseRecord, catalog) {
+  if (caseRecord.decisionVocabulary) return [...caseRecord.decisionVocabulary]
+  const required = caseRecord.requiredDecisions ?? []
+  const poolLabels = (items) => [...new Set(items.flatMap((item) => [
+    ...(item.requiredDecisions ?? []),
+    ...(item.decisionVocabulary ?? []),
+  ]))].filter((label) => !required.includes(label)).sort()
+  const familyPool = poolLabels(catalog.filter((item) => item.family === caseRecord.family))
+  const globalPool = poolLabels(catalog).filter((label) => !familyPool.includes(label))
+  const target = Math.max(required.length, 4)
+  const distractors = []
+  let cursor = sha256(`${caseRecord.id}:${required.join(',')}`)
+  for (const pool of [familyPool, globalPool]) {
+    const available = [...pool]
+    while (available.length && distractors.length < target) {
+      cursor = sha256(cursor)
+      distractors.push(available.splice(Number.parseInt(cursor.slice(0, 8), 16) % available.length, 1)[0])
+    }
+    if (distractors.length >= target) break
+  }
+  return [...required, ...distractors].sort()
+}
+
+function buildPrompt(caseRecord, root, writable, frameworkContextEntries = [], catalog = [caseRecord]) {
   const skillRoot = path.join(root, '.ai', 'skills')
   const localSkills = fs.existsSync(skillRoot) ? fs.readdirSync(skillRoot, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort() : []
   const externalSkills = [...discoverExternalSkills(root)]
   const availableSkills = [...new Set([...localSkills, ...externalSkills])].sort()
-  const decisionVocabulary = caseRecord.decisionVocabulary ?? caseRecord.requiredDecisions
+  const decisionVocabulary = effectiveDecisionVocabulary(caseRecord, catalog)
   const modeInstruction = writable
     ? 'This is an explicitly disposable writable evaluation. You must implement the complete request with repeated use of the allowlisted harness write tool before returning the routing object, then re-read the completed implementation. A manifest of intended files, metadata-only stub, TODO, placeholder, or response that only plans/routes fails: create every requested source, API, command, UI, registration, locale, migration snapshot, and focused test surface inside the write allowlist. You may read allowlisted target source files as implementation inputs, but selectedContext records only instruction/fact paths and must never include those target source paths. Write only inside the allowlist provided after the task; do not use network access or inspect environment values.'
     : 'Work read-only: do not edit files, run mutations, use network access, or inspect environment values. Do not implement the request. Accept the task premise for routing; fixture and implementation-target paths may be absent in this controller, so do not inspect them or report their absence as a blocker.'
@@ -3650,6 +3688,14 @@ function deterministicRun(selected, validation) {
     } else console.log(`PASS ${item.id} — ${item.owner.path}`)
   }
   console.log(`Deterministic: ${selected.length - [...validation.errorsByCase.entries()].filter(([id, errors]) => selected.some((item) => item.id === id) && errors.length).length}/${selected.length} selected cases passed`)
+  const labelUses = new Map()
+  for (const item of selected) {
+    for (const label of new Set([...(item.requiredDecisions ?? []), ...(item.decisionVocabulary ?? [])])) {
+      labelUses.set(label, (labelUses.get(label) ?? 0) + 1)
+    }
+  }
+  const singleUseLabels = [...labelUses.values()].filter((count) => count === 1).length
+  console.log(`Advisory: ${singleUseLabels} of ${labelUses.size} decision labels appear in exactly one selected case (consolidation candidates)`)
   return failed ? EXIT_FAILURE : EXIT_PASS
 }
 
@@ -3666,7 +3712,7 @@ export function resolveLiveCaseTimeout(options, model, caseTimeout = 0) {
   return Math.max(runnerTimeout, caseTimeout)
 }
 
-function liveRun({ options, selected, registry, releaseMatrix, fixtures, root, harnessDir, resultSchema }) {
+function liveRun({ options, selected, cases, registry, releaseMatrix, fixtures, root, harnessDir, resultSchema }) {
   const schemaPath = path.join(harnessDir, 'routing-response.schema.json')
   const version = runnerVersion(options.runner, root)
   const model = options.model ?? releaseMatrix.routing.runners[options.runner].modelSelector
@@ -3704,7 +3750,8 @@ function liveRun({ options, selected, registry, releaseMatrix, fixtures, root, h
       const beforeOracle = writable ? runOracle(evaluationCase, runRoot, root, registry, 'before') : { failures: [], invalid: [] }
       if (beforeOracle.invalid.length) throw new Error(`${caseRecord.id}: invalid writable oracle setup: ${beforeOracle.invalid.join('; ')}`)
       if (writable && beforeOracle.failures.length === 0) throw new Error(`${caseRecord.id}: writable oracle already passes before the edit`)
-      const prompt = buildPrompt(evaluationCase, runRoot, writable, preparedFrameworkContext.entries) + (writable ? `\n\nImplement the task only under these allowed app-relative paths: ${caseRecord.allowedWrites.join(', ')}. Do not change anything else.` : '')
+      const offeredDecisions = effectiveDecisionVocabulary(evaluationCase, cases)
+      const prompt = buildPrompt(evaluationCase, runRoot, writable, preparedFrameworkContext.entries, cases) + (writable ? `\n\nImplement the task only under these allowed app-relative paths: ${caseRecord.allowedWrites.join(', ')}. Do not change anything else.` : '')
       const allowedReads = caseReadAllowlist(evaluationCase, writable, runRoot)
       // Root immutability is resolved before writable-pattern matching, including inside the
       // fail-closed tool server, so a declared example root can never be written.
@@ -3754,7 +3801,7 @@ function liveRun({ options, selected, registry, releaseMatrix, fixtures, root, h
             .filter((entry) => isSafeRelative(entry) && isPathInside(runRoot, path.resolve(runRoot, entry)) && fs.existsSync(path.resolve(runRoot, entry)))
           declaredStats = contextStats(runRoot, [...new Set(declared)].sort())
           const observedWrites = specRoutingObservedWrites(evaluationCase, writable, specRoutingBefore, runRoot)
-          violations.push(...evaluateRouting(evaluationCase, response, stats, trace.readOrder, observedWrites))
+          violations.push(...evaluateRouting(evaluationCase, response, stats, trace.readOrder, observedWrites, offeredDecisions))
         } else violations.push(`${attempt.kind}: ${sanitize(attempt.error, runRoot)}`)
         return { response, trace, stats, declaredStats, violations }
       }
@@ -3856,6 +3903,7 @@ function liveRun({ options, selected, registry, releaseMatrix, fixtures, root, h
         selectedSkills: recursivelySanitize(response.selectedSkills, runRoot),
         selectedContext: recursivelySanitize(response.selectedContext, runRoot),
         decisions: recursivelySanitize(response.decisions, runRoot),
+        ...(caseRecord.decisionVocabulary ? {} : { decisionVocabulary: recursivelySanitize(offeredDecisions, runRoot) }),
         violations: violations.map((entry) => sanitize(entry, runRoot, RESULT_VIOLATION_LIMIT)),
         attempts: executions.length,
         corrections: executions.length - 1,
@@ -3917,7 +3965,7 @@ function main() {
       console.error(`catalog validation failed before live evaluation: ${catalogFailures.join('; ')}`)
       return EXIT_FAILURE
     }
-    return liveRun({ options, selected, registry, releaseMatrix, fixtures, root, harnessDir, resultSchema })
+    return liveRun({ options, selected, cases, registry, releaseMatrix, fixtures, root, harnessDir, resultSchema })
   } catch (error) {
     console.error(sanitize(error.message, root))
     return EXIT_INVALID
