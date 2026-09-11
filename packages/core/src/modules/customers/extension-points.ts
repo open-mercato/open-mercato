@@ -20,6 +20,9 @@ export const extensionPoints = defineModuleExtensionPoints({
     dealsTable: dataTableExtensionHost({ tableId: 'customers.deals.list', source: 'backend/customers/deals/page.tsx' }),
     peopleTable: dataTableExtensionHost({ tableId: 'customers.people.list', source: 'backend/customers/people/page.tsx' }),
     todosTable: dataTableExtensionHost({ tableId: 'customers.todos.list', source: 'components/CustomerTodosTable.tsx' }),
+    // `source` is single-valued provenance consumed by the facts generator as a file path,
+    // so it names the canonical (edit) mount only. Since #5875 `companyForm` is also mounted
+    // from `backend/customers/companies/create/page.tsx`.
     companyForm: crudFormExtensionHost({ entityId: 'customers.company', spotId: 'crud-form:customers.company', source: 'backend/customers/companies-v2/[id]/page.tsx' }),
     dealForm: crudFormExtensionHost({ entityId: 'customers.deal', spotId: 'crud-form:customers.deal', source: 'backend/customers/deals/[id]/page.tsx' }),
     personForm: crudFormExtensionHost({ entityId: 'customers.person', spotId: 'crud-form:customers.person', source: 'backend/customers/people-v2/[id]/page.tsx' }),
