@@ -24,6 +24,7 @@ const release = await import(pathToFileURL(releaseScript).href) as {
     step: { runner: string; lane: string; modelSelector: string; expectedCaseIds: string[] }
     cases: Array<{ id: string; timeoutMs?: number }>
     caseTimeout: number
+    reasoningEffort?: string
   }) => { args: string[]; timeout: number }
   DEFAULT_CASE_TIMEOUT_MS: number
   ROUTING_STEP_SLACK_MS: number
@@ -167,6 +168,17 @@ test('the routing step passes the operator case timeout through and budgets its 
   assert.deepEqual(portability.args.slice(-2), ['--timeout', '600000'])
   assert.equal(portability.timeout, 60_000 + 600_000 + 600_000)
 
+  const codexEffort = release.routingInvocation({
+    evaluator, root, cases, caseTimeout: release.DEFAULT_CASE_TIMEOUT_MS, reasoningEffort: 'high',
+    step: { ...primary, lane: 'portability', runner: 'codex', modelSelector: 'gpt-5.4-mini' },
+  })
+  assert.deepEqual(codexEffort.args.slice(-2), ['--reasoning-effort', 'high'])
+
+  const claudeEffort = release.routingInvocation({
+    evaluator, root, step: primary, cases, caseTimeout: release.DEFAULT_CASE_TIMEOUT_MS, reasoningEffort: 'high',
+  })
+  assert.ok(!claudeEffort.args.includes('--reasoning-effort'), claudeEffort.args.join(' '))
+
   // The slack is a second constant this budget is built from, so it gets the same treatment the
   // default does: exported and pinned to its literal here, while the budget assertions above stay
   // on hardcoded numbers. Deriving those from release.ROUTING_STEP_SLACK_MS would make them
@@ -262,7 +274,7 @@ test('release plan derives every count and command from catalog and matrix data'
   assert.deepEqual(plan.violations, [])
   assert.deepEqual(plan.catalog, { caseCount: 3, writableCaseCount: 2, reviewEligibleCaseCount: 2 })
   assert.deepEqual(plan.coverage.deterministic.configuredCaseIds, ['OMH-001', 'OMH-002', 'OMH-003'])
-  assert.deepEqual(plan.runnerPolicy, { primaryRunner: 'codex', portabilityRunner: null })
+  assert.deepEqual(plan.runnerPolicy, { primaryRunner: 'codex', portabilityRunner: null, reasoningEffort: null })
   assert.deepEqual(plan.coverage.writable.configuredCaseIds, ['OMH-002', 'OMH-003'])
   assert.deepEqual(plan.coverage.review.configuredCaseIds, ['OMH-002', 'OMH-003'])
   assert.deepEqual(plan.steps.map((step: { id: string }) => step.id), [
@@ -289,7 +301,7 @@ test('release preflight selects one primary runner and an optional distinct port
   claudeInput.primaryRunner = 'claude'
   claudeInput.portabilityRunner = 'codex'
   const claude = release.buildReleasePlan(claudeInput)
-  assert.deepEqual(claude.runnerPolicy, { primaryRunner: 'claude', portabilityRunner: 'codex' })
+  assert.deepEqual(claude.runnerPolicy, { primaryRunner: 'claude', portabilityRunner: 'codex', reasoningEffort: null })
   assert.deepEqual(claude.coverage.routing.map((entry: any) => [entry.lane, entry.runner, entry.expectedCaseIds]), [
     ['primary', 'claude', ['OMH-001', 'OMH-002', 'OMH-003']],
     ['portability', 'codex', ['OMH-002', 'OMH-003']],
@@ -1460,7 +1472,7 @@ test('release command fails closed before execution and stores a sanitized exact
     const [file] = fs.readdirSync(resultDirectory)
     const report = JSON.parse(fs.readFileSync(path.join(resultDirectory, file), 'utf8'))
     assert.equal(report.status, 'fail')
-    assert.deepEqual(report.runnerPolicy, { primaryRunner: 'codex', portabilityRunner: null })
+    assert.deepEqual(report.runnerPolicy, { primaryRunner: 'codex', portabilityRunner: null, reasoningEffort: null })
     assert.deepEqual(report.coverage.writable.missingTargetCaseIds, ['OMH-002', 'OMH-003'])
     assert.deepEqual(report.steps, [])
     assert.equal(report.metrics.outcomes.results, 0)
