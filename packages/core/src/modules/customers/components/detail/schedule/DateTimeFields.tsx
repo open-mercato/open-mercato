@@ -16,6 +16,7 @@ import {
 } from '@open-mercato/ui/primitives/select'
 import type { ActivityType, ScheduleFieldId } from './fieldConfig'
 import { isVisible, getFieldLabel } from './fieldConfig'
+import { USER_TIMEZONE } from '../../../lib/localDay'
 
 function parseIsoDate(value: string): Date | null {
   if (!value) return null
@@ -193,7 +194,7 @@ export function DateTimeFields({
           <span className="text-muted-foreground">&middot;</span>
           <span className="flex items-center gap-1.5">
             <Globe className="size-3.5" />
-            {Intl.DateTimeFormat().resolvedOptions().timeZone} (GMT{new Date().getTimezoneOffset() <= 0 ? '+' : '-'}{String(Math.abs(Math.floor(new Date().getTimezoneOffset() / 60))).padStart(1, '0')})
+            {USER_TIMEZONE} (GMT{new Date().getTimezoneOffset() <= 0 ? '+' : '-'}{String(Math.abs(Math.floor(new Date().getTimezoneOffset() / 60))).padStart(1, '0')})
           </span>
           {showRecurrence && (
             <>
