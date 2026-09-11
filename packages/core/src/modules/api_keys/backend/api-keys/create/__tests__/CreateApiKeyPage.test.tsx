@@ -61,8 +61,17 @@ jest.mock('@open-mercato/core/modules/auth/backend/users/roleOptions', () => ({
   fetchRoleOptions: jest.fn(),
 }))
 
+// The page reads the announced scope and NOT the scope version — see the effect it
+// feeds. `announcedScope` stands in for whatever `useOrganizationScopeDetail()`
+// currently holds: seeded from the `om_selected_org` / `om_selected_tenant` cookies
+// at module initialisation, then updated on every dispatch.
+let announcedScope: { tenantId: string | null; organizationId: string | null } = {
+  tenantId: null,
+  organizationId: null,
+}
+
 jest.mock('@open-mercato/shared/lib/frontend/useOrganizationScope', () => ({
-  useOrganizationScopeDetail: () => ({ tenantId: null, organizationId: null }),
+  useOrganizationScopeDetail: () => announcedScope,
   useOrganizationScopeVersion: () => 0,
 }))
 
@@ -75,6 +84,7 @@ describe('CreateApiKeyPage — role selector tenant scoping (#1556)', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     capturedFields = []
+    announcedScope = { tenantId: null, organizationId: null }
   })
 
   it('returns empty options and skips fetchRoleOptions until actor-resolution completes', async () => {
@@ -151,5 +161,91 @@ describe('CreateApiKeyPage — role selector tenant scoping (#1556)', () => {
     const recoveredLoader = findLoadRoleOptions()!
     await recoveredLoader()
     expect(fetchRoleOptions).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('CreateApiKeyPage — tenant sync when the scope version stays 0', () => {
+  // The scope version is the cache-busting key behind `useOrganizationScopeVersion()`.
+  // It used to reach 1 on every page load, because the module scope started at
+  // `{ organizationId: null, tenantId: null }` and the switcher announcing the scope
+  // it had just read back from the cookie looked like a change. Now that the module
+  // seeds itself from those cookies, an announcement that merely repeats them leaves
+  // the version at 0 for the life of the page — so this page must not read
+  // `version !== 0` as "the scope is known". It reads the announced scope instead,
+  // which is dispatched on the first emission regardless of the version.
+  //
+  // The mocked `useOrganizationScopeVersion` stays pinned at 0 for exactly that
+  // reason: it is the value a repeat visit now produces.
+  beforeEach(() => {
+    jest.clearAllMocks()
+    capturedFields = []
+    announcedScope = { tenantId: null, organizationId: null }
+  })
+
+  it('scopes the role loader on a repeat visit whose announcement never moves the version', async () => {
+    // The reviewer's literal ask: a repeat visit where the version legitimately
+    // stays 0. Both sources agree here, which is the ordinary case and is why the
+    // old guard's mistake was invisible — `loadInitialScope()` resolves the same
+    // tenant a beat later. It is pinned as the baseline the two cases below are read
+    // against, not as a regression probe: it passes under the old guard too.
+    announcedScope = { tenantId: 'tenant-from-scope', organizationId: 'org-1' }
+    ;(apiCall as jest.Mock).mockResolvedValue({ ok: true, result: { tenantId: 'tenant-from-scope', isSuperAdmin: true } })
+    ;(fetchRoleOptions as jest.Mock).mockResolvedValue([{ value: 'role-a', label: 'Role A' }])
+
+    render(<CreateApiKeyPage />)
+
+    await waitFor(() => expect(capturedFields.length).toBeGreaterThan(0))
+    await waitFor(() => expect(apiCall).toHaveBeenCalled())
+
+    await act(async () => { await findLoadRoleOptions()!() })
+
+    expect(fetchRoleOptions).toHaveBeenCalledWith(undefined, { tenantId: 'tenant-from-scope' })
+  })
+
+  it('follows a scope announced after the endpoint already resolved a tenant', async () => {
+    // The case that actually discriminates. A scope announced while the page is
+    // mounted — the switcher calls `router.refresh()` rather than navigating, so the
+    // component survives it — must reach the role loader on the strength of the
+    // announcement alone. With the version pinned at 0, the old
+    // `if (scopeVersion === 0) return` guard left the loader scoped to whatever
+    // `loadInitialScope()` had resolved, i.e. the previous tenant.
+    announcedScope = { tenantId: 'tenant-a', organizationId: 'org-a' }
+    ;(apiCall as jest.Mock).mockResolvedValue({ ok: true, result: { tenantId: 'tenant-a', isSuperAdmin: true } })
+    ;(fetchRoleOptions as jest.Mock).mockResolvedValue([{ value: 'role-a', label: 'Role A' }])
+
+    const { rerender } = render(<CreateApiKeyPage />)
+
+    await waitFor(() => expect(capturedFields.length).toBeGreaterThan(0))
+    await waitFor(() => expect(apiCall).toHaveBeenCalled())
+
+    const loaderForTenantA = findLoadRoleOptions()!
+    announcedScope = { tenantId: 'tenant-b', organizationId: 'org-b' }
+    await act(async () => { rerender(<CreateApiKeyPage />) })
+    await waitFor(() => expect(findLoadRoleOptions()).not.toBe(loaderForTenantA))
+
+    await act(async () => { await findLoadRoleOptions()!() })
+
+    expect(fetchRoleOptions).toHaveBeenLastCalledWith(undefined, { tenantId: 'tenant-b' })
+  })
+
+  it('does not let a pre-announcement null scope clobber the tenant the endpoint resolved', async () => {
+    // No selection cookies: the module scope really is `{ null, null }`, and the
+    // endpoint is the only source. The scope effect now runs on mount with a null
+    // tenant, so this pins that it is a no-op rather than an erasure of what the
+    // endpoint resolves a beat later. Like the first case it passes under the old
+    // guard too; it is here because dropping that guard is what makes the effect
+    // reachable at mount at all, so the no-op has to be asserted rather than assumed.
+    announcedScope = { tenantId: null, organizationId: null }
+    ;(apiCall as jest.Mock).mockResolvedValue({ ok: true, result: { tenantId: 'tenant-from-api', isSuperAdmin: true } })
+    ;(fetchRoleOptions as jest.Mock).mockResolvedValue([{ value: 'role-a', label: 'Role A' }])
+
+    render(<CreateApiKeyPage />)
+
+    await waitFor(() => expect(capturedFields.length).toBeGreaterThan(0))
+    await waitFor(() => expect(apiCall).toHaveBeenCalled())
+
+    await act(async () => { await findLoadRoleOptions()!() })
+
+    expect(fetchRoleOptions).toHaveBeenCalledWith(undefined, { tenantId: 'tenant-from-api' })
   })
 })
