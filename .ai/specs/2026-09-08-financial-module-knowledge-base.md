@@ -277,6 +277,23 @@ Fowler nor Hay use those exact terms):**
   file cited a 19th Ed./ISBN 9781394254439 based on an unverified
   recommendation from a research pass — that edition was never actually
   seen. Correct it to the 17th Ed. above wherever it was already used.)
+  **New 2026-09-11 — Ch.19 "Accounting for Income Taxes" (pp.19-1–19-40),
+  read in full for SPEC-010's `RPD` node** (JPK_KR_PD, `financial_pl` —
+  see §1 above): temporary differences ("the difference between the tax
+  basis of an asset or liability and its reported... amount in the
+  financial statements, which will result in taxable amounts or
+  deductible amounts in future years," p.19-5, these reverse and need a
+  schedule) vs. permanent differences (items in book income never in tax
+  income, or vice versa, p.19-14, these never reverse) is a real,
+  usable classification axis for the "deductibility flag" `LedgerAccount`
+  doesn't have today. **Scope carefully**: only the axis/vocabulary
+  transfers — Illustration 19.31's actual example list (municipal-bond
+  interest, key-officer life insurance, fines, percentage depletion) is
+  US Internal Revenue Code content, not Polish; ustawa o CIT art. 15–16
+  is the only correct source for what Polish RPD categories actually
+  contain. Full detail and the Phase-2 design sketch built on it are in
+  `2026-09-11-jpk-kr-pd-financial-pl.md` (SPEC-010 draft) itself, not
+  duplicated here.
 - Free alternative: Lumen Learning, *Financial Accounting*, chapter
   literally titled "Subsidiary Ledgers and Control Accounts"
   (courses.lumenlearning.com/finaccounting/chapter/subsidiary-ledgers-and-control-accounts)
@@ -314,6 +331,14 @@ compliant*):**
 - martinfowler.com, "Patterns for Accounting"
   (martinfowler.com/eaaDev/AccountingNarrative.html) — live, confirmed to
   also avoid "control account"/"subsidiary ledger" terminology.
+- **New 2026-09-11 — checked and confirmed empty for income tax / RPD
+  content.** Full-text search of both PDFs for "tax" while researching
+  SPEC-010's `RPD` node: Hay's only 3 hits are an unrelated "Federal tax
+  ID" example attribute; Fowler's Ch.6 "Inventory and Accounting" has zero
+  "tax" occurrences. Neither book models income tax, deferred tax, or
+  book/tax reconciliation — Kieso Ch.19 (above) is the only relevant PDF
+  for that topic. Recorded so a future pass doesn't re-search these two
+  for the same thing.
 - Arlow & Neustadt, *Enterprise Patterns and MDA* (Addison-Wesley,
   ISBN 9780321112309) — same genre as Fowler/Hay, has an archetype-pattern
   treatment of party/account structures; not yet checked for AP-specific
