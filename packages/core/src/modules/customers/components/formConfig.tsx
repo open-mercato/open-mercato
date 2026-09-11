@@ -30,7 +30,7 @@ import {
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
-import { PhoneNumberField } from '@open-mercato/ui/backend/inputs/PhoneNumberField'
+import { PhoneNumberField, type PhoneCountry } from '@open-mercato/ui/backend/inputs/PhoneNumberField'
 import { isValidPhoneNumber } from '@open-mercato/shared/lib/phone'
 import type {
   CrudCustomFieldRenderProps,
@@ -74,6 +74,17 @@ export type Translator = (
   fallback?: string,
   params?: Record<string, string | number>,
 ) => string
+
+export type CustomerFormFieldOptions = {
+  /** Country pre-selected in the phone field when the value is empty. */
+  defaultCountryIso2?: string
+  /**
+   * Country list for the phone field's selector. Supply it to limit the picker
+   * to specific markets or to name the countries yourself; omitted, the field
+   * localizes its built-in list for the active locale.
+   */
+  phoneCountries?: PhoneCountry[]
+}
 
 export type PersonFormValues = {
   displayName: string
@@ -418,7 +429,11 @@ const companyDictionaryFieldDefinitions: DictionaryFieldDefinition[] = [
   },
 ]
 
-const createPrimaryPhoneField = (t: Translator, defaultCountryIso2?: string): CrudField => ({
+const createPrimaryPhoneField = (
+  t: Translator,
+  defaultCountryIso2?: string,
+  phoneCountries?: PhoneCountry[],
+): CrudField => ({
   id: 'primaryPhone',
   label: t('customers.people.form.primaryPhone'),
   type: 'custom',
@@ -449,6 +464,7 @@ const createPrimaryPhoneField = (t: Translator, defaultCountryIso2?: string): Cr
         minDigits={7}
         onDuplicateLookup={!disabled && !error ? duplicateLookup : undefined}
         defaultCountryIso2={defaultCountryIso2}
+        countries={phoneCountries}
       />
     )
   },
@@ -871,8 +887,9 @@ export const createDisplayNameSection = (t: Translator) =>
     )
   }
 
-export const createPersonFormFields = (t: Translator, options?: { defaultCountryIso2?: string }): CrudField[] => {
+export const createPersonFormFields = (t: Translator, options?: CustomerFormFieldOptions): CrudField[] => {
   const defaultCountryIso2 = options?.defaultCountryIso2
+  const phoneCountries = options?.phoneCountries
   const contactSection = createSectionHeadingField('__contactInformationSection', t('customers.people.form.sections.contactInformation'))
   const companySection = createSectionHeadingField('__companyInformationSection', t('customers.people.form.sections.companyInformation'))
   const dictionaryFields: CrudField[] = dictionaryFieldDefinitions.map((definition) => ({
@@ -933,7 +950,7 @@ export const createPersonFormFields = (t: Translator, options?: { defaultCountry
     },
     contactSection,
     createPrimaryEmailField(t),
-    createPrimaryPhoneField(t, defaultCountryIso2),
+    createPrimaryPhoneField(t, defaultCountryIso2, phoneCountries),
     companySection,
     {
       id: 'companyEntityId',
@@ -1228,8 +1245,9 @@ export const createCompanyFormSchema = () =>
     })
     .passthrough()
 
-export const createCompanyFormFields = (t: Translator, options?: { defaultCountryIso2?: string }): CrudField[] => {
+export const createCompanyFormFields = (t: Translator, options?: CustomerFormFieldOptions): CrudField[] => {
   const defaultCountryIso2 = options?.defaultCountryIso2
+  const phoneCountries = options?.phoneCountries
   const dictionaryFields: CrudField[] = companyDictionaryFieldDefinitions.map((definition) => ({
     id: definition.id,
     label: t(definition.labelKey),
@@ -1276,6 +1294,7 @@ export const createCompanyFormFields = (t: Translator, options?: { defaultCountr
           invalidLabel={t('customers.people.form.primaryPhone.invalid', 'Enter a valid phone number with country code (e.g. +1 212 555 1234)')}
           minDigits={7}
           defaultCountryIso2={defaultCountryIso2}
+          countries={phoneCountries}
         />
       ),
     } as CrudField,
@@ -1657,7 +1676,7 @@ const buildIndustryLabels = (t: Translator): DictionarySelectLabels => ({
   manageTitle: t('customers.people.form.dictionary.manage'),
 })
 
-export const createCompanyEditFields = (t: Translator, options?: { defaultCountryIso2?: string }): CrudField[] => {
+export const createCompanyEditFields = (t: Translator, options?: CustomerFormFieldOptions): CrudField[] => {
   const baseFields = createCompanyFormFields(t, options)
   const industryLabels = buildIndustryLabels(t)
 
@@ -1682,7 +1701,7 @@ export const createCompanyEditFields = (t: Translator, options?: { defaultCountr
   })
 }
 
-export const createPersonEditFields = (t: Translator, options?: { defaultCountryIso2?: string }): CrudField[] => {
+export const createPersonEditFields = (t: Translator, options?: CustomerFormFieldOptions): CrudField[] => {
   const baseFields = createPersonFormFields(t, options)
   return [
     ...baseFields,

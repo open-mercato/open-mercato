@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useOptionalLocale, useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { extractPhoneDigits, validatePhoneNumber } from '@open-mercato/shared/lib/phone'
 import { cn } from '@open-mercato/shared/lib/utils'
 import {
@@ -23,7 +23,11 @@ export type PhoneCountry = {
   iso2: string
   /** International dial code (with `+`). */
   dialCode: string
-  /** Human-readable country name (English). Override per surface for i18n. */
+  /**
+   * Human-readable country name (English). Used as the last-resort fallback
+   * when neither a locale file nor the platform's region data can name the
+   * country in the active locale.
+   */
   label: string
   /** Emoji flag (no asset dependency). */
   flag: string
@@ -312,6 +316,106 @@ export const PHONE_COUNTRIES: PhoneCountry[] = RAW_PHONE_COUNTRIES
   .sort((a, b) => a.label.localeCompare(b.label, 'en', { sensitivity: 'base' }))
 
 /**
+ * Translation key holding a country's display name, e.g.
+ * `ui.inputs.phoneNumberField.country.PL`. Locale files only need entries for
+ * the countries whose platform-provided name a deployment wants to change.
+ */
+export function phoneCountryLabelKey(iso2: string): string {
+  return `ui.inputs.phoneNumberField.country.${iso2.toUpperCase()}`
+}
+
+const regionDisplayNamesByLocale = new Map<string, Intl.DisplayNames | null>()
+
+function getRegionDisplayNames(locale: string): Intl.DisplayNames | null {
+  const cached = regionDisplayNamesByLocale.get(locale)
+  if (cached !== undefined) return cached
+  let displayNames: Intl.DisplayNames | null = null
+  try {
+    displayNames = new Intl.DisplayNames([locale], { type: 'region' })
+  } catch {
+    displayNames = null
+  }
+  regionDisplayNamesByLocale.set(locale, displayNames)
+  return displayNames
+}
+
+/**
+ * Country name in `locale` from the platform's own region data, or `null` when
+ * the runtime cannot name that region (unknown code, trimmed ICU data).
+ */
+function regionDisplayName(iso2: string, locale: string | undefined): string | null {
+  if (!locale) return null
+  const code = iso2.toUpperCase()
+  if (!/^[A-Z]{2}$/.test(code)) return null
+  const displayNames = getRegionDisplayNames(locale)
+  if (!displayNames) return null
+  try {
+    const name = displayNames.of(code)
+    return name && name !== code ? name : null
+  } catch {
+    return null
+  }
+}
+
+function isEnglishLocale(locale: string | undefined): boolean {
+  return !locale || locale.toLowerCase().split(/[-_]/)[0] === 'en'
+}
+
+/**
+ * Display name for a built-in country in the active locale. A locale-file entry
+ * wins so a deployment can correct or override any name; otherwise the
+ * platform's region data localizes it; the English label is the last resort.
+ *
+ * English deliberately skips the region data: the dictionary already holds
+ * curated English names, and CLDR spells several of them differently
+ * ("Antigua & Barbuda" for "Antigua and Barbuda"), so consulting it would
+ * silently rewrite existing English copy for no gain.
+ */
+export function resolvePhoneCountryLabel(
+  country: PhoneCountry,
+  t: TranslateFn,
+  locale: string | undefined,
+): string {
+  const translated = t(phoneCountryLabelKey(country.iso2), '')
+  if (translated) return translated
+  if (isEnglishLocale(locale)) return country.label
+  return regionDisplayName(country.iso2, locale) ?? country.label
+}
+
+export type PhoneCountryOption = {
+  country: PhoneCountry
+  label: string
+}
+
+/**
+ * Locale safe to hand to `localeCompare`. A tag `Intl` cannot construct would
+ * throw there just as it does in `getRegionDisplayNames`, so both fall back to
+ * English together.
+ */
+function resolveCollationLocale(locale: string | undefined): string {
+  if (!locale) return 'en'
+  return getRegionDisplayNames(locale) ? locale : 'en'
+}
+
+/**
+ * Options rendered in the country dropdown. A caller-supplied list is
+ * authoritative — its labels and its order are preserved verbatim — while the
+ * built-in dictionary is localized and re-sorted for the active locale, since
+ * its module-level ordering is alphabetical by the English name.
+ */
+export function buildPhoneCountryOptions(
+  countries: PhoneCountry[] | undefined,
+  t: TranslateFn,
+  locale: string | undefined,
+): PhoneCountryOption[] {
+  if (countries) return countries.map((country) => ({ country, label: country.label }))
+  const collationLocale = resolveCollationLocale(locale)
+  return PHONE_COUNTRIES
+    .map((country) => ({ country, label: resolvePhoneCountryLabel(country, t, locale) }))
+    .sort((a, b) => a.label.localeCompare(b.label, collationLocale, { sensitivity: 'base' }))
+}
+
+/**
  * Sovereign/primary country that wins auto-detection for a calling code shared
  * by several territories. US vs. Canada is the one irreducible ambiguity — both
  * are `+1` — and it resolves to the US.
@@ -386,7 +490,11 @@ export type PhoneNumberFieldProps = {
   duplicateLinkLabel?: string
   invalidLabel?: string
   onDuplicateLookup?: (normalizedValue: string) => Promise<PhoneDuplicateMatch | null>
-  /** Override the static country list (e.g. limit to specific markets). */
+  /**
+   * Override the static country list (e.g. limit to specific markets, or supply
+   * names already translated by the host). Both the labels and the order of the
+   * supplied list are rendered verbatim.
+   */
   countries?: PhoneCountry[]
   /** Initial country shown when `value` is empty / unparseable. Defaults to US. */
   defaultCountryIso2?: string
@@ -416,6 +524,7 @@ export function PhoneNumberField({
   defaultCountryIso2,
 }: PhoneNumberFieldProps) {
   const t = useT()
+  const locale = useOptionalLocale()
   const resolvedInvalidLabel = invalidLabel ?? t(
     'ui.inputs.phoneNumberField.invalid',
     'Enter a valid phone number with country code (e.g. +1 212 555 1234)'
@@ -429,7 +538,10 @@ export function PhoneNumberField({
     'Open record'
   )
   const resolvedPlaceholder = placeholder ?? DEFAULT_PLACEHOLDER
-  const countries = countriesProp ?? PHONE_COUNTRIES
+  const countryOptions = React.useMemo(
+    () => buildPhoneCountryOptions(countriesProp, t, locale),
+    [countriesProp, t, locale],
+  )
   const fallbackCountry = React.useMemo(
     () => (defaultCountryIso2 && findCountryByIso(defaultCountryIso2)) || DEFAULT_COUNTRY,
     [defaultCountryIso2],
@@ -596,12 +708,12 @@ export function PhoneNumberField({
             <span className="text-sm text-foreground tabular-nums">{country.dialCode}</span>
           </SelectTrigger>
           <SelectContent align="start">
-            {countries.map((c) => (
+            {countryOptions.map(({ country: c, label }) => (
               <SelectItem key={`${c.iso2}-${c.dialCode}`} value={c.iso2}>
                 <SelectItemLeading>
                   <span className="text-base leading-none">{c.flag}</span>
                 </SelectItemLeading>
-                <span className="flex-1 truncate">{c.label}</span>
+                <span className="flex-1 truncate">{label}</span>
                 <span className="ml-2 text-xs text-muted-foreground tabular-nums">{c.dialCode}</span>
               </SelectItem>
             ))}
