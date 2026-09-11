@@ -654,7 +654,7 @@ const createSite: CommandHandler<SiteCreateInput, { siteId: string }> = {
       code: record.code,
       name: record.name,
       isActive: record.isActive,
-    });
+    }).catch(() => undefined);
     return { siteId: record.id };
   },
   captureAfter: async (_input, result, ctx) =>
@@ -780,7 +780,7 @@ const updateSite: CommandHandler<SiteUpdateInput, { siteId: string }> = {
       name: record.name,
       isActive: record.isActive,
       previous,
-    });
+    }).catch(() => undefined);
     return { siteId: record.id };
   },
   captureAfter: async (_input, result, ctx) =>
@@ -937,7 +937,7 @@ const createRole: CommandHandler<
       warehouseId: warehouseId(record.warehouse),
       role: record.role,
       isDefault: record.isDefault,
-    });
+    }).catch(() => undefined);
     return { assignmentId: record.id, demotedDefaults: result.demotedDefaults };
   },
   captureAfter: async (_input, result, ctx) => ({
@@ -1171,7 +1171,7 @@ const updateRole: CommandHandler<
       role: record.role,
       isDefault: record.isDefault,
       previous,
-    });
+    }).catch(() => undefined);
     return { assignmentId: record.id, demotedDefaults: result.demotedDefaults };
   },
   captureAfter: async (_input, result, ctx) => ({
@@ -1379,7 +1379,7 @@ const deleteRole: CommandHandler<{ id: string }, { assignmentId: string }> = {
       warehouseId: warehouseId(record.warehouse),
       role: record.role,
       isDefault: record.isDefault,
-    });
+    }).catch(() => undefined);
     return { assignmentId: record.id };
   },
   captureAfter: async (_input, result, ctx) =>

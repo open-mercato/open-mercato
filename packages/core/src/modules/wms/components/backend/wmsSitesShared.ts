@@ -67,11 +67,11 @@ export function buildSiteSubmitPayload(
 export const SITE_WAREHOUSE_ROLES_PAGE_SIZE = 100;
 
 export function buildSiteWarehouseRolesListPath(siteId: string, page: number): string {
-  return `/api/wms/site-warehouse-roles?siteId=${encodeURIComponent(siteId)}&page=${page}&pageSize=${SITE_WAREHOUSE_ROLES_PAGE_SIZE}&sortField=role&sortDir=asc`;
+  return `/api/wms/site-warehouse-roles?siteId=${encodeURIComponent(siteId)}&page=${page}&pageSize=${SITE_WAREHOUSE_ROLES_PAGE_SIZE}`;
 }
 
 export function buildSiteWarehouseRoleDefaultsListPath(siteId: string): string {
-  return `/api/wms/site-warehouse-roles?siteId=${encodeURIComponent(siteId)}&isDefault=true&page=1&pageSize=100&sortField=role&sortDir=asc`;
+  return `/api/wms/site-warehouse-roles?siteId=${encodeURIComponent(siteId)}&isDefault=true&page=1&pageSize=100`;
 }
 
 export function useCanManageSites() {

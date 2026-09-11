@@ -48,7 +48,7 @@ describe('buildSiteSubmitPayload', () => {
     expect(
       buildSiteWarehouseRolesListPath('f5571173-37b1-4c7c-9dc1-d4ee4e475a48', 2),
     ).toBe(
-      '/api/wms/site-warehouse-roles?siteId=f5571173-37b1-4c7c-9dc1-d4ee4e475a48&page=2&pageSize=100&sortField=role&sortDir=asc',
+      '/api/wms/site-warehouse-roles?siteId=f5571173-37b1-4c7c-9dc1-d4ee4e475a48&page=2&pageSize=100',
     )
   })
 
@@ -58,7 +58,7 @@ describe('buildSiteSubmitPayload', () => {
         'f5571173-37b1-4c7c-9dc1-d4ee4e475a48',
       ),
     ).toBe(
-      '/api/wms/site-warehouse-roles?siteId=f5571173-37b1-4c7c-9dc1-d4ee4e475a48&isDefault=true&page=1&pageSize=100&sortField=role&sortDir=asc',
+      '/api/wms/site-warehouse-roles?siteId=f5571173-37b1-4c7c-9dc1-d4ee4e475a48&isDefault=true&page=1&pageSize=100',
     )
   })
 })
