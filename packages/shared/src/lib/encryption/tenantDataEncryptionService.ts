@@ -44,6 +44,12 @@ function cacheKey(key: MapCacheKey): string {
   ].join(':')
 }
 
+// Tag for the aggregate of every organization-scoped map of an entity/tenant. It is deliberately
+// distinct from `cacheKey` so the aggregate never collides with a single map's cache entry.
+function allOrganizationsCacheKey(entityId: string, tenantId: string | null): string {
+  return ['encmap', 'all-orgs', entityId.toLowerCase(), tenantId ?? 'null'].join(':')
+}
+
 function debug(event: string, payload: Record<string, unknown>) {
   if (!isEncryptionDebugEnabled()) return
   try {
@@ -113,11 +119,45 @@ function isEncryptedWithDek(value: unknown, dek: TenantDek): boolean {
   return decryptWithAesGcm(value, dek.key) !== null
 }
 
-function normalizeEncryptedFieldNames(fields: readonly { field?: unknown }[] | null | undefined): string[] {
+function normalizeEncryptedFieldRules(
+  fields: readonly { field?: unknown; hashField?: unknown }[] | null | undefined,
+): EncryptedFieldRule[] {
   if (!Array.isArray(fields)) return []
-  return fields
-    .map((rule) => rule.field)
-    .filter((field): field is string => typeof field === 'string' && field.trim().length > 0)
+  const rules: EncryptedFieldRule[] = []
+  for (const rule of fields) {
+    if (!rule || typeof rule !== 'object') continue
+    const field = rule.field
+    if (typeof field !== 'string' || field.trim().length === 0) continue
+    rules.push({ field, hashField: typeof rule.hashField === 'string' ? rule.hashField : null })
+  }
+  return rules
+}
+
+function normalizeEncryptedFieldNames(fields: readonly { field?: unknown }[] | null | undefined): string[] {
+  return normalizeEncryptedFieldRules(fields).map((rule) => rule.field)
+}
+
+/**
+ * Union of field rules, first declaration wins on the field name. A later duplicate only
+ * contributes its `hashField` when the winning rule declares none, so merging an organization-scoped
+ * map into a tenant-wide one never silently retargets an existing lookup-hash column.
+ */
+function mergeEncryptedFieldRules(...groups: readonly EncryptedFieldRule[][]): EncryptedFieldRule[] {
+  const merged: EncryptedFieldRule[] = []
+  const byField = new Map<string, EncryptedFieldRule>()
+  for (const group of groups) {
+    for (const rule of group) {
+      const existing = byField.get(rule.field)
+      if (!existing) {
+        const copy: EncryptedFieldRule = { field: rule.field, hashField: rule.hashField ?? null }
+        byField.set(rule.field, copy)
+        merged.push(copy)
+        continue
+      }
+      if (!existing.hashField && rule.hashField) existing.hashField = rule.hashField
+    }
+  }
+  return merged
 }
 
 function readEncryptedFieldsJson(row: Record<string, unknown>): EncryptedFieldRule[] {
@@ -323,7 +363,10 @@ export class TenantDataEncryptionService {
     return this.applySystemDefault(null, key.entityId)
   }
 
-  private async fetchAllOrganizationFieldNames(entityId: string, tenantId: string | null): Promise<string[]> {
+  private async fetchAllOrganizationFieldRules(
+    entityId: string,
+    tenantId: string | null,
+  ): Promise<EncryptedFieldRule[]> {
     const conn = getSqlConnection(this.em)
     if (!conn) return []
     const sql = `
@@ -337,23 +380,89 @@ export class TenantDataEncryptionService {
     `
     const rows = await conn.execute(sql, [entityId, tenantId])
     if (!Array.isArray(rows) || rows.length === 0) return []
-    const names = new Set<string>()
+    const groups: EncryptedFieldRule[][] = []
     for (const row of rows) {
       if (!row || typeof row !== 'object') continue
-      for (const field of normalizeEncryptedFieldNames(readEncryptedFieldsJson(row as Record<string, unknown>))) {
-        names.add(field)
-      }
+      groups.push(normalizeEncryptedFieldRules(readEncryptedFieldsJson(row as Record<string, unknown>)))
     }
-    return Array.from(names)
+    return mergeEncryptedFieldRules(...groups)
+  }
+
+  /**
+   * Cached aggregate of every organization-scoped map for an entity/tenant. `encryptEntityPayload`
+   * and `decryptEntityPayload` consult it on every row at the tenant-wide scope, so the uncached
+   * read this used to be would add a round-trip per flush and per load (#5949).
+   */
+  private async getAllOrganizationFieldRules(
+    entityId: string,
+    tenantId: string | null,
+  ): Promise<EncryptedFieldRule[]> {
+    const tag = allOrganizationsCacheKey(entityId, tenantId)
+    const missExpiresAt = this.missCache.get(tag)
+    if (missExpiresAt) {
+      if (missExpiresAt > Date.now()) return []
+      this.missCache.delete(tag)
+    }
+    const mem = this.memoryCache.get(tag)
+    if (mem) return mem.fields
+    if (this.cache && typeof this.cache.get === 'function') {
+      const cached = await this.cache.get(tag)
+      if (cached) return (cached as EncryptionMapRecord).fields
+    }
+    const inflight = this.inflightMaps.get(tag)
+    if (inflight) return (await inflight)?.fields ?? []
+    const pending = (async (): Promise<EncryptionMapRecord | null> => {
+      const fields = await this.fetchAllOrganizationFieldRules(entityId, tenantId)
+      return fields.length ? { entityId, fields } : null
+    })()
+    this.inflightMaps.set(tag, pending)
+    let loaded: EncryptionMapRecord | null
+    try {
+      loaded = await pending
+    } finally {
+      this.inflightMaps.delete(tag)
+    }
+    if (!loaded) {
+      this.missCache.set(tag, Date.now() + MAP_MISS_TTL_MS)
+      return []
+    }
+    this.missCache.delete(tag)
+    this.memoryCache.set(tag, loaded)
+    if (this.cache && typeof this.cache.set === 'function') {
+      await this.cache.set(tag, loaded, { ttl: 300 })
+    }
+    return loaded.fields
+  }
+
+  /**
+   * The field rules that are actually encrypted at rest for a scope.
+   *
+   * At the tenant-wide scope (`organizationId == null`) `getMap` resolves only the base map, but
+   * rows of the same entity may carry fields declared solely by an organization-scoped map. Reading
+   * or writing such a row with the base map alone stores those fields as plaintext and hands
+   * callers back undecrypted ciphertext, so every scope-aware path unions the organization maps in
+   * (#5949) — the same set `getEncryptedFieldNames` has reported since #2282.
+   */
+  private async resolveFieldRulesForScope(
+    entityId: string,
+    tenantId: string | null,
+    organizationId: string | null,
+    map: EncryptionMapRecord | null,
+  ): Promise<EncryptedFieldRule[]> {
+    const mapRules = normalizeEncryptedFieldRules(map?.fields)
+    if (organizationId != null) return mergeEncryptedFieldRules(mapRules)
+    return mergeEncryptedFieldRules(mapRules, await this.getAllOrganizationFieldRules(entityId, tenantId))
   }
 
   async invalidateMap(entityId: string, tenantId: string | null, organizationId: string | null): Promise<void> {
-    const tag = cacheKey({ entityId, tenantId, organizationId })
-    this.memoryCache.delete(tag)
-    this.inflightMaps.delete(tag)
-    this.missCache.delete(tag)
-    if (this.cache && typeof (this.cache as any).delete === 'function') {
-      await (this.cache as any).delete(tag)
+    const tags = [cacheKey({ entityId, tenantId, organizationId }), allOrganizationsCacheKey(entityId, tenantId)]
+    for (const tag of tags) {
+      this.memoryCache.delete(tag)
+      this.inflightMaps.delete(tag)
+      this.missCache.delete(tag)
+      if (this.cache && typeof (this.cache as any).delete === 'function') {
+        await (this.cache as any).delete(tag)
+      }
     }
   }
 
@@ -387,13 +496,13 @@ export class TenantDataEncryptionService {
       return []
     }
     const map = await this.getMap({ entityId, tenantId: tenantId ?? null, organizationId: organizationId ?? null })
-    const fields = new Set(normalizeEncryptedFieldNames(map?.fields))
-    if (organizationId == null) {
-      for (const field of await this.fetchAllOrganizationFieldNames(entityId, tenantId ?? null)) {
-        fields.add(field)
-      }
-    }
-    return Array.from(fields)
+    const fields = await this.resolveFieldRulesForScope(
+      entityId,
+      tenantId ?? null,
+      organizationId ?? null,
+      map,
+    )
+    return fields.map((rule) => rule.field)
   }
 
   private encryptFields(
@@ -466,18 +575,24 @@ export class TenantDataEncryptionService {
       return payload
     }
     const map = await this.getMap({ entityId, tenantId: tenantId ?? null, organizationId: organizationId ?? null })
-    if (!map || !map.fields?.length) {
+    const fields = await this.resolveFieldRulesForScope(
+      entityId,
+      tenantId ?? null,
+      organizationId ?? null,
+      map,
+    )
+    if (!fields.length) {
       debug('⚪️ encrypt.skip.no-map', { entityId, tenantId })
       return payload
     }
-    const keyId = map.keyScope === 'system' ? `system:${entityId}` : tenantId ?? null
+    const keyId = map?.keyScope === 'system' ? `system:${entityId}` : tenantId ?? null
     const dek = await this.resolveDekForEncrypt(keyId)
     if (!dek) {
-      debug('⚠️ encrypt.skip.no-dek', { entityId, tenantId, keyScope: map.keyScope ?? 'tenant' })
+      debug('⚠️ encrypt.skip.no-dek', { entityId, tenantId, keyScope: map?.keyScope ?? 'tenant' })
       return payload
     }
-    debug('🔒 encrypt_entity', { entityId, tenantId, organizationId, fields: map.fields.length })
-    return this.encryptFields(payload, map.fields, dek)
+    debug('🔒 encrypt_entity', { entityId, tenantId, organizationId, fields: fields.length })
+    return this.encryptFields(payload, fields, dek)
   }
 
   async decryptEntityPayload(
@@ -491,17 +606,23 @@ export class TenantDataEncryptionService {
       return payload
     }
     const map = await this.getMap({ entityId, tenantId: tenantId ?? null, organizationId: organizationId ?? null })
-    if (!map || !map.fields?.length) {
+    const fields = await this.resolveFieldRulesForScope(
+      entityId,
+      tenantId ?? null,
+      organizationId ?? null,
+      map,
+    )
+    if (!fields.length) {
       debug('⚪️ decrypt.skip.no-map', { entityId, tenantId })
       return payload
     }
-    const keyId = map.keyScope === 'system' ? `system:${entityId}` : tenantId ?? null
+    const keyId = map?.keyScope === 'system' ? `system:${entityId}` : tenantId ?? null
     const dek = await this.getDek(keyId)
     if (!dek) {
-      debug('⚠️ decrypt.skip.no-dek', { entityId, tenantId, keyScope: map.keyScope ?? 'tenant' })
+      debug('⚠️ decrypt.skip.no-dek', { entityId, tenantId, keyScope: map?.keyScope ?? 'tenant' })
       return payload
     }
-    debug('🔓 decrypt_entity', { entityId, tenantId, organizationId, fields: map.fields.length })
-    return this.decryptFields(payload, map.fields, dek)
+    debug('🔓 decrypt_entity', { entityId, tenantId, organizationId, fields: fields.length })
+    return this.decryptFields(payload, fields, dek)
   }
 }
