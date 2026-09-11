@@ -345,8 +345,17 @@ The `OM_SEARCH_*` flags below are **token/Postgres-only** — they tune the `sea
 | `OM_SEARCH_FIELD_BLOCKLIST` | — | Comma-separated extra field names excluded from tokenization (merged with built-in `password,token,secret,hash`). See below for entity-scoped entries. |
 | `OM_SEARCH_MAX_FIELD_CHARS` | `20000` | Maximum input characters considered per field value before splitting or prefix expansion; `0` disables the limit. |
 | `OM_SEARCH_MAX_TOKENS_PER_FIELD` | `5000` | Maximum distinct token rows across all values of one field; `0` disables the limit. |
-| `OM_SEARCH_MAX_TOKENS_PER_RECORD` | `20000` | Maximum token rows across all fields in one indexed record; `0` disables the limit. |
+| `OM_SEARCH_MAX_TOKENS_PER_RECORD` | `20000` | Maximum token rows across all fields in one indexed record; `0` disables the limit. Spent in the document's key order — see the note below. |
 | `OM_SEARCH_DEBUG` | `false` | Verbose token/indexing debug logging (redacted — never logs raw tokens or PII). |
+
+The per-record budget is spent field by field in the order the indexed document's keys iterate in,
+and the record stops tokenizing at the first field that exhausts it. On a record that fits under the
+limit this is invisible; on one that exceeds it, *which* fields stay searchable follows that key
+order. The indexer is self-consistent because it always tokenizes the in-memory document it is about
+to persist. Code that recomputes a record's expected tokens must not read the document back out of
+the `entity_indexes.doc` `jsonb` column first — Postgres stores `jsonb` keys in a canonical order (by
+key length, then byte order) rather than insertion order, so the same record can truncate at a
+different field on the way back. Rebuild the document with `buildIndexDocument` instead.
 
 ### Excluding fields from the token index
 

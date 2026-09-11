@@ -63,6 +63,28 @@ describe('buildSearchTokenRows limits', () => {
     expect(rows.map((row) => row.token)).toEqual(['alpha', 'beta', 'gamma', 'delta'])
   })
 
+  test('spends the record budget in the document key order, not a canonical one', () => {
+    const subject = buildWords('subject', 20)
+    const body = buildWords('body', 20)
+    const config = { ...baseConfig, maxTokensPerRecord: 4 }
+
+    const subjectFirst = buildSearchTokenRows({
+      entityType: 'messages:message',
+      recordId: 'record-key-order',
+      doc: { subject, body },
+      config,
+    })
+    const bodyFirst = buildSearchTokenRows({
+      entityType: 'messages:message',
+      recordId: 'record-key-order',
+      doc: { body, subject },
+      config,
+    })
+
+    expect(new Set(subjectFirst.map((row) => row.field))).toEqual(new Set(['subject']))
+    expect(new Set(bodyFirst.map((row) => row.field))).toEqual(new Set(['body']))
+  })
+
   test('preserves tokens when the document stays within the limits', () => {
     const rows = buildSearchTokenRows({
       entityType: 'messages:message',

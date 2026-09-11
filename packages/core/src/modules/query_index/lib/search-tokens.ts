@@ -83,6 +83,27 @@ function shouldIndexField(
   return collectTextValues(value).some((text) => text.length > 0)
 }
 
+/**
+ * Builds the `search_tokens` rows for one document.
+ *
+ * `maxTokensPerRecord` is spent in the iteration order of `params.doc`'s own keys: fields are
+ * tokenized one after another and the loop stops at the first field that exhausts the budget, so
+ * on an over-budget record the surviving fields are whichever ones come first. That order is a
+ * property of the object handed in, not of the entity — `buildIndexDocument` appends `cf:*` keys
+ * after the base columns, so the indexer's own documents order base fields first.
+ *
+ * Every write path passes the in-memory document it is about to persist (`upsertIndexRow` →
+ * `reindexSearchTokensForRecord`, `TokenSearchStrategy.index`), which keeps writing self-consistent.
+ * A document read back out of the `entity_indexes.doc` `jsonb` column is not the same object:
+ * Postgres stores `jsonb` keys in a canonical order (by key length, then byte order), not in
+ * insertion order. Re-tokenizing such a document can therefore truncate at a different field than
+ * the write did, so code that verifies or recomputes a record's expected tokens must rebuild the
+ * document through `buildIndexDocument` rather than reading it back from the database.
+ *
+ * Making truncation reproducible from a `jsonb` read — by sorting fields before tokenization —
+ * would change which terms stay searchable on over-budget records, so it is a behavior decision
+ * rather than a clarification (#5971).
+ */
 export function buildSearchTokenRows(params: BuildTokenOptions): SearchTokenRow[] {
   const config = params.config ?? resolveSearchConfig()
   if (!config.enabled) return []
