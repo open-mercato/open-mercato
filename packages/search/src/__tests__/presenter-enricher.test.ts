@@ -19,19 +19,31 @@ type IndexRow = {
 
 const mockedDecryptIndexDocForSearch = jest.mocked(decryptIndexDocForSearch)
 
+type CustomFieldDefRow = {
+  entity_id: string
+  key: string
+  kind: string | null
+}
+
 /**
  * Build a minimal Kysely-like mock for `db.selectFrom(...).select(...).where(...).execute()` chains.
  * The presenter enricher only uses selectFrom/select/where/execute on the resolved Kysely instance,
- * so we don't need full coverage here.
+ * so we don't need full coverage here. Rows are routed per table because the enricher reads both
+ * `entity_indexes` (the docs) and `custom_field_defs` (the field kinds, issue #5968).
  */
-function createKyselyMock(rows: IndexRow[]): Kysely<any> {
-  const chain: any = {
-    select: jest.fn(() => chain),
-    where: jest.fn(() => chain),
-    execute: jest.fn().mockResolvedValue(rows),
+function createKyselyMock(rows: IndexRow[], customFieldDefs: CustomFieldDefRow[] = []): Kysely<any> {
+  const createChain = (result: unknown[]) => {
+    const chain: any = {
+      select: jest.fn(() => chain),
+      where: jest.fn(() => chain),
+      execute: jest.fn().mockResolvedValue(result),
+    }
+    return chain
   }
   const db: any = {
-    selectFrom: jest.fn(() => chain),
+    selectFrom: jest.fn((table: string) => (
+      String(table).startsWith('custom_field_defs') ? createChain(customFieldDefs) : createChain(rows)
+    )),
   }
   return db as Kysely<any>
 }
@@ -95,6 +107,7 @@ describe('createPresenterEnricher', () => {
       { tenantId: 'tenant-1', organizationId: 'org-from-doc' },
       expect.anything(),
       expect.any(Map),
+      null,
     )
     expect(buildSource).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -113,6 +126,61 @@ describe('createPresenterEnricher', () => {
     })
     expect(enriched.url).toBe('/backend/customers/person-1')
     expect(enriched.links).toEqual([{ href: '/backend/customers/person-1/edit', label: 'Edit', kind: 'secondary' }])
+  })
+
+  it('forwards each entity type its custom field kinds so encrypted text is not retyped (#5968)', async () => {
+    const doc = { id: 'person-1', organization_id: 'org-1', 'cf:nickname': 'Countess' }
+    mockedDecryptIndexDocForSearch.mockResolvedValue(doc)
+
+    const config = createConfig({ formatResult: async () => ({ title: 'Ada' }) })
+    const db = createKyselyMock(
+      [{ entity_type: 'customers:person', entity_id: 'person-1', doc }],
+      [
+        { entity_id: 'customers:person', key: 'nickname', kind: 'text' },
+        { entity_id: 'customers:person', key: 'visit-count', kind: 'integer' },
+        { entity_id: 'orders:order', key: 'reference', kind: 'text' },
+      ],
+    )
+
+    const enrich = createPresenterEnricher(db, new Map([[config.entityId, config]]), undefined, {} as never)
+    await enrich([createResult()], 'tenant-1', 'org-1')
+
+    expect(mockedDecryptIndexDocForSearch).toHaveBeenCalledWith(
+      'customers:person',
+      doc,
+      expect.anything(),
+      expect.anything(),
+      expect.any(Map),
+      // Only this entity type's definitions, keyed by authored key and sanitized alias.
+      { nickname: 'text', 'visit-count': 'integer', visit_count: 'integer' },
+    )
+  })
+
+  it('degrades to the previous behaviour when the custom field kind lookup fails (#5968)', async () => {
+    const doc = { id: 'person-1', organization_id: 'org-1' }
+    mockedDecryptIndexDocForSearch.mockResolvedValue(doc)
+
+    const db = createKyselyMock([{ entity_type: 'customers:person', entity_id: 'person-1', doc }])
+    const failingDb: any = {
+      selectFrom: jest.fn((table: string) => {
+        if (String(table).startsWith('custom_field_defs')) throw new Error('relation does not exist')
+        return (db as any).selectFrom(table)
+      }),
+    }
+    const config = createConfig({ formatResult: async () => ({ title: 'Ada' }) })
+
+    const enrich = createPresenterEnricher(failingDb, new Map([[config.entityId, config]]), undefined, {} as never)
+    const [enriched] = await enrich([createResult()], 'tenant-1', 'org-1')
+
+    expect(enriched.presenter?.title).toBe('Ada')
+    expect(mockedDecryptIndexDocForSearch).toHaveBeenCalledWith(
+      'customers:person',
+      doc,
+      expect.anything(),
+      expect.anything(),
+      expect.any(Map),
+      null,
+    )
   })
 
   it('replaces empty link arrays with resolved links when url metadata is missing', async () => {
