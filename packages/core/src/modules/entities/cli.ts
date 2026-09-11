@@ -599,6 +599,8 @@ const rotateEncryptionKey: ModuleCli = {
       const list = Array.isArray(rows) ? rows : []
       if (!list.length) return 0
       const dekAvailable = dryRun ? await hasExistingDek(scope.tenantId) : true
+      // The scope pins one tenant, so the current DEK is the same for every row here.
+      const currentDek = rotate && oldKms ? await encryptionService.getDek(scope.tenantId) : null
       let updated = 0
       for (const row of list) {
         const payload: Record<string, unknown> = {}
@@ -626,7 +628,6 @@ const rotateEncryptionKey: ModuleCli = {
             oldDek = await oldKms.getTenantDek(scope.tenantId)
             oldDekCache.set(scope.tenantId, oldDek)
           }
-          const currentDek = await encryptionService.getDek(scope.tenantId)
           for (const rule of fields) {
             const value = payload[rule.field]
             if (typeof value !== 'string' || !isEncryptedPayload(value)) continue
