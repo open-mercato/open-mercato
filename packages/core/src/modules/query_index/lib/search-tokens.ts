@@ -90,7 +90,8 @@ function shouldIndexField(
  * tokenized one after another and the loop stops at the first field that exhausts the budget, so
  * on an over-budget record the surviving fields are whichever ones come first. That order is a
  * property of the object handed in, not of the entity — `buildIndexDocument` appends `cf:*` keys
- * after the base columns, so the indexer's own documents order base fields first.
+ * after the base columns and the aggregate `search_text` field last, so the indexer's own documents
+ * order base fields first and starve `search_text` first when a record runs out of budget.
  *
  * Every write path passes the in-memory document it is about to persist (`upsertIndexRow` →
  * `reindexSearchTokensForRecord`, `TokenSearchStrategy.index`), which keeps writing self-consistent.
