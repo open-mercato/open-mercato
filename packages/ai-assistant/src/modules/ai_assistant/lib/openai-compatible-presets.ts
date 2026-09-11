@@ -108,6 +108,26 @@ const DEEPINFRA_PRESET: OpenAICompatiblePreset = {
 }
 
 /**
+ * Atlas Cloud — OpenAI-compatible access to a curated model catalog.
+ */
+const ATLAS_CLOUD_PRESET: OpenAICompatiblePreset = {
+  id: 'atlas-cloud',
+  name: 'Atlas Cloud',
+  baseURL: 'https://api.atlascloud.ai/v1',
+  baseURLEnvKeys: ['ATLASCLOUD_BASE_URL'],
+  envKeys: ['ATLASCLOUD_API_KEY'],
+  defaultModel: 'Qwen/Qwen3-235B-A22B-Instruct-2507',
+  defaultModels: [
+    {
+      id: 'Qwen/Qwen3-235B-A22B-Instruct-2507',
+      name: 'Qwen3 235B Instruct',
+      contextWindow: 131072,
+      tags: ['flagship'],
+    },
+  ],
+}
+
+/**
  * Groq — specializes in low-latency inference on LPU hardware.
  * Best suited for snappy tool-use and routing, less so for long reasoning.
  */
@@ -326,6 +346,7 @@ const LM_STUDIO_PRESET: OpenAICompatiblePreset = {
 export const OPENAI_COMPATIBLE_PRESETS: readonly OpenAICompatiblePreset[] = [
   OPENAI_PRESET,
   DEEPINFRA_PRESET,
+  ATLAS_CLOUD_PRESET,
   GROQ_PRESET,
   TOGETHER_PRESET,
   FIREWORKS_PRESET,
