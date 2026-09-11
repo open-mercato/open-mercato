@@ -7,7 +7,7 @@
   "gateway_autopay.config.sharedKey": "Shared Key",
   "gateway_autopay.config.hashAlgorithm": "Hash Algorithm",
   "gateway_autopay.config.gatewayUrl": "Payment Initiation URL",
-  "gateway_autopay.config.help": "Configure the Service ID, shared key, and partner-specific gateway URL issued by Autopay during onboarding.",
+  "gateway_autopay.config.help": "Register your own Autopay Partner Service at https://portal.autopay.eu/ to get your Service ID, shared key, and gateway URL, then enter them here.",
   "gateway_autopay.errors.plnOnly": "Autopay only supports PLN payments in this integration.",
   "gateway_autopay.errors.customerEmailRequired": "Autopay requires a customer email address for every payment session.",
   "gateway_autopay.errors.captureUnsupported": "Autopay does not support capturing a payment separately — it settles immediately when the payer completes the redirect.",

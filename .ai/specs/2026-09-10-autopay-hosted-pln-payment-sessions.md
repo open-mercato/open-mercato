@@ -62,6 +62,16 @@ already-validated reference implementation in
 | Test | `https://testpay.autopay.eu` |
 | Production | `https://pay.autopay.eu` |
 
+**Multi-tenant, self-service by design.** This package is a reusable Open
+Mercato provider, not a bespoke integration for one merchant. Every tenant
+that enables it registers their own Autopay Partner Service independently at
+https://portal.autopay.eu/ and enters the resulting `ServiceID`, shared key,
+and gateway URL through the standard Integrations credential form — the same
+per-tenant, encrypted `IntegrationCredentials` flow every other gateway
+package (Stripe included) already uses. Nothing in this package is
+hardcoded to one merchant's account; the sandbox worked-example values exist
+only to regression-test the hash math.
+
 ## Problem Statement
 
 Open Mercato needs a typed, tenant-scoped Autopay adapter that:
@@ -392,11 +402,14 @@ it adds a payer-visible redirect.
    local/CI verification of the hash math only — these will not authenticate
    against `testpay.autopay.eu` for an actual redirect or API call, per the
    existing `paytalk/autopay-sandbox` README's own findings.
-3. Real sandbox credentials, once available from Autopay's partner
-   onboarding, are required to complete an actual end-to-end hosted payment
-   test, and to obtain the partner-specific redirect path and confirm
-   settlement-balance/refund availability. This is the same non-automatable
-   prerequisite already identified outside this spec's scope.
+3. Real sandbox credentials, once available from **the tenant's own**
+   registration at https://portal.autopay.eu/, are required to complete an
+   actual end-to-end hosted payment test for that tenant, and to obtain their
+   partner-specific redirect path and confirm settlement-balance/refund
+   availability. This is a per-tenant, self-service prerequisite — not
+   something the Open Mercato project or this package's maintainer does on
+   any merchant's behalf — and is outside this spec's scope for the same
+   reason no Open Mercato package ships another provider's live credentials.
 
 Rollback disables new Autopay sessions; no migration rollback is required.
 
@@ -550,6 +563,17 @@ would eventually plug into the generic webhook route) is explicitly deferred
 to a follow-up spec and does not block this spec's MVP scope.
 
 ## Changelog
+
+### 2026-09-11
+
+- Clarified the multi-tenant, self-service delivery model: this package is
+  built for reuse by any Open Mercato partner/merchant, each of whom
+  registers their own Autopay Partner Service independently at
+  https://portal.autopay.eu/ and enters their own credentials through the
+  standard Integrations UI. Updated the Overview and Rollout and Operations
+  sections accordingly, and pointed the credential field help text
+  (`packages/gateway-autopay/.../integration.ts`, i18n) at the registration
+  portal so merchants self-serve without needing project-level guidance.
 
 ### 2026-09-10 (revision)
 

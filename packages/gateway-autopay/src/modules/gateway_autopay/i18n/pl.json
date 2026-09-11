@@ -7,7 +7,7 @@
   "gateway_autopay.config.sharedKey": "Klucz współdzielony",
   "gateway_autopay.config.hashAlgorithm": "Algorytm skrótu",
   "gateway_autopay.config.gatewayUrl": "Adres inicjacji płatności",
-  "gateway_autopay.config.help": "Skonfiguruj Service ID, klucz współdzielony oraz partnerski adres bramki nadany przez Autopay podczas wdrożenia.",
+  "gateway_autopay.config.help": "Zarejestruj własny Serwis Partnera na https://portal.autopay.eu/, żeby otrzymać Service ID, klucz współdzielony i adres bramki, a następnie wpisz je tutaj.",
   "gateway_autopay.errors.plnOnly": "Ta integracja Autopay obsługuje wyłącznie płatności w PLN.",
   "gateway_autopay.errors.customerEmailRequired": "Autopay wymaga adresu e-mail klienta dla każdej sesji płatności.",
   "gateway_autopay.errors.captureUnsupported": "Autopay nie obsługuje osobnego zatwierdzania płatności — rozliczenie następuje natychmiast po zakończeniu przekierowania przez płatnika.",
