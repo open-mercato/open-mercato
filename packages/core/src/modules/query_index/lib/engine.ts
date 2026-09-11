@@ -11,12 +11,13 @@ import { createProfiler, shouldEnableProfiler, type Profiler } from '@open-merca
 import type { VectorIndexService } from '@open-mercato/search/vector'
 import { decryptIndexDocCustomFields } from '@open-mercato/shared/lib/encryption/indexDoc'
 import {
-  buildCustomFieldKindMap,
-  mergeCustomFieldKindMaps,
-  type CustomFieldKindMap,
+  buildCustomFieldKindIndex,
+  createCustomFieldKindMapResolver,
+  emptyCustomFieldKindIndex,
+  mergeCustomFieldKindIndexes,
+  type CustomFieldKindIndex,
+  type CustomFieldKindMapResolver,
 } from '@open-mercato/shared/lib/custom-fields/kinds'
-
-type CustomFieldDefRow = { entityId: string; key: string; kind: unknown }
 import { parseBooleanToken, parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import {
   applyJoinFilters,
@@ -48,6 +49,22 @@ import { parseNumberWithDefault } from '@open-mercato/shared/lib/number'
 import { createBoundedTtlMemo } from '@open-mercato/shared/lib/query/bounded-ttl-memo'
 
 const logger = createLogger('query_index').child({ component: 'engine' })
+
+/**
+ * Plain-row shape of the `custom_field_defs` columns the key and kind lookups read. The
+ * scope columns are load-bearing: a key can carry an organization-specific definition that
+ * overrides the tenant-wide or global one with a different `kind`, so the winner can only be
+ * picked once the row being decrypted is known.
+ */
+type CustomFieldDefRow = {
+  entityId: string
+  key: string
+  kind: unknown
+  organizationId: string | null
+  tenantId: string | null
+  configJson: unknown
+  updatedAt: unknown
+}
 
 /** Operators `buildCfFilterExpression` compiles; anything else yields no predicate. */
 const CF_FILTER_SUPPORTED_OPS = new Set<FilterOp>([
@@ -1224,15 +1241,16 @@ export class HybridQueryEngine implements QueryEngine {
       const listCountCapWarning: ListCountCapWarning | undefined = counted.warning
 
       const dekKeyCache = new Map<string | null, string | null>()
-      // Resolved lazily and only once per query: rows share one kind map, and a query whose
-      // rows carry no encrypted custom fields never pays for the lookup.
-      let customFieldKinds: Promise<CustomFieldKindMap> | null = null
-      const resolveCustomFieldKinds = (): Promise<CustomFieldKindMap> => {
+      // Resolved lazily and only once per query, then memoized per scope: rows of one
+      // organization share a kind map, and a query whose rows carry no encrypted custom
+      // fields never pays for the lookup.
+      let customFieldKinds: Promise<CustomFieldKindMapResolver> | null = null
+      const resolveCustomFieldKinds = (): Promise<CustomFieldKindMapResolver> => {
         if (!customFieldKinds) {
-          customFieldKinds = this.resolveCustomFieldKindMap(
+          customFieldKinds = this.resolveCustomFieldKindIndex(
             Array.from(new Set(indexSources.map((src) => String(src.entityId)))),
             opts.tenantId ?? null,
-          )
+          ).then((index) => createCustomFieldKindMapResolver(index))
         }
         return customFieldKinds
       }
@@ -1256,14 +1274,16 @@ export class HybridQueryEngine implements QueryEngine {
         }
         if (encSvc) {
           try {
+            // The kind is resolved against the very scope the value is decrypted with, so an
+            // organization-specific definition can never type another organization's value.
+            const cfScope = {
+              tenantId: (next?.tenant_id ?? next?.tenantId ?? opts.tenantId ?? null) as string | null,
+              organizationId: (next?.organization_id ?? next?.organizationId ?? null) as string | null,
+            }
+            const resolveKinds = await resolveCustomFieldKinds()
             next = await decryptIndexDocCustomFields(
-              next,
-              {
-                tenantId: (next?.tenant_id ?? next?.tenantId ?? opts.tenantId ?? null) as string | null,
-                organizationId: (next?.organization_id ?? next?.organizationId ?? null) as string | null,
-              },
-              encSvc as any, dekKeyCache,
-              await resolveCustomFieldKinds(),
+              next, cfScope, encSvc as any, dekKeyCache,
+              resolveKinds(cfScope.organizationId, cfScope.tenantId),
             )
           } catch { /* keep next as-is */ }
         }
@@ -2226,21 +2246,29 @@ export class HybridQueryEngine implements QueryEngine {
     const db = this.getDb() as any
     const rows = await db
       .selectFrom('custom_field_defs')
-      .select(['entity_id', 'key', 'kind'])
+      .select(['entity_id', 'key', 'kind', 'organization_id', 'tenant_id', 'config_json', 'updated_at'])
       .where('entity_id', 'in', entityIds)
       .where('is_active', '=', true)
       .where((eb: any) => eb.or([
         eb('tenant_id', '=', tenantId),
         eb('tenant_id', 'is', null),
       ]))
-      .execute() as Array<{ entity_id: unknown; key: unknown; kind: unknown }>
+      .execute() as Array<Record<string, unknown>>
     const result: CustomFieldDefRow[] = []
     for (const row of rows) {
       const key = row.key
       const normalized = typeof key === 'string' ? key.trim() : key == null ? '' : String(key)
       if (!normalized.length) continue
       const entityId = typeof row.entity_id === 'string' ? row.entity_id : String(row.entity_id ?? '')
-      result.push({ entityId, key: normalized, kind: row.kind })
+      result.push({
+        entityId,
+        key: normalized,
+        kind: row.kind,
+        organizationId: typeof row.organization_id === 'string' ? row.organization_id : null,
+        tenantId: typeof row.tenant_id === 'string' ? row.tenant_id : null,
+        configJson: row.config_json ?? null,
+        updatedAt: row.updated_at ?? null,
+      })
     }
     if (this.customFieldKeysTtlMs > 0) {
       this.customFieldDefsCache.set(cacheKey, { expiresAt: now + this.customFieldKeysTtlMs, value: result })
@@ -2257,17 +2285,22 @@ export class HybridQueryEngine implements QueryEngine {
    * Kind lookup for the `cf:`/`cf_` keys of an index document, so encrypted string-typed
    * custom fields keep their type on read instead of being `JSON.parse`d back into numbers
    * or booleans (issue #5968). Backed by the same TTL cache as the key lookup, so this adds
-   * no round trip on a warm cache and fails open to `{}` on a cold-cache error.
+   * no round trip on a warm cache and fails open to an empty index on a cold-cache error.
+   *
+   * The index keeps every scope's definition per key rather than collapsing to one kind:
+   * the caller resolves the winner against each row's own `organization_id`, the same scope
+   * the row is decrypted with, so an organization's override never types another
+   * organization's value.
    *
    * `entityIds` MUST arrive in `indexSources` order: `buildCfJsonExprSql` reads a `cf` value
    * with `coalesce(source0, source1, …)`, so a key defined by several sources has to be typed
    * by the same source the value came from — hence the priority-ordered merge rather than
    * whatever order the rows happen to come back in.
    */
-  private async resolveCustomFieldKindMap(
+  private async resolveCustomFieldKindIndex(
     entityIds: string[],
     tenantId: string | null,
-  ): Promise<CustomFieldKindMap> {
+  ): Promise<CustomFieldKindIndex> {
     try {
       const defs = await this.resolveCustomFieldDefs(entityIds, tenantId)
       const byEntityId = new Map<string, CustomFieldDefRow[]>()
@@ -2276,12 +2309,12 @@ export class HybridQueryEngine implements QueryEngine {
         group.push(def)
         byEntityId.set(def.entityId, group)
       }
-      return mergeCustomFieldKindMaps(
-        entityIds.map((entityId) => buildCustomFieldKindMap(byEntityId.get(entityId) ?? [])),
+      return mergeCustomFieldKindIndexes(
+        entityIds.map((entityId) => buildCustomFieldKindIndex(byEntityId.get(entityId) ?? [])),
       )
     } catch (err) {
       logger.warn('Failed to resolve custom field kinds', { entityIds, err })
-      return {}
+      return emptyCustomFieldKindIndex()
     }
   }
 
