@@ -1,4 +1,5 @@
 import type { SearchConfig } from '@open-mercato/shared/lib/search/config'
+import { AGGREGATE_SEARCH_FIELD, buildIndexDocument } from '../lib/document'
 import { buildSearchTokenRows } from '../lib/search-tokens'
 
 jest.mock('@open-mercato/shared/lib/logger', () => {
@@ -61,6 +62,48 @@ describe('buildSearchTokenRows limits', () => {
     })
 
     expect(rows.map((row) => row.token)).toEqual(['alpha', 'beta', 'gamma', 'delta'])
+  })
+
+  test('spends the record budget in the document key order, not a canonical one', () => {
+    const subject = buildWords('subject', 20)
+    const body = buildWords('body', 20)
+    const config = { ...baseConfig, maxTokensPerRecord: 4 }
+
+    const subjectFirst = buildSearchTokenRows({
+      entityType: 'messages:message',
+      recordId: 'record-key-order',
+      doc: { subject, body },
+      config,
+    })
+    const bodyFirst = buildSearchTokenRows({
+      entityType: 'messages:message',
+      recordId: 'record-key-order',
+      doc: { body, subject },
+      config,
+    })
+
+    expect(new Set(subjectFirst.map((row) => row.field))).toEqual(new Set(['subject']))
+    expect(new Set(bodyFirst.map((row) => row.field))).toEqual(new Set(['body']))
+  })
+
+  test('starves the aggregate search field first, because buildIndexDocument appends it last', () => {
+    const doc = buildIndexDocument(
+      { title: buildWords('title', 20) },
+      [{ key: 'notes', value: buildWords('notes', 20) }],
+      {},
+      { config: baseConfig, entityType: 'messages:message' },
+    )
+
+    expect(Object.keys(doc)).toEqual(['title', 'cf:notes', AGGREGATE_SEARCH_FIELD])
+
+    const rows = buildSearchTokenRows({
+      entityType: 'messages:message',
+      recordId: 'record-aggregate',
+      doc,
+      config: { ...baseConfig, maxTokensPerRecord: 4 },
+    })
+
+    expect(new Set(rows.map((row) => row.field))).toEqual(new Set(['title']))
   })
 
   test('preserves tokens when the document stays within the limits', () => {
