@@ -113,6 +113,48 @@ describe('interaction validators — extended scheduling fields', () => {
     expect(parsed.guestPermissions).toBeNull()
   })
 
+  test('interactionUpdateSchema accepts entityId so an interaction can be re-linked', () => {
+    const parsed = interactionUpdateSchema.parse({
+      id: interactionId,
+      tenantId,
+      organizationId: orgId,
+      entityId,
+    })
+    expect(parsed.entityId).toBe(entityId)
+  })
+
+  test('interactionUpdateSchema leaves entityId undefined when it is not sent', () => {
+    const parsed = interactionUpdateSchema.parse({
+      id: interactionId,
+      tenantId,
+      organizationId: orgId,
+      title: 'Just title',
+    })
+    expect(parsed.entityId).toBeUndefined()
+  })
+
+  test('interactionUpdateSchema rejects a non-uuid entityId', () => {
+    expect(() =>
+      interactionUpdateSchema.parse({
+        id: interactionId,
+        tenantId,
+        organizationId: orgId,
+        entityId: 'not-a-uuid',
+      }),
+    ).toThrow()
+  })
+
+  test('interactionUpdateSchema rejects a null entityId because the relation is required', () => {
+    expect(() =>
+      interactionUpdateSchema.parse({
+        id: interactionId,
+        tenantId,
+        organizationId: orgId,
+        entityId: null,
+      }),
+    ).toThrow()
+  })
+
   test('interactionUpdateSchema rejects invalid linked entity type', () => {
     expect(() =>
       interactionUpdateSchema.parse({

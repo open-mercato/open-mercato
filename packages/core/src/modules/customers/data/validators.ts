@@ -560,6 +560,11 @@ const interactionUpdateBaseSchema = z
   .merge(
     scopedSchema
       .extend({
+        // Re-link an existing interaction to a different person/company, the same way
+        // `dealId` below already re-links it to a different deal (#5938). Not nullable:
+        // `CustomerInteraction.entity` is a required relation, so there is no "detach"
+        // state to express — that depends on #5935 making the column nullable first.
+        entityId: z.string().uuid().optional(),
         interactionType: z.string().trim().min(1).max(100).optional(),
         title: z.string().trim().max(500).optional().nullable(),
         body: z.string().trim().max(10000).optional().nullable(),
