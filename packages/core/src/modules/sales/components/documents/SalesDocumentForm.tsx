@@ -57,6 +57,7 @@ import {
   type AddressValue,
 } from '@open-mercato/core/modules/customers/utils/addressFormat'
 import { AddressEditor, type AddressEditorDraft } from '@open-mercato/core/modules/customers/components/AddressEditor'
+import { extensionPoints as customersExtensionPoints } from '@open-mercato/core/modules/customers/extension-points'
 import { useSalesChannelsEnabled } from '../useSalesChannelsEnabled'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { SalesOrderDraftLines, createSalesOrderLineDraft, type SalesOrderLineDraft } from './SalesOrderDraftLines'
@@ -370,6 +371,7 @@ function CustomerQuickCreate({ t, onCreated }: CustomerQuickCreateProps) {
                 submitLabel={t('common.save', 'Save')}
                 cancelHref={undefined}
                 onSubmit={(values) => handlePersonCreate(values)}
+                injectionSpotId={customersExtensionPoints.hosts.personForm.spotId}
                 entityIds={[E.customers.customer_entity, E.customers.customer_person_profile]}
               />
             </div>
@@ -404,6 +406,7 @@ function CustomerQuickCreate({ t, onCreated }: CustomerQuickCreateProps) {
                 submitLabel={t('common.save', 'Save')}
                 cancelHref={undefined}
                 onSubmit={(values) => handleCompanyCreate(values)}
+                injectionSpotId={customersExtensionPoints.hosts.companyForm.spotId}
                 entityIds={[E.customers.customer_entity, E.customers.customer_company_profile]}
               />
             </div>

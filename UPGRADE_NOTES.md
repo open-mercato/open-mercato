@@ -24,6 +24,58 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.7.0 → 0.7.1 (unreleased)
 
+### The sales document quick-create dialogs publish the declared customers hosts (#6017)
+
+The "Create person" and "Create company" quick dialogs on the sales document form
+(`packages/core/src/modules/sales/components/documents/SalesDocumentForm.tsx`) rendered an embedded
+`CrudForm` with `entityIds` and no `injectionSpotId`. `CrudForm` therefore derived the injection host
+from the **first** entity id — `E.customers.customer_entity` on both dialogs — and published
+`crud-form:customers.customer_entity` and its `:fields` child instead of the hosts the customers module
+declares in its `extension-points.ts`. A widget registered against `crud-form:customers.person` or
+`crud-form:customers.company` reached the person and company detail pages but never these two dialogs.
+Both now pass `injectionSpotId={extensionPoints.hosts.personForm.spotId}` and
+`…hosts.companyForm.spotId`, read from the customers module's own declaration so the surfaces cannot
+drift apart again.
+
+**This is a breaking change under `BACKWARD_COMPATIBILITY.md` §6, accepted for this release without a
+bridge** — the same classification and waiver #5875 and #5882 record for the customers-module surfaces.
+§6 ("Widget Injection Spot IDs — FROZEN") says a change MUST NOT remove an existing spot ID from a page,
+and that is exactly what this does on these two dialogs. The removal is accepted rather than bridged
+because the id was never a *declared* host: no `extension-points.ts` entry ever named it, it existed only
+as a byproduct of `CrudForm` deriving a spot from the first entry in `entityIds`, and the deprecation
+protocol's dual-publish bridge is not reachable without changing `CrudForm` itself — the `:fields` child
+is resolved internally from the resolved spot id, and the `aliases`/`fallbacks` fields on a host
+declaration are consumed by the facts generator only, so declaring one would make the tooling agree while
+widgets still went dark.
+
+Nothing else about the dialogs changes: `entityIds` is untouched, so custom-field resolution and the
+component-replacement handle behave exactly as before, and validation and save are unaffected. Widgets
+already registered against `crud-form:customers.person` / `crud-form:customers.company` need no change and
+now additionally render in the matching quick dialog — including the `customer_accounts` Account Status and
+Company Users groups, which find no `recordId` in create mode and render their empty state.
+
+**Action for module authors — required if you target the legacy id.** If one of your widgets targets
+`crud-form:customers.customer_entity` or `crud-form:customers.customer_entity:fields` and you want it in
+the sales quick dialogs, add the canonical key alongside your existing one in your
+`widgets/injection-table.ts`:
+
+```ts
+export const injectionTable: ModuleInjectionTable = {
+  'crud-form:customers.customer_entity:fields': [myWidget],
+  'crud-form:customers.person:fields': [myWidget],
+  'crud-form:customers.company:fields': [myWidget],
+}
+```
+
+Keep the old key only while you still target a surface that publishes it. The person and company **create
+pages** and the "Add new person" dialog still do today; #5881 and #5915 bind them to the declared hosts and
+are not merged yet. Once both land, `crud-form:customers.customer_entity` is published by no page at all —
+the legacy v1 detail pages publish their own declared `customers.*.detail:details` hosts, not a derived
+`crud-form:*` spot — and the legacy key can be dropped. For the same reason the `example` module keeps its
+`crud-form:customers.customer_entity:fields` alias
+(`apps/mercato/src/modules/example/widgets/injection-table.ts`) for now; it becomes dead, and should be
+removed, when those two PRs merge.
+
 ### `entry.overrides` now actually applies in CLI, worker and scheduler processes (#5582)
 
 `entry.overrides` declared in your app's `src/modules.ts` used to take effect only in the Next.js
