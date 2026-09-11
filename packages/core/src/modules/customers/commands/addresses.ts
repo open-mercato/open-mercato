@@ -1,8 +1,7 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
-import type { CommandHandler } from '@open-mercato/shared/lib/commands'
-import { emitCrudSideEffects, emitCrudUndoSideEffects, buildChanges, requireId } from '@open-mercato/shared/lib/commands/helpers'
-import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
+import { makeAddressCommandSet } from '@open-mercato/shared/lib/commands/timeline'
 import { CustomerAddress } from '../data/entities'
 import { addressCreateSchema, addressUpdateSchema, type AddressCreateInput, type AddressUpdateInput } from '../data/validators'
 import {
@@ -10,16 +9,9 @@ import {
   ensureTenantScope,
   requireCustomerEntity,
   ensureSameScope,
-  extractUndoPayload,
   resolveParentResourceKind,
 } from './shared'
-import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
-import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { E } from '#generated/entities.ids.generated'
-import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
-import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
 const addressCrudIndexer: CrudIndexerConfig<CustomerAddress> = {
   entityType: E.customers.customer_address,
@@ -58,11 +50,6 @@ type AddressSnapshot = {
   isPrimary: boolean
 }
 
-type AddressUndoPayload = {
-  before?: AddressSnapshot | null
-  after?: AddressSnapshot | null
-}
-
 async function loadAddressSnapshot(em: EntityManager, id: string): Promise<AddressSnapshot | null> {
   const address = await em.findOne(CustomerAddress, { id }, { populate: ['entity'] })
   if (!address) return null
@@ -93,504 +80,155 @@ async function loadAddressSnapshot(em: EntityManager, id: string): Promise<Addre
   }
 }
 
-async function enforcePrimaryAddress(em: EntityManager, entityId: string, addressId: string): Promise<void> {
-  await em.nativeUpdate(
-    CustomerAddress,
-    { entity: entityId, id: { $ne: addressId }, isPrimary: true },
-    { isPrimary: false }
-  )
-}
+const addressCommands = makeAddressCommandSet<
+  CustomerAddress,
+  AddressSnapshot,
+  AddressCreateInput,
+  AddressUpdateInput
+>({
+  commandIds: {
+    create: 'customers.addresses.create',
+    update: 'customers.addresses.update',
+    delete: 'customers.addresses.delete',
+  },
+  resourceKind: 'customers.address',
+  auditLabels: {
+    create: ['customers.audit.addresses.create', 'Create address'],
+    update: ['customers.audit.addresses.update', 'Update address'],
+    delete: ['customers.audit.addresses.delete', 'Delete address'],
+  },
+  changeKeys: [
+    'entityId', 'name', 'purpose', 'companyName', 'addressLine1', 'addressLine2',
+    'buildingNumber', 'flatNumber', 'city', 'region', 'postalCode', 'country',
+    'latitude', 'longitude', 'isPrimary',
+  ],
+  messages: {
+    notFound: 'Address not found',
+    idRequired: 'Address id required',
+    redoUnavailable: '[internal] redo snapshot unavailable for address create',
+  },
+  entityClass: CustomerAddress,
+  indexer: addressCrudIndexer,
+  events: addressCrudEvents,
+  schemas: { create: addressCreateSchema, update: addressUpdateSchema },
+  atomicWrites: true,
 
-const createAddressCommand: CommandHandler<AddressCreateInput, { addressId: string }> = {
-  id: 'customers.addresses.create',
-  async execute(rawInput, ctx) {
-    const parsed = addressCreateSchema.parse(rawInput)
+  loadSnapshot: (em, id) => loadAddressSnapshot(em, id),
+  findRowForWrite: (em, id) => em.findOne(CustomerAddress, { id }),
+  createUndoTargetId: ({ logEntryResourceId }) => logEntryResourceId,
+
+  seedFromSnapshot: (snapshot) => ({
+    id: snapshot.id,
+    organizationId: snapshot.organizationId,
+    tenantId: snapshot.tenantId,
+    name: snapshot.name,
+    purpose: snapshot.purpose,
+    companyName: snapshot.companyName,
+    addressLine1: snapshot.addressLine1,
+    addressLine2: snapshot.addressLine2,
+    buildingNumber: snapshot.buildingNumber,
+    flatNumber: snapshot.flatNumber,
+    city: snapshot.city,
+    region: snapshot.region,
+    postalCode: snapshot.postalCode,
+    country: snapshot.country,
+    latitude: snapshot.latitude,
+    longitude: snapshot.longitude,
+    isPrimary: snapshot.isPrimary,
+  }),
+  assignFromSnapshot: (address, snapshot) => {
+    address.name = snapshot.name
+    address.purpose = snapshot.purpose
+    address.companyName = snapshot.companyName
+    address.addressLine1 = snapshot.addressLine1
+    address.addressLine2 = snapshot.addressLine2
+    address.buildingNumber = snapshot.buildingNumber
+    address.flatNumber = snapshot.flatNumber
+    address.city = snapshot.city
+    address.region = snapshot.region
+    address.postalCode = snapshot.postalCode
+    address.country = snapshot.country
+    address.latitude = snapshot.latitude
+    address.longitude = snapshot.longitude
+    address.isPrimary = snapshot.isPrimary
+  },
+
+  resolveParentForCreate: async ({ em, parsed, ctx }) => {
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
-
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const entity = await requireCustomerEntity(em, parsed.entityId, { tenantId: parsed.tenantId, organizationId: parsed.organizationId }, undefined, 'Customer not found')
     ensureSameScope(entity, parsed.organizationId, parsed.tenantId)
-
-    const address = em.create(CustomerAddress, {
-      organizationId: parsed.organizationId,
-      tenantId: parsed.tenantId,
-      entity,
-      name: parsed.name ?? null,
-      purpose: parsed.purpose ?? null,
-      companyName: parsed.companyName ?? null,
-      addressLine1: parsed.addressLine1,
-      addressLine2: parsed.addressLine2 ?? null,
-      buildingNumber: parsed.buildingNumber ?? null,
-      flatNumber: parsed.flatNumber ?? null,
-      city: parsed.city ?? null,
-      region: parsed.region ?? null,
-      postalCode: parsed.postalCode ?? null,
-      country: parsed.country ?? null,
-      latitude: parsed.latitude ?? null,
-      longitude: parsed.longitude ?? null,
-      isPrimary: parsed.isPrimary ?? false,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    })
-    await withAtomicFlush(em, [
-      async () => {
-        em.persist(address)
-        await em.flush()
-        if (address.isPrimary) {
-          await enforcePrimaryAddress(em, entity.id, address.id)
-        }
-      },
-    ], { transaction: true })
-
-    const de = (ctx.container.resolve('dataEngine') as DataEngine)
-    await emitCrudSideEffects({
-      dataEngine: de,
-      action: 'created',
-      entity: address,
-      identifiers: {
-        id: address.id,
-        organizationId: address.organizationId,
-        tenantId: address.tenantId,
-      },
-      indexer: addressCrudIndexer,
-      events: addressCrudEvents,
-    })
-
-    return { addressId: address.id }
+    return { relations: { entity }, parentId: entity.id }
   },
-  captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    return await loadAddressSnapshot(em, result.addressId)
+  resolveParentForRestore: async ({ em, snapshot }) => {
+    const entity = await requireCustomerEntity(em, snapshot.entityId, { tenantId: snapshot.tenantId, organizationId: snapshot.organizationId }, undefined, 'Customer not found')
+    return { relations: { entity }, parentId: snapshot.entityId }
   },
-  buildLog: async ({ result, snapshots }) => {
-    const { translate } = await resolveTranslations()
-    const snapshot = snapshots.after as AddressSnapshot | undefined
-    return {
-      actionLabel: translate('customers.audit.addresses.create', 'Create address'),
-      resourceKind: 'customers.address',
-      resourceId: result.addressId,
-      parentResourceKind: resolveParentResourceKind(snapshot?.entityKind),
-      parentResourceId: snapshot?.entityId ?? null,
-      tenantId: snapshot?.tenantId ?? null,
-      organizationId: snapshot?.organizationId ?? null,
-      snapshotAfter: snapshot ?? null,
-      payload: {
-        undo: {
-          after: snapshot ?? null,
-        } satisfies AddressUndoPayload,
-      },
-    }
-  },
-  undo: async ({ logEntry, ctx }) => {
-    const addressId = logEntry?.resourceId ?? null
-    if (!addressId) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const address = await em.findOne(CustomerAddress, { id: addressId })
-    if (address) {
-      em.remove(address)
-      await em.flush()
-    }
-  },
-  redo: async ({ logEntry, ctx }) => {
-    const after = resolveRedoSnapshot<AddressSnapshot>(logEntry)
-    if (!after) {
-      throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for address create' })
-    }
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const entity = await requireCustomerEntity(em, after.entityId, { tenantId: after.tenantId, organizationId: after.organizationId }, undefined, 'Customer not found')
-    let address = await findOneWithDecryption(
-      em,
+  primaryParentIdOfEntity: (address) => (typeof address.entity === 'string' ? address.entity : address.entity.id),
+  enforcePrimary: async (em, parentId, addressId) => {
+    await em.nativeUpdate(
       CustomerAddress,
-      { id: after.id },
-      undefined,
-      { tenantId: after.tenantId, organizationId: after.organizationId },
+      { entity: parentId, id: { $ne: addressId }, isPrimary: true },
+      { isPrimary: false },
     )
-    if (!address) {
-      address = em.create(CustomerAddress, {
-        id: after.id,
-        organizationId: after.organizationId,
-        tenantId: after.tenantId,
-        entity,
-        name: after.name,
-        purpose: after.purpose,
-        companyName: after.companyName,
-        addressLine1: after.addressLine1,
-        addressLine2: after.addressLine2,
-        buildingNumber: after.buildingNumber,
-        flatNumber: after.flatNumber,
-        city: after.city,
-        region: after.region,
-        postalCode: after.postalCode,
-        country: after.country,
-        latitude: after.latitude,
-        longitude: after.longitude,
-        isPrimary: after.isPrimary,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      })
-      em.persist(address)
-    } else {
-      address.entity = entity
-      address.name = after.name
-      address.purpose = after.purpose
-      address.companyName = after.companyName
-      address.addressLine1 = after.addressLine1
-      address.addressLine2 = after.addressLine2
-      address.buildingNumber = after.buildingNumber
-      address.flatNumber = after.flatNumber
-      address.city = after.city
-      address.region = after.region
-      address.postalCode = after.postalCode
-      address.country = after.country
-      address.latitude = after.latitude
-      address.longitude = after.longitude
-      address.isPrimary = after.isPrimary
+  },
+
+  buildCreateData: ({ parsed, relations }) => ({
+    organizationId: parsed.organizationId,
+    tenantId: parsed.tenantId,
+    ...relations,
+    name: parsed.name ?? null,
+    purpose: parsed.purpose ?? null,
+    companyName: parsed.companyName ?? null,
+    addressLine1: parsed.addressLine1,
+    addressLine2: parsed.addressLine2 ?? null,
+    buildingNumber: parsed.buildingNumber ?? null,
+    flatNumber: parsed.flatNumber ?? null,
+    city: parsed.city ?? null,
+    region: parsed.region ?? null,
+    postalCode: parsed.postalCode ?? null,
+    country: parsed.country ?? null,
+    latitude: parsed.latitude ?? null,
+    longitude: parsed.longitude ?? null,
+    isPrimary: parsed.isPrimary ?? false,
+  }),
+  applyUpdateFields: async ({ em, ctx, entity, parsed }) => {
+    if (parsed.entityId !== undefined) {
+      const parent = await requireCustomerEntity(em, parsed.entityId, { tenantId: entity.tenantId, organizationId: entity.organizationId }, undefined, 'Customer not found')
+      ensureSameScope(parent, entity.organizationId, entity.tenantId)
+      entity.entity = parent
     }
-    const restoredAddress = address
-    await withAtomicFlush(em, [
-      async () => {
-        em.persist(restoredAddress)
-        await em.flush()
-        if (after.isPrimary) {
-          await enforcePrimaryAddress(em, after.entityId, after.id)
-        }
-      },
-    ], { transaction: true })
-
-    const de = (ctx.container.resolve('dataEngine') as DataEngine)
-    await emitCrudSideEffects({
-      dataEngine: de,
-      action: 'created',
-      entity: restoredAddress,
-      identifiers: {
-        id: restoredAddress.id,
-        organizationId: restoredAddress.organizationId,
-        tenantId: restoredAddress.tenantId,
-      },
-      indexer: addressCrudIndexer,
-      events: addressCrudEvents,
-    })
-
-    return { addressId: restoredAddress.id }
+    if (parsed.name !== undefined) entity.name = parsed.name ?? null
+    if (parsed.purpose !== undefined) entity.purpose = parsed.purpose ?? null
+    if (parsed.companyName !== undefined) entity.companyName = parsed.companyName ?? null
+    if (parsed.addressLine1 !== undefined) entity.addressLine1 = parsed.addressLine1
+    if (parsed.addressLine2 !== undefined) entity.addressLine2 = parsed.addressLine2 ?? null
+    if (parsed.buildingNumber !== undefined) entity.buildingNumber = parsed.buildingNumber ?? null
+    if (parsed.flatNumber !== undefined) entity.flatNumber = parsed.flatNumber ?? null
+    if (parsed.city !== undefined) entity.city = parsed.city ?? null
+    if (parsed.region !== undefined) entity.region = parsed.region ?? null
+    if (parsed.postalCode !== undefined) entity.postalCode = parsed.postalCode ?? null
+    if (parsed.country !== undefined) entity.country = parsed.country ?? null
+    if (parsed.latitude !== undefined) entity.latitude = parsed.latitude ?? null
+    if (parsed.longitude !== undefined) entity.longitude = parsed.longitude ?? null
+    if (parsed.isPrimary !== undefined) entity.isPrimary = parsed.isPrimary
   },
-}
 
-const updateAddressCommand: CommandHandler<AddressUpdateInput, { addressId: string }> = {
-  id: 'customers.addresses.update',
-  async prepare(rawInput, ctx) {
-    const parsed = addressUpdateSchema.parse(rawInput)
-    const em = (ctx.container.resolve('em') as EntityManager)
-    const snapshot = await loadAddressSnapshot(em, parsed.id)
-    return snapshot ? { before: snapshot } : {}
-  },
-  async execute(rawInput, ctx) {
-    const parsed = addressUpdateSchema.parse(rawInput)
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const address = await em.findOne(CustomerAddress, { id: parsed.id })
-    if (!address) throw notFound('Address not found')
+  logMeta: (snapshot) => ({
+    parentResourceKind: resolveParentResourceKind(snapshot.entityKind),
+    parentResourceId: snapshot.entityId ?? null,
+  }),
+  ensureRowInScope: (ctx, address) => {
     ensureTenantScope(ctx, address.tenantId)
     ensureOrganizationScope(ctx, address.organizationId)
-
-    if (parsed.entityId !== undefined) {
-      const entity = await requireCustomerEntity(em, parsed.entityId, { tenantId: address.tenantId, organizationId: address.organizationId }, undefined, 'Customer not found')
-      ensureSameScope(entity, address.organizationId, address.tenantId)
-      address.entity = entity
-    }
-
-    await withAtomicFlush(em, [
-      () => {
-        if (parsed.name !== undefined) address.name = parsed.name ?? null
-        if (parsed.purpose !== undefined) address.purpose = parsed.purpose ?? null
-        if (parsed.companyName !== undefined) address.companyName = parsed.companyName ?? null
-        if (parsed.addressLine1 !== undefined) address.addressLine1 = parsed.addressLine1
-        if (parsed.addressLine2 !== undefined) address.addressLine2 = parsed.addressLine2 ?? null
-        if (parsed.buildingNumber !== undefined) address.buildingNumber = parsed.buildingNumber ?? null
-        if (parsed.flatNumber !== undefined) address.flatNumber = parsed.flatNumber ?? null
-        if (parsed.city !== undefined) address.city = parsed.city ?? null
-        if (parsed.region !== undefined) address.region = parsed.region ?? null
-        if (parsed.postalCode !== undefined) address.postalCode = parsed.postalCode ?? null
-        if (parsed.country !== undefined) address.country = parsed.country ?? null
-        if (parsed.latitude !== undefined) address.latitude = parsed.latitude ?? null
-        if (parsed.longitude !== undefined) address.longitude = parsed.longitude ?? null
-        if (parsed.isPrimary !== undefined) address.isPrimary = parsed.isPrimary
-      },
-      async () => {
-        if (address.isPrimary) {
-          await enforcePrimaryAddress(em, typeof address.entity === 'string' ? address.entity : address.entity.id, address.id)
-        }
-      },
-    ], { transaction: true })
-
-    const de = (ctx.container.resolve('dataEngine') as DataEngine)
-    await emitCrudSideEffects({
-      dataEngine: de,
-      action: 'updated',
-      entity: address,
-      identifiers: {
-        id: address.id,
-        organizationId: address.organizationId,
-        tenantId: address.tenantId,
-      },
-      indexer: addressCrudIndexer,
-      events: addressCrudEvents,
-    })
-
-    return { addressId: address.id }
   },
-  captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    return await loadAddressSnapshot(em, result.addressId)
+  buildResult: {
+    create: (address) => ({ addressId: address.id }),
+    update: (address) => ({ addressId: address.id }),
+    delete: (address) => ({ addressId: address.id }),
   },
-  buildLog: async ({ snapshots }) => {
-    const { translate } = await resolveTranslations()
-    const before = snapshots.before as AddressSnapshot | undefined
-    if (!before) return null
-    const afterSnapshot = snapshots.after as AddressSnapshot | undefined
-    const changes =
-      afterSnapshot && before
-        ? buildChanges(
-            before as unknown as Record<string, unknown>,
-            afterSnapshot as unknown as Record<string, unknown>,
-            [
-              'entityId',
-              'name',
-              'purpose',
-              'companyName',
-              'addressLine1',
-              'addressLine2',
-              'buildingNumber',
-              'flatNumber',
-              'city',
-              'region',
-              'postalCode',
-              'country',
-              'latitude',
-              'longitude',
-              'isPrimary',
-            ]
-          )
-        : {}
-    return {
-      actionLabel: translate('customers.audit.addresses.update', 'Update address'),
-      resourceKind: 'customers.address',
-      resourceId: before.id,
-      parentResourceKind: resolveParentResourceKind(before.entityKind),
-      parentResourceId: before.entityId ?? null,
-      tenantId: before.tenantId,
-      organizationId: before.organizationId,
-      snapshotBefore: before,
-      snapshotAfter: afterSnapshot ?? null,
-      changes,
-      payload: {
-        undo: {
-          before,
-          after: afterSnapshot ?? null,
-        } satisfies AddressUndoPayload,
-      },
-    }
-  },
-  undo: async ({ logEntry, ctx }) => {
-    const payload = extractUndoPayload<AddressUndoPayload>(logEntry)
-    const before = payload?.before
-    if (!before) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    let address = await em.findOne(CustomerAddress, { id: before.id })
-    const entity = await requireCustomerEntity(em, before.entityId, { tenantId: before.tenantId, organizationId: before.organizationId }, undefined, 'Customer not found')
-    if (!address) {
-      address = em.create(CustomerAddress, {
-        id: before.id,
-        organizationId: before.organizationId,
-        tenantId: before.tenantId,
-        entity,
-        name: before.name,
-        purpose: before.purpose,
-        companyName: before.companyName,
-        addressLine1: before.addressLine1,
-        addressLine2: before.addressLine2,
-        buildingNumber: before.buildingNumber,
-        flatNumber: before.flatNumber,
-        city: before.city,
-        region: before.region,
-        postalCode: before.postalCode,
-        country: before.country,
-        latitude: before.latitude,
-        longitude: before.longitude,
-        isPrimary: before.isPrimary,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      })
-      em.persist(address)
-    } else {
-      address.entity = entity
-      address.name = before.name
-      address.purpose = before.purpose
-      address.companyName = before.companyName
-      address.addressLine1 = before.addressLine1
-      address.addressLine2 = before.addressLine2
-      address.buildingNumber = before.buildingNumber
-      address.flatNumber = before.flatNumber
-      address.city = before.city
-      address.region = before.region
-      address.postalCode = before.postalCode
-      address.country = before.country
-      address.latitude = before.latitude
-      address.longitude = before.longitude
-      address.isPrimary = before.isPrimary
-    }
-    await withAtomicFlush(em, [
-      async () => {
-        em.persist(address)
-        await em.flush()
-        if (before.isPrimary) {
-          await enforcePrimaryAddress(em, before.entityId, before.id)
-        }
-      },
-    ], { transaction: true })
+})
 
-    const de = (ctx.container.resolve('dataEngine') as DataEngine)
-    await emitCrudUndoSideEffects({
-      dataEngine: de,
-      action: 'updated',
-      entity: address,
-      identifiers: {
-        id: address.id,
-        organizationId: address.organizationId,
-        tenantId: address.tenantId,
-      },
-      indexer: addressCrudIndexer,
-      events: addressCrudEvents,
-    })
-  },
-}
-
-const deleteAddressCommand: CommandHandler<{ body?: Record<string, unknown>; query?: Record<string, unknown> }, { addressId: string }> =
-  {
-    id: 'customers.addresses.delete',
-    async prepare(input, ctx) {
-      const id = requireId(input, 'Address id required')
-      const em = (ctx.container.resolve('em') as EntityManager)
-      const snapshot = await loadAddressSnapshot(em, id)
-      return snapshot ? { before: snapshot } : {}
-    },
-    async execute(input, ctx) {
-      const id = requireId(input, 'Address id required')
-      const em = (ctx.container.resolve('em') as EntityManager).fork()
-      const address = await em.findOne(CustomerAddress, { id })
-      if (!address) throw notFound('Address not found')
-      ensureTenantScope(ctx, address.tenantId)
-      ensureOrganizationScope(ctx, address.organizationId)
-      em.remove(address)
-      await em.flush()
-
-      const de = (ctx.container.resolve('dataEngine') as DataEngine)
-      await emitCrudSideEffects({
-        dataEngine: de,
-        action: 'deleted',
-        entity: address,
-        identifiers: {
-          id: address.id,
-          organizationId: address.organizationId,
-          tenantId: address.tenantId,
-        },
-        indexer: addressCrudIndexer,
-        events: addressCrudEvents,
-      })
-      return { addressId: address.id }
-    },
-    buildLog: async ({ snapshots }) => {
-      const before = snapshots.before as AddressSnapshot | undefined
-      if (!before) return null
-      const { translate } = await resolveTranslations()
-      return {
-        actionLabel: translate('customers.audit.addresses.delete', 'Delete address'),
-        resourceKind: 'customers.address',
-        resourceId: before.id,
-        parentResourceKind: resolveParentResourceKind(before.entityKind),
-        parentResourceId: before.entityId ?? null,
-        tenantId: before.tenantId,
-        organizationId: before.organizationId,
-        snapshotBefore: before,
-        payload: {
-          undo: {
-            before,
-          } satisfies AddressUndoPayload,
-        },
-      }
-    },
-    undo: async ({ logEntry, ctx }) => {
-      const payload = extractUndoPayload<AddressUndoPayload>(logEntry)
-      const before = payload?.before
-      if (!before) return
-      const em = (ctx.container.resolve('em') as EntityManager).fork()
-      const entity = await requireCustomerEntity(em, before.entityId, { tenantId: before.tenantId, organizationId: before.organizationId }, undefined, 'Customer not found')
-      let address = await em.findOne(CustomerAddress, { id: before.id })
-      if (!address) {
-        address = em.create(CustomerAddress, {
-          id: before.id,
-          organizationId: before.organizationId,
-          tenantId: before.tenantId,
-          entity,
-          name: before.name,
-          purpose: before.purpose,
-          companyName: before.companyName,
-          addressLine1: before.addressLine1,
-          addressLine2: before.addressLine2,
-          buildingNumber: before.buildingNumber,
-          flatNumber: before.flatNumber,
-          city: before.city,
-          region: before.region,
-          postalCode: before.postalCode,
-          country: before.country,
-          latitude: before.latitude,
-          longitude: before.longitude,
-          isPrimary: before.isPrimary,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        })
-        em.persist(address)
-      } else {
-        address.entity = entity
-        address.name = before.name
-        address.purpose = before.purpose
-        address.addressLine1 = before.addressLine1
-        address.addressLine2 = before.addressLine2
-        address.buildingNumber = before.buildingNumber
-        address.flatNumber = before.flatNumber
-        address.city = before.city
-        address.region = before.region
-        address.postalCode = before.postalCode
-        address.country = before.country
-        address.latitude = before.latitude
-        address.longitude = before.longitude
-        address.isPrimary = before.isPrimary
-      }
-      await withAtomicFlush(em, [
-        async () => {
-          em.persist(address)
-          await em.flush()
-          if (before.isPrimary) {
-            await enforcePrimaryAddress(em, before.entityId, before.id)
-          }
-        },
-      ], { transaction: true })
-
-      const de = (ctx.container.resolve('dataEngine') as DataEngine)
-      await emitCrudUndoSideEffects({
-        dataEngine: de,
-        action: 'created',
-        entity: address,
-        identifiers: {
-          id: address.id,
-          organizationId: address.organizationId,
-          tenantId: address.tenantId,
-        },
-        indexer: addressCrudIndexer,
-        events: addressCrudEvents,
-      })
-    },
-  }
-
-registerCommand(createAddressCommand)
-registerCommand(updateAddressCommand)
-registerCommand(deleteAddressCommand)
+registerCommand(addressCommands.create)
+registerCommand(addressCommands.update)
+registerCommand(addressCommands.delete)
