@@ -109,6 +109,12 @@ export function PerspectiveSidebar({
   const perspectivesRef = React.useRef(perspectives)
   perspectivesRef.current = perspectives
 
+  const rolePerspectivesRef = React.useRef(rolePerspectives)
+  rolePerspectivesRef.current = rolePerspectives
+
+  const activePerspectiveIdRef = React.useRef(activePerspectiveId)
+  activePerspectiveIdRef.current = activePerspectiveId
+
   const flushAutosave = React.useCallback(() => {
     if (autosaveRef.current) {
       clearTimeout(autosaveRef.current)
@@ -119,7 +125,31 @@ export function PerspectiveSidebar({
   const scheduleAutosave = React.useCallback(() => {
     if (!activePerspectiveId || mode.type === 'new') return
     const activePersonal = perspectivesRef.current.find((p) => p.id === activePerspectiveId)
-    if (!activePersonal) return
+    if (!activePersonal) {
+      // Role perspectives live in their own collection and are shared, so they
+      // are never autosaved into. Say so instead of dropping the edit in
+      // silence — the old early return made a discarded change look saved
+      // (#5113). The timer is reused purely to debounce the hint across a burst
+      // of column toggles.
+      const activeRole = rolePerspectivesRef.current.find((p) => p.id === activePerspectiveId)
+      if (!activeRole) return
+      flushAutosave()
+      const warnedId = activeRole.id
+      autosaveRef.current = setTimeout(() => {
+        autosaveRef.current = null
+        // Switching away within the debounce window makes the warning obsolete —
+        // it would name a shared view the user is no longer editing.
+        if (activePerspectiveIdRef.current !== warnedId) return
+        flash(
+          t(
+            'ui.perspectives.autosave.sharedView',
+            'Shared views do not save automatically. Use Clone to keep these changes in your own view.',
+          ),
+          'warning',
+        )
+      }, 400)
+      return
+    }
     flushAutosave()
     const targetId = activePersonal.id
     const targetName = activePersonal.name
@@ -393,7 +423,10 @@ export function PerspectiveSidebar({
                 {t('ui.perspectives.savedViews.new', 'New')}
               </Button>
               {(perspectives ?? emptyArray).map((p) => {
-                const isActive = activePerspectiveId === p.id
+                // While the new-view form is open the sidebar is creating, not
+                // editing: keeping a chip lit reads as "I am editing the active
+                // view" and hides the mode switch (#5113).
+                const isActive = !isNew && activePerspectiveId === p.id
                 const deleting = deletingIds.includes(p.id)
                 const isShared = sharedIds.has(p.id)
                 return (
@@ -426,7 +459,10 @@ export function PerspectiveSidebar({
                   return !perspectives.some((pp) => pp.name.trim() === rpName)
                 })
                 .map((p) => {
-                const isActive = activePerspectiveId === p.id
+                // While the new-view form is open the sidebar is creating, not
+                // editing: keeping a chip lit reads as "I am editing the active
+                // view" and hides the mode switch (#5113).
+                const isActive = !isNew && activePerspectiveId === p.id
                 const clearing = roleClearingIds.includes(p.roleId)
                 return (
                   <ViewChip
