@@ -61,6 +61,9 @@ export function tryStrategy<TResult>(
   }
 }
 
+/** The largest value `staff_time_entries.rounded_minutes` — a PostgreSQL `integer` — can hold. */
+export const MAX_STORED_MINUTES = 2_147_483_647
+
 /**
  * Clamps a strategy's answer to something the column it lands in can hold.
  *
@@ -71,8 +74,49 @@ export function tryStrategy<TResult>(
  * nothing without saying so. The shipped default `unitMinutes: 0` makes this the
  * FIRST thing a plausible contribution hits — `Math.floor(raw / ctx.settings.unitMinutes)`
  * is division by zero.
+ *
+ * Three answers are refused rather than stored, and each one logs, because the rule
+ * this file encodes is that a degraded contribution degrades *loudly*:
+ *
+ *  - **Not a finite number** — nothing to clamp toward; take the built-in.
+ *  - **Negative** — a duration that ran backwards is not a value to clamp to zero.
+ *    Storing `0` is exactly the silent zero-bill the paragraph above describes, so a
+ *    negative takes the built-in arm alongside `NaN`.
+ *  - **Larger than the column** — the INSERT would fail with an out-of-range error
+ *    and 500 the write, which is the propagation these helpers exist to prevent.
+ *    Clamped down to the column's ceiling so the write still lands.
  */
-export function clampToStoredMinutes(value: unknown, fallback: () => number): number {
-  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback()
-  return Math.max(0, Math.round(value))
+export function clampToStoredMinutes(
+  registryId: string,
+  strategyId: string,
+  value: unknown,
+  fallback: () => number,
+): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    logger.error('a time-tracking strategy answered a non-finite duration; falling back to the built-in', {
+      registryId,
+      strategyId,
+      value: String(value),
+    })
+    return fallback()
+  }
+  if (value < 0) {
+    logger.error('a time-tracking strategy answered a negative duration; falling back to the built-in', {
+      registryId,
+      strategyId,
+      value,
+    })
+    return fallback()
+  }
+  const rounded = Math.round(value)
+  if (rounded > MAX_STORED_MINUTES) {
+    logger.error('a time-tracking strategy answered more minutes than the column can hold; clamping', {
+      registryId,
+      strategyId,
+      value,
+      max: MAX_STORED_MINUTES,
+    })
+    return MAX_STORED_MINUTES
+  }
+  return rounded
 }

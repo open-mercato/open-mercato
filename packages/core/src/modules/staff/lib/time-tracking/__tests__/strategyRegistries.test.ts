@@ -18,6 +18,7 @@ import {
   resolveTimeRoundingStrategy,
   roundMinutes,
 } from '../rounding'
+import { MAX_STORED_MINUTES } from '../registries/invoke'
 import {
   BUILT_IN_TIME_RATE_RESOLVER_ID,
   applicableRate,
@@ -553,14 +554,50 @@ describe('a contributed strategy cannot corrupt the value it returns', () => {
     }
   })
 
-  it('clamps a fractional or negative answer to something the column can hold', () => {
+  it('rounds a fractional answer to a whole number of minutes', () => {
     const dispose = registerTimeRoundingStrategy({
       id: 'test.fractional',
       labelKey: 'test.fractional',
+      round: (raw) => raw / 3,
+    })
+    try {
+      expect(roundMinutes(62, { unitMinutes: 15, direction: 'up' }, SCOPE)).toBe(21)
+    } finally {
+      dispose()
+    }
+  })
+
+  /**
+   * A negative is not a value to clamp toward. `Math.max(0, …)` would store `0`
+   * minutes, and `entryAmount` then bills the entry at nothing — the silent
+   * zero-bill the clamp exists to prevent. It takes the built-in arm instead.
+   */
+  it('falls back to the built-in rounding when a strategy answers a negative duration', () => {
+    const dispose = registerTimeRoundingStrategy({
+      id: 'test.negative',
+      labelKey: 'test.negative',
       round: (raw) => -raw / 3,
     })
     try {
-      expect(roundMinutes(62, { unitMinutes: 15, direction: 'up' }, SCOPE)).toBe(0)
+      expect(roundMinutes(62, { unitMinutes: 15, direction: 'up' }, SCOPE)).toBe(75)
+    } finally {
+      dispose()
+    }
+  })
+
+  /**
+   * `rounded_minutes` is a PostgreSQL `integer`. A finite answer above its ceiling
+   * survived the old guard unchanged and reached the INSERT, which failed
+   * out-of-range and 500'd the write — the propagation these helpers exist to stop.
+   */
+  it('caps an answer larger than the rounded_minutes column can hold', () => {
+    const dispose = registerTimeRoundingStrategy({
+      id: 'test.astronomical',
+      labelKey: 'test.astronomical',
+      round: () => 1e12,
+    })
+    try {
+      expect(roundMinutes(62, { unitMinutes: 15, direction: 'up' }, SCOPE)).toBe(MAX_STORED_MINUTES)
     } finally {
       dispose()
     }

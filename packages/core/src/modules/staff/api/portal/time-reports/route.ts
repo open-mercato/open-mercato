@@ -135,7 +135,8 @@ export async function resolvePortalScope(req: Request): Promise<PortalScope | Re
   try {
     const customerAuth = await import('@open-mercato/core/modules/customer_accounts/lib/customerAuth')
     auth = await customerAuth.getCustomerAuthFromRequest(req)
-    requireFeature = customerAuth.requireCustomerFeature as unknown as CustomerFeatureGuard
+    const guard: unknown = (customerAuth as { requireCustomerFeature?: unknown }).requireCustomerFeature
+    requireFeature = typeof guard === 'function' ? (guard as CustomerFeatureGuard) : null
   } catch (err) {
     logger.warn('staff portal time-reports could not resolve customer auth', { err })
     return NextResponse.json({ ok: false, error: 'staff.errors.unauthorized' }, { status: 401 })
@@ -151,16 +152,26 @@ export async function resolvePortalScope(req: Request): Promise<PortalScope | Re
     return NextResponse.json({ ok: false, error: 'staff.errors.customerAccountNotLinked' }, { status: 403 })
   }
 
+  // A missing guard is a failed feature check, not an absent one: without it the
+  // tenant loses the ability to REVOKE `portal.time_reports.view`, since a customer
+  // role stripped of the grant would keep reading reports. (Not a disclosure —
+  // `portalOwnedReportClause` still pins tenant, organization, customer and
+  // `status = 'closed'` — but revocation has to keep working.)
+  if (!requireFeature) {
+    logger.error('staff portal time-reports could not resolve requireCustomerFeature; refusing the request', {
+      feature: PORTAL_TIME_REPORTS_VIEW_FEATURE,
+    })
+    return NextResponse.json({ ok: false, error: 'staff.errors.forbidden' }, { status: 403 })
+  }
+
   const container = await createRequestContainer()
-  if (requireFeature) {
-    try {
-      const rbac = container.resolve('customerRbacService')
-      await requireFeature(auth, [PORTAL_TIME_REPORTS_VIEW_FEATURE], rbac)
-    } catch (response) {
-      if (response instanceof Response) return response
-      logger.warn('staff portal time-reports feature check failed', { err: response })
-      return NextResponse.json({ ok: false, error: 'staff.errors.forbidden' }, { status: 403 })
-    }
+  try {
+    const rbac = container.resolve('customerRbacService')
+    await requireFeature(auth, [PORTAL_TIME_REPORTS_VIEW_FEATURE], rbac)
+  } catch (response) {
+    if (response instanceof Response) return response
+    logger.warn('staff portal time-reports feature check failed', { err: response })
+    return NextResponse.json({ ok: false, error: 'staff.errors.forbidden' }, { status: 403 })
   }
 
   return {

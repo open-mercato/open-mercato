@@ -92,6 +92,39 @@ describe('FlashMessages', () => {
     expect(screen.getAllByText('Project team updated.')).toHaveLength(1)
   })
 
+  /**
+   * The handover is the half of the primary-host election that nothing else
+   * exercises. Only the first host to mount renders, so if it unmounts while a
+   * toast is up — a backend page tearing its `AppShell` down on navigation, with
+   * `FrontendLayout`'s host still mounted above it — the surviving host has to
+   * take over. If it did not, the message would vanish, which is worse than the
+   * duplicate this election replaced.
+   */
+  it('hands a displayed toast over when the primary host unmounts', () => {
+    function Hosts({ withPrimary }: { withPrimary: boolean }) {
+      return (
+        <>
+          {withPrimary ? <FlashMessages /> : null}
+          <FlashMessages />
+        </>
+      )
+    }
+
+    const { rerender } = renderWithProviders(<Hosts withPrimary />)
+
+    act(() => {
+      flash('Project team updated.', 'success')
+    })
+
+    expect(screen.getAllByText('Project team updated.')).toHaveLength(1)
+
+    act(() => {
+      rerender(<Hosts withPrimary={false} />)
+    })
+
+    expect(screen.getAllByText('Project team updated.')).toHaveLength(1)
+  })
+
   it('auto-dismisses programmatic flashes', () => {
     renderWithProviders(<FlashMessages />)
 

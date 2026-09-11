@@ -98,20 +98,27 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => container),
 }))
 
+const shippedCustomerFeatureGuard = jest.fn(
+  async (
+    auth: { sub: string },
+    features: string[],
+    rbac: { userHasAllFeatures: (userId: string, required: string[]) => Promise<boolean> },
+  ) => {
+    const ok = await rbac.userHasAllFeatures(auth.sub, features)
+    if (!ok) {
+      throw new Response(JSON.stringify({ ok: false, error: 'Insufficient permissions' }), { status: 403 })
+    }
+  },
+)
+
+/** Set to `undefined` by the test that renames the export out from under the route. */
+let mockCustomerFeatureGuard: unknown = shippedCustomerFeatureGuard
+
 jest.mock('@open-mercato/core/modules/customer_accounts/lib/customerAuth', () => ({
   getCustomerAuthFromRequest: jest.fn(async () => customerAuthValue),
-  requireCustomerFeature: jest.fn(
-    async (
-      auth: { sub: string },
-      features: string[],
-      rbac: { userHasAllFeatures: (userId: string, required: string[]) => Promise<boolean> },
-    ) => {
-      const ok = await rbac.userHasAllFeatures(auth.sub, features)
-      if (!ok) {
-        throw new Response(JSON.stringify({ ok: false, error: 'Insufficient permissions' }), { status: 403 })
-      }
-    },
-  ),
+  get requireCustomerFeature() {
+    return mockCustomerFeatureGuard
+  },
 }))
 
 import { GET as listReports } from '../route'
@@ -139,6 +146,7 @@ function assertNoMoney(value: unknown, path = 'response'): void {
 beforeEach(() => {
   executeCalls.length = 0
   connection.execute.mockClear()
+  mockCustomerFeatureGuard = shippedCustomerFeatureGuard
   grantedPortalFeatures = ['portal.time_reports.view']
   customerAuthValue = {
     sub: 'customer-user-1',
@@ -193,6 +201,20 @@ describe('GET /api/staff/portal/time-reports', () => {
 
   it('refuses a portal role without the feature', async () => {
     grantedPortalFeatures = []
+    const response = await listReports(new Request('http://localhost/api/staff/portal/time-reports'))
+    expect(response.status).toBe(403)
+    expect(connection.execute).not.toHaveBeenCalled()
+  })
+
+  /**
+   * The guard is reached through a dynamic import, so a rename in
+   * `customer_accounts` cannot be caught at compile time. Treating the missing
+   * export as "no check configured" would leave the tenant unable to REVOKE
+   * `portal.time_reports.view` — the grant would keep reading reports after it was
+   * taken away — so the route refuses instead.
+   */
+  it('refuses the request when the portal feature guard cannot be resolved', async () => {
+    mockCustomerFeatureGuard = undefined
     const response = await listReports(new Request('http://localhost/api/staff/portal/time-reports'))
     expect(response.status).toBe(403)
     expect(connection.execute).not.toHaveBeenCalled()

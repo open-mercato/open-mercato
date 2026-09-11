@@ -92,10 +92,15 @@ export function resolveTimeRoundingStrategy(
  *
  * The result is written straight into `staff_time_entries.rounded_minutes` — an
  * `integer` column, and the only input to every amount the suite computes — so an
- * unusable answer is clamped back to the built-in's rather than stored. The built-in
- * is exempt from the clamp on purpose: it is the arithmetic the module shipped, it
- * cannot produce a non-finite or fractional value, and re-shaping its output would
- * be the behaviour change the registries exist to avoid.
+ * unusable answer is clamped back to the built-in's rather than stored, and one
+ * larger than the column can hold is capped at its ceiling rather than 500ing the
+ * write. The built-in is exempt from the clamp on purpose: it is the arithmetic the
+ * module shipped, it cannot produce a non-finite or fractional value, and re-shaping
+ * its output would be the behaviour change the registries exist to avoid.
+ *
+ * A strategy that *threw* has already been logged and replaced by `runStrategy`, so
+ * it returns the built-in directly instead of routing its `NaN` through the clamp,
+ * which would log the same failure a second time under the wrong description.
  */
 export function roundMinutes(
   raw: number,
@@ -106,11 +111,16 @@ export function roundMinutes(
   const builtIn = () => roundToUnit(raw, settings)
   if (strategy === builtInRoundingStrategy) return builtIn()
 
+  let threw = false
   const answer = runStrategy(
     TIME_ROUNDING_REGISTRY_ID,
     strategy.id,
     () => strategy.round(raw, { ...(ctx ?? {}), settings }),
-    () => Number.NaN,
+    () => {
+      threw = true
+      return Number.NaN
+    },
   )
-  return clampToStoredMinutes(answer, builtIn)
+  if (threw) return builtIn()
+  return clampToStoredMinutes(TIME_ROUNDING_REGISTRY_ID, strategy.id, answer, builtIn)
 }
