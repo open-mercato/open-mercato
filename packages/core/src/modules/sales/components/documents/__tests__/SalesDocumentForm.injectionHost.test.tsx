@@ -11,6 +11,8 @@ jest.setTimeout(20000)
 type CapturedCrudFormProps = {
   injectionSpotId?: string
   entityIds?: string[]
+  recordId?: string
+  versionHistory?: unknown
 }
 
 const capturedCrudFormProps: CapturedCrudFormProps[] = []
@@ -193,6 +195,19 @@ describe('SalesDocumentForm customer quick-create injection hosts', () => {
     expect(extensionSpotChildId(company.injectionSpotId as string, 'fields')).toBe(
       'crud-form:customers.company:fields',
     )
+  })
+
+  it('leaves the widgets in create mode with no record id', async () => {
+    const { person, company } = await renderQuickCreateDialogs()
+
+    // `CrudForm` derives `operation: 'create'` and an undefined injection-context
+    // `recordId` from the absence of both props, which is what lets a group widget
+    // registered on the newly bound host render its empty state instead of querying
+    // for a record that does not exist yet.
+    for (const props of [person, company]) {
+      expect(props.recordId).toBeUndefined()
+      expect(props.versionHistory).toBeUndefined()
+    }
   })
 
   it('keeps the existing entity ids so custom-field resolution is unchanged', async () => {
