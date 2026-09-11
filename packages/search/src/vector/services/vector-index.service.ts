@@ -2,6 +2,7 @@ import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+import { parseDecryptedFieldValue } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import {
   type VectorModuleConfig,
   type VectorEntityConfig,
@@ -269,6 +270,8 @@ export class VectorIndexService {
         args.tenantId,
         args.organizationId,
       )
+      const decryptedLinks = (decrypted as any).links ?? args.links
+      const decryptedPayload = (decrypted as any).payload ?? args.payload
       return {
         resultTitle: String((decrypted as any).resultTitle ?? args.resultTitle),
         resultSubtitle: ((decrypted as any).resultSubtitle ?? args.resultSubtitle) as any,
@@ -276,8 +279,8 @@ export class VectorIndexService {
         resultSnapshot: ((decrypted as any).resultSnapshot ?? args.resultSnapshot) as any,
         primaryLinkHref: ((decrypted as any).primaryLinkHref ?? args.primaryLinkHref) as any,
         primaryLinkLabel: ((decrypted as any).primaryLinkLabel ?? args.primaryLinkLabel) as any,
-        links: ((decrypted as any).links ?? args.links) as any,
-        payload: ((decrypted as any).payload ?? args.payload) as any,
+        links: (typeof decryptedLinks === 'string' ? parseDecryptedFieldValue(decryptedLinks) : decryptedLinks) as any,
+        payload: (typeof decryptedPayload === 'string' ? parseDecryptedFieldValue(decryptedPayload) : decryptedPayload) as any,
       }
     } catch (err) {
       searchDebugWarn('vector.index', 'Vector entry decryption failed; refusing to return ciphertext as plaintext', {

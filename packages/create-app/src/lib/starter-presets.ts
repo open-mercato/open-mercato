@@ -41,6 +41,14 @@ const EMPTY_MODULES: ModuleEntry[] = [
   // table the token strategy reads, so the palette works with no Meilisearch and no
   // embedding provider configured.
   { id: 'search', from: SEARCH },
+  // `directory` above ships the organization branding page, whose logo picker uploads
+  // through `POST /api/attachments` — a route only the `attachments` module registers.
+  // Without it the upload 404s silently instead of failing visibly, so `attachments`
+  // belongs in the baseline rather than in a single preset's extras (issue #5897).
+  // It costs nothing to enable: it lives in `@open-mercato/core`, already pinned in the
+  // template's package.json, and every `OM_ATTACHMENT_*` / OCR / S3 setting defaults to
+  // a working local-filestore configuration.
+  { id: 'attachments', from: CORE },
 ]
 
 export const STARTER_PRESETS: Record<string, StarterPreset> = {
@@ -73,7 +81,8 @@ export const STARTER_PRESETS: Record<string, StarterPreset> = {
       mode: 'patch',
       add: [
         { id: 'customers', from: CORE },
-        { id: 'attachments', from: CORE },
+        // `attachments` is inherited from EMPTY_MODULES; re-adding it here would make
+        // `resolvePreset` throw on duplicate module ids.
         { id: 'messages', from: CORE },
         { id: 'dictionaries', from: CORE },
         { id: 'feature_toggles', from: CORE },

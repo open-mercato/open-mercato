@@ -2,6 +2,7 @@
 
 import { Button } from '@open-mercato/ui/primitives/button'
 import { useEffect, useState } from 'react'
+import { reportDevRuntimeError } from '@open-mercato/shared/lib/dev-runtime/report'
 import { reloadPage } from './global-error-reload'
 
 export function isNetworkError(error: unknown): boolean {
@@ -32,6 +33,12 @@ type GlobalErrorProps = {
 export default function GlobalError({ error, reset }: GlobalErrorProps) {
   const [isOffline, setIsOffline] = useState<boolean>(false)
   const networkError = isNetworkError(error)
+
+  // Best-effort dev diagnostic. It is a no-op outside a supervised dev runtime
+  // and never blocks or retries, so the fallback below always renders.
+  useEffect(() => {
+    reportDevRuntimeError({ kind: 'global-error', error })
+  }, [error])
 
   useEffect(() => {
     if (typeof navigator !== 'undefined' && typeof navigator.onLine === 'boolean') {
