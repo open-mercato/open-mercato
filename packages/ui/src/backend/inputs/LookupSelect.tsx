@@ -116,8 +116,12 @@ export function LookupSelect({
     if (onReadyRef.current) onReadyRef.current({ setQuery })
   }, [setQuery])
 
-  const shouldSearch =
-    defaultOpen || query.trim().length >= minQuery || Boolean(value && (options?.length ?? 0) > 0)
+  // A set `value` always opens the list: it is the only place the selected row,
+  // its checkmark and the clear control render, so collapsing over a selection
+  // would hide it with no way to see or undo it. This used to also require an
+  // `options` prop, which left every caller that resolves its selection through
+  // `fetchItems` blind whenever minQuery kept the list shut.
+  const shouldSearch = defaultOpen || query.trim().length >= minQuery || Boolean(value)
 
   React.useEffect(() => {
     setActiveIndex(-1)

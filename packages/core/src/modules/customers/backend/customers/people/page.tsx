@@ -856,8 +856,8 @@ export default function CustomersPeoplePage() {
         header: def.label || def.key,
         enableSorting: true,
         meta: {
-          columnChooserGroup: def.group?.title ?? 'Custom Fields',
-          filterGroup: def.group?.title ?? 'Custom Fields',
+          columnChooserGroup: def.group?.title ?? t('ui.columnChooser.customFieldsGroup', 'Custom Fields'),
+          filterGroup: def.group?.title ?? t('ui.columnChooser.customFieldsGroup', 'Custom Fields'),
           filterType: mapCustomFieldKindToFilterType(def.kind),
           filterOptions: normalizeCustomFieldFilterOptions(def.options),
           hidden: def.listVisible === false,
@@ -900,6 +900,7 @@ export default function CustomersPeoplePage() {
           stickyFirstColumn
           stickyActionsColumn
           title={t('customers.people.list.title')}
+          titleHeadingLevel={1}
           refreshButton={{
             label: t('customers.people.list.actions.refresh'),
             onRefresh: () => { setSearch(''); setPage(1); handleRefresh() },

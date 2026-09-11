@@ -376,6 +376,87 @@ describe('HybridQueryEngine', () => {
     expect(emitEvent).not.toHaveBeenCalled()
   })
 
+  test('falls back when a cf sort is the only custom-field signal and no index rows exist', async () => {
+    const db = createFakeKysely({ baseTable: 'todos', hasIndexAny: false, baseCount: 5, indexCount: 0 })
+    const em = buildEm(db)
+    const fallback = { query: jest.fn().mockResolvedValue({ items: [], page: 1, pageSize: 20, total: 0 }) }
+    const emitEvent = jest.fn().mockResolvedValue(undefined)
+    const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
+
+    const opts = {
+      fields: ['id'],
+      sort: [{ field: 'cf:priority', dir: SortDir.Asc }],
+      organizationId: 'org1',
+      tenantId: 't1',
+    }
+    await engine.query('example:todo', opts)
+
+    expect(fallback.query).toHaveBeenCalledWith('example:todo', opts)
+  })
+
+  test('falls back and warns on partial coverage when a cf sort is the only custom-field signal', async () => {
+    process.env.FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES = 'false'
+    const db = createFakeKysely({ baseTable: 'todos', hasIndexAny: true, baseCount: 10, indexCount: 1 })
+    const em = buildEm(db)
+    const fallback = { query: jest.fn().mockResolvedValue({ items: [], page: 1, pageSize: 20, total: 0 }) }
+    const emitEvent = jest.fn().mockResolvedValue(undefined)
+    const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
+    mockLogger.warn.mockClear()
+
+    // The auto-reindex debounce is process-global; opting out keeps this test
+    // from consuming the slot a later test asserts on.
+    const result = await engine.query('example:todo', {
+      fields: ['id'],
+      sort: [{ field: 'cf:priority', dir: SortDir.Asc }],
+      organizationId: 'org1',
+      tenantId: 't1',
+      skipAutoReindex: true,
+    })
+
+    expect(fallback.query).toHaveBeenCalled()
+    expect(result.meta?.partialIndexWarning).toEqual(expect.objectContaining({
+      entity: 'example:todo', baseCount: 10, indexedCount: 1,
+    }))
+    expect((mockLogger.warn.mock.calls[0] || [])[0]).toContain('Partial index coverage')
+  })
+
+  test('keeps l10n-only sorts off the custom-field branch', async () => {
+    const db = createFakeKysely({ baseTable: 'todos', hasIndexAny: false, baseCount: 5, indexCount: 0 })
+    const em = buildEm(db)
+    const fallback = { query: jest.fn() }
+    const emitEvent = jest.fn().mockResolvedValue(undefined)
+    const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
+
+    // Neither engine ever applies an `l10n:` ordering — both drop it while
+    // resolving sorts — so it must not pay the coverage probes or divert the
+    // query to the ORM engine for an ordering that is thrown away.
+    await engine.query('example:todo', {
+      fields: ['id'],
+      sort: [{ field: 'l10n:title', dir: SortDir.Asc }],
+      organizationId: 'org1',
+      tenantId: 't1',
+    })
+
+    expect(fallback.query).not.toHaveBeenCalled()
+  })
+
+  test('keeps base-column-only sorts off the custom-field branch', async () => {
+    const db = createFakeKysely({ baseTable: 'todos', hasIndexAny: false, baseCount: 5, indexCount: 0 })
+    const em = buildEm(db)
+    const fallback = { query: jest.fn() }
+    const emitEvent = jest.fn().mockResolvedValue(undefined)
+    const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
+
+    await engine.query('example:todo', {
+      fields: ['id'],
+      sort: [{ field: 'id', dir: SortDir.Desc }],
+      organizationId: 'org1',
+      tenantId: 't1',
+    })
+
+    expect(fallback.query).not.toHaveBeenCalled()
+  })
+
   test('falls back and warns on partial coverage', async () => {
     process.env.FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES = 'false'
     const db = createFakeKysely({ baseTable: 'todos', hasIndexAny: true, baseCount: 10, indexCount: 1 })

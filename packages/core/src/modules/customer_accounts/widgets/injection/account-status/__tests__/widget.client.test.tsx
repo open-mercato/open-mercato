@@ -49,6 +49,17 @@ jest.mock('@tanstack/react-query', () => ({
 
 const mockApiCall = apiCall as jest.MockedFunction<typeof apiCall>
 
+const personFixture = {
+  person: {
+    primaryEmail: 'buyer@example.test',
+    displayName: 'Buyer Contact',
+  },
+  profile: {
+    firstName: 'Buyer',
+    lastName: 'Contact',
+  },
+}
+
 describe('customer_accounts AccountStatusWidget invite form', () => {
   beforeEach(() => {
     flashMock.mockClear()
@@ -56,6 +67,7 @@ describe('customer_accounts AccountStatusWidget invite form', () => {
     mockRunMutation.mockClear()
     mockQueryData.clear()
     mockQueryCalls.length = 0
+    mockQueryData.set('customer-account-person', personFixture)
     mockApiCall.mockReset()
     mockApiCall.mockImplementation(async (url: string, options?: RequestInit) => {
       if (typeof url === 'string' && url.includes('/api/customers/people/')) {
@@ -226,5 +238,60 @@ describe('customer_accounts AccountStatusWidget invite form', () => {
     )
     expect(listCall).toBeTruthy()
     expect(listCall?.[1]).toBeUndefined()
+  })
+
+  // #5499: an invitation created without a person link (portal invite, or a row
+  // predating the entity-ownership guard) is only reachable by the recipient
+  // address, so the widget must fall back to it before reporting "no account".
+  it('falls back to the recipient email when no invitation carries the person link', async () => {
+    mockApiCall.mockImplementation(async (url: string) => {
+      if (typeof url === 'string' && url.includes('personEntityId=person-entity-1')) {
+        return { ok: true, status: 200, result: { items: [], total: 0 } } as never
+      }
+      if (typeof url === 'string' && url.includes('email=buyer%40example.test')) {
+        return {
+          ok: true,
+          status: 200,
+          result: {
+            items: [{
+              id: 'invitation-orphan',
+              email: 'buyer@example.test',
+              expiresAt: '2026-06-18T12:00:00.000Z',
+            }],
+            total: 1,
+          },
+        } as never
+      }
+      return { ok: false, status: 500, result: { error: 'unexpected call' } } as never
+    })
+
+    render(<AccountStatusWidget context={{ recordId: 'person-entity-1' }} />)
+
+    const invitationQuery = mockQueryCalls.find(
+      (call) => call.queryKey[0] === 'customer-account-pending-invitation',
+    )
+    expect(invitationQuery).toBeTruthy()
+    expect(invitationQuery!.queryKey).toContain('buyer@example.test')
+
+    await expect(invitationQuery!.queryFn()).resolves.toMatchObject({ id: 'invitation-orphan' })
+  })
+
+  it('does not query invitations by email when the person has no primary email', async () => {
+    mockQueryData.set('customer-account-person', { person: { primaryEmail: null }, profile: null })
+    mockApiCall.mockImplementation(async () => (
+      { ok: true, status: 200, result: { items: [], total: 0 } } as never
+    ))
+
+    render(<AccountStatusWidget context={{ recordId: 'person-entity-1' }} />)
+
+    const invitationQuery = mockQueryCalls.find(
+      (call) => call.queryKey[0] === 'customer-account-pending-invitation',
+    )
+    await expect(invitationQuery!.queryFn()).resolves.toBeNull()
+
+    const emailCall = mockApiCall.mock.calls.find(
+      ([url]) => typeof url === 'string' && url.includes('email='),
+    )
+    expect(emailCall).toBeFalsy()
   })
 })

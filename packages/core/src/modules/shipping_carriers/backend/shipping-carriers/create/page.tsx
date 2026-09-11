@@ -19,7 +19,8 @@ const CreateCarrierShipmentPage = () => {
       <PageBody>
         <FormHeader
           backHref={wizard.backHref}
-          title={t('shipping_carriers.create.title', 'Create carrier shipment')}
+      title={t('shipping_carriers.create.title', 'Create carrier shipment')}
+      titleHeadingLevel={1}
         />
 
         <WizardNav step={wizard.step} onNavigate={wizard.goToStep} />

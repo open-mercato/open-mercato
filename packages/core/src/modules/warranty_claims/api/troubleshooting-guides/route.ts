@@ -2,6 +2,7 @@ import { z } from 'zod'
 import type { CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { parseBooleanFromUnknown } from '@open-mercato/shared/lib/boolean'
 import { buildIlikeTerm } from '@open-mercato/shared/lib/db/buildIlikeTerm'
 import { applyIdsFilter } from '../../lib/apiIdsFilter'
@@ -122,9 +123,22 @@ function toEntitySteps(value: unknown): Record<string, unknown> | null {
   if (value === undefined || value === null) return null
   const parsed = parseGuideSteps(value)
   if (!parsed) {
-    throw new CrudHttpError(400, { error: 'warranty_claims.errors.invalidTroubleshootingSteps' })
+    throw new CrudHttpError(400, { error: '[internal] troubleshooting steps reached the entity mapper unvalidated' })
   }
   return { prompt: parsed.prompt, options: parsed.options }
+}
+
+async function assertParsableGuideSteps(input: object): Promise<void> {
+  if (!hasOwn(input, 'steps')) return
+  const value = (input as { steps?: unknown }).steps
+  if (value === undefined || value === null || parseGuideSteps(value)) return
+  const { translate } = await resolveTranslations()
+  throw new CrudHttpError(400, {
+    error: translate(
+      'warranty_claims.errors.invalidTroubleshootingSteps',
+      'Troubleshooting steps must include a prompt and valid option branches.',
+    ),
+  })
 }
 
 function toTroubleshootingGuideEntityData(input: TroubleshootingGuideCreateInput): Record<string, unknown> {
@@ -237,6 +251,14 @@ const crud = makeCrudRoute<RawTroubleshootingGuideInput, RawTroubleshootingGuide
   create: {
     schema: rawBodySchema,
     mapToEntity: (input, ctx) => toTroubleshootingGuideEntityData(parseCreateInput(input, ctx)),
+  },
+  hooks: {
+    beforeCreate: async (input) => {
+      await assertParsableGuideSteps(input)
+    },
+    beforeUpdate: async (input) => {
+      await assertParsableGuideSteps(input)
+    },
   },
   update: {
     schema: rawBodySchema,

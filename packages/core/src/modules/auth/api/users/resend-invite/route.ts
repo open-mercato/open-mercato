@@ -139,7 +139,7 @@ export async function POST(req: Request) {
 
   let base: string
   try {
-    base = getSecurityEmailBaseUrl(req.url)
+    base = getSecurityEmailBaseUrl(req)
   } catch (error) {
     const mapped = mapSecurityEmailUrlError(error, {
       scope: 'auth.users.resend-invite',
@@ -175,7 +175,13 @@ export async function POST(req: Request) {
 
   let emailSent = true
   try {
-    await sendEmail({ to: user.email, subject, react: InviteUserEmail({ inviteUrl, copy }) })
+    await sendEmail({
+      to: user.email,
+      subject,
+      react: InviteUserEmail({ inviteUrl, copy }),
+      tenantId: user.tenantId ? String(user.tenantId) : auth.tenantId ?? undefined,
+      organizationId: user.organizationId ? String(user.organizationId) : null,
+    })
   } catch (err) {
     logger.error('Failed to send invitation email', { err })
     emailSent = false

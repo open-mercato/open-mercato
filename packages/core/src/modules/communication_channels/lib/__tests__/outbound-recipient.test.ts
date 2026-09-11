@@ -74,12 +74,46 @@ describe('validateOutboundRecipient', () => {
     })
   })
 
+  // The second half of #4976: a provider-native adapter is configured with its
+  // own outbound target (Discord's `defaultChannelId`), so omitting the
+  // recipient is how the documented smoke test addresses it. Before this, `to`
+  // was mandatory on every provider and the credential field was written by the
+  // connect dialog but read by no product path.
+  describe('an omitted recipient', () => {
+    it('is accepted on a provider-native provider, so the adapter default applies', () => {
+      expect(validateOutboundRecipient(undefined, providerNative)).toEqual({ ok: true })
+    })
+
+    it.each([undefined, null, {}, { recipientFormat: 'email' as const }, baseEmailCapabilities])(
+      'is still required on an email provider for capabilities %#',
+      (capabilities) => {
+        expect(validateOutboundRecipient(undefined, capabilities)).toEqual({
+          ok: false,
+          error: 'Recipient is required',
+        })
+      },
+    )
+
+    // Omission means `undefined` and nothing else. A caller that sent an
+    // explicit empty or null recipient meant to address someone and got it
+    // wrong; silently rerouting that to the provider default would deliver a
+    // message somewhere the caller never named.
+    it.each([
+      ['an empty string', ''],
+      ['null', null],
+    ])('does not extend to %s on a provider-native provider', (_label, recipient) => {
+      expect(validateOutboundRecipient(recipient, providerNative)).toEqual({
+        ok: false,
+        error: 'Recipient is required',
+      })
+    })
+  })
+
   describe('shape guards, both formats', () => {
     it.each([
       ['an empty string', ''],
       ['a non-string', 42],
       ['null', null],
-      ['undefined', undefined],
     ])('rejects %s', (_label, recipient) => {
       expect(validateOutboundRecipient(recipient, providerNative)).toEqual({
         ok: false,
