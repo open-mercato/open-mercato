@@ -441,6 +441,12 @@ hooks: {
 }
 ```
 
+`afterList` runs on the export paths too (`?format=csv|json|xml|markdown`), before the file
+bytes are produced, so a route that patches values in `afterList` exports the same shape it
+serves as JSON. The hook may mutate `response.items` in place or replace the array outright;
+either form is picked up. Note that `response.total`/`pageSize` on an export call describe the
+pre-hook batch, so use `response.items.length` if you need the exported row count.
+
 ## Response Caching
 
 The CRUD factory includes sophisticated caching to improve performance:
