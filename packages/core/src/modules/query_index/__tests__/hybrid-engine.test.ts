@@ -3,6 +3,7 @@ import { HybridQueryEngine, coerceSortDirection } from '../../query_index/lib/en
 import { BasicQueryEngine } from '@open-mercato/shared/lib/query/engine'
 import { SortDir } from '@open-mercato/shared/lib/query/types'
 import { clearSearchTokenPresenceCache } from '@open-mercato/shared/lib/search/availability'
+import { DECRYPT_REFUSAL_LOG_MESSAGE } from '@open-mercato/shared/lib/encryption/decryptScope'
 
 // The token-presence answer is cached process-wide (TTL); without clearing it,
 // probe-count assertions would observe hits from earlier tests in this file.
@@ -1924,5 +1925,246 @@ describe('HybridQueryEngine like/ilike routing by column encryption (applyColumn
     const legacy = (engine as any).buildBaseFilterExpression(eb, { field: 'display_name', op: 'ilike', value: 'ZK' }, resolveBase, qualify, 'customers:customer_entity', { ...runtime(undefined) })
     expect(JSON.stringify(known.toOperationNode())).toEqual(JSON.stringify(sql`false`.toOperationNode()))
     expect(JSON.stringify(legacy.toOperationNode())).toEqual(JSON.stringify(sql`true`.toOperationNode()))
+  })
+})
+
+describe('HybridQueryEngine decrypt tenant binding (#5430)', () => {
+  const buildEngine = (rows: any[], decryptEntityPayload: jest.Mock) => {
+    const db = createFakeKysely({
+      baseTable: 'users',
+      hasIndexAny: true,
+      baseCount: rows.length,
+      indexCount: rows.length,
+      rows: { users: rows },
+    })
+    return new HybridQueryEngine(
+      buildEm(db),
+      { query: jest.fn() } as any,
+      () => ({ emitEvent: jest.fn().mockResolvedValue(undefined) }),
+      undefined,
+      () => ({ decryptEntityPayload }),
+    )
+  }
+
+  test('returns ciphertext and never fetches a DEK when the row tenant contradicts the query tenant', async () => {
+    const decryptEntityPayload = jest.fn(async () => ({ name: 'Alice Owner' }))
+    const engine = buildEngine(
+      [{ id: 'user-1', name: 'encrypted-name', tenant_id: 'tenant-b', organization_id: 'org1' }],
+      decryptEntityPayload,
+    )
+    const result = await engine.query('auth:user', {
+      fields: ['id', 'name'],
+      tenantId: 'tenant-a',
+      page: { page: 1, pageSize: 50 },
+    })
+    expect(decryptEntityPayload).not.toHaveBeenCalled()
+    expect(result.items).toEqual([expect.objectContaining({ id: 'user-1', name: 'encrypted-name' })])
+  })
+
+  test('still decrypts a row whose tenant matches the query tenant', async () => {
+    const decryptEntityPayload = jest.fn(async () => ({ name: 'Alice Owner' }))
+    const engine = buildEngine(
+      [{ id: 'user-1', name: 'encrypted-name', tenant_id: 'tenant-a', organization_id: 'org1' }],
+      decryptEntityPayload,
+    )
+    const result = await engine.query('auth:user', {
+      fields: ['id', 'name'],
+      tenantId: 'tenant-a',
+      page: { page: 1, pageSize: 50 },
+    })
+    expect(decryptEntityPayload).toHaveBeenCalledWith(
+      'auth:user',
+      expect.objectContaining({ id: 'user-1' }),
+      'tenant-a',
+      'org1',
+    )
+    expect(result.items).toEqual([expect.objectContaining({ name: 'Alice Owner' })])
+  })
+
+  test('a row with no tenant of its own still decrypts under the caller tenant', async () => {
+    const decryptEntityPayload = jest.fn(async () => ({ name: 'Alice Owner' }))
+    const engine = buildEngine([{ id: 'user-1', name: 'encrypted-name', tenant_id: null }], decryptEntityPayload)
+    const result = await engine.query('auth:user', {
+      fields: ['id', 'name'],
+      tenantId: 'tenant-a',
+      organizationId: 'org1',
+      page: { page: 1, pageSize: 50 },
+    })
+    expect(decryptEntityPayload).toHaveBeenCalledWith(
+      'auth:user',
+      expect.objectContaining({ id: 'user-1' }),
+      'tenant-a',
+      'org1',
+    )
+    expect(result.items).toEqual([expect.objectContaining({ name: 'Alice Owner' })])
+  })
+
+  test('performs no DEK lookup at all when the query declines decryption', async () => {
+    const decryptEntityPayload = jest.fn(async () => ({ name: 'Alice Owner' }))
+    const engine = buildEngine(
+      [{ id: 'user-1', name: 'encrypted-name', tenant_id: 'tenant-a', organization_id: 'org1' }],
+      decryptEntityPayload,
+    )
+    const result = await engine.query('auth:user', {
+      fields: ['id', 'name'],
+      tenantId: 'tenant-a',
+      decryptEncryptedFields: false,
+      page: { page: 1, pageSize: 50 },
+    })
+    expect(decryptEntityPayload).not.toHaveBeenCalled()
+    expect(result.items).toEqual([expect.objectContaining({ name: 'encrypted-name' })])
+  })
+
+  test('an explicit true still decrypts', async () => {
+    const decryptEntityPayload = jest.fn(async () => ({ name: 'Alice Owner' }))
+    const engine = buildEngine(
+      [{ id: 'user-1', name: 'encrypted-name', tenant_id: 'tenant-a', organization_id: 'org1' }],
+      decryptEntityPayload,
+    )
+    const result = await engine.query('auth:user', {
+      fields: ['id', 'name'],
+      tenantId: 'tenant-a',
+      decryptEncryptedFields: true,
+      page: { page: 1, pageSize: 50 },
+    })
+    expect(decryptEntityPayload).toHaveBeenCalledTimes(1)
+    expect(result.items).toEqual([expect.objectContaining({ name: 'Alice Owner' })])
+  })
+
+  // A declined query must not take the plaintext-sort path: that path exists only to order rows by
+  // decrypted values, so running it without decryption would scan the whole candidate set and then
+  // order by ciphertext. The gate therefore sits on `getEncryptionService()`, upstream of the sort
+  // resolution — this mirrors the BasicQueryEngine case so a regression that moved it downstream is
+  // caught in both engines rather than only in `packages/shared`.
+  test('a declined query resolves no encrypted sort fields and never scans for a plaintext sort', async () => {
+    const plaintextById: Record<string, string> = { '1': 'Bravo', '2': 'Alpha' }
+    const buildSortFixture = () => {
+      const db = createFakeKysely({
+        baseTable: 'customer_entities',
+        hasIndexAny: true,
+        baseCount: 2,
+        indexCount: 2,
+        columns: [
+          { table_name: 'customer_entities', column_name: 'id' },
+          { table_name: 'customer_entities', column_name: 'tenant_id' },
+          { table_name: 'customer_entities', column_name: 'organization_id' },
+          { table_name: 'customer_entities', column_name: 'deleted_at' },
+          { table_name: 'customer_entities', column_name: 'display_name' },
+        ],
+        rows: {
+          customer_entities: [
+            { id: '1', tenant_id: 't1', organization_id: 'org1', display_name: 'cipher-b' },
+            { id: '2', tenant_id: 't1', organization_id: 'org1', display_name: 'cipher-a' },
+          ],
+        },
+      })
+      const decryptEntityPayload = jest.fn(async (_entityId: unknown, payload: Record<string, unknown>) => ({
+        display_name: plaintextById[String(payload.id)],
+      }))
+      const engine = new HybridQueryEngine(
+        buildEm(db),
+        { query: jest.fn() } as any,
+        () => ({ emitEvent: jest.fn().mockResolvedValue(undefined) }),
+        undefined,
+        () => ({
+          isEnabled: () => true,
+          getEncryptedFieldNames: async () => ['display_name'],
+          decryptEntityPayload,
+        }),
+      )
+      return { engine, decryptEntityPayload }
+    }
+    const queryOpts = {
+      fields: ['id', 'display_name'],
+      organizationId: 'org1',
+      tenantId: 't1',
+      sort: [{ field: 'display_name', dir: SortDir.Asc }],
+      page: { page: 1, pageSize: 10 },
+    }
+
+    const declined = buildSortFixture()
+    const declinedResult = await declined.engine.query('customers:customer_entity', {
+      ...queryOpts,
+      decryptEncryptedFields: false,
+    })
+    expect(declined.decryptEntityPayload).not.toHaveBeenCalled()
+    // Rows come back in the order the database produced them: no candidate scan, no in-memory sort.
+    expect(declinedResult.items.map((item: any) => item.display_name)).toEqual(['cipher-b', 'cipher-a'])
+
+    // Control: the same fixture DOES take the plaintext-sort path when decryption is allowed, so
+    // the assertions above cannot pass vacuously.
+    const allowed = buildSortFixture()
+    const allowedResult = await allowed.engine.query('customers:customer_entity', queryOpts)
+    expect(allowed.decryptEntityPayload).toHaveBeenCalled()
+    expect(allowedResult.items.map((item: any) => item.display_name)).toEqual(['Alpha', 'Bravo'])
+  })
+
+  // The decision reads the row's own tenant_id, which a caller-supplied `fields` list omits. The
+  // engine widens the projection to carry it and strips it back out of the response.
+  test('a projection without tenant_id still refuses a foreign-tenant row and hides the column', async () => {
+    const decryptEntityPayload = jest.fn(async () => ({ name: 'Alice Owner' }))
+    const engine = buildEngine(
+      [{ id: 'user-1', name: 'encrypted-name', tenant_id: 'tenant-b', organization_id: 'org1' }],
+      decryptEntityPayload,
+    )
+    const result = await engine.query('auth:user', {
+      fields: ['id', 'name', 'organization_id'],
+      tenantId: 'tenant-a',
+      page: { page: 1, pageSize: 50 },
+    })
+    expect(decryptEntityPayload).not.toHaveBeenCalled()
+    expect(Object.prototype.hasOwnProperty.call(result.items[0], 'tenant_id')).toBe(false)
+    expect((result.items[0] as any).organization_id).toBe('org1')
+  })
+
+  test('a caller that asked for tenant_id still gets it back', async () => {
+    const decryptEntityPayload = jest.fn(async () => ({ name: 'Alice Owner' }))
+    const engine = buildEngine(
+      [{ id: 'user-1', name: 'encrypted-name', tenant_id: 'tenant-a', organization_id: 'org1' }],
+      decryptEntityPayload,
+    )
+    const result = await engine.query('auth:user', {
+      fields: ['id', 'name', 'tenant_id'],
+      tenantId: 'tenant-a',
+      page: { page: 1, pageSize: 50 },
+    })
+    expect((result.items[0] as any).tenant_id).toBe('tenant-a')
+  })
+
+  // A declined query decrypts nothing, so a scope mismatch on it is not a refusal — warning about
+  // one would be noise, and the basic engine already returns before resolving the scope.
+  test('a declined query emits no decrypt-refusal warning', async () => {
+    mockLogger.warn.mockClear()
+    const decryptEntityPayload = jest.fn(async () => ({ name: 'Alice Owner' }))
+    const engine = buildEngine(
+      [{ id: 'user-1', name: 'encrypted-name', tenant_id: 'tenant-b', organization_id: 'org1' }],
+      decryptEntityPayload,
+    )
+    await engine.query('auth:user', {
+      fields: ['id', 'name'],
+      tenantId: 'tenant-a',
+      decryptEncryptedFields: false,
+      page: { page: 1, pageSize: 50 },
+    })
+    expect(decryptEntityPayload).not.toHaveBeenCalled()
+    expect(
+      mockLogger.warn.mock.calls.filter(([message]) => message === DECRYPT_REFUSAL_LOG_MESSAGE),
+    ).toHaveLength(0)
+  })
+
+  test('a refused row keeps its cf: custom-field values encrypted too', async () => {
+    const decryptEntityPayload = jest.fn(async () => ({ name: 'Alice Owner' }))
+    const engine = buildEngine(
+      [{ id: 'user-1', name: 'encrypted-name', tenant_id: 'tenant-b', 'cf:priority': 'enc:v1:cipher-priority' }],
+      decryptEntityPayload,
+    )
+    const result = await engine.query('auth:user', {
+      fields: ['id', 'name', 'cf:priority'],
+      includeCustomFields: true,
+      tenantId: 'tenant-a',
+      page: { page: 1, pageSize: 50 },
+    })
+    expect(decryptEntityPayload).not.toHaveBeenCalled()
+    expect((result.items[0] as any)['cf:priority']).toBe('enc:v1:cipher-priority')
   })
 })
