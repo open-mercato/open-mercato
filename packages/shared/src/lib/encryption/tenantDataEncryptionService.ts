@@ -174,6 +174,21 @@ function readEncryptedFieldsJson(row: Record<string, unknown>): EncryptedFieldRu
   return []
 }
 
+/**
+ * The KMS key id an encryption map's payloads are sealed under: a system-scoped map
+ * uses a per-entity key that exists before any tenant does, everything else uses the
+ * tenant's own key. Exported so callers that need to probe key availability without
+ * encrypting (the encryption CLIs) derive the same id instead of re-spelling the
+ * `system:` convention (#5950).
+ */
+export function resolveEncryptionKeyId(
+  entityId: string,
+  keyScope: EncryptionKeyScope | undefined,
+  tenantId: string | null | undefined
+): string | null {
+  return keyScope === 'system' ? `system:${entityId}` : tenantId ?? null
+}
+
 function getSqlConnection(em: EntityManager): SqlConnection | null {
   const source = em as { getConnection?: () => unknown }
   const conn = source.getConnection?.()
@@ -238,9 +253,23 @@ export class TenantDataEncryptionService {
     return dek
   }
 
-  private async resolveDekForEncrypt(tenantId: string | null): Promise<TenantDek | null> {
+  /**
+   * Resolves the DEK an encrypt call should seal under, provisioning one when the
+   * tenant has none yet.
+   *
+   * Provisioning writes real key material to the KMS/Vault backend, so it is a
+   * state change — not a cache fill. Callers whose intent is only to preview or
+   * check ("would this row be encrypted?") pass `createIfMissing: false` to get a
+   * `null` instead, leaving KMS untouched (issue #5950). The default stays `true`
+   * so every existing write path keeps provisioning on first use.
+   */
+  private async resolveDekForEncrypt(
+    tenantId: string | null,
+    options?: { createIfMissing?: boolean }
+  ): Promise<TenantDek | null> {
     const existing = await this.getDek(tenantId)
     if (existing || !tenantId) return existing ?? null
+    if (options?.createIfMissing === false) return null
     if (typeof this.kms.createTenantDek !== 'function') return existing ?? null
     // Dedupe concurrent first-time creation within this process so two callers
     // can't each generate a distinct DEK and overwrite one another (#2746).
@@ -564,11 +593,22 @@ export class TenantDataEncryptionService {
     return clone
   }
 
+  /**
+   * Encrypts the fields an entity's encryption map covers.
+   *
+   * `options.createMissingDek` (default `true`) controls whether a tenant without
+   * a DEK gets one provisioned as a side effect. Preview/check callers — most
+   * notably `mercato entities rotate-encryption-key --dry-run` — pass `false` so a
+   * read-only invocation cannot write key material to KMS (issue #5950). With
+   * `false` and no existing DEK the payload is returned unchanged, exactly as it
+   * is when the KMS declines to issue a key.
+   */
   async encryptEntityPayload(
     entityId: string,
     payload: Record<string, unknown>,
     tenantId: string | null | undefined,
-    organizationId?: string | null
+    organizationId?: string | null,
+    options?: { createMissingDek?: boolean }
   ): Promise<Record<string, unknown>> {
     if (!this.isEnabled()) {
       debug('⚪️ encrypt.skip.disabled', { entityId, tenantId })
@@ -585,8 +625,8 @@ export class TenantDataEncryptionService {
       debug('⚪️ encrypt.skip.no-map', { entityId, tenantId })
       return payload
     }
-    const keyId = map?.keyScope === 'system' ? `system:${entityId}` : tenantId ?? null
-    const dek = await this.resolveDekForEncrypt(keyId)
+    const keyId = resolveEncryptionKeyId(entityId, map?.keyScope, tenantId)
+    const dek = await this.resolveDekForEncrypt(keyId, { createIfMissing: options?.createMissingDek !== false })
     if (!dek) {
       debug('⚠️ encrypt.skip.no-dek', { entityId, tenantId, keyScope: map?.keyScope ?? 'tenant' })
       return payload
@@ -616,7 +656,7 @@ export class TenantDataEncryptionService {
       debug('⚪️ decrypt.skip.no-map', { entityId, tenantId })
       return payload
     }
-    const keyId = map?.keyScope === 'system' ? `system:${entityId}` : tenantId ?? null
+    const keyId = resolveEncryptionKeyId(entityId, map?.keyScope, tenantId)
     const dek = await this.getDek(keyId)
     if (!dek) {
       debug('⚠️ decrypt.skip.no-dek', { entityId, tenantId, keyScope: map?.keyScope ?? 'tenant' })
