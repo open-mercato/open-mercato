@@ -2810,6 +2810,7 @@
   "customers.timeline.planned.reschedule": "Przełóż",
   "customers.timeline.planned.schedule": "Zaplanuj",
   "customers.timeline.planned.title": "Zaplanowane aktywności",
+  "customers.timeline.planned.tomorrow": "Jutro {{time}}",
   "customers.timeline.planned.upcoming": "Nadchodzące",
   "customers.timeline.unpin": "Odepnij",
   "customers.widgets.common.unknown": "Nieznane",

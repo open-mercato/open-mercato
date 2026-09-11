@@ -2810,6 +2810,7 @@
   "customers.timeline.planned.reschedule": "Reschedule",
   "customers.timeline.planned.schedule": "Schedule",
   "customers.timeline.planned.title": "Planned activities",
+  "customers.timeline.planned.tomorrow": "Mañana {{time}}",
   "customers.timeline.planned.upcoming": "Upcoming",
   "customers.timeline.unpin": "Unpin",
   "customers.widgets.common.unknown": "Desconocido",
