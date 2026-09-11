@@ -207,6 +207,14 @@ export interface RunParameter {
   entityType?: string | string[]
 }
 
+/**
+ * A control the `data_sync` dashboard renders on its "Run once now" card.
+ *
+ * - `fullSync` asks the run API for a `null` start cursor instead of a resolved one.
+ * - `batchSize` sets `StreamImportInput.batchSize` / `StreamExportInput.batchSize`.
+ */
+export type DataSyncStartControl = 'fullSync' | 'batchSize'
+
 export interface DataSyncAdapter {
   readonly providerKey: string
   readonly direction: 'import' | 'export' | 'bidirectional'
@@ -266,6 +274,43 @@ export interface DataSyncAdapter {
    * kinds — an incremental feed and a whole-table backfill.
    */
   persistsSharedCursor?(entityType: string): boolean
+  /**
+   * Whether a control on the Data Sync dashboard's "Run once now" card is
+   * meaningful for this entity type. Only an explicit `false` removes a
+   * control, so an adapter that declares nothing — or returns nothing — keeps
+   * today's form exactly.
+   *
+   * Return `false` for an entity type where the operator's choice reaches the
+   * adapter and changes nothing observable: an entity type whose cursor carries
+   * identity, so an inherited cursor is discarded and the run starts from the
+   * top whichever way `fullSync` is set; or one whose paging the source fixes,
+   * so `batchSize` is read and ignored. That card then omits the control rather
+   * than offering a switch whose "no effect" an operator cannot tell apart from
+   * "it worked".
+   *
+   * Core cannot infer this — it does not know what an entity type does with the
+   * values it is handed. The adapter does, and this is the channel for saying
+   * so.
+   *
+   * SCOPE: the "Run once now" card only. It does NOT gate the recurring-schedule
+   * switch on the same page, nor the per-entity-type "Full" switch on the
+   * integration settings tab — whose row-level run posts that schedule's own
+   * `fullSync` to the same run API. An adapter that declares `fullSync`
+   * inapplicable still sees those, and `buildDefaultScheduleState` may pre-set
+   * them to `true`. Harmless by construction, since the adapter has said the
+   * value does not matter, but do not read this predicate as covering every
+   * place a run can be started.
+   *
+   * This governs what the dashboard OFFERS, not what the API accepts:
+   * `POST /api/data_sync/run` keeps honouring both fields, so a client that
+   * posts `fullSync: true` still gets a `null` cursor whatever this returns.
+   *
+   * The predicate is per entity type for the same reason
+   * {@link DataSyncAdapter.persistsSharedCursor} is — one adapter commonly
+   * serves both an incremental feed and a whole-table backfill, and only one of
+   * them has a beginning to restart from.
+   */
+  supportsStartControl?(control: DataSyncStartControl, entityType: string): boolean
   getInitialCursor?(input: { entityType: string; scope: TenantScope }): Promise<string | null>
   getMapping(input: { entityType: string; scope: TenantScope }): Promise<DataMapping>
   validateConnection?(input: {

@@ -59,6 +59,7 @@
   "data_sync.dashboard.start.parametersHelp": "Opcjonalne wartości akceptowane przez tę integrację dla ręcznego uruchomienia.",
   "data_sync.dashboard.start.providerManaged": "Ta integracja uruchamia synchronizacje z własnego przepływu konfiguracji. Otwórz ustawienia integracji, aby kontynuować.",
   "data_sync.dashboard.start.runNowDescription": "Użyj tej opcji dla najbliższej natychmiastowej synchronizacji. Rozmiar partii i tryb pełnej synchronizacji dotyczą wyłącznie tego ręcznego przebiegu.",
+  "data_sync.dashboard.start.runNowDescriptionScoped": "Użyj tej opcji dla najbliższej natychmiastowej synchronizacji. Ustawienia wprowadzone tutaj dotyczą wyłącznie tego ręcznego przebiegu.",
   "data_sync.dashboard.start.runNowFootnote": "Ręczne przebiegi od razu pokazują postęp, a po uruchomieniu przenoszą na stronę szczegółów przebiegu.",
   "data_sync.dashboard.start.runNowTitle": "Uruchom teraz jednorazowo",
   "data_sync.dashboard.start.status.credentialsMissing": "Brak poświadczeń",
