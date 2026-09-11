@@ -19,6 +19,7 @@ import {
   type InlineMultilineEditorProps,
   type InlineTextEditorProps,
   InlineSelectEditor as UiInlineSelectEditor,
+  INLINE_TRIGGER_HIDDEN_CLASSES,
   type InlineSelectOption,
 } from '@open-mercato/ui/backend/detail/InlineEditors'
 import {
@@ -372,6 +373,9 @@ export function InlineNextInteractionEditor({
   const dateErrorId = React.useId()
   const nameErrorId = React.useId()
   const containerClasses = cn('group relative rounded-lg border p-4', activateOnClick && !editing ? 'cursor-pointer' : null)
+  const triggerLabel = editing
+    ? t('ui.detail.inline.cancel', 'Cancel')
+    : t('ui.detail.inline.edit', 'Edit')
   const requiredMessage = React.useMemo(
     () => t('customers.people.detail.inline.required', 'This field is required'),
     [t],
@@ -535,16 +539,16 @@ export function InlineNextInteractionEditor({
         size="sm"
         className={cn(
           'absolute right-3 top-3 transition-opacity duration-150',
-          editing
-            ? 'opacity-100'
-            : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100',
+          editing ? 'opacity-100' : INLINE_TRIGGER_HIDDEN_CLASSES,
         )}
         onClick={(event) => {
           event.stopPropagation()
           setEditing((state) => !state)
         }}
+        aria-label={triggerLabel}
+        title={triggerLabel}
       >
-        {editing ? <X className="h-4 w-4" /> : <Pencil className="h-4 w-4" />}
+        {editing ? <X className="h-4 w-4" aria-hidden /> : <Pencil className="h-4 w-4" aria-hidden />}
       </Button>
       <div className="flex items-start gap-2" {...interactiveProps}>
         <div className="flex-1">

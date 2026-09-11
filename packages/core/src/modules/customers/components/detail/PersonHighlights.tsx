@@ -322,7 +322,10 @@ export function PersonHighlights({
           className={
             editingCompany
               ? 'opacity-100'
-              : 'opacity-0 transition-opacity duration-150 group-hover:opacity-100 hover:opacity-100 focus-visible:opacity-100'
+              // The enclosing panel only activates once a company is assigned, and then it
+              // navigates to that company instead of opening this editor — so without the
+              // coarse-pointer reveal the Company field cannot be set or changed on touch.
+              : 'opacity-0 transition-opacity duration-150 group-hover:opacity-100 hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100'
           }
         >
           {editingCompany ? <X className="h-4 w-4" /> : <Pencil className="h-4 w-4" />}
