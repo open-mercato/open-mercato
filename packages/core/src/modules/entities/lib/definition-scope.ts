@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { CustomFieldDef } from '@open-mercato/core/modules/entities/data/entities'
+import { createVisibleDefinitionScopeClause } from './definition-scope-where'
 
 type AuthScope = {
   tenantId?: string | null
@@ -84,20 +85,11 @@ export function createVisibleDefinitionWhere(
   scope: DefinitionMutationScope,
   options: DefinitionVisibilityOptions = {},
 ) {
-  const organizationCandidates = [{ organizationId: null as string | null }]
-  if (scope.organizationId) organizationCandidates.unshift({ organizationId: scope.organizationId })
-
-  const tenantCandidates = [{ tenantId: null as string | null }]
-  if (scope.tenantId) tenantCandidates.unshift({ tenantId: scope.tenantId })
-
   return {
     entityId,
     key,
     ...options,
-    $and: [
-      { $or: organizationCandidates },
-      { $or: tenantCandidates },
-    ],
+    ...createVisibleDefinitionScopeClause(scope),
   }
 }
 
