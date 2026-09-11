@@ -10,7 +10,7 @@ type EnvLike = Record<string, string | undefined> & {
   APP_ALLOWED_ORIGINS?: string
   NODE_ENV?: string
 }
-type RequestInput = Request | string | undefined
+type RequestInput = Request | undefined
 
 export type SecurityEmailUrlErrorMapping = {
   scope: string
@@ -93,16 +93,14 @@ function readRequestOriginCandidates(input: RequestInput): RequestOriginCandidat
   }
   if (!input) return candidates
 
-  const requestUrl = typeof input === 'string' ? input : input.url
   let parsedUrl: URL
   try {
-    parsedUrl = new URL(requestUrl)
+    parsedUrl = new URL(input.url)
   } catch {
     return candidates
   }
 
   candidates.urlOrigin = normalizeOrigin(parsedUrl.origin)
-  if (typeof input === 'string') return candidates
 
   const forwardedProto = readFirstHeaderValue(input.headers.get('x-forwarded-proto')) ?? parsedUrl.protocol.replace(/:$/, '')
   const protocol = forwardedProto.endsWith(':') ? forwardedProto : `${forwardedProto}:`
@@ -131,15 +129,6 @@ function logOriginDebugContext(
   if (level === 'warn' && nodeEnv === 'test') return
   const log = (msg: string, fields: Record<string, unknown>) =>
     level === 'warn' ? logger.warn(msg, fields) : logger.error(msg, fields)
-
-  if (typeof input === 'string') {
-    log('Origin check rejected string input', {
-      requestUrl: input,
-      rejectedOrigin: rejectedOrigin ?? null,
-      allowedOrigins: Array.from(allowedOrigins),
-    })
-    return
-  }
 
   if (!input) {
     log('Origin check rejected empty input', {
