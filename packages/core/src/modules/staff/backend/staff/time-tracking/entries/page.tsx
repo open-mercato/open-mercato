@@ -1090,6 +1090,7 @@ export default function TimeTrackingEntriesPage() {
         <DataTable<TimeEntryListRow>
           extensionTableId={extensionPoints.hosts.timeEntriesTable.tableId}
           title={labels.title}
+          titleHeadingLevel={1}
           data={rows}
           columns={columns}
           isLoading={isLoading}

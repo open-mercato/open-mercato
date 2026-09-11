@@ -43,6 +43,7 @@ export default function TimeTrackingProjectCreatePage() {
       <PageBody>
         <CrudForm<ProjectFormValues>
           title={t('staff.time_tracking.projects.form.createTitle', 'New project')}
+          titleHeadingLevel={1}
           backHref={BACK_HREF}
           cancelHref={BACK_HREF}
           fields={fields}

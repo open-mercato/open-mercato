@@ -218,6 +218,7 @@ export default function TimeTrackingProjectEditPage({ params }: { params?: { id?
       <PageBody>
         <CrudForm<ProjectFormValues>
           title={t('staff.time_tracking.projects.form.editTitle', 'Edit project')}
+          titleHeadingLevel={1}
           backHref={detailHref}
           cancelHref={detailHref}
           fields={fields}

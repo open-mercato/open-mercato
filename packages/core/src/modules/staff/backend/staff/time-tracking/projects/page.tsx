@@ -1155,6 +1155,7 @@ export default function TimesheetProjectsPage() {
           <DataTable<ProjectRow>
             extensionTableId={extensionPoints.hosts.timeProjectsTable.tableId}
             title={labels.title}
+            titleHeadingLevel={1}
             data={rows}
             columns={columns}
             isLoading={isLoading}

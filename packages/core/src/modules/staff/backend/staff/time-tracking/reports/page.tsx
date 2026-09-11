@@ -205,6 +205,7 @@ export default function TimeTrackingReportsPage() {
         <DataTable<ReportRow>
           extensionTableId={extensionPoints.hosts.timeReportsTable.tableId}
           title={t('staff.time_tracking.nav.reports', 'Reports')}
+          titleHeadingLevel={1}
           columns={columns}
           data={rows}
           isLoading={loading}
