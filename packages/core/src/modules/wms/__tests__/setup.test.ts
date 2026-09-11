@@ -76,6 +76,7 @@ describe('wms setup role mappings', () => {
     expect(ACL_FEATURE_IDS).toEqual([
       'wms.view',
       'wms.manage_warehouses',
+      'wms.manage_sites',
       'wms.manage_zones',
       'wms.manage_locations',
       'wms.manage_inventory',

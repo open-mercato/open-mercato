@@ -24,6 +24,20 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.7.0 → 0.7.1 (unreleased)
 
+### WMS Site-management permissions use the standard ACL sync path
+
+The WMS `supervisor` role now receives `wms.manage_sites` through the module's declared
+`setup.defaultRoleFeatures`, as it does for new tenants. Existing tenants must ensure the
+WMS roles exist and then sync the additive default grants after deployment:
+
+```bash
+yarn mercato seed:defaults
+yarn mercato auth sync-role-acls
+```
+
+The sync is idempotent and does not revoke existing grants or create roles. No database
+migration is needed; in particular, permissions are not granted by matching a mutable role
+name in SQL.
 ### `entry.overrides` now actually applies in CLI, worker and scheduler processes (#5582)
 
 `entry.overrides` declared in your app's `src/modules.ts` used to take effect only in the Next.js

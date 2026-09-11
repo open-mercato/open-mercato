@@ -98,7 +98,7 @@ describe('attachWarehouseLabelsToListItems', () => {
         organizationId: 'org-1',
         organizationIds: ['org-1'],
         filters: { id: { $in: ['wh-1', 'wh-2'] } },
-        fields: ['id', 'name', 'code'],
+        fields: ['id', 'name', 'code', 'is_active'],
       }),
     )
     expect(payload.items[0]).toMatchObject({ warehouse_name: 'Main DC', warehouse_code: 'MAIN' })

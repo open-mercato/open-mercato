@@ -39,6 +39,7 @@ import {
 } from '@open-mercato/shared/lib/commands/helpers'
 import { loadCustomFieldSnapshot, buildCustomFieldResetMap } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { LockMode } from '@mikro-orm/core'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { CrudHttpError, isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
@@ -1065,9 +1066,64 @@ const deleteWarehouseCommand: CommandHandler<{ id?: string }, { warehouseId: str
     const warehouseId = requireId(input?.id, 'Warehouse')
     const em = resolveEm(ctx)
     const warehouse = await loadWarehouse(em, ctx, warehouseId)
-    warehouse.deletedAt = new Date()
-    await em.flush()
+    const wasPrimary = warehouse.isPrimary
+    const promotion: { fallback: Warehouse | null } = { fallback: null }
+    try {
+      await withAtomicFlush(
+        em,
+        [
+          async () => {
+            if (!wasPrimary) return
+            const [fallback] = await findWithDecryption(
+              em,
+              Warehouse,
+              {
+                id: { $ne: warehouse.id },
+                tenantId: warehouse.tenantId,
+                organizationId: warehouse.organizationId,
+                deletedAt: null,
+                isActive: true,
+                isPrimary: false,
+              },
+              {
+                orderBy: { createdAt: 'asc', id: 'asc' },
+                limit: 1,
+                lockMode: LockMode.PESSIMISTIC_WRITE,
+              },
+              { tenantId: warehouse.tenantId, organizationId: warehouse.organizationId },
+            )
+            promotion.fallback = fallback ?? null
+          },
+          () => {
+            warehouse.isPrimary = false
+            warehouse.deletedAt = new Date()
+            warehouse.updatedAt = new Date()
+          },
+          () => {
+            if (!promotion.fallback) return
+            promotion.fallback.isPrimary = true
+            promotion.fallback.updatedAt = new Date()
+          },
+        ],
+        { transaction: true, label: 'wms.warehouses.delete' },
+      )
+    } catch (err) {
+      if (isUniqueViolation(err, WMS_WAREHOUSE_PRIMARY_UNIQUE_CONSTRAINT)) {
+        await rejectPrimaryWarehouseConflict()
+      }
+      throw err
+    }
+    const fallback = promotion.fallback
     await emitWarehouseCrudSideEffects(ctx, 'deleted', warehouse)
+    if (fallback) {
+      await emitWarehouseCrudSideEffects(ctx, 'updated', fallback)
+      void emitWmsEvent('wms.warehouse.updated', {
+        id: fallback.id,
+        warehouseId: fallback.id,
+        tenantId: fallback.tenantId,
+        organizationId: fallback.organizationId,
+      }).catch(() => undefined)
+    }
     return { warehouseId: warehouse.id }
   },
   buildLog: async ({ input, result, ctx, snapshots }) => {
@@ -1080,35 +1136,32 @@ const deleteWarehouseCommand: CommandHandler<{ id?: string }, { warehouseId: str
     const before = payload?.before
     if (!before) return
     const em = resolveEm(ctx)
-    let record = await findOneWithDecryption(
-      em,
-      Warehouse,
-      { id: before.id },
-      undefined,
-      resolveScope(ctx, { tenantId: before.tenantId, organizationId: before.organizationId }),
-    )
-    if (!record) {
-      record = em.create(Warehouse, {
-        id: before.id,
-        organizationId: before.organizationId,
-        tenantId: before.tenantId,
-        name: before.name,
-        code: before.code,
-        isActive: before.isActive,
-        isPrimary: before.isPrimary,
-        addressLine1: before.addressLine1,
-        city: before.city,
-        postalCode: before.postalCode,
-        country: before.country,
-        timezone: before.timezone,
-        metadata: before.metadata,
-        createdAt: new Date(before.createdAt),
-        updatedAt: new Date(before.updatedAt),
-      })
-      em.persist(record)
-    } else {
-      ensureTenantScope(ctx, before.tenantId)
-      ensureOrganizationScope(ctx, before.organizationId)
+    const restored: { record: Warehouse | null; demoted: Warehouse | null } = { record: null, demoted: null }
+    const scope = { tenantId: before.tenantId, organizationId: before.organizationId }
+    const restoreRecord = () => {
+      let record = restored.record
+      if (!record) {
+        record = em.create(Warehouse, {
+          id: before.id,
+          organizationId: before.organizationId,
+          tenantId: before.tenantId,
+          name: before.name,
+          code: before.code,
+          isActive: before.isActive,
+          isPrimary: before.isPrimary,
+          addressLine1: before.addressLine1,
+          city: before.city,
+          postalCode: before.postalCode,
+          country: before.country,
+          timezone: before.timezone,
+          metadata: before.metadata,
+          createdAt: new Date(before.createdAt),
+          updatedAt: new Date(before.updatedAt),
+        })
+        em.persist(record)
+        restored.record = record
+        return
+      }
       record.deletedAt = null
       record.name = before.name
       record.code = before.code
@@ -1121,8 +1174,56 @@ const deleteWarehouseCommand: CommandHandler<{ id?: string }, { warehouseId: str
       record.timezone = before.timezone
       record.metadata = before.metadata
     }
-    await em.flush()
+    try {
+      await withAtomicFlush(
+        em,
+        [
+          async () => {
+            restored.record = await findOneWithDecryption(
+              em,
+              Warehouse,
+              { id: before.id, ...scope },
+              { lockMode: LockMode.PESSIMISTIC_WRITE },
+              scope,
+            )
+            if (restored.record) {
+              ensureTenantScope(ctx, restored.record.tenantId)
+              ensureOrganizationScope(ctx, restored.record.organizationId)
+            }
+            if (!before.isPrimary) return
+            restored.demoted = await findOneWithDecryption(
+              em,
+              Warehouse,
+              { id: { $ne: before.id }, ...scope, isPrimary: true, deletedAt: null },
+              { orderBy: { id: 'asc' }, lockMode: LockMode.PESSIMISTIC_WRITE },
+              scope,
+            )
+          },
+          () => {
+            if (restored.demoted) restored.demoted.isPrimary = false
+          },
+          restoreRecord,
+        ],
+        { transaction: true, label: 'wms.warehouses.delete.undo' },
+      )
+    } catch (err) {
+      if (isUniqueViolation(err, WMS_WAREHOUSE_PRIMARY_UNIQUE_CONSTRAINT)) {
+        await rejectPrimaryWarehouseConflict()
+      }
+      throw err
+    }
+    const record = restored.record
+    if (!record) return
     await emitWarehouseCrudSideEffects(ctx, 'created', record, 'undo')
+    if (restored.demoted) {
+      await emitWarehouseCrudSideEffects(ctx, 'updated', restored.demoted, 'undo')
+      void emitWmsEvent('wms.warehouse.updated', {
+        id: restored.demoted.id,
+        warehouseId: restored.demoted.id,
+        tenantId: restored.demoted.tenantId,
+        organizationId: restored.demoted.organizationId,
+      }).catch(() => undefined)
+    }
   },
 }
 

@@ -7,6 +7,7 @@ import {
   WMS_SUPERVISOR_FEATURES,
   WMS_SUPERVISOR_ROLE,
 } from './lib/roleFeatures'
+import { seedWmsDefaultTopology } from './lib/defaultTopology'
 import { seedWmsIntegrationToggles } from './lib/wmsIntegrationToggles'
 
 async function seedWmsRoles(em: Parameters<typeof ensureRoles>[0], tenantId: string): Promise<void> {
@@ -17,6 +18,10 @@ export const setup: ModuleSetupConfig = {
   seedDefaults: async (ctx) => {
     await seedWmsIntegrationToggles(ctx.em)
     await seedWmsRoles(ctx.em, ctx.tenantId)
+    await seedWmsDefaultTopology(ctx.em, {
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
+    })
   },
   defaultRoleFeatures: {
     admin: ['wms.*'],

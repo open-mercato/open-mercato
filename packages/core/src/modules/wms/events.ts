@@ -1,6 +1,11 @@
 import { createModuleEvents } from '@open-mercato/shared/modules/events'
 
 const events = [
+  { id: 'wms.site.created', label: 'Site Created', entity: 'site', category: 'crud' },
+  { id: 'wms.site.updated', label: 'Site Updated', entity: 'site', category: 'crud' },
+  { id: 'wms.site_warehouse_role.created', label: 'Site Warehouse Role Created', entity: 'site_warehouse_role', category: 'crud' },
+  { id: 'wms.site_warehouse_role.updated', label: 'Site Warehouse Role Updated', entity: 'site_warehouse_role', category: 'crud' },
+  { id: 'wms.site_warehouse_role.deleted', label: 'Site Warehouse Role Deleted', entity: 'site_warehouse_role', category: 'crud' },
   { id: 'wms.warehouse.created', label: 'Warehouse Created', entity: 'warehouse', category: 'crud' },
   { id: 'wms.warehouse.updated', label: 'Warehouse Updated', entity: 'warehouse', category: 'crud' },
   { id: 'wms.zone.created', label: 'Warehouse Zone Created', entity: 'zone', category: 'crud' },
