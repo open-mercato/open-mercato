@@ -150,11 +150,20 @@ one. Full analysis: `2026-09-10-jpk-kr-pd-financial-pl-analysis.md`
 research/analysis, not a spec). One concrete outcome already has a real
 spec in *this* repo, listed in the table above:
 `2026-09-10-general-ledger-bulk-read-service.md` (PR #6038) — the
-cross-module read contract `SPEC-010` (JPK_KR_PD, in `official-modules`,
-still not written — needs its own primary-source XSD verification
-pass first) will depend on. The GL core engine spec's Out of scope
-section (2026-09-10, three times now) tracks the same gap and points
-at the same document.
+cross-module read contract `SPEC-010` (JPK_KR_PD, in `official-modules`)
+will depend on. The GL core engine spec's Out of scope section
+(2026-09-10, three times now) tracks the same gap and points at the
+same document.
+
+**Update (2026-09-11) — a first draft of `SPEC-010` now exists.**
+`2026-09-11-jpk-kr-pd-financial-pl.md`, staged **temporarily** in this
+repo's own `.ai/specs/` (not yet moved to `official-modules`, and not
+yet through any review — see that file's own status banner). It still
+needs the primary-source XSD verification pass and depends on `#6038`
+merging first, so "buildable" hasn't changed — but "still not written"
+no longer describes it, and the GL core engine spec's Out of scope
+bullet (PR #5663) has been corrected to match (see that spec's own
+Changelog).
 
 ---
 
