@@ -94,16 +94,7 @@ export function SiteWarehouseRolesClient({
       ) as SiteWarehouseRoleType[],
     [defaultsQuery.data?.items],
   );
-  const rows = React.useMemo(
-    () =>
-      [...(query.data?.items ?? [])].sort(
-        (left, right) =>
-          left.role.localeCompare(right.role) ||
-          Number(right.isDefault) - Number(left.isDefault) ||
-          warehouseLabel(left).localeCompare(warehouseLabel(right)),
-      ),
-    [query.data?.items],
-  );
+  const rows = query.data?.items ?? [];
   const refresh = React.useCallback(async () => {
     await Promise.all([
       queryClient.invalidateQueries({

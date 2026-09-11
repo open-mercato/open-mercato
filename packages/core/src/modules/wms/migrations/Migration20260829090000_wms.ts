@@ -7,6 +7,14 @@ export class Migration20260829090000_wms extends Migration {
         rename constraint "wms_sowa_pkey" to "wms_sales_order_warehouse_assignments_pkey";
     `)
     this.addSql(`
+      delete from "wms_sales_order_warehouse_assignments" as assignment
+      where not exists (
+        select 1
+        from "wms_warehouses" as warehouse
+        where warehouse."id" = assignment."warehouse_id"
+      );
+    `)
+    this.addSql(`
       alter table "wms_sales_order_warehouse_assignments"
         add constraint "wms_sales_order_warehouse_assignments_warehouse_id_foreign"
         foreign key ("warehouse_id") references "wms_warehouses" ("id") not valid;

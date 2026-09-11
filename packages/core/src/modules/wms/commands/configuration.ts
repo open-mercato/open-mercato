@@ -1066,32 +1066,50 @@ const deleteWarehouseCommand: CommandHandler<{ id?: string }, { warehouseId: str
     const em = resolveEm(ctx)
     const warehouse = await loadWarehouse(em, ctx, warehouseId)
     const wasPrimary = warehouse.isPrimary
-    warehouse.isPrimary = false
-    warehouse.deletedAt = new Date()
-    let fallbackId: string | null = null
+    let fallback: Warehouse | null = null
     if (wasPrimary) {
-      const fallback = await findWithDecryption(
+      const [candidate] = await findWithDecryption(
         em,
         Warehouse,
         {
+          tenantId: warehouse.tenantId,
           organizationId: warehouse.organizationId,
           id: { $ne: warehouse.id },
+          isActive: true,
+          isPrimary: false,
           deletedAt: null,
         },
-        { orderBy: { createdAt: 'asc', id: 'asc' } },
+        { orderBy: { createdAt: 'asc', id: 'asc' }, limit: 1 },
         { tenantId: warehouse.tenantId, organizationId: warehouse.organizationId },
       )
-      fallbackId = fallback.find((record) => record.isActive && !record.isPrimary)?.id ?? null
+      fallback = candidate ?? null
     }
-    await em.flush()
-    if (fallbackId) {
-      await em.nativeUpdate(
-        Warehouse,
-        { id: fallbackId, tenantId: warehouse.tenantId, organizationId: warehouse.organizationId, deletedAt: null },
-        { isPrimary: true },
-      )
-    }
+    await withAtomicFlush(
+      em,
+      [
+        () => {
+          warehouse.isPrimary = false
+          warehouse.deletedAt = new Date()
+          warehouse.updatedAt = new Date()
+        },
+        () => {
+          if (!fallback) return
+          fallback.isPrimary = true
+          fallback.updatedAt = new Date()
+        },
+      ],
+      { transaction: true, label: 'wms.warehouses.delete' },
+    )
     await emitWarehouseCrudSideEffects(ctx, 'deleted', warehouse)
+    if (fallback) {
+      await emitWarehouseCrudSideEffects(ctx, 'updated', fallback)
+      void emitWmsEvent('wms.warehouse.updated', {
+        id: fallback.id,
+        warehouseId: fallback.id,
+        tenantId: fallback.tenantId,
+        organizationId: fallback.organizationId,
+      }).catch(() => undefined)
+    }
     return { warehouseId: warehouse.id }
   },
   buildLog: async ({ input, result, ctx, snapshots }) => {

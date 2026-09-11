@@ -29,6 +29,8 @@ test('TC-WMS-REVIEW-004: Escape cancels a warehouse-role dialog exactly like Can
     const warehouseInput = dialog.locator('[data-crud-field-id="warehouseId"] input').first()
     await warehouseInput.fill(warehouseName)
     await warehouseInput.press('Escape')
+    await expect(dialog).toBeVisible()
+    await warehouseInput.press('Escape')
     await expect(dialog).toHaveCount(0)
     await expect(page.getByText(warehouseName, { exact: true })).toHaveCount(0)
     expect(await listRoles(request, adminToken, siteId, scope.organizationId)).toHaveLength(0)

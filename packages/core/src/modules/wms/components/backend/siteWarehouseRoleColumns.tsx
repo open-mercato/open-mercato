@@ -22,8 +22,8 @@ export function buildSiteWarehouseRoleColumns(
       id: "warehouse",
       header: t("wms.sites.roles.columns.warehouse", "Warehouse"),
       cell: ({ row }) => (
-        <div className="space-y-1">
-          <span>{warehouseLabel(row.original)}</span>
+        <div className="min-w-0 space-y-1">
+          <span className="block truncate">{warehouseLabel(row.original)}</span>
           {!row.original.warehouse.isActive ? (
             <StatusBadge variant="warning">
               {t("wms.sites.roles.warehouseInactive", "Warehouse inactive")}

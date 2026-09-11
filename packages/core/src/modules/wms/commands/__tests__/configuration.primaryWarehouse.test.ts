@@ -1,6 +1,7 @@
 /** @jest-environment node */
 
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
+import { emitWmsEvent } from '../../events'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({
@@ -16,10 +17,18 @@ jest.mock('../../events', () => ({
 }))
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
-  findOneWithDecryption: (emInstance: { findOne: (...args: unknown[]) => unknown }, entity: unknown, filters: unknown) =>
-    emInstance.findOne(entity, filters),
-  findWithDecryption: (emInstance: { find: (...args: unknown[]) => unknown }, entity: unknown, filters: unknown) =>
-    emInstance.find(entity, filters),
+  findOneWithDecryption: (
+    emInstance: { findOne: (...args: unknown[]) => unknown },
+    entity: unknown,
+    filters: unknown,
+    options: unknown,
+  ) => emInstance.findOne(entity, filters, options),
+  findWithDecryption: (
+    emInstance: { find: (...args: unknown[]) => unknown },
+    entity: unknown,
+    filters: unknown,
+    options: unknown,
+  ) => emInstance.find(entity, filters, options),
 }))
 
 const TENANT = '11111111-1111-4111-8111-111111111111'
@@ -251,6 +260,78 @@ describe('WMS warehouse primary enforcement', () => {
     expect(store.records.get(PRIMARY_ID)?.isPrimary).toBe(false)
     expect(store.records.get(SECONDARY_ID)?.isPrimary).toBe(true)
     expect([...store.records.values()].filter((record) => record.isPrimary)).toHaveLength(1)
+  })
+
+  it('deletes a primary warehouse and promotes a scoped active fallback atomically', async () => {
+    const primaryUpdatedAt = new Date('2026-04-15T00:00:00.000Z')
+    const fallbackUpdatedAt = new Date('2026-04-15T00:00:00.000Z')
+    const store = createWarehouseStore([
+      {
+        id: PRIMARY_ID,
+        organizationId: ORG,
+        tenantId: TENANT,
+        name: 'Primary DC',
+        code: 'PRIMARY',
+        isActive: true,
+        isPrimary: true,
+        deletedAt: null,
+        addressLine1: null,
+        city: null,
+        postalCode: null,
+        country: null,
+        timezone: null,
+        metadata: null,
+        createdAt: primaryUpdatedAt,
+        updatedAt: primaryUpdatedAt,
+      },
+      {
+        id: SECONDARY_ID,
+        organizationId: ORG,
+        tenantId: TENANT,
+        name: 'Secondary DC',
+        code: 'SECONDARY',
+        isActive: true,
+        isPrimary: false,
+        deletedAt: null,
+        addressLine1: null,
+        city: null,
+        postalCode: null,
+        country: null,
+        timezone: null,
+        metadata: null,
+        createdAt: fallbackUpdatedAt,
+        updatedAt: fallbackUpdatedAt,
+      },
+    ])
+    const handler = commandRegistry.get('wms.warehouses.delete')!
+    const emitWmsEventMock = jest.mocked(emitWmsEvent)
+    emitWmsEventMock.mockClear()
+
+    await handler.execute!({ id: PRIMARY_ID }, createCtx(store.em) as never)
+
+    const primary = store.records.get(PRIMARY_ID)!
+    const fallback = store.records.get(SECONDARY_ID)!
+    expect(primary.deletedAt).toBeInstanceOf(Date)
+    expect(primary.isPrimary).toBe(false)
+    expect(fallback.isPrimary).toBe(true)
+    expect(fallback.updatedAt.getTime()).toBeGreaterThan(fallbackUpdatedAt.getTime())
+    expect(store.em.flush).toHaveBeenCalledTimes(2)
+    expect(store.em.nativeUpdate).not.toHaveBeenCalled()
+    expect(store.em.find).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        tenantId: TENANT,
+        organizationId: ORG,
+        isActive: true,
+        isPrimary: false,
+        deletedAt: null,
+      }),
+      expect.objectContaining({ limit: 1 }),
+    )
+    expect(emitWmsEventMock).toHaveBeenCalledWith(
+      'wms.warehouse.updated',
+      expect.objectContaining({ id: SECONDARY_ID }),
+    )
   })
 
   it('does not demote siblings when create/update does not set primary', async () => {
