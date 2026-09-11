@@ -60,9 +60,10 @@ export function isEncryptedLikeField(encrypted: ReadonlySet<string>, field: stri
   return fieldNameCandidates(field).some((candidate) => encrypted.has(candidate))
 }
 
-// The all-orgs union behind `getEncryptedFieldNames(..., organizationId: null)` is an UNCACHED
-// `encryption_maps` read. Encryption maps change on deploys, not per request, so a short TTL
-// removes the per-search round-trip without meaningfully delaying a map rollout.
+// The all-orgs union behind `getEncryptedFieldNames(..., organizationId: null)` reads
+// `encryption_maps`. The service caches that aggregate since #5949, but this set is per-search
+// hot and also spans the name-shape expansion below, so a short TTL keeps the whole resolved
+// set out of the request path without meaningfully delaying a map rollout.
 const ENCRYPTED_LIKE_FIELDS_TTL_MS = 60_000
 const ENCRYPTED_LIKE_FIELDS_CACHE_CAP = 500
 const encryptedLikeFieldsCache = new Map<string, { at: number; fields: Set<string> }>()
@@ -455,10 +456,10 @@ export class BasicQueryEngine implements QueryEngine {
     // `ignoreRuntimeHealth` asks the on-disk question -- a column holds ciphertext even while the
     // KMS is down -- so an outage keeps encrypted columns on the token path (#4622).
     // `organizationId: null` is deliberate, not an omission: the service then unions in every
-    // organization's map (`fetchAllOrganizationFieldNames`), so a field any org encrypts stays on
-    // the token path -- a wider set fails safe. Passing the request's org instead would silently
-    // break encrypted-column search for orgs without their own map. That union is an UNCACHED
-    // `encryption_maps` read, one extra round-trip per searched list request. `null` means
+    // organization's map, so a field any org encrypts stays on the token path -- a wider set
+    // fails safe. Passing the request's org instead would silently break encrypted-column search
+    // for orgs without their own map. The service caches that union (#5949), and the TTL cache
+    // above keeps even the cache lookup off the request path. `null` means
     // the encryption service could not answer at all; keep the pre-existing rewrite-everything
     // behavior then, because guessing "plaintext" would turn encrypted-column search into an
     // ILIKE-on-ciphertext that matches nothing.

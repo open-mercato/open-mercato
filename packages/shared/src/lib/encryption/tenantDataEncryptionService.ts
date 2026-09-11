@@ -44,10 +44,11 @@ function cacheKey(key: MapCacheKey): string {
   ].join(':')
 }
 
-// Tag for the aggregate of every organization-scoped map of an entity/tenant. It is deliberately
-// distinct from `cacheKey` so the aggregate never collides with a single map's cache entry.
+// Tag for the aggregate of every organization-scoped map of an entity/tenant. The prefix differs
+// from `cacheKey`'s in its first segment rather than by an extra one, so no entity id can spell a
+// tag that collides with an aggregate (`encmap:all-orgs:x:y` would be reachable both ways).
 function allOrganizationsCacheKey(entityId: string, tenantId: string | null): string {
-  return ['encmap', 'all-orgs', entityId.toLowerCase(), tenantId ?? 'null'].join(':')
+  return ['encmap-all-orgs', entityId.toLowerCase(), tenantId ?? 'null'].join(':')
 }
 
 function debug(event: string, payload: Record<string, unknown>) {
