@@ -6,6 +6,7 @@ import { dictionaryEntrySortModeSchema } from '@open-mercato/core/modules/dictio
 const uuid = () => z.string().uuid()
 
 export const CUSTOMER_PHONE_INVALID_MESSAGE_KEY = 'customers.people.form.primaryPhone.invalid'
+export const CUSTOMER_EMAIL_INVALID_MESSAGE_KEY = 'customers.people.form.primaryEmail.invalid'
 export const ACTIVITY_DATE_REQUIRED_MESSAGE_KEY = 'customers.activities.errors.dateRequired'
 export const ACTIVITY_TIME_REQUIRED_MESSAGE_KEY = 'customers.activities.errors.timeRequired'
 export const ACTIVITY_PHONE_REQUIRED_MESSAGE_KEY = 'customers.activities.errors.phoneRequired'
@@ -36,7 +37,7 @@ const phoneSchema = z.preprocess(
 
 const clearableEmailSchema = z.preprocess(
   emptyStringToNull,
-  z.string().email().max(320).nullable().optional(),
+  z.string().email(CUSTOMER_EMAIL_INVALID_MESSAGE_KEY).max(320).nullable().optional(),
 )
 
 const clearableUrlSchema = z.preprocess(

@@ -59,7 +59,7 @@ import {
   type CustomerDictionaryKind,
 } from '../lib/dictionaries'
 import { normalizeCustomFieldSubmitValue } from './detail/customFieldUtils'
-import { CUSTOMER_PHONE_INVALID_MESSAGE_KEY } from '../data/validators'
+import { CUSTOMER_EMAIL_INVALID_MESSAGE_KEY, CUSTOMER_PHONE_INVALID_MESSAGE_KEY } from '../data/validators'
 
 export const metadata = {
   navHidden: true,
@@ -124,7 +124,7 @@ type DictionarySelectFieldProps = {
 
 export { CUSTOMER_DICTIONARIES_MANAGE_HREF, getCustomerDictionaryManageHref }
 
-const emailValidationSchema = z.string().email()
+const emailValidationSchema = z.string().email(CUSTOMER_EMAIL_INVALID_MESSAGE_KEY)
 const EMAIL_CHECK_DEBOUNCE_MS = 350
 
 const createSectionHeadingField = (id: string, title: string): CrudField => ({
@@ -723,7 +723,7 @@ export const createPersonFormSchema = () =>
       primaryEmail: z
         .string()
         .trim()
-        .email()
+        .email(CUSTOMER_EMAIL_INVALID_MESSAGE_KEY)
         .optional()
         .or(z.literal(''))
         .transform((val) => (val === '' ? undefined : val)),
@@ -1141,7 +1141,7 @@ export const createCompanyFormSchema = () =>
       primaryEmail: z
         .string()
         .trim()
-        .email()
+        .email(CUSTOMER_EMAIL_INVALID_MESSAGE_KEY)
         .optional()
         .or(z.literal(''))
         .transform((val) => (val === '' ? undefined : val)),
@@ -1569,7 +1569,7 @@ const clearableEmailField = () =>
   z
     .string()
     .trim()
-    .email()
+    .email(CUSTOMER_EMAIL_INVALID_MESSAGE_KEY)
     .optional()
     .or(z.literal(''))
     .transform((val) => (val === '' ? null : val))

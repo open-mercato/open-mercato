@@ -2333,6 +2333,7 @@
   "customers.people.form.phoneDuplicateNotice": "이 전화번호는 이미 {{name}}에 지정되어 있습니다.",
   "customers.people.form.preferredName": "선호하는 이름",
   "customers.people.form.primaryEmail": "기본 이메일",
+  "customers.people.form.primaryEmail.invalid": "유효한 이메일 주소를 입력하세요 (예: name@example.com)",
   "customers.people.form.primaryEmailPlaceholder": "name@example.com",
   "customers.people.form.primaryPhone": "기본 전화번호",
   "customers.people.form.primaryPhone.invalid": "국가 코드를 포함한 유효한 전화번호를 입력하세요 (예: +1 212 555 1234)",
