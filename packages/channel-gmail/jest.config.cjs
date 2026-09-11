@@ -6,6 +6,7 @@ module.exports = {
   testEnvironment: 'node',
   watchman: false,
   rootDir: '.',
+  setupFilesAfterEnv: ['<rootDir>/jest.setup.ts'],
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
   moduleNameMapper: {
     '^@open-mercato/channel-gmail/(.*)$': '<rootDir>/src/$1',

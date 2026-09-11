@@ -331,7 +331,8 @@ export default function RulesListPage() {
     <Page>
       <PageBody>
         <DataTable
-          title={t('business_rules.list.title')}
+        title={t('business_rules.list.title')}
+        titleHeadingLevel={1}
           actions={(
             <Button asChild>
               <Link href="/backend/rules/create">

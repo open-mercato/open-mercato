@@ -10,6 +10,8 @@ registerEntityIds({
 const execute = jest.fn()
 const isEnabled = jest.fn(() => true)
 const encryptEntityPayload = jest.fn()
+const getDek = jest.fn()
+const defaultGetDek = async (keyId: string) => ({ tenantId: keyId, key: 'system-key', fetchedAt: 0 })
 const systemMaps = [
   {
     entityId: 'onboarding:onboarding_request',
@@ -34,10 +36,12 @@ jest.mock('@open-mercato/shared/modules/registry', () => ({
 jest.mock('@open-mercato/shared/lib/encryption/tenantDataEncryptionService', () => ({
   TenantDataEncryptionService: jest.fn().mockImplementation(() => ({
     isEnabled: () => isEnabled(),
-    getDek: jest.fn(async () => ({ tenantId: 'system:onboarding:onboarding_request', key: 'system-key', fetchedAt: 0 })),
+    getDek: (...args: unknown[]) => getDek(...args),
     encryptEntityPayload: (...args: unknown[]) => encryptEntityPayload(...args),
   })),
   parseDecryptedFieldValue: (decrypted: string) => decrypted,
+  resolveEncryptionKeyId: (entityId: string, keyScope: string | undefined, tenantId: string | null | undefined) =>
+    (keyScope === 'system' ? `system:${entityId}` : tenantId ?? null),
 }))
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
@@ -89,6 +93,7 @@ describe('entities backfill-system-encryption CLI', () => {
     jest.clearAllMocks()
     process.env.TENANT_DATA_ENCRYPTION = 'yes'
     isEnabled.mockReturnValue(true)
+    getDek.mockImplementation(defaultGetDek)
     encryptEntityPayload.mockImplementation(async (_entityId: string, payload: Record<string, unknown>) => {
       const next: Record<string, unknown> = { ...payload }
       for (const rule of systemMaps[0]!.fields) {
@@ -146,6 +151,50 @@ describe('entities backfill-system-encryption CLI', () => {
 
     expect(execute.mock.calls.filter(([sql]) => String(sql).startsWith('update'))).toHaveLength(0)
     expect(logSpy.mock.calls.flat().join('\n')).toContain('[dry-run] onboarding:onboarding_request: scanned 1, encrypted 1')
+  })
+
+  // Regression for #5950: encrypting is what provisions the system DEK, so a dry run
+  // against an entity that has none must not reach the encrypt call at all.
+  it('provisions no system DEK on --dry-run, and still reports the rows it would encrypt', async () => {
+    getDek.mockResolvedValue(null)
+    queueSelects([{ id: 'row-1', email: 'ada@example.com', email_hash: null, first_name: 'Ada' }])
+
+    await loadCommand().run(['--dry-run'])
+
+    expect(getDek).toHaveBeenCalledWith('system:onboarding:onboarding_request')
+    expect(encryptEntityPayload).not.toHaveBeenCalled()
+    expect(execute.mock.calls.filter(([sql]) => String(sql).startsWith('update'))).toHaveLength(0)
+    expect(warnSpy.mock.calls.flat().join('\n')).toContain('no key material was provisioned')
+    expect(logSpy.mock.calls.flat().join('\n')).toContain('[dry-run] onboarding:onboarding_request: scanned 1, encrypted 1')
+  })
+
+  it('asks the encryption service not to create a missing system DEK while dry-running', async () => {
+    queueSelects([{ id: 'row-1', email: 'ada@example.com', email_hash: null, first_name: 'Ada' }])
+
+    await loadCommand().run(['--dry-run'])
+
+    expect(encryptEntityPayload).toHaveBeenCalledWith(
+      'onboarding:onboarding_request',
+      expect.anything(),
+      null,
+      null,
+      { createMissingDek: false },
+    )
+  })
+
+  it('allows system DEK provisioning on a real run', async () => {
+    queueSelects([{ id: 'row-1', email: 'ada@example.com', email_hash: null, first_name: 'Ada' }])
+
+    await loadCommand().run([])
+
+    expect(getDek).not.toHaveBeenCalled() // no probe needed when provisioning is allowed
+    expect(encryptEntityPayload).toHaveBeenCalledWith(
+      'onboarding:onboarding_request',
+      expect.anything(),
+      null,
+      null,
+      { createMissingDek: true },
+    )
   })
 
   it('pages through rows with a keyset cursor', async () => {
