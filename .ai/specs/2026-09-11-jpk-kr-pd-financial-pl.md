@@ -1,11 +1,15 @@
 # SPEC-010 — JPK_KR_PD (Statutory Accounting Books e-Filing) for `financial_pl`
 
-> **Status: DRAFT — first pass, not reviewed.** Written from the
+> **Status: DRAFT — second pass, not reviewed.** Written from the
 > 2026-09-10 architecture analysis (`Claude outputs/2026-09-10-jpk-kr-pd-
 > financial-pl-analysis.md`). Three items below are carried over as
 > **explicit assumptions** rather than blocking Open Questions, per the
 > decision to draft now and iterate through review (see Open Questions /
-> Assumptions To Confirm).
+> Assumptions To Confirm). **2026-09-11 update:** enriched with a
+> citation-checked accounting-theory grounding for the Phase 2 `RPD`
+> design (Kieso Ch.19) and a fresh direct-repo code-analysis pass — see
+> Architecture → Design decisions / Code analysis below. No Open Question
+> was resolved by this pass; Q1–Q3 still stand.
 >
 > **⚠ Temporary location.** This spec describes a `financial_pl` feature
 > (implemented in the separate `official-modules` repo), and by this
@@ -160,6 +164,72 @@ shape, the same escape hatch `JpkDeclarationInputs` already provides for
 JPK_V7 fields with no automatic source), not computed — this keeps the
 filing legally submittable without solving book/tax reconciliation here.
 
+**Accounting-theory grounding for the Phase 2 `RPD` design (verified
+2026-09-11, per `financial-spec-citation-check`).** Kieso, Weygandt,
+Warfield, *Intermediate Accounting*, 17th Ed. — already this project's
+strongest-verified Tier 2 source (see
+`2026-09-08-financial-module-knowledge-base.md` §3) — was checked
+directly against Ch.19, "Accounting for Income Taxes" (full chapter,
+pp.19-1–19-40, not just the chapter title), specifically to see whether
+it gives Phase 2 a real starting taxonomy for the "deductibility
+classification" this document already flags as missing (`LedgerAccount`
+has no such flag today). It does, and the fit is closer than a guess —
+Kieso's core distinction is exactly the axis RPD needs:
+
+- **Temporary differences** — "the difference between the tax basis of
+  an asset or liability and its reported (carrying or book) amount in
+  the financial statements, which will result in taxable amounts or
+  deductible amounts in future years" (p.19-5). These *reverse*: an
+  originating difference in one period produces an offsetting reversal
+  in a later one (Illustration 19.6/19.8's future-taxable-amounts
+  schedule, pp.19-5–19-8).
+- **Permanent differences** — items that "enter into pretax financial
+  income but never into taxable income, or... enter into taxable income
+  but never into pretax financial income" (p.19-14). These never
+  reverse and need no schedule (Illustration 19.31, p.19-14, gives the
+  US list: tax-exempt interest, nondeductible key-officer life-insurance
+  premiums, fines, percentage depletion, the dividends-received
+  deduction).
+- The two axes combine per line item (Illustration 19.32, p.19-14–19-15
+  works a worked example with one of each kind in the same
+  reconciliation) — which is structurally what RPD's own book-to-tax
+  walk has to do: classify *every* posting as (a) no difference, (b)
+  permanent — drop it from the tax side, full stop, or (c) temporary —
+  include it, and track the reversal.
+
+**This is a structural/vocabulary match, not a substitute for Polish
+law.** Two things do *not* transfer from Kieso and must not be assumed:
+(1) the *specific* permanent/temporary items Illustration 19.31 lists
+are US Internal Revenue Code items — Polish CIT's own non-deductible-cost
+list (ustawa o CIT, primarily art. 15–16) is a different, unrelated
+enumeration and is the only correct source for what actually goes in
+each bucket; (2) Kieso's loss-carryforward/deferred-tax-asset mechanics
+(Ch.19, pp.19-19–19-20 — indefinite carryforward, no carryback, per the
+2017 TCJA) are US-specific and post-date a US law change with no Polish
+equivalent (Polish straty podatkowe carryforward runs 5 years, capped at
+50% of the loss per year or PLN 5,000,000 in one year) — do not import
+this mechanic into any future `RPD` design without checking ustawa o CIT
+directly. What *does* transfer is the shape of the problem: Phase 2
+needs a per-account-or-posting classification (no difference / permanent
+/ temporary) and, for the temporary bucket only, a reversal-tracking
+schedule comparable to Illustration 19.8 — sized, as this document
+already says, comparably to the Posting Rules Engine, now with a named
+accounting-theory model to design against instead of a blank page.
+
+**Fowler and Hay were also checked and confirmed to have nothing on this
+topic — reported here rather than silently skipped, per this project's
+citation-check discipline.** A full-text search of both PDFs for "tax"
+found zero substantive hits: Hay's only three hits are unrelated
+("Federal tax ID" as an example attribute in a Party/Organization
+figure, pp. cited in `2026-09-08-financial-module-knowledge-base.md`
+§3); Fowler's Ch.6 "Inventory and Accounting" (the chapter this
+project's own knowledge base already mines for GL/posting patterns) has
+no "tax" occurrence at all. Neither book models income tax, deferred
+tax, or book/tax reconciliation in any form — Kieso is the only one of
+the three PDFs with relevant content for this specific node, and that
+finding itself is worth keeping (it stops a future pass from
+re-searching Fowler/Hay for the same thing).
+
 **Why a new module-level dependency instead of an optional/soft
 integration.** `ledger` data is not optional context for this feature —
 without it there is no `Dziennik`/`KontoZapis`/`ZOiS` to file. The
@@ -167,6 +237,53 @@ project's `requires` mechanism (hard, declared dependency) is the correct
 tool here, not FK-id references or `tryResolve`, which this project
 reserves for genuinely optional peers (see the financial-module
 dependency-graph analysis this session produced).
+
+### Code analysis (verified 2026-09-11, direct inspection of the real `open-mercato` checkout)
+
+This session had a live, linked connection to Mikołaj's actual `open-mercato`
+working copy (not a cached/stale ref), so the claims below are freshly
+re-checked, not carried over from the 2026-09-10 analysis unverified:
+
+- **Zero financial-module code still confirmed, now cross-checked a second
+  way.** Listing every `packages/*/src/modules/*` directory in the repo
+  (37 real modules, e.g. `sales`, `wms`, `customers`, `directory`,
+  `currencies`, `catalog`) shows no `ledger`, `accounts_payable`,
+  `financial_pl`, `fixed_assets`, `posting_rules`, or `cash_bank_management`
+  directory anywhere. This reconfirms, via a full listing rather than a
+  handful of targeted `find` calls, that this spec's dependency on
+  `ledger`'s Bulk Read Service (`#6038`) is a dependency on a *design*, not
+  yet a line of shipped code.
+- **`Podmiot1` (NIP/REGON/name/address) has no home in `open-mercato` core
+  — this document's wording should not imply otherwise.** Grepped
+  `packages/core/src/modules/directory/data/entities.ts` and
+  `packages/core/src/modules/customers/data/entities.ts` for
+  `taxId`/`vatId`/`registrationNumber`/`nip`/`regon` — no matches. Whatever
+  entity/organization data `financial_pl` sources for KSeF/JPK_V7's own
+  `Podmiot1`-equivalent fields today lives entirely inside `financial_pl`'s
+  own tables in `official-modules`, not in any `open-mercato` core module.
+  The Data Model section's phrase "reuse the same entity/organization data
+  `financial_pl` already sources" was accurate as originally written (it
+  never claimed a core-module source) but is corrected here to be explicit,
+  since it would be easy to misread as implying shared core data exists.
+- **`sales.SalesInvoice` / `SalesInvoiceLine` are real, not just specced** —
+  confirmed at `packages/core/src/modules/sales/data/entities.ts:1383` and
+  `:1466`, with `outstandingAmount` fields at `:467` and `:1436`. This is
+  the one piece of real, already-shipped code anywhere in `open-mercato`
+  that a future `D_12` (KSeF/source-document reference) mapping could
+  eventually anchor to once Accounts Receivable (`#6046`) merges — today
+  it's still a spec-only dependency like everything else here, but it's a
+  real table, which the ledger/AP/financial_pl side of this document is not.
+- **`official-modules` remains unreachable from this environment** — no
+  `external/` checkout exists locally (`activated: []` in
+  `official-modules.json`, matching what the file already declared), and
+  this session still has no network path to `github.com` (org-level proxy
+  block, confirmed again this session). Every citation in this document to
+  `financial_pl`'s actual source (`commands/jpk.ts`,
+  `lib/jpk/jpk-submission-client.ts`, etc., in the Proposed Solution
+  section above) is therefore standing on the 2026-09-10 analysis's
+  earlier reading, not re-verified in this pass — flag this explicitly
+  before Phase 1 implementation starts, since `feat/financial-pl-invoice-ux`
+  may have moved on since 2026-09-10.
 
 ## 📝 Data Model
 
@@ -301,7 +418,12 @@ backend exists. Left for a follow-up once Phase 1 (backend) is agreed.
 - **Phase 2 (future, separate spec):** `RPD` computed automatically —
   book/tax classification on `LedgerAccount` or postings, and the
   reconciliation logic itself. Comparable in size to the Posting Rules
-  Engine; not attempted here.
+  Engine; not attempted here, but no longer a blank page — see the
+  Kieso Ch.19 grounding under Architecture → Design decisions above for
+  a candidate classification axis (no difference / permanent / temporary,
+  the latter needing a reversal schedule) to design Phase 2 against,
+  pending Polish CIT law (ustawa o CIT, art. 15–16) for the actual
+  category contents.
 - **Phase 3 (future, separate spec, noted but not designed):**
   `JPK_ST_KR` (fixed assets/intangibles register), released by the same
   MF initiative alongside JPK_KR_PD — would draw on the Fixed Assets
@@ -358,4 +480,14 @@ balances.md`; `.ai/specs/2026-09-10-general-ledger-bulk-read-service.md`
 (PR #6038); `.ai/specs/2026-09-06-accounts-payable.md`; `official-modules`
 repo, branch `feat/financial-pl-invoice-ux`,
 `packages/financial-pl/src/modules/financial_pl/` (`index.ts`,
-`data/entities.ts`, `commands/jpk.ts`, `lib/jpk/*`).
+`data/entities.ts`, `commands/jpk.ts`, `lib/jpk/*`) — not re-verified
+2026-09-11, see Architecture → Code analysis; Kieso, Weygandt, Warfield,
+*Intermediate Accounting*, 17th Ed. (Wiley, 2019, ISBN 978-1-119503682),
+Ch.19 "Accounting for Income Taxes," pp.19-1–19-20, 19-39–19-40 —
+verified directly, full chapter read, 2026-09-11 (see Architecture →
+Design decisions); Fowler, *Analysis Patterns*, and Hay, *Data Model
+Patterns* — both full-text searched for "tax" 2026-09-11, no relevant
+content found, see Architecture → Design decisions; direct inspection of
+the `open-mercato` working copy, 2026-09-11 (`packages/*/src/modules/*`
+listing; `packages/core/src/modules/{directory,customers}/data/entities.ts`;
+`packages/core/src/modules/sales/data/entities.ts:1383,1436,1466`).
