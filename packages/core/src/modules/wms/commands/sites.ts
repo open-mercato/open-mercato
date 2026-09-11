@@ -87,6 +87,10 @@ type RoleUndoSnapshot = {
 type RoleExecutionAfterSnapshot = RoleAfterSnapshot & {
   demotedDefaults: RoleSnapshot[];
 };
+type ChangedRole = {
+  record: SiteWarehouseRole;
+  previous: RoleSnapshot;
+};
 
 const SITE_CODE_UNIQUE_CONSTRAINT = "wms_sites_org_code_unique_idx";
 const SITE_WAREHOUSE_ROLE_UNIQUE_CONSTRAINT =
@@ -614,6 +618,29 @@ async function emitRole(
   else await emitCrudSideEffects(payload);
 }
 
+async function emitUpdatedRoles(
+  ctx: CommandRuntimeContext,
+  site: Site,
+  changedRoles: ChangedRole[],
+  undo = false,
+) {
+  for (const { record, previous } of changedRoles) {
+    await emitRole(ctx, "updated", record, undo);
+    if (undo) continue;
+    void emitWmsEvent("wms.site_warehouse_role.updated", {
+      id: record.id,
+      mappingId: record.id,
+      siteId: site.id,
+      tenantId: site.tenantId,
+      organizationId: site.organizationId,
+      warehouseId: warehouseId(record.warehouse),
+      role: record.role,
+      isDefault: record.isDefault,
+      previous,
+    }).catch(() => undefined);
+  }
+}
+
 const createSite: CommandHandler<SiteCreateInput, { siteId: string }> = {
   id: "wms.sites.create",
   async execute(input, ctx) {
@@ -867,6 +894,7 @@ const createRole: CommandHandler<
       site: Site;
       record: SiteWarehouseRole;
       demotedDefaults: RoleSnapshot[];
+      changedSiblings: ChangedRole[];
     };
     try {
       result = await runWithSiteWarehouseLocks(
@@ -912,6 +940,9 @@ const createRole: CommandHandler<
         const demotedDefaults = promote
           ? siblings.filter((item) => item.isDefault).map(roleSnapshot)
           : [];
+        const changedSiblings = siblings
+          .filter((item) => promote && item.isDefault)
+          .map((record) => ({ record, previous: roleSnapshot(record) }));
         await withAtomicFlush(
           manager,
           [
@@ -929,6 +960,7 @@ const createRole: CommandHandler<
           site: currentSite,
           record: currentRecord,
           demotedDefaults,
+          changedSiblings,
         };
         },
       );
@@ -936,6 +968,7 @@ const createRole: CommandHandler<
       await rethrowSiteConstraintConflict(error);
     }
     const { site, record } = result;
+    await emitUpdatedRoles(ctx, site, result.changedSiblings);
     await emitRole(ctx, "created", record);
     void emitWmsEvent("wms.site_warehouse_role.created", {
       id: record.id,
@@ -973,9 +1006,9 @@ const createRole: CommandHandler<
     const payload = extractUndoPayload<RoleUndoSnapshot>(logEntry);
     const after = payload?.after;
     if (!after) return;
-    let record!: SiteWarehouseRole;
+    let result!: { site: Site; record: SiteWarehouseRole; changedSiblings: ChangedRole[] };
     try {
-      record = await runWithSiteWarehouseLocks(
+      result = await runWithSiteWarehouseLocks(
         em(ctx),
         ctx,
         after.siteId,
@@ -1016,6 +1049,9 @@ const createRole: CommandHandler<
           after.siblingVersions?.find((snapshot) => snapshot.id === replacement.id),
         );
       }
+      const changedSiblings = replacement
+        ? [{ record: replacement, previous: roleSnapshot(replacement) }]
+        : [];
       const undoPhases = [
         () => {
           currentRecord.isDefault = false;
@@ -1036,13 +1072,14 @@ const createRole: CommandHandler<
         undoPhases,
         { transaction: true, label: "wms.site-warehouse-roles.create.undo" },
       );
-      return currentRecord;
+      return { site: currentSite, record: currentRecord, changedSiblings };
         },
       );
     } catch (error) {
       await rethrowSiteConstraintConflict(error);
     }
-    await emitRole(ctx, "deleted", record, true);
+    await emitUpdatedRoles(ctx, result.site, result.changedSiblings, true);
+    await emitRole(ctx, "deleted", result.record, true);
   },
 };
 
@@ -1068,6 +1105,7 @@ const updateRole: CommandHandler<
       site: Site;
       record: SiteWarehouseRole;
       demotedDefaults: RoleSnapshot[];
+      changedSiblings: ChangedRole[];
     };
     let previous!: RoleSnapshot;
     try {
@@ -1137,6 +1175,14 @@ const updateRole: CommandHandler<
                 )
                 .map(roleSnapshot)
             : [];
+        const changedSiblings = siblings
+          .filter(
+            (item) =>
+              parsed.isDefault === true &&
+              item.id !== currentRecord.id &&
+              item.isDefault,
+          )
+          .map((record) => ({ record, previous: roleSnapshot(record) }));
         const updatePhases = [
           () => {
             currentRecord.warehouse = nextWarehouse;
@@ -1162,6 +1208,7 @@ const updateRole: CommandHandler<
           site: currentSite,
           record: currentRecord,
           demotedDefaults,
+          changedSiblings,
         };
         },
       );
@@ -1169,18 +1216,8 @@ const updateRole: CommandHandler<
       await rethrowSiteConstraintConflict(error);
     }
     const { site, record } = result;
-    await emitRole(ctx, "updated", record);
-    void emitWmsEvent("wms.site_warehouse_role.updated", {
-      id: record.id,
-      mappingId: record.id,
-      siteId: site.id,
-      tenantId: site.tenantId,
-      organizationId: site.organizationId,
-      warehouseId: warehouseId(record.warehouse),
-      role: record.role,
-      isDefault: record.isDefault,
-      previous,
-    }).catch(() => undefined);
+    await emitUpdatedRoles(ctx, site, result.changedSiblings);
+    await emitUpdatedRoles(ctx, site, [{ record, previous }]);
     return { assignmentId: record.id, demotedDefaults: result.demotedDefaults };
   },
   captureAfter: async (_input, result, ctx) => ({
@@ -1209,9 +1246,9 @@ const updateRole: CommandHandler<
     const payload = extractUndoPayload<RoleUndoSnapshot>(logEntry);
     const before = payload?.before;
     if (!before) return;
-    let record!: SiteWarehouseRole;
+    let result!: { site: Site; record: SiteWarehouseRole; changedSiblings: ChangedRole[] };
     try {
-      record = await runWithSiteWarehouseLocks(
+      result = await runWithSiteWarehouseLocks(
         em(ctx),
         ctx,
         before.siteId,
@@ -1284,6 +1321,13 @@ const updateRole: CommandHandler<
           ),
         );
       }
+      const changedSiblings = before.isDefault
+        ? siblings
+            .filter((item) => item.id !== currentRecord.id && item.isDefault)
+            .map((record) => ({ record, previous: roleSnapshot(record) }))
+        : promoteReplacement
+          ? [{ record: promoteReplacement, previous: roleSnapshot(promoteReplacement) }]
+          : [];
       const undoPhases = [
         () => {
           currentRecord.warehouse = restoredWarehouse;
@@ -1312,13 +1356,14 @@ const updateRole: CommandHandler<
         transaction: true,
         label: "wms.site-warehouse-roles.update.undo",
       });
-      return currentRecord;
+      return { site: currentSite, record: currentRecord, changedSiblings };
         },
       );
     } catch (error) {
       await rethrowSiteConstraintConflict(error);
     }
-    await emitRole(ctx, "updated", record, true);
+    await emitUpdatedRoles(ctx, result.site, result.changedSiblings, true);
+    await emitRole(ctx, "updated", result.record, true);
   },
 };
 

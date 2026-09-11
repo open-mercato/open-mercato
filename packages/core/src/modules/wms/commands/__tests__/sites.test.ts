@@ -2,6 +2,7 @@
 
 import { commandRegistry } from "@open-mercato/shared/lib/commands/registry";
 import { Site, SiteWarehouseRole, Warehouse } from "../../data/entities";
+import { emitWmsEvent } from "../../events";
 
 jest.mock("@open-mercato/shared/lib/i18n/server", () => ({
   resolveTranslations: async () => ({
@@ -212,6 +213,7 @@ function createContext(manager: ReturnType<typeof createStore>["manager"]) {
   return {
     auth: { tenantId: TENANT, orgId: ORGANIZATION },
     selectedOrganizationId: ORGANIZATION,
+    dataEngine,
     container: {
       resolve: (name: string) => {
         if (name === "em") return { fork: () => manager };
@@ -257,6 +259,8 @@ describe("WMS site warehouse role commands", () => {
       ctx as never,
     );
     store.manager.flush.mockClear();
+    ctx.dataEngine.markOrmEntityChange.mockClear();
+    jest.mocked(emitWmsEvent).mockClear();
     await update!.execute!(
       { id: second.assignmentId, isDefault: true },
       ctx as never,
@@ -274,6 +278,21 @@ describe("WMS site warehouse role commands", () => {
     expect(store.manager.begin).toHaveBeenCalled();
     expect(store.manager.commit).toHaveBeenCalled();
     expect(store.manager.flush).toHaveBeenCalledTimes(3);
+    expect(ctx.dataEngine.markOrmEntityChange).toHaveBeenCalledTimes(2);
+    expect(ctx.dataEngine.markOrmEntityChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "updated",
+        identifiers: expect.objectContaining({ id: first.assignmentId }),
+      }),
+    );
+    expect(jest.mocked(emitWmsEvent)).toHaveBeenCalledWith(
+      "wms.site_warehouse_role.updated",
+      expect.objectContaining({
+        id: first.assignmentId,
+        isDefault: false,
+        previous: expect.objectContaining({ isDefault: true }),
+      }),
+    );
   });
 
   it("excludes assignments whose own scope does not match the scoped site", async () => {
@@ -345,6 +364,8 @@ describe("WMS site warehouse role commands", () => {
     await update!.execute!({ id: second.assignmentId, isDefault: true }, ctx as never);
 
     store.manager.flush.mockClear();
+    ctx.dataEngine.markOrmEntityChange.mockClear();
+    jest.mocked(emitWmsEvent).mockClear();
     await update!.undo!({
       input: {},
       logEntry: {
@@ -380,6 +401,14 @@ describe("WMS site warehouse role commands", () => {
     expect(store.roles.get(first.assignmentId)?.isDefault).toBe(true);
     expect(store.roles.get(second.assignmentId)?.isDefault).toBe(false);
     expect(store.manager.flush).toHaveBeenCalledTimes(2);
+    expect(ctx.dataEngine.markOrmEntityChange).toHaveBeenCalledTimes(2);
+    expect(ctx.dataEngine.markOrmEntityChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "updated",
+        identifiers: expect.objectContaining({ id: first.assignmentId }),
+      }),
+    );
+    expect(jest.mocked(emitWmsEvent)).not.toHaveBeenCalled();
   });
 
   it("undoes a default mapping creation by restoring the previous default", async () => {
@@ -407,6 +436,9 @@ describe("WMS site warehouse role commands", () => {
       },
       ctx as never,
     );
+
+    ctx.dataEngine.markOrmEntityChange.mockClear();
+    jest.mocked(emitWmsEvent).mockClear();
 
     await create!.undo!({
       logEntry: {
@@ -455,6 +487,14 @@ describe("WMS site warehouse role commands", () => {
 
     expect(store.roles.get(first.assignmentId)?.isDefault).toBe(true);
     expect(store.roles.get(second.assignmentId)?.deletedAt).toBeInstanceOf(Date);
+    expect(ctx.dataEngine.markOrmEntityChange).toHaveBeenCalledTimes(2);
+    expect(ctx.dataEngine.markOrmEntityChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "updated",
+        identifiers: expect.objectContaining({ id: first.assignmentId }),
+      }),
+    );
+    expect(jest.mocked(emitWmsEvent)).not.toHaveBeenCalled();
   });
 
   it("restores a deleted non-default mapping without creating a second default", async () => {
@@ -685,6 +725,8 @@ describe("WMS site warehouse role commands", () => {
       ctx as never,
     );
 
+    ctx.dataEngine.markOrmEntityChange.mockClear();
+    jest.mocked(emitWmsEvent).mockClear();
     const result = await create.execute!(
       {
         tenantId: TENANT,
@@ -701,6 +743,21 @@ describe("WMS site warehouse role commands", () => {
     ]);
     expect(result.demotedDefaults.map((item: { id: string }) => item.id)).not.toContain(
       first.assignmentId,
+    );
+    expect(ctx.dataEngine.markOrmEntityChange).toHaveBeenCalledTimes(2);
+    expect(ctx.dataEngine.markOrmEntityChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "updated",
+        identifiers: expect.objectContaining({ id: second.assignmentId }),
+      }),
+    );
+    expect(jest.mocked(emitWmsEvent)).toHaveBeenCalledWith(
+      "wms.site_warehouse_role.updated",
+      expect.objectContaining({
+        id: second.assignmentId,
+        isDefault: false,
+        previous: expect.objectContaining({ isDefault: true }),
+      }),
     );
     const after = await create.captureAfter!(
       {},
