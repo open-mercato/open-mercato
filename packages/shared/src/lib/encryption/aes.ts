@@ -56,6 +56,39 @@ export function encryptWithAesGcm(value: string, dekBase64: string): EncryptionP
   return { value: payload, raw: payload, version: 'v1' }
 }
 
+const AES_GCM_IV_BYTES = 12
+const AES_GCM_TAG_BYTES = 16
+
+/**
+ * Reports whether a value is a **structurally** well-formed `<iv>:<ct>:<tag>:v1` envelope —
+ * the same shape validation {@link decryptWithAesGcmStrict} performs before it attempts a
+ * decrypt, without needing a key.
+ *
+ * This is deliberately NOT an "is this encrypted" oracle: the shape is forgeable, so a caller
+ * deciding whether a value is already sealed MUST still bind that decision to a successful
+ * authenticated decrypt (issue #2720). Its purpose is to separate "ciphertext we cannot open
+ * with the key we hold" from "plaintext that happens to contain colons", so a write path can
+ * fail loudly on the former instead of silently wrapping it a second time (issue #5951).
+ *
+ * The byte-length checks matter: `Buffer.from(value, 'base64')` is lenient, so a loose
+ * four-segment check matches strings like `aaaa:bbbb:cccc:v1` that no AES-GCM payload could be.
+ */
+export function isEncryptedPayloadShape(value: unknown): value is string {
+  if (typeof value !== 'string') return false
+  const parts = value.split(':')
+  if (parts.length !== 4 || parts[3] !== 'v1') return false
+  const [ivB64, ciphertextB64, tagB64] = parts as [string, string, string, string]
+  try {
+    return (
+      Buffer.from(ivB64, 'base64').length === AES_GCM_IV_BYTES
+      && Buffer.from(tagB64, 'base64').length === AES_GCM_TAG_BYTES
+      && Buffer.from(ciphertextB64, 'base64').length > 0
+    )
+  } catch {
+    return false
+  }
+}
+
 function runAesGcmDecrypt(dek: Buffer, iv: Buffer, ciphertext: Buffer, tag: Buffer): string {
   const decipher = crypto.createDecipheriv('aes-256-gcm', dek, iv)
   decipher.setAuthTag(tag)
