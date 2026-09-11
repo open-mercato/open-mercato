@@ -48,7 +48,7 @@ test.describe('TC-EXAMPLE-011: the shared todo form round-trips and refuses stal
       // Playwright retries the click for the whole 60s budget instead of failing on anything
       // diagnosable. Let the form settle first, exactly as TC-EXAMPLE-017 does on this host.
       await expect(page.getByText('Example Injection Widget')).toBeVisible({ timeout: 20_000 })
-      const priorityInput = page.locator('[data-crud-field-id="cf_priority"] input[type="number"]').first()
+      const priorityInput = page.locator('[data-crud-field-id="cf_priority"] input').first()
       await priorityInput.fill('3')
       const severitySelect = page.locator('[data-crud-field-id="cf_severity"]').getByRole('combobox').first()
       await severitySelect.click()

@@ -913,6 +913,7 @@ const createTimeEntryCommand: CommandHandler<StaffTimeEntryCreateInput, { timeEn
         entity: entry,
         identifiers: { id: entry.id, organizationId: entry.organizationId, tenantId: entry.tenantId },
         events: staffTimeEntryCrudEvents,
+        indexer: timeEntryCrudIndexer,
       })
     }
   },
@@ -1104,6 +1105,7 @@ const startTimerCommand: CommandHandler<StaffTimeEntryStartTimerInput, { timeEnt
         entity: entry,
         identifiers: { id: entry.id, organizationId: entry.organizationId, tenantId: entry.tenantId },
         events: staffTimeEntryCrudEvents,
+        indexer: timeEntryCrudIndexer,
       })
     }
   },
