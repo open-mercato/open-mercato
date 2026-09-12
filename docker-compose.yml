@@ -3,7 +3,7 @@ services:
     build:
       context: ./docker/opencode
     image: opencode-mvp
-    container_name: mercato-opencode
+    container_name: ${MERCATO_STACK:-mercato}-opencode
     restart: unless-stopped
     environment:
       # Unified AI provider/model selection. New deployments set OM_AI_*;
@@ -32,7 +32,7 @@ services:
 
   postgres:
     image: pgvector/pgvector:pg17-trixie
-    container_name: mercato-postgres
+    container_name: ${MERCATO_STACK:-mercato}-postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
@@ -52,7 +52,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: mercato-redis
+    container_name: ${MERCATO_STACK:-mercato}-redis
     ports:
       - "${REDIS_PORT:-6379}:6379"
     volumes:
@@ -69,7 +69,7 @@ services:
 
   meilisearch:
     image: getmeili/meilisearch:v1.11
-    container_name: mercato-meilisearch
+    container_name: ${MERCATO_STACK:-mercato}-meilisearch
     restart: unless-stopped
     environment:
       MEILI_ENV: development
@@ -89,7 +89,7 @@ services:
 
   localstack:
     image: localstack/localstack:latest
-    container_name: mercato-localstack
+    container_name: ${MERCATO_STACK:-mercato}-localstack
     restart: unless-stopped
     profiles:
       - storage-s3
@@ -111,7 +111,7 @@ services:
 
   verdaccio:
     image: verdaccio/verdaccio:6
-    container_name: mercato-verdaccio
+    container_name: ${MERCATO_STACK:-mercato}-verdaccio
     restart: unless-stopped
     environment:
       VERDACCIO_PORT: 4873
@@ -132,19 +132,19 @@ services:
 
 volumes:
   postgres_data:
-    name: mercato-postgres-data
+    name: ${MERCATO_STACK:-mercato}-postgres-data
   redis_data:
-    name: mercato-redis-data
+    name: ${MERCATO_STACK:-mercato}-redis-data
   meilisearch_data:
-    name: mercato-meilisearch-data
+    name: ${MERCATO_STACK:-mercato}-meilisearch-data
   localstack_data:
-    name: mercato-localstack-data
+    name: ${MERCATO_STACK:-mercato}-localstack-data
   verdaccio_storage:
-    name: mercato-verdaccio-storage
+    name: ${MERCATO_STACK:-mercato}-verdaccio-storage
   verdaccio_plugins:
-    name: mercato-verdaccio-plugins
+    name: ${MERCATO_STACK:-mercato}-verdaccio-plugins
 
 networks:
   mercato-network:
-    name: mercato-network
+    name: ${MERCATO_STACK:-mercato}-network
     driver: bridge

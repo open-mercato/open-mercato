@@ -1,12 +1,50 @@
+/**
+ * Time entries — the timesheet grid of screen 10 and the full entry form of
+ * screen 8, served from one collection.
+ *
+ * Three things this route owns beyond plain CRUD:
+ *
+ *  1. **Project access is intersected into every query.** A caller without
+ *     `staff.timesheets.projects.manage` sees entries on the projects they are an
+ *     active member of, plus their own project-less entries — nobody else's. The
+ *     resolution is memoised per request and fails closed, mirroring the projects
+ *     and tasks routes.
+ *  2. **`description` is returned beside `notes`.** The column is `notes`; every
+ *     consulting-suite screen calls it `description`. UPGRADE_NOTES.md promises
+ *     both keys on read for at least one minor release, so both are emitted here
+ *     and both are accepted on write (the command folds them, `description` wins).
+ *  3. **Money is added, not hidden.** `cost`, `currencyCode` and the stored rate
+ *     override only exist in the payload for a caller holding
+ *     `staff.timesheets.rates.view`; everyone else gets a response with no money
+ *     keys at all, the same shape the project portfolio enricher uses. The base
+ *     projection selects no money column — see `timeEntryListFields` for why that
+ *     is the gate rather than an optimisation.
+ *
+ * `cost` is computed from `rounded_minutes` — never from `duration_minutes` — via
+ * `entryAmount`, so a non-billable entry reads `null` rather than `0`: zero is a
+ * price, and out-of-scope work does not have one (D-7).
+ */
+
 import { z } from 'zod'
-import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { makeCrudRoute, type CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveCrudRecordId, parseScopedCommandInput } from '@open-mercato/shared/lib/api/scoped'
-import { StaffTimeEntry } from '../../../data/entities'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
+import { sanitizeSearchTerm } from '../../helpers'
+import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
+import { StaffTimeEntry, StaffTimeEntryTag, StaffTimeProject } from '../../../data/entities'
 import { staffTimeEntryCreateSchema, staffTimeEntryUpdateSchema } from '../../../data/validators'
 import { buildTimeEntryListFilters, isParseableDateFilter } from '../../../lib/timesheets/timeEntryListFilters'
-import { staffTimeEntryCommandIds } from '../../../lib/crud'
+import { staffTimeEntryCommandIds, staffTimeEntryCrudEvents } from '../../../lib/crud'
+import { resolveFeatureAccess } from '../../../lib/time-tracking/featureAccess'
+import { MANAGE_PROJECTS_FEATURE, resolveProjectAccess, type ProjectAccess } from '../../../lib/time-tracking/access'
+import { readTimeTrackingSettings } from '../../../lib/time-tracking/settings'
+import { decorateTimeEntryRows } from '../../../lib/timesheets/timeEntryDecoration'
 import { createStaffCrudOpenApi, createPagedListResponseSchema, defaultOkResponseSchema } from '../../openapi'
+
+const logger = createLogger('staff').child({ component: 'api/timesheets/time-entries' })
 
 const F = {
   id: 'id',
@@ -15,18 +53,27 @@ const F = {
   staff_member_id: 'staff_member_id',
   date: 'date',
   duration_minutes: 'duration_minutes',
+  rounded_minutes: 'rounded_minutes',
   started_at: 'started_at',
   ended_at: 'ended_at',
   notes: 'notes',
   time_project_id: 'time_project_id',
+  task_id: 'task_id',
   customer_id: 'customer_id',
   deal_id: 'deal_id',
   order_id: 'order_id',
+  is_billable: 'is_billable',
+  rate_override_amount: 'rate_override_amount',
+  rate_currency_code: 'rate_currency_code',
+  locked_report_id: 'locked_report_id',
+  locked_at: 'locked_at',
   source: 'source',
   created_at: 'created_at',
   updated_at: 'updated_at',
   deleted_at: 'deleted_at',
 } as const
+
+export const RATES_FEATURE = 'staff.timesheets.rates.view'
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['staff.timesheets.view'] },
@@ -52,12 +99,304 @@ const listSchema = z
     from: dateFilterSchema,
     to: dateFilterSchema,
     projectId: z.string().uuid().optional(),
+    /**
+     * One task id, or a comma-separated list of them. The list form is what the
+     * task drawer needs: a parent and its subtasks are one question ("what has
+     * been logged against this task?"), so answering it must not cost one request
+     * per child.
+     */
+    taskId: z.string().optional(),
     ids: z.string().optional(),
     running: z.string().optional(),
+    /** `true` / `false` — omitted means "either". */
+    billable: z.string().optional(),
+    /** `true` = frozen into a closed report, `false` = still editable. */
+    locked: z.string().optional(),
+    /** Free text over the entry note. */
+    q: z.string().optional(),
+    /** Customer id — narrows to that customer's projects. */
+    customerId: z.string().uuid().optional(),
+    /** One tag id, or a comma-separated list; an entry matching any of them. */
+    tagIds: z.string().optional(),
     sortField: z.string().optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
   })
   .passthrough()
+
+type EntryListQuery = z.infer<typeof listSchema>
+
+/**
+ * Three-state flag: `true`, `false`, or "the caller did not ask". A missing
+ * filter must widen to everything rather than collapse to `false`, which is what
+ * a plain boolean parse would do.
+ */
+function parseBooleanFlagOrNull(value: unknown): boolean | null {
+  if (typeof value !== 'string') return null
+  const normalized = value.trim().toLowerCase()
+  if (normalized.length === 0) return null
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) return true
+  if (['0', 'false', 'no', 'off'].includes(normalized)) return false
+  return null
+}
+
+/** Non-UUID sentinel used as the "match nothing" filter, mirroring the tasks route. */
+const IMPOSSIBLE_ID = '00000000-0000-0000-0000-000000000000'
+
+const DENIED_ACCESS: ProjectAccess = { canManageAll: false, projectIds: [], staffMemberId: null }
+
+const UUID_PATTERN = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/
+
+/**
+ * Splits `?taskId=a,b,c` into ids the database can be asked about.
+ *
+ * A token that is not a UUID is dropped rather than passed through: the column is
+ * `uuid`, so a malformed id would fail the whole query instead of matching
+ * nothing. `null` means the caller asked no task question at all; an empty array
+ * means they asked one no row can answer.
+ */
+function splitTaskIdList(value: unknown): string[] | null {
+  if (typeof value !== 'string' || value.trim().length === 0) return null
+  return value
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => UUID_PATTERN.test(entry))
+}
+
+type RbacServiceLike = {
+  getGrantedFeatures?: (
+    userId: string,
+    options: { tenantId: string | null; organizationId: string | null },
+  ) => Promise<string[]>
+  userHasAllFeatures?: (
+    userId: string,
+    required: string[],
+    scope: { tenantId: string | null; organizationId: string | null },
+  ) => Promise<boolean>
+}
+
+type ContainerLike = { resolve: (name: string) => unknown }
+
+/** One access decision per request, shared by every filter that needs it. */
+const accessByRequest = new WeakMap<Request, Promise<ProjectAccess>>()
+
+async function resolveAssignmentGraceDays(container: ContainerLike, tenantId: string): Promise<number | null> {
+  try {
+    const configService = container.resolve('moduleConfigService') as ModuleConfigService
+    const settings = await readTimeTrackingSettings(configService, { tenantId })
+    return settings.access.assignmentGraceDays
+  } catch {
+    // Fail safe to the documented default rather than widening the window.
+    return null
+  }
+}
+
+async function loadProjectAccess(
+  container: ContainerLike,
+  userId: string | null,
+  tenantId: string | null,
+  organizationId: string | null,
+): Promise<ProjectAccess> {
+  if (!tenantId || !organizationId) return { ...DENIED_ACCESS }
+  const scope = { tenantId, organizationId }
+  try {
+    // One lookup, one authority, and a failure that says so. The previous
+    // `catch → []` could not tell "denied" from "could not ask", so an RBAC
+    // hiccup silently demoted a manager to their own memberships.
+    const access = await resolveFeatureAccess(container, userId, [MANAGE_PROJECTS_FEATURE], scope)
+    const em = container.resolve('em') as EntityManager
+    return await resolveProjectAccess({
+      em: em.fork(),
+      userId,
+      tenantId,
+      organizationId,
+      canManageAll: access.allowed,
+      userFeatures: access.grantedFeatures,
+      assignmentGraceDays: await resolveAssignmentGraceDays(container, tenantId),
+    })
+  } catch (err) {
+    logger.error('staff.timesheets.time-entries access resolution failed', { err })
+    return { ...DENIED_ACCESS }
+  }
+}
+
+function resolveCtxScope(ctx: CrudCtx): { tenantId: string | null; organizationId: string | null } {
+  return {
+    tenantId: ctx.auth?.tenantId ?? null,
+    organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
+  }
+}
+
+export async function resolveListProjectAccess(ctx: CrudCtx): Promise<ProjectAccess> {
+  const { tenantId, organizationId } = resolveCtxScope(ctx)
+  const load = () => loadProjectAccess(ctx.container, ctx.auth?.sub ?? null, tenantId, organizationId)
+  const request = ctx.request
+  if (!request) return load()
+  const cached = accessByRequest.get(request)
+  if (cached) return cached
+  const pending = load()
+  accessByRequest.set(request, pending)
+  return pending
+}
+
+/**
+ * Every entry query narrows to what the caller may actually see: entries on the
+ * projects they belong to, plus their OWN entries that name no project. A
+ * project-less entry has no membership to check, so the only person it can belong
+ * to is the member who logged it.
+ *
+ * Exported so the intersection is testable without standing up the CRUD factory.
+ */
+export async function buildScopedTimeEntryListFilters(
+  query: EntryListQuery,
+  ctx: CrudCtx,
+): Promise<Record<string, unknown>> {
+  const filters = buildTimeEntryListFilters(query)
+
+  // The task narrowing is applied before the access branches and never instead of
+  // them: asking for a task the caller may not see must return nothing, not the
+  // task's entries.
+  const taskIds = splitTaskIdList(query.taskId)
+  if (taskIds !== null) {
+    filters[F.task_id] = { $in: taskIds.length > 0 ? taskIds : [IMPOSSIBLE_ID] }
+  }
+
+  // --- Optional narrowing the grid's filter overlay drives ---------------
+
+  const billable = parseBooleanFlagOrNull(query.billable)
+  if (billable !== null) filters[F.is_billable] = { $eq: billable }
+
+  const locked = parseBooleanFlagOrNull(query.locked)
+  if (locked !== null) {
+    // "Locked" is the presence of the report that froze the entry, so it is asked
+    // as a nullness question rather than a boolean column that does not exist.
+    filters[F.locked_report_id] = locked ? { $ne: null } : { $eq: null }
+  }
+
+  const term = sanitizeSearchTerm(query.q)
+  if (term) filters[F.notes] = { $ilike: `%${escapeLikePattern(term)}%` }
+
+  // A customer is a property of the project, not of the entry — `customer_id` on
+  // the entry is a denormalised convenience that older rows may not carry — so
+  // the question is answered by resolving the customer's projects first.
+  if (typeof query.customerId === 'string' && query.customerId.trim().length > 0) {
+    const em = ctx.container.resolve('em') as EntityManager
+    const { tenantId, organizationId } = resolveCtxScope(ctx)
+    const projects = await em.fork().find(
+      StaffTimeProject,
+      { customerId: query.customerId.trim(), tenantId, organizationId, deletedAt: null },
+      { fields: ['id'] },
+    )
+    const ids = projects.map((project) => project.id)
+    filters[F.time_project_id] = { $in: ids.length > 0 ? ids : [IMPOSSIBLE_ID] }
+  }
+
+  const tagIds = splitTaskIdList(query.tagIds)
+  if (tagIds !== null) {
+    const em = ctx.container.resolve('em') as EntityManager
+    const { tenantId, organizationId } = resolveCtxScope(ctx)
+    const assignments = tagIds.length === 0
+      ? []
+      : await em.fork().find(
+          StaffTimeEntryTag,
+          { tagId: { $in: tagIds }, tenantId, organizationId },
+          { fields: ['timeEntryId'] },
+        )
+    const entryIds = Array.from(new Set(assignments.map((row) => row.timeEntryId)))
+    filters[F.id] = { $in: entryIds.length > 0 ? entryIds : [IMPOSSIBLE_ID] }
+  }
+
+  const access = await resolveListProjectAccess(ctx)
+  if (access.canManageAll) return filters
+
+  const branches: Record<string, unknown>[] = []
+  if (access.projectIds.length > 0) {
+    branches.push({ [F.time_project_id]: { $in: access.projectIds } })
+  }
+  if (access.staffMemberId) {
+    branches.push({ [F.time_project_id]: { $eq: null }, [F.staff_member_id]: access.staffMemberId })
+  }
+  if (branches.length === 0) {
+    // A caller with no membership and no staff record gets no row at all — not a
+    // redacted one — so an entry's note and its project never leave the server.
+    filters[F.id] = { $in: [IMPOSSIBLE_ID] }
+    return filters
+  }
+  filters.$or = branches
+  return filters
+}
+
+/**
+ * The base projection, and the reason `rate_override_amount` / `rate_currency_code`
+ * are NOT in it.
+ *
+ * The money gate is `staff.timesheets.rates.view`, and it is applied by the
+ * `staff.timesheets-time-entries` response enricher, which is declared
+ * `critical: false`. A non-critical enricher that throws or exceeds its timeout
+ * leaves the items exactly as the route produced them (`enricher-runner.ts`), so
+ * anything the projection selects survives an enricher failure. Selecting the two
+ * money columns here and removing them there would therefore fail OPEN under DB
+ * contention. They are read back inside the enricher instead, for entitled callers
+ * only — see `lib/timesheets/timeEntryDecoration.ts`.
+ */
+export const timeEntryListFields = [
+  F.id,
+  F.organization_id,
+  F.tenant_id,
+  F.staff_member_id,
+  F.date,
+  F.duration_minutes,
+  F.rounded_minutes,
+  F.started_at,
+  F.ended_at,
+  F.notes,
+  F.time_project_id,
+  F.task_id,
+  F.customer_id,
+  F.deal_id,
+  F.order_id,
+  F.is_billable,
+  F.locked_report_id,
+  F.locked_at,
+  F.source,
+  F.created_at,
+  F.updated_at,
+] as const
+
+export type { TimeEntryTagSummary } from '../../../lib/timesheets/timeEntryDecoration'
+
+async function callerHasRatesView(ctx: CrudCtx): Promise<boolean> {
+  const userId = ctx.auth?.sub
+  if (!userId) return false
+  const { tenantId, organizationId } = resolveCtxScope(ctx)
+  try {
+    const rbac = ctx.container.resolve('rbacService') as RbacServiceLike | undefined
+    if (!rbac?.userHasAllFeatures) return false
+    return await rbac.userHasAllFeatures(userId, [RATES_FEATURE], { tenantId, organizationId })
+  } catch {
+    // Fail closed: an unreadable grant set never opens the money fields.
+    return false
+  }
+}
+
+/**
+ * @deprecated The decoration is now the declared `staff.timesheets-time-entries`
+ * response enricher (`data/enrichers.ts`), so third-party enrichers for
+ * `staff:staff_time_entry` compose with it instead of running blind behind a
+ * route-private hook. Kept as a thin, in-place wrapper because it is an exported
+ * symbol of this route module; new callers should register an enricher.
+ */
+export async function decorateTimeEntryList(payload: unknown, ctx: CrudCtx): Promise<void> {
+  const items = (payload as { items?: unknown })?.items
+  if (!Array.isArray(items) || items.length === 0) return
+  const { tenantId, organizationId } = resolveCtxScope(ctx)
+  await decorateTimeEntryRows(items as Record<string, unknown>[], {
+    em: ctx.container.resolve('em') as EntityManager,
+    tenantId,
+    organizationId,
+    canSeeRates: await callerHasRatesView(ctx),
+    onError: (err) => logger.error('staff.timesheets.time-entries response decoration failed', { err }),
+  })
+}
 
 const crud = makeCrudRoute({
   metadata: routeMetadata,
@@ -68,35 +407,21 @@ const crud = makeCrudRoute({
     tenantField: 'tenantId',
     softDeleteField: 'deletedAt',
   },
+  events: staffTimeEntryCrudEvents,
+  enrichers: { entityId: 'staff:staff_time_entry' },
   indexer: { entityType: 'staff:staff_time_entry' },
   list: {
     schema: listSchema,
     entityId: 'staff:staff_time_entry',
-    fields: [
-      F.id,
-      F.organization_id,
-      F.tenant_id,
-      F.staff_member_id,
-      F.date,
-      F.duration_minutes,
-      F.started_at,
-      F.ended_at,
-      F.notes,
-      F.time_project_id,
-      F.customer_id,
-      F.deal_id,
-      F.order_id,
-      F.source,
-      F.created_at,
-      F.updated_at,
-    ],
+    fields: [...timeEntryListFields],
     sortFieldMap: {
       date: F.date,
       createdAt: F.created_at,
       updatedAt: F.updated_at,
       durationMinutes: F.duration_minutes,
+      roundedMinutes: F.rounded_minutes,
     },
-    buildFilters: async (query) => buildTimeEntryListFilters(query),
+    buildFilters: buildScopedTimeEntryListFilters,
   },
   actions: {
     create: {
@@ -136,6 +461,13 @@ export const POST = crud.POST
 export const PUT = crud.PUT
 export const DELETE = crud.DELETE
 
+const timeEntryTagSchema = z.object({
+  id: z.string().uuid(),
+  slug: z.string(),
+  label: z.string(),
+  color: z.string().nullable(),
+})
+
 const timeEntryListItemSchema = z.object({
   id: z.string().uuid().nullable().optional(),
   organization_id: z.string().uuid().nullable().optional(),
@@ -143,16 +475,36 @@ const timeEntryListItemSchema = z.object({
   staff_member_id: z.string().uuid().nullable().optional(),
   date: z.string().nullable().optional(),
   duration_minutes: z.number().nullable().optional(),
+  rounded_minutes: z.number().nullable().optional(),
   started_at: z.string().nullable().optional(),
   ended_at: z.string().nullable().optional(),
   notes: z.string().nullable().optional(),
   time_project_id: z.string().uuid().nullable().optional(),
+  task_id: z.string().uuid().nullable().optional(),
   customer_id: z.string().uuid().nullable().optional(),
   deal_id: z.string().uuid().nullable().optional(),
   order_id: z.string().uuid().nullable().optional(),
+  is_billable: z.boolean().nullable().optional(),
+  /** Present only for a caller holding `staff.timesheets.rates.view`. */
+  rate_override_amount: z.union([z.string(), z.number()]).nullable().optional(),
+  /** Present only for a caller holding `staff.timesheets.rates.view`. */
+  rate_currency_code: z.string().nullable().optional(),
+  locked_report_id: z.string().uuid().nullable().optional(),
+  locked_at: z.string().nullable().optional(),
   source: z.string().nullable().optional(),
   created_at: z.string().nullable().optional(),
   updated_at: z.string().nullable().optional(),
+  /** Alias of `notes`; both keys are returned (see UPGRADE_NOTES.md). */
+  description: z.string().nullable().optional(),
+  /** Raw minutes rounded by the tenant's rule at write time; the only input to cost (D-7). */
+  roundedMinutes: z.number().nullable().optional(),
+  isLocked: z.boolean().optional(),
+  lockedReportId: z.string().uuid().nullable().optional(),
+  tags: z.array(timeEntryTagSchema).optional(),
+  /** Present only for a caller holding `staff.timesheets.rates.view`; `null` when non-billable. */
+  cost: z.number().nullable().optional(),
+  /** Present only for a caller holding `staff.timesheets.rates.view`. */
+  currencyCode: z.string().nullable().optional(),
 })
 
 export const openApi = createStaffCrudOpenApi({
@@ -162,12 +514,14 @@ export const openApi = createStaffCrudOpenApi({
   listResponseSchema: createPagedListResponseSchema(timeEntryListItemSchema),
   create: {
     schema: staffTimeEntryCreateSchema,
-    description: 'Creates a time entry for a staff member.',
+    description:
+      'Creates a time entry for a staff member. The note is accepted under either `notes` or `description` (`description` wins when both are sent). `roundedMinutes` is derived from the tenant rounding rule at write time and stored; `isBillable` falls back to the project default then the tenant default; `rateCurrencyCode` snapshots the project currency. `tagIds` is applied through the tag assignment command.',
   },
   update: {
     schema: staffTimeEntryUpdateSchema,
     responseSchema: defaultOkResponseSchema,
-    description: 'Updates a time entry by id.',
+    description:
+      'Updates a time entry by id. `durationMinutes`, `startedAt` and `endedAt` are reconciled so the stored set never contradicts itself: sending both clocks recomputes the duration from them (a duration sent alongside is advisory), sending one clock with a duration derives the other clock, and sending only a duration shifts `endedAt` while `startedAt` anchors. An `endedAt` earlier than its `startedAt` is stored on the next calendar day (a midnight crossing) and `date` still names the day the work started. Any change to the effective duration recomputes the stored rounded minutes from the tenant rounding rule; changing the project re-snapshots the currency. `tagIds` replaces the entry tag set through the tag assignment commands, which refuse an entry locked in a closed report.',
   },
   del: {
     schema: z.object({ id: z.string().uuid() }),

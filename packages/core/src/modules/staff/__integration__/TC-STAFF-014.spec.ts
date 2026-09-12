@@ -1,5 +1,10 @@
 import { expect, test } from '@playwright/test';
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api';
+import { createTestCustomer, type TestCustomerFixture } from './fixtures';
+
+export const integrationMeta = {
+  dependsOnModules: ['customers'],
+};
 
 /**
  * TC-STAFF-014: Dashboard Widget Data + Self-scope via API
@@ -15,6 +20,7 @@ test.describe('TC-STAFF-014: Dashboard Widget Data + Self-scope via API', () => 
     let employeeToken: string | null = null;
     let adminStaffMemberId: string | null = null;
     let employeeStaffMemberId: string | null = null;
+    let customer: TestCustomerFixture | null = null;
     let projectId: string | null = null;
     const createdEntryIds: string[] = [];
 
@@ -36,10 +42,19 @@ test.describe('TC-STAFF-014: Dashboard Widget Data + Self-scope via API', () => 
       employeeStaffMemberId = employeeSelfBody.member?.id ?? null;
       expect(employeeStaffMemberId, 'Employee staff member id should be present').toBeTruthy();
 
+      // Create the customer the project belongs to (US-B1: a project always names one)
+      customer = await createTestCustomer(request, adminToken, { displayName: `${projectName} Customer` });
+
       // Create a time project
       const createProjectResponse = await apiRequest(request, 'POST', '/api/staff/timesheets/time-projects', {
         token: adminToken,
-        data: { name: projectName, code: projectCode, projectType: 'internal', status: 'active' },
+        data: {
+          name: projectName,
+          code: projectCode,
+          customerId: customer.id,
+          projectType: 'internal',
+          status: 'active',
+        },
       });
       expect(createProjectResponse.ok(), 'POST time-projects should succeed').toBeTruthy();
       const createProjectBody = (await createProjectResponse.json()) as { id?: string | null };
@@ -172,6 +187,10 @@ test.describe('TC-STAFF-014: Dashboard Widget Data + Self-scope via API', () => 
       // Clean up project
       if (adminToken && projectId) {
         await apiRequest(request, 'DELETE', `/api/staff/timesheets/time-projects?id=${encodeURIComponent(projectId)}`, { token: adminToken }).catch(() => {});
+      }
+      // Clean up the customer the project named
+      if (customer) {
+        await customer.cleanup();
       }
     }
   });

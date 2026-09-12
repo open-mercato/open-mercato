@@ -10,14 +10,16 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { LockMode } from '@mikro-orm/core'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { StaffTimeEntry, StaffTimeEntrySegment } from '../../../../../data/entities'
+import { assertTimeEntryUnlocked, resolveRoundedMinutes } from '../../../../../commands/timesheets-entries'
 import { getStaffMemberByUserId } from '../../../../../lib/staffMemberResolver'
 import {
-  resolveUserFeatures,
+  STAFF_TIME_TRACKING_RESOURCE_KINDS,
   runStaffMutationGuardAfterSuccess,
   runStaffMutationGuards,
 } from '../../../../guards'
 import { emitStaffEvent } from '../../../../../events'
 import { invalidateStaffTimeEntryCache } from '../../../../../lib/timesheets/timeEntryCacheInvalidation'
+import { runTimesheetInterceptors } from '../../../_shared/withTimesheetInterceptors'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('staff')
@@ -51,6 +53,14 @@ export async function POST(req: Request) {
       throw new CrudHttpError(400, { error: translate('staff.errors.missingScope', 'Missing tenant or organization scope.') })
     }
 
+    const interceptors = await runTimesheetInterceptors({
+      request: req,
+      method: 'POST',
+      scope: { container, userId: auth.sub, tenantId, organizationId },
+    })
+    if (!interceptors.ok) return interceptors.response
+    const { session } = interceptors
+
     const em = (container.resolve('em') as EntityManager).fork()
     const scopeCtx = { tenantId, organizationId }
 
@@ -75,19 +85,22 @@ export async function POST(req: Request) {
       throw new CrudHttpError(403, { error: translate('staff.timesheets.errors.notOwner', 'You can only manage your own time entries.') })
     }
 
+    // Stopping a timer rewrites `duration_minutes`, which is exactly what a
+    // closed report froze — same gate as the entries command.
+    assertTimeEntryUnlocked(entry, translate)
+
     const guardResult = await runStaffMutationGuards(
       container,
       {
         tenantId,
         organizationId,
         userId: auth.sub ?? '',
-        resourceKind: 'staff.timesheets.time_entry',
+        resourceKind: STAFF_TIME_TRACKING_RESOURCE_KINDS.timeEntry,
         resourceId: entry.id,
         operation: 'update',
         requestMethod: req.method,
         requestHeaders: req.headers,
       },
-      resolveUserFeatures(auth),
     )
     if (!guardResult.ok) {
       return NextResponse.json(
@@ -111,6 +124,9 @@ export async function POST(req: Request) {
       if (!lockedEntry) {
         throw new CrudHttpError(404, { error: translate('staff.timesheets.errors.entryNotFound', 'Time entry not found.') })
       }
+      // Re-checked under the row lock: a report close committed between the
+      // pre-flight read and this transaction would otherwise slip through.
+      assertTimeEntryUnlocked(lockedEntry, translate)
 
       const segments = await findWithDecryption(
         trx,
@@ -148,6 +164,16 @@ export async function POST(req: Request) {
 
       const computedMinutes = Math.round(totalWorkMinutes / 60000)
       lockedEntry.durationMinutes = computedMinutes
+      // This route writes a duration outside the entries command, and D-7 makes
+      // `rounded_minutes` the only input to cost — so it is restated here with the
+      // same tenant rule the command applies, not left stale from the zero-minute
+      // value the timer was created with.
+      lockedEntry.roundedMinutes = await resolveRoundedMinutes(
+        container,
+        tenantId,
+        computedMinutes,
+        organizationId,
+      )
 
       await trx.flush()
       return { now: stoppedAt, durationMinutes: computedMinutes }
@@ -176,7 +202,7 @@ export async function POST(req: Request) {
         tenantId,
         organizationId,
         userId: auth.sub ?? '',
-        resourceKind: 'staff.timesheets.time_entry',
+        resourceKind: STAFF_TIME_TRACKING_RESOURCE_KINDS.timeEntry,
         resourceId: entry.id,
         operation: 'update',
         requestMethod: req.method,
@@ -184,7 +210,7 @@ export async function POST(req: Request) {
       })
     }
 
-    return NextResponse.json({ ok: true, durationMinutes }, { status: 200 })
+    return session.respond(200, { ok: true, durationMinutes })
   } catch (err) {
     if (err instanceof CrudHttpError) {
       return NextResponse.json(err.body, { status: err.status })
@@ -212,7 +238,11 @@ export const openApi: OpenApiRouteDoc = {
           schema: z.object({ ok: z.literal(true), durationMinutes: z.number() }),
         },
         { status: 404, description: 'Time entry not found', schema: z.object({ error: z.string() }) },
-        { status: 409, description: 'No active timer segment', schema: z.object({ error: z.string() }) },
+        {
+          status: 409,
+          description: 'No active timer segment, or the entry is locked in a closed report (code time_entry_locked)',
+          schema: z.object({ error: z.string(), code: z.string().optional(), lockedReportId: z.string().uuid().nullable().optional() }),
+        },
         { status: 401, description: 'Unauthorized', schema: z.object({ error: z.string() }) },
       ],
     },

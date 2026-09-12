@@ -35,7 +35,6 @@ jest.mock('@open-mercato/shared/lib/api/scoped', () => ({
 }))
 
 jest.mock('../../../../guards', () => ({
-  resolveUserFeatures: jest.fn(() => ['staff.manage_team']),
   runStaffMutationGuards: jest.fn((...args: unknown[]) => mockRunStaffMutationGuards(...args)),
   runStaffMutationGuardAfterSuccess: jest.fn((...args: unknown[]) => mockRunStaffMutationGuardAfterSuccess(...args)),
 }))
@@ -89,7 +88,6 @@ describe('staff team-members tags unassign route mutation guard', () => {
         operation: 'delete',
         requestMethod: 'POST',
       }),
-      expect.any(Array),
     )
     expect(mockExecute).not.toHaveBeenCalled()
     expect(mockRunStaffMutationGuardAfterSuccess).not.toHaveBeenCalled()
