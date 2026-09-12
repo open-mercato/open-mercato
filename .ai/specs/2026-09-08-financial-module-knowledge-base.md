@@ -34,7 +34,7 @@ What actually exists right now, and where:
 | Fixed Assets | `2026-09-06-fixed-assets.md` | `docs/fixed-assets` | Open, PR #6014 — full spec, adversarially reviewed, Final Compliance Report: fully compliant |
 | Posting Rules Engine (konto 490) | `2026-09-06-posting-rules-engine.md` | `docs/posting-rules-engine` | Open, PR #6015 — full spec, one independent adversarial review pass (nine issues fixed) |
 | This knowledge base | `2026-09-08-financial-module-knowledge-base.md` | `docs/financial-module-knowledge-base` | Open, PR #6016 |
-| GL bulk cross-module read service | `2026-09-10-general-ledger-bulk-read-service.md` | `docs/general-ledger-bulk-read-service` | Draft, not reviewed, no PR yet — prerequisite for JPK_KR_PD's future `SPEC-010` (see note below the table) |
+| GL bulk cross-module read service | `2026-09-10-general-ledger-bulk-read-service.md` | `docs/general-ledger-bulk-read-service` | Open, PR #6038 — draft, not yet reviewed — prerequisite for JPK_KR_PD's future `SPEC-010` (see note below the table) |
 | Accounts Receivable (sales invoice → GL posting) | `2026-08-18-sales-invoice-gl-posting.md` | `docs/sales-invoice-gl-posting` | Open, PR #6046 — full spec, one independent adversarial review pass (eleven issues fixed) plus a structured Final Compliance Matrix pass; not yet reviewed by a human/maintainer |
 | Cash & Bank Management, Multi-Currency, Budgeting & Forecasting, Cost Accounting | — | — | Not started (SPEC-024 only) |
 
@@ -221,6 +221,21 @@ cross-module read contract `SPEC-010` (JPK_KR_PD, in `official-modules`)
 will depend on. The GL core engine spec's Out of scope section
 (2026-09-10, three times now) tracks the same gap and points at the
 same document.
+
+**Literature & Prior Art applied to the spec itself (2026-09-12).**
+Per the financial-spec-writing-process: re-verified this document's own
+#5663/#6013 citations directly (zero corrections needed — the first
+spec in the family with a clean re-check on both). Recorded a genuine,
+near-total absence of ledger/posting material in Hay/Fowler (Hay
+mentions "ledger" twice, unrelated; "posting" not once). Compared
+against ERPNext/Frappe (docs.frappe.io — no shared bulk-read service,
+each report queries directly) and Odoo (odoo-master.readthedocs.io —
+the opposite extreme, any module queries any model directly via
+`self.env`, no service layer at all): this document's formal
+DI-resolved contract sits deliberately between both. Written directly
+into `2026-09-10-general-ledger-bulk-read-service.md`'s own new
+"Literature & Prior Art" section — commit `dfb9b77a0` on
+`docs/general-ledger-bulk-read-service`.
 
 **Update (2026-09-11) — a first draft of `SPEC-010` now exists.**
 `2026-09-11-jpk-kr-pd-financial-pl.md`, staged **temporarily** in this
