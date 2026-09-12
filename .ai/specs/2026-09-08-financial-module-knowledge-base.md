@@ -55,14 +55,28 @@ pass had left it narrative-only) and a fresh-context scope-cohesion
 check (verdict: cohesive). It reuses this section's own §2 conventions
 correctly — no new subsidiary ledger (`sales.SalesInvoice.outstandingAmount`
 already is one), FK-id-only cross-module links, Phase 1 manual
-account-mapping matching AP's own stance — without needing a new
-external-literature citation, since it introduces no accounting-pattern
-claim beyond what GL/AP/Contractor Registry already established and
-this doc already indexes. It leaves the `customers.CustomerEntity` ↔
-`contractors.Contractor` identity bridge a named, unresolved gap
-(Contractor Registry itself only ever named this document as an
-undesigned, indirect consumer — no automatic-resolution need is
-confirmed anywhere in the codebase yet).
+account-mapping matching AP's own stance. It leaves the
+`customers.CustomerEntity` ↔ `contractors.Contractor` identity bridge a
+named, unresolved gap (Contractor Registry itself only ever named this
+document as an undesigned, indirect consumer — no automatic-resolution
+need is confirmed anywhere in the codebase yet).
+
+**Correction (2026-09-12) — it did need a citation, and didn't have
+one.** The claim above ("without needing a new external-literature
+citation") was wrong: the document uses "receivable control account"
+four times with no citation anywhere for the concept. Fixed by adding
+Kieso Ch.7 "Cash and Receivables," p.7-12, footnote 5 (already verified
+in this knowledge base, §3, and more directly on-point here than the
+general Ch.3 definition used for AP's payable side, since it names
+receivables specifically) and Ustawa o rachunkowości art. 13/16.
+Compared against ERPNext (docs.frappe.io — GL posting happens
+automatically on Sales Invoice submission, not via a separate command;
+this document's `SalesInvoiceGlPosting` table substitutes for the
+idempotency guarantee Frappe's own `docstatus` field gives ERPNext for
+free) and Odoo (not independently re-verified this pass). All written
+directly into `2026-08-18-sales-invoice-gl-posting.md`'s own new
+"Literature & Prior Art" section — commit `80b642585` on
+`docs/sales-invoice-gl-posting`.
 
 **Resolved 2026-09-09:** Fixed Assets and Posting Rules Engine used to
 live only as uncommitted files in one worktree — flagged here as a
