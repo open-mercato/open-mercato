@@ -309,6 +309,29 @@ depends on it. Corrected directly in
 `2026-09-11-jpk-kr-pd-financial-pl.md`'s own Open Questions section —
 commit `8c4402def` on `docs/jpk-kr-pd-financial-pl`.
 
+**Update (2026-09-12) — SPEC-010's own primary-source XSD verification
+pass is done, with a major finding.** Against the published
+Schemat_JPK_KR_PD schema documentation, cross-checked with Comarch ERP
+XL's own JPK_KR_PD implementation notes: **RPD is a small,
+manually-completed summary node (K_1-K_x amount fields) in real
+implementations, not the per-account/per-posting classification problem
+this document's own Q1/Design Decisions had assumed** -- the "comparable
+in size to the Posting Rules Engine" sizing for a future Phase 2 was an
+overstatement, now downgraded in SPEC-010 itself (not removed --
+automation may simply never be asked for, since Phase 1's manual input
+may be the correct permanent design). Also confirmed: ZOiS has eight
+entity-type variants, and Commerce Weavers' target customers need
+ZOiS7 ("jednostki pozostale"), not a single generic shape; a real,
+previously-missing mandatory field, S_12_1 (a per-account
+financial-statement-category marker), has no source anywhere in
+`LedgerAccount`/`LedgerAccountGroup` today -- a new open item (Q4) in
+SPEC-010, needing its own design decision before Phase 1 is buildable.
+Caveat carried through: both readings were of the XSD's documentation,
+not a byte-level read of the raw `.xsd` -- still needed before this is
+fully buildable. Written directly into
+`2026-09-11-jpk-kr-pd-financial-pl.md` -- commit `970d42e07` on
+`docs/jpk-kr-pd-financial-pl`.
+
 ---
 
 ## 2. Cross-cutting conventions already settled (the real source of truth)
