@@ -138,6 +138,36 @@ bridge, so the package is not loaded on the disabled path.
 `@open-mercato/telemetry/nextjs-config` separately exports only
 `telemetryServerExternalPackages` for build configuration.
 
+### Built-in runtime metrics
+
+An active provider starts one process-wide 10-second sampler. Disabled/noop
+telemetry starts no interval or event-loop monitor. The sampler also invokes
+shared metric collectors, which lets the primary PostgreSQL pool report state
+without making `@open-mercato/shared` depend on this package.
+
+| Metric | Kind | Unit | Labels |
+| --- | --- | --- | --- |
+| `db.client.connection.count` | gauge | `{connection}` | `pool=primary`, `state=idle|used` |
+| `db.client.connection.pending_requests` | gauge | `{request}` | `pool=primary` |
+| `db.client.connection.max` | gauge | `{connection}` | `pool=primary` |
+| `db.client.connection.wait_time` | histogram | `s` | `pool=primary` |
+| `nodejs.eventloop.utilization` | gauge | `1` | none |
+| `nodejs.eventloop.delay.p50` / `p90` / `p99` | gauge | `s` | none |
+| `process.memory.usage` | gauge | `By` | none |
+| `v8js.memory.heap.used` | gauge | `By` | `v8js.heap.space.name` |
+| `om.audit_logs.pending_writes` | gauge | `{task}` | `stage=crud_dispatch|service_write` |
+| `om.audit_logs.oldest_pending_age` | gauge | `s` | `stage=crud_dispatch|service_write` |
+| `om.audit_logs.dropped` | counter | `{task}` | `stage=crud_dispatch|service_write`, `reason=capacity` |
+
+Pool acquisition wait is recorded per `pool.connect` call, including failed
+promise and callback acquisitions. Connection-state values are sampled; sum
+`idle` and `used` for the current open-connection total.
+
+Access-log gauges join the process sampler only while a stage has accepted
+pending work and emit a final zero before unregistering. Capacity rejections
+increment `om.audit_logs.dropped` immediately. The two fixed stages are bounded
+independently and metric labels never include request or record data.
+
 ### Long-lived jobs: root spans
 
 Trace context propagates from the request that triggered a job through the queue

@@ -1,3 +1,4 @@
+import { registerLoggerExtension } from '@open-mercato/shared/lib/logger'
 import { flushPendingCrudAccessLogs, logCrudAccess } from '@open-mercato/shared/lib/crud/factory'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 
@@ -25,11 +26,14 @@ function makeItems(count: number) {
 
 describe('logCrudAccess', () => {
   const originalBlocking = process.env.OM_CRUD_ACCESS_LOG_BLOCKING
+  const originalMaxPending = process.env.AUDIT_LOGS_MAX_PENDING
 
   afterEach(async () => {
     await flushPendingCrudAccessLogs()
     if (originalBlocking === undefined) delete process.env.OM_CRUD_ACCESS_LOG_BLOCKING
     else process.env.OM_CRUD_ACCESS_LOG_BLOCKING = originalBlocking
+    if (originalMaxPending === undefined) delete process.env.AUDIT_LOGS_MAX_PENDING
+    else process.env.AUDIT_LOGS_MAX_PENDING = originalMaxPending
   })
 
   it('prefers logMany() when the service exposes it', async () => {
@@ -127,6 +131,67 @@ describe('logCrudAccess', () => {
     expect(completed).toBe(0)
     await flushPendingCrudAccessLogs()
     expect(completed).toBe(1)
+  })
+
+  it.each(['0', '1'])('rejects newest work before dispatch when blocking mode is %s', async (blocking) => {
+    process.env.AUDIT_LOGS_MAX_PENDING = '1'
+    process.env.OM_CRUD_ACCESS_LOG_BLOCKING = '0'
+    let releaseFirst: () => void = () => {}
+    const firstWrite = new Promise<void>((resolve) => {
+      releaseFirst = resolve
+    })
+    const service = {
+      log: jest.fn(async () => {}),
+      logMany: jest.fn(async () => {
+        await firstWrite
+      }),
+    }
+    const options = {
+      container: makeContainer(service),
+      auth,
+      items: makeItems(2),
+      idField: 'id',
+      resourceKind: 'example.todo',
+    }
+
+    const accepted = await logCrudAccess(options)
+    process.env.OM_CRUD_ACCESS_LOG_BLOCKING = blocking
+    const rejected = await logCrudAccess(options)
+
+    expect(accepted.mode).toBe('batch')
+    expect(rejected).toEqual({ mode: 'skipped', count: 0, pending: 1 })
+    expect(service.logMany).toHaveBeenCalledTimes(1)
+
+    releaseFirst()
+    await flushPendingCrudAccessLogs()
+  })
+
+  it('reports counted capacity warnings without a telemetry provider', async () => {
+    process.env.AUDIT_LOGS_MAX_PENDING = '2'
+    process.env.OM_CRUD_ACCESS_LOG_BLOCKING = '0'
+    const emit = jest.fn()
+    const dispose = registerLoggerExtension({ emit })
+    let releaseWrites!: () => void
+    const gate = new Promise<void>((resolve) => { releaseWrites = resolve })
+    const service = { log: jest.fn(() => gate) }
+    const options = {
+      container: makeContainer(service), auth, items: makeItems(1),
+      idField: 'id', resourceKind: 'example.todo',
+    }
+    try {
+      await logCrudAccess(options)
+      await logCrudAccess(options)
+      await logCrudAccess(options)
+      expect(emit).toHaveBeenCalledWith(expect.objectContaining({
+        level: 'warn',
+        message: 'Dropped access-log dispatch because pending capacity is full',
+        fields: { component: 'crud', capacity: 2, stage: 'crud_dispatch', dropped: 1, totalDropped: 1 },
+      }))
+    } finally {
+      releaseWrites()
+      await flushPendingCrudAccessLogs()
+      dispose()
+    }
   })
 
   it('skips items without a normalized id and dedupes duplicate ids', async () => {

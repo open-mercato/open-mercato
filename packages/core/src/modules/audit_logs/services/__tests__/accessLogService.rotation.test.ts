@@ -14,6 +14,7 @@ function loadServiceModule(intervalMs: string | undefined): ServiceModule {
     mod = require('../accessLogService') as ServiceModule
   })
   if (!mod) throw new Error('[internal] failed to load accessLogService module')
+  mod.resetAccessLogRuntimeStateForTests()
   return mod
 }
 
@@ -98,6 +99,46 @@ describe('access log rotation throttling', () => {
     await service.log(payload(1))
     await service.logMany([payload(2), payload(3)])
     expect(nativeDeleteCalls).toHaveLength(6)
+  })
+
+  it('coalesces concurrent interval-zero rotations but rotates again sequentially', async () => {
+    const { AccessLogService } = loadServiceModule('0')
+    let releaseRotation: () => void = () => {}
+    let signalRotationStarted: () => void = () => {}
+    const rotationStarted = new Promise<void>((resolve) => {
+      signalRotationStarted = resolve
+    })
+    const pendingRotation = new Promise<void>((resolve) => {
+      releaseRotation = resolve
+    })
+    const fork = {
+      getConnection: () => ({
+        execute: jest.fn(async () => [{ id: '00000000-0000-4000-8000-000000000001' }]),
+      }),
+      nativeDelete: jest.fn()
+        .mockImplementationOnce(async () => {
+          signalRotationStarted()
+          await pendingRotation
+          return 0
+        })
+        .mockResolvedValue(0),
+      create: jest.fn((_entity: unknown, data: Record<string, unknown>) => data),
+    }
+    const em = { fork: jest.fn(() => fork) }
+    const service = new AccessLogService(em as never)
+
+    const first = service.log(payload(0))
+    await rotationStarted
+    const second = service.log(payload(1))
+    await Promise.resolve()
+    expect(fork.nativeDelete).toHaveBeenCalledTimes(1)
+
+    releaseRotation()
+    await Promise.all([first, second])
+    expect(fork.nativeDelete).toHaveBeenCalledTimes(2)
+
+    await service.log(payload(2))
+    expect(fork.nativeDelete).toHaveBeenCalledTimes(4)
   })
 
   it('falls back to the throttled default for invalid interval values', async () => {
