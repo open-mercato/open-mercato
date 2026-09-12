@@ -452,6 +452,67 @@ adopted as a citation here.
 | An `accounts_payable_payments` subscriber mirroring the `sales_invoice_gl_posting` one | Deferred, not rejected outright: Accounts Payable already settles at `markPaymentBatchSent` time, so a subscriber here would only add confirmation/audit value, not a missing write (see Out of scope) |
 | Leave bank fees/interest to a manual `PK` (Polecenie Księgowania) entry outside this module, since Phase 1's original three match types didn't cover them | Rejected after a literature check (Kieso Appendix 7A — see Design decisions): every real bank statement contains this category of line, and requiring the accountant to leave the reconciling module to record it defeats the point of matching a statement inside `cash_bank_management` in the first place — added `manual_gl_entry` as a fourth match type instead |
 
+## Literature & Prior Art
+
+Per the financial-spec-writing-process. Steps 1, 2, and 4 were already
+completed for this document in an earlier pass (see Changelog,
+"2026-09-11 — Literature-verification pass"): Fowler's Corresponding
+Account (*Analysis Patterns* 6.13, p.124) and Kieso's bank-reconciliation
+taxonomy (Appendix 7A, p.7-33–7-35, which drove the `manual_gl_entry`
+match type) are already cited directly in Design Decisions above, not
+repeated here to avoid duplicating a verified pass. What follows is
+Step 3, not yet done for this document — comparison against real
+systems, including the Polish ERPs this project's own process names
+explicitly for PL-specific specs.
+
+**Comparison against real systems (Step 3).**
+
+- **ERPNext** (docs.frappe.io/erpnext/bank-reconciliation, verified
+  2026-09-12): the Bank Reconciliation Tool supports both automatic
+  statement import (CSV upload, or live sync via Plaid) and
+  semi-automatic matching — "Automatic Party Matching" (with optional
+  fuzzy matching) and a ranked "Match Against Voucher" view (ranked by
+  number of fields matched), against existing Payment Entries, Sales/
+  Purchase Invoice payments, Journal Entries, and Expense Claims. An
+  unmatched line (a bank fee, for instance) is handled by a generic
+  "Create Voucher" action — any new document, not a dedicated,
+  taxonomy-backed category the way this document's `manual_gl_entry`
+  is (grounded in Kieso's specific reconciling-item categories 3/4, see
+  Design decisions above). Two real divergences worth naming: (1)
+  ERPNext ships file import and matching suggestions as baseline
+  functionality, not a deferred phase — this document's own Out of
+  scope explicitly defers both to Phase 2, so Phase 1 here starts
+  behind ERPNext's baseline capability on this specific axis, a real
+  scope trade-off (see Out of scope), not an oversight; (2) ERPNext's
+  "Create Voucher" escape hatch is more generic and less structured
+  than this document's four named, taxonomy-grounded match types —
+  this document trades ERPNext's flexibility for Kieso-grounded
+  correctness (an accountant can't post a bank fee against the wrong
+  kind of thing by construction, because `manual_gl_entry` is a
+  distinct, validated match type, not "create anything").
+- **Comarch ERP Optima** (pomoc.comarch.pl, verified 2026-09-12) — the
+  dominant small/mid-size accounting package in the Polish market,
+  named explicitly in this project's own knowledge sources for
+  PL-specific specs: supports MT940 file import natively, plus a
+  configurable "sposób automatycznego rozliczania przelewów" (automatic
+  transfer-reconciliation method) applied during import — but still
+  requires a manual verification step before the import is finalized
+  (checking dates, party names, account numbers, amounts). This is a
+  third, hybrid position distinct from both this document's Phase 1
+  (fully manual on both axes) and ERPNext's (import + fuzzy matching,
+  no mandatory verification gate described): automate the match,
+  but gate it behind a human check before it posts. Symfonia and
+  enova365 were not independently checked this pass — flagged as not
+  done, not silently assumed to be the same.
+
+This confirms Phase 1's "manual entry, manual matching" design is a
+real, deliberate simplification relative to actual market baseline
+(both ERPNext and the leading Polish package already automate at least
+part of this), not a naive starting point — and gives Phase 2 (see Out
+of scope) two concrete, checked reference shapes to choose between:
+ERPNext's fuzzy-match-and-suggest model, or Comarch's
+automate-then-verify-before-posting model.
+
 ## Architecture
 
 ### Entities (`data/entities.ts`)
@@ -1502,3 +1563,19 @@ never mentioned the optional `description` input. None changed the
 underlying design — `manual_gl_entry` itself was correct throughout —
 but a compliance report contradicting the spec it certifies is worth
 catching before a maintainer reads it.
+
+### 2026-09-12 — Comparison against real systems (Step 3) applied
+
+Per the financial-spec-writing-process, Step 3 (comparison against real
+accounting/ERP systems), the one step not yet done for this document
+after the 2026-09-11 literature-verification pass. Checked ERPNext
+(Bank Reconciliation Tool — file import + fuzzy/ranked auto-matching
+shipped as baseline, not deferred; a generic "Create Voucher" escape
+hatch for unmatched lines, less structured than this document's
+Kieso-grounded `manual_gl_entry`) and Comarch ERP Optima (MT940 import +
+configurable auto-reconciliation, gated behind mandatory manual
+verification before posting — a third, hybrid position). Confirms
+Phase 1's manual-only design is a deliberate simplification relative to
+real market baseline, and gives Phase 2 two concrete reference shapes.
+Symfonia/enova365 not independently checked this pass. Written directly
+above in the new "Literature & Prior Art" section.
