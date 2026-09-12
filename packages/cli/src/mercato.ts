@@ -2,6 +2,7 @@
 // Commands that need to run before generation (e.g., `init`) handle missing modules gracefully.
 
 import { registerWorkerShutdownHook, runWorker } from '@open-mercato/queue/worker'
+import { isProductionBuildPhase, startModuleRuntimes } from './lib/module-runtimes'
 import type { Module, ModuleWorker } from '@open-mercato/shared/modules/registry'
 import { getCliModules, hasCliModules, registerCliModules } from './registry'
 export { getCliModules, hasCliModules, registerCliModules }
@@ -1739,6 +1740,21 @@ export async function run(argv = process.argv) {
                 await localScheduler.stop?.()
               })
               console.log('[worker] Local scheduler started in the shared worker process.')
+            }
+
+            // SPEC-072 — module runtimes, once per process. After the queue workers are bound so
+            // a runtime may rely on them, and before the process announces itself as up.
+            //
+            // Only on `--all`: that is the process a deployment runs and the one `server start`
+            // spawns. A single-queue worker is a targeted invocation, and starting every module's
+            // runtime in each of N of them would run N copies of each.
+            if (!isProductionBuildPhase()) {
+              const runtimes = await startModuleRuntimes({
+                modules: getCliModules(),
+                container: await createRequestContainer(),
+                role: 'worker',
+              })
+              if (runtimes.started.length > 0) registerWorkerShutdownHook(() => runtimes.stop())
             }
 
             console.log('[worker] All workers started. Press Ctrl+C to stop')

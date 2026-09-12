@@ -2705,6 +2705,13 @@ function buildLegacyModuleSetupValue(importName: string): WriterFunction {
   ])
 }
 
+function buildLegacyModuleRuntimeValue(importName: string): WriterFunction {
+  return logicalOr([
+    legacyNamespaceMemberFallback(importName, ['default', 'runtime']),
+    identifier('undefined'),
+  ])
+}
+
 function buildLegacyIntegrationListValue(
   importName: string,
   pluralMember: string,
@@ -3637,6 +3644,7 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
     let customFieldSetsExpr: string = '[]'
     const dashboardWidgets: string[] = []
     let setupImportName: string | null = null
+    let moduleRuntimeImportName: string | null = null
     let encryptionImportName: string | null = null
     let integrationImportName: string | null = null
 
@@ -3753,6 +3761,12 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
     {
       const setup = resolveConventionFile(discovered.resolve('setup.ts'), 'SETUP', modId, importIdRef, imports, runtimeImports)
       if (setup) setupImportName = setup.importName
+    }
+
+    // 11b. Module runtime: runtime.ts (SPEC-072)
+    {
+      const moduleRuntime = resolveConventionFile(discovered.resolve('runtime.ts'), 'RUNTIME', modId, importIdRef, imports, runtimeImports)
+      if (moduleRuntime) moduleRuntimeImportName = moduleRuntime.importName
     }
 
     // 11a. Encryption defaults: encryption.ts
@@ -3930,6 +3944,9 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
     const setupAndBeyondEntries: GeneratedObjectEntry[] = []
     if (setupImportName) {
       setupAndBeyondEntries.push({ name: 'setup', value: buildLegacyModuleSetupValue(setupImportName) })
+    }
+    if (moduleRuntimeImportName) {
+      setupAndBeyondEntries.push({ name: 'runtime', value: buildLegacyModuleRuntimeValue(moduleRuntimeImportName) })
     }
     if (encryptionImportName) {
       setupAndBeyondEntries.push({
@@ -4328,6 +4345,7 @@ async function generateModuleRegistryAppFromDiscovery(options: ModuleRegistryRen
     let customEntitiesImportName: string | null = null
     let dashboardWidgetsValue: WriterFunction = emptyArray()
     let setupImportName: string | null = null
+    let moduleRuntimeImportName: string | null = null
     let encryptionImportName: string | null = null
     let integrationImportName: string | null = null
 
@@ -4350,6 +4368,13 @@ async function generateModuleRegistryAppFromDiscovery(options: ModuleRegistryRen
       const setup = resolveConventionFile(discovered.resolve('setup.ts'), 'SETUP', modId, importIdRef, imports)
       if (setup) bootstrapImports.push(buildImportStatement(`* as ${setup.importName}`, setup.importPath))
       if (setup) setupImportName = setup.importName
+    }
+
+    // Module runtime: runtime.ts (SPEC-072)
+    {
+      const moduleRuntime = resolveConventionFile(discovered.resolve('runtime.ts'), 'RUNTIME', modId, importIdRef, imports)
+      if (moduleRuntime) bootstrapImports.push(buildImportStatement(`* as ${moduleRuntime.importName}`, moduleRuntime.importPath))
+      if (moduleRuntime) moduleRuntimeImportName = moduleRuntime.importName
     }
 
     {
@@ -4539,6 +4564,16 @@ async function generateModuleRegistryAppFromDiscovery(options: ModuleRegistryRen
         value: namespaceFallback({
           importName: setupImportName,
           members: ['default', 'setup'],
+          fallback: identifier('undefined'),
+        }),
+      })
+    }
+    if (moduleRuntimeImportName) {
+      moduleEntries.push({
+        name: 'runtime',
+        value: namespaceFallback({
+          importName: moduleRuntimeImportName,
+          members: ['default', 'runtime'],
           fallback: identifier('undefined'),
         }),
       })
@@ -4744,6 +4779,7 @@ async function generateModuleRegistryCliFromDiscovery(options: ModuleRegistryRen
     let vectorImportName: string | null = null
     let dashboardWidgetsValue: WriterFunction = emptyArray()
     let setupImportName: string | null = null
+    let moduleRuntimeImportName: string | null = null
     let encryptionImportName: string | null = null
     let integrationImportName: string | null = null
 
@@ -4766,6 +4802,12 @@ async function generateModuleRegistryCliFromDiscovery(options: ModuleRegistryRen
     {
       const setup = resolveConventionFile(discovered.resolve('setup.ts'), 'SETUP', modId, importIdRef, imports)
       if (setup) setupImportName = setup.importName
+    }
+
+    // Module runtime: runtime.ts (SPEC-072)
+    {
+      const moduleRuntime = resolveConventionFile(discovered.resolve('runtime.ts'), 'RUNTIME', modId, importIdRef, imports)
+      if (moduleRuntime) moduleRuntimeImportName = moduleRuntime.importName
     }
 
     // Module encryption defaults: encryption.ts
@@ -4933,6 +4975,16 @@ async function generateModuleRegistryCliFromDiscovery(options: ModuleRegistryRen
         value: namespaceFallback({
           importName: setupImportName,
           members: ['default', 'setup'],
+          fallback: identifier('undefined'),
+        }),
+      })
+    }
+    if (moduleRuntimeImportName) {
+      moduleEntries.push({
+        name: 'runtime',
+        value: namespaceFallback({
+          importName: moduleRuntimeImportName,
+          members: ['default', 'runtime'],
           fallback: identifier('undefined'),
         }),
       })

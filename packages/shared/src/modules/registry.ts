@@ -269,6 +269,9 @@ export type Module = {
   vector?: import('./vector').VectorModuleConfig
   // Optional: module-specific tenant setup configuration (from setup.ts)
   setup?: import('./setup').ModuleSetupConfig
+  // Optional: a long-lived process-wide runtime the module starts itself (from runtime.ts).
+  // Invoked once per process by `mercato server start` and `mercato queue worker`.
+  runtime?: import('./runtime').ModuleRuntime
   // Optional: default encryption maps owned by the module (from encryption.ts)
   defaultEncryptionMaps?: import('./encryption').ModuleEncryptionMap[]
   // Optional: integration marketplace declarations discovered from integration.ts
