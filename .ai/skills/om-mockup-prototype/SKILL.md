@@ -48,12 +48,14 @@ node .ai/skills/om-mockup-prototype/scripts/init-mockup.mjs <prototype-slug> \
 
 The command strictly validates its arguments, creates `.ai/prototypes/<prototype-slug>/` atomically, escapes template substitutions, and refuses to overwrite existing reviewer feedback.
 
-`tokens.css` is generated from `apps/mercato/src/app/globals.css`; never edit it by hand. Refresh or audit it with:
+`tokens.css` is generated from the committed token snapshot (`.ai/ds/ds-tokens.json`, falling back to the copy bundled with the skill); its header states which source was used. Never edit it by hand. Refresh or audit it with:
 
 ```bash
 node .ai/skills/om-mockup-prototype/scripts/sync-tokens.mjs .ai/prototypes/<prototype-slug>
 node .ai/skills/om-mockup-prototype/scripts/sync-tokens.mjs --check .ai/prototypes/<prototype-slug>
 ```
+
+`theme.css` carries the prototype's eight identity tokens (primary + hover + foreground, two brand accents, radius, two font stacks). Rebranding is editing that one file — no build step. Everything else is a semantic contract owned by `tokens.css`; do not override semantic tokens in `theme.css`.
 
 ## 4. Build the screens
 
@@ -123,6 +125,7 @@ Comments use a stable per-prototype localStorage namespace and an append-only op
 .ai/prototypes/<prototype-slug>/
 ├── index.html
 ├── tokens.css
+├── theme.css
 ├── components.css
 ├── screens.css
 ├── prototype.css

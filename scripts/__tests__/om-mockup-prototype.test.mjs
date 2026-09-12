@@ -15,6 +15,9 @@ import {
   buildTokens,
   parseSyncArguments,
   resolvePrototypeTarget,
+  resolveRepoRoot,
+  resolveSnapshot,
+  tokensDrift,
 } from '../../.ai/skills/om-mockup-prototype/scripts/sync-tokens.mjs'
 
 const repoRoot = resolve(import.meta.dirname, '../..')
@@ -99,6 +102,37 @@ test('token sync rejects ambiguous targets and audits every bundled variable', (
     rmSync(linkedTarget, { force: true })
     rmSync(assetsDirectory, { recursive: true, force: true })
     rmSync(outsideDirectory, { recursive: true, force: true })
+  }
+})
+
+test('token source resolves through the repo snapshot, falls back to the bundled copy, and states the source used', () => {
+  assert.match(buildTokens(), /^ \* Source: \.ai\/ds\/ds-tokens\.json$/m)
+
+  const bareRoot = mkdtempSync(join(tmpdir(), 'om-bare-root-'))
+  try {
+    const fallback = resolveSnapshot(bareRoot)
+    assert.match(fallback.source, /bundled default snapshot/)
+    assert.match(buildTokens(fallback.path), /Source: .*references\/ds-tokens\.default\.json/)
+  } finally {
+    rmSync(bareRoot, { recursive: true, force: true })
+  }
+})
+
+test('drift check is order-insensitive and ignores redundant .dark re-declarations', () => {
+  assert.deepEqual(tokensDrift(':root {\n--a: 1;\n--b: 2;\n}', ':root {\n--b: 2;\n--a: 1;\n}'), [])
+  assert.deepEqual(tokensDrift(':root {\n--a: 1;\n}\n.dark {\n--a: 1;\n}', ':root {\n--a: 1;\n}\n.dark {\n}'), [])
+  assert.ok(tokensDrift(':root {\n--a: 1;\n}', ':root {\n--a: 2;\n}').length > 0)
+  assert.ok(tokensDrift(':root {\n}', ':root {\n--a: 1;\n}').length > 0)
+  assert.ok(tokensDrift(':root {\n--a: 1;\n}\n.dark {\n--a: 2;\n}', ':root {\n--a: 1;\n}\n.dark {\n}').length > 0)
+})
+
+test('repository root resolves through git with a stated working-directory fallback', () => {
+  assert.equal(resolveRepoRoot(repoRoot), repoRoot)
+  const outsideGit = mkdtempSync(join(tmpdir(), 'om-no-git-'))
+  try {
+    assert.equal(resolveRepoRoot(outsideGit), outsideGit)
+  } finally {
+    rmSync(outsideGit, { recursive: true, force: true })
   }
 })
 
