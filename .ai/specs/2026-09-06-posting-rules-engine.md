@@ -333,6 +333,77 @@ tenant with `posting_rules` installed:
 | Store the 4→5 mapping and default cost centre as two separate reference tables | Rejected: both are one fact per source account in practice; two tables means two lookups and two places to keep in sync for no separation of concerns that matters here (see Design Decisions, "`DefaultAccountPostingRule` does double duty") |
 | Let `CostCenter` be a free-standing string with no entity at all (just whatever `AP` or a rule types in) | Rejected: nothing to reference from `DefaultAccountPostingRule`, no way to rename a department consistently, no place to mark one inactive — `journal_entry_line_dimension` (#5972) explicitly leaves this identity question to its consumers, and this is the first consumer that needs an answer |
 
+## Literature & Prior Art
+
+Per the project's financial-spec-writing-process, this section records
+what the accounting/data-modeling literature and comparable real
+systems say about the two core mechanisms above — the 4→5
+reclassification itself, and the `CostCenter`/`DefaultAccountPostingRule`
+shape — rather than re-deriving them from a Polish-only quirk. All
+citations below were verified against full extracted text (not chapter
+titles alone); see `financial-module-knowledge-base.md` §3 for the
+verification trail.
+
+**The reclassification mechanism (zespół 4 → zespół 5) is a real,
+internationally-recognized pattern, not a Polish-only oddity.** Kieso,
+*Intermediate Accounting*, 17th Ed., IFRS Insights supplement to Ch. 4
+("Income Statement and Related Information"), pp. 4-45–4-46, confirmed:
+"Companies are required to present an analysis of expenses classified
+either by their nature... or their function," and notes that "many
+companies believe both approaches have merit. These companies use the
+function-of-expense approach on the income statement but provide detail
+of the expenses... in the notes," adding that the IASB/FASB discussion
+paper on financial statement presentation "also recommends the dual
+approach." Account 490's zespół 4 → zespół 5 reclassification is exactly
+this dual approach implemented as a ledger mechanism: zespół 4 captures
+expenses by nature (as incurred), and this engine derives the
+zespół 5 function-of-expense view from it in real time, rather than
+forcing a choice between the two presentations.
+
+**`DefaultAccountPostingRule` matches Fowler's Derived Account pattern,
+not a new invention.** Fowler, *Analysis Patterns*, §6.15.2 "Derived
+Accounts," pp. 130–131 (verified by full-text search — neither Fowler
+nor Hay use "control account" or "subsidiary ledger" verbatim anywhere
+in either book, so this is the closest structural analog, not a
+terminology match): a Derived Account is one whose balance is computed
+by a filter over entries carrying a given attribute, rather than being
+posted to directly. `DefaultAccountPostingRule`'s zespół 5 side is
+exactly this — its balance is never posted to directly by any
+cost-source module; it only ever receives entries the engine derives
+from a zespół 4 posting matching the rule's `sourceAccountId` filter.
+
+**`CostCenter` is deliberately flatter than Hay's general cost-center
+model — a documented divergence, not an oversight.** Hay, *Data Model
+Patterns*, §7.19 "Cost Center Assignment," pp. 150–151, models COST
+CENTER ASSIGNMENT polymorphically: a cost center can be assigned to an
+internal organization, a work center, a piece of equipment, a product,
+or a project, with the assignment itself as a first-class, timestamped
+entity. This spec's `CostCenter` is intentionally flatter (`code`,
+`name`, `isActive`, no assignment history, no polymorphic target) — see
+Alternatives Considered above ("Let `CostCenter` be a free-standing
+string with no entity at all"), which already rejected going the other
+direction (no entity at all). Hay's model is the natural Phase 2
+extension if a cost center ever needs to attach to more than a
+`journal_entry_line_dimension` row (e.g. direct equipment or project
+costing) — noted here so that extension has prior art to build from
+rather than inventing one.
+
+**ERPNext has no direct analog for the reclassification mechanism
+itself — a genuine, useful absence, not a gap in this research.**
+ERPNext's Cost Center is a hierarchical tree (group / non-group nodes
+under a Parent Cost Center), assigned per transaction line item, with a
+"Cost Center Allocation" feature for percentage-based distribution
+across centers (docs.frappe.io, `/erpnext/v12/user/manual/en/accounts/
+cost-center`, verified 2026-09-12). None of that includes an automatic
+nature-to-function reclassification comparable to zespół 4 → zespół 5 —
+ERPNext simply doesn't solve this problem, because it doesn't carry the
+IFRS dual-presentation requirement Kieso describes above as a ledger-
+level concern. This confirms the reclassification engine is solving a
+problem specific to dual nature/function presentation, not one every
+general-ledger ERP already has a ready-made answer for, and that
+`CostCenter`'s tree-shaped ERPNext cousin is available as a Phase 2
+reference if hierarchy is ever needed here.
+
 ## Architecture
 
 ### Entities (`data/entities.ts`)
@@ -840,3 +911,20 @@ time-windowed framing, kept the reference-absence one);
 diverged from (`updatedAt` removed to match `LedgerAccountGroup`
 exactly); a missing `operationDate` on the engine's own postings; and
 five Testing Strategy gaps. Full detail in Final Compliance Report.
+
+### 2026-09-12 — Literature & Prior Art grounding applied
+
+Per the financial-spec-writing-process: cross-checked against
+`financial-module-knowledge-base.md` §2/§3 (no conflicts), then verified
+via full-text search of the primary literature rather than titles alone.
+Confirmed the zespół 4 → zespół 5 reclassification implements Kieso's
+IFRS "dual approach" (nature- and function-of-expense presented
+together, IFRS Insights supplement to Ch. 4, pp. 4-45–4-46) rather than
+being a Poland-only mechanism; confirmed `DefaultAccountPostingRule`
+matches Fowler's Derived Account pattern (§6.15.2, pp. 130-131);
+compared `CostCenter` against Hay's polymorphic Cost Center Assignment
+(§7.19, pp. 150-151) and recorded the divergence as deliberate, not an
+oversight; compared against ERPNext's Cost Center model and confirmed it
+has no reclassification analog at all — a genuine absence, not a
+research gap. Findings recorded in full in `financial-module-knowledge-
+base.md` §3 and above in Literature & Prior Art.
