@@ -374,6 +374,18 @@ createTimeProjectFixture(request, token, { customerId, name: 'Consulting' })  //
 A call with no `customerId` (or a blank one) now throws before any request is made, naming the helper and the missing field. There is no safe value to default to — a fixture cannot invent a customer for the tenant under test without silently changing what the spec exercises — so failing loudly at the call is the closest thing to the compile error that a published helper cannot afford to introduce.
 
 **Action for module authors:** create a customer first and pass its id — `createCompanyFixture` from `@open-mercato/core/helpers/integration/crmFixtures` returns one, and any id from `customers.customer_entities` works. Specs that already pass `customerId` need no change. The parameter is not scheduled to become required; the runtime check is the enforcement, so it will keep compiling.
+### Phone call PII is encrypted at rest — existing tenants get backfilled encryption maps
+
+The new `phone_calls` module encrypts two entities at rest through the standard tenant-data-encryption seam: `phone_number`, `display_name` and `email` on `phone_calls:phone_call_participant`, and `raw_snapshot`, `provider_facts` and `recording_url` on `phone_calls:phone_call` (the untouched provider payload repeats the caller and destination numbers, and the recording URL carries its own access token). Encryption is driven by an `encryption_maps` row that declares which fields to encrypt, and those rows are seeded **once at tenant creation** (`entities seed-encryption`). A tenant that predates this module therefore has **no map for either entity**, and `encryptEntityPayload` no-ops when no map resolves — so calls ingested after the upgrade would have their PII written as **plaintext**, silently, both in the base tables and in the copy the query index keeps in `entity_indexes.doc`.
+
+**This heals automatically on `yarn db:migrate`.** A forward-only, idempotent data migration (`entities` module, `Migration20260822120000`) inserts both maps for every `(tenant, organization)` scope that already has active encryption maps, mirroring what `seed-encryption` does and correctly skipping tenants that run with encryption disabled (they have no maps at all). New tenants continue to get both maps from `seed-encryption` at creation. **No operator action is required** for the standard migrate-then-deploy flow, and there is no plaintext window because the maps exist before the new code serves traffic. This mirrors the `devices:user_device` backfill shipped in `Migration20260722120000`.
+
+Two additional heal paths are available if you need them:
+
+- **Upgrade Action** (`phone_calls.seed-call-encryption-maps`, version `0.7.1`) — the managed, UI/API-triggered heal for the same backfill, gated on `UPGRADE_ACTIONS_ENABLED=true` and the `configs.manage` feature, run per tenant (idempotent). The migration only reaches scopes that had active maps when it ran, so this is the path for a tenant that upgraded with encryption **disabled** and enabled it afterwards — that tenant has no map and nothing else would tell you.
+- **Manual CLI** — re-run `yarn mercato entities seed-encryption --tenant <tenantId> --org <organizationId>` per tenant. It idempotently upserts **all** modules' default encryption maps, including both phone_calls ones.
+
+Note: only calls ingested **after** the maps exist are encrypted. Rows written by a build that ran without them stay plaintext until they are re-ingested (a pull is idempotent, so re-pulling the affected range rewrites them) or handled with the `entities rotate-encryption` / `decrypt-database` tooling.
 
 ## 0.6.7 → 0.7.0 (2026-08-26)
 

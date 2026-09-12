@@ -44,6 +44,8 @@ jest.mock('@open-mercato/shared/lib/encryption/tenantDataEncryptionService', () 
     encryptEntityPayload: jest.fn(async (_entityId: string, payload: Record<string, unknown>) => payload),
   })),
   parseDecryptedFieldValue: (decrypted: string) => decrypted,
+  resolveEncryptionKeyId: (entityId: string, keyScope: string | undefined, tenantId: string | null | undefined) =>
+    (keyScope === 'system' ? `system:${entityId}` : tenantId ?? null),
 }))
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
