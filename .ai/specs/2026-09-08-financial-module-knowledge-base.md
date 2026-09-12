@@ -290,6 +290,25 @@ no longer describes it, and the GL core engine spec's Out of scope
 bullet (PR #5663) has been corrected to match (see that spec's own
 Changelog).
 
+**Update (2026-09-12) — SPEC-010's Q2 (cohort/timing) corrected and
+partially resolved.** The original Q2 wrongly conflated `JPK_CIT`'s
+revenue-based cohort split (whose largest-taxpayer window, EUR 50M+,
+really has passed — filed by July 2026) with `JPK_KR_PD`'s own split,
+which is by **VAT filing frequency**, not size: Group 1 (monthly
+`JPK_V7M`) obligated from FY2026, first file due end of April 2027;
+Group 2 (quarterly/exempt) obligated from FY2027, first file due end
+of April 2028 — neither has passed. Confirmed against `gov.pl/web/kas`
+and cross-checked against taxeo.pl (the primary gov.pl page failed to
+fetch this session). Confirmed with the business: Commerce Weavers'
+target Open Mercato customers keep full accounting books, not `PKPiR`
+— so `JPK_KR_PD` is confirmed the right structure to keep building.
+Which VAT-frequency cohort specifically (and therefore the exact
+deadline) is confirmed still open, and explicitly does not block
+`#6038`'s review or the XSD verification pass — only the ship-by date
+depends on it. Corrected directly in
+`2026-09-11-jpk-kr-pd-financial-pl.md`'s own Open Questions section —
+commit `8c4402def` on `docs/jpk-kr-pd-financial-pl`.
+
 ---
 
 ## 2. Cross-cutting conventions already settled (the real source of truth)
