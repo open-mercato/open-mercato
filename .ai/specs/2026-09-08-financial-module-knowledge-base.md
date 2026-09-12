@@ -27,6 +27,7 @@ What actually exists right now, and where:
 
 | Module | File | Branch | Status |
 |---|---|---|---|
+| Contractor Registry | `2026-09-06-contractor-registry.md` + `...-implementation-guide.md` | `docs/contractor-registry` | Open, PR #5955 — full spec, closed external maintainer review (two blockers + six majors fixed), Final Compliance Report: ready for maintainer review; literature + real-system comparison pass done 2026-09-12 |
 | General Ledger core engine | `2026-08-18-general-ledger-core-engine.md` + `...-implementation-guide.md` | `docs/spec-072-general-ledger-core-engine` | Open, PR #5663 |
 | Accounts Payable (invoices) | `2026-09-06-accounts-payable.md` | `docs/accounts-payable` | Open, PR #5962 |
 | Accounts Payable (payments) | `2026-09-06-accounts-payable-payments.md` | `docs/accounts-payable` | Open, PR #5962 |
@@ -332,6 +333,33 @@ fully buildable. Written directly into
 `2026-09-11-jpk-kr-pd-financial-pl.md` -- commit `970d42e07` on
 `docs/jpk-kr-pd-financial-pl`.
 
+**New 2026-09-12 — the financial-spec-writing-process applied to
+Contractor Registry (#5955) for the first time.** This module was
+missing from the table above entirely, despite having a complete
+spec, an implementation guide, and a closed external maintainer review
+(PR #5955) — added as its own row. Findings: a stale cross-spec
+reference in its own "Related" header (`sales-invoice-gl-posting`
+still described as "planned, not yet written," corrected); both Fowler
+leads §4b/§4 had already flagged for this document — Ch.2 "Party"
+(§2.1, pp.17-19) and Ch.5 "Object Merge" (§5.3, pp.90-92) — read in
+full and closed (see §4b and §4 below, updated); an independent second
+confirmation of the Party pattern from Hay Ch.3 "Parties" (pp.23-24),
+not previously checked here. Real-system comparison: ERPNext keeps
+Customer/Supplier as separate doctypes (bridged via "Common Party
+Accounting"), unlike this module's single-entity `isVendor`/
+`isCustomer` design or Odoo's `res.partner` (this document's own
+Market Reference); ERPNext's generic "Merge with existing" rename tool
+is the concrete real-system precedent for the Object Merge gap;
+Comarch ERP Optima/XL re-verify VAT/VIES status on every commercial
+document (wider than this module's registration-time-only check) and
+cache Biała Lista results on the contractor card (same shape as
+`lastVerifiedAt`); no four-eyes/approval-gate precedent found in
+Optima's or enova365's public documentation, confirming this module's
+`contractors.vendor-approval` gate is an added control, not a
+reproduction of local market practice. All written directly into
+`2026-09-06-contractor-registry.md`'s own new "Literature & Prior Art"
+section — commit `e8dd1b1de` on `docs/contractor-registry`.
+
 ---
 
 ## 2. Cross-cutting conventions already settled (the real source of truth)
@@ -555,12 +583,16 @@ module (AR is next per SPEC-024's ordering) is designed:
   pp.90–93) — models what happens when two records turn out to be the same
   real-world entity, with three strategies (copy-and-replace, superseding,
   essence/appearance) and explicit guidance on which to use when a merge
-  might later need undoing. Relevant question, not yet checked against the
-  actual repo: does Contractor Registry (#5955) or AP have any vendor
-  merge/deduplication path today, and if one gets built, which of these
-  three strategies fits (essence/appearance is the one Fowler recommends
-  when a merge might be wrong and need undoing — plausibly the safest
-  default for merging vendor records)?
+  might later need undoing. **Checked against Contractor Registry
+  (2026-09-12): confirmed no such mechanism exists today** — NIP
+  uniqueness prevents exact duplicates but not a two-different-NIPs
+  case (e.g. post-reorganization re-registration), and `nip`'s
+  unconditional immutability forecloses an in-place fix. Recorded as a
+  real, un-actioned gap in that document's own "Literature & Prior
+  Art" section, not applied — no Phase 1 need is evidenced yet. AP's
+  own vendor-registration path was not separately re-checked this pass
+  (it resolves contractors by FK-id only, so any merge would happen
+  here, not there).
 - **Fowler's Corresponding Account** (6.13, p.124) — models reconciling two
   independent parties' own books for the same real-world asset (e.g. your
   checkbook vs. the bank's ledger). Directly anticipates the future "Bank
@@ -660,12 +692,14 @@ pointed at the wrong section.
   made against this pattern, not adopting it as a citation.
 
 **Contractor Registry:**
-- Chapter 2 "Accountability", 2.1 Party — confirmed real (verified the actual
-  chapter intro and 2.1's opening just now, not just the memo's guess from a
-  title). Fowler's Party is exactly "the supertype of person and
-  organization" — a full, developed pattern, not a stub. Genuinely the
-  strongest unread lead in the whole memo; worth reading in full before
-  next touching Contractor Registry's `isVendor`/`isCustomer` design.
+- Chapter 2 "Accountability", 2.1 Party — confirmed real, and now read in
+  full (2026-09-12, not just the chapter intro as in the original
+  2026-09-08 spot-check). Fowler's Party is exactly "the supertype of
+  person and organization" — a full, developed pattern, not a stub.
+  Applied directly to `2026-09-06-contractor-registry.md`'s own new
+  "Literature & Prior Art" section, alongside an independent second
+  confirmation from Hay Ch.3 "Parties" (pp.23-24) — commit `e8dd1b1de`
+  on `docs/contractor-registry`. No longer an unread lead.
 
 ## 5. Quick links
 
