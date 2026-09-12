@@ -1,0 +1,831 @@
+<!doctype html>
+<html lang="en" data-prototype-id="buyer-scoped-catalog-visibility">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Buyer Scoped Catalog Visibility — interactive backend prototype</title>
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="components.css" />
+<link rel="stylesheet" href="screens.css" />
+<link rel="stylesheet" href="prototype.css" />
+</head>
+<body>
+
+<!-- Lucide icon sprite. Include only the paths the prototype uses. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<symbol id="ic-home" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></symbol>
+<symbol id="ic-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+<symbol id="ic-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+<symbol id="ic-chevron-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></symbol>
+<symbol id="ic-chevron-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></symbol>
+<symbol id="ic-chevron-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></symbol>
+<symbol id="ic-bell" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></symbol>
+<symbol id="ic-more" viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="5" cy="12" r="1.75"/><circle cx="12" cy="12" r="1.75"/><circle cx="19" cy="12" r="1.75"/></symbol>
+<symbol id="ic-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/></symbol>
+<symbol id="ic-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></symbol>
+<symbol id="ic-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+<symbol id="ic-pencil" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/></symbol>
+<symbol id="ic-trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></symbol>
+<symbol id="ic-save" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7H7v7"/><path d="M7 3v5h8"/></symbol>
+<symbol id="ic-filter" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></symbol>
+<symbol id="ic-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></symbol>
+<symbol id="ic-warn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
+<symbol id="ic-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></symbol>
+<symbol id="ic-store" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/><path d="M10 18h4"/></symbol>
+<symbol id="ic-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+<symbol id="ic-tag" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/></symbol>
+<symbol id="ic-layers" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/></symbol>
+<symbol id="ic-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></symbol>
+<symbol id="ic-users" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+<symbol id="ic-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.06 12.35a1 1 0 0 1 0-.7 10.75 10.75 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-19.88 0"/><circle cx="12" cy="12" r="3"/></symbol>
+<symbol id="ic-eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" x2="22" y1="2" y2="22"/></symbol>
+<symbol id="ic-circle-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></symbol>
+<symbol id="ic-package" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73Z"/><path d="M12 22V12"/><path d="M3.29 7 12 12l8.71-5"/><path d="m7.5 4.27 9 5.15"/></symbol>
+<symbol id="ic-percent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 5 5 19"/><circle cx="7.5" cy="7.5" r="1.5"/><circle cx="16.5" cy="16.5" r="1.5"/></symbol>
+<symbol id="ic-cart" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/></symbol>
+</defs></svg>
+
+<div class="doc-toolbar">
+  <strong style="font-size:0.875rem">Buyer Scoped Catalog Visibility — prototype</strong>
+  <nav class="screen-nav" aria-label="Screens">
+    <a href="#s1">1 Groups list</a>
+    <a href="#s2">2 Stores list</a>
+    <a href="#s3">3 Group terms (edit)</a>
+    <a href="#s4">4 Group terms (read-only)</a>
+    <a href="#s5">5 Group terms (error)</a>
+    <a href="#s6">6 Channel (unrestricted)</a>
+    <a href="#s7">7 Channel (scoped)</a>
+    <a href="#s8">8 Channel (login required)</a>
+    <a href="#s9">9 Diagnose (verdict)</a>
+    <a href="#s10">10 Diagnose (no-match)</a>
+    <a href="#s11">11 Diagnose (not found)</a>
+    <a href="#s12">12 Storefront 404</a>
+    <a href="#s13">13 Cart (rejected)</a>
+    <a href="#s14">14 Cart (flagged)</a>
+  </nav>
+  <!-- prototype.js injects the review-mode controls. -->
+  <button class="btn btn-outline btn-sm" id="theme-toggle" type="button">
+    <svg><use href="#ic-sun"/></svg> Theme
+  </button>
+</div>
+
+<div class="doc">
+
+<header class="doc-head">
+  <h1>Buyer Scoped Catalog Visibility — screen inventory</h1>
+  <p class="muted" style="max-width:65ch;margin:0">
+    Interactive backend screens derived from <code class="t-mono">.ai/specs/2026-08-21-buyer-scoped-catalog-visibility.md</code>.
+    Epics A–C (screens 1–11) are real backend/backoffice UI this spec adds to <code class="t-mono">customer_groups</code>
+    and <code class="t-mono">ecommerce</code>. Epics D–F (screens 12–14) are storefront/cart consequences this spec
+    specifies but does not itself build UI for — they are drawn schematically and flagged illustrative, not to the
+    storefront's own design system. Tenant: <strong>Northwind Fasteners</strong>, continuing the sample data used by
+    the sibling <code class="t-mono">customer-groups-b2b-terms</code> and <code class="t-mono">ecommerce-store-admin</code>
+    prototypes.
+  </p>
+</header>
+
+<!-- ============================================================ -->
+<!-- S1 — Customer Groups: List (entry point) -->
+<!-- ============================================================ -->
+<section class="screen" id="s1">
+  <div class="screen-meta">
+    <h2>1. Customer Groups — List (entry point)</h2>
+    <p>Entry point into Epic A. "Wholesale — Tier 1" and "Wholesale — Tier 2" both carry an assortment scope; "Preview — Q3 Launch" is new in this spec's worked example.</p>
+    <div class="screen-refs"><span class="ref">§4.1</span><span class="ref">US-A1</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/customer-groups</span></div>
+    <div class="app app-tall">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Northwind Fasteners</span></div>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Search</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Customer Groups</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items"><span class="nav-item active"><svg><use href="#ic-layers"/></svg> Groups</span></div>
+          <div class="nav-group"><span>Ecommerce</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items"><a class="nav-item" href="#s2" data-goto="s2"><svg><use href="#ic-store"/></svg> Stores</a></div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span class="here">Customer Groups</span></div></div>
+          <div class="topbar-right"><div class="topbar-search"><svg><use href="#ic-search"/></svg> Search</div><button class="icon-btn" aria-label="Notifications"><svg><use href="#ic-bell"/></svg></button><span class="avatar">AN</span></div>
+        </header>
+        <main class="page">
+          <div class="page-head">
+            <div><h1 class="t-page-title">Customer Groups</h1><p>Assortment scope is set per group on the Commercial Terms tab.</p></div>
+            <div class="page-actions"><button class="btn btn-primary"><svg><use href="#ic-plus"/></svg> New group</button></div>
+          </div>
+          <div class="dt">
+            <div class="dt-head">
+              <div class="dt-head-row"><h2 class="t-table-title">3 groups</h2></div>
+              <div class="dt-toolbar"><div class="dt-toolbar-row"><input class="input dt-search" placeholder="Search code or name…" /></div></div>
+            </div>
+            <table class="table">
+              <thead><tr><th>Code</th><th>Name</th><th>Priority</th><th>Assortment scope</th><th>Members</th><th class="right">Actions</th></tr></thead>
+              <tbody>
+                <tr class="clickable" data-goto="s3">
+                  <td class="t-mono">wholesale-t1</td><td>Wholesale — Tier 1</td><td class="num">100</td>
+                  <td><span class="chip chip-active"><svg style="width:0.8rem;height:0.8rem"><use href="#ic-layers"/></svg> Bulk Goods</span> <span class="chip chip-active"><svg style="width:0.8rem;height:0.8rem"><use href="#ic-tag"/></svg> b2b-only</span></td>
+                  <td class="num">14</td>
+                  <td class="right"><span class="row-actions"><button class="btn btn-icon btn-sm" data-goto="s3"><svg><use href="#ic-pencil"/></svg></button></span></td>
+                </tr>
+                <tr class="clickable" data-goto="s3">
+                  <td class="t-mono">wholesale-t2</td><td>Wholesale — Tier 2</td><td class="num">80</td>
+                  <td><span class="chip chip-active"><svg style="width:0.8rem;height:0.8rem"><use href="#ic-layers"/></svg> Bulk Goods</span></td>
+                  <td class="num">6</td>
+                  <td class="right"><span class="row-actions"><button class="btn btn-icon btn-sm" data-goto="s3"><svg><use href="#ic-pencil"/></svg></button></span></td>
+                </tr>
+                <tr class="clickable" data-goto="s4">
+                  <td class="t-mono">preview-q3</td><td>Preview — Q3 Launch</td><td class="num">60</td>
+                  <td><span class="chip chip-active"><svg style="width:0.8rem;height:0.8rem"><use href="#ic-tag"/></svg> q3-preview</span></td>
+                  <td class="num">3</td>
+                  <td class="right"><span class="row-actions"><button class="btn btn-icon btn-sm" data-goto="s4"><svg><use href="#ic-pencil"/></svg></button></span></td>
+                </tr>
+              </tbody>
+            </table>
+            <div class="dt-foot"><span class="t-hint num">Showing 1 to 3 of 3 results</span></div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Each row's "Assortment scope" column previews the group's own chips (one <code class="t-mono">AssortmentScope</code>, §3.3) — it is not the buyer-facing union, which only Epic C's diagnose panel computes.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S2 — Ecommerce Stores: List (entry point) -->
+<!-- ============================================================ -->
+<section class="screen" id="s2">
+  <div class="screen-meta">
+    <h2>2. Ecommerce Stores — List (entry point)</h2>
+    <p>Entry point into Epic B. Opening a store's Channels tab is where <code class="t-mono">require_authentication</code> and the channel's own scope live (§4.2).</p>
+    <div class="screen-refs"><span class="ref">§4.2</span><span class="ref">US-B1</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/ecommerce/stores</span></div>
+    <div class="app app-tall">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Northwind Fasteners</span></div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Customer Groups</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items"><a class="nav-item" href="#s1" data-goto="s1"><svg><use href="#ic-layers"/></svg> Groups</a></div>
+          <div class="nav-group"><span>Ecommerce</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items"><span class="nav-item active"><svg><use href="#ic-store"/></svg> Stores</span></div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span class="here">Stores</span></div></div><div class="topbar-right"><span class="avatar">AN</span></div></header>
+        <main class="page">
+          <div class="page-head"><div><h1 class="t-page-title">Stores</h1><p>Each store's default channel binding carries its own assortment scope and authentication gate.</p></div></div>
+          <div class="dt">
+            <div class="dt-head"><div class="dt-head-row"><h2 class="t-table-title">2 stores</h2></div></div>
+            <table class="table">
+              <thead><tr><th>Store</th><th>Default channel</th><th>Assortment scope</th><th>Login required</th><th class="right">Actions</th></tr></thead>
+              <tbody>
+                <tr class="clickable" data-goto="s7">
+                  <td class="row-3"><span class="avatar avatar-sm">NW</span> Northwind Wholesale</td>
+                  <td>Wholesale Portal (B2B)</td>
+                  <td><span class="chip chip-active">2 categories</span></td>
+                  <td><span class="badge badge-neutral">Off</span></td>
+                  <td class="right"><button class="btn btn-icon btn-sm" data-goto="s7"><svg><use href="#ic-pencil"/></svg></button></td>
+                </tr>
+                <tr class="clickable" data-goto="s6">
+                  <td class="row-3"><span class="avatar avatar-sm">NR</span> Northwind Retail</td>
+                  <td>Public Storefront</td>
+                  <td class="muted">Unrestricted</td>
+                  <td><span class="badge badge-neutral">Off</span></td>
+                  <td class="right"><button class="btn btn-icon btn-sm" data-goto="s6"><svg><use href="#ic-pencil"/></svg></button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>"Northwind Retail" (screen 6) shows the empty/unrestricted state; "Northwind Wholesale" (screen 7) shows a scoped channel — screen 8 shows the same binding with the toggle flipped on.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S3 — Group Edit: Terms tab, Assortment scope (editable) -->
+<!-- ============================================================ -->
+<section class="screen" id="s3">
+  <div class="screen-meta">
+    <h2>3. Group Edit — Terms tab, Assortment scope (editable)</h2>
+    <p>"Wholesale — Tier 1" has an AND-of-dimensions scope: category <em>and</em> tag both required. Screen 9's diagnose panel shows what that means for a product that only matches one.</p>
+    <div class="screen-refs"><span class="ref">§3.2</span><span class="ref">§4.1</span><span class="ref">§7</span><span class="ref">US-A1</span><span class="ref">US-A2</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/customer-groups/wholesale-t1</span></div>
+    <div class="app app-taller">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Northwind Fasteners</span></div>
+        <nav class="sidebar-nav"><div class="nav-group"><span>Customer Groups</span><svg><use href="#ic-chevron-down"/></svg></div><div class="nav-items"><a class="nav-item active" href="#s1" data-goto="s1"><svg><use href="#ic-layers"/></svg> Groups</a></div></nav>
+      </aside>
+      <div class="main">
+        <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><a class="t-mono" data-goto="s1" style="color:var(--muted-foreground);text-decoration:none">Customer Groups</a><svg><use href="#ic-chevron-right"/></svg><span class="here">Wholesale — Tier 1</span></div></div></header>
+        <main class="page">
+          <div class="form-head"><a class="back-link" data-goto="s1"><svg><use href="#ic-chevron-left"/></svg> Customer Groups</a></div>
+          <div class="page-head"><div><h1 class="t-page-title">Wholesale — Tier 1</h1><p class="row"><span class="badge badge-info">b2b</span><span class="t-hint">priority 100</span></p></div></div>
+          <div class="tabs"><button aria-selected="false">General</button><button aria-selected="true">Commercial Terms</button><button aria-selected="false">Members <span class="tab-count">14</span></button></div>
+
+          <div class="form-layout">
+            <div class="form-col">
+              <div class="form-group">
+                <div class="title">Assortment scope — include</div>
+                <p class="t-hint" style="margin:0">Empty means no restriction on that dimension. Categories and tags combine with <strong>AND</strong>: a product must satisfy both to be included from this group (§3.2).</p>
+                <div class="field">
+                  <label>Categories</label>
+                  <div class="row" style="flex-wrap:wrap;gap:0.375rem">
+                    <span class="chip chip-active">Bulk Goods <svg style="width:0.75rem;height:0.75rem;margin-left:0.25rem"><use href="#ic-x"/></svg></span>
+                    <button class="chip chip-dashed"><svg><use href="#ic-plus"/></svg> Add category</button>
+                  </div>
+                </div>
+                <div class="field">
+                  <label>Tags</label>
+                  <div class="row" style="flex-wrap:wrap;gap:0.375rem">
+                    <span class="chip chip-active">b2b-only <svg style="width:0.75rem;height:0.75rem;margin-left:0.25rem"><use href="#ic-x"/></svg></span>
+                    <button class="chip chip-dashed"><svg><use href="#ic-plus"/></svg> Add tag</button>
+                  </div>
+                </div>
+              </div>
+              <div class="form-group">
+                <div class="title">Assortment scope — exclude</div>
+                <p class="t-hint" style="margin:0">Exclusion beats inclusion, within this group's own scope (§3.2, §2). Empty exclude lists behave like absent — no vetoes.</p>
+                <div class="field"><label>Excluded categories</label><div class="row" style="flex-wrap:wrap;gap:0.375rem"><button class="chip chip-dashed"><svg><use href="#ic-plus"/></svg> Add</button></div></div>
+                <div class="field"><label>Excluded tags</label><div class="row" style="flex-wrap:wrap;gap:0.375rem"><button class="chip chip-dashed"><svg><use href="#ic-plus"/></svg> Add</button></div></div>
+                <div class="field"><label>Excluded products</label><div class="row" style="flex-wrap:wrap;gap:0.375rem"><span class="chip chip-active">Clearance Bin Lot #4 <svg style="width:0.75rem;height:0.75rem;margin-left:0.25rem"><use href="#ic-x"/></svg></span><button class="chip chip-dashed"><svg><use href="#ic-plus"/></svg> Add</button></div></div>
+              </div>
+            </div>
+            <div class="form-col">
+              <div class="form-group">
+                <div class="title">Why this matters</div>
+                <div class="t-hint">A buyer's effective catalog is the <strong>union</strong> of every one of their matching groups' own scopes (§3.1) — adding this group to a buyer only ever widens what they see. See the diagnose tool for a worked example.</div>
+                <button class="btn btn-outline btn-sm" data-goto="s9"><svg><use href="#ic-eye"/></svg> Open diagnose tool</button>
+              </div>
+              <div class="form-group">
+                <div class="title">Record</div>
+                <div class="t-hint">Last updated 2026-08-30 16:04 by Priya Nair</div>
+              </div>
+            </div>
+          </div>
+        </main>
+        <footer class="app-foot"></footer>
+        <div class="form-foot" style="padding:0.75rem 1.5rem;border-top:1px solid var(--border)">
+          <span class="t-hint"><span class="kbd">Esc</span> cancel · <span class="kbd">⌘⏎</span> save</span>
+          <div class="actions"><button class="btn btn-outline" data-goto="s1">Cancel</button><button class="btn btn-primary" data-goto="s1"><svg><use href="#ic-save"/></svg> Save</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Clearing every chip in a field back to empty saves as "no restriction," never as "hide everything" (§3.2 empty-array convention, R4) — illustrated by screen 6's identical convention at the channel level.</span></div>
+    <div class="note"><b>2</b><span>Only a user with this group's existing terms-edit feature can add/remove chips here — see screen 4 for the read-only variant a viewer sees instead.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S4 — Group Edit: Terms tab, Assortment scope (read-only) -->
+<!-- ============================================================ -->
+<section class="screen" id="s4">
+  <div class="screen-meta">
+    <h2>4. Group Edit — Terms tab, Assortment scope (read-only viewer)</h2>
+    <p>A user without the group-terms edit feature opens "Preview — Q3 Launch." Pickers render disabled, not hidden.</p>
+    <div class="screen-refs"><span class="ref">§4.1</span><span class="ref">US-A1</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/customer-groups/preview-q3</span></div>
+    <div class="app app-tall">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Northwind Fasteners</span></div>
+        <nav class="sidebar-nav"><div class="nav-group"><span>Customer Groups</span><svg><use href="#ic-chevron-down"/></svg></div><div class="nav-items"><a class="nav-item active" href="#s1" data-goto="s1"><svg><use href="#ic-layers"/></svg> Groups</a></div></nav>
+      </aside>
+      <div class="main">
+        <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><a class="t-mono" data-goto="s1" style="color:var(--muted-foreground);text-decoration:none">Customer Groups</a><svg><use href="#ic-chevron-right"/></svg><span class="here">Preview — Q3 Launch</span></div></div></header>
+        <main class="page">
+          <div class="form-head"><a class="back-link" data-goto="s1"><svg><use href="#ic-chevron-left"/></svg> Customer Groups</a></div>
+          <div class="page-head"><div><h1 class="t-page-title">Preview — Q3 Launch</h1><p class="row"><span class="badge badge-info">b2b</span><span class="t-hint">priority 60</span></p></div></div>
+          <div class="tabs"><button aria-selected="false">General</button><button aria-selected="true">Commercial Terms</button><button aria-selected="false">Members <span class="tab-count">3</span></button></div>
+
+          <div class="alert alert-info">
+            <svg><use href="#ic-info"/></svg>
+            <div><div class="alert-title">Viewing only</div><div class="t-hint">You have <span class="t-mono">customer_groups.view</span> but not the terms-edit feature — fields below are disabled, not hidden.</div></div>
+          </div>
+
+          <div class="form-layout">
+            <div class="form-col">
+              <div class="form-group" style="opacity:0.65">
+                <div class="title">Assortment scope — include</div>
+                <div class="field"><label>Categories</label><div class="row" style="flex-wrap:wrap;gap:0.375rem"><span class="chip">— none —</span></div></div>
+                <div class="field"><label>Tags</label><div class="row" style="flex-wrap:wrap;gap:0.375rem"><span class="chip chip-active">q3-preview</span></div></div>
+              </div>
+              <div class="form-group" style="opacity:0.65">
+                <div class="title">Assortment scope — exclude</div>
+                <div class="field"><label>Excluded categories</label><div class="row" style="flex-wrap:wrap;gap:0.375rem"><span class="chip">— none —</span></div></div>
+                <div class="field"><label>Excluded tags</label><div class="row" style="flex-wrap:wrap;gap:0.375rem"><span class="chip">— none —</span></div></div>
+                <div class="field"><label>Excluded products</label><div class="row" style="flex-wrap:wrap;gap:0.375rem"><span class="chip">— none —</span></div></div>
+              </div>
+            </div>
+          </div>
+        </main>
+        <footer class="app-foot"></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>No Save button in the footer at all for a viewer — not a disabled one — matching this repo's RBAC convention of an absence over a disabled affordance.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S5 — Group Edit: Terms tab, Assortment scope (validation error) -->
+<!-- ============================================================ -->
+<section class="screen" id="s5">
+  <div class="screen-meta">
+    <h2>5. Group Edit — Terms tab, Assortment scope (validation error)</h2>
+    <p>Saving "Wholesale — Tier 2" after a category was deleted from <code class="t-mono">catalog</code> elsewhere — the stale id is named inline, not a generic failure toast.</p>
+    <div class="screen-refs"><span class="ref">§4.1</span><span class="ref">US-A1</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/customer-groups/wholesale-t2</span></div>
+    <div class="app app-tall">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Northwind Fasteners</span></div>
+        <nav class="sidebar-nav"><div class="nav-group"><span>Customer Groups</span><svg><use href="#ic-chevron-down"/></svg></div><div class="nav-items"><a class="nav-item active" href="#s1" data-goto="s1"><svg><use href="#ic-layers"/></svg> Groups</a></div></nav>
+      </aside>
+      <div class="main">
+        <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><a class="t-mono" data-goto="s1" style="color:var(--muted-foreground);text-decoration:none">Customer Groups</a><svg><use href="#ic-chevron-right"/></svg><span class="here">Wholesale — Tier 2</span></div></div></header>
+        <main class="page">
+          <div class="form-head"><a class="back-link" data-goto="s1"><svg><use href="#ic-chevron-left"/></svg> Customer Groups</a></div>
+          <div class="page-head"><div><h1 class="t-page-title">Wholesale — Tier 2</h1><p class="row"><span class="badge badge-info">b2b</span><span class="t-hint">priority 80 · parent Wholesale — Tier 1</span></p></div></div>
+          <div class="tabs"><button aria-selected="false">General</button><button aria-selected="true">Commercial Terms</button><button aria-selected="false">Members <span class="tab-count">6</span></button></div>
+
+          <div class="form-layout">
+            <div class="form-col">
+              <div class="form-group input-invalid" style="border-color:var(--status-error-border);background:color-mix(in oklab, var(--status-error-bg) 40%, var(--card))">
+                <div class="title">Assortment scope — include</div>
+                <div class="field">
+                  <label>Categories</label>
+                  <div class="row" style="flex-wrap:wrap;gap:0.375rem">
+                    <span class="chip chip-active" style="border-color:var(--status-error-border);color:var(--status-error-text)">Bulk Goods <svg style="width:0.75rem;height:0.75rem;margin-left:0.25rem"><use href="#ic-x"/></svg></span>
+                    <span class="chip chip-active" style="border-color:var(--status-error-border);color:var(--status-error-text)"><svg style="width:0.8rem;height:0.8rem"><use href="#ic-warn"/></svg> cat_7f1a (deleted) <svg style="width:0.75rem;height:0.75rem;margin-left:0.25rem"><use href="#ic-x"/></svg></span>
+                    <button class="chip chip-dashed"><svg><use href="#ic-plus"/></svg> Add category</button>
+                  </div>
+                  <span class="field-error">Category <span class="t-mono">cat_7f1a</span> no longer exists in the catalog — remove it before saving.</span>
+                </div>
+                <div class="field"><label>Tags</label><div class="row" style="flex-wrap:wrap;gap:0.375rem"><span class="chip">— none —</span><button class="chip chip-dashed"><svg><use href="#ic-plus"/></svg> Add tag</button></div></div>
+              </div>
+            </div>
+          </div>
+        </main>
+        <footer class="app-foot"></footer>
+        <div class="form-foot" style="padding:0.75rem 1.5rem;border-top:1px solid var(--border)">
+          <span class="t-hint">1 field needs attention</span>
+          <div class="actions"><button class="btn btn-outline" data-goto="s1">Cancel</button><button class="btn btn-primary is-disabled"><svg><use href="#ic-save"/></svg> Save</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Inline field error naming the exact missing id, not a page-level toast — the merchant can act on it without leaving the form.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S6 — Channel Binding: Channels tab (unrestricted, empty state) -->
+<!-- ============================================================ -->
+<section class="screen" id="s6">
+  <div class="screen-meta">
+    <h2>6. Store edit — Channels tab (unrestricted, empty state)</h2>
+    <p>"Northwind Retail"'s default channel has no scope configured — a fully public catalog.</p>
+    <div class="screen-refs"><span class="ref">§4.2</span><span class="ref">US-B1</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/ecommerce/stores/northwind-retail/channels</span></div>
+    <div class="app app-taller">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Northwind Fasteners</span></div>
+        <nav class="sidebar-nav"><div class="nav-group"><span>Ecommerce</span><svg><use href="#ic-chevron-down"/></svg></div><div class="nav-items"><a class="nav-item active" href="#s2" data-goto="s2"><svg><use href="#ic-store"/></svg> Stores</a></div></nav>
+      </aside>
+      <div class="main">
+        <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><a data-goto="s2" style="color:var(--muted-foreground);text-decoration:none">Stores</a><svg><use href="#ic-chevron-right"/></svg><span class="here">Northwind Retail</span></div></div></header>
+        <main class="page">
+          <div class="page-head"><div class="row-3"><span class="avatar avatar-lg">NR</span><div><h1 class="t-page-title">Northwind Retail</h1></div></div></div>
+          <div class="tabs"><button aria-selected="false">General</button><button aria-selected="false">Branding</button><button aria-selected="false">Domains</button><button aria-selected="true"><svg><use href="#ic-percent"/></svg> Channels</button></div>
+
+          <div class="form-group">
+            <div class="row between">
+              <div class="row-3"><span class="badge badge-info">Default</span><span class="t-card-title" style="font-size:0.875rem">Public Storefront</span></div>
+              <span class="t-hint num">All products in this channel's catalog — 1,204 products</span>
+            </div>
+            <div class="field"><label>Categories</label><div class="row" style="flex-wrap:wrap;gap:0.375rem"><span class="chip">— none — (unrestricted)</span><button class="chip chip-dashed"><svg><use href="#ic-plus"/></svg> Add</button></div></div>
+            <div class="field"><label>Tags</label><div class="row" style="flex-wrap:wrap;gap:0.375rem"><span class="chip">— none — (unrestricted)</span><button class="chip chip-dashed"><svg><use href="#ic-plus"/></svg> Add</button></div></div>
+            <div class="field"><label>Excluded categories / tags / products</label><div class="row" style="flex-wrap:wrap;gap:0.375rem"><span class="chip">— none —</span><button class="chip chip-dashed"><svg><use href="#ic-plus"/></svg> Add</button></div></div>
+            <div class="row between" style="margin-top:0.75rem">
+              <div class="col"><span class="t-label">Require authentication</span><div class="t-hint" style="max-width:48ch">Governs catalog visibility only, not the whole storefront (branding, static pages, login itself). Full site-wide access walls are a separate feature (§10 Q1).</div></div>
+              <button class="switch" aria-checked="false" type="button"></button>
+            </div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span></footer>
+        <div class="form-foot"><div class="actions"><button class="btn btn-outline" data-goto="s2">Cancel</button><button class="btn btn-primary" data-goto="s2"><svg><use href="#ic-save"/></svg> Save</button></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>The live product-count preview already exists on this tab (<code class="t-mono">SPEC-029</code> §7); this spec adds nothing new to how it recomputes, only the exclude pickers and the toggle.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S7 — Channel Binding: Channels tab (scoped) -->
+<!-- ============================================================ -->
+<section class="screen" id="s7">
+  <div class="screen-meta">
+    <h2>7. Store edit — Channels tab (scoped)</h2>
+    <p>"Northwind Wholesale"'s default channel is narrowed to two categories, independent of any customer group.</p>
+    <div class="screen-refs"><span class="ref">§4.2</span><span class="ref">US-B1</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/ecommerce/stores/northwind-wholesale/channels</span></div>
+    <div class="app app-taller">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Northwind Fasteners</span></div>
+        <nav class="sidebar-nav"><div class="nav-group"><span>Ecommerce</span><svg><use href="#ic-chevron-down"/></svg></div><div class="nav-items"><a class="nav-item active" href="#s2" data-goto="s2"><svg><use href="#ic-store"/></svg> Stores</a></div></nav>
+      </aside>
+      <div class="main">
+        <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><a data-goto="s2" style="color:var(--muted-foreground);text-decoration:none">Stores</a><svg><use href="#ic-chevron-right"/></svg><span class="here">Northwind Wholesale</span></div></div></header>
+        <main class="page">
+          <div class="page-head"><div class="row-3"><span class="avatar avatar-lg">NW</span><div><h1 class="t-page-title">Northwind Wholesale</h1></div></div></div>
+          <div class="tabs"><button aria-selected="false">General</button><button aria-selected="false">Branding</button><button aria-selected="false">Domains</button><button aria-selected="true"><svg><use href="#ic-percent"/></svg> Channels</button></div>
+
+          <div class="form-group">
+            <div class="row between">
+              <div class="row-3"><span class="badge badge-info">Default</span><span class="t-card-title" style="font-size:0.875rem">Wholesale Portal (B2B)</span></div>
+              <span class="t-hint num">184 products match this scope</span>
+            </div>
+            <div class="field"><label>Categories</label><div class="row" style="flex-wrap:wrap;gap:0.375rem"><span class="chip chip-active">Bulk Goods</span><span class="chip chip-active">Hardware</span><button class="chip chip-dashed"><svg><use href="#ic-plus"/></svg> Add</button></div></div>
+            <div class="field"><label>Tags</label><div class="row" style="flex-wrap:wrap;gap:0.375rem"><span class="chip">— none —</span><button class="chip chip-dashed"><svg><use href="#ic-plus"/></svg> Add</button></div></div>
+            <div class="field"><label>Excluded categories</label><div class="row" style="flex-wrap:wrap;gap:0.375rem"><span class="chip">— none —</span><button class="chip chip-dashed"><svg><use href="#ic-plus"/></svg> Add</button></div></div>
+            <div class="row between" style="margin-top:0.75rem">
+              <div class="col"><span class="t-label">Require authentication</span><div class="t-hint">Off — this channel relies on group-level scoping (§1.3 case a): a public catalog with a wholesale tier layered on top.</div></div>
+              <button class="switch" aria-checked="false" type="button"></button>
+            </div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span></footer>
+        <div class="form-foot"><div class="actions"><button class="btn btn-outline" data-goto="s2">Cancel</button><button class="btn btn-primary" data-goto="s2"><svg><use href="#ic-save"/></svg> Save</button></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>184 is illustrative and frozen for this static prototype — the real preview recomputes on every scope edit (§7).</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S8 — Channel Binding: Channels tab (require_authentication on) -->
+<!-- ============================================================ -->
+<section class="screen" id="s8">
+  <div class="screen-meta">
+    <h2>8. Store edit — Channels tab (Require authentication: on)</h2>
+    <p>Same "Northwind Wholesale" binding, toggled to invitation-only. Every product-returning endpoint now behaves as if the assortment were empty for anonymous visitors.</p>
+    <div class="screen-refs"><span class="ref">§3.4</span><span class="ref">§8</span><span class="ref">US-B2</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/ecommerce/stores/northwind-wholesale/channels</span></div>
+    <div class="app app-taller">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Northwind Fasteners</span></div>
+        <nav class="sidebar-nav"><div class="nav-group"><span>Ecommerce</span><svg><use href="#ic-chevron-down"/></svg></div><div class="nav-items"><a class="nav-item active" href="#s2" data-goto="s2"><svg><use href="#ic-store"/></svg> Stores</a></div></nav>
+      </aside>
+      <div class="main">
+        <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><a data-goto="s2" style="color:var(--muted-foreground);text-decoration:none">Stores</a><svg><use href="#ic-chevron-right"/></svg><span class="here">Northwind Wholesale</span></div></div></header>
+        <main class="page">
+          <div class="page-head"><div class="row-3"><span class="avatar avatar-lg">NW</span><div><h1 class="t-page-title">Northwind Wholesale</h1></div></div></div>
+          <div class="tabs"><button aria-selected="false">General</button><button aria-selected="false">Branding</button><button aria-selected="false">Domains</button><button aria-selected="true"><svg><use href="#ic-percent"/></svg> Channels</button></div>
+
+          <div class="form-group">
+            <div class="row between">
+              <div class="row-3"><span class="badge badge-info">Default</span><span class="t-card-title" style="font-size:0.875rem">Wholesale Portal (B2B)</span></div>
+              <span class="t-hint num" style="color:var(--status-warning-text)">0 products visible to anonymous visitors</span>
+            </div>
+            <div class="field"><label>Categories</label><div class="row" style="flex-wrap:wrap;gap:0.375rem"><span class="chip chip-active">Bulk Goods</span><span class="chip chip-active">Hardware</span></div></div>
+            <div class="row between" style="margin-top:0.75rem;padding:0.75rem;border-radius:var(--radius-md);background:var(--status-info-bg)">
+              <div class="col"><span class="t-label row"><svg style="width:1rem;height:1rem"><use href="#ic-lock"/></svg> Require authentication</span><div class="t-hint" style="max-width:48ch">Governs catalog visibility only, not the whole storefront — branding, static pages, and the login page itself remain reachable. A full site-wide access wall is a separate, out-of-scope feature (§10 Q1).</div></div>
+              <button class="switch" aria-checked="true" type="button"></button>
+            </div>
+          </div>
+
+          <div class="alert alert-info">
+            <svg><use href="#ic-info"/></svg>
+            <div><div class="alert-title">Invitation-only B2B portal</div><div class="t-hint">Anonymous requests resolve to an empty assortment (<span class="t-mono">[]</span>, the vacuous OR, §3.4) before <code class="t-mono">customer_groups</code> is even consulted — not a slower, defensively-configured default group.</div></div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span></footer>
+        <div class="form-foot"><div class="actions"><button class="btn btn-outline" data-goto="s2">Cancel</button><button class="btn btn-primary" data-goto="s2"><svg><use href="#ic-save"/></svg> Save</button></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Toggle is a standard <span class="t-mono">switch</span> control — Tab to focus, Space to flip, no custom widget.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S9 — Visibility Diagnose: verdict (union + AND-of-dimensions) -->
+<!-- ============================================================ -->
+<section class="screen" id="s9">
+  <div class="screen-meta">
+    <h2>9. Visibility Diagnose — verdict (union across groups, AND within one scope)</h2>
+    <p>Buyer Dana Ruiz (Ironclad Supply Co.) checked against "M8 Hex Bolt (Bulk Pack, 500ct)." Demonstrates both hard-won rules in one trace: Tier 1's AND-of-dimensions fails despite a partial match, while Tier 2 still grants it — proving the union is a real OR across sources, not a flattened AND (§3.1/§3.2).</p>
+    <div class="screen-refs"><span class="ref">§3.1</span><span class="ref">§3.2</span><span class="ref">§1.1</span><span class="ref">§1.4</span><span class="ref">US-A3</span><span class="ref">US-C1</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/ecommerce/visibility-diagnose</span></div>
+    <div class="app app-taller">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Northwind Fasteners</span></div>
+        <nav class="sidebar-nav"><div class="nav-group"><span>Ecommerce</span><svg><use href="#ic-chevron-down"/></svg></div><div class="nav-items"><a class="nav-item" href="#s2" data-goto="s2"><svg><use href="#ic-store"/></svg> Stores</a><span class="nav-item active"><svg><use href="#ic-eye"/></svg> Visibility Diagnose</span></div></nav>
+      </aside>
+      <div class="main">
+        <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span class="here">Visibility Diagnose</span></div></div></header>
+        <main class="page">
+          <div class="page-head"><div><h1 class="t-page-title">Why can this buyer see this product?</h1><p>Gated behind <span class="t-mono">ecommerce.visibility.diagnose</span> — support agents can answer without reading logs (§7).</p></div></div>
+
+          <div class="form-group">
+            <div class="form-grid form-grid-2">
+              <div class="field"><label>Buyer</label><input class="input" value="Dana Ruiz — Ironclad Supply Co. (cust_4d21)" /></div>
+              <div class="field"><label>Product</label><input class="input" value="M8 Hex Bolt (Bulk Pack, 500ct) — prod_8a02" /></div>
+            </div>
+            <div class="row" style="margin-top:0.25rem"><button class="btn btn-primary btn-sm"><svg><use href="#ic-search"/></svg> Check visibility</button></div>
+          </div>
+
+          <div class="card">
+            <div class="card-head"><span class="t-card-title">Final verdict</span><span class="badge badge-success"><svg><use href="#ic-check"/></svg> Visible</span></div>
+            <div class="card-body">
+              <div class="t-hint">Channel scope: Northwind Wholesale grants Bulk Goods / Hardware — product is in Bulk Goods. Intersected with the buyer's group union below (§3.5).</div>
+            </div>
+          </div>
+
+          <div class="dt" style="margin-top:1rem">
+            <div class="dt-head"><div class="dt-head-row"><h2 class="t-table-title">Contributing groups (<span class="t-mono">sourceGroupIds</span>)</h2></div></div>
+            <table class="table">
+              <thead><tr><th>Group</th><th>Scope</th><th>Rule</th><th>Verdict for this product</th></tr></thead>
+              <tbody>
+                <tr>
+                  <td>Wholesale — Tier 1</td>
+                  <td><span class="chip chip-active" style="margin-right:0.25rem">Bulk Goods</span><span class="chip chip-active">b2b-only</span></td>
+                  <td class="t-hint">category <strong>AND</strong> tag both required</td>
+                  <td><span class="badge badge-error"><svg><use href="#ic-x"/></svg> No grant</span> <span class="t-hint">— matches category, product has no tags</span></td>
+                </tr>
+                <tr>
+                  <td>Wholesale — Tier 2</td>
+                  <td><span class="chip chip-active">Bulk Goods</span></td>
+                  <td class="t-hint">category only</td>
+                  <td><span class="badge badge-success"><svg><use href="#ic-check"/></svg> Grant</span></td>
+                </tr>
+                <tr>
+                  <td>Preview — Q3 Launch</td>
+                  <td><span class="chip chip-active">q3-preview</span></td>
+                  <td class="t-hint">tag only</td>
+                  <td><span class="badge badge-error"><svg><use href="#ic-x"/></svg> No grant</span> <span class="t-hint">— product isn't tagged q3-preview</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="alert alert-info" style="margin-top:1rem">
+            <svg><use href="#ic-info"/></svg>
+            <div><div class="alert-title">Reading this trace</div><div class="t-hint">Tier 1 alone would say "no" — its own AND rule isn't satisfied. But the buyer's effective scope is the <strong>OR</strong> of all three groups' own verdicts (§3.1), and Tier 2 alone is enough to grant it. Flattening all three groups into one merged scope (the mistake an earlier draft made, §3.1) would have wrongly required <em>both</em> Bulk Goods <em>and</em> a tag on every branch — this trace is the concrete case that catches that regression.</div></div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Illustrative only — this static prototype does not execute <code class="t-mono">matchesScope</code>/<code class="t-mono">unionScopes</code>; the verdicts shown are the worked example from §3.1's own text, laid out as the diagnose panel would render them.</span></div>
+    <div class="note"><b>2</b><span>This panel is optional (§7, "cut first if this spec needs to shrink"). If descoped, this worked example moves into spec prose as a static annotated diagram instead of a live tool.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S10 — Visibility Diagnose: no-match state -->
+<!-- ============================================================ -->
+<section class="screen" id="s10">
+  <div class="screen-meta">
+    <h2>10. Visibility Diagnose — no-match state</h2>
+    <p>A buyer with zero matching groups — the panel says so plainly instead of showing an empty or broken table.</p>
+    <div class="screen-refs"><span class="ref">§5.1</span><span class="ref">US-C1</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/ecommerce/visibility-diagnose</span></div>
+    <div class="app app-tall">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Northwind Fasteners</span></div>
+        <nav class="sidebar-nav"><div class="nav-group"><span>Ecommerce</span><svg><use href="#ic-chevron-down"/></svg></div><div class="nav-items"><a class="nav-item" href="#s2" data-goto="s2"><svg><use href="#ic-store"/></svg> Stores</a><span class="nav-item active"><svg><use href="#ic-eye"/></svg> Visibility Diagnose</span></div></nav>
+      </aside>
+      <div class="main">
+        <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span class="here">Visibility Diagnose</span></div></div></header>
+        <main class="page">
+          <div class="page-head"><div><h1 class="t-page-title">Why can this buyer see this product?</h1></div></div>
+          <div class="form-group">
+            <div class="form-grid form-grid-2">
+              <div class="field"><label>Buyer</label><input class="input" value="Casey Okafor — walk-in retail account (cust_9b40)" /></div>
+              <div class="field"><label>Product</label><input class="input" value="M8 Hex Bolt (Bulk Pack, 500ct) — prod_8a02" /></div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-head"><span class="t-card-title">Final verdict</span><span class="badge badge-success"><svg><use href="#ic-check"/></svg> Visible</span></div>
+            <div class="card-body"><div class="t-hint">Channel scope grants it directly — Bulk Goods is included regardless of the buyer's own groups.</div></div>
+          </div>
+          <div class="empty" style="margin-top:1rem">
+            <div class="empty-icon"><svg><use href="#ic-users"/></svg></div>
+            <div class="t-card-title">No group grants</div>
+            <p class="t-hint" style="max-width:44ch">Casey Okafor belongs to no customer group with an assortment scope. Visibility for this buyer depends on the channel's own scope only.</p>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Zero matching groups resolves to <code class="t-mono">null</code> (unrestricted from the group side, §5.1) — it is not an error state, matching spec 1 §6.2's "absence of a group MUST NOT be an error."</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S11 — Visibility Diagnose: not-found error -->
+<!-- ============================================================ -->
+<section class="screen" id="s11">
+  <div class="screen-meta">
+    <h2>11. Visibility Diagnose — not-found error</h2>
+    <p>An unknown buyer or product id. Unlike the public storefront, this internal tool can say "not found" plainly — §3.5's handle-enumeration-oracle rule only applies to buyer-facing surfaces.</p>
+    <div class="screen-refs"><span class="ref">§3.5</span><span class="ref">US-C1</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/ecommerce/visibility-diagnose</span></div>
+    <div class="app app-tall">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Northwind Fasteners</span></div>
+        <nav class="sidebar-nav"><div class="nav-group"><span>Ecommerce</span><svg><use href="#ic-chevron-down"/></svg></div><div class="nav-items"><a class="nav-item" href="#s2" data-goto="s2"><svg><use href="#ic-store"/></svg> Stores</a><span class="nav-item active"><svg><use href="#ic-eye"/></svg> Visibility Diagnose</span></div></nav>
+      </aside>
+      <div class="main">
+        <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span class="here">Visibility Diagnose</span></div></div></header>
+        <main class="page">
+          <div class="page-head"><div><h1 class="t-page-title">Why can this buyer see this product?</h1></div></div>
+          <div class="form-group">
+            <div class="form-grid form-grid-2">
+              <div class="field"><label>Buyer</label><input class="input input-invalid" value="cust_9f21" /><span class="field-error">No buyer found with id cust_9f21.</span></div>
+              <div class="field"><label>Product</label><input class="input" value="prod_missing" /></div>
+            </div>
+            <div class="row"><button class="btn btn-primary btn-sm is-disabled"><svg><use href="#ic-search"/></svg> Check visibility</button></div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>A clear "not found" per field — this is an internal admin lookup, not a public discovery surface, so there is no reason to blur "restricted" and "nonexistent" here the way the storefront and cart must (screens 12, 13).</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S12 — Storefront Product Page: 404 (illustrative) -->
+<!-- ============================================================ -->
+<section class="screen" id="s12">
+  <div class="screen-meta">
+    <h2>12. Storefront product page — 404 (illustrative, read-side)</h2>
+    <p>An anonymous visitor follows a shared link to "TorquePro X1 Wrench (Early Access)," gated to the Preview — Q3 Launch group. This is storefront UI a sibling spec owns — drawn schematically, not to the storefront's own design system.</p>
+    <div class="screen-refs"><span class="ref">§3.5</span><span class="ref">US-D1</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">shop.northwind.example/products/torquepro-x1-early-access</span></div>
+    <div class="card-pad" style="min-height:22rem;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0.75rem;background:var(--muted)/40;border-radius:var(--radius-lg)">
+      <div class="empty-icon"><svg><use href="#ic-eye-off"/></svg></div>
+      <div class="t-card-title">Page not found</div>
+      <p class="t-hint" style="max-width:40ch;text-align:center">The page you're looking for doesn't exist or may have been moved.</p>
+      <button class="btn btn-outline btn-sm">Back to shop</button>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Illustrative only — the prototype does not execute <code class="t-mono">matchesScope</code>. Identical to a deleted-product 404 by design (handle-enumeration-oracle rule, §3.5/R4): nothing distinguishes "restricted" from "never existed."</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S13 — Cart Drawer: add rejected (illustrative) -->
+<!-- ============================================================ -->
+<section class="screen" id="s13">
+  <div class="screen-meta">
+    <h2>13. Cart drawer — restricted product rejected on add (illustrative, write-side)</h2>
+    <p>Casey Okafor (no Preview membership) had a stale link to "TorquePro X1 Wrench" and tried adding it straight to the cart, bypassing the storefront listing entirely.</p>
+    <div class="screen-refs"><span class="ref">§6.1</span><span class="ref">§6.3</span><span class="ref">US-E1</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">shop.northwind.example/cart</span></div>
+    <div class="drawer" style="position:static;box-shadow:none;border:1px solid var(--border);border-radius:var(--radius-lg);max-width:26rem;margin:0 auto">
+      <div class="drawer-head"><span class="t-card-title row"><svg style="width:1.1rem;height:1.1rem"><use href="#ic-cart"/></svg> Your cart (2)</span><button class="icon-btn" aria-label="Close"><svg><use href="#ic-x"/></svg></button></div>
+      <div class="drawer-body">
+        <div class="alert alert-warning">
+          <svg><use href="#ic-warn"/></svg>
+          <div><div class="alert-title">TorquePro X1 Wrench (Early Access) unavailable</div><div class="t-hint">This item couldn't be added to your cart.</div></div>
+        </div>
+        <div class="row between" style="padding:0.5rem 0;border-bottom:1px solid var(--border)">
+          <div class="row-3"><span class="avatar">M8</span><div><div class="t-body">M8 Hex Bolt (Bulk Pack, 500ct)</div><div class="t-hint">Qty 2 · 84.00 PLN</div></div></div>
+        </div>
+        <div class="row between" style="padding:0.5rem 0">
+          <div class="row-3"><span class="avatar">SW</span><div><div class="t-body">Standard Wood Screw 4×40</div><div class="t-hint">Qty 1 · 6.50 PLN</div></div></div>
+        </div>
+      </div>
+      <div class="drawer-foot"><span class="t-hint">Other lines in this bulk-add were unaffected.</span><button class="btn btn-primary btn-sm">Checkout</button></div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Illustrative only — no live add call runs. The rejection is a non-fatal warning identical in class to an out-of-stock or nonexistent-product rejection (§6.3, R5) — deliberately not distinguishable.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S14 — Cart Drawer: flagged line, blocked checkout (illustrative) -->
+<!-- ============================================================ -->
+<section class="screen" id="s14">
+  <div class="screen-meta">
+    <h2>14. Cart drawer — flagged line, blocked checkout lock (illustrative)</h2>
+    <p>Dana Ruiz added "M8 Hex Bolt (Bulk Pack)" while a Wholesale — Tier 2 member; her membership lapsed before checkout. The line stays, flagged — not silently deleted.</p>
+    <div class="screen-refs"><span class="ref">§6.0</span><span class="ref">§6.2</span><span class="ref">US-F1</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">shop.northwind.example/cart</span></div>
+    <div class="drawer" style="position:static;box-shadow:none;border:1px solid var(--border);border-radius:var(--radius-lg);max-width:26rem;margin:0 auto">
+      <div class="drawer-head"><span class="t-card-title row"><svg style="width:1.1rem;height:1.1rem"><use href="#ic-cart"/></svg> Your cart (1)</span><button class="icon-btn" aria-label="Close"><svg><use href="#ic-x"/></svg></button></div>
+      <div class="drawer-body">
+        <div class="row between" style="padding:0.5rem 0;border-bottom:1px solid var(--border);opacity:0.85">
+          <div class="row-3"><span class="avatar">M8</span><div><div class="t-body">M8 Hex Bolt (Bulk Pack, 500ct)</div><div class="t-hint">Qty 2 · 84.00 PLN</div><span class="badge badge-warning" style="margin-top:0.25rem"><svg><use href="#ic-eye-off"/></svg> Unavailable</span></div></div>
+          <button class="btn btn-outline btn-xs">Remove</button>
+        </div>
+        <div class="alert alert-warning" style="margin-top:0.75rem">
+          <svg><use href="#ic-warn"/></svg>
+          <div><div class="alert-title">This item is no longer available to you</div><div class="t-hint">Your Wholesale — Tier 2 membership ended. Remove or replace this line to continue to checkout.</div></div>
+        </div>
+      </div>
+      <div class="drawer-foot"><span class="t-hint">Checkout blocked while a flagged line remains.</span><button class="btn btn-primary btn-sm is-disabled">Checkout <svg><use href="#ic-lock"/></svg></button></div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Illustrative only — no live re-price trigger runs. The line is flagged, never auto-deleted (§6.2, mirroring R2/R4's guest-cart and price-increase precedents); the checkout lock (<span class="t-mono">active → locked</span>) refuses while any line is flagged, the same way an over-threshold approval already blocks it (<code class="t-mono">cart-module.md</code> §14).</span></div>
+    <div class="note"><b>2</b><span>Removing or replacing the flagged line (undo path) unblocks the lock — not shown as a second static state here for space, but the "Remove" action above is that path.</span></div>
+  </div>
+</section>
+
+</div>
+
+<script>
+(function () {
+  var btn = document.getElementById('theme-toggle');
+  btn.addEventListener('click', function () {
+    document.documentElement.classList.toggle('dark');
+  });
+})();
+</script>
+<script src="comments.js"></script>
+<script src="prototype.js"></script>
+</body>
+</html>

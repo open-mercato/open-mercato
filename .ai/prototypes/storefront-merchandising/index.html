@@ -1,0 +1,1549 @@
+<!doctype html>
+<html lang="en" data-prototype-id="storefront-merchandising">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Storefront Merchandising — interactive backend prototype</title>
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="components.css" />
+<link rel="stylesheet" href="screens.css" />
+<link rel="stylesheet" href="prototype.css" />
+</head>
+<body>
+
+<!-- Lucide icon sprite. Include only the paths the prototype uses. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<symbol id="ic-home" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></symbol>
+<symbol id="ic-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+<symbol id="ic-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+<symbol id="ic-chevron-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></symbol>
+<symbol id="ic-chevron-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></symbol>
+<symbol id="ic-chevron-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></symbol>
+<symbol id="ic-bell" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></symbol>
+<symbol id="ic-more" viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="5" cy="12" r="1.75"/><circle cx="12" cy="12" r="1.75"/><circle cx="19" cy="12" r="1.75"/></symbol>
+<symbol id="ic-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/></symbol>
+<symbol id="ic-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></symbol>
+<symbol id="ic-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+<symbol id="ic-pencil" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/></symbol>
+<symbol id="ic-trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></symbol>
+<symbol id="ic-save" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7H7v7"/><path d="M7 3v5h8"/></symbol>
+<symbol id="ic-filter" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></symbol>
+<symbol id="ic-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></symbol>
+<symbol id="ic-warn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
+<symbol id="ic-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></symbol>
+<symbol id="ic-grip" viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="9" cy="5" r="1.25"/><circle cx="9" cy="12" r="1.25"/><circle cx="9" cy="19" r="1.25"/><circle cx="15" cy="5" r="1.25"/><circle cx="15" cy="12" r="1.25"/><circle cx="15" cy="19" r="1.25"/></symbol>
+<symbol id="ic-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.06 12.35a1 1 0 0 1 0-.7 10.75 10.75 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-19.88 0"/><circle cx="12" cy="12" r="3"/></symbol>
+<symbol id="ic-layers" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z"/><path d="M22 17.65a1 1 0 0 1 0 1.83l-8.58 3.91a2 2 0 0 1-1.66 0L3.18 19.48a1 1 0 0 1 0-1.83"/><path d="M22 12.65a1 1 0 0 1 0 1.83l-8.58 3.91a2 2 0 0 1-1.66 0L3.18 14.48a1 1 0 0 1 0-1.83"/></symbol>
+<symbol id="ic-grid" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M9 3v18"/><path d="M15 3v18"/></symbol>
+<symbol id="ic-sparkles" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.94 15.5A2 2 0 0 0 8.5 14.06l-6.13-1.58a.5.5 0 0 1 0-.96L8.5 9.94A2 2 0 0 0 9.94 8.5l1.58-6.14a.5.5 0 0 1 .96 0L14.06 8.5a2 2 0 0 0 1.44 1.44l6.13 1.58a.5.5 0 0 1 0 .96L15.5 14.06a2 2 0 0 0-1.44 1.44l-1.58 6.14a.5.5 0 0 1-.96 0z"/></symbol>
+<symbol id="ic-image" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.09-3.09a2 2 0 0 0-2.82 0L6 21"/></symbol>
+<symbol id="ic-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></symbol>
+<symbol id="ic-pin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></symbol>
+<symbol id="ic-link" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 17H7A5 5 0 0 1 7 7h2"/><path d="M15 7h2a5 5 0 1 1 0 10h-2"/><line x1="8" x2="16" y1="12" y2="12"/></symbol>
+<symbol id="ic-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></symbol>
+<symbol id="ic-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+<symbol id="ic-loader" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4"/><path d="m16.2 7.8 2.9-2.9"/><path d="M18 12h4"/><path d="m16.2 16.2 2.9 2.9"/><path d="M12 18v4"/><path d="m4.9 19.1 2.9-2.9"/><path d="M2 12h4"/><path d="m4.9 4.9 2.9 2.9"/></symbol>
+</defs></svg>
+
+<div class="doc-toolbar">
+  <strong style="font-size:0.875rem">Storefront Merchandising — prototype</strong>
+  <nav class="screen-nav" aria-label="Screens">
+    <a href="#s1">1 Menus (empty)</a>
+    <a href="#s2">2 Menus (list)</a>
+    <a href="#s3">3 Menu tree</a>
+    <a href="#s4">4 Audience</a>
+    <a href="#s5">5 Menu (viewer)</a>
+    <a href="#s6">6 Placements</a>
+    <a href="#s7">7 Placement</a>
+    <a href="#s8">8 Block editor</a>
+    <a href="#s9">9 html_embed</a>
+    <a href="#s10">10 Preview</a>
+    <a href="#s11">11 Collections</a>
+    <a href="#s12">12 Manual coll.</a>
+    <a href="#s13">13 Rule coll.</a>
+    <a href="#s14">14 Recommendations</a>
+    <a href="#s15">15 Enrichment</a>
+    <a href="#s16">16 Conflict</a>
+  </nav>
+  <button class="btn btn-outline btn-sm" id="theme-toggle" type="button">
+    <svg><use href="#ic-sun"/></svg> Theme
+  </button>
+</div>
+
+<div class="doc">
+
+<header class="doc-head">
+  <h1>Storefront Merchandising — screen inventory</h1>
+  <p class="muted" style="max-width:65ch;margin:0">
+    Interactive backend screens derived from <code class="t-mono">.ai/specs/2026-08-14-storefront-merchandising.md</code>
+    §11 User Stories. Store: <b>Nordwell Supply Co.</b> (hardware &amp; contractor supply, retail + wholesale).
+    The shell, page scaffolding, DataTable chrome, and CrudForm layout mirror
+    <code class="t-mono">packages/ui/src/backend/</code>; colors and spacing come from
+    <code class="t-mono">globals.css</code>. Every screen lists its requirement and user-story coverage.
+  </p>
+</header>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     S1 — Menus list, empty state
+     ══════════════════════════════════════════════════════════════════ -->
+<section class="screen" id="s1">
+  <div class="screen-meta">
+    <h2>1. Menus — empty state</h2>
+    <p>A freshly-created store has no menus yet. The empty state names the next action instead of showing a blank table.</p>
+    <div class="screen-refs"><span class="ref">§4.1</span><span class="ref">US-N1</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar">
+      <div class="frame-dots"><i></i><i></i><i></i></div>
+      <span class="frame-url">/backend/merchandising/menus</span>
+    </div>
+    <div class="app app-narrow">
+
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Nordwell Supply Co.</span></div>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Search</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Merchandising</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items">
+            <span class="nav-item active"><svg><use href="#ic-layers"/></svg> Menus</span>
+            <span class="nav-item"><svg><use href="#ic-grid"/></svg> Placements &amp; blocks</span>
+            <span class="nav-item"><svg><use href="#ic-grid"/></svg> Collections</span>
+            <span class="nav-item"><svg><use href="#ic-sparkles"/></svg> Recommendations</span>
+            <span class="nav-item"><svg><use href="#ic-image"/></svg> Category enrichment</span>
+          </div>
+        </nav>
+      </aside>
+
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left">
+            <div class="crumbs">
+              <svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg>
+              <span class="here">Menus</span>
+            </div>
+          </div>
+          <div class="topbar-right">
+            <div class="topbar-search"><svg><use href="#ic-search"/></svg> Search</div>
+            <button class="icon-btn" aria-label="Notifications"><svg><use href="#ic-bell"/></svg></button>
+            <span class="avatar" title="Priya Nandakumar — Merchandiser">PN</span>
+          </div>
+        </header>
+
+        <main class="page">
+          <div class="page-head">
+            <div><h1 class="t-page-title">Menus</h1><p>Header, footer and mobile navigation for this store.</p></div>
+            <div class="page-actions">
+              <button class="btn btn-primary" data-goto="s3"><svg><use href="#ic-plus"/></svg> New menu</button>
+            </div>
+          </div>
+
+          <div class="dt">
+            <div class="dt-head">
+              <div class="dt-head-row">
+                <h2 class="t-table-title">Menus <span class="muted t-body">(0)</span></h2>
+              </div>
+            </div>
+            <div class="empty" style="margin:1.5rem">
+              <div class="empty-icon"><svg><use href="#ic-layers"/></svg></div>
+              <div class="t-card-title">No menus yet</div>
+              <p class="t-hint" style="max-width:32ch">Create a menu — <span class="t-mono">main</span>, <span class="t-mono">footer</span> or <span class="t-mono">b2b-main</span> — to give buyers navigation beyond the raw category tree.</p>
+              <button class="btn btn-primary btn-sm" data-goto="s3"><svg><use href="#ic-plus"/></svg> New menu</button>
+            </div>
+          </div>
+        </main>
+        <footer class="app-foot">
+          <span>v1.0.0</span>
+          <nav class="row-3"><span>Terms</span><span>Privacy</span></nav>
+        </footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>The empty state is distinct from "zero results after a filter" — this prototype does not illustrate the latter, which uses the standard DataTable no-match row instead.</span></div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     S2 — Menus list, populated
+     ══════════════════════════════════════════════════════════════════ -->
+<section class="screen" id="s2">
+  <div class="screen-meta">
+    <h2>2. Menus — populated</h2>
+    <p>Every store menu, its scope (all stores vs. one) and whether it is active.</p>
+    <div class="screen-refs"><span class="ref">§4.1</span><span class="ref">US-N1</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar">
+      <div class="frame-dots"><i></i><i></i><i></i></div>
+      <span class="frame-url">/backend/merchandising/menus</span>
+    </div>
+    <div class="app app-narrow">
+
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Nordwell Supply Co.</span></div>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Search</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Merchandising</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items">
+            <span class="nav-item active"><svg><use href="#ic-layers"/></svg> Menus</span>
+            <span class="nav-item" data-goto="s6"><svg><use href="#ic-grid"/></svg> Placements &amp; blocks</span>
+            <span class="nav-item" data-goto="s11"><svg><use href="#ic-grid"/></svg> Collections</span>
+            <span class="nav-item" data-goto="s14"><svg><use href="#ic-sparkles"/></svg> Recommendations</span>
+            <span class="nav-item" data-goto="s15"><svg><use href="#ic-image"/></svg> Category enrichment</span>
+          </div>
+        </nav>
+      </aside>
+
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left">
+            <div class="crumbs">
+              <svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg>
+              <span class="here">Menus</span>
+            </div>
+          </div>
+          <div class="topbar-right">
+            <div class="topbar-search"><svg><use href="#ic-search"/></svg> Search</div>
+            <button class="icon-btn" aria-label="Notifications"><svg><use href="#ic-bell"/></svg></button>
+            <span class="avatar" title="Priya Nandakumar — Merchandiser">PN</span>
+          </div>
+        </header>
+
+        <main class="page">
+          <div class="page-head">
+            <div><h1 class="t-page-title">Menus</h1><p>Header, footer and mobile navigation for this store.</p></div>
+            <div class="page-actions">
+              <button class="btn btn-primary" data-goto="s3"><svg><use href="#ic-plus"/></svg> New menu</button>
+            </div>
+          </div>
+
+          <div class="dt">
+            <div class="dt-head">
+              <div class="dt-head-row">
+                <h2 class="t-table-title">Menus <span class="muted t-body">(4)</span></h2>
+              </div>
+              <div class="dt-toolbar">
+                <div class="dt-toolbar-row">
+                  <div class="input-group dt-search"><span class="addon"><svg><use href="#ic-search"/></svg></span><input class="input" placeholder="Search menus…" /></div>
+                </div>
+              </div>
+            </div>
+            <table class="table">
+              <thead><tr><th>Code</th><th>Name</th><th>Store</th><th>Items</th><th>Status</th><th class="right">Updated</th><th class="w-0"></th></tr></thead>
+              <tbody>
+                <tr class="clickable" data-goto="s3">
+                  <td class="t-mono">main</td><td>Header navigation</td><td>All stores</td><td class="num">7</td>
+                  <td><span class="badge badge-success"><span class="dot"></span> Active</span></td>
+                  <td class="right t-hint">2 hours ago</td>
+                  <td class="row-actions"><button class="icon-btn btn-icon" aria-label="Edit"><svg><use href="#ic-pencil"/></svg></button></td>
+                </tr>
+                <tr class="clickable" data-goto="s5">
+                  <td class="t-mono">b2b-main</td><td>Wholesale header</td><td>All stores</td><td class="num">5</td>
+                  <td><span class="badge badge-success"><span class="dot"></span> Active</span></td>
+                  <td class="right t-hint">Yesterday</td>
+                  <td class="row-actions"><button class="icon-btn btn-icon" aria-label="Edit"><svg><use href="#ic-pencil"/></svg></button></td>
+                </tr>
+                <tr>
+                  <td class="t-mono">footer</td><td>Footer links</td><td>All stores</td><td class="num">9</td>
+                  <td><span class="badge badge-success"><span class="dot"></span> Active</span></td>
+                  <td class="right t-hint">5 days ago</td>
+                  <td class="row-actions"><button class="icon-btn btn-icon" aria-label="Edit"><svg><use href="#ic-pencil"/></svg></button></td>
+                </tr>
+                <tr>
+                  <td class="t-mono">mobile</td><td>Mobile app drawer</td><td>All stores</td><td class="num">0</td>
+                  <td><span class="badge badge-neutral"><span class="dot"></span> Inactive</span></td>
+                  <td class="right t-hint">3 weeks ago</td>
+                  <td class="row-actions"><button class="icon-btn btn-icon" aria-label="Edit"><svg><use href="#ic-pencil"/></svg></button></td>
+                </tr>
+              </tbody>
+            </table>
+            <div class="dt-foot">
+              <span class="t-hint num">Showing 1 to 4 of 4 results</span>
+            </div>
+          </div>
+        </main>
+        <footer class="app-foot">
+          <span>v1.0.0</span>
+          <nav class="row-3"><span>Terms</span><span>Privacy</span></nav>
+        </footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Rows are clickable through to the tree editor (US-N1). Row-level "Edit" is a redundant affordance for keyboard/touch users who do not use row-click.</span></div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     S3 — Menu detail: tree editor
+     ══════════════════════════════════════════════════════════════════ -->
+<section class="screen" id="s3">
+  <div class="screen-meta">
+    <h2>3. Menu detail — tree editor</h2>
+    <p>Add, nest and drag-reorder items in the <span class="t-mono">main</span> menu. Depth is capped at 3; a restricted target is badged, not hidden from the merchandiser.</p>
+    <div class="screen-refs"><span class="ref">§4.2</span><span class="ref">US-N1</span><span class="ref">US-N3</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar">
+      <div class="frame-dots"><i></i><i></i><i></i></div>
+      <span class="frame-url">/backend/merchandising/menus/main</span>
+    </div>
+    <div class="app app-tall">
+
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Nordwell Supply Co.</span></div>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Search</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Merchandising</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items">
+            <span class="nav-item active"><svg><use href="#ic-layers"/></svg> Menus</span>
+            <span class="nav-item" data-goto="s6"><svg><use href="#ic-grid"/></svg> Placements &amp; blocks</span>
+            <span class="nav-item" data-goto="s11"><svg><use href="#ic-grid"/></svg> Collections</span>
+            <span class="nav-item" data-goto="s14"><svg><use href="#ic-sparkles"/></svg> Recommendations</span>
+            <span class="nav-item" data-goto="s15"><svg><use href="#ic-image"/></svg> Category enrichment</span>
+          </div>
+        </nav>
+      </aside>
+
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left">
+            <div class="crumbs">
+              <svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg>
+              <a href="#s2" data-goto="s2" style="color:inherit;text-decoration:none">Menus</a><svg><use href="#ic-chevron-right"/></svg>
+              <span class="here">main</span>
+            </div>
+          </div>
+          <div class="topbar-right">
+            <div class="topbar-search"><svg><use href="#ic-search"/></svg> Search</div>
+            <button class="icon-btn" aria-label="Notifications"><svg><use href="#ic-bell"/></svg></button>
+            <span class="avatar" title="Priya Nandakumar — Merchandiser">PN</span>
+          </div>
+        </header>
+
+        <main class="page">
+          <div class="form-head">
+            <div class="col">
+              <a class="back-link" href="#s2" data-goto="s2"><svg><use href="#ic-chevron-left"/></svg> Back to menus</a>
+              <span class="title">main — Header navigation</span>
+            </div>
+            <div class="row">
+              <button class="btn btn-outline" data-goto="s10"><svg><use href="#ic-eye"/></svg> Preview as…</button>
+              <button class="btn btn-primary"><svg><use href="#ic-save"/></svg> Save</button>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-head">
+              <span class="t-card-title">Items (7) · depth 3 max</span>
+              <button class="btn btn-outline btn-sm"><svg><use href="#ic-plus"/></svg> Add item</button>
+            </div>
+            <div class="card-body">
+              <ul class="mtree">
+                <li class="mtree-row" data-depth="0">
+                  <svg class="grip"><use href="#ic-grip"/></svg>
+                  <span class="label">Power Tools</span>
+                  <span class="chip"><svg><use href="#ic-link"/></svg> category</span>
+                  <span class="badge badge-neutral">Everyone</span>
+                  <span class="row-actions">
+                    <button class="icon-btn btn-icon" aria-label="Audience" data-goto="s4"><svg><use href="#ic-shield"/></svg></button>
+                    <button class="icon-btn btn-icon" aria-label="Add child"><svg><use href="#ic-plus"/></svg></button>
+                    <button class="icon-btn btn-icon" aria-label="Edit"><svg><use href="#ic-pencil"/></svg></button>
+                    <button class="icon-btn btn-icon" aria-label="Delete"><svg><use href="#ic-trash"/></svg></button>
+                  </span>
+                </li>
+                <li class="mtree-row" data-depth="1">
+                  <svg class="grip"><use href="#ic-grip"/></svg>
+                  <span class="label">Impact Drivers &amp; Drills</span>
+                  <span class="chip"><svg><use href="#ic-link"/></svg> category</span>
+                  <span class="badge badge-neutral">Everyone</span>
+                  <span class="row-actions">
+                    <button class="icon-btn btn-icon" aria-label="Audience" data-goto="s4"><svg><use href="#ic-shield"/></svg></button>
+                    <button class="icon-btn btn-icon" aria-label="Add child"><svg><use href="#ic-plus"/></svg></button>
+                    <button class="icon-btn btn-icon" aria-label="Edit"><svg><use href="#ic-pencil"/></svg></button>
+                    <button class="icon-btn btn-icon" aria-label="Delete"><svg><use href="#ic-trash"/></svg></button>
+                  </span>
+                </li>
+                <li class="mtree-row" data-depth="0">
+                  <svg class="grip"><use href="#ic-grip"/></svg>
+                  <span class="label">Bulk &amp; Pallet Orders</span>
+                  <span class="chip"><svg><use href="#ic-link"/></svg> collection</span>
+                  <span class="badge badge-info"><svg><use href="#ic-shield"/></svg> Wholesale — Tier 2</span>
+                  <span class="badge badge-warning" title="Targets a collection scoped to a customer group; invisible to buyers outside it">restricted target</span>
+                  <span class="row-actions">
+                    <button class="icon-btn btn-icon" aria-label="Audience" data-goto="s4"><svg><use href="#ic-shield"/></svg></button>
+                    <button class="icon-btn btn-icon" aria-label="Add child"><svg><use href="#ic-plus"/></svg></button>
+                    <button class="icon-btn btn-icon" aria-label="Edit"><svg><use href="#ic-pencil"/></svg></button>
+                    <button class="icon-btn btn-icon" aria-label="Delete"><svg><use href="#ic-trash"/></svg></button>
+                  </span>
+                </li>
+                <li class="mtree-row" data-depth="0">
+                  <svg class="grip"><use href="#ic-grip"/></svg>
+                  <span class="label">New in <span class="badge badge-pink t-hint" style="margin-left:0.25rem">New</span></span>
+                  <span class="chip"><svg><use href="#ic-link"/></svg> search_query</span>
+                  <span class="badge badge-neutral">Everyone</span>
+                  <span class="row-actions">
+                    <button class="icon-btn btn-icon" aria-label="Audience" data-goto="s4"><svg><use href="#ic-shield"/></svg></button>
+                    <button class="icon-btn btn-icon" aria-label="Add child"><svg><use href="#ic-plus"/></svg></button>
+                    <button class="icon-btn btn-icon" aria-label="Edit"><svg><use href="#ic-pencil"/></svg></button>
+                    <button class="icon-btn btn-icon" aria-label="Delete"><svg><use href="#ic-trash"/></svg></button>
+                  </span>
+                </li>
+                <li class="mtree-row" data-depth="0">
+                  <svg class="grip"><use href="#ic-grip"/></svg>
+                  <span class="label">Sale <span class="badge badge-error t-hint" style="margin-left:0.25rem">Sale</span></span>
+                  <span class="chip"><svg><use href="#ic-link"/></svg> collection</span>
+                  <span class="badge badge-neutral">Everyone</span>
+                  <span class="row-actions">
+                    <button class="icon-btn btn-icon" aria-label="Audience" data-goto="s4"><svg><use href="#ic-shield"/></svg></button>
+                    <button class="icon-btn btn-icon" aria-label="Add child"><svg><use href="#ic-plus"/></svg></button>
+                    <button class="icon-btn btn-icon" aria-label="Edit"><svg><use href="#ic-pencil"/></svg></button>
+                    <button class="icon-btn btn-icon" aria-label="Delete"><svg><use href="#ic-trash"/></svg></button>
+                  </span>
+                </li>
+              </ul>
+              <div class="alert alert-info" style="margin-top:1rem">
+                <svg><use href="#ic-info"/></svg>
+                <div><div class="alert-title">Depth limit reached</div>Dropping "Impact Drivers &amp; Drills" one level deeper is blocked — items nest at most 3 levels.</div>
+              </div>
+            </div>
+          </div>
+        </main>
+        <footer class="app-foot">
+          <span>v1.0.0</span>
+          <nav class="row-3"><span>Terms</span><span>Privacy</span></nav>
+        </footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Reordering is optimistic: a drag applies immediately and rolls back with an inline error only if the save request fails — this prototype cannot demonstrate the rollback animation itself.</span></div>
+    <div class="note"><b>2</b><span>"Bulk &amp; Pallet Orders" is valid configuration the Merchandiser can see and edit; only the rendered storefront hides it from a buyer outside "Wholesale — Tier 2" (R1, US-N3).</span></div>
+    <div class="note"><b>3</b><span>Deleting "Power Tools" (which has a child) asks for confirmation naming the child item, not a silent cascade.</span></div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     S4 — Menu item audience drawer
+     ══════════════════════════════════════════════════════════════════ -->
+<section class="screen" id="s4">
+  <div class="screen-meta">
+    <h2>4. Menu item — audience targeting drawer</h2>
+    <p>Scope one menu item to a customer group, require authentication, or exclude a group. Exclusion beats inclusion.</p>
+    <div class="screen-refs"><span class="ref">§4.7</span><span class="ref">US-N2</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar">
+      <div class="frame-dots"><i></i><i></i><i></i></div>
+      <span class="frame-url">/backend/merchandising/menus/main — item #3</span>
+    </div>
+    <div class="app app-tall drawer-scrim">
+
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Nordwell Supply Co.</span></div>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Search</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Merchandising</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items">
+            <span class="nav-item active"><svg><use href="#ic-layers"/></svg> Menus</span>
+            <span class="nav-item"><svg><use href="#ic-grid"/></svg> Placements &amp; blocks</span>
+            <span class="nav-item"><svg><use href="#ic-grid"/></svg> Collections</span>
+            <span class="nav-item"><svg><use href="#ic-sparkles"/></svg> Recommendations</span>
+            <span class="nav-item"><svg><use href="#ic-image"/></svg> Category enrichment</span>
+          </div>
+        </nav>
+      </aside>
+
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left">
+            <div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span class="here">main</span></div>
+          </div>
+          <div class="topbar-right">
+            <span class="avatar" title="Priya Nandakumar — Merchandiser">PN</span>
+          </div>
+        </header>
+        <main class="page">
+          <div class="page-head"><div><h1 class="t-page-title">main — Header navigation</h1><p>Tree editor behind the drawer (dimmed).</p></div></div>
+        </main>
+      </div>
+
+      <div class="drawer">
+        <div class="drawer-head">
+          <div class="col grow">
+            <span class="t-card-title">Audience — "Bulk &amp; Pallet Orders"</span>
+            <span class="t-hint">Leave everything empty to show this item to everyone.</span>
+          </div>
+          <button class="icon-btn" aria-label="Close" data-goto="s3"><svg><use href="#ic-x"/></svg></button>
+        </div>
+        <div class="drawer-body">
+          <div class="field">
+            <label>Customer groups (any match)</label>
+            <div class="row wrap">
+              <span class="chip chip-active">Wholesale — Tier 2 <svg><use href="#ic-x"/></svg></span>
+              <span class="chip chip-active">Wholesale — Tier 1 <svg><use href="#ic-x"/></svg></span>
+              <button class="chip chip-dashed"><svg><use href="#ic-plus"/></svg> Add group</button>
+            </div>
+          </div>
+          <div class="field">
+            <label>Exclude customer groups</label>
+            <div class="row wrap">
+              <button class="chip chip-dashed"><svg><use href="#ic-plus"/></svg> Add exclusion</button>
+            </div>
+            <span class="t-hint">An excluded group never sees this item, even if it also matches an included group above.</span>
+          </div>
+          <div class="alert alert-info">
+            <svg><use href="#ic-info"/></svg>
+            <div><div class="alert-title">Exclusion wins</div>If a buyer's groups match both an inclusion and an exclusion here, the item is hidden. There is no ambiguous overlap.</div>
+          </div>
+          <div class="field row between" style="align-items:center">
+            <label style="margin:0">Require authentication</label>
+            <button class="switch" role="switch" aria-checked="false"></button>
+          </div>
+          <div class="field">
+            <label>Locales</label>
+            <div class="row wrap"><span class="chip chip-active">All locales <svg><use href="#ic-x"/></svg></span></div>
+          </div>
+        </div>
+        <div class="drawer-foot">
+          <button class="btn btn-ghost" data-goto="s3">Cancel <span class="kbd" style="margin-left:0.375rem">Esc</span></button>
+          <button class="btn btn-primary" data-goto="s3"><svg><use href="#ic-save"/></svg> Save <span class="kbd" style="margin-left:0.375rem">⌘⏎</span></button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>A newly created item defaults to no restriction ("Everyone") rather than an ambiguous empty-but-unset state — the default is explicit in the empty chip row's placeholder copy.</span></div>
+    <div class="note"><b>2</b><span>This same drawer is reused verbatim for placements, blocks, collections, recommendation rules and category enrichments (§4.7) — it is not rebuilt per entity.</span></div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     S5 — Menu detail, Viewer read-only
+     ══════════════════════════════════════════════════════════════════ -->
+<section class="screen" id="s5">
+  <div class="screen-meta">
+    <h2>5. Menu detail — Viewer (read-only)</h2>
+    <p>A Viewer sees full configuration with no drag handles, no delete, no add — not disabled-and-clickable controls.</p>
+    <div class="screen-refs"><span class="ref">§7.3</span><span class="ref">US-N4</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar">
+      <div class="frame-dots"><i></i><i></i><i></i></div>
+      <span class="frame-url">/backend/merchandising/menus/b2b-main</span>
+    </div>
+    <div class="app app-narrow">
+
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Nordwell Supply Co.</span></div>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Search</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Merchandising</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items">
+            <span class="nav-item active"><svg><use href="#ic-layers"/></svg> Menus</span>
+            <span class="nav-item"><svg><use href="#ic-grid"/></svg> Placements &amp; blocks</span>
+            <span class="nav-item"><svg><use href="#ic-grid"/></svg> Collections</span>
+            <span class="nav-item"><svg><use href="#ic-sparkles"/></svg> Recommendations</span>
+            <span class="nav-item"><svg><use href="#ic-image"/></svg> Category enrichment</span>
+          </div>
+        </nav>
+      </aside>
+
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left">
+            <div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><a href="#s2" data-goto="s2" style="color:inherit;text-decoration:none">Menus</a><svg><use href="#ic-chevron-right"/></svg><span class="here">b2b-main</span></div>
+          </div>
+          <div class="topbar-right">
+            <span class="badge badge-neutral" title="merchandising.menus.view only"><svg><use href="#ic-shield"/></svg> Viewer</span>
+            <span class="avatar" title="Dana Ruiz — Viewer">DR</span>
+          </div>
+        </header>
+
+        <main class="page">
+          <div class="form-head">
+            <div class="col">
+              <a class="back-link" href="#s2" data-goto="s2"><svg><use href="#ic-chevron-left"/></svg> Back to menus</a>
+              <span class="title">b2b-main — Wholesale header</span>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-head"><span class="t-card-title">Items (5) · read-only</span></div>
+            <div class="card-body">
+              <ul class="mtree mtree-readonly">
+                <li class="mtree-row" data-depth="0">
+                  <span class="label">Bulk &amp; Pallet Orders</span>
+                  <span class="chip"><svg><use href="#ic-link"/></svg> collection</span>
+                  <span class="badge badge-info"><svg><use href="#ic-shield"/></svg> Wholesale — Tier 1, Tier 2</span>
+                </li>
+                <li class="mtree-row" data-depth="0">
+                  <span class="label">Contract Pricing</span>
+                  <span class="chip"><svg><use href="#ic-link"/></svg> content_page</span>
+                  <span class="badge badge-warning"><svg><use href="#ic-lock"/></svg> Requires login</span>
+                </li>
+                <li class="mtree-row" data-depth="0">
+                  <span class="label">Fasteners &amp; Hardware</span>
+                  <span class="chip"><svg><use href="#ic-link"/></svg> category</span>
+                  <span class="badge badge-neutral">Everyone</span>
+                </li>
+              </ul>
+            </div>
+          </div>
+        </main>
+        <footer class="app-foot">
+          <span>v1.0.0</span>
+          <nav class="row-3"><span>Terms</span><span>Privacy</span></nav>
+        </footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>No "New menu" action in the page header, no grip handles, no row actions — the affordances are absent, matching how CrudForm hides write controls for a role without the manage feature rather than showing them disabled.</span></div>
+    <div class="note"><b>2</b><span>If a Viewer's session somehow reaches a write endpoint (e.g. a stale tab after a role change), the API's permission error surfaces through the same error-banner pattern used across the backend — not a silent no-op.</span></div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     S6 — Placements list
+     ══════════════════════════════════════════════════════════════════ -->
+<section class="screen" id="s6">
+  <div class="screen-meta">
+    <h2>6. Placements — list</h2>
+    <p>Every slot configured for this store, its context scoping, audience and priority.</p>
+    <div class="screen-refs"><span class="ref">§4.3</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar">
+      <div class="frame-dots"><i></i><i></i><i></i></div>
+      <span class="frame-url">/backend/merchandising/placements</span>
+    </div>
+    <div class="app app-narrow">
+
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Nordwell Supply Co.</span></div>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Search</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Merchandising</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items">
+            <span class="nav-item" data-goto="s2"><svg><use href="#ic-layers"/></svg> Menus</span>
+            <span class="nav-item active"><svg><use href="#ic-grid"/></svg> Placements &amp; blocks</span>
+            <span class="nav-item" data-goto="s11"><svg><use href="#ic-grid"/></svg> Collections</span>
+            <span class="nav-item" data-goto="s14"><svg><use href="#ic-sparkles"/></svg> Recommendations</span>
+            <span class="nav-item" data-goto="s15"><svg><use href="#ic-image"/></svg> Category enrichment</span>
+          </div>
+        </nav>
+      </aside>
+
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span class="here">Placements</span></div></div>
+          <div class="topbar-right">
+            <div class="topbar-search"><svg><use href="#ic-search"/></svg> Search</div>
+            <button class="icon-btn" aria-label="Notifications"><svg><use href="#ic-bell"/></svg></button>
+            <span class="avatar" title="Priya Nandakumar — Merchandiser">PN</span>
+          </div>
+        </header>
+
+        <main class="page">
+          <div class="page-head">
+            <div><h1 class="t-page-title">Placements</h1><p>A slot on a page, for an audience. Several placements can match one slot; highest priority wins.</p></div>
+            <div class="page-actions"><button class="btn btn-primary"><svg><use href="#ic-plus"/></svg> New placement</button></div>
+          </div>
+
+          <div class="dt">
+            <div class="dt-head"><div class="dt-head-row"><h2 class="t-table-title">Placements <span class="muted t-body">(4)</span></h2></div></div>
+            <table class="table">
+              <thead><tr><th>Slot</th><th>Context</th><th>Audience</th><th>Priority</th><th>Blocks</th><th>Status</th><th class="w-0"></th></tr></thead>
+              <tbody>
+                <tr class="clickable" data-goto="s7">
+                  <td class="t-mono">home.main</td><td class="t-hint">—</td><td><span class="badge badge-neutral">Everyone</span></td><td class="num">10</td><td class="num">4</td>
+                  <td><span class="badge badge-success"><span class="dot"></span> Active</span></td>
+                  <td class="row-actions"><button class="icon-btn btn-icon" aria-label="Edit"><svg><use href="#ic-pencil"/></svg></button></td>
+                </tr>
+                <tr class="clickable" data-goto="s7">
+                  <td class="t-mono">home.main</td><td class="t-hint">—</td><td><span class="badge badge-info"><svg><use href="#ic-shield"/></svg> Wholesale</span></td><td class="num">20</td><td class="num">3</td>
+                  <td><span class="badge badge-success"><span class="dot"></span> Active</span></td>
+                  <td class="row-actions"><button class="icon-btn btn-icon" aria-label="Edit"><svg><use href="#ic-pencil"/></svg></button></td>
+                </tr>
+                <tr>
+                  <td class="t-mono">category.top</td><td>category = Power Tools</td><td><span class="badge badge-neutral">Everyone</span></td><td class="num">10</td><td class="num">1</td>
+                  <td><span class="badge badge-success"><span class="dot"></span> Active</span></td>
+                  <td class="row-actions"><button class="icon-btn btn-icon" aria-label="Edit"><svg><use href="#ic-pencil"/></svg></button></td>
+                </tr>
+                <tr>
+                  <td class="t-mono">pdp.below_description</td><td class="t-hint">—</td><td><span class="badge badge-neutral">Everyone</span></td><td class="num">10</td><td class="num">2</td>
+                  <td><span class="badge badge-neutral"><span class="dot"></span> Inactive</span></td>
+                  <td class="row-actions"><button class="icon-btn btn-icon" aria-label="Edit"><svg><use href="#ic-pencil"/></svg></button></td>
+                </tr>
+              </tbody>
+            </table>
+            <div class="dt-foot"><span class="t-hint num">Showing 1 to 4 of 4 results</span></div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span><nav class="row-3"><span>Terms</span><span>Privacy</span></nav></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Two rows share the <span class="t-mono">home.main</span> slot with different audiences and priorities — the resolver picks the highest-priority match per buyer at request time (§4.3), it does not merge both.</span></div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     S7 — Placement detail: block composition canvas
+     ══════════════════════════════════════════════════════════════════ -->
+<section class="screen" id="s7">
+  <div class="screen-meta">
+    <h2>7. Placement detail — block composition canvas</h2>
+    <p>Add, reorder and remove blocks for <span class="t-mono">home.main</span> (Everyone). Removing a block is undoable within the session.</p>
+    <div class="screen-refs"><span class="ref">§4.4</span><span class="ref">US-P1</span><span class="ref">R4</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar">
+      <div class="frame-dots"><i></i><i></i><i></i></div>
+      <span class="frame-url">/backend/merchandising/placements/home.main-1</span>
+    </div>
+    <div class="app app-tall">
+
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Nordwell Supply Co.</span></div>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Search</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Merchandising</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items">
+            <span class="nav-item" data-goto="s2"><svg><use href="#ic-layers"/></svg> Menus</span>
+            <span class="nav-item active"><svg><use href="#ic-grid"/></svg> Placements &amp; blocks</span>
+            <span class="nav-item" data-goto="s11"><svg><use href="#ic-grid"/></svg> Collections</span>
+            <span class="nav-item" data-goto="s14"><svg><use href="#ic-sparkles"/></svg> Recommendations</span>
+            <span class="nav-item" data-goto="s15"><svg><use href="#ic-image"/></svg> Category enrichment</span>
+          </div>
+        </nav>
+      </aside>
+
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><a href="#s6" data-goto="s6" style="color:inherit;text-decoration:none">Placements</a><svg><use href="#ic-chevron-right"/></svg><span class="here">home.main</span></div></div>
+          <div class="topbar-right"><span class="avatar" title="Priya Nandakumar — Merchandiser">PN</span></div>
+        </header>
+
+        <main class="page">
+          <div class="form-head">
+            <div class="col">
+              <a class="back-link" href="#s6" data-goto="s6"><svg><use href="#ic-chevron-left"/></svg> Back to placements</a>
+              <span class="title">home.main — Everyone · priority 10</span>
+            </div>
+            <div class="row">
+              <button class="btn btn-outline" data-goto="s10"><svg><use href="#ic-eye"/></svg> Preview as…</button>
+              <button class="btn btn-outline btn-sm"><svg><use href="#ic-plus"/></svg> Add block</button>
+            </div>
+          </div>
+
+          <div class="col stack-3">
+            <div class="card">
+              <div class="card-body row between">
+                <div class="row">
+                  <svg class="grip"><use href="#ic-grip"/></svg>
+                  <span class="badge badge-info">1</span>
+                  <div class="col">
+                    <span class="t-card-title">Hero — "Contractor season is here"</span>
+                    <span class="t-hint">hero · published · always on</span>
+                  </div>
+                </div>
+                <span class="row-actions"><button class="icon-btn btn-icon" aria-label="Edit"><svg><use href="#ic-pencil"/></svg></button><button class="icon-btn btn-icon" aria-label="Remove"><svg><use href="#ic-trash"/></svg></button></span>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-body row between">
+                <div class="row">
+                  <svg class="grip"><use href="#ic-grip"/></svg>
+                  <span class="badge badge-info">2</span>
+                  <div class="col">
+                    <span class="t-card-title">Product carousel — "Best sellers this week"</span>
+                    <span class="t-hint">product_carousel · published · always on</span>
+                  </div>
+                </div>
+                <span class="row-actions"><button class="icon-btn btn-icon" aria-label="Edit" data-goto="s8"><svg><use href="#ic-pencil"/></svg></button><button class="icon-btn btn-icon" aria-label="Remove"><svg><use href="#ic-trash"/></svg></button></span>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-body row between">
+                <div class="row">
+                  <svg class="grip"><use href="#ic-grip"/></svg>
+                  <span class="badge badge-info">3</span>
+                  <div class="col">
+                    <span class="t-card-title">Banner — "Free freight over $500"</span>
+                    <span class="t-hint">banner · draft · <svg style="width:0.75rem;height:0.75rem;display:inline;vertical-align:-1px"><use href="#ic-clock"/></svg> starts in 3 days</span>
+                  </div>
+                </div>
+                <span class="row-actions"><button class="icon-btn btn-icon" aria-label="Edit"><svg><use href="#ic-pencil"/></svg></button><button class="icon-btn btn-icon" aria-label="Remove"><svg><use href="#ic-trash"/></svg></button></span>
+              </div>
+            </div>
+            <div class="card" style="border-style:dashed">
+              <div class="card-body row between" style="opacity:0.7">
+                <div class="row">
+                  <span class="badge badge-neutral">4</span>
+                  <div class="col">
+                    <span class="t-card-title" style="text-decoration:line-through">Category grid — "Shop by department"</span>
+                    <span class="t-hint">category_grid · removed</span>
+                  </div>
+                </div>
+                <button class="btn btn-ghost btn-sm">Undo</button>
+              </div>
+            </div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span><nav class="row-3"><span>Terms</span><span>Privacy</span></nav></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Removing block 4 shows this struck-through row with an inline "Undo" for the remainder of the editing session rather than deleting immediately — leaving is a soft state until Save commits it.</span></div>
+    <div class="note"><b>2</b><span>Illustrative only: this composition of 4 blocks resolves as one batched request server-side (one product query, one pricing resolution, one availability check per R4) — the canvas here is the authoring surface, not the render path.</span></div>
+    <div class="note"><b>3</b><span>A placement with zero blocks shows the same empty-state pattern as S1, prompting "Add your first block" instead of a blank canvas.</span></div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     S8 — Block editor: product_carousel + schedule + status
+     ══════════════════════════════════════════════════════════════════ -->
+<section class="screen" id="s8">
+  <div class="screen-meta">
+    <h2>8. Block editor — product carousel, schedule &amp; status</h2>
+    <p>Type-specific config, a scheduling window defaulting to "always on", and a status control gated by publish rights.</p>
+    <div class="screen-refs"><span class="ref">§4.4</span><span class="ref">§5</span><span class="ref">US-P2</span><span class="ref">US-P3</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/merchandising/placements/home.main-1/blocks/2</span></div>
+    <div class="app app-taller">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Nordwell Supply Co.</span></div>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Search</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Merchandising</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items">
+            <span class="nav-item" data-goto="s2"><svg><use href="#ic-layers"/></svg> Menus</span>
+            <span class="nav-item active"><svg><use href="#ic-grid"/></svg> Placements &amp; blocks</span>
+            <span class="nav-item" data-goto="s11"><svg><use href="#ic-grid"/></svg> Collections</span>
+            <span class="nav-item" data-goto="s14"><svg><use href="#ic-sparkles"/></svg> Recommendations</span>
+            <span class="nav-item" data-goto="s15"><svg><use href="#ic-image"/></svg> Category enrichment</span>
+          </div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><a href="#s7" data-goto="s7" style="color:inherit;text-decoration:none">home.main</a><svg><use href="#ic-chevron-right"/></svg><span class="here">Block #2</span></div></div>
+          <div class="topbar-right"><span class="avatar" title="Priya Nandakumar — Merchandiser">PN</span></div>
+        </header>
+        <main class="page">
+          <div class="form-head">
+            <div class="col"><a class="back-link" href="#s7" data-goto="s7"><svg><use href="#ic-chevron-left"/></svg> Back to home.main</a><span class="title">Product carousel — "Best sellers this week"</span></div>
+          </div>
+
+          <div class="form-layout">
+            <div class="form-col">
+              <div class="form-group">
+                <span class="title">Content</span>
+                <div class="field"><label>Title</label><input class="input" value="Best sellers this week" /></div>
+                <div class="field"><label>Subtitle</label><input class="input" value="Restocked and ready to ship" /></div>
+                <div class="field"><label>Block type</label><div class="input" style="display:flex;align-items:center;gap:0.5rem;background:var(--muted)"><svg style="width:1rem;height:1rem"><use href="#ic-grid"/></svg> Product carousel <span class="t-hint">(fixed after creation)</span></div></div>
+              </div>
+              <div class="form-group">
+                <span class="title">Carousel source</span>
+                <div class="field"><label>Source</label>
+                  <div class="segmented"><button aria-selected="true">Collection</button><button aria-selected="false">Saved query</button></div>
+                </div>
+                <div class="field"><label>Collection</label>
+                  <select class="select"><option>Best Sellers (rule, materialized 12 min ago)</option><option>Wholesale Starter Kits</option><option>Clearance</option></select>
+                </div>
+                <div class="field"><label>Items to show</label><input class="input" type="number" value="8" style="max-width:8rem" /></div>
+              </div>
+              <div class="form-group">
+                <span class="title">Call to action</span>
+                <div class="form-grid form-grid-2">
+                  <div class="field"><label>Label</label><input class="input" value="Shop best sellers" /></div>
+                  <div class="field"><label>Target</label><input class="input" value="Collection: Best Sellers" /></div>
+                </div>
+              </div>
+            </div>
+            <div class="form-col">
+              <div class="form-group">
+                <span class="title">Schedule</span>
+                <div class="field row between" style="align-items:center"><label style="margin:0">No schedule (always on while published)</label><button class="switch" role="switch" aria-checked="true"></button></div>
+                <div class="form-grid form-grid-2" style="opacity:0.45">
+                  <div class="field"><label>Starts at</label><input class="input" placeholder="—" disabled /></div>
+                  <div class="field"><label>Ends at</label><input class="input" placeholder="—" disabled /></div>
+                </div>
+              </div>
+              <div class="form-group">
+                <span class="title">Status</span>
+                <div class="field">
+                  <div class="segmented">
+                    <button aria-selected="true">Draft</button>
+                    <button aria-selected="false" disabled title="Requires merchandising.blocks.publish">Published</button>
+                    <button aria-selected="false">Archived</button>
+                  </div>
+                </div>
+                <div class="alert alert-warning">
+                  <svg><use href="#ic-info"/></svg>
+                  <div><div class="alert-title">Publish requires a Store Manager</div>Priya (Merchandiser) can save drafts but does not hold <span class="t-mono">merchandising.blocks.publish</span>. Hand this off to Owen for review.</div>
+                </div>
+              </div>
+              <div class="form-group">
+                <span class="title">Audience</span>
+                <button class="btn btn-outline btn-sm" data-goto="s4"><svg><use href="#ic-shield"/></svg> Edit audience</button>
+                <span class="t-hint">Currently: Everyone (inherits nothing from the placement)</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-foot">
+            <div class="actions">
+              <button class="btn btn-destructive-outline"><svg><use href="#ic-trash"/></svg> Delete</button>
+              <button class="btn btn-ghost" data-goto="s7">Cancel</button>
+              <button class="btn btn-primary" data-goto="s16"><svg><use href="#ic-save"/></svg> Save <span class="kbd" style="margin-left:0.375rem">⌘⏎</span></button>
+            </div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span><nav class="row-3"><span>Terms</span><span>Privacy</span></nav></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>"No schedule" is an explicit switch, not blank date fields that could be mistaken for unset — turning it off reveals the starts_at/ends_at inputs (US-P2).</span></div>
+    <div class="note"><b>2</b><span>The "Published" segmented option is disabled with a tooltip rather than hidden, so a Merchandiser understands the constraint instead of wondering where publishing went (US-P3).</span></div>
+    <div class="note"><b>3</b><span>Submitting a <span class="t-mono">config</span> that fails its type's Zod schema (e.g. an empty collection reference) shows a field-level error under that field, not a generic toast.</span></div>
+    <div class="note"><b>4</b><span>Clicking Save here demonstrates the optimistic-lock conflict in screen 16 — Owen published a change to this same block moments ago.</span></div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     S9 — Block editor: html_embed warning
+     ══════════════════════════════════════════════════════════════════ -->
+<section class="screen" id="s9">
+  <div class="screen-meta">
+    <h2>9. Block editor — <span class="t-mono">html_embed</span> stored-XSS warning</h2>
+    <p>The one block type that is not sanitized carries an unmistakable warning, visible only to a Platform Admin holding the feature.</p>
+    <div class="screen-refs"><span class="ref">§4.4</span><span class="ref">R3</span><span class="ref">US-P5</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/merchandising/placements/checkout.confirmation-1/blocks/new</span></div>
+    <div class="app app-tall">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Nordwell Supply Co.</span></div>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Search</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Merchandising</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items">
+            <span class="nav-item" data-goto="s2"><svg><use href="#ic-layers"/></svg> Menus</span>
+            <span class="nav-item active"><svg><use href="#ic-grid"/></svg> Placements &amp; blocks</span>
+            <span class="nav-item" data-goto="s11"><svg><use href="#ic-grid"/></svg> Collections</span>
+            <span class="nav-item" data-goto="s14"><svg><use href="#ic-sparkles"/></svg> Recommendations</span>
+            <span class="nav-item" data-goto="s15"><svg><use href="#ic-image"/></svg> Category enrichment</span>
+          </div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span class="here">checkout.confirmation</span></div></div>
+          <div class="topbar-right"><span class="badge badge-warning"><svg><use href="#ic-shield"/></svg> embed_html granted</span><span class="avatar" title="Marcus Feld — Platform Admin">MF</span></div>
+        </header>
+        <main class="page">
+          <div class="form-head"><div class="col"><a class="back-link" href="#s6" data-goto="s6"><svg><use href="#ic-chevron-left"/></svg> Back to placements</a><span class="title">New block — Pixel &amp; embed snippet</span></div></div>
+
+          <div class="form-group" style="border-color:var(--status-error-border)">
+            <div class="field"><label>Block type</label>
+              <select class="select input-invalid"><option>html_embed</option></select>
+            </div>
+            <div class="alert alert-error">
+              <svg><use href="#ic-warn"/></svg>
+              <div>
+                <div class="alert-title">Not sanitized — stored XSS risk</div>
+                This markup renders on the storefront exactly as written, with no sanitization pass. A malicious or careless script here executes for every visitor who sees this block. Only grant <span class="t-mono">merchandising.blocks.embed_html</span> to operators you trust with raw HTML.
+              </div>
+            </div>
+            <div class="field">
+              <label>Raw HTML</label>
+              <textarea class="textarea input-invalid" style="min-height:8rem;font-family:var(--font-geist-mono);border-color:var(--status-error-border)" placeholder="&lt;script&gt;…&lt;/script&gt;"></textarea>
+            </div>
+          </div>
+
+          <div class="form-foot">
+            <div class="actions">
+              <button class="btn btn-ghost" data-goto="s6">Cancel</button>
+              <button class="btn btn-destructive"><svg><use href="#ic-warn"/></svg> I understand — save unsanitized</button>
+            </div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span><nav class="row-3"><span>Terms</span><span>Privacy</span></nav></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Merchandisers without <span class="t-mono">merchandising.blocks.embed_html</span> never see <span class="t-mono">html_embed</span> in the block-type picker at all (default grant: no role) — this screen is reachable only as Marcus, the Platform Admin.</span></div>
+    <div class="note"><b>2</b><span>The confirmation button restates the risk instead of a plain "Save", and the field/border use <span class="t-mono">status-error</span> tokens rather than a neutral form — visually distinct from every sanitized rich-text field elsewhere in the module (compare screen 15).</span></div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     S10 — Preview mode
+     ══════════════════════════════════════════════════════════════════ -->
+<section class="screen" id="s10">
+  <div class="screen-meta">
+    <h2>10. Preview mode — persona &amp; as-of picker</h2>
+    <p>Preview draft and scheduled content as a chosen buyer persona, at a chosen time. An expired link fails clearly.</p>
+    <div class="screen-refs"><span class="ref">§5</span><span class="ref">US-P4</span><span class="ref">R7</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/merchandising/preview?token=•••&amp;at=2026-09-01T09:00</span></div>
+    <div class="app app-tall modal-scrim">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Nordwell Supply Co.</span></div>
+        <nav class="sidebar-nav">
+          <div class="nav-items"><span class="nav-item active"><svg><use href="#ic-grid"/></svg> Placements &amp; blocks</span></div>
+        </nav>
+      </aside>
+      <div class="main">
+        <div class="alert alert-info" style="border-radius:0;border-left:0;border-right:0;border-top:0">
+          <svg><use href="#ic-eye"/></svg>
+          <div><div class="alert-title">Previewing as: Wholesale — Tier 2, as of Sep 1 2026, 09:00</div>Draft and scheduled content is visible only in this preview. Nothing here is live.</div>
+        </div>
+        <main class="page">
+          <div class="page-head"><div><h1 class="t-page-title">home.main</h1><p>Composed preview for the selected persona and time.</p></div></div>
+          <div class="col stack-3">
+            <div class="card card-pad"><span class="t-card-title">Hero — "Bulk pricing unlocked for Tier 2"</span></div>
+            <div class="card card-pad"><span class="t-card-title">Banner — "Free freight over $500"</span> <span class="badge badge-warning" style="margin-left:0.5rem">Scheduled — now visible</span></div>
+          </div>
+        </main>
+      </div>
+
+      <div class="modal" style="width:26rem;top:1.5rem">
+        <div class="modal-head"><span class="t-section">Preview link expired</span></div>
+        <div class="modal-body">
+          <div class="alert alert-error"><svg><use href="#ic-warn"/></svg><div>This preview link has expired. Preview tokens are short-lived and single-store — generate a new one from the placement or block you want to review.</div></div>
+        </div>
+        <div class="modal-foot" style="justify-content:flex-end">
+          <button class="btn btn-primary" data-goto="s7"><svg><use href="#ic-refresh"/></svg> Generate new preview link</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>The preview banner is deliberately loud (persona name, timestamp) so a Merchandiser never mistakes a preview for the live site (§5).</span></div>
+    <div class="note"><b>2</b><span>The expired-token modal is overlaid on the same page to show both states in one screen; in the product they are mutually exclusive — an expired token never renders the page behind it.</span></div>
+    <div class="note"><b>3</b><span>Preview responses are <span class="t-mono">no-store</span> — reloading always re-fetches rather than serving a cached preview (§5).</span></div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     S11 — Collections list
+     ══════════════════════════════════════════════════════════════════ -->
+<section class="screen" id="s11">
+  <div class="screen-meta">
+    <h2>11. Collections — list</h2>
+    <p>Manual and rule collections side by side, with freshness for materialized rule collections.</p>
+    <div class="screen-refs"><span class="ref">§4.5</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/merchandising/collections</span></div>
+    <div class="app app-narrow">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Nordwell Supply Co.</span></div>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Search</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Merchandising</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items">
+            <span class="nav-item" data-goto="s2"><svg><use href="#ic-layers"/></svg> Menus</span>
+            <span class="nav-item" data-goto="s6"><svg><use href="#ic-grid"/></svg> Placements &amp; blocks</span>
+            <span class="nav-item active"><svg><use href="#ic-grid"/></svg> Collections</span>
+            <span class="nav-item" data-goto="s14"><svg><use href="#ic-sparkles"/></svg> Recommendations</span>
+            <span class="nav-item" data-goto="s15"><svg><use href="#ic-image"/></svg> Category enrichment</span>
+          </div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span class="here">Collections</span></div></div>
+          <div class="topbar-right"><div class="topbar-search"><svg><use href="#ic-search"/></svg> Search</div><span class="avatar" title="Priya Nandakumar — Merchandiser">PN</span></div>
+        </header>
+        <main class="page">
+          <div class="page-head">
+            <div><h1 class="t-page-title">Collections</h1><p>Curated (manual) or saved-query (rule) product sets, addressable at <span class="t-mono">/collections/:slug</span>.</p></div>
+            <div class="page-actions"><button class="btn btn-primary"><svg><use href="#ic-plus"/></svg> New collection</button></div>
+          </div>
+          <div class="dt">
+            <div class="dt-head"><div class="dt-head-row"><h2 class="t-table-title">Collections <span class="muted t-body">(3)</span></h2></div></div>
+            <table class="table">
+              <thead><tr><th>Title</th><th>Slug</th><th>Kind</th><th>Items</th><th>Freshness</th><th>Audience</th><th class="w-0"></th></tr></thead>
+              <tbody>
+                <tr class="clickable" data-goto="s13">
+                  <td>Best Sellers</td><td class="t-mono">best-sellers</td><td><span class="chip">rule</span></td><td class="num">24</td>
+                  <td><span class="t-hint"><svg style="width:0.75rem;height:0.75rem;display:inline;vertical-align:-1px"><use href="#ic-clock"/></svg> 12 minutes ago</span></td>
+                  <td><span class="badge badge-neutral">Everyone</span></td>
+                  <td class="row-actions"><button class="icon-btn btn-icon" aria-label="Edit"><svg><use href="#ic-pencil"/></svg></button></td>
+                </tr>
+                <tr class="clickable" data-goto="s12">
+                  <td>Wholesale Starter Kits</td><td class="t-mono">wholesale-starter-kits</td><td><span class="chip">manual</span></td><td class="num">6</td>
+                  <td class="t-hint">—</td>
+                  <td><span class="badge badge-info"><svg><use href="#ic-shield"/></svg> Wholesale</span></td>
+                  <td class="row-actions"><button class="icon-btn btn-icon" aria-label="Edit"><svg><use href="#ic-pencil"/></svg></button></td>
+                </tr>
+                <tr>
+                  <td>Clearance</td><td class="t-mono">clearance</td><td><span class="chip">rule</span></td><td class="num">0</td>
+                  <td><span class="badge badge-warning">Not yet materialized</span></td>
+                  <td><span class="badge badge-neutral">Everyone</span></td>
+                  <td class="row-actions"><button class="icon-btn btn-icon" aria-label="Edit"><svg><use href="#ic-pencil"/></svg></button></td>
+                </tr>
+              </tbody>
+            </table>
+            <div class="dt-foot"><span class="t-hint num">Showing 1 to 3 of 3 results</span></div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span><nav class="row-3"><span>Terms</span><span>Privacy</span></nav></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>"Clearance" has never materialized, shown as an explicit badge rather than an empty "0 items" that could be mistaken for a broken query.</span></div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     S12 — Collection detail: manual
+     ══════════════════════════════════════════════════════════════════ -->
+<section class="screen" id="s12">
+  <div class="screen-meta">
+    <h2>12. Collection detail — manual curation</h2>
+    <p>Search and add products, drag-reorder, pin. Pinned items lead regardless of sort strategy.</p>
+    <div class="screen-refs"><span class="ref">§4.6</span><span class="ref">US-C1</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/merchandising/collections/wholesale-starter-kits</span></div>
+    <div class="app app-tall">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Nordwell Supply Co.</span></div>
+        <nav class="sidebar-nav">
+          <div class="nav-items">
+            <span class="nav-item" data-goto="s2"><svg><use href="#ic-layers"/></svg> Menus</span>
+            <span class="nav-item" data-goto="s6"><svg><use href="#ic-grid"/></svg> Placements &amp; blocks</span>
+            <span class="nav-item active"><svg><use href="#ic-grid"/></svg> Collections</span>
+            <span class="nav-item" data-goto="s14"><svg><use href="#ic-sparkles"/></svg> Recommendations</span>
+            <span class="nav-item" data-goto="s15"><svg><use href="#ic-image"/></svg> Category enrichment</span>
+          </div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><a href="#s11" data-goto="s11" style="color:inherit;text-decoration:none">Collections</a><svg><use href="#ic-chevron-right"/></svg><span class="here">Wholesale Starter Kits</span></div></div>
+          <div class="topbar-right"><span class="avatar" title="Priya Nandakumar — Merchandiser">PN</span></div>
+        </header>
+        <main class="page">
+          <div class="form-head">
+            <div class="col"><a class="back-link" href="#s11" data-goto="s11"><svg><use href="#ic-chevron-left"/></svg> Back to collections</a><span class="title">Wholesale Starter Kits — manual · Wholesale audience</span></div>
+            <div class="row"><button class="btn btn-primary"><svg><use href="#ic-save"/></svg> Save</button></div>
+          </div>
+
+          <div class="field"><div class="input-group" style="max-width:28rem"><span class="addon"><svg><use href="#ic-search"/></svg></span><input class="input" placeholder="Search products to add…" /></div></div>
+
+          <div class="card">
+            <div class="card-head"><span class="t-card-title">Items (6)</span></div>
+            <div class="card-body col stack-2">
+              <div class="row between" style="padding:0.5rem 0.75rem;border:1px solid var(--status-warning-border);border-radius:var(--radius-md);background:var(--status-warning-bg)">
+                <div class="row"><svg class="grip"><use href="#ic-grip"/></svg><svg style="width:1rem;height:1rem;color:var(--status-warning-icon)"><use href="#ic-pin"/></svg><span class="t-body strong">Pallet of Deck Screws (5000ct)</span><span class="t-hint t-mono">NWS-5501</span></div>
+                <span class="row-actions"><button class="icon-btn btn-icon" aria-label="Unpin"><svg><use href="#ic-pin"/></svg></button><button class="icon-btn btn-icon" aria-label="Remove"><svg><use href="#ic-trash"/></svg></button></span>
+              </div>
+              <div class="row between" style="padding:0.5rem 0.75rem;border:1px solid var(--border);border-radius:var(--radius-md)">
+                <div class="row"><svg class="grip"><use href="#ic-grip"/></svg><span class="t-body">Contractor-Grade Impact Driver</span><span class="t-hint t-mono">NWS-1042</span></div>
+                <span class="row-actions"><button class="icon-btn btn-icon" aria-label="Pin"><svg><use href="#ic-pin"/></svg></button><button class="icon-btn btn-icon" aria-label="Remove"><svg><use href="#ic-trash"/></svg></button></span>
+              </div>
+              <div class="row between" style="padding:0.5rem 0.75rem;border:1px solid var(--border);border-radius:var(--radius-md)">
+                <div class="row"><svg class="grip"><use href="#ic-grip"/></svg><span class="t-body">18V Battery 5.0Ah Pack</span><span class="t-hint t-mono">NWS-2210</span></div>
+                <span class="row-actions"><button class="icon-btn btn-icon" aria-label="Pin"><svg><use href="#ic-pin"/></svg></button><button class="icon-btn btn-icon" aria-label="Remove"><svg><use href="#ic-trash"/></svg></button></span>
+              </div>
+              <div class="row between" style="padding:0.5rem 0.75rem;border:1px dashed var(--border);border-radius:var(--radius-md);color:var(--muted-foreground)">
+                <span class="t-hint">Heavy-Duty Tool Belt — already in this collection</span>
+                <span class="badge badge-neutral">Already added</span>
+              </div>
+            </div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span><nav class="row-3"><span>Terms</span><span>Privacy</span></nav></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Trying to add "Heavy-Duty Tool Belt" again shows this inline no-op row instead of a duplicate entry (US-C1).</span></div>
+    <div class="note"><b>2</b><span>Pinned items visually lead the list and cannot be dragged below an unpinned item — the UI enforces the invariant rather than only documenting it.</span></div>
+    <div class="note"><b>3</b><span>Removing the last item reveals the same empty-collection state as the placement canvas (S7) — "Add your first product" — not a bare empty card.</span></div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     S13 — Collection detail: rule
+     ══════════════════════════════════════════════════════════════════ -->
+<section class="screen" id="s13">
+  <div class="screen-meta">
+    <h2>13. Collection detail — rule collection &amp; live preview</h2>
+    <p>Build a saved query, preview matches before saving, and materialize on demand.</p>
+    <div class="screen-refs"><span class="ref">§4.5</span><span class="ref">§6</span><span class="ref">US-C2</span><span class="ref">US-C3</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/merchandising/collections/best-sellers</span></div>
+    <div class="app app-taller">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Nordwell Supply Co.</span></div>
+        <nav class="sidebar-nav">
+          <div class="nav-items">
+            <span class="nav-item" data-goto="s2"><svg><use href="#ic-layers"/></svg> Menus</span>
+            <span class="nav-item" data-goto="s6"><svg><use href="#ic-grid"/></svg> Placements &amp; blocks</span>
+            <span class="nav-item active"><svg><use href="#ic-grid"/></svg> Collections</span>
+            <span class="nav-item" data-goto="s14"><svg><use href="#ic-sparkles"/></svg> Recommendations</span>
+            <span class="nav-item" data-goto="s15"><svg><use href="#ic-image"/></svg> Category enrichment</span>
+          </div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><a href="#s11" data-goto="s11" style="color:inherit;text-decoration:none">Collections</a><svg><use href="#ic-chevron-right"/></svg><span class="here">Best Sellers</span></div></div>
+          <div class="topbar-right"><span class="avatar" title="Priya Nandakumar — Merchandiser">PN</span></div>
+        </header>
+        <main class="page">
+          <div class="form-head">
+            <div class="col"><a class="back-link" href="#s11" data-goto="s11"><svg><use href="#ic-chevron-left"/></svg> Back to collections</a><span class="title">Best Sellers — rule · materialized</span></div>
+            <div class="row"><span class="t-hint"><svg style="width:0.875rem;height:0.875rem;display:inline;vertical-align:-2px"><use href="#ic-clock"/></svg> Materialized 12 minutes ago</span><button class="btn btn-outline btn-sm"><svg><use href="#ic-refresh"/></svg> Materialize now</button></div>
+          </div>
+
+          <div class="split split-2">
+            <div class="form-group">
+              <span class="title">Saved query</span>
+              <span class="desc">Reuses the storefront filter builder — the same grammar as <span class="t-mono">/products</span>.</span>
+              <div class="form-grid form-grid-2">
+                <div class="field"><label>Tag</label><select class="select"><option>bestseller</option></select></div>
+                <div class="field"><label>In stock</label><select class="select"><option>Yes</option></select></div>
+              </div>
+              <div class="field"><label>Sort strategy</label><select class="select"><option>Bestselling</option><option>Newest</option><option>Price ascending</option></select></div>
+              <span class="t-hint">A <span class="t-mono">sort</span> parameter saved inside the query itself is ignored — sort strategy above is the single source of ordering truth.</span>
+              <button class="btn btn-outline btn-sm" style="align-self:flex-start"><svg><use href="#ic-refresh"/></svg> Preview matches</button>
+            </div>
+            <div class="form-group">
+              <span class="title">Preview — 24 matches</span>
+              <div class="col stack-2">
+                <div class="row between"><span class="t-body">Contractor-Grade Impact Driver</span><span class="t-hint t-mono">$189.00</span></div>
+                <div class="row between"><span class="t-body">18V Battery 5.0Ah Pack</span><span class="t-hint t-mono">$64.00</span></div>
+                <div class="row between"><span class="t-body">Safety Glasses — Clear</span><span class="t-hint t-mono">$8.50</span></div>
+                <span class="t-hint">+ 21 more, sorted by bestselling</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-group" style="border-color:var(--status-info-border)">
+            <span class="title">Materializing…</span>
+            <div class="row"><svg style="width:1rem;height:1rem;color:var(--status-info-icon);animation:spin 1s linear infinite"><use href="#ic-loader"/></svg><span class="t-hint">Job enqueued — this returns immediately and updates <span class="t-mono">materialized_at</span> when the worker finishes. This panel is illustrative of that in-progress state.</span></div>
+          </div>
+
+          <div class="form-group">
+            <span class="title">Zero-match example — "Clearance" collection</span>
+            <div class="empty" style="padding:1.5rem">
+              <div class="empty-icon"><svg><use href="#ic-search"/></svg></div>
+              <div class="t-card-title">No products match this query yet</div>
+              <p class="t-hint">Loosen a filter, or check back once more products go on clearance.</p>
+            </div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span><nav class="row-3"><span>Terms</span><span>Privacy</span></nav></footer>
+      </div>
+    </div>
+  </div>
+
+  <style>@keyframes spin { to { transform: rotate(360deg); } }</style>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>"Preview matches" calls <span class="t-mono">preview-query</span> and never writes — a Merchandiser can iterate on filters freely before saving (US-C2).</span></div>
+    <div class="note"><b>2</b><span>"Materialize now" enqueues a job and returns immediately (§6) — the spinner state shown here is transient in the real UI, not a blocking wait.</span></div>
+    <div class="note"><b>3</b><span>Materialized membership is still filtered by the buyer's assortment at read time — a discontinued or restricted product disappears from the storefront even before the next hourly materialization (§6, R5).</span></div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     S14 — Recommendation rules list + dialog
+     ══════════════════════════════════════════════════════════════════ -->
+<section class="screen" id="s14">
+  <div class="screen-meta">
+    <h2>14. Recommendation rules — list &amp; editor</h2>
+    <p>Configure cross-sell/upsell per slot. <span class="t-mono">bought_together</span> is visibly disabled with an explanation.</p>
+    <div class="screen-refs"><span class="ref">§4.8</span><span class="ref">US-R1</span><span class="ref">US-R2</span><span class="ref">US-R3</span><span class="ref">R8</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/merchandising/recommendation-rules</span></div>
+    <div class="app app-taller modal-scrim">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Nordwell Supply Co.</span></div>
+        <nav class="sidebar-nav">
+          <div class="nav-items">
+            <span class="nav-item" data-goto="s2"><svg><use href="#ic-layers"/></svg> Menus</span>
+            <span class="nav-item" data-goto="s6"><svg><use href="#ic-grid"/></svg> Placements &amp; blocks</span>
+            <span class="nav-item" data-goto="s11"><svg><use href="#ic-grid"/></svg> Collections</span>
+            <span class="nav-item active"><svg><use href="#ic-sparkles"/></svg> Recommendations</span>
+            <span class="nav-item" data-goto="s15"><svg><use href="#ic-image"/></svg> Category enrichment</span>
+          </div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span class="here">Recommendation rules</span></div></div>
+          <div class="topbar-right"><span class="avatar" title="Priya Nandakumar — Merchandiser">PN</span></div>
+        </header>
+        <main class="page">
+          <div class="page-head">
+            <div><h1 class="t-page-title">Recommendation rules</h1><p>Cross-sell and upsell per slot — no more hard-coded "same category, limit 8".</p></div>
+            <div class="page-actions"><button class="btn btn-primary"><svg><use href="#ic-plus"/></svg> New rule</button></div>
+          </div>
+          <div class="dt">
+            <div class="dt-head"><div class="dt-head-row"><h2 class="t-table-title">Rules <span class="muted t-body">(3)</span></h2></div></div>
+            <table class="table">
+              <thead><tr><th>Slot</th><th>Strategy</th><th>Source</th><th>Max items</th><th>Priority</th><th class="w-0"></th></tr></thead>
+              <tbody>
+                <tr><td class="t-mono">pdp.cross_sell</td><td><span class="chip">same_category</span></td><td>Category: any</td><td class="num">8</td><td class="num">10</td><td class="row-actions"><button class="icon-btn btn-icon" aria-label="Edit"><svg><use href="#ic-pencil"/></svg></button></td></tr>
+                <tr><td class="t-mono">pdp.upsell</td><td><span class="chip">higher_tier</span></td><td>Product: Contractor-Grade Impact Driver</td><td class="num">4</td><td class="num">10</td><td class="row-actions"><button class="icon-btn btn-icon" aria-label="Edit"><svg><use href="#ic-pencil"/></svg></button></td></tr>
+                <tr><td class="t-mono">cart.cross_sell</td><td><span class="chip">collection</span></td><td>Collection: Best Sellers</td><td class="num">6</td><td class="num">10</td><td class="row-actions"><button class="icon-btn btn-icon" aria-label="Edit"><svg><use href="#ic-pencil"/></svg></button></td></tr>
+              </tbody>
+            </table>
+            <div class="dt-foot"><span class="t-hint num">Showing 1 to 3 of 3 results</span></div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span><nav class="row-3"><span>Terms</span><span>Privacy</span></nav></footer>
+      </div>
+
+      <div class="modal" style="top:2rem">
+        <div class="modal-head"><span class="t-section">New recommendation rule</span></div>
+        <div class="modal-body">
+          <div class="field"><label>Slot</label><select class="select"><option>pdp.cross_sell</option><option>pdp.upsell</option><option>cart.cross_sell</option><option>checkout.cross_sell</option></select></div>
+          <div class="field">
+            <label>Strategy</label>
+            <select class="select"><option>Manual</option><option>Same category</option><option>Same tag</option><option>Bought together — unavailable</option><option>Collection</option><option>Higher tier</option></select>
+          </div>
+          <div class="row" style="padding:0.5rem 0.75rem;border:1px dashed var(--border);border-radius:var(--radius-md);opacity:0.7">
+            <svg style="width:1rem;height:1rem;color:var(--muted-foreground)"><use href="#ic-info"/></svg>
+            <span class="t-hint"><b>Bought together</b> is reserved for a future release — it needs order-history analysis that does not exist yet. Selecting it here is disabled rather than returning misleading same-category results under a different name (R8).</span>
+          </div>
+          <div class="field"><label>Target collection</label><select class="select"><option>Best Sellers</option><option>Wholesale Starter Kits</option></select><span class="t-hint">Only shown when strategy is "Collection".</span></div>
+          <div class="form-grid form-grid-2">
+            <div class="field"><label>Max items</label><input class="input" type="number" value="8" /></div>
+            <div class="field"><label>Priority</label><input class="input" type="number" value="10" /></div>
+          </div>
+        </div>
+        <div class="modal-foot">
+          <button class="btn btn-outline btn-sm" data-goto="s4"><svg><use href="#ic-shield"/></svg> Audience</button>
+          <div class="row"><button class="btn btn-ghost">Cancel <span class="kbd" style="margin-left:0.375rem">Esc</span></button><button class="btn btn-primary"><svg><use href="#ic-save"/></svg> Save <span class="kbd" style="margin-left:0.375rem">⌘⏎</span></button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>The "Target collection" field only appears when Strategy is "Collection" — every other strategy hides it rather than showing an irrelevant, always-visible field (US-R1).</span></div>
+    <div class="note"><b>2</b><span>"Higher tier" (pdp.upsell row) is the B2B upsell — given a product, it recommends the next quantity tier or larger pack (US-R3).</span></div>
+    <div class="note"><b>3</b><span><span class="t-mono">max_items</span> defaults to 8 per §4.8, editable per rule.</span></div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     S15 — Category enrichment
+     ══════════════════════════════════════════════════════════════════ -->
+<section class="screen" id="s15">
+  <div class="screen-meta">
+    <h2>15. Category enrichment — list &amp; detail</h2>
+    <p>Hero media, editorial copy, a featured collection and SEO overrides for a category landing page.</p>
+    <div class="screen-refs"><span class="ref">§4.9</span><span class="ref">US-R4</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/merchandising/category-enrichments/power-tools</span></div>
+    <div class="app app-taller">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Nordwell Supply Co.</span></div>
+        <nav class="sidebar-nav">
+          <div class="nav-items">
+            <span class="nav-item" data-goto="s2"><svg><use href="#ic-layers"/></svg> Menus</span>
+            <span class="nav-item" data-goto="s6"><svg><use href="#ic-grid"/></svg> Placements &amp; blocks</span>
+            <span class="nav-item" data-goto="s11"><svg><use href="#ic-grid"/></svg> Collections</span>
+            <span class="nav-item" data-goto="s14"><svg><use href="#ic-sparkles"/></svg> Recommendations</span>
+            <span class="nav-item active"><svg><use href="#ic-image"/></svg> Category enrichment</span>
+          </div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span class="here">Power Tools</span></div></div>
+          <div class="topbar-right"><span class="avatar" title="Priya Nandakumar — Merchandiser">PN</span></div>
+        </header>
+        <main class="page">
+          <div class="page-head"><div><h1 class="t-page-title">Category enrichment</h1><p>Categories without enrichment fall back to a bare product grid.</p></div></div>
+
+          <div class="dt">
+            <table class="table">
+              <thead><tr><th>Category</th><th>Hero media</th><th>Featured collection</th><th>SEO override</th><th class="w-0"></th></tr></thead>
+              <tbody>
+                <tr class="clickable">
+                  <td>Power Tools</td><td><span class="badge badge-success">Set</span></td><td>Best Sellers</td><td><span class="badge badge-success">Custom</span></td>
+                  <td class="row-actions"><button class="icon-btn btn-icon" aria-label="Edit"><svg><use href="#ic-pencil"/></svg></button></td>
+                </tr>
+                <tr>
+                  <td>Fasteners &amp; Hardware</td><td><span class="badge badge-neutral">Not set</span></td><td class="t-hint">—</td><td><span class="badge badge-neutral">Category default</span></td>
+                  <td class="row-actions"><button class="icon-btn btn-icon" aria-label="Edit"><svg><use href="#ic-pencil"/></svg></button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="form-layout">
+            <div class="form-col">
+              <div class="form-group">
+                <span class="title">Editorial</span>
+                <div class="field"><label>Hero media</label>
+                  <div class="row" style="padding:0.5rem;border:1px dashed var(--border);border-radius:var(--radius-md)">
+                    <div class="empty-icon"><svg><use href="#ic-image"/></svg></div>
+                    <span class="t-hint">power-tools-hero.jpg · 2400×800</span>
+                  </div>
+                </div>
+                <div class="field"><label>Intro copy</label>
+                  <div class="textarea" style="background:var(--background)">Everything a contractor needs to get through the day — drills, drivers and the batteries to keep them running. <span class="t-hint">(rich text, sanitized on save)</span></div>
+                </div>
+                <div class="field"><label>Outro copy</label><textarea class="textarea" placeholder="Optional closing note…"></textarea></div>
+                <span class="t-hint">Intro/outro use the same sanitized rich-text editor as elsewhere in the backend — visually a plain editor, not the warning-toned <span class="t-mono">html_embed</span> control from screen 9.</span>
+              </div>
+            </div>
+            <div class="form-col">
+              <div class="form-group">
+                <span class="title">Featured collection</span>
+                <select class="select"><option>Best Sellers</option><option>Wholesale Starter Kits</option><option>None</option></select>
+              </div>
+              <div class="form-group">
+                <span class="title">SEO overrides</span>
+                <div class="field"><label>Meta title</label><input class="input" value="Power Tools — Nordwell Supply Co." /></div>
+                <div class="field"><label>Meta description</label><textarea class="textarea" placeholder="Falls back to the category's own default" style="color:var(--muted-foreground)">Shop contractor-grade power tools with same-day dispatch.</textarea></div>
+                <div class="field"><label>Meta description (Fasteners &amp; Hardware — unset example)</label><textarea class="textarea" disabled placeholder="Category default: Browse fasteners and hardware at Nordwell Supply Co." style="color:var(--muted-foreground)"></textarea></div>
+              </div>
+              <div class="form-group">
+                <span class="title">Audience</span>
+                <button class="btn btn-outline btn-sm" data-goto="s4"><svg><use href="#ic-shield"/></svg> Edit audience</button>
+              </div>
+            </div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span><nav class="row-3"><span>Terms</span><span>Privacy</span></nav></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>The unset "Fasteners &amp; Hardware" meta description shows the category's own default as greyed placeholder text rather than a blank field — a Merchandiser can tell "inheriting" apart from "empty" (US-R4).</span></div>
+    <div class="note"><b>2</b><span>Intro/outro HTML is sanitized server-side via the shared <span class="t-mono">sanitizeRichTextHtml</span> helper before it reaches the storefront (R3) — deliberately styled as an ordinary editor, not a risk-flagged one.</span></div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     S16 — Optimistic-lock conflict
+     ══════════════════════════════════════════════════════════════════ -->
+<section class="screen" id="s16">
+  <div class="screen-meta">
+    <h2>16. Optimistic-lock conflict — block editor save</h2>
+    <p>Owen published a change to this block while Priya had it open. Her save is blocked with a named conflict, not a silent overwrite.</p>
+    <div class="screen-refs"><span class="ref">US-X1</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/merchandising/placements/home.main-1/blocks/2</span></div>
+    <div class="app app-tall">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Nordwell Supply Co.</span></div>
+        <nav class="sidebar-nav">
+          <div class="nav-items">
+            <span class="nav-item" data-goto="s2"><svg><use href="#ic-layers"/></svg> Menus</span>
+            <span class="nav-item active"><svg><use href="#ic-grid"/></svg> Placements &amp; blocks</span>
+            <span class="nav-item" data-goto="s11"><svg><use href="#ic-grid"/></svg> Collections</span>
+            <span class="nav-item" data-goto="s14"><svg><use href="#ic-sparkles"/></svg> Recommendations</span>
+            <span class="nav-item" data-goto="s15"><svg><use href="#ic-image"/></svg> Category enrichment</span>
+          </div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><a href="#s7" data-goto="s7" style="color:inherit;text-decoration:none">home.main</a><svg><use href="#ic-chevron-right"/></svg><span class="here">Block #2</span></div></div>
+          <div class="topbar-right"><span class="avatar" title="Priya Nandakumar — Merchandiser">PN</span></div>
+        </header>
+        <main class="page">
+          <div class="conflict-bar" role="alert">
+            <div class="msg"><b>Record changed</b>Owen Whitfield published this block 40 seconds ago. Refresh to see the latest version before saving your changes.</div>
+            <div class="actions">
+              <button class="btn btn-outline btn-sm"><svg><use href="#ic-refresh"/></svg> Refresh</button>
+              <button class="icon-btn" aria-label="Dismiss"><svg><use href="#ic-x"/></svg></button>
+            </div>
+          </div>
+
+          <div class="form-head"><div class="col"><a class="back-link" href="#s7" data-goto="s7"><svg><use href="#ic-chevron-left"/></svg> Back to home.main</a><span class="title">Product carousel — "Best sellers this week"</span></div></div>
+
+          <div class="form-group" style="opacity:0.6">
+            <span class="title">Content (your unsaved edits)</span>
+            <div class="field"><label>Title</label><input class="input" value="Best sellers this week — restocked!" /></div>
+          </div>
+
+          <div class="form-foot">
+            <div class="actions">
+              <button class="btn btn-ghost" data-goto="s7">Discard my changes</button>
+              <button class="btn btn-primary" disabled title="Resolve the conflict before saving"><svg><use href="#ic-save"/></svg> Save</button>
+            </div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span><nav class="row-3"><span>Terms</span><span>Privacy</span></nav></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>The conflict bar names the concurrent editor, the action they took, and how long ago — matching <span class="t-mono">surfaceRecordConflict</span>'s pattern (root <span class="t-mono">AGENTS.md</span>), not a generic "please refresh."</span></div>
+    <div class="note"><b>2</b><span>Save stays disabled until the conflict is resolved (Refresh or Discard) — this mirrors every other edit/delete form in the backend deriving its lock header from <span class="t-mono">initialValues.updatedAt</span> (US-X1).</span></div>
+    <div class="note"><b>3</b><span>Open question raised while drafting this spec's user stories (§13 Q5): whether Owen's publish of a previously-draft block should force Priya's concurrent edit to re-approve, independent of this conflict-detection behavior. This screen only demonstrates version-conflict detection, not that unresolved policy question.</span></div>
+  </div>
+</section>
+
+</div>
+
+<script>
+(function () {
+  var btn = document.getElementById('theme-toggle');
+  btn.addEventListener('click', function () {
+    document.documentElement.classList.toggle('dark');
+  });
+})();
+</script>
+<script src="comments.js"></script>
+<script src="prototype.js"></script>
+</body>
+</html>

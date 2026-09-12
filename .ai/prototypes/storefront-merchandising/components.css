@@ -262,6 +262,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .table tbody tr:hover { background: color-mix(in oklab, var(--muted) 30%, transparent); }
 .table tbody tr.clickable { cursor: pointer; }
 .table .right, .right { text-align: right; }
+.table .w-0, .w-0 { width: 1%; white-space: nowrap; text-align: right; }
 .table tfoot td { font-weight: 600; border-bottom: 0; border-top: 1px solid var(--border); }
 .row-actions { display: inline-flex; gap: 0.25rem; opacity: 0.6; }
 tr:hover .row-actions { opacity: 1; }

@@ -479,3 +479,37 @@
 .split { display: grid; gap: 1rem; grid-template-columns: minmax(0, 1fr); }
 @media (min-width: 1024px) { .split-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (min-width: 1024px) { .split-side { grid-template-columns: minmax(0, 1fr) 18rem; } }
+
+/* ── Optimistic-lock conflict bar ─────────────────────────────────────
+   Mirrors packages/ui/src/backend/conflicts/RecordConflictBanner.tsx:
+   role=alert, rendered once above page content (not inside the form card),
+   status-error tokens, Refresh action + dismiss X. Does not auto-dismiss. */
+.conflict-bar {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
+  padding: 0.5rem 0.75rem; border-radius: var(--radius-md);
+  border: 1px solid var(--status-error-border); background: var(--status-error-bg); color: var(--status-error-text);
+}
+.conflict-bar .msg { font-size: 0.875rem; min-width: 0; }
+.conflict-bar .msg b { font-weight: 500; margin-right: 0.375rem; }
+.conflict-bar .actions { display: flex; align-items: center; gap: 0.25rem; flex: none; }
+.conflict-bar .btn-outline { border-color: var(--status-error-border); background: var(--status-error-bg); color: var(--status-error-text); }
+.conflict-bar .btn-outline:hover { background: var(--status-error-border); }
+.conflict-bar .icon-btn { color: var(--status-error-text); }
+.conflict-bar .icon-btn:hover { background: var(--status-error-border); }
+
+/* ── Menu tree editor ───────────────────────────────────────────────
+   A nav-menu tree (menus/menu items, §4.2), distinct from the boolean
+   rule-group tree used by the promotions-module prototype. Depth is
+   expressed with left margin per data-depth, capped at 2 (3 levels). */
+.mtree { display: flex; flex-direction: column; gap: 0.5rem; list-style: none; margin: 0; padding: 0; }
+.mtree-row {
+  display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;
+  padding: 0.5rem 0.75rem; border: 1px solid var(--border); border-radius: var(--radius-md);
+  background: var(--card);
+}
+.mtree-row[data-depth="1"] { margin-left: 1.75rem; }
+.mtree-row[data-depth="2"] { margin-left: 3.5rem; }
+.mtree-row .grip { width: 1rem; height: 1rem; flex: none; color: var(--muted-foreground); cursor: grab; }
+.mtree-row .label { font-size: 0.875rem; font-weight: 500; }
+.mtree-row .row-actions { margin-left: auto; }
+.mtree-readonly .mtree-row { padding-left: 1rem; }
