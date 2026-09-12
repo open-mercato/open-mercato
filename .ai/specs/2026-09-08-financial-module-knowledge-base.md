@@ -36,7 +36,8 @@ What actually exists right now, and where:
 | This knowledge base | `2026-09-08-financial-module-knowledge-base.md` | `docs/financial-module-knowledge-base` | Open, PR #6016 |
 | GL bulk cross-module read service | `2026-09-10-general-ledger-bulk-read-service.md` | `docs/general-ledger-bulk-read-service` | Open, PR #6038 — draft, not yet reviewed — prerequisite for JPK_KR_PD's future `SPEC-010` (see note below the table) |
 | Accounts Receivable (sales invoice → GL posting) | `2026-08-18-sales-invoice-gl-posting.md` | `docs/sales-invoice-gl-posting` | Open, PR #6046 — full spec, one independent adversarial review pass (eleven issues fixed) plus a structured Final Compliance Matrix pass; not yet reviewed by a human/maintainer |
-| Cash & Bank Management, Multi-Currency, Budgeting & Forecasting, Cost Accounting | — | — | Not started (SPEC-024 only) |
+| Cash & Bank Management | `2026-09-10-cash-bank-management.md` | `docs/cash-bank-management` | Open — full spec, independent adversarial review pass (14 issues fixed) plus a second, narrower verification pass (5 issues fixed) plus a full literature-verification + real-system-comparison pass; not yet reviewed by a human/maintainer (see note below the table) |
+| Multi-Currency, Budgeting & Forecasting, Cost Accounting | — | — | Not started (SPEC-024 only) |
 
 **New 2026-09-10 — Accounts Receivable started.**
 `2026-08-18-sales-invoice-gl-posting.md` is the sell-side mirror of
@@ -77,6 +78,34 @@ free) and Odoo (not independently re-verified this pass). All written
 directly into `2026-08-18-sales-invoice-gl-posting.md`'s own new
 "Literature & Prior Art" section — commit `80b642585` on
 `docs/sales-invoice-gl-posting`.
+
+**Correction (2026-09-12) — Cash & Bank Management was not "not
+started."** The table above used to lump it in with Multi-Currency/
+Budgeting/Cost Accounting as "Not started (SPEC-024 only)." Wrong: it
+has had a full, independently reviewed spec on its own branch since
+2026-09-10 (`2026-09-10-cash-bank-management.md`,
+`docs/cash-bank-management`) — bank statements, four match types
+(`sales_invoice`/`payment_batch`/`internal_transfer`/`manual_gl_entry`),
+FX gain/loss on settlement, two independent adversarial review passes,
+and its own literature-verification pass (2026-09-11: Fowler's
+Corresponding Account, Kieso's bank-reconciliation taxonomy). Table
+corrected above; this is now its own row.
+
+**Applied 2026-09-12 — Step 3 (real-system comparison) closed for Cash
+& Bank Management.** The 2026-09-11 pass covered Steps 1/2/4 but not
+Step 3. Checked ERPNext (docs.frappe.io — Bank Reconciliation Tool
+ships file import + fuzzy/ranked auto-matching as baseline, not a
+deferred phase; unmatched lines go through a generic "Create Voucher,"
+less structured than this document's Kieso-grounded `manual_gl_entry`)
+and Comarch ERP Optima (pomoc.comarch.pl — MT940 import + configurable
+automatic reconciliation, but gated behind mandatory manual verification
+before posting — a third, hybrid position). Confirms this document's
+Phase 1 manual-only design is a deliberate simplification relative to
+real market baseline, not a naive starting point, and gives Phase 2 two
+concrete reference shapes to choose between. Symfonia/enova365 not
+independently checked. Written directly into
+`2026-09-10-cash-bank-management.md`'s own "Literature & Prior Art"
+section — commit `9843e3e2d` on `docs/cash-bank-management`.
 
 **Resolved 2026-09-09:** Fixed Assets and Posting Rules Engine used to
 live only as uncommitted files in one worktree — flagged here as a
