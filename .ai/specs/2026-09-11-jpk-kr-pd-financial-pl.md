@@ -458,12 +458,33 @@ final:
 - **Q1 — Confirmed default: defer `RPD` computation to its own future
   spec (Phase 2).** Flagged here for override if the business decides
   otherwise.
-- **Q2 — Needs business confirmation, not answerable from the repo:**
-  which cohort (fiscal-year timing) actually matches Commerce Weavers'
-  target customers, given the largest-taxpayer window has already
-  passed. Treat "Phase 1 ships in time for FY2026 filers (JPK_VAT-
-  obligated cohort, filed 2027)" as this document's working assumption
-  until confirmed otherwise.
+- **Q2 — Partially resolved 2026-09-12, with the business.** First,
+  the harmonogram itself needed correcting: JPK_KR_PD's cohort split is
+  by **VAT filing frequency**, not by revenue/size the way JPK_CIT's
+  is — confirmed directly against `gov.pl/web/kas` and cross-checked
+  against a second source (taxeo.pl), since the primary gov.pl page
+  itself failed to fetch this session. Group 1 = PIT taxpayers filing
+  monthly VAT (`JPK_V7M`): obligated from tax year 2026, first
+  `JPK_KR_PD` file due by end of April 2027. Group 2 = everyone else
+  (VAT-exempt or quarterly `JPK_V7K`): obligated from tax year 2027,
+  first file due by end of April 2028. Neither cohort's window has
+  passed — the "largest-taxpayer window already passed" note above
+  described `JPK_CIT`'s Group 1 (EUR 50M+ revenue, filed by July 2026),
+  a different structure and a different taxpayer population than this
+  document's own `JPK_KR_PD`, and doesn't apply here at all — that
+  framing in the original Q2 was itself wrong, not just unconfirmed.
+  Second, confirmed with the business (2026-09-12): Commerce Weavers'
+  target Open Mercato customers keep **full accounting books** (księgi
+  rachunkowe), not simplified `PKPiR` — so `JPK_KR_PD` (this document)
+  genuinely is the right structure to be building, not `JPK_PKPIR`.
+  **Still open:** which VAT-filing frequency (and therefore which of
+  the two cohorts/deadlines above) actually matches those customers —
+  explicitly not needed to decide before continuing the work that
+  doesn't depend on it (`#6038`'s review, the primary-source XSD
+  verification pass this document still needs) — only the ship-by date
+  hinges on it. Working assumption unchanged until that's answered:
+  Group 1 (FY2026, filed by April 2027) is treated as the tighter,
+  safer target to build toward.
 - **Q3 — Placement:** this document assumes `official-modules` /
   `SPEC-010`, per the existing JPK_V7/KSeF precedent. Not yet physically
   placed there — `official-modules` is not checked out in the
@@ -491,3 +512,9 @@ content found, see Architecture → Design decisions; direct inspection of
 the `open-mercato` working copy, 2026-09-11 (`packages/*/src/modules/*`
 listing; `packages/core/src/modules/{directory,customers}/data/entities.ts`;
 `packages/core/src/modules/sales/data/entities.ts:1383,1436,1466`).
+
+2026-09-12 addition: taxeo.pl, "JPK_PIT 2026 – od kiedy, dla kogo i jak
+raportować księgi (PKPiR, EWP, ST, KR_PD)" — used to cross-check the
+`gov.pl/web/kas` cohort schedule after that primary source failed to
+fetch this session; confirms the same two-group, VAT-frequency-based
+split (see Open Questions, Q2).
