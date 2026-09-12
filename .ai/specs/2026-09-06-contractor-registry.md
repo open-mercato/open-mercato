@@ -8,8 +8,9 @@ module that actually resolves `contractorBankWhitelistCheck` via
 `tryResolve` at payment time, per AP's own split; **added
 2026-09-08**, see Changelog; **pending, not yet merged — PR #5962**),
 sales-invoice-gl-posting (consumer — customers, indirectly through
-`sales`; **planned, not yet written** spec — see
-`2026-08-18-general-ledger-core-engine.md` Out of scope), [General
+`sales`; **written, open PR #6046** —
+[sales-invoice-gl-posting](2026-08-18-sales-invoice-gl-posting.md),
+`docs/sales-invoice-gl-posting`), [General
 Ledger core engine](2026-08-18-general-ledger-core-engine.md)
 (`JournalEntryLine` gets a new `contractorSnapshot` field from this
 spec; **pending, not yet merged — PR #5663**)
@@ -483,6 +484,150 @@ registration frees its NIP for re-registration.
 - An AP staff member sees on the contractor list when a given account
   was last checked against the Biała Lista — as helpful information,
   not as a guarantee of current status.
+
+## Literature & Prior Art
+
+Per the financial-spec-writing-process. Verification trail recorded in
+full in `financial-module-knowledge-base.md` §3/§4b.
+
+**Cross-spec consistency (Step 1) — one real staleness bug found and
+fixed.** This document's own "Related" header still described
+`sales-invoice-gl-posting` as "planned, not yet written" — that spec
+now exists, has gone through two independent review passes plus its
+own literature-verification pass, and has an open PR (#6046,
+`docs/sales-invoice-gl-posting`). Corrected above. Everything else in
+the header re-verified against the current knowledge-base module map:
+Accounts Payable (#5962) and the GL core engine (#5663) are both still
+open, unmerged — no change needed there. Separately: this module was
+missing entirely from `financial-module-knowledge-base.md`'s own §1
+module map table despite having a complete spec, an implementation
+guide, and a closed external maintainer review (PR #5955) — fixed
+there, not here (see that document's own Changelog).
+
+**Literature grounding (Step 2) — the knowledge base's own flagged
+Fowler lead, verified and applied; an independent second confirmation
+found; a real, un-actioned gap recorded.**
+
+- Fowler, *Analysis Patterns*, Ch.2 "Accountability," §2.1 "Party"
+  (pp.17-19) — read in full, not just the chapter intro: "party as the
+  supertype of a person or organization... both organizations and
+  people carry out actions, have bank accounts, file taxes." This is
+  exactly `Contractor`'s own `isVendor`/`isCustomer`-flagged,
+  tax-identity-first design — a GUS-registered company and a
+  NIP-registered sole proprietorship (JDG) are both parties in exactly
+  this sense. One gap the pattern surfaces that this document doesn't
+  model explicitly: Fowler's Party has no built-in person/organization
+  discriminator column either (he leaves that to a subtype), and
+  neither does `Contractor` — the JDG-vs-company distinction only
+  surfaces indirectly, through the `gusData`/`viesData` PII-narrowing
+  decision (a JDG's registry response carries personal data a
+  company's doesn't), rather than as a queryable field. Not a defect —
+  Phase 1 doesn't need to query on it — but worth naming as the
+  concrete place this document already leans on the distinction
+  without declaring it.
+- Hay, *Data Model Patterns*, Ch.3 "The Enterprise and Its World,"
+  "Parties" (pp.23-24) — read in full: arrives at the identical
+  PERSON/ORGANIZATION → PARTY generalization independently of Fowler
+  ("both people and organizations have 'names' and 'addresses' as
+  attributes, and both may be parties to contracts"), and names "a
+  vendor" explicitly as an ORGANIZATION example. Two independent
+  sources converging on the same pattern for the same kind of entity
+  is a stronger confirmation than either alone — this closes the
+  second half of the knowledge base's flagged lead (previously only
+  Fowler's had been spot-checked).
+- Fowler, Ch.5 "Referring to Objects," §5.3 "Object Merge" (pp.90-92)
+  — read in full, the other lead the knowledge base had flagged and
+  left unchecked. Confirms this document has no equivalent mechanism
+  today for the case Fowler describes: two `Contractor` rows later
+  discovered to be the same real-world entity (a duplicate created
+  before `nipHash` uniqueness caught it, or — a case specific to this
+  domain, not Fowler's hospital example — a company that re-registers
+  under a new NIP after a legal reorganization). NIP uniqueness
+  prevents the exact-duplicate case but not the two-different-NIPs-
+  same-entity case, and `nip`'s unconditional immutability (see Design
+  decisions) forecloses fixing it in place. Fowler names three
+  strategies — copy-and-replace, superseding, essence/appearance — and
+  recommends essence/appearance specifically when a merge might later
+  need undoing, which fits this module's own risk-averse posture
+  toward `Contractor` identity (a NIP change requires a new contractor
+  rather than editing one, precisely to avoid a similarly irreversible
+  mistake). **Recorded as a real, currently un-addressed gap, not
+  applied to the spec**: no Phase 1 user story or Design decision names
+  this need, and there's no evidence in the codebase that it has come
+  up yet — consistent with this document's own YAGNI stance elsewhere
+  (cross-org sharing, async consumers of
+  `contractors.contractor.created`). Flagged here as a candidate
+  Phase 2/Out-of-scope item for a future pass, not added unilaterally.
+
+**Comparison against real systems (Step 3) — ERPNext, Comarch ERP
+Optima/XL, enova365.**
+
+- **ERPNext** (docs verified 2026-09-12): Customer and Supplier are
+  **separate doctypes**, not one shared entity — the opposite of this
+  document's own `isVendor`/`isCustomer`-flagged `Contractor`, and of
+  Odoo's `res.partner` (already this document's cited Market
+  Reference). ERPNext instead offers "Common Party Accounting," a
+  bridge that links an existing Customer to an existing Supplier
+  record after the fact (fosserp.com, "Common Party Accounting in
+  ERPNext") — two drifting records kept in sync by a pointer, not one
+  row. Genuine, checkable divergence worth recording: this document's
+  single-entity design avoids the two-drifting-copies problem ERPNext's
+  bridge has to manage, at the cost of a `Contractor` that isn't purely
+  "vendor" or purely "customer" shaped. Separately, ERPNext's generic
+  rename tool ships a "Merge with existing" option across master
+  doctypes (Customer, Supplier, Item, Account) that "merge[s] all the
+  linked documents of both documents" into the surviving record —
+  functionally Fowler's copy-and-replace strategy (§5.3.1 above),
+  applied generically rather than per-domain. This is the concrete,
+  real-system evidence that the Object Merge gap above is a genuine,
+  solvable feature class, not a hypothetical one.
+- **Comarch ERP Optima** (pomoc.comarch.pl, "Weryfikacja statusu
+  VAT/VAT-UE kontrahenta," verified 2026-09-12): VAT/VIES status
+  re-verification is automatic **on every commercial document** a
+  kontrahent is used on (invoice, receipt — not just once at
+  registration), with a manual button reserved for backdated documents.
+  This document's own `verificationStatus` (GUS/VIES) only ever runs
+  once, asynchronously, at `createContractor` time — a real, narrower
+  Phase 1 scope than Optima's baseline. Not a defect — nothing in
+  Problem Statement claims otherwise — but a genuine candidate for a
+  future re-verification trigger, worth naming rather than silently
+  matching.
+- **Comarch ERP Optima/XL, Biała Lista** (elte-s.com, "Biała Lista
+  Podatników w systemach Comarch ERP Optima i XL," verified
+  2026-09-12): the whitelist is re-checked at multiple transaction
+  points (purchase invoice, bank payment export) with the result
+  "zapisane na karcie kontrahenta" (saved on the contractor's card) —
+  the same UX-cache shape as this document's
+  `lastVerifiedAt`/`lastVerificationStatus`. One useful, previously
+  unstated nuance: the Ministry's own source data refreshes only once
+  per business day, so a "live" call at transfer time is, in practice,
+  only as fresh as that day's publication regardless of how it's
+  implemented — worth a one-line awareness note, not a design change,
+  since Art. 96b's requirement ("on the day of transfer") is about
+  *when you check*, not the source's own refresh cadence, and this
+  document already gets that distinction right.
+- **No four-eyes/approval-gate precedent found** in either Optima's or
+  enova365's public documentation for vendor/kontrahent registration —
+  the one-step `contractors.vendor-approval` gate this document adds is
+  confirmed to be a control **beyond** the real Polish ERP baseline,
+  not a reproduction of one. This strengthens, rather than weakens, the
+  case already made in Design decisions (the AFP's 2025 survey,
+  Trustpair's fraud-scheme research, SAP Ariba/ApprovalMax precedent):
+  the gate is this project's own choice to exceed local market
+  practice, backed by evidence, not an assumption that "everyone
+  already does this."
+
+**Structure (Step 4) — already compliant, no gaps.** Checked against
+`om-spec-writing`'s required sections (TLDR, Overview, Problem
+Statement, Proposed Solution, Architecture, Data Models, API Contracts,
+Risks & Impact Review, Final Compliance Report, Changelog) plus this
+project's fuller convention (Design decisions, Alternatives considered,
+User Stories, Implementation Plan, File Manifest, Testing Strategy, Out
+of scope): all present. The Open Questions section that existed
+briefly on 2026-09-07 (Q1, the `approveContractor` scope-cohesion SPLIT
+finding) was resolved and removed the same round, per the template's
+own instruction — no open questions remain.
+
 
 ## Architecture
 
@@ -1679,3 +1824,46 @@ re-verified against the real repository before being accepted:
 
 Updated the Compliance Matrix, Non-Compliant Items, and Verdict to
 record all of the above.
+
+### 2026-09-12 — financial-spec-writing-process applied (cross-spec, literature, real-system comparison)
+
+Ran this repo's standing five-step process end to end for the first
+time on this document:
+
+- **Step 1 (cross-spec consistency):** the "Related" header's
+  `sales-invoice-gl-posting` reference ("planned, not yet written") was
+  stale — that spec has existed since 2026-09-10, with two review
+  passes and an open PR (#6046); corrected. Separately found this
+  module missing entirely from `financial-module-knowledge-base.md`'s
+  own module map (fixed there, not here — see that document's
+  Changelog).
+- **Step 2 (literature grounding):** verified, in full, the two Fowler
+  leads this knowledge base had already flagged for this document —
+  Ch.2 "Party" (pp.17-19, confirmed and applied) and Ch.5 "Object
+  Merge" (pp.90-92, confirmed as a real, currently un-addressed gap:
+  no reconciliation path exists if two `Contractor` rows are later
+  found to represent the same real-world entity). Added an independent
+  second confirmation of the Party pattern from Hay, Ch.3 "Parties"
+  (pp.23-24), not previously checked for this document.
+- **Step 3 (real-system comparison):** ERPNext (separate Customer/
+  Supplier doctypes plus a "Common Party Accounting" bridge, and a
+  generic cross-doctype "Merge with existing" tool — real precedent for
+  the Object Merge gap above), Comarch ERP Optima/XL (VAT/VIES
+  re-verification on every commercial document, a wider scope than
+  this document's registration-time-only check; Biała Lista re-checked
+  at multiple transaction points, cached on the contractor card, same
+  shape as `lastVerifiedAt`), and a confirmed absence: no four-eyes/
+  approval-gate precedent found in Optima's or enova365's public
+  documentation, meaning this document's `contractors.vendor-approval`
+  gate is a control added beyond the real Polish ERP baseline, not a
+  reproduction of one.
+- **Step 4 (structure):** re-checked against `om-spec-writing`'s
+  required sections — no gaps; the temporary Open Questions section
+  (Q1) was already resolved and removed on 2026-09-07.
+- All findings written directly into this document's new "Literature &
+  Prior Art" section (placed before Architecture, matching sibling
+  specs' convention) and cross-referenced in
+  `financial-module-knowledge-base.md`. No Design decisions, Data
+  Models, or Compliance Matrix rows changed — every finding either
+  confirmed existing design choices or was recorded as an explicit,
+  un-actioned gap for a future pass, not applied unilaterally.
