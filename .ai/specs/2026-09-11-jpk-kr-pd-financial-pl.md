@@ -11,6 +11,15 @@
 > Architecture → Design decisions / Code analysis below. No Open Question
 > was resolved by this pass; Q1–Q3 still stand.
 >
+> **2026-09-12 update:** Q2 corrected and partially resolved (see Open
+> Questions). The primary-source XSD verification pass this document
+> named as still owed is now done (see Architecture -> Primary-source
+> XSD verification) -- a real, material correction: RPD's actual scope
+> is much smaller than Q1's "comparable to the Posting Rules Engine"
+> framing assumed, and a real, previously-unnamed mandatory field
+> (S_12_1, a per-account financial-statement-category marker) was
+> found. New open item: Q4.
+>
 > **⚠ Temporary location.** This spec describes a `financial_pl` feature
 > (implemented in the separate `official-modules` repo), and by this
 > project's own convention it should eventually live there as `SPEC-010`,
@@ -109,9 +118,11 @@ separately, see Architecture): a bulk, in-process read surface.
   `requires` today (confirmed by reading it directly); this is the
   module's first cross-module dependency, declared the same way AP
   declared its own GL dependency (`2026-09-06-accounts-payable.md`).
-- A new XML builder for JPK_KR_PD's seven top-level nodes (see Data
-  Model), reading through `ledger`'s Bulk Read Service (`#6038`) instead
-  of `financial_pl`'s own tables.
+- A new XML builder for JPK_KR_PD's seven top-level nodes — including
+  `RPD`, which is mandatory at the file-format level, not excluded from
+  the count (corrected 2026-09-12, see Architecture → Primary-source
+  XSD verification) — reading through `ledger`'s Bulk Read Service
+  (`#6038`) instead of `financial_pl`'s own tables.
 
 ## 📝 Architecture
 
@@ -156,13 +167,18 @@ sections describe the intended shape, not something buildable today.
 `RPD` reconciles book income/expense to taxable income (permanent and
 timing differences). Nothing in `ledger`, `financial_pl`, or any sibling
 spec tracks book-vs-tax classification today — `LedgerAccount` has no
-"deductibility" flag, and no document has ever proposed one. This is a
-design question comparable in size to the Posting Rules Engine, not a
-field to bolt onto `JournalEntry` inside this spec. **Phase 1 ships with
-`RPD` populated from manual operator input** (a `JpkKrDeclarationInputs`
-shape, the same escape hatch `JpkDeclarationInputs` already provides for
-JPK_V7 fields with no automatic source), not computed — this keeps the
-filing legally submittable without solving book/tax reconciliation here.
+"deductibility" flag, and no document has ever proposed one. **Corrected
+2026-09-12 (see Architecture → Primary-source XSD verification): `RPD`
+in the real XSD is a small, flat set of manually-completed summary
+amounts, not a per-account/per-posting classification problem — the
+"comparable in size to the Posting Rules Engine" framing below should be
+read as unconfirmed, not as this document's considered estimate.**
+**Phase 1 ships with `RPD` populated from manual operator input** (a
+`JpkKrDeclarationInputs` shape, the same escape hatch `JpkDeclarationInputs`
+already provides for JPK_V7 fields with no automatic source), not
+computed — this keeps the filing legally submittable without solving
+book/tax reconciliation here, and, per the XSD verification pass, may
+simply be the correct permanent design, not only a Phase 1 stopgap.
 
 **Accounting-theory grounding for the Phase 2 `RPD` design (verified
 2026-09-11, per `financial-spec-citation-check`).** Kieso, Weygandt,
@@ -285,6 +301,137 @@ re-checked, not carried over from the 2026-09-10 analysis unverified:
   before Phase 1 implementation starts, since `feat/financial-pl-invoice-ux`
   may have moved on since 2026-09-10.
 
+### Primary-source XSD verification (2026-09-12)
+
+The Implementation Plan's own step 2 named this pass as still owed:
+"run the primary-source verification pass this document deliberately
+skipped (field-level XSD read, not brochure prose)." Done here, against
+the MF's official `Schemat_JPK_KR_PD(1)_v1-0.xsd` — via its published
+documentation PDF and cross-checked against Comarch ERP XL's own
+JPK_KR_PD implementation notes (a vendor that has to get the field list
+exactly right to pass MF validation, not a summary). **Caveat, stated
+plainly:** both readings came through document-summarization rather
+than a byte-level read of the raw `.xsd` this session — high confidence
+on the findings below (two independent sources agree on substance), but
+the raw XSD is still the thing to check before this becomes buildable,
+not this pass alone.
+
+**The file has seven top-level nodes, not seven excluding RPD.** `JPK`
+contains, in sequence: `Naglowek`, `Podmiot1`, `Kontrahent`,
+`ZOiS`, `Dziennik`, `Ctrl`, **`RPD`** — and `RPD` is **mandatory**, not
+optional or Phase-2-deferrable at the file-format level. This document's
+TLDR line "XML builder for JPK_KR_PD's own structure... seven top-level
+nodes" was ambiguous about whether `RPD` was one of the seven or
+excluded from the count entirely — corrected: it's one of the seven,
+Phase 1 must emit it, just with manually-entered content (see next).
+
+**Major correction: `RPD`'s real scope is much smaller than this
+document assumed, and Phase 1's "manual input" design is very likely
+the right permanent shape, not a stopgap.** `RPD` is a small, flat
+summary node — six or eight amount fields (two independent sources
+disagree on the exact count, `K_1`–`K_6` vs `K_1`–`K_8`; the raw XSD is
+the tie-breaker, not attempted here), each a simple total (e.g.
+tax-exempt revenue, non-deductible costs), **not** a per-account or
+per-posting classification the way this document's Design Decisions
+section (Kieso Ch.19 grounding) implied Phase 2 would need to compute.
+Comarch's own product documentation for their ERP XL JPK_KR_PD
+implementation states this directly: these fields "are not
+automatically calculated and must be manually completed," and the
+whole node "functions as a summary reconciliation, not per-account tax
+accounting." This means: Phase 1's `JpkKrDeclarationInputs`
+manual-passthrough design is not obviously an inferior stopgap ahead of
+a "real" automated Phase 2 — a mature, real ERP treats this exact
+node the same way, permanently. The Kieso Ch.19 temporary/permanent-
+difference grounding (Design decisions, above) stays useful as a
+*classification aid for the human filling in* `K_1`–`K_6`/`K_8` (which
+bucket does this book/tax gap belong in), not necessarily as the basis
+for an automatic engine "comparable in size to the Posting Rules
+Engine" — that sizing claim should be treated as unconfirmed and
+probably overstated until someone actually asks for automation here
+(see Phasing, below).
+
+**A real, previously-missing mandatory field: `S_12_1`, a per-account
+"znacznik" (marker) tying every reported `LedgerAccount` to a
+standardized financial-statement category.** Confirmed independently by
+two sources: the XSD documentation ("znacznik konta wynikający z
+rozporządzenia w sprawie dodatkowego zakresu danych," obligatory) and
+Comarch's own validation rule ("pole 'Zest. ks. 1' (S_12_1) <> ''" —
+rejects any account with balances/movements and no marker assigned).
+Nothing in `LedgerAccount`, `LedgerAccountGroup`, or any sibling spec
+carries this classification today — confirmed by re-reading `#5663`'s
+Entities list above (Design decisions/Code analysis) — this is a real,
+material gap this document did not previously surface, not a
+restatement of `LedgerAccountGroup`'s existing zespół 0–8 grouping
+(which is chart-of-accounts structure, not this financial-statement-
+category tagging). Needs its own design decision before Phase 1 is
+buildable: most likely a new, tenant-configured mapping (shape
+comparable to `LedgerAccountGroup`'s own precedent), not a hardcoded
+value, since the correct `S_12_1` value per account depends on each
+tenant's actual chart of accounts. Flagged in Open Questions below
+rather than designed here, since it's a real enough decision to deserve
+its own confirmation, the same discipline this document already applies
+to `RPD`.
+
+**`ZOiS` has eight structural variants (`ZOiS1`–`ZOiS8`) by entity
+type, not one generic shape.** Banks, insurers, public-benefit
+organizations, investment funds, brokerages, credit unions (SKOK),
+"other entities" (`ZOiS7`), and IFRS-reporting entities (`ZOiS8`) each
+get their own variant with their own `S_12_1`/`S_12_2` allowed-value
+sets (banks alone have 200+ possible marker values). Commerce Weavers'
+target customers — confirmed full-book-keeping PIT/CIT entities, not
+banks/insurers/funds (see Open Questions, Q2) — would file under
+**`ZOiS7`** ("jednostki pozostałe"), corroborated independently by
+Comarch's own documentation naming "pozostałych jednostek" as the
+standard profile for their regular ERP XL customers. This document's
+current Data Model (`S_1`–`S_11`, one generic shape) should be
+corrected to name `ZOiS7` explicitly rather than imply a single
+universal structure — see Data Model, below.
+
+**`Dziennik` has more fields than this document previously mapped, and
+they map cleanly against `JournalEntry`'s real schema (`#5663`), with
+two confirmed, real gaps.** Re-checked field by field against
+`JournalEntry`'s actual entity definition (`sequenceNumber`, `postedAt`,
+`operationDate`, `documentType`, `documentNumber`, `documentDate`,
+`description`, `type`, `currencyId`, `exchangeRate`, `referenceType`,
+`referenceId`):
+
+| `Dziennik` field | Meaning | Source |
+|---|---|---|
+| `D_1` | record number | `sequenceNumber` (unchanged from this doc's prior mapping) |
+| `D_2` | dziennik/book description (e.g. "Zakup," "Sprzedaż") | **No source.** `JournalEntry.type` (`NORMAL`/`OPENING`/`CLOSING`/`REVERSAL`) is a different axis (accounting-cycle stage, not a subsidiary-journal label) — a real, confirmed gap, not previously named |
+| `D_3` | counterparty code (optional) | Possibly `referenceType`/`referenceId`, or `JournalEntryLine.contractorSnapshot` rolled up — ambiguous, since `D_3` is header-level and `contractorSnapshot` is line-level; not resolved here |
+| `D_4` | document ID number | `documentNumber` (unchanged) |
+| `D_5` | document type | `documentType` (unchanged) |
+| `D_6` | business operation date | `operationDate` (unchanged) |
+| `D_7` | document preparation date | `documentDate` (unchanged) |
+| `D_8` | date recorded in the books | **`postedAt`** — not previously in this document's mapping at all, but a clean, existing field; genuinely good news, not a gap |
+| `D_9` | person responsible for the entry | **No source.** `JournalEntry` has no `createdBy`/`postedBy` field today — a real, confirmed gap, and one this document cannot solve unilaterally (see Out of scope framing below) |
+| `D_10` | description of the operation | **`description`** — exists, simply missing from this document's prior field table |
+| `D_11` | amount | sum of line debits/credits (unchanged from this doc's prior framing) |
+| `D_12` | KSeF reference (optional) | `referenceType`/`referenceId` (unchanged) |
+
+**`KontoZapis` is nested inside `Dziennik` (one journal entry's own
+lines), not a sibling top-level node — a wording fix, not a design
+change**, since this document's `iterateJournalEntries` +
+`iterateJournalEntryLines` pairing already reads them exactly this way.
+Field-checked against `JournalEntryLine`'s real schema (`journalEntryId`,
+`accountId`, `debit`, `credit`, `amountCurrency`, `contractorSnapshot`):
+
+| `KontoZapis` field | Meaning | Source |
+|---|---|---|
+| `Z_1` | line sequence number | **No source.** `JournalEntryLine` has no ordinal field — would need to be assigned from array position at read time (an implementation detail, not a schema gap, since `iterateJournalEntryLines` already returns lines in a stable order) |
+| `Z_2` | line description | **No source.** No per-line description field exists — a real gap; `JournalEntry.description` is header-level only |
+| `Z_3` | account | `accountId` (unchanged) |
+| `Z_4`/`Z_7` | debit / credit amount | `debit` / `credit` (unchanged) |
+| `Z_5`/`Z_8` | debit / credit amount in foreign currency (mutually exclusive with the base-currency side, per line) | `amountCurrency` — one field naturally covers both, since a line only ever has a non-zero debit or credit |
+| `Z_6`/`Z_9` | currency code for the foreign-currency amount | `JournalEntry.currencyId` (header-level; resolved to a code), not a separate per-line field — reasonable, since `#5663` scopes currency at the entry, not the line |
+
+This confirms the read-service shape (`#6038`) and this document's own
+DTOs are broadly on the right track for `Z_3`/`Z_4`/`Z_7`, but the
+builder (`build-konto-zapis.ts`) will need to synthesize `Z_1` at
+serialization time and will have no source at all for `Z_2` — flagged,
+not solved, here.
+
 ## 📝 Data Model
 
 New entity, `JpkKrFiling`, mirroring `JpkVatFiling`'s shape:
@@ -301,17 +448,22 @@ New entity, `JpkKrFiling`, mirroring `JpkVatFiling`'s shape:
 | `upoXml` | text/blob | UPO (urzędowe poświadczenie odbioru) |
 | `submissionError` | text, nullable | |
 
-`JpkKrDeclarationInputs` (operator-entered, RPD-adjacent fields with no
-automatic source — exact shape TBD once a primary-source XSD pass is
-done, see Open Questions):
+`JpkKrDeclarationInputs` (operator-entered `RPD` fields — corrected
+2026-09-12, see Architecture → Primary-source XSD verification: `RPD`
+is a small, flat set of summary amounts, not the open-ended
+`rpdAdjustments` blob this document originally assumed; exact field
+count (`K_1`–`K_6` vs `K_1`–`K_8`, sources disagree) still needs the
+raw XSD, so the shape below is named but not yet locked):
 
 | Field | Type | Notes |
 |---|---|---|
 | `filingId` | uuid, FK → `JpkKrFiling` | |
-| `rpdAdjustments` | jsonb | free-form until §RPD is designed properly |
+| `rpdRevenueExempt` … `rpdCostRecognizedPriorYear` | numeric(19,4), one column per `K_x` | Six-to-eight named amount columns, not a jsonb blob — operator-entered per Comarch's own precedent (manual, permanent, not a Phase 2 stopgap; see Design decisions) |
 
-**Field mapping — `ZOiS` (trial balance) node ← `#6013`'s ZSiO
-computation, via `getZois`:**
+**Field mapping — `ZOiS` node, variant `ZOiS7` ("jednostki pozostałe" —
+confirmed the applicable variant for Commerce Weavers' target
+customers, see Architecture → Primary-source XSD verification) ←
+`#6013`'s ZSiO computation, via `getZois`:**
 
 | `ZOiS` field | Source |
 |---|---|
@@ -320,28 +472,42 @@ computation, via `getZois`:**
 | `S_6`–`S_7` (period turnover) | period debit/credit turnover |
 | `S_8`–`S_9` (YTD turnover) | year-to-date turnover |
 | `S_10`–`S_11` (closing balance) | closing balance |
+| `S_12_1` (mandatory account marker, financial-statement category) | **No source today.** Confirmed real gap — needs its own tenant-configured mapping, comparable in shape to `LedgerAccountGroup`'s own precedent; not designed here, see Open Questions |
 
 **Field mapping — `Dziennik`/`KontoZapis` ← `JournalEntry`/
-`JournalEntryLine`, via `iterateJournalEntries` / `iterateJournalEntryLines`:**
+`JournalEntryLine`, via `iterateJournalEntries` / `iterateJournalEntryLines`
+— corrected and expanded 2026-09-12 (see Architecture → Primary-source
+XSD verification for the full gap analysis):**
 
 | `Dziennik` field | Source |
 |---|---|
 | `D_1` | `sequenceNumber` |
+| `D_2` (dziennik/book description) | **No source — confirmed gap** |
+| `D_3` (counterparty code, optional) | Ambiguous — not resolved (header-level field, `contractorSnapshot` is line-level) |
 | `D_4` | `documentNumber` |
 | `D_5` | `documentType` |
 | `D_6` | `operationDate` |
 | `D_7` | `documentDate` |
+| `D_8` (date recorded in books) | **`postedAt`** — newly mapped, previously missing from this table |
+| `D_9` (person responsible) | **No source — confirmed gap**, not solvable inside this document alone |
+| `D_10` (operation description) | **`description`** — newly mapped, previously missing from this table |
 | `D_11` | sum of `JournalEntryLine.debit`/`credit` |
 | `D_12` (KSeF ref) | `referenceType`/`referenceId`, when the source is a `financial_pl` KSeF invoice |
 
 | `KontoZapis` field | Source |
 |---|---|
+| `Z_1` (line sequence number) | **No source — synthesize from array position** at serialization time (implementation detail, not a schema gap) |
+| `Z_2` (line description) | **No source — confirmed gap**, `JournalEntry.description` is header-level only |
 | `Z_3` (account) | `JournalEntryLine.accountId` |
 | `Z_4`/`Z_7` (debit/credit) | `JournalEntryLine.debit`/`.credit` |
+| `Z_5`/`Z_8` (foreign-currency amount, whichever side is non-zero) | `JournalEntryLine.amountCurrency` |
+| `Z_6`/`Z_9` (currency code) | `JournalEntry.currencyId` (header-level) |
 
 `LedgerAccountGroup` (`jurisdiction: 'PL'`, zespoły 0–8, already seeded
-per the GL core spec) supplies the account classification `ZOiS`/
-`KontoZapis` need — no new reference data to invent, via `listAccountGroups`.
+per the GL core spec) supplies the chart-of-accounts classification
+`ZOiS`/`KontoZapis` need for grouping — a separate concern from
+`S_12_1`'s financial-statement-category marker above; don't conflate
+the two.
 
 `Naglowek` (file metadata) and `Podmiot1` (submitting entity — NIP,
 REGON, name, address) reuse the same entity/organization data
@@ -415,15 +581,21 @@ backend exists. Left for a follow-up once Phase 1 (backend) is agreed.
 - **Phase 1 (this spec):** `JpkKrFiling` entity, XML builder for
   `Naglowek`/`Podmiot1`/`Kontrahent`/`ZOiS`/`Dziennik`/`KontoZapis`/`Ctrl`,
   manual-input `RPD`, reused submission pipeline. Blocked on `#6038`.
-- **Phase 2 (future, separate spec):** `RPD` computed automatically —
-  book/tax classification on `LedgerAccount` or postings, and the
-  reconciliation logic itself. Comparable in size to the Posting Rules
-  Engine; not attempted here, but no longer a blank page — see the
-  Kieso Ch.19 grounding under Architecture → Design decisions above for
-  a candidate classification axis (no difference / permanent / temporary,
-  the latter needing a reversal schedule) to design Phase 2 against,
-  pending Polish CIT law (ustawa o CIT, art. 15–16) for the actual
-  category contents.
+- **Phase 2 (future, separate spec, priority downgraded 2026-09-12):**
+  `RPD` computed automatically — book/tax classification on
+  `LedgerAccount` or postings, and the reconciliation logic itself.
+  **No longer assumed "comparable in size to the Posting Rules
+  Engine"** — the primary-source XSD verification pass (Architecture,
+  above) found `RPD` is a small, manually-completed summary node in
+  practice, including in at least one mature real ERP (Comarch XL).
+  Phase 2 should not be scheduled on the old sizing assumption; it may
+  turn out nobody ever asks for it, since Phase 1's manual input may
+  simply be correct and sufficient. If a real need for automation does
+  surface, the Kieso Ch.19 grounding under Architecture → Design
+  decisions above still gives a candidate classification axis (no
+  difference / permanent / temporary, the latter needing a reversal
+  schedule) to design against, pending Polish CIT law (ustawa o CIT,
+  art. 15–16) for the actual category contents.
 - **Phase 3 (future, separate spec, noted but not designed):**
   `JPK_ST_KR` (fixed assets/intangibles register), released by the same
   MF initiative alongside JPK_KR_PD — would draw on the Fixed Assets
@@ -434,10 +606,14 @@ backend exists. Left for a follow-up once Phase 1 (backend) is agreed.
 
 1. **Blocked until `#6038` merges.** No implementation work starts
    before then.
-2. Vendor the official JPK_KR_PD XSD; run the primary-source
-   verification pass this document deliberately skipped (field-level XSD
-   read, not brochure prose) before finalizing the `Data Model` field
-   list above.
+2. **Done 2026-09-12, partially** (see Architecture -> Primary-source
+   XSD verification): the field-level pass ran against the XSD's
+   published documentation, not a byte-level read of the raw
+   `.xsd` yet. Still needed before this is fully buildable: vendor the
+   actual `Schemat_JPK_KR_PD(1)_v1-0.xsd` file itself and confirm the
+   `RPD` field count (`K_1`-`K_6` vs `K_1`-`K_8` -- two secondary
+   sources disagree) and `S_12_1`'s exact allowed-value enumeration for
+   the `ZOiS7` variant against the raw schema, not summaries of it.
 3. Add `requires: ['ledger']` to `financial_pl`'s `ModuleInfo`.
 4. `JpkKrFiling` entity + migration.
 5. `build-zois.ts` / `build-dziennik.ts` / `build-konto-zapis.ts`, each
@@ -480,8 +656,8 @@ final:
   **Still open:** which VAT-filing frequency (and therefore which of
   the two cohorts/deadlines above) actually matches those customers —
   explicitly not needed to decide before continuing the work that
-  doesn't depend on it (`#6038`'s review, the primary-source XSD
-  verification pass this document still needs) — only the ship-by date
+  doesn't depend on it (`#6038`'s review, the raw-XSD confirmation
+  Implementation Plan step 2 still needs) — only the ship-by date
   hinges on it. Working assumption unchanged until that's answered:
   Group 1 (FY2026, filed by April 2027) is treated as the tighter,
   safer target to build toward.
@@ -489,6 +665,17 @@ final:
   `SPEC-010`, per the existing JPK_V7/KSeF precedent. Not yet physically
   placed there — `official-modules` is not checked out in the
   environment this draft was written in.
+- **Q4 — New 2026-09-12, from the primary-source XSD pass:** `S_12_1`
+  (mandatory per-account financial-statement-category marker, see
+  Architecture -> Primary-source XSD verification and Data Model) needs
+  a real design decision before Phase 1 is buildable -- most likely a
+  new, tenant-configured mapping on or alongside `LedgerAccount`,
+  comparable in shape to `LedgerAccountGroup`'s own precedent. Not
+  designed here; needs its own pass, the same discipline this document
+  already applies to `RPD`. Also unresolved: the exact `RPD` field count
+  (`K_1`-`K_6` vs `K_1`-`K_8`) and `S_12_1`'s full allowed-value list for
+  the `ZOiS7` variant -- both need the raw XSD, not the secondary
+  documentation this pass used.
 
 ---
 
@@ -518,3 +705,16 @@ raportować księgi (PKPiR, EWP, ST, KR_PD)" — used to cross-check the
 `gov.pl/web/kas` cohort schedule after that primary source failed to
 fetch this session; confirms the same two-group, VAT-frequency-based
 split (see Open Questions, Q2).
+
+2026-09-12 addition (primary-source XSD verification): Schemat_JPK_KR_PD
+schema documentation (published PDF, mirrored at pracodawcy.pl,
+`Schemat_JPK_KR_PD1_v1-0.pdf`) -- node list, Dziennik/KontoZapis field
+list, ZOiS1-ZOiS8 variants, S_12_1/S_12_2 markers, RPD's K_1-K_x fields;
+cross-checked against Comarch ERP XL's own JPK_KR_PD implementation
+documentation (pomoc.comarch.pl/xl/index.php/dokumentacja/xl177-jpk_kr_pd/)
+for RPD's manual/summary nature, S_12_1's mandatory validation rule, and
+the ZOiS "pozostale jednostki" (ZOiS7-equivalent) profile; secondary
+sources for structure orientation only, not relied on for field-level
+detail: poradnikprzedsiebiorcy.pl and akademialtca.pl. Both XSD-adjacent
+sources are documentation of the schema, not a byte-level read of the
+raw Schemat_JPK_KR_PD(1)_v1-0.xsd itself -- see Open Questions, Q4.
