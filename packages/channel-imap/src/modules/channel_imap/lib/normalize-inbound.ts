@@ -24,8 +24,8 @@ export interface NormalizeInboundOptions {
   uid?: number
   /** External identifier of the receiving channel (typically the account's email). */
   accountIdentifier: string
-  /** Fallback timestamp if the parsed message has no Date header. */
-  fallbackDate?: Date
+  /** IMAP INTERNALDATE fallback when the MIME Date header is missing or invalid. */
+  fallbackDate?: Date | null
 }
 
 export async function normalizeInboundImapMessage(

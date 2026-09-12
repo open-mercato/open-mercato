@@ -164,7 +164,10 @@ export interface NormalizedInboundMessage {
   body: string
   bodyFormat: 'text' | 'markdown' | 'html'
   attachments?: NormalizedAttachment[]
-  timestamp: Date
+  /** Best meaningful occurrence time selected by the adapter; null when unknown. */
+  timestamp: Date | null
+  /** Provider-native transport or storage time when separately available. */
+  providerTimestamp?: Date | null
   replyToExternalId?: string
   channelPayload: Record<string, unknown>
   channelContentType: string

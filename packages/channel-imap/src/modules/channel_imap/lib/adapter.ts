@@ -235,7 +235,7 @@ class ImapChannelAdapter implements ChannelAdapter {
         rawMessage: item.rawBody,
         uid: item.uid,
         accountIdentifier: credentials.fromAddress,
-        fallbackDate: item.internalDate,
+        fallbackDate: item.internalDate ?? null,
       })
       messages.push(normalized)
     }
@@ -344,7 +344,7 @@ class ImapChannelAdapter implements ChannelAdapter {
         rawMessage: item.rawBody,
         uid: item.uid,
         accountIdentifier: credentials.fromAddress,
-        fallbackDate: item.internalDate,
+        fallbackDate: item.internalDate ?? null,
       })
       messages.push(normalized)
     }
