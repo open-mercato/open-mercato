@@ -370,6 +370,76 @@ this document's scope can fix.
 | Build the `customers.CustomerEntity` ↔ `contractors.Contractor` bridge as part of this document | Rejected as premature: no confirmed need for *automatic* resolution exists anywhere in this codebase yet (Contractor Registry itself only names this document as an undesigned, indirect consumer); an explicit, optional `contractorId` argument covers the one real, confirmed need (contractor snapshotting) without speculatively designing a mapping nobody has asked for |
 | A new subsidiary-ledger table for per-customer receivable balances | Unnecessary: `sales.SalesInvoice.outstandingAmount`/`paidTotalAmount` already track this natively (see Design decisions) |
 
+## Literature & Prior Art
+
+Per the financial-spec-writing-process. Verification trail recorded in
+full in `financial-module-knowledge-base.md` §3.
+
+**Cross-spec consistency (Step 1) — re-verified, no corrections
+needed.** Three of this document's own internal citations were checked
+directly against the cited sibling specs rather than trusted from
+memory: Accounts Payable's "Input VAT gets its own account — it is not
+silently absorbed into the expense account" (quoted exactly);
+Accounts Payable's Alternatives table entry "No precedent whatsoever in
+the repo for this kind of mapping (verified — nothing similar exists);
+building AP's own rules engine would duplicate the future Posting Rules
+Engine" (quoted exactly); and #5663's `documentType` enum
+(`external_foreign`/`external_own`/`internal`/`collective`/`corrective`/
+`substitute`, art. 20 ust. 2–3) (confirmed exactly). This is now the
+third spec in the family with a clean re-check on its own citations.
+
+**Literature grounding (Step 2) — a real citation gap, now closed.**
+This document uses "receivable control account" four times (TLDR,
+Problem Statement, Proposed Solution, Invariants) with **no citation
+anywhere for the concept** — a gap the process is meant to catch. It
+already exists, verified, in this knowledge base: Kieso, *Intermediate
+Accounting*, 17th Ed., Ch.7 "Cash and Receivables," p.7-12, footnote 5,
+names the exact risk of "a lack of correspondence between the control
+account and the subsidiary ledger related to accounts receivable" —
+more directly on-point here than the general Ch.3 "Basic Terminology"
+definition used for Accounts Payable's payable side, since this is the
+receivable side by name. Legally: **Ustawa o rachunkowości, art. 13
+ust. 1 pkt 3 and art. 16**, already established in this knowledge base
+as the stronger, directly-applicable citation for the control-
+account/subsidiary-ledger pattern generally, applies identically here —
+this document's Invariant 2 ("the receivable control account's balance
+equals the sum of `outstandingAmount` across every posted
+`SalesInvoice`") is precisely the reconciliation both sources describe,
+with `sales.SalesInvoice` itself serving as the subsidiary ledger (see
+Design decisions, "No new subsidiary ledger").
+
+**Comparison against real systems (Step 3).** Checked how ERPNext
+handles the equivalent moment (docs.frappe.io/erpnext/sales-invoice,
+verified 2026-09-12): "When it is submitted, ERPNext records the
+receivable, income, and taxes in the general ledger" — debiting the
+customer's receivable account (party-scoped, the same control-account +
+per-party-subsidiary structure as this document's
+`outstandingAmount`-based one), crediting income and tax accounts. The
+real divergence: ERPNext's GL posting happens **automatically, in the
+same action** as invoice submission — there is no separate posting step
+to call. This document deliberately splits that into an explicit,
+separate `postSalesInvoiceToLedger` command, for a reason specific to
+this codebase (`sales.SalesInvoice.status` is a free-form tenant
+dictionary value with no generic "finalized" signal — see Design
+decisions) that ERPNext's own fixed `docstatus` lifecycle (Draft →
+Submitted → Cancelled) doesn't have to solve, because Frappe's
+submission mechanism already **is** the trigger ERPNext needs. This
+also explains why `SalesInvoiceGlPosting` needs to exist here at all: it
+substitutes for the idempotency/audit guarantee Frappe's own
+`docstatus` field gives ERPNext for free. Odoo's customer-invoice
+posting flow was not independently re-verified this pass (its
+documentation didn't yield a fetchable primary-source confirmation in
+this session) — flagged as not done, not silently assumed.
+
+**Structure (Step 4).** Checked against `om-spec-writing`'s required
+sections — TLDR, Overview, Problem Statement, Proposed Solution, Design
+Decisions, User Stories, Invariants, Alternatives Considered,
+Architecture, Data Models, API Contracts, Migration & Deployment,
+Implementation Plan, File Manifest, Testing Strategy, Risks & Impact
+Review, Out of scope, Final Compliance Report, Changelog — all present,
+and the Final Compliance Report already carries a structured Compliance
+Matrix from an earlier independent review pass. No gaps found.
+
 ## Architecture
 
 ### Entities (`data/entities.ts`)
@@ -996,3 +1066,21 @@ assets`) own Final Compliance Report. This pass closes it:
   pattern, per the maintainer's explicit go-ahead, not by oversight.
 
 Not yet reviewed by a human/maintainer.
+
+### 2026-09-12 — Literature & Prior Art applied
+
+Per the financial-spec-writing-process: re-verified three of this
+document's own citations (AP's input-VAT-own-account quote, AP's
+no-precedent-for-mapping quote, #5663's `documentType` enum) directly
+against source — all exact, no corrections. Closed a real gap: this
+document uses "receivable control account" four times with no citation
+anywhere — added Kieso Ch.7 "Cash and Receivables," p.7-12, footnote 5
+(more directly on-point than the general Ch.3 definition, since it
+names accounts *receivable* specifically) and Ustawa o rachunkowości
+art. 13/16, both already verified in `financial-module-knowledge-base.md`.
+Compared against ERPNext (docs.frappe.io — GL posting happens
+automatically on Sales Invoice submission, not a separate command;
+`SalesInvoiceGlPosting` here substitutes for the idempotency guarantee
+Frappe's own `docstatus` gives ERPNext for free). Odoo not
+independently re-verified this pass. Findings recorded in full in
+`financial-module-knowledge-base.md` §3.
