@@ -112,12 +112,70 @@ accounts alone, not from Kieso or the UoR excerpt available in this
 session — neither reaches Polish chart-of-accounts numbering at this
 level of detail.
 
-Posting Rules Engine (#6015) remains draft-quality (TLDR + Design
-Decisions only) — the remaining required sections (Overview, Problem
-Statement, Proposed Solution, User Stories, Architecture, Data Models,
-API Contracts, Implementation Plan, Testing Strategy, Risks & Impact
-Review, Final Compliance Report) are still open work, tracked as the
-next thing to pick up.
+**Correction (2026-09-12) — the paragraph above was stale and
+contradicted this document's own table.** Posting Rules Engine (#6015)
+is **not** draft-quality-only. Verified directly against the actual file
+on `docs/posting-rules-engine`: it already has every required section
+(Overview, Problem Statement, Proposed Solution, User Stories,
+Invariants, Alternatives Considered, Architecture, Data Models, API
+Contracts, Migration & Deployment, Implementation Plan, File Manifest,
+Testing Strategy, Risks & Impact Review, Out of Scope, Final Compliance
+Report), and already went through one independent, fresh-context
+adversarial review pass (2026-09-10) that found and fixed nine real
+issues — see that file's own Changelog and Final Compliance Report. The
+table row in §1 already had this right; this paragraph did not and was
+corrected here rather than silently deleted, so the discrepancy itself
+is on record. What the document's own Final Compliance Report still
+defers: a Compliance Matrix and formal pass/fail verdict against
+`AGENTS.md`, left to a maintainer review — that is the actual remaining
+step, not more spec-writing.
+
+**Gap found while applying the new `financial-spec-writing-process`
+(2026-09-12):** zero external-literature or reference-system citations
+exist anywhere in the Posting Rules Engine spec, despite this document's
+own §4b already identifying Fowler 6.15 as a better match than 6.8 and
+recommending it be "swapped in" — that swap was never actually made in
+the spec file itself. Three further findings from this pass, not yet
+applied to the spec (recorded here per Step 5, pending a decision on
+whether to add them):
+- **Kieso, IFRS Insights supplement to Ch.4 "Income Statement and
+  Related Information," pp.4-45–4-46** — verified directly: IFRS
+  requires expenses classified either by *nature* (raw expense types —
+  Poland's zespół 4) or by *function* (COGS/selling/admin — zespół 5),
+  and notes many companies use a **"dual approach"** (function on the
+  income statement, nature-level detail in the notes), which the
+  IASB/FASB discussion paper "also recommends." This gives konto 490's
+  whole reclassification mechanism a real international-accounting
+  grounding, not just a Polish bookkeeping quirk — Polish full-books
+  practice (parallel zespół 4 + zespół 5, bridged via konto 490) *is* an
+  implementation of exactly this dual approach.
+- **Fowler 6.15.2 "Derived Accounts"** (p.130-131) — confirmed the exact
+  match already flagged in §4b: an account defined by a filter over
+  entries by attribute, not a real ledger account — structurally the
+  closest analog to how `DefaultAccountPostingRule` derives a zespół-5
+  posting from a zespół-4 entry's cost-center attribute.
+- **Hay §7.19 "Cost Center Assignment,"** pp.150–151 — read in full:
+  Hay's own model treats `COST CENTER ASSIGNMENT` as polymorphic (an
+  internal organization, work center, piece of equipment, product, or
+  project), deliberately generic. This module's own `CostCenter` entity
+  is flat (`code`/`name`/`isActive`, no hierarchy, no polymorphic
+  target) — a legitimate Phase 1 simplification, but worth naming as a
+  deliberate one rather than leaving it unremarked.
+
+**ERPNext comparison (2026-09-12, `docs.frappe.io/erpnext/cost-center`):**
+ERPNext models Cost Center as a **hierarchical tree** (group/non-group,
+`Parent Cost Center`), attached per line item on a transaction, with a
+"Cost Center Allocation" feature for percentage-based distribution
+across multiple cost centers — all real, checkable divergences from this
+module's flat, single-`defaultCostCenterId` Phase 1 model. More
+important: **ERPNext confirmed to have no automatic reclassification
+between expense-by-nature and expense-by-function accounts at all** —
+its Cost Center is a reporting/filtering tag on one chart of accounts,
+not a bridge between two parallel charts. This module's entire
+reclassification mechanism (real double-entry postings into a second,
+zespół-5 chart via konto 490) **has no direct ERPNext analog** — worth
+recording as a confirmed absence, not a gap in the research, per this
+project's citation-check discipline.
 
 **New 2026-09-10 — a second, real repository entered the picture.**
 `financial-pl` (Polish KSeF 2.0 e-invoicing + JPK_V7/VAT compliance)
