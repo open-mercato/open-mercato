@@ -244,6 +244,89 @@ not by the type system — flagged, not solved, here.
 Untested against real volumes (see Concerns) — proposed on precedent,
 not measurement.
 
+## Literature & Prior Art
+
+Per the project's financial-spec-writing-process — applied here even
+though this document is primarily an infrastructure/service-design
+decision, not an accounting pattern, because the process runs uniformly
+across the spec family, and because it surfaced a real, useful finding
+anyway. Verification trail recorded in full in
+`financial-module-knowledge-base.md` §3.
+
+**Cross-spec consistency (Step 1).** Both of this document's own
+external citations were re-verified directly against the sibling specs,
+not accepted from memory: `2026-08-18-general-ledger-core-engine.md`'s
+Invariants confirm "a posted entry is immutable... Reversing one means
+posting a new `JournalEntry`" — exactly the property this document's
+snapshot-free bulk-read design leans on — and its Out of scope entry
+("A bulk, cross-module read/export path for `JournalEntry`/
+`JournalEntryLine`... shaped for a person through a UI") is quoted
+correctly. #6013's "Scoped to ZSiO only, not Bilans/P&L/Cash Flow" and
+its File Manifest's cursor-pagination precedent for the trial-balance
+route both check out exactly as cited too. No corrections needed —
+worth naming as a positive finding, not a formality: this is the first
+spec in the family whose own citations required zero corrections on
+independent re-verification.
+
+**Literature grounding (Step 2) — a genuine, near-total absence.**
+Searched Hay's *Data Model Patterns* and Fowler's *Analysis Patterns*
+full text for ledger/posting/audit-trail material relevant to this
+document's central claim (posted rows are immutable, so a bulk read
+needs no snapshot mechanism). Hay mentions "ledger" only twice, in
+unrelated contexts, and "posting" not once, across 361 pages. Fowler's
+immutability discussion (pp. 3908–3916, 11301–11306) is about
+identifier/currency value objects, not ledger postings. Kieso's closest
+material — Reversing Entries and Correcting Entries — describes fixing
+mistakes with a new, later entry rather than editing the original,
+consistent with this document's assumption but exercise-level textbook
+content, not a dedicated treatment of posting immutability as a system
+property. Recorded honestly: the underlying claim is sound (and
+independently confirmed against #5663's own Invariants above), but none
+of the three books has a citation-worthy passage for it.
+
+**Comparison against real systems (Step 3).** Checked whether
+comparable systems have an equivalent bulk, cross-module, DI-resolved
+read contract for compliance filings, or solve it differently:
+
+- **ERPNext/Frappe** (docs.frappe.io Script Report reference, verified
+  2026-09-12): every report — compliance reports included — implements
+  its own query directly inside the report's Python file
+  (`frappe.db.get_all` / `frappe.db.sql`), with **no shared bulk-read
+  service layer between modules at all**. This is functionally the
+  "direct cross-schema queries from the consumer module" alternative
+  this document itself rejects (see Alternatives considered) — Frappe
+  accepts that cost for simplicity; this document explicitly won't, to
+  preserve the FK-only coupling convention.
+- **Odoo** (odoo-master.readthedocs.io ORM API reference, verified
+  2026-09-12): confirmed the opposite architecture — any module can call
+  `self.env['any.model.name'].search(...)` directly on any other
+  module's model (the documented example queries `res.partner` this
+  way), with no per-module service or DI layer in between at all. Odoo
+  doesn't need a document like this one because its ORM registry itself
+  *is* the universal cross-module read API; Open Mercato's deliberate
+  module-isolation convention (FK IDs only, no direct cross-schema
+  queries) is exactly what makes a bespoke service like this necessary
+  here — a real, load-bearing architectural difference between the two
+  systems, not an oversight in either.
+- GnuCash and Apache Fineract were not re-checked this pass (Fineract's
+  REST/reporting layer in particular may be a closer analog, being a
+  true client-server platform rather than a single-process monolith or
+  desktop app) — flagged as not yet done, not silently skipped.
+
+This confirms the document's central design bet (a formal, named,
+DI-resolved bulk-read contract) is a deliberate trade of upfront design
+cost for enforced module isolation — a real choice Open Mercato is
+making differently from both reference systems checked, not a default
+neither considered.
+
+**Structure (Step 4).** Checked against `om-spec-writing`'s mandatory
+sections (TLDR & Overview, Problem Statement, Proposed Solution,
+Phasing, Implementation Plan) — all present. User Stories / Invariants /
+API Contracts are correctly *omitted*, not missing: this document adds
+no entity, no route, no UI, so none of those sections would carry real
+content — exactly the "cut the noise" heuristic the skill itself calls
+for, not a compliance gap.
+
 ## Architecture
 
 ### New files
@@ -437,3 +520,19 @@ rather than guessing JPK_KR_PD's field-level requirements, since the
 primary-source XSD verification `SPEC-010` needs still hasn't happened.
 What changes is the framing in Concerns, above: this is no longer a
 speculative future consumer.
+
+### 2026-09-12 — Literature & Prior Art applied
+
+Per the financial-spec-writing-process: re-verified both this
+document's own citations (#5663 Invariants + Out of scope, #6013
+Concerns + File Manifest) directly against the source specs — zero
+corrections needed. Searched Hay and Fowler for ledger/posting
+immutability material and found a genuine, near-total absence (recorded
+honestly rather than forced). Compared against ERPNext/Frappe (no
+shared bulk-read service — each report queries directly) and Odoo (the
+opposite extreme — any module queries any other module's ORM model
+directly via `self.env`, no service layer at all): this document's
+formal DI-resolved contract is a deliberate middle path neither
+reference system takes, trading design cost for enforced module
+isolation. Findings recorded in full in
+`financial-module-knowledge-base.md` §3.
