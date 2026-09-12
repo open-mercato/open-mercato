@@ -177,6 +177,15 @@ zespół-5 chart via konto 490) **has no direct ERPNext analog** — worth
 recording as a confirmed absence, not a gap in the research, per this
 project's citation-check discipline.
 
+**Applied to the spec itself (2026-09-12).** All four findings above
+(Kieso dual nature/function-of-expense, Fowler Derived Accounts, Hay
+Cost Center Assignment divergence, ERPNext absence) are now written
+directly into `.ai/specs/2026-09-06-posting-rules-engine.md`'s own new
+"Literature & Prior Art" section, not just recorded here — commit
+`a12b8fd15` on `docs/posting-rules-engine`. This entry stays as the
+searchable index; the spec carries the citations for anyone reading it
+standalone.
+
 **New 2026-09-10 — a second, real repository entered the picture.**
 `financial-pl` (Polish KSeF 2.0 e-invoicing + JPK_V7/VAT compliance)
 already exists as a substantial, real module — but not in *this* repo.
