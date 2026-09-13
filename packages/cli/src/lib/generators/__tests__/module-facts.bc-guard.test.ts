@@ -176,6 +176,12 @@ describe('module-facts BC resolve guard (T2)', () => {
     // measured size. A real blow-up here is multiplicative (a duplicated
     // provenance payload, a contribution body copied per resolution), not one
     // provider's worth of references.
+    //
+    // The union also carries phases P1-P6 of the staff time-tracking UMES
+    // extension-point work: 33 declared hosts expanding to ~110 emitted host
+    // facts, plus query-lifecycle, portal-page and strategy-registry hosts that
+    // exist only in the v2 surface. Same linear, one-module growth the block
+    // above describes -- the caps below are re-measured on the merged tree.
     expect(Buffer.byteLength(completeJson)).toBeLessThan(4_700_000)
     // Measured on the merged tree (`yarn jest module-facts.bc-guard`):
     //   completeJson 4,120,374 · legacy delta 1,795,214 · markdown 1,558,590 ·
