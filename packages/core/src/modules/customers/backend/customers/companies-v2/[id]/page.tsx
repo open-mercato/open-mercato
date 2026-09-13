@@ -247,6 +247,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
       scheduledAt: typeof activity.scheduledAt === 'string' ? activity.scheduledAt : null,
       occurredAt: typeof activity.occurredAt === 'string' ? activity.occurredAt : null,
       durationMinutes: durationValue,
+      priority: typeof raw.priority === 'number' ? raw.priority as number : null,
       location: typeof raw.location === 'string' ? raw.location as string : null,
       allDay: typeof raw.allDay === 'boolean' ? raw.allDay as boolean : null,
       recurrenceRule: typeof raw.recurrenceRule === 'string' ? raw.recurrenceRule as string : null,

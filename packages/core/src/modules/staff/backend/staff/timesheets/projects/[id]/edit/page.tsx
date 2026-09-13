@@ -112,6 +112,7 @@ export default function TimesheetProjectEditPage({ params }: { params?: { id?: s
       <PageBody>
         <CrudForm<ProjectFormValues>
           title={t('staff.timesheets.projects.form.editTitle', 'Edit project')}
+          titleHeadingLevel={1}
           backHref={detailHref}
           cancelHref={detailHref}
           fields={fields}

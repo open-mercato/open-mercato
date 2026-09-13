@@ -22,6 +22,7 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { buildPortalRootUrl, buildPortalUrlPattern } from '../../../lib/portalUrl'
+import { useDemoPortalAccounts } from '../useDemoPortalAccounts'
 
 type UserRow = {
   id: string
@@ -229,9 +230,10 @@ function CreateUserDialog({
 
 export type PortalUsersPageClientProps = {
   portalOrigin: string
+  portalOrgSlug?: string | null
 }
 
-export function PortalUsersPageClient({ portalOrigin }: PortalUsersPageClientProps) {
+export function PortalUsersPageClient({ portalOrigin, portalOrgSlug = null }: PortalUsersPageClientProps) {
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const t = useT()
   const router = useRouter()
@@ -247,6 +249,7 @@ export function PortalUsersPageClient({ portalOrigin }: PortalUsersPageClientPro
   const [reloadToken, setReloadToken] = React.useState(0)
   const [roleOptions, setRoleOptions] = React.useState<Array<{ value: string; label: string; id: string }>>([])
   const [createDialogOpen, setCreateDialogOpen] = React.useState(false)
+  const { accounts: demoAccounts } = useDemoPortalAccounts()
 
   const { runMutation, retryLastMutation } = useGuardedMutation<{
     entityType: string
@@ -505,9 +508,14 @@ export function PortalUsersPageClient({ portalOrigin }: PortalUsersPageClientPro
                 url: buildPortalUrlPattern(portalOrigin),
               })}
             </p>
-            <p className="mt-0.5 text-xs text-status-info-text">
-              {t('customer_accounts.admin.portalInfo.credentials', 'Demo credentials: alice.johnson@example.com / Password123!')}
-            </p>
+            {demoAccounts.length > 0 ? (
+              <p className="mt-0.5 text-xs text-status-info-text">
+                {t('customer_accounts.admin.portalInfo.credentials', 'Seeded demo credentials: {email} / {password}', {
+                  email: demoAccounts[0].email,
+                  password: demoAccounts[0].password,
+                })}
+              </p>
+            ) : null}
           </div>
           <div className="flex shrink-0 flex-col gap-2">
             <Button
@@ -521,23 +529,26 @@ export function PortalUsersPageClient({ portalOrigin }: PortalUsersPageClientPro
                 {t('customer_accounts.admin.portalInfo.openConfiguration', 'Open Configuration')}
               </Link>
             </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              asChild
-            >
-              <a href={buildPortalRootUrl(portalOrigin)} target="_blank" rel="noopener noreferrer">
-                <Globe className="size-4" />
-                {t('customer_accounts.admin.portalInfo.open', 'Open Portal')}
-              </a>
-            </Button>
+            {portalOrgSlug ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                asChild
+              >
+                <a href={buildPortalRootUrl(portalOrigin, portalOrgSlug)} target="_blank" rel="noopener noreferrer">
+                  <Globe className="size-4" />
+                  {t('customer_accounts.admin.portalInfo.open', 'Open Portal')}
+                </a>
+              </Button>
+            ) : null}
           </div>
         </div>
       </div>
       <DataTable<UserRow>
         stickyActionsColumn
         title={t('customer_accounts.admin.title', 'Users')}
+        titleHeadingLevel={1}
         actions={(
           <Button onClick={() => setCreateDialogOpen(true)}>
             {t('customer_accounts.admin.actions.createUser', 'Create User')}

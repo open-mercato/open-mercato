@@ -1,10 +1,10 @@
 import { test, expect } from '@playwright/test';
-import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
+import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api';
 import {
   createCompanyFixture,
   createDealFixture,
   deleteEntityIfExists,
-} from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures';
+} from '@open-mercato/core/helpers/integration/crmFixtures';
 
 /**
  * TC-CRM-WRITE-GUARD-001: a write endpoint applies a field or refuses it.
@@ -127,49 +127,89 @@ test.describe('TC-CRM-WRITE-GUARD-001: writes never silently discard a field', (
     }
   });
 
-  // `date`, `time` and `phoneNumber` passed validation and were then left out of
-  // the hand-built command input, so the edit reported success and changed nothing.
-  test('an activity phone-number edit now persists', async ({ request }) => {
-    let token: string | null = null;
-    let companyId: string | null = null;
-    let activityId: string | null = null;
-    const stamp = Date.now();
-    const phone = '+48221234567';
+  for (const resource of ['activities', 'interactions'] as const) {
+    const endpoint = `/api/customers/${resource}`;
 
-    try {
-      token = await getAuthToken(request);
-      companyId = await createCompanyFixture(request, token, `QA WG001d Co ${stamp}`);
+    for (const scenario of ['persist', 'conflict', 'clear'] as const) {
+      test(`${resource}: phone-number ${scenario} uses the existing custom field`, async ({ request }) => {
+        let token: string | null = null;
+        let companyId: string | null = null;
+        let activityId: string | null = null;
+        const initialPhone = '+48229999999';
+        const phone = '+48221234567';
 
-      const created = await apiRequest(request, 'POST', '/api/customers/activities', {
-        token,
-        data: {
-          entityId: companyId,
-          activityType: 'call',
-          subject: `QA WG001d ${stamp}`,
-          phoneNumber: '+48229999999',
-        },
+        try {
+          token = await getAuthToken(request);
+          companyId = await createCompanyFixture(request, token, `QA WG001 phone ${resource} ${scenario} ${Date.now()}`);
+          const created = await apiRequest(request, 'POST', endpoint, {
+            token,
+            data: {
+              entityId: companyId,
+              ...(resource === 'activities'
+                ? { activityType: 'call', subject: 'QA WG001 phone' }
+                : { interactionType: 'call', title: 'QA WG001 phone' }),
+              phoneNumber: initialPhone,
+              customValues: { callDirection: 'inbound' },
+            },
+          });
+          expect(created.status()).toBe(201);
+          activityId = (await created.json())?.id ?? null;
+          expect(activityId).toBeTruthy();
+
+          const readActivity = async () => {
+            if (!token) throw new Error('[internal] Test authentication is missing');
+            const detail = await apiRequest(request, 'GET', `${endpoint}?entityId=${companyId}`, { token });
+            expect(detail.status()).toBe(200);
+            const body = await detail.json();
+            const activity = body.items.find((item: { id: string }) => item.id === activityId);
+            expect(activity).toBeDefined();
+            return activity;
+          };
+          expect((await readActivity()).customValues).toMatchObject({
+            callPhoneNumber: initialPhone, callDirection: 'inbound',
+          });
+
+          if (scenario === 'persist') {
+            const updated = await apiRequest(request, 'PUT', endpoint, {
+              token,
+              data: { id: activityId, phoneNumber: phone },
+            });
+            expect(updated.status()).toBe(200);
+            expect((await readActivity()).customValues).toMatchObject({
+              callPhoneNumber: phone, callDirection: 'inbound',
+            });
+            const duplicate = await apiRequest(request, 'PUT', endpoint, {
+              token,
+              data: { id: activityId, phoneNumber: phone, customValues: { callPhoneNumber: phone } },
+            });
+            expect(duplicate.status()).toBe(200);
+            const unrelated = await apiRequest(request, 'PUT', endpoint, {
+              token, data: { id: activityId, body: 'Phone omitted deliberately' },
+            });
+            expect(unrelated.status()).toBe(200);
+            expect((await readActivity()).customValues.callPhoneNumber).toBe(phone);
+          } else if (scenario === 'conflict') {
+            const rejected = await apiRequest(request, 'PUT', endpoint, {
+              token,
+              data: { id: activityId, phoneNumber: phone, customValues: { callPhoneNumber: initialPhone } },
+            });
+            expect(rejected.status()).toBe(400);
+            expect((await rejected.json()).fields).toContain('phoneNumber');
+            expect((await readActivity()).customValues.callPhoneNumber).toBe(initialPhone);
+          } else {
+            const cleared = await apiRequest(request, 'PUT', endpoint, {
+              token, data: { id: activityId, phoneNumber: null },
+            });
+            expect(cleared.status()).toBe(200);
+            const custom = (await readActivity()).customValues;
+            expect(custom.callPhoneNumber ?? null).toBeNull();
+            expect(custom.callDirection).toBe('inbound');
+          }
+        } finally {
+          await deleteEntityIfExists(request, token, endpoint, activityId);
+          await deleteEntityIfExists(request, token, '/api/customers/companies', companyId);
+        }
       });
-      expect(created.status()).toBe(201);
-      activityId = (await created.json())?.id ?? null;
-      expect(activityId).toBeTruthy();
-
-      const res = await apiRequest(request, 'PUT', '/api/customers/activities', {
-        token,
-        data: { id: activityId, activityType: 'call', phoneNumber: phone },
-      });
-      expect(res.status()).toBe(200);
-
-      const detail = await apiRequest(request, 'GET', `/api/customers/activities?id=${activityId}`, { token });
-      expect(detail.status()).toBe(200);
-      const body = await detail.json();
-      const activity = Array.isArray(body?.items)
-        ? body.items.find((item: { id?: string }) => item?.id === activityId) ?? body.items[0]
-        : body;
-
-      expect(activity?.phoneNumber ?? activity?.phone_number).toBe(phone);
-    } finally {
-      await deleteEntityIfExists(request, token, '/api/customers/activities', activityId);
-      await deleteEntityIfExists(request, token, '/api/customers/companies', companyId);
     }
-  });
+  }
 });

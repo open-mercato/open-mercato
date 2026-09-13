@@ -52,7 +52,7 @@ const config: Config = {
         docs: {
           sidebarPath: require.resolve('./sidebars.ts'),
           routeBasePath: '/',
-          editUrl: 'https://github.com/open-mercato/open-mercato/tree/main/docs',
+          editUrl: 'https://github.com/open-mercato/open-mercato/tree/main/apps/docs',
           showLastUpdateAuthor: true,
           showLastUpdateTime: true,
         },

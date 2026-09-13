@@ -49,6 +49,7 @@ import {
   INTERACTION_STATUS_PLANNED,
 } from '../lib/interactionStatus'
 import { canChangeEmailVisibility } from '../lib/visibilityFilter'
+import { mergeInteractionPhoneNumber } from '../lib/interactionPhoneNumber'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('customers')
@@ -378,6 +379,7 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
   id: 'customers.interactions.create',
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(interactionCreateSchema, rawInput)
+    const customValues = await mergeInteractionPhoneNumber(parsed.phoneNumber, custom)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const normalizedAuthor = normalizeAuthorUserId(parsed.authorUserId ?? null, ctx.auth)
@@ -427,7 +429,7 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
         interaction.id,
         entity.organizationId,
         entity.tenantId,
-        custom,
+        customValues,
       )
 
       const projection = await recomputeNextInteraction(trx, entity.id)
@@ -637,6 +639,7 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
   },
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(interactionUpdateSchema, rawInput)
+    const customValues = await mergeInteractionPhoneNumber(parsed.phoneNumber, custom)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const { interaction, entityId, nextInteractionId } = await runInTransaction(em, async (trx) => {
       const interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: parsed.id, deletedAt: null })
@@ -725,7 +728,7 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
         interaction.id,
         interaction.organizationId,
         interaction.tenantId,
-        custom,
+        customValues,
       )
 
       const projection = await recomputeNextInteraction(trx, entityId)

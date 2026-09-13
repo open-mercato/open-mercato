@@ -62,6 +62,9 @@ function mapActivityCreateInput(
     title: input.subject ?? null,
     body: input.body ?? null,
     occurredAt: input.occurredAt ?? null,
+    date: input.date,
+    time: input.time,
+    phoneNumber: input.phoneNumber,
     status: input.occurredAt ? 'done' : 'planned',
     dealId: input.dealId ?? null,
     authorUserId: input.authorUserId ?? null,
@@ -87,10 +90,6 @@ function mapActivityUpdateInput(
           status: input.occurredAt ? 'done' : 'planned',
         }
       : {}),
-    // Forwarded because the canonical `interactionUpdateSchema` accepts all three
-    // and derives `scheduledAt` from `date`+`time`. They were accepted by
-    // `activityUpdateSchema` and then dropped here, so editing a call's phone
-    // number through this endpoint reported success and changed nothing.
     ...(input.date !== undefined ? { date: input.date } : {}),
     ...(input.time !== undefined ? { time: input.time } : {}),
     ...(input.phoneNumber !== undefined ? { phoneNumber: input.phoneNumber } : {}),

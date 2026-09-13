@@ -146,9 +146,9 @@ export async function loadDealsSummaryQueryRows(input: DealsSummaryQueryInput): 
   const winLossRows = await connection.execute<WinLossRow[]>(
     `SELECT
         COUNT(*) FILTER (WHERE (status = 'win' OR closure_outcome = 'won') AND updated_at >= ? AND updated_at < ?) AS current_won,
-        COUNT(*) FILTER (WHERE (status = 'loose' OR closure_outcome = 'lost') AND updated_at >= ? AND updated_at < ?) AS current_lost,
+        COUNT(*) FILTER (WHERE (status IN ('lost', 'loose') OR closure_outcome = 'lost') AND updated_at >= ? AND updated_at < ?) AS current_lost,
         COUNT(*) FILTER (WHERE (status = 'win' OR closure_outcome = 'won') AND updated_at >= ? AND updated_at < ?) AS previous_won,
-        COUNT(*) FILTER (WHERE (status = 'loose' OR closure_outcome = 'lost') AND updated_at >= ? AND updated_at < ?) AS previous_lost
+        COUNT(*) FILTER (WHERE (status IN ('lost', 'loose') OR closure_outcome = 'lost') AND updated_at >= ? AND updated_at < ?) AS previous_lost
       FROM customer_deals
       WHERE ${scopeWhere}`,
     [
@@ -168,7 +168,7 @@ export async function loadDealsSummaryQueryRows(input: DealsSummaryQueryInput): 
     `SELECT
         to_char(date_trunc('month', updated_at AT TIME ZONE 'UTC'), 'YYYY-MM') AS period,
         COUNT(*) FILTER (WHERE status = 'win' OR closure_outcome = 'won') AS won,
-        COUNT(*) FILTER (WHERE status = 'loose' OR closure_outcome = 'lost') AS lost
+        COUNT(*) FILTER (WHERE status IN ('lost', 'loose') OR closure_outcome = 'lost') AS lost
       FROM customer_deals
       WHERE ${scopeWhere} AND updated_at >= ?
       GROUP BY 1`,

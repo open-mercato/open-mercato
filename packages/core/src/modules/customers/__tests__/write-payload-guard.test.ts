@@ -144,10 +144,10 @@ describe('server-maintained timestamps are not reported as ignored', () => {
 // declares no `entityId`, so the activities adapter had no way to apply one and
 // reported success anyway.
 describe('activity update refuses to pretend it re-parented a record', () => {
-  it('no longer declares entityId as writable', () => {
+  it('preserves entityId in the public schema while the route guard enforces immutability', () => {
     const keys = collectWritableKeys(activityUpdateSchema)
     expect(keys).not.toBeNull()
-    expect(keys!.has('entityId')).toBe(false)
+    expect(keys!.has('entityId')).toBe(true)
   })
 
   it('flags entityId as immutable rather than unknown', () => {

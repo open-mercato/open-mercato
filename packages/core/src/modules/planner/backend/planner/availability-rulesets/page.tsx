@@ -204,7 +204,8 @@ export default function PlannerAvailabilityRuleSetsPage() {
     <Page>
       <PageBody>
         <DataTable<RuleSetRow>
-          title={labels.title}
+        title={labels.title}
+        titleHeadingLevel={1}
           data={rows}
           columns={columns}
           isLoading={isLoading}

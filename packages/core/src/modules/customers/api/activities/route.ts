@@ -33,6 +33,7 @@ import { hydrateCanonicalInteractions } from '../../lib/interactionReadModel'
 import { resolveCanonicalActivityTargetId } from '../../lib/legacyActivityBridge'
 import { buildEmailVisibilityMikroFilter } from '../../lib/visibilityFilter'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 
 const logger = createLogger('customers')
 
@@ -588,6 +589,9 @@ export async function POST(request: Request): Promise<Response> {
         title: parsed.subject ?? null,
         body: parsed.body ?? null,
         occurredAt: parsed.occurredAt ?? null,
+        date: parsed.date,
+        time: parsed.time,
+        phoneNumber: parsed.phoneNumber,
         status: parsed.occurredAt ? 'done' : 'planned',
         dealId: parsed.dealId ?? null,
         authorUserId: parsed.authorUserId ?? null,
@@ -630,6 +634,10 @@ export async function POST(request: Request): Promise<Response> {
   } catch (err) {
     if (isCrudHttpError(err)) {
       return withAdapterHeaders(NextResponse.json(err.body, { status: err.status }))
+    }
+    const interceptorRejection = getCommandInterceptorHttpRejection(err)
+    if (interceptorRejection) {
+      return withAdapterHeaders(NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status }))
     }
     if (err instanceof z.ZodError) {
       return withAdapterHeaders(
@@ -700,7 +708,7 @@ export async function PUT(request: Request): Promise<Response> {
         // `date`+`time`. They were validated here and then left out of this input.
         date: parsed.date ?? undefined,
         time: parsed.time ?? undefined,
-        phoneNumber: parsed.phoneNumber ?? undefined,
+        phoneNumber: parsed.phoneNumber,
         dealId: parsed.dealId ?? undefined,
         authorUserId: parsed.authorUserId ?? undefined,
         appearanceIcon: parsed.appearanceIcon ?? undefined,
@@ -734,6 +742,10 @@ export async function PUT(request: Request): Promise<Response> {
   } catch (err) {
     if (isCrudHttpError(err)) {
       return withAdapterHeaders(NextResponse.json(err.body, { status: err.status }))
+    }
+    const interceptorRejection = getCommandInterceptorHttpRejection(err)
+    if (interceptorRejection) {
+      return withAdapterHeaders(NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status }))
     }
     if (err instanceof z.ZodError) {
       return withAdapterHeaders(
@@ -802,6 +814,10 @@ export async function DELETE(request: Request): Promise<Response> {
   } catch (err) {
     if (isCrudHttpError(err)) {
       return withAdapterHeaders(NextResponse.json(err.body, { status: err.status }))
+    }
+    const interceptorRejection = getCommandInterceptorHttpRejection(err)
+    if (interceptorRejection) {
+      return withAdapterHeaders(NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status }))
     }
     if (err instanceof z.ZodError) {
       return withAdapterHeaders(

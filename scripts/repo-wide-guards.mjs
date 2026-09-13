@@ -85,6 +85,14 @@ export const REPO_WIDE_GUARDS = [
         scans: 'every packages/*/src/modules tree — optimistic-lock command coverage',
       },
       {
+        path: 'src/__tests__/backend-page-route-params.test.ts',
+        scans: 'every packages/*/src/modules and apps/*/src/modules backend page — route ids read from the `params` prop rather than `useParams()`, which the /backend/[...slug] catch-all never populates with an id (#5600)',
+      },
+      {
+        path: 'src/__tests__/notification-channel-eligibility.test.ts',
+        scans: 'every module-root notification catalogue under packages and apps — explicit delivery-channel eligibility (#5495)',
+      },
+      {
         path: 'src/modules/__tests__/crud-indexer-config.test.ts',
         scans: 'packages/ and apps/ — CRUD indexer configuration',
       },
@@ -276,6 +284,10 @@ export const CROSS_PACKAGE_EXCEPTIONS = [
   {
     path: 'packages/create-app/src/lib/template-i18n-parity.test.ts',
     reason: 'Already unfiltered — the "Check create-app template parity" CI step runs the whole create-mercato-app suite (#3779).',
+  },
+  {
+    path: 'packages/create-app/src/lib/template-modules-parity.test.ts',
+    reason: 'Already unfiltered — the "Check create-app template parity" CI step runs the whole create-mercato-app suite (#3779). It reads apps/mercato/src/modules.ts and the template counterpart through the scripts/template-sync.ts transform, and it is a node:test file rather than a jest one, so it could not run under this jest-based runner anyway (#5598).',
   },
   {
     path: 'packages/create-app/src/lib/module-activation-fixtures.test.ts',

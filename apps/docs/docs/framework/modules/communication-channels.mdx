@@ -23,7 +23,7 @@ Three push providers ship today, all `channelType: 'push'` and `channelScope: 't
 - `@open-mercato/channel-apns` — Apple Push Notification service, directly
 - `@open-mercato/channel-expo` — Expo push service (Android and iOS)
 
-Push delivery itself is owned by the `push_notifications` module; these packages hold only the provider SDKs and their message builders. See the [Devices and push getting-started tutorial](../../tutorials/devices-and-push-getting-started.mdx).
+Push delivery itself is owned by the `push_notifications` module; these packages hold only the provider SDKs and their message builders. Push credentials are **tenant-scoped** (`channelScope: 'tenant'`), so they are connected through `POST /api/communication_channels/channels/connect/tenant-credentials` and the per-user connect route refuses them. See [Push Notifications](./push-notifications.mdx) and the [getting-started tutorial](../../tutorials/devices-and-push-getting-started.mdx).
 
 For the end-user perspective see the [Communication Channels user guide](../../user-guide/communication-channels.mdx).
 

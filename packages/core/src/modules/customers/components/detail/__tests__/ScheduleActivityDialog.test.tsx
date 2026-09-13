@@ -7,6 +7,7 @@ import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWith
 import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { ScheduleActivityDialog } from '../ScheduleActivityDialog'
+import type { ScheduleActivityEditData } from '../schedule'
 
 const readApiResultOrThrowMock = jest.fn()
 const setConflictMock = jest.fn()
@@ -68,6 +69,7 @@ let mockScheduleState = createScheduleState()
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCallOrThrow: jest.fn(),
   readApiResultOrThrow: (...args: unknown[]) => readApiResultOrThrowMock(...args),
+  withScopedApiRequestHeaders: <T,>(_headers: unknown, call: () => T) => call(),
 }))
 
 jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({
@@ -261,6 +263,112 @@ describe('ScheduleActivityDialog', () => {
     ).not.toThrow()
 
     expect(screen.getByText('Update activity')).toBeInTheDocument()
+  })
+
+  describe('task priority (regression #5943)', () => {
+    const TASK_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+
+    function renderTaskDialog(editData?: ScheduleActivityEditData) {
+      mockScheduleState = createScheduleState({ activityType: 'task' as const, title: 'Follow up' })
+      renderWithProviders(
+        <ScheduleActivityDialog
+          open
+          onClose={() => undefined}
+          entityId="person-1"
+          entityType="person"
+          editData={editData ?? null}
+        />,
+      )
+    }
+
+    function lastSavedPayload() {
+      const requestInit = apiCallOrThrowMock.mock.calls.at(-1)?.[1] as { body?: string } | undefined
+      return JSON.parse(String(requestInit?.body ?? '{}')) as Record<string, unknown>
+    }
+
+    async function save(buttonName: RegExp) {
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: buttonName }))
+      })
+    }
+
+    it('seeds the control from the interaction priority column instead of always showing Medium', () => {
+      renderTaskDialog({ id: TASK_ID, interactionType: 'task', priority: 90 })
+
+      expect(screen.getByRole('button', { name: 'High' })).toHaveAttribute('aria-pressed', 'true')
+      expect(screen.getByRole('button', { name: 'Medium' })).toHaveAttribute('aria-pressed', 'false')
+    })
+
+    it('ignores the legacy customValues.taskPriority so a cleared priority cannot be resurrected', () => {
+      renderTaskDialog({
+        id: TASK_ID,
+        interactionType: 'task',
+        priority: null,
+        customValues: { taskPriority: 'urgent' },
+      } as ScheduleActivityEditData)
+
+      expect(screen.getByRole('button', { name: 'None' })).toHaveAttribute('aria-pressed', 'true')
+      expect(screen.getByRole('button', { name: 'High' })).toHaveAttribute('aria-pressed', 'false')
+    })
+
+    it('keeps the stored number when the selected level still matches its bucket', async () => {
+      renderTaskDialog({ id: TASK_ID, interactionType: 'task', priority: 100 })
+
+      await save(/^Update activity$/)
+
+      expect(lastSavedPayload().priority).toBe(100)
+    })
+
+    it('snaps to the canonical number when the level actually changes', async () => {
+      renderTaskDialog({ id: TASK_ID, interactionType: 'task', priority: 100 })
+
+      fireEvent.click(screen.getByRole('button', { name: 'Low' }))
+      await save(/^Update activity$/)
+
+      expect(lastSavedPayload().priority).toBe(10)
+    })
+
+    it('shows None when the priority column is unset', () => {
+      renderTaskDialog({ id: TASK_ID, interactionType: 'task', priority: null })
+
+      expect(screen.getByRole('button', { name: 'None' })).toHaveAttribute('aria-pressed', 'true')
+    })
+
+    it('writes the selected level to the priority column and no longer to customValues', async () => {
+      renderTaskDialog()
+
+      fireEvent.click(screen.getByRole('button', { name: 'High' }))
+      await save(/^Save task$/)
+
+      const payload = lastSavedPayload()
+      expect(payload.priority).toBe(90)
+      expect(payload).not.toHaveProperty('customValues')
+    })
+
+    it('clears the priority column when None is selected', async () => {
+      renderTaskDialog({ id: TASK_ID, interactionType: 'task', priority: 90 })
+
+      fireEvent.click(screen.getByRole('button', { name: 'None' }))
+      await save(/^Update activity$/)
+
+      expect(lastSavedPayload().priority).toBeNull()
+    })
+
+    it('omits priority for non-task activities so a type switch never clears the column', async () => {
+      mockScheduleState = createScheduleState({ activityType: 'meeting' as const, title: 'Quarterly review' })
+      renderWithProviders(
+        <ScheduleActivityDialog
+          open
+          onClose={() => undefined}
+          entityId="person-1"
+          entityType="person"
+        />,
+      )
+
+      await save(/^Save activity$/)
+
+      expect(lastSavedPayload()).not.toHaveProperty('priority')
+    })
   })
 
   it('shows Save note button when creating a new note activity', () => {

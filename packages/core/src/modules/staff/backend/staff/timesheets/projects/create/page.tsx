@@ -33,6 +33,7 @@ export default function TimesheetProjectCreatePage() {
       <PageBody>
         <CrudForm<ProjectFormValues>
           title={t('staff.timesheets.projects.form.createTitle', 'Create project')}
+          titleHeadingLevel={1}
           backHref={BACK_HREF}
           cancelHref={BACK_HREF}
           fields={fields}

@@ -63,8 +63,11 @@ The same hand-built list also drops `date`, `time` and `phoneNumber`, which
 (it derives `scheduledAt` from `date`+`time`). Editing a call activity's phone
 number through this endpoint reported success and changed nothing.
 
-`mapActivityUpdateInput` in `commands/activities.ts` drops the same four fields on
-the programmatic path.
+The compatibility create/update adapters also need to forward these inputs.
+Forwarding `phoneNumber` alone does not persist it: the canonical interaction
+commands must map it to the `callPhoneNumber` custom field used by the UI.
+Both activity and interaction reads expose it through `customValues`, not a new
+phone-number column.
 
 ---
 
@@ -74,8 +77,7 @@ the programmatic path.
 
 `makeCrudRoute` funnels every ORM-backed write through two lines,
 `createConfig.schema.parse(body)` and `updateConfig.schema.parse(body)`. That is
-where the stripping happens, so that is where the guard goes. It reaches 77 route
-files across 19 modules without any of them opting in.
+where the stripping happens, so that is where the guard goes. Factory-backed routes inherit it without opting in.
 
 Two other write paths exist and get the same guard:
 
@@ -127,7 +129,7 @@ creation, so the create path must accept exactly them.
 Aliasing is safe to default on at this reach precisely because it is additive: it
 only ever applies keys Zod was already discarding, so no field that takes effect
 today changes behaviour. That property is what lets the guard sit at a chokepoint
-covering 19 modules rather than being wired per route.
+shared by modules rather than being wired per route.
 
 Rejecting unknown keys is **opt-in** per route (`writeGuard.rejectUnknownFields`).
 Widget injection routinely puts non-schema keys into form payloads, so flipping
@@ -145,16 +147,17 @@ a caller something to assert on without that risk.
 | `packages/shared/src/lib/api/scoped.ts` | `parseScopedCommandInput` delegates to the shared guard |
 | `packages/core/src/modules/customers/api/deals/route.ts` | Update response reports `ignoredFields` |
 | `packages/core/src/modules/customers/api/activities/route.ts` | Calls the guard directly; rejects `entityId`; forwards `date` / `time` / `phoneNumber` |
-| `packages/core/src/modules/customers/data/validators.ts` | `activityUpdateSchema` no longer declares `entityId` |
-| `packages/core/src/modules/customers/commands/activities.ts` | `mapActivityUpdateInput` forwards `date` / `time` / `phoneNumber` |
+| `packages/core/src/modules/customers/data/validators.ts` | `ActivityUpdateInput` retains optional `entityId` for source compatibility; the HTTP guard rejects immutable writes |
+| `packages/core/src/modules/customers/commands/activities.ts` | Both create and update adapters forward `date` / `time` / `phoneNumber` |
+| `packages/core/src/modules/customers/commands/interactions.ts` | Create/update map `phoneNumber` to the existing custom-field persistence path, within the existing transaction and undo snapshots |
+| `packages/core/src/modules/customers/lib/interactionPhoneNumber.ts` | Merge the phone alias with custom values; reject conflicting representations before any write |
 
 ### Coverage
 
-In the customers module, 9 of 15 `PUT` endpoints are now guarded, up from the 2
-the reported bugs live in. The remaining 6 are bespoke handlers (`pipelines`,
-`pipeline-stages`, the two `roles` routes, two `settings` routes) that use neither
-the factory nor `parseScopedCommandInput`; each can adopt the guard with a single
-`guardWriteBody` call. Framework-wide, every `makeCrudRoute` write inherits it.
+Factory-backed and `parseScopedCommandInput`-backed writes inherit the guard.
+This PR adds an explicit guard to the hand-written activities update route.
+Other bespoke handlers that call neither shared entry point must adopt
+`guardWriteBody` explicitly; this PR does not cover every write entry point.
 
 ---
 
@@ -168,7 +171,8 @@ the factory nor `parseScopedCommandInput`; each can adopt the guard with a singl
   of a misleading `200`. This is the point of the change.
 - Responses gain an optional `ignoredFields` array. Absent anything to report, the
   response is byte-identical to today's.
-- No migration or persisted-data changes.
+- No database schema change or migration. Accepted phone writes update existing
+  custom-field storage.
 
 **A previously-succeeding request can now return 400.** The additivity above is a
 statement about FIELDS, not about REQUESTS, and the difference is worth stating
@@ -187,14 +191,13 @@ applies the field or refuses it. It is recorded here so the trade-off is a decis
 rather than a surprise. A straight round-trip is unaffected, because the read side
 emits values the write schema accepts.
 
-**`ActivityUpdateInput` is narrowed.** `activityUpdateSchema.omit({ entityId: true })`
-removes a field from an exported type. `BACKWARD_COMPATIBILITY.md` classifies that as
-breaking. Nothing that worked stops working at runtime, since the field was inert on
-this path, but the type is narrower for anyone importing it.
+**`ActivityUpdateInput` preserves source compatibility.** Its optional `entityId`
+field remains declared. The HTTP write guard rejects it as immutable before
+parsing, without removing the field from the exported schema or TypeScript type.
 
 **The programmatic path is not yet covered.** The guard fires on the HTTP route, so
-`customers.activities.update` invoked directly still discards `entityId` — Zod strips
-it now instead of `mapActivityUpdateInput` dropping it. Same outcome as before, so no
+`customers.activities.update` invoked directly still discards `entityId` in
+`mapActivityUpdateInput`. Same outcome as before, so no
 regression, but the "no silent drops" promise does not hold there yet.
 
 **Deal write schemas now accept `null` on nullable columns.** Every `CustomerDeal`
@@ -208,7 +211,29 @@ given `.nullable()` for the same reason (TC-CRM-069).
 
 ---
 
+## Phone-number persistence contract
+
+- `POST` and `PUT` on `/api/customers/activities` and `/api/customers/interactions`
+  persist a supplied `phoneNumber` as `customValues.callPhoneNumber`.
+- Supplying both representations with matching trimmed values is accepted;
+  conflicting values return `400` before any entity or custom-field write.
+- Omitting the top-level field preserves custom-only writes and the existing phone.
+  Other custom fields survive a phone-only edit.
+- Explicit null is forwarded rather than discarded. Existing interaction validation
+  still applies: a call update explicitly naming `interactionType: 'call'` requires
+  a nonempty phone when supplied; clients can clear the custom field directly or
+  send a partial update without the type.
+- There is no new database column or migration. Existing custom-field snapshots
+  and undo/redo remain the source of truth.
+
 ## Testing
+
+- `packages/core/src/modules/customers/__integration__/TC-CRM-WRITE-GUARD-001.spec.ts`:
+  deal round-trip aliases, ignored keys, immutable parent, plus activity and
+  interaction create/read/update/read persistence, matching/conflicting phone
+  representations, omitted phone preservation and explicit clearing.
+- `packages/core/src/modules/customers/lib/__tests__/interactionPhoneNumber.test.ts`:
+  custom-field preservation, duplicate conflict handling, null and omission.
 
 - `packages/shared/src/lib/crud/__tests__/write-payload.test.ts` — key extraction
   across `merge`/`partial`/`ZodEffects`/union, aliasing, conflicts, immutability.
@@ -221,6 +246,12 @@ given `.nullable()` for the same reason (TC-CRM-069).
 ---
 
 ## Changelog
+
+- **2026-09-13** - Resolve upstream indexer-wrapper conflicts while retaining the
+  command-response input. Persist phone writes through canonical interaction
+  custom fields, forward create inputs, and assert on the real read projection.
+  Add conflict, omission and clearing coverage for both API surfaces. Preserve
+  the public activity update schema while enforcing HTTP immutability in the guard.
 
 - **2026-08-26** - Initial spec. Both cases reproduced against a deployed 0.6.7
   instance and confirmed still present on `develop`. Guard placed at the

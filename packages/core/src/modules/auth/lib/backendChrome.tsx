@@ -13,10 +13,14 @@ import type {
 } from '@open-mercato/shared/modules/navigation/backendChrome'
 import {
   buildAdminNav,
+  buildProfileSections,
   buildSettingsSections,
   computeSettingsPathPrefixes,
   convertToSectionNavGroups,
+  mergeSectionsWithDiscovered,
   type AdminNavItem,
+  type SettingsSection,
+  type SettingsSectionItem,
 } from '@open-mercato/ui/backend/utils/nav'
 import { resolveRegisteredLucideIconNode } from '@open-mercato/ui/backend/icons/lucideRegistry'
 import { profilePathPrefixes, profileSections } from './profile-sections'
@@ -104,6 +108,36 @@ export const settingsSectionOrder: Record<string, number> = {
   'currencies.nav.group': 6,
   'settings.sections.directory': 7,
   'settings.sections.featureToggles': 8,
+}
+
+/**
+ * Profile section weights, keyed by the untranslated group id, exactly like `settingsSectionOrder`.
+ *
+ * Only the built-in account section is ranked; a module contributing its own profile group sorts
+ * after it on the shared 999 fallback rather than displacing the account pages.
+ */
+export const profileSectionOrder: Record<string, number> = {
+  'profile.sections.account': 1,
+}
+
+/**
+ * Path prefixes that put the shell into profile mode: the static list plus every href the resolved
+ * profile sections actually link to.
+ *
+ * `computeSettingsPathPrefixes` is deliberately not reused — it also registers each item's parent
+ * directory, which is harmless for `/backend/settings/*` but would hand profile mode a whole
+ * unrelated subtree if a module hosts its profile page outside `/backend/profile/`.
+ */
+function resolveProfilePathPrefixes(sections: SettingsSection[]): string[] {
+  const prefixes = new Set(profilePathPrefixes)
+  const visitItems = (items: SettingsSectionItem[]) => {
+    for (const item of items) {
+      prefixes.add(item.href)
+      if (item.children?.length) visitItems(item.children)
+    }
+  }
+  for (const section of sections) visitItems(section.items)
+  return Array.from(prefixes)
 }
 
 type NavGroupWithWeight = Omit<BackendChromeNavGroup, 'id' | 'defaultName' | 'items'> & {
@@ -460,6 +494,14 @@ export async function resolveBackendChromePayload({
     ),
   )
 
+  // The profile sidebar mirrors the profile dropdown: the static baseline covers the `navHidden`
+  // pages route discovery drops, and every other `pageContext: 'profile'` page is derived from the
+  // manifest so a module adding one lands in both surfaces at once (#5594).
+  const resolvedProfileSections = mergeSectionsWithDiscovered(
+    profileSections,
+    buildProfileSections(entries, profileSectionOrder),
+  )
+
   const requestOrganizationId = request ? getSelectedOrganizationFromRequest(request) : null
   const fallbackOrganizationId = selectedOrganizationId ?? requestOrganizationId ?? auth.orgId ?? null
   const brandOrganizationId = scopedOrganizationId
@@ -507,8 +549,10 @@ export async function resolveBackendChromePayload({
     groups: appliedGroups.map(({ weight: _weight, ...group }) => group),
     settingsSections,
     settingsPathPrefixes: computeSettingsPathPrefixes(buildSettingsSections(entries, settingsSectionOrder)),
-    profileSections: await serializeSectionGroups(profileSections),
-    profilePathPrefixes,
+    profileSections: await serializeSectionGroups(
+      convertToSectionNavGroups(resolvedProfileSections, translate),
+    ),
+    profilePathPrefixes: resolveProfilePathPrefixes(resolvedProfileSections),
     grantedFeatures,
     roles: Array.isArray(auth.roles) ? auth.roles : [],
     brand,
