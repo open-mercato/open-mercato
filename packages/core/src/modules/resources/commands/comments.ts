@@ -1,11 +1,7 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
-import type { CommandHandler } from '@open-mercato/shared/lib/commands'
-import { emitCrudSideEffects, emitCrudUndoSideEffects, buildChanges, requireId } from '@open-mercato/shared/lib/commands/helpers'
-import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
+import { makeCommentCommandSet } from '@open-mercato/shared/lib/commands/timeline'
 import { ResourcesResourceComment } from '../data/entities'
 import {
   resourcesResourceCommentCreateSchema,
@@ -14,8 +10,7 @@ import {
   type ResourcesResourceCommentUpdateInput,
 } from '../data/validators'
 import { resourcesResourceCommentCrudEvents } from '../lib/crud'
-import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
-import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload, requireResource, resolveResourceAuthorUserId } from './shared'
+import { ensureOrganizationScope, ensureTenantScope, requireResource, resolveResourceAuthorUserId } from './shared'
 import { E } from '#generated/entities.ids.generated'
 
 const commentCrudIndexer: CrudIndexerConfig<ResourcesResourceComment> = {
@@ -33,11 +28,6 @@ type CommentSnapshot = {
   appearanceColor: string | null
 }
 
-type CommentUndoPayload = {
-  before?: CommentSnapshot | null
-  after?: CommentSnapshot | null
-}
-
 async function loadCommentSnapshot(em: EntityManager, id: string): Promise<CommentSnapshot | null> {
   const comment = await em.findOne(ResourcesResourceComment, { id })
   if (!comment) return null
@@ -53,333 +43,104 @@ async function loadCommentSnapshot(em: EntityManager, id: string): Promise<Comme
   }
 }
 
-const createCommentCommand: CommandHandler<
+const commentCommands = makeCommentCommandSet<
+  ResourcesResourceComment,
+  CommentSnapshot,
   ResourcesResourceCommentCreateInput,
-  { commentId: string; authorUserId: string | null }
-> = {
-  id: 'resources.resource-comments.create',
-  async execute(rawInput, ctx) {
-    const parsed = resourcesResourceCommentCreateSchema.parse(rawInput)
+  ResourcesResourceCommentUpdateInput
+>({
+  commandIds: {
+    create: 'resources.resource-comments.create',
+    update: 'resources.resource-comments.update',
+    delete: 'resources.resource-comments.delete',
+  },
+  resourceKind: 'resources.resource_comment',
+  auditLabels: {
+    create: ['resources.audit.resourceComments.create', 'Create note'],
+    update: ['resources.audit.resourceComments.update', 'Update note'],
+    delete: ['resources.audit.resourceComments.delete', 'Delete note'],
+  },
+  changeKeys: ['resourceId', 'body', 'authorUserId', 'appearanceIcon', 'appearanceColor'],
+  messages: { notFound: 'Comment not found', idRequired: 'Comment id required' },
+  entityClass: ResourcesResourceComment,
+  indexer: commentCrudIndexer,
+  events: resourcesResourceCommentCrudEvents,
+  schemas: { create: resourcesResourceCommentCreateSchema, update: resourcesResourceCommentUpdateSchema },
+
+  loadSnapshot: (em, id) => loadCommentSnapshot(em, id),
+  seedFromSnapshot: (snapshot) => ({
+    id: snapshot.id,
+    organizationId: snapshot.organizationId,
+    tenantId: snapshot.tenantId,
+    body: snapshot.body,
+    authorUserId: snapshot.authorUserId,
+    appearanceIcon: snapshot.appearanceIcon,
+    appearanceColor: snapshot.appearanceColor,
+  }),
+  assignFromSnapshot: (comment, snapshot) => {
+    comment.body = snapshot.body
+    comment.authorUserId = snapshot.authorUserId
+    comment.appearanceIcon = snapshot.appearanceIcon
+    comment.appearanceColor = snapshot.appearanceColor
+  },
+  findRowForWrite: (em, id) => em.findOne(ResourcesResourceComment, { id }),
+
+  resolveParentForCreate: async ({ em, parsed, ctx }) => {
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
-
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const resource = await requireResource(em, parsed.entityId, 'Resource not found')
     ensureTenantScope(ctx, resource.tenantId)
     ensureOrganizationScope(ctx, resource.organizationId)
-    const normalizedAuthor = await resolveResourceAuthorUserId(em, parsed.authorUserId, ctx, {
-      tenantId: resource.tenantId,
-      organizationId: resource.organizationId,
-    })
-
-    const comment = em.create(ResourcesResourceComment, {
-      organizationId: parsed.organizationId,
-      tenantId: parsed.tenantId,
-      resource,
-      body: parsed.body,
-      authorUserId: normalizedAuthor,
-      appearanceIcon: parsed.appearanceIcon ?? null,
-      appearanceColor: parsed.appearanceColor ?? null,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    })
-    em.persist(comment)
-    await em.flush()
-
-    const de = (ctx.container.resolve('dataEngine') as DataEngine)
-    await emitCrudSideEffects({
-      dataEngine: de,
-      action: 'created',
-      entity: comment,
-      identifiers: {
-        id: comment.id,
-        organizationId: comment.organizationId,
-        tenantId: comment.tenantId,
-      },
-      events: resourcesResourceCommentCrudEvents,
-      indexer: commentCrudIndexer,
-    })
-
-    return { commentId: comment.id, authorUserId: comment.authorUserId ?? null }
-  },
-  captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    return await loadCommentSnapshot(em, result.commentId)
-  },
-  buildLog: async ({ result, ctx }) => {
-    const { translate } = await resolveTranslations()
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const snapshot = await loadCommentSnapshot(em, result.commentId)
     return {
-      actionLabel: translate('resources.audit.resourceComments.create', 'Create note'),
-      resourceKind: 'resources.resource_comment',
-      resourceId: result.commentId,
-      parentResourceKind: 'resources.resource',
-      parentResourceId: snapshot?.resourceId ?? null,
-      tenantId: snapshot?.tenantId ?? null,
-      organizationId: snapshot?.organizationId ?? null,
-      snapshotAfter: snapshot ?? null,
-      payload: {
-        undo: {
-          after: snapshot ?? null,
-        } satisfies CommentUndoPayload,
-      },
+      relations: { resource },
+      scope: { tenantId: resource.tenantId, organizationId: resource.organizationId },
     }
   },
-  undo: async ({ logEntry, ctx }) => {
-    const commentId = logEntry?.resourceId ?? null
-    if (!commentId) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const existing = await em.findOne(ResourcesResourceComment, { id: commentId })
-    if (existing) {
-      em.remove(existing)
-      await em.flush()
-    }
-  },
-  redo: makeCreateRedo<ResourcesResourceComment, CommentSnapshot, ResourcesResourceCommentCreateInput, { commentId: string; authorUserId: string | null }>({
-    entityClass: ResourcesResourceComment,
-    seedFromSnapshot: (after) => ({
-      id: after.id,
-      organizationId: after.organizationId,
-      tenantId: after.tenantId,
-      body: after.body,
-      authorUserId: after.authorUserId,
-      appearanceIcon: after.appearanceIcon,
-      appearanceColor: after.appearanceColor,
-    }),
-    beforeRestore: async ({ em, snapshot }) => {
-      const resource = await requireResource(em, snapshot.resourceId, 'Resource not found')
-      return { resource }
-    },
-    buildResult: (entity) => ({ commentId: entity.id, authorUserId: entity.authorUserId ?? null }),
-    events: resourcesResourceCommentCrudEvents,
-    indexer: commentCrudIndexer,
+  resolveParentForRestore: async ({ em, snapshot }) => ({
+    resource: await requireResource(em, snapshot.resourceId, 'Resource not found'),
   }),
-}
+  resolveAuthorForCreate: ({ em, parsed, ctx, parentScope }) =>
+    resolveResourceAuthorUserId(em, parsed.authorUserId, ctx, parentScope),
 
-const updateCommentCommand: CommandHandler<ResourcesResourceCommentUpdateInput, { commentId: string }> = {
-  id: 'resources.resource-comments.update',
-  async prepare(rawInput, ctx) {
-    const parsed = resourcesResourceCommentUpdateSchema.parse(rawInput)
-    const em = (ctx.container.resolve('em') as EntityManager)
-    const snapshot = await loadCommentSnapshot(em, parsed.id)
-    return snapshot ? { before: snapshot } : {}
-  },
-  async execute(rawInput, ctx) {
-    const parsed = resourcesResourceCommentUpdateSchema.parse(rawInput)
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const comment = await em.findOne(ResourcesResourceComment, { id: parsed.id })
-    if (!comment) throw new CrudHttpError(404, { error: 'Comment not found' })
-    ensureTenantScope(ctx, comment.tenantId)
-    ensureOrganizationScope(ctx, comment.organizationId)
-
+  buildCreateData: ({ parsed, relations, authorUserId }) => ({
+    organizationId: parsed.organizationId,
+    tenantId: parsed.tenantId,
+    ...relations,
+    body: parsed.body,
+    authorUserId,
+    appearanceIcon: parsed.appearanceIcon ?? null,
+    appearanceColor: parsed.appearanceColor ?? null,
+  }),
+  // No `authorUserId` branch here: per #4012 a resource comment keeps its original author
+  // on update even when one is supplied.
+  applyUpdateFields: async ({ em, ctx, entity, parsed }) => {
     if (parsed.entityId !== undefined) {
       const resource = await requireResource(em, parsed.entityId, 'Resource not found')
       ensureTenantScope(ctx, resource.tenantId)
       ensureOrganizationScope(ctx, resource.organizationId)
-      comment.resource = resource
+      entity.resource = resource
     }
-    if (parsed.body !== undefined) comment.body = parsed.body
-    if (parsed.appearanceIcon !== undefined) comment.appearanceIcon = parsed.appearanceIcon ?? null
-    if (parsed.appearanceColor !== undefined) comment.appearanceColor = parsed.appearanceColor ?? null
-
-    await em.flush()
-
-    const de = (ctx.container.resolve('dataEngine') as DataEngine)
-    await emitCrudSideEffects({
-      dataEngine: de,
-      action: 'updated',
-      entity: comment,
-      identifiers: {
-        id: comment.id,
-        organizationId: comment.organizationId,
-        tenantId: comment.tenantId,
-      },
-      events: resourcesResourceCommentCrudEvents,
-      indexer: commentCrudIndexer,
-    })
-
-    return { commentId: comment.id }
+    if (parsed.body !== undefined) entity.body = parsed.body
+    if (parsed.appearanceIcon !== undefined) entity.appearanceIcon = parsed.appearanceIcon ?? null
+    if (parsed.appearanceColor !== undefined) entity.appearanceColor = parsed.appearanceColor ?? null
   },
-  buildLog: async ({ snapshots, ctx }) => {
-    const { translate } = await resolveTranslations()
-    const before = snapshots.before as CommentSnapshot | undefined
-    if (!before) return null
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const afterSnapshot = await loadCommentSnapshot(em, before.id)
-    const changes =
-      afterSnapshot && before
-        ? buildChanges(
-            before as Record<string, unknown>,
-            afterSnapshot as Record<string, unknown>,
-            ['resourceId', 'body', 'authorUserId', 'appearanceIcon', 'appearanceColor'],
-          )
-        : {}
-    return {
-      actionLabel: translate('resources.audit.resourceComments.update', 'Update note'),
-      resourceKind: 'resources.resource_comment',
-      resourceId: before.id,
-      parentResourceKind: 'resources.resource',
-      parentResourceId: before.resourceId ?? null,
-      tenantId: before.tenantId,
-      organizationId: before.organizationId,
-      snapshotBefore: before,
-      snapshotAfter: afterSnapshot ?? null,
-      changes,
-      payload: {
-        undo: {
-          before,
-          after: afterSnapshot ?? null,
-        } satisfies CommentUndoPayload,
-      },
-    }
-  },
-  undo: async ({ logEntry, ctx }) => {
-    const payload = extractUndoPayload<CommentUndoPayload>(logEntry)
-    const before = payload?.before
-    if (!before) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    let comment = await em.findOne(ResourcesResourceComment, { id: before.id })
-    const resource = await requireResource(em, before.resourceId, 'Resource not found')
 
-    if (!comment) {
-      comment = em.create(ResourcesResourceComment, {
-        id: before.id,
-        organizationId: before.organizationId,
-        tenantId: before.tenantId,
-        resource,
-        body: before.body,
-        authorUserId: before.authorUserId,
-        appearanceIcon: before.appearanceIcon,
-        appearanceColor: before.appearanceColor,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      })
-      em.persist(comment)
-    } else {
-      comment.resource = resource
-      comment.body = before.body
-      comment.authorUserId = before.authorUserId
-      comment.appearanceIcon = before.appearanceIcon
-      comment.appearanceColor = before.appearanceColor
-    }
-    await em.flush()
-
-    const de = (ctx.container.resolve('dataEngine') as DataEngine)
-    await emitCrudUndoSideEffects({
-      dataEngine: de,
-      action: 'updated',
-      entity: comment,
-      identifiers: {
-        id: comment.id,
-        organizationId: comment.organizationId,
-        tenantId: comment.tenantId,
-      },
-      events: resourcesResourceCommentCrudEvents,
-      indexer: commentCrudIndexer,
-    })
-  },
-}
-
-const deleteCommentCommand: CommandHandler<{ body?: Record<string, unknown>; query?: Record<string, unknown> }, { commentId: string }> = {
-  id: 'resources.resource-comments.delete',
-  async prepare(input, ctx) {
-    const id = requireId(input, 'Comment id required')
-    const em = (ctx.container.resolve('em') as EntityManager)
-    const snapshot = await loadCommentSnapshot(em, id)
-    return snapshot ? { before: snapshot } : {}
-  },
-  async execute(input, ctx) {
-    const id = requireId(input, 'Comment id required')
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const comment = await em.findOne(ResourcesResourceComment, { id })
-    if (!comment) throw new CrudHttpError(404, { error: 'Comment not found' })
+  logMeta: ({ before, after }) => ({
+    parentResourceKind: 'resources.resource',
+    parentResourceId: (before ?? after)?.resourceId ?? null,
+  }),
+  ensureRowInScope: (ctx, comment) => {
     ensureTenantScope(ctx, comment.tenantId)
     ensureOrganizationScope(ctx, comment.organizationId)
-    em.remove(comment)
-    await em.flush()
-
-    const de = (ctx.container.resolve('dataEngine') as DataEngine)
-    await emitCrudSideEffects({
-      dataEngine: de,
-      action: 'deleted',
-      entity: comment,
-      identifiers: {
-        id: comment.id,
-        organizationId: comment.organizationId,
-        tenantId: comment.tenantId,
-      },
-      events: resourcesResourceCommentCrudEvents,
-      indexer: commentCrudIndexer,
-    })
-    return { commentId: comment.id }
   },
-  buildLog: async ({ snapshots }) => {
-    const before = snapshots.before as CommentSnapshot | undefined
-    if (!before) return null
-    const { translate } = await resolveTranslations()
-    return {
-      actionLabel: translate('resources.audit.resourceComments.delete', 'Delete note'),
-      resourceKind: 'resources.resource_comment',
-      resourceId: before.id,
-      parentResourceKind: 'resources.resource',
-      parentResourceId: before.resourceId ?? null,
-      tenantId: before.tenantId,
-      organizationId: before.organizationId,
-      snapshotBefore: before,
-      payload: {
-        undo: {
-          before,
-        } satisfies CommentUndoPayload,
-      },
-    }
+  resourceIdOf: (result) => (result as { commentId: string }).commentId,
+  buildResult: {
+    create: (comment) => ({ commentId: comment.id, authorUserId: comment.authorUserId ?? null }),
+    update: (comment) => ({ commentId: comment.id }),
+    delete: (comment) => ({ commentId: comment.id }),
   },
-  undo: async ({ logEntry, ctx }) => {
-    const payload = extractUndoPayload<CommentUndoPayload>(logEntry)
-    const before = payload?.before
-    if (!before) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const resource = await requireResource(em, before.resourceId, 'Resource not found')
-    let comment = await em.findOne(ResourcesResourceComment, { id: before.id })
-    if (!comment) {
-      comment = em.create(ResourcesResourceComment, {
-        id: before.id,
-        organizationId: before.organizationId,
-        tenantId: before.tenantId,
-        resource,
-        body: before.body,
-        authorUserId: before.authorUserId,
-        appearanceIcon: before.appearanceIcon,
-        appearanceColor: before.appearanceColor,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      })
-      em.persist(comment)
-    } else {
-      comment.resource = resource
-      comment.body = before.body
-      comment.authorUserId = before.authorUserId
-      comment.appearanceIcon = before.appearanceIcon
-      comment.appearanceColor = before.appearanceColor
-    }
-    await em.flush()
+})
 
-    const de = (ctx.container.resolve('dataEngine') as DataEngine)
-    await emitCrudUndoSideEffects({
-      dataEngine: de,
-      action: 'created',
-      entity: comment,
-      identifiers: {
-        id: comment.id,
-        organizationId: comment.organizationId,
-        tenantId: comment.tenantId,
-      },
-      events: resourcesResourceCommentCrudEvents,
-      indexer: commentCrudIndexer,
-    })
-  },
-}
-
-registerCommand(createCommentCommand)
-registerCommand(updateCommentCommand)
-registerCommand(deleteCommentCommand)
+registerCommand(commentCommands.create)
+registerCommand(commentCommands.update)
+registerCommand(commentCommands.delete)

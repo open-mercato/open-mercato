@@ -1,19 +1,12 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
-import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import {
-  emitCrudSideEffects,
-  emitCrudUndoSideEffects,
-  buildChanges,
-  requireId,
-  parseWithCustomFields,
-  setCustomFieldsIfAny,
-  normalizeAuthorUserId,
-} from '@open-mercato/shared/lib/commands/helpers'
-import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
+import { normalizeAuthorUserId } from '@open-mercato/shared/lib/commands/helpers'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
+import {
+  loadCustomFieldSnapshot,
+  buildCustomFieldResetMap,
+} from '@open-mercato/shared/lib/commands/customFieldSnapshots'
+import { makeActivityCommandSet, type ActivitySnapshotEnvelope } from '@open-mercato/shared/lib/commands/timeline'
 import { StaffTeamMemberActivity } from '../data/entities'
 import {
   staffTeamMemberActivityCreateSchema,
@@ -29,57 +22,41 @@ import {
   ensureOrganizationScope,
   ensureTenantScope,
   explicitStaffCommandScope,
-  extractUndoPayload,
   requireTeamMember,
   scopedStaffSnapshotWhere,
   staffSnapshotScopeFromContext,
   staffSnapshotScopeFromSnapshot,
   type StaffSnapshotScope,
 } from './shared'
-import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import { E } from '#generated/entities.ids.generated'
-import {
-  loadCustomFieldSnapshot,
-  diffCustomFieldChanges,
-  buildCustomFieldResetMap,
-  type CustomFieldChangeSet,
-} from '@open-mercato/shared/lib/commands/customFieldSnapshots'
+
+const ACTIVITY_ENTITY_ID = E.staff.staff_team_member_activity
 
 const activityCrudIndexer: CrudIndexerConfig<StaffTeamMemberActivity> = {
-  entityType: E.staff.staff_team_member_activity,
+  entityType: ACTIVITY_ENTITY_ID,
 }
 
-type ActivitySnapshot = {
-  activity: {
-    id: string
-    organizationId: string
-    tenantId: string
-    memberId: string
-    activityType: string
-    subject: string | null
-    body: string | null
-    occurredAt: Date | null
-    authorUserId: string | null
-    appearanceIcon: string | null
-    appearanceColor: string | null
-  }
-  custom?: Record<string, unknown>
+type ActivityRow = {
+  id: string
+  organizationId: string
+  tenantId: string
+  memberId: string
+  activityType: string
+  subject: string | null
+  body: string | null
+  occurredAt: Date | null
+  authorUserId: string | null
+  appearanceIcon: string | null
+  appearanceColor: string | null
 }
 
-type ActivityUndoPayload = {
-  before?: ActivitySnapshot | null
-  after?: ActivitySnapshot | null
-}
-
-type ActivityChangeMap = Record<string, { from: unknown; to: unknown }> & {
-  custom?: CustomFieldChangeSet
-}
+type ActivitySnapshot = ActivitySnapshotEnvelope<ActivityRow>
 
 async function loadActivitySnapshot(em: EntityManager, id: string, scope?: StaffSnapshotScope | null): Promise<ActivitySnapshot | null> {
   const activity = await em.findOne(StaffTeamMemberActivity, scopedStaffSnapshotWhere(id, scope))
   if (!activity) return null
   const custom = await loadCustomFieldSnapshot(em, {
-    entityId: E.staff.staff_team_member_activity,
+    entityId: ACTIVITY_ENTITY_ID,
     recordId: activity.id,
     tenantId: activity.tenantId,
     organizationId: activity.organizationId,
@@ -102,487 +79,140 @@ async function loadActivitySnapshot(em: EntityManager, id: string, scope?: Staff
   }
 }
 
-async function setActivityCustomFields(
-  ctx: CommandRuntimeContext,
-  activityId: string,
-  organizationId: string,
-  tenantId: string,
-  values: Record<string, unknown>
-) {
-  if (!values || !Object.keys(values).length) return
-  const de = (ctx.container.resolve('dataEngine') as DataEngine)
-  await setCustomFieldsIfAny({
-    dataEngine: de,
-    entityId: E.staff.staff_team_member_activity,
-    recordId: activityId,
-    organizationId,
-    tenantId,
-    values,
-    notify: false,
-  })
-}
-
-const createActivityCommand: CommandHandler<
+const activityCommands = makeActivityCommandSet<
+  StaffTeamMemberActivity,
+  ActivityRow,
   StaffTeamMemberActivityCreateInput,
-  { activityId: string; authorUserId: string | null }
-> = {
-  id: 'staff.team-member-activities.create',
-  async execute(rawInput, ctx) {
-    const { parsed, custom } = parseWithCustomFields(staffTeamMemberActivityCreateSchema, rawInput)
+  StaffTeamMemberActivityUpdateInput
+>({
+  commandIds: {
+    create: 'staff.team-member-activities.create',
+    update: 'staff.team-member-activities.update',
+    delete: 'staff.team-member-activities.delete',
+  },
+  resourceKind: 'staff.team_member_activity',
+  parentResourceKind: 'staff.teamMember',
+  auditLabels: {
+    create: ['staff.audit.teamMemberActivities.create', 'Create activity'],
+    update: ['staff.audit.teamMemberActivities.update', 'Update activity'],
+    delete: ['staff.audit.teamMemberActivities.delete', 'Delete activity'],
+  },
+  changeKeys: ['memberId', 'activityType', 'subject', 'body', 'occurredAt', 'authorUserId', 'appearanceIcon', 'appearanceColor'],
+  messages: {
+    notFound: 'Activity not found',
+    idRequired: 'Activity id required',
+    redoUnavailable: '[internal] redo snapshot unavailable for activity create',
+  },
+  entityClass: StaffTeamMemberActivity,
+  indexer: activityCrudIndexer,
+  events: staffTeamMemberActivityCrudEvents,
+  schemas: { create: staffTeamMemberActivityCreateSchema, update: staffTeamMemberActivityUpdateSchema },
+  customFieldEntityId: ACTIVITY_ENTITY_ID,
+
+  // Every staff snapshot read and row lookup carries tenant/org scope (#3977).
+  loadSnapshot: (em, id, ctx) => loadActivitySnapshot(em, id, staffSnapshotScopeFromContext(ctx)),
+  findRowForWrite: (em, id, ctx) =>
+    em.findOne(StaffTeamMemberActivity, applyScopeToWhere<StaffTeamMemberActivity>({ id }, commandActorScope(ctx))),
+  findRowForRestore: ({ em, id, row }) =>
+    em.findOne(StaffTeamMemberActivity, scopedStaffSnapshotWhere(id, staffSnapshotScopeFromSnapshot(row))),
+  createUndoTargetId: ({ logEntryResourceId, after }) => after?.activity.id ?? logEntryResourceId,
+
+  seedFromSnapshot: (row) => ({
+    id: row.id,
+    organizationId: row.organizationId,
+    tenantId: row.tenantId,
+    activityType: row.activityType,
+    subject: row.subject,
+    body: row.body,
+    occurredAt: row.occurredAt ?? null,
+    authorUserId: row.authorUserId,
+    appearanceIcon: row.appearanceIcon,
+    appearanceColor: row.appearanceColor,
+  }),
+  assignFromSnapshot: (activity, row) => {
+    activity.activityType = row.activityType
+    activity.subject = row.subject
+    activity.body = row.body
+    activity.occurredAt = row.occurredAt ?? null
+    activity.authorUserId = row.authorUserId
+    activity.appearanceIcon = row.appearanceIcon
+    activity.appearanceColor = row.appearanceColor
+  },
+
+  resolveParentForCreate: async ({ em, parsed, ctx }) => {
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
-    const scope = commandInputScope(ctx, parsed.tenantId, parsed.organizationId)
-    const normalizedAuthor = normalizeAuthorUserId(parsed.authorUserId, ctx.auth)
-
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const member = await requireTeamMember(
       em,
       parsed.entityId,
-      scope,
+      commandInputScope(ctx, parsed.tenantId, parsed.organizationId),
       'Team member not found',
     )
     ensureTenantScope(ctx, member.tenantId)
     ensureOrganizationScope(ctx, member.organizationId)
-
-    const activity = em.create(StaffTeamMemberActivity, {
-      organizationId: parsed.organizationId,
-      tenantId: parsed.tenantId,
-      member,
-      activityType: parsed.activityType,
-      subject: parsed.subject ?? null,
-      body: parsed.body ?? null,
-      occurredAt: parsed.occurredAt ?? null,
-      authorUserId: normalizedAuthor,
-      appearanceIcon: parsed.appearanceIcon ?? null,
-      appearanceColor: parsed.appearanceColor ?? null,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    })
-    em.persist(activity)
-    await em.flush()
-
-    await setActivityCustomFields(ctx, activity.id, parsed.organizationId, parsed.tenantId, custom)
-
-    const de = (ctx.container.resolve('dataEngine') as DataEngine)
-    await emitCrudSideEffects({
-      dataEngine: de,
-      action: 'created',
-      entity: activity,
-      identifiers: {
-        id: activity.id,
-        organizationId: activity.organizationId,
-        tenantId: activity.tenantId,
-      },
-      events: staffTeamMemberActivityCrudEvents,
-      indexer: activityCrudIndexer,
-    })
-
-    return { activityId: activity.id, authorUserId: activity.authorUserId ?? null }
-  },
-  captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    return await loadActivitySnapshot(em, result.activityId, staffSnapshotScopeFromContext(ctx))
-  },
-  buildLog: async ({ result, snapshots }) => {
-    const { translate } = await resolveTranslations()
-    const snapshot = snapshots.after as ActivitySnapshot | undefined
     return {
-      actionLabel: translate('staff.audit.teamMemberActivities.create', 'Create activity'),
-      resourceKind: 'staff.team_member_activity',
-      resourceId: result.activityId,
-      parentResourceKind: 'staff.teamMember',
-      parentResourceId: snapshot?.activity?.memberId ?? null,
-      tenantId: snapshot?.activity.tenantId ?? null,
-      organizationId: snapshot?.activity.organizationId ?? null,
-      snapshotAfter: snapshot ?? null,
-      payload: {
-        undo: {
-          after: snapshot ?? null,
-        } satisfies ActivityUndoPayload,
-      },
+      relations: { member },
+      scope: { tenantId: parsed.tenantId, organizationId: parsed.organizationId },
     }
   },
-  undo: async ({ logEntry, ctx }) => {
-    const payload = extractUndoPayload<ActivityUndoPayload>(logEntry)
-    const after = payload?.after
-    const activityId = after?.activity.id ?? logEntry?.resourceId ?? null
-    if (!activityId) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const existing = await em.findOne(
-      StaffTeamMemberActivity,
-      scopedStaffSnapshotWhere(activityId, staffSnapshotScopeFromSnapshot(after?.activity)),
-    )
-    if (existing) {
-      em.remove(existing)
-      await em.flush()
-    }
-  },
-  redo: async ({ logEntry, ctx }) => {
-    const after = resolveRedoSnapshot<ActivitySnapshot>(logEntry)
-    if (!after) {
-      throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for activity create' })
-    }
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const snapshotScope = staffSnapshotScopeFromSnapshot(after.activity)
-    const member = await requireTeamMember(
+  resolveParentForRestore: async ({ em, row }) => ({
+    member: await requireTeamMember(
       em,
-      after.activity.memberId,
-      explicitStaffCommandScope(after.activity.tenantId, after.activity.organizationId),
+      row.memberId,
+      explicitStaffCommandScope(row.tenantId, row.organizationId),
       'Team member not found',
-    )
-    let activity = await em.findOne(StaffTeamMemberActivity, scopedStaffSnapshotWhere(after.activity.id, snapshotScope))
-    if (!activity) {
-      activity = em.create(StaffTeamMemberActivity, {
-        id: after.activity.id,
-        organizationId: after.activity.organizationId,
-        tenantId: after.activity.tenantId,
-        member,
-        activityType: after.activity.activityType,
-        subject: after.activity.subject,
-        body: after.activity.body,
-        occurredAt: after.activity.occurredAt ?? null,
-        authorUserId: after.activity.authorUserId,
-        appearanceIcon: after.activity.appearanceIcon,
-        appearanceColor: after.activity.appearanceColor,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      })
-      em.persist(activity)
-    } else {
-      activity.member = member
-      activity.activityType = after.activity.activityType
-      activity.subject = after.activity.subject
-      activity.body = after.activity.body
-      activity.occurredAt = after.activity.occurredAt ?? null
-      activity.authorUserId = after.activity.authorUserId
-      activity.appearanceIcon = after.activity.appearanceIcon
-      activity.appearanceColor = after.activity.appearanceColor
-    }
-    await em.flush()
+    ),
+  }),
+  resolveAuthorForCreate: ({ parsed, ctx }) => normalizeAuthorUserId(parsed.authorUserId, ctx.auth),
 
-    await setActivityCustomFields(ctx, activity.id, activity.organizationId, activity.tenantId, after.custom ?? {})
-
-    const de = (ctx.container.resolve('dataEngine') as DataEngine)
-    await emitCrudSideEffects({
-      dataEngine: de,
-      action: 'created',
-      entity: activity,
-      identifiers: {
-        id: activity.id,
-        organizationId: activity.organizationId,
-        tenantId: activity.tenantId,
-      },
-      events: staffTeamMemberActivityCrudEvents,
-      indexer: activityCrudIndexer,
-    })
-
-    return { activityId: activity.id, authorUserId: activity.authorUserId ?? null }
-  },
-}
-
-const updateActivityCommand: CommandHandler<StaffTeamMemberActivityUpdateInput, { activityId: string }> = {
-  id: 'staff.team-member-activities.update',
-  async prepare(rawInput, ctx) {
-    const parsed = staffTeamMemberActivityUpdateSchema.parse(rawInput)
-    const em = (ctx.container.resolve('em') as EntityManager)
-    const snapshot = await loadActivitySnapshot(em, parsed.id, staffSnapshotScopeFromContext(ctx))
-    return snapshot ? { before: snapshot } : {}
-  },
-  async execute(rawInput, ctx) {
-    const { parsed, custom } = parseWithCustomFields(staffTeamMemberActivityUpdateSchema, rawInput)
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const scope = commandActorScope(ctx)
-    const activity = await em.findOne(
-      StaffTeamMemberActivity,
-      applyScopeToWhere<StaffTeamMemberActivity>({ id: parsed.id }, scope),
-    )
-    if (!activity) throw new CrudHttpError(404, { error: 'Activity not found' })
-    ensureTenantScope(ctx, activity.tenantId)
-    ensureOrganizationScope(ctx, activity.organizationId)
-
+  buildCreateData: ({ parsed, relations, authorUserId }) => ({
+    organizationId: parsed.organizationId,
+    tenantId: parsed.tenantId,
+    ...relations,
+    activityType: parsed.activityType,
+    subject: parsed.subject ?? null,
+    body: parsed.body ?? null,
+    occurredAt: parsed.occurredAt ?? null,
+    authorUserId,
+    appearanceIcon: parsed.appearanceIcon ?? null,
+    appearanceColor: parsed.appearanceColor ?? null,
+  }),
+  applyUpdateFields: async ({ em, ctx, entity, parsed }) => {
     if (parsed.entityId !== undefined) {
-      const member = await requireTeamMember(em, parsed.entityId, scope, 'Team member not found')
+      const member = await requireTeamMember(em, parsed.entityId, commandActorScope(ctx), 'Team member not found')
       ensureTenantScope(ctx, member.tenantId)
       ensureOrganizationScope(ctx, member.organizationId)
-      activity.member = member
+      entity.member = member
     }
-    if (parsed.activityType !== undefined) activity.activityType = parsed.activityType
-    if (parsed.subject !== undefined) activity.subject = parsed.subject ?? null
-    if (parsed.body !== undefined) activity.body = parsed.body ?? null
-    if (parsed.occurredAt !== undefined) activity.occurredAt = parsed.occurredAt ?? null
-    if (parsed.authorUserId !== undefined) activity.authorUserId = parsed.authorUserId ?? null
-    if (parsed.appearanceIcon !== undefined) activity.appearanceIcon = parsed.appearanceIcon ?? null
-    if (parsed.appearanceColor !== undefined) activity.appearanceColor = parsed.appearanceColor ?? null
-
-    await em.flush()
-
-    await setActivityCustomFields(ctx, activity.id, activity.organizationId, activity.tenantId, custom)
-
-    const de = (ctx.container.resolve('dataEngine') as DataEngine)
-    await emitCrudSideEffects({
-      dataEngine: de,
-      action: 'updated',
-      entity: activity,
-      identifiers: {
-        id: activity.id,
-        organizationId: activity.organizationId,
-        tenantId: activity.tenantId,
-      },
-      events: staffTeamMemberActivityCrudEvents,
-      indexer: activityCrudIndexer,
-    })
-
-    return { activityId: activity.id }
+    if (parsed.activityType !== undefined) entity.activityType = parsed.activityType
+    if (parsed.subject !== undefined) entity.subject = parsed.subject ?? null
+    if (parsed.body !== undefined) entity.body = parsed.body ?? null
+    if (parsed.occurredAt !== undefined) entity.occurredAt = parsed.occurredAt ?? null
+    if (parsed.authorUserId !== undefined) entity.authorUserId = parsed.authorUserId ?? null
+    if (parsed.appearanceIcon !== undefined) entity.appearanceIcon = parsed.appearanceIcon ?? null
+    if (parsed.appearanceColor !== undefined) entity.appearanceColor = parsed.appearanceColor ?? null
   },
-  captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    return await loadActivitySnapshot(em, result.activityId, staffSnapshotScopeFromContext(ctx))
+
+  // A redo plain-sets the post-change values; undos rebuild `before`, clearing any key
+  // the update had added.
+  customFieldRestoreValues: ({ kind, before, after }) => {
+    if (kind === 'create-redo') return after?.custom ?? {}
+    if (kind === 'update-undo') return buildCustomFieldResetMap(before?.custom, after?.custom)
+    return buildCustomFieldResetMap(before?.custom, undefined)
   },
-  buildLog: async ({ snapshots }) => {
-    const { translate } = await resolveTranslations()
-    const before = snapshots.before as ActivitySnapshot | undefined
-    if (!before) return null
-    const afterSnapshot = snapshots.after as ActivitySnapshot | undefined
-    const changeKeys: readonly string[] = [
-      'memberId',
-      'activityType',
-      'subject',
-      'body',
-      'occurredAt',
-      'authorUserId',
-      'appearanceIcon',
-      'appearanceColor',
-    ]
-    const changes: ActivityChangeMap =
-      afterSnapshot && before
-        ? buildChanges(
-            before.activity as Record<string, unknown>,
-            afterSnapshot.activity as Record<string, unknown>,
-            changeKeys
-          )
-        : {}
-    const customChanges = diffCustomFieldChanges(before.custom, afterSnapshot?.custom)
-    if (Object.keys(customChanges).length) changes.custom = customChanges
-    return {
-      actionLabel: translate('staff.audit.teamMemberActivities.update', 'Update activity'),
-      resourceKind: 'staff.team_member_activity',
-      resourceId: before.activity.id,
-      parentResourceKind: 'staff.teamMember',
-      parentResourceId: before.activity.memberId ?? null,
-      tenantId: before.activity.tenantId,
-      organizationId: before.activity.organizationId,
-      snapshotBefore: before,
-      snapshotAfter: afterSnapshot ?? null,
-      changes,
-      payload: {
-        undo: {
-          before,
-          after: afterSnapshot ?? null,
-        } satisfies ActivityUndoPayload,
-      },
-    }
+
+  parentIdOf: (row) => row.memberId ?? null,
+  ensureRowInScope: (ctx, activity) => {
+    ensureTenantScope(ctx, activity.tenantId)
+    ensureOrganizationScope(ctx, activity.organizationId)
   },
-  undo: async ({ logEntry, ctx }) => {
-    const payload = extractUndoPayload<ActivityUndoPayload>(logEntry)
-    const before = payload?.before
-    if (!before) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const snapshotScope = staffSnapshotScopeFromSnapshot(before.activity)
-    let activity = await em.findOne(StaffTeamMemberActivity, scopedStaffSnapshotWhere(before.activity.id, snapshotScope))
-    const member = await requireTeamMember(
-      em,
-      before.activity.memberId,
-      explicitStaffCommandScope(before.activity.tenantId, before.activity.organizationId),
-      'Team member not found',
-    )
-
-    if (!activity) {
-      activity = em.create(StaffTeamMemberActivity, {
-        id: before.activity.id,
-        organizationId: before.activity.organizationId,
-        tenantId: before.activity.tenantId,
-        member,
-        activityType: before.activity.activityType,
-        subject: before.activity.subject,
-        body: before.activity.body,
-        occurredAt: before.activity.occurredAt ?? null,
-        authorUserId: before.activity.authorUserId,
-        appearanceIcon: before.activity.appearanceIcon,
-        appearanceColor: before.activity.appearanceColor,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      })
-      em.persist(activity)
-    } else {
-      activity.member = member
-      activity.activityType = before.activity.activityType
-      activity.subject = before.activity.subject
-      activity.body = before.activity.body
-      activity.occurredAt = before.activity.occurredAt ?? null
-      activity.authorUserId = before.activity.authorUserId
-      activity.appearanceIcon = before.activity.appearanceIcon
-      activity.appearanceColor = before.activity.appearanceColor
-    }
-    await em.flush()
-
-    const de = (ctx.container.resolve('dataEngine') as DataEngine)
-    await emitCrudUndoSideEffects({
-      dataEngine: de,
-      action: 'updated',
-      entity: activity,
-      identifiers: {
-        id: activity.id,
-        organizationId: activity.organizationId,
-        tenantId: activity.tenantId,
-      },
-      events: staffTeamMemberActivityCrudEvents,
-      indexer: activityCrudIndexer,
-    })
-
-    const resetValues = buildCustomFieldResetMap(before.custom, payload?.after?.custom)
-    if (Object.keys(resetValues).length) {
-      await setCustomFieldsIfAny({
-        dataEngine: de,
-        entityId: E.staff.staff_team_member_activity,
-        recordId: activity.id,
-        organizationId: activity.organizationId,
-        tenantId: activity.tenantId,
-        values: resetValues,
-        notify: false,
-      })
-    }
+  buildResult: {
+    create: (activity) => ({ activityId: activity.id, authorUserId: activity.authorUserId ?? null }),
+    update: (activity) => ({ activityId: activity.id }),
+    delete: (activity) => ({ activityId: activity.id }),
   },
-}
+})
 
-const deleteActivityCommand: CommandHandler<{ body?: Record<string, unknown>; query?: Record<string, unknown> }, { activityId: string }> =
-  {
-    id: 'staff.team-member-activities.delete',
-    async prepare(input, ctx) {
-      const id = requireId(input, 'Activity id required')
-      const em = (ctx.container.resolve('em') as EntityManager)
-      const snapshot = await loadActivitySnapshot(em, id, staffSnapshotScopeFromContext(ctx))
-      return snapshot ? { before: snapshot } : {}
-    },
-    async execute(input, ctx) {
-      const id = requireId(input, 'Activity id required')
-      const em = (ctx.container.resolve('em') as EntityManager).fork()
-      const scope = commandActorScope(ctx)
-      const activity = await em.findOne(
-        StaffTeamMemberActivity,
-        applyScopeToWhere<StaffTeamMemberActivity>({ id }, scope),
-      )
-      if (!activity) throw new CrudHttpError(404, { error: 'Activity not found' })
-      ensureTenantScope(ctx, activity.tenantId)
-      ensureOrganizationScope(ctx, activity.organizationId)
-      em.remove(activity)
-      await em.flush()
-
-      const de = (ctx.container.resolve('dataEngine') as DataEngine)
-      await emitCrudSideEffects({
-        dataEngine: de,
-        action: 'deleted',
-        entity: activity,
-        identifiers: {
-          id: activity.id,
-          organizationId: activity.organizationId,
-          tenantId: activity.tenantId,
-        },
-        events: staffTeamMemberActivityCrudEvents,
-      indexer: activityCrudIndexer,
-      })
-      return { activityId: activity.id }
-    },
-    buildLog: async ({ snapshots }) => {
-      const before = snapshots.before as ActivitySnapshot | undefined
-      if (!before) return null
-      const { translate } = await resolveTranslations()
-      return {
-        actionLabel: translate('staff.audit.teamMemberActivities.delete', 'Delete activity'),
-        resourceKind: 'staff.team_member_activity',
-        resourceId: before.activity.id,
-        parentResourceKind: 'staff.teamMember',
-        parentResourceId: before.activity.memberId ?? null,
-        tenantId: before.activity.tenantId,
-        organizationId: before.activity.organizationId,
-        snapshotBefore: before,
-        payload: {
-          undo: {
-            before,
-          } satisfies ActivityUndoPayload,
-        },
-      }
-    },
-    undo: async ({ logEntry, ctx }) => {
-      const payload = extractUndoPayload<ActivityUndoPayload>(logEntry)
-      const before = payload?.before
-      if (!before) return
-      const em = (ctx.container.resolve('em') as EntityManager).fork()
-      const snapshotScope = staffSnapshotScopeFromSnapshot(before.activity)
-      const member = await requireTeamMember(
-        em,
-        before.activity.memberId,
-        explicitStaffCommandScope(before.activity.tenantId, before.activity.organizationId),
-        'Team member not found',
-      )
-      let activity = await em.findOne(StaffTeamMemberActivity, scopedStaffSnapshotWhere(before.activity.id, snapshotScope))
-      if (!activity) {
-        activity = em.create(StaffTeamMemberActivity, {
-          id: before.activity.id,
-          organizationId: before.activity.organizationId,
-          tenantId: before.activity.tenantId,
-          member,
-          activityType: before.activity.activityType,
-          subject: before.activity.subject,
-          body: before.activity.body,
-          occurredAt: before.activity.occurredAt ?? null,
-          authorUserId: before.activity.authorUserId,
-          appearanceIcon: before.activity.appearanceIcon,
-          appearanceColor: before.activity.appearanceColor,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        })
-        em.persist(activity)
-      } else {
-        activity.member = member
-        activity.activityType = before.activity.activityType
-        activity.subject = before.activity.subject
-        activity.body = before.activity.body
-        activity.occurredAt = before.activity.occurredAt ?? null
-        activity.authorUserId = before.activity.authorUserId
-        activity.appearanceIcon = before.activity.appearanceIcon
-        activity.appearanceColor = before.activity.appearanceColor
-      }
-      await em.flush()
-
-      const de = (ctx.container.resolve('dataEngine') as DataEngine)
-      await emitCrudUndoSideEffects({
-        dataEngine: de,
-        action: 'created',
-        entity: activity,
-        identifiers: {
-          id: activity.id,
-          organizationId: activity.organizationId,
-          tenantId: activity.tenantId,
-        },
-        events: staffTeamMemberActivityCrudEvents,
-      indexer: activityCrudIndexer,
-      })
-
-      const resetValues = buildCustomFieldResetMap(before.custom, undefined)
-      if (Object.keys(resetValues).length) {
-        await setCustomFieldsIfAny({
-          dataEngine: de,
-          entityId: E.staff.staff_team_member_activity,
-          recordId: activity.id,
-          organizationId: activity.organizationId,
-          tenantId: activity.tenantId,
-          values: resetValues,
-          notify: false,
-        })
-      }
-    },
-  }
-
-registerCommand(createActivityCommand)
-registerCommand(updateActivityCommand)
-registerCommand(deleteActivityCommand)
+registerCommand(activityCommands.create)
+registerCommand(activityCommands.update)
+registerCommand(activityCommands.delete)
