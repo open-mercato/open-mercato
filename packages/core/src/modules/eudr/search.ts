@@ -95,7 +95,6 @@ function resolveSupplierName(record: Record<string, unknown>): string | null {
 }
 
 function buildStatementPresenter(translate: TranslateFn, record: Record<string, unknown>): SearchResultPresenter {
-  const label = translate('eudr.search.badge.statement', 'DDS statement')
   const title = readRecordText(record, 'title') ?? translate('eudr.common.recordUnavailable')
   const subtitle = formatSubtitle(
     readRecordText(record, 'reference_number', 'referenceNumber'),
@@ -105,7 +104,6 @@ function buildStatementPresenter(translate: TranslateFn, record: Record<string, 
 }
 
 function buildPlotPresenter(translate: TranslateFn, record: Record<string, unknown>): SearchResultPresenter {
-  const label = translate('eudr.search.badge.plot', 'Plot')
   const title = readRecordText(record, 'name') ?? translate('eudr.common.recordUnavailable')
   const subtitle = formatSubtitle(
     readRecordText(record, 'origin_country', 'originCountry'),
