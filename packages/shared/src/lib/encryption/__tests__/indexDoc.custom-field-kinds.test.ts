@@ -1,6 +1,14 @@
 import { decryptIndexDocCustomFields, decryptIndexDocForSearch } from '../indexDoc'
 import { encryptCustomFieldValue } from '../customFieldValues'
-import { buildCustomFieldKindMap } from '../../custom-fields/kinds'
+import {
+  buildCustomFieldKindIndex,
+  selectCustomFieldKindMap,
+  type CustomFieldKindRow,
+} from '../../custom-fields/kinds'
+
+function buildCustomFieldKindMap(rows: CustomFieldKindRow[]) {
+  return selectCustomFieldKindMap(buildCustomFieldKindIndex(rows), null, null)
+}
 
 /**
  * Regression coverage for issue #5968: the query-index and search read paths decrypted
