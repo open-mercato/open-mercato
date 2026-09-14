@@ -704,6 +704,18 @@ None block implementation; defaults apply unless the maintainer objects in revie
 - Integration specs 002/003 run in a per-test organization/user sandbox and never touch the
   shared organization's credentials.
 
+### 2026-09-14 — Rebase onto develop + jest mailparser warm-up (PR #5898)
+
+- Rebased onto `develop` after the `phone_calls` / `tillio` DS-lint blocks and a new spec index
+  row landed next to ours (`eslint.ds.config.mjs`, `.ai/specs/README.md`); no logic changes.
+- Aligned the package's pinned dev dependencies with the develop-wide bumps (#5835) so the
+  lockfile carries one resolution per package.
+- Ported the Gmail/IMAP jest `mailparser` warm-up (#6040/#6052): `jest.setup.ts` loads
+  `mailparser` once per test file in a root `beforeAll` so the cold module-graph load is not
+  billed to the first MIME-parsing test, plus the `mailparser-warmup.test.ts` guard (94 tests).
+- Re-verified on the Docker instance: unit tests, typecheck, eslint, DS lint, template parity
+  test, all nine Playwright specs, and a live Inbox poll after the rebuild.
+
 ### 2026-09-05 — Review fixes (PR #5898, `om-auto-review-pr`)
 
 - Blockers: `auth.acl.features.channel_ms365.*` + `auth.acl.modules.channel_ms365` added to the
