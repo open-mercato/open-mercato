@@ -1106,6 +1106,10 @@ describe('Queue - local strategy', () => {
       const second = await queue.enqueue({ value: 2 }, { coalesce: { key: 'order-totals:42' } })
       expect(second).toBe(first)
       expect(readJson(queuePath)).toHaveLength(1)
+      // The backoff is the failure handler's spacing, not a schedule a caller asked for, so the
+      // earlier-moment rule below must not pull it forward — otherwise a burst of triggers turns a
+      // failing job into a hot loop.
+      expect(readJson(queuePath)[0].availableAt).toBe(retrying[0].availableAt)
 
       await queue.close()
     })
@@ -1223,6 +1227,68 @@ describe('Queue - local strategy', () => {
       await queue.process((job) => { runs.push(job.payload.value) }, { limit: 10 })
       expect(runs).toEqual([1])
       expect(readJson(queuePath)).toEqual([])
+
+      await queue.close()
+    })
+
+    // delayMs x coalesce, in the direction that matters: collapsing may hand a caller a run sooner
+    // than it asked for, never later. Deferring an immediate enqueue behind a delayed twin would
+    // leave the state it represents wrong for the length of that delay, which is the silent loss
+    // this feature exists to prevent.
+    test('an immediate enqueue pulls a delayed twin forward', async () => {
+      const queue = createQueue<Payload>(queueName, 'local')
+      const coalesce = { coalesce: { key: 'order-totals:42' } }
+      const runs: number[] = []
+
+      await queue.enqueue({ value: 1 }, { ...coalesce, delayMs: 3_600_000 })
+      expect(readJson(queuePath)[0].availableAt).toBeDefined()
+
+      await queue.enqueue({ value: 2 }, coalesce)
+
+      const stored = readJson(queuePath)
+      expect(stored).toHaveLength(1)
+      expect(stored[0].availableAt).toBeUndefined()
+      // The payload still loses to the stored one — only the schedule moves, exactly as it does for
+      // the uncoalesced fields a waiting twin already absorbs.
+      expect(stored[0].payload).toEqual({ value: 1 })
+
+      await queue.process((job) => { runs.push(job.payload.value) }, { limit: 10 })
+      expect(runs).toEqual([1])
+
+      await queue.close()
+    })
+
+    test('a delayed enqueue never pushes an earlier twin back', async () => {
+      const queue = createQueue<Payload>(queueName, 'local')
+      const coalesce = { coalesce: { key: 'order-totals:42' } }
+
+      await queue.enqueue({ value: 1 }, coalesce)
+      const before = fs.statSync(queuePath)
+
+      await queue.enqueue({ value: 2 }, { ...coalesce, delayMs: 3_600_000 })
+
+      // Nothing to record, so nothing is written — the same dropped-enqueue fast path an
+      // undelayed collapse takes.
+      const after = fs.statSync(queuePath)
+      expect(after.ino).toBe(before.ino)
+      expect(after.mtimeMs).toBe(before.mtimeMs)
+      expect(readJson(queuePath)[0].availableAt).toBeUndefined()
+
+      await queue.close()
+    })
+
+    test('two delayed enqueues collapse onto the earlier of the two moments', async () => {
+      const queue = createQueue<Payload>(queueName, 'local')
+      const coalesce = { coalesce: { key: 'order-totals:42' } }
+
+      await queue.enqueue({ value: 1 }, { ...coalesce, delayMs: 3_600_000 })
+      const late = readJson(queuePath)[0].availableAt
+
+      await queue.enqueue({ value: 2 }, { ...coalesce, delayMs: 1_000 })
+
+      const stored = readJson(queuePath)
+      expect(stored).toHaveLength(1)
+      expect(new Date(stored[0].availableAt).getTime()).toBeLessThan(new Date(late).getTime())
 
       await queue.close()
     })

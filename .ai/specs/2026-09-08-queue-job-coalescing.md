@@ -17,7 +17,8 @@ carrying the latest payload.
 The guarantee, stated once: **the last enqueue for a key always gets a run that observes it.**
 
 Both strategies implement it. The async strategy maps the key onto BullMQ's deduplication with
-`keepLastIfActive`, which BullMQ has had natively since 5.x. The local strategy implements the same
+`keepLastIfActive`, which BullMQ has had natively since **5.72.0** — the package's `bullmq` peer
+range starts there for that reason (see Risks). The local strategy implements the same
 semantics on its file-backed store, so development and integration runs coalesce the way production
 does.
 
@@ -42,7 +43,7 @@ until the job *starts* or until it *finishes*:
 
 | System | Mechanism | Lock lifetime |
 |---|---|---|
-| BullMQ 5.x/6.x | `deduplication: { id, ttl?, extend?, replace?, keepLastIfActive? }` | `keepLastIfActive` keeps one active + one waiting per id, latest payload wins |
+| BullMQ ≥5.72 | `deduplication: { id, ttl?, extend?, replace?, keepLastIfActive? }` | `keepLastIfActive` keeps one active + one waiting per id, latest payload wins |
 | Temporal | Signal-With-Start on a per-entity Workflow ID, `WorkflowIdConflictPolicy: USE_EXISTING` | signal lands on the running workflow, which loops once more |
 | Sidekiq Enterprise | `unique_for:` with `unique_until: :start` / `:success` | `:start` queues exactly one more behind a running job |
 | Oban | `unique: [period:, states: [...]]` | omitting `:executing` from `states` is requeue-if-active |
@@ -123,6 +124,14 @@ BullMQ's public type and that its Lua still gates the stored follow-up on the ac
 job options are ignored by BullMQ, so without this guard a rename would silently switch the feature
 off with every other test still green — the same reasoning as `bullmq-abandoned-reasons.test.ts`.
 
+**The peer range is part of the guarantee.** `keepLastIfActive` landed in bullmq **5.72.0**; below
+that it is an unknown field, so `deduplication: { id }` reverts to drop-the-duplicate and a mid-run
+enqueue is discarded — precisely what `BACKWARD_COMPATIBILITY.md` forbids this package from doing.
+Nothing throws and nothing logs, in either direction. The `bullmq` peer range is therefore
+`^5.72.0 || ^6.0.0`, not `^5.0.0 || ^6.0.0`, and a third test in the same file pins it: the
+monorepo resolves 6.x, so only a published consumer choosing its own bullmq is exposed, and only the
+declared range protects them.
+
 ### Local strategy
 
 A local job stays in `queue.json` for its whole life, so **a record carrying `coalesceKey` is
@@ -137,9 +146,24 @@ rename and without the queue lock (single writer). Producers read it inside thei
 - **`enqueue`** — unchanged fast path when no key resolves. Otherwise, inside one locked segment: no
   record carries the key → append; the record is leased active → park the payload on it as
   `coalesceNext`, overwriting any previous one; the record exists but is only waiting → **write
-  nothing at all** and return its id. That last case is the common one, and rewriting `queue.json`
-  there would rename the file and wake the consumer's watcher for a job that does not exist, which
-  is the work coalescing exists to remove.
+  nothing at all** and return its id, *unless* the incoming enqueue asked for an earlier moment than
+  the stored record carries (see `delayMs` below), in which case only `availableAt` moves. The
+  write-nothing case is the common one, and rewriting `queue.json` there would rename the file and
+  wake the consumer's watcher for a job that does not exist, which is the work coalescing exists to
+  remove.
+- **`delayMs` × `coalesce`.** Collapsing an enqueue collapses its schedule too, and the two
+  strategies cannot agree on the result. Local takes the **earlier** of the two moments, so
+  collapsing may hand a caller a run sooner than it asked for but never later — deferring an
+  immediate enqueue behind an hour-delayed twin would leave the state it represents wrong for that
+  hour, which is the same silent loss the drop-the-duplicate mode causes. Async inherits BullMQ,
+  which discards the colliding add outright and leaves the surviving job on its own schedule; there
+  an immediate enqueue *can* be deferred. Nothing is lost in either strategy — only the moment
+  moves. A record in **retry backoff** is excluded from the earlier-moment rule: its `availableAt` is
+  the failure handler's spacing rather than a schedule a caller asked for, and pulling it forward
+  would let a burst of triggers hot-loop a failing job. The combination is documented as unsupported (`EnqueueOptions.coalesce`'s JSDoc, the
+  README and the docs site all say so) rather than papered over, because making async match would
+  cost a read-modify-write round trip on every coalesced add for a combination no caller in the repo
+  uses. Delayed work should carry its own key, or none.
 - **`processBatch`** — publishes the lease before each handler runs, naming every job started so far
   in the batch. It names all of them rather than only the current one because no record leaves
   `queue.json` until the batch's closing write: a producer that saw a finished-but-still-stored job
@@ -206,14 +230,21 @@ the precedent to copy here despite the surface similarity: it needs its own Dock
 because it starts its containers with testcontainers, whereas one plain service container is
 something the shared job can declare — as two other workflows already do on the same runner.
 
-`yarn workspace @open-mercato/queue test` — 131 tests, of which 2 skip without a Redis URL. The
+The real-Redis suite waits on barriers, not durations: its first handler parks on a promise the test
+opens only once the whole burst has been accepted, so "these enqueues arrived mid-run" is a fact the
+test establishes rather than a race it hopes to win, and each assertion waits for an observed run
+count. That matters more than usual here because the suite runs on the shared `test` job, where a
+timing flake would block every PR in the repository and be read as an unrelated monorepo failure.
+
+`yarn workspace @open-mercato/queue test` — 136 tests, of which 3 skip without a Redis URL. The
 local coalescing suite covers: a burst of ten collapsing to one job and one run; separate keys and
 uncoalesced jobs untouched; the key released on completion and on attempt exhaustion but surviving a
 retry; an enqueue during a run producing exactly one more run with the latest payload, driven from a
 second queue instance so the pass proves the active state was read from disk rather than from the
 in-process in-flight set; the follow-up keeping its producer's id; nothing parked when the twin is
-merely waiting; a queue-level `coalesceBy` keying every enqueue, returning `null` to opt a payload
-out, and losing to an explicit per-enqueue key; the lease being published, cleared, and ignored when
+merely waiting; an immediate enqueue pulling a delayed twin forward while a delayed one never pushes
+an earlier twin back; a queue-level `coalesceBy` keying every enqueue, returning `null` to opt a
+payload out, and losing to an explicit per-enqueue key; the lease being published, cleared, and ignored when
 its owner is dead or when a consumer starts; a coalesced enqueue leaving `queue.json`'s inode and
 mtime untouched; an unparsable lease failing open; and records written before this feature still
 processing.

@@ -206,6 +206,20 @@ export type EnqueueOptions = {
    * Overrides the queue's own `coalesceBy`, if it has one. Best-effort per strategy: an
    * implementation that does not honour coalescing MUST still enqueue the job. Degrading toward a
    * duplicate run is acceptable; dropping one is not.
+   *
+   * **Combined with `delayMs`**, the two options interact, and the strategies differ:
+   *
+   * - **Local** takes the *earlier* of the two moments. A coalesced enqueue can pull a delayed twin
+   *   forward, but collapsing never pushes a run later than the schedule an enqueue was given. The
+   *   asymmetry is the one the whole feature rests on: an early run costs milliseconds, a deferred
+   *   one silently leaves state wrong for the length of the delay.
+   * - **Async** inherits BullMQ, which discards the colliding add outright, so the surviving job
+   *   keeps its own schedule — an immediate enqueue collapsed into a delayed twin *is* deferred
+   *   until that twin's delay elapses. Nothing is lost, and the parked-follow-up path is unaffected;
+   *   only the moment moves.
+   *
+   * So do not use `delayMs` to schedule work on a coalesced key — a burst's effective delay is not
+   * well-defined across strategies. Give delayed work its own key, or no key at all.
    */
   coalesce?: CoalesceOptions
 }

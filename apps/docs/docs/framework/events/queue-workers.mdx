@@ -174,6 +174,17 @@ export function getOrderTotalsQueue() {
 Return `null` from `coalesceBy` to leave a payload uncoalesced. An explicit `coalesce` on an
 individual `enqueue` overrides the queue's resolver.
 
+### `delayMs` and a coalesce key do not mix
+
+Collapsing an enqueue collapses its schedule too, and the strategies resolve the clash differently:
+the local one runs the surviving job at the **earlier** of the two moments, while the async one
+inherits BullMQ, which discards the colliding add outright and leaves the surviving job on its own
+schedule. So a burst's effective delay is not well defined, and an immediate trigger can end up
+waiting behind a delayed twin on `async`.
+
+Nothing is ever dropped either way — only the moment moves. But do not use `delayMs` to space out
+work on a coalesced key. Give delayed work its own key, or no key at all.
+
 ### Why there is no drop-the-duplicate mode
 
 Most queues spell this "deduplication" and mean it literally: while a job is outstanding, further

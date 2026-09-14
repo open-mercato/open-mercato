@@ -37,7 +37,14 @@ const queue = createModuleQueue<RecalculateTotals>('order-totals', {
 ```
 
 Both strategies implement this — the async one through BullMQ, the local one on its file-backed
-store — so development behaves like production.
+store — so development behaves like production. The async path uses BullMQ's `keepLastIfActive`,
+which is why the `bullmq` peer range starts at **5.72.0**: older versions ignore the flag and
+silently fall back to dropping the mid-run trigger.
+
+Do not combine `coalesce` with `delayMs`. Collapsing an enqueue collapses its schedule too, and the
+strategies resolve that differently — local takes the earlier of the two moments, async leaves the
+surviving job on its own. Nothing is dropped either way, but the delay a burst ends up with is not
+well defined. Give delayed work its own key, or no key.
 
 ## Install
 

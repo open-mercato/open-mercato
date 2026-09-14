@@ -649,6 +649,26 @@ export function createLocalQueue<T = unknown>(
         return current.id
       }
 
+      // The twin is merely waiting, so it has read nothing and will observe this enqueue's writes
+      // when it runs — but only if it runs no later than this enqueue asked for. Carrying the
+      // earlier of the two moments keeps the guarantee one-directional: collapsing may cost a
+      // caller a run that happens sooner than it asked, never one that never comes. Dropping the
+      // incoming schedule instead would defer an immediate enqueue behind a delayed twin, which is
+      // the silently-lost write this feature exists to prevent.
+      //
+      // A record in retry backoff is excluded: there `availableAt` is not a schedule any caller
+      // asked for but the failure handler's spacing, and pulling it forward would let a burst of
+      // triggers hot-loop a job that is failing. A retry keeps its key and its backoff both.
+      const inRetryBackoff = (current.attemptCount ?? 0) > 0
+      const currentAvailableAtMs = current.availableAt ? new Date(current.availableAt).getTime() : 0
+      const incomingAvailableAtMs = availableAt ? new Date(availableAt).getTime() : 0
+      if (!inRetryBackoff && currentAvailableAtMs > incomingAvailableAtMs) {
+        if (availableAt) current.availableAt = availableAt
+        else delete current.availableAt
+        await writeQueue(jobs)
+        return current.id
+      }
+
       // Coalesced with nothing to record: deliberately no write at all. Rewriting `queue.json`
       // here would rename the file and wake the consumer's watcher for a job that does not exist,
       // which is precisely the work coalescing exists to avoid.
