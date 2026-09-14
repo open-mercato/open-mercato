@@ -309,6 +309,7 @@ export default function UmesExtensionsPage() {
           </div>
           <DataTable
             title={t('example.umes.extensions.table.title', 'Replacement Handles')}
+            titleHeadingLevel={2}
             columns={columns}
             data={SAMPLE_HANDLES}
             perspective={{ tableId: 'example.umes.extensions' }}
