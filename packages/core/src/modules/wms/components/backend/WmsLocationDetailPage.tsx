@@ -1202,6 +1202,7 @@ export default function WmsLocationDetailPage({ locationId }: WmsLocationDetailP
 
             <DataTable<InventoryMovementRow>
               title={t('wms.backend.location.activity.title', 'Recent activity')}
+              titleHeadingLevel={2}
               columns={activityColumns}
               data={movementsQuery.data ?? []}
               disableRowClick
