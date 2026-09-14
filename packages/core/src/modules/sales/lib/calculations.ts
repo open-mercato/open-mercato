@@ -1,3 +1,4 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import {
   type SalesAdjustmentDraft,
   type SalesCalculationContext,
@@ -11,6 +12,8 @@ import {
   type SalesTotalsCalculationHook,
 } from './types'
 
+const logger = createLogger('sales')
+
 function toNumber(value: unknown, fallback = 0): number {
   if (typeof value === 'number' && Number.isFinite(value)) return value
   if (typeof value === 'string' && value.trim() !== '' && !Number.isNaN(Number(value))) {
@@ -22,6 +25,12 @@ function toNumber(value: unknown, fallback = 0): number {
 function round(value: number): number {
   return Math.round((value + Number.EPSILON) * 1e4) / 1e4
 }
+
+// The engine rounds to the 4 decimals the numeric columns carry, but callers
+// work in money at 2, so an exact comparison would report half a cent of
+// honest rounding as a mismatch. Half a minor unit is the widest divergence
+// that cannot be a real discrepancy and the narrowest that silences that noise.
+const NET_RECONCILIATION_TOLERANCE = 0.005
 
 function extractAdjustmentTaxRate(adjustment: SalesAdjustmentDraft): number | null {
   const metadata = (adjustment.metadata ?? {}) as Record<string, unknown>
@@ -120,6 +129,38 @@ function buildBaseLineResult(line: SalesLineSnapshot): SalesLineCalculationResul
     netSubtotalBeforeDiscount,
   )
   const netSubtotal = Math.max(netSubtotalBeforeDiscount - discountTotal, 0)
+  // Unlike totalGrossAmount below, a supplied totalNetAmount is never honoured
+  // verbatim — net always comes from unitPriceNet/discount so it stays
+  // internally consistent with them. A caller-supplied value is still
+  // reconciled against the computed one so a divergence (e.g. a mis-read
+  // discount) surfaces instead of being silently discarded (#5644).
+  //
+  // Only a caller's value is reconciled: a snapshot rebuilt from a persisted
+  // row (`totalsFromStoredRow`) carries the engine's own previous output, and
+  // on a row the discount contract still has to heal that value is *supposed*
+  // to differ from the recomputed net. Warning about it would drown the caller
+  // signal this exists for in one line per line per recalculation.
+  if (line.totalsFromStoredRow !== true && line.totalNetAmount !== null && line.totalNetAmount !== undefined) {
+    const computedNetAmount = round(netSubtotal)
+    const suppliedNetAmount = toNumber(line.totalNetAmount, NaN)
+    if (!Number.isFinite(suppliedNetAmount)) {
+      // Falling back to the computed value here would compare equal and log
+      // nothing — the same silent discard #5644 exists to end.
+      logger.warn('Sales line totalNetAmount is not a finite number; the computed value is used', {
+        lineId: line.id ?? null,
+        productId: line.productId ?? null,
+        suppliedTotalNetAmount: line.totalNetAmount,
+        computedNetAmount,
+      })
+    } else if (Math.abs(round(suppliedNetAmount) - computedNetAmount) > NET_RECONCILIATION_TOLERANCE) {
+      logger.warn('Sales line totalNetAmount does not match the computed net amount; the computed value is used', {
+        lineId: line.id ?? null,
+        productId: line.productId ?? null,
+        suppliedTotalNetAmount: round(suppliedNetAmount),
+        computedNetAmount,
+      })
+    }
+  }
   const explicitTaxAmount = line.taxAmount !== null && line.taxAmount !== undefined
   let taxAmount = explicitTaxAmount
     ? toNumber(line.taxAmount, 0)

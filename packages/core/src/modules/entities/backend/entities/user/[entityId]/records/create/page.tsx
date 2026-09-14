@@ -58,6 +58,7 @@ function CreateRecordPageInner({ params }: { params: { entityId?: string } }) {
   return (
     <CrudForm
       title={t('entities.userEntities.records.form.createTitle', 'Create record')}
+      titleHeadingLevel={1}
       backHref={`/backend/entities/user/${encodeURIComponent(entityId)}/records`}
       schema={schema}
       fields={fields}

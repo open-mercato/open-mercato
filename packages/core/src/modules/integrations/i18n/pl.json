@@ -11,6 +11,7 @@
   "integrations.detail.back": "Powrót do integracji",
   "integrations.detail.backToList": "Wróć do integracji",
   "integrations.detail.credentials.bundleShared": "Współdzielone dane z pakietu: {bundle}",
+  "integrations.detail.credentials.noPermission": "Nie masz uprawnień do zarządzania danymi uwierzytelniającymi tej integracji.",
   "integrations.detail.credentials.notConfigured": "Brak skonfigurowanych danych",
   "integrations.detail.credentials.save": "Zapisz dane",
   "integrations.detail.credentials.saveError": "Nie udało się zapisać danych",

@@ -151,6 +151,8 @@ export class OtpEmailProvider implements MfaProviderInterface {
     await sendEmail({
       to: email,
       subject: this.securityConfig.otpEmail.subject,
+      tenantId: method.tenantId,
+      organizationId: method.organizationId ?? null,
       react: OtpCodeEmail({
         code,
         expiresInMinutes: Math.max(1, Math.ceil(challengeTtlMs / (60 * 1000))),

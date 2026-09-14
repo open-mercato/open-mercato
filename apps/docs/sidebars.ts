@@ -515,6 +515,8 @@ const sidebars: SidebarsConfig = {
             "framework/runtime/data-engine",
             "framework/runtime/request-lifecycle",
             "framework/runtime/logging",
+            "framework/runtime/dev-runtime-diagnostics",
+            "framework/runtime/error-reporting",
           ],
         },
         {

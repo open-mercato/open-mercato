@@ -230,8 +230,8 @@ jobs:
         working-directory: /tmp/standalone-app
         run: |
           cp .env.example .env
+          sed -i 's|^DATABASE_URL=.*$|DATABASE_URL=postgres://mercato:secret@localhost:5432/mercato_test|' .env
           cat >> .env << 'EOF'
-          DATABASE_URL=postgres://mercato:secret@localhost:5432/mercato_test
           APP_URL=http://localhost:3001
           NEXT_PUBLIC_APP_URL=http://localhost:3001
           # `yarn start` serves a production build, so NODE_ENV is production in
