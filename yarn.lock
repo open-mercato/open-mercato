@@ -9017,9 +9017,9 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@open-mercato/gateway-autopay@workspace:packages/gateway-autopay"
   dependencies:
+    "@open-mercato/ai-assistant": "workspace:*"
     "@open-mercato/core": "workspace:*"
     "@open-mercato/shared": "workspace:*"
-    "@open-mercato/ui": "workspace:*"
     "@types/jest": "npm:^30.0.0"
     esbuild: "npm:^0.28.1"
     glob: "npm:^13.0.6"
@@ -9028,7 +9028,9 @@ __metadata:
     typescript: "npm:7.0.2"
   peerDependencies:
     "@mikro-orm/postgresql": ^7.0.14
+    "@open-mercato/ai-assistant": "workspace:*"
     "@open-mercato/shared": "workspace:*"
+    "@open-mercato/ui": "workspace:*"
     react: ^19.0.0
     react-dom: ^19.0.0
   languageName: unknown

@@ -171,6 +171,7 @@ const SYNC_DEPENDENCY_KEYS = [
 ] as const
 const SYNC_INTERNAL_PACKAGE_KEYS = [
   '@open-mercato/checkout',
+  '@open-mercato/gateway-autopay',
   '@open-mercato/gateway-stripe',
   '@open-mercato/sync-akeneo',
 ] as const
