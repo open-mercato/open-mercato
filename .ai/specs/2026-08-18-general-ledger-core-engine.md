@@ -798,7 +798,15 @@ on `journal_entry` backs the `referenceType`/`referenceId` pair.
   cross-module calls. Requires `ledger.entries.post`.
 - `reverseJournalEntry` — posts a new `REVERSAL` entry with inverted
   lines, referencing the original; does not mutate the original.
-  Requires `ledger.entries.post`.
+  **Corrected 2026-09-14:** also emits `ledger.journal_entry.posted`
+  (ephemeral) after commit, exactly like `postJournalEntry`. An
+  earlier draft documented the event only on `postJournalEntry`, but
+  `2026-09-06-posting-rules-engine.md`'s own subscriber design
+  ("Reversals are mirrored, not duplicated") already assumes a
+  `REVERSAL` entry's lines arrive through this same event, to
+  detect and mirror a storno of a zespół 4 posting. Without this
+  emission that subscriber's contra-side branch is unreachable
+  dead code. Requires `ledger.entries.post`.
 - `createFiscalPeriod` — creates a period (`startDate`, `endDate`,
   `isLocked: false`). Requires `ledger.periods.manage`.
 - `lockFiscalPeriod` / `unlockFiscalPeriod` — toggles `isLocked`,
@@ -818,10 +826,17 @@ on `journal_entry` backs the `referenceType`/`referenceId` pair.
 
 ### Events (`events.ts`)
 
-- `ledger.journal_entry.posted` — emitted by `postJournalEntry` after
-  the entry commits. Ephemeral (in-process, no retry) — matches the
-  "real-time UI updates" use case in `packages/events/AGENTS.md`, not
-  a durability guarantee. This module has no subscribers of its own;
+- `ledger.journal_entry.posted` — emitted by both `postJournalEntry`
+  and `reverseJournalEntry` after the entry commits. **Corrected
+  2026-09-14:** an earlier draft documented emission only from
+  `postJournalEntry`; a `REVERSAL` entry is posted by a distinct
+  command but is the same kind of committed `JournalEntry` and must
+  fire the same event — a downstream subscriber otherwise cannot
+  tell "nothing was reversed today" from "the event for a reversal
+  was silently never sent." Ephemeral (in-process, no retry) —
+  matches the "real-time UI updates" use case in
+  `packages/events/AGENTS.md`, not a durability guarantee. This
+  module has no subscribers of its own;
   it exists so a downstream module (e.g. Posting Rules Engine) can
   react without `ledger` importing or resolving that module — `ledger`
   stays fully generic and has no knowledge of zespoły, konto 490, or
@@ -1078,8 +1093,8 @@ Queries / API).
 | `acl.ts` | Create | Six `ledger.*` features |
 | `setup.ts` | Create | `defaultRoleFeatures` for `admin`/`employee`; `seedDefaults` seeding `LedgerAccountGroup` (jurisdiction `'PL'`, hardcoded) into each organization |
 | `commands/postJournalEntry.ts` | Create | Validate the covering period is unlocked, validate and persist a balanced journal entry, atomically allocating the next per-organization `sequenceNumber` |
-| `events.ts` | Create | Declares `ledger.journal_entry.posted` (ephemeral), emitted by `postJournalEntry` after commit |
-| `commands/reverseJournalEntry.ts` | Create | Post a linked reversal without mutating the original |
+| `events.ts` | Create | Declares `ledger.journal_entry.posted` (ephemeral), emitted by both `postJournalEntry` and `reverseJournalEntry` after commit (corrected 2026-09-14) |
+| `commands/reverseJournalEntry.ts` | Create | Post a linked reversal without mutating the original; emits `ledger.journal_entry.posted` after commit (corrected 2026-09-14) |
 | `commands/fiscalPeriods.ts` | Create | `createFiscalPeriod`, `lockFiscalPeriod` / `unlockFiscalPeriod` with optimistic-lock enforcement |
 | `commands/ledgerAccounts.ts` | Create | `createLedgerAccount` / `updateLedgerAccount` with the `accountTypeId`-immutability guard |
 | `commands/ledgerAccountTypes.ts` | Create | `createLedgerAccountType` / `updateLedgerAccountType` with the `normalBalance`/`accountGroupId`-immutability guard |
@@ -1108,7 +1123,12 @@ Queries / API).
 - Assert `createFiscalPeriod`/`lockFiscalPeriod`/`unlockFiscalPeriod`
   return 403 without `ledger.periods.manage` and succeed with it.
 - Reverse a posted entry and assert a new, linked `REVERSAL` entry is
-  created while the original is unchanged.
+  created while the original is unchanged; assert
+  `reverseJournalEntry` also emits `ledger.journal_entry.posted` for
+  the new entry, the same as `postJournalEntry` (**added
+  2026-09-14** — closes the gap where Posting Rules Engine's
+  reversal-mirroring subscriber assumed this emission without #5663
+  ever asserting it).
 - Post a balanced `OPENING` entry establishing a permanent account's
   beginning-of-year balance and assert it persists and posts exactly
   like a `NORMAL` entry — same balance check, same locked-period
@@ -2077,3 +2097,28 @@ primary-source XSD verification pass. Updated the Out of scope bullet's
 wording accordingly ("still isn't written" removed). No design decision
 in *this* document changes — the bulk-read interface's field-level
 detail still waits on `#6038`, same as before this update.
+
+### 2026-09-14 (two corrections found while cross-checking Posting Rules Engine's second review)
+
+- **Claimed ownership of the leaf-postability guard.** An earlier
+  draft's Out of scope bullet said this guard "ships together with
+  the posting-rules/konto 490 engine in a future spec, not here" —
+  read by that spec's own maintainer review as though
+  `2026-09-06-posting-rules-engine.md` should implement it. That
+  document's Out of scope instead names `ledger.postJournalEntry` —
+  this module — as the real owner, since the guard must apply
+  uniformly to every poster, not only the zespół 4/5 traffic that
+  module handles. Corrected the Out of scope bullet here to claim it
+  explicitly; still not implemented in this phase.
+- **`reverseJournalEntry` now documented as emitting
+  `ledger.journal_entry.posted`.** Found while re-verifying the
+  Posting Rules Engine reversal-mirroring design against this
+  document's own text: only `postJournalEntry` was ever documented
+  as emitting the event (Commands, Events, File Manifest, Testing
+  Strategy all silent on `reverseJournalEntry`), yet
+  `2026-09-06-posting-rules-engine.md`'s subscriber ("Reversals are
+  mirrored, not duplicated", corrected there 2026-09-14) already
+  assumes a `REVERSAL` entry's lines reach it through this same
+  event. Updated Commands, Events, File Manifest, and Testing
+  Strategy to state `reverseJournalEntry` also emits
+  `ledger.journal_entry.posted` after commit.
