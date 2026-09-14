@@ -1,5 +1,10 @@
 import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
+import { createTestCustomer, type TestCustomerFixture } from './fixtures'
+
+export const integrationMeta = {
+  dependsOnModules: ['customers'],
+}
 
 /**
  * TC-STAFF-023: Time entries self-scope enforcement on GET
@@ -21,6 +26,7 @@ test.describe('TC-STAFF-023: Time entries self-scope enforcement', () => {
     let employeeToken: string | null = null
     let adminStaffMemberId: string | null = null
     let employeeStaffMemberId: string | null = null
+    let customer: TestCustomerFixture | null = null
     let projectId: string | null = null
     let entryId: string | null = null
 
@@ -42,9 +48,17 @@ test.describe('TC-STAFF-023: Time entries self-scope enforcement', () => {
       expect(employeeStaffMemberId, 'Employee should have a staff member linked').toBeTruthy()
       expect(employeeStaffMemberId).not.toBe(adminStaffMemberId)
 
+      customer = await createTestCustomer(request, adminToken, { displayName: `${projectName} Customer` })
+
       const createProjectResponse = await apiRequest(request, 'POST', '/api/staff/timesheets/time-projects', {
         token: adminToken,
-        data: { name: projectName, code: projectCode, projectType: 'internal', status: 'active' },
+        data: {
+          name: projectName,
+          code: projectCode,
+          customerId: customer.id,
+          projectType: 'internal',
+          status: 'active',
+        },
       })
       expect(createProjectResponse.ok(), 'POST /api/staff/timesheets/time-projects should succeed').toBeTruthy()
       const createProjectBody = (await createProjectResponse.json()) as { id?: string | null }
@@ -121,6 +135,9 @@ test.describe('TC-STAFF-023: Time entries self-scope enforcement', () => {
           `/api/staff/timesheets/time-projects?id=${encodeURIComponent(projectId)}`,
           { token: adminToken },
         ).catch(() => {})
+      }
+      if (customer) {
+        await customer.cleanup()
       }
     }
   })
