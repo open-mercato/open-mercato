@@ -201,6 +201,29 @@ Deliverables:
 - The glossary is linked from `packages/enterprise/src/modules/agent_orchestrator/AGENTS.md` and
   `packages/core/src/modules/workflows/AGENTS.md`.
 
+### Status (2026-09-14) — naming surface done, body copy deferred with cause
+
+The **naming surface is relabelled in all five locales**: `workflows.module.name`,
+`definitions.title`, `create`/`edit`, the visual editor, `instances.*`, `events.*` and
+`commandSettings.pageTitle` — the keys `page.meta.ts` actually renders into menus, page titles and
+breadcrumbs. Each locale was written by hand, not substituted, because the noun's **gender changes**:
+`automatización` is feminine where `flujo` was masculine (so `del flujo` → `de la automatización`),
+`Automatisierung` is feminine and compounds through an `-s-` Fugenlaut, and Polish `automatyzacja`
+inflects (`Utwórz automatyzację` accusative, `edytor automatyzacji` genitive).
+
+**Deferred: ~1,580 body-copy values** across `workflows/i18n/*.json` (≈315 per locale) and
+`agent_orchestrator/i18n/*.json` (≈20 per locale) that mention the old word mid-sentence. A scripted
+substitution over these produces grammatically broken copy in pl/de/es — `Instancja Przepływu
+Podrzędnego` → `Automatyzacji Podrzędnego` needs the adjective to agree (`Podrzędnej`), and
+`Instancia del subflujo` → `Instancia del subautomatización` is simply wrong Spanish. Shipping 1,500
+broken strings is worse than a consistent old term, so these need a native or translation-service pass
+rather than a regex. **English body copy can be done mechanically and safely** and is the obvious next
+increment.
+
+The agent_orchestrator side needs **no removal**: the unification spec keeps Business Process as a
+projection over workflow execution, so "Procesy" (business processes) and "Automatyzacje" (the engine)
+are genuinely distinct concepts, not synonyms. The earlier plan to delete one of them does not apply.
+
 ### Dependency and risk
 
 Ordered after the unification spec lands its model change, so the rename runs once. **Risk:** the word
