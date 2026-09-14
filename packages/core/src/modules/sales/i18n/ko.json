@@ -499,6 +499,7 @@
   "sales.documents.adjustments.updated": "조정 항목이 수정되었습니다.",
   "sales.documents.amountsExternal": "원본 시스템 금액",
   "sales.documents.amountsExternalHint": "이 문서의 합계는 외부 시스템에서 제공된 값 그대로 저장됩니다.",
+  "sales.documents.amountsExternalMethodNote": "수단은 저장되지만 요금은 추가되지 않습니다. 이 주문의 합계는 원본 시스템에서 옵니다.",
   "sales.documents.amountsSwitchConfirm": "이 주문의 금액을 품목에서 다시 계산할까요? 원본 시스템이 제공한 합계는 대체되며 여기서는 복원할 수 없습니다.",
   "sales.documents.amountsSwitchDone": "이제 금액이 품목에서 계산됩니다.",
   "sales.documents.amountsSwitchFailed": "계산 금액으로 전환하지 못했습니다.",

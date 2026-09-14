@@ -499,6 +499,7 @@
   "sales.documents.adjustments.updated": "Ajuste actualizado.",
   "sales.documents.amountsExternal": "Importes del origen",
   "sales.documents.amountsExternalHint": "Los totales de este documento provienen de un sistema externo y se guardan tal cual.",
+  "sales.documents.amountsExternalMethodNote": "El método se guarda, pero no añade ningún cargo: los totales de este pedido provienen del sistema de origen.",
   "sales.documents.amountsSwitchConfirm": "¿Recalcular los importes de este pedido a partir de sus líneas? Los totales aportados por el sistema de origen se reemplazarán y no se podrán restaurar desde aquí.",
   "sales.documents.amountsSwitchDone": "Los importes ahora se calculan a partir de las líneas.",
   "sales.documents.amountsSwitchFailed": "No se pudo cambiar a importes calculados.",

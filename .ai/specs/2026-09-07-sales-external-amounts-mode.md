@@ -201,6 +201,12 @@ Two changes close it, and neither disables the registry:
    breakdown and absent from the total. The hook learns the mode from a new optional `totalsMode` field on
    its params — additive; no third-party calculator has to change.
 
+   **The visible consequence, which is worth stating rather than leaving to be discovered:** on an external
+   order, choosing a shipping or payment method that normally carries a charge records the method and moves
+   no total. That is correct — the source system owns the money and will send the charge in its own header
+   — but it is surprising, so § 7 puts a standing note beside both method selectors rather than letting the
+   operator infer it from a total that did not change.
+
 `paidTotalAmount`, `refundedTotalAmount` and `outstandingAmount` stay **core-owned** and derived. Because
 payments derive outstanding from the *persisted* header gross and never re-derive the header,
 `sales.payments.*` needs no rule and no change at all — under `external` it simply derives from the
@@ -255,6 +261,7 @@ Both transitions are legal, and both rewrite:
 |---|---|
 | `sales.orders.create` | accepts `totalsMode: 'external'` + complete lines + header totals; incomplete input is a 400 |
 | `sales.orders.update` | a request carrying a mode change or header totals must carry the **complete** header; a request carrying neither leaves the persisted header untouched — **unless it sets `totalsMode`, which is a transition and follows § 8, not this row** |
+| `sales.orders.update` — shipping or payment method only | the method is recorded and **no provider charge is generated**: the provider calculator stands down (§ 4) and the persisted header is written back unchanged. An operator who picks a paid shipping method sees the method save and the total not move |
 | `sales.orders.lines.upsert` | **rejects** unless the request also carries `orderTotals` — which today's schema could not express, so § API Contracts widens it |
 | `sales.orders.lines.delete` | **rejects** unless the request also carries `orderTotals` — same schema widening |
 | `sales.orders.adjustments.upsert` | **refuses** (409) — an adjustment exists only to change money |
@@ -316,6 +323,10 @@ files.
 - line add / edit / delete disabled on an external document, since the backend UI cannot restate the
   document header in a line write and the request would be rejected (§ 6) — a form that submits into a
   guaranteed 4xx is a defect. The amounts stay visible; they are just not the operator's to change;
+- adjustment add / edit / delete disabled on the same document and for the same reason: every one of those
+  writes is refused with a 409 (§ 6), so offering them is the same defect one section over;
+- a note beside the shipping and payment method selectors saying the method is recorded but adds no
+  charge — the one place where an external document silently does less than the operator expects;
 - switching back to `computed` is an explicit, confirmed action of its own (§ 8), never a side effect of an
   edit.
 
@@ -654,6 +665,18 @@ Shipped with the change:
   `amountsMode` sits beside two origin flags it must not be conflated with, the #5707 warning is skipped
   positionally (and asserted against the logger), and #5640's line-total basis is what makes a
   zero-percent discount line round-trip exactly on switch-back.
+
+### 2026-09-14 (later)
+
+From the fork review on [fullstackhouse#124](https://github.com/fullstackhouse/open-mercato/pull/124):
+
+- **The adjustments section stayed editable on an external document** while every write it offered was
+  refused with a 409 — the same "a form that always fails is a defect" rule the items section was already
+  held to, one section over. § 7 now covers both, and the flag is passed to both.
+- **Choosing a shipping or payment method on an external order records the method and moves no total**,
+  because the provider calculator stands down. Correct, and silent: § 4 and § 6 now state it and § 7 puts a
+  note beside both selectors, so the operator is told rather than left to infer it from a total that did
+  not move.
 
 ### 2026-09-14
 

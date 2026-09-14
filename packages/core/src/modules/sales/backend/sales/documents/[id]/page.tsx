@@ -1465,6 +1465,7 @@ function MethodInlineEditor({
   emptyResultsLabel,
   selectedHint,
   icon,
+  note,
   allowClear = true,
 }: {
   label: string
@@ -1481,6 +1482,8 @@ function MethodInlineEditor({
   emptyResultsLabel: string
   selectedHint: (id: string) => string
   icon: React.ReactNode
+  /** Standing caveat about what selecting a method will and will not do. */
+  note?: string | null
   allowClear?: boolean
 }) {
   const t = useT()
@@ -1594,6 +1597,7 @@ function MethodInlineEditor({
       <div className="flex items-start justify-between gap-2">
         <div className="flex-1 min-w-0">
           <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
+          {note ? <p className="mt-1 text-xs text-muted-foreground">{note}</p> : null}
           {editing ? (
             <div
               className="mt-2 space-y-2"
@@ -3868,6 +3872,14 @@ export default function SalesDocumentDetailPage({
               t('sales.documents.detail.shippingMethod.selected', 'Selected shipping method: {{id}}', { id })
             }
             icon={<Truck className="h-5 w-5 text-muted-foreground" />}
+            note={
+              amountsAreExternal
+                ? t(
+                    'sales.documents.amountsExternalMethodNote',
+                    'The method is recorded, but no charge is added \u2014 this order\u2019s totals come from the source system.',
+                  )
+                : null
+            }
           />
         ),
       },
@@ -3894,6 +3906,14 @@ export default function SalesDocumentDetailPage({
               t('sales.documents.detail.paymentMethod.selected', 'Selected payment method: {{id}}', { id })
             }
             icon={<CreditCard className="h-5 w-5 text-muted-foreground" />}
+            note={
+              amountsAreExternal
+                ? t(
+                    'sales.documents.amountsExternalMethodNote',
+                    'The method is recorded, but no charge is added \u2014 this order\u2019s totals come from the source system.',
+                  )
+                : null
+            }
           />
         ),
       },
@@ -3967,6 +3987,7 @@ export default function SalesDocumentDetailPage({
     )
     return fields
   }, [
+    amountsAreExternal,
     handleUpdateComment,
     handleUpdateCustomerReference,
     handleUpdateExpectedDeliveryAt,
@@ -4357,6 +4378,7 @@ export default function SalesDocumentDetailPage({
           tenantId={(record as any)?.tenantId ?? (record as any)?.tenant_id ?? null}
           onActionChange={handleSectionActionChange}
           onRowsChange={setAdjustmentRows}
+          amountsReadOnly={amountsAreExternal}
         />
       )
     }

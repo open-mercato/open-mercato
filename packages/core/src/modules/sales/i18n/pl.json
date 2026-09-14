@@ -499,6 +499,7 @@
   "sales.documents.adjustments.updated": "Korekta zaktualizowana.",
   "sales.documents.amountsExternal": "Kwoty ze źródła",
   "sales.documents.amountsExternalHint": "Sumy tego dokumentu pochodzą z systemu zewnętrznego i są zapisane w podanej postaci.",
+  "sales.documents.amountsExternalMethodNote": "Metoda zostanie zapisana, ale nie doliczy opłaty — sumy tego zamówienia pochodzą z systemu źródłowego.",
   "sales.documents.amountsSwitchConfirm": "Przeliczyć kwoty tego zamówienia z pozycji? Sumy podane przez system źródłowy zostaną zastąpione i nie da się ich stąd przywrócić.",
   "sales.documents.amountsSwitchDone": "Kwoty są teraz wyliczane z pozycji.",
   "sales.documents.amountsSwitchFailed": "Nie udało się przełączyć na kwoty wyliczane.",

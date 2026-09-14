@@ -499,6 +499,7 @@
   "sales.documents.adjustments.updated": "Adjustment updated.",
   "sales.documents.amountsExternal": "Amounts from source",
   "sales.documents.amountsExternalHint": "Totals on this document come from an external system and are stored as supplied.",
+  "sales.documents.amountsExternalMethodNote": "The method is recorded, but no charge is added — this order’s totals come from the source system.",
   "sales.documents.amountsSwitchConfirm": "Recompute this order’s amounts from its lines? The totals supplied by the source system will be replaced and cannot be restored from here.",
   "sales.documents.amountsSwitchDone": "Amounts are now computed from the lines.",
   "sales.documents.amountsSwitchFailed": "Could not switch to computed amounts.",

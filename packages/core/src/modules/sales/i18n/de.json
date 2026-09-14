@@ -499,6 +499,7 @@
   "sales.documents.adjustments.updated": "Anpassung aktualisiert.",
   "sales.documents.amountsExternal": "Beträge aus Quellsystem",
   "sales.documents.amountsExternalHint": "Die Summen dieses Belegs stammen aus einem externen System und werden unverändert gespeichert.",
+  "sales.documents.amountsExternalMethodNote": "Die Methode wird gespeichert, aber es wird keine Gebühr berechnet — die Summen dieses Auftrags stammen aus dem Quellsystem.",
   "sales.documents.amountsSwitchConfirm": "Die Beträge dieses Auftrags aus seinen Positionen neu berechnen? Die vom Quellsystem gelieferten Summen werden ersetzt und lassen sich von hier aus nicht wiederherstellen.",
   "sales.documents.amountsSwitchDone": "Die Beträge werden jetzt aus den Positionen berechnet.",
   "sales.documents.amountsSwitchFailed": "Umstellung auf berechnete Beträge fehlgeschlagen.",
