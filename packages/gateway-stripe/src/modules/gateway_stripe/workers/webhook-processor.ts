@@ -109,7 +109,7 @@ export default async function handle(job: QueuedJob<WebhookJobPayload>, ctx: Han
         // the durable record and never leaves the database, so an operator paged by
         // the reported error would otherwise learn only that a webhook failed.
         message: `Stripe webhook processing failed: ${message}`,
-        code: 'stripe_webhook_processing_failed',
+        code: 'gateway_stripe.webhook_processing_failed',
         payload: {
           error: message,
           eventType: event.eventType,

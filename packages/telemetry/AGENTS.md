@@ -38,9 +38,12 @@ off by default. Spec:
   `apps/docs/docs/framework/runtime/error-reporting.mdx`.
 - Pass `code` on every `reportError` call: a stable, enumerated `module.reason`
   token, never an interpolated string. It is a metric label and the fingerprint
-  backends group on — ids go in `attributes`. Where a `code` originates outside
-  the framework (an adapter's `data.errorCode`), validate the shape at the
-  boundary rather than documenting it: metric labels skip redaction.
+  backends group on — ids go in `attributes`. The funnel narrows it through
+  `groupableCode` from `@open-mercato/shared/lib/telemetry/error-code` and DROPS
+  anything off-shape, because metric labels skip redaction; a chokepoint taking a
+  `code` from outside the framework (an adapter's `data.errorCode`, a module's
+  `integrationLogService.write({ code })`) narrows it with its OWN fallback first,
+  so the error still lands in a group rather than none.
 - Put the CAUSE in the reported message. A constant message with the reason only
   in `payload` reports an error nobody can act on, because the payload stays in
   the database.

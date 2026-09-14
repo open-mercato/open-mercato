@@ -211,8 +211,10 @@ export function createAsyncQueue<T = unknown>(
         code,
         attributes: { queue: name, ...attributes },
       })
-    } catch {
-      // Reporting is never worth a worker.
+    } catch (telemetryError) {
+      // Reporting is never worth a worker — but a systematically broken bridge
+      // must not be silent either, or a worker stops reporting and nothing says so.
+      logger.warn('Failed to report a queue error to telemetry', { code, err: telemetryError as Error })
     }
   }
 

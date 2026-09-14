@@ -17,6 +17,7 @@ import {
   getTelemetryRuntime,
   type TelemetrySpanAttributes,
 } from '@open-mercato/shared/lib/telemetry/runtime'
+import { groupableCode } from '@open-mercato/shared/lib/telemetry/error-code'
 import type { SyncRun } from '../data/entities'
 
 const logger = createLogger('data_sync').child({ component: 'sync-engine' })
@@ -56,16 +57,6 @@ function runEventAttributes(run: SyncRun, scope: SyncScope): TelemetrySpanAttrib
 }
 
 /**
- * The `module.reason` shape a fingerprint must have to be used as a metric label.
- *
- * Enforced rather than documented because the value comes from an adapter, which
- * third parties write: an interpolated `` `http_${status}_${url}` `` would open one
- * `om.errors` series per URL, and metric labels — unlike attributes — never pass
- * through redaction, so an interpolated customer email would egress unredacted.
- */
-const ERROR_CODE_SHAPE = /^[a-z0-9_]+\.[a-z0-9_]+$/
-
-/**
  * The failure fingerprint for a dead-lettered item.
  *
  * An adapter that classifies its own failures sets `errorCode` on the item's data
@@ -75,8 +66,7 @@ const ERROR_CODE_SHAPE = /^[a-z0-9_]+\.[a-z0-9_]+$/
  * nothing.
  */
 function itemErrorCode(data: Record<string, unknown>, fallback: string): string {
-  const code = typeof data.errorCode === 'string' ? data.errorCode.trim() : ''
-  return ERROR_CODE_SHAPE.test(code) ? code : fallback
+  return groupableCode(data.errorCode, fallback)
 }
 
 /**

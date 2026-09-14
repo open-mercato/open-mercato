@@ -2,6 +2,7 @@ import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { groupableCode } from '@open-mercato/shared/lib/telemetry/error-code'
 import type { IntegrationScope } from '@open-mercato/shared/modules/integrations/types'
 import type { ListIntegrationLogsQuery } from '../data/validators'
 import { IntegrationLog } from '../data/entities'
@@ -65,12 +66,17 @@ type LogInput = {
  * database. Wrapped because observability may never alter behaviour: the row is
  * already flushed by the time this runs, and a telemetry fault degrades to a
  * warning rather than failing the write its caller depends on.
+ *
+ * The row's own `code` is free-form and written by any module that resolves this
+ * service, third-party ones included, so it is narrowed to a fingerprint before
+ * it is reported: a code the backend cannot group on is worth less than the
+ * catch-all every integration error already shares.
  */
 function reportErrorLog(input: LogInput, scope: IntegrationScope): void {
   try {
     getTelemetryRuntime()?.reportError(new IntegrationLogError(input.message), {
       module: 'integrations',
-      code: input.code ?? 'integrations.log_error',
+      code: groupableCode(input.code, 'integrations.log_error'),
       attributes: {
         integrationId: input.integrationId,
         runId: input.runId ?? undefined,

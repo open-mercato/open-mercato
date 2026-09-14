@@ -130,6 +130,27 @@ describe('reportError policy', () => {
     expect(span.exceptions).toHaveLength(1)
   })
 
+  it('drops a code that is not a groupable fingerprint rather than publishing it', async () => {
+    const { provider, span, logs, metrics, reported } = recordingProvider({ withErrorSink: true })
+    await activate(provider)
+
+    // A metric label is unbounded cardinality and skips redaction, so the funnel
+    // narrows the code once here rather than trusting every caller to.
+    reportError(new Error('upstream rejected the item'), {
+      module: 'integrations',
+      code: 'http_404_https://erp.example.com/api/customers/jan.kowalski@example.com',
+    })
+
+    expect(metrics.find((metric) => metric.name === 'om.errors')?.labels).toEqual({ module: 'integrations' })
+    expect(errorLogs(logs)[0]?.attributes?.['error.code']).toBeUndefined()
+    expect(span.attributes['error.code']).toBeUndefined()
+    expect(reported[0]?.context.code).toBeUndefined()
+    // Dropping the fingerprint never drops the error itself.
+    expect(span.exceptions).toHaveLength(1)
+    expect(errorLogs(logs)).toHaveLength(1)
+    expect(reported).toHaveLength(1)
+  })
+
   it('reports every occurrence — no sampling, no suppression', async () => {
     const { provider, logs, metrics, reported } = recordingProvider({ withErrorSink: true })
     await activate(provider)

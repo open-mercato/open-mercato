@@ -109,6 +109,39 @@ describe('integration log service error reporting', () => {
     expect(reported[0]?.context?.code).toBe('integrations.log_error')
   })
 
+  it('falls back rather than trusting a code that is not a groupable fingerprint', async () => {
+    const { runtime, reported } = runtimeStub()
+    registerTelemetryRuntime(runtime)
+    const { em } = entityManagerStub()
+
+    // Any module resolving this service can write a `code`, third-party ones
+    // included. An interpolated one would open an `om.errors` series per value —
+    // and metric labels, unlike attributes, never pass through redaction.
+    await createIntegrationLogService(em).write({
+      integrationId: 'sync_akeneo',
+      level: 'error',
+      message: 'Failed to import item product-1',
+      code: 'http_404_https://erp.example.com/api/products/jan.kowalski@example.com',
+    }, scope)
+
+    expect(reported[0]?.context?.code).toBe('integrations.log_error')
+  })
+
+  it('keeps the row\'s own code when it is a groupable fingerprint', async () => {
+    const { runtime, reported } = runtimeStub()
+    registerTelemetryRuntime(runtime)
+    const { em } = entityManagerStub()
+
+    await createIntegrationLogService(em).write({
+      integrationId: 'gateway_stripe',
+      level: 'error',
+      message: 'Stripe webhook processing failed: signature mismatch',
+      code: 'gateway_stripe.webhook_processing_failed',
+    }, scope)
+
+    expect(reported[0]?.context?.code).toBe('gateway_stripe.webhook_processing_failed')
+  })
+
   it('does not report info or warn rows', async () => {
     const { runtime, reported } = runtimeStub()
     registerTelemetryRuntime(runtime)

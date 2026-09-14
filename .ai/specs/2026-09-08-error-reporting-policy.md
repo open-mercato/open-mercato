@@ -205,7 +205,7 @@ Ordered by what the change is for. Each line is checkable by a named test or a s
   - [ ] a rejected coverage refresh produces a `data_sync.coverage_refresh_failed` report instead of being dropped.
 - [ ] **Every `level: 'error'` integration log row is reported**, for all seven current writers across `data_sync`, `payment_gateways` and `gateway_stripe` — verified by a service-level test, not per call site.
 - [ ] **Every reported error names its cause.** No covered writer reports a constant message with the reason only in `payload`, since the payload never egresses: the payment status poller and the Stripe webhook processor interpolate the cause into the message.
-- [ ] **A `code` that came from outside the framework is validated, not trusted.** An adapter's `data.errorCode` is used only when it is shaped `module.reason`; anything else falls back to the engine's own code, because metric labels are unbounded in cardinality and — unlike attributes — skip redaction.
+- [ ] **A `code` that came from outside the framework is validated, not trusted, at every boundary it enters through.** The shape check lives in one shared helper (`groupableCode`) and is applied at each chokepoint that accepts an outside code — an adapter's `data.errorCode`, a module's `integrationLogService.write({ code })` — falling back to that chokepoint's own code; and once more inside `reportError`, which DROPS an off-shape code rather than publishing it, so the property holds for callers the framework does not own. Metric labels are unbounded in cardinality and — unlike attributes — skip redaction.
 - [ ] **A job failure is reported once, coded by what it is.** `queue.job_exhausted` on the attempt that dead-letters the job, `queue.job_failed` while retries remain, identically on the `async` and `local` strategies.
 - [ ] **A burst groups, and nothing is dropped.** 115 item failures produce 115 reports that share one `code`, so the backend collapses them into one group of 115 and `om.errors{module, error.code}` counts 115 — no framework-side suppression anywhere in the path. Drilling into any one of the 115 still yields its own item id and message.
 - [ ] **Reporting cannot recurse.** An error raised inside the reporting path (a provider hook that reports its own failures, a redaction bug) is not itself reported; the re-entrancy guard no-ops the nested call and the original report still completes.
@@ -251,6 +251,8 @@ export type ReportErrorContext = {
 
 `TelemetryRuntime['reportError']`'s context gains `code?: string` (`lib/telemetry/runtime.ts:47-53`). The runtime bridge is constructed from the facade (`packages/telemetry/src/init.ts:123`), so no wiring changes.
 
+New module `lib/telemetry/error-code.ts` exports `ERROR_CODE_SHAPE` and `groupableCode(value, fallback?)`. It lives in `shared` rather than `telemetry` because both boundaries that narrow an outside code (`core:integrations`, `core:data_sync`) must not depend on `@open-mercato/telemetry`, and the facade must apply the same rule.
+
 ### `core:integrations` (additive)
 
 `IntegrationLogError` exported from the module. `LogInput` is unchanged — `code` already exists (`log-service.ts:37`) and merely becomes load-bearing.
@@ -265,6 +267,7 @@ export type ReportErrorContext = {
 |---|---|
 | `integrations.log_error` | `integrationLogService.write()` fallback when the row carries no `code` |
 | `payment_gateways.status_poll_failed` | the payment status poller's per-transaction failure, so it groups apart from the catch-all |
+| `gateway_stripe.webhook_processing_failed` | the Stripe webhook processor's per-event failure. Renamed from the pre-existing `stripe_webhook_processing_failed`, which is not `module.reason` and therefore not groupable |
 | `data_sync.item_failed` / `data_sync.export_item_failed` | per-item failure with no adapter-supplied code |
 | `data_sync.run_failed` | run fault (import and export). Splits into `data_sync.run_transient` / `data_sync.run_terminal` when part 6's `classifySyncError` lands — one constant in `sync-engine.ts` is the only site to change |
 | `data_sync.run_partial_failure` | `finalizeRun`, `completed` with `failedCount > 0` |
@@ -308,6 +311,8 @@ Both phases are additive and independently deployable; Phase 1 is useful without
 | `packages/telemetry/src/types.ts` | Modify | Optional `TelemetryProvider.reportError?()` |
 | `packages/telemetry/{AGENTS.md,README.md}` | Modify | The rule; custom-provider recipe |
 | `packages/shared/src/lib/telemetry/runtime.ts` | Modify | `code` in the bridge context type |
+| `packages/shared/src/lib/telemetry/error-code.ts` | Create | `ERROR_CODE_SHAPE` + `groupableCode`, shared by the facade and both narrowing chokepoints |
+| `packages/gateway-stripe/src/modules/gateway_stripe/workers/webhook-processor.ts` | Modify | Cause into the message; `code` renamed to `module.reason` shape |
 | `packages/core/src/modules/integrations/lib/log-service.ts` | Modify | The tee |
 | `packages/core/src/modules/integrations/lib/log-service.ts` | Modify | `IntegrationLogError` lives beside the service that raises it, per the module's own convention (`CredentialsEncryptionUnavailableError` in `credentials-service.ts`) rather than a new `errors.ts` |
 | `packages/queue/src/strategies/{async,local}.ts` | Modify | Job-failure tees |
@@ -325,7 +330,8 @@ No API route, database structure or UI file changes, so the coverage is unit/beh
 | Re-entrancy guard: a provider hook that reports from inside the sink neither recurses nor loses the original report | `packages/telemetry/src/__tests__/report-error.test.ts` |
 | A provider hook that **throws** does not escape `reportError`, and the span exception, error log and `om.errors` sample all still land | `packages/telemetry/src/__tests__/report-error.test.ts` |
 | Provider hook called with serialized+redacted error; absent hook is fine | `packages/telemetry/src/__tests__/report-error.test.ts` |
-| `error` tees / `info`+`warn` do not / `payload` withheld / throwing provider swallowed / telemetry-off no-op | `packages/core/src/modules/integrations/lib/__tests__/log-service.test.ts` |
+| An off-shape `code` is dropped from the span, the log record, the metric label and the provider context — and the error itself is still reported | `packages/telemetry/src/__tests__/report-error.test.ts` |
+| `error` tees / `info`+`warn` do not / `payload` withheld / throwing provider swallowed / telemetry-off no-op / a missing **and** a malformed row `code` both fall back, a well-shaped one survives | `packages/core/src/modules/integrations/lib/__tests__/log-service.test.ts` |
 | Job failure, exhaustion and abandon-sweep report per strategy; exactly one report per failure; a per-job `attempts` override decides exhaustion | `packages/queue/src/__tests__/` |
 | Per-item, run-fault, partial-failure and coverage-refresh reports; `operationalTelemetry: false` still reports; `operationalTelemetry: true` reports the fault exactly once; a malformed adapter `errorCode` falls back; `run.completed` counts | `packages/core/src/modules/data_sync/lib/__tests__/sync-engine*.test.ts` |
 | `packages/core` does not import `@open-mercato/telemetry` | `packages/core/src/__tests__/module-decoupling.test.ts` |
@@ -423,6 +429,17 @@ None.
 Fully compliant — ready for review, then implementation.
 
 ## Changelog
+
+### 2026-09-14 — review round 2
+
+Findings from the re-review on PR #5960, all applied, plus the base merge from `develop` (`apps/docs/sidebars.ts` and `BACKWARD_COMPATIBILITY.md` were adjacent-add conflicts; both sides kept).
+
+- **The shape check covered the adapter boundary but not the larger one.** `integrationLogService.write({ code })` is reachable by any module resolving the service, third-party ones included, and forwarded its row's `code` to an `om.errors` label unvalidated — the same defect round 1 fixed for `data.errorCode`. `ERROR_CODE_SHAPE` and a `groupableCode(value, fallback?)` helper moved to `@open-mercato/shared/lib/telemetry/error-code`, and are now applied in three places: the `data_sync` engine and `integrationLogService` (each with its own fallback, so the error still lands in a group), and once inside `reportError` itself, which drops an off-shape code rather than publishing it. The facade is the right final home: the property being protected — a metric label is bounded and never redacted — belongs to the funnel, not to each of its callers, and it now holds for callers the framework does not own.
+- **`gateway_stripe`'s `stripe_webhook_processing_failed` renamed** to `gateway_stripe.webhook_processing_failed`. It was the one in-repo writer left off-convention, and under the new narrowing it would have reported under the catch-all.
+- **A test name claimed more than its body.** The `operationalTelemetry` run-fault test asserts one report under `data_sync.run_failed`, not one report in total — the catch-all-coded second row is documented above as a deliberate cost. Renamed so nobody cites it for a property it does not pin.
+- **`error.code` is `error_code` on a Prometheus-backed pipeline.** The OTLP→Prometheus translation normalizes `.` to `_`, so the alert rule the docs recommend queries a name the docs did not give. One clause added.
+- **The queue tee's `catch {}` was silent**, unlike its two siblings. A systematically broken runtime bridge in a worker left no record at all; it now degrades to a `logger.warn` carrying the `code`, matching `log-service.ts` and `sync-engine.ts`.
+- **Operator-facing note for the `local` strategy's terminal failures** (round 1 stopped emitting `queue.job_failed` alongside `queue.job_exhausted` on the final attempt): recorded in `BACKWARD_COMPATIBILITY.md` and the docs page, because an existing alert thresholding on `queue.job_failed` alone stops seeing terminal failures.
 
 ### 2026-09-08 — review round 1
 

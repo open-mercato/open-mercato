@@ -1,5 +1,6 @@
 import type { Attributes, LogRecord } from '../types'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { groupableCode } from '@open-mercato/shared/lib/telemetry/error-code'
 import { currentSpan } from './tracer'
 import { serializeError } from './serialize'
 import { counter } from './meter'
@@ -21,7 +22,8 @@ export type ReportErrorContext = {
   /**
    * Stable, enumerated fingerprint for this failure reason, as `module.reason`
    * (`data_sync.item_failed`, `queue.job_failed`). NEVER an interpolated string:
-   * it is a metric label, and it is what the backend groups on.
+   * it is a metric label, and it is what the backend groups on. A value that is
+   * not that shape is dropped here rather than published — see `groupableCode`.
    *
    * Grouping is why this exists. Sentry fingerprints on the stack trace and New
    * Relic on the error class, so a funnel that synthesizes one error type at one
@@ -66,6 +68,11 @@ export function reportError(error: unknown, ctx?: ReportErrorContext): void {
   if (reporting) return
   reporting = true
   try {
+    // Narrowed once, here, rather than at each caller: the property being
+    // protected — a metric label is bounded and never redacted — belongs to this
+    // funnel, and `code` reaches it from adapters and third-party modules. A
+    // caller with a malformed code reports exactly as one with no code at all.
+    const code = groupableCode(ctx?.code)
     const span = currentSpan()
     if (span) {
       span.recordException(error)
@@ -73,22 +80,22 @@ export function reportError(error: unknown, ctx?: ReportErrorContext): void {
       // Span-level, because `recordException` takes no attributes. With several
       // reports on one span the last code wins; the per-error code always
       // survives on the log record and the metric.
-      if (ctx?.code) span.setAttribute(CODE_ATTRIBUTE, ctx.code)
+      if (code) span.setAttribute(CODE_ATTRIBUTE, code)
     }
 
     const serialized = serializeError(error)
     const attributes: Attributes = { ...(ctx?.attributes ?? {}) }
     if (ctx?.module) attributes.module = ctx.module
-    if (ctx?.code) attributes[CODE_ATTRIBUTE] = ctx.code
+    if (code) attributes[CODE_ATTRIBUTE] = code
     const safeAttributes = redactAttributes(attributes)
 
     const safeError = new Error(serialized.message)
     safeError.name = serialized.name
     safeError.stack = serialized.stack
     logger.error('Application error reported', { ...safeAttributes, err: safeError })
-    counter('om.errors', 1, errorLabels(ctx))
+    counter('om.errors', 1, errorLabels(ctx?.module, code))
 
-    reportToProvider(serialized, ctx, safeAttributes)
+    reportToProvider(serialized, ctx?.module, code, safeAttributes)
   } finally {
     reporting = false
   }
@@ -108,7 +115,8 @@ export function reportError(error: unknown, ctx?: ReportErrorContext): void {
  */
 function reportToProvider(
   serialized: NonNullable<LogRecord['error']>,
-  ctx: ReportErrorContext | undefined,
+  module: string | undefined,
+  code: string | undefined,
   safeAttributes: Attributes,
 ): void {
   try {
@@ -118,20 +126,16 @@ function reportToProvider(
     // in a provider's tags AND its extra data for anyone following the README recipe.
     const providerAttributes: Attributes = { ...safeAttributes }
     delete providerAttributes[CODE_ATTRIBUTE]
-    provider.reportError(serialized, {
-      module: ctx?.module,
-      code: ctx?.code,
-      attributes: providerAttributes,
-    })
+    provider.reportError(serialized, { module, code, attributes: providerAttributes })
   } catch (sinkError) {
     logger.warn('Telemetry provider error sink failed', { err: sinkError as Error })
   }
 }
 
-function errorLabels(ctx?: ReportErrorContext): Attributes | undefined {
-  if (!ctx?.module && !ctx?.code) return undefined
+function errorLabels(module?: string, code?: string): Attributes | undefined {
+  if (!module && !code) return undefined
   const labels: Attributes = {}
-  if (ctx.module) labels.module = ctx.module
-  if (ctx.code) labels[CODE_ATTRIBUTE] = ctx.code
+  if (module) labels.module = module
+  if (code) labels[CODE_ATTRIBUTE] = code
   return labels
 }

@@ -331,7 +331,7 @@ describe('data sync error reporting', () => {
     })
   })
 
-  it('reports a run fault once, even for an adapter that opted into the operational log', async () => {
+  it('reports a run fault under its own code exactly once, even for an adapter that opted into the operational log', async () => {
     const { runtime } = runtimeStub()
     registerTelemetryRuntime(runtime)
     mockGetDataSyncAdapter.mockReturnValue({

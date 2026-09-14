@@ -39,11 +39,11 @@ With telemetry off, that is one global lookup and nothing else.
 
 ## `code` — the fingerprint
 
-`code` is a stable, enumerated token shaped `module.reason` (`data_sync.item_failed`, `queue.job_failed`). It is published under one name, `error.code`, on all three built-in surfaces — the span attribute, the log record's attributes and the `om.errors` metric label — so a query written against one works against the others.
+`code` is a stable, enumerated token shaped `module.reason` (`data_sync.item_failed`, `queue.job_failed`). It is published under one name, `error.code`, on all three built-in surfaces — the span attribute, the log record's attributes and the `om.errors` metric label — so a query written against one works against the others. One exception belongs to the exporter, not to us: the OTLP→Prometheus translation replaces `.` with `_`, so the `om.errors` alert rule queries `error_code` against a Prometheus-backed pipeline while the span and the log record keep `error.code`.
 
 **It MUST NOT be interpolated.** `` `import failed for ${id}` `` gives every occurrence its own group at the backend and unbounded cardinality on the metric. Worse, metric labels — unlike `attributes` — do not pass through redaction, so an interpolated email or token would egress. Put the id in `attributes`, where it belongs.
 
-Where the value comes from outside the framework — an adapter's `data.errorCode` — the engine enforces the shape rather than trusting it, and falls back to its own code when the value is not `module.reason`.
+**The shape is enforced, not merely documented**, because `code` routinely originates outside the framework — an adapter's `data.errorCode`, a third-party module's `integrationLogService.write({ code })`. `reportError` narrows it once at the funnel: a value that is not `module.reason` is dropped and the error reports exactly as one carrying no code at all, so a malformed fingerprint can never reach a metric label. A chokepoint that has a fallback of its own substitutes it first (`integrations.log_error`, `data_sync.item_failed`), so the error still lands in a group rather than none.
 
 `code` exists because the backends' automatic grouping cannot work without it *here*:
 
@@ -63,6 +63,10 @@ Three chokepoints mean most module code inherits the rule without writing a line
 Adapters that classify their own item failures set `data.errorCode` on a `failed` import item and the engine uses it as the code, provided it is shaped `module.reason`; otherwise the fallback applies.
 
 A job failure is reported **once**, and its code says which failure it is: `queue.job_failed` while retries remain, `queue.job_exhausted` on the attempt that dead-letters it. Both strategies agree on this, so an alert written against one holds for the other — `queue.job_exhausted` is the condition to page on.
+
+:::info For operators upgrading
+The `local` strategy previously emitted both `queue.job_failed` and `queue.job_exhausted` on a job's final attempt. It now emits only `queue.job_exhausted`, matching `async`. An alert thresholding on `queue.job_failed` alone will stop seeing terminal failures — page on `queue.job_exhausted`, or on both.
+:::
 
 Two properties hold at each chokepoint:
 
