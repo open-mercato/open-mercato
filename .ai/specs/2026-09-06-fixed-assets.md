@@ -90,6 +90,39 @@ for the full reasoning and what Phase 1 actually commits to here.
 > declining-balance method is an additional strategy, not a rewrite of
 > the entity.
 
+## Prerequisites
+
+This document assumes two sibling modules that do not yet exist in
+this repository, both still open as their own specs on separate
+branches (see the knowledge base's module map for current PR
+status) — a gap this section makes explicit rather than leaving as
+an implicit, undated assumption the way `LedgerAccount` references
+are embedded throughout the rest of the document:
+
+- **`ledger` (hard dependency).** Every posting in this module --
+  `acceptFixedAsset`'s capitalization entry, `accrueDepreciation`'s
+  per-period entries, `disposeAsset`'s write-off, `recognizeImpairment`/
+  `reverseImpairment`'s impairment entries — calls
+  `ledger.postJournalEntry` against `ledger.LedgerAccount` and checks
+  `ledger.FiscalPeriod.isLocked`. None of this module's commands can
+  be implemented, let alone tested end-to-end, before `ledger`
+  merges — the same standing dependency the sibling GL-adjacent
+  specs (general-ledger-account-balances,
+  general-ledger-bulk-read-service) already declare.
+- **`accounts_payable` (soft dependency).** `AP_LINKED` is one of
+  four `entrySource` values and credits the linked
+  `accounts_payable.VendorInvoiceLine.accountId` at capitalization;
+  this degrades gracefully via a `try/catch container.resolve` when
+  the module isn't installed (see Migration & Compatibility, Risk
+  Register) rather than hard-failing, so this module can ship and be
+  tested (for the `MANUAL`/`OPENING_BALANCE`/`IN_KIND_CONTRIBUTION`
+  entry sources) before `accounts_payable` merges — but the
+  `AP_LINKED` path itself cannot be exercised until it does.
+
+`journal_entry_line_dimension` (MPK tagging for `transferAsset`) is
+already scoped as a Phase 2, not Phase 1, dependency (see the header
+above and Out of Scope) and needs no merge-order note here.
+
 ## Problem Statement
 
 - No entity anywhere in `packages/core` represents a fixed asset, a
@@ -306,7 +339,9 @@ asset disposed mid-schedule has fewer accrued periods than planned), then
 posts one journal entry that: debits the accumulated-depreciation account
 for the total accrued so far, debits or credits "pozostałe koszty/
 przychody operacyjne" for the resulting gain or loss (and, for a `SALE`,
-debits cash/receivable for the proceeds), and credits the asset account
+debits the organization's configured proceeds account,
+`FixedAssetSettings.saleProceedsAccountId` — see Data Models — for the
+proceeds), and credits the asset account
 for the full original `acquisitionValue`. Legal basis: an asset ceasing
 to meet art. 3 ust. 1 pkt 12's definition (no longer expected to bring
 future economic benefit to the unit) is derecognized, and the resulting
@@ -538,12 +573,20 @@ above) already books its gain/loss to "the org's configured pozostałe
 koszty/przychody operacyjne account," a reference that named no actual
 settings field anywhere in this document until now — a real, pre-existing
 gap this addition also closes, rather than a second, redundant pair of
-fields. **Status guards.** `recognizeImpairment` rejects unless
+fields. A third field closes the same kind of gap for the other side
+of `disposeAsset`'s `SALE` posting: `saleProceedsAccountId` (same
+nullable, no-default posture) replaces what was, until this revision,
+only ever described as "a cash/receivable account" with no settings
+field backing it — a real gap this document carried since its first
+draft, not something the impairment work introduced. **Status guards.** `recognizeImpairment` rejects unless
 `FixedAsset.status` is `ACTIVE` or `FULLY_DEPRECIATED` — a `DRAFT` asset
 has no carrying value to impair (it hasn't been accepted, so it isn't on
 the books yet) and a `DISPOSED` asset is already off the books; the same
-status-guard discipline `disposeAsset` and `reviseDepreciationParameters`
-already apply. `ONE_TIME` needs no separate guard the way
+status-guard discipline `reviseDepreciationParameters` already applies,
+and `disposeAsset` now applies too — its own `status == 'DISPOSED'`-only
+check was a real gap (a `DRAFT` asset has neither a capitalization
+posting to reverse nor a schedule to catch up), corrected in Commands.
+`ONE_TIME` needs no separate guard the way
 `reviseDepreciationParameters` has one: a `ONE_TIME` asset's single
 schedule row is accrued in full at acceptance, so `carryingAmountBefore`
 is already `0` and the non-positive-`lossAmount` rejection below excludes
@@ -571,22 +614,36 @@ remainder, starting the period immediately after the latest accrued
 entry — inside the same transaction as the impairment posting, for the
 same concurrency reason `reviseDepreciationParameters` does it
 transactionally. This is also why `recoverableAmount < salvageValue` is
-rejected above: the regenerated schedule cannot depreciate below the
-asset's own salvage value. A `FULLY_DEPRECIATED` asset has no unaccrued
+rejected above, for a non-`FULLY_DEPRECIATED` asset: the regenerated
+schedule cannot depreciate below the asset's own salvage value. A
+`FULLY_DEPRECIATED` asset has no unaccrued
 rows — the write-down is booked with no schedule change, which is correct
-since no future accrual was ever going to happen. `reverseImpairment`
+since no future accrual was ever going to happen — and precisely
+because there is no schedule left to protect, the `salvageValue`
+floor does not apply to it either (real bug caught during review: for
+any `FULLY_DEPRECIATED` asset, `carryingAmountBefore` is already at or
+below `salvageValue`, so applying the floor unconditionally made a
+positive `lossAmount` and the floor mutually exclusive, and the whole
+`FULLY_DEPRECIATED` branch unreachable). The only bound that still
+applies there is `recoverableAmount >= 0`, already guaranteed by the
+non-negative zod validation on the field (see API Contracts). `reverseImpairment`
 mirrors this exactly: if the asset has any unaccrued rows, they are
 deleted and regenerated over the same remaining period count, this time
 from the post-reversal carrying value
-(`acquisitionValue - accruedDepreciationTotal - netImpairmentTotal`,
-recomputed after the new reversal row is inserted). This basis cannot go
-negative and needs no separate defensive check the way
-`recognizeImpairment`'s `recoverableAmount < salvageValue` rejection is
-needed: the reversal ceiling below (never restore above the original
-write-down) guarantees `netImpairmentTotal` never goes negative, which in
-turn guarantees the post-reversal carrying value never exceeds
-`acquisitionValue - accruedDepreciationTotal` — a bound already at or
-below what the schedule was generating against before any impairment
+(`acquisitionValue - salvageValue - accruedDepreciationTotal -
+netImpairmentTotal`, recomputed after the new reversal row is
+inserted — the missing `- salvageValue` term was a real bug caught
+during review: without it, the regenerated schedule would depreciate
+the asset below its own salvage value, the same floor
+`recognizeImpairment` and `reviseDepreciationParameters` both already
+respect). This basis cannot go negative *below `salvageValue`* and
+needs no separate defensive check the way `recognizeImpairment`'s
+`recoverableAmount < salvageValue` rejection is needed: the reversal
+ceiling below (never restore above the original write-down) guarantees
+`netImpairmentTotal` never goes negative, which in turn guarantees the
+post-reversal carrying value never exceeds `acquisitionValue -
+salvageValue - accruedDepreciationTotal` — a bound already at or below
+what the schedule was generating against before any impairment
 happened. **Mandatory reversal — the critical divergence from Kieso/US
 GAAP.** Kieso prohibits restoring an impairment loss for an asset held
 for use (only assets held for disposal may be written back up, bounded by
@@ -679,7 +736,13 @@ day-to-day asset registration.
   `otherOperatingIncomeAccountId` (both nullable FK-ids to `ledger.
   LedgerAccount.id`, no default — see Design Decisions, Impairment; used
   by both `disposeAsset`'s gain/loss posting and `recognizeImpairment`/
-  `reverseImpairment`), `updatedAt`. Not user-creatable — upserted
+  `reverseImpairment`), `saleProceedsAccountId` (nullable FK-id to
+  `ledger.LedgerAccount.id`, no default — the "cash/receivable
+  account" this document otherwise only ever described in prose,
+  naming no actual field until now; used solely by `disposeAsset`'s
+  `SALE` debit, which rejects if it is unset the same way the other
+  two operating accounts are guarded), `updatedAt`. Not
+  user-creatable — upserted
   via `updateFixedAssetSettings`, seeded on organization creation (see
   Module Setup).
 - `FixedAsset` — `name`, `description`, `assetClassId` (FK-id to
@@ -926,7 +989,14 @@ a validation failure returns the standard 400 shape (see API Contracts).
   `fixed_assets.assets.manage`.
 - `reopenFixedAsset` — reverts `ACTIVE` → `DRAFT`. Rejects unless every
   `DepreciationScheduleEntry` for the asset has `accruedAt IS NULL` (see
-  Design Decisions). Calls `ledger.reverseJournalEntry` against the
+  Design Decisions) — a condition a `ONE_TIME` asset can never satisfy,
+  since `acceptFixedAsset` inserts its one schedule row already
+  `accruedAt`-set (see above): `reopenFixedAsset` is therefore never
+  available for a `ONE_TIME` asset, by construction rather than as a
+  separately-enforced rule — the same "reversal, not undo" posture
+  this document already takes once any real depreciation has posted,
+  just reached immediately here instead of after the first accrual.
+  Calls `ledger.reverseJournalEntry` against the
   capitalization entry, deletes the unaccrued schedule rows, clears
   `otDocumentNumber`/`otDate`/`lowValueThresholdSnapshot`/`exchangeRate`.
   Requires `fixed_assets.assets.manage`.
@@ -967,13 +1037,27 @@ a validation failure returns the standard 400 shape (see API Contracts).
   asset's last schedule entry is accrued, sets `FixedAsset.status =
   'FULLY_DEPRECIATED'`. Requires `fixed_assets.depreciation.accrue`.
 - `disposeAsset` — given `assetId`, `disposalDate`, `disposalType`, and
-  (for `SALE`) `proceedsAmount`: rejects if `status == 'DISPOSED'`.
-  **First** runs `accrueDepreciation`'s own due-entry logic scoped to
-  this asset, up to `disposalDate` (see Design Decisions, "always catches
-  up due-but-unposted depreciation") — locked-period skips here are
-  reported back to the caller in the response (see API Contracts), not
-  silently absorbed. **Then** rejects if the `FiscalPeriod` covering
-  `disposalDate` itself is locked. Computes `accruedDepreciationTotal =
+  (for `SALE`) `proceedsAmount`: rejects unless `status` is `ACTIVE` or
+  `FULLY_DEPRECIATED` — the status-guard discipline the "Status
+  guards" Design Decision already describes `disposeAsset` as
+  following (corrected here to actually match: a `DRAFT` asset has no
+  capitalization posting to reverse and no schedule to catch up, so it
+  must be excluded the same way `recognizeImpairment` excludes it).
+  **First** rejects if the `FiscalPeriod` covering `disposalDate`
+  itself is locked — checked before anything is posted, so a locked
+  disposal period can never be discovered only after the catch-up step
+  below has already posted real, individually-committed journal
+  entries for earlier periods (see Design Decisions, "Lock check
+  precedes catch-up accrual" — those entries post one per transaction,
+  the same way `accrueDepreciation` posts them, and so cannot be rolled
+  back together with a disposal that is rejected afterwards). **Then**
+  runs `accrueDepreciation`'s own due-entry logic scoped to this asset,
+  up to `disposalDate` (see Design Decisions, "always catches up
+  due-but-unposted depreciation") — locked periods among the entries
+  being caught up (as opposed to the disposal period itself, already
+  cleared above) are skipped and reported back to the caller in the
+  response (see API Contracts), not silently absorbed. Computes
+  `accruedDepreciationTotal =
   SUM(accrued DepreciationScheduleEntry.plannedAmount for this asset)`
   (actual accrued total after the catch-up step, not the original planned
   schedule — see Design Decisions) and `netImpairmentTotal =
@@ -1001,8 +1085,11 @@ a validation failure returns the standard 400 shape (see API Contracts).
   `FixedAssetSettings.otherOperatingExpenseAccountId` (loss) or a credit
   to `otherOperatingIncomeAccountId` (gain) depending on sign — rejecting
   if the relevant account is unset (see Design Decisions, Impairment,
-  which introduces these two settings fields); `SALE` additionally debits
-  a cash/receivable account for `proceedsAmount`. Inserts the
+  which introduces these two settings fields); `SALE` additionally
+  debits `FixedAssetSettings.saleProceedsAccountId` for
+  `proceedsAmount`, rejecting if that account is unset (see Design
+  Decisions, "New settings fields" — the same guard posture as the
+  other two). Inserts the
   `AssetDisposal` row (allocating `documentNumber` via the counter table)
   and sets `FixedAsset.status = 'DISPOSED'`. Requires
   `fixed_assets.disposals.manage`.
@@ -1023,9 +1110,13 @@ a validation failure returns the standard 400 shape (see API Contracts).
   the original `acquisitionValue`) and `lossAmount = carryingAmountBefore
   - recoverableAmount`; rejects a
   non-positive `lossAmount` (a `recoverableAmount` at or above carrying
-  value is not an impairment) and rejects `recoverableAmount <
-  salvageValue` (the regenerated schedule below cannot depreciate below
-  salvage value — see Design Decisions). Posts one `ledger.postJournalEntry`
+  value is not an impairment) and, for a non-`FULLY_DEPRECIATED` asset
+  only, rejects `recoverableAmount < salvageValue` (the regenerated
+  schedule below cannot depreciate below salvage value — see Design
+  Decisions; a `FULLY_DEPRECIATED` asset has no unaccrued schedule left
+  to protect, so the floor there is `recoverableAmount >= 0` instead,
+  already implied by the field's own non-negative validation). Posts
+  one `ledger.postJournalEntry`
   (type `NORMAL`, `referenceType: 'AssetImpairment'`, `referenceId` set
   after the row is inserted) debiting `otherOperatingExpenseAccountId`,
   crediting `FixedAsset.ledgerAccumulatedImpairmentAccountId` — its own,
@@ -1066,7 +1157,7 @@ a validation failure returns the standard 400 shape (see API Contracts).
   **Regenerates the unaccrued schedule tail** the mirror-image way (see
   Design Decisions): if the asset has any `accruedAt IS NULL` rows,
   deletes and regenerates them over the same remaining period count from
-  the post-reversal carrying value (`acquisitionValue -
+  the post-reversal carrying value (`acquisitionValue - salvageValue -
   accruedDepreciationTotal - netImpairmentTotal`, recomputed after this
   reversal row is inserted), final row absorbing the rounding remainder,
   inside the same transaction as the reversal posting. A
@@ -1359,8 +1450,14 @@ mutation guard registry.
 Custom write route (`reopenFixedAsset`), mapped to `update`.
 
 - **Request body**: none.
+- **Headers**: `x-om-ext-optimistic-lock-expected-updated-at` (optional,
+  enforced per the repo's default-ON optimistic-lock contract —
+  `reopenFixedAsset` changes `FixedAsset.status`/`otDocumentNumber`/
+  `otDate`/`lowValueThresholdSnapshot`/`exchangeRate`, the same class of
+  write `accept` already guards).
 - **Response 200**: `FixedAssetDto` with `status: 'DRAFT'`.
-- **Response 409**: at least one `DepreciationScheduleEntry` for this
+- **Response 409**: `OptimisticLockConflictBody`, or at least one
+  `DepreciationScheduleEntry` for this
   asset already has `accruedAt` set (a distinct, named error code — see
   Internationalization).
 - **Response 403**: caller lacks `fixed_assets.assets.manage`.
@@ -1372,6 +1469,10 @@ Custom write route (`reviseDepreciationParameters`), mapped to `update`.
 - **Request body**: `{ remainingUsefulLifeMonths, salvageValue?, reason }`
   — zod-validated (`remainingUsefulLifeMonths` a positive integer,
   `reason` non-empty).
+- **Headers**: `x-om-ext-optimistic-lock-expected-updated-at` (optional,
+  enforced per the repo's default-ON optimistic-lock contract —
+  `reviseDepreciationParameters` updates `FixedAsset.usefulLifeMonths`/
+  `salvageValue`, the same class of write `accept` already guards).
 - **Response 200**: `FixedAssetDto` with the revised
   `usefulLifeMonths`/`salvageValue`, plus `depreciationSchedule:
   DepreciationScheduleEntryDto[]` (the regenerated unaccrued tail, so the
@@ -1379,7 +1480,8 @@ Custom write route (`reviseDepreciationParameters`), mapped to `update`.
   `revisionId` (the inserted `DepreciationRevision` row's id).
 - **Response 400**: zod validation error, or the revision would produce a
   negative remaining depreciable base (see Design Decisions).
-- **Response 409**: the asset is not `ACTIVE`, is `ONE_TIME`, or has no
+- **Response 409**: `OptimisticLockConflictBody`, or the asset is not
+  `ACTIVE`, is `ONE_TIME`, or has no
   unaccrued schedule entry left to revise (all distinct, named error
   codes — see Internationalization).
 - **Response 403**: caller lacks `fixed_assets.assets.manage`.
@@ -1407,6 +1509,10 @@ Custom write route (`disposeAsset`), mapped to `update`.
 - **Request body**: `{ disposalDate, disposalType, proceedsAmount?,
   notes? }`. `proceedsAmount` required iff `disposalType === 'SALE'`,
   rejected otherwise — zod-validated.
+- **Headers**: `x-om-ext-optimistic-lock-expected-updated-at` (optional,
+  enforced per the repo's default-ON optimistic-lock contract —
+  `disposeAsset` sets `FixedAsset.status = 'DISPOSED'`, the same class
+  of write `accept` already guards).
 - **Response 200**: `AssetDisposalDto` — `{ id, assetId, disposalDate,
   disposalType, proceedsAmount, netBookValueAtDisposal, documentNumber,
   journalEntryReferenceId, catchUpAccrual: { posted: { scheduleEntryId,
@@ -1415,7 +1521,8 @@ Custom write route (`disposeAsset`), mapped to `update`.
   step's own results (see Design Decisions) so a locked-period gap in the
   final net book value is visible to the caller, not silently absorbed.
 - **Response 400**: zod validation error.
-- **Response 409**: the asset is already `DISPOSED`, or the `FiscalPeriod`
+- **Response 409**: `OptimisticLockConflictBody`, or the asset is
+  already `DISPOSED`, or the `FiscalPeriod`
   covering `disposalDate` itself is locked (the catch-up step's own
   per-entry locked periods are reported in `catchUpAccrual`, not a 409).
 - **Response 403**: caller lacks `fixed_assets.disposals.manage`.
@@ -1431,9 +1538,11 @@ Custom write route (`recognizeImpairment`), mapped to `update`.
   triggerCategory, carryingAmountBefore, recoverableAmount, lossAmount,
   reversalOfImpairmentId: null, reason, journalEntryReferenceId }`.
 - **Response 400**: zod validation error, `recoverableAmount >=`
-  the computed carrying value (not an impairment), or `recoverableAmount
-  < salvageValue` (the regenerated schedule cannot depreciate below
-  salvage value — see Design Decisions).
+  the computed carrying value (not an impairment), or, for a
+  non-`FULLY_DEPRECIATED` asset, `recoverableAmount < salvageValue`
+  (the regenerated schedule cannot depreciate below salvage value —
+  see Design Decisions; not applicable to a `FULLY_DEPRECIATED` asset,
+  which has no unaccrued schedule to protect).
 - **Response 409**: the asset's `status` is not `ACTIVE` or
   `FULLY_DEPRECIATED`, the `FiscalPeriod` covering `impairmentDate` is
   locked, or either operating account is unset in `FixedAssetSettings`
@@ -1463,8 +1572,11 @@ Custom write route (`reverseImpairment`), mapped to `update`.
 read-only lists (`depreciation-schedule`, `disposals`, `impairments`),
 follow the standard `makeCrudRoute` request/response shape (see
 `packages/core/AGENTS.md` → CRUD Routes) — not repeated here since none
-of it is unique to this module. All three read-only lists use cursor
-pagination, `pageSize <= 100`, per `AGENTS.md` → Pagination.
+of it is unique to this module. All three read-only lists use
+`DataTable`'s page/pageSize pagination, capped at 100 (root `AGENTS.md`
+→ "UI & HTTP": "Keep `pageSize` at or below 100" — `packages/core/
+AGENTS.md` has no dedicated Pagination section, and the rule itself
+caps page size without mandating a cursor scheme).
 
 ## Internationalization (i18n)
 
@@ -1625,14 +1737,14 @@ All user-facing strings resolve through `useT()` client-side /
   same reasoning `ledger.LedgerAccountGroup` already established for
   jurisdiction-specific values.
 - `FixedAssetSettings.otherOperatingExpenseAccountId` /
-  `.otherOperatingIncomeAccountId` — per-organization, editable via the
-  same settings page/API; **not seeded with a default** (unlike the
-  low-value threshold, there is no tax-law-derived starting figure — it
-  depends entirely on the organization's own chart of accounts), so both
-  are `null` until an admin configures them. `disposeAsset`,
-  `recognizeImpairment`, and `reverseImpairment` all reject with a named
-  error if the relevant one is unset at the time they run (see Risk
-  Register).
+  `.otherOperatingIncomeAccountId` / `.saleProceedsAccountId` —
+  per-organization, editable via the same settings page/API; **not
+  seeded with a default** (unlike the low-value threshold, there is no
+  tax-law-derived starting figure — all three depend entirely on the
+  organization's own chart of accounts), so all three are `null` until
+  an admin configures them. `disposeAsset`, `recognizeImpairment`, and
+  `reverseImpairment` all reject with a named error if the relevant one
+  is unset at the time they run (see Risk Register).
 
 ## Migration & Compatibility
 
@@ -1818,7 +1930,9 @@ All user-facing strings resolve through `useT()` client-side /
   `lowValueThresholdSnapshot` isolation from a later `FixedAssetSettings`
   change, post-`DRAFT` immutability rejection on `updateFixedAsset`,
   `reopenFixedAsset` accepted only with zero accrued schedule entries and
-  rejected with one, `AP_LINKED` capitalization crediting the linked
+  rejected with one (a `ONE_TIME` asset is always in the rejected case,
+  by construction — see Design Decisions, `reopenFixedAsset`),
+  `AP_LINKED` capitalization crediting the linked
   `VendorInvoiceLine.accountId` (with a soft-resolve failure when
   `accounts_payable` isn't installed handled gracefully), `ONE_TIME`
   posting a second, distinct journal entry from the capitalization entry
@@ -1856,7 +1970,9 @@ All user-facing strings resolve through `useT()` client-side /
   `ledgerAccumulatedDepreciationAccountId`) on both recognition and
   reversal — a regression test guarding the account-separation fix
   described in Changelog; and regenerating the unaccrued tail upward to
-  sum exactly to the post-reversal carrying value; `disposeAsset`'s
+  sum exactly to the post-reversal carrying value net of `salvageValue`
+  (a regression test guarding the missing-`salvageValue`-term fix
+  described in Changelog); `disposeAsset`'s
   `netBookValueAtDisposal` and its two separate debit lines
   (`ledgerAccumulatedDepreciationAccountId` for `accruedDepreciationTotal`,
   `ledgerAccumulatedImpairmentAccountId` for `netImpairmentTotal`, the
@@ -2648,3 +2764,65 @@ accumulated-impairment account correction).
   documentation gaps this review round surfaced were resolved in the spec
   body above before this Verdict was recorded; see Final Compliance
   Report for the current, post-fix state.
+
+### 2026-09-14 — PR #6014 review response (pkarw, om-auto-review-pr)
+Full response to the CHANGES REQUESTED review:
+
+- Major: `disposeAsset` had no status guard beyond `status ==
+  'DISPOSED'`, letting it run against a never-accepted `DRAFT` asset —
+  and the "Status guards" Design Decision already (incorrectly)
+  described `disposeAsset` as sharing `recognizeImpairment`'s
+  `ACTIVE`/`FULLY_DEPRECIATED` guard. Added that guard for real, and
+  moved the disposal-period lock check ahead of the pre-disposal
+  catch-up accrual step so a locked period is never discovered only
+  after real, individually-committed journal entries have already
+  posted for earlier periods.
+- Major: `reverseImpairment`'s schedule-regeneration carrying-value
+  formula omitted `salvageValue` (`acquisitionValue -
+  accruedDepreciationTotal - netImpairmentTotal`), unlike
+  `recognizeImpairment`'s and `reviseDepreciationParameters`'
+  equivalents — the regenerated schedule would have depreciated the
+  asset below its own salvage value. Added the missing term in both
+  Design Decisions and Commands, plus a regression test.
+- Major: the `SALE`-disposal proceeds account was only ever described
+  in prose ("a cash/receivable account"), naming no actual
+  `FixedAssetSettings` field anywhere in the document, unlike
+  `otherOperatingExpenseAccountId`/`otherOperatingIncomeAccountId`.
+  Added `FixedAssetSettings.saleProceedsAccountId` (same nullable,
+  no-default, reject-if-unset posture) and wired it through Data
+  Models, Commands, Configuration, and the Proposed Solution
+  narrative.
+- Minor: `recognizeImpairment`'s `recoverableAmount < salvageValue`
+  rejection was unconditional, but for any `FULLY_DEPRECIATED` asset
+  `carryingAmountBefore` is already at or below `salvageValue` —
+  making the non-positive-`lossAmount` rejection and the
+  `salvageValue` floor mutually exclusive, so the `FULLY_DEPRECIATED`
+  branch could never execute. Scoped the floor to non-
+  `FULLY_DEPRECIATED` assets (which have no unaccrued schedule left
+  to protect) in Design Decisions, Commands, and the API Contracts
+  400 response.
+- Minor: `reopenFixedAsset`'s zero-accrued-entries guard can never be
+  satisfied by a `ONE_TIME` asset, since `acceptFixedAsset` always
+  inserts its one schedule row already `accruedAt`-set — an
+  un-stated consequence rather than a documented rule. Made it
+  explicit in Commands and Testing Strategy.
+- Minor: no `## Prerequisites` section declared this document's hard
+  dependency on the still-unmerged `ledger` core engine or its soft
+  dependency on `accounts_payable` — the same class of gap #6013
+  flagged for general-ledger-account-balances. Added one.
+- Minor: the optimistic-lock header
+  (`x-om-ext-optimistic-lock-expected-updated-at`) was documented
+  only on `accept`, even though `reopen`, `revise-depreciation`, and
+  `dispose` all bump `FixedAsset.updatedAt` the same way
+  (`recognizeImpairment`/`reverseImpairment` do not, since they only
+  ever write the append-only `AssetImpairment`/
+  `DepreciationScheduleEntry` rows). Added the header and an
+  `OptimisticLockConflictBody` 409 to all three.
+- Nit: the "per `AGENTS.md` → Pagination" citation was fabricated —
+  `packages/core/AGENTS.md` has no Pagination section, and the real
+  rule (root `AGENTS.md`, "UI & HTTP") only caps `pageSize`, it
+  doesn't mandate cursor pagination. Corrected to cite the real rule
+  and the actual page/pageSize scheme these lists use.
+- Nit: this document had zero mentions anywhere in
+  `.ai/specs/README.md`'s Pending Specifications index. Added its
+  row.
