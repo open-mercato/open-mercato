@@ -4,9 +4,13 @@ import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration
 import {
   assignEmployeeToProjectFixture,
   createTimeEntryFixture,
-  createTimeProjectFixture,
   deleteStaffEntityIfExists,
 } from '@open-mercato/core/helpers/integration/timesheetFixtures'
+import { createTestTimeProject, type TestTimeProjectFixture } from './fixtures'
+
+export const integrationMeta = {
+  dependsOnModules: ['customers'],
+}
 
 function getMonday(date: Date): Date {
   const day = date.getDay()
@@ -37,6 +41,7 @@ test.describe('TC-STAFF-027: Timesheets grid decimal edit save', () => {
 
     const adminToken = await getAuthToken(request, 'admin')
     const employeeToken = await getAuthToken(request, 'employee')
+    let project: TestTimeProjectFixture | null = null
     let projectId: string | null = null
     let entryId: string | null = null
 
@@ -47,10 +52,11 @@ test.describe('TC-STAFF-027: Timesheets grid decimal edit save', () => {
       const employeeStaffMemberId = selfBody.member?.id ?? ''
       expect(employeeStaffMemberId.length > 0, 'Employee must have a staff member profile').toBeTruthy()
 
-      projectId = await createTimeProjectFixture(request, adminToken, {
+      project = await createTestTimeProject(request, adminToken, {
         name: projectName,
         code: projectCode,
       })
+      projectId = project.id
       await assignEmployeeToProjectFixture(request, adminToken, projectId, employeeStaffMemberId)
       const showInGridResponse = await apiRequest(
         request,
@@ -67,7 +73,7 @@ test.describe('TC-STAFF-027: Timesheets grid decimal edit save', () => {
       })
 
       await login(page, 'employee')
-      await page.goto('/backend/staff/timesheets')
+      await page.goto('/backend/staff/time-tracking/timesheet')
       await expect(page.getByRole('table')).toBeVisible({ timeout: 30_000 })
 
       const row = page.getByRole('row').filter({ hasText: projectName })
@@ -104,10 +110,10 @@ test.describe('TC-STAFF-027: Timesheets grid decimal edit save', () => {
       expect(savedEntry!.duration_minutes).toBe(150)
     } finally {
       if (entryId) {
-        await deleteStaffEntityIfExists(request, employeeToken, 'staff/timesheets/time-entries', entryId)
+        await deleteStaffEntityIfExists(request, employeeToken, '/api/staff/timesheets/time-entries', entryId)
       }
-      if (projectId) {
-        await deleteStaffEntityIfExists(request, adminToken, 'staff/timesheets/time-projects', projectId)
+      if (project) {
+        await project.cleanup()
       }
     }
   })
@@ -125,6 +131,7 @@ test.describe('TC-STAFF-027: Timesheets grid decimal edit save', () => {
 
     const adminToken = await getAuthToken(request, 'admin')
     const employeeToken = await getAuthToken(request, 'employee')
+    let project: TestTimeProjectFixture | null = null
     let projectId: string | null = null
     const entryIds: string[] = []
 
@@ -135,10 +142,11 @@ test.describe('TC-STAFF-027: Timesheets grid decimal edit save', () => {
       const employeeStaffMemberId = selfBody.member?.id ?? ''
       expect(employeeStaffMemberId.length > 0, 'Employee must have a staff member profile').toBeTruthy()
 
-      projectId = await createTimeProjectFixture(request, adminToken, {
+      project = await createTestTimeProject(request, adminToken, {
         name: projectName,
         code: projectCode,
       })
+      projectId = project.id
       await assignEmployeeToProjectFixture(request, adminToken, projectId, employeeStaffMemberId)
       const showInGridResponse = await apiRequest(
         request,
@@ -161,7 +169,7 @@ test.describe('TC-STAFF-027: Timesheets grid decimal edit save', () => {
       }))
 
       await login(page, 'employee')
-      await page.goto('/backend/staff/timesheets')
+      await page.goto('/backend/staff/time-tracking/timesheet')
       await expect(page.getByRole('table')).toBeVisible({ timeout: 30_000 })
 
       const row = page.getByRole('row').filter({ hasText: projectName })
@@ -192,10 +200,10 @@ test.describe('TC-STAFF-027: Timesheets grid decimal edit save', () => {
       expect(savedEntries.map((entry) => entry.duration_minutes)).toEqual([30, 45])
     } finally {
       for (const entryId of entryIds) {
-        await deleteStaffEntityIfExists(request, employeeToken, 'staff/timesheets/time-entries', entryId)
+        await deleteStaffEntityIfExists(request, employeeToken, '/api/staff/timesheets/time-entries', entryId)
       }
-      if (projectId) {
-        await deleteStaffEntityIfExists(request, adminToken, 'staff/timesheets/time-projects', projectId)
+      if (project) {
+        await project.cleanup()
       }
     }
   })
