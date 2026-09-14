@@ -6,10 +6,17 @@ import {
 } from '../products/route'
 import { parseBooleanFlag, sanitizeSearchTerm } from '../helpers'
 import { buildCustomFieldFiltersFromQuery } from '@open-mercato/shared/lib/crud/custom-fields'
+import { IMMUTABLE_UNACCENT_FUNCTION } from '@open-mercato/shared/lib/db/accentInsensitiveSearch'
+import { warnOnEncryptedLikeFilter } from '@open-mercato/shared/lib/encryption/likeFilterWarning'
+import { PRODUCT_SEARCH_EXPRESSION_SQL } from '../../lib/productSearch'
 
 jest.mock('@open-mercato/shared/lib/crud/custom-fields', () => ({
   buildCustomFieldFiltersFromQuery: jest.fn(),
   extractAllCustomFieldEntries: jest.fn(),
+}))
+
+jest.mock('@open-mercato/shared/lib/encryption/likeFilterWarning', () => ({
+  warnOnEncryptedLikeFilter: jest.fn().mockResolvedValue(undefined),
 }))
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
@@ -18,8 +25,17 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   }),
 }))
 
+// The search predicate is keyed by a raw() fragment, so it surfaces as a symbol
+// whose description carries the SQL. Identify it by that expression rather than
+// by position.
+const findSearchSymbol = (where: object): symbol | undefined =>
+  Object.getOwnPropertySymbols(where).find((symbol) =>
+    symbol.description?.includes(PRODUCT_SEARCH_EXPRESSION_SQL),
+  )
+
 describe('catalog products route helpers', () => {
   beforeEach(() => {
+    ;(warnOnEncryptedLikeFilter as jest.Mock).mockClear()
     ;(buildCustomFieldFiltersFromQuery as jest.Mock).mockResolvedValue({ custom: { $eq: 'value' } })
   })
 
@@ -51,11 +67,13 @@ describe('catalog products route helpers', () => {
       { id: 'offer-1', product: 'prod-1' },
       { id: 'offer-2', product: { id: 'prod-2' } },
     ]
+    // Keyed on the filter rather than on call order: the search and channel
+    // prequeries are dispatched together (#3179), so which one resolves first
+    // is a scheduling detail this test must not depend on.
     const forkedEm = {
-      find: jest
-        .fn()
-        .mockResolvedValueOnce(productRows)
-        .mockResolvedValueOnce(offerRows),
+      find: jest.fn(async (_entity: unknown, where: any) =>
+        findSearchSymbol(where ?? {}) ? productRows : offerRows,
+      ),
     }
     const em = { fork: () => forkedEm }
     const container = { resolve: jest.fn().mockReturnValue(em) }
@@ -86,7 +104,7 @@ describe('catalog products route helpers', () => {
     expect((filters as any).custom).toEqual({ $eq: 'value' })
   })
 
-  it('normalizes the search filter through catalog_immutable_unaccent so accented and plain queries match the same rows (issue #6074)', async () => {
+  it(`normalizes the search filter through ${IMMUTABLE_UNACCENT_FUNCTION} so accented and plain queries match the same rows (issue #6074)`, async () => {
     const forkedEm = {
       find: jest.fn().mockResolvedValue([{ id: 'prod-1' }]),
     }
@@ -101,12 +119,39 @@ describe('catalog products route helpers', () => {
 
     expect(forkedEm.find).toHaveBeenCalledTimes(1)
     const where = forkedEm.find.mock.calls[0][1] as Record<string, unknown>
-    const searchSymbol = Object.getOwnPropertySymbols(where)[0]
+    const searchSymbol = findSearchSymbol(where)
     expect(searchSymbol).toBeDefined()
-    expect(searchSymbol.description).toContain('catalog_immutable_unaccent')
-    const searchCondition = (where as any)[searchSymbol]
-    expect(searchCondition.$ilike.sql).toBe('catalog_immutable_unaccent(?)')
+    // The predicate must repeat the indexed expression verbatim — otherwise
+    // PostgreSQL silently falls back to a sequential scan.
+    expect(searchSymbol!.description).toContain(PRODUCT_SEARCH_EXPRESSION_SQL)
+    const searchCondition = (where as any)[searchSymbol!]
+    expect(searchCondition.$ilike.sql).toBe(`${IMMUTABLE_UNACCENT_FUNCTION}(?)`)
     expect(searchCondition.$ilike.params).toEqual(['%hustawka%'])
+  })
+
+  it('raises the encrypted-ILIKE diagnostic for the searched columns the raw() key hides (issue #5051)', async () => {
+    const forkedEm = {
+      find: jest.fn().mockResolvedValue([{ id: 'prod-1' }]),
+    }
+    const em = { fork: () => forkedEm }
+    const container = { resolve: jest.fn().mockReturnValue(em) }
+    ;(buildCustomFieldFiltersFromQuery as jest.Mock).mockResolvedValueOnce({})
+
+    await buildProductFilters(
+      { search: 'hustawka' } as any,
+      { container, auth: { tenantId: 'tenant-1' } } as any,
+    )
+
+    // findWithDecryption raises the same diagnostic for the parts of the filter
+    // it *can* read, so assert on the call that names the hidden columns.
+    const calls = (warnOnEncryptedLikeFilter as jest.Mock).mock.calls.map(([params]) => params) as Array<{
+      likeFields?: string[]
+      tenantId?: string | null
+    }>
+    const explicit = calls.filter((params) => params.likeFields)
+    expect(explicit).toHaveLength(1)
+    expect(explicit[0].likeFields).toEqual(['title', 'subtitle', 'description', 'sku', 'handle'])
+    expect(explicit[0].tenantId).toBe('tenant-1')
   })
 
   it('dispatches independent filter prequeries concurrently and intersects them (issue #3179)', async () => {
@@ -120,8 +165,10 @@ describe('catalog products route helpers', () => {
     const rowsForWhere = (where: any) => {
       // The search prequery keys its normalized/unaccented expression via
       // MikroORM's raw() helper, which materializes as a unique Symbol key
-      // rather than a plain string key like $or.
-      if (Object.getOwnPropertySymbols(where ?? {}).length) {
+      // rather than a plain string key like $or. Match on that expression
+      // rather than on "has any symbol", so an unrelated symbol key added
+      // later cannot quietly impersonate the search prequery here.
+      if (findSearchSymbol(where ?? {})) {
         return [{ id: 'p1' }, { id: 'p2' }, { id: 'p3' }]
       }
       if (where?.channelId) return [{ id: 'o2', product: 'p2' }, { id: 'o3', product: 'p3' }, { id: 'o4', product: 'p4' }]

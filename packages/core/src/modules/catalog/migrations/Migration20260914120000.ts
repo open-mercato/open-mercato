@@ -1,40 +1,46 @@
 import { Migration } from '@mikro-orm/migrations';
 
-// Postgres's built-in unaccent() is STABLE, not IMMUTABLE, so it cannot be
-// used inside an index expression directly. catalog_immutable_unaccent()
-// wraps it as IMMUTABLE so it can back the trigram index below, and the
-// application query (packages/core/src/modules/catalog/api/products/route.ts,
-// PRODUCT_SEARCH_EXPRESSION_SQL) uses the exact same expression so Postgres
-// can actually pick the index up.
+// Installs the two PostgreSQL extensions accent-insensitive product search needs
+// (see Migration20260914120100, which creates the wrapper function and the index
+// on top of them). They are separate migrations on purpose: `unaccent` must be a
+// committed extension before a function body can pin its dictionary with
+// `'public.unaccent'::regdictionary`, and the index is built CONCURRENTLY, which
+// cannot run inside a transaction.
+//
+// `create extension` needs CREATE on the database, which the application role
+// does not always hold on managed PostgreSQL. Failing here aborts the whole
+// `yarn db:migrate` run — every later module's migrations included — so the bare
+// `permission denied to create extension` is turned into a message that names
+// what to grant. The check runs only when the extension is actually missing, so
+// an instance where an operator pre-created them needs no extra privilege.
+const ensureExtensionSql = (extension: string): string => `
+  do $$
+  begin
+    if not exists (select 1 from pg_extension where extname = '${extension}') then
+      begin
+        execute 'create extension if not exists "${extension}" schema public';
+      exception when insufficient_privilege then
+        raise exception using
+          errcode = 'insufficient_privilege',
+          message = 'Open Mercato requires the PostgreSQL "${extension}" extension for accent-insensitive catalog search, and this role may not create it.',
+          hint = 'Connect as a superuser (or allowlist the extension on managed PostgreSQL) and run: CREATE EXTENSION IF NOT EXISTS "${extension}" SCHEMA public; then re-run yarn db:migrate.';
+      end;
+    end if;
+  end
+  $$;
+`;
+
 export class Migration20260914120000 extends Migration {
 
   override async up(): Promise<void> {
-    this.addSql(`create extension if not exists "unaccent" schema public;`);
-    this.addSql(`create extension if not exists "pg_trgm" schema public;`);
-    // Schema-qualified on purpose: inside this migration's own transaction,
-    // an unqualified unaccent(...) call (or a regdictionary cast) right after
-    // "create extension" is not reliably resolvable yet via search_path —
-    // verified against Postgres 17 — while the schema-qualified call is.
-    this.addSql(`
-      create or replace function catalog_immutable_unaccent(text)
-      returns text as $$
-        select public.unaccent($1)
-      $$ language sql immutable parallel safe;
-    `);
-    this.addSql(`
-      create index if not exists "catalog_products_search_trgm_idx"
-      on "catalog_products"
-      using gin (
-        catalog_immutable_unaccent(
-          coalesce("title", '') || ' ' || coalesce("subtitle", '') || ' ' || coalesce("description", '') || ' ' || coalesce("sku", '') || ' ' || coalesce("handle", '')
-        ) gin_trgm_ops
-      );
-    `);
+    this.addSql(ensureExtensionSql('unaccent'));
+    this.addSql(ensureExtensionSql('pg_trgm'));
   }
 
   override async down(): Promise<void> {
-    this.addSql(`drop index if exists "catalog_products_search_trgm_idx";`);
-    this.addSql(`drop function if exists catalog_immutable_unaccent(text);`);
+    // The extensions are deliberately left in place: other schemas may have come
+    // to depend on them, and dropping an extension cascades to everything built
+    // on it. Migration20260914120100 removes what this module actually owns.
   }
 
 }
