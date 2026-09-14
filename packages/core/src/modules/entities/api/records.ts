@@ -15,6 +15,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { assertEntityAclForRequest, getDeclaredCustomEntityRestriction } from '../lib/entityAcl'
+import { loadCustomFieldKinds } from '../lib/scoped-field-defs'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('entities').child({ component: 'records' })
@@ -197,24 +198,34 @@ export async function GET(req: Request) {
     if (organizationIds && organizationIds.length === 0) {
       return NextResponse.json({ items: [], total: 0, page, pageSize, totalPages: 0 })
     }
-    const normalizeCustomEntityValue = (value: unknown) => {
-      if (Array.isArray(value)) {
-        return value.map((entry) => {
-          if (typeof entry !== 'string') return entry
-          const parsed = parseBooleanToken(entry)
-          return parsed === null ? entry : parsed
-        })
-      }
-      if (typeof value !== 'string') return value
+    // Doc storage keeps custom-field values as JSON, so a checkbox can arrive as the
+    // string "true"/"1" and must be handed back to the form as a real boolean. That
+    // parse is only ever correct for fields DECLARED boolean: applied blind it also
+    // rewrites legitimate string values whose text happens to be a boolean token —
+    // a `select` option `no` came back as `false`, and the edit form then wrote that
+    // boolean back over the stored option (#5791). Consult the declared kind instead.
+    const needsFieldKinds = isCustomEntity || qpEntries.some(([key]) => key.startsWith('cf_'))
+    const fieldKinds = needsFieldKinds
+      ? await loadCustomFieldKinds(em, { entityId, organizationId: scope.selectedId ?? auth.orgId ?? null, tenantId: auth.tenantId ?? null })
+      : new Map<string, string>()
+    const isBooleanField = (key: string) => fieldKinds.get(key) === 'boolean'
+    const parseBooleanField = (key: string, value: unknown) => {
+      if (typeof value !== 'string' || !isBooleanField(key)) return value
       const parsed = parseBooleanToken(value)
       return parsed === null ? value : parsed
+    }
+    const normalizeCustomEntityValue = (key: string, value: unknown) => {
+      if (Array.isArray(value)) return value.map((entry) => parseBooleanField(key, entry))
+      return parseBooleanField(key, value)
     }
     const mapRow = (row: any) => {
       if (!isCustomEntity || !row || typeof row !== 'object') return row
       const out: Record<string, unknown> = {}
       for (const [k, v] of Object.entries(row)) {
-        if (k.startsWith('cf_')) out[k.replace(/^cf_/, '')] = normalizeCustomEntityValue(v)
-        else out[k] = v
+        if (k.startsWith('cf_')) {
+          const bare = k.replace(/^cf_/, '')
+          out[bare] = normalizeCustomEntityValue(bare, v)
+        } else out[k] = v
       }
       return out
     }
@@ -235,8 +246,7 @@ export async function GET(req: Request) {
             const values = parseCommaSeparatedList(val)
             ;(filtersObj as any)[key] = { $in: values }
           } else {
-            const parsed = parseBooleanToken(val)
-            ;(filtersObj as any)[key] = parsed === null ? val : parsed
+            ;(filtersObj as any)[key] = parseBooleanField(key.replace(/^cf_/, ''), val)
           }
         }
       } else if (allowAnyKey) {
@@ -244,8 +254,7 @@ export async function GET(req: Request) {
           const values = parseCommaSeparatedList(val)
           ;(filtersObj as any)[key] = { $in: values }
         } else {
-          const parsed = parseBooleanToken(val)
-          ;(filtersObj as any)[key] = parsed === null ? val : parsed
+          ;(filtersObj as any)[key] = parseBooleanField(key, val)
         }
       } else {
         if (['id', 'created_at', 'updated_at', 'deleted_at', 'name', 'title', 'email'].includes(key)) {

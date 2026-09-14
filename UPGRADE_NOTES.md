@@ -24,6 +24,65 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.7.0 → 0.7.1 (unreleased)
 
+### `entry.overrides` now actually applies in CLI, worker and scheduler processes (#5582)
+
+`entry.overrides` declared in your app's `src/modules.ts` used to take effect only in the Next.js
+runtime. Every process that boots through `bootstrapFromAppRoot()` instead — `yarn mercato …`
+commands, the event/queue workers, and the scheduler — never dispatched them at all, so each
+declaration was a silent no-op there. It is now dispatched in both paths.
+
+**This flips runtime behavior for apps that already declare overrides, with no code change on your
+side.** Overrides you wrote expecting them to apply everywhere will now finally do so; overrides you
+wrote against the Next runtime only will start affecting your CLI and background processes too. The
+domains that become newly effective in those processes are `encryption`, `acl`, `cli`, `workers`,
+`events`, `setup`, `di`, and `ai`.
+
+Concrete cases to re-check before upgrading:
+
+- `overrides.encryption.maps` — `mercato entities seed-encryption` previously seeded the **base**
+  module maps while reporting success, leaving override-added fields written as plaintext at rest.
+  It now seeds your overridden maps. **Re-run it after upgrading** and re-encrypt any field that was
+  silently skipped.
+- `overrides.cli['<command>'] = null` — that command now genuinely disappears from the `mercato` CLI.
+- `overrides.setup.seedDefaults: false` — `mercato setup` now genuinely stops seeding for that module.
+- `overrides.workers` / `overrides.events` — worker and subscriber overrides now apply to the queue
+  and event workers, not just to in-request handlers.
+
+**Action:** review every `entry.overrides` entry in your `src/modules.ts` and confirm the CLI/worker
+behavior it now produces is the behavior you intended.
+
+A second, related change: a `src/modules.ts` that is **present but fails to compile or import** now
+aborts the CLI/worker bootstrap with an explicit error instead of logging and continuing with an
+empty override set. Continuing was what let `seed-encryption` print success while seeding base maps.
+An app with **no** `src/modules.ts` at all is still skipped without error, as before.
+
+### `yarn mercato auth sync-role-acls` now syncs **customer/portal** roles too (#5900)
+
+`setup.defaultCustomerRoleFeatures` — the way a module declares which portal features its
+pages need (`portal.time_reports.view`, and every other `portal.*` grant) — used to be merged
+into `CustomerRoleAcl` rows only during `customer_accounts.seedDefaults`, i.e. at tenant
+bootstrap. A module shipping a **new** portal page therefore never reached the `Buyer` and
+`Viewer` roles a tenant was already using: the page was not merely forbidden, it was invisible
+(the portal nav is RBAC-filtered), and someone had to grant the feature by hand for every
+tenant.
+
+`sync-role-acls` now runs the same idempotent, additive merge for customer roles after the
+staff ones, and reports what it granted. Run it once per upgrade, as you already do for staff
+features:
+
+```bash
+yarn mercato auth sync-role-acls
+```
+
+It only *adds* newly declared default grants to roles that already exist, never removes an
+operator's customizations, and never creates roles or ACL rows. `--tenant <tenantId>` still
+scopes it to one tenant. A deployment without the `customer_accounts` module is unaffected —
+the portal half is skipped and staff roles sync exactly as before.
+
+**Module authors:** declaring a portal feature in `setup.defaultCustomerRoleFeatures` is now
+enough for existing tenants to pick it up on the documented upgrade command; note the new
+grant in your own release notes so operators know to run it.
+
 ### Sales line `discount_amount` is now read as a line total, and the percentage wins (#3757)
 
 `sales_order_lines.discount_amount` and `sales_quote_lines.discount_amount` have always been
@@ -159,6 +218,109 @@ Nothing that was previously accepted is now rejected. `loose` remains a read ali
 
 **Action for module authors:** replace `DEAL_STATUS_LOSE` with `DEAL_STATUS_LOST`. The old constant is still exported and still equals `'loose'`, now marked `@deprecated` and scheduled for removal no earlier than 0.9.0. Code comparing a status literally against `'loose'` should call `isLostDealStatus`, which matches both spellings; code that consumes `canonicalDealStatus` output must expect `'lost'` where it previously saw `'loose'`. See `.ai/specs/2026-08-24-deal-status-lost-spelling.md`.
 
+### Outbound system email now routes through the Communications Hub
+
+Transactional email (password reset, invitations, MFA email OTP, notifications, quotes,
+checkout, Messages) no longer talks to a provider SDK directly. It resolves a
+`communication_channels` row plus that tenant's integration credentials, and the concrete
+providers ship as pluggable packages (`@open-mercato/channel-resend`,
+`@open-mercato/channel-ses`).
+
+**No configuration change is required.** If your tenants predate this change and you configure
+email the way `.env.example` documents — `RESEND_API_KEY` plus one of
+`NOTIFICATIONS_EMAIL_FROM` / `EMAIL_FROM` / `ADMIN_EMAIL` — email keeps sending. A tenant with
+no email channel of its own falls back to those instance-wide environment credentials, and
+logs a warning each time it does so.
+
+**But a standalone app MUST enable the provider module, or all outbound email stops.** The
+provider is no longer compiled into `@open-mercato/shared`; the adapter is contributed by the
+`channel_resend` / `channel_ses` module, and `src/modules.ts` is your app's file, so upgrading
+the packages does not add it. An app scaffolded before 0.7.1 keeps sending nothing and throws
+`No ChannelAdapter registered for providerKey 'resend'` on the first send — a password reset or
+invitation — with no failure at boot to warn you. Add the dependency and the entry:
+
+```jsonc
+// package.json — match your other @open-mercato/* versions
+"@open-mercato/channel-resend": "0.7.1",
+// and "@open-mercato/channel-ses": "0.7.1" if you set SYSTEM_EMAIL_PROVIDER=ses
+```
+
+```ts
+// src/modules.ts — alongside the other channel_* entries
+{ id: 'channel_resend', from: '@open-mercato/channel-resend' },
+{ id: 'channel_ses', from: '@open-mercato/channel-ses' },
+```
+
+Enable the package matching `SYSTEM_EMAIL_PROVIDER` (default `resend`); the other is optional.
+The monorepo app (`apps/mercato`) and newly scaffolded apps already carry both.
+
+Only the **selected** provider's env preset seeds anything. Enabling both packages is therefore
+safe: with `SYSTEM_EMAIL_PROVIDER` unset or `resend`, the SES preset stores no credentials, creates
+no channel and leaves the SES integration disabled — which matters because `AWS_REGION` is not an
+email variable (`.env.example` ships it for vector search, and every AWS runtime injects it), so an
+ungated SES preset would advertise a connected channel nobody configured. Switching
+`SYSTEM_EMAIL_PROVIDER` and re-running `yarn mercato seed:defaults --module channel_<provider>`
+seeds the new provider.
+
+Credential resolution for a tenant-scoped send runs in this order:
+
+| Tenant state | Credentials used |
+|---|---|
+| Has credentials for the provider (seeded, or saved in the admin UI) | The tenant's own. The Hub channel row is created if missing. |
+| Has a configured channel but no credentials | **None — the send fails.** Never falls back to env. |
+| Has neither | Instance-wide env credentials, with a logged warning. |
+
+The middle row is deliberate: a tenant that configured its own provider must never silently
+send through the instance-wide account. Note also that a channel belonging to a *different
+organization* is never borrowed — organization is a scoping boundary, so that case reaches
+the environment fallback instead. `SYSTEM_EMAIL_CHANNEL_ID` narrows the lookup to one channel
+without lifting that boundary: the pinned row must be the sending organization's own or the
+tenant-wide (`organization_id IS NULL`) one, and a pin never falls back to the environment.
+
+**The table above describes a (tenant, organization) pair, not a tenant.** A send that carries no
+`organizationId` — a password reset for a user whose `organization_id` is null, which superadmins
+can be — probes only the tenant-wide (`organization_id IS NULL`) channel. The per-organization rows
+the env preset seeds are not visible to it, so such a send lands on the last row of the table and
+uses instance-wide environment credentials with the usual logged warning, even on a tenant that has
+finished configuring its own provider. This is deliberate: a send with no organization has no
+organization's credentials to reach for. If you want every send on a tenant to use that tenant's
+provider, give the tenant a tenant-wide channel row (`organization_id IS NULL`) as well as the
+per-organization ones, or pass `organizationId` from the caller.
+
+**An explicit `from` is always honoured.** When the caller passes `from` to `sendEmail`, that
+address is used verbatim; only a send that left `from` to the instance default
+(`NOTIFICATIONS_EMAIL_FROM` / `EMAIL_FROM` / `ADMIN_EMAIL`) is rewritten to the resolved channel's
+sender. One consequence worth naming, because the rule above invites the opposite assumption:
+notification email passes its own configured sender (`module_configs` →
+`strategies.email.from`), so notifications keep sending from that address rather than from the
+tenant channel's identity. Clear the notification strategy's `from` if you want notifications to
+follow the tenant sender too.
+
+**How far "the tenant's own credentials" goes depends on the provider.** For Resend the stored
+credentials include the API key, so each tenant genuinely sends through its own Resend account.
+For Amazon SES the stored credentials are the region, the sender identity and an optional
+configuration set — the AWS identity itself comes from the instance's default AWS credential
+chain (`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` or the container's IAM role), so every SES
+tenant sends through one AWS account and the fail-closed rule above protects the sender identity
+rather than the account. Choose Resend when tenants must bring their own provider account.
+
+**Recommended (not required):** move existing tenants onto the Hub so email is managed per
+tenant and visible in the admin UI. The seed hook is idempotent and safe to re-run — it
+iterates every organization of every tenant:
+
+```bash
+yarn mercato seed:defaults --module channel_resend
+```
+
+**For module authors:** `sendEmail(...)` from `@open-mercato/shared/lib/email/send` is
+unchanged, and remains the supported entry point. Pass `tenantId` and `organizationId`
+whenever you have them so the send resolves that tenant's provider rather than the
+instance-wide one. Code that calls a provider SDK directly should migrate to `sendEmail`.
+
+**One trap worth knowing:** the Resend env preset needs `RESEND_API_KEY` *and* a from-address.
+With the key but no from-address it previously seeded nothing in silence; it now logs a
+warning naming the missing variable.
+
 ### Interaction participants may omit `userId` — external calendar guests (#5115)
 
 `interactionParticipantSchema` required `participants[].userId` to be a UUID, so an attendee with no person/customer/staff record — an external guest identified only by their email — could not be recorded at all. `userId` is now optional; a participant must still be identifiable, so one without a `userId` **must** carry a valid email address (`participants[].email`), and one with neither is still rejected with a `400`.
@@ -196,6 +358,34 @@ The query object is now built by `buildQueryParams` from `@open-mercato/shared/l
 **One behavior change worth planning for.** A list route whose schema types a filter param as a plain `z.string()` (no array branch) now returns **400** when a client sends that param twice, where it previously accepted the request and silently used the last value. That is the correct failure mode — quietly discarding a caller's filter is the defect this fixes — but a lenient client may be relying on the old behavior. Callers using the comma form, or sending each param once, are unaffected; a caller sending repeats starts receiving the values it already asked for, which is strictly a widening.
 
 **Action for module authors:** audit your own list-route schemas for filter params that clients may repeat. Where a param is genuinely multi-valued, widen it to `z.union([z.string(), z.array(z.string())])` (or `z.array(z.string())`) and normalize it with `toQueryValueList`. Where it is genuinely single-valued, no change is needed — a repeated occurrence should be rejected. No route URL, HTTP method, response field, `makeCrudRoute` signature, options type, or database column changes, so `BACKWARD_COMPATIBILITY.md` §2, §3 and §7 are not violated.
+
+### `createTimeProjectFixture` needs a customer, and now says so instead of 422-ing
+
+`createTimeProjectFixture` from `@open-mercato/core/helpers/integration/timesheetFixtures` posts to `POST /api/staff/timesheets/time-projects`, where a customer became mandatory when consulting projects gained customer-scoped rates. A fixture call that omits one can no longer succeed: the route answers `422`, and the spec fails somewhere downstream of the fixture with no indication that the fixture was the problem. Six in-repo specs regressed exactly that way.
+
+The helper's third parameter therefore carries a `customerId` — but it stays **optional in the type**, and the whole parameter remains optional, so every existing call still compiles:
+
+```typescript
+createTimeProjectFixture(request, token)                                  // still compiles, throws
+createTimeProjectFixture(request, token, { name: 'Consulting' })          // still compiles, throws
+createTimeProjectFixture(request, token, { customerId, name: 'Consulting' })  // correct
+```
+
+A call with no `customerId` (or a blank one) now throws before any request is made, naming the helper and the missing field. There is no safe value to default to — a fixture cannot invent a customer for the tenant under test without silently changing what the spec exercises — so failing loudly at the call is the closest thing to the compile error that a published helper cannot afford to introduce.
+
+**Action for module authors:** create a customer first and pass its id — `createCompanyFixture` from `@open-mercato/core/helpers/integration/crmFixtures` returns one, and any id from `customers.customer_entities` works. Specs that already pass `customerId` need no change. The parameter is not scheduled to become required; the runtime check is the enforcement, so it will keep compiling.
+### Phone call PII is encrypted at rest — existing tenants get backfilled encryption maps
+
+The new `phone_calls` module encrypts two entities at rest through the standard tenant-data-encryption seam: `phone_number`, `display_name` and `email` on `phone_calls:phone_call_participant`, and `raw_snapshot`, `provider_facts` and `recording_url` on `phone_calls:phone_call` (the untouched provider payload repeats the caller and destination numbers, and the recording URL carries its own access token). Encryption is driven by an `encryption_maps` row that declares which fields to encrypt, and those rows are seeded **once at tenant creation** (`entities seed-encryption`). A tenant that predates this module therefore has **no map for either entity**, and `encryptEntityPayload` no-ops when no map resolves — so calls ingested after the upgrade would have their PII written as **plaintext**, silently, both in the base tables and in the copy the query index keeps in `entity_indexes.doc`.
+
+**This heals automatically on `yarn db:migrate`.** A forward-only, idempotent data migration (`entities` module, `Migration20260822120000`) inserts both maps for every `(tenant, organization)` scope that already has active encryption maps, mirroring what `seed-encryption` does and correctly skipping tenants that run with encryption disabled (they have no maps at all). New tenants continue to get both maps from `seed-encryption` at creation. **No operator action is required** for the standard migrate-then-deploy flow, and there is no plaintext window because the maps exist before the new code serves traffic. This mirrors the `devices:user_device` backfill shipped in `Migration20260722120000`.
+
+Two additional heal paths are available if you need them:
+
+- **Upgrade Action** (`phone_calls.seed-call-encryption-maps`, version `0.7.1`) — the managed, UI/API-triggered heal for the same backfill, gated on `UPGRADE_ACTIONS_ENABLED=true` and the `configs.manage` feature, run per tenant (idempotent). The migration only reaches scopes that had active maps when it ran, so this is the path for a tenant that upgraded with encryption **disabled** and enabled it afterwards — that tenant has no map and nothing else would tell you.
+- **Manual CLI** — re-run `yarn mercato entities seed-encryption --tenant <tenantId> --org <organizationId>` per tenant. It idempotently upserts **all** modules' default encryption maps, including both phone_calls ones.
+
+Note: only calls ingested **after** the maps exist are encrypted. Rows written by a build that ran without them stay plaintext until they are re-ingested (a pull is idempotent, so re-pulling the affected range rewrites them) or handled with the `entities rotate-encryption` / `decrypt-database` tooling.
 
 ## 0.6.7 → 0.7.0 (2026-08-26)
 
@@ -669,6 +859,36 @@ Fresh applications generated by `create-mercato-app` now include the same respon
 **Action for existing standalone apps:** template files are not overwritten during package upgrades. Copy the `contentSecurityPolicy` constant and `headers()` configuration from the latest [`packages/create-app/template/next.config.ts`](packages/create-app/template/next.config.ts) into the app's `next.config.ts`, merging them with any app-owned rules. If a custom provider needs another script, frame, image, or connection origin, add only that exact origin to the matching CSP directive. Do not remove or weaken the `/api/attachments/file/:path*` sandbox rule. Validate each browser-based integration after adopting the baseline.
 
 This is an opt-in security hardening step for existing apps and the default for newly scaffolded apps. It does not change Open Mercato API, event, DI, ACL, or database contracts.
+
+### Staff timesheet backend pages moved to `/backend/staff/time-tracking/*`
+
+The staff timesheets screens move out of the `Employees` sidebar group into a new `Time tracking` group (`pageGroupKey: 'staff.time_tracking.nav.group'`), and their page routes move with them. The `Employees` group keeps every HR page it had (team members, teams, team roles, leave requests, availability, job history) at its existing paths.
+
+Every old path answers **308 Permanent Redirect** to its new equivalent:
+
+| Old path | New path |
+|---|---|
+| `/backend/staff/timesheets` | `/backend/staff/time-tracking/timesheet` |
+| `/backend/staff/timesheets/projects` | `/backend/staff/time-tracking/projects` |
+| `/backend/staff/timesheets/projects/create` | `/backend/staff/time-tracking/projects/create` |
+| `/backend/staff/timesheets/projects/{id}` | `/backend/staff/time-tracking/projects/{id}` |
+| `/backend/staff/timesheets/projects/{id}/edit` | `/backend/staff/time-tracking/projects/{id}/edit` |
+
+The redirects are retained for **at least one minor release** per [`BACKWARD_COMPATIBILITY.md`](BACKWARD_COMPATIBILITY.md), so bookmarks, saved deep links and injected menu items keep resolving in the meantime.
+
+**Nothing else about the module moved.** API routes stay under `/api/staff/timesheets/**`, ACL feature ids stay in the `staff.timesheets.*` namespace (they are FROZEN), and the `staff_time_*` tables are untouched. Only page routes and the sidebar group changed.
+
+**Action for module authors:** update any hard-coded `/backend/staff/timesheets*` href, `resolveUrl`, injected menu item, or Playwright `page.goto(...)` to the new path rather than relying on the redirect. If your module injects widgets into the timesheet pages, note that the admin-page spot ids are derived from the pathname — `admin.page:/backend/staff/timesheets:before` becomes `admin.page:/backend/staff/time-tracking/timesheet:before`, and the projects spots follow the same rename.
+
+### `staff_time_entries.notes` is also exposed as `description`
+
+The free-text note on a time entry gains a second, additive name. `POST`/`PUT /api/staff/timesheets/time-entries` accept the value under **either** `notes` (the historical key, unchanged) or `description` (the name the time tracking UI, task drawer and customer reports use), and list/detail responses return **both** keys carrying the same value. When a request supplies both, `description` wins.
+
+The database column is still `notes` — this is a request/response alias, not a schema change, and no migration is involved.
+
+Both keys are accepted and returned for **at least one minor release**. `notes` is not scheduled for removal in this window, but new code should read and write `description`.
+
+**Action for API consumers:** none required. Consumers that build request bodies dynamically should send exactly one of the two keys rather than relying on the precedence rule.
 
 ### The unique constraint on `onboarding_requests.email` is dropped (#4514)
 

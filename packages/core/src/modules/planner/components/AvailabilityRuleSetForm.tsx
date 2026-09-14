@@ -86,6 +86,7 @@ export function AvailabilityRuleSetForm(props: AvailabilityRuleSetFormProps) {
   return (
     <CrudForm<AvailabilityRuleSetFormValues>
       title={title}
+      titleHeadingLevel={1}
       backHref={backHref}
       cancelHref={cancelHref}
       submitLabel={submitLabel}
