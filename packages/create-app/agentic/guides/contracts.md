@@ -2,6 +2,8 @@
 
 Use this guide for entities, APIs, commands, scoping, compatibility, migrations, events, workers, search, and cache. Use `customers` as the CRUD reference after resolving its installed source.
 
+This app's own modules get generated fact sheets too: read `.ai/guides/app-modules/<id>/index.md` for a targeted `src/modules/<id>` module instead of re-deriving its surfaces from source. `yarn generate` refreshes them, so treat a sheet older than the module's source as stale and regenerate.
+
 ## Entity and Scope Contract
 
 - Define entity classes together in `src/modules/<id>/data/entities.ts`; import decorators from `@mikro-orm/decorators/legacy` and ORM types from the installed MikroORM package.

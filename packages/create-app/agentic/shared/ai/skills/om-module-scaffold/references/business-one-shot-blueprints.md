@@ -15,11 +15,15 @@ Load this reference when the user describes a business outcome rather than files
 
 Once a row matches, its route key is binding: invoke every unparenthesized route letter and its skill before implementation. Scalar IDs or snapshots keep modules independent, but they do not remove `U` when the slice still links to, enriches, guards, or renders installed-module behavior. A parenthesized route remains conditional on the parenthesized reason.
 
-## Canonical Staff Record Inference
+## No Matching Row
+
+A row matches only when its business domain genuinely matches the brief. When no row's domain matches, the brief is an unenumerated business domain and this fallback is binding instead: route `M`, adding `B`, `W`, `P`, or `A` only where the brief itself demands that surface, read the three complete-module procedures below, and invoke `om-data-model-design` with `src/modules/example` as the structural reference. Do not impersonate the nearest domain row; its stable IDs, invariants, and slices belong to its own domain. The generic invariants still apply: tenant+organization scope, command-owned writes with undo and optimistic locking, encrypted PII reads, stable IDs, and the Completion Rule at the end of this file.
+
+## Canonical Record-Management Inference
 
 Immediately after this file and before any optional specialist reference, directly read all three complete-module procedures: `.ai/skills/om-module-scaffold/references/api-and-domain.md`, `.ai/skills/om-module-scaffold/references/module-surfaces.md`, and `.ai/skills/om-module-scaffold/references/verification.md`. When context is bounded, these required procedures win over allowed-extra references. Their canonical exports, callbacks, placements, and verification paths are binding; do not substitute plausible alternatives such as `locales/` for `i18n/` or module-level tests for `commands/__tests__/`.
 
-Business briefs should describe outcomes; translate familiar staff record-management language into the framework's canonical surfaces without making the user name them:
+Business briefs should describe outcomes; translate familiar record-management language into the framework's canonical surfaces without making the user name them:
 
 - “Browse/search/filter, add, correct, remove, and recover from mistakes” means a controlled-search `DataTable` with an add link and guarded `RowActions`, backed by `CrudForm` create/edit/delete flows. Preserve `initialValues`, use the documented CRUD helpers, and expose stable DataTable and CrudForm host IDs unless the domain requires a purpose-built interaction.
 - “Extra fields administrators add later must survive create, edit, clear, and reload” means one stable custom-field entity ID across the route and forms, `collectCustomFieldValues` at submission, initial custom-field values on edit, and reset/restore maps during update and delete undo.
@@ -160,7 +164,7 @@ Before stopping, run `yarn generate` and then `yarn typecheck`. Any diagnostic m
 |---|---|---|---|---|
 | “Add localized privacy, terms, and help pages.” | App content module; UMES menu injection when linked in installed UI | `M+B+U` | versioned content, locale resolution, public routes, navigation/footer links, publish preview | safe rendering; explicit publication/version dates; locale fallback; legal history remains retrievable |
 | “Create a tenant onboarding wizard for CRM setup.” | App onboarding module + UMES setup hooks/widgets | `M+U+B+W` | resumable steps, defaults/import/invitations, completion state, welcome notification | setup hooks idempotent; scoped progress; safe retry; secrets never stored in wizard state |
-| “Build a library management system.” | New app module | `M+B+W` | books/copies/members, checkout/return/renew/reservation commands, admin UI/search, overdue jobs | copy availability is transactional; no double checkout; due dates use tenant zone; member PII protected |
+| “Build a library management system.” | New app module; final check against `.ai/skills/om-module-scaffold/references/library-contract.md` | `M+B+W` | books/copies/members, checkout/return/renew/reservation commands, admin UI/search, overdue jobs | copy availability is transactional; no double checkout; due dates use tenant zone; member PII protected |
 | “Build a field-service management app tied to CRM customers.” | App module + UMES customer links + optional mapping provider | `M+U+B+W+P` | work orders, technicians, schedule, visit notes/photos, customer panel, dispatch notifications | scalar customer IDs/snapshots; assignment conflicts prevented; mobile/error states; jobs retry idempotently |
 | “Build an equipment rental business app.” | New app module + optional payment/shipping providers | `M+B+W+P` | assets, availability, reservations, checkout/return, damage/deposit, calendar | overlapping reservations rejected atomically; money snapshots; asset condition audit; provider failures recoverable |
 | “Build appointment booking connected to CRM.” | App module + UMES customer handoff + notification provider | `M+U+B+W+P` | public availability, booking/reschedule/cancel, CRM match/create, reminders, admin calendar | public scope derived server-side; slot hold is atomic; time-zone/DST correctness; submission/reminder dedupe |

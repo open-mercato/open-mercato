@@ -359,6 +359,7 @@ describe('init command failure output', () => {
       generateModuleEntities: jest.fn().mockResolvedValue(undefined),
       generateModuleDi: jest.fn().mockResolvedValue(undefined),
       generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
+      generateAppLocalModuleFacts: jest.fn().mockResolvedValue(undefined),
       generateOpenApi: jest.fn().mockResolvedValue(undefined),
     }))
     jest.doMock('../lib/resolver', () => ({
@@ -405,6 +406,7 @@ describe('init command failure output', () => {
       generateModuleEntities: jest.fn().mockResolvedValue(undefined),
       generateModuleDi: jest.fn().mockResolvedValue(undefined),
       generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
+      generateAppLocalModuleFacts: jest.fn().mockResolvedValue(undefined),
       generateOpenApi: jest.fn().mockResolvedValue(undefined),
     }))
     jest.doMock('../lib/resolver', () => ({
@@ -454,6 +456,7 @@ describe('init command failure output', () => {
       generateModuleEntities: jest.fn().mockResolvedValue(undefined),
       generateModuleDi: jest.fn().mockResolvedValue(undefined),
       generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
+      generateAppLocalModuleFacts: jest.fn().mockResolvedValue(undefined),
       generateOpenApi: jest.fn().mockResolvedValue(undefined),
     }))
     jest.doMock('../lib/db', () => ({
@@ -554,6 +557,7 @@ describe('generate post-step structural invalidation', () => {
     const generateModuleEntities = jest.fn().mockResolvedValue(undefined)
     const generateModuleDi = jest.fn().mockResolvedValue(undefined)
     const generateModulePackageSources = jest.fn().mockResolvedValue(undefined)
+    const generateAppLocalModuleFacts = jest.fn().mockResolvedValue(undefined)
     const generateOpenApi = jest.fn().mockResolvedValue(undefined)
     const invalidate = jest.fn().mockResolvedValue({
       cacheEntriesDeleted: 2,
@@ -568,6 +572,7 @@ describe('generate post-step structural invalidation', () => {
       generateModuleEntities,
       generateModuleDi,
       generateModulePackageSources,
+      generateAppLocalModuleFacts,
       generateOpenApi,
     }))
     jest.doMock('../lib/resolver', () => ({
@@ -609,6 +614,7 @@ describe('generate post-step structural invalidation', () => {
       generateModuleEntities: jest.fn().mockResolvedValue(unchangedResult),
       generateModuleDi: jest.fn().mockResolvedValue(unchangedResult),
       generateModulePackageSources: jest.fn().mockResolvedValue(unchangedResult),
+      generateAppLocalModuleFacts: jest.fn().mockResolvedValue(unchangedResult),
       generateOpenApi: jest.fn().mockResolvedValue(unchangedResult),
     }
     const invalidate = jest.fn()
@@ -649,6 +655,7 @@ describe('generate post-step structural invalidation', () => {
     const generateModuleEntities = jest.fn().mockResolvedValue(undefined)
     const generateModuleDi = jest.fn().mockResolvedValue(undefined)
     const generateModulePackageSources = jest.fn().mockResolvedValue(undefined)
+    const generateAppLocalModuleFacts = jest.fn().mockResolvedValue(undefined)
     const generateOpenApi = jest.fn().mockResolvedValue(undefined)
     const invalidate = jest.fn().mockRejectedValue(new Error('cache maintenance unavailable'))
 
@@ -658,6 +665,7 @@ describe('generate post-step structural invalidation', () => {
       generateModuleEntities,
       generateModuleDi,
       generateModulePackageSources,
+      generateAppLocalModuleFacts,
       generateOpenApi,
     }))
     jest.doMock('../lib/resolver', () => ({
@@ -694,6 +702,7 @@ describe('generate post-step structural invalidation', () => {
       generateModuleEntities: generate,
       generateModuleDi: generate,
       generateModulePackageSources: generate,
+      generateAppLocalModuleFacts: generate,
       generateOpenApi: generate,
     }))
     jest.doMock('../lib/resolver', () => ({
