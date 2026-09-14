@@ -5,8 +5,73 @@ import * as React from 'react'
 import { fireEvent, screen } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { PlannedActivitiesSection } from '../PlannedActivitiesSection'
+import type { InteractionSummary } from '../types'
+
+function makeActivity(overrides: Partial<InteractionSummary> & { id: string }): InteractionSummary {
+  return {
+    interactionType: 'meeting',
+    title: 'Follow-up call',
+    body: null,
+    status: 'planned',
+    scheduledAt: null,
+    occurredAt: null,
+    priority: null,
+    authorUserId: null,
+    ownerUserId: null,
+    appearanceIcon: null,
+    appearanceColor: null,
+    source: 'manual',
+    entityId: 'company-1',
+    dealId: null,
+    organizationId: 'org-1',
+    tenantId: 'tenant-1',
+    authorName: null,
+    authorEmail: null,
+    dealTitle: null,
+    customValues: null,
+    createdAt: '2026-04-01T10:00:00.000Z',
+    updatedAt: '2026-04-01T10:00:00.000Z',
+    ...overrides,
+  } as InteractionSummary
+}
+
+// Builds an ISO instant at a given wall-clock time on the reader's local calendar
+// day `dayOffset` days from today, so the assertions below describe a calendar day
+// rather than a fixed number of milliseconds from now.
+function localInstantAtOffset(dayOffset: number, hours: number, minutes: number): string {
+  const target = new Date()
+  target.setDate(target.getDate() + dayOffset)
+  target.setHours(hours, minutes, 0, 0)
+  return target.toISOString()
+}
+
+const PL_DICT = {
+  'customers.timeline.planned.tomorrow': 'Jutro {{time}}',
+}
+
+// A fixed local "now" so the day-boundary cases below never depend on the wall-clock
+// time the suite happens to run at — without it, a "later today" fixture flips to the
+// overdue branch when the run starts late in the evening and silently stops exercising
+// formatScheduledDate at all.
+const FIXED_NOW = new Date(2026, 3, 10, 9, 0, 0)
+
+// The leaf cells rendering the generic `Day, D Mon · HH:MM` form. Matching on the
+// separator rather than on locale-formatted day and month names keeps this
+// independent of whichever locale the runtime resolves `toLocaleDateString` to.
+function genericDateCells(): HTMLElement[] {
+  return screen.getAllByText(
+    (_content, element) =>
+      element?.tagName === 'SPAN' &&
+      element.children.length === 0 &&
+      (element.textContent ?? '').includes(' · '),
+  )
+}
 
 describe('PlannedActivitiesSection', () => {
+  afterEach(() => {
+    jest.useRealTimers()
+  })
+
   it('marks an overdue activity done without opening the edit flow', () => {
     const onComplete = jest.fn()
     const onEdit = jest.fn()
@@ -49,5 +114,61 @@ describe('PlannedActivitiesSection', () => {
 
     expect(onComplete).toHaveBeenCalledWith('activity-1')
     expect(onEdit).not.toHaveBeenCalled()
+  })
+
+  it('translates the due-tomorrow label instead of rendering the English literal (#5933)', () => {
+    renderWithProviders(
+      <PlannedActivitiesSection
+        activities={[makeActivity({ id: 'activity-tomorrow', scheduledAt: localInstantAtOffset(1, 10, 30) })]}
+      />,
+      { locale: 'pl', dict: PL_DICT },
+    )
+
+    expect(screen.getByText(/^Jutro /)).toBeTruthy()
+    expect(screen.queryByText(/Tomorrow/)).toBeNull()
+  })
+
+  it('falls back to the English default when the dictionary has no tomorrow entry', () => {
+    renderWithProviders(
+      <PlannedActivitiesSection
+        activities={[makeActivity({ id: 'activity-tomorrow', scheduledAt: localInstantAtOffset(1, 10, 30) })]}
+      />,
+    )
+
+    expect(screen.getByText(/^Tomorrow /)).toBeTruthy()
+  })
+
+  it('treats the whole of tomorrow as tomorrow, at both ends of the local calendar day (#5933)', () => {
+    jest.useFakeTimers().setSystemTime(FIXED_NOW)
+    renderWithProviders(
+      <PlannedActivitiesSection
+        activities={[
+          makeActivity({ id: 'just-after-midnight', title: 'Early', scheduledAt: localInstantAtOffset(1, 0, 5) }),
+          makeActivity({ id: 'just-before-midnight', title: 'Late', scheduledAt: localInstantAtOffset(1, 23, 55) }),
+        ]}
+      />,
+      { locale: 'pl', dict: PL_DICT },
+    )
+
+    expect(screen.getAllByText(/^Jutro /)).toHaveLength(2)
+  })
+
+  it('does not label activities outside tomorrow as tomorrow', () => {
+    jest.useFakeTimers().setSystemTime(FIXED_NOW)
+    renderWithProviders(
+      <PlannedActivitiesSection
+        activities={[
+          makeActivity({ id: 'later-today', title: 'Later today', scheduledAt: localInstantAtOffset(0, 23, 30) }),
+          makeActivity({ id: 'day-after', title: 'Day after', scheduledAt: localInstantAtOffset(2, 10, 0) }),
+        ]}
+      />,
+      { locale: 'pl', dict: PL_DICT },
+    )
+
+    expect(screen.getByText('Later today')).toBeTruthy()
+    expect(screen.getByText('Day after')).toBeTruthy()
+    expect(genericDateCells()).toHaveLength(2)
+    expect(screen.queryByText(/^Jutro /)).toBeNull()
+    expect(screen.queryByText(/Tomorrow/)).toBeNull()
   })
 })

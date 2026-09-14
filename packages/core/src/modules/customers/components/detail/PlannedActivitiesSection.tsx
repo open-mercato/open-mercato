@@ -15,6 +15,10 @@ const TYPE_ICONS: Record<string, React.ComponentType<{ className?: string }>> = 
   note: StickyNote,
 }
 
+function isSameDay(a: Date, b: Date): boolean {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
+}
+
 interface PlannedActivitiesSectionProps {
   activities: InteractionSummary[]
   onComplete?: (id: string) => void
@@ -170,7 +174,7 @@ export function PlannedActivitiesSection({ activities, onComplete, onSchedule, o
                   {activity.title ?? activity.body ?? activity.interactionType}
                 </span>
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <span>{activity.scheduledAt ? formatScheduledDate(activity.scheduledAt) : ''}</span>
+                  <span>{activity.scheduledAt ? formatScheduledDate(activity.scheduledAt, t) : ''}</span>
                   {activity.authorName && (
                     <>
                       <span>·</span>
@@ -234,19 +238,18 @@ function formatRelativeOverdue(isoString: string, t: TranslateFn): string {
   }
 }
 
-function formatScheduledDate(isoString: string): string {
+function formatScheduledDate(isoString: string, t: TranslateFn): string {
   try {
     const date = new Date(isoString)
-    const now = new Date()
-    const tomorrow = new Date(now)
+    const tomorrow = new Date()
     tomorrow.setDate(tomorrow.getDate() + 1)
 
     const dayName = date.toLocaleDateString(undefined, { weekday: 'short' })
     const dateStr = date.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
     const timeStr = date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
 
-    if (date.toDateString() === tomorrow.toDateString()) {
-      return `Tomorrow ${timeStr}`
+    if (isSameDay(date, tomorrow)) {
+      return t('customers.timeline.planned.tomorrow', 'Tomorrow {{time}}', { time: timeStr })
     }
     return `${dayName}, ${dateStr} · ${timeStr}`
   } catch {
