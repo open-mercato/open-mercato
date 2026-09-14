@@ -33,7 +33,7 @@ What actually exists right now, and where:
 | Accounts Payable (payments) | `2026-09-06-accounts-payable-payments.md` | `docs/accounts-payable` | Open, PR #5962 |
 | Journal Entry Line Dimension | `2026-09-06-journal-entry-line-dimension.md` | `docs/journal-entry-line-dimension` | Written, own branch |
 | Fixed Assets | `2026-09-06-fixed-assets.md` | `docs/fixed-assets` | Open, PR #6014 — full spec, adversarially reviewed, Final Compliance Report: fully compliant |
-| Posting Rules Engine (konto 490) | `2026-09-06-posting-rules-engine.md` | `docs/posting-rules-engine` | Open, PR #6015 — full spec, one independent adversarial review pass (nine issues fixed) |
+| Posting Rules Engine (konto 490) | `2026-09-06-posting-rules-engine.md` | `docs/posting-rules-engine` | Open, PR #6015 — full spec, one independent adversarial review pass (nine issues fixed); second, external maintainer review (pkarw, om-auto-review-pr, 2026-09-14) — 8 findings (2 blockers, 3 majors, 2 minors, 1 nit), all resolved via a settings-based redesign (`PostingRulesSettings` replaces the earlier hardcoded account assumptions) — see the spec's own Changelog for full detail; a real client chart of accounts confirmed account numbering is accountant-specific, not standardized across tenants (see note below the table) |
 | This knowledge base | `2026-09-08-financial-module-knowledge-base.md` | `docs/financial-module-knowledge-base` | Open, PR #6016 |
 | GL bulk cross-module read service | `2026-09-10-general-ledger-bulk-read-service.md` | `docs/general-ledger-bulk-read-service` | Open, PR #6038 — draft, not yet reviewed — prerequisite for JPK_KR_PD's future `SPEC-010` (see note below the table) |
 | Accounts Receivable (sales invoice → GL posting) | `2026-08-18-sales-invoice-gl-posting.md` | `docs/sales-invoice-gl-posting` | Open, PR #6046 — full spec, one independent adversarial review pass (eleven issues fixed) plus a structured Final Compliance Matrix pass; not yet reviewed by a human/maintainer |
@@ -359,6 +359,38 @@ Optima's or enova365's public documentation, confirming this module's
 reproduction of local market practice. All written directly into
 `2026-09-06-contractor-registry.md`'s own new "Literature & Prior Art"
 section — commit `e8dd1b1de` on `docs/contractor-registry`.
+
+**New 2026-09-14 — account numbering is not standardized across
+tenants, confirmed via a real client chart of accounts; this affects
+every spec in this family that names a specific account number.**
+Posting Rules Engine's second review round (pkarw, om-auto-review-pr)
+surfaced a wrong premise repeated across earlier drafts: `seedDefaults`
+assumed a universal Polish "401 → 500" default account-mapping
+template, and a fabricated "500-99 (Unallocated costs)" suspense
+account, on the premise that #5663 already seeds a standard chart of
+accounts to hang them off of. #5663 in fact seeds only
+`LedgerAccountGroup` (the zespoły 0–8 buckets), never any real
+`LedgerAccount` row for any tenant — "tenants build their own." A real
+client's chart of accounts (380 rows) confirmed this empirically:
+account numbering is accountant-specific, not standardized (the same
+way Comarch Optima/Symfonia/enova365 all let a company customize its
+own imported plan kont), and the client's own `-99` suffix convention
+(NKUP, non-tax-deductible cost) would have collided with the
+fabricated "500-99" account outright. Resolved in `posting_rules` by
+a new `PostingRulesSettings` entity — nullable account fields an admin
+points at, reject-if-unset, never a value the system assumes or
+hardcodes — mirroring `FixedAssetSettings`'s established pattern (see
+`2026-09-06-posting-rules-engine.md`'s own Design Decisions and
+2026-09-14 Changelog entry for the full redesign). **Reusable finding
+for every future spec in this family:** any specific account number
+named in a spec ("account 490", "account 401", a VAT clearing
+account, etc.) is illustrative only, never a literal value the system
+can rely on existing — the actual account must come from tenant-
+specific settings/configuration, not a seed or a hardcoded constant.
+A general chart-of-accounts import mechanism (bulk-loading a tenant's
+own numbering into `ledger.LedgerAccount`/`LedgerAccountType`) was
+discussed and deliberately deferred as a separate, `ledger`-owned
+future topic — not yet specified anywhere in this family.
 
 ---
 
