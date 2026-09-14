@@ -2,6 +2,9 @@
 
 const mockEm = {
   fork: jest.fn(() => mockEm),
+  // The route now also resolves the caller's conversation-share grants before
+  // building the thread list. No shares in these org-scoping fixtures.
+  find: jest.fn(async () => []),
 }
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
