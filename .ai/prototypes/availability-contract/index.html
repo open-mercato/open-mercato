@@ -1,0 +1,739 @@
+<!doctype html>
+<html lang="en" data-prototype-id="availability-contract">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Availability Contract — interactive backend prototype</title>
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="components.css" />
+<link rel="stylesheet" href="screens.css" />
+<link rel="stylesheet" href="prototype.css" />
+</head>
+<body>
+
+<!-- Lucide icon sprite. Include only the paths the prototype uses. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<symbol id="ic-home" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></symbol>
+<symbol id="ic-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+<symbol id="ic-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+<symbol id="ic-chevron-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></symbol>
+<symbol id="ic-chevron-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></symbol>
+<symbol id="ic-chevron-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></symbol>
+<symbol id="ic-bell" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></symbol>
+<symbol id="ic-more" viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="5" cy="12" r="1.75"/><circle cx="12" cy="12" r="1.75"/><circle cx="19" cy="12" r="1.75"/></symbol>
+<symbol id="ic-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/></symbol>
+<symbol id="ic-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></symbol>
+<symbol id="ic-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+<symbol id="ic-pencil" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/></symbol>
+<symbol id="ic-trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></symbol>
+<symbol id="ic-save" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7H7v7"/><path d="M7 3v5h8"/></symbol>
+<symbol id="ic-filter" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></symbol>
+<symbol id="ic-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></symbol>
+<symbol id="ic-warn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
+<symbol id="ic-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></symbol>
+<symbol id="ic-layers" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/></symbol>
+<symbol id="ic-key" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15.5 7.5 2.3 2.3a1 1 0 0 0 1.4 0l2.1-2.1a1 1 0 0 0 0-1.4L19 4"/><path d="m21 2-9.6 9.6"/><circle cx="7.5" cy="15.5" r="5.5"/></symbol>
+<symbol id="ic-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></symbol>
+<symbol id="ic-ban" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></symbol>
+<symbol id="ic-calendar" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="4" rx="2" ry="2"/><line x1="16" x2="16" y1="2" y2="6"/><line x1="8" x2="8" y1="2" y2="6"/><line x1="3" x2="21" y1="10" y2="10"/></symbol>
+</defs></svg>
+
+<div class="doc-toolbar">
+  <strong style="font-size:0.875rem">Availability Contract — prototype</strong>
+  <nav class="screen-nav" aria-label="Screens">
+    <a href="#s1">1 Policies</a>
+    <a href="#s2">2 Policies (empty)</a>
+    <a href="#s3">3 Policies (no access)</a>
+    <a href="#s4">4 Policy form</a>
+    <a href="#s5">5 Policy form (conflict)</a>
+    <a href="#s6">6 Delete confirm</a>
+    <a href="#s7">7 Check tool</a>
+    <a href="#s8">8 Check tool (not tracked)</a>
+    <a href="#s9">9 Check tool (error)</a>
+    <a href="#s10">10 Check tool (no access)</a>
+  </nav>
+  <!-- prototype.js injects the review-mode controls. -->
+  <button class="btn btn-outline btn-sm" id="theme-toggle" type="button">
+    <svg><use href="#ic-sun"/></svg> Theme
+  </button>
+</div>
+
+<div class="doc">
+
+<header class="doc-head">
+  <h1>Availability Contract — screen inventory</h1>
+  <p class="muted" style="max-width:65ch;margin:0">
+    Interactive backend screens derived from <code class="t-mono">.ai/specs/2026-08-14-availability-contract.md</code>
+    and its §17 user story map. Only Epics A (sell-policy configuration) and B (diagnosing states) have a defined
+    backend UI (§12) — Epics C and D are internal service contracts with no admin screen anywhere in the spec, so
+    they are not illustrated here. The shell, page scaffolding, DataTable chrome, and CrudForm layout mirror
+    <code class="t-mono">packages/ui/src/backend/</code>; colors and spacing come from
+    <code class="t-mono">globals.css</code>. All records are synthetic (tenant "Northwind Fasteners Co.").
+    Every screen lists its requirement and user-story coverage.
+  </p>
+</header>
+
+<!-- ============================================================ -->
+<!-- S1 — Availability Policies list, populated -->
+<!-- ============================================================ -->
+<section class="screen" id="s1">
+  <div class="screen-meta">
+    <h2>1. Availability Policies — List (populated)</h2>
+    <p>A merchandiser's steady state: policy overrides at variant, product, and store-default level, each showing which level it lives at.</p>
+    <div class="screen-refs"><span class="ref">§5.1</span><span class="ref">§12</span><span class="ref">US-A1</span><span class="ref">US-A2</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar">
+      <div class="frame-dots"><i></i><i></i><i></i></div>
+      <span class="frame-url">/backend/availability/policies</span>
+    </div>
+    <div class="app app-tall">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Northwind Fasteners</span></div>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Search</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Availability</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items">
+            <span class="nav-item active"><svg><use href="#ic-layers"/></svg> Policies</span>
+            <a class="nav-item" href="#s7" data-goto="s7"><svg><use href="#ic-search"/></svg> Check tool</a>
+          </div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span class="here">Availability Policies</span></div></div>
+          <div class="topbar-right">
+            <div class="topbar-search"><svg><use href="#ic-search"/></svg> Search</div>
+            <button class="icon-btn" aria-label="Notifications"><svg><use href="#ic-bell"/></svg></button>
+            <span class="avatar">MK</span>
+          </div>
+        </header>
+        <main class="page">
+          <div class="page-head">
+            <div><h1 class="t-page-title">Availability Policies</h1><p>Sell-policy overrides that decide whether a buyer can order, backorder, or pre-order an item.</p></div>
+            <div class="page-actions"><button class="btn btn-primary" data-goto="s4"><svg><use href="#ic-plus"/></svg> New override</button></div>
+          </div>
+
+          <div class="dt">
+            <div class="dt-head">
+              <div class="dt-head-row">
+                <h2 class="t-table-title">5 policy rows</h2>
+                <div class="dt-head-actions"><button class="btn btn-outline btn-sm"><svg><use href="#ic-refresh"/></svg></button></div>
+              </div>
+              <div class="dt-toolbar">
+                <div class="dt-toolbar-row">
+                  <input class="input dt-search" placeholder="Search product or variant…" />
+                  <div class="dt-toolbar-right">
+                    <button class="chip"><svg><use href="#ic-filter"/></svg> Level</button>
+                    <button class="chip chip-dashed">Show inactive</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <table class="table">
+              <thead><tr>
+                <th>Item</th><th>Scope</th><th>Stock managed</th><th>Backorder</th><th>Preorder</th><th>Low stock</th><th>Level</th><th>Active</th><th class="right">Actions</th>
+              </tr></thead>
+              <tbody>
+                <tr class="clickable" data-goto="s4">
+                  <td><div class="t-body strong">Steel Hex Bolt M10</div><div class="t-hint">M10 × 50mm — Zinc</div></td>
+                  <td class="muted">All stores</td>
+                  <td><span class="badge badge-success"><svg><use href="#ic-check"/></svg>Yes</span></td>
+                  <td><span class="badge badge-info"><svg><use href="#ic-clock"/></svg>5-day lead</span></td>
+                  <td class="muted">—</td>
+                  <td class="num">20</td>
+                  <td><span class="badge badge-info">variant</span></td>
+                  <td><span class="badge badge-success">Active</span></td>
+                  <td class="right"><span class="row-actions"><button class="btn btn-icon btn-sm" data-goto="s4"><svg><use href="#ic-pencil"/></svg></button><button class="btn btn-icon btn-sm" data-goto="s6"><svg><use href="#ic-trash"/></svg></button></span></td>
+                </tr>
+                <tr class="clickable" data-goto="s4">
+                  <td><div class="t-body strong">Steel Hex Bolt M10</div><div class="t-hint">product-level default</div></td>
+                  <td class="muted">All stores</td>
+                  <td><span class="badge badge-success"><svg><use href="#ic-check"/></svg>Yes</span></td>
+                  <td><span class="badge badge-neutral">No</span></td>
+                  <td class="muted">—</td>
+                  <td class="num">10</td>
+                  <td><span class="badge badge-neutral">product</span></td>
+                  <td><span class="badge badge-success">Active</span></td>
+                  <td class="right"><span class="row-actions"><button class="btn btn-icon btn-sm" data-goto="s4"><svg><use href="#ic-pencil"/></svg></button><button class="btn btn-icon btn-sm" data-goto="s6"><svg><use href="#ic-trash"/></svg></button></span></td>
+                </tr>
+                <tr class="clickable" data-goto="s4">
+                  <td><div class="t-body strong">Titanium Anchor Set</div><div class="t-hint">TA-8 — 8-piece kit</div></td>
+                  <td class="muted">Northwind Online</td>
+                  <td><span class="badge badge-success"><svg><use href="#ic-check"/></svg>Yes</span></td>
+                  <td><span class="badge badge-neutral">No</span></td>
+                  <td class="num">2026-10-01</td>
+                  <td class="muted">—</td>
+                  <td><span class="badge badge-info">variant</span></td>
+                  <td><span class="badge badge-success">Active</span></td>
+                  <td class="right"><span class="row-actions"><button class="btn btn-icon btn-sm" data-goto="s4"><svg><use href="#ic-pencil"/></svg></button><button class="btn btn-icon btn-sm" data-goto="s6"><svg><use href="#ic-trash"/></svg></button></span></td>
+                </tr>
+                <tr class="clickable" data-goto="s4">
+                  <td><div class="t-body strong">Zinc Washer Pack</div><div class="t-hint">Assorted Sizes — 200pc — Clearance</div></td>
+                  <td class="muted">All stores</td>
+                  <td><span class="badge badge-success"><svg><use href="#ic-check"/></svg>Yes</span></td>
+                  <td><span class="badge badge-neutral">No</span></td>
+                  <td class="muted">—</td>
+                  <td class="num">5</td>
+                  <td><span class="badge badge-info">variant</span></td>
+                  <td><span class="badge badge-success">Active</span></td>
+                  <td class="right"><span class="row-actions"><button class="btn btn-icon btn-sm" data-goto="s4"><svg><use href="#ic-pencil"/></svg></button><button class="btn btn-icon btn-sm" data-goto="s6"><svg><use href="#ic-trash"/></svg></button></span></td>
+                </tr>
+                <tr class="clickable" data-goto="s4">
+                  <td><div class="t-body strong">Store default</div><div class="t-hint">applies with no product/variant override</div></td>
+                  <td class="muted">All stores</td>
+                  <td><span class="badge badge-success"><svg><use href="#ic-check"/></svg>Yes</span></td>
+                  <td><span class="badge badge-neutral">No</span></td>
+                  <td class="muted">—</td>
+                  <td class="muted">—</td>
+                  <td><span class="badge badge-neutral">store default</span></td>
+                  <td><span class="badge badge-success">Active</span></td>
+                  <td class="right"><span class="row-actions"><button class="btn btn-icon btn-sm" data-goto="s4"><svg><use href="#ic-pencil"/></svg></button><button class="btn btn-icon btn-sm" disabled><svg><use href="#ic-trash"/></svg></button></span></td>
+                </tr>
+              </tbody>
+            </table>
+            <div class="dt-foot">
+              <span class="t-hint num">Showing 1 to 5 of 5 results</span>
+              <ul class="pager"><li><button class="nav" disabled><svg><use href="#ic-chevron-left"/></svg></button></li><li><button aria-current="page">1</button></li><li><button class="nav" disabled><svg><use href="#ic-chevron-right"/></svg></button></li></ul>
+            </div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span><nav class="row-3"><span>Terms</span><span>Privacy</span></nav></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>The "Level" column names the exact row scope (variant / product / store default) so the operator does not need to open a row to see whether it is an override or the fallback.</span></div>
+    <div class="note"><b>2</b><span>The store-default row's delete action is disabled — it is the last fallback before the module default and removing it would leave the resolution chain with a gap at that level.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S2 — Availability Policies list, first-run empty -->
+<!-- ============================================================ -->
+<section class="screen" id="s2">
+  <div class="screen-meta">
+    <h2>2. Availability Policies — List (first-run empty)</h2>
+    <p>A merchandiser opens the module on a tenant with zero policy rows. Every item still resolves to the module default — nothing is broken, just unconfigured.</p>
+    <div class="screen-refs"><span class="ref">§5.2</span><span class="ref">US-A1</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/availability/policies</span></div>
+    <div class="app app-narrow">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Northwind Fasteners</span></div>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Search</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Availability</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items">
+            <span class="nav-item active"><svg><use href="#ic-layers"/></svg> Policies</span>
+            <a class="nav-item" href="#s7" data-goto="s7"><svg><use href="#ic-search"/></svg> Check tool</a>
+          </div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span class="here">Availability Policies</span></div></div>
+          <div class="topbar-right"><div class="topbar-search"><svg><use href="#ic-search"/></svg> Search</div><button class="icon-btn" aria-label="Notifications"><svg><use href="#ic-bell"/></svg></button><span class="avatar">MK</span></div>
+        </header>
+        <main class="page">
+          <div class="page-head">
+            <div><h1 class="t-page-title">Availability Policies</h1><p>Sell-policy overrides that decide whether a buyer can order, backorder, or pre-order an item.</p></div>
+            <div class="page-actions"><button class="btn btn-primary" data-goto="s4"><svg><use href="#ic-plus"/></svg> New override</button></div>
+          </div>
+          <div class="empty">
+            <div class="empty-icon"><svg><use href="#ic-layers"/></svg></div>
+            <div class="t-card-title">No policy overrides yet</div>
+            <p class="t-hint" style="max-width:40ch">Every item currently resolves to the module default (stock-managed when <code class="t-mono">wms</code> is enabled, no backorder, no thresholds). Add an override to change behavior for a specific variant, product, or store.</p>
+            <button class="btn btn-primary btn-sm" data-goto="s4"><svg><use href="#ic-plus"/></svg> Create your first override</button>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span><nav class="row-3"><span>Terms</span><span>Privacy</span></nav></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Empty state replaces the DataTable card entirely and states the module default in plain language, rather than a bare zero-row table that looks broken (§5.2's module default, per US-A1 AC).</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S3 — Availability Policies list, no-access -->
+<!-- ============================================================ -->
+<section class="screen" id="s3">
+  <div class="screen-meta">
+    <h2>3. Availability Policies — List (no access)</h2>
+    <p>A user whose role lacks <code class="t-mono">availability.policies.view</code> opens the same URL.</p>
+    <div class="screen-refs"><span class="ref">§8.1</span><span class="ref">US-A1</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/availability/policies</span></div>
+    <div class="app app-narrow">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Northwind Fasteners</span></div>
+        <div class="sidebar-search"><svg><use href="#ic-search"/></svg> Search</div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Catalog</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items"><span class="nav-item">Products</span></div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span class="here">Availability Policies</span></div></div>
+          <div class="topbar-right"><div class="topbar-search"><svg><use href="#ic-search"/></svg> Search</div><button class="icon-btn" aria-label="Notifications"><svg><use href="#ic-bell"/></svg></button><span class="avatar">JL</span></div>
+        </header>
+        <main class="page">
+          <div class="empty">
+            <div class="empty-icon"><svg><use href="#ic-key"/></svg></div>
+            <div class="t-card-title">You don't have access to this page</div>
+            <p class="t-hint" style="max-width:38ch">Viewing availability policies requires the <code class="t-mono">availability.policies.view</code> permission. Ask an administrator to grant it on your role.</p>
+            <button class="btn btn-outline btn-sm"><svg><use href="#ic-chevron-left"/></svg> Back to dashboard</button>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>No-access is a distinct empty state from "no policies yet" (S2) — same layout family, different icon and copy, so support can tell the two apart from a screenshot.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S4 — Policy Edit drawer, with resolution preview -->
+<!-- ============================================================ -->
+<section class="screen" id="s4">
+  <div class="screen-meta">
+    <h2>4. Availability Policy — Edit drawer (resolution preview)</h2>
+    <p>Editing the variant-level override for Steel Hex Bolt M10 · M10 × 50mm. The preview at the top shows which level currently decides each field before anything is saved.</p>
+    <div class="screen-refs"><span class="ref">§5.1</span><span class="ref">§5.2</span><span class="ref">US-A1</span><span class="ref">US-A2</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/availability/policies/pol_3f9a1c82</span></div>
+    <div class="drawer-scrim">
+      <div class="app app-tall">
+        <aside class="sidebar">
+          <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Northwind Fasteners</span></div>
+          <nav class="sidebar-nav"><div class="nav-group"><span>Availability</span><svg><use href="#ic-chevron-down"/></svg></div><div class="nav-items"><span class="nav-item active"><svg><use href="#ic-layers"/></svg> Policies</span></div></nav>
+        </aside>
+        <div class="main">
+          <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span class="here">Availability Policies</span></div></div></header>
+          <main class="page"><div class="page-head"><div><h1 class="t-page-title">Availability Policies</h1></div></div></main>
+        </div>
+      </div>
+      <div class="drawer">
+        <div class="drawer-head">
+          <div class="grow">
+            <div class="t-card-title">Edit policy override</div>
+            <div class="row-3" style="flex-wrap:wrap;margin-top:0.375rem">
+              <span class="chip chip-active">Variant: M10 × 50mm — Zinc</span>
+              <span class="chip">Product: Steel Hex Bolt M10</span>
+              <span class="chip">Store: All stores</span>
+            </div>
+          </div>
+          <button class="btn btn-ghost btn-icon btn-sm" data-goto="s1"><svg><use href="#ic-x"/></svg></button>
+        </div>
+        <div class="drawer-body">
+
+          <div class="card card-pad" style="background:color-mix(in oklab, var(--muted) 40%, transparent);border-style:dashed">
+            <div class="t-card-title" style="margin-bottom:0.5rem">Resolution preview</div>
+            <div class="stack-3">
+              <div class="between"><span class="t-hint">Stock managed</span><span class="chip chip-active">this variant</span></div>
+              <div class="between"><span class="t-hint">Allow backorder</span><span class="chip chip-active">this variant</span></div>
+              <div class="between"><span class="t-hint">Low-stock threshold</span><span class="chip chip-active">this variant</span></div>
+              <div class="between"><span class="t-hint">Min / max / increment qty</span><span class="chip">module default (none set)</span></div>
+              <div class="between"><span class="t-hint">Hide when out of stock</span><span class="chip">product "Steel Hex Bolt M10"</span></div>
+            </div>
+          </div>
+
+          <div class="field"><div class="row between"><span class="t-label">Stock managed</span><button class="switch" aria-checked="true" type="button"></button></div><span class="t-hint">Off makes this item always purchasable (<code class="t-mono">not_tracked</code>), regardless of stock.</span></div>
+
+          <div class="field"><div class="row between"><span class="t-label">Allow backorder</span><button class="switch" aria-checked="true" type="button"></button></div></div>
+          <div class="field"><label>Backorder lead time (days) <span class="req">*</span></label><input class="input num" value="5" /><span class="t-hint">Shown to the buyer at checkout. Required while backorder is on.</span></div>
+
+          <div class="field"><label>Preorder release date</label><div class="input-group"><input class="input" placeholder="Not a preorder item" disabled /><span class="addon"><svg><use href="#ic-calendar"/></svg></span></div><span class="t-hint">Leave empty unless this item is released in the future.</span></div>
+
+          <div class="form-grid form-grid-2">
+            <div class="field"><label>Low-stock threshold</label><input class="input num" value="20" /></div>
+            <div class="field"><label>Min order quantity</label><input class="input num" placeholder="No minimum" /></div>
+          </div>
+          <div class="form-grid form-grid-2">
+            <div class="field"><label>Max order quantity</label><input class="input num" placeholder="No cap" /></div>
+            <div class="field"><label>Quantity increment</label><input class="input num" placeholder="1 (each)" /></div>
+          </div>
+
+          <div class="row between"><div class="col"><span class="t-label">Hide when out of stock</span><span class="t-hint">Overrides the product's setting for this variant only.</span></div><button class="switch" aria-checked="false" type="button"></button></div>
+        </div>
+        <div class="drawer-foot">
+          <button class="btn btn-destructive-outline" data-goto="s6" style="margin-right:auto"><svg><use href="#ic-trash"/></svg> Delete override</button>
+          <button class="btn btn-outline" data-goto="s1">Cancel <span class="kbd" style="margin-left:0.375rem">Esc</span></button>
+          <button class="btn btn-primary" data-goto="s1"><svg><use href="#ic-save"/></svg> Save <span class="kbd" style="margin-left:0.375rem">⌘⏎</span></button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>The preview updates live as fields change, before Save — it is the only way to tell "I'm overriding" from "I'm looking at an inherited value that happens to match" (US-A2).</span></div>
+    <div class="note"><b>2</b><span>Toggling backorder on makes the lead-time field required inline; toggling it off would hide the field rather than leave a stale, ignored value.</span></div>
+    <div class="note"><b>3</b><span>Negative numbers and <code class="t-mono">max &lt; min</code> in the quantity fields are rejected inline before submit — illustrated here as plain inputs since the static prototype has no live validation.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S5 — Policy Edit drawer, optimistic-lock conflict -->
+<!-- ============================================================ -->
+<section class="screen" id="s5">
+  <div class="screen-meta">
+    <h2>5. Availability Policy — Edit drawer (stale-save conflict)</h2>
+    <p>The same override, reopened after a second operator changed the low-stock threshold moments earlier.</p>
+    <div class="screen-refs"><span class="ref">root AGENTS.md optimistic locking</span><span class="ref">US-A1</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/availability/policies/pol_3f9a1c82</span></div>
+    <div class="drawer-scrim">
+      <div class="app app-tall">
+        <aside class="sidebar">
+          <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Northwind Fasteners</span></div>
+          <nav class="sidebar-nav"><div class="nav-group"><span>Availability</span><svg><use href="#ic-chevron-down"/></svg></div><div class="nav-items"><span class="nav-item active"><svg><use href="#ic-layers"/></svg> Policies</span></div></nav>
+        </aside>
+        <div class="main">
+          <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span class="here">Availability Policies</span></div></div></header>
+          <main class="page"></main>
+        </div>
+      </div>
+      <div class="drawer">
+        <div class="drawer-head">
+          <div class="grow">
+            <div class="t-card-title">Edit policy override</div>
+            <div class="row-3" style="flex-wrap:wrap;margin-top:0.375rem"><span class="chip chip-active">Variant: M10 × 50mm — Zinc</span></div>
+          </div>
+          <button class="btn btn-ghost btn-icon btn-sm" data-goto="s1"><svg><use href="#ic-x"/></svg></button>
+        </div>
+        <div class="drawer-body">
+          <div class="alert alert-warning">
+            <svg><use href="#ic-warn"/></svg>
+            <div class="grow">
+              <div class="alert-title">This record changed since you opened it</div>
+              <div class="t-hint">Priya Nair changed <strong>Low-stock threshold</strong> to <span class="num">15</span> a minute ago. Saving now would overwrite that change.</div>
+              <div class="row" style="margin-top:0.5rem"><button class="btn btn-outline btn-sm">Reload their version</button><button class="btn btn-outline btn-sm">Keep mine, save anyway</button></div>
+            </div>
+          </div>
+
+          <div class="field"><div class="row between"><span class="t-label">Stock managed</span><button class="switch" aria-checked="true" type="button"></button></div></div>
+          <div class="field"><div class="row between"><span class="t-label">Allow backorder</span><button class="switch" aria-checked="true" type="button"></button></div></div>
+          <div class="field"><label>Backorder lead time (days)</label><input class="input num" value="5" /></div>
+
+          <div class="field input-invalid" style="border-color:var(--status-warning-border);background:color-mix(in oklab, var(--status-warning-bg) 40%, var(--card));padding:0.5rem;border-radius:var(--radius-md)">
+            <label>Low-stock threshold</label><input class="input num input-invalid" value="20" /><span class="field-error">Conflicts with Priya Nair's saved value of 15 — resolve above before saving.</span>
+          </div>
+        </div>
+        <div class="drawer-foot">
+          <span class="t-hint" style="margin-right:auto"><span class="kbd">Esc</span> cancel · <span class="kbd">⌘⏎</span> save</span>
+          <button class="btn btn-outline" data-goto="s1">Cancel</button>
+          <button class="btn btn-primary is-disabled"><svg><use href="#ic-save"/></svg> Save</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Conflict copy names the concurrent editor, the field, and the value — matching <code class="t-mono">surfaceRecordConflict</code>'s pattern (root <code class="t-mono">AGENTS.md</code>), not a generic "please refresh."</span></div>
+    <div class="note"><b>2</b><span>Save stays disabled while the conflicted field is unresolved — illustrated here rather than wired up.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S6 — Policy delete confirm dialog -->
+<!-- ============================================================ -->
+<section class="screen" id="s6">
+  <div class="screen-meta">
+    <h2>6. Availability Policy — Delete confirm dialog</h2>
+    <p>Deleting the variant-level preorder override on Titanium Anchor Set — removing it changes what buyers see immediately, not just tidies a row.</p>
+    <div class="screen-refs"><span class="ref">§5.2</span><span class="ref">US-A1</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/availability/policies</span></div>
+    <div class="modal-scrim">
+      <div class="app app-tall">
+        <aside class="sidebar">
+          <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Northwind Fasteners</span></div>
+          <nav class="sidebar-nav"><div class="nav-group"><span>Availability</span><svg><use href="#ic-chevron-down"/></svg></div><div class="nav-items"><span class="nav-item active"><svg><use href="#ic-layers"/></svg> Policies</span></div></nav>
+        </aside>
+        <div class="main"><header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span class="here">Availability Policies</span></div></div></header><main class="page"></main></div>
+      </div>
+      <div class="modal" style="width:28rem">
+        <div class="modal-head">
+          <div class="row"><div class="empty-icon" style="width:2rem;height:2rem;color:var(--status-error-icon);background:var(--status-error-bg)"><svg style="width:1rem;height:1rem"><use href="#ic-trash"/></svg></div><span class="t-card-title">Delete this override?</span></div>
+        </div>
+        <div class="modal-body">
+          <p class="t-body" style="margin:0">Titanium Anchor Set · TA-8 — variant-level override, includes a preorder release date.</p>
+          <p class="t-body" style="margin:0">Deleting it does not remove the item — buyers immediately fall back to the next level:</p>
+          <div class="card card-pad" style="background:color-mix(in oklab, var(--muted) 40%, transparent)">
+            <div class="between"><span class="t-hint">Falls back to</span><span class="badge badge-neutral">product level</span></div>
+            <div class="t-hint" style="margin-top:0.5rem">Stock managed: Yes · Backorder: No · <strong>no preorder date</strong></div>
+          </div>
+          <div class="alert alert-error"><svg><use href="#ic-warn"/></svg><div><div class="alert-title">This changes buyer-facing behavior immediately</div><div class="t-hint">Without the preorder override, the item is evaluated as an ordinary stock-managed product the moment this override is gone — it will not wait for the release date.</div></div></div>
+        </div>
+        <div class="modal-foot">
+          <span class="t-hint"><span class="kbd">Esc</span> cancel · <span class="kbd">⌘⏎</span> confirm</span>
+          <div class="row"><button class="btn btn-outline" data-goto="s1">Cancel</button><button class="btn btn-destructive" data-goto="s1"><svg><use href="#ic-trash"/></svg> Delete override</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>The fallback preview is computed and named, not a generic "Are you sure?" — deleting a policy row is a resolution-chain edit with an immediate, real consequence (§5.2).</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S7 — Availability Check tool, populated result -->
+<!-- ============================================================ -->
+<section class="screen" id="s7">
+  <div class="screen-meta">
+    <h2>7. Availability Check — Input + result (backorder)</h2>
+    <p>Support reproduces exactly what a buyer saw for a specific item, store, and quantity — including which policy row decided each field.</p>
+    <div class="screen-refs"><span class="ref">§8</span><span class="ref">§12</span><span class="ref">US-B1</span><span class="ref">US-B2</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/availability/check</span></div>
+    <div class="app app-tall">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Northwind Fasteners</span></div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Availability</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items">
+            <a class="nav-item" href="#s1" data-goto="s1"><svg><use href="#ic-layers"/></svg> Policies</a>
+            <span class="nav-item active"><svg><use href="#ic-search"/></svg> Check tool</span>
+          </div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar">
+          <div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span class="here">Availability Check</span></div></div>
+          <div class="topbar-right"><div class="topbar-search"><svg><use href="#ic-search"/></svg> Search</div><button class="icon-btn" aria-label="Notifications"><svg><use href="#ic-bell"/></svg></button><span class="avatar">SR</span></div>
+        </header>
+        <main class="page">
+          <div class="page-head"><div><h1 class="t-page-title">Availability Check</h1><p>Reproduces exactly what a buyer would see — admin/debug only, mirrors the live service.</p></div></div>
+
+          <div class="card card-pad">
+            <div class="form-grid form-grid-2">
+              <div class="field"><label>Item</label><input class="input" value="Steel Hex Bolt M10 · M10 × 50mm — Zinc" /></div>
+              <div class="field"><label>Store</label><select class="select"><option>Northwind Online (tenant default)</option><option>Warehouse Direct</option></select></div>
+            </div>
+            <div class="form-grid form-grid-2">
+              <div class="field"><label>Quantity</label><input class="input num" value="25" /></div>
+              <div class="field" style="align-self:flex-end"><button class="btn btn-primary"><svg><use href="#ic-search"/></svg> Run check <span class="kbd" style="margin-left:0.375rem">⌘⏎</span></button></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-head">
+              <div class="row-3"><span class="badge badge-info" style="font-size:0.8125rem;padding:0.25rem 0.625rem"><svg><use href="#ic-clock"/></svg>Backorder</span><span class="t-hint">Requested <span class="num">25</span> · Sellable <span class="num">0</span></span></div>
+              <span class="t-hint t-mono">policySourceId trace below</span>
+            </div>
+            <div class="card-body" style="padding:0">
+              <table class="table">
+                <thead><tr><th>Metric</th><th>Value</th></tr></thead>
+                <tbody>
+                  <tr><td>Aggregate available (3 locations)</td><td class="num">40</td></tr>
+                  <tr><td>Safety stock subtracted (once, per variant)</td><td class="num">40</td></tr>
+                  <tr><td>Sellable</td><td class="num">0</td></tr>
+                  <tr><td>Backorder lead time shown to buyer</td><td>5 business days</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-head"><span class="t-card-title">Resolved policy</span><span class="t-hint">Highest-specificity row with a non-null value wins, per field, independently</span></div>
+            <div class="card-body" style="padding:0">
+              <table class="table">
+                <thead><tr><th>Field</th><th>Resolved value</th><th>Source</th></tr></thead>
+                <tbody>
+                  <tr><td>Stock managed</td><td>Yes</td><td><span class="chip chip-active" data-goto="s4">this variant <svg><use href="#ic-chevron-right"/></svg></span></td></tr>
+                  <tr><td>Allow backorder</td><td>Yes (5-day lead)</td><td><span class="chip chip-active" data-goto="s4">this variant <svg><use href="#ic-chevron-right"/></svg></span></td></tr>
+                  <tr><td>Low-stock threshold</td><td class="num">20</td><td><span class="chip chip-active" data-goto="s4">this variant <svg><use href="#ic-chevron-right"/></svg></span></td></tr>
+                  <tr><td>Min / max / increment qty</td><td class="muted">— / — / 1</td><td><span class="chip">module default</span></td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="card-body" style="padding-top:0">
+              <span class="t-hint">policySourceId: <code class="t-mono">pol_3f9a1c82</code> (this variant's override, shown above in S4)</span>
+            </div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Every resolved field names its source the same way the customer-groups "explain terms" trace does — visible inline, not a tooltip that must be discovered (US-B2).</span></div>
+    <div class="note"><b>2</b><span>The item field defaults empty and this screen shows the state after a real query; quantity defaults to 1 and store to the tenant default when the tool first opens.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S8 — Availability Check tool, not_tracked result -->
+<!-- ============================================================ -->
+<section class="screen" id="s8">
+  <div class="screen-meta">
+    <h2>8. Availability Check — Result (not tracked)</h2>
+    <p>Checking a service item that carries no stock management at all. <code class="t-mono">not_tracked</code> must never look like "in stock."</p>
+    <div class="screen-refs"><span class="ref">§3.2</span><span class="ref">R5</span><span class="ref">US-B2</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/availability/check</span></div>
+    <div class="app app-narrow">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Northwind Fasteners</span></div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Availability</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items"><a class="nav-item" href="#s1" data-goto="s1"><svg><use href="#ic-layers"/></svg> Policies</a><span class="nav-item active"><svg><use href="#ic-search"/></svg> Check tool</span></div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span class="here">Availability Check</span></div></div><div class="topbar-right"><span class="avatar">SR</span></div></header>
+        <main class="page">
+          <div class="page-head"><div><h1 class="t-page-title">Availability Check</h1></div></div>
+          <div class="card card-pad">
+            <div class="form-grid form-grid-2">
+              <div class="field"><label>Item</label><input class="input" value="Extended Warranty — 2yr Protection Plan" /></div>
+              <div class="field"><label>Store</label><select class="select"><option>Northwind Online (tenant default)</option></select></div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-head"><span class="badge badge-neutral" style="font-size:0.8125rem;padding:0.25rem 0.625rem">Not tracked</span></div>
+            <div class="card-body">
+              <div class="alert alert-info">
+                <svg><use href="#ic-info"/></svg>
+                <div><div class="alert-title">No stock management for this item</div><div class="t-hint">This item is always purchasable because nobody counts it — a service has no <code class="t-mono">InventoryBalance</code> row. Requested and sellable quantity are shown as "n/a", never as a number, since no quantity claim is being made.</div></div>
+              </div>
+              <table class="table" style="margin-top:0.75rem">
+                <thead><tr><th>Field</th><th>Value</th></tr></thead>
+                <tbody>
+                  <tr><td>Requested</td><td class="muted">n/a</td></tr>
+                  <tr><td>Sellable</td><td class="muted">n/a</td></tr>
+                  <tr><td>Source</td><td><span class="chip">catalog-only fallback</span></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Styled deliberately unlike the S7 "in stock"/"backorder" badges — neutral, no green, no checkmark — so a screenshot alone can't be mistaken for "in stock" (R5).</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S9 — Availability Check tool, unknown-item error -->
+<!-- ============================================================ -->
+<section class="screen" id="s9">
+  <div class="screen-meta">
+    <h2>9. Availability Check — Unknown item error</h2>
+    <p>Support pastes a SKU that does not exist on this tenant.</p>
+    <div class="screen-refs"><span class="ref">US-B1</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/availability/check</span></div>
+    <div class="app app-narrow">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Northwind Fasteners</span></div>
+        <nav class="sidebar-nav">
+          <div class="nav-group"><span>Availability</span><svg><use href="#ic-chevron-down"/></svg></div>
+          <div class="nav-items"><a class="nav-item" href="#s1" data-goto="s1"><svg><use href="#ic-layers"/></svg> Policies</a><span class="nav-item active"><svg><use href="#ic-search"/></svg> Check tool</span></div>
+        </nav>
+      </aside>
+      <div class="main">
+        <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span class="here">Availability Check</span></div></div><div class="topbar-right"><span class="avatar">SR</span></div></header>
+        <main class="page">
+          <div class="page-head"><div><h1 class="t-page-title">Availability Check</h1></div></div>
+          <div class="card card-pad">
+            <div class="form-grid form-grid-2">
+              <div class="field"><label>Item</label><input class="input input-invalid" value="SKU-99999-ZZ" /><span class="field-error">No such product or variant found for this tenant.</span></div>
+              <div class="field"><label>Store</label><select class="select"><option>Northwind Online (tenant default)</option></select></div>
+            </div>
+            <div class="field" style="max-width:12rem"><button class="btn btn-primary is-disabled"><svg><use href="#ic-search"/></svg> Run check</button></div>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>The error is an inline field message, not a blank result panel or a raw stack trace — Run check stays disabled until the item resolves to a real id.</span></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- S10 — Availability Check tool, no-access -->
+<!-- ============================================================ -->
+<section class="screen" id="s10">
+  <div class="screen-meta">
+    <h2>10. Availability Check — No access</h2>
+    <p>A user whose role lacks <code class="t-mono">availability.check</code> opens the tool directly.</p>
+    <div class="screen-refs"><span class="ref">§8.1</span><span class="ref">US-B1</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">/backend/availability/check</span></div>
+    <div class="app app-narrow">
+      <aside class="sidebar">
+        <div class="sidebar-brand"><span class="brand-mark">OM</span> <span class="ellipsis">Northwind Fasteners</span></div>
+        <nav class="sidebar-nav"><div class="nav-group"><span>Support</span><svg><use href="#ic-chevron-down"/></svg></div><div class="nav-items"><span class="nav-item">Tickets</span></div></nav>
+      </aside>
+      <div class="main">
+        <header class="topbar"><div class="topbar-left"><div class="crumbs"><svg><use href="#ic-home"/></svg><svg><use href="#ic-chevron-right"/></svg><span class="here">Availability Check</span></div></div><div class="topbar-right"><span class="avatar">JL</span></div></header>
+        <main class="page">
+          <div class="empty">
+            <div class="empty-icon"><svg><use href="#ic-key"/></svg></div>
+            <div class="t-card-title">You don't have access to this page</div>
+            <p class="t-hint" style="max-width:38ch">Running availability checks requires the <code class="t-mono">availability.check</code> permission. Ask an administrator to grant it on your role.</p>
+            <button class="btn btn-outline btn-sm"><svg><use href="#ic-chevron-left"/></svg> Back to dashboard</button>
+          </div>
+        </main>
+        <footer class="app-foot"><span>v1.0.0</span></footer>
+      </div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Same no-access layout family as S3 — the tool's own permission is separate from the policy CRUD permissions, since support needs to read state without being able to edit sell policy.</span></div>
+  </div>
+</section>
+
+</div>
+
+<script>
+(function () {
+  var btn = document.getElementById('theme-toggle');
+  btn.addEventListener('click', function () {
+    document.documentElement.classList.toggle('dark');
+  });
+})();
+</script>
+<script src="comments.js"></script>
+<script src="prototype.js"></script>
+</body>
+</html>
