@@ -19,6 +19,7 @@
 | `di.ts` | `register(container)` | DI registrar (Awilix) |
 | `acl.ts` | `features` | Feature-based permissions |
 | `setup.ts` | `setup: ModuleSetupConfig` | Tenant initialization, role features, customer role features |
+| `runtime.ts` | `runtime: ModuleRuntime` | Process-wide runtime started once per process (worker loop, broker subscription, poller) — SPEC-072 |
 | `ce.ts` | `entities` | Custom entities / custom field sets |
 | `search.ts` | `searchConfig` | Search indexing configuration |
 | `events.ts` | `eventsConfig` | Typed event declarations |

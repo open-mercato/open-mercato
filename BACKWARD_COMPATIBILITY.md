@@ -37,6 +37,7 @@ The following file names, their expected export names, and their role in module 
 | `index.ts` | `metadata: ModuleInfo` | MUST NOT rename export or change `ModuleInfo` shape in a breaking way |
 | `acl.ts` | `features: Array<{id,title,module}>` | MUST NOT change array item shape; may add optional fields |
 | `setup.ts` | `setup: ModuleSetupConfig` | MUST NOT remove hooks (`onTenantCreated`, `seedDefaults`, `seedExamples`, `defaultRoleFeatures`); may add optional hooks |
+| `runtime.ts` | `runtime: ModuleRuntime` (or default export) | MUST NOT change `ModuleRuntime` required members (`start`) or the `ModuleRuntimeContext` / `ModuleRuntimeHandle` shape; may add optional fields and additional `ModuleRuntimeRole` values |
 | `ce.ts` | `entities: CustomEntitySpec[]` | MUST NOT change `CustomEntitySpec` required fields; may add optional fields |
 | `search.ts` | `searchConfig: SearchModuleConfig` | MUST NOT change `SearchEntityConfig` required fields; may add optional fields |
 | `events.ts` | `eventsConfig` via `createModuleEvents()` | MUST NOT change `EventDefinition` required fields (`id`, `label`); may add optional fields |
