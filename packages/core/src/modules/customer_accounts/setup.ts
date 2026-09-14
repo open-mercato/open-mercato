@@ -1,6 +1,7 @@
 import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { hash } from 'bcryptjs'
+import { ensureDefaultCustomerRoleAcls } from '@open-mercato/core/modules/customer_accounts/lib/customerRoleAcls'
 import { hashForLookup } from '@open-mercato/shared/lib/encryption/aes'
 import { EXAMPLE_PORTAL_ACCOUNTS } from '@open-mercato/core/modules/customer_accounts/lib/exampleAccounts'
 import {
@@ -150,7 +151,6 @@ const DEFAULT_ROLES = [
 const DEFAULT_CUSTOMER_ROLE_FEATURES = Object.fromEntries(
   DEFAULT_ROLES.map((role) => [role.slug, [...role.acl.features]]),
 )
-
 
 async function seedDefaultRoles(em: EntityManager, scope: SeedScope): Promise<void> {
   for (const roleDef of DEFAULT_ROLES) {

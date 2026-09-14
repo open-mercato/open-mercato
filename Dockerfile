@@ -78,6 +78,7 @@ COPY packages/starter/package.json ./packages/starter/
 COPY packages/storage-s3/package.json ./packages/storage-s3/
 COPY packages/sync-akeneo/package.json ./packages/sync-akeneo/
 COPY packages/telemetry/package.json ./packages/telemetry/
+COPY packages/tillio/package.json ./packages/tillio/
 COPY packages/ui/package.json ./packages/ui/
 COPY packages/web-research/package.json ./packages/web-research/
 COPY packages/web-research-browser/package.json ./packages/web-research-browser/
@@ -189,6 +190,7 @@ COPY packages/starter/package.json ./packages/starter/
 COPY packages/storage-s3/package.json ./packages/storage-s3/
 COPY packages/sync-akeneo/package.json ./packages/sync-akeneo/
 COPY packages/telemetry/package.json ./packages/telemetry/
+COPY packages/tillio/package.json ./packages/tillio/
 COPY packages/ui/package.json ./packages/ui/
 COPY packages/web-research/package.json ./packages/web-research/
 COPY packages/web-research-browser/package.json ./packages/web-research-browser/
@@ -375,6 +377,7 @@ COPY --from=builder /app/packages/starter/package.json ./packages/starter/
 COPY --from=builder /app/packages/telemetry/package.json ./packages/telemetry/
 COPY --from=builder /app/packages/storage-s3/package.json ./packages/storage-s3/
 COPY --from=builder /app/packages/sync-akeneo/package.json ./packages/sync-akeneo/
+COPY --from=builder /app/packages/tillio/package.json ./packages/tillio/
 COPY --from=builder /app/packages/ui/package.json ./packages/ui/
 COPY --from=builder /app/packages/web-research/package.json ./packages/web-research/
 COPY --from=builder /app/packages/web-research-browser/package.json ./packages/web-research-browser/

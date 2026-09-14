@@ -115,6 +115,7 @@ export const enabledModules: ModuleEntry[] = [
   // Push notification rails — `push` delivery strategy + delivery log + send-push worker.
   // Fans out to `devices` tokens and sends through the `communication_channels` hub.
   { id: 'push_notifications', from: '@open-mercato/core' },
+  { id: 'phone_calls', from: '@open-mercato/core' },
   { id: 'ai_assistant', from: '@open-mercato/ai-assistant' },
   // agent_orchestrator moved to the enterprise catalog — enabled below behind
   // OM_ENABLE_ENTERPRISE_MODULES + OM_ENABLE_ENTERPRISE_MODULES_AGENTS.
@@ -143,6 +144,7 @@ export const enabledModules: ModuleEntry[] = [
   // optional AI auto-reply subscriber.
   { id: 'channel_discord', from: '@open-mercato/channel-discord' },
   { id: 'sync_akeneo', from: '@open-mercato/sync-akeneo' },
+  { id: 'tillio', from: '@open-mercato/tillio' },
   { id: 'shipping_carriers', from: '@open-mercato/core' },
   { id: 'eudr', from: '@open-mercato/core' },
   { id: 'webhooks', from: '@open-mercato/webhooks' },
