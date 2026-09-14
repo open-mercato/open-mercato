@@ -1244,7 +1244,7 @@
   "sales.errors.externalAdjustmentRefused": "This order carries amounts from an external system, so adjustments cannot be added or removed. Switch it to computed amounts first.",
   "sales.errors.externalAmountsIncomplete": "Line {{line}} has external amounts but is missing: {{fields}}. Partial specification is not a mode.",
   "sales.errors.externalModeMixed": "An order and all of its lines must share the same amounts mode.",
-  "sales.errors.externalModeUnsupportedOnQuote": "Quote lines cannot carry an amounts mode; quotes always use computed amounts.",
+  "sales.errors.externalModeUnsupportedOnQuote": "Quotes cannot carry an amounts mode; they always use computed amounts.",
   "sales.errors.externalTotalsRequired": "An order with external amounts must supply its own document totals: {{fields}}.",
   "sales.errors.invalid_query": "Invalid query parameters",
   "sales.errors.organization_required": "Organization context is required",

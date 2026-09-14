@@ -1244,7 +1244,7 @@
   "sales.errors.externalAdjustmentRefused": "To zamówienie ma kwoty z systemu zewnętrznego, więc nie można dodawać ani usuwać korekt. Najpierw przełącz je na kwoty wyliczane.",
   "sales.errors.externalAmountsIncomplete": "Pozycja {{line}} ma kwoty zewnętrzne, ale brakuje: {{fields}}. Częściowa specyfikacja nie jest trybem.",
   "sales.errors.externalModeMixed": "Zamówienie i wszystkie jego pozycje muszą mieć ten sam tryb kwot.",
-  "sales.errors.externalModeUnsupportedOnQuote": "Pozycje oferty nie mogą mieć trybu kwot; oferty zawsze używają kwot wyliczanych.",
+  "sales.errors.externalModeUnsupportedOnQuote": "Oferty nie mogą mieć trybu kwot; zawsze używają kwot wyliczanych.",
   "sales.errors.externalTotalsRequired": "Zamówienie z kwotami zewnętrznymi musi podać własne sumy dokumentu: {{fields}}.",
   "sales.errors.invalid_query": "Nieprawidłowe parametry zapytania",
   "sales.errors.organization_required": "Wymagany jest kontekst organizacji",

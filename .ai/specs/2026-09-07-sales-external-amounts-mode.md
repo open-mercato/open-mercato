@@ -107,8 +107,9 @@ In practice the caller declares the mode **once, on the document**, and every li
 
 **Quotes are deliberately excluded.** `sales_quotes` / `sales_quote_lines` get no column. A quote is core
 *composing* a proposal, not mirroring a book of record. Because `linePricingSchema` is shared, the quote
-commands **reject** a supplied `amountsMode` rather than ignoring it — silently ignoring an accepted field
-is the exact failure this mode exists to stop repeating. Invoices and credit memos are excluded because
+commands **reject** a supplied mode — `amountsMode` on a line, `totalsMode` on the document update schema
+they share with orders — rather than ignoring it. Silently ignoring an accepted field is the exact failure
+this mode exists to stop repeating. Invoices and credit memos are excluded because
 they already behave this way; making their caller-asserted amounts explicit is separate work.
 
 ### 2. `amountsMode` on the snapshot
@@ -169,10 +170,15 @@ totalsMode?: SalesAmountsMode | null
 suppliedTotals?: Partial<SalesDocumentAmounts> | null
 ```
 
-`buildBaseDocumentResult` then takes the supplied header instead of the line rollup, for the nine fields
-`orderTotalsSchema` already accepts: `subtotalNetAmount`, `subtotalGrossAmount`, `discountTotalAmount`,
+`buildBaseDocumentResult` then takes the supplied header instead of the line rollup, for nine of the ten
+fields `orderTotalsSchema` accepts: `subtotalNetAmount`, `subtotalGrossAmount`, `discountTotalAmount`,
 `taxTotalAmount`, `shippingNetAmount`, `shippingGrossAmount`, `surchargeTotalAmount`,
 `grandTotalNetAmount`, `grandTotalGrossAmount`.
+
+The tenth, `lineItemCount`, stays **core-owned** and is not caller-supplied. It is not money — it is a
+count of rows core itself persisted, derived from `calculation.lines.length` — and a caller that could
+assert it could make a document disagree with its own line rows. Named here because it sits in the same
+schema as the nine, so an implementer wiring "the header totals" through wholesale would carry it along.
 
 **Substituting there is necessary and not sufficient**, because a totals calculator runs afterwards and
 rebuilds the header from scratch — and core registers one itself, by module side effect rather than by
@@ -228,17 +234,32 @@ The rule is one sentence, applied uniformly:
 > untouched** (or restates it from what the caller supplied), and records its own non-monetary effect.
 > Nothing recomputes an external header implicitly.
 
+**Which mode the rules are evaluated against, because every row below depends on it:** the **persisted**
+`totals_mode`, as it stands when the command starts — *except* for a request that sets `totalsMode` itself,
+which is a mode transition and is governed by § 8 rather than by the row for the command carrying it.
+Without that carve-out the § 8 switch-back falls through `sales.orders.update`'s row below (it carries
+neither lines nor totals) and is told to leave the header untouched, which would leave a document holding
+externally-asserted amounts while both columns say `computed` — the same end state the undo discussion
+below exists to prevent, reached through a different door.
+
+Both transitions are legal, and both rewrite:
+
+| transition | how | effect |
+|---|---|---|
+| `computed → external` | `totalsMode: 'external'` with a complete header (§ 4) | the supplied header is stored verbatim, every line flips and its persisted amounts become the caller's assertion; incomplete input is a 400 and the document stays `computed` |
+| `external → computed` | `totalsMode: 'computed'`, carrying nothing else | § 8's switch-back: every line flips, header and lines are recomputed, and the caller's figures are gone |
+
 **`commands/documents.ts` — recalculate-and-persist via `applyOrderTotals` / `applyQuoteTotals`**
 
 | command | rule under `external` |
 |---|---|
-| `sales.orders.create` | accepts `amountsMode: 'external'` + complete lines + header totals; incomplete input is a 400 |
-| `sales.orders.update` | a request carrying a mode change or header totals must carry the **complete** header; a request carrying neither leaves the persisted header untouched |
+| `sales.orders.create` | accepts `totalsMode: 'external'` + complete lines + header totals; incomplete input is a 400 |
+| `sales.orders.update` | a request carrying a mode change or header totals must carry the **complete** header; a request carrying neither leaves the persisted header untouched — **unless it sets `totalsMode`, which is a transition and follows § 8, not this row** |
 | `sales.orders.lines.upsert` | **rejects** unless the request also carries `orderTotals` — which today's schema could not express, so § API Contracts widens it |
 | `sales.orders.lines.delete` | **rejects** unless the request also carries `orderTotals` — same schema widening |
 | `sales.orders.adjustments.upsert` | **refuses** (409) — an adjustment exists only to change money |
 | `sales.orders.adjustments.delete` | **refuses** (409) — same |
-| `sales.quotes.*` | unchanged — quotes are always `computed` (§ 1), and a supplied `amountsMode` is rejected |
+| `sales.quotes.*` | unchanged — quotes are always `computed` (§ 1), and a supplied mode is rejected under either name |
 
 **`commands/documents.ts` — copies a header rather than deriving one**
 
@@ -302,7 +323,7 @@ Status colours use `{property}-status-{status}-{role}` tokens; no hardcoded Tail
 
 ### 8. Leaving the mode, and what is not kept
 
-Setting `amountsMode: 'computed'` on `sales.orders.update` flips the order and **all** its lines (the § 1
+Setting `totalsMode: 'computed'` on `sales.orders.update` flips the order and **all** its lines (the § 1
 invariant forbids the mixed state), runs `calculateDocumentTotals` normally, and rewrites the header and
 every line from `unit_price_net`, `quantity` and `discount_*`.
 
@@ -356,13 +377,32 @@ No route is added, removed or renamed. No response shape changes beyond two addi
 
 | route | methods | change |
 |---|---|---|
-| `/api/sales/orders` | `POST` `PUT` | accepts `amountsMode` on the document and on each line; header total fields, already accepted, become meaningful under `external` |
+| `/api/sales/orders` | `POST` `PUT` | accepts `totalsMode` on the document and `amountsMode` on each line; header total fields, already accepted, become meaningful under `external` |
 | `/api/sales/orders` | `GET` | order responses gain `totalsMode` |
 | `/api/sales/order-lines` | `GET` | line responses gain `amounts_mode` |
 | `/api/sales/order-lines` | `POST` `PUT` `DELETE` | on an external order, requires `orderTotals` in the same request; otherwise unchanged |
 | `/api/sales/order-adjustments` | `POST` `PUT` `DELETE` | refuses (409) on an external order |
 | `/api/sales/returns` | `POST` `DELETE` | succeeds on an external order; leaves the header untouched |
-| `/api/sales/quotes`, `/api/sales/quote-lines` | all | unchanged, except that a supplied `amountsMode` is rejected |
+| `/api/sales/quotes`, `/api/sales/quote-lines` | all | unchanged, except that a supplied mode is rejected under either name |
+
+**Each field is named after the column it sets, and is returned under the name it is accepted under.** The
+document carries `totalsMode` (`sales_orders.totals_mode`); a line carries `amountsMode`
+(`sales_order_lines.amounts_mode`). Two names rather than one is deliberate: a document has *totals* and a
+line has *amounts*, they are separate columns (§ 1), and a field accepted under one name and returned under
+another is the adjacent shape to the bug this whole document is about.
+
+`totalsMode` is the caller-facing switch and **cascades**: setting it writes the document column and every
+line's, which is what makes § 1's invariant hold by construction rather than by validation, and what makes
+§ 8's switch-back a single field on a single request rather than one per line. A line-level `amountsMode`
+is still accepted — it has to be, because `sales.orders.lines.upsert` addresses one line without the
+document — and if an explicitly supplied line mode disagrees with the document's, the request is rejected
+(`sales.errors.externalModeMixed`) rather than one silently winning.
+
+**A line that omits `amountsMode` inherits the document's mode, and is not a 400.** On a document write
+that is the request's `totalsMode`; on `sales.orders.lines.upsert` it is the order's *persisted*
+`totals_mode`. Defaulting such a line to `computed` would build exactly the mixed document § 1 forbids, and
+rejecting it would make every line write on an external order restate a mode the caller already declared
+once, on the document. Pinned by its own test rather than left to the invariant to catch.
 
 Request schema additions in `data/validators.ts`:
 
@@ -370,32 +410,40 @@ Request schema additions in `data/validators.ts`:
 export const amountsModeSchema = z.enum(['computed', 'external'])
 
 // linePricingSchema — spread into orderLineCreateSchema and quoteLineCreateSchema
-amountsMode: amountsModeSchema.optional(),   // omitted ⇒ 'computed'
+amountsMode: amountsModeSchema.optional(),   // omitted ⇒ inherit the document's mode
 
 // orderCreateSchema, alongside the existing ...orderTotalsSchema.shape
-amountsMode: amountsModeSchema.optional(),
+totalsMode: amountsModeSchema.optional(),    // omitted ⇒ 'computed'
 ```
 
 `orderTotalsSchema` is now exported, because two schemas in `commands/documents.ts` need it:
 
 ```ts
+const orderHeaderTotalsSchema = orderTotalsSchema.omit({ lineItemCount: true })
+
 const orderLineUpsertSchema = orderLineCreateSchema.extend({
   id: z.string().uuid().optional(),
-  orderTotals: orderTotalsSchema.optional(),   // required iff the order is external
+  orderTotals: orderHeaderTotalsSchema.optional(),   // required iff the order is external
 })
 const orderLineDeleteSchema = z.object({
   id: z.string().uuid(),
   orderId: z.string().uuid(),
-  orderTotals: orderTotalsSchema.optional(),   // required iff the order is external
+  orderTotals: orderHeaderTotalsSchema.optional(),   // required iff the order is external
 })
 ```
+
+`lineItemCount` is omitted from that group deliberately: it is `orderTotalsSchema`'s tenth field and the
+one a caller does **not** own — it is core's count of the rows core persisted, derived from
+`calculation.lines.length`, and a caller that could assert it could make a document disagree with its own
+line rows. It is named here because an implementer wiring "the header totals" through wholesale would
+carry it along.
 
 A nested `orderTotals` object rather than a flat spread: a line command's own payload already carries
 `totalNetAmount` and `totalGrossAmount` for the *line*, and flattening document-level fields beside them
 would put two different meanings of "total" in one object. `makeSalesLineRoute` gains an optional
 `writeExtensionShape` so the order-line route can accept the group while the quote-line route does not.
 
-`documentUpdateSchema` (module-private, `commands/documents.ts`) gains `amountsMode` and the
+`documentUpdateSchema` (module-private, `commands/documents.ts`) gains `totalsMode` and the
 `orderTotalsSchema` fields minus `lineItemCount`, and its non-empty-payload refine accepts them — without
 that, `sales.orders.update` would never see the mode, because zod stripped it before the command read it.
 One consequence is worth naming rather than discovering: a payload of `{ id, <header totals only> }` used
@@ -424,7 +472,9 @@ New error keys, routed through i18n and translated into all five shipped locales
 | Event ids, DI keys, ACL features, notification ids, CLI commands | unchanged | — |
 
 **There is no behavioural break.** Every rule in § 6 is gated on `totals_mode = 'external'`, which no
-existing row holds and no existing caller sets. Two consequences are visible to code that never opts in and
+existing row holds and which no caller reaches without sending `totalsMode` on a document or `amountsMode`
+on a line — both fields being new. For a caller that sends neither, output is byte-identical: the same
+stored line amounts, the same header totals, the same response payloads. Two consequences are visible to code that never opts in and
 are worth an `UPGRADE_NOTES.md` line:
 
 | what | who sees it |
@@ -546,14 +596,16 @@ Shipped with the change:
   external document, with a shipping and a payment method set — the case where it otherwise would; and the
   #5707 reconciliation warning staying silent for an external line while still firing for the same numbers
   on a computed one.
-- **`commands/__tests__/documents.external-amounts.test.ts`** (22 cases) — create persisting the supplied
+- **`commands/__tests__/documents.external-amounts.test.ts`** (25 cases) — create persisting the supplied
   header and line amounts, the markup line's negative discount, the four rejections (missing
   `unitPriceNet`, absent header, partial header, mixed document), the compatibility case where a caller
   that never sets the mode is on exactly the old path, line upsert/delete rejecting and accepting
   `orderTotals` with siblings byte-identical, adjustment refusal on both commands, the four
-  `sales.orders.update` mode-crossing cases, the undo round trip asserting the mode columns and the
-  amounts come back together, and two quote cases: a quote line declaring a mode is rejected, and no
-  `amountsMode` key leaks onto a quote line through the shared line-entity converter.
+  `sales.orders.update` mode-crossing cases, the undo round trip asserting the mode columns and the amounts
+  come back together, a new line on an external order inheriting the order's mode rather than defaulting to
+  `computed`, a line explicitly declaring the mode the order does not have being rejected, and three quote
+  cases: a quote line declaring a mode is rejected, a quote update carrying `totalsMode` is rejected, and
+  no `amountsMode` key leaks onto a quote line through the shared line-entity converter.
 - **`commands/__tests__/returns.external-amounts.test.ts`** — a full return leaving an external header
   byte-identical while still recording `returned_quantity` and the `return` adjustment, and the same return
   still rewriting a computed order's header.
@@ -595,13 +647,31 @@ Shipped with the change:
 
 - Implemented in this fork. Two persisted mode columns, the engine branches and both re-application stages,
   the command-layer rules for every header-writing site, the API and UI surfaces, five new i18n keys in
-  five locales, and 42 unit/command tests plus one integration spec.
+  five locales, and 45 unit/command tests plus one integration spec.
 - § Decision Record filled with the three answers this fork adopted (persisted columns; returns record
   without rewriting; registries keep running).
 - § Relationship to the neighbouring contracts added: the base carries #5640, #5707 and #5438, so
   `amountsMode` sits beside two origin flags it must not be conflated with, the #5707 warning is skipped
   positionally (and asserted against the logger), and #5640's line-total basis is what makes a
   zero-percent discount line round-trip exactly on switch-back.
+
+### 2026-09-14
+
+Tracked upstream head `4dd1efd96`, which settled two things after this branch was written:
+
+- **The document-level field is `totalsMode`, not `amountsMode`.** One field per column — `totalsMode` on
+  the document, `amountsMode` on a line — each returned under the name it is accepted under. The
+  implementation had been posting `amountsMode` and reading back `totalsMode`, which is the shape of the
+  bug this document is about. `totalsMode` cascades to every line; an explicitly supplied line mode that
+  disagrees with the document's is rejected.
+- **§ 6 now says which mode its rules are evaluated against** — the persisted one, except for a request
+  that sets `totalsMode`, which is a transition governed by § 8 — and both transitions are tabulated. The
+  implementation already behaved this way; the spec did not say so.
+- **`lineItemCount` is named as the tenth field of `orderTotalsSchema` and is not caller-supplied.** It is
+  now omitted from the `orderTotals` group a line write restates, rather than accepted and ignored.
+- Answered the two questions the upstream review left open for the implementation: the compatibility
+  criterion names both fields, and a line that omits `amountsMode` **inherits** the document's mode rather
+  than being rejected or defaulting to `computed`, with the reasoning and a test.
 
 ### 2026-09-07
 

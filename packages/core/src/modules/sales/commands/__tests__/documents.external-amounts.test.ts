@@ -271,7 +271,7 @@ describe('sales.orders.create — external amounts', () => {
     const { ctx, persisted } = buildHarness()
 
     await create().execute(
-      buildCreateInput({ amountsMode: 'external', ...SUPPLIED_TOTALS }) as never,
+      buildCreateInput({ totalsMode: 'external', ...SUPPLIED_TOTALS }) as never,
       ctx,
     )
 
@@ -294,7 +294,7 @@ describe('sales.orders.create — external amounts', () => {
     const { ctx, persisted } = buildHarness()
 
     await create().execute(
-      buildCreateInput({ amountsMode: 'external', ...SUPPLIED_TOTALS }, [
+      buildCreateInput({ totalsMode: 'external', ...SUPPLIED_TOTALS }, [
         externalLineInput({ unitPriceNet: 4, totalNetAmount: 13 }),
       ]) as never,
       ctx,
@@ -310,7 +310,7 @@ describe('sales.orders.create — external amounts', () => {
 
     const rejection = await expectRejection(
       create().execute(
-        buildCreateInput({ amountsMode: 'external', ...SUPPLIED_TOTALS }, [
+        buildCreateInput({ totalsMode: 'external', ...SUPPLIED_TOTALS }, [
           externalLineInput({ unitPriceNet: undefined }),
         ]) as never,
         ctx,
@@ -325,7 +325,7 @@ describe('sales.orders.create — external amounts', () => {
     const { ctx } = buildHarness()
 
     const rejection = await expectRejection(
-      create().execute(buildCreateInput({ amountsMode: 'external' }) as never, ctx),
+      create().execute(buildCreateInput({ totalsMode: 'external' }) as never, ctx),
     )
 
     expect(rejection.status).toBe(400)
@@ -338,7 +338,7 @@ describe('sales.orders.create — external amounts', () => {
     const rejection = await expectRejection(
       create().execute(
         buildCreateInput({
-          amountsMode: 'external',
+          totalsMode: 'external',
           subtotalNetAmount: 25.95,
           grandTotalGrossAmount: 31.92,
         }) as never,
@@ -450,6 +450,56 @@ describe('sales.orders.lines.* — external amounts', () => {
     // The header is written onto the managed order row in place.
     expect(num(order!.grandTotalGrossAmount)).toBeCloseTo(31.92, 4)
     expect(num(order!.subtotalNetAmount)).toBeCloseTo(25.95, 4)
+  })
+
+  it('inherits the order mode on a new line that does not declare one', async () => {
+    const { ctx, persisted } = harnessWithExternalOrder()
+
+    // The open question the spec left to the implementation: a new line on an
+    // external order that omits `amountsMode`. Defaulting it to `computed` would
+    // build the mixed document the invariant forbids, so it inherits the order's
+    // persisted mode instead of being rejected — the caller already declared the
+    // mode once, on the document.
+    await upsert().execute(
+      {
+        body: {
+          organizationId: ORG_ID,
+          tenantId: TENANT_ID,
+          orderId: ORDER_ID,
+          ...externalLineInput({ name: 'Added line', totalNetAmount: 8, totalGrossAmount: 9.84, taxAmount: 1.84 }),
+          orderTotals: SUPPLIED_TOTALS,
+        },
+      } as never,
+      ctx,
+    )
+
+    const added = persistedLines(persisted).find((line) => line.name === 'Added line')
+    expect(added).toBeTruthy()
+    expect(added!.amountsMode).toBe('external')
+    expect(num(added!.totalNetAmount)).toBeCloseTo(8, 4)
+  })
+
+  it('rejects a line that declares the mode the order does not have', async () => {
+    const { ctx } = harnessWithExternalOrder()
+
+    const rejection = await expectRejection(
+      upsert().execute(
+        {
+          body: {
+            organizationId: ORG_ID,
+            tenantId: TENANT_ID,
+            orderId: ORDER_ID,
+            id: LINE_ONE_ID,
+            ...externalLineInput({ amountsMode: 'computed' }),
+            orderTotals: SUPPLIED_TOTALS,
+          },
+        } as never,
+        ctx,
+      ),
+    )
+
+    expect(rejection.status).toBe(400)
+    expect(rejection.error).toContain('same amounts mode')
   })
 
   it('rejects a line delete that does not restate the document header', async () => {
@@ -590,7 +640,7 @@ describe('undo — the mode and the amounts move together', () => {
     })
 
     const prepared = (await commandRegistry.get('sales.orders.update')!.prepare?.(
-      { id: ORDER_ID, amountsMode: 'computed' } as never,
+      { id: ORDER_ID, totalsMode: 'computed' } as never,
       ctx,
     )) as { before?: unknown }
 
@@ -645,7 +695,7 @@ describe('sales.orders.update — crossing between the modes', () => {
     const { ctx, order, em } = harnessWith('external')
     const lines = await (em.find as (entity: unknown) => Promise<Row[]>)({ name: 'SalesOrderLine' })
 
-    await update().execute({ id: ORDER_ID, amountsMode: 'computed' } as never, ctx)
+    await update().execute({ id: ORDER_ID, totalsMode: 'computed' } as never, ctx)
 
     expect(order!.totalsMode).toBe('computed')
     expect(lines[0].amountsMode).toBe('computed')
@@ -658,7 +708,7 @@ describe('sales.orders.update — crossing between the modes', () => {
     const { ctx } = harnessWith('computed')
 
     const rejection = await expectRejection(
-      update().execute({ id: ORDER_ID, amountsMode: 'external' } as never, ctx),
+      update().execute({ id: ORDER_ID, totalsMode: 'external' } as never, ctx),
     )
 
     expect(rejection.status).toBe(400)
@@ -670,7 +720,7 @@ describe('sales.orders.update — crossing between the modes', () => {
     const lines = await (em.find as (entity: unknown) => Promise<Row[]>)({ name: 'SalesOrderLine' })
 
     await update().execute(
-      { id: ORDER_ID, amountsMode: 'external', ...SUPPLIED_TOTALS } as never,
+      { id: ORDER_ID, totalsMode: 'external', ...SUPPLIED_TOTALS } as never,
       ctx,
     )
 
@@ -715,6 +765,22 @@ describe('quotes stay computed', () => {
           currencyCode: 'USD',
           lines: [{ ...externalLineInput(), amountsMode: 'external' }],
         } as never,
+        ctx,
+      ),
+    )
+
+    expect(rejection.status).toBe(400)
+    expect(rejection.error).toContain('computed amounts')
+  })
+
+  it('rejects a quote update that carries the document mode', async () => {
+    const { ctx } = buildHarness({ orders: [storedExternalOrder()] })
+
+    // `documentUpdateSchema` is shared with orders, so `totalsMode` reaches a
+    // quote command and has to be refused rather than parsed and dropped.
+    const rejection = await expectRejection(
+      commandRegistry.get('sales.quotes.update')!.execute(
+        { id: ORDER_ID, totalsMode: 'external' } as never,
         ctx,
       ),
     )

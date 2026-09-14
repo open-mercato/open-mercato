@@ -194,14 +194,20 @@ export function readPersistedHeaderTotals(
  * stop repeating.
  */
 export async function assertAmountsModeUnsupportedOnQuote(
-  lines: Array<{ amountsMode?: SalesAmountsMode | null }> | null | undefined,
+  payloads:
+    | Array<{ amountsMode?: SalesAmountsMode | null; totalsMode?: SalesAmountsMode | null }>
+    | null
+    | undefined,
 ): Promise<void> {
-  if (!lines?.some((line) => line.amountsMode != null)) return
+  // Both names, because both reach a quote command: `amountsMode` through the
+  // shared line pricing shape, `totalsMode` through the shared document update
+  // schema.
+  if (!payloads?.some((payload) => payload.amountsMode != null || payload.totalsMode != null)) return
   const { translate } = await resolveTranslations()
   throw new CrudHttpError(400, {
     error: translate(
       'sales.errors.externalModeUnsupportedOnQuote',
-      'Quote lines cannot carry an amounts mode; quotes always use computed amounts.',
+      'Quotes cannot carry an amounts mode; they always use computed amounts.',
     ),
   })
 }

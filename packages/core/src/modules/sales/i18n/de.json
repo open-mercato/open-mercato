@@ -1244,7 +1244,7 @@
   "sales.errors.externalAdjustmentRefused": "Dieser Auftrag führt Beträge aus einem externen System, daher können keine Anpassungen hinzugefügt oder entfernt werden. Stellen Sie ihn zuerst auf berechnete Beträge um.",
   "sales.errors.externalAmountsIncomplete": "Position {{line}} hat externe Beträge, aber es fehlen: {{fields}}. Eine unvollständige Angabe ist kein Modus.",
   "sales.errors.externalModeMixed": "Ein Auftrag und alle seine Positionen müssen denselben Betragsmodus verwenden.",
-  "sales.errors.externalModeUnsupportedOnQuote": "Angebotspositionen können keinen Betragsmodus führen; Angebote verwenden immer berechnete Beträge.",
+  "sales.errors.externalModeUnsupportedOnQuote": "Angebote können keinen Betragsmodus führen; sie verwenden immer berechnete Beträge.",
   "sales.errors.externalTotalsRequired": "Ein Auftrag mit externen Beträgen muss eigene Belegsummen angeben: {{fields}}.",
   "sales.errors.invalid_query": "Ungültige Abfrageparameter",
   "sales.errors.organization_required": "Organisationskontext ist erforderlich",

@@ -662,12 +662,13 @@ export const documentUpdateSchema = z
     tags: z.array(z.string().uuid()).optional(),
     customFields: z.record(z.string(), z.unknown()).optional(),
     customFieldSetId: z.string().uuid().nullable().optional(),
-    // Orders only. `amountsMode` moves the document between core-derived and
+    // Orders only. `totalsMode` moves the document between core-derived and
     // caller-asserted amounts; the header fields beside it are meaningful only
     // while it is (or becomes) `external`, and stay ignored otherwise.
-    // `lineItemCount` is deliberately not accepted — it is derived from the
-    // lines in both modes.
-    amountsMode: amountsModeSchema.optional(),
+    // `lineItemCount` is deliberately not accepted — it is a count of rows core
+    // persisted, derived from the calculation in both modes, and a caller that
+    // could assert it could make a document disagree with its own line rows.
+    totalsMode: amountsModeSchema.optional(),
     ...orderTotalsSchema.omit({ lineItemCount: true }).shape,
   })
   .refine(
@@ -704,7 +705,7 @@ export const documentUpdateSchema = z
       input.tags !== undefined ||
       input.customFields !== undefined ||
       input.customFieldSetId !== undefined ||
-      input.amountsMode !== undefined ||
+      input.totalsMode !== undefined ||
       input.subtotalNetAmount !== undefined ||
       input.subtotalGrossAmount !== undefined ||
       input.discountTotalAmount !== undefined ||
@@ -5589,7 +5590,7 @@ const updateOrderCommand: CommandHandler<
     const previousStatus = normalizeStatusValue(order.status);
     let statusChangeNote: SalesNote | null = null;
     const currentTotalsMode: SalesAmountsMode = order.totalsMode ?? "computed";
-    const nextTotalsMode: SalesAmountsMode = parsed.amountsMode ?? currentTotalsMode;
+    const nextTotalsMode: SalesAmountsMode = parsed.totalsMode ?? currentTotalsMode;
     const totalsModeChanged = nextTotalsMode !== currentTotalsMode;
     // A header total on a `computed` order stays ignored, exactly as before this
     // mode existed; it only becomes meaningful once the order is external.
@@ -6071,7 +6072,7 @@ const createOrderCommand: CommandHandler<
     // the invariant is that an order is external iff all of its lines are, and a
     // document that declares one thing while a line declares another is refused
     // rather than stored as a header nobody owns.
-    const totalsMode: SalesAmountsMode = parsed.amountsMode ?? "computed";
+    const totalsMode: SalesAmountsMode = parsed.totalsMode ?? "computed";
     await assertUniformAmountsMode(totalsMode, normalizedLineInputs);
     const modedLineInputs = normalizedLineInputs.map((line) => ({
       ...line,
@@ -6945,16 +6946,20 @@ const convertQuoteToOrderCommand: CommandHandler<
 // A line write against an external order must restate the document header in the
 // same request: core will not rebuild it, and leaving it stale after a line moved
 // would be worse than either. Nested rather than spread flat, because the line
-// payload already carries a `totalNetAmount` that means something else.
+// payload already carries a `totalNetAmount` that means something else, and
+// without `lineItemCount`, which is core's count of the rows it persisted rather
+// than one of the nine amounts a caller owns.
+const orderHeaderTotalsSchema = orderTotalsSchema.omit({ lineItemCount: true });
+
 const orderLineUpsertSchema = orderLineCreateSchema.extend({
   id: z.string().uuid().optional(),
-  orderTotals: orderTotalsSchema.optional(),
+  orderTotals: orderHeaderTotalsSchema.optional(),
 });
 
 const orderLineDeleteSchema = z.object({
   id: z.string().uuid(),
   orderId: z.string().uuid(),
-  orderTotals: orderTotalsSchema.optional(),
+  orderTotals: orderHeaderTotalsSchema.optional(),
 });
 
 const quoteLineUpsertSchema = quoteLineCreateSchema.extend({

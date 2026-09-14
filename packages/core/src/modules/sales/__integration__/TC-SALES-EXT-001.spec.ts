@@ -98,7 +98,7 @@ test.describe('TC-SALES-EXT-001: external amounts mode', () => {
         headers: jsonHeaders(token),
         data: {
           currencyCode: 'USD',
-          amountsMode: 'external',
+          totalsMode: 'external',
           ...SUPPLIED_TOTALS,
           lines: [LINE_ONE, LINE_TWO],
         },
@@ -177,7 +177,7 @@ test.describe('TC-SALES-EXT-001: external amounts mode', () => {
       const switched = await request.fetch(resolveUrl('/api/sales/orders'), {
         method: 'PUT',
         headers: jsonHeaders(token),
-        data: { id: orderId, amountsMode: 'computed' },
+        data: { id: orderId, totalsMode: 'computed' },
       })
       expect(
         switched.ok(),

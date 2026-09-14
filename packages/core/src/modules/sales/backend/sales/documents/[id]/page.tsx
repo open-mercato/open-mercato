@@ -3794,10 +3794,10 @@ export default function SalesDocumentDetailPage({
           apiCallOrThrow('/api/sales/orders', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id: record.id, amountsMode: 'computed' }),
+            body: JSON.stringify({ id: record.id, totalsMode: 'computed' }),
           }),
         )
-      }, { id: record.id, amountsMode: 'computed' })
+      }, { id: record.id, totalsMode: 'computed' })
       flash(t('sales.documents.amountsSwitchDone', 'Amounts are now computed from the lines.'), 'success')
       await refreshDocumentTotals()
     } catch (err) {

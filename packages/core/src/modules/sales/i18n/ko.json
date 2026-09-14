@@ -1244,7 +1244,7 @@
   "sales.errors.externalAdjustmentRefused": "이 주문의 금액은 외부 시스템에서 온 것이므로 조정을 추가하거나 삭제할 수 없습니다. 먼저 계산 금액으로 전환하세요.",
   "sales.errors.externalAmountsIncomplete": "{{line}}번 품목에 외부 금액이 있지만 누락된 항목이 있습니다: {{fields}}. 부분 지정은 모드가 아닙니다.",
   "sales.errors.externalModeMixed": "주문과 모든 품목은 동일한 금액 모드를 사용해야 합니다.",
-  "sales.errors.externalModeUnsupportedOnQuote": "견적 품목에는 금액 모드를 지정할 수 없습니다. 견적은 항상 계산 금액을 사용합니다.",
+  "sales.errors.externalModeUnsupportedOnQuote": "견적에는 금액 모드를 지정할 수 없습니다. 견적은 항상 계산 금액을 사용합니다.",
   "sales.errors.externalTotalsRequired": "외부 금액을 사용하는 주문은 문서 합계를 직접 제공해야 합니다: {{fields}}.",
   "sales.errors.invalid_query": "잘못된 조회 파라미터입니다",
   "sales.errors.organization_required": "조직 컨텍스트가 필요합니다",
