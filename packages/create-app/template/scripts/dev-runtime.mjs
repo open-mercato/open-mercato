@@ -187,7 +187,10 @@ const splashState = {
   progressPercent: 0,
   progressLabel: setupSplashMode ? 'Starting app runtime' : 'Preparing app runtime',
   activities: [],
+  runtimeSignals: [],
 }
+const maxBufferedRuntimeSignals = 20
+let runtimeSignalSequence = 0
 const startupProgress = {
   current: runtimeProgressCurrent,
   total: runtimeProgressTotal,
@@ -559,6 +562,19 @@ function collectRuntimeFailureLines(maxLines = 10) {
   return lines.slice(-maxLines)
 }
 
+// Typed hand-off to the root supervisor's incident collector. The wrapper only
+// reports what it observed; classification, redaction, and state transitions
+// stay in the supervisor so one generation owns them.
+function emitRuntimeSignal(signal) {
+  if (!splashChildStateFile) return
+  runtimeSignalSequence += 1
+  splashState.runtimeSignals.push({ seq: runtimeSignalSequence, ...signal })
+  while (splashState.runtimeSignals.length > maxBufferedRuntimeSignals) {
+    splashState.runtimeSignals.shift()
+  }
+  persistSplashState()
+}
+
 function publishRuntimeFailure(detail, options = {}) {
   const failureLines = Array.isArray(options.failureLines) && options.failureLines.length > 0
     ? options.failureLines
@@ -572,6 +588,15 @@ function publishRuntimeFailure(detail, options = {}) {
   const progressLabel = typeof options.progressLabel === 'string' && options.progressLabel.trim().length > 0
     ? options.progressLabel
     : (startupProgress.current >= runtimeProgressCurrent ? startupProgress.label : 'Starting app server')
+
+  emitRuntimeSignal({
+    source: options.source ?? 'log',
+    message: failureLines.join('\n') || failureDetail,
+    detail: failureDetail,
+    failureLines,
+    failureCommand: 'yarn dev',
+    failureStage: options.failureStage,
+  })
 
   updateSplashState({
     phase: 'Runtime error detected',
@@ -668,6 +693,8 @@ function reportUnexpectedChildExit(result) {
   // The banner was just printed, so buffer it without echoing it a second time.
   bufferRawLog(report.banner)
   publishRuntimeFailure(report.banner, {
+    source: 'process',
+    failureStage: result?.label,
     progressCurrent: splashState.progressCurrent >= runtimeProgressCurrent ? splashState.progressCurrent : runtimeProgressCurrent,
     progressLabel: splashState.progressLabel || startupProgress.label,
     failureLines: report.failureLines,
@@ -1084,6 +1111,8 @@ async function runTargetedRouteWarmup() {
         runtimeWarmupState.failed = true
         const detail = `Warmup failed after ${attempt} retries: ${reason}`
         publishRuntimeFailure(detail, {
+          source: 'warmup',
+          failureStage: 'Startup warmup',
           progressCurrent: runtimeProgressCurrent,
           progressLabel: progressLabel,
           failureLines: [

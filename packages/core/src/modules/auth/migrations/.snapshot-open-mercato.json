@@ -913,7 +913,8 @@
           "referencedColumnNames": [
             "id"
           ],
-          "referencedTableName": "public.users"
+          "referencedTableName": "public.users",
+          "deleteRule": "cascade"
         }
       },
       "nativeEnums": {}
@@ -1978,7 +1979,8 @@
           "referencedColumnNames": [
             "id"
           ],
-          "referencedTableName": "public.users"
+          "referencedTableName": "public.users",
+          "deleteRule": "cascade"
         }
       },
       "nativeEnums": {}

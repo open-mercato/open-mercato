@@ -328,7 +328,8 @@ export default function WorkflowInstancesListPage() {
     <Page>
       <PageBody>
         <DataTable
-          title={t('workflows.instances.list.title')}
+        title={t('workflows.instances.list.title')}
+        titleHeadingLevel={1}
           columns={columns}
           data={data || []}
           filters={filters}

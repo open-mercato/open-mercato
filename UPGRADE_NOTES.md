@@ -24,6 +24,65 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.7.0 → 0.7.1 (unreleased)
 
+### `entry.overrides` now actually applies in CLI, worker and scheduler processes (#5582)
+
+`entry.overrides` declared in your app's `src/modules.ts` used to take effect only in the Next.js
+runtime. Every process that boots through `bootstrapFromAppRoot()` instead — `yarn mercato …`
+commands, the event/queue workers, and the scheduler — never dispatched them at all, so each
+declaration was a silent no-op there. It is now dispatched in both paths.
+
+**This flips runtime behavior for apps that already declare overrides, with no code change on your
+side.** Overrides you wrote expecting them to apply everywhere will now finally do so; overrides you
+wrote against the Next runtime only will start affecting your CLI and background processes too. The
+domains that become newly effective in those processes are `encryption`, `acl`, `cli`, `workers`,
+`events`, `setup`, `di`, and `ai`.
+
+Concrete cases to re-check before upgrading:
+
+- `overrides.encryption.maps` — `mercato entities seed-encryption` previously seeded the **base**
+  module maps while reporting success, leaving override-added fields written as plaintext at rest.
+  It now seeds your overridden maps. **Re-run it after upgrading** and re-encrypt any field that was
+  silently skipped.
+- `overrides.cli['<command>'] = null` — that command now genuinely disappears from the `mercato` CLI.
+- `overrides.setup.seedDefaults: false` — `mercato setup` now genuinely stops seeding for that module.
+- `overrides.workers` / `overrides.events` — worker and subscriber overrides now apply to the queue
+  and event workers, not just to in-request handlers.
+
+**Action:** review every `entry.overrides` entry in your `src/modules.ts` and confirm the CLI/worker
+behavior it now produces is the behavior you intended.
+
+A second, related change: a `src/modules.ts` that is **present but fails to compile or import** now
+aborts the CLI/worker bootstrap with an explicit error instead of logging and continuing with an
+empty override set. Continuing was what let `seed-encryption` print success while seeding base maps.
+An app with **no** `src/modules.ts` at all is still skipped without error, as before.
+
+### `yarn mercato auth sync-role-acls` now syncs **customer/portal** roles too (#5900)
+
+`setup.defaultCustomerRoleFeatures` — the way a module declares which portal features its
+pages need (`portal.time_reports.view`, and every other `portal.*` grant) — used to be merged
+into `CustomerRoleAcl` rows only during `customer_accounts.seedDefaults`, i.e. at tenant
+bootstrap. A module shipping a **new** portal page therefore never reached the `Buyer` and
+`Viewer` roles a tenant was already using: the page was not merely forbidden, it was invisible
+(the portal nav is RBAC-filtered), and someone had to grant the feature by hand for every
+tenant.
+
+`sync-role-acls` now runs the same idempotent, additive merge for customer roles after the
+staff ones, and reports what it granted. Run it once per upgrade, as you already do for staff
+features:
+
+```bash
+yarn mercato auth sync-role-acls
+```
+
+It only *adds* newly declared default grants to roles that already exist, never removes an
+operator's customizations, and never creates roles or ACL rows. `--tenant <tenantId>` still
+scopes it to one tenant. A deployment without the `customer_accounts` module is unaffected —
+the portal half is skipped and staff roles sync exactly as before.
+
+**Module authors:** declaring a portal feature in `setup.defaultCustomerRoleFeatures` is now
+enough for existing tenants to pick it up on the documented upgrade command; note the new
+grant in your own release notes so operators know to run it.
+
 ### Sales line `discount_amount` is now read as a line total, and the percentage wins (#3757)
 
 `sales_order_lines.discount_amount` and `sales_quote_lines.discount_amount` have always been
@@ -299,6 +358,34 @@ The query object is now built by `buildQueryParams` from `@open-mercato/shared/l
 **One behavior change worth planning for.** A list route whose schema types a filter param as a plain `z.string()` (no array branch) now returns **400** when a client sends that param twice, where it previously accepted the request and silently used the last value. That is the correct failure mode — quietly discarding a caller's filter is the defect this fixes — but a lenient client may be relying on the old behavior. Callers using the comma form, or sending each param once, are unaffected; a caller sending repeats starts receiving the values it already asked for, which is strictly a widening.
 
 **Action for module authors:** audit your own list-route schemas for filter params that clients may repeat. Where a param is genuinely multi-valued, widen it to `z.union([z.string(), z.array(z.string())])` (or `z.array(z.string())`) and normalize it with `toQueryValueList`. Where it is genuinely single-valued, no change is needed — a repeated occurrence should be rejected. No route URL, HTTP method, response field, `makeCrudRoute` signature, options type, or database column changes, so `BACKWARD_COMPATIBILITY.md` §2, §3 and §7 are not violated.
+
+### `createTimeProjectFixture` needs a customer, and now says so instead of 422-ing
+
+`createTimeProjectFixture` from `@open-mercato/core/helpers/integration/timesheetFixtures` posts to `POST /api/staff/timesheets/time-projects`, where a customer became mandatory when consulting projects gained customer-scoped rates. A fixture call that omits one can no longer succeed: the route answers `422`, and the spec fails somewhere downstream of the fixture with no indication that the fixture was the problem. Six in-repo specs regressed exactly that way.
+
+The helper's third parameter therefore carries a `customerId` — but it stays **optional in the type**, and the whole parameter remains optional, so every existing call still compiles:
+
+```typescript
+createTimeProjectFixture(request, token)                                  // still compiles, throws
+createTimeProjectFixture(request, token, { name: 'Consulting' })          // still compiles, throws
+createTimeProjectFixture(request, token, { customerId, name: 'Consulting' })  // correct
+```
+
+A call with no `customerId` (or a blank one) now throws before any request is made, naming the helper and the missing field. There is no safe value to default to — a fixture cannot invent a customer for the tenant under test without silently changing what the spec exercises — so failing loudly at the call is the closest thing to the compile error that a published helper cannot afford to introduce.
+
+**Action for module authors:** create a customer first and pass its id — `createCompanyFixture` from `@open-mercato/core/helpers/integration/crmFixtures` returns one, and any id from `customers.customer_entities` works. Specs that already pass `customerId` need no change. The parameter is not scheduled to become required; the runtime check is the enforcement, so it will keep compiling.
+### Phone call PII is encrypted at rest — existing tenants get backfilled encryption maps
+
+The new `phone_calls` module encrypts two entities at rest through the standard tenant-data-encryption seam: `phone_number`, `display_name` and `email` on `phone_calls:phone_call_participant`, and `raw_snapshot`, `provider_facts` and `recording_url` on `phone_calls:phone_call` (the untouched provider payload repeats the caller and destination numbers, and the recording URL carries its own access token). Encryption is driven by an `encryption_maps` row that declares which fields to encrypt, and those rows are seeded **once at tenant creation** (`entities seed-encryption`). A tenant that predates this module therefore has **no map for either entity**, and `encryptEntityPayload` no-ops when no map resolves — so calls ingested after the upgrade would have their PII written as **plaintext**, silently, both in the base tables and in the copy the query index keeps in `entity_indexes.doc`.
+
+**This heals automatically on `yarn db:migrate`.** A forward-only, idempotent data migration (`entities` module, `Migration20260822120000`) inserts both maps for every `(tenant, organization)` scope that already has active encryption maps, mirroring what `seed-encryption` does and correctly skipping tenants that run with encryption disabled (they have no maps at all). New tenants continue to get both maps from `seed-encryption` at creation. **No operator action is required** for the standard migrate-then-deploy flow, and there is no plaintext window because the maps exist before the new code serves traffic. This mirrors the `devices:user_device` backfill shipped in `Migration20260722120000`.
+
+Two additional heal paths are available if you need them:
+
+- **Upgrade Action** (`phone_calls.seed-call-encryption-maps`, version `0.7.1`) — the managed, UI/API-triggered heal for the same backfill, gated on `UPGRADE_ACTIONS_ENABLED=true` and the `configs.manage` feature, run per tenant (idempotent). The migration only reaches scopes that had active maps when it ran, so this is the path for a tenant that upgraded with encryption **disabled** and enabled it afterwards — that tenant has no map and nothing else would tell you.
+- **Manual CLI** — re-run `yarn mercato entities seed-encryption --tenant <tenantId> --org <organizationId>` per tenant. It idempotently upserts **all** modules' default encryption maps, including both phone_calls ones.
+
+Note: only calls ingested **after** the maps exist are encrypted. Rows written by a build that ran without them stay plaintext until they are re-ingested (a pull is idempotent, so re-pulling the affected range rewrites them) or handled with the `entities rotate-encryption` / `decrypt-database` tooling.
 
 ## 0.6.7 → 0.7.0 (2026-08-26)
 
@@ -772,6 +859,36 @@ Fresh applications generated by `create-mercato-app` now include the same respon
 **Action for existing standalone apps:** template files are not overwritten during package upgrades. Copy the `contentSecurityPolicy` constant and `headers()` configuration from the latest [`packages/create-app/template/next.config.ts`](packages/create-app/template/next.config.ts) into the app's `next.config.ts`, merging them with any app-owned rules. If a custom provider needs another script, frame, image, or connection origin, add only that exact origin to the matching CSP directive. Do not remove or weaken the `/api/attachments/file/:path*` sandbox rule. Validate each browser-based integration after adopting the baseline.
 
 This is an opt-in security hardening step for existing apps and the default for newly scaffolded apps. It does not change Open Mercato API, event, DI, ACL, or database contracts.
+
+### Staff timesheet backend pages moved to `/backend/staff/time-tracking/*`
+
+The staff timesheets screens move out of the `Employees` sidebar group into a new `Time tracking` group (`pageGroupKey: 'staff.time_tracking.nav.group'`), and their page routes move with them. The `Employees` group keeps every HR page it had (team members, teams, team roles, leave requests, availability, job history) at its existing paths.
+
+Every old path answers **308 Permanent Redirect** to its new equivalent:
+
+| Old path | New path |
+|---|---|
+| `/backend/staff/timesheets` | `/backend/staff/time-tracking/timesheet` |
+| `/backend/staff/timesheets/projects` | `/backend/staff/time-tracking/projects` |
+| `/backend/staff/timesheets/projects/create` | `/backend/staff/time-tracking/projects/create` |
+| `/backend/staff/timesheets/projects/{id}` | `/backend/staff/time-tracking/projects/{id}` |
+| `/backend/staff/timesheets/projects/{id}/edit` | `/backend/staff/time-tracking/projects/{id}/edit` |
+
+The redirects are retained for **at least one minor release** per [`BACKWARD_COMPATIBILITY.md`](BACKWARD_COMPATIBILITY.md), so bookmarks, saved deep links and injected menu items keep resolving in the meantime.
+
+**Nothing else about the module moved.** API routes stay under `/api/staff/timesheets/**`, ACL feature ids stay in the `staff.timesheets.*` namespace (they are FROZEN), and the `staff_time_*` tables are untouched. Only page routes and the sidebar group changed.
+
+**Action for module authors:** update any hard-coded `/backend/staff/timesheets*` href, `resolveUrl`, injected menu item, or Playwright `page.goto(...)` to the new path rather than relying on the redirect. If your module injects widgets into the timesheet pages, note that the admin-page spot ids are derived from the pathname — `admin.page:/backend/staff/timesheets:before` becomes `admin.page:/backend/staff/time-tracking/timesheet:before`, and the projects spots follow the same rename.
+
+### `staff_time_entries.notes` is also exposed as `description`
+
+The free-text note on a time entry gains a second, additive name. `POST`/`PUT /api/staff/timesheets/time-entries` accept the value under **either** `notes` (the historical key, unchanged) or `description` (the name the time tracking UI, task drawer and customer reports use), and list/detail responses return **both** keys carrying the same value. When a request supplies both, `description` wins.
+
+The database column is still `notes` — this is a request/response alias, not a schema change, and no migration is involved.
+
+Both keys are accepted and returned for **at least one minor release**. `notes` is not scheduled for removal in this window, but new code should read and write `description`.
+
+**Action for API consumers:** none required. Consumers that build request bodies dynamically should send exactly one of the two keys rather than relying on the precedence rule.
 
 ### The unique constraint on `onboarding_requests.email` is dropped (#4514)
 
