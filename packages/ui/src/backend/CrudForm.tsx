@@ -3716,19 +3716,19 @@ export function CrudForm<TValues extends Record<string, unknown>>({
             ) : null}
             <div
               className={hasSecondaryColumn
-                ? 'grid grid-cols-1 lg:grid-cols-[7fr_3fr] gap-4'
+                ? 'grid grid-cols-1 lg:grid-cols-[minmax(0,7fr)_minmax(0,3fr)] gap-4'
                 : 'grid grid-cols-1 gap-4'}
             >
               {sortableGroupsEnabled ? (
                 <DndContext sensors={sortableSensors} collisionDetection={closestCenter} onDragEnd={handleGroupDragEnd}>
                   <SortableContext items={col1Ids} strategy={verticalListSortingStrategy}>
-                    <div className="space-y-3">{col1Content}</div>
+                    <div className="min-w-0 space-y-3">{col1Content}</div>
                   </SortableContext>
                 </DndContext>
               ) : (
-                <div className="space-y-3">{col1Content}</div>
+                <div className="min-w-0 space-y-3">{col1Content}</div>
               )}
-              {hasSecondaryColumn ? <div className="space-y-3" data-crud-injection-region>{col2Content}</div> : null}
+              {hasSecondaryColumn ? <div className="min-w-0 space-y-3" data-crud-injection-region>{col2Content}</div> : null}
             </div>
             {formError && !Object.keys(errors).length ? <div className="text-sm text-status-error-text">{formError}</div> : null}
             {hideFooterActions || formReadOnly ? null : (

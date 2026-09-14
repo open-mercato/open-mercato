@@ -1,0 +1,11 @@
+{
+  "exampleCustomersSync.errors.invalidCursor": "Cursor inválido.",
+  "exampleCustomersSync.errors.invalidJson": "Corpo JSON inválido.",
+  "exampleCustomersSync.errors.mappingsLoadFailed": "Falha ao carregar os mapeamentos de sincronização de clientes de exemplo.",
+  "exampleCustomersSync.errors.organizationContextRequired": "O contexto da organização é obrigatório.",
+  "exampleCustomersSync.errors.organizationScopeMismatch": "Incompatibilidade de escopo da organização.",
+  "exampleCustomersSync.errors.reconcileEnqueueFailed": "Falha ao enfileirar a reconciliação da sincronização de clientes de exemplo.",
+  "exampleCustomersSync.errors.tenantScopeMismatch": "Incompatibilidade de escopo do tenant.",
+  "exampleCustomersSync.errors.unauthorized": "Não autorizado",
+  "exampleCustomersSync.errors.validationFailed": "Falha na validação"
+}
