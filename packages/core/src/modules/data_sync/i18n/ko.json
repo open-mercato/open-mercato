@@ -59,6 +59,7 @@
   "data_sync.dashboard.start.parametersHelp": "이 통합이 수동 실행에 대해 허용하는 선택적 값입니다.",
   "data_sync.dashboard.start.providerManaged": "이 통합은 자체 설정 흐름에서 동기화 실행을 시작합니다. 계속하려면 통합 설정 페이지를 여세요.",
   "data_sync.dashboard.start.runNowDescription": "다음 즉시 동기화에 사용하세요. 배치 크기와 전체 동기화 모드는 이 수동 실행에만 적용됩니다.",
+  "data_sync.dashboard.start.runNowDescriptionScoped": "다음 즉시 동기화에 사용하세요. 여기에서 설정한 값은 이 수동 실행에만 적용됩니다.",
   "data_sync.dashboard.start.runNowFootnote": "수동 실행은 즉시 진행 상황을 표시하며 시작 후 실행 상세 페이지로 이동합니다.",
   "data_sync.dashboard.start.runNowTitle": "지금 한 번 실행",
   "data_sync.dashboard.start.status.credentialsMissing": "자격 증명 누락",

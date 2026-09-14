@@ -85,7 +85,7 @@ Declared in `packages/shared/src/modules/notifications/types.ts`.
 | `Renderer` | no | Client-side custom rendering — declared in `notifications.client.ts`, not here. |
 
 :::warning A type that omits `channels` is eligible for every registered channel
-`resolveEligibleChannels` returns `null` for such a type, and `null` means *no restriction* — not *no channels*. Once a tenant connects a push provider, every type without an explicit `channels` list becomes push-eligible. **2 of the 65 types currently in the registry omit it** (see the map below, where they render as `— (all registered)`).
+`resolveEligibleChannels` returns `null` for such a type, and `null` means *no restriction* — not *no channels*. Once a tenant connects a push provider, every type without an explicit `channels` list becomes push-eligible. **2 of the 71 types currently in the registry omit it** (see the map below, where they render as `— (all registered)`).
 
 The fallback stays as it is, so a third-party type that omits `channels` keeps working unchanged. What changed with [#5495](https://github.com/open-mercato/open-mercato/issues/5495) is that every built-in type now declares its eligibility explicitly rather than inheriting the fallback; the two that still omit it are `push_notifications`' hidden admin custom-push types, which bypass the catalogue entirely. Declare `channels` explicitly on every type you add — `packages/core/src/__tests__/notification-channel-eligibility.test.ts` enforces that for every first-party module-root catalogue.
 :::
@@ -298,6 +298,12 @@ Groups marked *(enterprise)* are declared in `packages/enterprise` and are not p
 | `staff.leave_request.approved` | success | `in_app`, `email` | — |
 | `staff.leave_request.pending` | warning | `in_app`, `email` | — |
 | `staff.leave_request.rejected` | warning | `in_app`, `email` | — |
+| `staff.timesheets.project_access.requested` | info | `in_app`, `email` | — |
+| `staff.timesheets.time_entry.timer_running_long` | warning | `in_app` | — |
+| `staff.timesheets.time_project.budget_threshold_reached` | warning | `in_app`, `email` | — |
+| `staff.timesheets.time_report.approved` | success | `in_app`, `email` | — |
+| `staff.timesheets.time_report.ready_for_approval` | info | `in_app`, `email` | — |
+| `staff.timesheets.timesheet.period_incomplete` | warning | `in_app`, `email` | — |
 
 #### `warranty_claims`
 

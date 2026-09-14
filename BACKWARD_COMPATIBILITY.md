@@ -105,6 +105,8 @@ These exported types are consumed by module developers. Required fields MUST NOT
 
 **STABLE field shape, changed value semantics in 0.6.8:** each entry in `BackendChromePayload.settingsSections` keeps its `id`, `label`, `labelKey`, `order`, and `items` fields, but `id` is now the section's **untranslated group id** (the page's `pageGroupKey`, e.g. `settings.sections.moduleConfigs`) instead of a slug of the rendered group label. The old value was locale-dependent, so it could not be targeted reliably (see [#4843](https://github.com/open-mercato/open-mercato/issues/4843)). Consumers matching a settings section — notably injected `menuItems[].groupId` — MUST use the group id, which is the form the widget-injection documentation already prescribes. `buildSettingsSections`' `sectionOrder` parameter keeps a deprecated fallback lookup on the old label slug for at least one minor release.
 
+**STABLE field shape, changed value semantics:** `BackendChromePayload.profileSections` keeps the same entry shape but is no longer the hard-coded single-entry list. It is now the static baseline (the `navHidden` pages route discovery cannot see, currently `/backend/profile/change-password`) merged with every page declaring `pageContext: 'profile'`, so a module contributing a per-user page reaches the profile sidebar the same way it already reaches the profile dropdown (see [#5594](https://github.com/open-mercato/open-mercato/issues/5594)). Two consequences for consumers: the built-in account section `id` changed from the label slug `account` to the untranslated group id `profile.sections.account`, matching the settings convention above — an injected `menuItems[].groupId` targeting `account` MUST be updated, and the one in-repo consumer (`security.injection.profile-sidebar-security-item` in `@open-mercato/enterprise`) was updated in the same change; and `profilePathPrefixes` now also carries each resolved section item's own `href`, which is additive and stays a prefix list. The `profileSections` constant exported from `@open-mercato/core/modules/auth/lib/profile-sections` keeps its import path, its export name and its runtime value, but its declared type narrows from `SectionNavGroup[]` to `SettingsSection[]` (`order` required rather than optional). Reading it — including assigning it to a `SectionNavGroup[]` — is unaffected; only code that pushes an order-less section onto the exported array would need to add `order`.
+
 ### 3. Function Signatures (STABLE)
 
 These functions are called directly by module code. Their signatures MUST NOT change in a breaking way. New optional parameters may be added.
@@ -354,6 +356,22 @@ Files in `apps/mercato/.mercato/generated/` are produced by the CLI generators. 
 
 ---
 
+## CRUD Foreign-Key Violations Answer 409 (2026-09-07)
+
+Deleting a user who had customised their sidebar failed on the `user_sidebar_preferences` / `sidebar_variants` foreign keys and surfaced as a generic `500`. The fix clears those rows in `auth.users.delete`, gives both FKs `ON DELETE CASCADE`, and teaches `makeCrudRoute` to recognise a Postgres foreign-key violation (SQLSTATE 23503). **All changes are additive** and pass the contract-surface checks above:
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| Import path / exports (`@open-mercato/shared/lib/db/pg-errors`) | New exports `isForeignKeyViolation(err)` and `getForeignKeyViolationConstraint(err)` | ✓ ADDITIVE (new exports, nothing removed or renamed) |
+| HTTP response shapes (`makeCrudRoute` handlers) | A handler that throws a Postgres foreign-key violation now answers `409 { error, code: 'FOREIGN_KEY_VIOLATION', requestId }` with an `x-request-id` header, where it previously answered the generic `500 { error, message, requestId }`. The constraint name is logged and reported to telemetry but never returned to the client. Every other error class keeps its byte-identical historical answer | ⚠️ Behaviour change for one error class only. No retained response loses a field, but a client that treated the old `500` as retryable now receives a non-retryable `409`. Regression-tested in `crud-factory.test.ts` |
+| Database schema (`user_sidebar_preferences_user_id_foreign`, `sidebar_variants_user_id_foreign`) | Both constraints are dropped and recreated with `on update cascade on delete cascade` (`Migration20260907120000_auth`). No table or column is added, renamed, removed or retyped, and `down()` restores each constraint to its original definition | ✓ ADDITIVE-ONLY compatible (delete behaviour widened, nothing narrowed) |
+| Command behaviour (`auth.users.delete`, `auth.users.create` undo) | The dependent-row cascade also clears `user_sidebar_preferences` and `sidebar_variants`. Those rows are not captured by `UserUndoSnapshot`, so undoing a user delete restores the user, roles, ACLs and custom fields but not the sidebar customisation. `user_consents` is deliberately left untouched | ✓ Behaviour-preserving for every delete that succeeded before; deletes that previously failed with `500` now succeed |
+| Event IDs, ACL features, DI names, CLI commands | No change | ✓ n/a |
+
+**Migration path for existing modules**: no action required. A client that branched on `5xx` for foreign-key failures should treat `409` with `code: 'FOREIGN_KEY_VIOLATION'` as the same condition; it was never retryable.
+
+---
+
 ## Module Registry Registration Listeners (2026-08-12)
 
 [`.ai/specs/2026-08-12-module-registry-registration-listeners.md`](.ai/specs/2026-08-12-module-registry-registration-listeners.md) adds a public subscription to the module registry so a cache derived from the module list can drop what it built from an incomplete one ([#5103](https://github.com/open-mercato/open-mercato/issues/5103)). **All changes are additive** and pass the contract-surface checks above:
@@ -397,3 +415,18 @@ Issue #3852 removed the non-cryptographic passkey verification shape from `Passk
 **Why the deprecation protocol does not apply.** The protocol exists to give downstream authors a bridge release. Here the request shape being removed *is* the vulnerability: both values it compared are disclosed by the server, so a bridge would keep the passkey second factor bypassable for a minor version in both login MFA and sudo step-up. A security fix that leaves the hole open is not a fix.
 
 **Migration path.** Send `startAuthentication()` output as `payload.response`. The first-party `PasskeyChallengeVerify` component already does, so shipped UIs are unaffected. Credentials enrolled through the setup path's client-supplied `publicKey` shortcut are **not** reliably rendered unusable by this change — depending on what the client supplied, such a row holds either a key nobody can sign with or a keypair the enroller controls, and the second kind produces assertions this change accepts. That shortcut is a separate open surface (#5296); operator-facing remediation is in [`UPGRADE_NOTES.md`](UPGRADE_NOTES.md).
+
+## Data Sync Start Control Applicability (2026-09-02)
+
+[`.ai/specs/2026-09-02-data-sync-adapter-start-controls.md`](.ai/specs/2026-09-02-data-sync-adapter-start-controls.md) lets a `DataSyncAdapter` declare, per entity type, which of the Data Sync dashboard's manual-start controls apply, so the dashboard stops offering controls that cannot mean anything for the selected entity type. **All changes are additive** and pass the contract-surface checks above:
+
+| Surface | Change | Classification |
+|---------|--------|----------------|
+| Type definitions (§2) | New optional method `DataSyncAdapter.supportsStartControl?(control, entityType)`; new exported type `DataSyncStartControl = 'fullSync' \| 'batchSize'` | ✓ ADDITIVE (optional member, new type — same shape as the `persistsSharedCursor` and `runParameters` additions before it) |
+| Import paths (§4) | New module `data_sync/lib/start-controls.ts` exporting `resolveStartControlMap`, `applicableStartControls`, `StartControlMap`, `StartControlApplicability`, `DATA_SYNC_START_CONTROLS` | ✓ ADDITIVE (new path; nothing moved or re-exported) |
+| API route URLs (§7) | `GET /api/data_sync/options` items gain a `startControls` object; `POST /api/data_sync/run` is unchanged and keeps honouring `fullSync` and `batchSize` whatever an adapter declares | ✓ ADDITIVE (new optional response field, no request-shape change) |
+| Auto-discovery, function signatures, event IDs, widget spot IDs, DB schema, DI names, ACL features, notification IDs, CLI commands, generated files | No change | ✓ n/a |
+
+**Contract commitments**: only an explicit `false` removes a control, so an adapter that declares nothing — or whose predicate returns anything else — renders the same form and sends the same request body as before. A predicate that throws is treated as *applies*, because `api/options.ts` resolves every registered adapter in one response and one broken predicate must not take the dashboard down for the rest. The `startControls` map is sparse and keyed only by the adapter's own `supportedEntities`; a missing entry means every control applies, so a client that ignores the field behaves exactly as today. The declaration governs what the dashboard **offers**, never what the run API **accepts** — that separation MUST hold for any future change here, or an API client posting `fullSync: true` would silently stop getting a full run.
+
+**Migration path for existing adapters**: none. The method is optional and defaults to prior behaviour.
