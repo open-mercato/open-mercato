@@ -1266,8 +1266,22 @@ deploy independently of any other module.
   (`dimensionType`, `dimensionId`, FK to the line — many rows per
   line) plus the posting-rule logic that uses it (e.g. reject a direct
   post to an account that has children — only its analytic leaves are
-  postable). Ships together with the posting-rules/konto 490 engine in
-  a future spec, not here. Distinct from `JournalEntryLine.contractorSnapshot`
+  postable). **Corrected 2026-09-14:** an earlier draft of this bullet
+  said this guard "ships together with the posting-rules/konto 490
+  engine in a future spec, not here" — read by that spec's own review
+  as though `2026-09-06-posting-rules-engine.md` should implement it.
+  That document's Out of scope (responding to its maintainer review's
+  m2 finding) instead names `ledger.postJournalEntry` — this module —
+  as the guard's real owner, since it must apply uniformly to every
+  poster (AP, AR, Fixed Assets, the posting-rules engine's own
+  reclassifications), not only the zespół 4/5 traffic that module
+  handles. This document now claims it explicitly: a future phase of
+  `ledger.postJournalEntry` rejects a direct post to a `LedgerAccount`
+  that has child accounts, restricting posts to its analytic leaves.
+  Not implemented in this phase — same rationale as the rest of this
+  Out of scope list — but owned here, not deferred again to whichever
+  downstream module happens to need it first. Distinct from
+  `JournalEntryLine.contractorSnapshot`
   (see Design decisions): the snapshot is a denormalized, point-in-time
   audit copy on the line itself; this table is the queryable,
   structured reporting dimension used for per-MPK summaries. The two
