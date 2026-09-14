@@ -6,6 +6,7 @@ import {
   TOO_MANY_CUSTOM_FIELDS_ERROR,
 } from '@open-mercato/shared/modules/entities/validation'
 import { CustomFieldDef, CustomFieldValue } from '../data/entities'
+import { loadScopedCustomFieldDefs } from './scoped-field-defs'
 
 type Primitive = string | number | boolean | null | undefined
 type PrimitiveOrArray = Primitive | Primitive[]
@@ -70,39 +71,9 @@ export async function setRecordCustomFields(
   const tenantId = opts.tenantId ?? null
   const preferDefs = opts.preferDefs !== false
 
-  let defsByKey: Record<string, CustomFieldDef> | undefined
+  let defsByKey: Map<string, CustomFieldDef> | undefined
   if (preferDefs) {
-    const defs = await em.find(CustomFieldDef, {
-      entityId,
-      isActive: true,
-      deletedAt: null,
-      organizationId: { $in: [organizationId, null] as any },
-      tenantId: { $in: [tenantId, null] as any },
-    })
-    const scopeScore = (def: CustomFieldDef) => (def.tenantId ? 2 : 0) + (def.organizationId ? 1 : 0)
-    defsByKey = {}
-    for (const d of defs) {
-      const existing = defsByKey[d.key]
-      if (!existing) {
-        defsByKey[d.key] = d
-        continue
-      }
-      const nextScore = scopeScore(d)
-      const existingScore = scopeScore(existing)
-      if (nextScore > existingScore) {
-        defsByKey[d.key] = d
-        continue
-      }
-      if (nextScore < existingScore) continue
-
-      const nextUpdatedAt = d.updatedAt instanceof Date ? d.updatedAt.getTime() : new Date(d.updatedAt).getTime()
-      const existingUpdatedAt = existing.updatedAt instanceof Date
-        ? existing.updatedAt.getTime()
-        : new Date(existing.updatedAt).getTime()
-      if (nextUpdatedAt >= existingUpdatedAt) {
-        defsByKey[d.key] = d
-      }
-    }
+    defsByKey = await loadScopedCustomFieldDefs(em, { entityId, organizationId, tenantId })
   }
 
   const toPersist: CustomFieldValue[] = []
@@ -147,7 +118,7 @@ export async function setRecordCustomFields(
     const raw = values[fieldKey]
     if (raw === undefined) continue
 
-    const def = defsByKey?.[fieldKey]
+    const def = defsByKey?.get(fieldKey)
     const encrypted = Boolean(def?.configJson && (def as any).configJson?.encrypted)
     const isArray = Array.isArray(raw)
     // When array (multi-value): replace all existing rows for the key. Delete
