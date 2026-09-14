@@ -19,7 +19,7 @@ describe('startModuleRuntimes', () => {
     const started = await startModuleRuntimes({
       modules: [{ id: 'no_runtime' }, moduleWith('has_runtime', { start })],
       container,
-      role: 'server',
+      role: 'worker',
       log: silent,
     })
 
@@ -34,33 +34,34 @@ describe('startModuleRuntimes', () => {
     await startModuleRuntimes({
       modules: [moduleWith('zulu', record('zulu')), moduleWith('alpha', record('alpha')), moduleWith('mike', record('mike'))],
       container,
-      role: 'server',
+      role: 'worker',
       log: silent,
     })
 
     expect(order).toEqual(['alpha', 'mike', 'zulu'])
   })
 
-  it('honours the roles a runtime declares, defaulting to server and worker', async () => {
-    const everywhere = jest.fn().mockResolvedValue(undefined)
-    const workerOnly = jest.fn().mockResolvedValue(undefined)
+  it('defaults to the worker role — the only one wired — and honours a declared role set', async () => {
+    const byDefault = jest.fn().mockResolvedValue(undefined)
+    const serverOnly = jest.fn().mockResolvedValue(undefined)
     const modules = [
-      moduleWith('default_roles', { start: everywhere }),
-      moduleWith('worker_only', { roles: ['worker'], start: workerOnly }),
+      moduleWith('default_roles', { start: byDefault }),
+      moduleWith('server_only', { roles: ['server'], start: serverOnly }),
     ]
 
-    await startModuleRuntimes({ modules, container, role: 'server', log: silent })
-    expect(everywhere).toHaveBeenCalledTimes(1)
-    expect(workerOnly).not.toHaveBeenCalled()
+    await startModuleRuntimes({ modules, container, role: 'worker', log: silent })
+    expect(byDefault).toHaveBeenCalledTimes(1)
+    expect(serverOnly).not.toHaveBeenCalled()
 
     await startModuleRuntimes({ modules, container, role: 'scheduler', log: silent })
-    // Still once: 'scheduler' is not in the default set, so neither module applies.
-    expect(everywhere).toHaveBeenCalledTimes(1)
-    expect(workerOnly).toHaveBeenCalledTimes(0)
+    // Neither applies: 'scheduler' is in neither the default set nor the declared one.
+    expect(byDefault).toHaveBeenCalledTimes(1)
+    expect(serverOnly).not.toHaveBeenCalled()
 
-    await startModuleRuntimes({ modules, container, role: 'worker', log: silent })
-    expect(everywhere).toHaveBeenCalledTimes(2)
-    expect(workerOnly).toHaveBeenCalledTimes(1)
+    // A role a module names explicitly still applies, so widening the default later is additive.
+    await startModuleRuntimes({ modules, container, role: 'server', log: silent })
+    expect(byDefault).toHaveBeenCalledTimes(1)
+    expect(serverOnly).toHaveBeenCalledTimes(1)
   })
 
   it('fails startup when a runtime throws, and stops the ones already started', async () => {
@@ -70,7 +71,7 @@ describe('startModuleRuntimes', () => {
       moduleWith('b_broken', { start: async () => { throw new Error('no broker') } }),
     ]
 
-    await expect(startModuleRuntimes({ modules, container, role: 'server', log: silent }))
+    await expect(startModuleRuntimes({ modules, container, role: 'worker', log: silent }))
       .rejects.toThrow('no broker')
 
     // The whole point: a half-started process must not be left running. A module that came up
@@ -78,11 +79,103 @@ describe('startModuleRuntimes', () => {
     expect(stop).toHaveBeenCalledTimes(1)
   })
 
+  it('fails startup when a runtime throws synchronously, and stops the ones already started', async () => {
+    const stop = jest.fn().mockResolvedValue(undefined)
+    const modules = [
+      moduleWith('a_ok', { start: async () => ({ stop }) }),
+      moduleWith('b_broken', { start: (() => { throw new Error('bad config') }) as ModuleRuntime['start'] }),
+    ]
+
+    await expect(startModuleRuntimes({ modules, container, role: 'worker', log: silent }))
+      .rejects.toThrow('bad config')
+    expect(stop).toHaveBeenCalledTimes(1)
+  })
+
   it('fails startup when a runtime does not start within the timeout', async () => {
     const modules = [moduleWith('slow', { start: () => new Promise<never>(() => {}) })]
 
-    await expect(startModuleRuntimes({ modules, container, role: 'server', log: silent, startTimeoutMs: 10 }))
+    await expect(startModuleRuntimes({ modules, container, role: 'worker', log: silent, startTimeoutMs: 10 }))
       .rejects.toThrow(/did not start within 10ms/)
+  })
+
+  // A start timeout is fatal, so an operator whose runtime legitimately needs longer than the
+  // default needs a supported way to say so rather than a worker that exits non-zero every boot.
+  it('takes both timeouts from the environment', async () => {
+    const modules = [moduleWith('slow', { start: () => new Promise<never>(() => {}) })]
+
+    await expect(startModuleRuntimes({
+      modules,
+      container,
+      role: 'worker',
+      log: silent,
+      env: { OM_MODULE_RUNTIME_START_TIMEOUT_MS: '7' },
+    })).rejects.toThrow(/did not start within 7ms/)
+
+    const stopped = jest.fn().mockResolvedValue(undefined)
+    const started = await startModuleRuntimes({
+      modules: [
+        moduleWith('a_first', { start: async () => ({ stop: stopped }) }),
+        moduleWith('b_hangs', { start: async () => ({ stop: () => new Promise<never>(() => {}) }) }),
+      ],
+      container,
+      role: 'worker',
+      log: silent,
+      env: { OM_MODULE_RUNTIME_STOP_TIMEOUT_MS: '10' },
+    })
+
+    await expect(started.stop()).resolves.toBeUndefined()
+    expect(stopped).toHaveBeenCalledTimes(1)
+  })
+
+  it('prefers an explicit timeout over the environment', async () => {
+    const modules = [moduleWith('slow', { start: () => new Promise<never>(() => {}) })]
+
+    await expect(startModuleRuntimes({
+      modules,
+      container,
+      role: 'worker',
+      log: silent,
+      startTimeoutMs: 5,
+      env: { OM_MODULE_RUNTIME_START_TIMEOUT_MS: '600000' },
+    })).rejects.toThrow(/did not start within 5ms/)
+  })
+
+  // Refusing to boot over a typo in a tuning knob would be worse than the default it replaces.
+  it('falls back to the default timeout, loudly, when the environment value is unusable', async () => {
+    const lines: string[] = []
+    const modules = [moduleWith('ok', { start: async () => undefined })]
+
+    await startModuleRuntimes({
+      modules,
+      container,
+      role: 'worker',
+      log: (message) => lines.push(message),
+      env: { OM_MODULE_RUNTIME_START_TIMEOUT_MS: 'soon', OM_MODULE_RUNTIME_STOP_TIMEOUT_MS: '-1' },
+    })
+
+    expect(lines).toEqual(expect.arrayContaining([
+      expect.stringContaining('ignoring OM_MODULE_RUNTIME_START_TIMEOUT_MS="soon"'),
+      expect.stringContaining('ignoring OM_MODULE_RUNTIME_STOP_TIMEOUT_MS="-1"'),
+    ]))
+  })
+
+  // The handle from a timed-out start never reaches `started`, so shutdown cannot reach it either.
+  // Without trailing the promise, a runtime that ignores `signal` keeps whatever it acquired.
+  it('releases the handle of a start that resolves after its timeout', async () => {
+    const stop = jest.fn().mockResolvedValue(undefined)
+    let resolveStart: (handle: { stop: () => Promise<void> }) => void = () => {}
+    const modules = [moduleWith('late', {
+      start: () => new Promise((resolve) => { resolveStart = resolve }),
+    })]
+
+    await expect(startModuleRuntimes({ modules, container, role: 'worker', log: silent, startTimeoutMs: 10 }))
+      .rejects.toThrow(/did not start within 10ms/)
+
+    resolveStart({ stop })
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(stop).toHaveBeenCalledTimes(1)
   })
 
   it('stops runtimes in reverse start order', async () => {
@@ -94,7 +187,7 @@ describe('startModuleRuntimes', () => {
     const started = await startModuleRuntimes({
       modules: [moduleWith('alpha', runtime('alpha')), moduleWith('bravo', runtime('bravo'))],
       container,
-      role: 'server',
+      role: 'worker',
       log: silent,
     })
     await started.stop()
@@ -109,7 +202,7 @@ describe('startModuleRuntimes', () => {
         start: async ({ signal }) => ({ stop: async () => { abortedDuringStop = signal.aborted } }),
       })],
       container,
-      role: 'server',
+      role: 'worker',
       log: silent,
     })
 
@@ -126,7 +219,7 @@ describe('startModuleRuntimes', () => {
         moduleWith('c_hangs', { start: async () => ({ stop: () => new Promise<never>(() => {}) }) }),
       ],
       container,
-      role: 'server',
+      role: 'worker',
       log: silent,
       stopTimeoutMs: 10,
     })
@@ -142,7 +235,7 @@ describe('startModuleRuntimes', () => {
     const started = await startModuleRuntimes({
       modules: [moduleWith('once', { start: async () => ({ stop }) })],
       container,
-      role: 'server',
+      role: 'worker',
       log: silent,
     })
 
@@ -154,7 +247,7 @@ describe('startModuleRuntimes', () => {
     const started = await startModuleRuntimes({
       modules: [moduleWith('fire_and_forget', { start: async () => undefined })],
       container,
-      role: 'server',
+      role: 'worker',
       log: silent,
     })
 

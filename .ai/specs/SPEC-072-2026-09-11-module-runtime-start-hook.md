@@ -101,8 +101,9 @@ export type ModuleRuntimeHandle = {
 
 export type ModuleRuntime = {
   /**
-   * Roles this runtime wants. Defaults to `['server', 'worker']` — the two long-lived
-   * processes. A module that must not run twice in one deployment narrows it.
+   * Roles this runtime wants. Defaults to `['worker']` — the only role wired today, so the
+   * default never promises a process that starts nothing. `'server'` and `'scheduler'` can be
+   * named explicitly and start once those processes call `startModuleRuntimes`.
    */
   roles?: ModuleRuntimeRole[]
   start(ctx: ModuleRuntimeContext): Promise<ModuleRuntimeHandle | void>
@@ -125,17 +126,24 @@ export default runtime
 
 ### Where it is invoked
 
-**`mercato queue worker --all`** — implemented. Runtimes start after the queue workers are bound
-and before the process announces itself up, and their `stop()` is registered with the existing
-`registerWorkerShutdownHook`. Zero host wiring: a module that ships `runtime.ts` gets a worker-role
-runtime in every deployment that runs this command.
+**`mercato queue worker --all`** — implemented, and the **only** invocation today, which is why
+`worker` is the whole default role set. A default that included `server` would hand a module author
+a runtime that silently does not exist in the application process — the failure this hook exists to
+remove. Widening the default when the `server` role lands is additive; narrowing it later would not
+be.
+
+Runtimes start after the queue workers are bound and before the process announces itself up, and
+their `stop()` is registered with the existing `registerWorkerShutdownHook`. Zero host wiring: a
+module that ships `runtime.ts` gets a worker-role runtime in every deployment that runs this
+command.
 
 Only on `--all`, which is the process a deployment runs and the one `server start` spawns. A
 single-queue worker is a targeted invocation, and starting every module's runtime in each of N of
 them would run N copies of each.
 
-`mercato scheduler start` gets the `scheduler` role for symmetry; nothing opts into it yet, and it
-is not in the default role set.
+`scheduler` is named in `ModuleRuntimeRole` for symmetry, so a module can already declare it. It
+is **not wired**: `mercato scheduler start` does not call `startModuleRuntimes`, and the role is not
+in the default set. Naming it costs nothing and wiring it later is additive.
 
 ### The `server` role — a constraint worth a decision
 
@@ -175,11 +183,20 @@ on this choice.
    needs a loop owns its own loop and returns a handle. A `start` that never resolves holds up
    process startup, and the timeout in (6) bounds that.
 5. **`stop()` is awaited on SIGTERM/SIGINT**, in reverse start order, before the process exits —
-   so a module gets the chance to drain rather than being killed mid-write.
+   so a module gets the chance to drain rather than being killed mid-write. One limit worth
+   knowing: `packages/queue/src/worker/runner.ts` closes every managed queue *before* running its
+   shutdown hooks, so a `stop()` can finish its own work and flush its own writes, but cannot
+   enqueue through the platform queue on the way out. That is a pre-existing property of the
+   shutdown sequence — the local scheduler has the same shape — and not something this hook
+   changes.
 6. **Both are bounded**, by `OM_MODULE_RUNTIME_START_TIMEOUT_MS` and
-   `OM_MODULE_RUNTIME_STOP_TIMEOUT_MS` (defaults 30s / 30s). A timeout on start is a start failure
-   per (3); a timeout on stop is logged and the process exits anyway, because a shutdown that
-   cannot finish must not become a shutdown that never finishes.
+   `OM_MODULE_RUNTIME_STOP_TIMEOUT_MS` (defaults 30s / 30s, read from the environment by
+   `startModuleRuntimes`). A timeout on start is a start failure per (3) — which is exactly why the
+   override has to exist, so a runtime that legitimately needs longer than the default has a
+   supported way to say so rather than a process that exits non-zero on every boot. An unusable
+   value is logged and the default is used: refusing to start over a typo in a tuning knob would be
+   worse than the default it replaces. A timeout on stop is logged and the process exits anyway,
+   because a shutdown that cannot finish must not become a shutdown that never finishes.
 7. **Not invoked during `next build`.** The build evaluates application code and must not acquire
    brokers, sockets or leases. Hosts guard this today with
    `process.env.NEXT_PHASE === 'phase-production-build'`; the runner should own it instead.
@@ -231,15 +248,31 @@ Landed in this PR:
    are the substance of this hook and none of them are reachable through a CLI command in a test.
 5. `packages/cli/src/mercato.ts` — wired into `queue worker --all`, with `stop()` on the existing
    `registerWorkerShutdownHook`.
-6. `packages/cli/src/__tests__/module-runtimes.test.ts` — 12 tests.
+6. `packages/cli/src/lib/generate-watch-structure.ts` — `runtime.ts` in
+   `STRUCTURAL_CONVENTION_FILES`, so `generate --watch` regenerates when one is added or edited.
+   Without it the dev loop reproduces the exact failure this spec removes: no registry entry, no
+   runtime, no error.
+7. `packages/cli/src/__tests__/module-runtimes.test.ts` — 17 tests; plus the generator contract in
+   `registry-variant-parity.test.ts` (`runtime` in `SHARED_PROPERTIES`, a `runtime.ts` in the
+   fixture, and an assertion that the field reaches all five emitted registries) and a watcher
+   case in `generate-watch-structure.test.ts`.
+8. `BACKWARD_COMPATIBILITY.md` §1 and `.ai/docs/module-development.md` — `runtime.ts` listed as a
+   frozen convention file.
 
-Still to do, once the `server` role question above is settled: the Next-side entry, the module
-authoring guide's convention-file list, and `.ai/docs/`.
+Still to do, once the `server` role question above is settled: the Next-side entry, and widening
+`DEFAULT_MODULE_RUNTIME_ROLES` to include `'server'`.
 
-### Compatibility
+### Migration & Backward Compatibility
 
 Additive. `runtime` is optional, no existing module declares one, and a generated registry without
-the field behaves exactly as now.
+the field behaves exactly as now. `runtime.ts` is a new entry in the FROZEN auto-discovery table,
+which §1 of `BACKWARD_COMPATIBILITY.md` explicitly permits; nothing existing is repurposed, since
+no module in the tree ships that file name today.
+
+Nothing is deprecated and nothing needs a bridge, so the deprecation protocol does not apply. The
+one forward-compatibility choice worth recording is `DEFAULT_MODULE_RUNTIME_ROLES = ['worker']`:
+adding `'server'` to it later is additive for every module that took the default, whereas shipping
+the wider default now and narrowing it later would break modules relying on it.
 
 ---
 
@@ -263,3 +296,9 @@ holds a watch or drives a loop meets the same wall.
   all three generator variants, `startModuleRuntimes` + 12 tests, `queue worker --all` wiring).
   Recorded that `mercato server start` is a supervisor, so the `server` role needs a decision
   between a shared instrumentation helper, arming from `onModulesRegistered()`, and scaffolding.
+- **2026-09-14** — Review round 1 (#6057). Narrowed `DEFAULT_MODULE_RUNTIME_ROLES` to `['worker']`
+  so the default no longer promises the unwired `server` role; made the two timeout env vars real
+  rather than documented-only; registered `runtime.ts` with the `generate --watch` structural
+  checksum; extended the registry parity guard to cover the field in all five emitted registries;
+  listed `runtime.ts` in `BACKWARD_COMPATIBILITY.md` §1, `.ai/docs/module-development.md` and both
+  `.env.example` files; and recorded the queue-close-before-shutdown-hooks limit on contract §5.

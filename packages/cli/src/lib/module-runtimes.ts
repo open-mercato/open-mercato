@@ -15,6 +15,9 @@ import {
 export const DEFAULT_START_TIMEOUT_MS = 30_000
 export const DEFAULT_STOP_TIMEOUT_MS = 30_000
 
+export const START_TIMEOUT_ENV_VAR = 'OM_MODULE_RUNTIME_START_TIMEOUT_MS'
+export const STOP_TIMEOUT_ENV_VAR = 'OM_MODULE_RUNTIME_STOP_TIMEOUT_MS'
+
 export type ModuleRuntimeCarrier = { id: string; runtime?: ModuleRuntime }
 
 export type StartModuleRuntimesOptions = {
@@ -23,8 +26,12 @@ export type StartModuleRuntimesOptions = {
   role: ModuleRuntimeRole
   /** One line per start and stop. Defaults to console. */
   log?: (message: string) => void
+  /** Defaults to `OM_MODULE_RUNTIME_START_TIMEOUT_MS`, then 30s. */
   startTimeoutMs?: number
+  /** Defaults to `OM_MODULE_RUNTIME_STOP_TIMEOUT_MS`, then 30s. */
   stopTimeoutMs?: number
+  /** Where the timeout overrides are read from. Defaults to `process.env`. */
+  env?: NodeJS.ProcessEnv
 }
 
 export type StartedModuleRuntimes = {
@@ -39,6 +46,30 @@ class ModuleRuntimeTimeoutError extends Error {
     super(`Module "${moduleId}" did not ${phase} within ${timeoutMs}ms.`)
     this.name = 'ModuleRuntimeTimeoutError'
   }
+}
+
+/**
+ * Reads a timeout override, falling back to `fallbackMs` when it is unset or not a usable number.
+ *
+ * A start timeout is fatal by design (contract §3), so an operator whose runtime legitimately needs
+ * longer than the default — acquiring a lease, waiting on a broker — needs a supported way to say
+ * so rather than a worker that exits non-zero on every boot. A malformed value falls back loudly:
+ * refusing to start over a typo in a tuning knob would be worse than the default it replaces.
+ */
+function resolveTimeoutMs(
+  env: NodeJS.ProcessEnv,
+  name: string,
+  fallbackMs: number,
+  log: (message: string) => void,
+): number {
+  const raw = env[name]
+  if (raw == null || raw.trim() === '') return fallbackMs
+  const parsed = Number(raw)
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    log(`[runtime] ignoring ${name}="${raw}": expected a positive number of milliseconds, using ${fallbackMs}ms`)
+    return fallbackMs
+  }
+  return parsed
 }
 
 /**
@@ -71,19 +102,25 @@ async function withTimeout<T>(work: Promise<T>, timeoutMs: number, onTimeout: ()
  */
 export async function startModuleRuntimes(options: StartModuleRuntimesOptions): Promise<StartedModuleRuntimes> {
   const log = options.log ?? ((message: string) => console.log(message))
-  const startTimeoutMs = options.startTimeoutMs ?? DEFAULT_START_TIMEOUT_MS
-  const stopTimeoutMs = options.stopTimeoutMs ?? DEFAULT_STOP_TIMEOUT_MS
+  const env = options.env ?? process.env
+  const startTimeoutMs = options.startTimeoutMs
+    ?? resolveTimeoutMs(env, START_TIMEOUT_ENV_VAR, DEFAULT_START_TIMEOUT_MS, log)
+  const stopTimeoutMs = options.stopTimeoutMs
+    ?? resolveTimeoutMs(env, STOP_TIMEOUT_ENV_VAR, DEFAULT_STOP_TIMEOUT_MS, log)
 
   const controller = new AbortController()
   const started: Array<{ id: string; handle: ModuleRuntimeHandle | void }> = []
 
   // Sorted by module id so a failure is reproducible rather than dependent on registry order.
+  // Compared by code point rather than `localeCompare`, which depends on the host's default locale
+  // and ICU build — "reproducible" must not mean "on machines with the same locale".
+  //
   // No dependency graph on purpose: a module that needs another module's runtime should depend on
   // its service through DI, which already expresses that and already detects cycles.
   const applicable = options.modules
     .filter((m): m is ModuleRuntimeCarrier & { runtime: ModuleRuntime } =>
       Boolean(m.runtime) && moduleRuntimeAppliesTo(m.runtime as ModuleRuntime, options.role))
-    .sort((a, b) => a.id.localeCompare(b.id))
+    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
 
   const stopStarted = async (): Promise<void> => {
     controller.abort()
@@ -107,15 +144,28 @@ export async function startModuleRuntimes(options: StartModuleRuntimesOptions): 
 
   for (const module of applicable) {
     const startedAt = Date.now()
+    // Called through an async wrapper so a `start` that throws synchronously rejects rather than
+    // escaping the try below, which would skip stopping the runtimes already started.
+    const starting = (async () =>
+      module.runtime.start({ container: options.container, role: options.role, signal: controller.signal }))()
     try {
       const handle = await withTimeout(
-        Promise.resolve(module.runtime.start({ container: options.container, role: options.role, signal: controller.signal })),
+        starting,
         startTimeoutMs,
         () => new ModuleRuntimeTimeoutError(module.id, 'start', startTimeoutMs),
       )
       started.push({ id: module.id, handle })
       log(`[runtime] started "${module.id}" (${options.role}, ${Date.now() - startedAt}ms)`)
     } catch (error) {
+      // A timed-out `start` keeps running: its handle was never pushed to `started`, so shutdown
+      // would not reach it. Trail the promise and release whatever it eventually hands back — and
+      // swallow a late rejection, which would otherwise surface as an unhandled rejection long
+      // after the error below has already been reported.
+      if (error instanceof ModuleRuntimeTimeoutError) {
+        void starting
+          .then((handle) => handle?.stop())
+          .catch(() => {})
+      }
       await stopStarted()
       throw error
     }
@@ -134,6 +184,11 @@ export async function startModuleRuntimes(options: StartModuleRuntimesOptions): 
  * A build evaluates application code and must not acquire brokers, sockets or leases — and must
  * certainly not briefly own work it cannot finish. Hosts have been carrying this check by hand;
  * it belongs with the runner.
+ *
+ * At its only call site today — `mercato queue worker --all` — it is always false: `NEXT_PHASE` is
+ * set by Next, not by a worker process. It guards the entry that matters once the `server` role
+ * lands, where module code really is evaluated during `next build`; it is here so that entry
+ * inherits the check rather than reinventing it.
  */
 export function isProductionBuildPhase(env: NodeJS.ProcessEnv = process.env): boolean {
   return env.NEXT_PHASE === 'phase-production-build'

@@ -18,6 +18,9 @@ import type { AppContainer } from '../lib/di/container'
  *
  * `server` is the application process; `worker` runs queue workers; `scheduler` runs the
  * scheduler. A module that must not run its runtime twice in one deployment narrows to one.
+ *
+ * Only `worker` starts runtimes today (`mercato queue worker --all`). The other two are named so
+ * the contract is complete, and start nothing until their process calls `startModuleRuntimes`.
  */
 export type ModuleRuntimeRole = 'server' | 'worker' | 'scheduler'
 
@@ -40,10 +43,13 @@ export type ModuleRuntimeHandle = {
 
 export type ModuleRuntime = {
   /**
-   * Roles this runtime belongs in. Defaults to `['server', 'worker']` — the two long-lived
-   * processes. The default deliberately includes both: a runtime that only started in one of them
-   * would be absent from the other with no indication, which is the failure this hook exists to
-   * remove.
+   * Roles this runtime belongs in. Defaults to `['worker']` — the only role wired today.
+   *
+   * The default promises no more than is implemented: a module taking it gets a runtime that
+   * actually runs. `'server'` and `'scheduler'` can be named explicitly, and will start once those
+   * processes call `startModuleRuntimes` — widening the default then is additive, whereas shipping
+   * a default that silently does nothing and narrowing it later would be a breaking change to a
+   * frozen surface.
    */
   roles?: ModuleRuntimeRole[]
 
@@ -58,7 +64,7 @@ export type ModuleRuntime = {
   start(ctx: ModuleRuntimeContext): Promise<ModuleRuntimeHandle | void>
 }
 
-export const DEFAULT_MODULE_RUNTIME_ROLES: ModuleRuntimeRole[] = ['server', 'worker']
+export const DEFAULT_MODULE_RUNTIME_ROLES: ModuleRuntimeRole[] = ['worker']
 
 export function moduleRuntimeAppliesTo(runtime: ModuleRuntime, role: ModuleRuntimeRole): boolean {
   const roles = runtime.roles ?? DEFAULT_MODULE_RUNTIME_ROLES

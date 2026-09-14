@@ -3763,12 +3763,6 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
       if (setup) setupImportName = setup.importName
     }
 
-    // 11b. Module runtime: runtime.ts (SPEC-072)
-    {
-      const moduleRuntime = resolveConventionFile(discovered.resolve('runtime.ts'), 'RUNTIME', modId, importIdRef, imports, runtimeImports)
-      if (moduleRuntime) moduleRuntimeImportName = moduleRuntime.importName
-    }
-
     // 11a. Encryption defaults: encryption.ts
     {
       const encryption = resolveConventionFile(discovered.resolve('encryption.ts'), 'ENCRYPTION', modId, importIdRef, imports, runtimeImports)
@@ -3784,6 +3778,12 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
         runtimeImports.push(buildImportStatement(`* as ${importName}`, resolved.importPath))
         integrationImportName = importName
       }
+    }
+
+    // 11c. Module runtime: runtime.ts (SPEC-072)
+    {
+      const moduleRuntime = resolveConventionFile(discovered.resolve('runtime.ts'), 'RUNTIME', modId, importIdRef, imports, runtimeImports)
+      if (moduleRuntime) moduleRuntimeImportName = moduleRuntime.importName
     }
 
     // 12. Custom fields: data/fields.ts

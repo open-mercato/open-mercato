@@ -1748,6 +1748,10 @@ export async function run(argv = process.argv) {
             // Only on `--all`: that is the process a deployment runs and the one `server start`
             // spawns. A single-queue worker is a targeted invocation, and starting every module's
             // runtime in each of N of them would run N copies of each.
+            //
+            // The build-phase guard is always false here — NEXT_PHASE is set by Next, not by a
+            // worker — and is kept so the check lives with the runner rather than being reinvented
+            // by the Next-side entry, where module code really is evaluated during `next build`.
             if (!isProductionBuildPhase()) {
               const runtimes = await startModuleRuntimes({
                 modules: getCliModules(),
