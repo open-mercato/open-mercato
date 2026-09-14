@@ -1,4 +1,4 @@
-import { buildContainmentPatterns } from '../containment'
+import { buildContainmentPatterns, MAX_CONTAINMENT_WORDS } from '../containment'
 
 describe('buildContainmentPatterns (#5803)', () => {
   test('splits a multi-word contains pattern into one pattern per word', () => {
@@ -43,5 +43,19 @@ describe('buildContainmentPatterns (#5803)', () => {
 
   test('treats a trailing escaped percent as a literal, not as the closing wildcard', () => {
     expect(buildContainmentPatterns('%John Smith\\%')).toEqual(['%John Smith\\%'])
+  })
+
+  test('splits a term at the word cap', () => {
+    const words = Array.from({ length: MAX_CONTAINMENT_WORDS }, (_, index) => `w${index}`)
+    expect(buildContainmentPatterns(`%${words.join(' ')}%`)).toEqual(words.map((word) => `%${word}%`))
+  })
+
+  test('falls back to the single verbatim pattern above the word cap', () => {
+    // Most list routes declare `search` as an unbounded string and this repo ships no trigram
+    // index, so an unbounded per-word AND would let one request compile into an unbounded number
+    // of sequential-scan predicates. Past the cap, this returns to the pre-split behavior instead.
+    const words = Array.from({ length: MAX_CONTAINMENT_WORDS + 1 }, (_, index) => `w${index}`)
+    const pattern = `%${words.join(' ')}%`
+    expect(buildContainmentPatterns(pattern)).toEqual([pattern])
   })
 })

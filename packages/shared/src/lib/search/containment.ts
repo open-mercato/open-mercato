@@ -24,13 +24,23 @@
  *
  * Anything else returns the input unchanged as a single pattern, which is the caller's existing
  * behavior.
+ *
+ * The split is also capped at {@link MAX_CONTAINMENT_WORDS} words. Most list routes declare
+ * `search` as an unbounded string, this repository ships no trigram index for the resulting
+ * `ILIKE`, and the hybrid engine's `$or` groups multiply the split across every leaf — so an
+ * attacker-controlled term with thousands of words would otherwise compile into thousands of
+ * sequential-scan predicates from one request. A term at or under the cap keeps the per-word AND
+ * semantics; over the cap it falls back to the single verbatim pattern, which is bounded and was
+ * this helper's own behavior before the split existed.
  */
+export const MAX_CONTAINMENT_WORDS = 10
+
 export function buildContainmentPatterns(pattern: string): string[] {
   if (!isWrappedContainsPattern(pattern)) return [pattern]
   const term = pattern.slice(1, -1)
   if (hasUnescapedWildcard(term)) return [pattern]
   const words = term.split(/\s+/).filter((word) => word.length > 0)
-  if (words.length < 2) return [pattern]
+  if (words.length < 2 || words.length > MAX_CONTAINMENT_WORDS) return [pattern]
   return words.map((word) => `%${word}%`)
 }
 

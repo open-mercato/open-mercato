@@ -618,9 +618,12 @@ export class BasicQueryEngine implements QueryEngine {
           })
         }
       }
-      // A PLAINTEXT column the gate above kept off the token path: apply the declared containment
-      // once per word so the token subquery's word-order-independent matching survives the reroute
-      // (#5803 / TC-RESO-009). Chained `where`s ARE the AND the token `having count(distinct)` did.
+      // A PLAINTEXT base column the gate above kept off the token path: apply the declared
+      // containment once per word so the token subquery's word-order-independent matching survives
+      // the reroute (#5803 / TC-RESO-009). Chained `where`s ARE the AND the token
+      // `having count(distinct)` did. `fieldName` is required, so this never fires for a JOINed
+      // column — `applyJoinFilters` calls `applyFilterOp` without it (below), and that predicate
+      // keeps its pre-existing literal-containment behavior unchanged.
       if (
         (op === 'like' || op === 'ilike') &&
         typeof value === 'string' &&
@@ -1145,6 +1148,12 @@ export class BasicQueryEngine implements QueryEngine {
       // `ilike` through the search-token index the way the ungrouped path does. On a
       // field covered by an encryption map such a leaf therefore compares against
       // ciphertext and will not match.
+      //
+      // This also means the #5803 plaintext-containment split (lib/search/containment) does not
+      // apply here: `buildColumnOpExpression` below keeps a multi-word `like`/`ilike` leaf as one
+      // literal pattern, so an OR-grouped search (e.g. `customers/api/people`'s multi-field
+      // fallback) loses word-order independence on Basic while the Hybrid engine's OR groups
+      // apply the split. Pre-existing divergence between the two engines, tracked as a follow-up.
       //
       // The count shape never populates cfValueExprByKey (it joins no cf tables), so
       // its applicability test is key resolution itself — the same condition that
