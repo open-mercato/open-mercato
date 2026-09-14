@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { buildPackage } from '../../scripts/build-package.mjs'
 import { discoverResolvedIcons } from './scripts/lucideIconDiscovery.cjs'
-import { buildLucideRegistrySource } from './scripts/lucideRegistrySource.cjs'
+import { buildLucideRegistrySource, checkLucideRegistryDrift } from './scripts/lucideRegistrySource.cjs'
 
 const packageDir = dirname(fileURLToPath(import.meta.url))
 // `--check` regenerates the lucide registry in memory and fails on drift
@@ -26,16 +26,13 @@ async function generateLucideRegistry() {
   // this unfiltered, mirroring `ds:tokens:check`.
   if (checkOnly) {
     const committed = existsSync(outPath) ? readFileSync(outPath, 'utf8') : ''
-    if (committed === source) {
-      console.log(`Lucide registry is in sync (${resolved.length} icons).`)
-      return
+    const drift = checkLucideRegistryDrift(committed, source, outPath)
+    if (drift.drifted) {
+      console.error(drift.message)
+      process.exit(1)
     }
-    console.error(
-      `Lucide icon registry is out of date: ${outPath}\n`
-        + 'A referenced icon name was added or removed without regenerating it.\n'
-        + 'Run `yarn workspace @open-mercato/ui build` and commit the result.',
-    )
-    process.exit(1)
+    console.log(`Lucide registry is in sync (${resolved.length} icons).`)
+    return
   }
 
   writeFileSync(outPath, source)
