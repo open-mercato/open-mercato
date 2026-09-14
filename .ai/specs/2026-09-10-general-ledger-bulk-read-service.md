@@ -81,17 +81,24 @@ one is filed).
   a same-PR fix. No versioning/deprecation mechanism is proposed here —
   flagged in Out of scope as a real, deferred question.
 - **Volume/streaming design is an assumption, not a verified
-  requirement.** Cursor pagination is proposed on the precedent of
-  `#6013`'s own File Manifest, which lists
-  `api/reports/trial-balance/route.ts` with "cursor pagination"
-  explicitly named (confirmed by reading that file directly on
-  `docs/general-ledger-account-balances` this session, not from
-  GL core's spec — GL core's own paginated routes, e.g.
-  `journal-entries`, use `page`/`pageSize` instead, so this precedent
-  comes specifically from #6013, not from the module generally). No
-  real customer's actual journal volume has been checked. If real
-  volumes turn out small, a simpler non-paginated read might have been
-  enough; if huge, cursor pagination alone might not be.
+  requirement.** Cursor pagination is chosen on its own terms, not by
+  precedent: `iterateJournalEntries`/`iterateJournalEntryLines`
+  return an `AsyncIterable` for a backend job pulling a full fiscal
+  year in one logical pass — a different consumption shape than an
+  HTTP route rendered by `DataTable`, where a bounded `page`/
+  `pageSize` response is what the UI can render at all. **Correction
+  (2026-09-14):** an earlier version of this bullet cited `#6013`'s
+  `api/reports/trial-balance/route.ts` cursor pagination as this
+  choice's precedent; #6013's own PR review response (2026-09-14)
+  switched that route to `page`/`pageSize` (its `DataTable` has no
+  cursor/keyset support to drive), so that precedent no longer
+  exists anywhere in this module. This document's own cursor choice
+  is unaffected — it never actually needed #6013 as precedent, since
+  the two solve different consumption shapes — but the citation was
+  wrong and is corrected here rather than left standing. No real
+  customer's actual journal volume has been checked either way. If
+  real volumes turn out small, a simpler non-paginated read might
+  have been enough; if huge, cursor pagination alone might not be.
 - Whether `listJournalEntries`'s underlying query is already a
   standalone, importable function (like #6013's `getAccountBalance`) or
   currently inlined in `api/journal-entries/route.ts` was **not
@@ -239,10 +246,20 @@ tenant's data, with no framework-level guardrail catching the mistake
 the way request-derived scoping does today. Mitigated only by review,
 not by the type system — flagged, not solved, here.
 
-**Why cursor pagination, not a single bulk array.** Same precedent
-#6013 already established for `GET /api/ledger/reports/trial-balance`.
-Untested against real volumes (see Concerns) — proposed on precedent,
-not measurement.
+**Why cursor pagination, not a single bulk array.**
+`iterateJournalEntries`/`iterateJournalEntryLines` return an
+`AsyncIterable` for a backend job pulling an unbounded number of rows
+in one logical pull (a full fiscal year's journal) — cursor-based
+iteration is the standard shape for exactly that, independent of
+what any HTTP route in this module does. **Correction (2026-09-14):**
+this decision previously cited "the same precedent #6013 already
+established for `GET /api/ledger/reports/trial-balance`"; #6013 has
+since switched that route to `page`/`pageSize` (Concerns), so no
+such precedent exists in this module anymore. The choice here stands
+on its own regardless — it was never actually the same problem
+#6013's `DataTable`-rendered page was solving. Untested against real
+volumes (see Concerns) — proposed on the shape of the consumption,
+not on measurement.
 
 ## Literature & Prior Art
 
@@ -263,10 +280,18 @@ snapshot-free bulk-read design leans on — and its Out of scope entry
 `JournalEntryLine`... shaped for a person through a UI") is quoted
 correctly. #6013's "Scoped to ZSiO only, not Bilans/P&L/Cash Flow" and
 its File Manifest's cursor-pagination precedent for the trial-balance
-route both check out exactly as cited too. No corrections needed —
-worth naming as a positive finding, not a formality: this is the first
-spec in the family whose own citations required zero corrections on
-independent re-verification.
+route both checked out exactly as cited, as of this verification pass
+(2026-09-12) — worth naming as a positive finding, not a formality:
+this was the first spec in the family whose own citations required
+zero corrections on independent re-verification. **Update
+(2026-09-14):** the second citation has since gone stale, not
+wrong-at-the-time — #6013's own PR review response switched
+`trial-balance` from cursor to `page`/`pageSize` pagination the same
+day (its `DataTable` has no cursor/keyset support), so the File
+Manifest text this paragraph verified against no longer reads that
+way. Corrected in Concerns and Design decisions above; "zero
+corrections needed" above describes this document's citations as of
+2026-09-12, not as of today.
 
 **Literature grounding (Step 2) — a genuine, near-total absence.**
 Searched Hay's *Data Model Patterns* and Fowler's *Analysis Patterns*
@@ -536,3 +561,24 @@ formal DI-resolved contract is a deliberate middle path neither
 reference system takes, trading design cost for enforced module
 isolation. Findings recorded in full in
 `financial-module-knowledge-base.md` §3.
+
+### 2026-09-14 — corrected a citation invalidated by #6013's own review response
+
+Not a design change. #6013's PR review response (2026-09-14) switched
+`GET /api/ledger/reports/trial-balance` from cursor pagination to
+`page`/`pageSize` (its `DataTable` has no cursor/keyset support to
+drive — checked directly against `packages/ui/src/backend/
+DataTable.tsx`). This document's Concerns and Design decisions both
+cited that route's now-removed cursor pagination as the precedent for
+this document's own `iterateJournalEntries`/`iterateJournalEntryLines`
+cursor choice — a citation that checked out exactly as written on
+2026-09-12 (Literature & Prior Art) and went stale two days later, not
+one that was wrong when made. Corrected both passages to justify
+cursor pagination on its own terms (an `AsyncIterable` backend pull is
+a different consumption shape than a `DataTable`-rendered page,
+regardless of what pagination scheme any single HTTP route uses) and
+flagged the Literature & Prior Art re-verification as accurate only
+as of its own date. This document's actual design — cursor-paginated
+`AsyncIterable` methods, `getZois` delegating to #6013's
+`getTrialBalance`/`getAccountBalance` — is unchanged; only the
+citation supporting one design decision needed fixing.
