@@ -14,7 +14,7 @@ function runView(overrides: Partial<ScorerRunView> = {}): ScorerRunView {
   return {
     input: null,
     output: { answer: 'ok' },
-    resultKind: 'researcher',
+    resultKind: 'research',
     confidence: 0.9,
     status: 'completed',
     latencyMs: 1000,

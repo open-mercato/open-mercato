@@ -18,7 +18,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 const logger = createLogger('workflows').child({ component: 'agent-result-mapping' })
 
 export type AgentResultEnvelope = {
-  kind: 'auto_approved' | 'researcher' | 'user_task' | 'none_proposed' | 'artifact'
+  kind: 'auto_approved' | 'research' | 'user_task' | 'none_proposed' | 'artifact'
   agentId?: string
   proposalId?: string
   proposalPayload?: unknown
@@ -63,8 +63,12 @@ export function mapAgentResultToContext(
     // `artifact` reports as `researcher` here for the same reason it routes onto
     // that handle: the disposition vocabulary describes DECISIONS, and producing
     // a file is not one. The `kind` above still says what actually came back.
+    //
+    // Note the two spellings are deliberate: `research` is the agent RESULT kind
+    // (unification spec §7), `researcher` the core-owned outcome handle it routes
+    // to. Renaming the handle would rewrite persisted workflow graphs.
     disposition:
-      envelope.kind === 'researcher' || envelope.kind === 'artifact' ? 'researcher' : envelope.kind,
+      envelope.kind === 'research' || envelope.kind === 'artifact' ? 'researcher' : envelope.kind,
     agentId: envelope.agentId,
     proposalId: envelope.proposalId,
     proposalPayload: envelope.proposalPayload,

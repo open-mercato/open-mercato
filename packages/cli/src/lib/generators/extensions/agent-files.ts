@@ -59,7 +59,7 @@ type DiscoveredAgent = {
   label: string
   description: string
   instructions: string
-  resultKind: 'researcher' | 'proposal' | 'artifact'
+  resultKind: 'research' | 'proposal' | 'artifact'
   /** Absent for `kind: artifact`, whose result envelope is fixed. */
   outcomeSchema?: Record<string, unknown>
   /** OUTCOME.md prose after the JSON-Schema fence — injected into the agent prompt. */
@@ -73,7 +73,7 @@ type DiscoveredAgent = {
   skillsContent: DiscoveredSkill[]
   /**
    * Resolved sub-agents under `sub-agents/<subid>/` (Phase 4). Each is a full
-   * file agent, constrained to researcher + non-delegating. Empty for a
+   * file agent, constrained to research + non-delegating. Empty for a
    * sub-agent itself (depth cap = 1) and for primaries with no sub-agents.
    */
   subAgentsContent: DiscoveredAgent[]
@@ -214,12 +214,12 @@ function parseAgentMarkdown(raw: string): AgentFrontmatter | null {
   return meta
 }
 
-function parseOutcomeKind(frontmatterBlock: string): 'researcher' | 'proposal' | 'artifact' | null {
+function parseOutcomeKind(frontmatterBlock: string): 'research' | 'proposal' | 'artifact' | null {
   for (const line of frontmatterBlock.split('\n')) {
     const match = /^kind:\s*(.*)$/.exec(line.trim())
     if (!match) continue
     const value = stripQuotes(match[1])
-    if (value === 'researcher' || value === 'proposal' || value === 'artifact') return value
+    if (value === 'research' || value === 'proposal' || value === 'artifact') return value
     return null
   }
   return null
@@ -228,7 +228,7 @@ function parseOutcomeKind(frontmatterBlock: string): 'researcher' | 'proposal' |
 function parseOutcomeMarkdown(
   raw: string,
 ): {
-  kind: 'researcher' | 'proposal' | 'artifact'
+  kind: 'research' | 'proposal' | 'artifact'
   schema?: Record<string, unknown>
   prose: string
 } | null {
@@ -580,7 +580,7 @@ function discoverAgentSkills(agentDir: string, skillIds: string[]): DiscoveredSk
 /**
  * Discover and validate the sub-agents under `agents/<id>/sub-agents/<subid>/`
  * (Phase 4). Each is a full file agent (AGENT.md + OUTCOME.md) constrained to:
- *   1. OUTCOME `kind: researcher` (sub-agents inform; only the primary proposes);
+ *   1. OUTCOME `kind: research` (sub-agents inform; only the primary proposes);
  *   2. NO `subAgents` of its own (depth cap = 1).
  * FAILS generation (throws, naming the dir) on a malformed sub-agent OR a
  * constraint violation — in sync with `lib/sdk/defineFileAgent.ts` `loadSubAgentDir`.
@@ -608,9 +608,9 @@ function discoverSubAgents(agentDir: string): DiscoveredAgent[] {
       throw new Error(`[internal] malformed OUTCOME.md at ${dir}: missing kind or JSON-Schema block`)
     }
     if (outcome.schema) assertOutcomeSchemaSupported(outcome.schema, dir)
-    if (outcome.kind !== 'researcher') {
+    if (outcome.kind !== 'research') {
       throw new Error(
-        `[internal] sub-agent at ${dir} must be researcher (kind: researcher); only the primary proposes`,
+        `[internal] sub-agent at ${dir} must be research (kind: research); only the primary proposes`,
       )
     }
     if (agent.subAgents.length > 0) {
@@ -973,7 +973,7 @@ function renderOpenCodeAgentFile(agent: DiscoveredAgent): string {
  * Render one agent descriptor as a key-per-line object literal at `indent`.
  * Used for both top-level agents and nested sub-agents (Phase 4). A primary that
  * declares sub-agents emits them as a nested `subAgentDescriptors` array so
- * `ensureAgentsLoaded` can register each sub-agent too (researcher, individually
+ * `ensureAgentsLoaded` can register each sub-agent too (research, individually
  * runnable file agents). A nested sub-agent carries no `subAgentDescriptors`
  * (depth cap = 1).
  */
@@ -1099,7 +1099,7 @@ export type FileAgentDescriptor = {
   sourceFiles?: FileAgentFile[]
   /**
    * Nested descriptors for this agent's sub-agents (Phase 4). Each is an
-   * researcher, non-delegating file agent registered individually (depth cap =
+   * research-kind, non-delegating file agent registered individually (depth cap =
    * 1). Absent for agents without sub-agents and for sub-agents themselves.
    */
   subAgentDescriptors?: FileAgentDescriptor[]

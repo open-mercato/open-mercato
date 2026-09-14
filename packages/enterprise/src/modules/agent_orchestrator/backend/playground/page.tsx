@@ -37,7 +37,7 @@ import { PlaygroundEvalPanel } from './PlaygroundEvalPanel'
 type AgentsResponse = { items?: Array<Record<string, unknown>> }
 
 type AgentResult =
-  | { kind: 'researcher'; data: unknown }
+  | { kind: 'research'; data: unknown }
   | { kind: 'proposal'; proposal: unknown }
 
 type AgentRunResponse = AgentResult & { runId?: string | null; proposalId?: string | null }
@@ -555,9 +555,9 @@ export default function AgentPlaygroundPage() {
                 <ProposalCard adHoc={mapAdHocProposal(agentId, result.proposal)} />
               ) : null}
 
-              {result?.kind === 'researcher' ? (
+              {result?.kind === 'research' ? (
                 <section className="space-y-2">
-                  <SectionHeader title={t('agent_orchestrator.playground.result.researcher')} />
+                  <SectionHeader title={t('agent_orchestrator.playground.result.research')} />
                   <JsonDisplay data={result.data} />
                 </section>
               ) : null}

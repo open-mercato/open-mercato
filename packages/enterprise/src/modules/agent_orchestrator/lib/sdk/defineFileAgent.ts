@@ -76,7 +76,7 @@ export type LoadedFileAgent = {
  * OUTCOME.md authoring format (Phase 1):
  *
  *   ---
- *   kind: proposal            # researcher | proposal
+ *   kind: proposal            # research | proposal | artifact
  *   ---
  *   ```json
  *   { "type": "object", "required": [...], "properties": { ... } }
@@ -109,7 +109,7 @@ function parseOutcomeKind(frontmatterBlock: string): OutcomeKind | null {
     const match = /^kind:\s*(.*)$/.exec(line.trim())
     if (!match) continue
     const value = match[1].trim().replace(/^['"]/, '').replace(/['"]$/, '').trim()
-    if (value === 'researcher' || value === 'proposal' || value === 'artifact') return value
+    if (value === 'research' || value === 'proposal' || value === 'artifact') return value
     return null
   }
   return null
@@ -551,7 +551,7 @@ function loadAgentSkills(agentDir: string, skillIds: string[]): LoadedSkillConte
  * `mode: subagent`, read-only, and MUST satisfy two hard rules (matching the
  * in-process `delegate_agent` contract):
  *
- *   1. OUTCOME `kind` MUST be `researcher` (sub-agents inform; only the primary
+ *   1. OUTCOME `kind` MUST be `research` (sub-agents inform; only the primary
  *      proposes);
  *   2. it MUST NOT itself declare `subAgents` (depth cap = 1).
  *
@@ -574,9 +574,9 @@ function loadSubAgentDir(dir: string): LoadedFileAgent {
   if (!outcome) {
     throw new Error(`[internal] malformed OUTCOME.md at ${dir}: missing kind or JSON-Schema block`)
   }
-  if (outcome.kind !== 'researcher') {
+  if (outcome.kind !== 'research') {
     throw new Error(
-      `[internal] sub-agent at ${dir} must be researcher (kind: researcher); sub-agents inform, only the primary proposes`,
+      `[internal] sub-agent at ${dir} must be research (kind: research); sub-agents inform, only the primary proposes`,
     )
   }
   if (agent.subAgents.length > 0) {
@@ -643,7 +643,7 @@ function loadSubAgentDir(dir: string): LoadedFileAgent {
 /**
  * Load every sub-agent under `agents/<id>/sub-agents/<subid>/` (Phase 4). Each
  * resolved child carries its own loaded `LoadedFileAgent` (full file agent,
- * constrained to researcher + non-delegating). Returns [] when the agent has no
+ * constrained to research + non-delegating). Returns [] when the agent has no
  * `sub-agents/` dir.
  */
 function loadSubAgents(agentDir: string): LoadedFileAgent[] {

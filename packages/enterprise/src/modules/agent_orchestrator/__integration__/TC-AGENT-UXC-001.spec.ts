@@ -141,7 +141,7 @@ test.describe('TC-AGENT-UXC-001: trace detail live refresh', () => {
         externalRunId,
         agentId: 'deals.health_check',
         status: 'ok',
-        output: { kind: 'researcher', data: { ok: true } },
+        output: { kind: 'research', data: { ok: true } },
         spans: [
           {
             externalSpanId: 'llm',

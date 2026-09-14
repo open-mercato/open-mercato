@@ -32,7 +32,7 @@ function buildTracePayload(externalRunId: string) {
     externalRunId,
     agentId: 'deals.health_check',
     status: 'ok' as const,
-    output: { kind: 'researcher', data: { ok: true } },
+    output: { kind: 'research', data: { ok: true } },
     spans: [
       {
         externalSpanId: 'root',

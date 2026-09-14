@@ -70,7 +70,7 @@ const completeAgentRunSchema = z
     runId: z.string().uuid(),
     status: z.enum(['ok', 'error']),
     output: z.unknown().optional(),
-    resultKind: z.enum(['researcher', 'proposal']).nullable().optional(),
+    resultKind: z.enum(['research', 'proposal', 'artifact']).nullable().optional(),
     confidence: z.number().min(0).max(1).nullable().optional(),
   })
   .merge(runUsageStampSchema)

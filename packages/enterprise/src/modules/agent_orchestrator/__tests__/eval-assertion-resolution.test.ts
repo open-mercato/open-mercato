@@ -90,7 +90,7 @@ describe('online/offline scorer parity', () => {
   const view: ScorerRunView = {
     input: { q: 'shoes' },
     output: { answer: 'ok', count: 2 },
-    resultKind: 'researcher',
+    resultKind: 'research',
     agentType: 'researcher',
     confidence: 0.8,
     status: 'ok',

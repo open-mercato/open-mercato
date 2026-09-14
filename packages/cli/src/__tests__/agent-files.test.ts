@@ -84,7 +84,7 @@ const SUB_CLAUDE = [
 
 const SUB_OUTCOME = [
   '---',
-  'kind: researcher',
+  'kind: research',
   '---',
   '```json',
   JSON.stringify({
@@ -172,7 +172,7 @@ describe('agent-files generator (Phase 4 sub-agents)', () => {
     })
 
     const extension = createAgentFilesExtension()
-    expect(() => extension.scanModule(makeCtx(repo, 'agent_examples'))).toThrow(/researcher/i)
+    expect(() => extension.scanModule(makeCtx(repo, 'agent_examples'))).toThrow(/research/i)
   })
 
   it('fails generation when a sub-agent declares its own subAgents (depth cap = 1)', () => {

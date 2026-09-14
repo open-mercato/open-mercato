@@ -292,8 +292,8 @@ export function shapeResult(
   agentId?: string,
 ): AgentResult {
   const record = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>
-  if (resultKind === 'researcher') {
-    return { kind: 'researcher', data: 'data' in record ? record.data : data }
+  if (resultKind === 'research') {
+    return { kind: 'research', data: 'data' in record ? record.data : data }
   }
   if (resultKind === 'artifact') {
     // The file plane already stored, hashed and encrypted the bytes; what the

@@ -34,10 +34,10 @@ jest.mock('../lib/runtime/persistence', () => ({
   completeRun: (...args: unknown[]) => completeRunMock(...args),
   failRun: (...args: unknown[]) => failRunMock(...args),
   createProposal: (...args: unknown[]) => createProposalMock(...args),
-  shapeResult: (kind: 'researcher' | 'proposal', data: unknown) => {
+  shapeResult: (kind: 'research' | 'proposal', data: unknown) => {
     const record = (data && typeof data === 'object' ? data : {}) as Record<string, unknown>
-    return kind === 'researcher'
-      ? { kind: 'researcher', data: 'data' in record ? record.data : data }
+    return kind === 'research'
+      ? { kind: 'research', data: 'data' in record ? record.data : data }
       : { kind: 'proposal', proposal: record.proposal ?? data }
   },
 }))
@@ -80,8 +80,8 @@ function registerNativeAgent(id: string): AgentRegistryEntry {
   const entry: AgentRegistryEntry = {
     id,
     moduleId: 'agent_orchestrator',
-    resultKind: 'researcher',
-    schema: z.object({ kind: z.literal('researcher'), data: z.unknown() }),
+    resultKind: 'research',
+    schema: z.object({ kind: z.literal('research'), data: z.unknown() }),
     tools: [],
     skills: [],
     subAgents: [],
@@ -104,7 +104,7 @@ function makeService(): AgentRuntimeService {
   return new AgentRuntimeService({ container: container as never, commandBus: {} as never })
 }
 
-const VALID_MODEL_OUTPUT = { mode: 'generate', object: { kind: 'researcher', data: { ok: true } }, usage: { inputTokens: 9, outputTokens: 3 } }
+const VALID_MODEL_OUTPUT = { mode: 'generate', object: { kind: 'research', data: { ok: true } }, usage: { inputTokens: 9, outputTokens: 3 } }
 const runCtx = { tenantId: 'tenant-1', organizationId: 'org-1', userId: 'user-1' }
 
 function flushMicrotasks(): Promise<void> {
@@ -155,7 +155,7 @@ describe('native run stamping', () => {
         observed.push(persistedRunId)
       },
     })
-    expect(result.kind).toBe('researcher')
+    expect(result.kind).toBe('research')
     expect(observed).toHaveLength(1)
     expect(observed[0]).toMatch(/^run-\d+$/)
 
@@ -167,7 +167,7 @@ describe('native run stamping', () => {
           throw new Error('[internal] hook boom')
         },
       })
-      expect(result2.kind).toBe('researcher')
+      expect(result2.kind).toBe('research')
       expect(logs.at('warn').map((record) => record.message)).toContain('onRunPersisted hook failed')
     } finally {
       logs.restore()
@@ -178,8 +178,8 @@ describe('native run stamping', () => {
     const entry: AgentRegistryEntry = {
       id: 'native.legacy_alias_agent',
       moduleId: 'agent_orchestrator',
-      resultKind: 'researcher',
-      schema: z.object({ kind: z.literal('researcher'), data: z.unknown() }),
+      resultKind: 'research',
+      schema: z.object({ kind: z.literal('research'), data: z.unknown() }),
       tools: [],
       skills: [],
       subAgents: [],
@@ -193,7 +193,7 @@ describe('native run stamping', () => {
 
     const service = makeService()
     const result = await service.run('native.legacy_alias_agent', {}, runCtx)
-    expect(result.kind).toBe('researcher')
+    expect(result.kind).toBe('research')
     const createInput = createRunMock.mock.calls[0][2] as Record<string, unknown>
     expect(createInput.runtime).toBe('native')
   })
@@ -263,7 +263,7 @@ describe('post-run trace capture', () => {
 
     const service = makeService()
     const result = await service.run('native.capture_failure_agent', {}, runCtx)
-    expect(result.kind).toBe('researcher')
+    expect(result.kind).toBe('research')
     await flushMicrotasks()
     expect(completeRunMock).toHaveBeenCalledTimes(1)
     expect(failRunMock).not.toHaveBeenCalled()

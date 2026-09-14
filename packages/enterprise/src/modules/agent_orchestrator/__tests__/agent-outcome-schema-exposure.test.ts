@@ -21,8 +21,8 @@ function entry(overrides: Partial<AgentRegistryEntry>): AgentRegistryEntry {
   return {
     id: 'demo.agent',
     moduleId: 'agent_examples',
-    resultKind: 'researcher',
-    schema: z.object({ kind: z.literal('researcher'), data: z.object({}) }),
+    resultKind: 'research',
+    schema: z.object({ kind: z.literal('research'), data: z.object({}) }),
     tools: [],
     skills: [],
     subAgents: [],

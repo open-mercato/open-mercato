@@ -114,7 +114,7 @@ describe('POST /api/agent_orchestrator/agents/:id/run — additive runId/proposa
   it('returns proposalId null for a researcher run with no proposal', async () => {
     await mockAuthAndScope()
     const { } = await setupContainer({
-      result: shapeResult('researcher', { data: { ok: true } }),
+      result: shapeResult('research', { data: { ok: true } }),
       proposalRows: [],
     })
 
@@ -122,13 +122,13 @@ describe('POST /api/agent_orchestrator/agents/:id/run — additive runId/proposa
     const body = await res.json()
     expect(body.runId).toBe(RUN_ID)
     expect(body.proposalId).toBeNull()
-    expect(body.kind).toBe('researcher')
+    expect(body.kind).toBe('research')
   })
 
   it('keeps only the FIRST onRunPersisted invocation (nested delegations fire it again)', async () => {
     await mockAuthAndScope()
     const { } = await setupContainer({
-      result: shapeResult('researcher', { data: {} }),
+      result: shapeResult('research', { data: {} }),
       invokeHook: (ctx) => {
         ctx.onRunPersisted?.(RUN_ID)
         ctx.onRunPersisted?.('99999999-9999-4999-8999-999999999999')
@@ -143,7 +143,7 @@ describe('POST /api/agent_orchestrator/agents/:id/run — additive runId/proposa
   it('BC: returns runId null without querying proposals when the runtime never fires the hook, and shaped results never define the additive keys', async () => {
     await mockAuthAndScope()
     const { find } = await setupContainer({
-      result: shapeResult('researcher', { data: {} }),
+      result: shapeResult('research', { data: {} }),
       invokeHook: false,
     })
 
@@ -155,7 +155,7 @@ describe('POST /api/agent_orchestrator/agents/:id/run — additive runId/proposa
 
     // Collision safety (spec risk table): the AgentResult shape never carries
     // the additive keys itself, so the spread cannot mask agent data.
-    const shapedResearcher = shapeResult('researcher', { data: { x: 1 } })
+    const shapedResearcher = shapeResult('research', { data: { x: 1 } })
     const shapedProposal = shapeResult('proposal', { proposal: { actions: [] } })
     expect('runId' in shapedResearcher).toBe(false)
     expect('proposalId' in shapedResearcher).toBe(false)

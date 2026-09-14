@@ -8,7 +8,7 @@ import { DELEGATE_TOOL_ID, defineAgent } from '../lib/sdk/defineAgent'
 // parent run id from the caller's run session via `agentRunSessionStore` so the
 // nested sub-agent run still records `parent_run_id`.
 describe('delegate_agent parentRunId fallback (OpenCode/MCP path)', () => {
-  const schema = z.object({ kind: z.literal('researcher'), data: z.unknown() })
+  const schema = z.object({ kind: z.literal('research'), data: z.unknown() })
 
   it('resolves parentRunId from the caller session when the run context is absent', async () => {
     defineAgent({
@@ -17,7 +17,7 @@ describe('delegate_agent parentRunId fallback (OpenCode/MCP path)', () => {
       label: 'Target',
       description: 'Researcher sub-agent.',
       instructions: 'BASE',
-      result: { kind: 'researcher', schema },
+      result: { kind: 'research', schema },
     })
 
     const delegateTool = aiTools.find((tool) => tool.name === DELEGATE_TOOL_ID)
@@ -27,7 +27,7 @@ describe('delegate_agent parentRunId fallback (OpenCode/MCP path)', () => {
     const agentRuntime = {
       run: async (_agentId: string, _input: unknown, opts: { parentRunId?: string }) => {
         capturedParentRunId = opts.parentRunId
-        return { kind: 'researcher' as const, data: { ok: true } }
+        return { kind: 'research' as const, data: { ok: true } }
       },
     }
     const agentRunSessionStore = {
@@ -67,7 +67,7 @@ describe('delegate_agent parentRunId fallback (OpenCode/MCP path)', () => {
       label: 'Target 2',
       description: 'Researcher sub-agent.',
       instructions: 'BASE',
-      result: { kind: 'researcher', schema },
+      result: { kind: 'research', schema },
     })
 
     const delegateTool = aiTools.find((tool) => tool.name === DELEGATE_TOOL_ID)
@@ -75,7 +75,7 @@ describe('delegate_agent parentRunId fallback (OpenCode/MCP path)', () => {
     const agentRuntime = {
       run: async (_agentId: string, _input: unknown, opts: Record<string, unknown>) => {
         sawParentRunIdKey = 'parentRunId' in opts
-        return { kind: 'researcher' as const, data: { ok: true } }
+        return { kind: 'research' as const, data: { ok: true } }
       },
     }
     const agentRunSessionStore = {

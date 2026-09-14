@@ -50,7 +50,7 @@ describe('compiling an artifact OUTCOME', () => {
   })
 
   it('still refuses a schema-less researcher or proposal OUTCOME', () => {
-    expect(() => compileOutcome({ kind: 'researcher' })).toThrow()
+    expect(() => compileOutcome({ kind: 'research' })).toThrow()
     expect(() => compileOutcome({ kind: 'proposal' })).toThrow()
   })
 })
@@ -71,8 +71,8 @@ describe('shaping what the runtime returns', () => {
   })
 
   it('leaves the other two kinds byte-for-byte unchanged', () => {
-    expect(shapeResult('researcher', { data: { findings: 3 } })).toEqual({
-      kind: 'researcher',
+    expect(shapeResult('research', { data: { findings: 3 } })).toEqual({
+      kind: 'research',
       data: { findings: 3 },
     })
     const proposal = shapeResult('proposal', {

@@ -32,7 +32,7 @@ import { captureLogs } from './support/captureLogs'
 const SAFE_COMMAND = 'customers.deals.update'
 const OUT_OF_CATALOGUE = 'billing.refunds.issue'
 
-const researcherSchema = z.object({ kind: z.literal('researcher'), data: z.unknown() })
+const researcherSchema = z.object({ kind: z.literal('research'), data: z.unknown() })
 
 describe('agentTypeSchema', () => {
   it('is the three declared types and nothing else', () => {
@@ -61,7 +61,7 @@ describe('agent registration', () => {
       instructions: 'x',
       agentType: 'decision_maker',
       allowedActions: [SAFE_COMMAND, OUT_OF_CATALOGUE],
-      result: { kind: 'researcher', schema: researcherSchema },
+      result: { kind: 'research', schema: researcherSchema },
     })
     defineAgent({
       id: 'taxonomy.untyped',
@@ -69,7 +69,7 @@ describe('agent registration', () => {
       label: 'Untyped',
       description: 'Declares neither, as every agent did before this spec.',
       instructions: 'x',
-      result: { kind: 'researcher', schema: researcherSchema },
+      result: { kind: 'research', schema: researcherSchema },
     })
 
     loadLogs = captureLogs()

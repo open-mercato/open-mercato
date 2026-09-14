@@ -30,7 +30,7 @@ const AGENT_MD = [
 
 const OUTCOME = [
   '---',
-  'kind: researcher',
+  'kind: research',
   '---',
   '```json',
   JSON.stringify({

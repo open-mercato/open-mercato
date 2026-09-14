@@ -355,7 +355,7 @@ describe('resolveServerOutputContract for INVOKE_AGENT', () => {
     await serverContractModule.ensureWorkflowAgentOutcomeContracts(
       bridgeContainer({
         listAgentOutcomeContracts: async () => [
-          { agentId: 'deals.summary', resultKind: 'researcher', schema: z.object({ summary: z.string() }) },
+          { agentId: 'deals.summary', resultKind: 'research', schema: z.object({ summary: z.string() }) },
         ],
       }),
     )

@@ -119,7 +119,7 @@ type QueueRow = {
   agentLabel: string
   /** Tenant-configured agent icon (lucide name) + kind for the avatar glyph. */
   agentIcon: string | null
-  agentResultKind: 'researcher' | 'proposal' | 'artifact'
+  agentResultKind: 'research' | 'proposal' | 'artifact'
   claim: string
   proposes: string
   /** Humanized primary action type — the bounded filter vocabulary. */
@@ -450,7 +450,7 @@ export default function AgentCaseloadPage() {
         id: proposal.id,
         agentLabel: agentLabels.get(proposal.agentId) || proposal.agentId,
         agentIcon: agentIconInfo?.icon ?? null,
-        agentResultKind: agentIconInfo?.resultKind ?? 'researcher',
+        agentResultKind: agentIconInfo?.resultKind ?? 'research',
         claim: runClaims.get(proposal.runId) || shortCaseId(proposal.id),
         proposes: summary.display,
         proposesType: summary.typeLabel,

@@ -14,7 +14,7 @@
  * author-time path check, and the "Insert sample" rows.
  */
 
-export type AgentResultKind = 'researcher' | 'proposal'
+export type AgentResultKind = 'research' | 'proposal'
 
 export interface AgentOutcomeSchemaNode {
   type?: string
@@ -67,7 +67,7 @@ function labelFor(node: AgentOutcomeSchemaNode | undefined): string {
 }
 
 export function agentOutcomeRootKey(resultKind: AgentResultKind): 'data' | 'proposalPayload' {
-  return resultKind === 'researcher' ? 'data' : 'proposalPayload'
+  return resultKind === 'research' ? 'data' : 'proposalPayload'
 }
 
 function describesProperties(node: AgentOutcomeSchemaNode): boolean {

@@ -38,7 +38,7 @@ const tokenUsageSchema = z.object({
 const agentDetailSchema = z.object({
   id: z.string(),
   moduleId: z.string(),
-  resultKind: z.enum(['researcher', 'proposal']),
+  resultKind: z.enum(['research', 'proposal', 'artifact']),
   // Declared type + effective action vocabulary — see the list route for the
   // null semantics (undeclared type, un-narrowed catalogue).
   agentType: agentTypeSchema.nullable(),

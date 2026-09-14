@@ -15,7 +15,7 @@ function row(overrides: Partial<AgentFilterableRow> & Pick<AgentFilterableRow, '
   return {
     label: overrides.id,
     description: '',
-    resultKind: 'researcher',
+    resultKind: 'research',
     runtime: 'in-process',
     autonomy: 'auto',
     status: 'new',
@@ -69,8 +69,8 @@ describe('agent settings write schema', () => {
 describe('agents registry filtering', () => {
   const rows: AgentFilterableRow[] = [
     row({ id: 'deals.health', label: 'Deal health', runtime: 'in-process', resultKind: 'proposal', status: 'good', autonomy: 'review', tags: ['sales', 'billing'] }),
-    row({ id: 'support.triage', label: 'Ticket triage', runtime: 'opencode', resultKind: 'researcher', status: 'watch', autonomy: 'auto', tags: ['support'] }),
-    row({ id: 'ops.audit', label: 'Ops audit', description: 'Reviews billing exports', runtime: 'native', resultKind: 'researcher', status: 'poor', autonomy: 'auto' }),
+    row({ id: 'support.triage', label: 'Ticket triage', runtime: 'opencode', resultKind: 'research', status: 'watch', autonomy: 'auto', tags: ['support'] }),
+    row({ id: 'ops.audit', label: 'Ops audit', description: 'Reviews billing exports', runtime: 'native', resultKind: 'research', status: 'poor', autonomy: 'auto' }),
   ]
 
   it('matches search against id, label, description and tags', () => {

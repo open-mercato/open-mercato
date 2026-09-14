@@ -218,11 +218,11 @@ export type AgentView = {
   id: string
   label: string
   description: string
-  resultKind: 'researcher' | 'proposal'
+  resultKind: 'research' | 'proposal'
   /**
    * The DECLARED type — an authoring fact, distinct from `resultKind` (what came
    * back). Null when the agent declares none; a null is "undeclared", never
-   * "researcher".
+   * "research".
    */
   agentType: AgentType | null
   /**
@@ -607,7 +607,7 @@ export function mapRunDetail(payload: Record<string, unknown>): RunDetailView | 
 export function mapAgent(item: Record<string, unknown>): AgentView | null {
   const id = asString(item.id)
   if (!id) return null
-  const resultKind = item.resultKind === 'proposal' ? 'proposal' : 'researcher'
+  const resultKind = item.resultKind === 'proposal' ? 'proposal' : 'research'
   const runtime: AgentRuntime =
     item.runtime === 'opencode'
       ? 'opencode'

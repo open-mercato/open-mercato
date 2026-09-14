@@ -36,7 +36,7 @@ describe('buildAgentSourcePaths', () => {
   })
 
   test('puts a researcher agent OUTCOME under data', () => {
-    const paths = buildAgentSourcePaths('researcher', { type: 'object', properties: { summary: { type: 'string' } } })
+    const paths = buildAgentSourcePaths('research', { type: 'object', properties: { summary: { type: 'string' } } })
     expect(paths.map((entry) => entry.path)).toContain('data.summary')
     expect(paths.map((entry) => entry.path)).not.toContain('proposalPayload')
   })

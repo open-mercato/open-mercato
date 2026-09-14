@@ -27,7 +27,7 @@ any mutation tool. An agent can only read and propose — never write directly.
    ```ts
    import { z } from 'zod'
    export const ticketTriageResult = z.object({
-     kind: z.literal('researcher'),
+     kind: z.literal('research'),
      data: z.object({ /* your fields, all required */ }),
    })
    ```
@@ -51,7 +51,7 @@ any mutation tool. An agent can only read and propose — never write directly.
        instructions: '…system prompt…',
        // tools: ['customers.get_deal'],   // optional read-only defineAiTool ids
        // skills: ['deals.stage_playbook'], // optional skill ids (see below)
-       result: { kind: 'researcher', schema: ticketTriageResult },
+       result: { kind: 'research', schema: ticketTriageResult },
      }),
    ]
    export default aiAgents
@@ -100,7 +100,7 @@ defineAgent({
   moduleId: 'agent_examples',
   // …
   subAgents: ['support.ticket_triage'], // ← auto-adds the delegate tool
-  result: { kind: 'researcher', schema: triageBatchResult },
+  result: { kind: 'research', schema: triageBatchResult },
 })
 ```
 

@@ -93,7 +93,7 @@ export const AGENT_ICON: Record<AgentIconName, React.ComponentType<{ className?:
  */
 export function resolveAgentIcon(
   icon: string | null | undefined,
-  resultKind?: 'proposal' | 'researcher' | 'artifact' | null,
+  resultKind?: 'proposal' | 'research' | 'artifact' | null,
 ): React.ComponentType<{ className?: string }> | null {
   if (isAgentIconName(icon)) return AGENT_ICON[icon]
   if (resultKind && TYPE_ICON[resultKind]) return TYPE_ICON[resultKind]
@@ -107,7 +107,7 @@ export function resolveAgentIcon(
  */
 export function agentAvatarIcon(
   icon: string | null | undefined,
-  resultKind?: 'proposal' | 'researcher' | 'artifact' | null,
+  resultKind?: 'proposal' | 'research' | 'artifact' | null,
 ): React.ReactElement | undefined {
   const Icon = resolveAgentIcon(icon, resultKind)
   return Icon ? <Icon /> : undefined

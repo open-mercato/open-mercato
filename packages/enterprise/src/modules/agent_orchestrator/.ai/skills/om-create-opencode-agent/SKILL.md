@@ -167,7 +167,7 @@ schema. Say it explicitly.
 `payload` object whose action-specific fields are all OPTIONAL, then pin which `payload` field
 each `type` uses in the prose. (A single fixed action keeps `type: { "const": "<action_type>" }`.)
 
-For an **researcher** agent use `kind: researcher` and let the schema BE the data object
+For a **research** agent use `kind: research` and let the schema BE the data object
 itself at the top level — do NOT wrap it in a `data` key (the runtime wraps it as
 `{ kind, data }` for you); there is no `actions`/`confidence` envelope.
 

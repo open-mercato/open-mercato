@@ -191,11 +191,11 @@ describe('GuardrailService.checkOutput grounding (Wave 3 P4, cite-or-abstain)', 
 
   it('non-factual capability (no grounding set) → no grounding check', async () => {
     const service = new GuardrailService(fakeContainer())
-    const schema = z.object({ kind: z.literal('researcher'), data: z.unknown() })
+    const schema = z.object({ kind: z.literal('research'), data: z.unknown() })
     const verdict = await service.checkOutput({
       capability: 'some.toolless_agent',
       schema,
-      output: { kind: 'researcher', data: { ok: true } },
+      output: { kind: 'research', data: { ok: true } },
       allowedTools: [],
     })
     expect(verdict.result).toBe('pass')

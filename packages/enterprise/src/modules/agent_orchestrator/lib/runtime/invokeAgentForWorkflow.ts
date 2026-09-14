@@ -57,18 +57,19 @@ export type InvokeAgentForWorkflowArgs = {
 }
 
 export type InvokeAgentForWorkflowOutcome =
-  | { kind: 'researcher'; data: unknown }
+  | { kind: 'research'; data: unknown }
   | { kind: 'auto_approved'; proposalId: string; payload: unknown }
   | { kind: 'user_task'; proposalId: string }
   /**
    * The agent returned an EMPTY option set — it looked and had nothing to propose.
-   * Terminal like `researcher`: the step resumes instead of parking on a decision
-   * nobody can make, and routes onto the researcher outcome handle.
+   * Terminal like `research`: the step resumes instead of parking on a decision
+   * nobody can make, and routes onto the `outcome:researcher` handle — that
+   * routing vocabulary is core-owned and keeps its own spelling.
    */
   | { kind: 'none_proposed'; proposalId: string; payload: unknown }
   /**
    * The agent PRODUCED something — a draft, a report, a generated document.
-   * Terminal like `researcher` and routed onto the same governance handle: it
+   * Terminal like `research` and routed onto the same governance handle: it
    * mutates nothing, so there is no decision for anyone to dispose. The workflow
    * decides what the files are for.
    */
@@ -81,7 +82,7 @@ export type InvokeAgentForWorkflowOutcome =
  */
 export type AgentOutcomeContractSnapshot = {
   agentId: string
-  resultKind: 'researcher' | 'proposal'
+  resultKind: 'research' | 'proposal'
   schema: ZodTypeAny
 }
 
@@ -152,8 +153,8 @@ export class AgentWorkflowBridgeService implements AgentWorkflowBridge {
       }),
     )
 
-    if (result.kind === 'researcher') {
-      return { kind: 'researcher', data: result.data }
+    if (result.kind === 'research') {
+      return { kind: 'research', data: result.data }
     }
 
     if (result.kind === 'artifact') {

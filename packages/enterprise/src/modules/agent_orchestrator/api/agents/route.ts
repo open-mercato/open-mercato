@@ -16,7 +16,7 @@ export const metadata = {
 
 const agentItemSchema = z.object({
   id: z.string(),
-  resultKind: z.enum(['researcher', 'proposal']),
+  resultKind: z.enum(['research', 'proposal', 'artifact']),
   // The DECLARED type (authoring fact). Null when the agent declares none —
   // never defaulted to `researcher`, which would invent a declaration.
   agentType: agentTypeSchema.nullable(),

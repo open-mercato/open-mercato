@@ -91,13 +91,13 @@ describe('jsonSchemaToZod', () => {
 describe('compileOutcome', () => {
   it('wraps a researcher schema under { kind, data }', () => {
     const { kind, resultSchema } = compileOutcome({
-      kind: 'researcher',
+      kind: 'research',
       schema: { type: 'object', required: ['summary'], properties: { summary: { type: 'string', minLength: 1 } } },
     })
-    expect(kind).toBe('researcher')
-    expect(resultSchema.safeParse({ kind: 'researcher', data: { summary: 'ok' } }).success).toBe(true)
+    expect(kind).toBe('research')
+    expect(resultSchema.safeParse({ kind: 'research', data: { summary: 'ok' } }).success).toBe(true)
     expect(resultSchema.safeParse({ kind: 'proposal', data: { summary: 'ok' } }).success).toBe(false)
-    expect(resultSchema.safeParse({ kind: 'researcher', proposal: { summary: 'ok' } }).success).toBe(false)
+    expect(resultSchema.safeParse({ kind: 'research', proposal: { summary: 'ok' } }).success).toBe(false)
   })
 
   it('wraps a proposal schema under { kind, proposal }', () => {
@@ -107,6 +107,6 @@ describe('compileOutcome', () => {
     })
     expect(kind).toBe('proposal')
     expect(resultSchema.safeParse({ kind: 'proposal', proposal: { rationale: 'because' } }).success).toBe(true)
-    expect(resultSchema.safeParse({ kind: 'researcher', proposal: { rationale: 'because' } }).success).toBe(false)
+    expect(resultSchema.safeParse({ kind: 'research', proposal: { rationale: 'because' } }).success).toBe(false)
   })
 })

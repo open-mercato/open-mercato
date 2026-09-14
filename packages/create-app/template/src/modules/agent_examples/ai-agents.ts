@@ -23,14 +23,14 @@ export const aiAgents: AiAgentDefinition[] = [
     instructions: [
       'You triage inbound customer support tickets. The input contains the ticket as `subject`',
       'and `body`. Reason ONLY over that text — you have no tools and cannot look anything up.',
-      'Return a researcher result with three fields:',
+      'Return a research result with three fields:',
       '`category` — one of billing, technical, account, feedback, other;',
       '`priority` — one of low, medium, high, urgent (urgent for outages, data loss, security,',
       'or money problems; low for general questions or praise);',
       'and `summary` — a single concise sentence (max ~20 words) describing the issue.',
       'Every field is REQUIRED. Never invent details that are not in the ticket.',
     ].join(' '),
-    result: { kind: 'researcher', schema: ticketTriageResult },
+    result: { kind: 'research', schema: ticketTriageResult },
     sampleInput: {
       subject: 'Charged twice this month',
       body: 'Hi, I was billed for two subscriptions this month but I only have one account. Please refund the duplicate charge.',
@@ -59,7 +59,7 @@ export const aiAgents: AiAgentDefinition[] = [
       'priority and summary). Every field is REQUIRED.',
     ].join(' '),
     subAgents: ['support.ticket_triage'],
-    result: { kind: 'researcher', schema: triageBatchResult },
+    result: { kind: 'research', schema: triageBatchResult },
     sampleInput: {
       tickets: [
         {

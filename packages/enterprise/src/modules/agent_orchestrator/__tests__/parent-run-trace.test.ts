@@ -15,8 +15,8 @@ function registerResearcherSubAgent(): AgentRegistryEntry {
   const entry: AgentRegistryEntry = {
     id: SUB_AGENT_ID,
     moduleId: 'agent_orchestrator',
-    resultKind: 'researcher',
-    schema: z.object({ kind: z.literal('researcher'), data: z.unknown() }),
+    resultKind: 'research',
+    schema: z.object({ kind: z.literal('research'), data: z.unknown() }),
     tools: [],
     skills: [],
     subAgents: [],
@@ -58,7 +58,7 @@ describe('parent_run_id nested-run trace (Phase 4)', () => {
     const agentRuntime = {
       async run(_agentId: string, _input: unknown, ctx: { parentRunId?: string }) {
         runCtxSeen = ctx
-        return { kind: 'researcher' as const, data: { ok: true } }
+        return { kind: 'research' as const, data: { ok: true } }
       },
     }
     const container = {
@@ -88,7 +88,7 @@ describe('parent_run_id nested-run trace (Phase 4)', () => {
     const agentRuntime = {
       async run(_agentId: string, _input: unknown, ctx: { parentRunId?: string }) {
         runCtxSeen = ctx
-        return { kind: 'researcher' as const, data: {} }
+        return { kind: 'research' as const, data: {} }
       },
     }
     const container = {

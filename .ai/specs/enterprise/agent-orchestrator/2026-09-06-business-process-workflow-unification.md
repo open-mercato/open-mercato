@@ -296,6 +296,33 @@ architectural gain.
 ## Changelog
 
 - 2026-09-06 — spec written.
+- 2026-09-14 — **implementation audit against the tree.** The structural core of this spec has
+  landed: `AgentProcessRun`/`agent_process_runs`, `resolveWorkflowProcessRun.ts`, the three
+  `task-run-workflow-*` subscribers, `executionPrincipal.ts`, `backend/agentic-tasks/*` and
+  `executeAgentTarget` are all gone; `ProcessDefinition` and `ProcessInstance` match the target
+  model field-for-field (`targetType`/`targetAgentId`/`executionPrincipalId`/`grantedFeatures`
+  removed, `outcomeSchema`/`uiMetadata`/`milestonesReached` present); §2–§6 and §8 are wired.
+  Two sections are implemented **under different names than this spec used**, and the spec is
+  wrong rather than the code:
+  - **§1** — provenance is `metadata.generatedBy = { module, ownerId }`, written by core's
+    `upsertOwnedDefinition` (`packages/core/src/modules/workflows/lib/owned-definition.ts:130`),
+    not `metadata.generatedFrom = { module, processDefinitionId }`. The core helper also enforces
+    `ownedBy()` so another owner's workflow is never overwritten — the graduation rule of §1,
+    implemented more strictly than this spec described. Identity is additionally derivable from
+    the deterministic `generatedWorkflowId()` convention.
+  - **§4** — the Playground gate this spec calls `agent_orchestrator.agents.playground` already
+    exists as **`agent_orchestrator.agents.run`** (`acl.ts:11`), whose declaration comment states
+    this spec's rationale verbatim. Renaming a live ACL feature id is a contract-surface break
+    (`BACKWARD_COMPATIBILITY.md`) that would drop the grant from every existing role for no
+    behavioural gain — the same argument this spec's own "Out of scope" makes against renaming
+    the module id. **Not renaming; spec corrected.**
+
+  **Still open: §7.** `agentTypeSchema` is `['researcher','decision_maker','action']` and
+  `resultKind` is `['researcher','proposal']` (`data/validators.ts:129,193`) — the exact
+  authoring-vs-runtime collision on the word "researcher" that §7 exists to remove, plus
+  `artifact` is not yet in the `resultKind` union. ~589 occurrences across ~139 files spanning
+  `enterprise`, core `workflows`, `apps/mercato/src/modules/agent_examples`, the create-app
+  template (needs `yarn template:sync:fix`) and five locales per module.
 - 2026-09-08 — §8 gaps closed. The tenant ceiling was READ (`resolveTenantAutoApprovalPolicy`) but
   nothing wrote it, so every tenant silently ran the default; it is now editable at Settings →
   Auto-approval (`GET`/`PUT /api/agent_orchestrator/auto-approval/settings`). `traceComplete` was

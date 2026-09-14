@@ -104,7 +104,7 @@ export type AgentArtifactPayload = z.infer<typeof agentArtifactResultSchema>
  */
 export function agentResultSchema(dataSchema: ZodTypeAny = z.unknown()) {
   return z.discriminatedUnion('kind', [
-    z.object({ kind: z.literal('researcher'), data: dataSchema }),
+    z.object({ kind: z.literal('research'), data: dataSchema }),
     z.object({ kind: z.literal('proposal'), proposal: agentProposalSchema }),
     z.object({ kind: z.literal('artifact'), ...agentArtifactResultSchema.shape }),
   ])
@@ -112,15 +112,19 @@ export function agentResultSchema(dataSchema: ZodTypeAny = z.unknown()) {
 
 export const baseAgentResultSchema = agentResultSchema()
 export type AgentResult<T = unknown> =
-  | { kind: 'researcher'; data: T }
+  | { kind: 'research'; data: T }
   | { kind: 'proposal'; proposal: AgentProposalPayload }
   | ({ kind: 'artifact' } & AgentArtifactPayload)
 
 /**
  * What an agent is FOR. An AUTHORING fact declared on the agent definition —
  * distinct from `resultKind`, which is the RUNTIME fact of what came back. The two
- * can disagree (a `decision_maker` that found nothing returns a researcher-shaped
+ * can disagree (a `decision_maker` that found nothing returns a `research`-shaped
  * result); that is a finding, not a crash.
+ *
+ * The vocabularies deliberately do NOT share a word: the authoring type is
+ * `researcher` and the runtime kind is `research`, so a reader can never mistake
+ * one for the other (unification spec §7).
  *
  * The type is not structural: `decision_maker` and `action` return the SAME proposal
  * envelope and differ only in the action vocabulary they are narrowed to. What it
@@ -190,7 +194,7 @@ export const runListQuerySchema = z
     idPrefix: runIdPrefixSchema.optional(),
     agentId: z.string().optional(),
     status: z.enum(['running', 'ok', 'error', 'cancelled']).optional(),
-    resultKind: z.enum(['researcher', 'proposal']).optional(),
+    resultKind: z.enum(['research', 'proposal', 'artifact']).optional(),
     /** The agent's DECLARED type (`agent_runs.agent_type`); runs without one never match. */
     agentType: agentTypeSchema.optional(),
     /** Only runs carrying the operator triage flag (`flagged_at` set). */

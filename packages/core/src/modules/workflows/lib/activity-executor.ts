@@ -1391,7 +1391,7 @@ type AgentWorkflowBridgeLike = {
       review?: AgentDispositionReview
     }
   }) => Promise<
-    | { kind: 'researcher'; data: unknown }
+    | { kind: 'research'; data: unknown }
     | { kind: 'auto_approved'; proposalId: string; payload: unknown }
     | { kind: 'user_task'; proposalId: string }
     // The agent proposed nothing: terminal like `researcher`, never parked.
@@ -1488,8 +1488,8 @@ export async function executeInvokeAgent(
         ...(dispositionReview ? { review: dispositionReview } : {}),
       },
     })
-    if (outcome.kind === 'researcher') {
-      return { kind: 'researcher', agentId, data: outcome.data }
+    if (outcome.kind === 'research') {
+      return { kind: 'research', agentId, data: outcome.data }
     }
     if (outcome.kind === 'artifact') {
       return { kind: 'artifact', agentId, artifacts: outcome.artifacts, summary: outcome.summary }

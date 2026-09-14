@@ -96,7 +96,7 @@ export default function AgentDetailPage({ params }: { params?: { id?: string } }
         return
       }
       // UI heuristic until the backend exposes a real autonomy setting.
-      setAutonomy(mapped.resultKind === 'researcher' ? 'auto' : 'review')
+      setAutonomy(mapped.resultKind === 'research' ? 'auto' : 'review')
       const [runItems, proposalItems, metricsCall] = await Promise.all([
         fetchItems(`/api/agent_orchestrator/runs?agentId=${encodeURIComponent(agentId)}&pageSize=100`),
         fetchItems(`/api/agent_orchestrator/proposals?agentId=${encodeURIComponent(agentId)}&pageSize=100`),

@@ -131,7 +131,7 @@ export default function AgentsRegistryPage() {
         const overrideRate = metrics?.overrideRate ?? null
         const errorRate = metrics?.errorRate ?? 0
         // UI heuristic until the backend exposes a real autonomy setting.
-        const autonomy: Autonomy = agent.resultKind === 'researcher' ? 'auto' : 'review'
+        const autonomy: Autonomy = agent.resultKind === 'research' ? 'auto' : 'review'
         let status: Health = 'new'
         if ((metrics?.runsTotal ?? 0) > 0 || (metrics?.disposedProposals ?? 0) > 0) {
           if ((overrideRate ?? 0) > 0.3 || (errorRate ?? 0) > 0.2) status = 'poor'
@@ -294,7 +294,7 @@ export default function AgentsRegistryPage() {
       label: t('agent_orchestrator.agents.list.col.type', 'Type'),
       type: 'select',
       multiple: true,
-      options: (['researcher', 'proposal'] as const).map((value) => ({
+      options: (['research', 'proposal'] as const).map((value) => ({
         value,
         label: t(`agent_orchestrator.agents.list.resultKind.${value}`),
       })),

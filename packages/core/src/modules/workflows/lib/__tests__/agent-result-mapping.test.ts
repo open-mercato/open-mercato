@@ -29,9 +29,9 @@ describe('mapAgentResultToContext', () => {
       expect(result).toEqual({ dealRisk: 7, decision: 'auto_approved', pid: 'p1' })
     })
 
-    test('maps researcher data and normalizes disposition to "researcher"', () => {
+    test('maps research data and normalizes disposition to "researcher"', () => {
       const result = mapAgentResultToContext(
-        { kind: 'researcher', agentId: 'a1', data: { summary: 'all good' } },
+        { kind: 'research', agentId: 'a1', data: { summary: 'all good' } },
         { note: 'data.summary', decision: 'disposition' },
       )
       expect(result).toEqual({ note: 'all good', decision: 'researcher' })

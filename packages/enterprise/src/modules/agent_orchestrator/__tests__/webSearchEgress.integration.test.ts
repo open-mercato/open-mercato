@@ -100,7 +100,7 @@ describe('web egress — trace capture', () => {
         externalRunId: 'run-web-1',
         agentId: 'deals.web_researcher',
         status: 'ok',
-        output: { kind: 'researcher', data: { ok: true } },
+        output: { kind: 'research', data: { ok: true } },
         spans: [
           {
             externalSpanId: 'span-search',

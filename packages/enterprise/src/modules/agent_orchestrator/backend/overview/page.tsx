@@ -39,7 +39,7 @@ type ListResponse = { items?: Array<Record<string, unknown>>; total?: number }
 
 type Sla = 'breach' | 'risk' | 'ok'
 type Verb = 'do' | 'review'
-type TrustRow = { id: string; label: string; icon: string | null; resultKind: 'researcher' | 'proposal'; runs: number; overridePct: number | null; status: Health }
+type TrustRow = { id: string; label: string; icon: string | null; resultKind: 'research' | 'proposal'; runs: number; overridePct: number | null; status: Health }
 type StuckRow = { id: string; workflowInstanceId: string | null; claim: string; agentLabel: string; waitingMin: number | null; waitingFor: Verb; sla: Sla }
 type AgentWindowMetrics = { totalRuns: number; overrideRate: number | null; disposedProposals: number }
 
@@ -297,7 +297,7 @@ export default function AgentFleetOverviewPage() {
           else if ((overridePct ?? 0) > 15) status = 'watch'
           else status = 'good'
         }
-        const resultKind: 'researcher' | 'proposal' = agentKinds.get(id) === 'proposal' ? 'proposal' : 'researcher'
+        const resultKind: 'research' | 'proposal' = agentKinds.get(id) === 'proposal' ? 'proposal' : 'research'
         return { id, label: agentLabels.get(id) || id, icon: agentIcons.get(id) ?? null, resultKind, runs: runsCount, overridePct, status }
       })
       .sort((a, b) => b.runs - a.runs)

@@ -164,7 +164,7 @@ describe('handleInvokeAgentJob (run agent off-transaction + resume)', () => {
     // equality check on it would happily re-run the agent for the OLD attempt.
     const { em, container, invokeAgentForWorkflow } = makeDeps(
       { id: 'instance-1', currentStepId: stepId, status: 'PAUSED', tenantId, organizationId },
-      { kind: 'researcher', data: {} },
+      { kind: 'research', data: {} },
       makeStepAttempt('COMPLETED'),
     )
     await handleInvokeAgentJob(em, container, makeJob())
@@ -192,7 +192,7 @@ describe('handleInvokeAgentJob (run agent off-transaction + resume)', () => {
     // never reads a pre-commit snapshot.
     let parkingCommitted = false
     const lockModes: unknown[] = []
-    const invokeAgentForWorkflow = jest.fn().mockResolvedValue({ kind: 'researcher', data: { coverage: 'OC' } })
+    const invokeAgentForWorkflow = jest.fn().mockResolvedValue({ kind: 'research', data: { coverage: 'OC' } })
     const em = {
       isInTransaction: () => false,
       transactional: jest.fn(async (callback: (trx: EntityManager) => Promise<unknown>) => {
@@ -237,7 +237,7 @@ describe('handleInvokeAgentJob (run agent off-transaction + resume)', () => {
   it('resumes via signal for a researcher outcome', async () => {
     const { em, container, invokeAgentForWorkflow } = makeDeps(
       { id: 'instance-1', currentStepId: stepId, status: 'PAUSED', tenantId, organizationId },
-      { kind: 'researcher', data: { coverage: 'OC' } },
+      { kind: 'research', data: { coverage: 'OC' } },
     )
     await handleInvokeAgentJob(em, container, makeJob())
     expect(invokeAgentForWorkflow).toHaveBeenCalledTimes(1)
@@ -265,7 +265,7 @@ describe('handleInvokeAgentJob (run agent off-transaction + resume)', () => {
   it('keeps outcome routing metadata when outputMapping replaces the visible payload', async () => {
     const { em, container } = makeDeps(
       { id: 'instance-1', currentStepId: stepId, status: 'PAUSED', tenantId, organizationId },
-      { kind: 'researcher', data: { coverage: 'OC' } },
+      { kind: 'research', data: { coverage: 'OC' } },
     )
 
     await handleInvokeAgentJob(em, container, {

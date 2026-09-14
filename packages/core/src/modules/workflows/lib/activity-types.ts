@@ -152,7 +152,7 @@ const resolveCallApiOutputContract = (config: unknown): ZodTypeAny | 'unknown' =
  * id, and agents without a declared OUTCOME all degrade honestly to 'unknown'.
  */
 export type AgentOutcomeContract = {
-  resultKind: 'researcher' | 'proposal'
+  resultKind: 'research' | 'proposal'
   schema: ZodTypeAny
 }
 
@@ -178,7 +178,7 @@ const resolveInvokeAgentOutputContract = (config: unknown): ZodTypeAny | 'unknow
   if (typeof agentId !== 'string' || agentId.length === 0 || agentId.includes('{{')) return 'unknown'
   const outcome = boundAgentOutcomeSchemaResolver(agentId)
   if (outcome === 'unknown') return 'unknown'
-  const outcomeKey = outcome.resultKind === 'researcher' ? 'data' : 'proposalPayload'
+  const outcomeKey = outcome.resultKind === 'research' ? 'data' : 'proposalPayload'
   return z.object({ ...agentEnvelopeShape, [outcomeKey]: outcome.schema })
 }
 

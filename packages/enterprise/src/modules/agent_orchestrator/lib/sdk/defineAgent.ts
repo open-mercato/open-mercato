@@ -14,12 +14,12 @@ const logger = createLogger('agent_orchestrator').child({ component: 'define-age
 /**
  * What KIND of thing came back.
  *
- * `researcher` enriches the context, `proposal` states an intent a human or a
+ * `research` enriches the context, `proposal` states an intent a human or a
  * rule disposes, `artifact` produces a file. All three are typed results the
  * WORKFLOW decides what to do with — an agent never writes to workflow state
  * itself, which is what keeps parallel branches safe.
  */
-export type AgentResultKind = 'proposal' | 'researcher' | 'artifact'
+export type AgentResultKind = 'proposal' | 'research' | 'artifact'
 
 /**
  * Where an agent runs. `'native'` agents are authored with `defineAgent` and

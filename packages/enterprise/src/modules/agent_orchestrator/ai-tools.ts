@@ -95,8 +95,8 @@ const delegateAgentTool: AiToolDefinition = {
     if (!entry) {
       return { ok: false as const, agentId, error: `unknown sub-agent "${agentId}"` }
     }
-    if (entry.resultKind !== 'researcher') {
-      return { ok: false as const, agentId, error: 'only researcher sub-agents may be delegated to' }
+    if (entry.resultKind !== 'research') {
+      return { ok: false as const, agentId, error: 'only research sub-agents may be delegated to' }
     }
     if (entry.subAgents.length > 0) {
       return { ok: false as const, agentId, error: 'sub-agents may not delegate further (depth capped at 1)' }
@@ -130,7 +130,7 @@ const delegateAgentTool: AiToolDefinition = {
       // the orchestrator reads a finding, an intent and a file list differently,
       // and flattening them here would make them indistinguishable.
       const data =
-        result.kind === 'researcher'
+        result.kind === 'research'
           ? result.data
           : result.kind === 'proposal'
             ? result.proposal

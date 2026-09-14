@@ -220,7 +220,7 @@ export class AgentRun {
   output?: unknown | null
 
   @Property({ name: 'result_kind', type: 'varchar', length: 20, nullable: true })
-  resultKind?: 'researcher' | 'proposal' | null
+  resultKind?: 'research' | 'proposal' | 'artifact' | null
 
   /**
    * The agent's DECLARED type at the time of the run — the authoring fact, stamped so a

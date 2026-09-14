@@ -33,7 +33,7 @@ const SUB_AGENT_MD = [
 
 const SUB_OUTCOME_RESEARCHER = [
   '---',
-  'kind: researcher',
+  'kind: research',
   '---',
   '```json',
   JSON.stringify({
@@ -99,7 +99,7 @@ describe('loadFileAgentDir', () => {
         proposal: { confidence: 0.7, rationale: 'looks good' },
       }).success,
     ).toBe(true)
-    expect(loaded!.entry.schema.safeParse({ kind: 'researcher', data: {} }).success).toBe(false)
+    expect(loaded!.entry.schema.safeParse({ kind: 'research', data: {} }).success).toBe(false)
 
     // rendered OpenCode agent file carries the propose-only allowlist + submit_outcome
     expect(loaded!.openCodeAgentFile).toContain('mode: primary')
@@ -168,7 +168,7 @@ describe('loadFileAgentDir', () => {
     expect(loaded!.subAgents).toHaveLength(1)
     const sub = loaded!.subAgents[0]
     expect(sub.entry.id).toBe('deals.activity_scan')
-    expect(sub.resultKind).toBe('researcher')
+    expect(sub.resultKind).toBe('research')
     expect(sub.openCodeAgentName).toBe('deals_activity_scan')
 
     // Sub-agent file: mode subagent, read-only, NO further delegation (task deny).
@@ -191,7 +191,7 @@ describe('loadFileAgentDir', () => {
     const dir = makeAgentDir({ agentMd: VALID_AGENT_MD, outcome: VALID_OUTCOME })
     created.push(dir)
     addSubAgent(dir, 'bad', { agentMd: SUB_AGENT_MD, outcome: VALID_OUTCOME })
-    expect(() => loadFileAgentDir(dir)).toThrow(/researcher/i)
+    expect(() => loadFileAgentDir(dir)).toThrow(/research/i)
   })
 
   it('rejects a sub-agent that declares its own subAgents (depth cap = 1)', () => {

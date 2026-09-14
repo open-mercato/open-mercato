@@ -142,7 +142,7 @@ describe('createAgentFilesExtension', () => {
       path.join(subDir, 'OUTCOME.md'),
       [
         '---',
-        'kind: researcher',
+        'kind: research',
         '---',
         '```json',
         JSON.stringify({ type: 'object', properties: { summary: { type: 'string' } } }),
@@ -397,7 +397,7 @@ describe('createAgentFilesExtension', () => {
       path.join(agentDir, 'OUTCOME.md'),
       [
         '---',
-        'kind: researcher',
+        'kind: research',
         '---',
         '```json',
         JSON.stringify({ type: 'object', properties: { x: { minimum: 0 } } }),

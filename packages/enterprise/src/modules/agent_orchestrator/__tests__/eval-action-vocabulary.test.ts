@@ -96,7 +96,7 @@ describe('the action_vocabulary scorer', () => {
   it('SKIPS a run that proposed nothing — it cannot have proposed something forbidden', () => {
     const verdict = runScorer(
       'action_vocabulary',
-      runView({ resultKind: 'researcher', agentType: 'researcher', output: { kind: 'researcher', data: { x: 1 } } }),
+      runView({ resultKind: 'research', agentType: 'researcher', output: { kind: 'research', data: { x: 1 } } }),
       null,
       { allowedActions: ALLOWED },
     )

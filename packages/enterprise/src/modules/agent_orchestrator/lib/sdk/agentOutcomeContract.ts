@@ -25,7 +25,7 @@ import { zodToJsonSchema, type JsonSchema } from '@open-mercato/shared/lib/opena
 import type { AgentRegistryEntry } from './defineAgent'
 
 const OUTCOME_PROPERTY: Record<AgentRegistryEntry['resultKind'], string> = {
-  researcher: 'data',
+  research: 'data',
   proposal: 'proposal',
   // An artifact result carries a FIXED reference list, not a per-agent shape, so
   // there is no OUTCOME to type — `artifacts` is the same for every agent that

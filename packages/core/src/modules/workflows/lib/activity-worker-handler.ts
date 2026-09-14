@@ -341,10 +341,10 @@ type AgentWorkflowBridgeLike = {
       review?: AgentDispositionReview
     }
   }) => Promise<
-    | { kind: 'researcher'; data: unknown }
+    | { kind: 'research'; data: unknown }
     | { kind: 'auto_approved'; proposalId: string; payload: unknown }
     | { kind: 'user_task'; proposalId: string }
-    // The agent proposed nothing: terminal like `researcher`, never parked.
+    // The agent proposed nothing: terminal like `research`, never parked.
     | { kind: 'none_proposed'; proposalId: string; payload: unknown }
     // The agent PRODUCED files. Terminal and non-mutating, so it routes onto the
     // same governance handle as a research result: the five outcome handles are a
@@ -553,7 +553,7 @@ export async function handleInvokeAgentJob(
     return
   }
 
-  // researcher / auto_approved: resume the parked step by firing the signal. The
+  // research / auto_approved: resume the parked step by firing the signal. The
   // payload is merged into workflow context (top-level), mirroring the prior
   // inline-resolution behavior so the outgoing transition can branch. When the
   // activity declared an outputMapping, route the result into the chosen keys;
@@ -569,7 +569,7 @@ export async function handleInvokeAgentJob(
       agentId: payload.agentId,
       proposalId: proposalOutcome?.proposalId,
       proposalPayload: proposalOutcome?.payload,
-      data: outcome.kind === 'researcher' ? outcome.data : undefined,
+      data: outcome.kind === 'research' ? outcome.data : undefined,
       artifacts: outcome.kind === 'artifact' ? outcome.artifacts : undefined,
     },
     payload.outputMapping
@@ -587,7 +587,7 @@ export async function handleInvokeAgentJob(
           disposition: 'researcher',
           agentId: payload.agentId,
           [`${payload.stepId}_agent`]:
-            outcome.kind === 'researcher'
+            outcome.kind === 'research'
               ? outcome.data
               : outcome.kind === 'artifact'
                 ? { artifacts: outcome.artifacts, summary: outcome.summary }

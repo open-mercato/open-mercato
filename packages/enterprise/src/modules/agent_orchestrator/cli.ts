@@ -92,7 +92,7 @@ type DemoAgentSpec = {
   id: string
   runtime: string
   model: string
-  kind: 'proposal' | 'researcher'
+  kind: 'proposal' | 'research'
   runCount: number
   actionType: string
   subjects: string[]
@@ -178,7 +178,7 @@ const DEMO_AGENTS: DemoAgentSpec[] = [
     id: 'support.ticket_triage',
     runtime: 'in-process',
     model: 'claude-haiku-4-5',
-    kind: 'researcher',
+    kind: 'research',
     runCount: 16,
     actionType: 'classify_ticket',
     subjects: DEMO_TICKET_SUBJECTS,
@@ -215,7 +215,7 @@ const DEMO_AGENTS: DemoAgentSpec[] = [
     id: 'deals.web_researcher',
     runtime: 'opencode',
     model: 'claude-sonnet-4-5',
-    kind: 'researcher',
+    kind: 'research',
     runCount: 8,
     actionType: 'research',
     subjects: DEMO_DEAL_SUBJECTS,
@@ -352,8 +352,8 @@ const seedDemo: ModuleCli = {
           input: { ...spec.buildInput(subject), demo: { seed: true } },
           output: isRunning || isError
             ? null
-            : spec.kind === 'researcher'
-              ? { kind: 'researcher', data: spec.buildResearcherOutput(subject) }
+            : spec.kind === 'research'
+              ? { kind: 'research', data: spec.buildResearcherOutput(subject) }
               : {
                   kind: 'proposal',
                   proposal: {

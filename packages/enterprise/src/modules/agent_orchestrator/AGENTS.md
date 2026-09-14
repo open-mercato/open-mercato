@@ -1,6 +1,6 @@
 # Agent Orchestrator — Agent Guidelines
 
-Use this enterprise module to run **propose-only** AI agents: an agent always returns a typed, validated `AgentResult` (`researcher | proposal`), persists an `AgentRun` (+ an `AgentProposal` for proposal results), and never writes domain state directly — every write flows through `proposal → disposition → effector (command)`. Two runtimes coexist behind one registry and one `agentRuntime.run()`; trace/eval/guardrail/context/identity overlays wrap every run.
+Use this enterprise module to run **propose-only** AI agents: an agent always returns a typed, validated `AgentResult` (`research | proposal | artifact`), persists an `AgentRun` (+ an `AgentProposal` for proposal results), and never writes domain state directly — every write flows through `proposal → disposition → effector (command)`. Two runtimes coexist behind one registry and one `agentRuntime.run()`; trace/eval/guardrail/context/identity overlays wrap every run.
 
 See `.ai/specs/2026-06-22-opencode-file-defined-agents.md` (+ `-phase0-findings.md`) for the file-agent design, and `.ai/specs/enterprise/agent-orchestrator/` for the baseline, identity, trace-eval, guardrails, and context specs.
 
@@ -11,15 +11,15 @@ Two vocabularies, deliberately separate — conflating them is what this spec se
 | Vocabulary | Where it lives | Values |
 |---|---|---|
 | **`agentType`** — an AUTHORING declaration: what the agent is FOR | `defineAgent({ agentType })` → `AgentRegistryEntry.agentType` → `agent_runs.agent_type` (nullable) | `researcher` · `decision_maker` · `action` |
-| **`resultKind`** — the RUNTIME fact: what came back | `defineAgent({ result: { kind } })`, OUTCOME.md frontmatter, `agent_runs.result_kind` | `researcher` (`{ kind, data }`) · `proposal` (`{ kind, proposal }`) · `artifact` (`{ kind, artifacts[], summary? }`) |
+| **`resultKind`** — the RUNTIME fact: what came back | `defineAgent({ result: { kind } })`, OUTCOME.md frontmatter, `agent_runs.result_kind` | `research` (`{ kind, data }`) · `proposal` (`{ kind, proposal }`) · `artifact` (`{ kind, artifacts[], summary? }`) |
 
-- The two MAY disagree — a `decision_maker` that found nothing returns a researcher-shaped result. That is a finding, not a crash; never assert equality between them.
+- The two MAY disagree — a `decision_maker` that found nothing returns a `research`-shaped result. That is a finding, not a crash; never assert equality between them.
 - `agentType` is NOT structural: `decision_maker` and `action` return the SAME `{ options[], rationale? }` envelope. What the type buys is a property an agent has BEFORE it runs — listable, filterable, and assertable in an eval.
-- **`researcher`/`proposal` replaced `informative`/`actionable` everywhere, wire values included** — the workflow outcome handle (`outcome:researcher`), the disposition envelope kind, `agent_runs.result_kind`, and OUTCOME.md `kind:`. `actionable` did NOT split into the two proposing types: a runtime result kind cannot know an authoring fact, so ONE kind means "a proposal came back". `__tests__/agent-taxonomy-rename.test.ts` fails if either retired word reappears as a wire value.
+- **The RESULT kind is `research` (unification spec §7); the authoring type stays `researcher`, and so does the workflow outcome handle `outcome:researcher` and the disposition envelope kind.** Three vocabularies, deliberately not sharing a spelling where they would be confusable. `research`/`proposal` replaced `informative`/`actionable` as wire values in `agent_runs.result_kind` and OUTCOME.md `kind:`. `actionable` did NOT split into the two proposing types: a runtime result kind cannot know an authoring fact, so ONE kind means "a proposal came back". `__tests__/agent-taxonomy-rename.test.ts` fails if either retired word reappears as a wire value.
 
 ### The three result kinds
 
-`researcher` enriches the workflow's context, `proposal` states an intent someone
+`research` enriches the workflow's context, `proposal` states an intent someone
 disposes, `artifact` PRODUCES a file. All three are typed results the WORKFLOW decides
 what to do with — an agent never writes to workflow state itself, which is what keeps
 parallel branches safe.
@@ -158,7 +158,7 @@ every awkward thing in it followed from that split. Do not reintroduce either.
 
 ## Always
 
-1. **MUST keep every agent propose-only** — an agent returns `{ kind: 'researcher', data }` or `{ kind: 'proposal', proposal }`; domain writes happen ONLY through `proposal → disposition → effector`, never inside the agent or a tool.
+1. **MUST keep every agent propose-only** — an agent returns `{ kind: 'research', data }` or `{ kind: 'proposal', proposal }`; domain writes happen ONLY through `proposal → disposition → effector`, never inside the agent or a tool.
 2. **MUST dispatch through DI, not lib calls** — resolve `agentRuntime`, `dispositionService`, `guardrailService`, etc. via `container.resolve(...)`; `agentRuntime.run()` switches on `entry.runtime`. Never import and call the runners directly.
 3. **MUST persist writes through the Command path** — every domain mutation an agent proposes is applied by an effector via the command bus (`executeProposal.ts`), so audit/undo/cache/events/index stay consistent. Agent principals are `kind='agent'` `auth.User`s whose writes are attributed like a human's.
 4. **MUST gate disposition inline** — after `agentRuntime.run()`, `DispositionService` decides: `confidence ≥ threshold` → audited `auto_approved`; otherwise raise a `workflows` `USER_TASK`, park at `WAIT_FOR_SIGNAL`, and resume on `agent_orchestrator.proposal.ready`. Fail closed: missing/null confidence is treated as below threshold.
@@ -248,15 +248,15 @@ Author file agents under `packages/<pkg>/src/modules/<module>/agents/<agent_id>/
 ```
 agents/<agent_id>/
 ├── AGENT.md            # frontmatter (id,label,description,provider?,model?,tools?,skills?,subAgents?,maxSteps?) + body = instructions
-├── OUTCOME.md          # frontmatter `kind: researcher|proposal` + FIRST fenced ```json block = JSON-Schema; trailing prose = guidance
+├── OUTCOME.md          # frontmatter `kind: research|proposal|artifact` + FIRST fenced ```json block = JSON-Schema; trailing prose = guidance
 ├── SAMPLE.json         # optional example input — Playground "Insert sample" button
 ├── FACTS.json          # optional Caseload fact declarations (see below)
 ├── skills/<sid>/       # SKILL.md (+ optional TEMPLATE.md, examples/*.md, scripts/*.ts run via run_skill_script)
-├── sub-agents/<subid>/ # AGENT.md + OUTCOME.md; researcher-only, no further subAgents (depth cap 1)
+├── sub-agents/<subid>/ # AGENT.md + OUTCOME.md; research-kind only, no further subAgents (depth cap 1)
 └── tools/*.ts          # `// @ref <defineAiTool id>` (preferred, ACL-gated) OR a sandboxed `run(args)` local tool
 ```
 
-- **OUTCOME.md**: frontmatter carries ONLY `kind`; the result JSON-Schema is the FIRST fenced ` ```json ` block. `researcher` ⇒ schema describes `data`; `proposal` ⇒ schema describes the `proposal` envelope. Compiles to the same `z.object({ kind, data|proposal })` the in-process path uses.
+- **OUTCOME.md**: frontmatter carries ONLY `kind`; the result JSON-Schema is the FIRST fenced ` ```json ` block. `research` ⇒ schema describes `data`; `proposal` ⇒ schema describes the `proposal` envelope. Compiles to the same `z.object({ kind, data|proposal })` the in-process path uses.
 - **Skills** inject instructions + union read-only tools into the agent's allowlist (deduped); read-only by construction.
 - **FACTS.json** (optional): declares the labelled facts the Caseload decision panel shows for this agent's proposals — `{ "facts": [{ "label", "source": "input"|"payload"|"output", "path", "format"?: "text"|"number"|"boolean"|"percent" }] }` where `path` is a dot-path (array indexes allowed) into the run input / proposal payload / run output. Agents without it get a generic derivation (input primitives + summarized upstream findings). In-process agents pass the same shape as `facts` to `defineAgent`. Rendering lives in `components/ProposalFacts.tsx`; resolution helpers in `components/proposalFacts.ts`.
 - **Token usage** (file agents only): `yarn generate` bakes a per-element token estimate (AGENT.md, OUTCOME.md, each skill + its subfiles, each tool, each sub-agent) into `generated/file-agents.generated.ts` (`FileAgentDescriptor.tokenUsage`), counted with the shared `o200k_base` tokenizer (`@open-mercato/shared/lib/ai/token-count` — an estimate, not an exact model count). It surfaces on the Agent detail page ("Token usage" card, `runtime: 'opencode'` only) and via the CLI: `yarn mercato agent_orchestrator token-usage --dir <agents/<id>> [--json]` (live from raw files) or `--agent <id>` (baked). The raw-file walker `lib/tokens/computeAgentTokenUsageFromDir` is MIRRORED by the generator (`packages/cli/.../extensions/agent-files.ts`); a parity test (`__tests__/agent-token-usage.test.ts`) guards the two against drift.
