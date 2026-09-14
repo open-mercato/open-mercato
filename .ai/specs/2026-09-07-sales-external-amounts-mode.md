@@ -268,10 +268,16 @@ export type CalculateDocumentOptions = {
 }
 ```
 
-`buildBaseDocumentResult` (`:192`) then takes the supplied header instead of the line rollup, for every
-field `orderTotalsSchema` (`data/validators.ts:662`) already accepts: `subtotalNetAmount`,
+`buildBaseDocumentResult` (`:192`) then takes the supplied header instead of the line rollup, for nine of
+the ten fields `orderTotalsSchema` (`data/validators.ts:662`) accepts: `subtotalNetAmount`,
 `subtotalGrossAmount`, `discountTotalAmount`, `taxTotalAmount`, `shippingNetAmount`,
 `shippingGrossAmount`, `surchargeTotalAmount`, `grandTotalNetAmount`, `grandTotalGrossAmount`.
+
+The tenth, `lineItemCount` (`validators.ts:672`), stays **core-owned** and is not caller-supplied. It is
+not money — it is a count of rows core itself persisted, derived from `calculation.lines.length` at
+`commands/documents.ts:3678` — and a caller that could assert it could make a document disagree with its
+own line rows. Named here because it sits in the same schema as the nine and an implementer wiring "the
+header totals" through wholesale would carry it along.
 
 **Substituting there is necessary and not sufficient**, because a totals calculator runs afterwards and
 rebuilds the header from scratch. Core registers one itself, and it arrives by import rather than by call:
@@ -374,12 +380,27 @@ uniformly:
 > A command that would rewrite an external document's header either **refuses**, or **leaves the header
 > untouched** and records its own non-monetary effect. Nothing recomputes an external header implicitly.
 
+**Which mode the rules are evaluated against, because it is load-bearing and every row below depends on
+it:** the **persisted** `totals_mode`, as it stands when the command starts — *except* for a request that
+sets `totalsMode` itself, which is a mode transition and is governed by § 8 rather than by the row for the
+command carrying it. Without that carve-out the § 8 switch-back falls through `sales.orders.update`'s row
+below (it carries neither lines nor totals) and is told to leave the header untouched, which would leave a
+document holding externally-asserted amounts while both columns say `computed` — the same end state the
+undo discussion below exists to prevent, reached through a different door.
+
+Both transitions are legal and both recompute or rewrite as § 8 describes:
+
+| transition | how | effect |
+|---|---|---|
+| `computed → external` | `totalsMode: 'external'` with complete lines and header totals (§ 4) | the supplied amounts are stored verbatim; incomplete input is a 4xx and the document stays `computed` |
+| `external → computed` | `totalsMode: 'computed'`, carrying nothing else | § 8's switch-back: every line flips, header and lines are recomputed, and the caller's figures are gone |
+
 **`commands/documents.ts` — recalculate-and-persist via `applyOrderTotals` (`:3653`) / `applyQuoteTotals` (`:3634`)**
 
 | command | decl | writes at | rule under `external` |
 |---|---:|---:|---|
-| `sales.orders.create` | 5714 | 5990 | accepts `amountsMode: 'external'` + complete lines + header totals; incomplete input is a 4xx |
-| `sales.orders.update` | 5470 | 5603 | if the request carries lines or totals it must carry **both**; a request carrying neither leaves the persisted header untouched |
+| `sales.orders.create` | 5714 | 5990 | accepts `totalsMode: 'external'` + complete lines + header totals; incomplete input is a 4xx |
+| `sales.orders.update` | 5470 | 5603 | if the request carries lines or totals it must carry **both**; a request carrying neither leaves the persisted header untouched — **unless it sets `totalsMode`, which is a transition and follows § 8, not this row** |
 | `sales.orders.lines.upsert` | 7076 | 7340 | **reject** unless the request also carries the document header totals — which today's schema cannot express, so § API Contracts widens it |
 | `sales.orders.lines.delete` | 7396 | 7522 | **reject** unless the request also carries the document header totals — same schema widening |
 | `sales.orders.adjustments.upsert` | 8047 | 8284 | **refuse** — an adjustment exists only to change money |
@@ -479,7 +500,7 @@ Status colours use `{property}-status-{status}-{role}` tokens; no hardcoded Tail
 
 ### 8. Leaving the mode, and what is not kept
 
-Setting `amountsMode: 'computed'` on `sales.orders.update` flips the order and **all** its lines
+Setting `totalsMode: 'computed'` on `sales.orders.update` flips the order and **all** its lines
 (the § 1 invariant forbids the mixed state), runs `calculateDocumentTotals` normally, and rewrites the
 header and every line from `unit_price_net`, `quantity` and `discount_*`.
 
@@ -549,7 +570,7 @@ SalesOrderLine   ───▶│  SalesLineSnapshot │───▶ buildBaseLin
               documents.ts:3653 (12 sites) / returns.ts:121 (3 sites), all guarded per §6
 ```
 
-The two `re-apply` stages are the load-bearing part, and they are why the seventeenth site in § 6 exists.
+The two `re-apply` stages are the load-bearing part, and they are why the engine-side site in § 6 exists.
 Substituting only at `buildBaseLineResult` / `buildBaseDocumentResult` leaves both registries free to
 overwrite the caller's figures afterwards — and core installs a totals calculator into its own registry by
 module side effect, so that is not a hypothetical third-party concern but the default path.
@@ -610,21 +631,36 @@ No route is added, removed or renamed. No response shape changes beyond two addi
 
 | route | methods | change |
 |---|---|---|
-| `/api/sales/orders` (`api/documents/factory.ts`) | `POST` `PUT` | accepts `amountsMode` on the document and on each line; header total fields, already accepted (`validators.ts:731`), become meaningful under `external` |
+| `/api/sales/orders` (`api/documents/factory.ts`) | `POST` `PUT` | accepts `totalsMode` on the document and `amountsMode` on each line; header total fields, already accepted (`validators.ts:731`), become meaningful under `external` |
 | `/api/sales/orders` | `GET` | responses gain `totalsMode` on the document and `amountsMode` on each line |
 | `/api/sales/order-lines` (`api/order-lines/route.ts` → `sales.orders.lines.*`) | `POST` `PUT` `DELETE` | on an external order, requires the document header totals in the same request (§ 6); otherwise unchanged |
 | `/api/sales/order-adjustments` → `sales.orders.adjustments.*` | `POST` `PUT` `DELETE` | refuses on an external order (§ 6) |
 | `/api/sales/returns` → `sales.returns.*` | `POST` `DELETE` | succeeds on an external order; leaves the header untouched (§ 6) |
 | `/api/sales/quotes`, `/api/sales/quote-lines` | all | unchanged |
 
+**Each field is named after the column it sets, and is returned under the name it is accepted under.**
+The document carries `totalsMode` (`sales_orders.totals_mode`); a line carries `amountsMode`
+(`sales_order_lines.amounts_mode`). Two names rather than one is deliberate: a document has *totals* and a
+line has *amounts*, they are separate columns (§ 1), and a field accepted under one name and returned
+under another is the adjacent shape to the bug this whole document is about — see the note below on
+`orderLineCreateSchema`.
+
+`totalsMode` is the caller-facing switch and **cascades**: setting it writes the document column and every
+line's column, which is what makes § 1's invariant hold by construction rather than by validation, and
+what makes § 8's switch-back a single field on a single request rather than one per line. A line-level
+`amountsMode` is still accepted — it has to be, because `sales.orders.lines.upsert` addresses one line
+without the document — and if an explicitly supplied line mode disagrees with the document's, the request
+is rejected (`sales.errors.externalModeMixed`) rather than one silently winning.
+
 Request schema additions — two in `data/validators.ts`:
 
 ```ts
 // linePricingSchema (:332-351), spread into orderLineCreateSchema and its update partial
-amountsMode: z.enum(['computed', 'external']).optional(),   // new; omitted ⇒ 'computed'
+amountsMode: z.enum(['computed', 'external']).optional(),   // new; omitted ⇒ inherit the document
+                                                            // on a document write, 'computed' otherwise
 
 // orderCreateSchema (:687), alongside the existing ...orderTotalsSchema.shape (:731)
-amountsMode: z.enum(['computed', 'external']).optional(),   // new; omitted ⇒ 'computed'
+totalsMode: z.enum(['computed', 'external']).optional(),    // new; omitted ⇒ 'computed'
 ```
 
 — and two in `commands/documents.ts`, without which § 6's rule for the line commands is one **no caller
@@ -860,7 +896,7 @@ suppression is structural rather than a second gate someone has to remember to a
 |---|---|---|
 | **A. Persisted mode columns on document and line** (this spec) | caller authority survives every sibling write; no behaviour change without opt-in; two defaulted columns | **chosen** |
 | B. Honour a supplied `totalNetAmount` unconditionally (#5644 option 1) | no new column, no new field | rejected — freezes legacy rows the discount contract heals; explicitly not taken upstream |
-| C. A per-request flag (`amountsMode` on the input only, nothing persisted) | no migration at all | rejected — the next write to any sibling line recalculates the whole document and overwrites it. This is the Odoo `_inverse_tax_totals` failure, verbatim |
+| C. A per-request mode flag (on the input only, nothing persisted) | no migration at all | rejected — the next write to any sibling line recalculates the whole document and overwrites it. This is the Odoo `_inverse_tax_totals` failure, verbatim |
 | D. Document-level mode only | one column instead of two | rejected — the line calculation is a pure function of one `SalesLineSnapshot` with no document in scope (`calculations.ts:118`), and `mapPersistedLine` is handed a line entity alone. The mode would have to be reached through a relation inside the mapper |
 | E. Line-level mode only | one column instead of two | rejected — cannot express a header that legitimately differs from the sum of its lines, which is ~23% of orders in the measurement above and the harder half of the problem |
 | F. Shadow columns retaining the caller's values through a switch back to `computed` | switching back is reversible | rejected — a second source of truth that nothing reads and nothing keeps correct; the caller's book of record already holds the originals (§ 8) |
@@ -888,12 +924,15 @@ suppression is structural rather than a second gate someone has to remember to a
 4. **Markup.** A line with `totalNetAmount > unitPriceNet × quantity` round-trips exactly, and its derived
    `discount_amount` is negative. Covered explicitly, not incidentally — no clamp, at either the validator
    or the engine.
-5. **Completeness is enforced.** `amountsMode: 'external'` without a `unitPriceNet`, net, gross or tax on
+5. **Completeness is enforced.** `totalsMode: 'external'` without a `unitPriceNet`, net, gross or tax on
    some line, or without the header totals on the document, is a 4xx naming the missing field. Partial
    specification is not a mode. The `unitPriceNet` case needs its own test rather than riding along with
    the others: it is the one whose absence produces a *plausible* result instead of an obviously broken
    one — `discount_amount = −totalNetAmount`, which criterion 4 would read as a legitimate markup.
-6. **No mixed documents.** The § 1 invariant holds: an external order has no computed line, a computed
+6. **No mixed documents, and both transitions are covered.** The § 1 invariant holds across
+   `computed → external` and `external → computed` as well as at rest, and a request that sets
+   `totalsMode` is evaluated as a transition rather than against the persisted mode (§ 6). An external
+   order has no computed line, a computed
    order has no external line, in both directions, on create and on update.
 7. **All twenty-three sites covered.** The twelve `documents.ts` writers, the `convert_to_order` copy, the
    six `restoreOrderGraph` undo sites, the three `returns.ts` writers, and the provider totals calculator
@@ -972,7 +1011,7 @@ return create/delete cycle asserting the header is untouched; then the switch ba
 
 | risk | severity | affected | mitigation | residual |
 |---|---|---|---|---|
-| **Core's own totals calculator rebuilds the header from the line rollup after the base result** (`lib/providers/totals.ts:191`, returning at `:370`), registered by a module side effect (`providers/index.ts:5`) that fires from both `sales/index.ts:2` and `data/validators.ts:6` | **high** | **every** external document, not a subset — this is the default path, not a deployment-specific one | § 4's two changes: the provider hook no-ops for external documents, and `calculateDocument` re-applies the supplied header after the whole registry (`:456-467`); § 6 lists it as the seventeenth site; criterion 3a pins it | none once both land. Missing only the first would leave a third-party calculator able to clobber; missing only the second would leave core's own hook doing it |
+| **Core's own totals calculator rebuilds the header from the line rollup after the base result** (`lib/providers/totals.ts:191`, returning at `:370`), registered by a module side effect (`providers/index.ts:5`) that fires from both `sales/index.ts:2` and `data/validators.ts:6` | **high** | **every** external document, not a subset — this is the default path, not a deployment-specific one | § 4's two changes: the provider hook no-ops for external documents, and `calculateDocument` re-applies the supplied header after the whole registry (`:456-467`); § 6 lists it as the twenty-third site; criterion 3a pins it | none once both land. Missing only the first would leave a third-party calculator able to clobber; missing only the second would leave core's own hook doing it |
 | A registered line calculator (`calculations.ts:375-378`) mutates an external line | medium | deployments with custom line calculators | § 3 re-applies the supplied line amounts after the registry, the same way § 4 does for the header; criterion 2 pins the round trip | a hook's work on an external line's amounts is silently discarded rather than silently applied — the safer direction, but still silent. § Decision Requested q3 asks whether skipping the registry outright would be more honest |
 | A third-party totals calculator that deliberately moved an external document's header stops being able to | low | third-party modules | § 4 states the rule; the documented escape is to switch the document to `computed` first | a calculator written against a mode that does not exist yet cannot regress; the risk is only for code written after this ships |
 | A return moves no header total on an external order, surprising an operator | **high** | any external-mode deployment that takes returns | § 6 states the rule; § 7's badge marks the document; criterion 10 pins it | intended, and the rule most likely to be overruled — see § Decision Requested q2 |
@@ -1034,6 +1073,29 @@ Deliberately absent. As with the discount contract, no implementation plan exist
 Requested is answered — the three decisions change the shape of the change, not just its details.
 
 ## Changelog
+
+### 2026-09-14
+
+- **The document-level mode had two names.** The column, `CalculateDocumentOptions` and the `GET` response
+  said `totalsMode`; the `POST`/`PUT` contract, the schema snippet, § 8 and criterion 5 said `amountsMode`,
+  so a caller would have posted one name and read back another — the shape adjacent to the bug class this
+  document exists to fix. Settled on one field per column: `totalsMode` on the document,
+  `amountsMode` on a line, each returned under the name it is accepted under. § API Contracts now states
+  that `totalsMode` cascades to every line — which is what makes § 1's invariant hold by construction and
+  § 8's switch-back a single field on a single request — and that a line mode explicitly disagreeing with
+  the document's is rejected rather than silently overridden.
+- **§ 6's `sales.orders.update` row swallowed the § 8 switch-back.** A switch-back request carries neither
+  lines nor totals, so the row told an implementer to leave the header untouched while § 8 and criterion 11
+  require it to be rewritten — leaving a document with the caller's amounts and `computed` on both
+  columns. § 6's preamble now says the rules are evaluated against the **persisted** mode, except for a
+  request that sets `totalsMode`, which is a transition governed by § 8; the row carries the carve-out;
+  and both transitions are tabulated, since only `external → computed` was previously described.
+  Criterion 6 covers both directions.
+- `lineItemCount` (`validators.ts:672`) is named as the tenth field of `orderTotalsSchema` and explicitly
+  **not** caller-supplied — it is derived from `calculation.lines.length` (`commands/documents.ts:3678`).
+  § 4 previously said "every field the schema accepts" and then listed nine.
+- Two stale "seventeenth" ordinals for the engine-side site corrected to twenty-third. The historical
+  changelog entry that says "seventeenth" is left alone — it was accurate when written.
 
 ### 2026-09-09
 
