@@ -28,7 +28,7 @@ What actually exists right now, and where:
 | Module | File | Branch | Status |
 |---|---|---|---|
 | Contractor Registry | `2026-09-06-contractor-registry.md` + `...-implementation-guide.md` | `docs/contractor-registry` | Open, PR #5955 — full spec, closed external maintainer review (two blockers + six majors fixed), Final Compliance Report: ready for maintainer review; literature + real-system comparison pass done 2026-09-12 |
-| General Ledger core engine | `2026-08-18-general-ledger-core-engine.md` + `...-implementation-guide.md` | `docs/spec-072-general-ledger-core-engine` | Open, PR #5663 |
+| General Ledger core engine | `2026-08-18-general-ledger-core-engine.md` + `...-implementation-guide.md` | `docs/spec-072-general-ledger-core-engine` | Open, PR #5663 — two corrections found 2026-09-14 while cross-checking Posting Rules Engine's second review: claimed ownership of the leaf-postability guard, and `reverseJournalEntry` now documented as also emitting `ledger.journal_entry.posted` (see note below the table and the spec's own Changelog) |
 | Accounts Payable (invoices) | `2026-09-06-accounts-payable.md` | `docs/accounts-payable` | Open, PR #5962 |
 | Accounts Payable (payments) | `2026-09-06-accounts-payable-payments.md` | `docs/accounts-payable` | Open, PR #5962 |
 | Journal Entry Line Dimension | `2026-09-06-journal-entry-line-dimension.md` | `docs/journal-entry-line-dimension` | Written, own branch |
@@ -391,6 +391,32 @@ A general chart-of-accounts import mechanism (bulk-loading a tenant's
 own numbering into `ledger.LedgerAccount`/`LedgerAccountType`) was
 discussed and deliberately deferred as a separate, `ledger`-owned
 future topic — not yet specified anywhere in this family.
+
+**New 2026-09-14 — a command that only sometimes emits its module's
+own domain event is a real, checkable gap, not a stylistic nit.**
+Found while building the GL core engine's Jira implementation
+backlog and re-verifying Posting Rules Engine's reversal-mirroring
+subscriber design against #5663's own text: `postJournalEntry` was
+documented (Commands, Events, File Manifest, Testing Strategy) as
+emitting `ledger.journal_entry.posted`, but `reverseJournalEntry`
+was not, anywhere — even though `2026-09-06-posting-rules-engine.md`'s
+subscriber ("Reversals are mirrored, not duplicated", corrected
+there 2026-09-14) already assumes a `REVERSAL` entry's lines arrive
+through that same event, to mirror a storno instead of duplicating
+it. Confirmed by reading #5663's own Commands/Events/File
+Manifest/Testing Strategy sections directly (not inferred) before
+concluding the gap was real. Corrected in #5663 (commit
+`8028c3e38`): `reverseJournalEntry` now documented as also emitting
+`ledger.journal_entry.posted` after commit. **Reusable finding for
+every future spec with more than one write command touching the
+same aggregate:** if one command's mutation is meant to be visible
+to the same downstream subscribers as another (here: both
+"post" and "reverse" produce a postable `JournalEntry`), say so
+for every such command individually — an event documented on only
+the first-written command is easy to silently leave off the
+second, and a subscriber spec written against the intended
+behavior (not the letter of the upstream document) can encode an
+assumption the upstream document never actually committed to.
 
 ---
 
