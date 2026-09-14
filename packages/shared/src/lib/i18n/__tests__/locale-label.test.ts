@@ -1,5 +1,25 @@
 import { resolveLocaleLabel } from '../locale-label'
 import type { TranslateFn } from '../context'
+import * as fs from 'node:fs'
+import * as path from 'node:path'
+
+// Walks the transitive *value* imports of a module (`import type` excluded, since
+// those vanish at compile time) and returns the module basenames reached. A
+// source scan rather than a `require.cache` diff because Jest's module registry
+// is already warm from this file's own imports by the time any test runs.
+function collectValueImports(entry: string, from = __dirname, seen = new Set<string>()): string[] {
+  const resolved = path.resolve(from, `${entry}.ts`)
+  const basename = path.basename(resolved, '.ts')
+  if (seen.has(basename) || !fs.existsSync(resolved)) return [...seen]
+  seen.add(basename)
+
+  const source = fs.readFileSync(resolved, 'utf8')
+  const importPattern = /^import\s+(?!type\s)(?:[^'"]*?\sfrom\s+)?['"](\.[^'"]+)['"]/gm
+  for (const match of source.matchAll(importPattern)) {
+    collectValueImports(match[1]!, path.dirname(resolved), seen)
+  }
+  return [...seen]
+}
 
 // Mirrors how `LanguageSwitcher` and `PayPage` call it: a real translator that
 // falls back to the inline default when the key is absent from the dictionary.
@@ -82,14 +102,15 @@ describe('resolveLocaleLabel', () => {
       expect(resolveLocaleLabel('zzz')).toBe('ZZZ')
     })
 
-    it('uses the ISO 639-1 English name when Intl has no data', () => {
+    it('falls back to the uppercased code when Intl has no data', () => {
       const displayNames = jest
         .spyOn(Intl, 'DisplayNames')
         .mockImplementation((() => ({ of: () => undefined })) as unknown as typeof Intl.DisplayNames)
 
       try {
-        // `za` (Zhuang) is in the ISO catalogue with the label "Zhuang".
-        expect(resolveLocaleLabel('za')).toBe('Zhuang')
+        // `za` (Zhuang) is in the ISO 639-1 catalogue, but this module
+        // deliberately does not consult it — see the import-graph test below.
+        expect(resolveLocaleLabel('za')).toBe('ZA')
       } finally {
         displayNames.mockRestore()
       }
@@ -98,6 +119,23 @@ describe('resolveLocaleLabel', () => {
     it('survives Intl throwing on a malformed code', () => {
       expect(() => resolveLocaleLabel('!!not a tag!!')).not.toThrow()
       expect(resolveLocaleLabel('!!not a tag!!')).toBe('!!NOT A TAG!!')
+    })
+  })
+
+  describe('client bundle weight', () => {
+    // Every caller of `resolveLocaleLabel` is a client component, including the
+    // public checkout pay page. `iso639.ts` is a 186-entry table with a
+    // module-scope `Set` that no bundler can tree-shake, so pulling it in here
+    // would ship the whole language catalogue to that route.
+    it('does not pull the ISO 639-1 catalogue into its import graph', () => {
+      expect(collectValueImports('../locale-label')).not.toContain('iso639')
+    })
+
+    // Guards the guard: a walker that silently found nothing would pass the
+    // assertion above for the wrong reason. `locale-registry` does import the
+    // catalogue, transitively proving the traversal reaches real edges.
+    it('detects the catalogue where it is genuinely imported', () => {
+      expect(collectValueImports('../locale-registry')).toContain('iso639')
     })
   })
 })

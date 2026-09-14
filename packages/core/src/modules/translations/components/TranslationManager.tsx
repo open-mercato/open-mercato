@@ -621,10 +621,16 @@ export function LocaleManager() {
       })
     },
     onSuccess: (result) => {
-      queryClient.setQueryData<TranslationLocales>(['translation-locales'], (previous) => ({
-        locales: result,
-        servable: previous?.servable ?? [],
-      }))
+      // The PUT response carries the stored selection only, so `servable` has to
+      // come from the cached entry. With no entry to read, defaulting it to `[]`
+      // would mark every chip "Content only" — including the shipped locales —
+      // which is the one answer that is definitely wrong. Refetch instead.
+      const previous = queryClient.getQueryData<TranslationLocales>(['translation-locales'])
+      if (previous) {
+        queryClient.setQueryData<TranslationLocales>(['translation-locales'], { ...previous, locales: result })
+      } else {
+        void queryClient.invalidateQueries({ queryKey: ['translation-locales'] })
+      }
       flash(t('translations.locales.flash.saved', 'Locales updated'), 'success')
     },
     onError: () => {
@@ -650,6 +656,15 @@ export function LocaleManager() {
         : `${entry.code.toUpperCase()} — ${entry.label} (${contentOnlyLabel})`,
     })),
     [locales, isServable, contentOnlyLabel],
+  )
+
+  // `resolveSupportedLocalesForRequest` keeps `defaultLocale` in the served set
+  // whatever the stored selection says, so a tenant whose saved list omits it
+  // still gets it in the language switcher. Rendering the raw selection here
+  // would leave this screen and the switcher disagreeing about what is served.
+  const chips = React.useMemo(
+    () => (locales.includes(defaultLocale) ? locales : [defaultLocale, ...locales]),
+    [locales],
   )
 
   const addLocale = () => {
@@ -682,9 +697,10 @@ export function LocaleManager() {
       </div>
 
       <div className="flex flex-wrap gap-2">
-        {locales.map((locale) => {
+        {chips.map((locale) => {
           const localeLabel = getIso639Label(locale) ?? locale.toUpperCase()
           const isDefault = locale === defaultLocale
+          const isStored = locales.includes(locale)
           const removeLabel = t('translations.locales.remove', 'Remove {{locale}}', { locale: localeLabel })
           const defaultLabel = t(
             'translations.locales.alwaysServed',
@@ -694,8 +710,8 @@ export function LocaleManager() {
           return (
             <span
               key={locale}
-              className="inline-flex items-center gap-1.5 rounded-full border bg-muted px-3 py-1 text-sm font-medium"
-              title={getIso639Label(locale) ?? locale}
+              className="inline-flex items-center gap-1.5 rounded-full border bg-muted/50 px-3 py-1 text-sm font-medium"
+              title={isStored ? (getIso639Label(locale) ?? locale) : defaultLabel}
             >
               {locale.toUpperCase()}{getIso639Label(locale) ? ` — ${getIso639Label(locale)}` : ''}
               {!isServable(locale) && (
@@ -703,7 +719,7 @@ export function LocaleManager() {
                   {contentOnlyLabel}
                 </Badge>
               )}
-              {locales.length > 1 && (
+              {isStored && locales.length > 1 && (
                 <IconButton
                   variant="ghost"
                   size="xs"

@@ -106,6 +106,13 @@ selection is intersected with what the app can actually serve), an empty interse
 to the full set, and `defaultLocale` is always kept in the served set — so a narrowed tenant can
 never end up rendering a language its own switcher does not offer.
 
+**API contract.** `POST /api/auth/locale` and `GET /api/auth/locale` now validate against the
+**request's** served set rather than the process-wide one, so a locale outside the caller's tenant
+selection returns `400` instead of `200`/`302` with a cookie every later render discards. The
+accepted set is therefore per-tenant, and the generated OpenAPI documents it as a reference to
+`GET /api/translations/locales` rather than a static `enum` that would be wrong for most tenants.
+A caller that only ever sends a locale it read from the switcher is unaffected.
+
 ### `entry.overrides` now actually applies in CLI, worker and scheduler processes (#5582)
 
 `entry.overrides` declared in your app's `src/modules.ts` used to take effect only in the Next.js

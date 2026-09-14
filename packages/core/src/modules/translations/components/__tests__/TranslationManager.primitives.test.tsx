@@ -215,3 +215,56 @@ describe('LocaleManager honesty about what a locale actually does', () => {
     expect(mutate).toHaveBeenCalledWith(['en'])
   })
 })
+
+
+/**
+ * `resolveSupportedLocalesForRequest` keeps `defaultLocale` in the served set
+ * whatever the tenant saved, so a selection that omits it still gets it in the
+ * language switcher. Rendering only the stored selection here left this screen
+ * and the switcher disagreeing about what is actually served.
+ */
+describe('LocaleManager renders the effective served set', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockUseMutation.mockReturnValue({ mutate: jest.fn(), isPending: false })
+    mockUseQueryClient.mockReturnValue({ setQueryData: jest.fn(), invalidateQueries: jest.fn() })
+  })
+
+  it('pins the default locale as a chip when the stored selection omits it', () => {
+    mockUseQuery.mockReturnValue({
+      data: { locales: ['pl', 'de'], servable: ['en', 'pl', 'de'] },
+      isLoading: false,
+    })
+
+    render(<LocaleManager />)
+
+    const englishChip = screen.getByTitle(
+      'English is the default language and is always served, so it cannot be removed.',
+    )
+    expect(englishChip.textContent).toContain('EN')
+    // Not part of the stored selection, so there is nothing to remove from it.
+    expect(screen.queryByRole('button', { name: /English/ })).toBeNull()
+  })
+
+  it('does not qualify the pinned default as content only', () => {
+    mockUseQuery.mockReturnValue({
+      data: { locales: ['pl'], servable: ['en', 'pl'] },
+      isLoading: false,
+    })
+
+    render(<LocaleManager />)
+
+    expect(screen.queryByText('Content only')).toBeNull()
+  })
+
+  it('leaves the stored selection alone when it already contains the default', () => {
+    mockUseQuery.mockReturnValue({
+      data: { locales: ['en', 'pl'], servable: ['en', 'pl'] },
+      isLoading: false,
+    })
+
+    render(<LocaleManager />)
+
+    expect(screen.getAllByText(/^(EN|PL) — /)).toHaveLength(2)
+  })
+})

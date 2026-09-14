@@ -1,5 +1,6 @@
 /** @jest-environment node */
 import { GET, POST } from '@open-mercato/core/modules/auth/api/locale/route'
+import { registerSupportedLocalesResolver } from '@open-mercato/shared/lib/i18n/locale-registry'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({
@@ -7,6 +8,10 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
     translate: (_key: string, fallback?: string) => fallback ?? '',
   }),
 }))
+
+afterEach(() => {
+  registerSupportedLocalesResolver(null)
+})
 
 const BASE = 'https://app.example.com'
 
@@ -167,5 +172,90 @@ describe('POST /api/auth/locale', () => {
       expect(res.status).toBe(307)
       expect(res.headers.get('set-cookie')).toContain('locale=pl')
     })
+  })
+})
+
+describe('locale writes are validated against the tenant-narrowed set', () => {
+  // `detectLocale` reads the cookie back against the request's served set. If
+  // these handlers validated against the wider process-wide registry, a locale
+  // the tenant has not selected would return 200 and set a year-long cookie
+  // that every subsequent render silently discards — the caller is told the
+  // change worked and nothing ever changes.
+  function narrowTo(codes: readonly string[]) {
+    registerSupportedLocalesResolver(async () => codes)
+  }
+
+  async function postLocale(locale: string) {
+    return POST(new Request(`${BASE}/api/auth/locale`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ locale }),
+    }))
+  }
+
+  it('rejects a locale outside the tenant selection on POST', async () => {
+    narrowTo(['en', 'pl'])
+
+    const res = await postLocale('de')
+
+    expect(res.status).toBe(400)
+    expect(res.headers.get('set-cookie')).toBeNull()
+  })
+
+  it('rejects it on the GET redirect arm too', async () => {
+    narrowTo(['en', 'pl'])
+
+    const res = await GET(makeGetRequest({ locale: 'de', redirect: '/' }))
+
+    expect(res.status).toBe(400)
+    expect(res.headers.get('set-cookie')).toBeNull()
+  })
+
+  it('still accepts a locale inside the selection', async () => {
+    narrowTo(['en', 'pl'])
+
+    const res = await postLocale('pl')
+
+    expect(res.status).toBe(200)
+    expect(res.headers.get('set-cookie')).toContain('locale=pl')
+  })
+
+  it('rejects a region subtag whose base locale is outside the selection', async () => {
+    narrowTo(['en', 'pl'])
+
+    const res = await postLocale('de-AT')
+
+    expect(res.status).toBe(400)
+  })
+
+  it('accepts the default locale even when the selection omits it', async () => {
+    // `resolveSupportedLocalesForRequest` always keeps `defaultLocale` servable,
+    // so the write side has to agree or an admin could never get back to it.
+    narrowTo(['pl'])
+
+    const res = await postLocale('en')
+
+    expect(res.status).toBe(200)
+    expect(res.headers.get('set-cookie')).toContain('locale=en')
+  })
+
+  it('serves the full set when the tenant has no stored selection', async () => {
+    narrowTo([])
+
+    const res = await postLocale('ko')
+
+    expect(res.status).toBe(200)
+    expect(res.headers.get('set-cookie')).toContain('locale=ko')
+  })
+
+  it('serves the full set when the tenant lookup throws', async () => {
+    registerSupportedLocalesResolver(async () => {
+      throw new Error('[internal] database unavailable')
+    })
+
+    const res = await postLocale('ko')
+
+    expect(res.status).toBe(200)
+    expect(res.headers.get('set-cookie')).toContain('locale=ko')
   })
 })

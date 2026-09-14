@@ -5,13 +5,25 @@ function normalizeLocaleToken(value: string): string {
   return value.trim().toLowerCase().replace(/_/g, '-')
 }
 
-export function resolveSupportedLocale(value: string | null | undefined): Locale | null {
+/**
+ * Canonicalize a user-supplied locale token against the set of locales that may
+ * be served, folding a region subtag down to its base language (`de-AT` → `de`).
+ *
+ * `supported` defaults to the process-wide set. Pass the request's served set —
+ * from `resolveSupportedLocalesForRequest()` — anywhere the answer is written
+ * somewhere durable, such as the `locale` cookie: the process-wide set is wider
+ * than a tenant's selection, so validating against it would accept a locale that
+ * every later render then discards, and report success while nothing changes.
+ */
+export function resolveSupportedLocale(
+  value: string | null | undefined,
+  supported: readonly Locale[] = getSupportedLocales(),
+): Locale | null {
   if (typeof value !== 'string') return null
 
   const normalized = normalizeLocaleToken(value)
   if (!normalized) return null
 
-  const supported = getSupportedLocales()
   if (supported.includes(normalized as Locale)) {
     return normalized as Locale
   }
@@ -26,9 +38,10 @@ export function resolveSupportedLocale(value: string | null | undefined): Locale
 
 export function resolveLocaleFromCandidates(
   candidates: Iterable<string | null | undefined>,
+  supported?: readonly Locale[],
 ): Locale | null {
   for (const candidate of candidates) {
-    const resolved = resolveSupportedLocale(candidate)
+    const resolved = resolveSupportedLocale(candidate, supported)
     if (resolved) return resolved
   }
   return null
@@ -48,6 +61,7 @@ export function resolveForcedLocale(
 
 export function resolveLocaleFromAcceptLanguage(
   acceptLanguage: string | null | undefined,
+  supported?: readonly Locale[],
 ): Locale | null {
   if (typeof acceptLanguage !== 'string' || acceptLanguage.trim().length === 0) {
     return null
@@ -72,5 +86,5 @@ export function resolveLocaleFromAcceptLanguage(
       return left.index - right.index
     })
 
-  return resolveLocaleFromCandidates(rankedCandidates.map((entry) => entry.locale))
+  return resolveLocaleFromCandidates(rankedCandidates.map((entry) => entry.locale), supported)
 }

@@ -1,5 +1,4 @@
 import type { TranslateFn } from './context'
-import { getIso639Label } from './iso639'
 
 type ShippedLocaleLabel = {
   /** Dictionary key, so the label itself is localized when a translator is given. */
@@ -40,7 +39,7 @@ function computeIntlDisplayName(locale: string): string | undefined {
     if (!displayName || displayName.toLowerCase() === locale.toLowerCase()) return undefined
     return displayName
   } catch {
-    // Invalid or unsupported code — fall through to the ISO table.
+    // Invalid or unsupported code — fall through to the uppercased code.
     return undefined
   }
 }
@@ -53,8 +52,19 @@ function computeIntlDisplayName(locale: string): string | undefined {
  *  1. the shipped table — via `t` when given, so the label is itself localized
  *     (a German UI shows "Polnisch"); otherwise the endonym ("Polski")
  *  2. `Intl.DisplayNames` — the endonym for an arbitrary code, no dependency
- *  3. the ISO 639-1 catalogue — the English name
- *  4. the uppercased code — never blank
+ *  3. the uppercased code — never blank
+ *
+ * Deliberately does **not** consult `./iso639`. Every caller of this function is
+ * a client component — the admin `ProfileDropdown`, the storefront
+ * `LanguageSwitcher`, the public checkout pay page — and `iso639.ts` is a
+ * 186-entry table with a module-scope `Set` no bundler can tree-shake, so
+ * importing it here would ship 7 KB of language catalogue to a conversion-
+ * critical public route in order to render five labels that rung 1 already
+ * answered. `Intl.DisplayNames` names essentially any code an app would plausibly
+ * register, in every browser this app supports, so the catalogue was only ever a
+ * fallback for a fallback. A code `Intl` cannot name degrades to its uppercased
+ * form, which is never blank. Server and admin callers that genuinely need the
+ * catalogue keep importing `getIso639Label` from `./iso639` directly.
  *
  * Pass `t` where the surrounding UI renders localized language names, and omit
  * it where it renders endonyms. Both conventions exist in the codebase and the
@@ -66,5 +76,5 @@ export function resolveLocaleLabel(locale: string, t?: TranslateFn): string {
     return t ? t(shipped.key, shipped.native) : shipped.native
   }
 
-  return resolveIntlDisplayName(locale) ?? getIso639Label(locale) ?? locale.toUpperCase()
+  return resolveIntlDisplayName(locale) ?? locale.toUpperCase()
 }

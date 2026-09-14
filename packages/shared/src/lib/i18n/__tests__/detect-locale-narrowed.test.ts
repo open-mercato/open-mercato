@@ -57,6 +57,16 @@ describe('detectLocale with a narrowed supported set', () => {
     await expect(detectLocale({ supportedLocales: NARROWED })).resolves.not.toBe('es')
   })
 
+  it('falls through to a lower-ranked header entry that is inside the set', async () => {
+    // Header ranks `es` first, but the tenant does not serve it. Matching the
+    // header against the process-wide set and re-checking afterwards would
+    // discard the whole header on the `es` match and land on the default; the
+    // narrowed set has to reach the matcher itself for `de` to win.
+    headerStore.acceptLanguage = 'es-ES,es;q=0.9,de;q=0.8'
+
+    await expect(detectLocale({ supportedLocales: NARROWED })).resolves.toBe('de')
+  })
+
   it('never returns a locale outside the set it was given', async () => {
     // The regression this guards: the fallback used to be an unconditional
     // `return defaultLocale`, which rendered an English page under a switcher

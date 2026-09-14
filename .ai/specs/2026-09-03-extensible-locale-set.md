@@ -142,13 +142,22 @@ Replaces all three exhaustive maps with one resolver:
 
 1. shipped table → `t ? t('common.languages.german', 'Deutsch') : 'Deutsch'`
 2. `Intl.DisplayNames([locale], { type: 'language' })` → the endonym for any code, no dependency
-3. `getIso639Label(locale)` → the English name
-4. `locale.toUpperCase()` → never blank
+3. `locale.toUpperCase()` → never blank
 
 The shipped five keep hand-written labels because `Intl` disagrees on casing (`español`,
 `polski` vs. the rendered `Español`, `Polski`). `ProfileDropdown` passes no translator (it
 renders endonyms); `LanguageSwitcher` and `PayPage` pass one (they render localized names). Output
 is byte-identical for all five locales in all three components.
+
+`locale-label.ts` deliberately does **not** consult `./iso639`. All three callers are client
+components — the admin shell, the storefront switcher and the public checkout pay page — and
+`iso639.ts` is a 186-entry table behind a module-scope `Set` that no bundler can tree-shake, so an
+import here would ship 7 KB of language catalogue to a conversion-critical public route to render
+five labels rung 1 already answered. `Intl.DisplayNames` names essentially any code an app would
+plausibly register, so the catalogue was only ever a fallback for a fallback; a code `Intl` cannot
+name degrades to its uppercased form. Server and admin callers that genuinely need the catalogue
+(`TranslationManager`, `PUT /translations/locales`) keep importing `getIso639Label` directly.
+`locale-label.test.ts` asserts the import graph so a future transitive import is caught.
 
 ### 5. Operations layer — the existing settings screen becomes authoritative
 
@@ -237,7 +246,7 @@ already-shipped `PUT /api/translations/locales`. No migration.
 
 | Route | Change |
 |-------|--------|
-| `POST /api/auth/locale` | Validates against the runtime supported set instead of a module-scope `Set` snapshot. Same 400 on an unsupported code. |
+| `POST /api/auth/locale` | Validates against the **request's** served set (`resolveSupportedLocalesForRequest()`) instead of a module-scope `Set` snapshot. A locale outside the caller's tenant selection is now a 400. |
 | `GET /api/auth/locale` | Same. |
 | `GET /api/translations/locales` | Additive `servable: string[]` in the 200 body — the locales the app can render its own UI in. `locales` is unchanged. |
 | `PUT /api/translations/locales` | Unchanged. |
@@ -246,7 +255,18 @@ The zod schema on `/api/auth/locale` changed from `z.enum(locales)` to
 `z.string().refine(isSupportedLocale)`. Both the `Set` and the enum were built at **module
 scope**, so a locale registered after first import would have been rejected for the process
 lifetime. The published OpenAPI document consequently describes `locale` as a string rather than
-enumerating five values — accurate, since the valid set is now per-deployment and per-tenant.
+enumerating five values — accurate, since the valid set is now per-deployment and per-tenant. The
+field carries a `.describe()` pointing at the `servable` array of `GET /api/translations/locales`,
+which is the only source that can answer the question for the caller's own tenant.
+
+Both handlers write a year-long `locale` cookie that `detectLocale` later reads back against the
+request's served set. Validating the write against the wider process-wide registry let a tenant
+that had selected `['en','pl']` `POST {"locale":"de"}`, receive `200 {"ok":true}`, and then see
+English on every subsequent render — success reported, nothing changed, and the stale cookie losing
+silently from then on. Resolving through `resolveSupportedLocalesForRequest()` makes the write side
+agree with the read side. `defaultLocale` stays accepted whatever the selection says, because the
+resolver keeps it servable; an unresolvable tenant lookup falls back to the full set, as everywhere
+else.
 
 ## UI/UX
 
@@ -300,11 +320,11 @@ caller that has request context (the root layout) pay the cost once per render.
 
 1. `config.ts` — `LocaleRegistry` + derived `Locale`; both `export const` lines untouched.
 2. New `locale-registry.ts` — `globalThis` registry, resolver slot, request resolution.
-3. New `locale-label.ts` — the four-rung label resolver.
+3. New `locale-label.ts` — the three-rung label resolver (no ISO catalogue on the client path).
 4. `locale.ts`, `server.ts`, `context.tsx` — read the registry; optional `detectLocale` options;
    optional provider prop; `useSupportedLocales()`; default-locale fallback in `loadDictionary`.
 5. Three label sites — drop `Record<Locale, string>`, use the hook and the resolver.
-6. `/api/auth/locale` — lazy validation.
+6. `/api/auth/locale` — lazy validation, against the request's served set.
 7. `translations/di.ts` + `lib/supported-locales.ts` — register the tenant resolver.
 8. Root layout + `AppProviders` in the app and the create-app template.
 9. Tests and the `config.typecheck.tsx` compile-time guard.
@@ -399,3 +419,15 @@ change, not a behaviour change; an assertion covering the new prop was added alo
   "content only" qualifier and the default-locale removal guard on the settings screen. Endonym-vs-exonym
   label inconsistency recorded as out of scope; end-to-end integration coverage of the tenant narrowing
   is still open (code-review test gap 4).
+
+### 2026-09-14
+- Upstream code-review follow-up (PR #5887). Dropped the ISO 639-1 rung from `resolveLocaleLabel`
+  so the 186-entry catalogue stops shipping in the storefront and public checkout client bundles,
+  with an import-graph regression test. `/api/auth/locale` now validates writes against the
+  request's served set rather than the process-wide registry, so a locale outside the tenant
+  selection is a 400 instead of a silently-discarded cookie. `detectLocale` matches
+  `Accept-Language` against the narrowed set directly, so `de, en` on an `en`-only tenant picks
+  `en` instead of discarding the header. Settings screen: the chip list renders the effective
+  served set (default locale pinned) instead of the raw stored selection, the post-save cache
+  write refetches rather than inventing an empty `servable`, and `wms` warehouse country search
+  uses the served set.

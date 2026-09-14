@@ -58,10 +58,11 @@ export async function detectLocale(options?: DetectLocaleOptions): Promise<Local
     }
     try {
       const accept = (await headers()).get('accept-language') || ''
-      const match = resolveLocaleFromAcceptLanguage(accept)
-      // `resolveLocaleFromAcceptLanguage` matches against the process-wide set,
-      // so a tenant-narrowed set has to be re-checked here.
-      if (match && supported.includes(match)) return match
+      // Matched against the served set rather than the process-wide one, so a
+      // header like `de, en` on a tenant that serves only `en` picks `en`
+      // instead of matching `de` first and then discarding the whole header.
+      const match = resolveLocaleFromAcceptLanguage(accept, supported)
+      if (match) return match
     } catch {
       // headers() may not be available outside request context (e.g., in tests)
     }
