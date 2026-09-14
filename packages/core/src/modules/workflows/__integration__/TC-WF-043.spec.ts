@@ -30,7 +30,7 @@ import {
  *   pin exactly that.
  * - Direction matters for the reverse link: workflows only ANNOUNCES the task and the
  *   records it is about (`workflows.task.assigned`); the customers module owns
- *   `CustomerTodoLink` and is the module that writes it, with `todoSource: 'workflows'`.
+ *   `CustomerTodoLink` and is the module that writes it, with `todoSource: 'workflows:user_task'`.
  *   Workflows never touches a customers table and a deployment without the customers module
  *   simply has no subscriber.
  * - The subscriber is registered `persistent: true`. With the platform default (single
@@ -123,7 +123,7 @@ test.describe('TC-WF-043: task entity bindings and record-side linkage', () => {
         expect(response.status(), 'GET /api/customers/todos should return 200').toBe(200)
         const body = await readJsonSafe<TodoListBody>(response)
         linked = (body?.items ?? []).some(
-          (item) => item.todoId === taskId && item.todoSource === 'workflows',
+          (item) => item.todoId === taskId && item.todoSource === 'workflows:user_task',
         )
         if (linked || Date.now() >= deadline) break
         await new Promise((resolve) => setTimeout(resolve, 250))

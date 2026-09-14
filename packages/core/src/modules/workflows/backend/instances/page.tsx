@@ -501,6 +501,7 @@ export default function WorkflowInstancesListPage() {
       <PageBody>
         <DataTable<InstanceRow>
           title={t('workflows.instances.list.title')}
+          titleHeadingLevel={1}
           actions={viewToggle}
           columns={columns}
           data={grouped ? treeData : ((data || []) as InstanceRow[])}

@@ -200,7 +200,7 @@ test('business one-shot guidance maps staff record outcomes to canonical complet
   assert.match(blueprint, /Avoid optional locales, standalone widget\/event\/enricher files/)
 })
 
-test('the 234-case catalog routes audited installed-module, runtime, and AI/provider branches explicitly', () => {
+test('the 236-case catalog routes audited installed-module, runtime, and AI/provider branches explicitly', () => {
   const cases = JSON.parse(read('shared/ai/harness/cases.json')) as Array<{
     id: string
     prompt: string
@@ -212,12 +212,12 @@ test('the 234-case catalog routes audited installed-module, runtime, and AI/prov
     frameworkContext?: Array<{ module?: string; package?: string; query: string }>
     source?: { paths?: string[] }
   }>
-  assert.equal(cases.length, 234)
+  assert.equal(cases.length, 236)
   const byId = new Map(cases.map((entry) => [entry.id, entry]))
   const expectations: Record<string, { contexts: string[]; decisions: string[] }> = {
     'OMH-013': { contexts: ['.ai/guides/modules/auth/index.md'], decisions: ['auth-invitation-flow', 'feature-based-declarative-auth', 'session-safe-auth'] },
     'OMH-015': { contexts: ['.ai/guides/modules/content/index.md'], decisions: ['static-content-page', 'localized-copy', 'ssr-friendly-content'] },
-    'OMH-039': { contexts: ['.ai/guides/modules/communication_channels/index.md', '.ai/guides/modules/channel_gmail/index.md', '.ai/guides/modules/channel_imap/index.md'], decisions: ['email-provider-kind', 'channel-adapter-contract', 'structured-logger-redaction'] },
+    'OMH-039': { contexts: ['.ai/guides/modules/communication_channels/index.md', '.ai/guides/modules/channel_gmail/index.md', '.ai/guides/modules/channel_imap/index.md', '.ai/guides/modules/channel_resend/index.md', '.ai/guides/modules/channel_ses/index.md'], decisions: ['email-provider-kind', 'channel-adapter-contract', 'structured-logger-redaction'] },
     'OMH-052': { contexts: ['.ai/guides/modules/attachments/index.md'], decisions: ['attachment-scope-both-or-neither', 'check-attachment-access'] },
     'OMH-087': { contexts: ['.ai/guides/ai-workflows.md', '.ai/guides/modules/api_keys/index.md', '.ai/guides/modules/configs/index.md', '.ai/guides/modules/dictionaries/index.md', '.ai/guides/modules/gateway_stripe/index.md', '.ai/guides/modules/perspectives/index.md', '.ai/guides/modules/resources/index.md', '.ai/guides/modules/sync_akeneo/index.md', '.ai/guides/modules/sync_excel/index.md', '.ai/guides/modules/dashboards/index.md', '.ai/guides/modules/notifications/index.md', '.ai/guides/modules/messages/index.md', '.ai/guides/modules/inbox_ops/index.md', '.ai/guides/modules/ai_assistant/index.md'], decisions: ['mfa-and-sudo-contributions', 'dashboard-notification-message-inbox-surfaces', 'typed-tool-versus-mcp', 'mcp-opencode-code-mode', 'mcp-two-tier-auth'] },
     'OMH-026': { contexts: ['.ai/guides/extensions.md'], decisions: ['facts-first-target', 'bound-crud-form-host', 'correlated-roundtrip'] },

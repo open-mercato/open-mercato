@@ -57,6 +57,8 @@ COPY packages/channel-expo/package.json ./packages/channel-expo/
 COPY packages/channel-fcm/package.json ./packages/channel-fcm/
 COPY packages/channel-gmail/package.json ./packages/channel-gmail/
 COPY packages/channel-imap/package.json ./packages/channel-imap/
+COPY packages/channel-resend/package.json ./packages/channel-resend/
+COPY packages/channel-ses/package.json ./packages/channel-ses/
 COPY packages/checkout/package.json ./packages/checkout/
 COPY packages/cli/package.json ./packages/cli/
 COPY packages/content/package.json ./packages/content/
@@ -76,6 +78,7 @@ COPY packages/starter/package.json ./packages/starter/
 COPY packages/storage-s3/package.json ./packages/storage-s3/
 COPY packages/sync-akeneo/package.json ./packages/sync-akeneo/
 COPY packages/telemetry/package.json ./packages/telemetry/
+COPY packages/tillio/package.json ./packages/tillio/
 COPY packages/ui/package.json ./packages/ui/
 COPY packages/web-research/package.json ./packages/web-research/
 COPY packages/web-research-browser/package.json ./packages/web-research-browser/
@@ -166,6 +169,8 @@ COPY packages/channel-expo/package.json ./packages/channel-expo/
 COPY packages/channel-fcm/package.json ./packages/channel-fcm/
 COPY packages/channel-gmail/package.json ./packages/channel-gmail/
 COPY packages/channel-imap/package.json ./packages/channel-imap/
+COPY packages/channel-resend/package.json ./packages/channel-resend/
+COPY packages/channel-ses/package.json ./packages/channel-ses/
 COPY packages/checkout/package.json ./packages/checkout/
 COPY packages/cli/package.json ./packages/cli/
 COPY packages/content/package.json ./packages/content/
@@ -185,6 +190,7 @@ COPY packages/starter/package.json ./packages/starter/
 COPY packages/storage-s3/package.json ./packages/storage-s3/
 COPY packages/sync-akeneo/package.json ./packages/sync-akeneo/
 COPY packages/telemetry/package.json ./packages/telemetry/
+COPY packages/tillio/package.json ./packages/tillio/
 COPY packages/ui/package.json ./packages/ui/
 COPY packages/web-research/package.json ./packages/web-research/
 COPY packages/web-research-browser/package.json ./packages/web-research-browser/
@@ -350,6 +356,8 @@ COPY --from=builder /app/packages/channel-expo/package.json ./packages/channel-e
 COPY --from=builder /app/packages/channel-fcm/package.json ./packages/channel-fcm/
 COPY --from=builder /app/packages/channel-gmail/package.json ./packages/channel-gmail/
 COPY --from=builder /app/packages/channel-imap/package.json ./packages/channel-imap/
+COPY --from=builder /app/packages/channel-resend/package.json ./packages/channel-resend/
+COPY --from=builder /app/packages/channel-ses/package.json ./packages/channel-ses/
 COPY --from=builder /app/packages/checkout/package.json ./packages/checkout/
 COPY --from=builder /app/packages/cli/package.json ./packages/cli/
 COPY --from=builder /app/packages/content/package.json ./packages/content/
@@ -369,6 +377,7 @@ COPY --from=builder /app/packages/starter/package.json ./packages/starter/
 COPY --from=builder /app/packages/telemetry/package.json ./packages/telemetry/
 COPY --from=builder /app/packages/storage-s3/package.json ./packages/storage-s3/
 COPY --from=builder /app/packages/sync-akeneo/package.json ./packages/sync-akeneo/
+COPY --from=builder /app/packages/tillio/package.json ./packages/tillio/
 COPY --from=builder /app/packages/ui/package.json ./packages/ui/
 COPY --from=builder /app/packages/web-research/package.json ./packages/web-research/
 COPY --from=builder /app/packages/web-research-browser/package.json ./packages/web-research-browser/

@@ -708,6 +708,14 @@
       },
       "note": "darkened from 0.556: 4.54:1 on --muted (AA), was 4.34"
     },
+    "om-floating-cta-safe-area": {
+      "kind": "dimension",
+      "light": "5rem",
+      "dark": null,
+      "themeInvariant": true,
+      "figma": null,
+      "note": "Vertical space a viewport-pinned floating CTA needs to clear: its bottom offset (1.5rem) plus its own height, rounded up to the spacing scale. Consumed by the `body[data-demo-feedback-fab]` safe-area rule below. Pure spacing — theme-invariant (no .dark override)."
+    },
     "popover": {
       "kind": "color",
       "light": "oklch(1 0 0)",

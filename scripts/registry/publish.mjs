@@ -89,7 +89,10 @@ export async function publishToVerdaccio({ rootDir, env = process.env, log = con
     log(`Bootstrapping Verdaccio at ${registryUrl}...`)
     if (env.OM_SKIP_VERDACCIO_BOOTSTRAP !== '1') {
       runDocker(['compose', 'rm', '-sf', 'verdaccio'], { cwd: rootDir, quiet: true, allowFailure: true })
-      runDocker(['volume', 'rm', '-f', 'mercato-verdaccio-storage', 'mercato-verdaccio-plugins'], {
+      // Volume names follow the same ${MERCATO_STACK} prefix as docker-compose.yml,
+      // so a named stack resets its own storage instead of the default stack's.
+      const stack = env.MERCATO_STACK || 'mercato'
+      runDocker(['volume', 'rm', '-f', `${stack}-verdaccio-storage`, `${stack}-verdaccio-plugins`], {
         cwd: rootDir,
         quiet: true,
         allowFailure: true,

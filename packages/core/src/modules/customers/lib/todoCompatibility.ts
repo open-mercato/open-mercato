@@ -98,7 +98,10 @@ function resolveLegacyTodoSource(source: string | null | undefined): string {
 }
 
 function extractTodoTitle(record: Record<string, unknown>): string | null {
-  const candidates = ['title', 'subject', 'name', 'summary', 'text', 'description']
+  // `task_name` / `taskName` carry a workflow user task's name; the query engine
+  // returns the raw column on the ORM path and the camelCase property on the
+  // indexed one, so both spellings are read.
+  const candidates = ['title', 'subject', 'name', 'task_name', 'taskName', 'summary', 'text', 'description']
   for (const key of candidates) {
     const value = record[key]
     if (typeof value === 'string' && value.trim().length > 0) {

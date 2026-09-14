@@ -74,6 +74,15 @@ Goal: make querying base entities together with custom fields fast and simple by
 - Each CLI run purges existing index rows before reindexing unless `--skipPurge` is provided, ensuring a clean rebuild.
 - The admin status view now tracks per-partition progress and marks jobs as **stalled** when no heartbeat is recorded for 60 seconds, making it easier to spot a wedged worker.
 - Scheduling via events remains available: `mercato query_index reindex [...]` and `mercato query_index purge [...]` enqueue background jobs when you don’t need immediate writes. API callers can pass `partitionCount`, `partitionIndex`, and `batchSize` to mirror the CLI behaviour; omitting `partitionIndex` emits one event per partition automatically.
+- Data migrations: a migration that rewrites a projected column — an `update`, or an `ADD COLUMN` with a SQL backfill — leaves `entity_indexes.doc` and its `search_tokens` on the pre-migration value forever, with nothing to signal it (no indexer job is created, and neither the record's nor the projection's `updated_at` moves). Declare the affected entity types in the migration file and `mercato db migrate` discharges the obligation after the run commits:
+
+  ```ts
+  import { declareQueryIndexReindex } from '@open-mercato/shared/lib/query/migration-reindex'
+
+  export const queryIndexReindexEntityTypes = declareQueryIndexReindex(['customers:customer_dictionary_entry'])
+  ```
+
+  One persistent `query_index.reindex` is queued per declared entity type, with `force: false` so the existing subscriber upserts in place rather than purging the entity's rows first. When no event bus is reachable, `db migrate` prints the equivalent `mercato query_index rebuild --entity <type> --global` instead of failing. Set `OM_MIGRATION_REINDEX=off` to suppress the queueing entirely and drive the rebuilds by hand. A migration cannot emit the event itself — it holds no DI container, and the projection must only be refreshed once its own transaction has committed. Repairing an already-applied migration takes a follow-up migration carrying only the declaration.
 - Bulk imports: build and insert index payloads alongside your ETL transaction with the `buildIndexDocument` helper (`packages/core/src/modules/query_index/lib/document.ts`) so large seeders can skip the post-import reindex sweep. The CRM stress-test seeder now follows this pattern.
 
 ## Performance tips

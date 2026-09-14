@@ -105,7 +105,7 @@ export class UserSidebarPreference {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
 
-  @ManyToOne(() => User)
+  @ManyToOne(() => User, { deleteRule: 'cascade' })
   user!: User
 
   @Property({ name: 'tenant_id', type: 'uuid', nullable: true })
@@ -170,7 +170,7 @@ export class SidebarVariant {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
 
-  @ManyToOne(() => User)
+  @ManyToOne(() => User, { deleteRule: 'cascade' })
   user!: User
 
   @Property({ name: 'tenant_id', type: 'uuid', nullable: true })

@@ -1,7 +1,7 @@
 /**
  * Persistent subscriber for `workflows.task.assigned`.
  *
- * Writes a `CustomerTodoLink` with `todoSource: 'workflows'` for every customer
+ * Writes a `CustomerTodoLink` with `todoSource: 'workflows:user_task'` for every customer
  * record a freshly created workflow task is bound to, so the task shows up on
  * that customer's Tasks section (spec §2.3 phase-in).
  *

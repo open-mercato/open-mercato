@@ -31,6 +31,7 @@ const TEMPLATE_CSS = path.join(ROOT, 'packages/create-app/template/src/app/globa
  * a comment there (or the reverse) should be treated as a review question. */
 const THEME_INVARIANT = new Set([
   'font-geist-sans', 'font-geist-mono', 'radius',
+  'om-floating-cta-safe-area',
   'brand-lime', 'brand-lime-foreground', 'brand-yellow',
   'brand-apple', 'brand-github', 'brand-x', 'brand-google-stroke',
   'brand-facebook', 'brand-dropbox', 'brand-linkedin',
