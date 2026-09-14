@@ -138,6 +138,7 @@ Specs awaiting implementation or partially complete. Focus here for actionable w
 | [Sales Line `discount_amount` Contract](2026-08-07-sales-line-discount-amount-contract.md) | 2026-08-07 | Sales Line `discount_amount` Contract | Fixes `discount_amount` as a line-total contract with percentage-first precedence and an additive `discountAmountBasis` input flag, so recalculating a document stops re-multiplying a stored line total by quantity and a percentage-only line stops losing its discount through `lines.upsert`; pinned by an idempotency property across the order and quote paths |
 | [Deal Status `lost` Spelling](2026-08-24-deal-status-lost-spelling.md) | 2026-08-24 | Deal Status Vocabulary — Rename `loose` to `lost` | Makes `lost` the canonical lost-deal status, keeps `loose` as a deprecated read alias and a `@deprecated` export, and migrates stored statuses, stage values and seeded dictionary entries without deleting a tenant's own wording |
 | [Deal People Tab Parity](2026-08-27-deal-people-tab-linked-people-parity.md) | 2026-08-27 | Deal People Tab — Linked-People Parity | Extracts the company linked-people section into a shared `LinkedPeopleSection` so the deal People tab gains unlink, filters, sort, person cards and inline create; widens `GET /api/customers/deals/{id}/people` additively. Delivered as three independently revertable PRs: the deal's optimistic-lock stamp first, the UI second, and set-diffing `syncDealPeople` last so the linked date and recency sort only appear once `linkedAt` is durable |
+| [Autopay Payment Gateway](2026-09-10-autopay-hosted-pln-payment-sessions.md) | 2026-09-10 | Autopay Hosted PLN Payment Sessions | Reusable, self-service `packages/gateway-autopay` provider: hosted-redirect PLN sessions, status/cancel/refund via Autopay's confirmed APIs; ITN push notifications deferred to a follow-up spec |
 
 ### Implemented Specifications
 
@@ -232,7 +233,6 @@ Fully implemented and deployed. Canonical files live in [`implemented/`](impleme
 | [SPEC-066](implemented/SPEC-066-2026-03-15-official-modules-changesets-release-workflow.md) | 2026-03-15 | Official Modules Changesets Release Workflow | Changesets-based release workflow for official modules |
 | [Checkout Pay Links](implemented/2026-03-19-checkout-pay-links.md) | 2026-03-19 | Checkout Pay Links | Pay link generation and checkout flow (Phase A) |
 | [Checkout Wireframes](implemented/2026-03-19-checkout-pay-links-wireframes.md) | 2026-03-19 | Checkout Pay Links Wireframes | Companion wireframes for the Checkout Pay Links spec |
-| [Autopay Payment Gateway](2026-09-10-autopay-hosted-pln-payment-sessions.md) | 2026-09-10 | Autopay Hosted PLN Payment Sessions | Reusable, self-service `packages/gateway-autopay` provider: hosted-redirect PLN sessions, status/cancel/refund via Autopay's confirmed APIs; ITN push notifications deferred to a follow-up spec |
 
 ## Specification Structure
 

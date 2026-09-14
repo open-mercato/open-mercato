@@ -469,6 +469,36 @@ deferred until real sandbox credentials exist.
 - **Residual risk:** None for this spec's scope, since it does not implement
   ITN at all.
 
+### Session creation is only wired through the unverified GET transport, and it leaks payer data into the URL
+
+- **Scenario:** `createSession` builds both a GET-style `redirectUrl` and a
+  `formPost` descriptor (`{ url, method: 'POST', fields }`), because the docs
+  demonstrate initiation as a POST but do not explicitly say GET is rejected.
+  In this repo, only the GET path is actually reachable —
+  `packages/checkout`'s payment page does
+  `window.location.href = result.redirectUrl`, and nothing consumes
+  `providerData.formPost`. That means this provider's one primary feature
+  (starting a hosted session) runs exclusively through the transport this
+  spec itself flags as unverified. If Autopay rejects GET on a real
+  partner-specific gateway URL, every session created by this provider
+  fails. Separately, even if GET works, it puts `CustomerEmail` and `Hash`
+  into the URL — browser history, `Referer` headers on any third-party
+  resource the redirect page loads, and any intermediate proxy/CDN access
+  log — which is a real downgrade from the documented POST regardless of
+  whether Autopay accepts it.
+- **Severity:** High (correctness) / Medium (privacy)
+- **Affected area:** The provider's entire session-creation flow; payer PII
+  exposure in transit.
+- **Mitigation:** None shippable from this repo alone without either (a) one
+  live sandbox session confirming GET is accepted, or (b) wiring a
+  POST-auto-submit transport into `packages/checkout`'s payment page, which
+  is a change to a different module's consumer code that cannot be
+  validated without the same live sandbox access. Both are called out
+  explicitly here rather than silently shipped as if resolved.
+- **Residual risk:** High until one live sandbox session either confirms GET
+  works end to end, or a POST transport is built and verified. This
+  provider should not be enabled for any real tenant before that happens.
+
 ### Async refund has no confirmed final state without polling or ITN
 
 - **Scenario:** A refund is accepted synchronously (`pending`) but fails
