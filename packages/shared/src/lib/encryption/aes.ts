@@ -37,7 +37,14 @@ const BASE64_PART = /^[A-Za-z0-9+/]+={0,2}$/
  * available once encryption has been switched off — the KMS is a noop by then, so
  * {@link decryptWithAesGcm} cannot distinguish ciphertext from plaintext. A 12-byte IV and a
  * 16-byte tag encode to exactly 16 and 24 base64 characters, so the shape is specific enough
- * that plaintext colliding with it is not a practical concern.
+ * that plaintext colliding with it by accident is not a practical concern.
+ *
+ * Deliberate collision is, though: writing `<16 b64>:<b64>:<24 b64>:v1` is trivial, and
+ * `TenantDataEncryptionService` dropped a structural check of exactly this shape for that
+ * reason (#2720). So this is only safe on values the SERVER wrote — never as a test applied to
+ * attacker-supplied input while a DEK is reachable, where `isEncryptedWithDek` is the test to use.
+ * Callers that must run it over user-controlled data are responsible for confirming first that no
+ * DEK is reachable, which is what makes forgery pointless: there is nothing to impersonate.
  */
 export function looksLikeEncryptedPayload(value: unknown): boolean {
   if (typeof value !== 'string') return false

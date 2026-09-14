@@ -7,6 +7,7 @@ import {
 } from '@open-mercato/shared/lib/search/config'
 import { tokenizeText } from '@open-mercato/shared/lib/search/tokenize'
 import { looksLikeEncryptedPayload } from '@open-mercato/shared/lib/encryption/aes'
+import { createKmsService, resolveEncryptionMode, type KmsService } from '@open-mercato/shared/lib/encryption/kms'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -38,6 +39,8 @@ type BuildTokenOptions = {
   tenantId?: string | null
   doc?: Record<string, unknown> | null
   config?: SearchConfig
+  /** Resolved once per write by the exported entry points; see {@link shouldGuardCiphertext}. */
+  guardCiphertext?: boolean
 }
 
 const DEFAULT_SCOPE = { organizationId: null, tenantId: null }
@@ -69,6 +72,34 @@ function collectTextValues(value: unknown): string[] {
   return []
 }
 
+let guardKmsService: KmsService | null = null
+
+/**
+ * Whether the ciphertext guard below is allowed to run for this write.
+ *
+ * The guard recognises an envelope by its SHAPE, which is forgeable: `<16 b64>:<b64>:<24 b64>:v1`
+ * is a string any user can type into a searchable field. `tenantDataEncryptionService` removed the
+ * same structural test for that reason (#2720). So the guard may only run where the shape is the
+ * ONLY test available -- which is exactly where no DEK is reachable:
+ *
+ * - `active`      -- the indexer decrypted the document before handing it here, so a value still
+ *                    shaped like an envelope is plaintext somebody typed. Indexing it is correct,
+ *                    and skipping it would let that person freeze their own record's tokens at a
+ *                    past state. The guard stays off, which also keeps it off the hot path of
+ *                    every normal deployment.
+ * - `disabled`    -- `decryptIndexDocForSearch` is a no-op, so ciphertext arrives undecrypted.
+ * - `unavailable` -- the decrypt was attempted and could not complete, same outcome.
+ *
+ * Resolved once per write rather than per document, over a KMS built once per process:
+ * {@link createKmsService} logs when it falls back, and a reindex calls this once per record. The
+ * toggle itself is still re-read every call by {@link resolveEncryptionMode}; only the KMS is
+ * cached, and it already requires a restart to change, since DEK and map caches are in-process.
+ */
+function shouldGuardCiphertext(): boolean {
+  guardKmsService ??= createKmsService()
+  return resolveEncryptionMode(guardKmsService) !== 'active'
+}
+
 /**
  * Fields whose value is an AES-GCM envelope rather than the text it is supposed to hold.
  *
@@ -81,12 +112,16 @@ function collectTextValues(value: unknown): string[] {
  * record's tokens, the good plaintext tokens already in the table would be deleted to make room
  * for them -- turning a recoverable misordering into permanent search loss.
  *
- * Detecting the envelope by shape (no DEK is reachable in that state, so decryption cannot be the
- * test) lets the write skip those fields and leave what is already indexed alone.
+ * Detecting the envelope by shape lets the write skip those fields and leave what is already
+ * indexed alone. `guard` gates that detection; see {@link shouldGuardCiphertext} for why it is not
+ * unconditional.
  */
-function ciphertextFieldsOf(doc: Record<string, unknown> | null | undefined): Set<string> {
+function ciphertextFieldsOf(
+  doc: Record<string, unknown> | null | undefined,
+  guard: boolean,
+): Set<string> {
   const fields = new Set<string>()
-  if (!doc) return fields
+  if (!guard || !doc) return fields
   for (const [field, value] of Object.entries(doc)) {
     const values = collectTextValues(value)
     if (values.length && values.some((text) => looksLikeEncryptedPayload(text))) fields.add(field)
@@ -96,22 +131,26 @@ function ciphertextFieldsOf(doc: Record<string, unknown> | null | undefined): Se
 
 const warnedCiphertextEntities = new Set<string>()
 
-function warnCiphertextSkipped(entityType: string, fields: Set<string>): void {
+function warnCiphertextSkipped(entityType: string, tenantId: string | null, fields: Set<string>): void {
   if (!fields.size) return
-  // Once per entity type per process: a full reindex would otherwise emit this per record.
-  if (warnedCiphertextEntities.has(entityType)) return
-  warnedCiphertextEntities.add(entityType)
+  // Once per entity type per tenant per process: a full reindex would otherwise emit this per
+  // record, while keying on the entity type alone would let the first affected tenant in a shared
+  // process consume the one warning every other tenant's operator needed.
+  const key = `${entityType}|${tenantId ?? ''}`
+  if (warnedCiphertextEntities.has(key)) return
+  warnedCiphertextEntities.add(key)
   logger.warn(
     'Search indexing skipped ciphertext fields and preserved their existing tokens. '
       + 'This means TENANT_DATA_ENCRYPTION was switched off while encrypted data was still at rest. '
       + 'Run `mercato entities decrypt-database` and reindex; until then these fields are not searchable.',
-    { entityType, fields: Array.from(fields).sort((left, right) => left.localeCompare(right)) },
+    { entityType, tenantId, fields: Array.from(fields).sort((left, right) => left.localeCompare(right)) },
   )
 }
 
-/** Test seam: the warning above fires once per entity type per process. */
-export function resetCiphertextSkipWarnings(): void {
+/** Test seam: both the warning above and the KMS behind the guard are once-per-process. */
+export function resetCiphertextGuardState(): void {
   warnedCiphertextEntities.clear()
+  guardKmsService = null
 }
 
 function shouldIndexField(
@@ -143,8 +182,8 @@ export function buildSearchTokenRows(params: BuildTokenOptions): SearchTokenRow[
   const limits = resolveSearchTokenLimits(config)
   const recordLimit = limits.maxTokensPerRecord > 0 ? limits.maxTokensPerRecord : Number.POSITIVE_INFINITY
   const fieldLimit = limits.maxTokensPerField > 0 ? limits.maxTokensPerField : Number.POSITIVE_INFINITY
-  const ciphertextFields = ciphertextFieldsOf(params.doc)
-  warnCiphertextSkipped(params.entityType, ciphertextFields)
+  const ciphertextFields = ciphertextFieldsOf(params.doc, params.guardCiphertext ?? shouldGuardCiphertext())
+  warnCiphertextSkipped(params.entityType, scope.tenantId, ciphertextFields)
 
   for (const [field, rawValue] of Object.entries(params.doc)) {
     if (tokens.length >= recordLimit) break
@@ -277,12 +316,13 @@ export async function replaceSearchTokensForRecord(
   params: BuildTokenOptions,
   options?: { trx?: SearchTokenExecutor },
 ): Promise<void> {
-  const rows = buildSearchTokenRows(params)
+  const guardCiphertext = params.guardCiphertext ?? shouldGuardCiphertext()
+  const rows = buildSearchTokenRows({ ...params, guardCiphertext })
   const config = params.config ?? resolveSearchConfig()
   if (!config.enabled) return
   const organizationId = params.organizationId ?? null
   const tenantId = params.tenantId ?? null
-  const ciphertextFields = ciphertextFieldsOf(params.doc)
+  const ciphertextFields = ciphertextFieldsOf(params.doc, guardCiphertext)
   const fieldPairs = buildFieldPairs(String(params.recordId), params.doc, ciphertextFields)
 
   // An empty pair list normally means the document is gone, and the delete below then purges the
@@ -402,17 +442,18 @@ export async function replaceSearchTokensForBatch(
   // here would still delete the tokens we are trying to protect. Skipping the record leaves every
   // one of its tokens, encrypted-field and plaintext-field alike, exactly as it was. The state is
   // transient by construction: `decrypt-database` followed by a reindex rebuilds all of it.
+  const guardCiphertext = shouldGuardCiphertext()
   const preservedRecordIds = new Set<string>()
   const payloads = allPayloads.filter((payload) => {
-    const ciphertextFields = ciphertextFieldsOf(payload.doc)
+    const ciphertextFields = ciphertextFieldsOf(payload.doc, guardCiphertext)
     if (!ciphertextFields.size) return true
-    warnCiphertextSkipped(payload.entityType, ciphertextFields)
+    warnCiphertextSkipped(payload.entityType, payload.tenantId ?? null, ciphertextFields)
     preservedRecordIds.add(String(payload.recordId))
     return false
   })
   if (!payloads.length) return
 
-  const rows = payloads.flatMap((payload) => buildSearchTokenRows({ ...payload, config }))
+  const rows = payloads.flatMap((payload) => buildSearchTokenRows({ ...payload, config, guardCiphertext }))
   if (!rows.length) {
     const entityType = payloads[0]?.entityType
     if (!entityType) return

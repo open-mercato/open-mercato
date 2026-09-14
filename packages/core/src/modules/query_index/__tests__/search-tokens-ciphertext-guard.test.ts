@@ -6,7 +6,7 @@ import {
   buildSearchTokenRows,
   replaceSearchTokensForBatch,
   replaceSearchTokensForRecord,
-  resetCiphertextSkipWarnings,
+  resetCiphertextGuardState,
 } from '../lib/search-tokens'
 
 const warn = jest.fn()
@@ -188,9 +188,28 @@ const storedRow = (recordId: string, field: string, tokenHash: string): Omit<Sto
 
 const ciphertext = () => String(encryptWithAesGcm('Renewal for ACME Ltd', generateDek()).value)
 
+/**
+ * What a user can type into a searchable field to imitate the envelope: 16 base64 characters, a
+ * non-empty base64 body, 24 base64 characters, `v1`. Nothing about the shape is secret.
+ */
+const FORGED_ENVELOPE = 'AAAAAAAAAAAAAAAA:QQ:AAAAAAAAAAAAAAAAAAAAAAAA:v1'
+
+const originalEnv = { ...process.env }
+
+const ciphertextWarnings = () =>
+  warn.mock.calls.filter(([message]) => String(message).includes('skipped ciphertext fields'))
+
 beforeEach(() => {
   warn.mockClear()
-  resetCiphertextSkipWarnings()
+  resetCiphertextGuardState()
+  process.env = { ...originalEnv }
+  // The guard only runs where no DEK is reachable, so every test below has to say which of those
+  // states it is in. This is the one the operator causes.
+  process.env.TENANT_DATA_ENCRYPTION = 'no'
+})
+
+afterEach(() => {
+  process.env = { ...originalEnv }
 })
 
 /**
@@ -245,9 +264,102 @@ describe('search tokens refuse to index ciphertext', () => {
     buildSearchTokenRows({ entityType: ENTITY_TYPE, recordId: 'deal-2', ...SCOPE, doc })
 
     // Once per entity type per process: a full reindex would otherwise emit this per record.
-    expect(warn).toHaveBeenCalledTimes(1)
-    expect(String(warn.mock.calls[0][0])).toContain('decrypt-database')
-    expect(warn.mock.calls[0][1]).toEqual({ entityType: ENTITY_TYPE, fields: ['description', 'title'] })
+    expect(ciphertextWarnings()).toHaveLength(1)
+    expect(String(ciphertextWarnings()[0][0])).toContain('decrypt-database')
+    expect(ciphertextWarnings()[0][1]).toEqual({
+      entityType: ENTITY_TYPE,
+      tenantId: SCOPE.tenantId,
+      fields: ['description', 'title'],
+    })
+  })
+
+  it('still warns for a second tenant in the same process', () => {
+    const doc = { title: ciphertext() }
+    buildSearchTokenRows({ entityType: ENTITY_TYPE, recordId: 'deal-1', ...SCOPE, doc })
+    buildSearchTokenRows({ entityType: ENTITY_TYPE, recordId: 'deal-2', organizationId: 'org-2', tenantId: 'tenant-2', doc })
+
+    // Keyed on entity type alone, the first tenant would consume the one warning the second
+    // tenant's operator needed.
+    expect(ciphertextWarnings().map(([, payload]) => (payload as { tenantId: string }).tenantId))
+      .toEqual(['tenant-1', 'tenant-2'])
+  })
+
+  it('still guards when encryption is on but no DEK is reachable', () => {
+    // The other keyless state: the indexer attempted the decrypt and could not complete it, so the
+    // document reaching here is ciphertext just the same.
+    process.env.TENANT_DATA_ENCRYPTION = 'yes'
+    delete process.env.VAULT_ADDR
+    delete process.env.VAULT_TOKEN
+    delete process.env.TENANT_DATA_ENCRYPTION_KEY
+    delete process.env.TENANT_DATA_ENCRYPTION_FALLBACK_KEY
+
+    const rows = buildSearchTokenRows({
+      entityType: ENTITY_TYPE,
+      recordId: 'deal-1',
+      ...SCOPE,
+      doc: { title: ciphertext(), status: 'open' },
+    })
+
+    expect(new Set(rows.map((row) => row.field))).toEqual(new Set(['status']))
+  })
+})
+
+/**
+ * The shape check is forgeable — `<16 b64>:<b64>:<24 b64>:v1` is a string any user can type into a
+ * field they own, which is why `tenantDataEncryptionService` dropped the same structural test
+ * (#2720). Left unconditional, the guard would hand that user a way to freeze their own record's
+ * tokens at a past state permanently: the field (per-record path) or the whole record (batch path)
+ * would be excluded from the rewrite AND from its delete scope, so stale tokens keep matching and
+ * the new content is never indexed.
+ *
+ * So the guard is off wherever a DEK is reachable — which is also the only state where the
+ * indexer really did decrypt the document, making an envelope-shaped value plaintext by
+ * definition.
+ */
+describe('the ciphertext guard is off while a DEK is reachable', () => {
+  beforeEach(() => {
+    process.env.TENANT_DATA_ENCRYPTION = 'yes'
+    // Derived-key fallback: the KMS is healthy, so the mode is `active`.
+    process.env.TENANT_DATA_ENCRYPTION_KEY = 'test-tenant-encryption-secret'
+  })
+
+  it('indexes a forged envelope as the plaintext it is', () => {
+    const rows = buildSearchTokenRows({
+      entityType: ENTITY_TYPE,
+      recordId: 'deal-1',
+      ...SCOPE,
+      doc: { title: FORGED_ENVELOPE, status: 'open' },
+    })
+
+    expect(new Set(rows.map((row) => row.field))).toEqual(new Set(['title', 'status']))
+    expect(ciphertextWarnings()).toHaveLength(0)
+  })
+
+  it('rewrites a record whose field was forged rather than preserving its stale tokens', async () => {
+    const store = createStore()
+    store.insertRaw(storedRow('deal-1', 'title', hashOf('renewal')))
+
+    await replaceSearchTokensForRecord(store.db, {
+      entityType: ENTITY_TYPE,
+      recordId: 'deal-1',
+      ...SCOPE,
+      doc: { title: FORGED_ENVELOPE },
+    })
+
+    expect(store.rows.map((row) => row.token_hash)).not.toContain(hashOf('renewal'))
+  })
+
+  it('keeps a record carrying a forged field in the batch rewrite', async () => {
+    const store = createStore()
+    store.insertRaw(storedRow('deal-1', 'title', hashOf('renewal')))
+
+    await replaceSearchTokensForBatch(store.db, [
+      { entityType: ENTITY_TYPE, recordId: 'deal-1', ...SCOPE, doc: { title: FORGED_ENVELOPE } },
+    ])
+
+    // One forged field would otherwise drop the whole record from the rewrite, freezing every one
+    // of its fields at whatever was last indexed.
+    expect(store.rows.map((row) => row.token_hash)).not.toContain(hashOf('renewal'))
   })
 })
 

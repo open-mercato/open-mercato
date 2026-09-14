@@ -200,6 +200,11 @@ decrypt with, so a reindex would tokenise ciphertext. The write path detects the
 and preserves the existing tokens rather than replacing them, and logs a warning naming the
 affected fields, but those fields stay unsearchable until you decrypt and reindex properly.
 
+That detection runs **only while no DEK is reachable** — `disabled` or `unavailable` below, the
+states where shape is the only test available. A shape is forgeable, and in `active` mode the
+indexer really did decrypt the document, so a value that still looks like an envelope there is
+plaintext somebody typed and is indexed as such.
+
 ### Three states, not two
 
 Code that branches on encryption must distinguish an operator opt-out from a KMS outage. Use
