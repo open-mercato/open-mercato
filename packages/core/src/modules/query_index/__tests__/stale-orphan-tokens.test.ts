@@ -26,7 +26,7 @@ type Recorder = {
   transactions: string[]
 }
 
-function makeDb(options?: { failOn?: RegExp }): Recorder {
+function makeDb(options?: { failOn?: RegExp; tokensTableMissing?: boolean }): Recorder {
   const statements: CompiledQuery[] = []
   const transactions: string[] = []
 
@@ -39,6 +39,9 @@ function makeDb(options?: { failOn?: RegExp }): Recorder {
           executeQuery: async (compiled: CompiledQuery) => {
             statements.push(compiled)
             if (options?.failOn?.test(compiled.sql)) throw new Error('[internal] token delete failed')
+            if (compiled.sql.includes('information_schema')) {
+              return { rows: options?.tokensTableMissing ? [] : [{ one: 1 }], numAffectedRows: BigInt(0) }
+            }
             return { rows: [], numAffectedRows: BigInt(0) }
           },
           streamQuery: async function* () { /* not used */ },
@@ -173,6 +176,21 @@ describe('purgeOrphans sweeps orphaned search tokens', () => {
     const token = tokenDelete(statements)!
     expect(token.sql).toContain('"entity_id" not in')
     expect(token.parameters).toEqual(expect.arrayContaining(['rec-1', 'rec-2']))
+  })
+
+  // `entity_indexes` ships in an earlier migration (Migration20251030150038) than
+  // `search_tokens` (Migration20251212084132), so this code can legitimately run against a
+  // database that has the projection table and not the token table. Sweeping unconditionally
+  // there would throw 42P01 and — inside the shared transaction — roll back the projection
+  // purge that used to succeed, breaking every reindex during a rolling deploy.
+  it('skips the token sweep when search_tokens does not exist, and still purges projections', async () => {
+    const { db, statements, transactions } = makeDb({ tokensTableMissing: true })
+
+    await purgeOrphans(db, { ...BASE, tenantId: 't1', organizationId: 'o1' })
+
+    expect(projectionDelete(statements)).toBeDefined()
+    expect(tokenDelete(statements)).toBeUndefined()
+    expect(transactions).toEqual(['begin', 'commit'])
   })
 
   it('rolls the projection delete back when the token delete fails', async () => {

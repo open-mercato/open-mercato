@@ -16,11 +16,29 @@ type PurgeOrphansOptions = {
   excludeRecordIds?: string[]
 }
 
+/**
+ * `entity_indexes` ships in an earlier migration than `search_tokens`, so a deployment
+ * running this code against a not-yet-migrated database has the projection table and not
+ * the token table. Sweeping unconditionally would fail the purge there — and, inside the
+ * shared transaction below, take the projection delete down with it. The query engine
+ * probes the same way before reading the table (`shared/lib/search/availability.ts`).
+ */
+async function searchTokensTableExists(db: Kysely<any>): Promise<boolean> {
+  const row = await db
+    .selectFrom('information_schema.tables' as any)
+    .select(sql<number>`1`.as('one') as any)
+    .where('table_name' as any, '=', 'search_tokens')
+    .limit(1)
+    .executeTakeFirst()
+  return !!row
+}
+
 export async function purgeOrphans(
   db: Kysely<any>,
   options: PurgeOrphansOptions,
 ): Promise<void> {
   const { entityType, tenantId, partitionIndex, partitionCount, startedAt } = options
+  const sweepTokens = await searchTokensTableExists(db)
 
   // Projection and token sweeps share a transaction: the token sweep is an anti-join
   // against the projections this run just removed, so a failed token delete must take
@@ -41,6 +59,8 @@ export async function purgeOrphans(
       q = q.where('entity_id' as any, 'not in', options.excludeRecordIds)
     }
     await q.execute()
+
+    if (!sweepTokens) return
 
     // Search tokens are written from the same (entity_type, entity_id, tenant_id,
     // organization_id) tuple as the projection, but nothing above ever touched them, so

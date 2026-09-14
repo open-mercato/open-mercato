@@ -272,6 +272,31 @@ maybe('purgeOrphans orphan-token sweep against PostgreSQL', () => {
     expect(await tokenIds()).toEqual(afterFirst)
   })
 
+  // A database migrated past `entity_indexes` but not yet past `search_tokens` is the ordinary
+  // rolling-deploy window; the purge must still do its projection half there.
+  it('purges projections when search_tokens does not exist', async () => {
+    const scope = { tenantId: TENANT, organizationId: ORG_A }
+    await addProjection('gone', scope)
+    await sql`drop table search_tokens`.execute(db)
+
+    try {
+      await expect(purgeOrphans(db, { ...BASE, ...scope })).resolves.toBeUndefined()
+      expect(await projectionIds()).toEqual([])
+    } finally {
+      await sql`create table search_tokens (
+        id uuid primary key default gen_random_uuid(),
+        entity_type text not null,
+        entity_id text not null,
+        organization_id uuid,
+        tenant_id uuid,
+        field text not null,
+        token_hash text not null,
+        token text,
+        created_at timestamptz not null default now()
+      )`.execute(db)
+    }
+  })
+
   it('rolls the projection delete back when the token delete fails', async () => {
     const scope = { tenantId: TENANT, organizationId: ORG_A }
     await addProjection('gone', scope)
