@@ -13,6 +13,21 @@
 // `test` script; the worker count and recycling threshold are pinned here.
 //
 // Every package's jest.config.cjs spreads this first, then overrides specifics.
+
+// Pin the suite's timezone so tests do not depend on where they run. A whole class of date bug
+// — a calendar day stored as UTC midnight, read back in the local frame — renders the PREVIOUS
+// day west of UTC and is INVISIBLE anywhere at or east of it, including the UTC runners on CI.
+// Pinning west of UTC makes those cases fail in the one place that matters, and makes every
+// other date assertion reproduce identically on a laptop and on CI.
+//
+// This has to happen here, in the config, rather than in a test file: jest hands each test file a
+// sandboxed copy of `process.env`, so assigning `TZ` there never reaches V8's timezone cache. The
+// config is evaluated in the real main process before workers fork, so workers boot in this zone.
+//
+// `||=`, not `=`: `TZ=Asia/Tokyo yarn test` stays available for checking the mirror direction
+// (an instant read back in UTC, which names the NEXT day east of UTC).
+process.env.TZ ||= 'America/New_York'
+
 module.exports = {
   // TEMPORARY (TypeScript 7 migration): redirect `import ts from 'typescript'`
   // in test code to the JS-based `typescript-js` alias — native TS 7 drops the
