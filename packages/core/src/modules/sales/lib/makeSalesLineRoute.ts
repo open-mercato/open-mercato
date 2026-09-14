@@ -28,6 +28,12 @@ interface SalesLineRouteConfig {
   parentFkColumn: string
   parentFkParam: string
   createSchema: z.ZodObject<z.ZodRawShape>
+  /**
+   * Extra fields the route's write payloads accept on top of `createSchema`.
+   * Order lines use it for the `orderTotals` group an external order requires on
+   * every line write; quote lines have none.
+   */
+  writeExtensionShape?: z.ZodRawShape
   features: { view: string; manage: string }
   commandPrefix: string
   openApi: {
@@ -110,6 +116,7 @@ export function makeSalesLineRoute(config: SalesLineRouteConfig) {
     parentFkColumn,
     parentFkParam,
     createSchema,
+    writeExtensionShape,
     features,
     commandPrefix,
   } = config
@@ -127,11 +134,13 @@ export function makeSalesLineRoute(config: SalesLineRouteConfig) {
 
   const upsertSchema = createSchema.extend({
     id: z.string().uuid().optional(),
+    ...(writeExtensionShape ?? {}),
   })
 
   const deleteSchema = z.object({
     id: z.string().uuid(),
     [parentFkParam]: z.string().uuid(),
+    ...(writeExtensionShape ?? {}),
   })
 
   const routeMetadata = {
@@ -199,6 +208,9 @@ export function makeSalesLineRoute(config: SalesLineRouteConfig) {
         ]
         const returnedQuantity = F['returned_quantity']
         if (typeof returnedQuantity === 'string') fields.push(returnedQuantity)
+        // Order lines only — quote lines are always computed and have no column.
+        const amountsMode = F['amounts_mode']
+        if (typeof amountsMode === 'string') fields.push(amountsMode)
         return fields
       })(),
       sortFieldMap: {
@@ -321,6 +333,7 @@ export function makeSalesLineRoute(config: SalesLineRouteConfig) {
     promotion_snapshot: z.record(z.string(), z.unknown()).nullable().optional(),
     metadata: z.record(z.string(), z.unknown()).nullable().optional(),
     custom_field_set_id: z.string().uuid().nullable().optional(),
+    amounts_mode: z.enum(['computed', 'external']).optional(),
     created_at: z.string(),
     updated_at: z.string(),
   })

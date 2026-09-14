@@ -476,6 +476,29 @@ Two additional heal paths are available if you need them:
 
 Note: only calls ingested **after** the maps exist are encrypted. Rows written by a build that ran without them stay plaintext until they are re-ingested (a pull is idempotent, so re-pulling the affected range rewrites them) or handled with the `entities rotate-encryption` / `decrypt-database` tooling.
 
+### `sales_order_lines.discount_amount` can be negative on `external` rows (sales external amounts mode)
+
+Sales orders gained an opt-in, persisted `external` amounts mode: `sales_orders.totals_mode` and
+`sales_order_lines.amounts_mode`, both defaulting to `'computed'`. On a row a caller explicitly opted in,
+core stores the supplied net, gross and tax verbatim and derives `discount_amount` as
+`unit_price_net × quantity − total_net_amount` — which is **signed**, so a line whose net is above its
+undiscounted subtotal (upward source rounding, a surcharge priced into the line) stores a negative
+discount. See [`.ai/specs/2026-09-07-sales-external-amounts-mode.md`](.ai/specs/2026-09-07-sales-external-amounts-mode.md).
+
+**Action for module and report authors:** if you read `sales_order_lines.discount_amount` and assumed it
+was non-negative — clamping, `SUM()`-ing it as a positive discount total, or rendering it without a sign —
+decide explicitly what an external row should do. Only rows a caller opted in can be negative, so a
+deployment that never sets the mode is unaffected. A report that sums the column across mixed rows
+understates the discount total rather than failing.
+
+### `GET /api/sales/orders` and `/api/sales/order-lines` gained one field each
+
+Order responses now carry `totalsMode` and order-line responses carry `amounts_mode`, both
+`'computed' | 'external'`. Additive; no field was removed or renamed.
+
+**Action for API consumers:** only relevant if you validate these responses against a strict (no
+additional properties) schema. Add the field or relax the schema.
+
 ## 0.6.7 → 0.7.0 (2026-08-26)
 
 ### `PUT /api/auth/users/acl` merges omitted fields instead of clearing them (#5493)

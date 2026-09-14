@@ -13,6 +13,7 @@ import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/
 import { SalesDocumentNumberGenerator } from '../services/salesDocumentNumberGenerator'
 import type { SalesCalculationService } from '../services/salesCalculationService'
 import type { SalesAdjustmentDraft, SalesLineSnapshot, SalesDocumentCalculationResult } from '../lib/types'
+import { isExternalMode, readPersistedHeaderTotals } from '../lib/externalAmounts'
 import { cloneJson, deriveLineNetFromGross, ensureOrganizationScope, ensureSameScope, ensureTenantScope, extractUndoPayload, toNumericString, enforceSalesDocumentOptimisticLock, SALES_RESOURCE_KIND_ORDER, SALES_RESOURCE_KIND_RETURN } from './shared'
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import { SalesOrder, SalesOrderAdjustment, SalesOrderLine, SalesReturn, SalesReturnLine } from '../data/entities'
@@ -135,6 +136,29 @@ function applyOrderTotals(order: SalesOrder, totals: SalesDocumentCalculationRes
   order.lineItemCount = lineCount
 }
 
+/**
+ * A return against an external order records itself — the return document, the
+ * line-level `return` adjustments and `returned_quantity` — and leaves the header
+ * alone. The header belongs to the source system, which issues its own credit
+ * document and pushes the corrected totals; silently moving a legally filed total
+ * because core computed a credit would be worse than leaving it.
+ */
+function applyOrderTotalsUnlessExternal(
+  order: SalesOrder,
+  calculation: SalesDocumentCalculationResult,
+): void {
+  if (isExternalMode(order.totalsMode ?? 'computed')) return
+  applyOrderTotals(order, calculation.totals, calculation.lines.length)
+}
+
+function resolveOrderCalculationMode(order: SalesOrder) {
+  const totalsMode = order.totalsMode ?? 'computed'
+  return {
+    totalsMode,
+    suppliedTotals: isExternalMode(totalsMode) ? readPersistedHeaderTotals(order) : null,
+  }
+}
+
 function mapOrderAdjustmentToDraft(adjustment: SalesOrderAdjustment): SalesAdjustmentDraft {
   return {
     id: adjustment.id,
@@ -206,6 +230,7 @@ export async function recalculateOrderTotalsForDisplay(
     adjustments: adjustmentDrafts,
     context: buildCalculationContext(order),
     existingTotals: resolveExistingPaymentTotals(order),
+    ...resolveOrderCalculationMode(order),
   })
   return calculation.totals
 }
@@ -391,8 +416,9 @@ async function reverseReturnEffects(
           adjustments: adjustmentDrafts,
           context: buildCalculationContext(order),
           existingTotals: resolveExistingPaymentTotals(order),
+          ...resolveOrderCalculationMode(order),
         })
-        applyOrderTotals(order, calculation.totals, calculation.lines.length)
+        applyOrderTotalsUnlessExternal(order, calculation)
         order.updatedAt = new Date()
         em.persist(order)
       },
@@ -541,8 +567,9 @@ async function restoreReturnEffects(
           adjustments: adjustmentDrafts,
           context: buildCalculationContext(order),
           existingTotals: resolveExistingPaymentTotals(order),
+          ...resolveOrderCalculationMode(order),
         })
-        applyOrderTotals(order, calculation.totals, calculation.lines.length)
+        applyOrderTotalsUnlessExternal(order, calculation)
         order.updatedAt = new Date()
         em.persist(order)
       },
@@ -727,8 +754,9 @@ const createReturnCommand: CommandHandler<ReturnCreateInput, { returnId: string 
         adjustments: adjustmentDrafts,
         context: buildCalculationContext(order),
         existingTotals: resolveExistingPaymentTotals(order),
+        ...resolveOrderCalculationMode(order),
       })
-      applyOrderTotals(order, calculation.totals, calculation.lines.length)
+      applyOrderTotalsUnlessExternal(order, calculation)
       order.updatedAt = new Date()
       tx.persist(order)
 

@@ -61,7 +61,15 @@ function mapPersistedLine(line: SalesOrderLine | SalesQuoteLine): SalesLineSnaps
  * the return flows kept the discount defect after the order flows were fixed.
  */
 export function mapOrderLineEntityToSnapshot(line: SalesOrderLine): SalesLineSnapshot {
-  return mapPersistedLine(line)
+  return {
+    ...mapPersistedLine(line),
+    // `amounts_mode` is an order-line column and answers a different question
+    // from the two origin flags above: not *where* these amounts came from, but
+    // *who owns them*. Reading it back here is what makes every rehydration
+    // self-describing, so a recalculation triggered by a sibling line's write
+    // knows this line's amounts are the caller's and returns them untouched.
+    amountsMode: line.amountsMode ?? 'computed',
+  }
 }
 
 export function mapQuoteLineEntityToSnapshot(line: SalesQuoteLine): SalesLineSnapshot {

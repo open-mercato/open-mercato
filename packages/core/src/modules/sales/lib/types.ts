@@ -1,8 +1,23 @@
 import type { EventBus } from '@open-mercato/events'
 import type { ReferenceUnitCode } from '@open-mercato/shared/lib/units/unitCodes'
-import type { SalesAdjustmentKind, SalesDocumentKind, SalesLineKind } from '../data/entities'
+import type {
+  SalesAdjustmentKind,
+  SalesAmountsMode,
+  SalesDocumentKind,
+  SalesLineKind,
+} from '../data/entities'
 
-export type { SalesAdjustmentKind, SalesDocumentKind, SalesLineKind }
+/**
+ * `SalesAmountsMode` answers who owns a document's or a line's monetary amounts.
+ *
+ * `computed` — core derives them from unit price, quantity, discount and tax,
+ * which is the only behaviour the engine had before this mode existed.
+ *
+ * `external` — the stored amounts are the caller's assertion, mirrored from a
+ * book of record that already priced, rounded and taxed the document. Core
+ * stores them, serves them, and never recomputes them.
+ */
+export type { SalesAdjustmentKind, SalesAmountsMode, SalesDocumentKind, SalesLineKind }
 
 export type NumericLike = number | string
 
@@ -89,6 +104,13 @@ export type SalesLineSnapshot = {
   metadata?: Record<string, unknown> | null
   customFieldSetId?: string | null
   customFields?: Record<string, unknown> | null
+  /**
+   * Who owns this line's amounts. `external` means the supplied net, gross and
+   * tax are the caller's assertion: the engine returns them verbatim and never
+   * derives them from unit price, quantity or discount. Omitted means
+   * `computed`.
+   */
+  amountsMode?: SalesAmountsMode | null
 }
 
 export type SalesAdjustmentDraft = {
@@ -155,6 +177,12 @@ export type SalesTotalsCalculationHook = (params: {
   context: SalesCalculationContext
   current: SalesDocumentCalculationResult
   eventBus?: EventBus | null
+  /**
+   * `external` when the caller supplied the document header. A calculator may
+   * still append adjustments, but the supplied header is re-applied after the
+   * whole registry, so it cannot move a total the caller asserted.
+   */
+  totalsMode?: SalesAmountsMode | null
 }) => SalesDocumentCalculationResult | Promise<SalesDocumentCalculationResult>
 
 export type SalesCalculationContext = {
@@ -182,4 +210,8 @@ export type CalculateDocumentOptions = {
     refundedTotalAmount?: number | null
   }
   eventBus?: EventBus | null
+  /** `external` makes {@link CalculateDocumentOptions.suppliedTotals} authoritative for the header. */
+  totalsMode?: SalesAmountsMode | null
+  /** The caller-asserted header, honoured verbatim when `totalsMode` is `external`. */
+  suppliedTotals?: Partial<SalesDocumentAmounts> | null
 }

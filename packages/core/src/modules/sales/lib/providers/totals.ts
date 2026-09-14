@@ -1,4 +1,4 @@
-import { registerSalesTotalsCalculator, rebuildDocumentResult } from '../calculations'
+import { isExternalAmountsMode, registerSalesTotalsCalculator, rebuildDocumentResult } from '../calculations'
 import type { SalesAdjustmentDraft, SalesDocumentCalculationResult } from '../types'
 import {
   getPaymentProvider,
@@ -180,7 +180,12 @@ export function ensureProviderTotalsCalculator() {
   if (totalsRegistered) return
   totalsRegistered = true
 
-  registerSalesTotalsCalculator(async ({ documentKind, lines, context, current, eventBus }) => {
+  registerSalesTotalsCalculator(async ({ documentKind, lines, context, current, eventBus, totalsMode }) => {
+    // On an external document the header is the caller's. Generating a provider
+    // adjustment here would put a shipping or payment charge in the itemized
+    // breakdown that is absent from a total this hook cannot move, so the hook
+    // stands down instead of producing a document that disagrees with itself.
+    if (isExternalAmountsMode(totalsMode)) return current
     const metadata = (context.metadata ?? {}) as Record<string, unknown>
     const shippingMethod = (metadata.shippingMethod ?? null) as ShippingMethodContext | null
     const paymentMethod = (metadata.paymentMethod ?? null) as PaymentMethodContext | null

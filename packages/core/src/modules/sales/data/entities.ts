@@ -8,6 +8,7 @@ export type SalesDocumentKind = 'order' | 'quote' | 'invoice' | 'credit_memo'
 export type SalesLineKind = 'product' | 'service' | 'shipping' | 'discount' | 'adjustment'
 export const DEFAULT_SALES_ADJUSTMENT_KINDS = ['discount', 'tax', 'shipping', 'surcharge', 'return', 'custom'] as const
 export type SalesAdjustmentKind = (typeof DEFAULT_SALES_ADJUSTMENT_KINDS)[number] | string
+export type SalesAmountsMode = 'computed' | 'external'
 
 @Entity({ tableName: 'sales_channels' })
 @Index({ name: 'sales_channels_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
@@ -331,6 +332,10 @@ export class SalesTaxRate {
 @Index({ name: 'sales_orders_payment_status_idx', properties: ['organizationId', 'tenantId', 'paymentStatus'] })
 @Unique({ name: 'sales_orders_number_unique', properties: ['organizationId', 'tenantId', 'orderNumber'] })
 export class SalesOrder {
+  // `totals_mode` is additive: existing `em.create(SalesOrder, ...)` callers,
+  // including third-party ones, must keep compiling without setting it.
+  [OptionalProps]?: 'totalsMode'
+
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
 
@@ -466,6 +471,16 @@ export class SalesOrder {
   @Property({ name: 'outstanding_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
   outstandingAmount: string = '0'
 
+  /**
+   * `external` marks the header totals above as the caller's assertion, mirrored
+   * from an external book of record. Core then stores and serves them verbatim
+   * and never rebuilds them from the lines. Payment-derived fields
+   * (`paid_total_amount`, `refunded_total_amount`, `outstanding_amount`) stay
+   * core-owned in both modes.
+   */
+  @Property({ name: 'totals_mode', type: 'text', default: 'computed' })
+  totalsMode: SalesAmountsMode = 'computed'
+
   @Property({ name: 'line_item_count', type: 'integer', default: 0 })
   lineItemCount: number = 0
 
@@ -553,6 +568,8 @@ export class SalesOrder {
   properties: ['organizationId', 'tenantId', 'normalizedUnit', 'normalizedQuantity'],
 })
 export class SalesOrderLine {
+  [OptionalProps]?: 'amountsMode'
+
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
 
@@ -648,6 +665,15 @@ export class SalesOrderLine {
 
   @Property({ name: 'total_gross_amount', type: 'numeric', precision: 18, scale: 4, default: '0' })
   totalGrossAmount: string = '0'
+
+  /**
+   * `external` marks this line's net, gross and tax as the caller's assertion.
+   * The engine returns them verbatim and derives `discount_amount` as the gap to
+   * `unit_price_net × quantity`, which is signed — a markup line stores a
+   * negative discount. Must agree with the owning order's `totals_mode`.
+   */
+  @Property({ name: 'amounts_mode', type: 'text', default: 'computed' })
+  amountsMode: SalesAmountsMode = 'computed'
 
   @Property({ name: 'configuration', type: 'jsonb', nullable: true })
   configuration?: Record<string, unknown> | null
