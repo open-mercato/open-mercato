@@ -113,13 +113,16 @@ describe('link-workflow-task subscriber', () => {
   beforeEach(() => jest.clearAllMocks())
 
   /**
-   * The literal is spelled out rather than referenced through the constant:
-   * `'workflows'` is the value spec §2.3 names, and it is what distinguishes a
-   * workflow task from the module's own `'customers:interaction'` todos in the
-   * `(entity, todoId, todoSource)` unique key.
+   * The literal is spelled out rather than referenced through the constant: it
+   * distinguishes a workflow task from the module's own `'customers:interaction'`
+   * todos in the `(entity, todoId, todoSource)` unique key, and it is ALSO the
+   * entity id `resolveLegacyTodoDetails` queries for the task's title and the
+   * string `resolveTodoHref` matches to build the "Open task" link (#6062). The
+   * bare module name spec §2.3 first named satisfied the unique key and nothing
+   * else, so both readers silently produced nothing.
    */
-  test('uses the workflows todo source', () => {
-    expect(WORKFLOW_TASK_TODO_SOURCE).toBe('workflows')
+  test('uses the user_task entity id as the todo source', () => {
+    expect(WORKFLOW_TASK_TODO_SOURCE).toBe('workflows:user_task')
   })
 
   test('writes one workflows-sourced todo link for a customer-bound task', async () => {
@@ -134,7 +137,7 @@ describe('link-workflow-task subscriber', () => {
       expect.objectContaining({
         entity: customer,
         todoId: TASK_ID,
-        todoSource: 'workflows',
+        todoSource: 'workflows:user_task',
         tenantId: TENANT,
         organizationId: ORG,
       }),

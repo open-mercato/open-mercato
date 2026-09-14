@@ -1,10 +1,13 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CustomerEntity, CustomerTodoLink } from '../data/entities'
+import { WORKFLOW_TASK_TODO_SOURCE } from './workflowTaskLink'
+
+export { WORKFLOW_TASK_TODO_SOURCE }
 
 /**
  * Surface a customer-bound workflow task on the customer's own Tasks section
  * (spec §2.3: *"workflow tasks bound to a customer surface through the same
- * link mechanism (`todoSource: 'workflows'`)"*).
+ * link mechanism (`todoSource: 'workflows:user_task'`)"*).
  *
  * **Direction matters.** The customers module owns `CustomerTodoLink`, so
  * customers is the one that writes it — workflows only announces that a task
@@ -18,8 +21,6 @@ import { CustomerEntity, CustomerTodoLink } from '../data/entities'
  * migration are needed — which is exactly why the C3 `Task` entity stays
  * deferred.
  */
-
-export const WORKFLOW_TASK_TODO_SOURCE = 'workflows'
 
 /** Postgres unique violation — a redelivered event must be a no-op, not a failure. */
 const POSTGRES_UNIQUE_VIOLATION = '23505'
