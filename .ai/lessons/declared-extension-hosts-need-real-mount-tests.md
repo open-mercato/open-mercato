@@ -1,8 +1,8 @@
 ---
 title: "Declared extension hosts need real mount tests"
-area: [umes, backend-ui, debugging]
-module: [ui, core, catalog, customers]
-topic: [component-overrides, api-interceptors, optional-modules, testing]
+modules: ["ui","core","catalog","customers"]
+areas: ["umes","backend-ui","debugging"]
+topics: ["component-overrides","api-interceptors","optional-modules","testing"]
 ---
 
 # Declared extension hosts need real mount tests
