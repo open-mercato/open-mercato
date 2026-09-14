@@ -106,3 +106,20 @@ export function buildCountryOptions(options: {
 
   return [...prioritized, ...remaining]
 }
+
+export function matchCountryCodes(
+  term: string,
+  options: { locales?: string[] } = {},
+): string[] {
+  const needle = term.trim().toLowerCase()
+  if (!needle) return []
+  const searchLocales = options.locales?.length ? options.locales : ['en']
+  return ISO_COUNTRIES
+    .filter((entry) => {
+      if (entry.name.toLowerCase().includes(needle)) return true
+      return searchLocales.some((locale) =>
+        resolveCountryName(entry.code, { locale }).toLowerCase().includes(needle),
+      )
+    })
+    .map((entry) => entry.code)
+}

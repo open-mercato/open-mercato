@@ -352,10 +352,19 @@ export class HybridQueryEngine implements QueryEngine {
 
       const normalizedFilters = normalizeFilters(opts.filters)
       const cfFilters = normalizedFilters.filter((filter) => filter.field.startsWith('cf:') || filter.field.startsWith('l10n:'))
+      // `applySort` orders `cf:` sorts off the left-joined index doc, so a
+      // sort-only custom-field query depends on the index just as much as a cf
+      // filter does — without this disjunct it would skip the coverage guards
+      // below and silently order by a NULL expression on an empty index (#5521).
+      // Only `cf:` qualifies: neither engine ever applies an `l10n:` ordering —
+      // both drop it while resolving sorts — so counting it here would pay the
+      // coverage probes and the ORM diversion for an ordering that is discarded.
+      const hasCfSort = (opts.sort || []).some((sort) => String(sort.field).startsWith('cf:'))
       const coverageScope = this.resolveCoverageSnapshotScope(opts)
       const wantsCf = (
         (opts.fields || []).some((field) => typeof field === 'string' && (field.startsWith('cf:') || field.startsWith('l10n:'))) ||
         cfFilters.length > 0 ||
+        hasCfSort ||
         (Array.isArray(opts.includeCustomFields) && opts.includeCustomFields.length > 0)
       )
 

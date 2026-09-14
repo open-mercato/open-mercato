@@ -11,7 +11,7 @@ function readSource(relativePath: string): string {
 
 const HARDCODED_STATUS_COLOR = /\b(?:text|bg|border)-(?:green|red|amber|yellow|emerald|rose)-\d{2,3}\b/
 
-const usersPage = 'backend/customer_accounts/users/page.tsx'
+const usersPage = 'backend/customer_accounts/users/PortalUsersPageClient.tsx'
 const roleDetailPage = 'backend/customer_accounts/roles/[id]/page.tsx'
 const accountStatusWidget = 'widgets/injection/account-status/widget.client.tsx'
 const companyUsersWidget = 'widgets/injection/company-users/widget.client.tsx'

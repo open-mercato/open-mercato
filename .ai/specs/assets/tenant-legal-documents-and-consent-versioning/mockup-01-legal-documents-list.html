@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Mockup — Legal documents list</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: #f8fafc; color: #0f172a; width: 1440px; font-size: 14px;
+  }
+  .topbar {
+    height: 56px; background: #ffffff; border-bottom: 1px solid #e2e8f0;
+    display: flex; align-items: center; padding: 0 24px; gap: 16px;
+  }
+  .logo { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 15px; }
+  .logo-mark { width: 26px; height: 26px; border-radius: 7px; background: #4f46e5; }
+  .topbar-search {
+    margin-left: 32px; width: 320px; height: 34px; border: 1px solid #e2e8f0; border-radius: 8px;
+    background: #f8fafc; color: #94a3b8; display: flex; align-items: center; padding: 0 12px; font-size: 13px;
+  }
+  .topbar-right { margin-left: auto; display: flex; align-items: center; gap: 14px; }
+  .icon-dot { width: 30px; height: 30px; border-radius: 8px; background: #f1f5f9; border: 1px solid #e2e8f0; }
+  .avatar { width: 32px; height: 32px; border-radius: 50%; background: #c7d2fe; color: #3730a3;
+    display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 13px; }
+  .shell { display: flex; }
+  .sidebar {
+    width: 232px; min-height: 844px; background: #ffffff; border-right: 1px solid #e2e8f0; padding: 16px 12px;
+  }
+  .nav-group { margin-bottom: 18px; }
+  .nav-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: #94a3b8;
+    padding: 0 10px; margin-bottom: 6px; font-weight: 600; }
+  .nav-item { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px;
+    color: #475569; font-size: 13.5px; margin-bottom: 2px; }
+  .nav-item .ni { width: 16px; height: 16px; border-radius: 4px; background: #cbd5e1; flex: none; }
+  .nav-item.active { background: #eef2ff; color: #4338ca; font-weight: 600; }
+  .nav-item.active .ni { background: #6366f1; }
+  .nav-sub { padding-left: 34px; font-size: 13px; color: #64748b; }
+  .nav-sub.active { color: #4338ca; font-weight: 600; background: #eef2ff; border-radius: 8px; }
+  .main { flex: 1; padding: 24px 32px; }
+  .breadcrumb { font-size: 12.5px; color: #94a3b8; margin-bottom: 10px; }
+  .breadcrumb b { color: #64748b; font-weight: 500; }
+  .page-head { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 20px; }
+  h1 { font-size: 20px; font-weight: 700; letter-spacing: -0.01em; }
+  .page-sub { color: #64748b; font-size: 13px; margin-top: 4px; }
+  .scope-chip { display: inline-flex; align-items: center; gap: 6px; margin-left: 10px; vertical-align: 2px;
+    background: #f1f5f9; border: 1px solid #e2e8f0; color: #475569; font-size: 11.5px; font-weight: 600;
+    border-radius: 999px; padding: 3px 10px; }
+  .scope-chip .dot { width: 7px; height: 7px; border-radius: 50%; background: #6366f1; }
+  .btn { display: inline-flex; align-items: center; gap: 7px; border-radius: 8px; font-size: 13.5px;
+    font-weight: 600; padding: 9px 14px; border: 1px solid transparent; }
+  .btn-primary { background: #4f46e5; color: #ffffff; }
+  .btn-ghost { background: #ffffff; color: #334155; border-color: #e2e8f0; }
+  .plus { font-size: 15px; line-height: 1; }
+  .toolbar { display: flex; gap: 10px; margin-bottom: 14px; align-items: center; }
+  .search-box { width: 280px; height: 36px; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px;
+    color: #94a3b8; display: flex; align-items: center; padding: 0 12px; font-size: 13px; }
+  .filter-pill { height: 36px; display: inline-flex; align-items: center; gap: 6px; background: #ffffff;
+    border: 1px solid #e2e8f0; border-radius: 8px; padding: 0 12px; color: #475569; font-size: 13px; }
+  .caret { color: #94a3b8; font-size: 10px; }
+  .card { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b;
+    font-weight: 600; padding: 12px 16px; border-bottom: 1px solid #e2e8f0; background: #f8fafc; }
+  td { padding: 13px 16px; border-bottom: 1px solid #f1f5f9; font-size: 13.5px; color: #334155; vertical-align: middle; }
+  tr:last-child td { border-bottom: none; }
+  .kind { font-weight: 600; color: #0f172a; }
+  .kind small { display: block; font-weight: 400; color: #94a3b8; font-size: 12px; margin-top: 2px; }
+  .badge { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600;
+    border-radius: 999px; padding: 3px 10px; }
+  .badge .b-dot { width: 6px; height: 6px; border-radius: 50%; }
+  .badge-published { background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; }
+  .badge-published .b-dot { background: #10b981; }
+  .badge-draft { background: #fffbeb; color: #b45309; border: 1px solid #fde68a; }
+  .badge-draft .b-dot { background: #f59e0b; }
+  .locales { display: flex; gap: 4px; }
+  .loc { font-size: 11px; font-weight: 600; color: #475569; background: #f1f5f9; border: 1px solid #e2e8f0;
+    border-radius: 5px; padding: 2px 6px; }
+  .muted { color: #94a3b8; }
+  .row-actions { display: flex; gap: 6px; justify-content: flex-end; }
+  .ra { font-size: 12.5px; font-weight: 600; color: #4f46e5; background: #eef2ff; border: 1px solid #e0e7ff;
+    border-radius: 7px; padding: 5px 10px; white-space: nowrap; }
+  .ra.neutral { color: #475569; background: #f8fafc; border-color: #e2e8f0; }
+  .table-footer { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px;
+    color: #64748b; font-size: 12.5px; background: #ffffff; }
+  .pager { display: flex; gap: 6px; }
+  .pg { width: 28px; height: 28px; border: 1px solid #e2e8f0; border-radius: 7px; display: flex;
+    align-items: center; justify-content: center; color: #475569; font-size: 12.5px; background: #ffffff; }
+  .pg.active { background: #4f46e5; border-color: #4f46e5; color: #ffffff; font-weight: 600; }
+</style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="logo"><div class="logo-mark"></div>Mercato Backoffice</div>
+    <div class="topbar-search">Search or jump to&hellip; &nbsp;⌘K</div>
+    <div class="topbar-right">
+      <div class="icon-dot"></div>
+      <div class="icon-dot"></div>
+      <div class="avatar">MA</div>
+    </div>
+  </div>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="nav-group">
+        <div class="nav-label">General</div>
+        <div class="nav-item"><span class="ni"></span>Dashboard</div>
+        <div class="nav-item"><span class="ni"></span>Customers</div>
+        <div class="nav-item"><span class="ni"></span>Sales</div>
+        <div class="nav-item"><span class="ni"></span>Catalog</div>
+      </div>
+      <div class="nav-group">
+        <div class="nav-label">Content</div>
+        <div class="nav-item active"><span class="ni"></span>Content</div>
+        <div class="nav-sub active"><div class="nav-item" style="margin:0;color:inherit;font-weight:inherit;background:none;padding:8px 10px 8px 0;">Legal documents</div></div>
+        <div class="nav-sub"><div class="nav-item" style="margin:0;color:inherit;background:none;padding:8px 10px 8px 0;">Pages</div></div>
+      </div>
+      <div class="nav-group">
+        <div class="nav-label">System</div>
+        <div class="nav-item"><span class="ni"></span>Workflows</div>
+        <div class="nav-item"><span class="ni"></span>Settings</div>
+      </div>
+    </aside>
+    <main class="main">
+      <div class="breadcrumb">Content &rsaquo; <b>Legal documents</b></div>
+      <div class="page-head">
+        <div>
+          <h1>Legal documents
+            <span class="scope-chip"><span class="dot"></span>Scope: tenant &mdash; Acme Sp. z o.o.</span>
+          </h1>
+          <div class="page-sub">Versioned terms and privacy documents served on the public pages and referenced by consent evidence.</div>
+        </div>
+        <div style="display:flex;gap:10px;">
+          <span class="btn btn-ghost">Export</span>
+          <span class="btn btn-primary"><span class="plus">+</span>New version</span>
+        </div>
+      </div>
+      <div class="toolbar">
+        <div class="search-box">Filter documents&hellip;</div>
+        <div class="filter-pill">Kind: All <span class="caret">▾</span></div>
+        <div class="filter-pill">Status: All <span class="caret">▾</span></div>
+      </div>
+      <div class="card">
+        <table>
+          <thead>
+            <tr>
+              <th>Kind</th><th>Version</th><th>Status</th><th>Effective</th><th>Locales</th><th>Updated</th><th style="text-align:right;">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="kind">Terms of Service<small>terms</small></td>
+              <td>v3</td>
+              <td><span class="badge badge-draft"><span class="b-dot"></span>Draft</span></td>
+              <td class="muted">&mdash;</td>
+              <td><div class="locales"><span class="loc">EN</span><span class="loc">DE</span><span class="loc">PL</span></div></td>
+              <td class="muted">Aug 17, 2026</td>
+              <td><div class="row-actions"><span class="ra neutral">Edit</span><span class="ra">Publish</span><span class="ra neutral">New version</span></div></td>
+            </tr>
+            <tr>
+              <td class="kind">Terms of Service<small>terms</small></td>
+              <td>v2</td>
+              <td><span class="badge badge-published"><span class="b-dot"></span>Published</span></td>
+              <td class="muted">Jun 1, 2026</td>
+              <td><div class="locales"><span class="loc">EN</span><span class="loc">DE</span><span class="loc">PL</span><span class="loc">ES</span><span class="loc">KO</span></div></td>
+              <td class="muted">Jun 1, 2026</td>
+              <td><div class="row-actions"><span class="ra neutral">View</span><span class="ra neutral">New version</span></div></td>
+            </tr>
+            <tr>
+              <td class="kind">Terms of Service<small>terms</small></td>
+              <td>v1</td>
+              <td><span class="badge badge-published"><span class="b-dot"></span>Published</span></td>
+              <td class="muted">Jan 15, 2026</td>
+              <td><div class="locales"><span class="loc">EN</span><span class="loc">DE</span></div></td>
+              <td class="muted">Jan 15, 2026</td>
+              <td><div class="row-actions"><span class="ra neutral">View</span><span class="ra neutral">New version</span></div></td>
+            </tr>
+            <tr>
+              <td class="kind">Privacy Policy<small>privacy</small></td>
+              <td>v2</td>
+              <td><span class="badge badge-published"><span class="b-dot"></span>Published</span></td>
+              <td class="muted">May 10, 2026</td>
+              <td><div class="locales"><span class="loc">EN</span><span class="loc">DE</span><span class="loc">PL</span></div></td>
+              <td class="muted">May 10, 2026</td>
+              <td><div class="row-actions"><span class="ra neutral">View</span><span class="ra neutral">New version</span></div></td>
+            </tr>
+            <tr>
+              <td class="kind">Privacy Policy<small>privacy</small></td>
+              <td>v1</td>
+              <td><span class="badge badge-published"><span class="b-dot"></span>Published</span></td>
+              <td class="muted">Jan 15, 2026</td>
+              <td><div class="locales"><span class="loc">EN</span></div></td>
+              <td class="muted">Jan 15, 2026</td>
+              <td><div class="row-actions"><span class="ra neutral">View</span><span class="ra neutral">New version</span></div></td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="table-footer">
+          <span>5 versions &middot; 2 kinds</span>
+          <div class="pager"><span class="pg">&lsaquo;</span><span class="pg active">1</span><span class="pg">&rsaquo;</span></div>
+        </div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

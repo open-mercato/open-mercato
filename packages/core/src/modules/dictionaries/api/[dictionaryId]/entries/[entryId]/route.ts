@@ -22,6 +22,7 @@ import {
   updateDictionaryEntrySchema as updateEntryDocSchema,
 } from '../../../openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 
 const logger = createLogger('dictionaries').child({ component: 'entries-api' })
 const paramsSchema = z.object({
@@ -167,6 +168,10 @@ export async function PATCH(req: Request, ctx: { params?: { dictionaryId?: strin
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
+    const interceptorRejection = getCommandInterceptorHttpRejection(err)
+    if (interceptorRejection) {
+      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
+    }
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: 'Invalid input', details: err.issues }, { status: 400 })
     }
@@ -243,6 +248,10 @@ export async function DELETE(req: Request, ctx: { params?: { dictionaryId?: stri
   } catch (err) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
+    }
+    const interceptorRejection = getCommandInterceptorHttpRejection(err)
+    if (interceptorRejection) {
+      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
     }
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: 'Invalid input', details: err.issues }, { status: 400 })

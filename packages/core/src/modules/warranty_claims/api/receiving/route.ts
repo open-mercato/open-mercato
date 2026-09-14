@@ -5,7 +5,9 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { runRouteMutationGuards, type RouteMutationGuardResult } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import { withScopedPayload } from '@open-mercato/shared/lib/api/scoped'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -62,20 +64,19 @@ function toRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
 }
 
-function translateKey(key: string): string {
-  return key
-}
-
-async function resolveActionContext(req: Request): Promise<ActionRouteContext> {
+async function resolveActionContext(
+  req: Request,
+  translate: ActionRouteContext['translate'],
+): Promise<ActionRouteContext> {
   const container = await createRequestContainer()
   const auth = await getAuthFromRequest(req)
   if (!auth || !auth.tenantId) {
-    throw new CrudHttpError(401, { error: 'warranty_claims.errors.unauthorized' })
+    throw new CrudHttpError(401, { error: translate('warranty_claims.errors.unauthorized', 'Unauthorized') })
   }
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
   const organizationId = scope?.selectedId ?? auth.orgId ?? null
   if (!organizationId) {
-    throw new CrudHttpError(400, { error: 'warranty_claims.errors.organization_required' })
+    throw new CrudHttpError(400, { error: translate('warranty_claims.errors.organization_required', 'Organization context is required.') })
   }
   return {
     ctx: {
@@ -88,7 +89,7 @@ async function resolveActionContext(req: Request): Promise<ActionRouteContext> {
     },
     tenantId: auth.tenantId,
     organizationId,
-    translate: translateKey,
+    translate,
   }
 }
 
@@ -125,7 +126,7 @@ async function runGuard(
 ): Promise<RouteMutationGuardResult> {
   const userId = context.ctx.auth?.sub
   if (!userId) {
-    throw new CrudHttpError(401, { error: 'warranty_claims.errors.unauthorized' })
+    throw new CrudHttpError(401, { error: context.translate('warranty_claims.errors.unauthorized', 'Unauthorized') })
   }
   return runRouteMutationGuards({
     container: context.ctx.container,
@@ -148,26 +149,28 @@ async function executeReceivingAction(
   commandBus: CommandBus,
   action: ReceivingAction,
   ctx: CommandRuntimeContext,
+  translate: ActionRouteContext['translate'],
 ): Promise<{ lineId: string; claimId: string }> {
   if (action.kind === 'release') {
     const { result } = await commandBus.execute<ClaimLineReleaseQuarantineInput, { lineId: string; claimId: string }>(
       'warranty_claims.claim_line.release_quarantine',
       { input: action.input, ctx },
     )
-    if (!result) throw new CrudHttpError(400, { error: 'warranty_claims.errors.save_failed' })
+    if (!result) throw new CrudHttpError(400, { error: translate('warranty_claims.errors.save_failed', 'Failed to save warranty claim.') })
     return result
   }
   const { result } = await commandBus.execute<ClaimLineReceiveInput, { lineId: string; claimId: string }>(
     'warranty_claims.claim_line.receive',
     { input: action.input, ctx },
   )
-  if (!result) throw new CrudHttpError(400, { error: 'warranty_claims.errors.save_failed' })
+  if (!result) throw new CrudHttpError(400, { error: translate('warranty_claims.errors.save_failed', 'Failed to save warranty claim.') })
   return result
 }
 
 export async function POST(req: Request) {
+  const { translate } = await resolveTranslations()
   try {
-    const context = await resolveActionContext(req)
+    const context = await resolveActionContext(req, translate)
     const payload = toRecord(await readJsonSafe(req, {}))
     const action = toReceivingAction(payload, context)
     const guarded = await runGuard(req, context, action)
@@ -177,18 +180,22 @@ export async function POST(req: Request) {
     const commandAction = guarded.modifiedPayload ? toGuardedAction(action.kind, guarded.modifiedPayload) : action
 
     const commandBus = context.ctx.container.resolve('commandBus') as CommandBus
-    const result = await executeReceivingAction(commandBus, commandAction, context.ctx)
+    const result = await executeReceivingAction(commandBus, commandAction, context.ctx, translate)
 
     await guarded.runAfterSuccess()
 
     return NextResponse.json({ ok: true, lineId: result.lineId, claimId: result.claimId })
   } catch (err) {
     if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
+    const interceptorRejection = getCommandInterceptorHttpRejection(err)
+    if (interceptorRejection) {
+      return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
+    }
     if (err instanceof z.ZodError) {
-      return NextResponse.json({ error: 'warranty_claims.errors.invalidInput' }, { status: 400 })
+      return NextResponse.json({ error: translate('warranty_claims.errors.invalidInput', 'Invalid input') }, { status: 400 })
     }
     logger.error('warranty_claims.receiving.post failed', { err })
-    return NextResponse.json({ error: 'warranty_claims.errors.save_failed' }, { status: 500 })
+    return NextResponse.json({ error: translate('warranty_claims.errors.save_failed', 'Failed to save warranty claim.') }, { status: 500 })
   }
 }
 

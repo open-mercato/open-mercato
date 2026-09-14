@@ -359,6 +359,7 @@ export function MessagesInboxPageClient() {
     <div className="space-y-4">
       <DataTable
         title={t('messages.title', 'Messages')}
+        titleHeadingLevel={1}
         // UMES extension surface — opt into widget injection at:
         //   data-table:messages:columns / :row-actions / :bulk-actions / :filters / :toolbar / :search-trailing
         // (SPEC-045d §9.3a — communication_channels hub renders channel badge + delivery status here)
