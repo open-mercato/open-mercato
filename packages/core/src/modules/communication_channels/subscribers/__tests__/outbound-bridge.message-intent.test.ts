@@ -87,6 +87,11 @@ describe('outbound bridge — delivery intent across the messages seam (#5645 re
       persist: jest.fn(function persist(this: unknown) { return this }),
       flush: jest.fn(async () => {}),
       find: jest.fn(async () => []),
+      // `messages.messages.compose` resolves the parent inside the transaction to
+      // inherit its thread; reply and forward resolve it on the outer fork.
+      findOne: jest.fn(async (entity: unknown, where: Record<string, unknown>) => (
+        entity === Message && where.id === original.id ? original : null
+      )),
     }
     const emFork = {
       // The conversation is assigned to the operator, which is what gives them a
@@ -190,6 +195,50 @@ describe('outbound bridge — delivery intent across the messages seam (#5645 re
     await bridgeHandler(
       sentEventPayload() as never,
       makeBridgeContainer(internalRow) as never,
+    )
+
+    expect(enqueueMock).not.toHaveBeenCalled()
+  })
+
+  /**
+   * @pkarw's re-review minor: the intent guard originally asked
+   * `visibility === 'internal'`, while the messages module's own convention is
+   * that an ABSENT visibility is internal (`data/validators.ts` refines a compose
+   * under `value.visibility ?? 'internal'`, `composeMessageCommand` persists
+   * `input.visibility ?? null`). A caller that omits the field therefore files a
+   * note the module validated as internal, stored as `null`, and threaded onto
+   * the channel conversation — which the old polarity read as public and
+   * delivered to the correspondent.
+   */
+  it('does not deliver a channel-thread compose that omits visibility entirely', async () => {
+    const original = inboundMessage()
+    const { container, created } = makeMessagesContainer(original)
+
+    await commandRegistry.get('messages.messages.compose')!.execute(
+      {
+        type: 'channel.discord',
+        subject: 'Re: Where is my order?',
+        body: 'Known chargeback risk — do not refund without approval.',
+        bodyFormat: 'text',
+        recipients: [{ userId: colleagueUserId, type: 'to' }],
+        parentMessageId: inboundMessageId,
+        sourceEntityType: 'communication_channels.external_conversation',
+        sourceEntityId: externalConversationId,
+        sendViaEmail: false,
+        tenantId,
+        organizationId,
+        userId: operatorUserId,
+      },
+      { container, auth: { features: ['messages.compose'] } } as never,
+    )
+
+    const noteRow = created[0]
+    expect(noteRow.visibility).toBeNull()
+    expect(noteRow.threadId).toBe(threadId)
+
+    await bridgeHandler(
+      sentEventPayload() as never,
+      makeBridgeContainer(noteRow) as never,
     )
 
     expect(enqueueMock).not.toHaveBeenCalled()

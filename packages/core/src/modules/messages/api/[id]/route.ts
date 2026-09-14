@@ -146,7 +146,15 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   // Channel access says "you may work this conversation", not "you may read what
   // other operators kept off it". An internal note stays participant-only however
   // the caller reached the thread.
-  if (!isSender && !isRecipient && message.visibility === 'internal') {
+  //
+  // The test is "not explicitly public" rather than "explicitly internal":
+  // `data/validators.ts` refines a compose under `value.visibility ?? 'internal'`
+  // and `composeMessageCommand` persists `input.visibility ?? null`, so a caller
+  // that omits the field files a message the module itself validated as internal
+  // yet stored as `null`. `ingest-inbound-message.ts` stamps the inbound message
+  // `'public'` and the reply/forward commands copy it forward, so the journey
+  // this route exists for is unaffected.
+  if (!isSender && !isRecipient && message.visibility !== 'public') {
     return Response.json({ error: 'Access denied' }, { status: 403 })
   }
 
@@ -200,12 +208,15 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   //
   // Internal notes are the exception: they are addressed to platform
   // participants, so they keep the participant rule even on a channel thread.
+  // Same polarity as the direct-read gate above — an absent visibility is
+  // internal by the messages module's own convention, so only an explicitly
+  // public message is shown to a non-participant.
   const isThreadMessageParticipant = (threadMessage: { id: string; senderUserId?: string | null }) => (
     threadMessage.senderUserId === scope.userId || visibleRecipientMessageIds.has(threadMessage.id)
   )
   const actorVisibleThreadMessages = hasChannelThreadAccess
     ? threadMessages.filter((threadMessage) => (
-      threadMessage.visibility !== 'internal' || isThreadMessageParticipant(threadMessage)
+      threadMessage.visibility === 'public' || isThreadMessageParticipant(threadMessage)
     ))
     : threadMessages.filter(isThreadMessageParticipant)
 

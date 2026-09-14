@@ -18,14 +18,21 @@ type OutboundDeliveryIntentInput = {
  * narrower question — "did the ingest command compose this?" — and every
  * *internal* message sharing the channel thread falls between the two. This
  * predicate is the intent half, and it fails closed: only a message that is
- * neither internal nor a forward is delivered.
+ * explicitly public and not a forward is delivered.
  *
  * Two signals:
  *
- *   1. **`visibility === 'internal'`** — an internal note, or an internal
- *      compose filed against the conversation with an explicit
- *      `parentMessageId`. `api/route.ts` deliberately leaves such a compose on
- *      its own thread, and it must not be delivered either.
+ *   1. **`visibility !== 'public'`** — an internal note, or an internal compose
+ *      filed against the conversation with an explicit `parentMessageId`.
+ *      `api/route.ts` deliberately leaves such a compose on its own thread, and
+ *      it must not be delivered either. The test is "not explicitly public"
+ *      rather than "explicitly internal" because the messages module treats an
+ *      **absent** visibility as internal — `data/validators.ts` refines a
+ *      compose under `value.visibility ?? 'internal'`, `composeMessageCommand`
+ *      persists `input.visibility ?? null`, and `lib/composeSourceChannelType.ts`
+ *      asks `raw.visibility !== 'public'`. A caller that omits the field
+ *      therefore stores `null` on a channel-linked thread, and reading that as
+ *      public would deliver an internal note to the correspondent.
  *   2. **`forwardedFromMessageId`** — a forward. `forwardMessageCommand` copies
  *      `visibility` from the message it forwards, so forwarding a *public*
  *      inbound message produces a public forward whose body is the quoted
@@ -44,7 +51,7 @@ export function isOutboundDeliveryIntended({
   message,
   forwardedFromMessageId,
 }: OutboundDeliveryIntentInput): boolean {
-  if (message.visibility === 'internal') return false
+  if (message.visibility !== 'public') return false
   if (typeof forwardedFromMessageId === 'string' && forwardedFromMessageId.length > 0) return false
   return true
 }

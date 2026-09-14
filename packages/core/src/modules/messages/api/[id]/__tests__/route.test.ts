@@ -897,12 +897,17 @@ describe('messages /api/messages/[id] GET on a channel-linked thread (#5535)', (
     actionTakenByUserId: null,
   }
 
+  // Both entries carry `visibility: 'public'` because that is what the real rows
+  // carry: `ingest-inbound-message.ts` stamps the inbound message `'public'`, and
+  // `replyMessageCommand` / `forwardMessageCommand` copy the original's value
+  // onto the operator's answer.
   const threadMessages = [
     {
       id: anchorId,
       senderUserId: systemUserId,
       externalName: 'discord-user',
       sourceEntityType: 'communication_channels.external_conversation',
+      visibility: 'public',
       body: 'is anyone there?',
       bodyFormat: 'text',
       sentAt: new Date('2026-08-23T10:00:00.000Z'),
@@ -911,6 +916,7 @@ describe('messages /api/messages/[id] GET on a channel-linked thread (#5535)', (
       id: '33333333-3333-4333-8333-333333333333',
       senderUserId: otherOperatorId,
       sourceEntityType: 'communication_channels.external_conversation',
+      visibility: 'public',
       body: 'answered by a colleague',
       bodyFormat: 'text',
       sentAt: new Date('2026-08-23T10:05:00.000Z'),
@@ -1131,6 +1137,73 @@ describe('messages /api/messages/[id] GET on a channel-linked thread (#5535)', (
       })
 
       expect((await getDetail()).status).toBe(403)
+    })
+
+    /**
+     * @pkarw's re-review minor: both gates originally asked `=== 'internal'`,
+     * while the messages module's own convention is that an ABSENT visibility is
+     * internal — `data/validators.ts` refines a compose under
+     * `value.visibility ?? 'internal'` and `composeMessageCommand` persists
+     * `input.visibility ?? null`. A note filed by a caller that omitted the field
+     * is therefore validated as internal but stored as `null`, and the old
+     * polarity showed it to every operator who reached the thread through the
+     * channel fallback.
+     */
+    describe('a null visibility counts as internal, matching the module default', () => {
+      const nullVisibilityNoteId = '55555555-5555-4555-8555-555555555555'
+      const threadWithNullVisibilityNote = [
+        ...threadMessages,
+        {
+          id: nullVisibilityNoteId,
+          senderUserId: otherOperatorId,
+          sourceEntityType: 'communication_channels.external_conversation',
+          visibility: null,
+          body: 'known chargeback risk — do not refund',
+          bodyFormat: 'text',
+          sentAt: new Date('2026-08-23T10:07:00.000Z'),
+        },
+      ]
+
+      it('hides another operator null-visibility note from the channel-fallback caller', async () => {
+        setupHarness(grantedThread, { thread: threadWithNullVisibilityNote })
+
+        const payload = await (await getDetail()).json() as { thread?: Array<{ id?: string }> }
+
+        expect((payload.thread ?? []).map((item) => item.id)).not.toContain(nullVisibilityNoteId)
+      })
+
+      it('keeps the caller own null-visibility note visible', async () => {
+        setupHarness(grantedThread, {
+          thread: [
+            ...threadMessages,
+            { ...threadWithNullVisibilityNote[threadWithNullVisibilityNote.length - 1], senderUserId: operatorUserId },
+          ],
+        })
+
+        const payload = await (await getDetail()).json() as { thread?: Array<{ id?: string }> }
+
+        expect((payload.thread ?? []).map((item) => item.id)).toContain(nullVisibilityNoteId)
+      })
+
+      it('denies opening another operator null-visibility note directly', async () => {
+        setupHarness(grantedThread, {
+          anchor: { ...inboundMessage, visibility: null, senderUserId: otherOperatorId },
+        })
+
+        expect((await getDetail()).status).toBe(403)
+      })
+
+      it('still shows the public conversation the channel fallback exists for', async () => {
+        setupHarness(grantedThread, { thread: threadWithNullVisibilityNote })
+
+        const response = await getDetail()
+        const payload = await response.json() as { thread?: Array<{ id?: string }> }
+
+        expect(response.status).toBe(200)
+        expect((payload.thread ?? []).map((item) => item.id)).toEqual(
+          expect.arrayContaining(threadMessages.map((item) => item.id)),
+        )
+      })
     })
   })
 })

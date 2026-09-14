@@ -36,6 +36,15 @@ describe('outbound-bridge subscriber behaviour', () => {
   const tenantId = '11111111-1111-1111-1111-111111111111'
   const messageId = '22222222-2222-2222-2222-222222222222'
 
+  // Every fixture that expects a delivery carries `visibility: 'public'` because
+  // that is what the deliverable rows actually carry: `ingest-inbound-message.ts`
+  // stamps the inbound message `'public'`, and the reply/forward commands copy it
+  // onto the operator's answer. `isOutboundDeliveryIntended` reads an absent
+  // visibility as internal, matching the messages module's own
+  // `visibility ?? 'internal'` default — see
+  // `outbound-bridge.message-intent.test.ts`, which pins that polarity against
+  // the real commands rather than against these stubs.
+
   it('skips silently when payload is missing messageId', async () => {
     const findOne = jest.fn()
     await handler({} as any, makeCtx({ findOne }))
@@ -66,7 +75,7 @@ describe('outbound-bridge subscriber behaviour', () => {
 
   it('enqueues an outbound job when channel-linked and not yet delivered', async () => {
     const findOne = jest.fn()
-    findOne.mockResolvedValueOnce({ id: messageId, threadId: 'thread-1' }) // Message
+    findOne.mockResolvedValueOnce({ id: messageId, threadId: 'thread-1', visibility: 'public' }) // Message
     findOne.mockResolvedValueOnce({ id: 'mapping-1', messageThreadId: 'thread-1' }) // mapping
     findOne.mockResolvedValueOnce(null) // existing link (none)
     findOne.mockResolvedValueOnce({ id: 'ch-1', userId: null }) // channel (tenant-wide → any sender)
@@ -105,7 +114,7 @@ describe('outbound-bridge subscriber behaviour', () => {
 
   it('enqueues when an existing link is in a terminal-failure state (retry path)', async () => {
     const findOne = jest.fn()
-    findOne.mockResolvedValueOnce({ id: messageId, threadId: 'thread-1' })
+    findOne.mockResolvedValueOnce({ id: messageId, threadId: 'thread-1', visibility: 'public' })
     findOne.mockResolvedValueOnce({ id: 'mapping-1', messageThreadId: 'thread-1' })
     findOne.mockResolvedValueOnce({ id: 'link-1', deliveryStatus: 'failed' })
     findOne.mockResolvedValueOnce({ id: 'ch-1', userId: null }) // channel (tenant-wide)
@@ -184,6 +193,7 @@ describe('outbound-bridge subscriber behaviour', () => {
         threadId: 'thread-1',
         senderUserId: 'operator-1',
         sourceEntityType: EXTERNAL,
+        visibility: 'public',
       }) // Message
       findOne.mockResolvedValueOnce({ id: 'mapping-1', messageThreadId: 'thread-1', channelId: 'ch-1' })
       findOne.mockResolvedValueOnce(null) // no link yet — nothing was sent for this message
@@ -196,7 +206,7 @@ describe('outbound-bridge subscriber behaviour', () => {
 
   it('enqueues delivery when the message sender OWNS the per-user channel', async () => {
     const findOne = jest.fn()
-    findOne.mockResolvedValueOnce({ id: messageId, threadId: 'thread-1', senderUserId: 'owner-b' }) // Message
+    findOne.mockResolvedValueOnce({ id: messageId, threadId: 'thread-1', senderUserId: 'owner-b', visibility: 'public' }) // Message
     findOne.mockResolvedValueOnce({ id: 'mapping-1', messageThreadId: 'thread-1', channelId: 'ch-owner' }) // mapping
     findOne.mockResolvedValueOnce(null) // existing link (none)
     findOne.mockResolvedValueOnce({ id: 'ch-owner', userId: 'owner-b' }) // channel owned by the sender
