@@ -29,6 +29,7 @@ import {
   type ReferencedStatementValue,
   translateEudrCrudError,
 } from '../../../../components/formConfig'
+import { canDeleteStatement } from '../../../../lib/statement-lifecycle'
 import { StatementLifecycleBar } from '../../../../components/StatementLifecycleBar'
 import { StatementReadinessChecklist } from '../../../../components/StatementReadinessChecklist'
 import { StatementRiskSection, type StatementLatestRisk } from '../../../../components/StatementRiskSection'
@@ -641,9 +642,11 @@ export default function EditEudrStatementPage({ params }: { params?: { id?: stri
 
         <CrudForm<StatementFormValues>
           title={translate('eudr.statements.edit.title')}
+          titleHeadingLevel={1}
           backHref="/backend/eudr/statements"
           cancelHref="/backend/eudr/statements"
           deleteRedirect="/backend/eudr/statements"
+          deleteVisible={canDeleteStatement(record.status)}
           submitLabel={translate('eudr.statements.form.submitUpdate')}
           fields={fields}
           groups={groups}
@@ -712,6 +715,7 @@ export default function EditEudrStatementPage({ params }: { params?: { id?: stri
           <h2 className="text-lg font-semibold">{translate('eudr.statements.detail.submissions')}</h2>
           <DataTable<LinkedSubmissionRow>
             title={translate('eudr.statements.detail.submissionsTableTitle')}
+            titleHeadingLevel={2}
             columns={submissionColumns}
             data={submissionRows}
             isLoading={submissionsLoading}

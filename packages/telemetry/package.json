@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/telemetry",
-  "version": "0.6.7",
+  "version": "0.7.0",
   "description": "Vendor-neutral spans, metrics, and error reporting backed by a pluggable OTLP provider. Off by default; the telemetry runtime is loaded only when explicitly enabled.",
   "type": "module",
   "main": "./dist/index.js",
@@ -51,7 +51,7 @@
   "devDependencies": {
     "@opentelemetry/sdk-trace-base": "^2.9.0",
     "@types/jest": "^30.0.0",
-    "@types/node": "^26.1.2",
+    "@types/node": "^26.4.0",
     "jest": "^30.4.2",
     "ts-jest": "^29.4.12",
     "typescript": "7.0.2"

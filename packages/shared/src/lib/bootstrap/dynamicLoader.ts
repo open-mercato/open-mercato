@@ -4,6 +4,10 @@ import { findAppRoot, type AppRoot } from './appResolver'
 import { registerEntityIds } from '../encryption/entityIds'
 import { createLogger } from '../logger'
 import {
+  applyModuleOverridesFromEnabledModules,
+  type ModuleEntryWithOverrides,
+} from '../../modules/overrides'
+import {
   ensureMikroOrmV7GeneratedCacheCompatibility,
   recoverMikroOrmV7GeneratedCacheFromImportError,
 } from './generatedCacheRecovery'
@@ -590,6 +594,95 @@ async function loadAppDiRegistrar(appDir: string): Promise<AppDiRegistrar | null
 }
 
 /**
+ * Override domains whose applier is not registered by `registerBuiltInModuleOverrideAppliers()`
+ * but by importing a domain package for its side effect. `bootstrap-common.ts` does this with a
+ * static import right before it dispatches; the dynamic bootstrap path has no bundler to lean on,
+ * so it resolves the same modules here — lazily, and only when an app actually declares the
+ * domain, so `@open-mercato/shared` keeps its rule of never taking a runtime dependency on a
+ * domain package (soft-optional coupling, `packages/core/AGENTS.md` → Cross-Module Coupling).
+ */
+const OPTIONAL_OVERRIDE_APPLIER_MODULES: Record<string, string> = {
+  ai: '@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-overrides',
+}
+
+/**
+ * Import the side-effect module that registers the applier for every declared override domain
+ * that has no built-in one. A domain package the app does not install is not an error — there
+ * is nothing for that domain to apply to — so a failed resolution is logged and skipped, and the
+ * dispatcher's own "domain not yet wired" warning still fires behind it.
+ */
+async function ensureOptionalOverrideAppliers(enabledModules: ModuleEntryWithOverrides[]): Promise<void> {
+  for (const [domain, specifier] of Object.entries(OPTIONAL_OVERRIDE_APPLIER_MODULES)) {
+    const declared = enabledModules.some((entry) => {
+      const overrides = entry?.overrides as Record<string, unknown> | undefined
+      return Boolean(overrides && overrides[domain])
+    })
+    if (!declared) continue
+    try {
+      await import(/* webpackIgnore: true */ /* turbopackIgnore: true */ specifier)
+    } catch (error) {
+      logger.debug('Optional override applier module is not installed; the domain has nothing to apply to', {
+        domain,
+        specifier,
+        err: error,
+      })
+    }
+  }
+}
+
+/**
+ * Dispatch `entry.overrides` declared in the app's `src/modules.ts` for the dynamic
+ * bootstrap path.
+ *
+ * The Next.js runtime imports `enabledModules` statically from its own `src/modules.ts` and
+ * calls `applyModuleOverridesFromEnabledModules` from `bootstrap-common.ts` before any registry
+ * first-loads. Worker, scheduler and CLI processes bootstrap through `bootstrapFromAppRoot`
+ * instead, which only ever compiled the generated `modules.cli.generated.ts` — so an app's
+ * `entry.overrides` (encryption maps, ACL features, CLI commands, workers, event subscribers,
+ * setup, …) silently never applied there. `seed-encryption` seeding the base encryption maps
+ * instead of the app's `overrides.encryption.maps` was the concrete symptom (#5582).
+ *
+ * An app layout with no `src/modules.ts` at all is logged and skipped — that is a real
+ * compatibility case, handled the same way an absent `src/di.ts` is. A file that is *present*
+ * but fails to compile or import is not: it throws, matching how this same function treats
+ * every other mandatory input and how the Next.js runtime treats this same file (a static
+ * import in `bootstrap-common.ts`). Degrading there would put `seed-encryption` back on the
+ * base encryption maps while still printing success — #5582's outcome, only quieter.
+ */
+async function loadAppModuleOverrides(appDir: string): Promise<void> {
+  const tsPath = path.join(appDir, 'src', 'modules.ts')
+  if (!fs.existsSync(tsPath)) {
+    logger.debug('App-level modules file not present, skipping entry.overrides dispatch', { filePath: tsPath })
+    return
+  }
+
+  let enabledModules: unknown
+  try {
+    const appModulesModule = await compileAndImport(tsPath, {
+      appRoot: appDir,
+      outFile: path.join(appDir, '.mercato', 'generated', 'app-modules-overrides.compiled.mjs'),
+    })
+    enabledModules = appModulesModule.enabledModules
+  } catch (error) {
+    throw new Error(
+      `[internal] Failed to load the app-level modules file (${tsPath}); entry.overrides cannot be applied. ` +
+        'Refusing to bootstrap with a partial override set.',
+      { cause: error },
+    )
+  }
+
+  if (!Array.isArray(enabledModules)) {
+    throw new Error(
+      `[internal] The app-level modules file (${tsPath}) exports no enabledModules array; ` +
+        'entry.overrides cannot be applied. Refusing to bootstrap with a partial override set.',
+    )
+  }
+
+  await ensureOptionalOverrideAppliers(enabledModules as ModuleEntryWithOverrides[])
+  applyModuleOverridesFromEnabledModules(enabledModules as ModuleEntryWithOverrides[])
+}
+
+/**
  * Dynamically load bootstrap data from a resolved app directory.
  *
  * IMPORTANT: This only works in unbundled contexts (CLI, tsx).
@@ -681,13 +774,20 @@ export async function loadBootstrapData(appRoot?: string): Promise<BootstrapData
 export async function bootstrapFromAppRoot(appRoot?: string): Promise<BootstrapData> {
   const { createBootstrap, waitForAsyncRegistration } = await import('./factory.js')
   const resolved = resolveAppRootOrThrow(appRoot)
-  // Both loads compile through esbuild, so they share one lifecycle scope: without it
+  // All three loads compile through esbuild, so they share one lifecycle scope: without it
   // `loadBootstrapData` releases the esbuild helper process and `loadAppDiRegistrar`
   // silently starts a second one that nothing ever stops.
-  const { data, appDiRegistrar } = await withEsbuildLifecycle(async () => ({
-    data: await loadBootstrapData(resolved.appDir),
-    appDiRegistrar: await loadAppDiRegistrar(resolved.appDir),
-  }))
+  const { data, appDiRegistrar } = await withEsbuildLifecycle(async () => {
+    // Dispatch the app's `entry.overrides` (src/modules.ts) BEFORE any registry
+    // first-loads — the `bootstrap()` call below runs `registerModules(data.modules)`,
+    // and `registerCliModules` in the mercato bin right after this function returns;
+    // both read the override side-registry this populates.
+    await loadAppModuleOverrides(resolved.appDir)
+    return {
+      data: await loadBootstrapData(resolved.appDir),
+      appDiRegistrar: await loadAppDiRegistrar(resolved.appDir),
+    }
+  })
   const bootstrap = createBootstrap(data, appDiRegistrar ? { appDiRegistrar } : {})
   bootstrap()
   // In CLI context, wait for async registrations (UI widgets, search configs, etc.)

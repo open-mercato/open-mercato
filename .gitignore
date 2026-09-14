@@ -51,6 +51,12 @@ yarn-error.log*
 .env.production.local
 .env.preview
 !.env.example
+# Backups/copies of env files hold live secrets — `.env` above is an exact-name
+# pattern and does not cover them (e.g. `.env.bak-parallel`).
+.env.bak*
+.env.*.bak
+.env.*.backup
+.env.*.orig
 
 # vercel
 .vercel
@@ -153,6 +159,9 @@ docker/opencode/opencode.jsonc
 # entrypoint scripts om-prepare-test-env compiles are bound to the machine that
 # generated them (shell, ports, process tools) — keep them local, never commit
 .ai/scripts/test-env-*
+# Local agent-runner state (its own .ai/cezar/.gitignore covers the launch key
+# and run data; this keeps the remaining per-machine UI state out of git too).
+.ai/cezar/
 .agents/
 
 apps/mercato/data/

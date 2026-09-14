@@ -2,6 +2,7 @@
 // Commands that need to run before generation (e.g., `init`) handle missing modules gracefully.
 
 import { registerWorkerShutdownHook, runWorker } from '@open-mercato/queue/worker'
+import { isProductionBuildPhase, startModuleRuntimes } from './lib/module-runtimes'
 import type { Module, ModuleWorker } from '@open-mercato/shared/modules/registry'
 import { getCliModules, hasCliModules, registerCliModules } from './registry'
 export { getCliModules, hasCliModules, registerCliModules }
@@ -44,6 +45,7 @@ import { assertSingleInstanceStrategies } from './lib/single-instance-strategy-g
 import { createDevEnvReloader, watchDevEnvFiles } from './lib/dev-env-reload'
 import { quotePostgresIdentifier } from './lib/db/identifiers'
 import { getRegisteredDevSupervisorManifest } from './lib/dev-supervisor-manifest'
+import { buildNextDevArgs } from './lib/next-dev-bundler'
 // Lazy-imported to avoid pulling in `testcontainers` (devDependency) at startup
 const lazyIntegration = () => import('./lib/testing/integration')
 import type { ChildProcess } from 'node:child_process'
@@ -1740,6 +1742,25 @@ export async function run(argv = process.argv) {
               console.log('[worker] Local scheduler started in the shared worker process.')
             }
 
+            // SPEC-072 — module runtimes, once per process. After the queue workers are bound so
+            // a runtime may rely on them, and before the process announces itself as up.
+            //
+            // Only on `--all`: that is the process a deployment runs and the one `server start`
+            // spawns. A single-queue worker is a targeted invocation, and starting every module's
+            // runtime in each of N of them would run N copies of each.
+            //
+            // The build-phase guard is always false here — NEXT_PHASE is set by Next, not by a
+            // worker — and is kept so the check lives with the runner rather than being reinvented
+            // by the Next-side entry, where module code really is evaluated during `next build`.
+            if (!isProductionBuildPhase()) {
+              const runtimes = await startModuleRuntimes({
+                modules: getCliModules(),
+                container: await createRequestContainer(),
+                role: 'worker',
+              })
+              if (runtimes.started.length > 0) registerWorkerShutdownHook(() => runtimes.stop())
+            }
+
             console.log('[worker] All workers started. Press Ctrl+C to stop')
 
             // Keep the process alive
@@ -2140,12 +2161,14 @@ export async function run(argv = process.argv) {
               readyResolve = resolve
             })
             const exitPromise = new Promise<ManagedProcessExitResult>((resolve) => {
+              const nextDevCommand = buildNextDevArgs(nextBin, runtimeEnv)
+              const bundlerLabel = nextDevCommand.bundler === 'webpack' ? 'Webpack' : 'Turbopack'
               writeDevSplashRuntimeStarting(
                 lastRestartReason
-                  ? `Restarting Next.js dev server. Reason: ${lastRestartReason}`
-                  : 'Starting Next.js dev server',
+                  ? `Restarting Next.js dev server (${bundlerLabel}). Reason: ${lastRestartReason}`
+                  : `Starting Next.js dev server (${bundlerLabel})`,
               )
-              const nextProcess = spawn('node', [nextBin, 'dev', '--turbopack'], {
+              const nextProcess = spawn('node', nextDevCommand.args, {
                 stdio: ['inherit', 'pipe', 'pipe'],
                 env: runtimeEnv,
                 cwd: appDir,

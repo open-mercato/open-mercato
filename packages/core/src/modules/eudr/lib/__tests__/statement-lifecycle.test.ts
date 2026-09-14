@@ -1,8 +1,11 @@
 import {
+  canDeleteStatement,
   canTransition,
   evaluateSubmissionGate,
   isAmendWindowOpen,
+  isStatementReadOnly,
 } from '../statement-lifecycle'
+import { EUDR_STATEMENT_STATUSES } from '../../data/validators'
 
 describe('canTransition', () => {
   it('allows only declared statement status transitions', () => {
@@ -10,6 +13,29 @@ describe('canTransition', () => {
     expect(canTransition('available', 'withdrawn')).toBe(true)
     expect(canTransition('archived', 'draft')).toBe(false)
     expect(canTransition('draft', 'available')).toBe(false)
+  })
+})
+
+describe('canDeleteStatement', () => {
+  it('refuses deletion for archived statements only', () => {
+    expect(canDeleteStatement('archived')).toBe(false)
+
+    for (const status of EUDR_STATEMENT_STATUSES) {
+      if (status === 'archived') continue
+      expect(canDeleteStatement(status)).toBe(true)
+    }
+  })
+
+  it('agrees with the read-only predicate the update guard uses', () => {
+    for (const status of EUDR_STATEMENT_STATUSES) {
+      expect(canDeleteStatement(status)).toBe(!isStatementReadOnly(status))
+    }
+  })
+
+  it('keeps archived terminal, so a blocked delete has no un-archive escape hatch', () => {
+    for (const status of EUDR_STATEMENT_STATUSES) {
+      expect(canTransition('archived', status)).toBe(false)
+    }
   })
 })
 

@@ -8,7 +8,7 @@ import { recalculateNextRun } from '../lib/nextRunCalculator'
 import { emitSchedulerEvent } from '../events.js'
 import { getGlobalEventBus } from '@open-mercato/shared/modules/events'
 import { assertSchedulerSafeCommandAuthorized } from '../lib/scheduler-safe-commands.js'
-import { buildScheduledCommandContext } from '../lib/commandContext.js'
+import { buildScheduledCommandContext, resolveScheduledCommandActorUserId } from '../lib/commandContext.js'
 import { buildQueueTargetPayload, buildSchedulerIdempotencyKey } from '../lib/queueTargetPayload.js'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import {
@@ -319,7 +319,7 @@ export class LocalSchedulerService {
     }
 
     const commandBus = new CommandBus()
-    const actorUserId = typeof schedule.createdByUserId === 'string' ? schedule.createdByUserId.trim() : ''
+    const actorUserId = resolveScheduledCommandActorUserId(schedule)
     await assertSchedulerSafeCommandAuthorized({
       commandId: schedule.targetCommand,
       actorUserId,

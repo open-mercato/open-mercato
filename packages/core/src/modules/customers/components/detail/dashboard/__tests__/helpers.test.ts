@@ -1,7 +1,7 @@
 import { computeDealTrend, getActiveDeals, sumActiveDeals } from '../helpers'
 import type { DealSummary } from '../../../formConfig'
 
-// Regression for issue #4667: the supported closure flows persist `win` / `loose`
+// Regression for issue #4667: the supported closure flows persist `win` / `lost`
 // (useDealClosure, the kanban board) while the AI stage tool persists `won` / `lost`.
 // These helpers used to test only for `won` / `lost` / `closed`, so a deal closed
 // through the UI stayed "active" on the company dashboard.

@@ -12,6 +12,7 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 
 import { approveProposalCommand, dismissProposalCommand } from '../ai-reply-proposal'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { composeMessageSchema } from '@open-mercato/core/modules/messages/data/validators'
 import { CHANNEL_DISCORD_AI_PROPOSAL_MESSAGE_TYPE } from '../../message-types'
 
 const findOne = findOneWithDecryption as unknown as jest.Mock
@@ -21,6 +22,8 @@ const ORG = '22222222-2222-4222-8222-222222222222'
 const OPERATOR = '44444444-4444-4444-8444-444444444444'
 const PROPOSAL_ID = '55555555-5555-4555-8555-555555555555'
 const INBOUND_ID = '66666666-6666-4666-8666-666666666666'
+/** The hub validates `parentMessageId` as a UUID, so the thread this replies into has to be one. */
+const THREAD_ID = '77777777-7777-4777-8777-777777777777'
 
 function makeCtx() {
   const em = { fork: () => ({}) }
@@ -82,6 +85,33 @@ describe('channel_discord.ai_reply_proposal.approve', () => {
       tenantId: TENANT,
       organizationId: ORG,
     })
+  })
+
+  /**
+   * #5601 broke this path too, not only the automatic tier: the approve command
+   * composes the same public reply through the same hub command, so an omitted
+   * channel type made the hub demand an `externalEmail` from a Discord sender
+   * and a human pressing approve got a validation error instead of a send.
+   *
+   * Checked against the hub's REAL `composeMessageSchema`, so the assertion
+   * fails for the reason production failed rather than for a literal.
+   */
+  it('composes a payload the hub’s own validator accepts, with no address anywhere', async () => {
+    findOne
+      .mockResolvedValueOnce(proposalRow())
+      .mockResolvedValueOnce({ ...inboundRow(), threadId: THREAD_ID })
+    const { ctx, commandBus } = makeCtx()
+
+    await approveProposalCommand.execute(actionInput as never, ctx)
+
+    const [, args] = commandBus.execute.mock.calls[0]
+    expect(args.input.sourceChannelType).toBe('discord')
+    expect(args.input.externalEmail).toBeUndefined()
+
+    const parsed = composeMessageSchema.safeParse(args.input)
+    expect(
+      parsed.success ? [] : parsed.error.issues.map((issue) => issue.path.join('.')),
+    ).toEqual([])
   })
 
   it('refuses to send a message that is not one of its own proposals', async () => {

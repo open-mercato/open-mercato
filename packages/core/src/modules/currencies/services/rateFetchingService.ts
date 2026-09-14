@@ -131,6 +131,12 @@ export class RateFetchingService {
     }
   }
 
+  /**
+   * Currencies whose rates are worth storing. Deliberately not filtered by `isActive`: that flag
+   * answers whether a currency may be picked for something new, which says nothing about whether
+   * records already denominated in it must stay convertible. Soft delete is what takes a currency
+   * out of rate fetching.
+   */
   private async getExistingCurrencies(scope: {
     tenantId: string
     organizationId: string
@@ -138,7 +144,6 @@ export class RateFetchingService {
     return this.em.find(Currency, {
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
-      isActive: true,
       deletedAt: null,
     })
   }

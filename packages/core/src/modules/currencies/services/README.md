@@ -282,6 +282,51 @@ console.log(`By provider:`, result.byProvider)
 console.log(`Errors:`, result.errors)
 ```
 
+### Which Currencies Get Rates
+
+`fetchRatesForDate` first resolves the set of currency codes worth storing rates for, then filters
+every provider response against it — a rate is kept only when **both** legs of its pair are in the
+set. The set is every currency in the tenant/organization scope that is not soft-deleted.
+
+`isActive` deliberately plays no part here. That flag answers whether a currency may be **selected**
+for something new (it gates `api/currencies/options`, the `?isActive` list filter and the
+exchange-rate form's currency select), which says nothing about whether records already denominated
+in it must stay convertible. Deactivating a currency while existing records still reference it is
+the normal way to grandfather it, and those records keep needing a rate — otherwise conversions out
+of the currency start failing once the stored rates fall outside the consumer's lookback window.
+`ExchangeRateService` defaults to `maxDaysBack: 30`, but consumers override it — the deal-value
+conversions in `customers/api/deals/{aggregate,summary}` pass `maxDaysBack: 60`, so a currency that
+stopped accruing rates drops out of pipeline totals (`convertedAll: false`, no error surfaced)
+roughly 60 days later.
+
+**Soft delete is the only thing that stops a currency from accruing rates.** `deletedAt` excludes it
+from the set; nothing else does, `isActive` included.
+
+Reaching `deletedAt` takes two steps, in this order, because `deleteCurrencyCommand` refuses the
+delete while the currency still has live rates — the very rates fetching keeps writing
+(`storeRates` stores each one with `isActive: true`):
+
+1. Delete or deactivate every `exchange_rates` row whose `fromCurrencyCode` or `toCurrencyCode` is
+   the currency, otherwise `DELETE /api/currencies/currencies` answers
+   `400 Cannot delete currency XXX because it has N active exchange rate(s)`.
+2. Soft-delete the currency, with no fetch in between. Any fetch in that window — the "Fetch rates"
+   button, `mercato currencies fetch-rates`, or `ExchangeRateService`'s `autoFetch` (which defaults
+   to `true`) — recreates the rates and re-blocks the delete.
+
+There is deliberately **no reversible way to pause rate accrual for a single currency**. An earlier
+draft of this change added a `Currency.fetchRatesWhenInactive` opt-in column for exactly that and it
+was dropped: an extra column to express "grandfathered but still convertible" is the state
+`isActive: false` already describes, and the cost of keeping a currency in the set is bounded (see
+below). Soft delete is the terminal off-switch, not a pause.
+
+Note that both bundled providers (NBP, Raiffeisen) return `[]` outright when `PLN` is missing from
+the set, so a `PLN` that fell out of it silenced the entire provider rather than just `PLN`'s own
+pairs — another reason the set is not narrowed by selectability.
+
+Keeping the set wide costs no extra provider calls: both providers fetch a full table in a single
+request per date and the set is applied locally. The only cost is additional `exchange_rates` rows,
+bounded by what the provider returns anyway.
+
 ### When to Use RateFetchingService Directly
 
 - Scheduled/batch fetching of rates
