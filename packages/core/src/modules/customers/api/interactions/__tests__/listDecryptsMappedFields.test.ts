@@ -9,7 +9,9 @@ import {
 
 const tenantId = '11111111-1111-4111-8111-111111111111'
 const orgId = '22222222-2222-4222-8222-222222222222'
+const childOrgId = '55555555-5555-4555-8555-555555555555'
 const interactionId = '33333333-3333-4333-8333-333333333333'
+const childInteractionId = '66666666-6666-4666-8666-666666666666'
 
 let listRows: Array<Record<string, unknown>> = []
 
@@ -45,8 +47,9 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: async () => ({ tenantId, orgId, sub: null, isApiKey: true }),
 }))
 
+let scope: { filterIds: string[]; selectedId: string | null } = { filterIds: [orgId], selectedId: orgId }
 jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
-  resolveOrganizationScopeForRequest: async () => ({ filterIds: [orgId], selectedId: orgId }),
+  resolveOrganizationScopeForRequest: async () => scope,
 }))
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
@@ -139,6 +142,7 @@ async function listItems() {
 }
 
 beforeEach(() => {
+  scope = { filterIds: [orgId], selectedId: orgId }
   listRows = [ciphertextRow()]
   decryptedInteractions = [decryptedInteraction()]
   mockGetEncryptedFieldNames.mockReset()
@@ -190,5 +194,38 @@ describe('interactions list — decrypts every encryption-map field (#5945)', ()
 
     expect(item.title).toBe('enc:v1:title')
     expect(item.location).toBe('enc:v1:location')
+  })
+
+  test('a page spanning a parent and a descendant organization uses each row\'s own map, not the selected org\'s', async () => {
+    // Parent org P resolves to the tenant-wide [title, body] map; child org C has
+    // its own map that also covers `location`. A selection of P expands to P plus
+    // its descendants (organizationScope.ts), so a single page can carry rows from
+    // both — each row's own organization's map must gate its own overlay (#5945).
+    scope = { filterIds: [orgId, childOrgId], selectedId: orgId }
+    mockGetEncryptedFieldNames.mockImplementation(async (_entityId, _tenantId, organizationId) => {
+      if (organizationId === childOrgId) return ['title', 'body', 'location']
+      return ['title', 'body']
+    })
+    listRows = [
+      ciphertextRow(),
+      ciphertextRow({ id: childInteractionId, organization_id: childOrgId, location: 'enc:v1:location-child' }),
+    ]
+    decryptedInteractions = [
+      decryptedInteraction(),
+      decryptedInteraction({ id: childInteractionId, location: 'https://meet.example.test/room-child' }),
+    ]
+
+    const items = await listItems()
+    const parentItem = items.find((item) => item.id === interactionId)
+    const childItem = items.find((item) => item.id === childInteractionId)
+
+    // Parent row's own map is [title, body] — location stays ciphertext, exactly
+    // as it did before this page ever spanned a second organization.
+    expect(parentItem?.location).toBe('enc:v1:location')
+    // Child row's own map covers `location` too — the fix resolves the covered
+    // set per row's organization rather than only for the selected one.
+    expect(childItem?.location).toBe('https://meet.example.test/room-child')
+    expect(mockGetEncryptedFieldNames).toHaveBeenCalledWith('customers:customer_interaction', tenantId, orgId)
+    expect(mockGetEncryptedFieldNames).toHaveBeenCalledWith('customers:customer_interaction', tenantId, childOrgId)
   })
 })
