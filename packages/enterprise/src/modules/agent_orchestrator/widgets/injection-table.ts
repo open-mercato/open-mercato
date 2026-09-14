@@ -12,6 +12,15 @@ import type { ModuleInjectionTable } from '@open-mercato/shared/modules/widgets/
  * `AgentTimeline` component ships ready to mount once that spot exists.
  */
 export const injectionTable: ModuleInjectionTable = {
+  // F7b — a headless feeder for the Caseload nav item's pending count. Mounted
+  // once per shell so the badge stays current from anywhere in the backoffice;
+  // the count cannot live in the 30-minute-cached chrome payload.
+  'backend:nav:badges': [
+    {
+      widgetId: 'agent_orchestrator.injection.caseload-nav-badge',
+      priority: 50,
+    },
+  ],
   'data-table:workflows.tasks.list:row-actions': [
     {
       widgetId: 'agent_orchestrator.injection.task-proposal-link',

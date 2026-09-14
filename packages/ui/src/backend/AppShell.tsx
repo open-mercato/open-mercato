@@ -37,6 +37,7 @@ import { readVersionedPreference, writeVersionedPreference } from '@open-mercato
 import { cloneSidebarGroups } from './sidebar/customization-helpers'
 import type { SectionNavGroup } from './section-page/types'
 import { InjectionSpot } from './injection/InjectionSpot'
+import { useNavBadge } from './nav/navBadges'
 import {
   BackendRecordInjectionContextProvider,
   type RecordInjectionContext,
@@ -64,6 +65,7 @@ import {
   BACKEND_TOPBAR_ACTIONS_INJECTION_SPOT_ID,
   GLOBAL_HEADER_STATUS_INDICATORS_INJECTION_SPOT_ID,
   GLOBAL_SIDEBAR_STATUS_BADGES_INJECTION_SPOT_ID,
+  BACKEND_NAV_BADGES_INJECTION_SPOT_ID,
 } from './injection/spotIds'
 
 // Versioned-envelope discriminator for the persisted sidebar open/closed group
@@ -416,6 +418,32 @@ function resolveItemKey(item: { id?: string; href: string }): string {
 // compact/expanded padding step in sync with the aside's width animation.
 function sidebarBlockPadding(compact: boolean): string {
   return `${compact ? 'px-2' : 'px-3'} transition-[padding] duration-200 ease-out`
+}
+
+/**
+ * The live count a module published for this nav item, or nothing at all.
+ *
+ * Zero and absent both render nothing: a "0" chip is noise dressed as
+ * information. Collapsed sidebars keep the chip — it is the only thing left
+ * saying something needs you.
+ */
+function NavItemBadge({ href, compact }: { href: string; compact: boolean }) {
+  const badge = useNavBadge(href)
+  if (!badge || badge.count <= 0) return null
+  const display = badge.count > 99 ? '99+' : String(badge.count)
+  const tone = badge.tone === 'attention'
+    ? 'bg-status-warning-bg text-status-warning-text'
+    : 'bg-muted text-muted-foreground'
+  return (
+    <span
+      className={`ml-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-xs font-medium ${tone} ${
+        compact ? 'absolute right-0 top-0 -mr-1 -mt-1' : ''
+      }`}
+      aria-label={badge.label ?? display}
+    >
+      {display}
+    </span>
+  )
 }
 
 // An InjectionSpot renders nothing when no widget is registered, so its wrapper must collapse
@@ -981,6 +1009,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
                       )}
                     </span>
                     {!compact && <span className="truncate">{label}</span>}
+                    <NavItemBadge href={item.href} compact={compact} />
                   </Link>
                   {showChildren ? childItems.map((child) => renderSectionItem(child, depth + 1)) : null}
                 </React.Fragment>
@@ -1573,6 +1602,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
         </header>
         <ProgressTopBar t={t} className="sticky top-0 z-sticky" completedAutoHideMs={progressCompletedAutoHideMs} />
         <main className="flex-1 p-4 lg:p-6 mx-auto w-full max-w-screen-2xl">
+          <InjectionSpot spotId={BACKEND_NAV_BADGES_INJECTION_SPOT_ID} context={injectionContext} />
           <InjectionSpot spotId={BACKEND_LAYOUT_TOP_INJECTION_SPOT_ID} context={injectionContext} />
           <FlashMessages />
           <PartialIndexBanner />
