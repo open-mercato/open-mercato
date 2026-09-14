@@ -22,7 +22,7 @@ most of the patterns listed below in a user's codebase.
 
 ---
 
-## 0.7.0 → 0.7.1 (unreleased)
+## 0.7.0 → 0.8.0 (2026-09-14)
 
 ### `Locale` is now derived from an augmentable `LocaleRegistry` (no action required)
 
@@ -79,7 +79,7 @@ Full reasoning: `.ai/specs/2026-09-03-extensible-locale-set.md`.
 
 ### ⚠️ `translations.supported_locales` now also drives the UI language switcher (check before upgrading)
 
-**This is the one change in 0.7.1 that can alter behaviour for an existing installation with no
+**This is the one change in 0.8.0 that can alter behaviour for an existing installation with no
 code change on your side. Review your saved selection before you deploy.**
 
 Settings → Module Configs → Translations (feature `translations.manage_locales`) writes a
@@ -303,7 +303,7 @@ Nothing that was previously accepted is now rejected. `loose` remains a read ali
 
 `Migration20260824180000_deal_status_lost` rewrites stored `loose` values in `customer_deals.status` and `customer_deals.pipeline_stage`, renames the `loose` dictionary entry for the `deal_status` and `pipeline_stage` kinds, and replaces the seeded `Loose` stage label with `Lost`. It deletes nothing. A dictionary entry is left alone when the same scope already holds a `lost` entry, because `customer_dictionary_entries_unique` covers (organization, tenant, kind, normalized value), and a label is only corrected when it is still the seeded `Loose`, so a tenant that renamed the option keeps its own wording. Rows the migration deliberately skips keep classifying correctly through the read aliases.
 
-**Deploy order matters in one direction only, and it is the rollback.** Running the new code before the migration is safe: every reader accepts both spellings, so an un-migrated instance keeps classifying its `loose` rows correctly. Rolling the *code* back to 0.7.0 after the migration has run is not. `lib/dealsSummaryQueries.ts` at 0.7.0 matches `status = 'loose'`, the rows now say `lost`, and the quarter win/loss KPI and the monthly trend series report **zero lost deals** on an instance whose data is perfectly fine. Nothing errors, so the only symptom is a blank number. `down()` is a documented no-op, so there is no automated way back either: if you must roll the code back, either reverse the status values by hand (`update customer_deals set status = 'loose' where status = 'lost'`, which is lossy for any deal that was already `lost` before the migration) or stay on 0.7.1.
+**Deploy order matters in one direction only, and it is the rollback.** Running the new code before the migration is safe: every reader accepts both spellings, so an un-migrated instance keeps classifying its `loose` rows correctly. Rolling the *code* back to 0.7.0 after the migration has run is not. `lib/dealsSummaryQueries.ts` at 0.7.0 matches `status = 'loose'`, the rows now say `lost`, and the quarter win/loss KPI and the monthly trend series report **zero lost deals** on an instance whose data is perfectly fine. Nothing errors, so the only symptom is a blank number. `down()` is a documented no-op, so there is no automated way back either: if you must roll the code back, either reverse the status values by hand (`update customer_deals set status = 'loose' where status = 'lost'`, which is lossy for any deal that was already `lost` before the migration) or stay on 0.8.0.
 
 **Action for module authors:** replace `DEAL_STATUS_LOSE` with `DEAL_STATUS_LOST`. The old constant is still exported and still equals `'loose'`, now marked `@deprecated` and scheduled for removal no earlier than 0.9.0. Code comparing a status literally against `'loose'` should call `isLostDealStatus`, which matches both spellings; code that consumes `canonicalDealStatus` output must expect `'lost'` where it previously saw `'loose'`. See `.ai/specs/2026-08-24-deal-status-lost-spelling.md`.
 
@@ -324,14 +324,14 @@ logs a warning each time it does so.
 **But a standalone app MUST enable the provider module, or all outbound email stops.** The
 provider is no longer compiled into `@open-mercato/shared`; the adapter is contributed by the
 `channel_resend` / `channel_ses` module, and `src/modules.ts` is your app's file, so upgrading
-the packages does not add it. An app scaffolded before 0.7.1 keeps sending nothing and throws
+the packages does not add it. An app scaffolded before 0.8.0 keeps sending nothing and throws
 `No ChannelAdapter registered for providerKey 'resend'` on the first send — a password reset or
 invitation — with no failure at boot to warn you. Add the dependency and the entry:
 
 ```jsonc
 // package.json — match your other @open-mercato/* versions
-"@open-mercato/channel-resend": "0.7.1",
-// and "@open-mercato/channel-ses": "0.7.1" if you set SYSTEM_EMAIL_PROVIDER=ses
+"@open-mercato/channel-resend": "0.8.0",
+// and "@open-mercato/channel-ses": "0.8.0" if you set SYSTEM_EMAIL_PROVIDER=ses
 ```
 
 ```ts

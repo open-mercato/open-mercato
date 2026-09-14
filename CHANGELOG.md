@@ -1,7 +1,222 @@
-# 0.7.1 (unreleased)
+# 0.8.0 (2026-09-14)
+
+## Highlights
+<!-- TODO: Highlights — auto-update-changelog leaves this blank for the human author to fill in. -->
 
 ## ✨ Features
-- ✨ Make the served locale set extensible by downstream apps — an application (or a tenant administrator, from Settings → Module Configs → Translations) can now serve a language the platform does not ship, without patching any `@open-mercato/*` package. `Locale` is derived from an augmentable `LocaleRegistry` interface instead of a closed union, a `globalThis` registry owns the runtime set, and an added locale falls back to the default-locale dictionary instead of rendering raw keys. **Type-compatibility note:** the published `Locale` type only ever *widens*, and only when an application opts in — unaugmented it resolves to exactly the same five-member union as before, so existing exhaustive `Record<Locale, …>` maps keep working unchanged. No new language is added by this change; the shipped set remains `en, pl, es, de, ko`. The tenant selection now reaches the admin language switcher itself, `GET /api/translations/locales` additionally reports which locales the application can render its own UI in (`servable`), and the settings screen says when an added language affects content only or when the default language cannot be removed, and lists the effective served set rather than the raw stored selection. `POST`/`GET /api/auth/locale` now validate against the caller's own tenant selection, so a locale that tenant does not serve returns `400` instead of reporting success and setting a cookie every later page render silently discards. See `.ai/specs/2026-09-03-extensible-locale-set.md`. *(@Frshy)*
+- ✨ Collaborative internal documents module with realtime co-editing. (#4561) *(@haxiorz)*
+- ✨ Discord two-way communication channel provider. (#4391) *(@wojciechszyjka)*
+- ✨ Phone calls — core hub module and Tillio provider (supersedes #5066). (#5627) *(@MateuszBilant, via @haxiorz)*
+- ✨ Pluggable outbound email providers (supersedes #2448). (#4471) *(@pmadajthey, via @pkarw)*
+- ✨ Staff time-tracking suite — demo data, RBAC hardening and UX fixes. (#5427) *(@pat-lewczuk)*
+- ✨ Make the served locale set extensible by downstream apps — an application (or a tenant administrator, from Settings → Module Configs → Translations) can now serve a language the platform does not ship, without patching any `@open-mercato/*` package. `Locale` is derived from an augmentable `LocaleRegistry` interface instead of a closed union, a `globalThis` registry owns the runtime set, and an added locale falls back to the default-locale dictionary instead of rendering raw keys. **Type-compatibility note:** the published `Locale` type only ever *widens*, and only when an application opts in — unaugmented it resolves to exactly the same five-member union as before, so existing exhaustive `Record<Locale, …>` maps keep working unchanged. No new language is added by this change; the shipped set remains `en, pl, es, de, ko`. The tenant selection now reaches the admin language switcher itself, `GET /api/translations/locales` additionally reports which locales the application can render its own UI in (`servable`), and the settings screen says when an added language affects content only or when the default language cannot be removed, and lists the effective served set rather than the raw stored selection. `POST`/`GET /api/auth/locale` now validate against the caller's own tenant selection, so a locale that tenant does not serve returns `400` instead of reporting success and setting a cookie every later page render silently discards. See `.ai/specs/2026-09-03-extensible-locale-set.md`. (#5887) *(@Frshy)*
+- ✨ Structured runtime diagnostics, an in-app banner and an opt-in diagnostics gateway. (#5710) *(@patzick)*
+- ✨ An address carries a phone and the tax id it was invoiced under (supersedes #5616). (#5771) *(@kamwro, via @pkarw)*
+- ✨ Adapter-declared applicability for the data-sync dashboard's start controls. (#5863) *(@maxidragon)*
+- ✨ Cache deals aggregate responses (#5785). (#5796) *(@haxiorz)*
+- ✨ Render sales channel names and filter the documents list by several channels. (#5351) *(@maxidragon)*
+- ✨ Share a CrudForm warehouse dialog with country and timezone lists. (#5339) *(@mkadziolka)*
+- ✨ Preselect the sole warehouse and support custom fields in the WMS zone dialog (#5239). (#5334) *(@Paul-Mlodochowki)*
+- ✨ Add NotesSection props to force the rich editor and hide appearance controls (#5150). (#5325) *(@adeptofvoltron)*
+- ✨ Declare ACL feature dependencies so a granted feature pulls in what it needs. (#5290) *(@Paul-Mlodochowki)*
+- ✨ Cap list COUNT at OM_LIST_COUNT_CAP via rebuilt count queries (#4552 Phase 2). (#5228) *(@kamwro)*
+
+## 🔒 Security
+- 🔒 Stop public signup from disclosing existing accounts (#5505). (#5677) *(@adeptofvoltron)*
+- 🔒 Align the Dependabot cooldown with npmMinimalAgeGate (#5549). (#5563) *(@adeptofvoltron)*
+- 🔒 Audit every manual schedule trigger and run it as the triggering user. (#5554) *(@Frshy)*
+- 🔐 Match customer check-phone through the decryption path. (#5492) *(@haxiorz)*
+- 🔒 Fail closed on collapsed organization scope for todos and tasks (#5466). (#5469) *(@Duang777)*
+- 🔒 Enforce per-entity ACL in the legacy AI search tool pack. (#5465) *(@haxiorz)*
+- 🔒 Reject domain registration for organizations outside the caller's tenant (#3839). (#5464) *(@haxiorz)*
+- 🔒 Redact business-rule condition and entity values from debug logs (#3822). (#5463) *(@haxiorz)*
+- 🔒 Enforce organization scoping on the legacy activities list (#3841). (#5462) *(@haxiorz)*
+- 🔒 Scope deal-analyzer person links to tenant and organization via the deal map. (#5459) *(@haxiorz)*
+- 🔒 Harden the enterprise MFA emergency bypass with audit logging. (#5458) *(@haxiorz)*
+- 🔒 Restrict scheduler queue targets to authorized safe workers. (#5455) *(@haxiorz)*
+- 🔒 Reject MFA-pending tokens from general staff APIs. (#5453) *(@haxiorz)*
+- 🔒 Log ACL changes to the action log. (#5365) *(@Frshy)*
+- 🔒 Bind sudo challenges to the policy that initiated them (#5177). (#5210) *(@haxiorz)*
+- 🔒 Raise npmMinimalAgeGate from 1 day to 5 days. (#5138) *(@zawoj)*
+
+## 🐛 Fixes
+- 🐛 Format the sales document detail's dates instead of printing raw ISO (supersedes #5620). (#6035) *(@kamwro, via @patzick)*
+- 🔐 Stop dry-run encryption previews from provisioning a tenant DEK (#5950). (#6033) *(@adeptofvoltron)*
+- 🐛 Accept `person` as an interaction linked-entity type (#5934). (#5978) *(@adeptofvoltron)*
+- 🌍 Add titleClassName and localize the CollapsibleSection toggle aria-label (#5929). (#5973) *(@adeptofvoltron)*
+- 🐛 Write the real priority column from the schedule dialog's task priority (#5943). (#5967) *(@adeptofvoltron)*
+- 🌍 Localize the "Link existing person" role filter labels (#5944). (#5964) *(@adeptofvoltron)*
+- 📦 Enable attachments in the create-app empty starter preset (#5897). (#5917) *(@adeptofvoltron)*
+- 🔐 Cascade sidebar rows when deleting a user. (#5913) *(@KubaBir)*
+- 🐛 Edit ingested email activities as plain text, not Markdown (#5903). (#5904) *(@mobinea)*
+- 🐛 Stop coercing select values like "no" into booleans on custom-entity reads (#5791). (#5883) *(@adeptofvoltron)*
+- 🔐 Gate the integrations credentials form on `integrations.credentials.manage` (#5816). (#5843) *(@adeptofvoltron)*
+- 🌍 Translate the users list column headers (#5652). (#5842) *(@adeptofvoltron)*
+- 🐛 Parse decrypted jsonb message fields back into objects (#5789). (#5841) *(@adeptofvoltron)*
+- 🐛 Bootstrap LLM providers before any registry read. (#5830) *(@adeptofvoltron)*
+- 🐛 Accept either injection-widget id and apply overrides client-side (#5152). (#5829) *(@adeptofvoltron)*
+- 🌍 Accept the locale decimal separator in numeric inputs (#5552). (#5827) *(@adeptofvoltron)*
+- 🔄 Reindex query-index projections after data migrations (#5754). (#5819) *(@adeptofvoltron)*
+- 📝 Correct the docs site's "Edit this page" repository path. (#5813) *(@truongx)*
+- 🐛 Enable wildcard response enrichers (#5786). (#5798) *(@haxiorz)*
+- 🔐 Find a pending portal invitation by recipient email (#5499). (#5774) *(@adeptofvoltron)*
+- 🔄 Honour a route's indexer declaration on the command path (#5741). (#5772) *(@adeptofvoltron)*
+- 🐛 Apply the increment when a fork heartbeat wins the progress revive race (#5371). (#5768) *(@adeptofvoltron)*
+- 🔄 Preserve syncOrigin in customer person CRUD events (#5750). (#5767) *(@adeptofvoltron)*
+- 🐛 Advance the deal lock token when its links change. (#5757) *(@WojciechSoczynskiTHEY)*
+- 🐛 Mirror profile dropdown entries in the account sidebar (#5594). (#5734) *(@adeptofvoltron)*
+- 🌍 Localize the remaining warranty-claims API error responses instead of leaking i18n keys (#5522). (#5724) *(@pidubiel)*
+- 🔐 Let portal re-invitation survive a soft-deleted portal user (#5532). (#5709) *(@adeptofvoltron)*
+- 📦 Teach template:sync the commented-out module case so modules.ts parity stops drifting (#5598). (#5708) *(@adeptofvoltron)*
+- 💰 Reconcile a supplied totalNetAmount against the computed net amount (#5644). (#5707) *(@adeptofvoltron)*
+- 🌍 Translate the portal landing cards (pl/de/es) and the invitation flow (de/es) (#5429). (#5703) *(@pidubiel)*
+- 🐛 Show portal demo credentials only when they are seeded in the current organization (#5669). (#5701) *(@adeptofvoltron)*
+- 🐛 Open the portal at the organization slug (#5668). (#5698) *(@adeptofvoltron)*
+- 🐛 Thread Discord outbound replies to their parent message (#5541). (#5676) *(@adeptofvoltron)*
+- 🐛 Keep every value of a repeated list query parameter (#5548). (#5675) *(@adeptofvoltron)*
+- 🔐 Resolve the resend-invite email origin from the request, not its URL string. (#5671) *(@pidubiel)*
+- 🔄 Include cf sorts in wantsCf so sort-only queries keep the ORM fallback (#5521). (#5670) *(@adeptofvoltron)*
+- 🌍 Fold non-decomposing Latin letters in search tokens (#5666). (#5667) *(@adeptofvoltron)*
+- 🐛 Dispatch app-level entry.overrides in the CLI and worker bootstrap path. (#5665) *(@adeptofvoltron)*
+- 🔄 Validate a data-sync schedule before persisting it (#5506). (#5661) *(@adeptofvoltron)*
+- 🐛 Chunk the ActivitiesSection author lookup and stop caching its failures (#5632). (#5654) *(@adeptofvoltron)*
+- 🐛 Register the `bot` icon and fail the build on icon-registry drift (#5637). (#5653) *(@adeptofvoltron)*
+- 🔄 Stop indexing custom fields twice and rewriting unchanged search tokens. (#5650) *(@maxidragon)*
+- 🐛 Resolve backend page route ids from the params prop (#5600). (#5643) *(@wojciechszyjka)*
+- 💰 Treat a sales line discountAmount as a line total on both the read and write path (supersedes #5550). (#5640) *(@wojciechszyjka)*
+- 🐛 Make the Discord AI auto-reply work end to end. (#5639) *(@wojciechszyjka)*
+- 🐛 Let channel test-send fall back to the provider's own target (#4976). (#5635) *(@wojciechszyjka)*
+- 🔐 Pick a device owner by name, with a closed picker and an ACL dependency (#5591) (supersedes #5617). (#5634) *(@Frshy, via @pkarw)*
+- 🔧 Promote the BasicQueryEngine columnExists cache to process scope (#5605). (#5614) *(@adeptofvoltron)*
+- 🔄 Batch fulltext worker index writes once, not once per record. (#5612) *(@adeptofvoltron)*
+- 🐛 Add a correlation id to generic CRUD 500 error responses (#5608). (#5611) *(@adeptofvoltron)*
+- 📦 Stop bundling the standalone dynamic loader into the AI assistant build. (#5590) *(@pkarw)*
+- 🐛 Fall back to Webpack when inotify limits are unavailable. (#5586) *(@dominikpalatynski)*
+- 🐛 Make `lost` the canonical deal status, not `loose`. (#5578) *(@cielecki)*
+- 💰 Accept exchangeRate and the status entry ids on sales document update. (#5573) *(@maxidragon)*
+- 🐛 Return camelCase device API response keys (#5513). (#5571) *(@adeptofvoltron)*
+- 🐛 Render AlertDescription as a div so block children stop breaking hydration (#5487). (#5570) *(@adeptofvoltron)*
+- 🐛 Register sales_channels_enabled from the sales module setup (#5503). (#5569) *(@adeptofvoltron)*
+- 🔐 Validate the reset token before rendering the password form (#5533). (#5568) *(@adeptofvoltron)*
+- 🐛 Stop probing the AI assistant API when the module is disabled. (#5567) *(@Frshy)*
+- 🐛 Exclude the edited person from the duplicate-email lookup. (#5566) *(@adeptofvoltron)*
+- 🐛 Expose timesheet duration errors to assistive technology (#5507). (#5564) *(@adeptofvoltron)*
+- 💰 Fetch exchange rates for every currency, not just the active ones. (#5553) *(@Frshy)*
+- 🔐 Align feature checks with the selected organization. (#5544) *(@haxiorz)*
+- 🐛 Add backoffice heading and skip-link accessibility. (#5543) *(@haxiorz)*
+- 🐛 Make built-in notification channel eligibility explicit. (#5542) *(@haxiorz)*
+- 🐛 Use a static webhook notification preference label. (#5540) *(@haxiorz)*
+- 🌍 Restore the dashboard comparison label diacritics. (#5539) *(@haxiorz)*
+- 🌍 Localize the permission picker. (#5538) *(@haxiorz)*
+- 🔐 Preserve partial user ACL updates. (#5537) *(@haxiorz)*
+- 🐛 Restore the customers list search from the URL. (#5524) *(@Duang777)*
+- 🐛 Sort the EUDR plots list by plotType and originCountry (#5509). (#5520) *(@haxiorz)*
+- 🌍 Localize warranty-claims error responses instead of leaking i18n keys (#5512). (#5518) *(@haxiorz)*
+- 🔐 Stop customer detail and sub-resource routes leaking record existence (#5504). (#5517) *(@haxiorz)*
+- 🐛 Accept a no-op referenceIssuedAt on EUDR statement create (#5508). (#5516) *(@haxiorz)*
+- 🔧 Let the standalone CI lane accept its loopback collaboration URL. (#5472) *(@pkarw)*
+- 🔧 Fix the sales-documents failures the standalone CI lane can now reach. (#5471) *(@pkarw)*
+- 💰 Serve persisted order totals on a single-row GET (#5438). (#5470) *(@Duang777)*
+- 🔧 Stabilize develop CI at the root causes. (#5467) *(@pkarw)*
+- 🐛 Align CRM kanban and list won-filtering and status UI (#5107). (#5460) *(@haxiorz)*
+- 🔐 Prevent masked integration secret corruption. (#5454) *(@haxiorz)*
+- 💰 Restore invoice and credit memo updates. (#5452) *(@haxiorz)*
+- 🐛 Stack the audit-log changed-fields diff instead of scrolling it off-screen on narrow viewports. (#5451) *(@Frshy)*
+- 🐛 Warn on duplicate entity class names across modules. (#5448) *(@Frshy)*
+- 🐛 Portal the combobox dropdown so a dialog's overflow stops clipping it. (#5443) *(@Frshy)*
+- 🐛 Reject allocation of released inventory reservations (#5417). (#5420) *(@Paul-Mlodochowki)*
+- 🔄 Make Cancel stop a data-sync run during a batch, not after it. (#5403) *(@maxidragon)*
+- 🔐 Stop manual trigger and execution history 404-ing on every system-scoped schedule. (#5381) *(@Frshy)*
+- 🔄 Keep plaintext base columns on exact ILIKE, not approximate tokens. (#5379) *(@kamwro)*
+- 🐛 Terminate the last two customer-detail load-more gates on a short page. (#5378) *(@adeptofvoltron)*
+- 🐛 Report jobs the queue abandons before the handler runs. (#5368) *(@maxidragon)*
+- 🐛 Unify company people count, list and detach on the link+profile union (#5114). (#5357) *(@adeptofvoltron)*
+- 🔧 Report uncovered files instead of aborting the mutation gate (#5281). (#5343) *(@adeptofvoltron)*
+- 🐛 Kill the full ephemeral process tree and capture startup output (#5333). (#5338) *(@adeptofvoltron)*
+- 📦 Fail on dead descriptor-keyed `resolutions` keys (#5098). (#5324) *(@adeptofvoltron)*
+- 🐛 Publish MCP tool annotations in tools/list (#5283). (#5322) *(@Paul-Mlodochowki)*
+- 🐛 Stop deal association selectors from searching on mount (#5118). (#5320) *(@adeptofvoltron)*
+- 🐛 Clip the RichEditor toolbar measurement row to stop page overflow. (#5318) *(@kriss145)*
+- 🐛 Prevent horizontal sidebar scrolling and fix sidebar spacing. (#5314) *(@kriss145)*
+- 🐛 Ungate the calendar peek Join action and expose the popover side (#5153). (#5313) *(@adeptofvoltron)*
+- 🖼️ Serve an empty attachments page past the end instead of clamping (#5299). (#5312) *(@adeptofvoltron)*
+- 💰 Lock shipped order-line pricing controls (#5248). (#5279) *(@Paul-Mlodochowki)*
+- 🐛 Keep the system actor identity on command-bus audit entries (#4732). (#5277) *(@Paul-Mlodochowki)*
+- 💰 Give the payments table a real tableId so the gateway-status column binds (#5142). (#5270) *(@adeptofvoltron)*
+- 🐛 Validate channel test-send recipients per provider (#4976). (#5261) *(@wojciechszyjka)*
+- 🐛 Require externalEmail only for email-typed channels (#4975). (#5252) *(@wojciechszyjka)*
+- 🐛 Run response enrichers on the message detail route. (#5247) *(@wojciechszyjka)*
+- 🐛 Render ingested email sender and body legibly. (#5245) *(@wojciechszyjka)*
+- 🐛 Allow external calendar guests without a user record (#5115). (#5227) *(@adeptofvoltron)*
+- 🐛 Forward the click event through DataTable's onRowClick (#5154). (#5224) *(@adeptofvoltron)*
+- 💰 Render the order lines validation error once (#5126). (#5188) *(@wojciechszyjka)*
+- 🐛 Give useRegisteredComponent a stable component identity (#5037). (#5187) *(@wojciechszyjka)*
+- 🐛 Restore the deal detail sidebar (#5101). (#5139) *(@haxiorz)*
+- 🔄 Deduplicate linked customer search results. (#5073) *(@szymon-sapiecha)*
+
+## 🛠️ Improvements
+- 🛠️ Adopt the read-through enricher cache for the WMS inventory enrichers (#5780). (#5894) *(@adeptofvoltron)*
+- 🛠️ Give ViewChip a semantic active-state hook and cover the New-view control layout (#5846). (#5932) *(@adeptofvoltron)*
+- 🛠️ Port the minor-and-patch dependency bumps from #5812 to develop. (#5835) *(@pkarw)*
+- 🛠️ Drop the resolvePathnameId route-id fallbacks (#5656). (#5664) *(@adeptofvoltron)*
+- 🛠️ Bump useblacksmith/setup-docker-builder from 1 to 2. (#5589) *(@pkarw)*
+- 🛠️ Bump actions/download-artifact from 6 to 8 (migrated from #5561). (#5588) *(@pkarw)*
+- 🛠️ Index sales_notes and sales_document_addresses by document context. (#5555) *(@maxidragon)*
+- 🛠️ Stop rewriting query-index search tokens that have not changed. (#5402) *(@maxidragon)*
+- 🛠️ Drop the vacuous unique constraint on the encrypted onboarding email (#4514). (#5336) *(@adeptofvoltron)*
+- 🛠️ Format money in the app locale and pin it in Intl test assertions (#5105). (#5182) *(@wojciechszyjka)*
+- 🛠️ Honour command interceptor HTTP status on direct commandBus routes (#5097). (#5181) *(@wojciechszyjka)*
+- 🛠️ Retire the string emitters in module-registry.ts (#4672). (#5034) *(@wojciechszyjka)*
+
+## 🧪 Testing
+- 🧪 Warm the lazy mailparser import in the channel-imap and channel-gmail jest suites (#6040). (#6052) *(@adeptofvoltron)*
+- 🧪 Add an indexing barrier to TC-API-MSG-001 (#5905). (#5914) *(@adeptofvoltron)*
+- 🧪 Stop TC-EXAMPLE-017 stranding the post-save redirect fetch. (#5597) *(@pkarw)*
+- 🧪 Budget the harness release deterministic step independently of --case-timeout (#5184). (#5190) *(@wojciechszyjka)*
+- 🧪 Raise the harness release routing case-timeout default. (#5180) *(@wojciechszyjka)*
+
+## 📝 Specs & Documentation
+- 📝 Propose an opt-in external amounts mode for sales documents. (#5991) *(@maxidragon)*
+- 📝 Blind index for CRM email and company domain. (#5893) *(@adeptofvoltron)*
+- 📝 Add a supported way to hide CrudForm groups by stable id. (#5885) *(@adeptofvoltron)*
+- 📝 Publish enterprise Terms v2.4 — Licensed Project, Retained Version, usage verification. (#5858) *(@matgren)*
+- 📝 Query-engine decryption — bind the DEK to the caller's tenant, and let a query decline plaintext. (#5820) *(@adeptofvoltron)*
+- 📝 Deal People tab — linked-people parity. (#5700) *(@WojciechSoczynskiTHEY)*
+- 📝 Document the notification delivery surface (#5591). (#5618) *(@Frshy)*
+- 📝 Discord operator guide and communications-hub provider developer guide. (#5587) *(@wojciechszyjka)*
+- 📝 Tenant legal documents and consent versioning. (#5364) *(@matgren)*
+- 📝 Add the Reference Example Module documentation showcase. (#5359, #5358) *(@adeptofvoltron)*
+- 📝 Replace the stale ds-health-check.sh copy in metrics.md with a pointer. (#5268) *(@adeptofvoltron)*
+- 📝 Spec the sales line discount_amount contract (#5019). (#5200) *(@maxidragon)*
+
+## 👥 Contributors
+- @haxiorz
+- @wojciechszyjka
+- @MateuszBilant
+- @pmadajthey
+- @pat-lewczuk
+- @Frshy
+- @patzick
+- @kamwro
+- @maxidragon
+- @mkadziolka
+- @Paul-Mlodochowki
+- @adeptofvoltron
+- @Duang777
+- @zawoj
+- @KubaBir
+- @mobinea
+- @truongx
+- @WojciechSoczynskiTHEY
+- @pidubiel
+- @pkarw
+- @dominikpalatynski
+- @cielecki
+- @kriss145
+- @szymon-sapiecha
+- @matgren
+
+---
 
 # 0.7.0 (2026-08-26)
 
