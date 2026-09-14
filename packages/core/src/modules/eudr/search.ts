@@ -101,7 +101,7 @@ function buildStatementPresenter(translate: TranslateFn, record: Record<string, 
     readRecordText(record, 'reference_number', 'referenceNumber'),
     translateToken(translate, 'eudr.commodity', readRecordText(record, 'commodity')),
   )
-  return { title, subtitle, icon: 'file-check', badge: label }
+  return { title, subtitle, icon: 'file-check' }
 }
 
 function buildPlotPresenter(translate: TranslateFn, record: Record<string, unknown>): SearchResultPresenter {
@@ -111,7 +111,7 @@ function buildPlotPresenter(translate: TranslateFn, record: Record<string, unkno
     readRecordText(record, 'origin_country', 'originCountry'),
     translateToken(translate, 'eudr.plotType', readRecordText(record, 'plot_type', 'plotType')),
   )
-  return { title, subtitle, icon: 'map-pin', badge: label }
+  return { title, subtitle, icon: 'map-pin' }
 }
 
 function buildSubmissionPresenter(translate: TranslateFn, record: Record<string, unknown>): SearchResultPresenter {
@@ -125,7 +125,7 @@ function buildSubmissionPresenter(translate: TranslateFn, record: Record<string,
     supplierName,
     translateToken(translate, 'eudr.submissionStatus', readRecordText(record, 'status')),
   )
-  return { title, subtitle, icon: 'package', badge: label }
+  return { title, subtitle, icon: 'package' }
 }
 
 export const searchConfig: SearchModuleConfig = {
