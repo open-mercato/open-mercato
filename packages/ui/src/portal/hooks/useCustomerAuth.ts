@@ -1,7 +1,7 @@
 "use client"
 import { useCallback, useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
 import type { CustomerUser, CustomerRole, CustomerAuthResult } from '@open-mercato/shared/modules/customer-auth'
+import { navigateWithPageReload } from '@open-mercato/shared/lib/navigation/pageReload'
 import { apiCall } from '../../backend/utils/apiCall'
 
 export type { CustomerUser, CustomerRole, CustomerAuthResult }
@@ -27,7 +27,6 @@ export type { CustomerUser, CustomerRole, CustomerAuthResult }
  * ```
  */
 export function useCustomerAuth(orgSlug?: string) {
-  const router = useRouter()
   const [state, setState] = useState<CustomerAuthResult>({
     user: null,
     roles: [],
@@ -90,8 +89,8 @@ export function useCustomerAuth(orgSlug?: string) {
       loading: false,
       error: null,
     })
-    router.push(loginPath)
-  }, [router, loginPath])
+    navigateWithPageReload(loginPath)
+  }, [loginPath])
 
   return { ...state, logout }
 }
