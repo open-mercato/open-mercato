@@ -186,6 +186,30 @@ describe('DataTable localStorage snapshot vs. server perspective reconciliation 
     expect(readPerspectiveSnapshot(TABLE_ID)?.perspectiveId).toBe('persp-2')
   })
 
+  it('drops an orphaned snapshot without touching a host-owned advanced filter when a replacement view exists', () => {
+    // Same background correction as the "no replacement left" case below — the
+    // active view was deleted, unshared or reassigned in another session — but
+    // taken through the *common* branch: normal resolution finds a replacement
+    // (here, the server default) instead of finding nothing at all.
+    writePerspectiveSnapshot(TABLE_ID, {
+      perspectiveId: 'deleted-1',
+      settings: { searchValue: 'orphaned' },
+      updatedAt: SERVER_UPDATED_AT_MS - 60_000,
+    })
+
+    const { searchChanges, appliedTrees } = renderTable(
+      buildIndexResponse(
+        [buildPerspective('persp-2', 'server-default')],
+        { defaultPerspectiveId: 'persp-2' },
+      ),
+      { withAdvancedFilterHost: true },
+    )
+
+    expect(searchChanges[searchChanges.length - 1]).toBe('server-default')
+    expect(readPerspectiveSnapshot(TABLE_ID)?.perspectiveId).toBe('persp-2')
+    expect(appliedTrees).toHaveLength(0)
+  })
+
   it('clears an orphaned snapshot even when no replacement view is left to fall back to', () => {
     // "my only saved view was deleted elsewhere" is one of the two #5113
     // scenarios. With no default, no role default and no remaining perspective,

@@ -2672,7 +2672,16 @@ export function DataTable<T extends RowData>({
       target = source.perspectives[0]
     }
     if (target) {
-      applyPerspectiveSettings(target.settings, target.id)
+      // Falling through to normal resolution after `orphanedSnapshotDropped`
+      // is the same background correction handled below when nothing is left
+      // at all — the active view was deleted, unshared, or reassigned in
+      // another session — so it must not clobber a host-owned advanced filter
+      // either. A fresh mount with no snapshot keeps applying normally.
+      applyPerspectiveSettings(
+        target.settings,
+        target.id,
+        orphanedSnapshotDropped ? { preserveAdvancedFilter: !!advancedFilter?.onApplyTree } : undefined,
+      )
     } else if (orphanedSnapshotDropped) {
       // Nothing is left to fall back to — the deleted view was the only one. The
       // orphaned columns/sorting/search are still painted from the mount-time

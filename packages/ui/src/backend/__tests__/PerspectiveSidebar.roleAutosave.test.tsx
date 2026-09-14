@@ -160,6 +160,40 @@ describe('PerspectiveSidebar autosave with an active role perspective (#5113)', 
     expect(onSave).not.toHaveBeenCalled()
     expect(mockFlash).not.toHaveBeenCalled()
   })
+
+  it('raises the shared-view warning immediately when the panel closes inside the debounce window', async () => {
+    // Closing the panel before the 400ms debounce fires must not drop the
+    // warning in silence — that is the same discarded-edit bug (#5113) the
+    // warning itself exists to surface.
+    const { rerenderWith } = renderSidebar({ activePerspectiveId: ROLE_VIEW.id })
+
+    toggleColumn()
+    await act(async () => {
+      rerenderWith({ open: false })
+      jest.advanceTimersByTime(100)
+    })
+
+    expect(mockFlash).toHaveBeenCalledTimes(1)
+    expect(mockFlash).toHaveBeenCalledWith(
+      expect.stringContaining('Shared views do not save automatically'),
+      'warning',
+    )
+  })
+
+  it('saves a personal view immediately when the panel closes inside the debounce window', async () => {
+    const { onSave, rerenderWith } = renderSidebar({ activePerspectiveId: PERSONAL_VIEW.id })
+
+    toggleColumn()
+    await act(async () => {
+      rerenderWith({ open: false })
+      jest.advanceTimersByTime(100)
+    })
+
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
+      perspectiveId: PERSONAL_VIEW.id,
+      name: PERSONAL_VIEW.name,
+    }))
+  })
 })
 
 describe('PerspectiveSidebar new-view mode affordances (#5113)', () => {
