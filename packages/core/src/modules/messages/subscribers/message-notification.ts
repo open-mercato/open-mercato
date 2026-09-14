@@ -17,11 +17,18 @@ export const metadata = {
   id: 'messages:queue-email-delivery',
 }
 
+// Messages ingested from an external channel (email, chat) by
+// communication_channels. Their `externalEmail` is the ORIGINAL SENDER, so an
+// `external` email job would echo the inbound message back to that sender.
+// Mirrors the guard in communication_channels/subscribers/outbound-bridge.ts.
+const EXTERNAL_CONVERSATION_SOURCE = 'communication_channels.external_conversation'
+
 type MessageSentPayload = {
   messageId: string
   senderUserId: string
   recipientUserIds: string[]
   sendViaEmail: boolean
+  sourceEntityType?: string | null
   externalEmail?: string | null
   forwardedFrom?: string
   replyTo?: string
@@ -126,7 +133,7 @@ export default async function handle(payload: MessageSentPayload, ctx: ResolverC
   }
 
   const externalEmail = payload.externalEmail?.trim()
-  if (externalEmail) {
+  if (externalEmail && payload.sourceEntityType !== EXTERNAL_CONVERSATION_SOURCE) {
     await emailQueue.enqueue({
       type: 'external',
       messageId: payload.messageId,

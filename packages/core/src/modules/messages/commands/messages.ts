@@ -30,6 +30,8 @@ type MessageSentEventPayload = {
   senderUserId: string
   recipientUserIds: string[]
   sendViaEmail: boolean
+  /** Lets subscribers recognise channel-ingested messages (see message-notification). */
+  sourceEntityType?: string | null
   externalEmail?: string | null
   forwardedFrom?: string
   replyTo?: string
@@ -302,8 +304,13 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
         )?.threadId ?? input.parentMessageId
         : undefined
 
-      const isPublicVisibility = input.visibility === 'public'
-      const sendViaEmail = isPublicVisibility ? true : input.sendViaEmail
+      // Honor the caller's explicit `sendViaEmail`. The messages API route already
+      // forces email delivery for public messages a user composes, while internal
+      // callers (communication_channels inbound ingest, send-as-user) compose
+      // `visibility: 'public'` with `sendViaEmail: false` on purpose. Forcing it
+      // here echoed every inbound email back to its sender through the tenant
+      // system email channel.
+      const sendViaEmail = input.sendViaEmail
       const message = trx.create(Message, {
         type: input.type,
         visibility: input.visibility ?? null,
@@ -407,7 +414,8 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
         messageId,
         senderUserId: input.userId,
         recipientUserIds: input.recipients.map((recipient) => recipient.userId),
-        sendViaEmail: input.visibility === 'public' ? true : input.sendViaEmail,
+        sendViaEmail: input.sendViaEmail,
+        sourceEntityType: input.sourceEntityType ?? null,
         externalEmail: responseExternalEmail,
         tenantId: input.tenantId,
         organizationId: input.organizationId,
