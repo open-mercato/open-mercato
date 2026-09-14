@@ -665,7 +665,8 @@ export default function ProductsDataTable({
   return (
     <>
       <DataTable<ProductRow>
-        title={t('catalog.products.page.title', 'Products & services')}
+      title={t('catalog.products.page.title', 'Products & services')}
+      titleHeadingLevel={1}
         entityId={ENTITY_ID}
         customFieldFilterKeyExtras={[scopeVersion, reloadToken]}
         refreshButton={{

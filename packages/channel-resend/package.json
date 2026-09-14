@@ -50,7 +50,7 @@
   },
   "dependencies": {
     "@open-mercato/core": "workspace:*",
-    "resend": "^6.12.4"
+    "resend": "^6.24.0"
   },
   "peerDependencies": {
     "@mikro-orm/postgresql": "^7.0.14",
@@ -65,13 +65,13 @@
     "@open-mercato/shared": "workspace:*",
     "@open-mercato/ui": "workspace:*",
     "@types/jest": "^30.0.0",
-    "@types/react": "^19.2.17",
-    "@types/react-dom": "^19.2.3",
-    "esbuild": "^0.28.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.5",
+    "esbuild": "^0.28.2",
     "glob": "^13.0.6",
     "jest": "^30.4.2",
-    "react": "19.2.7",
-    "react-dom": "19.2.7",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
     "ts-jest": "^29.4.11",
     "typescript": "7.0.2"
   },
