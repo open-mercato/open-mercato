@@ -83,6 +83,12 @@ async function decryptSessionSecret(
     return null
   }
 
+  // Mirror of the `disabled` branch: a secret written in the clear while the toggle was off is
+  // still recoverable after it is switched back on. Without this `decryptWithAesGcm` reads the
+  // plaintext as a malformed envelope and returns null, so the flip would silently break every
+  // live session rather than only the ones sealed under the old setting.
+  if (!looksLikeEncryptedPayload(stored)) return stored
+
   const dek = await kms.getTenantDek(tenantId)
   if (!dek) return null
 

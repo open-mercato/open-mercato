@@ -126,4 +126,27 @@ describe('session secret storage', () => {
     // a wrong password; null at least routes the caller to re-issue the session key.
     await expect(findSessionApiKeyWithSecret(em as never, 'sess_alice')).resolves.toBeNull()
   })
+
+  it('recovers a secret written in the clear after encryption is switched back on', async () => {
+    process.env.TENANT_DATA_ENCRYPTION = 'no'
+    mockKms(null)
+    const { em, created } = buildEm()
+    await createSessionApiKey(em as never, {
+      sessionToken: 'sess_alice',
+      userId: 'user-alice',
+      userRoles: ['admin'],
+      tenantId: TENANT,
+      organizationId: 'org-1',
+    })
+    const plaintext = created[0].sessionSecretEncrypted
+
+    process.env.TENANT_DATA_ENCRYPTION = 'yes'
+    mockKms(generateDek())
+
+    // The mirror of the case above. `decryptWithAesGcm` reads plaintext as a malformed envelope and
+    // returns null, so without a shape check the flip would break every live session rather than
+    // only the ones sealed under the old setting.
+    const result = await findSessionApiKeyWithSecret(em as never, 'sess_alice')
+    expect(result?.secret).toBe(plaintext)
+  })
 })
