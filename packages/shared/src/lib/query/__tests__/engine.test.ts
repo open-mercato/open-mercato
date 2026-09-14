@@ -1302,11 +1302,11 @@ describe('BasicQueryEngine entity-extension joins', () => {
 })
 
 describe('BasicQueryEngine like/ilike routing by column encryption', () => {
-  // The gate is on by default since #5803, so these cases run with no env var set at all and
-  // therefore pin the shipped default; the last one flips it off and pins the legacy
-  // rewrite-everything behavior that the escape hatch still has to deliver.
+  // The gate stays off by default per #5383, so these cases opt in explicitly to pin the
+  // declared-ILIKE behavior a deployment gets by setting the switch; the last one flips it back
+  // off and pins the legacy rewrite-everything behavior that is the shipped default.
   beforeEach(() => {
-    delete process.env.OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS
+    process.env.OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS = 'true'
   })
   afterEach(() => {
     delete process.env.OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS

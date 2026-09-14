@@ -124,19 +124,19 @@ describe('OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS', () => {
     }
   })
 
-  // #5803: with the rewrite applied to plaintext columns, a list search for `2026-08` came back
-  // with the `2026-01` row, because both tokenize to {202, 2026}. Applying the declared predicate
-  // is the default; the env var only exists to opt back out.
-  it('defaults to on so a declared ilike on a plaintext column is applied as written', () => {
+  // #5383: the switch stays off by default until tokenization is made ILIKE-equivalent, so the
+  // rewrite-everything behavior is unchanged for a deployment that does not opt in. #5803 is the
+  // correctness gap this switch closes when a deployment opts in ahead of that follow-up.
+  it('defaults to off so the legacy rewrite is unchanged for every column', () => {
     delete process.env.OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS
 
-    expect(resolveSearchConfig().useIlikeForNonEncryptedFields).toBe(true)
+    expect(resolveSearchConfig().useIlikeForNonEncryptedFields).toBe(false)
   })
 
-  it('can be switched off to restore the legacy rewrite for every column', () => {
-    process.env.OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS = 'false'
+  it('can be switched on to apply a declared ilike on a plaintext column as written', () => {
+    process.env.OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS = 'true'
 
-    expect(resolveSearchConfig().useIlikeForNonEncryptedFields).toBe(false)
+    expect(resolveSearchConfig().useIlikeForNonEncryptedFields).toBe(true)
   })
 })
 

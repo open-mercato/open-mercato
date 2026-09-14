@@ -1993,13 +1993,15 @@ describe('HybridQueryEngine like/ilike routing by column encryption (applyColumn
   })
 })
 
-describe('HybridQueryEngine like/ilike routing default (#5803)', () => {
+describe('HybridQueryEngine like/ilike routing default (#5383, #5803)', () => {
   // The unit-level suite above injects `encryptedFields` directly, so it pins how the runtime is
   // USED but not whether the runtime gets a resolved set in the first place. That decision lives
   // behind `searchConfig.useIlikeForNonEncryptedFields` in `query()`, and the hybrid engine is the
   // one the app actually resolves (`query_index/di.ts`) -- the engine #5803 was reported against.
   // Without a query()-level case the default could regress here while the shared-engine and
-  // config suites both stayed green.
+  // config suites both stayed green. The switch itself stays off by default per #5383, so the
+  // "unset" case pins the legacy rewrite-everything behavior and the "true" case pins what a
+  // deployment gets by opting in ahead of that follow-up.
   const originalFlag = process.env.OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS
 
   beforeEach(() => {
@@ -2051,24 +2053,24 @@ describe('HybridQueryEngine like/ilike routing default (#5803)', () => {
   // per-column carve-out is active -- the routing it then drives is pinned by the
   // `applyColumnFilter` suite above, which the fake builder cannot exercise because it never
   // invokes Kysely's expression callbacks.
-  test('with the env var unset, query() resolves the encryption map so plaintext columns keep ILIKE', async () => {
-    const { engine, readEncryptedFieldNames } = buildEngine()
-
-    await search(engine)
-
-    expect(readEncryptedFieldNames).toHaveBeenCalledWith(
-      'example:todo', 't1', null, { ignoreRuntimeHealth: true },
-    )
-  })
-
-  test('with the env var set to false, query() never consults the map and every column stays on tokens', async () => {
-    process.env.OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS = 'false'
+  test('with the env var unset, query() never consults the map and every column stays on tokens', async () => {
     const { engine, readEncryptedFieldNames } = buildEngine()
 
     await search(engine)
 
     expect(readEncryptedFieldNames).not.toHaveBeenCalledWith(
       expect.anything(), expect.anything(), expect.anything(), { ignoreRuntimeHealth: true },
+    )
+  })
+
+  test('with the env var set to true, query() resolves the encryption map so plaintext columns keep ILIKE', async () => {
+    process.env.OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS = 'true'
+    const { engine, readEncryptedFieldNames } = buildEngine()
+
+    await search(engine)
+
+    expect(readEncryptedFieldNames).toHaveBeenCalledWith(
+      'example:todo', 't1', null, { ignoreRuntimeHealth: true },
     )
   })
 })
