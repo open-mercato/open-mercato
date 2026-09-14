@@ -1,0 +1,292 @@
+import fs from 'node:fs'
+import path from 'node:path'
+import { STAFF_TIME_TRACKING_RESOURCE_KINDS } from '../api/guards'
+import { STAFF_TIME_TASK_RESOURCE_KIND } from '../commands/timesheets-tasks'
+import { STAFF_TIME_REPORT_RESOURCE_KIND } from '../commands/timesheets-reports'
+import { eventsConfig } from '../events'
+import * as staffCrudConfigs from '../lib/crud'
+import {
+  staffTimeEntryCrudEvents,
+  staffTimeProjectCrudEvents,
+  staffTimeProjectMemberCrudEvents,
+  staffTimeReportCrudEvents,
+  staffTimeTagCrudEvents,
+  staffTimeTaskCrudEvents,
+  staffTimeTaskStatusCrudEvents,
+} from '../lib/crud'
+import { metadata as budgetSubscriberMetadata } from '../subscribers/time-project-budget-threshold-notification'
+
+const MODULE_ROOT = path.resolve(__dirname, '..')
+const TIMESHEETS_API_ROOT = path.join(MODULE_ROOT, 'api', 'timesheets')
+
+function readRoute(...segments: string[]): string {
+  return fs.readFileSync(path.join(TIMESHEETS_API_ROOT, ...segments), 'utf8')
+}
+
+function listRouteFiles(dir: string): string[] {
+  const found: string[] = []
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name)
+    if (entry.isDirectory()) {
+      if (entry.name === '__tests__') continue
+      found.push(...listRouteFiles(full))
+    } else if (entry.name === 'route.ts') {
+      found.push(full)
+    }
+  }
+  return found
+}
+
+/**
+ * `deriveLifecycleEventIds` and `emitOrmEntityEvent` both build the id as
+ * `${module}.${entity}.${action}`, so the config a route declares IS the event id.
+ */
+function crudEventId(config: { module: string; entity: string }, action: string): string {
+  return `${config.module}.${config.entity}.${action}`
+}
+
+function matchesSubscription(pattern: string, eventId: string): boolean {
+  if (pattern === eventId) return true
+  if (!pattern.endsWith('.*')) return false
+  return eventId.startsWith(`${pattern.slice(0, -1)}`) && !eventId.slice(pattern.length - 1).includes('.')
+}
+
+describe('time-tracking CRUD routes declare the frozen event ids', () => {
+  const declaredIds = new Set(eventsConfig.events.map((event) => event.id))
+
+  const resources = [
+    { config: staffTimeEntryCrudEvents, entity: 'time_entry' },
+    { config: staffTimeProjectCrudEvents, entity: 'time_project' },
+    { config: staffTimeProjectMemberCrudEvents, entity: 'time_project_member' },
+    { config: staffTimeTaskCrudEvents, entity: 'time_task' },
+    { config: staffTimeReportCrudEvents, entity: 'time_report' },
+  ] as const
+
+  it.each(resources)('reproduces staff.timesheets.$entity.* byte for byte', ({ config, entity }) => {
+    for (const action of ['created', 'updated', 'deleted'] as const) {
+      const eventId = crudEventId(config, action)
+      expect(eventId).toBe(`staff.timesheets.${entity}.${action}`)
+      expect(declaredIds.has(eventId)).toBe(true)
+    }
+  })
+
+  it.each([
+    ['time-entries', 'staffTimeEntryCrudEvents'],
+    ['time-projects', 'staffTimeProjectCrudEvents'],
+    ['tasks', 'staffTimeTaskCrudEvents'],
+    ['task-statuses', 'staffTimeTaskStatusCrudEvents'],
+    ['tags', 'staffTimeTagCrudEvents'],
+    ['reports', 'staffTimeReportCrudEvents'],
+  ])('%s/route.ts declares events: %s', (resource, configName) => {
+    expect(readRoute(resource, 'route.ts')).toContain(`events: ${configName},`)
+  })
+
+  it('time-projects/[id]/employees/route.ts declares the project-member events config', () => {
+    expect(readRoute('time-projects', '[id]', 'employees', 'route.ts')).toContain(
+      'events: staffTimeProjectMemberCrudEvents,',
+    )
+  })
+
+  it('keeps the tag and task-status configs on the same module/entity shape', () => {
+    expect(crudEventId(staffTimeTagCrudEvents, 'created')).toBe('staff.timesheets.time_tag.created')
+    expect(crudEventId(staffTimeTaskStatusCrudEvents, 'created')).toBe(
+      'staff.timesheets.time_task_status.created',
+    )
+  })
+})
+
+/**
+ * The guard the `resources` list above cannot be: it names the configs by hand, so a
+ * config that nobody remembered to list is a config nobody checks. `time_tag.*` and
+ * `time_task_status.*` were emitted by two `makeCrudRoute` resources for a whole
+ * phase without appearing in `events.ts` — invisible in `GET /api/webhooks/events`,
+ * carrying no payload contract, and tripping `warnIfUndeclaredEvent` on every write,
+ * while a webhook subscribed to `staff.timesheets.*` received them anyway because
+ * the dispatcher matches patterns rather than a registry.
+ *
+ * This walks every `CrudEventsConfig` `lib/crud.ts` exports instead, so a new one is
+ * covered the moment it is exported.
+ */
+describe('every exported CRUD events config names a declared event id', () => {
+  const declaredIds = new Set(eventsConfig.events.map((event) => event.id))
+
+  function isCrudEventsConfig(value: unknown): value is { module: string; entity: string } {
+    if (!value || typeof value !== 'object') return false
+    const candidate = value as { module?: unknown; entity?: unknown }
+    return typeof candidate.module === 'string' && typeof candidate.entity === 'string'
+  }
+
+  const exportedConfigs = Object.entries(staffCrudConfigs)
+    .filter((entry): entry is [string, { module: string; entity: string }] => isCrudEventsConfig(entry[1]))
+    .map(([exportName, config]) => ({ exportName, config }))
+
+  it('finds every config lib/crud.ts publishes', () => {
+    expect(exportedConfigs.length).toBeGreaterThanOrEqual(16)
+  })
+
+  it.each(exportedConfigs)('$exportName', ({ config }) => {
+    for (const action of ['created', 'updated', 'deleted'] as const) {
+      const eventId = crudEventId(config, action)
+      expect({ eventId, declared: declaredIds.has(eventId) }).toEqual({ eventId, declared: true })
+    }
+  })
+})
+
+describe('the budget-threshold subscriber sees every time-entry write path', () => {
+  it('matches the manual create/update/delete ids the commands emit', () => {
+    for (const action of ['created', 'updated', 'deleted'] as const) {
+      expect(matchesSubscription(budgetSubscriberMetadata.event, crudEventId(staffTimeEntryCrudEvents, action))).toBe(true)
+    }
+  })
+
+  it('matches the timer transitions', () => {
+    expect(matchesSubscription(budgetSubscriberMetadata.event, 'staff.timesheets.time_entry.timer_started')).toBe(true)
+    expect(matchesSubscription(budgetSubscriberMetadata.event, 'staff.timesheets.time_entry.timer_stopped')).toBe(true)
+  })
+
+  it('is reached by the /bulk route, which emits the very same events config per changed row', () => {
+    const source = readRoute('time-entries', 'bulk', 'route.ts')
+    expect(source).toContain('events: staffTimeEntryCrudEvents,')
+    expect(source).toContain("import { staffTimeEntryCrudEvents } from '../../../../lib/crud'")
+  })
+
+  it('is not reached by an unrelated entity family', () => {
+    expect(matchesSubscription(budgetSubscriberMetadata.event, 'staff.timesheets.time_entry_segment.created')).toBe(false)
+    expect(matchesSubscription(budgetSubscriberMetadata.event, 'staff.timesheets.time_project.updated')).toBe(false)
+  })
+})
+
+describe('STAFF_TIME_TRACKING_RESOURCE_KINDS is the single source for the custom routes', () => {
+  const sources = listRouteFiles(TIMESHEETS_API_ROOT).map((file) => ({
+    file: path.relative(TIMESHEETS_API_ROOT, file),
+    source: fs.readFileSync(file, 'utf8'),
+  }))
+
+  it('every published entry is used by at least one route', () => {
+    const unused = Object.keys(STAFF_TIME_TRACKING_RESOURCE_KINDS).filter(
+      (key) => !sources.some((entry) => entry.source.includes(`STAFF_TIME_TRACKING_RESOURCE_KINDS.${key}`)),
+    )
+    expect(unused).toEqual([])
+  })
+
+  it('no timesheets route re-types a guard resourceKind as a raw literal', () => {
+    const offenders = sources
+      .filter((entry) => /resourceKind: '[^']+'/.test(entry.source))
+      .map((entry) => entry.file)
+    expect(offenders).toEqual([])
+  })
+
+  it('agrees with the resource kinds the commands feed to the optimistic-lock guard', () => {
+    expect(STAFF_TIME_TRACKING_RESOURCE_KINDS.timeTask).toBe(STAFF_TIME_TASK_RESOURCE_KIND)
+    expect(STAFF_TIME_TRACKING_RESOURCE_KINDS.timeReport).toBe(STAFF_TIME_REPORT_RESOURCE_KIND)
+  })
+})
+
+/**
+ * EP-12 / EP-13 — every hand-rolled time-tracking route runs the shared interceptor
+ * passes. Listed explicitly rather than derived from the directory tree: a NEW route
+ * that forgets the wiring should be added here deliberately, and the last assertion
+ * catches the file that was added without either.
+ */
+describe('the custom time-tracking routes run API interceptors', () => {
+  const INTERCEPTED_ROUTES = [
+    ['access-requests'],
+    ['my-projects'],
+    ['my-projects', '[projectId]'],
+    ['my-work'],
+    ['projects', 'kpis'],
+    ['reports', '[id]', 'close'],
+    ['reports', '[id]', 'export'],
+    ['reports', '[id]', 'sheet'],
+    ['reports', '[id]', 'unlock'],
+    ['reports', 'preview'],
+    ['settings'],
+    ['settings', 'reapply-rounding'],
+    ['tags', 'entry-assignments'],
+    ['tags', 'task-assignments'],
+    ['tasks', '[id]', 'status'],
+    ['time-entries', '[id]', 'duplicate'],
+    ['time-entries', '[id]', 'segments'],
+    ['time-entries', '[id]', 'segments', '[segmentId]'],
+    ['time-entries', '[id]', 'timer-start'],
+    ['time-entries', '[id]', 'timer-stop'],
+    ['time-entries', 'bulk'],
+    ['time-entries', 'copy-day'],
+    ['time-entries', 'overlaps'],
+    ['time-entries', 'start-timer'],
+    ['time-projects', '[id]', 'change-currency'],
+  ] as const
+
+  it.each(INTERCEPTED_ROUTES.map((segments) => [segments.join('/'), segments] as const))(
+    '%s runs the before pass',
+    (_name, segments) => {
+      const source = readRoute(...segments, 'route.ts')
+      expect(source).toContain('runTimesheetInterceptors({')
+      expect(source).toMatch(/_shared\/withTimesheetInterceptors'/)
+    },
+  )
+
+  it.each(
+    INTERCEPTED_ROUTES.filter((segments) => segments.join('/') !== 'reports/[id]/export').map(
+      (segments) => [segments.join('/'), segments] as const,
+    ),
+  )('%s answers through the after pass', (_name, segments) => {
+    expect(readRoute(...segments, 'route.ts')).toContain('session.respond(')
+  })
+
+  it('shapes the export through a descriptor, since after-interceptors cannot rewrite bytes', () => {
+    expect(readRoute('reports', '[id]', 'export', 'route.ts')).toContain('session.respondWithDescriptor(')
+  })
+})
+
+/**
+ * EP-07 — the sync lifecycle host. The AGENTS.md table a third party reads must be
+ * derived from the same `events` configs the factory reads, so the two cannot drift:
+ * `deriveLifecycleEventIds` builds `<module>.<entity>.<phase>` from the config alone
+ * (`factory.ts:637`), with the phases fixed by `LIFECYCLE_ACTION_MAP` (`factory.ts:631`).
+ */
+describe('the sync lifecycle host is documented for every resource that dispatches it', () => {
+  const LIFECYCLE_PHASES = [
+    ['created', 'creating'],
+    ['updated', 'updating'],
+    ['deleted', 'deleting'],
+  ] as const
+
+  const dispatchingResources = [
+    { route: ['time-entries'], config: staffTimeEntryCrudEvents },
+    { route: ['time-projects'], config: staffTimeProjectCrudEvents },
+    { route: ['time-projects', '[id]', 'employees'], config: staffTimeProjectMemberCrudEvents },
+    { route: ['tasks'], config: staffTimeTaskCrudEvents },
+    { route: ['task-statuses'], config: staffTimeTaskStatusCrudEvents },
+    { route: ['tags'], config: staffTimeTagCrudEvents },
+    { route: ['reports'], config: staffTimeReportCrudEvents },
+  ] as const
+
+  const agentsDoc = fs.readFileSync(path.join(MODULE_ROOT, 'AGENTS.md'), 'utf8')
+
+  it.each(dispatchingResources.map((entry) => [entry.route.join('/'), entry] as const))(
+    '%s declares the events config the sync dispatch needs',
+    (_name, entry) => {
+      expect(readRoute(...entry.route, 'route.ts')).toContain('events: staffTime')
+    },
+  )
+
+  it.each(dispatchingResources.map((entry) => [entry.config.entity, entry.config] as const))(
+    'documents the %s lifecycle entity',
+    (_name, config) => {
+      expect(agentsDoc).toContain(`\`${config.module}.${config.entity}\``)
+    },
+  )
+
+  it('documents every phase suffix a subscriber can target', () => {
+    for (const [after, before] of LIFECYCLE_PHASES) {
+      expect(agentsDoc).toContain(`\`.${before}\``)
+      expect(agentsDoc).toContain(`\`.${after}\``)
+    }
+  })
+
+  it('records that tasks/[id]/comments dispatches nothing, because it declares no events config', () => {
+    expect(readRoute('tasks', '[id]', 'comments', 'route.ts')).not.toContain('events:')
+    expect(agentsDoc).toContain('`/tasks/[id]/comments` declares no `events:` config')
+  })
+})
