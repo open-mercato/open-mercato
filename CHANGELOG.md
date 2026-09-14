@@ -115,9 +115,9 @@
 - 🔐 Stop customer detail and sub-resource routes leaking record existence (#5504). (#5517) *(@haxiorz)*
 - 🐛 Accept a no-op referenceIssuedAt on EUDR statement create (#5508). (#5516) *(@haxiorz)*
 - 🔧 Let the standalone CI lane accept its loopback collaboration URL. (#5472) *(@pkarw)*
-- 🔧 Fix the sales-documents failures the standalone CI lane can now reach. (#5471) *(@pkarw)*
+- 🔧 Fix the documents-module spec failures the standalone CI lane can now reach. (#5471) *(@pkarw)*
 - 💰 Serve persisted order totals on a single-row GET (#5438). (#5470) *(@Duang777)*
-- 🔧 Stabilize develop CI at the root causes. (#5467) *(@pkarw)*
+- 🔧 Stabilize develop CI at its root causes, starting with the missing documents runtime dependency that broke every standalone build. (#5467) *(@pkarw)*
 - 🐛 Align CRM kanban and list won-filtering and status UI (#5107). (#5460) *(@haxiorz)*
 - 🔐 Prevent masked integration secret corruption. (#5454) *(@haxiorz)*
 - 💰 Restore invoice and credit memo updates. (#5452) *(@haxiorz)*
