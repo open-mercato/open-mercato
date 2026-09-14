@@ -159,6 +159,7 @@ The `--confirm <tenantUuid>` flag is a required safety gate — it must exactly 
 - Turn on `TENANT_DATA_ENCRYPTION_DEBUG=yes` to see KMS cache hits/misses, Vault calls, and which fields were encrypted.
 - Debug logs also call out Vault health and the selected KMS path (Vault vs derived vs noop) so you can verify `VAULT_ADDR`, `VAULT_TOKEN`, and `VAULT_KV_PATH` without exposing the token value.
 - If Vault is unreachable, the runtime logs a warning and falls back to the derived-key KMS when a dedicated fallback secret is present; otherwise it becomes a noop KMS (data stays plaintext). Integration credentials fail closed instead of saving under a noop or auth-derived key.
+- When a custom field configured as encrypted is written but no tenant key can be read or created, the value is stored as plaintext and the runtime logs `Custom field configured as encrypted was stored as plaintext` at WARN level with the tenant, entity, and field key (never the value). It is emitted once per tenant/entity/field per process, so grep for it after any key-store outage and re-save the affected records once key access is restored.
 - Use **Configuration → System status** to confirm the active values of the encryption env vars in the running instance.
 
 ## Running without Vault
