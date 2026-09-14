@@ -18,6 +18,7 @@ import {
   resolveAiAgentId,
   type SubscriberResolver,
 } from '../lib/ai-reply'
+import { DISCORD_CHANNEL_TYPE } from '../lib/channel-identity'
 import { fileDiscordReplyProposal } from '../lib/ai-proposal'
 import { resolveDiscordAiPrincipal, type DiscordAiPrincipal } from '../lib/ai-service-principal'
 import { recordDiscordAutoReplyOutcome } from '../lib/channel-state-store'
@@ -261,6 +262,13 @@ async function draftAndRoute(args: {
     input: {
       type: 'channel.discord',
       visibility: 'public' as const,
+      // Without this the hub demands an `externalEmail` and every automatic
+      // reply dies in validation (#5601). `channelTypeRequiresExternalEmail`
+      // fails closed on an absent type, and a Discord sender is a snowflake with
+      // no address, so the requirement can never be met — the subscriber has to
+      // say which channel it is composing for. `'discord'` is already recognized
+      // by `NON_EMAIL_SENDER_CHANNEL_TYPES` (#4975); nothing else is waived.
+      sourceChannelType: DISCORD_CHANNEL_TYPE,
       subject: (message.subject ?? 'Discord reply').toString().slice(0, 200) || 'Discord reply',
       body: reply,
       bodyFormat: 'markdown' as const,

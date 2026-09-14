@@ -22,6 +22,7 @@ import type {
   VerifyWebhookInput,
 } from '@open-mercato/core/modules/communication_channels/lib/adapter'
 import { discordCapabilities } from './capabilities'
+import { DISCORD_CHANNEL_TYPE, DISCORD_PROVIDER_KEY } from './channel-identity'
 import { parseDiscordCredentialsOrThrow, discordCredentialsSchema } from './credentials'
 import {
   DiscordApiError,
@@ -58,8 +59,8 @@ import {
  * which can answer synchronously (the generic route only 202-acks).
  */
 class DiscordChannelAdapter implements ChannelAdapter {
-  readonly providerKey = 'discord'
-  readonly channelType = 'discord'
+  readonly providerKey = DISCORD_PROVIDER_KEY
+  readonly channelType = DISCORD_CHANNEL_TYPE
   readonly capabilities = discordCapabilities
 
   async sendMessage(input: SendMessageInput): Promise<SendMessageResult> {
@@ -80,10 +81,15 @@ class DiscordChannelAdapter implements ChannelAdapter {
 
     const targetChannelId = resolveTargetChannelId(input, credentials.defaultChannelId)
     if (!targetChannelId) {
+      // Operator-facing, not `[internal]`: since #4976 made the hub's test-send
+      // recipient optional, this is the response an operator gets for the first
+      // thing they are told to try — a smoke test on a connection whose
+      // `Default channel ID` was left blank. It surfaces verbatim as
+      // `providerError`, so it names the two ways out rather than the internals.
       return {
         externalMessageId: '',
         status: 'failed',
-        error: '[internal] Discord send requires a target channel id (conversationId or defaultChannelId)',
+        error: 'No Discord channel to post to — set "Default channel ID" on the connection, or pass a channel id as the recipient.',
       }
     }
 

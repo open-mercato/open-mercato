@@ -5,6 +5,7 @@
   "channel_discord.aiAutoReply.errors.aiUnavailable": "Die Autoantwort benötigt das KI-Assistent-Modul, das in dieser Installation fehlt",
   "channel_discord.aiAutoReply.errors.load": "KI-Autoantwort-Einstellungen konnten nicht geladen werden",
   "channel_discord.aiAutoReply.errors.loadChannels": "Discord-Kanäle konnten nicht geladen werden",
+  "channel_discord.aiAutoReply.errors.missingChannelId": "Kein Kanal ausgewählt.",
   "channel_discord.aiAutoReply.errors.save": "KI-Autoantwort-Einstellungen konnten nicht gespeichert werden",
   "channel_discord.aiAutoReply.fields.agent": "Agent",
   "channel_discord.aiAutoReply.fields.agentHelp": "Nur Agenten mit strukturierter Ausgabe können auf einem Kanal antworten. Geben Sie dem Kanal-Bot-Benutzer des Mandanten die vom Agenten geforderten Berechtigungen, bevor Sie einen Agenten aus einem anderen Modul wählen.",

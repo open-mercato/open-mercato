@@ -40,10 +40,11 @@ import { raiseCrudError } from './utils/serverErrors'
 import { computeMenuViewportShiftX } from './utils/viewport'
 import { PerspectiveSidebar } from './PerspectiveSidebar'
 import { Popover, PopoverTrigger, PopoverContent } from '../primitives/popover'
-import { formatWithPublicDateFormat, normalizeDateFormatPattern } from '../primitives/date-format'
+import { parseISO } from 'date-fns/parseISO'
+import { formatDisplayDateTime } from '../primitives/date-format'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { readVersionedPreference, writeVersionedPreference, clearVersionedPreference } from '@open-mercato/shared/lib/browser/versionedPreference'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { flash } from './FlashMessages'
 import { useConfirmDialog } from './confirm-dialog'
 import { surfaceRecordConflict } from './conflicts'
@@ -296,6 +297,11 @@ export type DataTableProps<T extends RowData> = {
   data: T[]
   toolbar?: React.ReactNode
   title?: React.ReactNode
+  /**
+   * Semantic level for the title. String titles default to 2 for section-level
+   * compatibility; ReactNode titles remain caller-owned unless this is set.
+   */
+  titleHeadingLevel?: 1 | 2
   actions?: React.ReactNode
   refreshButton?: DataTableRefreshButton
   sortable?: boolean
@@ -504,9 +510,16 @@ function collectUniqueById<T extends { id: string }>(
   return Array.from(byId.values())
 }
 
+const DEFAULT_VIEW_EXPORT_TITLE = 'Export what you view'
+const DEFAULT_FULL_EXPORT_TITLE = 'Full data export'
+
 type ResolvedExportSection = {
   key: string
   title: string
+  // Seeds the default download filename. Kept separate from `title` because
+  // `defaultExportFilename` strips every non-ASCII character, so a translated
+  // title would collapse to underscores in locales like ko.
+  filenameBase: string
   description?: string
   formats: DataTableExportFormat[]
   getUrl?: (format: DataTableExportFormat) => string
@@ -515,13 +528,20 @@ type ResolvedExportSection = {
   disabled: boolean
 }
 
-function resolveExportSections(config: DataTableExportConfig | null | undefined): ResolvedExportSection[] {
+function resolveExportSections(config: DataTableExportConfig | null | undefined, t: TranslateFn): ResolvedExportSection[] {
   if (!config) return []
   const sections: ResolvedExportSection[] = []
   const baseFormats = config.formats && config.formats.length > 0 ? config.formats : DEFAULT_EXPORT_FORMATS
-  const addSection = (key: string, section: DataTableExportSectionConfig | undefined | null, fallbackTitle: string) => {
+  const addSection = (
+    key: string,
+    section: DataTableExportSectionConfig | undefined | null,
+    fallbackTitle: string,
+    fallbackFilenameBase: string,
+  ) => {
     if (!section || (!section.getUrl && !section.prepare)) return
-    const title = section.title?.trim().length ? section.title!.trim() : fallbackTitle
+    const explicitTitle = section.title?.trim().length ? section.title!.trim() : null
+    const title = explicitTitle ?? fallbackTitle
+    const filenameBase = explicitTitle ?? fallbackFilenameBase
     const seen = new Set<DataTableExportFormat>()
     const formatsSource = section.formats && section.formats.length > 0 ? section.formats : baseFormats
     const formats = formatsSource.filter((format) => {
@@ -533,6 +553,7 @@ function resolveExportSections(config: DataTableExportConfig | null | undefined)
     sections.push({
       key,
       title,
+      filenameBase,
       description: section.description,
       formats,
       getUrl: section.getUrl,
@@ -551,19 +572,21 @@ function resolveExportSections(config: DataTableExportConfig | null | undefined)
 
   // Allow legacy config (getUrl without sections/view)
   const hasExplicitSections = Array.isArray(config.sections) && config.sections.length > 0
+  const viewTitle = t('ui.dataTable.export.viewTitle', DEFAULT_VIEW_EXPORT_TITLE)
   if (!config.view && !config.full && !hasExplicitSections && config.getUrl) {
-    addSection('view', { getUrl: config.getUrl, formats: config.formats }, 'Export what you view')
+    addSection('view', { getUrl: config.getUrl, formats: config.formats }, viewTitle, DEFAULT_VIEW_EXPORT_TITLE)
   } else {
-    addSection('view', config.view, 'Export what you view')
+    addSection('view', config.view, viewTitle, DEFAULT_VIEW_EXPORT_TITLE)
   }
 
   if (hasExplicitSections) {
     config.sections!.forEach((section, idx) => {
-      addSection(`section-${idx}`, section, section.title?.trim().length ? section.title! : `Export ${idx + 1}`)
+      const numberedTitle = t('ui.dataTable.export.sectionTitle', 'Export {index}', { index: idx + 1 })
+      addSection(`section-${idx}`, section, numberedTitle, `Export ${idx + 1}`)
     })
   }
 
-  addSection('full', config.full, 'Full data export')
+  addSection('full', config.full, t('ui.dataTable.export.fullTitle', DEFAULT_FULL_EXPORT_TITLE), DEFAULT_FULL_EXPORT_TITLE)
   return sections
 }
 
@@ -866,7 +889,7 @@ function ExportMenu({ config, sections }: { config: DataTableExportConfig; secti
           preparedResult.filename
           ?? section.filename?.(format)
           ?? config.filename?.(format)
-          ?? defaultExportFilename(section.title, format)
+          ?? defaultExportFilename(section.filenameBase, format)
         if (typeof window !== 'undefined') {
           const blob = new Blob([serialized.body], { type: serialized.contentType })
           const href = URL.createObjectURL(blob)
@@ -1209,6 +1232,7 @@ export function DataTable<T extends RowData>({
   data,
   toolbar,
   title,
+  titleHeadingLevel,
   actions,
   refreshButton,
   sortable,
@@ -1334,6 +1358,14 @@ export function DataTable<T extends RowData>({
   // hydration mismatch. Initial render uses only props-derived state (identical on both sides).
   const initialSnapshotRef = React.useRef<PerspectiveSnapshot | null>(null)
   const snapshotHydratedTableRef = React.useRef<string | null>(null)
+  // Tracks the table whose locally-restored state has already been reconciled
+  // against the server response, so reconciliation happens once per table
+  // rather than on every refetch (#5113).
+  const serverReconciledTableRef = React.useRef<string | null>(null)
+  // The snapshot exactly as it came out of localStorage. `initialSnapshotRef`
+  // cannot serve here: applying a snapshot rewrites the stored copy with a
+  // fresh `Date.now()`, which would make every server row look older than it is.
+  const hydratedSnapshotRef = React.useRef<PerspectiveSnapshot | null>(null)
   const initialSettingsSource = perspectiveConfig?.initialState?.initialSettings ?? null
   // Memoized on the host's own object: `sanitizePerspectiveSettings` returns a
   // fresh result on every call, so without this every effect keyed on the
@@ -1659,15 +1691,9 @@ export function DataTable<T extends RowData>({
     return <RowActions items={injectedItems} />
   }, [injectedRowActions, rowActions, router, t])
 
-  // Date formatting setup. The OM-prefixed env vars are the new public contract;
-  // NEXT_PUBLIC_DATE_FORMAT remains supported for existing apps.
-  const DATE_FORMAT = (
-    normalizeDateFormatPattern(process.env.NEXT_PUBLIC_OM_DATE_TIME_FORMAT)
-    ?? normalizeDateFormatPattern(process.env.NEXT_PUBLIC_DATE_TIME_FORMAT)
-    ?? normalizeDateFormatPattern(process.env.NEXT_PUBLIC_OM_DATE_FORMAT)
-    ?? normalizeDateFormatPattern(process.env.NEXT_PUBLIC_DATE_FORMAT)
-    ?? 'yyyy-MM-dd HH:mm'
-  )
+  // Locale-aware for the same reason the detail fields are: with no env override a table cell and
+  // the field beside it must not disagree about the convention. An env override still wins.
+  const dateLocale = useLocale()
 
   const tryParseDate = (v: unknown): Date | null => {
     if (v == null) return null
@@ -1679,9 +1705,10 @@ export function DataTable<T extends RowData>({
     if (typeof v === 'string') {
       const s = v.trim()
       if (!s) return null
-      // ISO-like detection (YYYY-MM-DD ...)
+      // ISO-like detection (YYYY-MM-DD ...). `parseISO`, not `new Date`: the latter reads a bare
+      // `yyyy-MM-dd` as UTC midnight, which renders as the previous day west of UTC.
       if (/^\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)?$/.test(s)) {
-        const d = new Date(s)
+        const d = parseISO(s)
         return isNaN(d.getTime()) ? null : d
       }
       // Fallback: Date.parse
@@ -2040,6 +2067,7 @@ export function DataTable<T extends RowData>({
     const snapshot = readPerspectiveSnapshot(perspectiveTableId)
     if (!snapshot) return
     initialSnapshotRef.current = snapshot
+    hydratedSnapshotRef.current = snapshot
     // When the host page wired an advanced-filter tree (`advancedFilter.onApplyTree`),
     // the host owns filter persistence — typically by hydrating from / writing to the
     // URL (see CRM People/Companies/Deals lazy useState initializers + URL writer
@@ -2577,16 +2605,72 @@ export function DataTable<T extends RowData>({
   React.useLayoutEffect(() => {
     if (!canUsePerspectives) return
     if (!perspectiveTableId) return
-    if (initialSnapshotRef.current) return
-    if (initialPerspectiveAppliedRef.current) return
 
     const source = perspectiveData ?? perspectiveConfig?.initialState?.response
     if (!source) return
+
+    let orphanedSnapshotDropped = false
 
     const tryResolve = (id: string | null | undefined): PerspectiveDto | RolePerspectiveDto | undefined => {
       if (!id) return undefined
       return source.perspectives.find((p) => p.id === id)
         ?? source.rolePerspectives.find((p) => p.id === id)
+    }
+
+    // Whatever was painted at mount — the server's initial settings or the
+    // localStorage snapshot — is a paint-flash optimisation, not a source of
+    // truth. Reconcile it against the server response exactly once per table:
+    // the guard used to be permanent, which pinned a browser to a stale layout
+    // (or to a perspective deleted elsewhere) for the lifetime of its
+    // localStorage entry (#5113). One-shot matters as much as reconciling at
+    // all — a later refetch must not clobber edits made after mount.
+    if (initialSnapshotRef.current || initialPerspectiveAppliedRef.current) {
+      if (serverReconciledTableRef.current === perspectiveTableId) return
+      serverReconciledTableRef.current = perspectiveTableId
+      // A snapshot only speaks for the active perspective: once the user has
+      // picked a different view, reconciling the mount-time one would undo that
+      // choice, so fall back to identity-only resolution.
+      const hydrated = hydratedSnapshotRef.current
+      const snapshot = hydrated && (!activePerspectiveId || activePerspectiveId === hydrated.perspectiveId)
+        ? hydrated
+        : null
+      const localId = snapshot?.perspectiveId ?? activePerspectiveId
+      // "No view" and the widths-only snapshot (#1835) carry no perspective;
+      // resolving a server default over them would override an explicit choice.
+      if (!localId) return
+      const local = tryResolve(localId)
+      if (local) {
+        const serverUpdatedAt = local.updatedAt ? Date.parse(local.updatedAt) : NaN
+        const serverIsNewer = snapshot != null
+          && Number.isFinite(serverUpdatedAt)
+          && serverUpdatedAt > snapshot.updatedAt
+        // `snapshot.updatedAt` is a browser clock reading and `local.updatedAt`
+        // a database one, so clock skew alone must never re-apply a view — the
+        // settings have to differ materially too.
+        const settingsDiffer = snapshot != null && diffPerspectiveSettings(
+          sanitizePerspectiveSettings(local.settings) ?? {},
+          sanitizePerspectiveSettings(snapshot.settings) ?? {},
+        ).length > 0
+        if (serverIsNewer && settingsDiffer) {
+          // Reconciliation is a background correction the user did not ask for,
+          // so it follows the mount-time restore rather than an explicit view
+          // selection: on a host that owns filter persistence through the URL,
+          // it must not overwrite the filter currently on screen.
+          applyPerspectiveSettings(local.settings, local.id, {
+            preserveAdvancedFilter: !!advancedFilter?.onApplyTree,
+          })
+          initialPerspectiveAppliedRef.current = true
+        }
+        return
+      }
+      // The snapshot points at a perspective that no longer exists — deleted,
+      // unshared, or reassigned in another session. Drop it and fall through to
+      // normal resolution instead of staying pinned to orphaned settings.
+      writePerspectiveSnapshot(perspectiveTableId, null)
+      initialSnapshotRef.current = null
+      hydratedSnapshotRef.current = null
+      initialPerspectiveAppliedRef.current = false
+      orphanedSnapshotDropped = true
     }
 
     let target: PerspectiveDto | RolePerspectiveDto | undefined
@@ -2605,10 +2689,31 @@ export function DataTable<T extends RowData>({
       target = source.perspectives[0]
     }
     if (target) {
-      applyPerspectiveSettings(target.settings, target.id)
+      // Falling through to normal resolution after `orphanedSnapshotDropped`
+      // is the same background correction handled below when nothing is left
+      // at all — the active view was deleted, unshared, or reassigned in
+      // another session — so it must not clobber a host-owned advanced filter
+      // either. A fresh mount with no snapshot keeps applying normally.
+      applyPerspectiveSettings(
+        target.settings,
+        target.id,
+        orphanedSnapshotDropped ? { preserveAdvancedFilter: !!advancedFilter?.onApplyTree } : undefined,
+      )
+    } else if (orphanedSnapshotDropped) {
+      // Nothing is left to fall back to — the deleted view was the only one. The
+      // orphaned columns/sorting/search are still painted from the mount-time
+      // restore and `activePerspectiveId` still names a row the server no longer
+      // has, so clear explicitly rather than leaving a dead view on screen until
+      // the next reload (#5113). Like the reconciling apply above, this is a
+      // background correction the user never asked for — the view was deleted in
+      // another session — so it must not clear the filter a host that owns
+      // filter persistence through the URL currently has on screen.
+      applyPerspectiveSettings({}, null, {
+        preserveAdvancedFilter: !!advancedFilter?.onApplyTree,
+      })
     }
     initialPerspectiveAppliedRef.current = true
-  }, [canUsePerspectives, perspectiveData, perspectiveTableId, perspectiveConfig, applyPerspectiveSettings, activePerspectiveId])
+  }, [canUsePerspectives, perspectiveData, perspectiveTableId, perspectiveConfig, applyPerspectiveSettings, activePerspectiveId, advancedFilter?.onApplyTree])
 
   const scrollTableIntoView = React.useCallback(() => {
     const rect = containerRef.current?.getBoundingClientRect()
@@ -2854,10 +2959,10 @@ export function DataTable<T extends RowData>({
     return table.getAllLeafColumns().map((col) => ({
       key: col.id,
       label: resolveColumnLabel(col),
-      group: 'Columns',
+      group: t('ui.columnChooser.defaultGroup', 'Columns'),
       alwaysVisible: !col.getCanHide(),
     }))
-  }, [resolvedColumnChooserFields, table, resolveColumnLabel, columns])
+  }, [resolvedColumnChooserFields, table, resolveColumnLabel, columns, t])
 
   const visibleColumnKeys = React.useMemo(
     () => table.getAllLeafColumns().filter((c) => c.getIsVisible()).map((c) => c.id),
@@ -3212,7 +3317,7 @@ export function DataTable<T extends RowData>({
   const hasActions = actions !== undefined && actions !== null && actions !== false
   const shouldReserveActionsSpace = actions === null || actions === false
   const exportConfig = exporter === false ? null : exporter || null
-  const resolvedExportSections = React.useMemo(() => resolveExportSections(exportConfig), [exportConfig])
+  const resolvedExportSections = React.useMemo(() => resolveExportSections(exportConfig, t), [exportConfig, t])
   const hasExport = resolvedExportSections.length > 0
   const refreshButtonConfig = refreshButton
   const hasRefreshButton = Boolean(refreshButtonConfig)
@@ -3270,9 +3375,12 @@ export function DataTable<T extends RowData>({
       }
     : undefined
 
+  const TitleHeading = titleHeadingLevel === 1 ? 'h1' : 'h2'
   const titleContent = hasTitle ? (
     <div className="text-base font-semibold leading-tight min-h-[2.25rem] flex items-center">
-      {typeof title === 'string' ? <h2 className="text-base font-semibold">{title}</h2> : title}
+      {typeof title === 'string' || titleHeadingLevel
+        ? <TitleHeading className="text-base font-semibold">{title}</TitleHeading>
+        : title}
     </div>
   ) : <div className="min-h-[2.25rem]" />
 
@@ -3531,7 +3639,7 @@ export function DataTable<T extends RowData>({
                       if (isDateCol) {
                         const raw = cell.getValue() as any
                         const d = tryParseDate(raw)
-                        content = d ? (formatWithPublicDateFormat(d, DATE_FORMAT) ?? raw) : (raw as any)
+                        content = d ? (formatDisplayDateTime(d, dateLocale) ?? raw) : (raw as any)
                       } else {
                         content = flexRender(cell.column.columnDef.cell, cell.getContext())
                       }
@@ -3554,7 +3662,7 @@ export function DataTable<T extends RowData>({
                         tooltipText = metaTooltipContent(row.original)
                       } else if (isDateCol && cellValue != null) {
                         const parsedDate = tryParseDate(cellValue)
-                        tooltipText = parsedDate ? (formatWithPublicDateFormat(parsedDate, DATE_FORMAT) ?? String(cellValue)) : String(cellValue)
+                        tooltipText = parsedDate ? (formatDisplayDateTime(parsedDate, dateLocale) ?? String(cellValue)) : String(cellValue)
                       } else {
                         tooltipText = cellValue != null ? String(cellValue) : undefined
                       }

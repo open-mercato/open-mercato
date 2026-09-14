@@ -293,3 +293,265 @@ describe('deliverOutboundMessageCommand — link integrity + reauth', () => {
     expect(adapter.sendMessage).not.toHaveBeenCalled()
   })
 })
+
+// ── Chat reply threading: the hub-side producer of `replyToExternalId` (#5541) ──
+describe('deliverOutboundMessageCommand — outbound reply threading', () => {
+  const MSG = '550e8400-e29b-41d4-a716-446655440010'
+  const TENANT = '550e8400-e29b-41d4-a716-446655440020'
+  const ORG = '550e8400-e29b-41d4-a716-446655440030'
+  const PARENT_MSG = '550e8400-e29b-41d4-a716-446655440040'
+  const PARENT_EXTERNAL_ROW = '550e8400-e29b-41d4-a716-446655440050'
+  const PARENT_SNOWFLAKE = '1541185400817852538'
+
+  function makeCtx(capabilities: Record<string, unknown> | undefined) {
+    const em: any = {
+      create: jest.fn((_entity: unknown, data: Record<string, any>) => ({ ...data })),
+      persist: jest.fn(),
+      flush: jest.fn(async () => undefined),
+    }
+    em.fork = () => em
+    const adapter = {
+      providerKey: 'discord',
+      capabilities,
+      convertOutbound: jest.fn(async () => ({ content: { text: 'hi' }, metadata: {} })),
+      sendMessage: jest.fn(async () => ({ status: 'sent', externalMessageId: 'discord-new-1' })),
+    }
+    const ctx = {
+      container: {
+        resolve: (name: string) => {
+          if (name === 'em') return em
+          if (name === 'channelAdapterRegistry') return { get: () => adapter }
+          if (name === 'integrationCredentialsService') return { resolve: async () => ({}) }
+          if (name === 'integrationLogService') return { error: jest.fn() }
+          throw new Error(`unexpected resolve: ${name}`)
+        },
+      },
+    } as any
+    return { ctx, adapter }
+  }
+
+  function primeFinds(
+    parentMessageId: string | null,
+    linkChannelMetadata: Record<string, unknown> | null = null,
+  ) {
+    mockFindOne.mockReset()
+    mockFindOne
+      .mockResolvedValueOnce({
+        id: 'msg-1',
+        threadId: 'thread-1',
+        parentMessageId,
+        body: 'hello',
+        bodyFormat: 'markdown',
+      } as never) // the message being delivered
+      .mockResolvedValueOnce({
+        messageThreadId: 'thread-1',
+        channelId: 'ch-1',
+        externalConversationId: 'conv-1',
+        externalThreadRef: 'discord-channel:999',
+      } as never) // thread mapping
+      .mockResolvedValueOnce({
+        id: 'ch-1',
+        isActive: true,
+        providerKey: 'discord',
+        channelType: 'chat',
+        userId: 'u-1',
+        credentialsRef: null,
+        status: 'connected',
+      } as never) // channel
+      .mockResolvedValueOnce({
+        id: 'link-1',
+        deliveryStatus: 'pending',
+        channelPayload: null,
+        channelMetadata: linkChannelMetadata,
+      } as never) // this message's own link
+  }
+
+  beforeEach(() => {
+    mockEmit.mockClear()
+  })
+
+  it('hands a threading adapter the parent message external id', async () => {
+    primeFinds(PARENT_MSG)
+    mockFindOne
+      .mockResolvedValueOnce({
+        id: 'link-parent',
+        externalMessageId: PARENT_EXTERNAL_ROW,
+        externalConversationId: 'conv-1',
+      } as never) // parent link
+      .mockResolvedValueOnce({
+        id: PARENT_EXTERNAL_ROW,
+        externalMessageId: PARENT_SNOWFLAKE,
+        conversationId: 'conv-1',
+      } as never) // parent ExternalMessage
+    const { ctx, adapter } = makeCtx({ threading: true })
+
+    const result = await deliverOutboundMessageCommand.execute(
+      { messageId: MSG, scope: { tenantId: TENANT, organizationId: ORG } } as never,
+      ctx,
+    )
+
+    expect((result as any).status).toBe('delivered')
+    const converted = adapter.convertOutbound.mock.calls[0][0] as { channelMetadata: Record<string, unknown> }
+    expect(converted.channelMetadata.replyToExternalId).toBe(PARENT_SNOWFLAKE)
+  })
+
+  it('sends unthreaded when the adapter does not declare threading', async () => {
+    // The exact state #5541 reported: without a capability check the hub would
+    // hand every provider a key most of them silently drop.
+    primeFinds(PARENT_MSG)
+    const { ctx, adapter } = makeCtx({ threading: false })
+
+    await deliverOutboundMessageCommand.execute(
+      { messageId: MSG, scope: { tenantId: TENANT, organizationId: ORG } } as never,
+      ctx,
+    )
+
+    const converted = adapter.convertOutbound.mock.calls[0][0] as { channelMetadata: Record<string, unknown> }
+    expect(converted.channelMetadata.replyToExternalId).toBeUndefined()
+  })
+
+  it('sends unthreaded when the message is not a reply', async () => {
+    primeFinds(null)
+    const { ctx, adapter } = makeCtx({ threading: true })
+
+    await deliverOutboundMessageCommand.execute(
+      { messageId: MSG, scope: { tenantId: TENANT, organizationId: ORG } } as never,
+      ctx,
+    )
+
+    const converted = adapter.convertOutbound.mock.calls[0][0] as { channelMetadata: Record<string, unknown> }
+    expect(converted.channelMetadata.replyToExternalId).toBeUndefined()
+  })
+
+  it('delivers unthreaded rather than failing when the parent lookup throws', async () => {
+    primeFinds(PARENT_MSG)
+    mockFindOne.mockRejectedValueOnce(new Error('connection reset') as never)
+    const { ctx, adapter } = makeCtx({ threading: true })
+
+    const result = await deliverOutboundMessageCommand.execute(
+      { messageId: MSG, scope: { tenantId: TENANT, organizationId: ORG } } as never,
+      ctx,
+    )
+
+    expect((result as any).status).toBe('delivered')
+    const converted = adapter.convertOutbound.mock.calls[0][0] as { channelMetadata: Record<string, unknown> }
+    expect(converted.channelMetadata.replyToExternalId).toBeUndefined()
+  })
+
+  it('does not let caller-supplied link metadata override the hub-resolved parent', async () => {
+    mockFindOne.mockReset()
+    mockFindOne
+      .mockResolvedValueOnce({
+        id: 'msg-1',
+        threadId: 'thread-1',
+        parentMessageId: PARENT_MSG,
+        body: 'hello',
+        bodyFormat: 'markdown',
+      } as never)
+      .mockResolvedValueOnce({
+        messageThreadId: 'thread-1',
+        channelId: 'ch-1',
+        externalConversationId: 'conv-1',
+        externalThreadRef: 'discord-channel:999',
+      } as never)
+      .mockResolvedValueOnce({
+        id: 'ch-1',
+        isActive: true,
+        providerKey: 'discord',
+        channelType: 'chat',
+        userId: 'u-1',
+        credentialsRef: null,
+        status: 'connected',
+      } as never)
+      .mockResolvedValueOnce({
+        id: 'link-1',
+        deliveryStatus: 'pending',
+        channelPayload: null,
+        // `send-as-user` merges caller-supplied channelMetadata into the link.
+        channelMetadata: { replyToExternalId: 'attacker-controlled-snowflake' },
+      } as never)
+      .mockResolvedValueOnce({
+        id: 'link-parent',
+        externalMessageId: PARENT_EXTERNAL_ROW,
+        externalConversationId: 'conv-1',
+      } as never)
+      .mockResolvedValueOnce({
+        id: PARENT_EXTERNAL_ROW,
+        externalMessageId: PARENT_SNOWFLAKE,
+        conversationId: 'conv-1',
+      } as never)
+    const { ctx, adapter } = makeCtx({ threading: true })
+
+    await deliverOutboundMessageCommand.execute(
+      { messageId: MSG, scope: { tenantId: TENANT, organizationId: ORG } } as never,
+      ctx,
+    )
+
+    const converted = adapter.convertOutbound.mock.calls[0][0] as { channelMetadata: Record<string, unknown> }
+    expect(converted.channelMetadata.replyToExternalId).toBe(PARENT_SNOWFLAKE)
+  })
+
+  // The uncontested half of the case above. Merge order only settles the contest
+  // when the hub actually resolved a parent; when it resolved nothing there is no
+  // hub value to out-rank a caller-supplied key, so both reply-targeting keys are
+  // stripped off the link metadata instead. Discord's converter accepts
+  // `messageReferenceId` (it has to, to survive the convert→send double
+  // conversion) and has always accepted `replyToExternalId`, so either one would
+  // otherwise reach `body.message_reference` unvalidated.
+  it.each([['messageReferenceId'], ['replyToExternalId']])(
+    'strips a caller-supplied %s when the message is not a reply',
+    async (key) => {
+      primeFinds(null, { [key]: 'attacker-controlled-snowflake' })
+      const { ctx, adapter } = makeCtx({ threading: true })
+
+      await deliverOutboundMessageCommand.execute(
+        { messageId: MSG, scope: { tenantId: TENANT, organizationId: ORG } } as never,
+        ctx,
+      )
+
+      const converted = adapter.convertOutbound.mock.calls[0][0] as {
+        channelMetadata: Record<string, unknown>
+      }
+      expect(converted.channelMetadata).not.toHaveProperty('messageReferenceId')
+      expect(converted.channelMetadata).not.toHaveProperty('replyToExternalId')
+    },
+  )
+
+  it('strips caller-supplied reply targeting when the parent does not resolve', async () => {
+    // A real reply whose parent never reached this channel. The hub produces
+    // nothing, so without stripping the caller's key would fill the gap.
+    primeFinds(PARENT_MSG, { messageReferenceId: 'attacker-controlled-snowflake' })
+    mockFindOne.mockResolvedValueOnce(null as never) // parent link — not on this channel
+    const { ctx, adapter } = makeCtx({ threading: true })
+
+    await deliverOutboundMessageCommand.execute(
+      { messageId: MSG, scope: { tenantId: TENANT, organizationId: ORG } } as never,
+      ctx,
+    )
+
+    const converted = adapter.convertOutbound.mock.calls[0][0] as {
+      channelMetadata: Record<string, unknown>
+    }
+    expect(converted.channelMetadata).not.toHaveProperty('messageReferenceId')
+    expect(converted.channelMetadata).not.toHaveProperty('replyToExternalId')
+  })
+
+  it('leaves unrelated caller metadata untouched while stripping reply targeting', async () => {
+    // The strip is surgical: it removes the two reply-targeting keys and nothing
+    // else, so `send-as-user`'s legitimate pass-through metadata still reaches
+    // the adapter.
+    primeFinds(null, { messageReferenceId: 'attacker-controlled-snowflake', allowedMentions: { parse: ['users'] } })
+    const { ctx, adapter } = makeCtx({ threading: true })
+
+    await deliverOutboundMessageCommand.execute(
+      { messageId: MSG, scope: { tenantId: TENANT, organizationId: ORG } } as never,
+      ctx,
+    )
+
+    const converted = adapter.convertOutbound.mock.calls[0][0] as {
+      channelMetadata: Record<string, unknown>
+    }
+    expect(converted.channelMetadata).not.toHaveProperty('messageReferenceId')
+    expect(converted.channelMetadata.allowedMentions).toEqual({ parse: ['users'] })
+  })
+})

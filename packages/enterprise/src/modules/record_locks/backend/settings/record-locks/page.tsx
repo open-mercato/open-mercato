@@ -161,20 +161,20 @@ export default function RecordLockingSettingsPage() {
           </select>
           <Alert status="information">
             <AlertDescription>
-              <p>
+              <span className="block">
                 <strong>{t('record_locks.settings.strategy_optimistic', 'Optimistic')}:</strong>{' '}
                 {t(
                   'record_locks.settings.strategy_help_optimistic',
                   'Multiple users can edit at the same time; conflicts are checked on save.',
                 )}
-              </p>
-              <p className="mt-1">
+              </span>
+              <span className="mt-1 block">
                 <strong>{t('record_locks.settings.strategy_pessimistic', 'Pessimistic')}:</strong>{' '}
                 {t(
                   'record_locks.settings.strategy_help_pessimistic',
                   'First editor acquires the lock and blocks concurrent edits until release.',
                 )}
-              </p>
+              </span>
             </AlertDescription>
           </Alert>
         </div>

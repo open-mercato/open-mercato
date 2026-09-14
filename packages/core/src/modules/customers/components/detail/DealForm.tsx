@@ -1199,6 +1199,7 @@ export function DealForm({
       embedded={embedded}
       trackDirtyWhenEmbedded={trackDirtyWhenEmbedded}
       title={title}
+      titleHeadingLevel={2}
       backHref={backHref}
       hideFooterActions={hideFooterActions}
       onDirtyChange={onDirtyChange}

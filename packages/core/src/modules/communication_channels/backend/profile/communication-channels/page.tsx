@@ -502,9 +502,9 @@ export default function ProfileCommunicationChannelsPage() {
       <PageBody>
         <header className="mb-4 flex items-baseline justify-between">
           <div>
-            <h2 className="text-2xl font-semibold">
+            <h1 className="text-2xl font-semibold">
               {t('communication_channels.profile.title', 'My communication channels')}
-            </h2>
+            </h1>
             <p className="text-sm text-muted-foreground">
               {t(
                 'communication_channels.profile.subtitle',
@@ -535,6 +535,7 @@ export default function ProfileCommunicationChannelsPage() {
 
         <DataTable<ChannelRow>
           title={t('communication_channels.profile.tableTitle', 'Your channels')}
+          titleHeadingLevel={2}
           extensionTableId={extensionPoints.hosts.profileChannelsTable.tableId}
           columns={columns}
           data={rows}

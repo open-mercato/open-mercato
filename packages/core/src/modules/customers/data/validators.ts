@@ -461,7 +461,9 @@ const interactionLinkedEntitySchema = z.object({
   id: z.string().uuid(),
   // 'resource' links calendar events to bookable resources (rooms, cars,
   // equipment) from the optional resources module (#3552).
-  type: z.enum(['company', 'deal', 'offer', 'resource']),
+  // 'person' links an interaction to a `customer_entities` row with kind='person',
+  // a first-class CRM record like a company (#5934).
+  type: z.enum(['company', 'deal', 'offer', 'resource', 'person']),
   label: z.string().trim().max(500),
 })
 

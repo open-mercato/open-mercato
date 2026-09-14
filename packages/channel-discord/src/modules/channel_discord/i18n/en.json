@@ -5,6 +5,7 @@
   "channel_discord.aiAutoReply.errors.aiUnavailable": "Auto-reply needs the AI assistant module, which is not installed in this deployment",
   "channel_discord.aiAutoReply.errors.load": "Failed to load AI auto-reply settings",
   "channel_discord.aiAutoReply.errors.loadChannels": "Failed to load Discord channels",
+  "channel_discord.aiAutoReply.errors.missingChannelId": "No channel selected.",
   "channel_discord.aiAutoReply.errors.save": "Failed to save AI auto-reply settings",
   "channel_discord.aiAutoReply.fields.agent": "Agent",
   "channel_discord.aiAutoReply.fields.agentHelp": "Only agents that produce structured output can answer a channel. Grant the tenant channel-bot user the agent's required features before choosing an agent from another module.",

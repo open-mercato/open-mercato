@@ -28,6 +28,11 @@ export {
   type UseAiChatResult,
 } from './useAiChat'
 export {
+  useAiAssistantAvailable,
+  AI_ASSISTANT_MODULE_ID,
+  AI_ASSISTANT_VIEW_FEATURE,
+} from './useAiAssistantAvailable'
+export {
   useAiShortcuts,
   type UseAiShortcutsOptions,
   type UseAiShortcutsResult,

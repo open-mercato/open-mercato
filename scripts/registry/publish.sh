@@ -39,8 +39,11 @@ read_package_json_field() {
 }
 
 reset_verdaccio_storage() {
+  # Volume names follow the same ${MERCATO_STACK} prefix as docker-compose.yml,
+  # so a named stack resets its own storage instead of the default stack's.
+  local stack="${MERCATO_STACK:-mercato}"
   docker compose rm -sf verdaccio > /dev/null 2>&1 || true
-  docker volume rm -f mercato-verdaccio-storage mercato-verdaccio-plugins > /dev/null 2>&1 || true
+  docker volume rm -f "${stack}-verdaccio-storage" "${stack}-verdaccio-plugins" > /dev/null 2>&1 || true
 }
 
 wait_for_verdaccio() {

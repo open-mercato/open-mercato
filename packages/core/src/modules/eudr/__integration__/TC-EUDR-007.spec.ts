@@ -601,6 +601,13 @@ test.describe('TC-EUDR-007: Statement lifecycle', () => {
       await expectErrorKey(archivedEditResponse, 'archivedReadOnly')
       const archivedReopenResponse = await updateStatement(request, token, { id: archivedStatementId, status: 'draft' })
       await expectErrorKey(archivedReopenResponse, 'invalidTransition')
+      const archivedDeleteResponse = await apiRequest(
+        request,
+        'DELETE',
+        `${STATEMENTS_PATH}?id=${encodeURIComponent(archivedStatementId)}`,
+        { token },
+      )
+      await expectErrorKey(archivedDeleteResponse, 'archivedReadOnly')
 
       const assessedStatementId = await createStatement(request, token, `TC-EUDR-007 Latest risk ${stamp}`)
       statementIds.push(assessedStatementId)
