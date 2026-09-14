@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { EntityManager } from "@mikro-orm/postgresql";
+import { raw } from "@mikro-orm/postgresql";
 import { makeCrudRoute } from "@open-mercato/shared/lib/crud/factory";
 import { CrudHttpError } from "@open-mercato/shared/lib/crud/errors";
 import {
@@ -104,6 +105,15 @@ export function parseIdList(raw?: string): string[] {
     .map((value) => value.trim())
     .filter((value) => UUID_REGEX.test(value));
 }
+
+// Mirrors the expression the catalog_products_search_trgm_idx GIN trigram
+// index is built on (see the matching migration) so Postgres can use that
+// index for this comparison instead of falling back to a sequential scan.
+// catalog_immutable_unaccent() is an IMMUTABLE wrapper around the built-in
+// (STABLE) unaccent(), which the raw unaccent() function cannot be indexed
+// with directly.
+const PRODUCT_SEARCH_EXPRESSION_SQL =
+  `catalog_immutable_unaccent(coalesce("title", '') || ' ' || coalesce("subtitle", '') || ' ' || coalesce("description", '') || ' ' || coalesce("sku", '') || ' ' || coalesce("handle", ''))`;
 
 export async function buildProductFilters(
   query: ProductsQuery,
@@ -212,13 +222,9 @@ export async function buildProductFilters(
       {
         ...scope,
         ...(query.withDeleted ? {} : { deletedAt: null }),
-        $or: [
-          { title: { $ilike: like } },
-          { subtitle: { $ilike: like } },
-          { description: { $ilike: like } },
-          { sku: { $ilike: like } },
-          { handle: { $ilike: like } },
-        ],
+        [raw(PRODUCT_SEARCH_EXPRESSION_SQL)]: {
+          $ilike: raw("catalog_immutable_unaccent(?)", [like]),
+        },
       },
       { fields: ["id"] },
       scope,

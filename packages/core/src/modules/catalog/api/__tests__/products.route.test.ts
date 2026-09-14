@@ -86,6 +86,29 @@ describe('catalog products route helpers', () => {
     expect((filters as any).custom).toEqual({ $eq: 'value' })
   })
 
+  it('normalizes the search filter through catalog_immutable_unaccent so accented and plain queries match the same rows (issue #6074)', async () => {
+    const forkedEm = {
+      find: jest.fn().mockResolvedValue([{ id: 'prod-1' }]),
+    }
+    const em = { fork: () => forkedEm }
+    const container = { resolve: jest.fn().mockReturnValue(em) }
+    ;(buildCustomFieldFiltersFromQuery as jest.Mock).mockResolvedValueOnce({})
+
+    await buildProductFilters(
+      { search: 'hustawka' } as any,
+      { container, auth: { tenantId: 'tenant-1' } } as any,
+    )
+
+    expect(forkedEm.find).toHaveBeenCalledTimes(1)
+    const where = forkedEm.find.mock.calls[0][1] as Record<string, unknown>
+    const searchSymbol = Object.getOwnPropertySymbols(where)[0]
+    expect(searchSymbol).toBeDefined()
+    expect(searchSymbol.description).toContain('catalog_immutable_unaccent')
+    const searchCondition = (where as any)[searchSymbol]
+    expect(searchCondition.$ilike.sql).toBe('catalog_immutable_unaccent(?)')
+    expect(searchCondition.$ilike.params).toEqual(['%hustawka%'])
+  })
+
   it('dispatches independent filter prequeries concurrently and intersects them (issue #3179)', async () => {
     const expectedConcurrent = 4
     let dispatched = 0
@@ -95,7 +118,12 @@ describe('catalog products route helpers', () => {
     })
 
     const rowsForWhere = (where: any) => {
-      if (where?.$or) return [{ id: 'p1' }, { id: 'p2' }, { id: 'p3' }]
+      // The search prequery keys its normalized/unaccented expression via
+      // MikroORM's raw() helper, which materializes as a unique Symbol key
+      // rather than a plain string key like $or.
+      if (Object.getOwnPropertySymbols(where ?? {}).length) {
+        return [{ id: 'p1' }, { id: 'p2' }, { id: 'p3' }]
+      }
       if (where?.channelId) return [{ id: 'o2', product: 'p2' }, { id: 'o3', product: 'p3' }, { id: 'o4', product: 'p4' }]
       if (where?.category) return [{ id: 'a2', product: 'p2' }, { id: 'a3', product: 'p3' }]
       if (where?.tag) return [{ id: 't3', product: { id: 'p3' } }]
