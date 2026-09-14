@@ -54,7 +54,7 @@ function resolveCredentials(raw: Record<string, unknown>): AutopayCredentials {
 function readCustomerEmail(metadata: Record<string, unknown> | undefined): string {
   const value = metadata?.customerEmail
   if (typeof value !== 'string' || !value) {
-    throw new Error('Autopay requires metadata.customerEmail to be set on every session (CustomerEmail is a required field per the Autopay Online v1.1 documentation)')
+    throw new Error('[internal] Autopay requires metadata.customerEmail to be set on every session (CustomerEmail is a required field per the Autopay Online v1.1 documentation)')
   }
   return value
 }
@@ -73,16 +73,23 @@ function readGatewayId(metadata: Record<string, unknown> | undefined): string | 
 function readRemoteId(metadata: Record<string, unknown> | undefined): string {
   const value = metadata?.remoteId
   if (typeof value !== 'string' || !value) {
-    throw new Error('Autopay refund requires metadata.remoteId, the provider transaction id captured from a prior getStatus call — the OrderID alone is not sufficient')
+    throw new Error('[internal] Autopay refund requires metadata.remoteId, the provider transaction id captured from a prior getStatus call — the OrderID alone is not sufficient')
   }
   return value
 }
+
+/** This package only ever creates PLN sessions (enforced in `createSession`),
+ * so refunds always sign and send `Currency=PLN` explicitly rather than
+ * omitting it — an omitted Currency still produces a validly-signed request,
+ * but being explicit here removes any ambiguity about which currency the
+ * refund applies to. */
+const AUTOPAY_CURRENCY = 'PLN'
 
 export const autopayAdapterV1: GatewayAdapter = {
   providerKey: 'autopay',
 
   async createSession(input: CreateSessionInput): Promise<CreateSessionResult> {
-    if (input.currencyCode !== 'PLN') {
+    if (input.currencyCode !== AUTOPAY_CURRENCY) {
       throw new Error('Autopay integration in this package only supports PLN sessions')
     }
     const credentials = resolveCredentials(input.credentials)
@@ -114,6 +121,9 @@ export const autopayAdapterV1: GatewayAdapter = {
   },
 
   async capture(_input: CaptureInput): Promise<CaptureResult> {
+    // Matches gateway-stripe's plain-string precedent (lib/client.ts) for
+    // capability-boundary errors meant to be read by whoever calls this
+    // adapter — not tagged [internal], since it is not a code-assertion bug.
     throw new Error('Autopay does not support capture for hosted-redirect sessions: payment settles immediately on redirect completion. This capability is unsupported by this integration.')
   },
 
@@ -123,6 +133,8 @@ export const autopayAdapterV1: GatewayAdapter = {
     const result = await refundTransaction(credentials, {
       remoteId,
       amount: input.amount !== undefined ? input.amount.toFixed(2) : undefined,
+      currencyCode: AUTOPAY_CURRENCY,
+      idempotencyKey: input.idempotencyKey,
     })
 
     return {
@@ -141,7 +153,10 @@ export const autopayAdapterV1: GatewayAdapter = {
 
   async cancel(input: CancelInput): Promise<CancelResult> {
     const credentials = resolveCredentials(input.credentials)
-    const result = await cancelTransaction(credentials, { orderId: input.sessionId })
+    const result = await cancelTransaction(credentials, {
+      orderId: input.sessionId,
+      idempotencyKey: input.idempotencyKey,
+    })
 
     if (result.confirmation === 'CONFIRMED') {
       return {
@@ -155,18 +170,19 @@ export const autopayAdapterV1: GatewayAdapter = {
 
   async getStatus(input: GetStatusInput): Promise<GatewayPaymentStatus> {
     const credentials = resolveCredentials(input.credentials)
-    const { transactions } = await queryTransactionStatus(credentials, { orderId: input.sessionId })
+    const { transactions, reason } = await queryTransactionStatus(credentials, { orderId: input.sessionId })
     const interpretation = interpretAutopayTransactionStatus(transactions)
 
     return {
       status: interpretation.status,
-      amount: transactions[0] ? Number(transactions[0].amount) : 0,
+      amount: interpretation.amount,
       amountReceived: interpretation.amountReceived,
-      currencyCode: interpretation.currencyCode || 'PLN',
+      currencyCode: interpretation.currencyCode || AUTOPAY_CURRENCY,
       providerData: {
         remoteId: interpretation.matchedRemoteId,
         anomaly: interpretation.anomaly,
         transactionCount: transactions.length,
+        reason,
       },
     }
   },

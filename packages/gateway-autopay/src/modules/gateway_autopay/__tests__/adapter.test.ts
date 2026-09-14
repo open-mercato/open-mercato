@@ -1,5 +1,6 @@
 import { autopayAdapterV1 } from '../lib/adapters/v1'
 import { computeAutopayHash } from '../lib/hash'
+import { deriveMessageId } from '../lib/autopay-client'
 
 const credentials = {
   serviceId: '2',
@@ -42,6 +43,25 @@ function statusResponseXml(transactions: Parameters<typeof transactionXml>[0][])
     transactions.map(transactionXml).join('') +
     `</transactions><hash>${hash}</hash></transactionList>`
   )
+}
+
+function cancelResponseXml(opts: { confirmation: string; reason?: string; serviceId?: string; messageId?: string }): string {
+  const serviceId = opts.serviceId ?? '2'
+  const messageId = opts.messageId ?? 'm1'
+  const hash = computeAutopayHash([serviceId, messageId, opts.confirmation, opts.reason], '2test2')
+  return (
+    '<?xml version="1.0"?><transaction>' +
+    `<serviceID>${serviceId}</serviceID><messageID>${messageId}</messageID>` +
+    `<confirmation>${opts.confirmation}</confirmation>` +
+    (opts.reason ? `<reason>${opts.reason}</reason>` : '') +
+    `<hash>${hash}</hash></transaction>`
+  )
+}
+
+function refundResponseXml(opts: { serviceId?: string; messageId: string }): string {
+  const serviceId = opts.serviceId ?? '2'
+  const hash = computeAutopayHash([serviceId, opts.messageId], '2test2')
+  return `<?xml version="1.0"?><transactionRefund><serviceID>${serviceId}</serviceID><messageID>${opts.messageId}</messageID><hash>${hash}</hash></transactionRefund>`
 }
 
 describe('autopayAdapterV1.createSession', () => {
@@ -104,7 +124,7 @@ describe('autopayAdapterV1.verifyWebhook', () => {
 describe('autopayAdapterV1.getStatus', () => {
   afterEach(() => jest.restoreAllMocks())
 
-  it('reports captured for a single SUCCESS transaction', async () => {
+  it('reports captured for a single SUCCESS transaction, sourcing amount and amountReceived from the same record', async () => {
     const xml = statusResponseXml([
       { orderID: '100', remoteID: 'r1', amount: '1.50', currency: 'PLN', paymentDate: '20260910120000', paymentStatus: 'SUCCESS', paymentStatusDetails: 'AUTHORIZED' },
     ])
@@ -112,6 +132,7 @@ describe('autopayAdapterV1.getStatus', () => {
 
     const status = await autopayAdapterV1.getStatus({ sessionId: '100', credentials })
     expect(status.status).toBe('captured')
+    expect(status.amount).toBe(1.5)
     expect(status.amountReceived).toBe(1.5)
     expect(status.currencyCode).toBe('PLN')
   })
@@ -124,6 +145,16 @@ describe('autopayAdapterV1.getStatus', () => {
 
     const status = await autopayAdapterV1.getStatus({ sessionId: '100', credentials })
     expect(status.status).toBe('pending')
+  })
+
+  it('does not throw for a reason-bearing, zero-transaction response — reports unknown, not unhealthy', async () => {
+    const hash = computeAutopayHash(['2'], '2test2')
+    const xml = `<?xml version="1.0"?><transactionList><serviceID>2</serviceID><transactions></transactions><reason>NOT_FOUND</reason><hash>${hash}</hash></transactionList>`
+    jest.spyOn(global, 'fetch').mockResolvedValue(new Response(xml, { status: 200 }))
+
+    const status = await autopayAdapterV1.getStatus({ sessionId: 'missing-order', credentials })
+    expect(status.status).toBe('unknown')
+    expect(status.providerData?.reason).toBe('NOT_FOUND')
   })
 
   it('rejects a status response whose hash does not verify', async () => {
@@ -140,18 +171,48 @@ describe('autopayAdapterV1.cancel', () => {
   afterEach(() => jest.restoreAllMocks())
 
   it('cancels a still-pending transaction', async () => {
-    const xml = '<?xml version="1.0"?><transaction><serviceID>2</serviceID><messageID>m1</messageID><confirmation>CONFIRMED</confirmation><reason>CANCELED_FULLY</reason><hash>irrelevant-for-this-test</hash></transaction>'
-    jest.spyOn(global, 'fetch').mockResolvedValue(new Response(xml, { status: 200 }))
+    jest.spyOn(global, 'fetch').mockImplementation(async (_url, init) => {
+      const body = new URLSearchParams(String((init as RequestInit).body))
+      const messageId = body.get('MessageID') ?? 'm1'
+      return new Response(cancelResponseXml({ confirmation: 'CONFIRMED', reason: 'CANCELED_FULLY', messageId }), { status: 200 })
+    })
 
     const result = await autopayAdapterV1.cancel({ sessionId: '100', credentials })
     expect(result.status).toBe('cancelled')
   })
 
   it('fails closed when Autopay refuses to cancel (e.g. already settled)', async () => {
-    const xml = '<?xml version="1.0"?><transaction><confirmation>NOTCONFIRMED</confirmation><reason>ALREADY_SETTLED</reason></transaction>'
-    jest.spyOn(global, 'fetch').mockResolvedValue(new Response(xml, { status: 200 }))
+    jest.spyOn(global, 'fetch').mockImplementation(async (_url, init) => {
+      const body = new URLSearchParams(String((init as RequestInit).body))
+      const messageId = body.get('MessageID') ?? 'm1'
+      return new Response(cancelResponseXml({ confirmation: 'NOTCONFIRMED', reason: 'ALREADY_SETTLED', messageId }), { status: 200 })
+    })
 
     await expect(autopayAdapterV1.cancel({ sessionId: '100', credentials })).rejects.toThrow(/already be settled/)
+  })
+
+  it('rejects a cancel acknowledgment whose hash does not verify', async () => {
+    const xml = '<?xml version="1.0"?><transaction><serviceID>2</serviceID><messageID>m1</messageID><confirmation>CONFIRMED</confirmation><hash>not-a-real-hash</hash></transaction>'
+    jest.spyOn(global, 'fetch').mockResolvedValue(new Response(xml, { status: 200 }))
+
+    await expect(autopayAdapterV1.cancel({ sessionId: '100', credentials })).rejects.toThrow(/hash verification/)
+  })
+
+  it('reuses the same MessageID for two cancels sharing an idempotencyKey', async () => {
+    const sentFields: Record<string, string>[] = []
+    jest.spyOn(global, 'fetch').mockImplementation(async (_url, init) => {
+      const body = new URLSearchParams(String((init as RequestInit).body))
+      const fields = Object.fromEntries(body.entries())
+      sentFields.push(fields)
+      return new Response(cancelResponseXml({ confirmation: 'CONFIRMED', messageId: fields.MessageID }), { status: 200 })
+    })
+
+    await autopayAdapterV1.cancel({ sessionId: '100', credentials, idempotencyKey: 'op-1' })
+    await autopayAdapterV1.cancel({ sessionId: '100', credentials, idempotencyKey: 'op-1' })
+
+    expect(sentFields).toHaveLength(2)
+    expect(sentFields[0].MessageID).toBe(sentFields[1].MessageID)
+    expect(sentFields[0].MessageID).toBe(deriveMessageId('op-1'))
   })
 })
 
@@ -159,9 +220,8 @@ describe('autopayAdapterV1.refund', () => {
   afterEach(() => jest.restoreAllMocks())
 
   it('returns a pending status from the synchronous acknowledgment, never "refunded"', async () => {
-    const messageId = 'abc123'
-    const expectedHash = computeAutopayHash(['2', messageId], '2test2')
-    const xml = `<?xml version="1.0"?><transactionRefund><serviceID>2</serviceID><messageID>${messageId}</messageID><hash>${expectedHash}</hash></transactionRefund>`
+    const messageId = deriveMessageId('refund-op-1')
+    const xml = refundResponseXml({ messageId })
     jest.spyOn(global, 'fetch').mockResolvedValue(new Response(xml, { status: 200 }))
 
     const result = await autopayAdapterV1.refund({
@@ -169,6 +229,7 @@ describe('autopayAdapterV1.refund', () => {
       amount: 1.5,
       credentials,
       metadata: { remoteId: 'r1' },
+      idempotencyKey: 'refund-op-1',
     })
 
     expect(result.status).toBe('pending')
@@ -176,7 +237,36 @@ describe('autopayAdapterV1.refund', () => {
   })
 
   it('requires metadata.remoteId — the OrderID alone is not enough for a refund', async () => {
-    await expect(autopayAdapterV1.refund({ sessionId: '100', credentials }))
-      .rejects.toThrow(/remoteId/)
+    await expect(autopayAdapterV1.refund({ sessionId: '100', credentials })).rejects.toThrow(/remoteId/)
+  })
+
+  it('reuses the same MessageID for two refunds sharing an idempotencyKey', async () => {
+    const sentFields: Record<string, string>[] = []
+    jest.spyOn(global, 'fetch').mockImplementation(async (_url, init) => {
+      const body = new URLSearchParams(String((init as RequestInit).body))
+      const fields = Object.fromEntries(body.entries())
+      sentFields.push(fields)
+      return new Response(refundResponseXml({ messageId: fields.MessageID }), { status: 200 })
+    })
+
+    const input = { sessionId: '100', amount: 1.5, credentials, metadata: { remoteId: 'r1' }, idempotencyKey: 'refund-op-2' }
+    await autopayAdapterV1.refund(input)
+    await autopayAdapterV1.refund(input)
+
+    expect(sentFields).toHaveLength(2)
+    expect(sentFields[0].MessageID).toBe(sentFields[1].MessageID)
+    expect(sentFields[0].Currency).toBe('PLN')
+  })
+
+  it('rejects a refund acknowledgment that echoes a different MessageID than the one sent', async () => {
+    jest.spyOn(global, 'fetch').mockResolvedValue(new Response(refundResponseXml({ messageId: 'a-completely-different-id' }), { status: 200 }))
+
+    await expect(autopayAdapterV1.refund({
+      sessionId: '100',
+      amount: 1.5,
+      credentials,
+      metadata: { remoteId: 'r1' },
+      idempotencyKey: 'refund-op-3',
+    })).rejects.toThrow(/different MessageID/)
   })
 })

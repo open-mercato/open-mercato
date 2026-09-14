@@ -9,10 +9,18 @@ export interface HealthCheckResult {
 
 export const autopayHealthCheck = {
   /**
-   * Probes `transactionStatus` with a synthetic, never-real OrderID. Autopay
-   * is documented to answer "no transaction found" for an unknown OrderID
-   * rather than erroring, so this never creates or affects a real
-   * transaction — it only proves the credentials/host/hash are valid.
+   * Probes `transactionStatus` with a synthetic, never-real OrderID. This
+   * only ever creates or affects a real transaction if that literal OrderID
+   * happens to collide with one — practically impossible given the
+   * timestamp-based suffix.
+   *
+   * `queryTransactionStatus` never throws for "no transaction found" (with
+   * or without an accompanying `<reason>`) — it returns an empty
+   * `transactions` array instead, so a successful round trip with any
+   * number of transactions (zero included) means the credentials, host, and
+   * hash all validated correctly, which is all this check claims. It still
+   * throws (and this reports `unhealthy`) for a genuine failure: wrong
+   * host, network error, or a response that fails hash verification.
    */
   async check(credentials: Record<string, unknown>): Promise<HealthCheckResult> {
     try {

@@ -30,6 +30,11 @@ export interface AutopayTransactionRecord {
 
 export interface AutopayStatusInterpretation {
   status: UnifiedPaymentStatus
+  /** The transaction's own declared amount (docs: identical across every
+   * record for one OrderID outside the out-of-scope commission-added
+   * model), sourced from the same record as `amountReceived` so the two
+   * never describe two different underlying transactions. */
+  amount: number
   amountReceived: number
   currencyCode: string
   matchedRemoteId?: string
@@ -50,21 +55,25 @@ export function interpretAutopayTransactionStatus(
 
   if (successes.length === 1) {
     const [success] = successes
+    const amount = Number(success.amount)
     return {
       status: 'captured',
-      amountReceived: Number(success.amount),
+      amount,
+      amountReceived: amount,
       currencyCode: success.currency,
       matchedRemoteId: success.remoteID,
     }
   }
 
   if (successes.length > 1) {
-    const [success] = successes
+    const [first] = successes
+    const totalReceived = successes.reduce((sum, t) => sum + Number(t.amount), 0)
     return {
       status: 'captured',
-      amountReceived: Number(success.amount),
-      currencyCode: success.currency,
-      matchedRemoteId: success.remoteID,
+      amount: Number(first.amount),
+      amountReceived: totalReceived,
+      currencyCode: first.currency,
+      matchedRemoteId: first.remoteID,
       anomaly: 'overpaid',
     }
   }
@@ -73,6 +82,7 @@ export function interpretAutopayTransactionStatus(
     const [pending] = pendings
     return {
       status: 'pending',
+      amount: Number(pending.amount),
       amountReceived: 0,
       currencyCode: pending.currency,
       matchedRemoteId: pending.remoteID,
@@ -83,6 +93,7 @@ export function interpretAutopayTransactionStatus(
     const [first] = transactions
     return {
       status: 'failed',
+      amount: Number(first.amount),
       amountReceived: 0,
       currencyCode: first.currency,
       matchedRemoteId: first.remoteID,
@@ -91,6 +102,7 @@ export function interpretAutopayTransactionStatus(
 
   return {
     status: 'unknown',
+    amount: 0,
     amountReceived: 0,
     currencyCode: '',
   }

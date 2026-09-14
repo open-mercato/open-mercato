@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { computeAutopayHash, type AutopayHashAlgorithm } from './hash'
 import type { AutopayTransactionRecord } from './status-map'
 
@@ -61,6 +61,26 @@ export function generateMessageId(): string {
   return randomUUID().replace(/-/g, '')
 }
 
+/**
+ * Autopay's `MessageID` is documented as a 32-character alphanumeric
+ * deduplication handle — a retried request that repeats the same MessageID
+ * is treated as a re-confirmation, not a new operation. Deriving it
+ * deterministically from the platform's own `idempotencyKey` (rather than
+ * generating a fresh random one every call) is what makes `cancel`/`refund`
+ * retries safe: the same logical operation always produces the same
+ * MessageID. SHA-256 output is hex (already alphanumeric) and is truncated
+ * to 32 chars to fit the documented length.
+ */
+export function deriveMessageId(idempotencyKey: string): string {
+  return createHash('sha256').update(idempotencyKey, 'utf8').digest('hex').slice(0, 32)
+}
+
+function resolveMessageId(input: { messageId?: string; idempotencyKey?: string }): string {
+  if (input.messageId) return input.messageId
+  if (input.idempotencyKey) return deriveMessageId(input.idempotencyKey)
+  return generateMessageId()
+}
+
 export interface BuildSessionRequestInput {
   credentials: AutopayCredentials
   orderId: string
@@ -83,8 +103,15 @@ export interface BuildSessionRequestResult {
  * this as a browser-submitted HTTPS call to the partner-specific gatewayUrl,
  * demonstrated in the docs as a POST. This also returns a GET-style
  * `redirectUrl` as a defensive fallback, since the docs do not explicitly
- * state that GET is rejected — whichever transport the consuming redirect
- * renderer actually uses should be verified once real sandbox access exists.
+ * state that GET is rejected — but no consumer in this repo currently wires
+ * up `formPost` (checkout only does `window.location.href = redirectUrl`),
+ * so today this provider's entire session-creation flow depends on the GET
+ * transport this comment itself flags as unverified. GET also puts
+ * `CustomerEmail` and `Hash` in the URL (browser history, referrer headers,
+ * intermediate logs) — a real downgrade from the documented POST. Both the
+ * transport choice and this privacy exposure need to be settled with one
+ * live sandbox session before this provider is enabled for any tenant; see
+ * the spec's Risks section.
  */
 export function buildSessionRequest(input: BuildSessionRequestInput): BuildSessionRequestResult {
   const { credentials } = input
@@ -170,15 +197,28 @@ async function postForm(
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
   try {
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        ...extraHeaders,
-      },
-      body: new URLSearchParams(fields).toString(),
-      signal: controller.signal,
-    })
+    let response: Response
+    try {
+      response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          ...extraHeaders,
+        },
+        body: new URLSearchParams(fields).toString(),
+        signal: controller.signal,
+      })
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name === 'AbortError') {
+        throw new AutopayApiError(`Autopay request to ${url} timed out after ${REQUEST_TIMEOUT_MS}ms`, {
+          code: 'TIMEOUT',
+        })
+      }
+      throw err
+    }
+    // Best-effort only: a chunked response carries no Content-Length, so this
+    // never replaces the post-buffer length check below — it just short-circuits
+    // the common case of a server that is honest about a huge body up front.
     const contentLength = response.headers.get('content-length')
     if (contentLength && Number(contentLength) > MAX_RESPONSE_BYTES) {
       throw new AutopayApiError('[internal] Autopay response exceeded the maximum allowed size')
@@ -200,6 +240,17 @@ async function postForm(
 
 export interface TransactionStatusResult {
   transactions: AutopayTransactionRecord[]
+  /**
+   * Present when Autopay attached a `<reason>` alongside zero transactions.
+   * Confirmed for the documented >50-transactions-per-OrderID limit; an
+   * ordinary "no transaction found for this OrderID" response is not
+   * separately confirmed in the reviewed documentation and may or may not
+   * carry a reason of its own. Either way this is not thrown as an error —
+   * `interpretAutopayTransactionStatus` already maps zero transactions to
+   * `unknown`, so callers that care can inspect `reason` for diagnostics
+   * without the caller needing a working sandbox order to test the branch.
+   */
+  reason?: string
 }
 
 /** `transactionStatus` — docs § "Odpytanie o status transakcji". */
@@ -216,11 +267,8 @@ export async function queryTransactionStatus(
     { BmHeader: 'pay-bm' },
   )
 
-  const reason = extractTag(xml, 'reason')
+  const reason = extractTag(xml, 'reason') ?? undefined
   const transactions = parseTransactionRecords(xml)
-  if (transactions.length === 0 && reason) {
-    throw new AutopayApiError(`Autopay rejected the status query: ${reason}`, { reason })
-  }
 
   if (transactions.length > 0) {
     const responseHash = extractTag(xml, 'hash')
@@ -232,7 +280,7 @@ export async function queryTransactionStatus(
     }
   }
 
-  return { transactions }
+  return { transactions, reason }
 }
 
 export interface CancelTransactionResult {
@@ -242,15 +290,17 @@ export interface CancelTransactionResult {
 }
 
 /** `transactionCancel` — docs § "Anulowanie nieopłaconej transakcji". Only
- * cancels a transaction still in PENDING. */
+ * cancels a transaction still in PENDING. `messageId` is deterministically
+ * derived from `idempotencyKey` when provided, so a retried cancel reuses
+ * the same MessageID instead of registering as a new operation. */
 export async function cancelTransaction(
   credentials: AutopayCredentials,
-  input: { orderId?: string; remoteId?: string; messageId?: string },
+  input: { orderId?: string; remoteId?: string; messageId?: string; idempotencyKey?: string },
 ): Promise<CancelTransactionResult> {
   if (!input.orderId && !input.remoteId) {
     throw new AutopayApiError('[internal] cancelTransaction requires either orderId or remoteId')
   }
-  const messageId = input.messageId ?? generateMessageId()
+  const messageId = resolveMessageId(input)
   const requestHash = hash(credentials, [credentials.serviceId, messageId, input.remoteId, input.orderId])
 
   const fields: Record<string, string> = { ServiceID: credentials.serviceId, MessageID: messageId }
@@ -264,6 +314,21 @@ export async function cancelTransaction(
 
   const confirmation = extractTag(xml, 'confirmation')
   const reason = extractTag(xml, 'reason') ?? undefined
+  const responseServiceId = extractTag(xml, 'serviceID') ?? undefined
+  const responseMessageId = extractTag(xml, 'messageID') ?? undefined
+  const responseHash = extractTag(xml, 'hash')
+
+  // Docs § response field table: 1 serviceID (required only when
+  // confirmation=CONFIRMED), 2 messageID (same), 3 confirmation, 4 reason.
+  const expectedHash = hash(credentials, [responseServiceId, responseMessageId, confirmation, reason])
+  if (!responseHash || responseHash !== expectedHash) {
+    throw new AutopayApiError('[internal] Autopay cancel acknowledgment failed hash verification')
+  }
+  if (responseMessageId && responseMessageId !== messageId) {
+    throw new AutopayApiError(
+      '[internal] Autopay cancel acknowledgment echoed a different MessageID than the one sent',
+    )
+  }
 
   return {
     confirmation: confirmation === 'CONFIRMED' || confirmation === 'NOTCONFIRMED' ? confirmation : 'UNKNOWN',
@@ -282,13 +347,17 @@ export interface RefundTransactionResult {
  * Service to have settlement balance enabled. The synchronous response only
  * confirms Autopay accepted the request; it is processed asynchronously
  * (documented as up to ~30 minutes), so this never returns a final
- * "refunded" outcome — see the `refund()` adapter method.
+ * "refunded" outcome — see the `refund()` adapter method. `messageId` is
+ * deterministically derived from `idempotencyKey` when provided, so a
+ * retried refund (e.g. after this client's own request timeout) reuses the
+ * same MessageID instead of Autopay processing it as a second, independent
+ * refund.
  */
 export async function refundTransaction(
   credentials: AutopayCredentials,
-  input: { remoteId: string; amount?: string; currencyCode?: string; messageId?: string },
+  input: { remoteId: string; amount?: string; currencyCode?: string; messageId?: string; idempotencyKey?: string },
 ): Promise<RefundTransactionResult> {
-  const messageId = input.messageId ?? generateMessageId()
+  const messageId = resolveMessageId(input)
   const requestHash = hash(credentials, [
     credentials.serviceId,
     messageId,
@@ -323,6 +392,11 @@ export async function refundTransaction(
   const expectedHash = hash(credentials, [responseServiceId, responseMessageId])
   if (responseHash !== expectedHash) {
     throw new AutopayApiError('[internal] Autopay refund acknowledgment failed hash verification')
+  }
+  if (responseMessageId !== messageId) {
+    throw new AutopayApiError(
+      '[internal] Autopay refund acknowledgment echoed a different MessageID than the one sent',
+    )
   }
 
   return { messageId: responseMessageId, acknowledged: true }

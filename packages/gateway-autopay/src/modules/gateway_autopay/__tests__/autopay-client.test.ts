@@ -1,5 +1,5 @@
 import { computeAutopayHash } from '../lib/hash'
-import { buildSessionRequest, resolveApiHost, sanitizeOrderId, AutopayApiError, type AutopayCredentials } from '../lib/autopay-client'
+import { buildSessionRequest, resolveApiHost, sanitizeOrderId, deriveMessageId, AutopayApiError, type AutopayCredentials } from '../lib/autopay-client'
 
 const credentials: AutopayCredentials = {
   serviceId: '2',
@@ -31,6 +31,22 @@ describe('sanitizeOrderId', () => {
 
   it('drops characters outside the documented alnum + "-_" charset', () => {
     expect(sanitizeOrderId('order#1 with spaces!')).toBe('order1withspaces')
+  })
+})
+
+describe('deriveMessageId', () => {
+  it('is deterministic for the same idempotency key', () => {
+    expect(deriveMessageId('op-1')).toBe(deriveMessageId('op-1'))
+  })
+
+  it('differs across distinct idempotency keys', () => {
+    expect(deriveMessageId('op-1')).not.toBe(deriveMessageId('op-2'))
+  })
+
+  it('fits Autopay\'s documented 32-character alphanumeric MessageID length', () => {
+    const id = deriveMessageId('op-1')
+    expect(id).toHaveLength(32)
+    expect(id).toMatch(/^[a-f0-9]{32}$/)
   })
 })
 
