@@ -22,6 +22,10 @@ import { JsonDisplay } from '@open-mercato/ui/backend/JsonDisplay'
 import { SectionHeader, CollapsibleSection } from '@open-mercato/ui/backend/SectionHeader'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
+import { hasFeature } from '@open-mercato/shared/security/features'
+import { ProposeOnlyNotice } from '../../components/ProposeOnlyNotice'
+import { AUTOMATION_AUTHOR_FEATURE, AUTOMATION_EDITOR_HREF } from '../../lib/automationLinks'
 import { ProposalCard } from '../../components/ProposalCard'
 import { WebSearchActivity } from '../../components/WebSearchActivity'
 import { mapAdHocProposal, mapAgent, type AgentView } from '../../components/types'
@@ -210,6 +214,10 @@ function ConnectionBadges() {
 export default function AgentPlaygroundPage() {
   const t = useT()
   const searchParams = useSearchParams()
+  const { payload: chromePayload } = useBackendChrome()
+  // The automation CTAs are hidden, not disabled, for a runner who cannot author
+  // one — a dead button teaches nothing.
+  const canAuthorAutomations = hasFeature(chromePayload?.grantedFeatures, AUTOMATION_AUTHOR_FEATURE)
   const [agents, setAgents] = React.useState<AgentView[]>([])
   const [agentId, setAgentId] = React.useState<string>('')
   const [input, setInput] = React.useState<string>('{\n  \n}')
@@ -445,6 +453,20 @@ export default function AgentPlaygroundPage() {
                 />
               </div>
             </div>
+            <div className="space-y-2 border-t border-border px-4 py-3">
+              <ProposeOnlyNotice />
+              <p className="text-sm text-muted-foreground">
+                {t(
+                  'agent_orchestrator.playground.rehearsalNote',
+                  'This is a rehearsal — to have the agent act on real events, add an “invoke agent” step to an automation.',
+                )}
+              </p>
+              {canAuthorAutomations ? (
+                <a href={AUTOMATION_EDITOR_HREF} className="inline-flex text-sm font-medium text-brand-violet hover:underline">
+                  {t('agent_orchestrator.playground.useInAutomation', 'Use this agent in an automation')}
+                </a>
+              ) : null}
+            </div>
             <div className="flex items-center justify-between gap-2 border-t border-border px-4 py-3">
               <span className="hidden text-xs text-muted-foreground sm:inline">
                 {t('agent_orchestrator.playground.runHint', 'Cmd/Ctrl + Enter runs the agent')}
@@ -481,6 +503,14 @@ export default function AgentPlaygroundPage() {
                       className="text-xs font-medium text-brand-violet hover:underline"
                     >
                       {t('agent_orchestrator.playground.result.openProposal')}
+                    </a>
+                  ) : null}
+                  {canAuthorAutomations ? (
+                    <a
+                      href={AUTOMATION_EDITOR_HREF}
+                      className="text-xs font-medium text-brand-violet hover:underline"
+                    >
+                      {t('agent_orchestrator.playground.useInAutomation', 'Use this agent in an automation')}
                     </a>
                   ) : null}
                 </span>
