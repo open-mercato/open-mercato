@@ -13,8 +13,8 @@ export const metadata = {
   pageTitleKey: 'agent_orchestrator.nav.traces',
   pageGroup: 'Agents',
   pageGroupKey: 'agent_orchestrator.nav.group',
-  pagePriority: 15,
-  pageOrder: 95,
+  pagePriority: 70,
+  pageOrder: 150,
   icon: tracesIcon,
   breadcrumb: [{ label: 'Traces', labelKey: 'agent_orchestrator.nav.traces' }],
 }

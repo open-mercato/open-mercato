@@ -27,7 +27,8 @@ const MODULE_ROOT = join(__dirname, '..')
  * reason, so a stale entry is obvious rather than inherited.
  */
 const EXTERNAL_ROUTES: Record<string, string> = {
-  'backend/workflows': 'core workflows — the Studio',
+  'backend/definitions': 'core workflows — the automations list, where F2/F5 send someone who has to build the automation that invokes an agent',
+  'backend/definitions/visual-editor': 'core workflows — the Studio (WORKFLOW_STUDIO_CREATE_HREF). NOT /backend/workflows/definitions/...: the module prefix is not in the route.',
   'backend/tasks': 'core workflows — the frozen user-task surface',
   'backend/instances': 'core workflows — a run instance. NOT /backend/workflows/instances: the module prefix is not in the route, and assuming it was is exactly the dead link this guard first caught.',
   'backend/instances/[id]': 'core workflows — one run instance',

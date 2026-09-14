@@ -16,8 +16,8 @@ export const metadata = {
   pageTitleKey: 'agent_orchestrator.nav.audit',
   pageGroup: 'Agents',
   pageGroupKey: 'agent_orchestrator.nav.group',
-  pagePriority: 60,
-  pageOrder: 180,
+  pagePriority: 80,
+  pageOrder: 160,
   icon: auditIcon,
   breadcrumb: [{ label: 'Audit', labelKey: 'agent_orchestrator.nav.audit' }],
 }

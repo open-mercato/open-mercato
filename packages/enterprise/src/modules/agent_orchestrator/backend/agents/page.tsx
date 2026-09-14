@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { Download, Bot, ShieldCheck, Pencil, Wallet } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { ProposeOnlyNotice } from '../../components/ProposeOnlyNotice'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
@@ -401,7 +402,12 @@ export default function AgentsRegistryPage() {
     <Page>
       <PageBody className="space-y-5">
         <div className="flex items-center justify-between gap-3">
-          <h1 className="text-lg font-semibold">{t('agent_orchestrator.agents.list.title')}</h1>
+          <div>
+            <h1 className="text-lg font-semibold">{t('agent_orchestrator.agents.list.title')}</h1>
+            <div className="mt-1">
+              <ProposeOnlyNotice />
+            </div>
+          </div>
           {previewUi ? (
             <div className="flex items-center gap-2">
               <Button variant="outline" size="sm">

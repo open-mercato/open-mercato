@@ -8,9 +8,12 @@ import { metadata as playgroundMeta } from '../backend/playground/page.meta'
 import { metadata as processDefinitionsMeta } from '../backend/processes/definitions/page.meta'
 import { metadata as auditMeta } from '../backend/audit/page.meta'
 
-// Navigation-pass spec §6 (2026-07-12-ux-navigation-pass): the AGENTS sidebar
-// group is ordered by persona priority — Overview and Caseload first, engineer
-// and admin tooling after. The shell's nav builder sorts group items by
+// First-run orientation spec F1 (2026-09-10-ux-first-run-orientation-feedback):
+// the AGENTS sidebar group is ordered by the ORDER OF USE, not by operator
+// frequency — Agents and Playground (the inputs) before Caseload and Traces
+// (the outputs). This supersedes the persona-priority ladder of the 2026-07-12
+// navigation pass, which put the outputs first and left first-time users with
+// no idea where to start. The shell's nav builder sorts group items by
 // `pagePriority ?? pageOrder` (packages/ui/src/backend/utils/nav.ts sortItems)
 // and falls back to ALPHABETICAL titles on ties, which is exactly the
 // regression the audit observed when every meta carried the same priority.
@@ -20,12 +23,12 @@ import { metadata as auditMeta } from '../backend/audit/page.meta'
 // now lives inside the agent detail page's Evaluation tab.
 const ladder = [
   ['overview', overviewMeta],
-  ['caseload', caseloadMeta],
-  ['processes', processesMeta],
-  ['traces', tracesMeta],
   ['agents', agentsMeta],
   ['playground', playgroundMeta],
   ['processes/definitions', processDefinitionsMeta],
+  ['processes', processesMeta],
+  ['caseload', caseloadMeta],
+  ['traces', tracesMeta],
   ['audit', auditMeta],
 ] as const
 
@@ -36,7 +39,7 @@ describe('agent_orchestrator sidebar ordering', () => {
     expect(new Set(priorities).size).toBe(priorities.length)
   })
 
-  it('orders pages by persona priority: operator surfaces first, admin tooling last', () => {
+  it('orders pages by the order of use: agents and playground before the queues they fill', () => {
     const priorities = ladder.map(([, meta]) => meta.pagePriority as number)
     const sorted = [...priorities].sort((a, b) => a - b)
     expect(priorities).toEqual(sorted)

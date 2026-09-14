@@ -12,6 +12,7 @@ import { agentAvatarIcon } from '../../components/agentChips'
 import { useAgentIconMap } from '../../components/useAgentIcons'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
+import { ProposeOnlyNotice } from '../../components/ProposeOnlyNotice'
 import { SegmentedControl, SegmentedControlItem } from '@open-mercato/ui/primitives/segmented-control'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@open-mercato/ui/primitives/select'
 import { SearchInput } from '@open-mercato/ui/primitives/search-input'
@@ -1071,10 +1072,13 @@ export default function AgentCaseloadPage() {
         ) : error ? (
           <ErrorMessage label={error} />
         ) : grandTotal === 0 && pageRows.length === 0 ? (
-          <EmptyState
-            title={t('agent_orchestrator.caseload.empty')}
-            description={t('agent_orchestrator.caseload.emptyDescription')}
-          />
+          <div className="space-y-3">
+            <EmptyState
+              title={t('agent_orchestrator.caseload.empty')}
+              description={t('agent_orchestrator.caseload.emptyDescription')}
+            />
+            <ProposeOnlyNotice variant="block" />
+          </div>
         ) : view === 'inbox' ? (
           <ExceptionsInbox
             toolbar={

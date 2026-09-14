@@ -14,8 +14,8 @@ export const metadata = {
   pageTitleKey: 'agent_orchestrator.nav.caseload',
   pageGroup: 'Agents',
   pageGroupKey: 'agent_orchestrator.nav.group',
-  pagePriority: 11,
-  pageOrder: 91,
+  pagePriority: 60,
+  pageOrder: 140,
   icon: caseloadIcon,
   breadcrumb: [{ label: 'Caseload', labelKey: 'agent_orchestrator.nav.caseload' }],
 }

@@ -15,7 +15,7 @@ export const metadata = {
   pageGroup: 'Agents',
   pageGroupKey: 'agent_orchestrator.nav.group',
   pagePriority: 40,
-  pageOrder: 160,
+  pageOrder: 120,
   icon: processDefinitionsIcon,
   breadcrumb: [{ label: 'Process definitions', labelKey: 'agent_orchestrator.nav.processDefinitions' }],
 }

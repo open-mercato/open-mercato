@@ -14,7 +14,7 @@ export const metadata = {
   pageGroup: 'Agents',
   pageGroupKey: 'agent_orchestrator.nav.group',
   pagePriority: 30,
-  pageOrder: 130,
+  pageOrder: 110,
   icon: playgroundIcon,
   breadcrumb: [{ label: 'Playground', labelKey: 'agent_orchestrator.nav.playground' }],
 }

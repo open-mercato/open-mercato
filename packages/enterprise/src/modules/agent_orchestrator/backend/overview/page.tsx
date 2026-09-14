@@ -31,6 +31,7 @@ import { subjectLabelOf } from '../../components/subjectRef'
 import { useCoalescedReload } from '../../components/useCoalescedReload'
 import { agentAvatarIcon } from '../../components/agentChips'
 import { SystemHealthTile } from '../../components/SystemHealthTile'
+import { StartHereGuide } from '../../components/StartHereGuide'
 import { isAgentPreviewUiEnabled } from '../../lib/featureFlags'
 
 type Health = 'good' | 'watch' | 'poor' | 'new'
@@ -381,6 +382,8 @@ export default function AgentFleetOverviewPage() {
             </Select>
           </div>
         </div>
+
+        <StartHereGuide />
 
         {isLoading ? (
           <LoadingMessage label={t('agent_orchestrator.overview.title', 'Fleet overview')} />
