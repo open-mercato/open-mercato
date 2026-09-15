@@ -302,7 +302,9 @@ zespół (`jurisdiction: 'PL'`, `code` matching the zespół number).
 | --- | --- |
 | `010` / Środki trwałe / DEBIT | `010-1` Budynki i lokale; `010-2` Maszyny i urządzenia techniczne; `010-3` Środki transportu |
 | `020` / Wartości niematerialne i prawne / DEBIT | `020-1` Licencje i oprogramowanie |
-| `070` / Umorzenie środków trwałych oraz wartości niematerialnych i prawnych / CREDIT | `070-1` Umorzenie środków trwałych |
+| `070` / Umorzenie środków trwałych / CREDIT | `070-1` Umorzenie środków trwałych |
+| `071` / Umorzenie wartości niematerialnych i prawnych / CREDIT | `071-1` Umorzenie wartości niematerialnych i prawnych |
+| `072` / Odpisy aktualizujące środki trwałe oraz wartości niematerialne i prawne / CREDIT | `072-1` Odpisy aktualizujące środki trwałe oraz WNiP |
 
 **Zespół 1 — Środki pieniężne, rachunki bankowe i inne krótkoterminowe
 aktywa finansowe:**
@@ -379,7 +381,23 @@ finansowy:**
 | `820` / Rozliczenie wyniku finansowego / CREDIT | `820-1` Rozliczenie wyniku finansowego |
 | `860` / Wynik finansowy / CREDIT | `860-1` Wynik finansowy |
 
-Totals: 36 `LedgerAccountType` rows, 40 `LedgerAccount` rows across the
+Zespół 0's `070`/`071`/`072` split — separate accumulated-depreciation
+accounts for tangible (`070`) and intangible (`071`) fixed assets, and
+a third, genuinely separate accumulated-impairment account (`072`) —
+follows Fixed Assets' own 2026-09-09 correction
+(`2026-09-06-fixed-assets.md`, Changelog, "dedicated accumulated-
+impairment account, corrected against a reference chart of accounts"):
+real Polish practice keeps planned depreciation and one-off impairment
+write-downs on genuinely separate synthetic accounts, and `FixedAsset`
+already has a dedicated `ledgerAccumulatedImpairmentAccountId` field
+expecting exactly this account to exist. Per
+`financial-spec-citation-check`: this specific numbering is sourced
+from the same external reference chart of accounts (supplied by the
+accounting team) that Fixed Assets' own correction cites, not from
+Kieso/Hay/Fowler — none of the three covers Polish chart-of-accounts
+numbering at this level of detail (see Literature & Prior Art).
+
+Totals: 38 `LedgerAccountType` rows, 42 `LedgerAccount` rows across the
 nine zespoły — deliberately leaving numbering gaps within each zespół
 (e.g. `010`/`020`/`070`, not `010`/`011`/`012`) matching Kieso's own
 Illustration 3.9 convention of numbering with intentional gaps "to
@@ -536,7 +554,7 @@ after them.
 ## File Manifest
 
 - `lib/defaultChartOfAccounts.ts` (new) — the hardcoded Phase 1
-  template data (36 `LedgerAccountType` rows, 40 `LedgerAccount` rows
+  template data (38 `LedgerAccountType` rows, 42 `LedgerAccount` rows
   across zespoły 0–8), following `lib/seeds.ts`'s existing
   `seedPolishAccountGroups` pattern.
 - `commands/importDefaultChartOfAccounts.ts` (new) — the command
@@ -558,8 +576,8 @@ after them.
   rows, call the command, assert it succeeds and imports the full
   template alongside them.
 - **Happy path creates the full template**: call the command against
-  an empty chart of accounts, assert exactly 36 `LedgerAccountType`
-  rows and 40 `LedgerAccount` rows are created, each correctly linked
+  an empty chart of accounts, assert exactly 38 `LedgerAccountType`
+  rows and 42 `LedgerAccount` rows are created, each correctly linked
   to its `accountGroupId`/`accountTypeId`/`parentAccountTypeId`/
   `parentAccountId`.
 - **Undo restores empty state**: call the command, then its `undo`,
@@ -660,9 +678,18 @@ Decisions correctly builds on, rather than reopens, #5663's own
 no-auto-seed decision. Cross-checked against JELD and Posting Rules
 Engine — both are named in this document's own Related header as
 consumers of the rows this document helps populate, and neither
-document's own text is touched or needs to be. Cross-checked against
-the knowledge base's §2 conventions — no new tagging mechanism, no new
-control-account pattern, no new event; nothing to add to §2.
+document's own text needed a change beyond the annotation each already
+received (see Changelog, 2026-09-15 cont.). Cross-checked against
+Fixed Assets (#6014) — **found and fixed one real defect**: the
+initial Data Models draft combined tangible/intangible accumulated
+depreciation into one `070` account and had no `072` impairment
+account at all, contradicting Fixed Assets' own 2026-09-09 correction
+(a dedicated `ledgerAccumulatedImpairmentAccountId`, sourced from a
+real accounting-team-supplied reference chart of accounts). Corrected
+by splitting `070`/`071` and adding `072` — see Data Models and
+Changelog. Cross-checked against the knowledge base's §2 conventions —
+no new tagging mechanism, no new control-account pattern, no new
+event; nothing to add to §2.
 
 **Verdict:** Fully compliant. First-draft complete; ready for review.
 
@@ -705,3 +732,55 @@ control-account pattern, no new event; nothing to add to §2.
   Tier 2/Tier 3 citation entries for Kieso Illustration 3.9 and Hay p.
   119, new Tier 4 real-system entry, dated Changelog entry) — see that
   document's own Changelog for the mirrored entry.
+
+### 2026-09-15 (cont. — cross-spec consistency pass against every sibling spec; one real defect found and fixed)
+
+- Per the user's own request to check whether any other spec in this
+  family needed updating relative to this new document (and vice
+  versa), read every sibling spec directly (GL core engine, JELD,
+  Posting Rules Engine, Accounts Payable, GL account balances, AR
+  sales-invoice-GL-posting, Fixed Assets) rather than relying on the
+  knowledge base's summary of them, per `financial-spec-citation-check`.
+- **Found and fixed a real defect in this document, not in a sibling
+  spec**: the original Data Models draft modeled `070` as one combined
+  "Umorzenie środków trwałych oraz wartości niematerialnych i prawnych"
+  account and had no `072` account at all. Fixed Assets'
+  own 2026-09-09 Changelog entry ("dedicated accumulated-impairment
+  account, corrected against a reference chart of accounts") already
+  established, against a real accounting-team-supplied wzorcowy plan
+  kont, that Polish practice keeps `070` (Umorzenie środków trwałych),
+  `071` (Umorzenie wartości niematerialnych i prawnych), and `072`
+  (Odpisy aktualizujące — impairment) as three genuinely separate
+  accounts — and `FixedAsset.ledgerAccumulatedImpairmentAccountId`
+  already expects `072` to exist as a real, importable account. Split
+  `070`/`071` and added `072`; totals updated from 36/40 to 38/42
+  `LedgerAccountType`/`LedgerAccount` rows throughout (Data Models,
+  Testing Strategy, File Manifest). This is exactly the kind of
+  external-reference correction Fixed Assets' own Changelog entry
+  flagged as uncatchable by reading either spec alone — only surfaced
+  by actually cross-checking the two documents' account-numbering
+  claims against each other.
+- **Posting Rules Engine** (#6015) — its own Out of Scope already names
+  "a general chart-of-accounts import mechanism... a distinct,
+  `ledger`-owned feature this module depends on existing... but does
+  not itself build," added 2026-09-14. Added an **Update (2026-09-15)**
+  annotation there pointing to this document, while explicitly
+  recording that this document is *narrower*, not a full match: that
+  bullet describes bulk-loading a *tenant's own arbitrary* numbering
+  (e.g. from an Excel "plan kont"), while this document ships exactly
+  one fixed, hardcoded template — the general "import your own
+  existing chart" capability that bullet describes remains unbuilt and
+  still out of scope everywhere in this project.
+- **GL core engine** (#5663) — its Module Setup section states "no
+  default chart of accounts... is seeded; tenants build their own" as
+  a plain architecture fact, not a flagged deferred item, so no
+  correction was needed there; added a one-line forward-pointer to
+  this document for discoverability, matching that document's existing
+  convention of annotating related follow-up specs in place.
+- **JELD, Accounts Payable, GL account balances, AR sales-invoice-GL-
+  posting** — read in full; none make an account-numbering or
+  seeding claim this document's template contradicts or duplicates
+  (AP/AR both confirm the existing "accountant configures via Module
+  Config, no auto-picked account" pattern this document is fully
+  compatible with — it only makes more accounts available to pick
+  from). No changes needed to any of the four.
