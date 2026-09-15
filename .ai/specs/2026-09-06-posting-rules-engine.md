@@ -1203,7 +1203,16 @@ or residual risk.
   topic rather than folded into this module, since numbering is not
   standardized across tenants and importing/mapping a chart of
   accounts is a `ledger`-level concern independent of any one
-  downstream reclassification engine.
+  downstream reclassification engine. **Update (2026-09-15)**: a
+  related, but narrower, `ledger`-owned feature now exists —
+  `2026-09-15-default-chart-of-accounts.md` (PR #6137) ships one
+  fixed, hardcoded Polish starter template via an opt-in
+  `ledger.importDefaultChartOfAccounts` command. This does not close
+  this bullet: that document explicitly ships a single fixed template,
+  not the general "bulk-load a tenant's own arbitrary numbering
+  scheme" mechanism described here — a tenant with pre-existing
+  accounting-system numbering still has no way to import it. The gap
+  this bullet names remains open.
 - Enforcing leaf-postability — rejecting a direct post to a
   `LedgerAccount` that has child accounts, restricting posts to its
   analytic leaves. **Added 2026-09-14**: #5663 itself names this as
@@ -1437,4 +1446,8 @@ A general chart-of-accounts import mechanism — needed to turn
 step from a manual one into a practical one for a real tenant — was
 discussed and deliberately deferred as a separate, `ledger`-owned
 future topic, not folded into this module's scope; noted explicitly
-in Out of scope and Risks.
+in Out of scope and Risks. **Update (2026-09-15)**: a narrower,
+related feature (a single hardcoded starter template, not a general
+import of a tenant's own numbering) has since shipped as
+`2026-09-15-default-chart-of-accounts.md` — see the annotation on the
+Out of scope bullet above for the precise distinction.
