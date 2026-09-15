@@ -515,9 +515,16 @@ export default function AgentFleetOverviewPage() {
                   // table sized itself to its longest agent id — 620px inside a 449px
                   // panel — and the Panel's `overflow-hidden` cut the Status column off
                   // with no scrollbar to reveal it. The `truncate` below was already
-                  // written for this and never engaged.
+                  // written for this and never engaged. "Absorb the remainder" still
+                  // needs a floor: below it the Agent column loses its header to
+                  // letter-by-letter wrapping while Runs/Status hold their own w-32. A
+                  // `min-w-*` on the `<th>` itself does NOT work — the fixed-layout
+                  // column-sizing algorithm only reads explicit `width` on first-row
+                  // cells and ignores `min-width` there. `min-w-96` on the `<table>`
+                  // (its own box, not a cell) sums the three columns' floors (w-32 x3)
+                  // so the `overflow-x-auto` wrapper above is what yields, not the column.
                   <div className="overflow-x-auto">
-                  <Table className="table-fixed">
+                  <Table className="table-fixed min-w-96">
                     <TableHeader>
                       <TableRow>
                         <TableHead className={WRAPPING_HEAD}>{t('agent_orchestrator.overview.trust.col.agent', 'Agent')}</TableHead>
@@ -525,7 +532,7 @@ export default function AgentFleetOverviewPage() {
                             and the header wraps to whatever the locale needs — a header
                             sized to the longest translation would spend the agent name's
                             space on whitespace in every other language. */}
-                        <TableHead className={`${WRAPPING_HEAD} w-24 text-right`}>{t('agent_orchestrator.overview.trust.col.runs', 'Runs')}</TableHead>
+                        <TableHead className={`${WRAPPING_HEAD} w-32 text-right`}>{t('agent_orchestrator.overview.trust.col.runs', 'Runs')}</TableHead>
                         {/* The panel is 2/5 of the row, so four columns leave the agent
                             name ~59px to live in below 2xl. Override is the least
                             identifying of them — a meter and a percentage — so it is the
