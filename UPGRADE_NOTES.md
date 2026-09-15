@@ -24,6 +24,33 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.7.0 → 0.7.1 (unreleased)
 
+### `OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS` opt-in now ANDs per word (#5803, tracked by #5383)
+
+`OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS`, introduced as an opt-in carve-out in #4622, still
+**defaults to `false`** — #5383 tracks making `search_tokens` tokenization semantically equivalent
+to ILIKE before this can default on with confidence, and that plan is unchanged. **No action is
+required for a default installation.**
+
+For a deployment that already sets it to `true`, or opts in now: a multi-word term is applied as
+**one containment predicate per word, ANDed**, instead of one verbatim literal —
+`?search=Warehouse 12` now becomes `name ILIKE '%Warehouse%' AND name ILIKE '%12%'` rather than
+`name ILIKE '%Warehouse 12%'`. That is deliberate: the token subquery this switch replaces matched a
+value carrying every token in any order with anything between them, so a single literal predicate
+would stop matching `Warehouse A 12`. Per-word ANDing preserves that word-order independence —
+`smith john` still matches a `John Smith` value — while applying the declared predicate on a
+plaintext column exactly, closing the #5803 defect for anyone who opts in: `?search=2026-08` no
+longer answers with a `2026-01` row, and `?search=08` filters instead of matching every row.
+Columns the tenant encryption map reports as encrypted keep the token path either way, because
+ILIKE against ciphertext cannot match.
+
+**What to check if you already opt in.** One capability narrows: with `OM_SEARCH_ENABLE_PARTIALS`
+on, the token index also matched prefixes, so `?search=warehou` could match `Warehouse` through
+expanded tokens even where the fragment was not a contiguous substring of the stored value.
+Containment matches only real substrings. Fuzzy, typo-tolerant search belongs on `SearchService`
+(`/api/search`, `/api/search/global`), which is unaffected by this change.
+
+Encrypted-column search is unchanged in both settings, and no schema, route, or response shape moved.
+
 ### `Locale` is now derived from an augmentable `LocaleRegistry` (no action required)
 
 `Locale` in `@open-mercato/shared/lib/i18n/config` used to be a closed union literal. It is now
