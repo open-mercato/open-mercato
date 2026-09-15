@@ -31,19 +31,19 @@ merges.
 | Module | File | Branch | Status |
 |---|---|---|---|
 | Contractor Registry | [`2026-09-06-contractor-registry.md`](https://github.com/open-mercato/open-mercato/pull/5955) + `...-implementation-guide.md` | `docs/contractor-registry` | Open, PR #5955 — full spec, closed external maintainer review (two blockers + six majors fixed); Final Compliance Report: ready for maintainer review; literature/real-system findings from the 2026-09-12 pass are proposed, not yet applied (see Notes below the table and Changelog) |
-| General Ledger core engine | [`2026-08-18-general-ledger-core-engine.md`](https://github.com/open-mercato/open-mercato/pull/5663) + `...-implementation-guide.md` | `docs/spec-072-general-ledger-core-engine` | Open, PR #5663 — see Changelog for the two 2026-09-14 corrections (leaf-postability guard ownership; `reverseJournalEntry` event emission) |
+| General Ledger core engine | [`2026-08-18-general-ledger-core-engine.md`](https://github.com/open-mercato/open-mercato/pull/5663) + `...-implementation-guide.md` | `docs/spec-072-general-ledger-core-engine` | Open, PR #5663 — see Changelog for the two 2026-09-14 corrections (leaf-postability guard ownership; `reverseJournalEntry` event emission); 2026-09-15 forward-pointer to Default Chart of Accounts (#6137) added, commit `7f8180e55` |
 | Accounts Payable (invoices) | [`2026-09-06-accounts-payable.md`](https://github.com/open-mercato/open-mercato/pull/5962) | `docs/accounts-payable` | Open, PR #5962 — merged latest `develop`; first `financial-spec-writing-process` pass applied (own new Literature & Prior Art section + real-system comparison, commit `d572a4001`), see Changelog |
 | Accounts Payable (payments) | [`2026-09-06-accounts-payable-payments.md`](https://github.com/open-mercato/open-mercato/pull/5962) | `docs/accounts-payable` | Open, PR #5962 |
 | Journal Entry Line Dimension | [`2026-09-06-journal-entry-line-dimension.md`](https://github.com/open-mercato/open-mercato/pull/5972) | `docs/journal-entry-line-dimension` | Open, PR #5972 — merged latest `develop`; first `financial-spec-writing-process` pass applied (own new Literature & Prior Art section + real-system comparison, commit `3b3780bd6`), see Changelog |
 | GL account balances / Trial Balance (ZSiO) | [`2026-09-09-general-ledger-account-balances.md`](https://github.com/open-mercato/open-mercato/pull/6013) | `docs/general-ledger-account-balances` | Open, PR #6013 — merged latest `develop`; first `financial-spec-writing-process` pass applied (own new Literature & Prior Art section + real-system comparison, commit `8afb415a7`), see Changelog |
 | Fixed Assets | [`2026-09-06-fixed-assets.md`](https://github.com/open-mercato/open-mercato/pull/6014) | `docs/fixed-assets` | Open, PR #6014 — full spec, adversarially reviewed, Final Compliance Report: fully compliant; merged latest `develop` and `financial-spec-writing-process` Steps 2-3 applied (own new Literature & Prior Art section + real-system comparison, commit `fc1cf0464`), see Changelog |
-| Posting Rules Engine (konto 490) | [`2026-09-06-posting-rules-engine.md`](https://github.com/open-mercato/open-mercato/pull/6015) | `docs/posting-rules-engine` | Open, PR #6015 — two external-maintainer review rounds (nine issues, then eight more), both resolved; see the spec's own Changelog |
+| Posting Rules Engine (konto 490) | [`2026-09-06-posting-rules-engine.md`](https://github.com/open-mercato/open-mercato/pull/6015) | `docs/posting-rules-engine` | Open, PR #6015 — two external-maintainer review rounds (nine issues, then eight more), both resolved; 2026-09-15 Out of scope annotated re: Default Chart of Accounts (#6137) — its own chart-of-accounts-import gap stays open, commit `72469b961`; see the spec's own Changelog |
 | This knowledge base | [`2026-09-08-financial-module-knowledge-base.md`](https://github.com/open-mercato/open-mercato/pull/6016) | `docs/financial-module-knowledge-base` | Open, PR #6016 (self-referential row — will read stale the moment this PR merges; treat "Open" as provisional) |
 | GL bulk cross-module read service | [`2026-09-10-general-ledger-bulk-read-service.md`](https://github.com/open-mercato/open-mercato/pull/6038) | `docs/general-ledger-bulk-read-service` | Open, PR #6038 — not yet reviewed by a maintainer; prerequisite for SPEC-010 below |
 | SPEC-010 — JPK_KR_PD (`financial_pl`, targets `official-modules`) | [`2026-09-11-jpk-kr-pd-financial-pl.md`](https://github.com/open-mercato/open-mercato/pull/6069) | `docs/jpk-kr-pd-financial-pl` (staged temporarily in this repo, not yet moved to `official-modules`) | Open, PR #6069 — first draft; depends on #6038 merging first; XSD verification pass done (see Changelog), one finding (Q4/`S_12_1`) still only proposed, not applied |
 | Accounts Receivable (sales invoice → GL posting) | [`2026-08-18-sales-invoice-gl-posting.md`](https://github.com/open-mercato/open-mercato/pull/6046) | `docs/sales-invoice-gl-posting` | Open, PR #6046 — full spec, one independent adversarial review pass (eleven issues fixed) plus a Final Compliance Matrix; not yet reviewed by a maintainer |
 | Cash & Bank Management | [`2026-09-10-cash-bank-management.md`](https://github.com/open-mercato/open-mercato/pull/6055) | `docs/cash-bank-management` | Open, PR #6055 — full spec, two independent adversarial review passes (14 + 5 issues fixed) plus a literature-verification pass; not yet reviewed by a maintainer |
-| Default Chart of Accounts (Polish plan kont importer) | [`2026-09-15-default-chart-of-accounts.md`](https://github.com/open-mercato/open-mercato/pull/6137) | `docs/default-chart-of-accounts` | Open, PR #6137 — first document in this family to carry the full `financial-spec-writing-process` (own Literature & Prior Art section + real-system comparison) from its very first draft, see Changelog |
+| Default Chart of Accounts (Polish plan kont importer) | [`2026-09-15-default-chart-of-accounts.md`](https://github.com/open-mercato/open-mercato/pull/6137) | `docs/default-chart-of-accounts` | Open, PR #6137 — first document in this family to carry the full `financial-spec-writing-process` (own Literature & Prior Art section + real-system comparison) from its very first draft; cross-spec pass against every sibling spec found and fixed a real defect (070/071/072 split vs. Fixed Assets, commit `981dbf470`), see Changelog |
 | Multi-Currency, Budgeting & Forecasting, Cost Accounting | — | — | Not started (SPEC-024 only) |
 
 **`financial-pl` (JPK_V7/KSeF) lives outside this repo.** It's a real,
@@ -1063,3 +1063,47 @@ ever recorded here (marked **proposed, not applied** — see §1 Notes):
   "account numbers are illustrative, never literal" convention (§2)
   directly informed that document's own Data Models section. No
   changes needed to §2.
+
+### 2026-09-15 (cont. — Default Chart of Accounts cross-spec consistency pass, at the user's request)
+
+- Per the user's request to check whether any sibling spec needed
+  updating relative to the new Default Chart of Accounts document (or
+  vice versa), read every sibling spec directly (GL core engine, JELD,
+  Posting Rules Engine, Accounts Payable, GL account balances, AR
+  sales-invoice-GL-posting, Fixed Assets) rather than relying on this
+  knowledge base's own summaries, per `financial-spec-citation-check`.
+- **Found and fixed a real defect in the new document**: its Data
+  Models draft modeled zespół 0's `070` as one combined "Umorzenie
+  środków trwałych oraz wartości niematerialnych i prawnych" account,
+  with no `072` account at all. Fixed Assets' own 2026-09-09 Changelog
+  entry ("dedicated accumulated-impairment account, corrected against
+  a reference chart of accounts") had already established, against a
+  real accounting-team-supplied wzorcowy plan kont, that Polish
+  practice keeps `070` (Umorzenie środków trwałych), `071` (Umorzenie
+  wartości niematerialnych i prawnych), and `072` (Odpisy
+  aktualizujące — impairment) as three genuinely separate accounts,
+  and gave `FixedAsset` its own dedicated
+  `ledgerAccumulatedImpairmentAccountId` expecting `072` to exist.
+  Fixed in `2026-09-15-default-chart-of-accounts.md`, commit
+  `981dbf470`: split `070`/`071`, added `072`, totals updated from
+  36/40 to 38/42 `LedgerAccountType`/`LedgerAccount` rows.
+- **Posting Rules Engine** (#6015): its own Out of scope already named
+  "a general chart-of-accounts import mechanism... a distinct,
+  `ledger`-owned feature this module depends on existing... but does
+  not itself build" (added 2026-09-14). Annotated with an
+  **Update (2026-09-15)** pointing to the new document, commit
+  `72469b961` — while explicitly recording that the new document is
+  *narrower*: it ships one fixed template, not the general "import a
+  tenant's own arbitrary numbering scheme" capability that bullet
+  describes. That gap stays open.
+- **GL core engine** (#5663): its "no default chart of accounts is
+  seeded; tenants build their own" statement is a plain architecture
+  fact, not a flagged deferred item, so no correction was needed —
+  added a one-line forward-pointer for discoverability, commit
+  `7f8180e55`.
+- **JELD, Accounts Payable, GL account balances, AR sales-invoice-GL-
+  posting**: read in full; none make an account-numbering or seeding
+  claim the new document contradicts or duplicates (AP/AR both confirm
+  the existing "accountant configures via Module Config, no
+  auto-picked account" pattern the new document is fully compatible
+  with). No changes needed to any of the four.
