@@ -4,6 +4,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import { ensureOrganizationScope } from '@open-mercato/shared/lib/commands/scope'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
@@ -27,6 +28,27 @@ type ExecuteWmsCustomPostRouteOptions<TInput, TResult> = {
   mapSuccess: (result: TResult) => Record<string, unknown>
 }
 
+function resolveBodyOrganizationId(body: Record<string, unknown>): string | null {
+  const raw = body.organizationId
+  if (typeof raw !== 'string') return null
+  const trimmed = raw.trim()
+  return trimmed.length > 0 ? trimmed : null
+}
+
+/**
+ * Shared POST helper for WMS custom write routes.
+ *
+ * Organization scoping:
+ * - When the body includes `organizationId`, pass it through and validate with
+ *   `ensureOrganizationScope` (allowed org ids / Pattern C). Do not silently
+ *   overwrite with the session-selected org — that mis-routes multi-org writes.
+ * - When the body omits `organizationId`, default to the session selected/auth org.
+ * - `tenantId` is always taken from auth (never from the body).
+ *
+ * Intentional session-only exception: barcode scan resolve/receive/putaway routes
+ * force session org onto the request body *before* calling this helper so resolve
+ * lookups cannot probe another org. That pre-scope policy stays on those routes.
+ */
 export async function executeWmsCustomPostRoute<TInput, TResult>(
   options: ExecuteWmsCustomPostRouteOptions<TInput, TResult>,
 ) {
@@ -51,12 +73,12 @@ export async function executeWmsCustomPostRoute<TInput, TResult>(
       request: options.request,
     }
     const body = await readJsonSafe<Record<string, unknown>>(options.request, {})
-    const organizationId = ctx.selectedOrganizationId ?? auth.orgId ?? null
+    const sessionOrganizationId = ctx.selectedOrganizationId ?? auth.orgId ?? null
+    const organizationId = resolveBodyOrganizationId(body) ?? sessionOrganizationId
     if (!organizationId) {
       throw new CrudHttpError(400, { error: 'organization_scope_required' })
     }
-    // Scope tenant/org from auth/session — never trust body organizationId/tenantId
-    // (same contract as scan/receive and resolve-location/lot).
+    ensureOrganizationScope(ctx, organizationId)
     const scopedBody = {
       ...body,
       tenantId: auth.tenantId,
@@ -70,7 +92,7 @@ export async function executeWmsCustomPostRoute<TInput, TResult>(
       auth: {
         userId: auth.sub,
         tenantId: auth.tenantId,
-        organizationId: ctx.selectedOrganizationId,
+        organizationId,
       },
       input: {
         resourceKind: resource.resourceKind,
@@ -108,7 +130,7 @@ export async function executeWmsCustomPostRoute<TInput, TResult>(
         em: container.resolve('em'),
         container,
         userId: auth.sub,
-        organizationId: ctx.selectedOrganizationId,
+        organizationId,
         tenantId: auth.tenantId,
       },
     })

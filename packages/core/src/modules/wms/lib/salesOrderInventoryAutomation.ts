@@ -381,8 +381,13 @@ type StockIncreasePayload = {
  * catalog variant. Idempotent: reserveInventoryForConfirmedOrder only fills
  * remaining shortfall. No-ops when the sales integration toggle is off or
  * sales query peers are unavailable.
+ *
+ * Candidate discovery starts from currently reservable (confirmed,
+ * non-terminal fulfillment) sales orders — not lifetime `sales_order_line`
+ * history for the variant — then keeps only orders that still reference the
+ * received catalog variant. That bounds work to the open order set.
  */
-const REEVAL_LINE_PAGE_SIZE = 500
+const REEVAL_ORDER_PAGE_SIZE = 500
 
 export async function reevaluateReservationsAfterStockIncrease(
   payload: StockIncreasePayload,
@@ -404,63 +409,69 @@ export async function reevaluateReservationsAfterStockIncrease(
     return
   }
 
-  // Page through matching lines so >500 references to the same variant still re-eval.
+  // Page reservable orders, then intersect with lines for this variant.
   // Process each page immediately (bounded memory); reserveInventoryForConfirmedOrder is idempotent.
   let page = 1
 
   for (;;) {
-    let lineItems: Array<SalesOrderLineRow & { order_id?: string | null }>
+    let orderItems: SalesOrderRow[]
     try {
-      const result = await queryEngine.query<SalesOrderLineRow & { order_id?: string | null }>(
-        E.sales.sales_order_line,
-        {
-          tenantId: scope.tenantId,
-          organizationId: scope.organizationId,
-          filters: { product_variant_id: { $eq: payload.catalogVariantId } },
-          fields: ['id', 'order_id', 'product_variant_id'],
-          page: { page, pageSize: REEVAL_LINE_PAGE_SIZE },
-        },
-      )
-      lineItems = result.items
+      const result = await queryEngine.query<SalesOrderRow>(E.sales.sales_order, {
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        filters: { status: { $eq: 'confirmed' } },
+        fields: ['id', 'status', 'fulfillment_status'],
+        page: { page, pageSize: REEVAL_ORDER_PAGE_SIZE },
+      })
+      orderItems = result.items
     } catch {
       return
     }
 
-    if (lineItems.length === 0) break
+    if (orderItems.length === 0) break
 
-    const pageOrderIds = Array.from(
-      new Set(
-        lineItems
-          .map((line) => (typeof line.order_id === 'string' ? line.order_id : null))
-          .filter((value): value is string => Boolean(value)),
-      ),
-    )
+    const reservableOrderIds = orderItems
+      .filter((order) => isReservableOrderStatus(order.status, order.fulfillment_status))
+      .map((order) => order.id)
+      .filter((value): value is string => typeof value === 'string' && value.length > 0)
 
-    if (pageOrderIds.length > 0) {
-      let reservableOrderIds: string[] = []
+    if (reservableOrderIds.length > 0) {
+      const matchingOrderIds = new Set<string>()
+      let linePage = 1
       try {
-        const orders = await queryEngine.query<SalesOrderRow>(E.sales.sales_order, {
-          tenantId: scope.tenantId,
-          organizationId: scope.organizationId,
-          filters: { id: { $in: pageOrderIds } },
-          fields: ['id', 'status', 'fulfillment_status'],
-          page: { page: 1, pageSize: pageOrderIds.length },
-        })
-        reservableOrderIds = orders.items
-          .filter((order) => isReservableOrderStatus(order.status, order.fulfillment_status))
-          .map((order) => order.id)
-          .filter((value): value is string => typeof value === 'string' && value.length > 0)
+        for (;;) {
+          const lines = await queryEngine.query<SalesOrderLineRow & { order_id?: string | null }>(
+            E.sales.sales_order_line,
+            {
+              tenantId: scope.tenantId,
+              organizationId: scope.organizationId,
+              filters: {
+                product_variant_id: { $eq: payload.catalogVariantId },
+                order_id: { $in: reservableOrderIds },
+              },
+              fields: ['id', 'order_id', 'product_variant_id'],
+              page: { page: linePage, pageSize: REEVAL_ORDER_PAGE_SIZE },
+            },
+          )
+          for (const line of lines.items) {
+            if (typeof line.order_id === 'string' && line.order_id.length > 0) {
+              matchingOrderIds.add(line.order_id)
+            }
+          }
+          if (lines.items.length < REEVAL_ORDER_PAGE_SIZE) break
+          linePage += 1
+        }
       } catch (error) {
-        // Transient peer failure on one page must not abort later pages.
-        logger.warn('Reservation re-eval order lookup failed; continuing next page', {
+        // Transient peer failure on one page must not abort later order pages.
+        logger.warn('Reservation re-eval line lookup failed; continuing next page', {
           catalogVariantId: payload.catalogVariantId,
           page,
-          orderCount: pageOrderIds.length,
+          orderCount: reservableOrderIds.length,
           error: error instanceof Error ? error.message : String(error),
         })
       }
 
-      for (const orderId of reservableOrderIds) {
+      for (const orderId of matchingOrderIds) {
         try {
           await reserveInventoryForConfirmedOrder(
             {
@@ -476,7 +487,7 @@ export async function reevaluateReservationsAfterStockIncrease(
       }
     }
 
-    if (lineItems.length < REEVAL_LINE_PAGE_SIZE) break
+    if (orderItems.length < REEVAL_ORDER_PAGE_SIZE) break
     page += 1
   }
 }

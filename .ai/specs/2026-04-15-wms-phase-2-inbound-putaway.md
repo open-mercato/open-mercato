@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Status** | Ready for Review (rev 43 — OM Medium: QC one-way recovery + vendor lookup fail-closed + template note 2026-08-25) |
+| **Status** | Ready for Review (rev 46 — pkarw Majors: custom-route org pass-through + reservable-order re-eval 2026-09-15) |
 | **Author** | Cursor Agent |
 | **Created** | 2026-04-15 |
 | **Related** | 2026-04-15-wms-roadmap, 2026-04-15-wms-phase-1-core-inventory, Issue #388, ANALYSIS-2026-08-12-wms-phase-2-inbound-putaway |
@@ -574,6 +574,12 @@ None.
 - See pre-implement analysis: `.ai/specs/analysis/ANALYSIS-2026-08-12-wms-phase-2-inbound-putaway.md`
 
 ## Changelog
+
+### 2026-09-15 (rev 46) — pkarw Majors: custom-route org pass-through + reservable-order re-eval
+- `executeWmsCustomPostRoute`: pass through body `organizationId` when present and validate with `ensureOrganizationScope`; session/auth org is only the default when body omits it (no silent multi-org overwrite). `tenantId` still always from auth. Scan resolve/receive/putaway keep session-only resolve by forcing session org before this helper.
+- `reevaluateReservationsAfterStockIncrease`: discover candidates from confirmed/reservable sales orders (paginated), then intersect with lines for the received variant — no longer pages lifetime `sales_order_line` history for the variant
+- Tests: helpers org pass-through/403/default; re-eval starts from confirmed orders, skips historical line scans, paginates open-order pages, continues after mid-run line lookup failure
+- `UPGRADE_NOTES.md` documents the custom-route org contract change
 
 ### 2026-08-26 (rev 45) — OM Critical/High: i18n sync + staging not reservable
 - Critical: sort WMS i18n keys (`en`/`pl`/`es`/`de`/`ko`) so `yarn i18n:check-sync` passes

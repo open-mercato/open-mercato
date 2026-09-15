@@ -50,10 +50,10 @@ describe('reevaluateReservationsAfterStockIncrease', () => {
     const query = jest
       .fn()
       .mockResolvedValueOnce({
-        items: [{ id: 'line-1', order_id: 'order-1', product_variant_id: 'variant-1' }],
+        items: [{ id: 'order-1', status: 'confirmed', fulfillment_status: 'unfulfilled' }],
       })
       .mockResolvedValueOnce({
-        items: [{ id: 'order-1', status: 'confirmed', fulfillment_status: 'unfulfilled' }],
+        items: [{ id: 'line-1', order_id: 'order-1', product_variant_id: 'variant-1' }],
       })
       .mockResolvedValueOnce({
         items: [{ id: 'order-1', order_number: 'SO-1' }],
@@ -94,35 +94,31 @@ describe('reevaluateReservationsAfterStockIncrease', () => {
     )
 
     expect(query).toHaveBeenCalledWith(
-      expect.stringContaining('sales_order_line'),
+      expect.stringContaining('sales_order'),
       expect.objectContaining({
-        filters: { product_variant_id: { $eq: 'variant-1' } },
+        filters: { status: { $eq: 'confirmed' } },
       }),
     )
     expect(query).toHaveBeenCalledWith(
-      expect.stringContaining('sales_order'),
+      expect.stringContaining('sales_order_line'),
       expect.objectContaining({
-        filters: { id: { $in: ['order-1'] } },
+        filters: {
+          product_variant_id: { $eq: 'variant-1' },
+          order_id: { $in: ['order-1'] },
+        },
       }),
     )
   })
 
-  it('skips non-confirmed orders during re-evaluation', async () => {
+  it('does not scan lifetime line history for non-confirmed orders', async () => {
     const execute = jest.fn(async () => ({ result: {} }))
-    const query = jest
-      .fn()
-      .mockResolvedValueOnce({
-        items: [
-          { id: 'line-1', order_id: 'draft-1', product_variant_id: 'variant-1' },
-          { id: 'line-2', order_id: 'cancelled-1', product_variant_id: 'variant-1' },
-        ],
-      })
-      .mockResolvedValueOnce({
-        items: [
-          { id: 'draft-1', status: 'draft', fulfillment_status: null },
-          { id: 'cancelled-1', status: 'cancelled', fulfillment_status: null },
-        ],
-      })
+    const query = jest.fn(async (entity: string) => {
+      if (String(entity).includes('sales_order') && !String(entity).includes('sales_order_line')) {
+        // Open-set query returns only currently confirmed orders (none here).
+        return { items: [] }
+      }
+      throw new Error('sales_order_line must not be queried when no reservable orders exist')
+    })
 
     await reevaluateReservationsAfterStockIncrease(
       {
@@ -148,6 +144,47 @@ describe('reevaluateReservationsAfterStockIncrease', () => {
     )
 
     expect(execute).not.toHaveBeenCalled()
+    expect(query.mock.calls.every(([entity]) => !String(entity).includes('sales_order_line'))).toBe(
+      true,
+    )
+  })
+
+  it('skips confirmed-but-terminal fulfillment orders during re-evaluation', async () => {
+    const execute = jest.fn(async () => ({ result: {} }))
+    const query = jest.fn().mockResolvedValueOnce({
+      items: [
+        { id: 'fulfilled-1', status: 'confirmed', fulfillment_status: 'fulfilled' },
+        { id: 'cancelled-1', status: 'confirmed', fulfillment_status: 'cancelled' },
+      ],
+    })
+
+    await reevaluateReservationsAfterStockIncrease(
+      {
+        catalogVariantId: 'variant-1',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+      },
+      {
+        resolve: (name: string) => {
+          if (name === 'featureTogglesService') {
+            return {
+              getBoolConfig: jest.fn().mockResolvedValue({ ok: true, value: true }),
+            }
+          }
+          if (name === 'em') {
+            return { fork: () => ({}), persist: jest.fn(), create: jest.fn(), flush: jest.fn() }
+          }
+          if (name === 'commandBus') return { execute }
+          if (name === 'queryEngine') return { query }
+          throw new Error(`Unexpected resolve: ${name}`)
+        },
+      },
+    )
+
+    expect(execute).not.toHaveBeenCalled()
+    expect(query.mock.calls.every(([entity]) => !String(entity).includes('sales_order_line'))).toBe(
+      true,
+    )
   })
 
   it('swallows query-engine failures when sales peers are absent', async () => {
@@ -178,46 +215,80 @@ describe('reevaluateReservationsAfterStockIncrease', () => {
     ).resolves.toBeUndefined()
   })
 
-  it('paginates sales order lines beyond a single 500-row page', async () => {
+  it('paginates confirmed orders beyond a single 500-row page and skips historical line scans', async () => {
     const execute = jest.fn(async () => ({ result: {} }))
-    const linePageSize = 500
-    const page1Lines = Array.from({ length: linePageSize }, (_, index) => ({
-      id: `line-p1-${index}`,
-      order_id: 'order-page-1',
-      product_variant_id: 'variant-1',
+    const orderPageSize = 500
+    const page1Orders = Array.from({ length: orderPageSize }, (_, index) => ({
+      id: `order-page-1-${index}`,
+      status: 'confirmed',
+      fulfillment_status: 'unfulfilled',
     }))
-    const query = jest.fn(async (entity: string, options: { page?: { page?: number; pageSize?: number } }) => {
-      if (String(entity).includes('sales_order_line')) {
-        const page = options.page?.page ?? 1
-        if (page === 1) {
-          expect(options.page?.pageSize).toBe(linePageSize)
-          return { items: page1Lines }
-        }
-        if (page === 2) {
+    const query = jest.fn(
+      async (
+        entity: string,
+        options: {
+          page?: { page?: number; pageSize?: number }
+          filters?: Record<string, unknown>
+        },
+      ) => {
+        if (String(entity).includes('sales_order') && !String(entity).includes('sales_order_line')) {
+          // Candidate discovery pages confirmed orders by status.
+          if ((options.filters as { status?: unknown } | undefined)?.status) {
+            const page = options.page?.page ?? 1
+            expect(options.filters).toEqual({ status: { $eq: 'confirmed' } })
+            expect(options.page?.pageSize).toBe(orderPageSize)
+            if (page === 1) return { items: page1Orders }
+            if (page === 2) {
+              return {
+                items: [
+                  { id: 'order-page-2', status: 'confirmed', fulfillment_status: 'unfulfilled' },
+                ],
+              }
+            }
+            return { items: [] }
+          }
+          // Per-order load inside reserveInventoryForConfirmedOrder.
+          const orderId = (options.filters as { id?: { $eq?: string } } | undefined)?.id?.$eq
           return {
-            items: [
-              {
-                id: 'line-p2-0',
-                order_id: 'order-page-2',
-                product_variant_id: 'variant-1',
-              },
-            ],
+            items: orderId
+              ? [{ id: orderId, order_number: `SO-${orderId}`, status: 'confirmed' }]
+              : [],
           }
         }
-        return { items: [] }
-      }
-      if (String(entity).includes('sales_order')) {
-        const ids = (options as { filters?: { id?: { $in?: string[] } } }).filters?.id?.$in ?? []
-        return {
-          items: ids.map((id) => ({
-            id,
-            status: 'draft',
-            fulfillment_status: null,
-          })),
+        if (String(entity).includes('sales_order_line')) {
+          const orderIds = (options.filters?.order_id as { $in?: string[] } | undefined)?.$in
+          // Candidate intersection: only the last order on page 1 and page-2 order.
+          if (Array.isArray(orderIds)) {
+            const matching = orderIds
+              .filter((id) => id === `order-page-1-${orderPageSize - 1}` || id === 'order-page-2')
+              .map((id) => ({
+                id: `line-${id}`,
+                order_id: id,
+                product_variant_id: 'variant-1',
+              }))
+            return { items: matching }
+          }
+          // Per-order lines inside reserveInventoryForConfirmedOrder.
+          const singleOrderId = (options.filters?.order_id as { $eq?: string } | undefined)?.$eq
+          if (typeof singleOrderId === 'string') {
+            return {
+              items: [
+                {
+                  id: `line-${singleOrderId}`,
+                  kind: 'product',
+                  product_variant_id: 'variant-1',
+                  quantity: '1',
+                  line_number: 1,
+                  order_id: singleOrderId,
+                },
+              ],
+            }
+          }
+          return { items: [] }
         }
-      }
-      return { items: [] }
-    })
+        return { items: [] }
+      },
+    )
 
     await reevaluateReservationsAfterStockIncrease(
       {
@@ -242,64 +313,88 @@ describe('reevaluateReservationsAfterStockIncrease', () => {
       },
     )
 
-    const lineQueries = query.mock.calls.filter(([entity]) => String(entity).includes('sales_order_line'))
-    expect(lineQueries).toHaveLength(2)
-    expect(lineQueries[0][1]).toEqual(
-      expect.objectContaining({ page: { page: 1, pageSize: linePageSize } }),
+    const candidateOrderQueries = query.mock.calls.filter(
+      ([entity, options]) =>
+        String(entity).includes('sales_order') &&
+        !String(entity).includes('sales_order_line') &&
+        Boolean((options as { filters?: { status?: unknown } }).filters?.status),
     )
-    expect(lineQueries[1][1]).toEqual(
-      expect.objectContaining({ page: { page: 2, pageSize: linePageSize } }),
+    expect(candidateOrderQueries).toHaveLength(2)
+    expect(candidateOrderQueries[0][1]).toEqual(
+      expect.objectContaining({ page: { page: 1, pageSize: orderPageSize } }),
+    )
+    expect(candidateOrderQueries[1][1]).toEqual(
+      expect.objectContaining({ page: { page: 2, pageSize: orderPageSize } }),
     )
 
-    const orderIdFilters = query.mock.calls
-      .filter(([entity]) => String(entity).includes('sales_order') && !String(entity).includes('sales_order_line'))
-      .map(([, options]) => (options as { filters?: { id?: { $in?: string[] } } }).filters?.id?.$in ?? [])
-    expect(orderIdFilters).toEqual(expect.arrayContaining([['order-page-1'], ['order-page-2']]))
-    expect(execute).not.toHaveBeenCalled()
+    const candidateLineFilters = query.mock.calls
+      .filter(([entity, options]) => {
+        if (!String(entity).includes('sales_order_line')) return false
+        const orderFilter = (options as { filters?: { order_id?: { $in?: string[] } } }).filters
+          ?.order_id
+        return Array.isArray(orderFilter?.$in)
+      })
+      .map(([, options]) => (options as { filters?: { order_id?: { $in?: string[] }; product_variant_id?: unknown } }).filters)
+    expect(candidateLineFilters).toHaveLength(2)
+    expect(candidateLineFilters[0]?.order_id?.$in).toHaveLength(orderPageSize)
+    expect(candidateLineFilters[1]?.order_id?.$in).toEqual(['order-page-2'])
+    expect(
+      candidateLineFilters.every(
+        (filters) =>
+          filters?.product_variant_id != null && Array.isArray(filters?.order_id?.$in),
+      ),
+    ).toBe(true)
   })
 
-  it('continues to later line pages when a mid-run order lookup fails', async () => {
+  it('continues to later order pages when a mid-run line lookup fails', async () => {
     const execute = jest.fn(async () => ({ result: {} }))
-    const linePageSize = 500
-    const page1Lines = Array.from({ length: linePageSize }, (_, index) => ({
-      id: `line-p1-${index}`,
-      order_id: 'order-page-1',
-      product_variant_id: 'variant-1',
+    const orderPageSize = 500
+    const page1Orders = Array.from({ length: orderPageSize }, (_, index) => ({
+      id: `order-page-1-${index}`,
+      status: 'confirmed',
+      fulfillment_status: 'unfulfilled',
     }))
-    const query = jest.fn(async (entity: string, options: { page?: { page?: number; pageSize?: number } }) => {
-      if (String(entity).includes('sales_order_line')) {
-        const page = options.page?.page ?? 1
-        if (page === 1) {
-          return { items: page1Lines }
+    const query = jest.fn(
+      async (
+        entity: string,
+        options: {
+          page?: { page?: number; pageSize?: number }
+          filters?: Record<string, unknown>
+        },
+      ) => {
+        if (String(entity).includes('sales_order') && !String(entity).includes('sales_order_line')) {
+          if ((options.filters as { status?: unknown } | undefined)?.status) {
+            const page = options.page?.page ?? 1
+            if (page === 1) return { items: page1Orders }
+            if (page === 2) {
+              return {
+                items: [
+                  { id: 'order-page-2', status: 'confirmed', fulfillment_status: 'unfulfilled' },
+                ],
+              }
+            }
+            return { items: [] }
+          }
+          return { items: [] }
         }
-        if (page === 2) {
+        if (String(entity).includes('sales_order_line')) {
+          const orderIds = (options.filters?.order_id as { $in?: string[] } | undefined)?.$in ?? []
+          if (orderIds.includes('order-page-1-0')) {
+            throw new Error('transient sales order line lookup failure')
+          }
           return {
-            items: [
-              {
-                id: 'line-p2-0',
-                order_id: 'order-page-2',
+            items: orderIds
+              .filter((id) => id === 'order-page-2')
+              .map((id) => ({
+                id: `line-${id}`,
+                order_id: id,
                 product_variant_id: 'variant-1',
-              },
-            ],
+              })),
           }
         }
         return { items: [] }
-      }
-      if (String(entity).includes('sales_order') && !String(entity).includes('sales_order_line')) {
-        const ids = (options as { filters?: { id?: { $in?: string[] } } }).filters?.id?.$in ?? []
-        if (ids.includes('order-page-1')) {
-          throw new Error('transient sales order lookup failure')
-        }
-        return {
-          items: ids.map((id) => ({
-            id,
-            status: 'draft',
-            fulfillment_status: null,
-          })),
-        }
-      }
-      return { items: [] }
-    })
+      },
+    )
 
     await reevaluateReservationsAfterStockIncrease(
       {
@@ -324,19 +419,17 @@ describe('reevaluateReservationsAfterStockIncrease', () => {
       },
     )
 
-    const lineQueries = query.mock.calls.filter(([entity]) => String(entity).includes('sales_order_line'))
-    expect(lineQueries).toHaveLength(2)
-    expect(lineQueries[1][1]).toEqual(
-      expect.objectContaining({ page: { page: 2, pageSize: linePageSize } }),
+    const candidateOrderQueries = query.mock.calls.filter(
+      ([entity, options]) =>
+        String(entity).includes('sales_order') &&
+        !String(entity).includes('sales_order_line') &&
+        Boolean((options as { filters?: { status?: unknown } }).filters?.status),
     )
-
-    const orderIdFilters = query.mock.calls
-      .filter(
-        ([entity]) =>
-          String(entity).includes('sales_order') && !String(entity).includes('sales_order_line'),
-      )
-      .map(([, options]) => (options as { filters?: { id?: { $in?: string[] } } }).filters?.id?.$in ?? [])
-    expect(orderIdFilters).toEqual([['order-page-1'], ['order-page-2']])
+    expect(candidateOrderQueries).toHaveLength(2)
+    expect(candidateOrderQueries[1][1]).toEqual(
+      expect.objectContaining({ page: { page: 2, pageSize: orderPageSize } }),
+    )
+    // Page-2 line lookup succeeds but reserve no-ops without stock; page-1 line lookup failed.
     expect(execute).not.toHaveBeenCalled()
   })
 })
