@@ -1365,11 +1365,24 @@ export default function EditCatalogProductPage({
         updateResult.result && typeof updateResult.result === "object"
           ? (updateResult.result as { updatedAt?: string | null }).updatedAt
           : null;
-      if (typeof freshUpdatedAt === "string" && freshUpdatedAt.length > 0) {
-        setInitialValues((prev) =>
-          prev ? { ...prev, updatedAt: freshUpdatedAt } : prev,
-        );
-      }
+      // Re-sync initialValues to exactly what was just saved — not just
+      // updatedAt. CrudForm reconciles `values` against `initialValues`
+      // whenever the latter changes, re-applying every field the user isn't
+      // still mid-edit on; refreshing only `updatedAt` here left every other
+      // field pinned to its pre-save snapshot, so the very next reconcile
+      // (triggered by this same update) snapped the form back to stale data.
+      setInitialValues((prev) =>
+        prev
+          ? {
+              ...prev,
+              ...formValues,
+              updatedAt:
+                typeof freshUpdatedAt === "string" && freshUpdatedAt.length > 0
+                  ? freshUpdatedAt
+                  : prev.updatedAt,
+            }
+          : prev,
+      );
       const previousConversionIds = new Set(
         initialConversionsRef.current
           .map((entry) => toTrimmedOrNull(entry.id))
