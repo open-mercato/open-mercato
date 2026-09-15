@@ -1,8 +1,12 @@
 /**
  * #6119 — `customers.manage_deal_comment` and `customers.manage_deal_activity`
  * must resolve the deal's timeline owner through the deal link tables, using
- * the relation names the entities actually define (`person`, `company`).
+ * only what those entities map: the `deal` / `person` / `company` relations and
+ * no tenant or organization column.
  */
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
+
 const findOneWithDecryptionMock = jest.fn()
 const findWithDecryptionMock = jest.fn()
 const runMock = jest.fn()
@@ -42,6 +46,29 @@ const DEAL = {
   updatedAt: new Date('2026-09-01T10:00:00Z'),
 }
 
+/**
+ * Property names MikroORM maps on an entity, read from `data/entities.ts`, so the
+ * `findOne` fake below rejects criteria and populate paths the real ORM rejects
+ * ("Trying to query by not existing property …"). A fake that accepted anything
+ * let the first version of this fix keep a `tenantId` filter the link tables do
+ * not have.
+ */
+function mappedProperties(className: string): string[] {
+  const source = readFileSync(path.join(__dirname, '../../data/entities.ts'), 'utf8')
+  const start = source.indexOf(`export class ${className} {`)
+  if (start < 0) throw new Error(`entity ${className} not found in data/entities.ts`)
+  const body = source.slice(start, source.indexOf('\n}', start))
+  return Array.from(
+    body.matchAll(/@(?:PrimaryKey|Property|ManyToOne|OneToOne)\([^\n]*\)\n\s+(\w+)[!?]?:/g),
+    (match) => match[1],
+  )
+}
+
+const LINK_ENTITIES = new Map<unknown, { name: string; properties: string[] }>([
+  [CustomerDealPersonLink, { name: 'CustomerDealPersonLink', properties: mappedProperties('CustomerDealPersonLink') }],
+  [CustomerDealCompanyLink, { name: 'CustomerDealCompanyLink', properties: mappedProperties('CustomerDealCompanyLink') }],
+])
+
 function findTool(name: string) {
   const tool = activitiesTasksAiTools.find((entry) => entry.name === name)
   if (!tool) throw new Error(`tool ${name} missing`)
@@ -51,11 +78,21 @@ function findTool(name: string) {
 function makeDealCtx(links: { person?: unknown; company?: unknown }) {
   const ctx = makeCtx()
   const em = ctx.em as unknown as Record<string, jest.Mock>
-  em.findOne = jest.fn(async (entity: unknown) => {
-    if (entity === CustomerDealPersonLink) return links.person ?? null
-    if (entity === CustomerDealCompanyLink) return links.company ?? null
-    return null
-  })
+  em.findOne = jest.fn(
+    async (entity: unknown, where: Record<string, unknown>, options?: { populate?: string[] }) => {
+      const meta = LINK_ENTITIES.get(entity)
+      if (meta) {
+        for (const key of [...Object.keys(where ?? {}), ...(options?.populate ?? [])]) {
+          if (!meta.properties.includes(key)) {
+            throw new Error(`Trying to query by not existing property ${meta.name}.${key}`)
+          }
+        }
+      }
+      if (entity === CustomerDealPersonLink) return links.person ?? null
+      if (entity === CustomerDealCompanyLink) return links.company ?? null
+      return null
+    },
+  )
   return ctx
 }
 
@@ -73,12 +110,25 @@ beforeEach(() => {
   runMock.mockResolvedValue({ success: true, statusCode: 201, data: { id: 'created-1' } })
 })
 
+describe('deal link fake mirrors the entity mapping', () => {
+  it('reads the real link properties from data/entities.ts', () => {
+    const person = LINK_ENTITIES.get(CustomerDealPersonLink)!.properties
+    const company = LINK_ENTITIES.get(CustomerDealCompanyLink)!.properties
+    expect(person).toEqual(expect.arrayContaining(['id', 'deal', 'person']))
+    expect(company).toEqual(expect.arrayContaining(['id', 'deal', 'company']))
+    for (const unmapped of ['tenantId', 'organizationId', 'personEntity', 'companyEntity']) {
+      expect(person).not.toContain(unmapped)
+      expect(company).not.toContain(unmapped)
+    }
+  })
+})
+
 describe('customers.manage_deal_comment — timeline owner from the deal links (#6119)', () => {
   const tool = findTool('customers.manage_deal_comment')
 
-  it('populates the `person` relation and posts the comment on the linked person', async () => {
-    // Before #6119 the populate hint was `personEntity`, which the entity does
-    // not define, so MikroORM rejected the lookup for every deal.
+  it('queries the links by the scope-checked deal id and posts the comment on the linked person', async () => {
+    // Before #6119 the lookup populated `personEntity` and filtered by
+    // `tenantId`; the link entity maps neither, so MikroORM rejected it.
     const ctx = makeDealCtx({ person: { id: 'link-1', person: { id: PERSON_ID } } })
 
     const result = (await tool.handler(
@@ -89,11 +139,24 @@ describe('customers.manage_deal_comment — timeline owner from the deal links (
     const em = ctx.em as unknown as { findOne: jest.Mock }
     expect(em.findOne).toHaveBeenCalledWith(
       CustomerDealPersonLink,
-      { deal: DEAL_ID, tenantId: 'tenant-1' },
+      { deal: DEAL_ID },
       { populate: ['person'] },
     )
     expect(runnerBody()).toMatchObject({ dealId: DEAL_ID, entityId: PERSON_ID })
     expect(result.commentId).toBe('created-1')
+  })
+
+  it('only looks up links after the deal itself passed the tenant/organization scope check', async () => {
+    // The link tables carry no scope columns: the deal lookup is the isolation.
+    findOneWithDecryptionMock.mockResolvedValue(null)
+    const ctx = makeDealCtx({ person: { id: 'link-1', person: { id: PERSON_ID } } })
+
+    await expect(
+      tool.handler({ operation: 'create', dealId: DEAL_ID, body: 'note' }, ctx as any),
+    ).rejects.toThrow(/is not accessible to the caller/)
+    const em = ctx.em as unknown as { findOne: jest.Mock }
+    expect(em.findOne).not.toHaveBeenCalled()
+    expect(runMock).not.toHaveBeenCalled()
   })
 
   it('falls back to the `company` relation when no person is linked', async () => {
@@ -104,7 +167,7 @@ describe('customers.manage_deal_comment — timeline owner from the deal links (
     const em = ctx.em as unknown as { findOne: jest.Mock }
     expect(em.findOne).toHaveBeenCalledWith(
       CustomerDealCompanyLink,
-      { deal: DEAL_ID, tenantId: 'tenant-1' },
+      { deal: DEAL_ID },
       { populate: ['company'] },
     )
     expect(runnerBody().entityId).toBe(COMPANY_ID)

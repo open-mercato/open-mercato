@@ -87,23 +87,23 @@ async function loadDealForScope(
  * `CustomerDealCompanyLink.company` (#6119): populating them under any other
  * name makes MikroORM reject the query, so every write failed even for a deal
  * with linked contacts.
+ *
+ * The link tables carry no `tenant_id` / `organization_id` column either, so the
+ * deal id is the whole criterion — the same query `api/deals/[id]/route.ts` runs.
+ * Callers pass a deal already returned by `loadDealForScope`; that check is what
+ * keeps the lookup inside the caller's tenant and organization.
  */
-async function resolveDealLinkedEntityId(
-  em: EntityManager,
-  ctx: CustomersToolContext,
-  tenantId: string,
-  dealId: string,
-): Promise<string | null> {
+async function resolveDealLinkedEntityId(em: EntityManager, dealId: string): Promise<string | null> {
   const personLink = await em.findOne(
     CustomerDealPersonLink,
-    { deal: dealId, tenantId } as never,
+    { deal: dealId } as never,
     { populate: ['person'] as never },
   )
   const personId = linkedEntityIdOf(personLink, 'person')
   if (personId) return personId
   const companyLink = await em.findOne(
     CustomerDealCompanyLink,
-    { deal: dealId, tenantId } as never,
+    { deal: dealId } as never,
     { populate: ['company'] as never },
   )
   return linkedEntityIdOf(companyLink, 'company')
@@ -502,7 +502,7 @@ const manageDealCommentTool: CustomersAiToolDefinition = {
       // people/companies via two link tables. Resolve the first available
       // person, then fall back to the first linked company. Only fail the
       // operation when the deal has no linked contacts at all.
-      const dealEntityId = await resolveDealLinkedEntityId(em, ctx, tenantId, deal.id)
+      const dealEntityId = await resolveDealLinkedEntityId(em, deal.id)
       if (!dealEntityId) {
         throw new Error(dealHasNoLinkedContactMessage(deal.id, 'comment'))
       }
@@ -666,7 +666,7 @@ const manageDealActivityTool: CustomersAiToolDefinition = {
       // Same rule as the comment tool (#6119): `CustomerDeal` has no `.entity`,
       // the activity's timeline owner is the deal's first linked person, then
       // its first linked company.
-      const entityId = await resolveDealLinkedEntityId(em, ctx, tenantId, deal.id)
+      const entityId = await resolveDealLinkedEntityId(em, deal.id)
       if (!entityId) {
         throw new Error(dealHasNoLinkedContactMessage(deal.id, 'activity'))
       }
