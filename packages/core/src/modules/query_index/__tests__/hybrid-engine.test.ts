@@ -38,6 +38,8 @@ type KyselyMockConfig = {
   indexCount: number
   coverageRefreshedAt?: Date | string | null
   customFieldKeys?: Record<string, string[]>
+  /** Declared `kind` per custom-field key, for kind-aware sort tests (#5674). */
+  customFieldKinds?: Record<string, string>
   rows?: Record<string, Array<Record<string, unknown>>>
   /** If provided, returned for information_schema.columns lookups. */
   columns?: Array<{ table_name: string; column_name: string }>
@@ -233,7 +235,13 @@ function resolveRows(
       ? (args[inIdx + 2] as string[])
       : Object.keys(customFieldKeys)
     return requestedEntities.flatMap((entityId) =>
-      (customFieldKeys[entityId] ?? []).map((key) => ({ entity_id: entityId, key, is_active: true })),
+      (customFieldKeys[entityId] ?? []).map((key) => ({
+        entity_id: entityId,
+        key,
+        is_active: true,
+        kind: config.customFieldKinds?.[key] ?? null,
+        tenant_id: null,
+      })),
     )
   }
   if (table === 'information_schema.columns') {
@@ -419,6 +427,62 @@ describe('HybridQueryEngine', () => {
       entity: 'example:todo', baseCount: 10, indexedCount: 1,
     }))
     expect((mockLogger.warn.mock.calls[0] || [])[0]).toContain('Partial index coverage')
+  })
+
+  test('casts a numeric-kind cf sort to numeric instead of ordering it as jsonb text (#5674)', async () => {
+    const db = createFakeKysely({
+      baseTable: 'todos', hasIndexAny: true, baseCount: 3, indexCount: 3,
+      customFieldKinds: { priority: 'float' },
+    })
+    const em = buildEm(db)
+    const fallback = { query: jest.fn() }
+    const emitEvent = jest.fn().mockResolvedValue(undefined)
+    const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
+
+    await engine.query('example:todo', {
+      fields: ['id'],
+      sort: [{ field: 'cf:priority', dir: SortDir.Asc }],
+      organizationId: 'org1',
+      tenantId: 't1',
+    })
+
+    expect(fallback.query).not.toHaveBeenCalled()
+    const dataChain = (db._chains as ChainLog[]).find((c) => c.table === 'todos' && c.orderBys.length > 0)
+    expect(dataChain).toBeTruthy()
+    const serialized = JSON.stringify(dataChain!.orderBys.flat().map((arg: any) =>
+      typeof arg?.toOperationNode === 'function' ? arg.toOperationNode() : arg,
+    ))
+    expect(serialized).toContain('::numeric')
+    expect(serialized).toContain('NULLS LAST')
+    // A cf sort with no explicit `id` key still gets the stable tiebreak.
+    expect(dataChain!.orderBys[dataChain!.orderBys.length - 1]).toEqual(['b.id', SortDir.Asc])
+  })
+
+  test('keeps ordering a text-kind cf sort as text, still with a trailing id tiebreak', async () => {
+    const db = createFakeKysely({
+      baseTable: 'todos', hasIndexAny: true, baseCount: 3, indexCount: 3,
+      customFieldKinds: { priority: 'text' },
+    })
+    const em = buildEm(db)
+    const fallback = { query: jest.fn() }
+    const emitEvent = jest.fn().mockResolvedValue(undefined)
+    const engine = new HybridQueryEngine(em, fallback as any, () => ({ emitEvent }))
+
+    await engine.query('example:todo', {
+      fields: ['id'],
+      sort: [{ field: 'cf:priority', dir: SortDir.Asc }],
+      organizationId: 'org1',
+      tenantId: 't1',
+    })
+
+    expect(fallback.query).not.toHaveBeenCalled()
+    const dataChain = (db._chains as ChainLog[]).find((c) => c.table === 'todos' && c.orderBys.length > 0)
+    expect(dataChain).toBeTruthy()
+    const serialized = JSON.stringify(dataChain!.orderBys.flat().map((arg: any) =>
+      typeof arg?.toOperationNode === 'function' ? arg.toOperationNode() : arg,
+    ))
+    expect(serialized).not.toContain('::numeric')
+    expect(dataChain!.orderBys[dataChain!.orderBys.length - 1]).toEqual(['b.id', SortDir.Asc])
   })
 
   test('keeps l10n-only sorts off the custom-field branch', async () => {

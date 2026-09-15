@@ -293,6 +293,9 @@ function buildFilterableCustomFieldJoins(
   })
 }
 
+/** Custom field kinds stored numerically (`custom_field_values.value_int`/`value_float`) — sort numerically, not as text (#5674). */
+const NUMERIC_CF_SORT_KINDS = new Set(['integer', 'float'])
+
 function computeCustomFieldScore(cfg: Record<string, unknown>, kind: string, entityIndex: number) {
   const listVisibleScore = cfg.listVisible === false ? 0 : 1
   const formEditableScore = cfg.formEditable === false ? 0 : 1
@@ -994,10 +997,45 @@ export class BasicQueryEngine implements QueryEngine {
         }
       }
 
+      // A `cf:` sort needs to know the field's declared `kind` so the ORDER BY
+      // expression can cast numeric kinds instead of ordering by jsonb text (#5674).
+      // A tenant-scoped definition wins over a global one for the same key.
+      const cfSortKeys = Array.from(new Set(
+        resolvedSorts.filter((sort) => sort.field.startsWith('cf:')).map((sort) => sort.field.slice(3))
+      ))
+      const cfSortKinds = new Map<string, string>()
+      if (cfSortKeys.length > 0) {
+        const sortEntityIds = Array.from(new Set(
+          cfSortKeys
+            .map((key) => keySource.get(key)?.entityId)
+            .filter((id): id is EntityId => Boolean(id))
+            .map((id) => String(id))
+        ))
+        if (sortEntityIds.length > 0) {
+          const kindRows = await db
+            .selectFrom('custom_field_defs' as any)
+            .select(['key' as any, 'kind' as any, 'tenant_id' as any])
+            .where('entity_id' as any, 'in', sortEntityIds)
+            .where('key' as any, 'in', cfSortKeys)
+            .where('is_active' as any, '=', true)
+            .where((eb: any) => eb.or([
+              eb('tenant_id' as any, '=', tenantId),
+              eb('tenant_id' as any, 'is', null),
+            ]))
+            .execute() as Array<{ key: string; kind: string | null; tenant_id: string | null }>
+          for (const row of kindRows) {
+            if (!row.kind) continue
+            const isTenantScoped = row.tenant_id != null
+            if (!cfSortKinds.has(row.key) || isTenantScoped) cfSortKinds.set(row.key, row.kind)
+          }
+        }
+      }
+
       const cfValueExprByKey: Record<string, RawBuilder<string | null>> = {}
       const cfSelectedAliases: string[] = []
       const cfJsonAliases = new Set<string>()
       const cfMultiAliasByAlias = new Map<string, string>()
+      const cfSortAliases: string[] = []
       for (const key of cfKeys) {
         const source = keySource.get(key)
         if (!source) continue
@@ -1200,29 +1238,56 @@ export class BasicQueryEngine implements QueryEngine {
         }
       }
 
-      // Sorting: base fields and cf:* (use aggregated alias for cf)
+      // Sorting: base fields and cf:* (a dedicated scalar alias, never the jsonb
+      // projection alias — ordering by `to_jsonb(...)` compares arrays after every
+      // scalar string regardless of contents, and a numeric kind must cast to
+      // numeric instead of ordering the text CASE expression lexicographically (#5674)).
+      let lastEmittedSortField: string | null = null
       for (const s of isCountProjection ? [] : resolvedSorts) {
         if (s.field.startsWith('cf:')) {
           const key = s.field.slice(3)
-          const alias = sanitize(`cf:${key}`)
-          // Ensure included in projection to sort by
-          if (!cfSelectedAliases.includes(alias)) {
-            const expr = cfValueExprByKey[key]
-            if (expr) {
-              q = q.select(sql<string | null>`max(${expr})`.as(alias))
-              cfSelectedAliases.push(alias)
+          const sortAlias = sanitize(`cf:${key}__sort`)
+          if (!cfSortAliases.includes(sortAlias)) {
+            const source = keySource.get(key)
+            const kind = cfSortKinds.get(key)
+            let sortExpr: RawBuilder<unknown> | null = null
+            if (source && kind && NUMERIC_CF_SORT_KINDS.has(kind)) {
+              const sourceAliasSafe = sanitize(source.alias || 'src')
+              const keyAliasSafe = sanitize(key)
+              const valAlias = `cfv_${sourceAliasSafe}_${keyAliasSafe}`
+              const numericColumn = kind === 'integer' ? 'value_int' : 'value_float'
+              sortExpr = sql<string | null>`max((${sql.ref(`${valAlias}.${numericColumn}`)})::numeric)`
+            } else {
+              const expr = cfValueExprByKey[key]
+              if (expr) sortExpr = sql<string | null>`max(${expr})`
+            }
+            if (sortExpr) {
+              q = q.select(sortExpr.as(sortAlias))
+              cfSortAliases.push(sortAlias)
             }
           }
-          // Only order by an alias the projection actually carries. A key that
-          // resolved to no expression is dropped rather than emitted as an
-          // unselected alias, which is what the base-column branch above already
-          // does when `resolveBaseColumn` returns null.
-          if (!requiresPlaintextSort && cfSelectedAliases.includes(alias)) {
-            q = q.orderBy(alias, (s.dir ?? 'asc') as any)
+          // Only order by an alias the query actually selects. A key that resolved
+          // to no expression is dropped rather than emitted as an unselected alias,
+          // which is what the base-column branch below already does when
+          // `resolveBaseColumn` returns null.
+          if (!requiresPlaintextSort && cfSortAliases.includes(sortAlias)) {
+            const direction = sql.raw((s.dir ?? 'asc') === 'desc' ? 'desc' : 'asc')
+            q = q.orderBy(sql`${sql.ref(sortAlias)} ${direction} NULLS LAST`)
+            lastEmittedSortField = s.field
           }
         } else {
-          if (!requiresPlaintextSort) q = q.orderBy(qualify(s.field), (s.dir ?? 'asc') as any)
+          if (!requiresPlaintextSort) {
+            q = q.orderBy(qualify(s.field), (s.dir ?? 'asc') as any)
+            lastEmittedSortField = s.field
+          }
         }
+      }
+      // Stable tiebreak so ties (or NULLs) don't reorder arbitrarily across pages
+      // (#5674). Only appended when a sort term actually made it into the ORDER
+      // BY — an entirely unresolved cf sort must stay a no-op, not gain an
+      // incidental `id` ordering the caller never asked for.
+      if (!isCountProjection && lastEmittedSortField !== null && lastEmittedSortField !== 'id') {
+        q = q.orderBy(qualify('id'), 'asc' as any)
       }
 
       // Deduplicate if we joined CFs or extensions by grouping on base id. The count
