@@ -1360,7 +1360,16 @@ export default function EditCatalogProductPage({
           );
         }
       }
-      await updateCrud("catalog/products", payload);
+      const updateResult = await updateCrud("catalog/products", payload);
+      const freshUpdatedAt =
+        updateResult.result && typeof updateResult.result === "object"
+          ? (updateResult.result as { updatedAt?: string | null }).updatedAt
+          : null;
+      if (typeof freshUpdatedAt === "string" && freshUpdatedAt.length > 0) {
+        setInitialValues((prev) =>
+          prev ? { ...prev, updatedAt: freshUpdatedAt } : prev,
+        );
+      }
       const previousConversionIds = new Set(
         initialConversionsRef.current
           .map((entry) => toTrimmedOrNull(entry.id))

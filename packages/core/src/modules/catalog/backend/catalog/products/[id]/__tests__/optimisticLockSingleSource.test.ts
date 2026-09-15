@@ -26,6 +26,12 @@ describe('catalog edit pages — optimistic-lock single header source', () => {
     expect(productPageSource).toContain('initialValues={initialValues ?? undefined}')
   })
 
+  it('product edit page refreshes initialValues.updatedAt from the save response, so a second consecutive save does not send a stale optimistic-lock header (#5985)', () => {
+    expect(productPageSource).toContain('const updateResult = await updateCrud("catalog/products", payload)')
+    expect(productPageSource).toContain('setInitialValues((prev) =>')
+    expect(productPageSource).toContain('prev ? { ...prev, updatedAt: freshUpdatedAt } : prev,')
+  })
+
   it('variant UPDATE is single-sourced (bare updateCrud; CrudForm auto-derives), while the price sync sends each price its own version', () => {
     // The variant update itself stays bare — CrudForm auto-derives the variant
     // header from initialValues.updatedAt.
