@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 141 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 143 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -46,6 +46,8 @@ This catalog indexes 141 focused lessons. Route the task first, then read only r
 
 ### module-data
 
+- [Honor ORM-managed update timestamps before adding manual version writes](lessons/honor-orm-managed-update-timestamps-before-adding-manual-version-writes.md) — area:module-data,testing; module:wms; topic:concurrency,data-integrity,optimistic-locking
+
 - [Auto-discovery routing surprises only a running app catches](lessons/api-route-files-must-sit-directly-under-the-resource.md) — area:module-data,backend-ui,testing; module:documents,cli,ui; topic:auto-discovery,generated-files,error-states
 - [Local tooling gotchas: stale snapshots and ephemeral restarts](lessons/db-generate-re-emits-an-unrelated-stale-snapshot.md) — area:module-data,testing,debugging; module:cli,ai_assistant; topic:database-migrations,dev-runtime,regeneration
 - [`dbMigrate` must not write migration snapshots during initialize flows](lessons/dbmigrate-must-not-write-migration-snapshots-during.md) — area:module-data,architecture; module:cli,create_app; topic:generated-files,database-migrations,runtime-startup
@@ -57,6 +59,7 @@ This catalog indexes 141 focused lessons. Route the task first, then read only r
 - [The decryption `scope` argument is not a WHERE filter](lessons/decryption-scope-argument-is-not-a-where-filter.md) — area:module-data,architecture,testing; module:warranty_claims,shared,customers; topic:data-scoping,access-control,command-pattern
 - [Cross-module query precedent is not permission to copy storage coupling](lessons/cross-module-query-precedent-is-not-permission-to-copy.md) — area:module-data,debugging; module:customers; topic:access-control,module-boundaries,testing
 - [CRUD-owned custom-field writes should not emit a second entity event](lessons/crud-owned-custom-field-writes-should-not-emit-a-second.md) — area:module-data,umes; module:entities,query_index,cli; topic:command-pattern,custom-fields,data-integrity
+- [CRUD list transforms must preserve custom-field carriers until decoration](lessons/crud-list-transforms-must-preserve-custom-field-carriers.md) — area:module-data,backend-ui,testing; module:wms,entities; topic:custom-fields,data-integrity,route-coverage
 - [Data-sync run detail should subscribe to its progress job, not just poll it](lessons/data-sync-run-detail-should-subscribe-to-its-progress.md) — area:module-data,integration,debugging; module:data_sync,progress,events; topic:events,realtime,testing
 - [Destination auth requires expanded scopes and atomic reconciliation](lessons/destination-authorization-must-use-expanded-scopes-and-atomic-reconciliation.md) — area:module-data,testing; module:auth,directory; topic:access-control,command-pattern,data-integrity,data-scoping
 - [Do not diagnose unknown-total progress as broken SSE](lessons/do-not-diagnose-unknown-total-progress-as-broken-sse.md) — area:module-data,integration,backend-ui; module:events,progress,catalog; topic:data-import,events,provider-lifecycle
@@ -176,7 +179,7 @@ This catalog indexes 141 focused lessons. Route the task first, then read only r
 - [Scope Playwright `testIgnore` entries to project root absolute paths](lessons/scope-playwright-testignore-entries-to-project-root.md) — area:testing,integration; module:platform; topic:data-scoping,testing,type-normalization
 - [Tests asserting `Intl` output must pin the locale and the calendar date](lessons/tests-asserting-intl-output-must-pin-locale-and-date.md) — area:testing,debugging,backend-ui; module:platform; topic:testing,i18n,ui-components
 - [Toggling Playwright request interception strands in-flight requests](lessons/toggling-playwright-request-interception-strands-in.md) — area:testing,debugging,integration; module:platform,example,create_app; topic:testing,template-sync,dev-runtime
-- [Use cryptographic randomness in auth-adjacent test helpers](lessons/use-cryptographic-randomness-in-auth-adjacent-test.md) — area:testing,integration,module-data; module:auth,cache,communication_channels; topic:data-scoping,generated-files,filters
+- [Use cryptographic randomness in auth-adjacent test helpers](lessons/use-cryptographic-randomness-in-auth-adjacent-test.md) — area:testing,integration,module-data; module:auth,cache,communication_channels; topic:data-scoping,generated-files,filters,secret-lifecycle
 - [Use the bundled Node runtime for sandboxed macOS verification](lessons/use-the-bundled-node-runtime-for-sandboxed-macos.md) — area:testing,debugging; module:platform,create_app; topic:testing,node-runtime
 - [When a task brief requires Playwright coverage, unit tests are not a substitute](lessons/when-a-task-brief-requires-playwright-coverage-unit.md) — area:testing; module:events,search; topic:events,module-boundaries,testing
 

@@ -1,5 +1,14 @@
 export const entities = [
   {
+    id: 'wms:site',
+    label: 'Site',
+    description: 'Stable factory context within a WMS organization.',
+    labelField: 'name',
+    showInSidebar: false,
+    defaultEditor: false,
+    fields: [],
+  },
+  {
     id: 'wms:warehouse',
     label: 'Warehouse',
     description: 'Physical warehouse definition used by the WMS module.',

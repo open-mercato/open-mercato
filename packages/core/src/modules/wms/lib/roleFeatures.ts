@@ -16,6 +16,7 @@ export const WMS_OPERATOR_FEATURES = [
 
 export const WMS_MANAGE_FEATURES = [
   'wms.manage_warehouses',
+  'wms.manage_sites',
   'wms.manage_zones',
   'wms.manage_locations',
   'wms.manage_inventory',

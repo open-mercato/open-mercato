@@ -1,6 +1,9 @@
 import { defineConfig } from '@playwright/test';
 import path from 'node:path';
-import { discoverIntegrationSpecFiles } from '../../../packages/cli/src/lib/testing/integration-discovery';
+import {
+  discoverIntegrationSpecFiles,
+  filterIntegrationSpecsByModules,
+} from '../../../packages/cli/src/lib/testing/integration-discovery';
 
 const captureScreenshots = process.env.PW_CAPTURE_SCREENSHOTS === '1';
 const isGitHubActions = process.env.GITHUB_ACTIONS === 'true';
@@ -27,30 +30,29 @@ const STATIC_TEST_IGNORES = [
 // `.ai/qa/tests` is retained for the shared Playwright config only.
 // Executable specs must live in module-local `__integration__` folders.
 const disabledLegacyIntegrationRoot = path.join(projectRoot, '.ai', 'qa', 'tests', '__legacy_disabled__');
+const explicitSpecPaths = process.env.OM_INTEGRATION_SPEC_PATHS
+  ?.split(path.delimiter)
+  .map((value) => value.trim())
+  .filter(Boolean);
 const discoveredSpecs = discoverIntegrationSpecFiles(projectRoot, disabledLegacyIntegrationRoot);
 
 // Affected-only: when OM_INTEGRATION_MODULES is set, restrict to those modules.
 // A spec is included if its moduleName is in the set, or any of its requiredModules is.
 // Specs with moduleName === null are always included.
 const affectedModules = process.env.OM_INTEGRATION_MODULES
-    ? new Set(
-          process.env.OM_INTEGRATION_MODULES.split(',')
-              .map((m) => m.trim().toLowerCase())
-              .filter(Boolean),
-      )
-    : null;
-
-const filteredSpecs =
-    affectedModules && affectedModules.size > 0
-        ? discoveredSpecs.filter((spec) => {
-              if (spec.moduleName === null) return true;
-              if (affectedModules.has(spec.moduleName.toLowerCase())) return true;
-              if (spec.requiredModules.some((m) => affectedModules.has(m.toLowerCase()))) return true;
-              return false;
-          })
-        : discoveredSpecs;
-
-const filteredSpecPaths = filteredSpecs.map((entry) => entry.path);
+  ?.split(',')
+  .map((moduleId) => moduleId.trim())
+  .filter(Boolean) ?? [];
+const filteredSpecs = filterIntegrationSpecsByModules(discoveredSpecs, affectedModules);
+const eligibleSpecPaths = new Set(filteredSpecs.map((entry) => normalizePath(entry.path)));
+const filteredSpecPaths = explicitSpecPaths
+  ? affectedModules.length > 0
+    ? explicitSpecPaths.filter((specPath) => {
+        const relativePath = path.relative(projectRoot, path.resolve(projectRoot, specPath));
+        return eligibleSpecPaths.has(normalizePath(relativePath));
+      })
+    : explicitSpecPaths
+  : filteredSpecs.map((entry) => entry.path);
 
 export default defineConfig({
   testDir: projectRoot,
