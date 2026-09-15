@@ -1139,6 +1139,7 @@
   "sales.documents.list.table.unassigned": "Nieprzypisany",
   "sales.documents.payments.add": "Dodaj płatność",
   "sales.documents.payments.amount": "Kwota",
+  "sales.documents.payments.amountInvalid": "Podaj kwotę jako liczbę.",
   "sales.documents.payments.amountRequired": "Wprowadź dodatnią kwotę.",
   "sales.documents.payments.created": "Płatność zarejestrowana.",
   "sales.documents.payments.createdAt": "Utworzono",
