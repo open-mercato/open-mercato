@@ -174,17 +174,23 @@ function shouldIndexField(
  * `maxTokensPerRecord` is spent in the iteration order of `params.doc`'s own keys: fields are
  * tokenized one after another and the loop stops at the first field that exhausts the budget, so
  * on an over-budget record the surviving fields are whichever ones come first. That order is a
- * property of the object handed in, not of the entity — `buildIndexDocument` appends `cf:*` keys
- * after the base columns and the aggregate `search_text` field last, so the indexer's own documents
- * order base fields first and starve `search_text` first when a record runs out of budget.
+ * property of the object handed in, not of the entity, and the two write-path builders order it
+ * differently: `buildIndexDocument` (`lib/document.ts`, the batch reindex path) appends `cf:*` keys
+ * after the base columns and the aggregate `search_text` field last. `buildIndexDoc` (`lib/indexer.ts`,
+ * the incremental single-record write path — `upsertIndexRow` → `reindexSearchTokensForRecord`) adds
+ * `l10n:{locale}:{field}` translation keys between the `cf:*` keys and `search_text`, so a translated
+ * record over budget starves those translation fields before `search_text`, and the two paths can
+ * keep different fields searchable for an otherwise equivalent record.
  *
- * Every write path passes the in-memory document it is about to persist (`upsertIndexRow` →
- * `reindexSearchTokensForRecord`, `TokenSearchStrategy.index`), which keeps writing self-consistent.
- * A document read back out of the `entity_indexes.doc` `jsonb` column is not the same object:
- * Postgres stores `jsonb` keys in a canonical order (by key length, then byte order), not in
- * insertion order. Re-tokenizing such a document can therefore truncate at a different field than
- * the write did, so code that verifies or recomputes a record's expected tokens must rebuild the
- * document through `buildIndexDocument` rather than reading it back from the database.
+ * Every write path tokenizes an in-memory document it is about to write — `TokenSearchStrategy.index`
+ * writes only `search_tokens` rows and never touches `entity_indexes.doc` — which keeps each path
+ * self-consistent on its own. A document read back out of the `entity_indexes.doc` `jsonb` column is
+ * not the same object: Postgres stores `jsonb` keys in a canonical order (by key length, then byte
+ * order), not in insertion order. Re-tokenizing such a document can therefore truncate at a different
+ * field than the write did, so code that verifies or recomputes a record's expected tokens must
+ * rebuild the document through the builder that matches the write path being checked — `buildIndexDoc`
+ * for incrementally-written records, `buildIndexDocument` for batch-reindexed ones — rather than
+ * reading it back from the database.
  *
  * Making truncation reproducible from a `jsonb` read — by sorting fields before tokenization —
  * would change which terms stay searchable on over-budget records, so it is a behavior decision

@@ -106,6 +106,36 @@ describe('buildSearchTokenRows limits', () => {
     expect(new Set(rows.map((row) => row.field))).toEqual(new Set(['title']))
   })
 
+  test('starves l10n fields before search_text, matching buildIndexDoc\'s incremental key order', () => {
+    // buildIndexDoc (lib/indexer.ts) inserts `l10n:{locale}:{field}` keys between the `cf:*`
+    // keys and `search_text` — a different order than buildIndexDocument's, which has no l10n
+    // keys at all. Pinned here as plain keys because buildIndexDoc itself needs a live DB read.
+    const doc = {
+      title: 'alpha',
+      'cf:notes': 'bravo',
+      'l10n:en:title': 'charlie',
+      [AGGREGATE_SEARCH_FIELD]: 'delta',
+    }
+
+    const throughCf = buildSearchTokenRows({
+      entityType: 'messages:message',
+      recordId: 'record-incremental-order',
+      doc,
+      config: { ...baseConfig, maxTokensPerRecord: 2 },
+    })
+    expect(new Set(throughCf.map((row) => row.field))).toEqual(new Set(['title', 'cf:notes']))
+
+    const throughL10n = buildSearchTokenRows({
+      entityType: 'messages:message',
+      recordId: 'record-incremental-order',
+      doc,
+      config: { ...baseConfig, maxTokensPerRecord: 3 },
+    })
+    expect(new Set(throughL10n.map((row) => row.field))).toEqual(
+      new Set(['title', 'cf:notes', 'l10n:en:title']),
+    )
+  })
+
   test('preserves tokens when the document stays within the limits', () => {
     const rows = buildSearchTokenRows({
       entityType: 'messages:message',
