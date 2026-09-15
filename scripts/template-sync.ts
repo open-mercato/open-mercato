@@ -38,6 +38,13 @@ const EXPLICIT_TEMPLATE_FILE_MAPPINGS = [
     rel: 'scripts/dev.mjs',
   },
   {
+    // `scripts/dev.mjs` imports this for its MCP lifecycle, so a scaffolded app
+    // fails to boot `yarn dev` without it (template-script-targets.test.ts).
+    sourceFile: path.join(ROOT, 'scripts', 'dev-mcp.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-mcp.mjs'),
+    rel: 'scripts/dev-mcp.mjs',
+  },
+  {
     sourceFile: path.join(ROOT, 'scripts', 'dev-memory-sampler.mjs'),
     templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-memory-sampler.mjs'),
     rel: 'scripts/dev-memory-sampler.mjs',
@@ -177,7 +184,12 @@ const SYNC_INTERNAL_PACKAGE_KEYS = [
 // Modules whose source ships in every scaffold but must stay runtime-disabled there.
 // The monorepo dev app keeps them enabled for QA; the template copy strips their
 // `enabledModules` registrations (see the disabled-by-default delivery contract).
-const TEMPLATE_DISABLED_MODULE_IDS = ['design_system', 'example'] as const
+// `seeds` loads an AES-256-GCM blob whose key arrives out of band; a fresh scaffold ships
+// neither the ciphertext nor OM_SEED_KEY, so its CLI would be inert. It stays enabled in
+// apps/mercato for the maintainers' own seeding flow and out of the template until shipping
+// it to every scaffolded app is a deliberate maintainer call (it needs an evaluation-catalog
+// case before module-facts-build.test.ts will accept it).
+const TEMPLATE_DISABLED_MODULE_IDS = ['design_system', 'example', 'seeds'] as const
 const ENABLED_MODULES_DECLARATION = 'export const enabledModules: ModuleEntry[] = ['
 const EXAMPLE_CUSTOMERS_SYNC_GUARD = "if (enabledModules.some((entry) => entry.id === 'example')) {"
 
