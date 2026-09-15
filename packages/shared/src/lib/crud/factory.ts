@@ -10,6 +10,7 @@ import { resolveOrganizationScopeForRequest, type OrganizationScope } from '@ope
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
   runMutationGuards,
   bridgeLegacyGuard,
@@ -41,7 +42,7 @@ import {
   type ResolvedCustomFieldDefinitions,
 } from './custom-field-definition-index'
 import { serializeExport, normalizeExportFormat, defaultExportFilename, ensureColumns, type CrudExportFormat, type PreparedExport } from './exporters'
-import { CrudHttpError, isCrudHttpError } from './errors'
+import { CrudHttpError, isCrudHttpError, translateCrudErrorBody } from './errors'
 import type { CommandBus, CommandLogMetadata } from '@open-mercato/shared/lib/commands'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -609,9 +610,12 @@ function resolveRequestId(request?: Request): string {
   return randomUUID()
 }
 
-function handleError(err: unknown, request?: Request): Response {
+async function handleError(err: unknown, request?: Request): Promise<Response> {
   if (err instanceof Response) return err
-  if (isCrudHttpError(err)) return json(err.body, { status: err.status })
+  if (isCrudHttpError(err)) {
+    const { translate } = await resolveTranslations()
+    return json(translateCrudErrorBody(err.body, translate), { status: err.status })
+  }
   // A command interceptor that blocked with an explicit status is a deliberate business
   // rejection, not a server fault — surface its status and message instead of a generic 500.
   // Without a usable status the error falls through to the historical handling below (issue #5045).

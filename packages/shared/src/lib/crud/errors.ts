@@ -96,3 +96,19 @@ export function assertFound<T>(value: T | null | undefined, message: string): T 
   if (!value) throw notFound(message)
   return value
 }
+
+/**
+ * Translates a `CrudHttpError` body's `error` field before it reaches the client.
+ * Some callers (command handlers, lib helpers reused by subscribers/CLI/workers) raise
+ * `CrudHttpError` with a raw i18n key because they run without a request locale — a route
+ * handler forwarding `err.body` verbatim would leak that key to the user. Call this at the
+ * route boundary, passing the `translate` the route already resolved, instead of forwarding
+ * `err.body` directly.
+ */
+export function translateCrudErrorBody(
+  body: Record<string, any>,
+  translate: (key: string, fallback?: string) => string,
+): Record<string, any> {
+  if (typeof body?.error !== 'string') return body
+  return { ...body, error: translate(body.error, body.error) }
+}
