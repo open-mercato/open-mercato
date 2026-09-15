@@ -2,6 +2,7 @@
 // Commands that need to run before generation (e.g., `init`) handle missing modules gracefully.
 
 import { registerWorkerShutdownHook, runWorker } from '@open-mercato/queue/worker'
+import { isProductionBuildPhase, startModuleRuntimes } from './lib/module-runtimes'
 import type { Module, ModuleWorker } from '@open-mercato/shared/modules/registry'
 import { getCliModules, hasCliModules, registerCliModules } from './registry'
 export { getCliModules, hasCliModules, registerCliModules }
@@ -789,6 +790,7 @@ async function runGeneratorSuite(quiet: boolean): Promise<boolean> {
     generateModuleDi,
     generateModulePackageSources,
     generateOpenApi,
+    generateWebResearchAdapters,
   } = await import('./lib/generators')
   const resolver = createResolver()
   const results = [
@@ -797,6 +799,7 @@ async function runGeneratorSuite(quiet: boolean): Promise<boolean> {
     await generateModuleEntities({ resolver, quiet }),
     await generateModuleDi({ resolver, quiet }),
     await generateModulePackageSources({ resolver, quiet }),
+    await generateWebResearchAdapters({ resolver, quiet }),
     await generateOpenApi({ resolver, quiet }),
   ]
   return results.some((result) => (result?.filesWritten.length ?? 0) > 0)
@@ -1088,13 +1091,14 @@ export async function run(argv = process.argv) {
       // Step 1: Run generators directly (no process spawn)
       console.log('🔧 Preparing modules (registry, entities, DI)...')
       const { createResolver } = await import('./lib/resolver')
-      const { generateEntityIds, generateModuleRegistries, generateModuleEntities, generateModuleDi, generateModulePackageSources, generateOpenApi } = await import('./lib/generators')
+      const { generateEntityIds, generateModuleRegistries, generateModuleEntities, generateModuleDi, generateModulePackageSources, generateOpenApi, generateWebResearchAdapters } = await import('./lib/generators')
       const resolver = createResolver()
       await generateEntityIds({ resolver, quiet: true })
       await generateModuleRegistries({ resolver, quiet: true })
       await generateModuleEntities({ resolver, quiet: true })
       await generateModuleDi({ resolver, quiet: true })
       await generateModulePackageSources({ resolver, quiet: true })
+      await generateWebResearchAdapters({ resolver, quiet: true })
       await generateOpenApi({ resolver, quiet: true })
       console.log('✅ Modules prepared\n')
 
@@ -1739,6 +1743,25 @@ export async function run(argv = process.argv) {
                 await localScheduler.stop?.()
               })
               console.log('[worker] Local scheduler started in the shared worker process.')
+            }
+
+            // SPEC-072 — module runtimes, once per process. After the queue workers are bound so
+            // a runtime may rely on them, and before the process announces itself as up.
+            //
+            // Only on `--all`: that is the process a deployment runs and the one `server start`
+            // spawns. A single-queue worker is a targeted invocation, and starting every module's
+            // runtime in each of N of them would run N copies of each.
+            //
+            // The build-phase guard is always false here — NEXT_PHASE is set by Next, not by a
+            // worker — and is kept so the check lives with the runner rather than being reinvented
+            // by the Next-side entry, where module code really is evaluated during `next build`.
+            if (!isProductionBuildPhase()) {
+              const runtimes = await startModuleRuntimes({
+                modules: getCliModules(),
+                container: await createRequestContainer(),
+                role: 'worker',
+              })
+              if (runtimes.started.length > 0) registerWorkerShutdownHook(() => runtimes.stop())
             }
 
             console.log('[worker] All workers started. Press Ctrl+C to stop')

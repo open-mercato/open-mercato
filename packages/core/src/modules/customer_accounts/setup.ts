@@ -1,4 +1,4 @@
-import type { ModuleSetupConfig, DefaultCustomerRoleFeatures } from '@open-mercato/shared/modules/setup'
+import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { hash } from 'bcryptjs'
 import { ensureDefaultCustomerRoleAcls } from '@open-mercato/core/modules/customer_accounts/lib/customerRoleAcls'
@@ -10,6 +10,7 @@ import {
   CustomerUser,
   CustomerUserRole,
 } from '@open-mercato/core/modules/customer_accounts/data/entities'
+import { syncDefaultCustomerRoleAcls } from './lib/customerRoleAclSync'
 
 interface SeedScope {
   tenantId: string
@@ -85,6 +86,15 @@ async function registerDomainSchedules(
     isEnabled: true,
   })
 }
+
+/**
+ * The customer roles this module seeds, and therefore the ONLY slugs another
+ * module's `defaultCustomerRoleFeatures` can target: the merge below skips a
+ * slug with no matching role (`if (!role) continue`), so a typo is a silent
+ * no-op rather than an error. Exported so a contributing module can assert its
+ * keys against the real list instead of hoping.
+ */
+export const DEFAULT_CUSTOMER_ROLE_SLUGS = ['portal_admin', 'buyer', 'viewer'] as const
 
 const DEFAULT_ROLES = [
   {
@@ -191,11 +201,13 @@ export const setup: ModuleSetupConfig = {
 
   async seedDefaults({ em, tenantId, organizationId, container }) {
     await seedDefaultRoles(em, { tenantId, organizationId })
-    // Merge defaultCustomerRoleFeatures from all enabled modules
+    // Merge defaultCustomerRoleFeatures from all enabled modules. Existing
+    // tenants replay the same merge via `mercato customer_accounts
+    // sync-customer-role-acls`.
     try {
       const { getModules } = await import('@open-mercato/shared/lib/modules/registry')
       const allModules = getModules()
-      await ensureDefaultCustomerRoleAcls(em, tenantId, allModules)
+      await syncDefaultCustomerRoleAcls(em, tenantId, allModules)
     } catch {
       // Modules may not be registered yet during initial setup
     }
