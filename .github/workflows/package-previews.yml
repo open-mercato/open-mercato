@@ -96,6 +96,7 @@ jobs:
           './packages/cache'
           './packages/channel-gmail'
           './packages/channel-imap'
+          './packages/channel-ms365'
           './packages/channel-apns'
           './packages/channel-expo'
           './packages/channel-fcm'
