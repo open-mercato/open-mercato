@@ -1,6 +1,13 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CacheStrategy } from '@open-mercato/cache'
-import { decryptWithAesGcm, encryptWithAesGcm, hashForLookup } from './aes'
+import {
+  TenantDataEncryptionError,
+  TenantDataEncryptionErrorCode,
+  decryptWithAesGcm,
+  encryptWithAesGcm,
+  hashForLookup,
+  isEncryptedPayloadShape,
+} from './aes'
 import { createKmsService, type KmsService, type TenantDek } from './kms'
 import { isTenantDataEncryptionEnabled, isEncryptionDebugEnabled } from './toggles'
 import { createLogger } from '../logger'
@@ -111,6 +118,30 @@ function isEncryptedWithDek(value: unknown, dek: TenantDek): boolean {
   const parts = value.split(':')
   if (parts.length !== 4 || parts[3] !== 'v1') return false
   return decryptWithAesGcm(value, dek.key) !== null
+}
+
+/**
+ * Guard the encrypt path against re-wrapping ciphertext this process cannot open.
+ *
+ * Called only after {@link isEncryptedWithDek} has already said "not sealed under the
+ * current DEK". At that point a structurally well-formed envelope means one of two things:
+ * genuine ciphertext under some other key, or a byte-exact forgery. Both must stop the
+ * write — the first because nesting envelopes silently destroys recoverable data, the
+ * second because rejecting it is strictly safer than persisting attacker-chosen bytes.
+ *
+ * The field name is safe to report (it comes from the encryption map, not user input); the
+ * value never is, so it stays out of both the error message and the log.
+ */
+function assertNotSealedUnderAnotherKey(value: unknown, field: string): void {
+  if (!isEncryptedPayloadShape(value)) return
+  logger.error('Refusing to re-encrypt a value sealed under a different key', { field })
+  throw new TenantDataEncryptionError(
+    TenantDataEncryptionErrorCode.WRONG_KEY,
+    `[internal] Field "${field}" already holds an encrypted payload that does not decrypt under the current tenant DEK. `
+      + 'Encrypting it again would produce an unreadable nested envelope. '
+      + 'Complete the key rotation for this tenant (mercato entities rotate-encryption-key --old-key …) '
+      + 'or restore the DEK that sealed it before writing this record again.',
+  )
 }
 
 function normalizeEncryptedFieldNames(fields: readonly { field?: unknown }[] | null | undefined): string[] {
@@ -440,6 +471,16 @@ export class TenantDataEncryptionService {
       // A forged ciphertext-shaped string fails this check and is encrypted as
       // plaintext, closing the encryption-at-rest bypass (issue #2720).
       if (isEncryptedWithDek(value, dek)) continue
+      // Failing that check does not prove the value is plaintext. A well-formed
+      // envelope sealed under a *different* key — the previous DEK mid-rotation, or
+      // the derived key the KMS falls back to during a Vault outage — lands here too,
+      // and encrypting it again would nest one envelope inside another: unreadable by
+      // any normal decrypt, indistinguishable from correct ciphertext by inspection,
+      // and it would overwrite the lookup hash with a hash of ciphertext (issue #5951).
+      // Fail the write closed instead. Nothing is ever stored verbatim, so #2720 stays
+      // shut: a forgery that is not byte-exact still gets encrypted as plaintext above,
+      // and a byte-exact one is rejected rather than persisted.
+      assertNotSealedUnderAnotherKey(value, rule.field)
       const serialized = typeof value === 'string' ? value : JSON.stringify(value)
       const payload = encryptWithAesGcm(serialized, dek.key)
       clone[key] = payload.value

@@ -139,6 +139,55 @@ describe('entities rotate-encryption-key CLI', () => {
     ]))
   })
 
+  // Regression for #5951: a row sealed under neither --old-key nor the current tenant key
+  // used to be handed to the encrypt path verbatim, which wrapped the ciphertext in a second
+  // envelope and wrote the result. Skip and report the row instead of corrupting it.
+  it('skips a row whose ciphertext opens under neither the old nor the current key', async () => {
+    const rotate = cli.find((c: any) => c.command === 'rotate-encryption-key')!
+    singleMapFixture()
+    execute.mockResolvedValueOnce([
+      { id: 'row-1', resource_id: 'iv:cipher:tag:v1', context_json: null },
+    ])
+    // Neither key opens it.
+    ;(decryptWithAesGcm as jest.Mock).mockReturnValue(null)
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {})
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+
+    await rotate.run(['--old-key', 'old-secret', '--tenant', 'tenant-1', '--org', 'org-1'])
+
+    // The unopenable field must not reach the encrypt path at all.
+    expect(encryptEntityPayload.mock.calls[0][1]).not.toHaveProperty('resource_id')
+    // Only the select ran — no UPDATE re-wrapped the ciphertext.
+    expect(execute).toHaveBeenCalledTimes(1)
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('opens under neither --old-key nor the current tenant key'))
+
+    logSpy.mockRestore()
+    warnSpy.mockRestore()
+  })
+
+  it('keeps an already-rotated row in the payload so the service skips it', async () => {
+    const rotate = cli.find((c: any) => c.command === 'rotate-encryption-key')!
+    singleMapFixture()
+    execute.mockResolvedValueOnce([
+      { id: 'row-1', resource_id: 'iv:cipher:tag:v1', context_json: null },
+    ])
+    // The old key fails, the current key succeeds: this row was rotated by an earlier,
+    // interrupted run. It must be left alone rather than reported as unrecoverable.
+    ;(decryptWithAesGcm as jest.Mock)
+      .mockReturnValueOnce(null)
+      .mockReturnValueOnce('already-rotated')
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {})
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+
+    await rotate.run(['--old-key', 'old-secret', '--tenant', 'tenant-1', '--org', 'org-1'])
+
+    expect(encryptEntityPayload.mock.calls[0][1]).toHaveProperty('resource_id', 'iv:cipher:tag:v1')
+    expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('opens under neither'))
+
+    logSpy.mockRestore()
+    warnSpy.mockRestore()
+  })
+
   // Regression for #5950: encryptEntityPayload provisions a tenant DEK in KMS/Vault
   // the first time it runs for a tenant, so a dry run against a tenant that has none
   // used to create real key material as a side effect.

@@ -1,4 +1,11 @@
-import { decryptWithAesGcm, encryptWithAesGcm, hashForLookup } from '../aes'
+import {
+  TenantDataEncryptionError,
+  TenantDataEncryptionErrorCode,
+  decryptWithAesGcm,
+  encryptWithAesGcm,
+  hashForLookup,
+  isEncryptedPayloadShape,
+} from '../aes'
 import {
   TenantDataEncryptionService,
   parseDecryptedFieldValue,
@@ -129,6 +136,34 @@ describe('TenantDataEncryptionService.decryptFields (issue #1734)', () => {
   })
 })
 
+describe('isEncryptedPayloadShape (issue #5951)', () => {
+  it('accepts a real AES-GCM envelope regardless of which key sealed it', () => {
+    const otherKey = Buffer.alloc(32, 7).toString('base64')
+    expect(isEncryptedPayloadShape(encryptWithAesGcm('x', fixedKey).value)).toBe(true)
+    expect(isEncryptedPayloadShape(encryptWithAesGcm('x', otherKey).value)).toBe(true)
+  })
+
+  it('rejects the loose four-segment shapes a length-blind check would accept', () => {
+    // The IV and tag decode to 3 and 3 bytes, not 12 and 16 — no AES-GCM payload looks like this.
+    expect(isEncryptedPayloadShape('aaaa:bbbb:cccc:v1')).toBe(false)
+    expect(isEncryptedPayloadShape('user:supplied:colon:v1')).toBe(false)
+  })
+
+  it('rejects plaintext, non-strings, and wrong-version payloads', () => {
+    expect(isEncryptedPayloadShape('mail@example.com')).toBe(false)
+    expect(isEncryptedPayloadShape('')).toBe(false)
+    expect(isEncryptedPayloadShape(null)).toBe(false)
+    expect(isEncryptedPayloadShape(42)).toBe(false)
+    expect(isEncryptedPayloadShape((encryptWithAesGcm('x', fixedKey).value as string).replace(/:v1$/, ':v2'))).toBe(false)
+  })
+
+  it('rejects an envelope whose ciphertext segment is empty', () => {
+    const real = encryptWithAesGcm('x', fixedKey).value as string
+    const [iv, , tag] = real.split(':')
+    expect(isEncryptedPayloadShape(`${iv}::${tag}:v1`)).toBe(false)
+  })
+})
+
 describe('TenantDataEncryptionService.encryptFields (issue #2720)', () => {
   function makeService() {
     type Anything = Record<string, unknown>
@@ -169,17 +204,70 @@ describe('TenantDataEncryptionService.encryptFields (issue #2720)', () => {
     expect(out.email).toBe(real)
   })
 
-  it('encrypts a structurally-valid payload that was sealed with a different key', () => {
+  // Superseded by issue #5951: this case used to assert that a payload sealed under another
+  // key gets encrypted again. That is what produced the undetectable nested envelope — the
+  // value is real ciphertext (the previous DEK mid-rotation, or the derived key the KMS falls
+  // back to during a Vault outage), not a forgery, and wrapping it destroys it. The write now
+  // fails closed. #2720 is unaffected: nothing is stored verbatim on this path either way.
+  it('refuses to re-encrypt a payload that was sealed with a different key', () => {
     const service = makeService()
     const otherKey = Buffer.alloc(32, 2).toString('base64')
     const sealedElsewhere = encryptWithAesGcm('secret', otherKey).value as string
-    const out = service.encryptFields(
-      { email: sealedElsewhere },
-      [{ field: 'email' }],
-      { key: fixedKey } as never,
-    )
-    expect(out.email).not.toBe(sealedElsewhere)
-    expect(decryptWithAesGcm(out.email as string, fixedKey)).toBe(sealedElsewhere)
+    expect(() =>
+      service.encryptFields(
+        { email: sealedElsewhere },
+        [{ field: 'email' }],
+        { key: fixedKey } as never,
+      ),
+    ).toThrow(TenantDataEncryptionError)
+  })
+
+  it('reports the wrong-key case with a distinct error code and leaves the value out of the message', () => {
+    const service = makeService()
+    const otherKey = Buffer.alloc(32, 2).toString('base64')
+    const sealedElsewhere = encryptWithAesGcm('secret@example.com', otherKey).value as string
+    try {
+      service.encryptFields(
+        { email: sealedElsewhere },
+        [{ field: 'email' }],
+        { key: fixedKey } as never,
+      )
+      throw new Error('[internal] expected encryptFields to throw')
+    } catch (err) {
+      expect(err).toBeInstanceOf(TenantDataEncryptionError)
+      expect((err as TenantDataEncryptionError).code).toBe(TenantDataEncryptionErrorCode.WRONG_KEY)
+      // The ciphertext must never be echoed back into an error surfaced to a caller.
+      expect((err as TenantDataEncryptionError).message).not.toContain(sealedElsewhere)
+      expect((err as TenantDataEncryptionError).message).toContain('email')
+    }
+  })
+
+  it('never emits a nested envelope or a hash of ciphertext when the DEK changed', () => {
+    const service = makeService()
+    const previousDek = Buffer.alloc(32, 2).toString('base64')
+    const sealedUnderPreviousDek = encryptWithAesGcm('mail@example.com', previousDek).value as string
+
+    let emitted: Record<string, unknown> | null = null
+    try {
+      emitted = service.encryptFields(
+        { email: sealedUnderPreviousDek, email_hash: hashForLookup('mail@example.com') },
+        [{ field: 'email', hashField: 'email_hash' }],
+        { key: fixedKey } as never,
+      )
+    } catch {
+      emitted = null
+    }
+
+    // Before the fix this returned a writable payload; assert on that payload rather than on
+    // the (always-cloned, therefore always-untouched) input, so the test fails without the fix.
+    expect(emitted).toBeNull()
+
+    // Spell out what that payload used to contain, so the regression is legible: one more
+    // AES-GCM layer whose plaintext is the previous envelope, and a lookup hash computed over
+    // ciphertext instead of over the email — neither of which any read path can undo.
+    const nested = encryptWithAesGcm(sealedUnderPreviousDek, fixedKey).value as string
+    expect(decryptWithAesGcm(nested, fixedKey)).toBe(sealedUnderPreviousDek)
+    expect(hashForLookup(sealedUnderPreviousDek)).not.toBe(hashForLookup('mail@example.com'))
   })
 
   it('encrypts plaintext that happens to look like a v1 payload', () => {

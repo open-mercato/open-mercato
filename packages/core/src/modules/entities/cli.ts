@@ -599,6 +599,8 @@ const rotateEncryptionKey: ModuleCli = {
       const list = Array.isArray(rows) ? rows : []
       if (!list.length) return 0
       const dekAvailable = dryRun ? await hasExistingDek(scope.tenantId) : true
+      // The scope pins one tenant, so the current DEK is the same for every row here.
+      const currentDek = rotate && oldKms ? await encryptionService.getDek(scope.tenantId) : null
       let updated = 0
       for (const row of list) {
         const payload: Record<string, unknown> = {}
@@ -630,8 +632,21 @@ const rotateEncryptionKey: ModuleCli = {
             const value = payload[rule.field]
             if (typeof value !== 'string' || !isEncryptedPayload(value)) continue
             const decrypted = decryptWithOldKey(value, oldDek)
-            if (decrypted === null) continue
-            payload[rule.field] = parseDecryptedFieldValue(decrypted)
+            if (decrypted !== null) {
+              payload[rule.field] = parseDecryptedFieldValue(decrypted)
+              continue
+            }
+            // The old key did not open it. If the current key does, the row was already
+            // rotated (a resumed run) — leave it in the payload, where the service's own
+            // already-encrypted check skips it. Otherwise no key we hold can open it, and
+            // handing it to the encrypt path would abort the whole batch (#5951). Drop the
+            // field so this row is reported and skipped instead.
+            if (currentDek && decryptWithAesGcm(value, currentDek.key) !== null) continue
+            delete payload[rule.field]
+            if (rule.hashField) delete payload[rule.hashField]
+            console.warn(
+              `Skipping ${entityId}.${rule.field} for row ${row[pk]}: its ciphertext opens under neither --old-key nor the current tenant key. Re-run with the key that sealed it.`,
+            )
           }
         }
         if (!dekAvailable) {
@@ -1201,8 +1216,13 @@ const backfillSystemEncryption: ModuleCli = {
             const resolved = resolveProperty(meta, rule.field)
             if (!resolved.columnName) continue
             const rawValue = row[resolved.columnName]
+            // Only plaintext belongs in the payload. An already-encrypted column produced no
+            // update anyway (the service skips what decrypts under the current key), but if the
+            // system key ever changed, passing its ciphertext through would abort the whole
+            // backfill rather than let the row's genuinely-plaintext fields through (#5951).
+            if (rawValue !== null && rawValue !== undefined && isEncryptedPayload(rawValue)) continue
             payload[rule.field] = rawValue
-            if (rawValue !== null && rawValue !== undefined && !isEncryptedPayload(rawValue)) hasPlaintext = true
+            if (rawValue !== null && rawValue !== undefined) hasPlaintext = true
             if (rule.hashField) {
               const resolvedHash = resolveProperty(meta, rule.hashField)
               if (resolvedHash.columnName) payload[rule.hashField] = row[resolvedHash.columnName]
