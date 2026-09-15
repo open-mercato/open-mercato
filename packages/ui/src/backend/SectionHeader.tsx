@@ -4,6 +4,7 @@ import * as React from 'react'
 import { ChevronDown } from 'lucide-react'
 import { Badge } from '../primitives/badge'
 import { cn } from '@open-mercato/shared/lib/utils'
+import { useOptionalT } from '@open-mercato/shared/lib/i18n/context'
 
 export type SectionHeaderProps = {
   /** Section title */
@@ -14,6 +15,11 @@ export type SectionHeaderProps = {
   action?: React.ReactNode
   /** Additional className */
   className?: string
+  /**
+   * Additional className on the title element. Supplying it also lets the title row
+   * shrink below its content width, so `truncate` takes effect in narrow containers.
+   */
+  titleClassName?: string
 }
 
 export function SectionHeader({
@@ -21,11 +27,13 @@ export function SectionHeader({
   count,
   action,
   className,
+  titleClassName,
 }: SectionHeaderProps) {
+  const allowsTitleShrink = Boolean(titleClassName)
   return (
     <div className={cn('flex items-center justify-between', className)}>
-      <div className="flex items-center gap-2">
-        <h3 className="text-sm font-semibold">{title}</h3>
+      <div className={cn('flex items-center gap-2', allowsTitleShrink && 'min-w-0')}>
+        <h3 className={cn('text-sm font-semibold', allowsTitleShrink && 'min-w-0', titleClassName)}>{title}</h3>
         {count != null && (
           <Badge variant="muted" className="text-xs tabular-nums">
             {count}
@@ -56,6 +64,11 @@ export type CollapsibleSectionProps = {
   className?: string
   /** Additional className on content wrapper */
   contentClassName?: string
+  /**
+   * Additional className on the title element. Supplying it also lets the header row
+   * shrink below its content width, so `truncate` takes effect in narrow containers.
+   */
+  titleClassName?: string
 }
 
 export function CollapsibleSection({
@@ -68,6 +81,7 @@ export function CollapsibleSection({
   children,
   className,
   contentClassName,
+  titleClassName,
 }: CollapsibleSectionProps) {
   const [internalCollapsed, setInternalCollapsed] = React.useState(defaultCollapsed)
   const isControlled = controlledCollapsed !== undefined
@@ -79,23 +93,32 @@ export function CollapsibleSection({
     onCollapsedChange?.(next)
   }, [isCollapsed, isControlled, onCollapsedChange])
 
+  const contextT = useOptionalT()
+  const t = (key: string, fallback: string) =>
+    contextT ? contextT(key, fallback, { title }) : fallback.replace('{title}', title)
+  const toggleAriaLabel = isCollapsed
+    ? t('ui.sectionHeader.expand', 'Expand {title} section')
+    : t('ui.sectionHeader.collapse', 'Collapse {title} section')
+  const allowsTitleShrink = Boolean(titleClassName)
+
   return (
     <div className={cn('space-y-3', className)}>
       <div className="flex items-center justify-between">
         <button
           type="button"
           onClick={toggle}
-          className="flex items-center gap-2 group"
+          className={cn('flex items-center gap-2 group', allowsTitleShrink && 'min-w-0')}
           aria-expanded={!isCollapsed}
-          aria-label={`${isCollapsed ? 'Expand' : 'Collapse'} ${title} section`}
+          aria-label={toggleAriaLabel}
         >
           <ChevronDown
             className={cn(
               'h-4 w-4 text-muted-foreground transition-transform duration-200',
               isCollapsed && '-rotate-90',
+              allowsTitleShrink && 'shrink-0',
             )}
           />
-          <h3 className="text-sm font-semibold">{title}</h3>
+          <h3 className={cn('text-sm font-semibold', allowsTitleShrink && 'min-w-0', titleClassName)}>{title}</h3>
           {count != null && (
             <Badge variant="muted" className="text-xs tabular-nums">
               {count}

@@ -309,6 +309,22 @@ export async function resolveAiAgentTools(
   input: ResolveAiAgentToolsInput,
 ): Promise<ResolvedAgentTools> {
   await loadAgentRegistry()
+  // The agent registry alone is not enough: the policy gate below resolves
+  // every allowlisted name against the TOOL registry, and rejects what it
+  // cannot find as `tool_unknown`. Loading it here — rather than in the half
+  // dozen entry points that happened to remember — is what makes an agent's
+  // allowlist mean the same thing on every path.
+  try {
+    const { ensureModuleToolsLoaded } = await import('./tool-loader')
+    await ensureModuleToolsLoaded()
+  } catch (error) {
+    // A registry that failed to load leaves the agent toolless, which the
+    // caller already handles; it must not take the whole turn down.
+    logger.error('Could not load module tools; agent will resolve to its known tools only', {
+      agentId: input.agentId,
+      err: error,
+    })
+  }
 
   const policyAuth = toPolicyAuthContext(input.authContext)
   const mutationPolicyOverride = input.mutationPolicyOverride ?? null

@@ -1,0 +1,77 @@
+{
+  "name": "@open-mercato/web-research-model",
+  "version": "0.7.0",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "openMercato": {
+    "webResearchAdapter": {
+      "id": "model-native"
+    }
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "watch": "node watch.mjs",
+    "test": "jest --config jest.config.cjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./*.ts": {
+      "types": "./src/*.ts",
+      "default": "./dist/*.js"
+    },
+    "./*": {
+      "types": [
+        "./src/*.ts"
+      ],
+      "default": "./dist/*.js"
+    }
+  },
+  "peerDependencies": {
+    "@ai-sdk/anthropic": "^4.0.1",
+    "@ai-sdk/azure": "^4.0.0",
+    "@ai-sdk/openai": "^4.0.2",
+    "@open-mercato/web-research": "^0.6.0",
+    "ai": "^7.0.4"
+  },
+  "peerDependenciesMeta": {
+    "@ai-sdk/anthropic": {
+      "optional": true
+    },
+    "@ai-sdk/azure": {
+      "optional": true
+    },
+    "@ai-sdk/openai": {
+      "optional": true
+    }
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@ai-sdk/anthropic": "^4.0.1",
+    "@ai-sdk/azure": "^4.0.0",
+    "@ai-sdk/openai": "^4.0.2",
+    "@open-mercato/web-research": "workspace:*",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^26.0.1",
+    "ai": "^7.0.4",
+    "esbuild": "^0.28.1",
+    "glob": "^13.0.6",
+    "jest": "^30.4.2",
+    "ts-jest": "^29.4.11",
+    "typescript": "^6.0.3"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/open-mercato/open-mercato",
+    "directory": "packages/web-research-model"
+  }
+}
