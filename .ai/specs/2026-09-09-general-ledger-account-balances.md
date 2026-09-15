@@ -300,11 +300,13 @@ type"), a revenue account's period debit will include the closing
 entry's own zeroing debit alongside its real credit-side turnover for
 the year, and symmetrically an expense account's period credit will
 include its own zeroing credit. This is not a defect: it is the same
-shape every introductory accounting text shows for a post-closing
-period (Kieso/Weygandt/Warfield, *Intermediate Accounting*, 17e, ch.
-3, "Closing Entries" — the illustrated closing journal entry debits
-every revenue account and credits every expense account for its
-full-year balance, exactly this document's `JournalEntryLine` shape).
+underlying mechanic every introductory accounting text shows for a
+post-closing period — a `CLOSING` entry's zeroing lines land in each
+affected account's period turnover, the same as any other posted
+line (Kieso/Weygandt/Warfield, *Intermediate Accounting*, 17e, ch. 3,
+"Closing Entries," Illustration 3.38 — with one caveat corrected on
+independent re-verification: see this document's own Literature &
+Prior Art section below for what Kieso's illustration actually shows).
 Excluding `CLOSING` (or `OPENING`) lines from the sum would also mean
 the period's total turnover no longer reconciles against the journal —
 the literal requirement art. 18 imposes (turnover must "zgadzać się z
@@ -390,6 +392,154 @@ textbook.
   including its analityk children** so that a report at the `130
   Rachunki bieżące` level reflects `130-1 mBank` and every other child
   account without manually adding them up.
+
+## Literature & Prior Art
+
+Per the project's financial-spec-writing-process, this section
+consolidates and independently re-verifies the accounting/data-modeling
+citations already used piecemeal in Design decisions and the
+2026-09-09 Changelog entry, and adds the real-system comparison this
+document didn't yet have (the Overview's own "Market Reference"
+callout compares only against Odoo). All book citations were
+re-checked against full extracted text — not chapter titles or this
+document's own earlier paraphrase alone; see
+`financial-module-knowledge-base.md` §3 for the verification method.
+
+**The syntetyk/analityk recursive rollup is Fowler's own canonical
+Summary Account pattern — confirmed, and one detail worth adding on
+independent re-reading.** Fowler, *Analysis Patterns*, §6.3 "Summary
+Account," pp.101-102: "We restrict the system to posting entries only
+to detail accounts and not to summary accounts... A summary account
+that contains summary accounts will look for entries in its
+components, its components' components, and so on, recursively." This
+document's Design decisions already note it does *not* adopt Fowler's
+leaf-only-posting restriction, since #5663 never added one. Worth
+citing alongside it: the same section's Figure 6.6 explicitly names
+the alternative this document actually implements — "providing two
+mappings from account to entry: one to show which entries are posted
+at that level, and another to add together the entries on
+sub-accounts" — a syntetyk account that both receives direct postings
+and rolls up its descendants is itself a named Fowler variant, not
+merely "the restriction Fowler describes, deliberately not applied
+here."
+
+**The single-parent-hierarchy-over-DAG choice is confirmed against
+both books' own explicit warnings.** Fowler §6.15 "Booking Entries to
+Multiple Accounts," pp.127-128 (Figure 6.32 generalizes Figure 6.5's
+hierarchy into a directed acyclic graph): an account structure
+allowing multiple summary parents risks double-counting overlapping
+components, and "defining this kind of account is more likely to be
+the product of accident than design." Hay, *Data Model Patterns*,
+ch.7 "Accounting," the "Summarization" section, p.154: "this is a
+hierarchical way of grouping ACCOUNTS, and it does not allow an
+account to be in more than one higher-level account. If a company
+wanted to allow for multiple roll-up paths, changing the model would
+be easy... Administering such an arrangement, however, would be
+extremely difficult." Both quotes verified verbatim against full-text
+extraction — `parentAccountId`'s single-parent tree is the position
+both books independently recommend, not merely a position neither
+book argues against.
+
+**The `normalBalance` sign convention matches Hay's Table 7.1 and
+Kieso's Illustration 3.1 exactly — confirmed, no correction needed.**
+Hay, ch.7, Table 7.1 "Debits and Credits," p.122: Asset debit
++/credit −; Liability and Equity debit −/credit +. Kieso, ch.3
+"Debits and Credits," Illustration 3.1, p.3-5: the identical
+Asset/Expense debit-increase, Liability/Equity/Revenue credit-increase
+convention. Both re-checked against full text and match this
+document's formula exactly.
+
+**Correction, found on independent re-verification: Kieso's
+illustrated closing entries do not debit revenue directly against
+crediting expense in one entry, as Design decisions previously
+stated.** Design decisions ("Turnover figures include every
+`JournalEntry.type`") cited Kieso ch.3, "Closing Entries," as showing
+"the illustrated closing journal entry debits every revenue account
+and credits every expense account for its full-year balance, exactly
+this document's `JournalEntryLine` shape." Re-checked against the
+actual illustration (Illustration 3.38, pp.3-32–3-33): Kieso's example
+routes both sides through a temporary **Income Summary** account
+across three separate journal entries — (1) debit Service Revenue,
+credit Income Summary; (2) debit Income Summary, credit each Expense
+account; (3) close Income Summary's net balance to Retained Earnings —
+not a single entry with Revenue debited directly against Expense
+credited. The fact this document's own turnover design decision
+actually needs is unaffected: a `CLOSING` entry's zeroing lines still
+land in each affected account's period turnover regardless of which
+account is on the entry's other leg. But "exactly this document's
+`JournalEntryLine` shape" overstated the match — #5663's own single
+`CLOSING` `JournalEntry` design
+(`2026-08-18-general-ledger-core-engine.md`, Design decisions,
+"Fiscal period closing is a lock flag plus an entry type") has no
+Income Summary account at all. It is a simpler, more direct mechanism
+than Kieso's own textbook illustration, not an implementation of the
+same illustrated shape. Corrected in Design decisions above.
+
+**Real-system comparison.**
+
+- **ERPNext** (`frappe/erpnext`'s `financial_statements.py`, and
+  `docs.frappe.io` Accounting Reports, verified 2026-09-15): the Trial
+  Balance is computed live — `set_gl_entries_by_account()` queries
+  `tabGL Entry` directly at report-generation time, with no maintained
+  running-balance or balance-snapshot table — matching this document's
+  own "Live query, not a maintained balance table" design decision
+  exactly, not merely a similar choice made independently. Its columns
+  are Opening Debit/Credit, period Debit/Credit, and Closing
+  Debit/Credit — one fewer distinct figure group than this document's
+  opening/period/YTD/closing, since ERPNext gets a year-to-date figure
+  by widening the date filter rather than a separate column — and it
+  shows group (parent/syntetyk-equivalent) account rollup totals by
+  default, confirmed via a live feature request asking to suppress
+  them (`frappe/erpnext#27131`) — the same syntetyk/analityk shape
+  this document implements. A documented ERPNext bug
+  (`frappe/erpnext#41453`, Frappe 14/ERPNext 14) reported income/expense
+  accounts showing non-zero Trial Balance opening balances — getting
+  nominal-account zeroing wrong is a real, recorded failure mode in a
+  mature open-source ERP, not a hypothetical risk this document
+  invented by calling out its own `CLOSING`-entry-turnover interaction
+  explicitly.
+- **Comarch ERP Optima** (`pomoc.comarch.pl`, "Zestawienie Obrotów i
+  Sald" documentation, verified 2026-09-15) — the closest real-system
+  match found to this document's exact shape and name. Eleven columns
+  — BO Dt/Ct (opening), Obroty Dt/Ct (period turnover), Obroty n.
+  Dt/Ct (cumulative turnover "od początku okresu obrachunkowego," i.e.
+  YTD), Saldo Dt/Ct plus Per Saldo (closing/net) — a one-to-one match
+  to this document's six `TrialBalanceRowDto` figures
+  (opening/periodDebit/periodCredit/ytdDebit/ytdCredit/closing).
+  Syntetyk/analityk shown as an expandable tree, with rollup stated
+  explicitly: "obroty i salda na koncie syntetycznym wynikają
+  wyłącznie z odfiltrowanych kont analitycznych" ("a synthetic
+  account's turnover and balance derive *exclusively* from its
+  [filtered] analytic accounts") — worth flagging as a genuine
+  divergence, not just a confirmation: Optima's own wording implies
+  synthetic accounts do not receive direct postings of their own in
+  its model, which is exactly the Fowler-canonical leaf-only-posting
+  restriction this document's Phase 1 explicitly does *not* enforce
+  (Design decisions, "Syntetyk balance is a recursive rollup... not
+  restricted from also receiving direct postings"). The period filter
+  is a free date range ("Obroty za okres," Od–Do), matching this
+  document's own `periodStart`/`periodEnd` shape rather than a fixed
+  monthly grid.
+- **enova365** (`enova.pl` blog, "Zestawienia obrotów i sald — dobre
+  praktyki dla księgowych," verified 2026-09-15) — confirms the same
+  four-figure-group shape (opening/period/cumulative-YTD/closing) at
+  the synthetic-account level, and describes "automated verification"
+  (built-in accuracy checks) as a named product feature — the same
+  role this document's `zeroSumCheck` plays. The article doesn't
+  detail analytic-account rollup mechanics or state whether synthetic
+  accounts can also receive direct postings, so unlike Comarch this is
+  recorded as a partial match, not a confirmed divergence.
+
+Together, ERPNext and Comarch Optima confirm the two structural
+choices this document made independently of either: a live query over
+posted entries (ERPNext, exactly) and a four-figure-group
+syntetyk/analityk report shape (Comarch, almost figure-for-figure).
+Comarch also surfaces the one live-system product decision this
+document deliberately diverges from — restricting postings to
+analytic accounts — already recorded and justified in Design decisions
+on other grounds (Phase 1 not adding a restriction #5663 itself
+doesn't have yet), not newly discovered here, but now backed by a
+concrete real-system precedent for the road not taken.
 
 ## Architecture
 
@@ -1120,3 +1270,53 @@ develop's own new row in the same spot) is resolved separately by
 rebasing on develop and keeping both rows.
 
 Not yet re-reviewed by `om-auto-review-pr`.
+
+### 2026-09-15 (financial-spec-writing-process applied for the first time)
+
+- Merged `upstream/develop` (166 commits) first; one shared-file
+  overlap in `.ai/specs/README.md` (this document's own Pending row vs.
+  develop's own new, unrelated row in the same spot) resolved cleanly
+  by git itself — no manual conflict markers, both rows kept; commit
+  `319694a20`.
+- Cross-checked against `financial-module-knowledge-base.md` §2
+  (control-account/subsidiary ledger — not applicable, this document
+  does no control-account modeling; account-number-illustrative-only —
+  already compliant, "130 Rachunki bieżące" etc. are explicitly
+  illustrative; per-command event documentation — not applicable, this
+  document adds no write commands) — already compliant on all
+  applicable points; no changes needed.
+- Added this document's first "Literature & Prior Art" section,
+  consolidating and independently re-verifying the citations already
+  scattered through Design decisions and the 2026-09-09 Changelog
+  entry: Fowler §6.3 "Summary Account" (confirmed, plus a newly-added
+  citation to the same section's Figure 6.6 — the named Fowler variant
+  that actually matches this document's choice to allow direct
+  postings to syntetyk accounts, not just "the restriction we didn't
+  adopt"), Fowler §6.15 and Hay's "Summarization" section (both
+  confirmed verbatim for the single-parent-over-DAG warning), Hay
+  Table 7.1 and Kieso Illustration 3.1 (both confirmed for the
+  `normalBalance` sign convention), and one genuine correction: Kieso's
+  illustrated closing entries (Illustration 3.38) route revenue and
+  expense through a temporary Income Summary account across three
+  entries, not one entry debiting revenue directly against crediting
+  expense as Design decisions previously stated — fixed there, with
+  the full explanation in the new section.
+- Added a real-system comparison (this document previously had only
+  the Overview's own Odoo "Market Reference" callout): ERPNext (live
+  query confirmed directly from `financial_statements.py` source —
+  exactly this document's own "no maintained balance table" choice;
+  group/syntetyk rollup shown by default; a documented real bug,
+  `frappe/erpnext#41453`, getting nominal-account opening-balance
+  zeroing wrong), Comarch ERP Optima (the closest real-system match
+  found anywhere in this document family — its eleven-column ZSiO is a
+  one-to-one match to this document's six `TrialBalanceRowDto`
+  figures, but its own documentation implies synthetic accounts don't
+  take direct postings, a genuine, recorded divergence from this
+  document's Phase 1 choice), and enova365 (confirms the same
+  four-figure-group shape and a `zeroSumCheck`-equivalent feature, but
+  recorded as a partial match — its public documentation doesn't cover
+  analytic-account rollup mechanics in enough detail to confirm or
+  rule out the same divergence Comarch shows).
+- No structural changes to Architecture/Data Models/API Contracts from
+  this pass — Steps 1-3 of `financial-spec-writing-process` only; Step
+  4 (structure) was already satisfied by the existing document.
