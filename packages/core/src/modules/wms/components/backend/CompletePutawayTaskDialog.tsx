@@ -88,6 +88,22 @@ export function CompletePutawayTaskDialog({
     onOpenChange(false)
   }, [onOpenChange, submitting])
 
+  const warehouseId = task?.warehouseId?.trim() || ''
+
+  // Stable identity so ComboboxInput's debounced suggestion effect is not torn
+  // down on every parent re-render (queue refetch / access churn) — an inline
+  // arrow would recreate each render and can starve the fetch, leaving the
+  // portaled list stuck on "Loading suggestions…" with no selectable options.
+  const loadTargetLocationSuggestions = React.useCallback(
+    async (query?: string) => (warehouseId ? loadBinLocationOptions(warehouseId, query) : []),
+    [warehouseId],
+  )
+
+  const resolveTargetLocationLabel = React.useCallback(
+    async (value: string) => (await resolveLocationLabel(value)) ?? value,
+    [],
+  )
+
   React.useEffect(() => {
     if (!open || !task) return
     setConfirmedQuantity(task.quantity > 0 ? task.quantity : 1)
@@ -276,10 +292,8 @@ export function CompletePutawayTaskDialog({
               <ComboboxInput
                 value={targetLocationId}
                 onChange={setTargetLocationId}
-                loadSuggestions={async (query) =>
-                  task.warehouseId ? loadBinLocationOptions(task.warehouseId, query) : []
-                }
-                resolveLabel={async (value) => (await resolveLocationLabel(value)) ?? value}
+                loadSuggestions={loadTargetLocationSuggestions}
+                resolveLabel={resolveTargetLocationLabel}
                 placeholder={t(
                   'wms.backend.putaway.complete.form.targetPlaceholder',
                   'Select destination bin',

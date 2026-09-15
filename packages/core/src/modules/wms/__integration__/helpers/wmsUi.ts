@@ -40,11 +40,17 @@ export async function expectDialogHasNoFieldErrors(dialog: Locator) {
   await expect(dialog.getByRole('alert')).toHaveCount(0, { timeout: 5_000 })
 }
 
-export async function waitForDialogSubmitReady(dialog: Locator, submitTestId: string) {
+export async function waitForDialogSubmitReady(
+  page: Page,
+  dialog: Locator,
+  submitTestId: string,
+) {
   const submit = dialog.getByTestId(submitTestId)
   await expect(submit).toBeVisible({ timeout: 10_000 })
   await expect(submit).toBeEnabled({ timeout: 10_000 })
-  await expect(dialog.getByRole('status', { name: /Loading suggestions/i })).toHaveCount(0, {
+  // Combobox suggestion status lives in the portaled Popover (document body),
+  // not inside the dialog tree — scope the wait to the page.
+  await expect(page.getByRole('status', { name: /Loading suggestions/i })).toHaveCount(0, {
     timeout: 10_000,
   })
   await expectDialogHasNoFieldErrors(dialog)
@@ -70,7 +76,7 @@ export async function submitInventoryDialog(
     timeoutMs?: number
   },
 ) {
-  await waitForDialogSubmitReady(dialog, options.submitTestId)
+  await waitForDialogSubmitReady(page, dialog, options.submitTestId)
   const submit = dialog.getByTestId(options.submitTestId)
   const responsePromise = page.waitForResponse(
     (response) =>
@@ -200,16 +206,34 @@ export async function selectLocationComboboxOption(
 
   await input.fill(locationCode)
   await locationsResponse
-  await expect(dialog.getByRole('status', { name: /Loading suggestions/i })).toHaveCount(0, {
+  // Status + options render in the portaled Popover on <body>, not under the dialog.
+  await expect(page.getByRole('status', { name: /Loading suggestions/i })).toHaveCount(0, {
     timeout: 15_000,
   })
 
-  // Portaled list, `role="option"` items -- see the note in `fillCombobox`. This
-  // replaces a dialog-scoped `div.absolute` lookup plus a page-wide `role="button"`
-  // fallback that was strict-mode ambiguous whenever the code rendered elsewhere.
-  const option = page.getByRole('option', { name: locationCode, exact: true }).first()
-  await expect(option).toBeVisible({ timeout: 10_000 })
-  await option.click()
+  const suggestionPattern = new RegExp(escapeForRegex(locationCode), 'i')
+  const option = page.getByRole('option', { name: suggestionPattern }).first()
+  const hasOption = await option.isVisible({ timeout: 2_000 }).catch(() => false)
+  if (hasOption) {
+    await option.click()
+  } else {
+    // Match fillCombobox: keyboard commit, then reopen if Enter closed an empty list.
+    await input.press('ArrowDown')
+    const selectedWithKeyboard = await input
+      .inputValue()
+      .then((current) => current.trim().toLowerCase() === locationCode.trim().toLowerCase())
+      .catch(() => false)
+    if (!selectedWithKeyboard) {
+      await input.press('Enter')
+    }
+    const resolvedValue = await input.inputValue()
+    if (resolvedValue.trim().toLowerCase() !== locationCode.trim().toLowerCase()) {
+      await input.press('ArrowDown')
+      const fallback = page.getByRole('option', { name: suggestionPattern }).first()
+      await expect(fallback).toBeVisible({ timeout: 10_000 })
+      await fallback.click()
+    }
+  }
 
   await expect(input).toHaveValue(locationCode, { timeout: 5_000 })
   if ((await input.getAttribute('aria-expanded')) === 'true') {
