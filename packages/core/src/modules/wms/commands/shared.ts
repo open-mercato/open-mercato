@@ -10,6 +10,7 @@ import {
   InventoryReservation,
   PutawayTask,
   ReceivingLine,
+  Warehouse,
   WarehouseZone,
 } from '../data/entities'
 
@@ -57,6 +58,14 @@ export const inventoryMovementCrudIndexer: CrudIndexerConfig<InventoryMovement> 
 // zone commands write custom field values that no read path can ever see (#5239).
 export const warehouseZoneCrudIndexer: CrudIndexerConfig<WarehouseZone> = {
   entityType: E.wms.warehouse_zone,
+}
+
+// Warehouse list/search goes through the hybrid query engine. Writing a custom
+// field upserts `entity_indexes`; delete must tombstone that row. A leftover
+// live index document makes `indexAnyRows` true and hides later warehouses that
+// were never indexed (empty combobox on the same integration shard).
+export const warehouseCrudIndexer: CrudIndexerConfig<Warehouse> = {
+  entityType: E.wms.warehouse,
 }
 
 export const inventoryBalanceCrudEvents: CrudEventsConfig<InventoryBalance> = {

@@ -557,5 +557,100 @@ describe('ComboboxInput accessibility', () => {
     const listbox = screen.getByRole('listbox')
     expect(within(listbox).getAllByRole('option')).toHaveLength(2)
     expect(input).toHaveAttribute('aria-controls', listbox.id)
+    // The listbox is portaled out of the input's subtree, so aria-activedescendant
+    // is only valid while aria-owns makes it a logical descendant.
+    expect(input).toHaveAttribute('aria-owns', listbox.id)
+    expect(listbox.contains(input)).toBe(false)
+  })
+})
+
+describe('ComboboxInput suggestion popup placement', () => {
+  it('renders the suggestion list outside the field wrapper so an overflow ancestor cannot clip it', () => {
+    const { container } = render(<Harness />)
+    const input = getInput(container)
+
+    fireEvent.focus(input)
+    fireEvent.change(input, { target: { value: 're' } })
+
+    const listbox = screen.getByRole('listbox')
+    expect(container.contains(listbox)).toBe(false)
+    expect(document.body.contains(listbox)).toBe(true)
+  })
+
+  it('keeps focus on the input while the popup is open', () => {
+    const { container } = render(<Harness />)
+    const input = getInput(container)
+
+    act(() => {
+      input.focus()
+      fireEvent.focus(input)
+    })
+    fireEvent.change(input, { target: { value: 're' } })
+
+    expect(screen.getByRole('listbox')).toBeInTheDocument()
+    expect(document.activeElement).toBe(input)
+  })
+
+  it('selects a portaled option by click', () => {
+    render(<Harness />)
+    const input = screen.getByRole('combobox')
+
+    fireEvent.focus(input)
+    fireEvent.change(input, { target: { value: 'gre' } })
+    fireEvent.click(screen.getByRole('option', { name: /green/i }))
+
+    expect(screen.getByTestId('value')).toHaveTextContent('green')
+  })
+
+  it('selects a portaled option by keyboard', () => {
+    render(<Harness />)
+    const input = screen.getByRole('combobox')
+
+    fireEvent.focus(input)
+    fireEvent.change(input, { target: { value: 'gre' } })
+    fireEvent.keyDown(input, { key: 'ArrowDown' })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    expect(screen.getByTestId('value')).toHaveTextContent('green')
+  })
+
+  it('closes the popup on Escape without letting the key reach an enclosing surface', () => {
+    const onSurfaceKeyDown = jest.fn()
+    render(
+      <div onKeyDown={onSurfaceKeyDown}>
+        <Harness />
+      </div>,
+    )
+    const input = screen.getByRole('combobox')
+
+    fireEvent.focus(input)
+    fireEvent.change(input, { target: { value: 're' } })
+    expect(screen.getByRole('listbox')).toBeInTheDocument()
+
+    fireEvent.keyDown(input, { key: 'Escape' })
+
+    expect(screen.queryByRole('listbox')).toBeNull()
+    expect(onSurfaceKeyDown).not.toHaveBeenCalled()
+  })
+
+  it('removes the popup from the document once it closes', () => {
+    jest.useFakeTimers()
+    try {
+      render(<Harness />)
+      const input = screen.getByRole('combobox')
+
+      fireEvent.focus(input)
+      fireEvent.change(input, { target: { value: 're' } })
+      expect(document.body.querySelector('[role="listbox"]')).not.toBeNull()
+
+      blurAndFlush(input)
+
+      expect(document.body.querySelector('[role="listbox"]')).toBeNull()
+    } finally {
+      act(() => {
+        jest.runOnlyPendingTimers()
+      })
+      jest.useRealTimers()
+    }
   })
 })

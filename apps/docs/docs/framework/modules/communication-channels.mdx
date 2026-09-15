@@ -7,10 +7,15 @@ description: Architecture, OAuth setup, environment variables, deploy runbook, a
 
 The Communications Hub (`communication_channels`) bridges external chat and email channels (Slack, WhatsApp, Gmail, IMAP+SMTP) into the **Messages** module, and routes mobile push through the same `ChannelAdapter` contract. Each provider ships as a separate workspace package; the hub itself stays adapter-agnostic.
 
-Two email providers ship today, both `channelScope: 'user'`:
+Three message providers ship today, all `channelScope: 'user'`:
 
 - `@open-mercato/channel-imap` — credential-based IMAP polling + SMTP send
 - `@open-mercato/channel-gmail` — Gmail OAuth2 + History API polling + `gmail.users.messages.send`
+- `@open-mercato/channel-discord` — Discord bot: REST outbound, real-time inbound over a
+  provider-owned Gateway (WebSocket) worker, and an Ed25519-signed Interactions endpoint. The first
+  non-email provider, and the first with `capabilities.recipientFormat: 'provider-native'` and
+  `realtimePush: true`. See [Set up Discord](../../user-guide/communication-channels-discord.mdx)
+  for the operator runbook.
 
 Three push providers ship today, all `channelType: 'push'` and `channelScope: 'tenant'` — one credential serves every device in the tenant, so they are connected through the admin-gated tenant connect route rather than the per-user one:
 
@@ -18,14 +23,14 @@ Three push providers ship today, all `channelType: 'push'` and `channelScope: 't
 - `@open-mercato/channel-apns` — Apple Push Notification service, directly
 - `@open-mercato/channel-expo` — Expo push service (Android and iOS)
 
-Push delivery itself is owned by the `push_notifications` module; these packages hold only the provider SDKs and their message builders. See the [Devices and push getting-started tutorial](../../tutorials/devices-and-push-getting-started.mdx).
+Push delivery itself is owned by the `push_notifications` module; these packages hold only the provider SDKs and their message builders. Push credentials are **tenant-scoped** (`channelScope: 'tenant'`), so they are connected through `POST /api/communication_channels/channels/connect/tenant-credentials` and the per-user connect route refuses them. See [Push Notifications](./push-notifications.mdx) and the [getting-started tutorial](../../tutorials/devices-and-push-getting-started.mdx).
 
 For the end-user perspective see the [Communication Channels user guide](../../user-guide/communication-channels.mdx).
 
 ## Overview
 
 - **Hub**: `packages/core/src/modules/communication_channels/`
-- **Providers**: `packages/channel-{imap,gmail}/` (email) and `packages/channel-{fcm,apns,expo}/` (push)
+- **Providers**: `packages/channel-{imap,gmail}/` (email), `packages/channel-discord/` (chat) and `packages/channel-{fcm,apns,expo}/` (push)
 - **Module entry**: enable with `{ id: 'communication_channels', from: '@open-mercato/core' }` plus one entry per provider you want active in `apps/mercato/src/modules.ts`.
 - **Specs**: [`.ai/specs/implemented/SPEC-045d-communication-notification-hubs.md`](#) (hub contract) and [`.ai/specs/2026-05-21-email-integration-foundation.md`](#) (email providers + per-user surfaces).
 
@@ -319,7 +324,14 @@ The hub reads a small set of env vars; sensible defaults exist for all of them.
 
 ### Adding a new provider
 
-The hub deliberately stays adapter-agnostic. To add a third email provider (e.g. Yahoo, ProtonMail Bridge variant), follow the same shape as the two shipping packages:
+:::tip Full walkthrough
+[Building on the Communications Hub](building-communication-channel-provider.mdx) covers this
+end-to-end — the adapter contract, the capability rules, fail-closed webhook verification, the
+worker pattern for transports that are not webhooks, and tenant-scoped provider state. The steps
+below are the short version.
+:::
+
+The hub deliberately stays adapter-agnostic. To add another email provider (e.g. Yahoo, ProtonMail Bridge variant), follow the same shape as the shipping packages:
 
 1. `mkdir packages/channel-<provider>` and copy the build/watch/jest/tsconfig templates from `packages/channel-imap`.
 2. Implement `ChannelAdapter` in `src/modules/channel_<provider>/lib/adapter.ts`.
@@ -395,14 +407,18 @@ The transport-safety check is an **allowlist**, not a denylist, because the reci
 - `resolveContact(input)` — best-effort CRM contact resolution; returns `null` when no hint is available
 - `listSenders(input)` — adapter-driven sender enumeration (Slack channels, WhatsApp templates, etc.)
 
-See the three shipping providers for end-to-end examples:
+See the shipping providers for end-to-end examples:
 
 - IMAP: `packages/channel-imap/src/modules/channel_imap/lib/adapter.ts`
 - Gmail: `packages/channel-gmail/src/modules/channel_gmail/lib/adapter.ts`
+- Discord: `packages/channel-discord/src/modules/channel_discord/lib/adapter.ts` — the non-email
+  reference: `provider-native` recipients, `realtimePush`, a provider-owned Gateway worker instead
+  of a webhook, and a provider-owned signed route for the interactions handshake
 
 ## Related
 
+- [Building on the Communications Hub](building-communication-channel-provider.mdx) — consume the hub from your own module, or ship a new provider
 - [Messages module](messages.mdx) — the unified inbox surface
 - [Integrations + Data Sync](integrations-data-sync.mdx) — the credentials + admin UI layer this hub builds on
-- [User guide: Communication Channels](../../user-guide/communication-channels.mdx)
+- [User guide: Communication Channels](../../user-guide/communication-channels.mdx) · [Set up Discord](../../user-guide/communication-channels-discord.mdx)
 - [User guide: Inbox Ops](../../user-guide/inbox-ops.mdx) — the *other* email surface (shared mailbox, AI extraction)

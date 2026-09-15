@@ -2,6 +2,7 @@
 import { POST as sendQuote } from '@open-mercato/core/modules/sales/api/quotes/send/route'
 import { GET as getPublicQuote } from '@open-mercato/core/modules/sales/api/quotes/public/[token]/route'
 import { POST as acceptQuote } from '@open-mercato/core/modules/sales/api/quotes/accept/route'
+import { CommandInterceptorError } from '@open-mercato/shared/lib/commands/errors'
 import { SalesOrder, SalesQuote } from '@open-mercato/core/modules/sales/data/entities'
 import { Dictionary, DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/entities'
 import { hashAuthToken } from '@open-mercato/core/modules/auth/lib/tokenHash'
@@ -414,6 +415,34 @@ describe('accept - tenant isolation (fix: tenantId scoped in lookup + encryption
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.orderId).toBe('order-sec-1')
+  })
+
+  test('accept surfaces the status and body of an interceptor rejection that carries one', async () => {
+    mockCommandBus.execute.mockRejectedValueOnce(
+      new CommandInterceptorError('Missing required fields', {
+        status: 422,
+        body: { error: 'Missing required fields', missingFields: ['vatId'] },
+      }),
+    )
+
+    const res = await acceptQuote(makeAcceptReq())
+
+    expect(res.status).toBe(422)
+    await expect(res.json()).resolves.toEqual({
+      error: 'Missing required fields',
+      missingFields: ['vatId'],
+    })
+  })
+
+  test('accept keeps the generic 400 when an interceptor rejection carries no status', async () => {
+    mockCommandBus.execute.mockRejectedValueOnce(new CommandInterceptorError('Blocked without a status'))
+
+    const res = await acceptQuote(makeAcceptReq())
+
+    expect(res.status).toBe(400)
+    const body = await res.json() as { error?: string }
+    expect(body.error).toBeTruthy()
+    expect(body).not.toHaveProperty('missingFields')
   })
 
   test('same-tenant auth accepts quote (200)', async () => {

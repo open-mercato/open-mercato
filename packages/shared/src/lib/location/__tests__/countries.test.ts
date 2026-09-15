@@ -2,6 +2,7 @@ import {
   COUNTRY_PRIORITY,
   ISO_COUNTRIES,
   buildCountryOptions,
+  matchCountryCodes,
   resolveCountryName,
 } from '../countries'
 
@@ -78,5 +79,19 @@ describe('buildCountryOptions', () => {
       transformLabel: (code, defaultLabel) => `${defaultLabel} (${code})`,
     })
     expect(options).toEqual(expect.arrayContaining([{ code: 'XK', label: 'Kosovo (XK)' }]))
+  })
+})
+
+describe('matchCountryCodes', () => {
+  it('maps English country names to ISO codes so list search can find stored PL rows', () => {
+    expect(matchCountryCodes('Poland')).toContain('PL')
+  })
+
+  it('maps localized names when extra locales are provided', () => {
+    expect(matchCountryCodes('Polska', { locales: ['pl'] })).toContain('PL')
+  })
+
+  it('returns nothing for blank search terms', () => {
+    expect(matchCountryCodes('   ')).toEqual([])
   })
 })

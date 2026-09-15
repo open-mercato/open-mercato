@@ -80,14 +80,20 @@ export async function loadScopedClaim(
   )
 }
 
+/**
+ * `notFoundMessage` is passed to `assertFound` verbatim, so request-scoped callers
+ * must hand in an already-translated sentence; the key default only suits the
+ * command surface, which runs without a request locale.
+ */
 export async function requireScopedClaim(
   em: EntityManager,
   id: string,
   scope: WarrantyClaimScope,
   options: FindOneOptions<WarrantyClaim> = {},
+  notFoundMessage = 'warranty_claims.errors.notFound',
 ): Promise<WarrantyClaim> {
   const claim = await loadScopedClaim(em, id, scope, options)
-  return assertFound(claim, 'warranty_claims.errors.notFound')
+  return assertFound(claim, notFoundMessage)
 }
 
 export function appendClaimEvent(

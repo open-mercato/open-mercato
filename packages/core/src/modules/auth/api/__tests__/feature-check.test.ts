@@ -12,6 +12,11 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: async () => ({ resolve: (k: string) => (k === 'rbacService' ? mockRbac : null) }),
 }))
 
+const mockResolveFeatureCheckContext = jest.fn()
+jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
+  resolveFeatureCheckContext: (...args: unknown[]) => mockResolveFeatureCheckContext(...args),
+}))
+
 function makeReq(body: unknown) {
   return new Request('http://localhost/api/auth/feature-check', {
     method: 'POST',
@@ -24,6 +29,11 @@ describe('POST /api/auth/feature-check', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     mockRbac.userHasAllFeatures.mockResolvedValue(true)
+    mockResolveFeatureCheckContext.mockResolvedValue({
+      organizationId: 'o1',
+      scope: { selectedId: 'o1', filterIds: ['o1'], allowedIds: ['o1'], tenantId: 't1' },
+      allowedOrganizationIds: ['o1'],
+    })
   })
 
   it('returns 401 when not authenticated', async () => {
@@ -59,6 +69,38 @@ describe('POST /api/auth/feature-check', () => {
     const data = await res.json()
     expect(data.ok).toBe(false)
     expect(Array.isArray(data.granted)).toBe(true)
+  })
+
+  it('uses the request-selected scope for aggregate and individual checks', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    const auth = { sub: 'u1', tenantId: 'home-tenant', orgId: 'home-org' }
+    ;(getAuthFromRequest as jest.Mock).mockReturnValue(auth)
+    mockResolveFeatureCheckContext.mockResolvedValueOnce({
+      organizationId: 'selected-org',
+      scope: {
+        selectedId: 'selected-org',
+        filterIds: ['selected-org'],
+        allowedIds: ['selected-org'],
+        tenantId: 'selected-tenant',
+      },
+      allowedOrganizationIds: ['selected-org'],
+    })
+    mockRbac.userHasAllFeatures
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(false)
+    const req = makeReq({ features: ['a.b', 'c.d'] })
+
+    const res = await POST(req)
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toEqual({ ok: false, granted: ['a.b'], userId: 'u1' })
+    expect(mockResolveFeatureCheckContext).toHaveBeenCalledWith(expect.objectContaining({ auth, request: req }))
+    expect(mockRbac.userHasAllFeatures.mock.calls).toEqual([
+      ['u1', ['a.b', 'c.d'], { tenantId: 'selected-tenant', organizationId: 'selected-org' }],
+      ['u1', ['a.b'], { tenantId: 'selected-tenant', organizationId: 'selected-org' }],
+      ['u1', ['c.d'], { tenantId: 'selected-tenant', organizationId: 'selected-org' }],
+    ])
   })
 
   describe('input validation — returns 400', () => {

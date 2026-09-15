@@ -69,12 +69,15 @@ import type { EnricherContext } from './response-enricher'
 import type { ApiInterceptorMethod, InterceptorRequest, InterceptorResponse } from './api-interceptor'
 import { runApiInterceptorsAfter, runApiInterceptorsBefore } from './interceptor-runner'
 import { mergeIdFilter, parseIdsParam, isIdsParamProvided } from './ids'
+import { buildQueryParams } from './query-params'
 import { mergeAdvancedFilters } from './advanced-filter-integration'
 import { parseExtensionHeaders } from '../umes/extension-headers'
 import { createGenericOptimisticLockReader } from './optimistic-lock'
 import { registerOptimisticLockReaderIfAbsent } from './optimistic-lock-store'
 import { createLogger } from '../logger'
-import { isTransientDbError } from '../db/pg-errors'
+import { getForeignKeyViolationConstraint, isForeignKeyViolation, isTransientDbError } from '../db/pg-errors'
+import { getTelemetryRuntime } from '../telemetry/runtime'
+import { randomUUID } from 'node:crypto'
 
 type RbacServiceLike = {
   getGrantedFeatures: (userId: string, opts: { tenantId: string | null; organizationId: string | null }) => Promise<string[]>
@@ -594,7 +597,19 @@ function attachOperationHeader(res: Response, logEntry: any) {
   return res
 }
 
-function handleError(err: unknown): Response {
+// An inbound `x-request-id` is caller-controlled, so it is only reused when it still
+// looks like an id. `Headers.get()` yields '' for an empty or whitespace-only header —
+// which `??` would not replace — and an unbounded value carrying spaces or `=` would
+// forge fields in the unquoted `key=value` log line this id exists to be read from.
+const INBOUND_REQUEST_ID_PATTERN = /^[A-Za-z0-9._-]{1,128}$/
+
+function resolveRequestId(request?: Request): string {
+  const inbound = request?.headers.get('x-request-id')?.trim()
+  if (inbound && INBOUND_REQUEST_ID_PATTERN.test(inbound)) return inbound
+  return randomUUID()
+}
+
+function handleError(err: unknown, request?: Request): Response {
   if (err instanceof Response) return err
   if (isCrudHttpError(err)) return json(err.body, { status: err.status })
   // A command interceptor that blocked with an explicit status is a deliberate business
@@ -618,14 +633,54 @@ function handleError(err: unknown): Response {
     )
   }
 
+  if (isForeignKeyViolation(err)) {
+    // SQLSTATE 23503 covers both directions: a DELETE blocked by a dependent row
+    // and an INSERT/UPDATE pointing at a missing parent. Either way it is a
+    // data-state conflict the caller can act on, so answer 409 instead of 500.
+    // The constraint name stays in the log only: it maps internal table/column
+    // names and has no business in a client-facing body. The missing-parent
+    // direction is often a server-side defect, so the error is still reported to
+    // telemetry and carries a requestId exactly like the generic 500 below.
+    const requestId = resolveRequestId(request)
+    const constraint = getForeignKeyViolationConstraint(err)
+    logger.warn('Foreign key violation during CRUD handler', {
+      message: err instanceof Error ? err.message : undefined,
+      constraint,
+      requestId,
+    })
+    getTelemetryRuntime()?.reportError(err, {
+      module: 'crud',
+      attributes: { requestId, errorName: 'ForeignKeyViolation', constraint: constraint ?? undefined },
+    })
+    return json(
+      {
+        error: 'The record is still referenced by other data, or references a record that does not exist',
+        code: 'FOREIGN_KEY_VIOLATION',
+        requestId,
+      },
+      { status: 409, headers: { 'x-request-id': requestId } },
+    )
+  }
+
+  // Unexpected exceptions still collapse into a generic 500 for the client (no internal
+  // detail leaked), but a requestId ties that response to this log line and to whatever
+  // reaches APM, so a client/support ticket citing it can be correlated with server-side
+  // detail (issue #5608).
   const message = err instanceof Error ? err.message : undefined
   const stack = err instanceof Error ? err.stack : undefined
-  logger.error('Unexpected CRUD error', { message, stack, err })
+  const errorName = err instanceof Error ? err.name : undefined
+  const requestId = resolveRequestId(request)
+  logger.error('Unexpected CRUD error', { message, stack, err, requestId })
+  getTelemetryRuntime()?.reportError(err, {
+    module: 'crud',
+    attributes: { requestId, errorName },
+  })
   const body: Record<string, unknown> = {
     error: 'Internal server error',
     message: 'Something went wrong. Please try again later.',
+    requestId,
   }
-  return json(body, { status: 500 })
+  return json(body, { status: 500, headers: { 'x-request-id': requestId } })
 }
 
 const LIFECYCLE_ACTION_MAP: Record<string, { before: string; after: string }> = {
@@ -1074,6 +1129,49 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
   const indexerConfig = opts.indexer as CrudIndexerConfig | undefined
   const eventsConfig = opts.events as CrudEventsConfig | undefined
 
+  // Command-backed verbs (`actions.*`) never reach the built-in `markOrmEntityChange` calls
+  // below — the handler owns the mark and the command bus owns the flush. Hand the route's
+  // declared `indexer:` to the data engine for the duration of the command so a handler that
+  // marks `events:` only still writes the projection the route promised, using the handler's
+  // own entity and identifiers. Without this the declaration reaches no code at all (#5741).
+  const withRouteIndexerDeclaration = async <TResult>(
+    ctx: CrudCtx,
+    operation: CrudEventAction,
+    commandId: string,
+    run: () => Promise<TResult>,
+  ): Promise<TResult> => {
+    if (!indexerConfig || !ormCfg.entity) return run()
+    let de: DataEngine | null = null
+    try {
+      de = ctx.container.resolve('dataEngine') as DataEngine
+    } catch {
+      de = null
+    }
+    if (!de || typeof de.setDefaultIndexerConfig !== 'function') return run()
+    de.setDefaultIndexerConfig({ indexer: indexerConfig, entityClass: ormCfg.entity })
+    try {
+      const result = await run()
+      if (de.hasIndexedDefaultEntityClass?.() === false) {
+        // The one genuinely undiagnosable case: a handler that marks no side effect at all,
+        // so neither the route nor the command maintains the projection. One line per dropped
+        // write — far narrower than warning at construction time, though not literally false-
+        // positive-free: the flag tracks the route's own entity class, so a handler that
+        // discharges the projection through a different class (marking a parent aggregate with
+        // its own explicit `indexer:`) would also be warned about. No route in this repository
+        // does that today; widen the flag to "any indexer discharged" if one ever needs to.
+        logger.warn('CRUD route declares an indexer that its command handler did not discharge; the query index was not updated for this write', {
+          resourceKind,
+          operation,
+          commandId,
+          entityType: indexerConfig.entityType,
+        })
+      }
+      return result
+    } finally {
+      de.setDefaultIndexerConfig(null)
+    }
+  }
+
   const inferFieldValue = (item: Record<string, unknown>, keys: string[]): string | null => {
     for (const key of keys) {
       const value = item[key]
@@ -1491,7 +1589,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         return json({ error: 'Not implemented' }, { status: 501 })
       }
       const url = new URL(request.url)
-      const rawQueryParams = Object.fromEntries(url.searchParams.entries())
+      const rawQueryParams = buildQueryParams(url.searchParams)
       profiler.mark('query_parsed')
       let validated = opts.list.schema.parse(rawQueryParams)
       profiler.mark('query_validated')
@@ -2163,7 +2261,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       return response
     } catch (e) {
       finishProfile({ result: 'error' })
-      return handleError(e)
+      return handleError(e, request)
     }
   }
 
@@ -2260,7 +2358,9 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           context: { cacheAliases: resourceTargets },
         }
         const metadataToSend = mergeCommandMetadata(baseMetadata, userMetadata)
-        const { result, logEntry } = await commandBus.execute(action.commandId, { input, ctx, metadata: metadataToSend })
+        const { result, logEntry } = await withRouteIndexerDeclaration(ctx, 'created', action.commandId, () =>
+          commandBus.execute(action.commandId, { input, ctx, metadata: metadataToSend }),
+        )
 
         // Sync after-event (*.created) — command path
         if (createLifecycleCmd.afterEventId && ctx.auth.tenantId) {
@@ -2311,9 +2411,11 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
             requestHeaders: request.headers,
           })
         }
-        // Note: side effects (events + indexing) are already flushed by CommandBus.execute()
-        // via flushCrudSideEffects(). Calling markCommandResultForIndexing here would cause
-        // duplicate event emissions.
+        // Note: side effects are already flushed by CommandBus.execute() via
+        // flushCrudSideEffects(). Re-marking the result here would emit a duplicate domain
+        // event, so the route does not. The route's `indexer:` declaration still reaches
+        // that flush: withRouteIndexerDeclaration() hands it to the data engine as the
+        // default for marks the handler makes without one (#5741).
         return response
       }
 
@@ -2477,7 +2579,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       payload = await enrichSingleRecord(payload, ctx)
       return json(payload, { status: 201 })
     } catch (e) {
-      return handleError(e)
+      return handleError(e, request)
     }
   }
 
@@ -2586,7 +2688,9 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         }
         if (candidateId) baseMetadata.resourceId = candidateId
         const metadataToSend = mergeCommandMetadata(baseMetadata, userMetadata)
-        const { result, logEntry } = await commandBus.execute(action.commandId, { input, ctx, metadata: metadataToSend })
+        const { result, logEntry } = await withRouteIndexerDeclaration(ctx, 'updated', action.commandId, () =>
+          commandBus.execute(action.commandId, { input, ctx, metadata: metadataToSend }),
+        )
         const payload = action.response ? action.response({ result, logEntry, ctx }) : result
         let resolvedPayload = await Promise.resolve(payload)
         if (interceptorRequestPayload && resolvedPayload && typeof resolvedPayload === 'object' && !Array.isArray(resolvedPayload)) {
@@ -2633,9 +2737,11 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           }
         }
 
-        // Note: side effects (events + indexing) are already flushed by CommandBus.execute()
-        // via flushCrudSideEffects(). Calling markCommandResultForIndexing here would cause
-        // duplicate event emissions.
+        // Note: side effects are already flushed by CommandBus.execute() via
+        // flushCrudSideEffects(). Re-marking the result here would emit a duplicate domain
+        // event, so the route does not. The route's `indexer:` declaration still reaches
+        // that flush: withRouteIndexerDeclaration() hands it to the data engine as the
+        // default for marks the handler makes without one (#5741).
         return response
       }
 
@@ -2815,7 +2921,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       }
       return json(payload)
     } catch (e) {
-      return handleError(e)
+      return handleError(e, request)
     }
   }
 
@@ -2845,7 +2951,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       if (useCommand) {
         const action = opts.actions!.delete!
         const body = await request.json().catch(() => ({}))
-        const raw = { body, query: Object.fromEntries(url.searchParams.entries()) }
+        const raw = { body, query: buildQueryParams(url.searchParams) }
         const parsed = action.schema ? action.schema.parse(raw) : raw
         const interceptorInput =
           parsed && typeof parsed === 'object' && (parsed as Record<string, unknown>).body && typeof (parsed as Record<string, unknown>).body === 'object'
@@ -2864,7 +2970,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         const interceptedBody = interceptorRequestPayload.body ?? {}
         const reparsedRaw = {
           body: interceptedBody,
-          query: Object.fromEntries(url.searchParams.entries()),
+          query: buildQueryParams(url.searchParams),
         }
         const reparsed = action.schema ? action.schema.parse(reparsedRaw) : reparsedRaw
         const input = action.mapInput ? await action.mapInput({ parsed: reparsed, raw: reparsedRaw, ctx }) : reparsed
@@ -2919,7 +3025,9 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         }
         if (candidateId) baseMetadata.resourceId = candidateId
         const metadataToSend = mergeCommandMetadata(baseMetadata, userMetadata)
-        const { result, logEntry } = await commandBus.execute(action.commandId, { input, ctx, metadata: metadataToSend })
+        const { result, logEntry } = await withRouteIndexerDeclaration(ctx, 'deleted', action.commandId, () =>
+          commandBus.execute(action.commandId, { input, ctx, metadata: metadataToSend }),
+        )
         const payload = action.response ? action.response({ result, logEntry, ctx }) : result
         let resolvedPayload = await Promise.resolve(payload)
         if (interceptorRequestPayload && resolvedPayload && typeof resolvedPayload === 'object' && !Array.isArray(resolvedPayload)) {
@@ -2965,9 +3073,11 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           }
         }
 
-        // Note: side effects (events + indexing) are already flushed by CommandBus.execute()
-        // via flushCrudSideEffects(). Calling markCommandResultForIndexing here would cause
-        // duplicate event emissions.
+        // Note: side effects are already flushed by CommandBus.execute() via
+        // flushCrudSideEffects(). Re-marking the result here would emit a duplicate domain
+        // event, so the route does not. The route's `indexer:` declaration still reaches
+        // that flush: withRouteIndexerDeclaration() hands it to the data engine as the
+        // default for marks the handler makes without one (#5741).
         return response
       }
 
@@ -2981,7 +3091,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         request,
         method: 'DELETE',
         body: idFrom === 'query' ? undefined : ({ id } as Record<string, unknown>),
-        query: idFrom === 'query' ? Object.fromEntries(url.searchParams.entries()) : undefined,
+        query: idFrom === 'query' ? buildQueryParams(url.searchParams) : undefined,
       })
       if (beforeInterceptors.errorResponse) return beforeInterceptors.errorResponse
       interceptorRequestPayload = beforeInterceptors.requestPayload
@@ -3104,7 +3214,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       }
       return json(payload)
     } catch (e) {
-      return handleError(e)
+      return handleError(e, request)
     }
   }
 

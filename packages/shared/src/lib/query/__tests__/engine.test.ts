@@ -2,13 +2,14 @@ import { BasicQueryEngine } from '../engine'
 import { SortDir } from '../types'
 import { registerModules } from '../../i18n/server'
 import { clearSearchTokenPresenceCache } from '../../search/availability'
-import { clearEncryptedLikeFieldsCache } from '../engine'
+import { clearEncryptedLikeFieldsCache, clearColumnExistsCache, columnExistsCacheSize } from '../engine'
 
 // The token-presence answer is cached process-wide (TTL); without clearing it,
 // probe-count assertions would observe hits from earlier tests in this file.
 beforeEach(() => {
   clearSearchTokenPresenceCache()
   clearEncryptedLikeFieldsCache()
+  clearColumnExistsCache()
 })
 
 // Mock modules with one entity extension
@@ -243,6 +244,12 @@ function createFakeKysely(overrides?: FakeData) {
   return db
 }
 
+// Selects are recorded verbatim, so a plain column arrives as a string while an
+// aggregated cf projection arrives as Kysely's aliased raw builder.
+function selectAliases(call: any): string[] {
+  return call._ops.selects.map((s: any) => (typeof s === 'string' ? s : String(s?.alias ?? '')))
+}
+
 describe('BasicQueryEngine (Kysely)', () => {
   test('pluralizes entity names ending with y correctly', async () => {
     const fakeDb = createFakeKysely()
@@ -284,6 +291,39 @@ describe('BasicQueryEngine (Kysely)', () => {
     expect(hasCfOrder).toBe(true)
     const hasExtJoin = baseCall._ops.joins.length > 0
     expect(hasExtJoin).toBe(true)
+  })
+
+  test('a cf sort alone projects and joins the key it orders by', async () => {
+    const fakeDb = createFakeKysely()
+    const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
+    await engine.query('auth:user', {
+      fields: ['id', 'email'],
+      sort: [{ field: 'cf:vip', dir: SortDir.Asc }],
+      organizationId: '1',
+      tenantId: 't1',
+    })
+    const baseCall = fakeDb._calls.find((b: any) => b._ops.table === 'users')
+    expect(baseCall._ops.orderBys).toContainEqual(['cf_vip', 'asc'])
+    // Ordering by an alias the query never selected is a Postgres 42703, so the
+    // sort has to bring its own projection and joins along (#5521).
+    expect(selectAliases(baseCall)).toContain('cf_vip')
+    expect(baseCall._ops.joins.length).toBeGreaterThan(0)
+  })
+
+  test('a cf sort that resolves to no definition is dropped, not ordered by', async () => {
+    const fakeDb = createFakeKysely()
+    const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
+    await engine.query('auth:user', {
+      fields: ['id', 'email'],
+      sort: [{ field: 'cf:no_such_key', dir: SortDir.Asc }],
+      organizationId: '1',
+      tenantId: 't1',
+    })
+    const baseCall = fakeDb._calls.find((b: any) => b._ops.table === 'users')
+    // Dropping an unresolvable sort is what the base-column branch already does;
+    // the alternative here was an ORDER BY over a column that is never selected.
+    expect(baseCall._ops.orderBys).toEqual([])
+    expect(selectAliases(baseCall)).not.toContain('cf_no_such_key')
   })
 
   test('customFieldSources join additional profiles for custom fields', async () => {
@@ -1413,5 +1453,161 @@ describe('BasicQueryEngine like/ilike routing by column encryption', () => {
       .then(() => {
         expect(applySearchTokensSpy).toHaveBeenCalled()
       })
+  })
+})
+
+describe('module-scoped column-existence cache (#5605)', () => {
+  const columnProbes = (fakeDb: any) =>
+    fakeDb._calls.filter((b: any) => b._ops.table === 'information_schema.columns')
+
+  const columnProbesFor = (fakeDb: any, column: string) =>
+    columnProbes(fakeDb).filter((b: any) =>
+      b._ops.wheres.some((w: any) => Array.isArray(w) && w[0] === 'column_name' && w[1] === '=' && w[2] === column)
+    )
+
+  const hasTenantGuard = (fakeDb: any) => {
+    const baseCall = fakeDb._calls.find((b: any) => b._ops.table === 'customer_entities')
+    return !!baseCall?._ops.wheres.some(
+      (w: any) => Array.isArray(w) && w[0] === 'customer_entities.tenant_id' && w[1] === '=' && w[2] === 't1',
+    )
+  }
+
+  const originalTtl = process.env.OM_QUERY_COLUMN_EXISTS_CACHE_MS
+  const originalMaxEntries = process.env.OM_QUERY_COLUMN_EXISTS_CACHE_MAX_ENTRIES
+
+  afterEach(() => {
+    if (originalTtl === undefined) delete process.env.OM_QUERY_COLUMN_EXISTS_CACHE_MS
+    else process.env.OM_QUERY_COLUMN_EXISTS_CACHE_MS = originalTtl
+    if (originalMaxEntries === undefined) delete process.env.OM_QUERY_COLUMN_EXISTS_CACHE_MAX_ENTRIES
+    else process.env.OM_QUERY_COLUMN_EXISTS_CACHE_MAX_ENTRIES = originalMaxEntries
+    jest.restoreAllMocks()
+  })
+
+  test('the column-existence cache is shared across separate engine instances', async () => {
+    // `createRequestContainer()` builds a fresh `BasicQueryEngine` per HTTP request.
+    // The cache must live on the module, not the instance, so a later "request" (a
+    // second engine here) reuses the first request's answer instead of re-probing
+    // `information_schema.columns`.
+    const fakeDb = createFakeKysely({
+      customer_entities: [],
+      'information_schema.columns': [
+        { table_name: 'customer_entities', column_name: 'tenant_id' },
+      ],
+    })
+    const queryOpts = { tenantId: 't1', fields: ['id'], page: { page: 1, pageSize: 10 } }
+
+    const engine1 = new BasicQueryEngine({} as any, () => fakeDb as any)
+    await engine1.query('customers:customer_entity', queryOpts)
+    const probesAfterFirstEngine = columnProbes(fakeDb).length
+    expect(probesAfterFirstEngine).toBeGreaterThan(0)
+
+    const engine2 = new BasicQueryEngine({} as any, () => fakeDb as any)
+    await engine2.query('customers:customer_entity', queryOpts)
+    expect(columnProbes(fakeDb).length).toBe(probesAfterFirstEngine)
+  })
+
+  test('a missing column is remembered as false instead of being re-queried on every call', async () => {
+    // Before the fix, `columnExists` deleted a `false` result instead of caching it,
+    // so `organization_id` (absent here) was re-queried once per query projection
+    // ('full' and 'count') within a single `.query()` call.
+    const fakeDb = createFakeKysely({
+      customer_entities: [],
+      'information_schema.columns': [],
+    })
+    const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
+
+    await engine.query('customers:customer_entity', {
+      tenantId: 't1',
+      organizationId: 'org1',
+      fields: ['id'],
+      page: { page: 1, pageSize: 10 },
+    })
+
+    expect(columnProbesFor(fakeDb, 'organization_id').length).toBe(1)
+  })
+
+  test('a cached negative expires, so a migrated-in scope column is picked up without a process restart', async () => {
+    // A cached `false` is consumed where the tenant/organization/soft-delete predicates
+    // are applied, so a stale one does not merely slow a query down — it silently drops
+    // a scope guard. The TTL bounds that window: a migration applied against a running
+    // process (`yarn dev`, or pods not recycled by a separate migration release step)
+    // converges once the entry expires instead of never.
+    const now = 1_700_000_000_000
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(now)
+
+    const beforeMigration = createFakeKysely({
+      customer_entities: [],
+      'information_schema.columns': [],
+    })
+    const queryOpts = { tenantId: 't1', fields: ['id'], page: { page: 1, pageSize: 10 } }
+    await new BasicQueryEngine({} as any, () => beforeMigration as any).query('customers:customer_entity', queryOpts)
+    expect(columnProbesFor(beforeMigration, 'tenant_id').length).toBe(1)
+    expect(hasTenantGuard(beforeMigration)).toBe(false)
+
+    // Same process, same cache — a second request while the entry is still fresh reuses
+    // the negative and does not re-probe, even though the column now exists.
+    const afterMigration = createFakeKysely({
+      customer_entities: [],
+      'information_schema.columns': [
+        { table_name: 'customer_entities', column_name: 'tenant_id' },
+      ],
+    })
+    await new BasicQueryEngine({} as any, () => afterMigration as any).query('customers:customer_entity', queryOpts)
+    expect(columnProbesFor(afterMigration, 'tenant_id').length).toBe(0)
+    expect(hasTenantGuard(afterMigration)).toBe(false)
+
+    nowSpy.mockReturnValue(now + 300_001)
+
+    const afterTtl = createFakeKysely({
+      customer_entities: [],
+      'information_schema.columns': [
+        { table_name: 'customer_entities', column_name: 'tenant_id' },
+      ],
+    })
+    await new BasicQueryEngine({} as any, () => afterTtl as any).query('customers:customer_entity', queryOpts)
+    expect(columnProbesFor(afterTtl, 'tenant_id').length).toBe(1)
+    expect(hasTenantGuard(afterTtl)).toBe(true)
+  })
+
+  test('the cache is bounded, so caller-supplied sort fields cannot grow it without limit', async () => {
+    // `columnExists` is reached with raw request input through `resolveBaseColumn` —
+    // `sortField` arrives from the query string and many list schemas type it as a plain
+    // string. Without a cap, one distinct name per request would be retained for the
+    // lifetime of the process.
+    process.env.OM_QUERY_COLUMN_EXISTS_CACHE_MAX_ENTRIES = '4'
+    const fakeDb = createFakeKysely({
+      customer_entities: [],
+      'information_schema.columns': [],
+    })
+    const engine = new BasicQueryEngine({} as any, () => fakeDb as any)
+
+    for (let index = 0; index < 20; index += 1) {
+      await engine.query('customers:customer_entity', {
+        tenantId: 't1',
+        fields: ['id'],
+        sort: [{ field: `attacker_supplied_${index}`, dir: SortDir.Asc }],
+        page: { page: 1, pageSize: 10 },
+      })
+      expect(columnExistsCacheSize()).toBeLessThanOrEqual(4)
+    }
+  })
+
+  test('OM_QUERY_COLUMN_EXISTS_CACHE_MS=0 disables the memo and probes per request again', async () => {
+    process.env.OM_QUERY_COLUMN_EXISTS_CACHE_MS = '0'
+    const fakeDb = createFakeKysely({
+      customer_entities: [],
+      'information_schema.columns': [
+        { table_name: 'customer_entities', column_name: 'tenant_id' },
+      ],
+    })
+    const queryOpts = { tenantId: 't1', fields: ['id'], page: { page: 1, pageSize: 10 } }
+
+    await new BasicQueryEngine({} as any, () => fakeDb as any).query('customers:customer_entity', queryOpts)
+    const probesAfterFirstEngine = columnProbesFor(fakeDb, 'tenant_id').length
+    expect(probesAfterFirstEngine).toBeGreaterThan(0)
+    expect(columnExistsCacheSize()).toBe(0)
+
+    await new BasicQueryEngine({} as any, () => fakeDb as any).query('customers:customer_entity', queryOpts)
+    expect(columnProbesFor(fakeDb, 'tenant_id').length).toBeGreaterThan(probesAfterFirstEngine)
   })
 })

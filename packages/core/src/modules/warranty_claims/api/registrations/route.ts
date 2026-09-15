@@ -5,6 +5,7 @@ import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { buildIlikeTerm } from '@open-mercato/shared/lib/db/buildIlikeTerm'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { E } from '#generated/entities.ids.generated'
 import * as F from '#generated/entities/warranty_claim_registration'
 import { WarrantyClaimRegistration } from '../../data/entities'
@@ -92,6 +93,7 @@ async function assertRegistrationSerialUnique(
   scope: { organizationId: string; tenantId: string },
   serialNumber: string | null | undefined,
   excludeId: string | null,
+  translate: (key: string, fallback?: string) => string,
 ): Promise<void> {
   if (!serialNumber) return
   const where: FilterQuery<WarrantyClaimRegistration> = {
@@ -103,7 +105,9 @@ async function assertRegistrationSerialUnique(
   if (excludeId) where.id = { $ne: excludeId }
   const existing = await em.count(WarrantyClaimRegistration, where)
   if (existing > 0) {
-    throw new CrudHttpError(400, { error: 'warranty_claims.errors.duplicateSerial' })
+    throw new CrudHttpError(400, {
+      error: translate('warranty_claims.errors.duplicateSerial', 'A registration with this serial number already exists.'),
+    })
   }
 }
 
@@ -320,8 +324,9 @@ const crud = makeCrudRoute<RawRegistrationInput, RawRegistrationInput, Registrat
       const result = registrationCreateSchema.safeParse({ ...input, ...scope })
       if (!result.success) return
       const em = (ctx.container.resolve('em') as EntityManager).fork()
+      const { translate } = await resolveTranslations()
       await assertOrderBelongsToCustomer(em, scope, result.data.orderId ?? null, result.data.customerId ?? null)
-      await assertRegistrationSerialUnique(em, scope, result.data.serialNumber ?? null, null)
+      await assertRegistrationSerialUnique(em, scope, result.data.serialNumber ?? null, null, translate)
     },
     beforeUpdate: async (input, ctx) => {
       const scope = scopeFromContext(ctx)
@@ -346,7 +351,8 @@ const crud = makeCrudRoute<RawRegistrationInput, RawRegistrationInput, Registrat
       const effectiveOrderId = hasOwn(parsed, 'orderId') ? (parsed.orderId ?? null) : (existing.orderId ?? null)
       await assertOrderBelongsToCustomer(em, scope, effectiveOrderId, effectiveCustomerId)
       if (hasOwn(parsed, 'serialNumber') && (parsed.serialNumber ?? null) !== (existing.serialNumber ?? null)) {
-        await assertRegistrationSerialUnique(em, scope, parsed.serialNumber ?? null, existing.id)
+        const { translate } = await resolveTranslations()
+        await assertRegistrationSerialUnique(em, scope, parsed.serialNumber ?? null, existing.id, translate)
       }
     },
     afterCreate: async (entity) => {

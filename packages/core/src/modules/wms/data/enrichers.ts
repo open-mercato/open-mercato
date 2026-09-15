@@ -7,6 +7,11 @@ import { E } from '#generated/entities.ids.generated'
 import { InventoryBalance, InventoryReservation, ProductInventoryProfile, SalesOrderWarehouseAssignment, Warehouse } from './entities'
 import { formatCatalogVariantLabel } from '../lib/inventoryDisplayUi'
 import { resolvePrimaryWarehouseId } from '../lib/primaryWarehousePolicy'
+import {
+  WMS_ENRICHER_CACHE_TTL_MS,
+  WMS_INVENTORY_CACHE_TAG,
+  WMS_WAREHOUSE_CACHE_TAG,
+} from '../lib/enricherCacheTags'
 
 type SalesOrderRecord = Record<string, unknown> & { id?: string }
 type CatalogProductRecord = Record<string, unknown> & { id?: string }
@@ -548,6 +553,13 @@ const salesOrderInventoryEnricher: ResponseEnricher<SalesOrderRecord, SalesOrder
   priority: 40,
   timeout: 2000,
   fallback: EMPTY_ENRICHMENT,
+  // Reads reservations, balances, the primary warehouse and the explicit
+  // assignment, so it depends on both the inventory and the warehouse tags.
+  cache: {
+    strategy: 'read-through',
+    ttl: WMS_ENRICHER_CACHE_TTL_MS,
+    tags: [WMS_INVENTORY_CACHE_TAG, WMS_WAREHOUSE_CACHE_TAG],
+  },
 
   async enrichOne(record, context: EnricherScope) {
     return (await this.enrichMany!([record], context))[0]
@@ -736,6 +748,13 @@ const catalogProductInventoryEnricher: ResponseEnricher<CatalogProductRecord, Ca
   priority: 40,
   timeout: 2000,
   fallback: EMPTY_CATALOG_ENRICHMENT,
+  // Reads inventory profiles and balances; also reads catalog variants, so the
+  // catalog variant events invalidate the inventory tag too.
+  cache: {
+    strategy: 'read-through',
+    ttl: WMS_ENRICHER_CACHE_TTL_MS,
+    tags: [WMS_INVENTORY_CACHE_TAG],
+  },
 
   async enrichOne(record, context: EnricherScope) {
     return (await this.enrichMany!([record], context))[0]
@@ -812,6 +831,12 @@ const catalogVariantInventoryEnricher: ResponseEnricher<CatalogVariantRecord, Ca
   priority: 40,
   timeout: 2000,
   fallback: EMPTY_CATALOG_ENRICHMENT,
+  // Reads inventory profiles and balances for the variant only.
+  cache: {
+    strategy: 'read-through',
+    ttl: WMS_ENRICHER_CACHE_TTL_MS,
+    tags: [WMS_INVENTORY_CACHE_TAG],
+  },
 
   async enrichOne(record, context: EnricherScope) {
     return (await this.enrichMany!([record], context))[0]

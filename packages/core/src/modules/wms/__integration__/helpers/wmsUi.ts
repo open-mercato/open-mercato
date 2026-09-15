@@ -126,11 +126,10 @@ export async function fillCombobox(
   }
 
   const suggestionPattern = new RegExp(escapeForRegex(value), 'i')
-  const suggestionInDropdown = input
-    .locator('xpath=ancestor::div[contains(@class,"relative")][1]')
-    .locator('div.absolute')
-    .getByRole('option', { name: suggestionPattern })
-    .first()
+  // The suggestion list is portaled to <body>, so it is a descendant of neither the
+  // field wrapper nor the dialog -- query it from the page. Options carry
+  // `role="option"`, so a `role="button"` lookup never matches them.
+  const suggestionInDropdown = page.getByRole('option', { name: suggestionPattern }).first()
 
   const hasDropdownSuggestion = await suggestionInDropdown
     .isVisible({ timeout: 2_000 })
@@ -149,7 +148,11 @@ export async function fillCombobox(
     }
     const resolvedValue = await input.inputValue()
     if (resolvedValue.trim().toLowerCase() !== value.trim().toLowerCase()) {
-      const fallbackSuggestion = root.getByRole('option', { name: suggestionPattern }).first()
+      // `Enter` closed the list without committing a value, so the options are gone.
+      // `ArrowDown` on a closed combobox reopens it, which is what makes the wait below
+      // resolvable instead of a guaranteed timeout.
+      await input.press('ArrowDown')
+      const fallbackSuggestion = page.getByRole('option', { name: suggestionPattern }).first()
       await expect(fallbackSuggestion).toBeVisible({ timeout: 10_000 })
       await fallbackSuggestion.click()
     }
@@ -201,7 +204,10 @@ export async function selectLocationComboboxOption(
     timeout: 15_000,
   })
 
-  const option = dialog.getByRole('option', { name: locationCode, exact: true }).first()
+  // Portaled list, `role="option"` items -- see the note in `fillCombobox`. This
+  // replaces a dialog-scoped `div.absolute` lookup plus a page-wide `role="button"`
+  // fallback that was strict-mode ambiguous whenever the code rendered elsewhere.
+  const option = page.getByRole('option', { name: locationCode, exact: true }).first()
   await expect(option).toBeVisible({ timeout: 10_000 })
   await option.click()
 
