@@ -63,7 +63,7 @@ function buildWarehousePresenter(
   const label = t('wms.search.badge.warehouse', 'Warehouse')
   const title = pickString(record.name, record.code, record.id) ?? label
   const subtitle = formatSubtitle(record.code, record.city, record.country)
-  return { title, subtitle, icon: 'warehouse', badge: label }
+  return { title, subtitle, icon: 'warehouse' }
 }
 
 function buildLocationPresenter(
@@ -73,7 +73,7 @@ function buildLocationPresenter(
   const label = t('wms.search.badge.location', 'Location')
   const title = pickString(record.code, record.id) ?? label
   const subtitle = formatSubtitle(record.type, record.warehouse_id ?? record.warehouseId)
-  return { title, subtitle, icon: 'map-pinned', badge: label }
+  return { title, subtitle, icon: 'map-pinned' }
 }
 
 function buildInventoryProfilePresenter(
@@ -89,7 +89,7 @@ function buildInventoryProfilePresenter(
     record.default_uom ?? record.defaultUom,
     variantId ? t('wms.search.profile.variantScoped', 'Variant-scoped') : t('wms.search.profile.productScoped', 'Product-scoped'),
   )
-  return { title, subtitle, icon: 'boxes', badge: label }
+  return { title, subtitle, icon: 'boxes' }
 }
 
 function buildLotPresenter(
@@ -99,7 +99,7 @@ function buildLotPresenter(
   const label = t('wms.search.badge.lot', 'Inventory lot')
   const title = pickString(record.lot_number, record.lotNumber, record.batch_number, record.batchNumber, record.id) ?? label
   const subtitle = formatSubtitle(record.catalog_variant_id ?? record.catalogVariantId, record.status, record.expires_at ?? record.expiresAt)
-  return { title, subtitle, icon: 'package-search', badge: label }
+  return { title, subtitle, icon: 'package-search' }
 }
 
 function buildAsnPresenter(

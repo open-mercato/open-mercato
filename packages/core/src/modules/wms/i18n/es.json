@@ -1,4 +1,8 @@
 {
+  "search.entityType.wms.inventory_lot": "Lote de inventario",
+  "search.entityType.wms.product_inventory_profile": "Perfil de inventario",
+  "search.entityType.wms.warehouse": "Almacén",
+  "search.entityType.wms.warehouse_location": "Ubicación",
   "wms.asns.create": "Crear ASN",
   "wms.asns.title": "ASNs",
   "wms.audit.asn.close": "Complete ASN",

@@ -1,4 +1,8 @@
 {
+  "search.entityType.wms.inventory_lot": "Inventory lot",
+  "search.entityType.wms.product_inventory_profile": "Inventory profile",
+  "search.entityType.wms.warehouse": "Warehouse",
+  "search.entityType.wms.warehouse_location": "Location",
   "wms.asns.create": "Create ASN",
   "wms.asns.title": "ASNs",
   "wms.audit.asn.close": "Complete ASN",

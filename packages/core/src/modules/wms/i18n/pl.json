@@ -1,4 +1,8 @@
 {
+  "search.entityType.wms.inventory_lot": "Partia zapasu",
+  "search.entityType.wms.product_inventory_profile": "Profil zapasu",
+  "search.entityType.wms.warehouse": "Magazyn",
+  "search.entityType.wms.warehouse_location": "Lokalizacja",
   "wms.asns.create": "Utwórz ASN",
   "wms.asns.title": "ASNs",
   "wms.audit.asn.close": "Complete ASN",

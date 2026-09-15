@@ -1,4 +1,8 @@
 {
+  "search.entityType.wms.inventory_lot": "재고 로트",
+  "search.entityType.wms.product_inventory_profile": "재고 프로필",
+  "search.entityType.wms.warehouse": "창고",
+  "search.entityType.wms.warehouse_location": "위치",
   "wms.asns.create": "ASN 생성",
   "wms.asns.title": "ASNs",
   "wms.audit.asn.close": "Complete ASN",
