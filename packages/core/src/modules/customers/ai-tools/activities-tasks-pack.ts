@@ -77,41 +77,50 @@ async function loadDealForScope(
 /**
  * `CustomerDeal` does NOT carry a direct `entity` field — deals are linked
  * to people / companies via the `customer_deal_person_links` and
- * `customer_deal_company_links` tables. Comments however need a non-null
- * `entity_id` (the timeline owner) so this helper resolves the deal's
- * first linked person, then falls back to its first linked company. When
- * neither exists, the caller MUST instruct the operator to link a contact
- * before commenting on the deal.
+ * `customer_deal_company_links` tables. Comments and activities however need
+ * a non-null `entity_id` (the timeline owner) so this helper resolves the
+ * deal's first linked person, then falls back to its first linked company.
+ * When neither exists, the caller MUST instruct the operator to link a
+ * contact before writing to the deal.
+ *
+ * The relations are `CustomerDealPersonLink.person` and
+ * `CustomerDealCompanyLink.company` (#6119): populating them under any other
+ * name makes MikroORM reject the query, so every write failed even for a deal
+ * with linked contacts.
+ *
+ * The link tables carry no `tenant_id` / `organization_id` column either, so the
+ * deal id is the whole criterion — the same query `api/deals/[id]/route.ts` runs.
+ * Callers pass a deal already returned by `loadDealForScope`; that check is what
+ * keeps the lookup inside the caller's tenant and organization.
  */
-async function resolveDealCommentEntityId(
-  em: EntityManager,
-  ctx: CustomersToolContext,
-  tenantId: string,
-  dealId: string,
-): Promise<string | null> {
+async function resolveDealLinkedEntityId(em: EntityManager, dealId: string): Promise<string | null> {
   const personLink = await em.findOne(
     CustomerDealPersonLink,
-    { deal: dealId, tenantId } as never,
-    { populate: ['personEntity'] as never },
+    { deal: dealId } as never,
+    { populate: ['person'] as never },
   )
-  if (personLink) {
-    const linked = (personLink as unknown as { personEntity?: { id?: string | null } | null }).personEntity
-    if (linked && typeof linked === 'object' && typeof linked.id === 'string') return linked.id
-    const raw = (personLink as unknown as { personEntity?: unknown }).personEntity
-    if (typeof raw === 'string') return raw
-  }
+  const personId = linkedEntityIdOf(personLink, 'person')
+  if (personId) return personId
   const companyLink = await em.findOne(
     CustomerDealCompanyLink,
-    { deal: dealId, tenantId } as never,
-    { populate: ['companyEntity'] as never },
+    { deal: dealId } as never,
+    { populate: ['company'] as never },
   )
-  if (companyLink) {
-    const linked = (companyLink as unknown as { companyEntity?: { id?: string | null } | null }).companyEntity
-    if (linked && typeof linked === 'object' && typeof linked.id === 'string') return linked.id
-    const raw = (companyLink as unknown as { companyEntity?: unknown }).companyEntity
-    if (typeof raw === 'string') return raw
+  return linkedEntityIdOf(companyLink, 'company')
+}
+
+/** Id of a populated relation, or the raw foreign key when it was not loaded. */
+function linkedEntityIdOf(row: unknown, relation: 'person' | 'company'): string | null {
+  if (!row || typeof row !== 'object') return null
+  const value = (row as Record<string, unknown>)[relation]
+  if (value && typeof value === 'object' && typeof (value as { id?: unknown }).id === 'string') {
+    return (value as { id: string }).id
   }
-  return null
+  return typeof value === 'string' ? value : null
+}
+
+function dealHasNoLinkedContactMessage(dealId: string, what: 'comment' | 'activity'): string {
+  return `Deal "${dealId}" has no linked person or company. Link a contact to the deal in the backoffice before adding ${what === 'comment' ? 'a comment' : 'an activity'}, or post the ${what} directly on the person/company record instead.`
 }
 
 async function loadCommentForScope(
@@ -493,11 +502,9 @@ const manageDealCommentTool: CustomersAiToolDefinition = {
       // people/companies via two link tables. Resolve the first available
       // person, then fall back to the first linked company. Only fail the
       // operation when the deal has no linked contacts at all.
-      const dealEntityId = await resolveDealCommentEntityId(em, ctx, tenantId, deal.id)
+      const dealEntityId = await resolveDealLinkedEntityId(em, deal.id)
       if (!dealEntityId) {
-        throw new Error(
-          `Deal "${deal.id}" has no linked person or company. Link a contact to the deal in the backoffice before adding a comment, or post the comment directly on the person/company record instead.`,
-        )
+        throw new Error(dealHasNoLinkedContactMessage(deal.id, 'comment'))
       }
       const body: Record<string, unknown> = {
         tenantId,
@@ -656,15 +663,12 @@ const manageDealActivityTool: CustomersAiToolDefinition = {
       if (!deal) throw new Error(`Deal "${input.dealId}" is not accessible to the caller.`)
       const organizationId = deal.organizationId
       if (!organizationId) throw new Error(`Deal "${deal.id}" has no organization scope.`)
-      const dealEntity = (deal as unknown as { entity?: unknown }).entity
-      const entityId =
-        dealEntity && typeof dealEntity === 'object'
-          ? (dealEntity as { id?: string | null }).id ?? null
-          : typeof dealEntity === 'string'
-            ? dealEntity
-            : null
+      // Same rule as the comment tool (#6119): `CustomerDeal` has no `.entity`,
+      // the activity's timeline owner is the deal's first linked person, then
+      // its first linked company.
+      const entityId = await resolveDealLinkedEntityId(em, deal.id)
       if (!entityId) {
-        throw new Error(`Deal "${deal.id}" has no associated person/company; cannot attach an activity.`)
+        throw new Error(dealHasNoLinkedContactMessage(deal.id, 'activity'))
       }
       const body: Record<string, unknown> = {
         tenantId,
