@@ -10,7 +10,7 @@ import { fetchRoleOptions } from '@open-mercato/core/modules/auth/backend/users/
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { useRouter } from 'next/navigation'
-import { useOrganizationScopeDetail, useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 type FormValues = {
@@ -28,7 +28,6 @@ export default function CreateApiKeyPage() {
   const [selectedTenantId, setSelectedTenantId] = React.useState<string | null>(null)
   const router = useRouter()
   const scopeDetail = useOrganizationScopeDetail()
-  const scopeVersion = useOrganizationScopeVersion()
   const t = useT()
 
   React.useEffect(() => {
@@ -56,15 +55,22 @@ export default function CreateApiKeyPage() {
     return () => { cancelled = true }
   }, [])
 
+  // Keyed on the announced scope alone, deliberately not on
+  // `useOrganizationScopeVersion()`. Version 0 used to mean "the switcher has not
+  // announced anything yet", because the first announcement always bumped; it now
+  // also means "the announcement repeated the cookies the server rendered this
+  // document from", which is the ordinary case on a repeat visit. The scope detail
+  // is the signal this effect actually wants: it is seeded from those same cookies
+  // and updated on every dispatch, including the first, which happens whether or
+  // not the version moves.
   React.useEffect(() => {
-    if (scopeVersion === 0) return
     const rawTenant = scopeDetail.tenantId
     const normalizedTenant = typeof rawTenant === 'string' && rawTenant.trim().length > 0 ? rawTenant.trim() : null
     setSelectedTenantId((prev) => {
       if ((prev ?? null) === (normalizedTenant ?? null)) return prev
       return normalizedTenant
     })
-  }, [scopeDetail.tenantId, scopeVersion])
+  }, [scopeDetail.tenantId])
 
   // Block role loading until we know whether the actor is a super admin. Without this guard the
   // initial (non-super-admin) branch fires before the flag resolves and the server returns roles
