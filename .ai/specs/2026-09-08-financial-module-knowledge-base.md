@@ -36,7 +36,7 @@ merges.
 | Accounts Payable (payments) | [`2026-09-06-accounts-payable-payments.md`](https://github.com/open-mercato/open-mercato/pull/5962) | `docs/accounts-payable` | Open, PR #5962 |
 | Journal Entry Line Dimension | [`2026-09-06-journal-entry-line-dimension.md`](https://github.com/open-mercato/open-mercato/pull/5972) | `docs/journal-entry-line-dimension` | Open, PR #5972 — written, not yet reviewed |
 | GL account balances / Trial Balance (ZSiO) | [`2026-09-09-general-ledger-account-balances.md`](https://github.com/open-mercato/open-mercato/pull/6013) | `docs/general-ledger-account-balances` | Open, PR #6013 — merged latest `develop`; first `financial-spec-writing-process` pass applied (own new Literature & Prior Art section + real-system comparison, commit `8afb415a7`), see Changelog |
-| Fixed Assets | [`2026-09-06-fixed-assets.md`](https://github.com/open-mercato/open-mercato/pull/6014) | `docs/fixed-assets` | Open, PR #6014 — full spec, adversarially reviewed, Final Compliance Report: fully compliant |
+| Fixed Assets | [`2026-09-06-fixed-assets.md`](https://github.com/open-mercato/open-mercato/pull/6014) | `docs/fixed-assets` | Open, PR #6014 — full spec, adversarially reviewed, Final Compliance Report: fully compliant; merged latest `develop` and `financial-spec-writing-process` Steps 2-3 applied (own new Literature & Prior Art section + real-system comparison, commit `fc1cf0464`), see Changelog |
 | Posting Rules Engine (konto 490) | [`2026-09-06-posting-rules-engine.md`](https://github.com/open-mercato/open-mercato/pull/6015) | `docs/posting-rules-engine` | Open, PR #6015 — two external-maintainer review rounds (nine issues, then eight more), both resolved; see the spec's own Changelog |
 | This knowledge base | [`2026-09-08-financial-module-knowledge-base.md`](https://github.com/open-mercato/open-mercato/pull/6016) | `docs/financial-module-knowledge-base` | Open, PR #6016 (self-referential row — will read stale the moment this PR merges; treat "Open" as provisional) |
 | GL bulk cross-module read service | [`2026-09-10-general-ledger-bulk-read-service.md`](https://github.com/open-mercato/open-mercato/pull/6038) | `docs/general-ledger-bulk-read-service` | Open, PR #6038 — not yet reviewed by a maintainer; prerequisite for SPEC-010 below |
@@ -368,6 +368,22 @@ real):**
   a documented bug (`frappe/erpnext#41453`) getting nominal-account
   opening-balance zeroing wrong is worth remembering as a real failure
   mode when any future spec touches period-closing interactions.
+  **New 2026-09-15, for Fixed Assets** (docs.frappe.io Asset Depreciation
+  docs, documentation-level only this time, not source-verified): ERPNext
+  generates the full depreciation schedule upfront at asset creation and
+  posts the identical Depreciation Expense debit / Accumulated
+  Depreciation credit shape — a third real system (after GnuCash/Odoo,
+  Fixed Assets' own prior Market Reference callout) agreeing with Fixed
+  Assets' "materialize in full at acceptance" choice. No documented
+  impairment feature at all, so Fixed Assets' impairment flow goes beyond
+  a mature open-source ERP's public feature set rather than merely
+  matching it. Comarch ERP Optima and enova365 were also checked for
+  Fixed Assets (verified 2026-09-15) but aren't open source, so they're
+  not added here — see `2026-09-06-fixed-assets.md`'s own Literature &
+  Prior Art section and this document's Changelog below for the full
+  three-system comparison, including enova365's dedicated "Odpis
+  aktualizujący" document, the strongest real-system validation found yet
+  for Fixed Assets' impairment flow.
 - **GnuCash** docs (gnucash.org/docs/v5/C/gnucash-guide/bus_ap.html) —
   explicitly documents one shared AP GL account with per-vendor detail
   reconstructed via linked Vendor/Bill/Payment records. The cleanest
@@ -475,17 +491,37 @@ pointed at the wrong section.
   module than 6.8 — worth swapping in.
 
 **Fixed Assets (Hay, now fully verified, not just a figure title):**
-- 7.10 Depreciation (p.135) — confirmed: `DEPRECIATION EXPENSE` = an EQUITY
-  (EXPENSE) DEBIT decrementing an expense account of type "depreciation
-  expense," plus an ASSET CREDIT decrementing the specific depreciated
-  asset's own account (Hay's example: `MACHINE A`). Matches our own
-  design directly.
-- 7.18 Assets (p.149) — confirmed, and a strong validation: Hay draws exactly
-  our own "Ideal vs. Real" progression — an idealized 1:1 asset-to-account
-  mapping, then the real-world need for a many-to-many `ASSET ASSIGNMENT`
-  between assets and accounts. This directly backs the Fixed Assets draft's
-  own Design Decision ("Its own asset register, not just `parentAccountId`") —
-  worth citing there.
+- 7.10 Depreciation (p.135) — confirmed for the DEBIT-expense/CREDIT-asset-
+  side mechanic, **corrected 2026-09-15 on precision**: Hay's own
+  illustration (`DEPRECIATION EXPENSE` = an EQUITY (EXPENSE) DEBIT plus an
+  ASSET CREDIT decrementing the depreciated asset's own account, e.g.
+  `MACHINE A`) is the **net method** — crediting the asset's own account
+  directly. Fixed Assets' `accrueDepreciation` instead debits
+  `ledgerDepreciationExpenseAccountId` and credits a separate
+  `ledgerAccumulatedDepreciationAccountId` contra-asset account — the
+  **gross method**, matching Kieso's explicit treatment (ch.3, "Adjusting
+  Entries," p.3-23) instead of Hay's. The prior note ("matches our own
+  design directly") overstated the match; both books confirm the same
+  debit/credit *sides*, but Kieso, not Hay, is the accurate citation for
+  *which* account gets credited. Full detail in
+  `2026-09-06-fixed-assets.md`'s own new Literature & Prior Art section.
+- 7.18 Assets (p.149-150) — confirmed real and on point, **cardinality
+  corrected 2026-09-15**: Hay draws an "Ideal vs. Real" progression — an
+  idealized 1:1 asset-to-account mapping, then a real-world many-to-many
+  `ASSET ASSIGNMENT` join letting an arbitrary number of accounts attach to
+  one asset. The prior note called this "a strong validation" of Fixed
+  Assets' own asset-register design without checking cardinality: Fixed
+  Assets actually links each asset to *four* distinctly-named, fixed 1:1
+  account roles (`ledgerAssetAccountId`,
+  `ledgerAccumulatedDepreciationAccountId`,
+  `ledgerAccumulatedImpairmentAccountId`,
+  `ledgerDepreciationExpenseAccountId`), not Hay's general many-to-many
+  join table. It's a third variant between Hay's two named ones — richer
+  than "Ideal," but a fixed typed n-tuple rather than Hay's flexible
+  "Real" join — still backing the same Design Decision ("Its own asset
+  register, not just `parentAccountId`"), just not as a direct
+  implementation of either named Hay pattern. Full detail in
+  `2026-09-06-fixed-assets.md`'s own new Literature & Prior Art section.
 
 **Chart of Accounts / `journal_entry_line_dimension`:**
 - 6.3 Summary Account — confirmed real (already verified in depth earlier this
@@ -509,9 +545,10 @@ pointed at the wrong section.
   accounts). Actually relevant to a different live question: Fixed Assets'
   draft explicitly chose *not* to model the asset register as a subtyped
   Account structure ("Its own asset register, not just `parentAccountId`") —
-  6.14 is the pattern that alternative would have followed. Worth a
-  one-line note in Fixed Assets' Design Decisions contrasting the choice
-  made against this pattern, not adopting it as a citation.
+  6.14 is the pattern that alternative would have followed. **Applied
+  2026-09-15**: cited in `2026-09-06-fixed-assets.md`'s own new Literature
+  & Prior Art section as a confirmed "road not taken," not adopted as a
+  citation for the design actually chosen.
 
 **Contractor Registry:**
 - Chapter 2 "Accountability", 2.1 Party — confirmed real, and now read in
@@ -807,3 +844,44 @@ ever recorded here (marked **proposed, not applied** — see §1 Notes):
 - Cross-checked against this document's own §2 conventions — none
   apply directly (no control-account modeling, no new commands) — no
   changes needed.
+
+### 2026-09-15 (Fixed Assets — financial-spec-writing-process applied for the first time)
+
+- `2026-09-06-fixed-assets.md` (PR #6014): merged latest `develop` (166
+  commits) first; the only shared-file overlap (`.ai/specs/README.md`)
+  resolved cleanly by git itself, no manual conflict markers; commit
+  `caac275d0`.
+- Added that document's first "Literature & Prior Art" section (commit
+  `fc1cf0464`). Two prior notes in this knowledge base (2026-09-12 pass)
+  were independently re-verified against the actual Hay text and found
+  imprecise, corrected in both places (see the Tier 3 entries above):
+  Hay 7.10 "matches our own design directly" → Hay's illustration is the
+  net method (credits the asset's own account); Fixed Assets uses the
+  gross method (separate `ledgerAccumulatedDepreciationAccountId`
+  contra-asset account), matching Kieso instead. Hay 7.18 "a strong
+  validation" → Fixed Assets' actual schema is a fixed four-role 1:1 FK
+  design, not Hay's general many-to-many `ASSET ASSIGNMENT` join — a
+  third variant, not a direct implementation of either of Hay's two named
+  patterns. Fowler §6.14 "Specialized Account Model" (previously only
+  flagged as worth a one-line note) was applied as a confirmed "road not
+  taken." Also recorded a genuine absence: neither Hay nor Fowler has
+  anything on disposal, retirement, or impairment as an accounting
+  pattern.
+- Added a real-system comparison (previously only the Overview's own
+  GnuCash/Odoo asset-lifecycle-shape callout): ERPNext (upfront schedule
+  generation and the identical Depreciation Expense/Accumulated
+  Depreciation posting; no documented impairment feature — see the new
+  Tier 4 note above), Comarch ERP Optima (a genuine divergence — its
+  depreciation plan is generated on demand, not upfront, closer to
+  Odoo's computed-on-read posture; confirms dual book/tax depreciation
+  as a real, separate capability worth Fixed Assets' own Phase 2
+  deferral), and enova365 (a dedicated "Odpis aktualizujący" document —
+  the strongest real-system validation found for Fixed Assets' own
+  impairment flow, plus a "Likwidacja ŚT (LT)" document matching Fixed
+  Assets' own disposal naming directly). Comarch and enova365 aren't
+  open source, so per the same convention used for GL Account Balances
+  they're recorded here and in the spec's own section, not added to the
+  Tier 4 list above.
+- Cross-checked against this document's own §2 conventions — none apply
+  directly (no control-account modeling, no new commands, no new tagging
+  mechanism) — no changes needed to §2.
