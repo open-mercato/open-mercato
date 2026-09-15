@@ -121,6 +121,8 @@ export async function buildForwardThreadSlice(
   }
 
   const orderedThreadMessages = Array.from(messagesById.values()).sort((a, b) => {
+    if (a.sentAt && !b.sentAt) return -1
+    if (!a.sentAt && b.sentAt) return 1
     const aTime = a.sentAt?.getTime() ?? 0
     const bTime = b.sentAt?.getTime() ?? 0
     if (aTime !== bTime) return aTime - bTime
@@ -216,7 +218,7 @@ export async function buildForwardPreviewFromThreadSlice(
     return [
       FORWARD_MARKER,
       `From: ${formatUserLabel(sender, item.senderUserId)}`,
-      `Date: ${formatDateLabel(item.sentAt ?? item.createdAt)}`,
+      `Date: ${formatDateLabel(item.sentAt)}`,
       `Subject: ${normalizeSubject(item.subject)}`,
       `To: ${toLabel}`,
       '',

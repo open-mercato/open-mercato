@@ -31,7 +31,7 @@ export type EmailThreadMessage = {
   cc: string[]
   subject: string | null
   bodyText: string | null
-  sentAt: string
+  sentAt: string | null
   providerKey: string | null
   /** Optimistic send status; absent on server-confirmed messages. */
   status?: EmailThreadMessageStatus
@@ -44,7 +44,7 @@ export type EmailThread = {
   subject: string | null
   preview: string | null
   participants: string[]
-  lastMessageAt: string
+  lastMessageAt: string | null
   messageCount: number
   providerKey: string | null
   lastDirection: EmailThreadDirection
@@ -66,8 +66,8 @@ export type EmailThreadsPanelProps = {
   className?: string
 }
 
-function formatWhen(value: string): string {
-  return formatDateTime(value) ?? value
+function formatWhen(value: string | null, unknownLabel: string): string {
+  return value ? formatDateTime(value) ?? value : unknownLabel
 }
 
 /**
@@ -184,7 +184,7 @@ export function EmailThreadsPanel({
                           {thread.subject || t('ui.email.threads.noSubject', '(no subject)')}
                         </span>
                         <span className="shrink-0 text-xs text-muted-foreground">
-                          {formatWhen(thread.lastMessageAt)}
+                          {formatWhen(thread.lastMessageAt, t('ui.email.threads.unknownDate', 'Unknown date'))}
                         </span>
                       </div>
                       <div className="flex items-center justify-between gap-2">
@@ -281,7 +281,9 @@ function EmailMessageCard({
             </span>
           ) : null}
         </div>
-        <span className="shrink-0 text-xs text-muted-foreground">{formatWhen(message.sentAt)}</span>
+        <span className="shrink-0 text-xs text-muted-foreground">
+          {formatWhen(message.sentAt, t('ui.email.threads.unknownDate', 'Unknown date'))}
+        </span>
       </div>
       <div className="whitespace-pre-wrap break-words text-sm text-foreground">
         {message.bodyText || t('ui.email.threads.noBody', '(no content)')}

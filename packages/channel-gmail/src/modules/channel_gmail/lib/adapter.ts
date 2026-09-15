@@ -625,7 +625,7 @@ class GmailChannelAdapter implements ChannelAdapter {
         return { messages: out, hardFailed: true }
       }
       const rawBuffer = decodeBase64Url(raw.raw)
-      const fallbackDate = raw.internalDate ? new Date(Number(raw.internalDate)) : undefined
+      const fallbackDate = raw.internalDate ? new Date(Number(raw.internalDate)) : null
       const normalized = await normalizeInboundGmailMessage({
         rawMessage: rawBuffer,
         gmailMessageId: raw.id,
