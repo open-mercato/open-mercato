@@ -134,6 +134,7 @@ export async function invalidateOrganizationScopeCacheForTenant(
 // staleness risk: the memo lives only for the lifetime of one request and is
 // dropped with the request object by the GC.
 const orgScopeRequestMemo = new WeakMap<object, Map<string, Promise<OrganizationScope>>>()
+const featureScopeRequestMemo = new WeakMap<object, { userId: string; scope: OrganizationScope }>()
 
 function getRequestScopeMemo(request: unknown): Map<string, Promise<OrganizationScope>> | null {
   if (!request || (typeof request !== 'object' && typeof request !== 'function')) return null
@@ -144,6 +145,24 @@ function getRequestScopeMemo(request: unknown): Map<string, Promise<Organization
     orgScopeRequestMemo.set(key, memo)
   }
   return memo
+}
+
+function bindFeatureScopeToRequest(
+  request: unknown,
+  userId: string,
+  scope: OrganizationScope,
+): void {
+  if (!request || (typeof request !== 'object' && typeof request !== 'function')) return
+  featureScopeRequestMemo.set(request as object, { userId, scope })
+}
+
+function getFeatureScopeForRequest(
+  request: unknown,
+  userId: string,
+): OrganizationScope | null {
+  if (!request || (typeof request !== 'object' && typeof request !== 'function')) return null
+  const entry = featureScopeRequestMemo.get(request as object)
+  return entry?.userId === userId ? entry.scope : null
 }
 
 function normalizeOrganizationId(value: unknown): string | null {
@@ -402,6 +421,11 @@ export async function resolveOrganizationScopeForRequest({
     return { selectedId: null, filterIds: null, allowedIds: null, tenantId: null }
   }
 
+  if (selectedId === undefined && tenantOverride === undefined) {
+    const featureScope = getFeatureScopeForRequest(request, auth.sub)
+    if (featureScope) return featureScope
+  }
+
   let em: EntityManager | null = null
   let rbac: RbacService | null = null
   try { em = container.resolve<EntityManager>('em') } catch { em = null }
@@ -532,14 +556,64 @@ export async function resolveFeatureCheckContext({
   request,
   selectedId,
   tenantId,
+  requiredFeatures,
 }: {
   container: AwilixContainer
   auth: AuthContext | null | undefined
-  request?: Request | { cookies?: { get: (name: string) => { value: string } | undefined } }
+  request?: Request | {
+    cookies?: { get: (name: string) => { value: string } | undefined }
+    headers?: { get(name: string): string | null }
+  }
   selectedId?: string | null
   tenantId?: string | null
+  requiredFeatures?: readonly string[]
 }): Promise<FeatureCheckContext> {
-  const scope = await resolveOrganizationScopeForRequest({ container, auth, request, selectedId, tenantId })
+  let scope = await resolveOrganizationScopeForRequest({ container, auth, request, selectedId, tenantId })
+  if (
+    auth?.sub
+    && request
+    && scope.selectedId === null
+    && scope.tenantId
+    && Array.isArray(requiredFeatures)
+    && requiredFeatures.length > 0
+  ) {
+    const em = container.resolve<EntityManager>('em')
+    const rbac = container.resolve<RbacService>('rbacService')
+    const featureAccess = await rbac.resolveFeatureOrganizationAccess(
+      auth.sub,
+      requiredFeatures,
+      { tenantId: scope.tenantId },
+    )
+    if (!featureAccess.unrestricted) {
+      const organizationFilter: FilterQuery<Organization> = {
+        tenant: scope.tenantId,
+        deletedAt: null,
+        ...(Array.isArray(scope.filterIds) ? { id: { $in: scope.filterIds } } : {}),
+      }
+      const organizations = await em.find(Organization, organizationFilter, {
+        fields: ['id', 'ancestorIds'],
+      })
+      const candidateOrganizationIds = new Set(
+        organizations.map((organization) => String(organization.id)),
+      )
+      const featureOrganizationIds = featureAccess.filterOrganizationIds(
+        organizations.map((organization) => ({
+          id: String(organization.id),
+          ancestorIds: Array.isArray(organization.ancestorIds) ? organization.ancestorIds : [],
+        })),
+      )
+      const approvedOrganizationIds = Array.from(new Set(
+        featureOrganizationIds.filter((organizationId) => candidateOrganizationIds.has(organizationId)),
+      ))
+      scope = {
+        selectedId: null,
+        filterIds: approvedOrganizationIds,
+        allowedIds: approvedOrganizationIds,
+        tenantId: scope.tenantId,
+      }
+    }
+    bindFeatureScopeToRequest(request, auth.sub, scope)
+  }
   const allowedOrganizationIds = scope.allowedIds ?? null
   const authOrgId = auth?.orgId ?? null
   const organizationId =
