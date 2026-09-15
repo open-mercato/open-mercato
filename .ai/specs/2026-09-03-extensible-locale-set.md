@@ -208,6 +208,30 @@ underneath **locales outside the shipped baseline only**, then overlays the requ
 The shipped five keep byte-identical merge and cache semantics; an added locale degrades to
 English, which is what every comparable platform does.
 
+### 7. Tooling layer — translation checkers follow the locale set
+
+`scripts/i18n-check-sync.ts` and `scripts/i18n-check-values.mjs` hard-coded
+`['pl', 'es', 'de', 'ko']` as their target locales, a third copy of the platform set that had to be
+edited by hand when `ko` was added. They also scan app-local modules, so an app that adds a language
+got no key-parity check for it, and an app that does not serve a shipped language was told every one
+of its modules is missing that file — with `--fix` writing English placeholders for it.
+
+Both checkers now resolve target locales per module through `scripts/lib/i18n-locale-set.mjs`:
+
+- **Outside `apps/`** (framework packages, official modules): the `locales` literal read from
+  `packages/shared/src/lib/i18n/config.ts`, the same source of truth as the runtime. The parser
+  anchors on `export const locales … = [`, so the `Locale[]` annotation cannot be mistaken for the
+  literal (the pre-existing `scripts/dev.mjs` issue noted below).
+- **Inside `apps/<app>/`**: the locale files present in `apps/<app>/src/i18n/`. That directory is
+  already the step an app takes to add a language (upgrade note: add `src/i18n/<code>.json`), so it
+  doubles as the app's declaration of which languages its own modules must carry. An app without
+  that directory follows the platform set.
+
+The resolver fails closed: an unreadable or inconsistent `config.ts` aborts the check instead of
+falling back to a stale list. In this repository both scopes resolve to `en, pl, es, de, ko`, so
+the checked locales, the findings, and the exit codes are unchanged; only the sync checker's
+header changes, listing each resolved scope with its locales.
+
 ## Architecture
 
 ```
@@ -328,6 +352,8 @@ caller that has request context (the root layout) pay the cost once per render.
 7. `translations/di.ts` + `lib/supported-locales.ts` — register the tenant resolver.
 8. Root layout + `AppProviders` in the app and the create-app template.
 9. Tests and the `config.typecheck.tsx` compile-time guard.
+10. `scripts/lib/i18n-locale-set.mjs` + both translation checkers resolve target locales per scope,
+    with `scripts/__tests__/i18n-locale-set.test.mjs`.
 
 ## Migration & Backward Compatibility
 
@@ -367,6 +393,7 @@ baseline now receives the default-locale dictionary as a base layer. This cannot
 | 6b | A nested `I18nProvider` (backend layout) drops the served set and the admin switcher offers every shipped locale | High | app layouts, `packages/shared` | The backend layout resolves and passes the set explicitly; `I18nProvider` inherits an omitted prop from the enclosing provider; asserted at the rendered-option level in `ProfileDropdown.test.tsx` and on the layout's props in `layout-locale-set.test.tsx` | Low |
 | 6c | An admin adds a locale the app cannot serve and believes the UI language set changed | Medium | `translations` | `GET /translations/locales` reports `servable`; non-servable chips and suggestions are labelled "content only"; the card description names both effects | Low |
 | 7 | The default-locale base layer leaks English strings into `pl`/`es`/`de`/`ko` | High | `packages/shared` | The layer applies only to locales outside the shipped baseline; `dictionary-locale-fallback.test.ts` asserts an English-only key does **not** appear in Polish | Low |
+| 8 | The translation checkers silently stop checking a locale (config literal unreadable, or an app's `src/i18n/` emptied by mistake) | Medium | `scripts/` | An unreadable or inconsistent `config.ts` throws and fails the run; an app directory with no locale files falls back to the platform set rather than to nothing; the header prints every resolved scope and locale list; `i18n-locale-set.test.mjs` pins both behaviours | Low |
 
 **Known pre-existing issue, not introduced here:** `scripts/dev.mjs` regex-parses `config.ts` as
 text to build the dev splash screen, and its `parseStringArrayLiteral` finds the `[` of the
@@ -431,3 +458,10 @@ change, not a behaviour change; an assertion covering the new prop was added alo
   served set (default locale pinned) instead of the raw stored selection, the post-save cache
   write refetches rather than inventing an empty `servable`, and `wms` warehouse country search
   uses the served set.
+
+### 2026-09-15
+- Tooling follow-up: `i18n-check-sync.ts` and `i18n-check-values.mjs` stop hard-coding
+  `pl, es, de, ko`. Framework modules follow the `locales` literal in `config.ts`; modules under
+  `apps/<app>/` follow that app's `src/i18n/` locale files, so an app that adds or drops a language
+  is checked for exactly its own set. Same checked locales, findings, and exit codes in this
+  repository; the sync checker's header now lists the resolved scopes.
