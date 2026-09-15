@@ -4,6 +4,7 @@ import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { findAndCountWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { enforceCommandOptimisticLockWithGuards, enforceRecordGoneIsConflict } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { SyncSchedule } from '../data/entities'
 
 const logger = createLogger('data_sync').child({ component: 'sync-schedule-service' })
@@ -276,6 +277,16 @@ export function createSyncScheduleService(em: EntityManager, schedulerService?: 
             organizationId: scope.organizationId,
             tenantId: scope.tenantId,
             error: compensationError instanceof Error ? compensationError.message : String(compensationError),
+          })
+          getTelemetryRuntime()?.reportError(compensationError, {
+            module: 'data_sync',
+            code: 'data_sync.schedule_delete_compensation_failed',
+            attributes: {
+              scheduledJobId,
+              scheduleId: row.id,
+              organizationId: scope.organizationId,
+              tenantId: scope.tenantId,
+            },
           })
         }
         throw error

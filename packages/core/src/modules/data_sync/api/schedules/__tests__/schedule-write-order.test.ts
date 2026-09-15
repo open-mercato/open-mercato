@@ -2,6 +2,7 @@
 
 const mockGetAuthFromRequest = jest.fn()
 const mockLoggerError = jest.fn()
+const mockReportError = jest.fn()
 
 const mockEm = {
   create: jest.fn((_entityClass: unknown, data: Record<string, unknown>) => ({ ...data })),
@@ -35,6 +36,10 @@ jest.mock('@open-mercato/shared/lib/logger', () => ({
   createLogger: jest.fn(() => ({
     child: jest.fn(() => ({ error: mockLoggerError })),
   })),
+}))
+
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: jest.fn(() => ({ reportError: mockReportError })),
 }))
 
 const { createSyncScheduleService } = jest.requireActual('../../../lib/sync-schedule-service')
@@ -139,6 +144,7 @@ describe('data_sync schedule delete compensation', () => {
       timezone: 'UTC',
     }))
     expect(mockLoggerError).not.toHaveBeenCalled()
+    expect(mockReportError).not.toHaveBeenCalled()
   })
 
   it('does not mask the original error when the compensation register also fails', async () => {
@@ -147,7 +153,8 @@ describe('data_sync schedule delete compensation', () => {
     const flushError = new Error('connection lost')
     mockEm.flush.mockRejectedValueOnce(flushError)
     mockScheduler.unregister.mockResolvedValueOnce(undefined)
-    mockScheduler.register.mockRejectedValueOnce(new Error('scheduler unavailable'))
+    const compensationError = new Error('scheduler unavailable')
+    mockScheduler.register.mockRejectedValueOnce(compensationError)
 
     await expect(scheduleService.deleteSchedule(row.id, scope)).rejects.toThrow('connection lost')
 
@@ -160,6 +167,20 @@ describe('data_sync schedule delete compensation', () => {
         scheduleId: 'schedule-1',
         organizationId: scope.organizationId,
         tenantId: scope.tenantId,
+      }),
+    )
+    expect(mockReportError).toHaveBeenCalledTimes(1)
+    expect(mockReportError).toHaveBeenCalledWith(
+      compensationError,
+      expect.objectContaining({
+        module: 'data_sync',
+        code: 'data_sync.schedule_delete_compensation_failed',
+        attributes: expect.objectContaining({
+          scheduledJobId: 'job-1',
+          scheduleId: 'schedule-1',
+          organizationId: scope.organizationId,
+          tenantId: scope.tenantId,
+        }),
       }),
     )
   })
@@ -175,5 +196,6 @@ describe('data_sync schedule delete compensation', () => {
     expect(mockScheduler.unregister).toHaveBeenCalledTimes(1)
     expect(mockScheduler.register).not.toHaveBeenCalled()
     expect(mockLoggerError).not.toHaveBeenCalled()
+    expect(mockReportError).not.toHaveBeenCalled()
   })
 })
