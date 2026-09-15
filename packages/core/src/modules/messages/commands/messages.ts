@@ -320,7 +320,9 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
         priority: input.priority,
         status: input.isDraft ? 'draft' : 'sent',
         isDraft: input.isDraft ?? false,
-        sentAt: input.isDraft ? null : new Date(),
+        // #6095: channel ingest passes the provider's timestamp so an imported
+        // mailbox sorts by when the mail was received, not when it was imported.
+        sentAt: input.isDraft ? null : input.sentAt ?? new Date(),
         actionData: input.actionData as MessageActionData | undefined,
         sendViaEmail,
         idempotencyKey: input.idempotencyKey ?? null,

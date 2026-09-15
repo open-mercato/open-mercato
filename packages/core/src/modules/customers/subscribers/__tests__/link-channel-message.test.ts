@@ -428,6 +428,115 @@ describe('link-channel-message subscriber — inbound', () => {
 // Outbound path (Task 12 extension)
 // ---------------------------------------------------------------------------
 
+describe('link-channel-message subscriber — interaction timestamp (#6095)', () => {
+  const payload = {
+    eventType: 'communication_channels.message.received',
+    channelLinkId: 'mcl-1',
+    channelId: 'ch-1',
+    tenantId: 't-1',
+    organizationId: 'o-1',
+    providerKey: 'gmail',
+    direction: 'inbound' as const,
+  }
+
+  function linkRow(overrides: Record<string, unknown> = {}) {
+    return {
+      id: 'mcl-1',
+      providerKey: 'gmail',
+      direction: 'inbound',
+      createdAt: new Date('2026-09-12T14:00:00Z'),
+      channelMetadata: { from: 'alice@example.com', to: [], cc: [], subject: 'Hello' },
+      ...overrides,
+    }
+  }
+
+  it('dates the interaction with the provider timestamp of the linked ExternalMessage', async () => {
+    // Before #6095 every interaction created by a history import carried the
+    // import day, so a person's timeline showed 90 days of email on one date.
+    mockFindPeople.mockResolvedValueOnce([{ id: 'person-1', email: 'alice@example.com' }])
+    const providerTimestamp = new Date('2026-06-16T08:30:00Z')
+    const em = makeEm({
+      // findOne[0]: link, findOne[1]: ExternalMessage, findOne[2]: channel
+      findOneResults: [
+        linkRow({ externalMessageId: 'em-1' }),
+        { id: 'em-1', providerTimestamp },
+        { userId: 'u-1' },
+      ],
+    })
+
+    await handler(payload as any, makeCtx(em))
+
+    expect(em.findOne).toHaveBeenCalledWith(
+      'ExternalMessage',
+      expect.objectContaining({ id: 'em-1', tenantId: 't-1', organizationId: 'o-1' }),
+      undefined,
+    )
+    expect(em.create).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ occurredAt: providerTimestamp }),
+    )
+  })
+
+  it('falls back to the link creation time when the ExternalMessage has no provider timestamp', async () => {
+    mockFindPeople.mockResolvedValueOnce([{ id: 'person-1', email: 'alice@example.com' }])
+    const createdAt = new Date('2026-09-12T14:00:00Z')
+    const em = makeEm({
+      findOneResults: [
+        linkRow({ externalMessageId: 'em-1', createdAt }),
+        { id: 'em-1', providerTimestamp: null },
+        { userId: 'u-1' },
+      ],
+    })
+
+    await handler(payload as any, makeCtx(em))
+
+    expect(em.create).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ occurredAt: createdAt }),
+    )
+  })
+
+  it('does not look the ExternalMessage up when the link carries no externalMessageId', async () => {
+    mockFindPeople.mockResolvedValueOnce([{ id: 'person-1', email: 'alice@example.com' }])
+    const createdAt = new Date('2026-09-12T14:00:00Z')
+    const em = makeEm({ findOneResults: [linkRow({ createdAt }), { userId: 'u-1' }] })
+
+    await handler(payload as any, makeCtx(em))
+
+    expect(em.findOne).not.toHaveBeenCalledWith('ExternalMessage', expect.anything(), undefined)
+    expect(em.create).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ occurredAt: createdAt }),
+    )
+  })
+
+  it('uses the provider timestamp on the threading-inheritance path too', async () => {
+    // No address match, no crmPersonId → the handler inherits the person from
+    // the hub thread. That interaction must carry the same real date.
+    mockFindPeople.mockResolvedValueOnce([])
+    const providerTimestamp = new Date('2026-07-01T10:00:00Z')
+    const em = makeEm({
+      findOneResults: [
+        linkRow({
+          messageId: 'msg-inbound',
+          externalMessageId: 'em-1',
+          channelMetadata: { from: 'unknown@example.com', to: [], cc: [], subject: 'Re: Hello' },
+        }),
+        { id: 'em-1', providerTimestamp },
+        { userId: 'u-1' },
+      ],
+      executeResults: [[{ entity_id: 'person-9' }]],
+    })
+
+    await handler(payload as any, makeCtx(em))
+
+    expect(em.create).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ occurredAt: providerTimestamp }),
+    )
+  })
+})
+
 describe('link-channel-message subscriber — outbound', () => {
   it('crmVisibility="shared" in channelMetadata → interaction.visibility="shared"', async () => {
     const linkRow = {

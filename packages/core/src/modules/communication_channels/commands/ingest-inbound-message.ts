@@ -403,6 +403,12 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
       // when the matcher returned null (no token / JWZ / subject hit).
       parentMessageId: threadMatch?.messageThreadId ?? mapping?.messageThreadId,
       isDraft: false,
+      // #6095: the platform message is dated when the provider received the
+      // mail, not when this worker ran. Otherwise a history import lands every
+      // message on the import minute and the inbox (sorted on `sent_at`) shows
+      // a 90-day mailbox as one block in import order. Adapters without a
+      // timestamp fall through to compose's own `new Date()`.
+      sentAt: m.timestamp ?? undefined,
       // Stable dedup key so a retried ingest (after a transient failure between
       // compose and the ExternalMessage anchor insert) reuses the message
       // composed by the first attempt instead of duplicating it. Mirrors the
