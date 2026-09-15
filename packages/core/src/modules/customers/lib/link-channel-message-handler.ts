@@ -88,6 +88,16 @@ export default async function handler(
   const metaJson = (link.channelMetadata ?? null) as Record<string, unknown> | null
   const payloadJson = (link.channelPayload ?? null) as Record<string, unknown> | null
 
+  // ── (1b) Resolve when the email actually happened ─────────────────────
+  //
+  // `link.createdAt` is when the hub ingested the message, which for a history
+  // import is the import minute, not the day the mail arrived (#6095). The
+  // provider's own timestamp lives on the ExternalMessage row the link points
+  // at, so read it from there and fall back to the ingest time only when the
+  // adapter supplied none. Resolved once here and threaded through every
+  // branch below so the address-match and threading-inheritance paths agree.
+  const occurredAt = await resolveOccurredAt(em, link, tenantId, organizationId, dscope)
+
   // ── (2) Resolve the channel to get its owner userId ───────────────────
   //
   // The channel.userId is needed for two purposes:
@@ -172,7 +182,7 @@ export default async function handler(
   // Early exit: no addresses AND no hint → nothing to link.
   if (normalized.length === 0 && !crmPersonId) {
     // Before giving up, try threading-inheritance (TC-CRM-EMAIL-005).
-    await handleThreadingInheritance(em, link, linkId, tenantId, organizationId, channelUserId, metaJson, payloadJson)
+    await handleThreadingInheritance(em, link, linkId, tenantId, organizationId, channelUserId, metaJson, payloadJson, occurredAt)
     return
   }
 
@@ -183,7 +193,7 @@ export default async function handler(
 
   if (personIdSet.size === 0) {
     // Try threading-inheritance before giving up.
-    await handleThreadingInheritance(em, link, linkId, tenantId, organizationId, channelUserId, metaJson, payloadJson)
+    await handleThreadingInheritance(em, link, linkId, tenantId, organizationId, channelUserId, metaJson, payloadJson, occurredAt)
     return
   }
 
@@ -211,7 +221,6 @@ export default async function handler(
         ? (payloadJson!.text as string)
         : null
 
-  const occurredAt = link.createdAt instanceof Date ? link.createdAt : new Date()
   const providerKey =
     typeof link.providerKey === 'string' ? (link.providerKey as string) : null
 
@@ -257,6 +266,7 @@ async function handleThreadingInheritance(
   channelUserId: string | null,
   metaJson: Record<string, unknown> | null,
   payloadJson: Record<string, unknown> | null,
+  occurredAt: Date,
 ): Promise<void> {
   // ── Primary: inherit Person(s) from the hub's authoritative thread ──────
   //
@@ -325,7 +335,6 @@ async function handleThreadingInheritance(
           : typeof metaJson?.bodyText === 'string'
             ? (metaJson.bodyText as string)
             : null
-      const occurredAt = _link.createdAt instanceof Date ? (_link.createdAt as Date) : new Date()
       const providerKey = typeof _link.providerKey === 'string' ? (_link.providerKey as string) : null
       await persistInteractions(em, threadPersonIds, {
         linkId,
@@ -420,7 +429,6 @@ async function handleThreadingInheritance(
   const inheritedMeta = (link.channelMetadata ?? null) as Record<string, unknown> | null
   const subject =
     typeof inheritedMeta?.subject === 'string' ? (inheritedMeta.subject as string) : null
-  const occurredAt = link.createdAt instanceof Date ? (link.createdAt as Date) : new Date()
   const providerKey =
     typeof link.providerKey === 'string' ? (link.providerKey as string) : null
 
@@ -443,6 +451,40 @@ async function handleThreadingInheritance(
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────
+
+/**
+ * When the linked email happened, for `CustomerInteraction.occurredAt` (#6095).
+ *
+ * Preference order:
+ *   1. `ExternalMessage.providerTimestamp` — the provider's own receive/send
+ *      time, written by ingest from the adapter's `timestamp`;
+ *   2. `MessageChannelLink.createdAt` — the ingest time, the only date the
+ *      handler knew before #6095;
+ *   3. now, for a link row with no usable `createdAt` (test stubs).
+ *
+ * The lookup goes through the entity name as a string for the same reason the
+ * link itself does: the customers module must not import the hub's entities.
+ */
+async function resolveOccurredAt(
+  em: EntityManager,
+  link: Record<string, unknown>,
+  tenantId: string,
+  organizationId: string,
+  dscope: { tenantId: string; organizationId: string },
+): Promise<Date> {
+  const ingestedAt = link.createdAt instanceof Date ? link.createdAt : new Date()
+  const externalMessageId = link.externalMessageId
+  if (typeof externalMessageId !== 'string' || !externalMessageId) return ingestedAt
+  const externalMessage = (await findOneWithDecryption(
+    em,
+    'ExternalMessage' as any,
+    { id: externalMessageId, tenantId, organizationId } as any,
+    undefined,
+    dscope,
+  )) as { providerTimestamp?: unknown } | null
+  const providerTimestamp = externalMessage?.providerTimestamp
+  return providerTimestamp instanceof Date ? providerTimestamp : ingestedAt
+}
 
 interface InteractionData {
   linkId: string

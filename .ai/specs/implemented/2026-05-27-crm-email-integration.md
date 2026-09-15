@@ -264,7 +264,9 @@ customers/subscribers/link-channel-message.ts fires (persistent → lib/link-cha
       INSERT INTO customer_interactions
         (entity, external_message_id, visibility='private',
          interaction_type='email', author_user_id=channel.userId,
-         subject, body, occurred_at=link.createdAt, channel_provider_key, …)
+         subject, body,
+         occurred_at=external_message.provider_timestamp ?? link.createdAt,
+         channel_provider_key, …)
       ON CONFLICT (entity, external_message_id) WHERE deleted_at IS NULL DO NOTHING
   • Threading inheritance:
       - Read In-Reply-To + References from channelMetadata.headers (these are RFC 5322
@@ -800,6 +802,11 @@ None.
 ---
 
 ## Changelog
+
+### 2026-09-15 — Interactions dated with the provider timestamp (#6095)
+
+- `lib/link-channel-message-handler.ts` resolves `occurredAt` once per event from `ExternalMessage.providerTimestamp` (looked up by `MessageChannelLink.externalMessageId`, through the entity name as a string like the link itself, so the customers module still imports nothing from the hub) and falls back to `link.createdAt` only when the adapter supplied no timestamp. The same value is threaded into the threading-inheritance path, so the address-match and inherited interactions agree. Before this every email interaction created by a history import carried the import day, and a person's activity timeline showed months of email on one date.
+- Tests: `subscribers/__tests__/link-channel-message.test.ts` — provider timestamp used, fallback to `createdAt`, no lookup without `externalMessageId`, threading-inheritance path.
 
 ### 2026-06-02 — Reconciled with shipped implementation
 
