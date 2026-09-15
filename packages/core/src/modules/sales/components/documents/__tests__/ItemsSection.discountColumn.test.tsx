@@ -10,6 +10,10 @@ import { SalesDocumentItemsSection } from '../ItemsSection'
 const mockApiCall = jest.fn()
 const mockTranslate = createTranslator({})
 
+// The discount cells render Intl-formatted money, so the locale is pinned explicitly (#5105)
+// instead of inheriting the runner's default — otherwise these assertions only hold in en-US.
+const TEST_LOCALE = 'en-US'
+
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCall: (...args: unknown[]) => mockApiCall(...args),
   withScopedApiRequestHeaders: async (_headers: unknown, operation: () => Promise<unknown>) => operation(),
@@ -71,6 +75,7 @@ jest.mock('../optimisticLock', () => ({
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => mockTranslate,
+  useLocale: () => TEST_LOCALE,
 }))
 
 jest.mock('@open-mercato/shared/lib/frontend/useOrganizationScope', () => ({
@@ -92,7 +97,7 @@ async function discountColumnIndex(): Promise<number> {
 }
 
 function money(value: number): string {
-  return new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD' }).format(value)
+  return new Intl.NumberFormat(TEST_LOCALE, { style: 'currency', currency: 'USD' }).format(value)
 }
 
 function lineFixture(overrides: LinePayload = {}): LinePayload {

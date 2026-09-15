@@ -24,6 +24,7 @@ export default function CreateTenantPage() {
           isActive: boolean
         } & Record<string, unknown>>
           title="Create Tenant"
+          titleHeadingLevel={1}
           backHref="/backend/directory/tenants"
           fields={fields}
           groups={groups}

@@ -19,10 +19,9 @@ import type { ActionLogService } from '@open-mercato/core/modules/audit_logs/ser
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
 import { normalizeCustomFieldResponse } from '@open-mercato/shared/lib/custom-fields/normalize'
 import { E } from '#generated/entities.ids.generated'
-import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { isOrganizationReadAccessAllowed } from '@open-mercato/core/modules/directory/utils/organizationScopeGuard'
+import { denyCustomerDetailReadAsNotFound } from '../../../lib/detailReadAccess'
 import { decryptEntitiesWithFallbackScope } from '@open-mercato/shared/lib/encryption/subscriber'
 import { runWithCacheTenant } from '@open-mercato/cache'
 import {
@@ -45,10 +44,6 @@ const paramsSchema = z.object({
 
 function notFound(message: string) {
   return NextResponse.json({ error: message }, { status: 404 })
-}
-
-function forbidden(message: string) {
-  return NextResponse.json({ error: message }, { status: 403 })
 }
 
 type DealAssociation = {
@@ -416,23 +411,10 @@ export async function GET(request: Request, context: { params?: Record<string, u
     return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
   }
 
-  let rbac: RbacService | null = null
-  try {
-    rbac = (container.resolve('rbacService') as RbacService)
-  } catch {
-    rbac = null
-  }
-
-  if (!rbac || !auth?.sub) {
-    return forbidden('Access denied')
-  }
-  const hasFeature = await rbac.userHasAllFeatures(auth.sub, ['customers.deals.view'], {
-    tenantId: auth.tenantId ?? null,
-    organizationId: auth.orgId ?? null,
-  })
-  if (!hasFeature) {
-    return forbidden('Access denied')
-  }
+  // The API dispatcher already enforces `requireFeatures: ['customers.deals.view']`
+  // against the caller's effective (selected) organization before this handler
+  // runs, so no in-route feature re-check is needed. Re-checking here against the
+  // token org (auth.orgId) would wrongly 403 org-switched callers (#5012).
 
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request })
   const em = (container.resolve('em') as EntityManager)
@@ -454,9 +436,16 @@ export async function GET(request: Request, context: { params?: Record<string, u
     return notFound('Deal not found')
   }
 
-  if (!isOrganizationReadAccessAllowed({ scope, auth, organizationId: deal.organizationId })) {
-    return forbidden('Access denied')
-  }
+  // Existence oracle (issue #5504): a caller who holds customers.deals.view but
+  // whose scope excludes the record's organization must get the SAME response as
+  // for a non-existent id, so 403-when-present / 404-when-absent collapses to a
+  // uniform 404 not-found. The dispatcher already returns a uniform 403 for
+  // callers who lack the feature entirely.
+  const organizationReadDenied = denyCustomerDetailReadAsNotFound(
+    { scope, auth, organizationId: deal.organizationId },
+    'Deal not found',
+  )
+  if (organizationReadDenied) return organizationReadDenied
 
   const decryptionScope = {
     tenantId: deal.tenantId ?? auth.tenantId ?? null,
@@ -977,8 +966,8 @@ export const openApi: OpenApiRouteDoc = {
       ],
       errors: [
         { status: 401, description: 'Unauthorized', schema: dealDetailErrorSchema },
-        { status: 403, description: 'Forbidden for tenant/organization scope', schema: dealDetailErrorSchema },
-        { status: 404, description: 'Deal not found', schema: dealDetailErrorSchema },
+        { status: 403, description: 'Forbidden — caller lacks the required feature', schema: dealDetailErrorSchema },
+        { status: 404, description: 'Deal not found, or its organization is not in the caller’s scope', schema: dealDetailErrorSchema },
       ],
     },
   },

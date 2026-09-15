@@ -89,6 +89,23 @@ describe('security email URL helpers', () => {
     expect(() => assertAllowedAppOrigin(request, env)).not.toThrow()
   })
 
+  test('cannot see forwarded headers when the request is passed as a URL string', () => {
+    const env = {
+      APP_URL: 'https://app.example.com',
+      NODE_ENV: 'production',
+    }
+    const request = new Request('https://localhost:6789/api/auth/users/resend-invite', {
+      headers: {
+        host: 'app.example.com',
+        'x-forwarded-host': 'app.example.com',
+        'x-forwarded-proto': 'https',
+      },
+    })
+
+    expect(() => assertAllowedAppOrigin(request, env)).not.toThrow()
+    expect(() => assertAllowedAppOrigin(request.url, env)).toThrow(AppOriginRejectedError)
+  })
+
   test('allows loopback origin mismatches outside production', () => {
     const env = {
       APP_URL: 'http://localhost:3000',

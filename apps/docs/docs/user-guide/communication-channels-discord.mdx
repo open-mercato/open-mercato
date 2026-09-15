@@ -1,0 +1,436 @@
+---
+title: Set up Discord
+description: Administrator guide — create the Discord application and bot, invite it to your server, connect the channel in Open Mercato, run the Gateway worker, and verify both directions end to end.
+sidebar_label: Discord
+---
+
+# Set up Discord
+
+This is the **administrator** guide for connecting a Discord bot to Open Mercato as a two-way
+communication channel. Messages your team writes in Open Mercato are posted to Discord by the bot;
+messages people write in the Discord channel land in the unified inbox.
+
+Unlike the email providers, Discord is a **bot** integration, not a per-person mailbox: one bot
+serves the whole server, and everything it posts is attributed to the bot user, not to the Open
+Mercato user who wrote the message.
+
+There are three moving parts, and the third one is easy to forget:
+
+1. **The Discord application + bot** — created once in Discord's Developer Portal.
+2. **The channel credentials** — pasted into Open Mercato, stored encrypted.
+3. **The Gateway worker** — a long-running process. **Inbound messages do not arrive until you
+   start it.** Outbound works without it.
+
+:::info What this release does and does not do
+Outbound messages, inbound messages, reactions in both directions, and slash commands / interactive
+components all work. Optional AI auto-reply ships too, **off by default** — see
+[AI auto-reply](#ai-auto-reply-optional) before you turn it on. Attachments, threaded replies,
+embeds, editing or deleting a sent message, and pulling older history **do not** — see
+[What this release does not do](#what-this-release-does-not-do) before you promise any of them to
+your users.
+:::
+
+## Prerequisites
+
+- A Discord account with permission to add a bot to the target **server** (guild).
+- An Open Mercato account with the `communication_channels.connect_user_channel` permission — the
+  channel is connected from a user's own profile page, not from the admin area. **Integrations →
+  Discord** is where you check its health afterwards.
+- A Redis-backed queue: the deployment must run with `QUEUE_STRATEGY=async`. Inbound Discord
+  delivery refuses to start without it (see [Run the Gateway worker](#part-4--run-the-gateway-worker)).
+- For slash commands only: a public HTTPS URL for your Open Mercato instance. Plain messaging does
+  not need one.
+
+---
+
+## Part 1 — Create the Discord application and bot
+
+### 1. Create the application
+
+Go to the [Discord Developer Portal](https://discord.com/developers/applications) → **New
+Application**, name it (e.g. "Open Mercato Bot"), and create it.
+
+From the **General Information** tab, copy two values — both go into Open Mercato later:
+
+| Value | Where it goes |
+|---|---|
+| **Application ID** | The `Application ID` credential |
+| **Public Key** | The `Public key` credential — a 64-character hex string |
+
+The Public Key is not a secret. It is an Ed25519 **public** key and its only job is to let Open
+Mercato verify that an incoming interaction request really came from Discord.
+
+### 2. Reset the bot token
+
+Open the **Bot** tab → **Reset Token** → copy the token.
+
+:::danger The bot token is a full credential
+It grants complete control of the bot user. Discord shows it exactly once. Paste it straight into
+Open Mercato (where it is encrypted at rest) and never commit it, log it, or paste it into a chat.
+If it leaks, reset it in the same place — the old token dies immediately.
+:::
+
+### 3. Enable the privileged intents
+
+Still on the **Bot** tab, under **Privileged Gateway Intents**:
+
+- **MESSAGE CONTENT INTENT** — **required**. Without it Discord delivers message events with an
+  empty `content`, so every inbound message reaches your inbox blank.
+- **SERVER MEMBERS INTENT** — optional; enable it only if you want member metadata.
+
+The other two intents the bot identifies with — `GUILD_MESSAGES` and `GUILD_MESSAGE_REACTIONS` —
+are non-privileged and need no toggle.
+
+:::warning A missing intent is a hard failure, not a degraded mode
+If the bot identifies with an intent the portal has not granted, Discord closes the connection with
+code `4014` (disallowed intents). Open Mercato treats that as unrecoverable, flips the channel to
+**Needs reconnection**, and stops re-opening the socket rather than burning through Discord's
+per-bot session budget retrying. Fix the toggle, then reconnect the channel.
+:::
+
+---
+
+## Part 2 — Invite the bot to your server
+
+The bot cannot see or post in a server until it is invited. Build an OAuth2 invite URL:
+
+```
+https://discord.com/oauth2/authorize?client_id=<APPLICATION_ID>&scope=bot+applications.commands&permissions=<PERMISSIONS_INTEGER>
+```
+
+| Scope | Why |
+|---|---|
+| `bot` | Adds the bot user to the server — required |
+| `applications.commands` | Required to register slash commands (Part 5). Include it now even if you do not plan to use them yet — adding it later means re-inviting the bot. |
+
+Pick the **minimum** permissions the features you actually use need:
+
+| Permission | Bit | Needed for |
+|---|---|---|
+| View Channels | `0x400` | Everything |
+| Send Messages | `0x800` | Outbound |
+| Read Message History | `0x10000` | Channel history / backfill on the message list |
+| Add Reactions | `0x40` | Reacting from the Open Mercato inbox |
+| Manage Messages | `0x2000` | Editing or deleting a sent message — adapter-only today, see [the ceiling](#what-this-release-does-not-do). Skip it unless you want the grant in place ahead of time. |
+
+The `permissions` value is the OR of the bits you picked. View Channels + Send Messages + Read
+Message History + Add Reactions is `68672`; add Manage Messages for `76864`.
+
+Open the URL, choose the target server, authorize. Then, with **Developer Mode** enabled in Discord
+(User Settings → Advanced → Developer Mode), collect two more ids by right-clicking:
+
+- The **server** → *Copy Server ID* → the `Guild (server) ID` credential.
+- The **text channel** the bot should post in → *Copy Channel ID* → the `Default channel ID`
+  credential.
+
+Both are optional but strongly recommended: the guild id scopes the bot to one server, and the
+default channel is where an outbound message goes when nothing else names a destination.
+
+---
+
+## Part 3 — Connect the channel in Open Mercato
+
+**Profile → My communication channels → Connect Discord**, then fill in:
+
+| Field | Value | Required |
+|---|---|---|
+| **Display name** | How the channel is labelled in Open Mercato. Defaults to "Discord". | — |
+| **Bot token** | From Part 1, step 2 | ✅ |
+| **Application ID** | General Information tab | ✅ |
+| **Public key** | General Information tab, 64 hex characters | ✅ |
+| **Guild (server) ID** | Copy Server ID | — |
+| **Default channel ID** | Copy Channel ID | — |
+
+Connecting requires the `communication_channels.connect_user_channel` permission, and the channel is
+**owned by the user who connects it** — the same ownership model as a personal mailbox, even though
+the bot behind it is shared infrastructure. Connect it from the account that should own it.
+
+Open Mercato calls Discord's `GET /users/@me` with the token before saving anything. A token Discord
+rejects comes back as a field-level error and **no channel is created** — you never end up with a
+channel row holding a credential that cannot authenticate.
+
+The credential blob is stored encrypted at rest through the integrations module (AES-256-GCM,
+per-tenant keys), the same way Gmail and IMAP credentials are.
+
+:::tip Preconfiguring from the environment
+A deployment that already knows its bot can skip the form. Set the `OM_CHANNEL_DISCORD_*` variables
+described in [Environment presets](#environment-presets) and the credentials are written
+automatically when a tenant is created — or on demand for an existing tenant with
+`yarn mercato channel_discord configure-from-env --tenant <id> --org <id>`.
+:::
+
+---
+
+## Part 4 — Run the Gateway worker
+
+Discord does **not** POST your messages to a webhook. Real-time inbound arrives over a persistent
+WebSocket ("the Gateway"), which means a long-running process has to hold that socket open. Nothing
+starts it for you:
+
+```bash
+yarn mercato channel_discord start-gateway
+```
+
+Useful flags:
+
+| Flag | Default | What it does |
+|---|---|---|
+| `--tenant <tenantId>` | all tenants | Only open sockets for one tenant's Discord channels |
+| `--refresh <seconds>` | `60` | How often to reconcile: pick up newly connected channels, close sockets for deactivated or deleted ones. `0` reconciles once at startup and never again. |
+
+The refresh pass is a reconciler, not a reconnector — a channel whose socket is already healthy is
+left alone, so a short interval costs one query per tick.
+
+:::danger `QUEUE_STRATEGY=async` is mandatory for inbound
+`start-gateway` is a **separate process** from the app server. It hands every received message to
+the hub's inbound queue, whose workers run in the app server. Under the default in-process queue
+strategy those jobs never cross the process boundary: they are dropped with no error, no retry and
+no failed-job record, while the channel cheerfully keeps reporting **Connected**.
+
+Rather than look like it works, the command refuses to start unless `QUEUE_STRATEGY=async` is set
+and the queue points at Redis.
+:::
+
+### Deploying it
+
+Run `start-gateway` as its own always-on process next to the app — a systemd unit, a container, a
+Railway/Fly worker service. It keeps running until stopped and reconnects on its own after a network
+blip (it resumes the Discord session rather than re-identifying, which keeps you well inside
+Discord's per-bot session budget).
+
+Run **one** gateway process per deployment. Discord allows a limited number of session starts per
+bot per day, and two processes identifying for the same bot fight each other.
+
+To run a **send-only** deployment — outbound works, inbound does not — set
+`OM_CHANNEL_DISCORD_GATEWAY_DISABLED=1` and skip this part entirely. This is also the right setting
+for CI.
+
+---
+
+## Part 5 — Slash commands (optional)
+
+Skip this section unless you want slash commands. Ordinary messaging does not touch it.
+
+In the Developer Portal → **General Information** → **Interactions Endpoint URL**, enter:
+
+```
+https://<your-host>/api/channel_discord/interactions
+```
+
+Discord immediately sends a signed `PING` to that URL and only saves the setting if it gets a valid
+`PONG` back. Behind the scenes Open Mercato verifies the request's Ed25519 signature against the
+**Public key** you stored on the channel, so the handshake succeeds only once Part 3 is done and the
+key matches the application you are editing.
+
+Locally, expose the route with a tunnel (`cloudflared tunnel --url http://localhost:3000` or
+`ngrok http 3000`) and use the public URL.
+
+### Register the commands
+
+Setting the endpoint is not enough. A slash command only appears in Discord once it is **registered**
+against your application, which is a separate, per-guild decision:
+
+```bash
+yarn mercato channel_discord register-slash-commands --tenant <id> --org <id> \
+  [--guild <guildId>] [--commands <path-to-json>]
+```
+
+| Flag | What it does |
+|---|---|
+| `--guild <guildId>` | Overrides the `guildId` credential. Registration is guild-scoped, so commands appear immediately rather than waiting on Discord's global propagation. |
+| `--commands <path>` | Registers your own command definitions from a JSON file instead of the built-in default. |
+
+Without `--commands` you get the shipped default: `/mercato`, with a `message` option, which sends a
+message to the team through Open Mercato.
+
+:::warning Registration replaces the guild's command list
+The call is a `PUT` against the application's guild commands, so it **replaces** every command this
+application has registered in that guild rather than adding to them. If you maintain a custom set,
+register the full set every time — a partial `--commands` file silently removes the rest.
+:::
+
+### How a command is answered
+
+Discord gives the endpoint three seconds, which is not enough to do real work, so a verified command
+is answered in two stages: the route returns a *deferred* acknowledgement (Discord shows "thinking…")
+and hands the interaction to a background worker, which writes it into the unified inbox and then
+replaces the placeholder with the real message. That worker runs on the app's standard worker runner
+— unlike the Gateway, you do not start it yourself.
+
+---
+
+## AI auto-reply (optional)
+
+Off by default, per channel. When enabled, an AI agent drafts a reply to each inbound Discord
+message; most drafts become a **proposal** a human approves, and only a narrow, confident subset is
+sent automatically.
+
+Turn it on from **Integrations → Discord → the channel**, in the *AI auto-reply* section. Both the
+toggle and the agent selection live on channel state, and both default to off.
+
+:::warning Read this before enabling it on a public server
+Auto-send means the bot answers customers with no human in the loop. Three independent checks must
+all pass before that happens — a conservative classifier must rate the message "easy", the model must
+report that it does not need a human, and the model's own confidence must clear a deliberately high
+threshold (0.6). Any single "no" routes the draft to the approval surface instead, and every failure
+mode — an unavailable model, a denied policy check, a malformed response — degrades to doing nothing.
+
+Enable it on a low-traffic channel first and watch what it proposes before you trust what it sends.
+:::
+
+Operational notes worth knowing:
+
+- **It needs the `ai_assistant` module.** That peer is optional; if it is not installed the
+  subscriber is a no-op and the channel keeps working as a plain inbox.
+- **It runs under a real, tenant-scoped identity**, gated by the `channel_discord.ai_auto_reply.run`
+  permission — not as a super-admin, and not with an empty permission set.
+- **The agent cannot take actions.** It runs in object mode, so no tool is ever exposed to the model;
+  an inbound Discord message cannot reach a privileged operation.
+- **Replies go out the ordinary path** (compose → outbound bridge → Discord REST), so an auto-reply
+  is attributed and audited like any other message — and, like every other message, it is posted by
+  the bot.
+
+---
+
+## Part 6 — Verify it end to end
+
+**Outbound.** The hub's test-send endpoint takes a Discord **channel id** as its recipient (not an
+email address — this provider is addressed by channel snowflake). There is no button for it yet;
+call it directly, signed in as the user who owns the channel:
+
+```bash
+curl -X POST https://<your-host>/api/communication_channels/channels/<channelId>/test-send \
+  -H 'Content-Type: application/json' \
+  -d '{"to":"<discordChannelId>","body":"Hello from Open Mercato"}'
+```
+
+The bot should post to that channel within a second. A recipient the endpoint cannot resolve falls
+back to the channel's `Default channel ID`, so use a real channel id to test the path you care about.
+
+**Inbound.** Type a message in the connected Discord channel. With the Gateway worker running it
+should reach the unified inbox in about a second. If it does not, the worker is the first thing to
+check.
+
+**Reactions.** React to a message in Discord and confirm the reaction shows up on the platform
+message; then react from the inbox and confirm it appears in Discord.
+
+**Health.** **Integrations → Discord** runs a live probe (`GET /users/@me`) against the stored token.
+**Healthy** means Discord accepted the token just now.
+
+---
+
+## Environment presets
+
+All optional. The credential variables are a bootstrap convenience: they are applied when a tenant
+is created and are re-applicable with `yarn mercato channel_discord configure-from-env`.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `OM_CHANNEL_DISCORD_BOT_TOKEN` | — | Bootstrap bot token |
+| `OM_CHANNEL_DISCORD_APPLICATION_ID` | — | Bootstrap application id |
+| `OM_CHANNEL_DISCORD_PUBLIC_KEY` | — | Bootstrap Ed25519 public key (64 hex characters) |
+| `OM_CHANNEL_DISCORD_GUILD_ID` | — | Default guild to scope the bot to |
+| `OM_CHANNEL_DISCORD_DEFAULT_CHANNEL_ID` | — | Default outbound text channel |
+| `OM_CHANNEL_DISCORD_FORCE_PRECONFIGURE` | `false` | Overwrite credentials that already exist for the tenant. Without it, existing credentials always win — so re-running setup is safe. |
+| `OM_CHANNEL_DISCORD_GATEWAY_DISABLED` | `false` | Skip opening Gateway sockets (CI, send-only deployments) |
+| `OM_CHANNEL_DISCORD_REQUEST_TIMEOUT_MS` | `15000` | Timeout on Discord REST calls |
+
+:::warning A half-filled preset fails loudly
+Setting *any* of the three credential variables commits you to setting all three. A partial preset
+raises an error at startup instead of persisting a bot token that cannot authenticate.
+:::
+
+---
+
+## What this release does not do
+
+The hub routes work to a provider based on the capabilities that provider declares, so a capability
+declared but not implemented is work silently dropped. Everything below is therefore declared
+**off**, deliberately, and stays off until the implementation lands.
+
+| Capability | State | Why |
+|---|---|---|
+| Attachments / inline images | ❌ | Outbound attachments are dropped — there is no file upload to Discord. Inbound attachments *are* captured as links. |
+| Threaded replies | ❌ | The adapter can emit a Discord reply reference, but nothing in the hub writes the field it reads, so the path is unreachable. It turns on with the hub-side change, not before. |
+| Rich embeds | ❌ | Outbound is plain Markdown `content`; no embeds are built. |
+| Typing indicators, presence, stickers, read receipts | ❌ | Not implemented. |
+
+Three more are implemented in the adapter but have **no way to be triggered**, so treat them as not
+shipped until a surface calls them:
+
+| Capability | State | Why |
+|---|---|---|
+| Edit a sent message | ⚠️ adapter-only | The adapter implements it, but no Open Mercato surface calls `editMessage` — for any provider, not just Discord. |
+| Delete a sent message | ⚠️ adapter-only | Same: implemented, never called. |
+| Pull older channel history | ⚠️ adapter-only | The adapter can page a Discord channel's history, but its only caller is the polling worker, which deliberately skips Discord because inbound is real-time. **Refresh** on the channel row answers "channel is push-driven — polling does not apply", and **Import history** is unavailable because the adapter does not implement the backfill entry point. New messages arrive live; older ones are not pulled in. |
+
+What **is** supported end to end: outbound messages (Markdown, up to 2000 characters — Discord's own
+limit), real-time inbound messages, reactions in both directions, slash commands and interactive
+components (see [Part 5](#part-5--slash-commands-optional)), and — opt-in, off by default — AI
+auto-reply (see [AI auto-reply](#ai-auto-reply-optional)).
+
+Two more things worth setting expectations on:
+
+- **Everything is posted by the bot.** Discord has no "send on behalf of a user" mechanism for bots,
+  so a message written by any Open Mercato user appears in Discord as the bot. If attribution
+  matters to your workflow, include the author in the message body.
+- **The bot ignores other bots.** Any message flagged as bot-authored is dropped before ingestion,
+  including the bot's own. This stops feedback loops and cross-bot noise, but it also means a
+  webhook-posted or bot-relayed message will not reach your inbox.
+
+---
+
+## Troubleshooting
+
+### Inbound messages never arrive; outbound works fine
+The Gateway worker is not running. Start it (Part 4) and check the process is alive. This is by far
+the most common cause — outbound goes over REST from the app server and is unaffected.
+
+### `start-gateway` exits immediately complaining about `QUEUE_STRATEGY`
+Working as intended. Set `QUEUE_STRATEGY=async` with Redis configured and start it again. Under the
+default in-process queue the gateway cannot deliver anything to the app server's workers.
+
+### Inbound messages arrive but the body is empty
+**MESSAGE CONTENT INTENT** is off in the Developer Portal (Part 1, step 3). Enable it and restart the
+gateway worker.
+
+### The channel flips to "Needs reconnection" and stops reconnecting
+Discord closed the socket with `4004` (bad token) or `4014` (disallowed intents). Neither is fixable
+by retrying, so the channel is parked deliberately. Fix the token or the intent toggle, then
+reconnect the channel from the profile page.
+
+### "Discord rejected the bot token" when connecting
+The token is wrong, or it was reset in the Developer Portal after you copied it. Reset it again and
+paste the new value — Discord invalidates the old one the moment you reset.
+
+### Saving the Interactions Endpoint URL fails in the Developer Portal
+Discord's `PING` did not get a valid `PONG`. Check, in order: the URL is exactly
+`https://<your-host>/api/channel_discord/interactions`; the host is reachable from the public
+internet (a tunnel, if you are local); the channel is connected in Open Mercato; and the stored
+**Public key** matches the application whose settings you are editing.
+
+### A slash command shows "thinking" forever
+This is a fault, not a limitation. The endpoint returned its deferred acknowledgement, but the
+background worker never replaced the placeholder. Check that the app's worker runner is alive and
+draining the Discord interactions queue — that worker is part of the app server, so if it is stuck
+nothing else will tell you.
+
+### Typing `/` in Discord offers no Open Mercato commands
+The Interactions Endpoint URL only tells Discord where to send commands; it does not create them. Run
+`yarn mercato channel_discord register-slash-commands` (Part 5) for the guild in question.
+
+### Test send returns success but the message lands in the wrong channel
+The recipient must be a Discord **channel id**. Anything the endpoint cannot resolve to a
+destination falls back to the channel's `Default channel ID`. Confirm you copied the channel id
+(right-click the channel → *Copy Channel ID*) and not the server id.
+
+### Outbound fails with `requires_reauth`
+Discord answered `401` — the bot token is no longer valid. Reconnect the channel with a freshly
+reset token.
+
+## Related
+
+- [Communication Channels](communication-channels.mdx) — the end-user connect / send / receive guide
+- [Set up Gmail](communication-channels-gmail.mdx) · [Set up IMAP + SMTP](communication-channels-imap.mdx)
+- [Communications Hub architecture](../framework/modules/communication-channels.mdx) — developer reference
+- [Building a communication channel provider](../framework/modules/building-communication-channel-provider.mdx) — for developers building on the hub

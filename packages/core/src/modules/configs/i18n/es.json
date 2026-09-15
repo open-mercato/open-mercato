@@ -155,6 +155,8 @@
   "configs.systemStatus.variables.entitiesBackcompatEav.label": "Escrituras EAV heredadas",
   "configs.systemStatus.variables.forceQueryIndexOnPartialIndexes.description": "Servir resultados del índice de consultas incluso cuando la cobertura es parcial.",
   "configs.systemStatus.variables.forceQueryIndexOnPartialIndexes.label": "Forzar uso de índice parcial",
+  "configs.systemStatus.variables.listCountCap.description": "Total máximo informado en listas; el conteo se detiene en el límite y los totales limitados se muestran p. ej. como «10 000+». 0 desactiva el límite.",
+  "configs.systemStatus.variables.listCountCap.label": "Límite del conteo de listas",
   "configs.systemStatus.variables.logLevel.description": "Nivel de registro de respaldo cuando la verbosidad no está configurada.",
   "configs.systemStatus.variables.logLevel.label": "Nivel de registro",
   "configs.systemStatus.variables.logVerbosity.description": "Anula la verbosidad del registro estructurado, como debug o trace.",

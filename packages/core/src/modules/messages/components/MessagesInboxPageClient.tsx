@@ -24,6 +24,7 @@ import { useMessagesInboxBulkActions, type MessageFolder } from './useMessagesIn
 import {
   buildMessagesInboxFilters,
   buildMessagesListParams,
+  buildSenderOptionsFromMessages,
   type SenderOption,
 } from './inboxFilters'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -38,6 +39,9 @@ type MessageListItem = {
   senderUserId: string
   senderName?: string | null
   senderEmail?: string | null
+  externalName?: string | null
+  externalEmail?: string | null
+  sourceEntityType?: string | null
   priority: string
   status: string
   hasObjects: boolean
@@ -58,6 +62,7 @@ type MessageListResponse = {
   page?: number
   pageSize?: number
   totalPages?: number
+  totalIsCapped?: boolean
 }
 
 type MessageTypeItem = {
@@ -138,6 +143,7 @@ export function MessagesInboxPageClient() {
         page: Number(call.result?.page ?? page),
         pageSize: Number(call.result?.pageSize ?? pageSize),
         totalPages: Number(call.result?.totalPages ?? 0),
+        totalIsCapped: call.result?.totalIsCapped === true,
       }
     },
   })
@@ -236,22 +242,7 @@ export function MessagesInboxPageClient() {
 
   React.useEffect(() => {
     const items = listQuery.data?.items ?? []
-    const next = items.flatMap((item): SenderOption[] => {
-      if (typeof item.senderUserId !== 'string' || item.senderUserId.trim().length === 0) return []
-      const name = typeof item.senderName === 'string' && item.senderName.trim().length > 0
-        ? item.senderName.trim()
-        : null
-      const email = typeof item.senderEmail === 'string' && item.senderEmail.trim().length > 0
-        ? item.senderEmail.trim()
-        : null
-      const label = name ?? email ?? item.senderUserId
-      return [{
-        value: item.senderUserId,
-        label,
-        description: email && email !== label ? email : null,
-      }]
-    })
-    mergeSenderOptions(next)
+    mergeSenderOptions(buildSenderOptionsFromMessages(items))
   }, [listQuery.data?.items, mergeSenderOptions])
 
   React.useEffect(() => {
@@ -361,12 +352,14 @@ export function MessagesInboxPageClient() {
 
   const rows = listQuery.data?.items ?? []
   const total = listQuery.data?.total ?? 0
+  const totalIsCapped = listQuery.data?.totalIsCapped === true
   const totalPages = listQuery.data?.totalPages ?? 0
 
   return (
     <div className="space-y-4">
       <DataTable
         title={t('messages.title', 'Messages')}
+        titleHeadingLevel={1}
         // UMES extension surface — opt into widget injection at:
         //   data-table:messages:columns / :row-actions / :bulk-actions / :filters / :toolbar / :search-trailing
         // (SPEC-045d §9.3a — communication_channels hub renders channel badge + delivery status here)
@@ -398,6 +391,7 @@ export function MessagesInboxPageClient() {
           pageSize,
           total,
           totalPages,
+          totalIsCapped,
           onPageChange: setPage,
         }}
         actions={

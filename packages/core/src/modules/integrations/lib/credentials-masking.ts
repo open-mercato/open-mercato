@@ -84,22 +84,26 @@ export function maskSecretCredentials(
 }
 
 /**
- * Reverse of {@link maskSecretCredentials} for the save path. When the client
- * submits the mask sentinel for a secret field it means "leave it unchanged":
- * restore the existing stored secret, or drop the field entirely when nothing
- * was previously stored (so the literal sentinel is never persisted). Any other
- * value (including an empty string, which clears the secret) is written as-is.
+ * Reverse of {@link maskSecretCredentials} for the save path. The exact mask
+ * sentinel and explicitly listed omitted secret fields mean "leave unchanged".
+ * Explicit values win over the list, including an empty string used to clear a
+ * secret, while plain omission retains the full-replacement contract.
  */
 export function mergeMaskedSecretCredentials(
   schema: IntegrationCredentialsSchema | undefined,
   incoming: Record<string, unknown>,
   existing: Record<string, unknown>,
+  unchangedSecretFields: readonly string[] = [],
 ): Record<string, unknown> {
   const merged: Record<string, unknown> = { ...incoming }
+  const unchangedSecretFieldSet = new Set(unchangedSecretFields)
 
   for (const field of schema?.fields ?? []) {
     if (!isSecretField(field.type)) continue
-    if (merged[field.key] !== MASKED_SECRET_VALUE) continue
+    const hasIncomingValue = Object.prototype.hasOwnProperty.call(merged, field.key)
+    const submittedMask = merged[field.key] === MASKED_SECRET_VALUE
+    const explicitlyUnchanged = !hasIncomingValue && unchangedSecretFieldSet.has(field.key)
+    if (!submittedMask && !explicitlyUnchanged) continue
 
     if (hasPresentValue(existing[field.key])) {
       merged[field.key] = existing[field.key]

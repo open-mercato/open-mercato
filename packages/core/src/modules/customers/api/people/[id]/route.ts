@@ -38,7 +38,7 @@ import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { parseBooleanFromUnknown, parseBooleanToken } from '@open-mercato/shared/lib/boolean'
-import { isOrganizationReadAccessAllowed } from '@open-mercato/core/modules/directory/utils/organizationScopeGuard'
+import { denyCustomerDetailReadAsNotFound } from '../../../lib/detailReadAccess'
 import { loadPersonCompanyLinks, summarizePersonCompanies } from '../../../lib/personCompanies'
 import { normalizeCustomerDetailCustomFields } from '../../detailCustomFields'
 import { buildEmailVisibilityMikroFilter } from '../../../lib/visibilityFilter'
@@ -127,10 +127,6 @@ function parseIncludeParams(request: Request): Set<string> {
       .forEach((part) => tokens.add(part))
   })
   return tokens
-}
-
-function forbidden(message: string) {
-  return NextResponse.json({ error: message }, { status: 403 })
 }
 
 function notFound(message: string) {
@@ -542,10 +538,19 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       return notFound('Person not found')
     }
 
-    if (!isOrganizationReadAccessAllowed({ scope, auth, organizationId: person.organizationId })) {
-      statusCode = 403
-      profileMeta = { reason: 'organization_forbidden' }
-      return forbidden('Access denied')
+    // Existence oracle (issue #5504): a caller who holds customers.people.view
+    // but whose scope excludes the record's organization must get the SAME
+    // response as for a non-existent id, so 403-when-present / 404-when-absent
+    // collapses to a uniform 404 not-found. The dispatcher already returns a
+    // uniform 403 for callers who lack the feature entirely.
+    const organizationReadDenied = denyCustomerDetailReadAsNotFound(
+      { scope, auth, organizationId: person.organizationId },
+      'Person not found',
+    )
+    if (organizationReadDenied) {
+      statusCode = 404
+      profileMeta = { reason: 'organization_not_in_scope' }
+      return organizationReadDenied
     }
 
     // Gated get-then-set cache. Key on the resolved person plus the effective
@@ -1337,8 +1342,8 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 400, description: 'Invalid identifier', schema: personDetailErrorSchema },
         { status: 401, description: 'Unauthorized', schema: personDetailErrorSchema },
-        { status: 403, description: 'Forbidden for tenant/organization scope', schema: personDetailErrorSchema },
-        { status: 404, description: 'Person not found', schema: personDetailErrorSchema },
+        { status: 403, description: 'Forbidden — caller lacks the required feature', schema: personDetailErrorSchema },
+        { status: 404, description: 'Person not found, or its organization is not in the caller’s scope', schema: personDetailErrorSchema },
       ],
     },
   },

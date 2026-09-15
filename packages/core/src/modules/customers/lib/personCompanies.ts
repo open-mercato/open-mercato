@@ -56,6 +56,136 @@ async function requireCompany(
   return company
 }
 
+export type CompanyPersonUnionEntry = {
+  entity: CustomerEntity
+  profile: CustomerPersonProfile | null
+  linkedAt: string | null
+}
+
+/**
+ * Resolve "people belonging to this company" as the union of active
+ * `CustomerPersonCompanyLink` rows and `CustomerPersonProfile.company`
+ * profile-only assignments (data that never got a link row, e.g. from
+ * migrated CRM imports). This is the single source of truth for both the
+ * company People tab list and its badge count — see #5114.
+ */
+export async function loadCompanyPeopleUnion(
+  em: EntityManager,
+  company: CustomerEntity,
+  scope: { tenantId?: string | null; organizationId?: string | null },
+): Promise<CompanyPersonUnionEntry[]> {
+  const decryptionScope = {
+    tenantId: scope.tenantId ?? company.tenantId ?? null,
+    organizationId: scope.organizationId ?? company.organizationId ?? null,
+  }
+  const relatedPeopleById = new Map<string, CompanyPersonUnionEntry>()
+
+  const companyLinkWhere = await withActiveCustomerPersonCompanyLinkFilter(
+    em,
+    { company: company.id, organizationId: company.organizationId, tenantId: company.tenantId },
+    'customers.companies.loadCompanyPeopleUnion',
+  )
+  const companyLinks = filterActivePersonCompanyLinks(
+    await findWithDecryption(
+      em,
+      CustomerPersonCompanyLink,
+      companyLinkWhere,
+      { populate: ['person', 'person.personProfile'], orderBy: { isPrimary: 'desc', createdAt: 'asc' } },
+      decryptionScope,
+    ),
+  )
+  companyLinks.forEach((link) => {
+    const entity = typeof link.person === 'string' ? null : link.person
+    if (!entity || entity.kind !== 'person' || entity.deletedAt) return
+    const personProfile =
+      entity.personProfile && typeof entity.personProfile !== 'string' ? entity.personProfile : null
+    relatedPeopleById.set(entity.id, {
+      entity,
+      profile: personProfile,
+      linkedAt: link.createdAt instanceof Date ? link.createdAt.toISOString() : null,
+    })
+  })
+
+  const profiles = await findWithDecryption(
+    em,
+    CustomerPersonProfile,
+    {
+      company: company.id,
+      tenantId: company.tenantId,
+      organizationId: company.organizationId,
+      entity: { deletedAt: null },
+    },
+    { populate: ['entity'] },
+    decryptionScope,
+  )
+  profiles.forEach((entry) => {
+    const entity = entry.entity as CustomerEntity | null
+    if (!entity || entity.kind !== 'person' || entity.deletedAt) return
+    if (!relatedPeopleById.has(entity.id)) {
+      relatedPeopleById.set(entity.id, {
+        entity,
+        profile: entry ?? null,
+        linkedAt: entry.createdAt instanceof Date ? entry.createdAt.toISOString() : null,
+      })
+    }
+  })
+
+  return Array.from(relatedPeopleById.values())
+}
+
+/**
+ * Count-only sibling of `loadCompanyPeopleUnion` for the company People badge, which
+ * needs the size of the union and nothing else. Both queries project just the foreign
+ * key column and push the `kind: 'person'` / `deletedAt: null` predicates into the
+ * WHERE clause, so no person row is hydrated and no PII is decrypted to produce a
+ * number — `findWithDecryption` is deliberately not used here because the projections
+ * select no encrypted column.
+ */
+export async function countCompanyPeopleUnion(
+  em: EntityManager,
+  company: CustomerEntity,
+): Promise<number> {
+  const personIds = new Set<string>()
+
+  const companyLinkWhere = await withActiveCustomerPersonCompanyLinkFilter(
+    em,
+    {
+      company: company.id,
+      organizationId: company.organizationId,
+      tenantId: company.tenantId,
+      person: { kind: 'person', deletedAt: null },
+    },
+    'customers.companies.countCompanyPeopleUnion',
+  )
+  const companyLinks = filterActivePersonCompanyLinks(
+    await em.find(CustomerPersonCompanyLink, companyLinkWhere as any, {
+      fields: ['person', 'deletedAt'],
+    } as any),
+  )
+  companyLinks.forEach((link) => {
+    const personId = typeof link.person === 'string' ? link.person : link.person?.id
+    if (personId) personIds.add(personId)
+  })
+
+  const profiles = await em.find(
+    CustomerPersonProfile,
+    {
+      company: company.id,
+      tenantId: company.tenantId,
+      organizationId: company.organizationId,
+      entity: { kind: 'person', deletedAt: null },
+    } as any,
+    { fields: ['entity'] } as any,
+  )
+  profiles.forEach((entry) => {
+    const entity = entry.entity as CustomerEntity | string | null
+    const entityId = typeof entity === 'string' ? entity : entity?.id
+    if (entityId) personIds.add(entityId)
+  })
+
+  return personIds.size
+}
+
 export async function loadPersonCompanyLinks(
   em: EntityManager,
   person: CustomerEntity,
@@ -298,7 +428,12 @@ export async function removePersonCompanyLink(
 
   if (!link) {
     if (profile.company && typeof profile.company !== 'string' && profile.company.id === linkId) {
-      profile.company = null
+      // Profile-only assignment: no link row backs it, so only the legacy field is
+      // cleared. It must keep mirroring the primary link the way every other detach
+      // path leaves it, so promote a remaining primary link instead of nulling blindly.
+      const primary = existingLinks.find((entry) => entry.isPrimary) ?? null
+      const primaryCompany = primary ? resolveLinkedCompany(primary) : null
+      profile.company = primaryCompany ?? null
       return
     }
     throw notFound('Company link not found')

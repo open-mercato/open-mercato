@@ -34,6 +34,9 @@ const plannedActivitiesSectionMock = jest.fn(
   ),
 )
 const dealFormMock = jest.fn(() => <div>form</div>)
+const collapsibleZoneLayoutMock = jest.fn(
+  ({ zone1, zone2 }: { zone1: React.ReactNode; zone2: React.ReactNode }) => <div>{zone1}{zone2}</div>,
+)
 let activeTabParam: string | null = 'activities'
 let detailRequestCount = 0
 let injectedTabWidgets: Array<Record<string, unknown>> = []
@@ -85,7 +88,7 @@ jest.mock('@open-mercato/ui/primitives/button', () => ({
 }))
 
 jest.mock('@open-mercato/ui/backend/crud/CollapsibleZoneLayout', () => ({
-  CollapsibleZoneLayout: ({ zone1, zone2 }: { zone1: React.ReactNode; zone2: React.ReactNode }) => <div>{zone1}{zone2}</div>,
+  CollapsibleZoneLayout: (props: { zone1: React.ReactNode; zone2: React.ReactNode }) => collapsibleZoneLayoutMock(props),
 }))
 
 jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({
@@ -375,6 +378,7 @@ describe('DealDetailPage', () => {
     inlineActivityComposerMock.mockClear()
     plannedActivitiesSectionMock.mockClear()
     dealFormMock.mockClear()
+    collapsibleZoneLayoutMock.mockClear()
 
     updateCrudMock.mockResolvedValue(undefined)
     deleteCrudMock.mockResolvedValue(undefined)
@@ -519,6 +523,22 @@ describe('DealDetailPage', () => {
     }))
   })
 
+  it('provides deal form sections to the collapsible sidebar rail (#5101)', async () => {
+    renderWithProviders(<DealDetailPage params={{ id: 'deal-123' }} />)
+
+    await waitFor(() => {
+      expect(collapsibleZoneLayoutMock).toHaveBeenCalled()
+    })
+
+    expect(collapsibleZoneLayoutMock).toHaveBeenLastCalledWith(expect.objectContaining({
+      pageType: 'deal-detail-v3',
+      sections: [
+        expect.objectContaining({ id: 'details' }),
+        expect.objectContaining({ id: 'custom' }),
+      ],
+    }))
+  })
+
   it('persists tab changes to the URL search params', async () => {
     renderWithProviders(<DealDetailPage params={{ id: 'deal-123' }} />)
 
@@ -555,7 +575,7 @@ describe('DealDetailPage', () => {
     })
   })
 
-  it('updates linked people inline without reloading the full deal detail payload', async () => {
+  it('refreshes the deal after a people change so its lock token stays current', async () => {
     activeTabParam = 'people'
 
     renderWithProviders(<DealDetailPage params={{ id: 'deal-123' }} />)
@@ -573,13 +593,16 @@ describe('DealDetailPage', () => {
       })
     })
 
+    // The deal is re-read after the save: `updated_at` is the optimistic-lock token this
+    // write sends, and the server now advances it whenever the links change. Without the
+    // refresh the next save in this tab would 409 against the version it just superseded.
+    // That reload also carries the refreshed people list, so no separate lookup is issued.
     await waitFor(() => {
-      expect(readApiResultOrThrowMock).toHaveBeenCalledWith(
-        '/api/customers/people?ids=person-2&pageSize=1',
-      )
+      expect(detailRequestCount).toBe(2)
     })
-
-    expect(detailRequestCount).toBe(1)
+    expect(readApiResultOrThrowMock).not.toHaveBeenCalledWith(
+      '/api/customers/people?ids=person-2&pageSize=1',
+    )
   })
 
   it('defaults the activity target to the primary linked person when one is flagged (#4376)', async () => {

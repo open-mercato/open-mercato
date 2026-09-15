@@ -126,4 +126,68 @@ describe('customers deals aggregate route', () => {
       else process.env.TENANT_DATA_ENCRYPTION = prev
     }
   })
+
+  it('expands won/lost synonyms so kanban and list won filters agree on stored spellings', async () => {
+    const response = await GET(
+      new Request(
+        `http://localhost/api/customers/deals/aggregate?pipelineId=${pipelineId}&status=won`,
+      ),
+    )
+    expect(response.status).toBe(200)
+    const aggregateCall = executeMock.mock.calls[0]
+    const sql = String(aggregateCall[0])
+    const values = aggregateCall[1] as string[]
+    expect(sql).toContain('status IN')
+    // won expands to win + won so both spellings are matched in one query
+    expect(values).toContain('win')
+    expect(values).toContain('won')
+  })
+
+  it('keeps aggregate and list status semantics aligned for win alias', async () => {
+    findMatchingEntityIdsBySearchTokensAcrossSourcesMock.mockResolvedValue([dealId])
+    const response = await GET(
+      new Request(
+        `http://localhost/api/customers/deals/aggregate?pipelineId=${pipelineId}&status=win&status=lost`,
+      ),
+    )
+    expect(response.status).toBe(200)
+    const aggregateCall = executeMock.mock.calls[0]
+    const values = aggregateCall[1] as string[]
+    // win -> win,won and lost -> loose,lost, so all four spellings appear
+    expect(values).toEqual(expect.arrayContaining(['win', 'won', 'loose', 'lost']))
+  })
+
+  it('is case-insensitive for won/lost and passes through unknown values', async () => {
+    executeMock.mockResolvedValueOnce([])
+    findMatchingEntityIdsBySearchTokensAcrossSourcesMock.mockResolvedValue([dealId])
+    const upperResponse = await GET(
+      new Request(`http://localhost/api/customers/deals/aggregate?pipelineId=${pipelineId}&status=WON`),
+    )
+    expect(upperResponse.status).toBe(200)
+    const upperValues = (executeMock.mock.calls[0][1] as string[])
+    expect(upperValues).toEqual(expect.arrayContaining(['win', 'won']))
+
+    executeMock.mockResolvedValueOnce([])
+    const unknownResponse = await GET(
+      new Request(`http://localhost/api/customers/deals/aggregate?pipelineId=${pipelineId}&status=renegotiating`),
+    )
+    expect(unknownResponse.status).toBe(200)
+    const unknownValues = (executeMock.mock.calls[1][1] as string[])
+    expect(unknownValues).toContain('renegotiating')
+  })
+
+  it('lets a caller-supplied status filter win over the isOverdue open-status injection', async () => {
+    const response = await GET(
+      new Request(
+        `http://localhost/api/customers/deals/aggregate?pipelineId=${pipelineId}&status=won&isOverdue=true`,
+      ),
+    )
+    expect(response.status).toBe(200)
+    const aggregateCall = executeMock.mock.calls[0]
+    const sql = String(aggregateCall[0])
+    expect(sql).toContain('expected_close_at < CURRENT_DATE')
+    expect(sql).not.toContain("AND status = 'open'")
+    const values = aggregateCall[1] as string[]
+    expect(values).toEqual(expect.arrayContaining(['win', 'won']))
+  })
 })

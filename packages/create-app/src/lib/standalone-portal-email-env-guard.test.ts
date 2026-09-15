@@ -16,14 +16,43 @@ import { fileURLToPath } from 'node:url'
 // monorepo root, so an unset OM_TEST_EMAIL_CAPTURE_PATH leaves each side on a
 // different default path and TC-AUTH-033 never sees the invitation email.
 //
-// Both variables must appear twice per lane: once in the standalone app's .env
-// (the server process) and once in the integration-test step env (the specs and
-// the queue-drain children, which do not read the app's .env).
+// OM_ENABLE_PUSH_STUB_ADAPTER is the same shape again. The network-free
+// `push_stub` channel adapter is registered by push_notifications/di.ts only when
+// the flag is set, and the ephemeral harness sets it on both the app server and
+// the Playwright process. The standalone lanes originally set it on neither, so
+// TC-PUSH-003 could not resolve an adapter and every delivery landed in `failed`.
+//
+// Every variable here must appear twice per lane: once in the standalone app's
+// .env (the server process) and once in the integration-test step env (the specs
+// and the queue-drain children, which do not read the app's .env).
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..', '..')
 
-const REQUIRED_VARIABLES = ['PLATFORM_PORTAL_BASE_URL', 'OM_TEST_EMAIL_CAPTURE_PATH']
+const REQUIRED_VARIABLES = [
+  'PLATFORM_PORTAL_BASE_URL',
+  'OM_TEST_EMAIL_CAPTURE_PATH',
+  'OM_ENABLE_PUSH_STUB_ADAPTER',
+  // NEXT_PUBLIC_DOCUMENTS_COLLAB_URL is inlined into the bundle at build time, so the
+  // app .env copy is what the browser sees; the test-process copy is what
+  // `ensureManagedCollabSidecar` reads to decide whether to start a sidecar at all.
+  // DOCUMENTS_COLLAB_JWT_SECRET_V2 has to match on both sides too: the app mints the
+  // collaboration token and the sidecar verifies it. With neither configured the
+  // collab-token route returns an empty token (TC-DOCUMENTS-009) and the editor stays
+  // in single-user mode (TC-DOCUMENTS-013).
+  'NEXT_PUBLIC_DOCUMENTS_COLLAB_URL',
+  'DOCUMENTS_COLLAB_JWT_SECRET_V2',
+]
+
+// The inverse of REQUIRED_VARIABLES: variables that must be set exactly ONCE per lane,
+// on the standalone app's .env side only. OM_DOCUMENTS_COLLAB_INTEGRATION means two
+// unrelated things depending on which process reads it. In the app server it is the
+// permission that lets resolveDocumentsCollaborationEndpoint() accept the loopback
+// ws:// URL above under NODE_ENV=production; in the Playwright process it is the gate
+// that opts TC-DOCUMENTS-017's realtime UI spec in. Mirroring it onto the
+// integration-test env the way the variables above are mirrored would silently enable
+// a heavy realtime spec in a lane that has never run it.
+const APP_ONLY_VARIABLES = ['OM_DOCUMENTS_COLLAB_INTEGRATION']
 
 const STANDALONE_LANES = [
   '.github/workflows/snapshot.yml',
@@ -47,6 +76,19 @@ for (const lane of STANDALONE_LANES) {
       assert.ok(
         countAssignments(source, variable) >= 2,
         `${lane} must set ${variable} for the standalone app .env AND the integration-test env; the two run in different processes with different working directories`,
+      )
+    })
+  }
+}
+
+for (const lane of STANDALONE_LANES) {
+  for (const variable of APP_ONLY_VARIABLES) {
+    test(`${lane} pins ${variable} for the app process only`, () => {
+      const source = readRepoFile(lane)
+      assert.equal(
+        countAssignments(source, variable),
+        1,
+        `${lane} must set ${variable} exactly once, on the standalone app .env side. In the Playwright process the same variable is a spec gate, not the server-side loopback permission, so a second assignment opts TC-DOCUMENTS-017's realtime UI spec into a lane that has never run it`,
       )
     })
   }

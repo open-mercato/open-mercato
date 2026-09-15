@@ -68,7 +68,15 @@ describe('DataEngine event contract validation (issue #1421)', () => {
       })
 
       expect(emitted).toEqual([
-        expect.objectContaining({ name: 'issue1421_test.widget.created' }),
+        expect.objectContaining({
+          name: 'issue1421_test.widget.created',
+          options: {
+            persistent: false,
+            tenantId: 'tenant-1',
+            organizationId: 'org-1',
+            emitterModuleId: 'issue1421_test',
+          },
+        }),
       ])
       expect(loggerWarn).not.toHaveBeenCalled()
     } finally {

@@ -158,5 +158,6 @@
   "webhooks.nav.group": "통합",
   "webhooks.nav.title": "웹훅",
   "webhooks.notifications.delivery.failed.body": "웹훅 {webhookName}이(가) 이벤트 {eventType}을(를) 전달하지 못했습니다. {errorMessage}",
+  "webhooks.notifications.delivery.failed.label": "웹훅 전달 실패",
   "webhooks.notifications.delivery.failed.title": "{webhookName}의 웹훅 전달 실패"
 }

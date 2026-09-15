@@ -1,5 +1,8 @@
 import { GET } from '../route'
 
+const TENANT_ID = '33333333-3333-3333-3333-333333333333'
+const ORG_ID = '22222222-2222-2222-2222-222222222222'
+
 jest.mock('../../utils', () => ({
   resolveWidgetScope: jest.fn(async () => ({
     container: {
@@ -11,6 +14,7 @@ jest.mock('../../utils', () => ({
     em: {},
     tenantId: '33333333-3333-3333-3333-333333333333',
     organizationIds: ['22222222-2222-2222-2222-222222222222'],
+    isUnrestrictedOrganizationScope: false,
   })),
 }))
 
@@ -162,5 +166,66 @@ describe('customers customer-todos widget route', () => {
     const options = listCanonicalTodoRows.mock.calls[0][5]
     expect(options).toMatchObject({ includeDeleted: true })
     expect(options).not.toHaveProperty('source')
+  })
+
+  it('passes unrestricted widget scope through to tenant-wide helper reads', async () => {
+    const { resolveWidgetScope } = jest.requireMock('../../utils')
+    const { resolveCustomerInteractionFeatureFlags } =
+      jest.requireMock('../../../../../lib/interactionFeatureFlags')
+    const { listLegacyTodoRows, listCanonicalTodoRows } =
+      jest.requireMock('../../../../../lib/todoCompatibility')
+
+    resolveWidgetScope.mockResolvedValueOnce({
+      container: {
+        resolve: jest.fn((name: string) => {
+          if (name === 'queryEngine') return { kind: 'query-engine' }
+          throw new Error(`Unexpected container resolve: ${name}`)
+        }),
+      },
+      em: {},
+      tenantId: TENANT_ID,
+      organizationIds: null,
+      isUnrestrictedOrganizationScope: true,
+    })
+    resolveCustomerInteractionFeatureFlags.mockResolvedValue({ unified: false })
+    listLegacyTodoRows.mockResolvedValue([])
+    listCanonicalTodoRows.mockResolvedValue({ items: [], bridgeIds: new Set<string>() })
+
+    const res = await GET(new Request('http://localhost/api?limit=5'))
+
+    expect(res.status).toBe(200)
+    expect(listLegacyTodoRows).toHaveBeenCalledTimes(1)
+    expect(listLegacyTodoRows.mock.calls[0][3]).toBeNull()
+    expect(listLegacyTodoRows.mock.calls[0][5]).toEqual(
+      expect.objectContaining({ isUnrestricted: true }),
+    )
+    expect(listCanonicalTodoRows).toHaveBeenCalledTimes(1)
+    expect(listCanonicalTodoRows.mock.calls[0][4]).toBeNull()
+    expect(listCanonicalTodoRows.mock.calls[0][5]).toEqual(
+      expect.objectContaining({ isUnrestricted: true }),
+    )
+  })
+
+  it('passes explicit organization scope through as restricted helper reads', async () => {
+    const { resolveCustomerInteractionFeatureFlags } =
+      jest.requireMock('../../../../../lib/interactionFeatureFlags')
+    const { listLegacyTodoRows, listCanonicalTodoRows } =
+      jest.requireMock('../../../../../lib/todoCompatibility')
+
+    resolveCustomerInteractionFeatureFlags.mockResolvedValue({ unified: false })
+    listLegacyTodoRows.mockResolvedValue([])
+    listCanonicalTodoRows.mockResolvedValue({ items: [], bridgeIds: new Set<string>() })
+
+    const res = await GET(new Request('http://localhost/api?limit=5'))
+
+    expect(res.status).toBe(200)
+    expect(listLegacyTodoRows.mock.calls[0][3]).toEqual([ORG_ID])
+    expect(listLegacyTodoRows.mock.calls[0][5]).toEqual(
+      expect.objectContaining({ isUnrestricted: false }),
+    )
+    expect(listCanonicalTodoRows.mock.calls[0][4]).toEqual([ORG_ID])
+    expect(listCanonicalTodoRows.mock.calls[0][5]).toEqual(
+      expect.objectContaining({ isUnrestricted: false }),
+    )
   })
 })

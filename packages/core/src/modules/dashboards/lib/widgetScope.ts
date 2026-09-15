@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer, type AppContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { isUnrestrictedOrganizationScope } from '@open-mercato/shared/lib/auth/organizationAccess'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 
@@ -9,6 +10,7 @@ export type WidgetScopeContext = {
   em: EntityManager
   tenantId: string
   organizationIds: string[] | null
+  isUnrestrictedOrganizationScope?: boolean
 }
 
 function normalizeScopeId(value: string | null | undefined): string | null {
@@ -91,5 +93,9 @@ export async function resolveWidgetScope(
     em,
     tenantId,
     organizationIds,
+    isUnrestrictedOrganizationScope: isUnrestrictedOrganizationScope({
+      isSuperAdmin,
+      allowedOrganizationIds: scope?.allowedIds,
+    }),
   }
 }

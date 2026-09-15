@@ -41,6 +41,7 @@ type PagedResponse<T> = {
   items: T[]
   total: number
   totalPages: number
+  totalIsCapped?: boolean
 }
 
 function parseExpiryWindow(value: string | null): ExpiryWindow | null {
@@ -260,6 +261,7 @@ export default function WmsLotsListPage() {
             <DataTable
               embedded
               title={title}
+              titleHeadingLevel={2}
               columns={columns}
               data={lotsQuery.data.items}
               isLoading={lotsQuery.isFetching}
@@ -280,6 +282,7 @@ export default function WmsLotsListPage() {
                 pageSize: 25,
                 total: lotsQuery.data.total,
                 totalPages: lotsQuery.data.totalPages,
+                totalIsCapped: lotsQuery.data?.totalIsCapped === true,
                 onPageChange: setPage,
               }}
               perspective={{ tableId: extensionPoints.hosts.lotsTable.tableId }}

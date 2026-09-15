@@ -197,7 +197,7 @@ import {
 | `AccessDeniedMessage` | Standard 403 state |
 | `RecordNotFoundState` | `label`, `description?`, `backHref`/`backLabel`, `action?` — neutral missing-record state |
 | `TabEmptyState` | `title`, `description?`, `action?: { label, onClick, icon?, disabled? }` — empty-but-healthy tab |
-| `NotesSection` | `entityId`, `viewerUserId`, `dataAdapter: NotesDataAdapter`, `emptyState`, `addActionLabel`, markdown preference hooks — comments/notes tab |
+| `NotesSection` | `entityId`, `viewerUserId`, `dataAdapter: NotesDataAdapter`, `emptyState`, `addActionLabel`, markdown preference hooks — comments/notes tab. Editor/appearance opt-ins: `disableMarkdown` (plain textarea only), `forceMarkdown` (rich editor only, toggle hidden), `hideMarkdownToggle` (hide the toggle, keep the seeded preference), `disableAppearance` (no palette buttons or appearance dialog) |
 | `ActivitiesSection` | `entityId`, `dataAdapter: ActivitiesDataAdapter`, `activityTypeLabels`, `loadActivityOptions`, `emptyState` — activity timeline tab with dictionary-driven types |
 | `AddressesSection` | `entityId`, `dataAdapter: AddressDataAdapter`, `addressTypesAdapter?`, `loadFormat?`, `emptyState` — address tiles + editor (also exports `AddressTiles`, `AddressEditor`, `AddressView`, `formatAddressLines`) |
 | `TagsSection` | `title`, `tags: TagOption[]`, `loadOptions`, `createTag`, `onSave({ next, added, removed })`, `labels`, `canEdit?`, `autoSave?` |

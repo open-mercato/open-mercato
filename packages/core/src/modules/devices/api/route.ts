@@ -20,7 +20,13 @@ import {
 } from '../data/validators'
 import { resolveDeviceActorUserId } from './auth'
 import { createDevicesCrudOpenApi, createPagedListResponseSchema } from './openapi'
-import { deviceListSchema, deviceListFields, deviceListSortFieldMap, deviceListItemSchema } from './deviceList'
+import {
+  deviceListSchema,
+  deviceListFields,
+  deviceListSortFieldMap,
+  deviceListItemSchema,
+  transformDeviceListItem,
+} from './deviceList'
 import { executeRegister, type DeviceMutationContext } from './deviceOps'
 
 const logger = createLogger('devices')
@@ -59,6 +65,8 @@ const crud = makeCrudRoute({
     // push_token is a secret and is never exposed via the list API.
     fields: deviceListFields,
     sortFieldMap: deviceListSortFieldMap,
+    // The query engine projects raw column names; expose them in camelCase like every other module.
+    transformItem: transformDeviceListItem,
     // Exports are off for the self-serve list. The factory enables them for every list that does not
     // declare `export` (resolveAvailableExportFormats falls back to csv/json/xml/markdown), and its
     // full-export branch replaces the filters with `{}` instead of calling `buildFilters`

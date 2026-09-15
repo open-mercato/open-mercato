@@ -194,7 +194,7 @@ test.describe('TC-CRM-082: Deals KPI summary endpoint', () => {
         companyIds: [companyId],
         pipelineId,
         pipelineStageId: stageId,
-        status: 'loose',
+        status: 'lost',
         valueAmount: LOST,
         valueCurrency: seedCurrency,
         ownerUserId: scope.userId,

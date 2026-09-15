@@ -239,6 +239,7 @@ registerMcpTool(
     description: 'Do the thing.',
     inputSchema: z.object({ id: z.string().uuid() }),
     requiredFeatures: ['mymodule.manage'],
+    isMutation: true,
     handler: async (input) => ({ ok: true }),
   },
   { moduleId: 'mymodule' },
@@ -250,6 +251,7 @@ registerMcpTool(
 - Set `requiredFeatures` for anything that reads or writes tenant data — never leave it empty for data tools.
 - Use Zod for `inputSchema` — never raw JSON Schema.
 - Return a serializable object from the handler.
+- Set `isMutation: true` on every write tool. `tools/list` derives `readOnlyHint` from this flag, and MCP clients use that hint to decide whether a call needs human approval; an unflagged write is advertised as read-only.
 - Route every mutation through the mutation-approval path (`prepareMutation`).
 - Add the feature ids to the module's `acl.ts` and grant them in `setup.ts` `defaultRoleFeatures`.
 

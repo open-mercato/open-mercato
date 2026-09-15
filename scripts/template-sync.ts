@@ -38,6 +38,13 @@ const EXPLICIT_TEMPLATE_FILE_MAPPINGS = [
     rel: 'scripts/dev.mjs',
   },
   {
+    // `scripts/dev.mjs` imports this for its MCP lifecycle, so a scaffolded app
+    // fails to boot `yarn dev` without it (template-script-targets.test.ts).
+    sourceFile: path.join(ROOT, 'scripts', 'dev-mcp.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-mcp.mjs'),
+    rel: 'scripts/dev-mcp.mjs',
+  },
+  {
     sourceFile: path.join(ROOT, 'scripts', 'dev-memory-sampler.mjs'),
     templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-memory-sampler.mjs'),
     rel: 'scripts/dev-memory-sampler.mjs',
@@ -71,6 +78,41 @@ const EXPLICIT_TEMPLATE_FILE_MAPPINGS = [
     sourceFile: path.join(ROOT, 'scripts', 'dev-splash-state.mjs'),
     templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-splash-state.mjs'),
     rel: 'scripts/dev-splash-state.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-runtime-state.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-runtime-state.mjs'),
+    rel: 'scripts/dev-runtime-state.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-runtime-config.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-runtime-config.mjs'),
+    rel: 'scripts/dev-runtime-config.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-runtime-probe.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-runtime-probe.mjs'),
+    rel: 'scripts/dev-runtime-probe.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-runtime-diagnostics.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-runtime-diagnostics.mjs'),
+    rel: 'scripts/dev-runtime-diagnostics.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-runtime-supervisor.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-runtime-supervisor.mjs'),
+    rel: 'scripts/dev-runtime-supervisor.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-runtime-gateway.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-runtime-gateway.mjs'),
+    rel: 'scripts/dev-runtime-gateway.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-runtime-actions.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-runtime-actions.mjs'),
+    rel: 'scripts/dev-runtime-actions.mjs',
   },
   {
     sourceFile: path.join(ROOT, 'scripts', 'dev-splash-coding-flow.mjs'),
@@ -124,8 +166,6 @@ const EXPLICIT_TEMPLATE_FILE_MAPPINGS = [
   },
 ] as const
 export const TEMPLATE_ONLY_RELATIVE_FILES = new Set<string>([
-  'app/api/healthz/__tests__/route.test.ts',
-  'app/api/healthz/route.ts',
   'modules/auth/__integration__/TC-AUTH-001.spec.ts',
   'modules/auth/__integration__/helpers/auth.ts',
 ])
@@ -144,7 +184,12 @@ const SYNC_INTERNAL_PACKAGE_KEYS = [
 // Modules whose source ships in every scaffold but must stay runtime-disabled there.
 // The monorepo dev app keeps them enabled for QA; the template copy strips their
 // `enabledModules` registrations (see the disabled-by-default delivery contract).
-const TEMPLATE_DISABLED_MODULE_IDS = ['design_system', 'example'] as const
+// `seeds` loads an AES-256-GCM blob whose key arrives out of band; a fresh scaffold ships
+// neither the ciphertext nor OM_SEED_KEY, so its CLI would be inert. It stays enabled in
+// apps/mercato for the maintainers' own seeding flow and out of the template until shipping
+// it to every scaffolded app is a deliberate maintainer call (it needs an evaluation-catalog
+// case before module-facts-build.test.ts will accept it).
+const TEMPLATE_DISABLED_MODULE_IDS = ['design_system', 'example', 'seeds'] as const
 const ENABLED_MODULES_DECLARATION = 'export const enabledModules: ModuleEntry[] = ['
 const EXAMPLE_CUSTOMERS_SYNC_GUARD = "if (enabledModules.some((entry) => entry.id === 'example')) {"
 
@@ -228,6 +273,42 @@ function stripTemplateDisabledModules(content: string, rel: string): string {
   return stripped
 }
 
+// Modules that stay commented out (not stripped) in the template: enabling them pushes the
+// generated root close to its byte budget, so the template keeps a maintainer-facing explanation
+// instead of silently dropping the registration like TEMPLATE_DISABLED_MODULE_IDS entries.
+// Each entry replaces the app's registration and its leading comment verbatim, so a reworded
+// source comment fails the transform loudly rather than drifting back into the template. The
+// replacement goes in as a function so a `$` in a template body stays literal instead of being
+// read as a String.replace substitution pattern.
+export const TEMPLATE_COMMENTED_MODULES: Record<string, { source: string; template: string }> = {
+  channel_discord: {
+    source: `  // Discord bot channel (SPEC 2026-06-19) — two-way Discord via REST + a
+  // provider-owned Gateway worker + a signed Interactions endpoint, plus an
+  // optional AI auto-reply subscriber.
+  { id: 'channel_discord', from: '@open-mercato/channel-discord' },`,
+    template: `  // Discord bot channel (SPEC 2026-06-19). The package ships with the scaffold
+  // but stays disabled by default. #4989 removed the hard overflow this used to
+  // cause (the generated root now sheds its module-fact index instead), but the
+  // headroom is still gone: enabling it puts the generated root at 12,275 of the
+  // 12,288-byte target, so the next module enabled after it drops the inline
+  // index to pointer form. Enabling is therefore a maintainer call about that
+  // budget, not a one-line edit — see
+  // packages/create-app/src/lib/agent-instruction-budget.test.ts
+  // ('one more template module still fits the root budget with its inline index
+  // intact'), and #4983 for the discussion.
+  // { id: 'channel_discord', from: '@open-mercato/channel-discord' },`,
+  },
+}
+
+function commentOutTemplateModules(content: string, rel: string): string {
+  return Object.entries(TEMPLATE_COMMENTED_MODULES).reduce((current, [moduleId, replacement]) => {
+    if (!current.includes(replacement.source)) {
+      failTemplateTransform(rel, `expected the ${moduleId} enabledModules entry with its source comment`)
+    }
+    return current.replace(replacement.source, () => replacement.template)
+  }, content)
+}
+
 export const TEMPLATE_CONTENT_TRANSFORMS: Record<string, (content: string) => string> = {
   // Standalone template has shallower node_modules path than monorepo app.
   'app/globals.css': (content) => content.replaceAll('../../../../node_modules/', '../../node_modules/'),
@@ -237,8 +318,9 @@ export const TEMPLATE_CONTENT_TRANSFORMS: Record<string, (content: string) => st
       "import { isAutoLoginEnabled } from '@open-mercato/core/modules/auth/lib/autologin'\n",
       "\nfunction isAutoLoginEnabled(): boolean {\n  return Boolean(process.env.OM_AUTOLOGIN_EMAIL?.trim() && process.env.OM_AUTOLOGIN_PASSWORD)\n}\n",
     ),
-  // Scaffolds ship the example and design-system source but keep both runtime-disabled.
-  'modules.ts': (content) => stripTemplateDisabledModules(content, 'modules.ts'),
+  // Scaffolds ship the example and design-system source but keep both runtime-disabled;
+  // channel_discord stays commented out with a byte-budget explanation instead.
+  'modules.ts': (content) => commentOutTemplateModules(stripTemplateDisabledModules(content, 'modules.ts'), 'modules.ts'),
   'scripts/dev-cache-purge.mjs': (content) =>
     content
       .replaceAll("['apps', 'mercato', '.mercato', 'next'", "['.mercato', 'next'")

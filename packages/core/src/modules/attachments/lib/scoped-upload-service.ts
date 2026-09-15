@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { Attachment, AttachmentPartition } from '../data/entities'
 import { attachmentCrudEvents, attachmentCrudIndexer } from './crud'
@@ -40,7 +41,16 @@ export type ScopedAttachmentUploadErrorCode =
   | 'storage_failed'
   | 'persistence_failed'
 
+// Use Symbol.for so the marker survives module duplication across bundle
+// boundaries. The production build emits this module into several server
+// chunks, so a consumer's `instanceof` compares against a different copy of the
+// class than the DI-resolved service threw from: the check silently fails, the
+// error escapes the caller's catch, and a deliberate 400/413 surfaces as a 500.
+const SCOPED_ATTACHMENT_UPLOAD_ERROR_MARKER = Symbol.for('@open-mercato/ScopedAttachmentUploadError')
+
 export class ScopedAttachmentUploadError extends Error {
+  readonly [SCOPED_ATTACHMENT_UPLOAD_ERROR_MARKER] = true
+
   constructor(
     public readonly code: ScopedAttachmentUploadErrorCode,
     public readonly status: number,
@@ -48,6 +58,17 @@ export class ScopedAttachmentUploadError extends Error {
     super(code)
     this.name = 'ScopedAttachmentUploadError'
   }
+}
+
+/**
+ * Bundle-safe check for `ScopedAttachmentUploadError`. Prefer this over
+ * `instanceof` at every call site — the class is duplicated across server
+ * chunks, so `instanceof` is only reliable inside this module.
+ */
+export function isScopedAttachmentUploadError(error: unknown): error is ScopedAttachmentUploadError {
+  return Boolean(error)
+    && typeof error === 'object'
+    && (error as Record<symbol, unknown>)[SCOPED_ATTACHMENT_UPLOAD_ERROR_MARKER] === true
 }
 
 export type ScopedAttachmentUploadInput = {
@@ -62,6 +83,21 @@ export type ScopedAttachmentUploadInput = {
   assignments?: AttachmentAssignment[]
   partitionCode?: string | null
   maxBytes?: number
+  /**
+   * Reject a partition flagged public, so a module-owned upload (documents,
+   * warranty claims) never lands where an anonymous reader can reach it. The
+   * tenant/organization half of that guarantee is not this flag's job: the
+   * partition lookup below already matches only a global partition or one owned
+   * by this tenant and organization, whether or not the flag is set.
+   */
+  requirePrivatePartition?: boolean
+  /**
+   * Persists a module-owned link row inside the same transaction as the
+   * Attachment, so a link failure cannot leave a committed orphan attachment.
+   * The callback receives only the generated id, never the entity or the
+   * storage implementation.
+   */
+  persistLink?: (tx: EntityManager, attachmentId: string) => Promise<void> | void
 }
 
 type QuotaRecoveryScheduler = (
@@ -102,6 +138,9 @@ export class ScopedAttachmentUploadService {
       ],
     })
     if (!partition) throw new ScopedAttachmentUploadError('partition_unavailable', 400)
+    if (input.requirePrivatePartition && partition.isPublic) {
+      throw new ScopedAttachmentUploadError('partition_unavailable', 403)
+    }
 
     const driver = await storageDriverFactory.resolveForPartition(partition.code, {
       tenantId: input.tenantId,
@@ -210,11 +249,18 @@ export class ScopedAttachmentUploadService {
         })
         assertAttachmentScopeInvariant({ tenantId: attachment.tenantId, organizationId: attachment.organizationId })
         await tx.persist(attachment).flush()
+        await input.persistLink?.(tx, attachmentId)
         await attachmentQuotaService.completeAttachment(reservation.id, reservation.leaseToken, tx)
       })
     } catch (error) {
       await this.compensateStorage(driver, partition.code, storedPath, reservation)
       logger.error('Scoped attachment persistence failed', { err: error })
+      // `persistLink` is where callers run their own authorization (the
+      // documents module re-checks the edit capability inside this
+      // transaction), so a deliberate HTTP error from it must reach the route
+      // with its own status. Flattening it to 500 turns a documented 403 into
+      // an apparent server fault.
+      if (isCrudHttpError(error)) throw error
       throw new ScopedAttachmentUploadError('persistence_failed', 500)
     }
 

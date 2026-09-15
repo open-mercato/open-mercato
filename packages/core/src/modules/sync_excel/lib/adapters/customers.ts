@@ -1058,6 +1058,11 @@ export const syncExcelCustomersAdapter: DataSyncAdapter = {
         const items: ImportItem[] = []
 
         for (let index = 0; index < batchRows.length; index += 1) {
+          // Above the yield, so an abandoned page is never yielded and its cursor never committed —
+          // the rows applied so far are re-applied on resume, which the replay-safety contract on
+          // `streamImport` already requires. Each row goes through the command bus, so a large page
+          // is exactly the case where the operator would otherwise wait out the whole batch.
+          if (input.signal?.aborted) return
           items.push(await processRow({
             row: batchRows[index],
             rowNumber: batch.rowStart + index + 1,

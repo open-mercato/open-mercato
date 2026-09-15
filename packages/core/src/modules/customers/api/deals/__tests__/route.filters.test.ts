@@ -34,6 +34,15 @@ function createDealFilterContext(rows: Array<{ id: string }>, url = 'https://exa
   return { ctx, execute }
 }
 
+// mergeAdvancedFilterTree returns `{ $and: [routeFilters, treeWhere] }` when the route
+// contributed filters and the bare treeWhere otherwise — unwrap deterministically.
+function extractTreeWhere(calledFilters: Record<string, unknown>): Record<string, unknown> {
+  const andClauses = calledFilters.$and as Array<Record<string, unknown>> | undefined
+  return andClauses && Array.isArray(andClauses)
+    ? andClauses[andClauses.length - 1]
+    : calledFilters
+}
+
 describe('customers deals list filters', () => {
   beforeEach(() => {
     mockFetchStuckDealIds.mockReset()
@@ -68,7 +77,168 @@ describe('customers deals list filters', () => {
   it('applies $in when multiple statuses are provided', async () => {
     const parsed = dealListQuerySchema.parse({ status: ['open', 'won'] })
     const filters = await buildDealListFilters(parsed)
-    expect(filters.status).toEqual({ $in: ['open', 'won'] })
+    // 'won' expands to canonical 'win' + alias 'won' so kanban + list agree regardless of spelling
+    expect(filters.status).toEqual({ $in: ['open', 'win', 'won'] })
+  })
+
+  it('expands won/lost synonyms so kanban Win/Lose filters match list semantics', async () => {
+    const wonParsed = dealListQuerySchema.parse({ status: ['won'] })
+    const wonFilters = await buildDealListFilters(wonParsed)
+    expect(wonFilters.status).toEqual({ $in: ['win', 'won'] })
+
+    const winParsed = dealListQuerySchema.parse({ status: ['win'] })
+    const winFilters = await buildDealListFilters(winParsed)
+    expect(winFilters.status).toEqual({ $in: ['win', 'won'] })
+
+    const lostParsed = dealListQuerySchema.parse({ status: ['lost'] })
+    const lostFilters = await buildDealListFilters(lostParsed)
+    expect(lostFilters.status).toEqual({ $in: expect.arrayContaining(['lost', 'loose']) })
+    expect(lostFilters.status.$in).toHaveLength(2)
+  })
+
+  it('is case-insensitive for won/lost aliases and preserves unknown values', async () => {
+    const upperWon = dealListQuerySchema.parse({ status: ['WON'] })
+    const upperWonFilters = await buildDealListFilters(upperWon)
+    // Strict superset: canonical spellings plus the caller's original token.
+    expect(upperWonFilters.status).toEqual({ $in: ['win', 'won', 'WON'] })
+
+    const mixed = dealListQuerySchema.parse({ status: ['wOn', 'LOST'] })
+    const mixedFilters = await buildDealListFilters(mixed)
+    expect((mixedFilters.status as { $in: string[] }).$in.sort()).toEqual(
+      ['wOn', 'LOST', 'win', 'won', 'loose', 'lost'].sort(),
+    )
+
+    const unknown = dealListQuerySchema.parse({ status: ['renegotiating'] })
+    const unknownFilters = await buildDealListFilters(unknown)
+    expect(unknownFilters.status).toEqual({ $eq: 'renegotiating' })
+  })
+
+  it('expands the closed filter to the full terminal set', async () => {
+    const parsed = dealListQuerySchema.parse({ status: ['closed'] })
+    const filters = await buildDealListFilters(parsed)
+    expect(filters.status).toEqual({ $in: expect.arrayContaining(['win', 'won', 'loose', 'lost', 'closed']) })
+  })
+
+  it('expands status aliases in the advanced-filter tree so list and kanban agree', async () => {
+    const { makeRuleTree } = await import('@open-mercato/shared/lib/query/advanced-filter-tree')
+    const { serializeTree } = await import('@open-mercato/shared/lib/query/advanced-filter')
+    const tree = makeRuleTree({ field: 'status', operator: 'is', value: 'win' })
+    const serialized = serializeTree(tree)
+    const query = dealListQuerySchema.parse(serialized as Record<string, unknown>)
+    const { ctx } = createDealFilterContext([])
+    const utils = await import('../../utils')
+    const spy = jest.spyOn(utils, 'findMatchingEntityIdsWithQueryEngine').mockResolvedValue(['11111111-1111-4111-8111-111111111111'])
+    const filters = await buildDealListFilters(query as unknown as DealListQuery, ctx)
+    expect(spy).toHaveBeenCalled()
+    const calledFilters = (spy.mock.calls[0][0] as { filters: Record<string, unknown> }).filters
+    // `filters` is non-empty on the ctx path, so mergeAdvancedFilterTree always emits $and.
+    const treeWhere = extractTreeWhere(calledFilters)
+    expect(treeWhere.status).toEqual({ $in: ['win', 'won'] })
+    // Also ensure the final restrictedIds were intersected
+    expect(filters.id).toEqual({ $in: ['11111111-1111-4111-8111-111111111111'] })
+    spy.mockRestore()
+  })
+
+  it('expands is_not status rules to is_none_of with both spellings', async () => {
+    const { makeRuleTree } = await import('@open-mercato/shared/lib/query/advanced-filter-tree')
+    const { serializeTree } = await import('@open-mercato/shared/lib/query/advanced-filter')
+    const tree = makeRuleTree({ field: 'status', operator: 'is_not', value: 'won' })
+    const serialized = serializeTree(tree)
+    const query = dealListQuerySchema.parse(serialized as Record<string, unknown>)
+    const { ctx } = createDealFilterContext([])
+    const utils = await import('../../utils')
+    const spy = jest.spyOn(utils, 'findMatchingEntityIdsWithQueryEngine').mockResolvedValue([])
+    await buildDealListFilters(query as unknown as DealListQuery, ctx)
+    const calledFilters = (spy.mock.calls[0][0] as { filters: Record<string, unknown> }).filters
+    const treeWhere = extractTreeWhere(calledFilters)
+    expect(treeWhere.status).toEqual({ $nin: expect.arrayContaining(['win', 'won']) })
+    spy.mockRestore()
+  })
+
+  it('expands is_any_of status rules preserving array semantics', async () => {
+    const { makeMultiRuleTree, makeRuleTree } = await import('@open-mercato/shared/lib/query/advanced-filter-tree')
+    void makeMultiRuleTree
+    const { serializeTree } = await import('@open-mercato/shared/lib/query/advanced-filter')
+    const tree = makeRuleTree({ field: 'status', operator: 'is_any_of', value: ['open', 'won'] })
+    const serialized = serializeTree(tree)
+    const query = dealListQuerySchema.parse(serialized as Record<string, unknown>)
+    const { ctx } = createDealFilterContext([])
+    const utils = await import('../../utils')
+    const spy = jest.spyOn(utils, 'findMatchingEntityIdsWithQueryEngine').mockResolvedValue([])
+    await buildDealListFilters(query as unknown as DealListQuery, ctx)
+    const calledFilters = (spy.mock.calls[0][0] as { filters: Record<string, unknown> }).filters
+    const treeWhere = extractTreeWhere(calledFilters)
+    const inVals = (treeWhere.status as { $in: string[] }).$in
+    expect(inVals).toContain('open')
+    expect(inVals).toContain('win')
+    expect(inVals).toContain('won')
+    spy.mockRestore()
+  })
+
+  it('expands a closed rule on the tree to the full terminal set', async () => {
+    const { makeRuleTree } = await import('@open-mercato/shared/lib/query/advanced-filter-tree')
+    const { serializeTree } = await import('@open-mercato/shared/lib/query/advanced-filter')
+    const tree = makeRuleTree({ field: 'status', operator: 'is', value: 'closed' })
+    const serialized = serializeTree(tree)
+    const query = dealListQuerySchema.parse(serialized as Record<string, unknown>)
+    const { ctx } = createDealFilterContext([])
+    const utils = await import('../../utils')
+    const spy = jest.spyOn(utils, 'findMatchingEntityIdsWithQueryEngine').mockResolvedValue([])
+    await buildDealListFilters(query as unknown as DealListQuery, ctx)
+    const calledFilters = (spy.mock.calls[0][0] as { filters: Record<string, unknown> }).filters
+    const treeWhere = extractTreeWhere(calledFilters)
+    const inVals = (treeWhere.status as { $in: string[] }).$in
+    for (const terminal of ['win', 'won', 'loose', 'lost', 'closed']) {
+      expect(inVals).toContain(terminal)
+    }
+    spy.mockRestore()
+  })
+
+  it('leaves non-set operators like contains on status untouched', async () => {
+    const { makeRuleTree } = await import('@open-mercato/shared/lib/query/advanced-filter-tree')
+    const { serializeTree } = await import('@open-mercato/shared/lib/query/advanced-filter')
+    const tree = makeRuleTree({ field: 'status', operator: 'contains', value: 'win' })
+    const serialized = serializeTree(tree)
+    const query = dealListQuerySchema.parse(serialized as Record<string, unknown>)
+    const { ctx } = createDealFilterContext([])
+    const utils = await import('../../utils')
+    const spy = jest.spyOn(utils, 'findMatchingEntityIdsWithQueryEngine').mockResolvedValue([])
+    await buildDealListFilters(query as unknown as DealListQuery, ctx)
+    const calledFilters = (spy.mock.calls[0][0] as { filters: Record<string, unknown> }).filters
+    const treeWhere = extractTreeWhere(calledFilters)
+    // Exact scalar $ilike — the corrupted path would compile to '%win,won%', so an
+    // exact match is what makes this test fail if the STATUS_TREE_OPERATORS guard
+    // is ever dropped.
+    expect(treeWhere.status).toEqual({ $ilike: '%win%' })
+    spy.mockRestore()
+  })
+
+  it('kanban ?status=win and list filter[status][is]=win compile to the same match set', async () => {
+    const { makeRuleTree } = await import('@open-mercato/shared/lib/query/advanced-filter-tree')
+    const { serializeTree } = await import('@open-mercato/shared/lib/query/advanced-filter')
+    const utils = await import('../../utils')
+
+    const kanbanQuery = dealListQuerySchema.parse({ status: 'win' })
+    const listTree = makeRuleTree({ field: 'status', operator: 'is', value: 'win' })
+    const listQuery = dealListQuerySchema.parse(serializeTree(listTree) as Record<string, unknown>)
+
+    const { ctx: kanbanCtx } = createDealFilterContext([], 'https://example.test/api/customers/deals?status=win')
+    const kanbanSpy = jest.spyOn(utils, 'findMatchingEntityIdsWithQueryEngine').mockResolvedValue([])
+    const kanbanFilters = await buildDealListFilters(kanbanQuery as unknown as DealListQuery, kanbanCtx)
+
+    const { ctx: listCtx } = createDealFilterContext([])
+    const listSpy = jest.spyOn(utils, 'findMatchingEntityIdsWithQueryEngine').mockResolvedValue([])
+    await buildDealListFilters(listQuery as unknown as DealListQuery, listCtx)
+
+    // Both surfaces resolve the same canonical status set.
+    expect((kanbanFilters.status as { $in: string[] }).$in.sort()).toEqual(['win', 'won'])
+    const listCalled = (listSpy.mock.calls[0][0] as { filters: Record<string, unknown> }).filters
+    const treeWhere = extractTreeWhere(listCalled)
+    expect((treeWhere.status as { $in: string[] }).$in).toEqual(
+      expect.arrayContaining(['win', 'won']),
+    )
+    kanbanSpy.mockRestore()
+    listSpy.mockRestore()
   })
 
   it('applies $eq when a single status is provided', async () => {
@@ -116,7 +286,8 @@ describe('customers deals list filters', () => {
     const parsed = dealListQuerySchema.parse({ isOverdue: 'true', status: ['open', 'won'] })
     const filters = await buildDealListFilters(parsed)
     // Caller-supplied status wins; we only inject status=open when none was provided.
-    expect(filters.status).toEqual({ $in: ['open', 'won'] })
+    // 'won' expands to win+won so the filter covers both spellings stored in the DB.
+    expect(filters.status).toEqual({ $in: ['open', 'win', 'won'] })
     expect(filters.expected_close_at).toMatchObject({ $lt: expect.any(Date) })
   })
 

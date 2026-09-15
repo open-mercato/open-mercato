@@ -33,11 +33,14 @@ const mockRbacService = {
   invalidateUserCache: jest.fn(),
 }
 
+const mockCommandBus = { execute: jest.fn(async () => ({ result: null, logEntry: null })) }
+
 const mockContainer = {
   resolve: jest.fn((token: string) => {
     if (token === 'em') return mockEm
     if (token === 'rbacService') return mockRbacService
     if (token === 'cache') return { deleteByTags: mockDeleteByTags }
+    if (token === 'commandBus') return mockCommandBus
     return null
   }),
 }
@@ -64,12 +67,6 @@ jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => 
   })),
 }))
 
-jest.mock('@open-mercato/shared/lib/commands/flush', () => ({
-  withAtomicFlush: jest.fn(async (_em: unknown, phases: Array<() => unknown>) => {
-    for (const phase of phases) await phase()
-  }),
-}))
-
 jest.mock('@open-mercato/shared/lib/crud/optimistic-lock-command', () => ({
   enforceCommandOptimisticLockWithGuards: jest.fn(async () => {}),
 }))
@@ -86,6 +83,18 @@ function putRequest(body: Record<string, unknown>): Request {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
   })
+}
+
+type CommandInput = {
+  isSuperAdmin: boolean
+  features: string[]
+  organizations: string[] | null
+  clear: boolean
+}
+
+function commandInput(): CommandInput {
+  const [, options] = mockCommandBus.execute.mock.calls[0] as unknown as [string, { input: CommandInput }]
+  return options.input
 }
 
 describe('user ACL partial updates', () => {
@@ -127,13 +136,31 @@ describe('user ACL partial updates', () => {
 
     expect(res.status).toBe(200)
     await expect(res.json()).resolves.toEqual({ ok: true, sanitized: false })
-    expect(mockEm.remove).not.toHaveBeenCalled()
-    expect(mockEm.persist).toHaveBeenCalledTimes(1)
-    expect(storedAcl).toMatchObject({
+    expect(commandInput()).toMatchObject({
       isSuperAdmin: false,
-      featuresJson: ['dashboards.view'],
-      organizationsJson: [ACME_ORGANIZATION_ID],
+      features: ['dashboards.view'],
+      organizations: [ACME_ORGANIZATION_ID],
+      clear: false,
     })
+  })
+
+  it('rejects a partial update when the preserved feature is outside the actor grant', async () => {
+    storedAcl = {
+      id: 'acl-1',
+      isSuperAdmin: false,
+      featuresJson: ['catalog.manage'],
+      organizationsJson: null,
+      updatedAt: null,
+    }
+
+    const res = await PUT(putRequest({
+      userId: TARGET_USER_ID,
+      organizations: [ACME_ORGANIZATION_ID],
+    }))
+
+    expect(res.status).toBe(403)
+    await expect(res.json()).resolves.toEqual({ error: 'Cannot grant feature catalog.manage.' })
+    expect(mockCommandBus.execute).not.toHaveBeenCalled()
   })
 
   it('preserves the stored organization scope when only features are submitted', async () => {
@@ -151,10 +178,10 @@ describe('user ACL partial updates', () => {
     }))
 
     expect(res.status).toBe(200)
-    expect(mockEm.remove).not.toHaveBeenCalled()
-    expect(storedAcl).toMatchObject({
-      featuresJson: ['auth.acl.manage'],
-      organizationsJson: [ACME_ORGANIZATION_ID],
+    expect(commandInput()).toMatchObject({
+      features: ['auth.acl.manage'],
+      organizations: [ACME_ORGANIZATION_ID],
+      clear: false,
     })
   })
 
@@ -168,20 +195,17 @@ describe('user ACL partial updates', () => {
     await expect(res.json()).resolves.toEqual({
       error: expect.stringContaining('at least one feature override'),
     })
-    expect(mockEm.persist).not.toHaveBeenCalled()
-    expect(mockEm.remove).not.toHaveBeenCalled()
-    expect(mockRbacService.invalidateUserCache).not.toHaveBeenCalled()
+    expect(mockCommandBus.execute).not.toHaveBeenCalled()
   })
 
   it('still clears the override when every dimension is explicitly emptied', async () => {
-    const existing = {
+    storedAcl = {
       id: 'acl-1',
       isSuperAdmin: false,
       featuresJson: ['dashboards.view'],
       organizationsJson: [ACME_ORGANIZATION_ID],
       updatedAt: null,
     }
-    storedAcl = existing
 
     const res = await PUT(putRequest({
       userId: TARGET_USER_ID,
@@ -190,8 +214,7 @@ describe('user ACL partial updates', () => {
     }))
 
     expect(res.status).toBe(200)
-    expect(mockEm.remove).toHaveBeenCalledWith(existing)
-    expect(mockEm.persist).not.toHaveBeenCalled()
+    expect(commandInput()).toMatchObject({ features: [], organizations: null, clear: true })
   })
 
   // `[]` and `['__all__']` both mean "every organization" at authorization time
@@ -201,14 +224,13 @@ describe('user ACL partial updates', () => {
     ['an empty organization list', [] as string[]],
     ['an explicit all-organizations list', ['__all__']],
   ])('clears the override when features are emptied alongside %s', async (_label, organizations) => {
-    const existing = {
+    storedAcl = {
       id: 'acl-1',
       isSuperAdmin: false,
       featuresJson: ['dashboards.view'],
       organizationsJson: [ACME_ORGANIZATION_ID],
       updatedAt: null,
     }
-    storedAcl = existing
 
     const res = await PUT(putRequest({
       userId: TARGET_USER_ID,
@@ -217,8 +239,7 @@ describe('user ACL partial updates', () => {
     }))
 
     expect(res.status).toBe(200)
-    expect(mockEm.remove).toHaveBeenCalledWith(existing)
-    expect(mockEm.persist).not.toHaveBeenCalled()
+    expect(commandInput()).toMatchObject({ features: [], organizations, clear: true })
   })
 
   it('keeps an omitted super admin flag intact', async () => {
@@ -241,10 +262,10 @@ describe('user ACL partial updates', () => {
     }))
 
     expect(res.status).toBe(200)
-    expect(mockEm.remove).not.toHaveBeenCalled()
-    expect(storedAcl).toMatchObject({
+    expect(commandInput()).toMatchObject({
       isSuperAdmin: true,
-      organizationsJson: [ACME_ORGANIZATION_ID],
+      organizations: [ACME_ORGANIZATION_ID],
+      clear: false,
     })
   })
 })
