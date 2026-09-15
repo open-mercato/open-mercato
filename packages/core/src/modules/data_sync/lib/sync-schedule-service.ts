@@ -3,7 +3,10 @@ import type { AwilixContainer } from 'awilix'
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { findAndCountWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { enforceCommandOptimisticLockWithGuards, enforceRecordGoneIsConflict } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { SyncSchedule } from '../data/entities'
+
+const logger = createLogger('data_sync').child({ component: 'sync-schedule-service' })
 
 type SyncScope = {
   organizationId: string
@@ -236,11 +239,48 @@ export function createSyncScheduleService(em: EntityManager, schedulerService?: 
       }
 
       const scheduledJobId = row.scheduledJobId ?? row.id
+      const wasEnabled = row.isEnabled
       await requireScheduler().unregister(scheduledJobId)
 
-      row.deletedAt = new Date()
-      row.isEnabled = false
-      await em.flush()
+      try {
+        row.deletedAt = new Date()
+        row.isEnabled = false
+        await em.flush()
+      } catch (error) {
+        try {
+          await requireScheduler().register({
+            id: scheduledJobId,
+            name: buildScheduleName(row),
+            description: buildScheduleDescription(row),
+            scopeType: 'organization',
+            organizationId: scope.organizationId,
+            tenantId: scope.tenantId,
+            scheduleType: row.scheduleType,
+            scheduleValue: row.scheduleValue,
+            timezone: row.timezone,
+            targetType: 'queue',
+            targetQueue: 'data-sync-scheduled',
+            targetPayload: {
+              scheduleId: row.id,
+              scope,
+            },
+            requireFeature: 'data_sync.run',
+            sourceType: 'module',
+            sourceModule: 'data_sync',
+            isEnabled: wasEnabled,
+          })
+        } catch (compensationError) {
+          logger.error('Failed to restore scheduled job after a failed schedule delete', {
+            scheduledJobId,
+            scheduleId: row.id,
+            organizationId: scope.organizationId,
+            tenantId: scope.tenantId,
+            error: compensationError instanceof Error ? compensationError.message : String(compensationError),
+          })
+        }
+        throw error
+      }
+
       return true
     },
   }
