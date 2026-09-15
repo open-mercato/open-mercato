@@ -23,400 +23,57 @@ Forecasting, Cost Accounting, plus Payroll/Compliance contracts in the
 localization layer. Not all of it is committed to yet — treat it as the map,
 not a promise.
 
-What actually exists right now, and where:
+What actually exists right now, and where. All branches below live on
+the contributor's fork (`mikoajp/open-mercato`), not on `develop` — the
+PR links are the only way to browse a spec's actual content until it
+merges.
 
 | Module | File | Branch | Status |
 |---|---|---|---|
-| Contractor Registry | `2026-09-06-contractor-registry.md` + `...-implementation-guide.md` | `docs/contractor-registry` | Open, PR #5955 — full spec, closed external maintainer review (two blockers + six majors fixed), Final Compliance Report: ready for maintainer review; literature + real-system comparison pass done 2026-09-12 |
-| General Ledger core engine | `2026-08-18-general-ledger-core-engine.md` + `...-implementation-guide.md` | `docs/spec-072-general-ledger-core-engine` | Open, PR #5663 — two corrections found 2026-09-14 while cross-checking Posting Rules Engine's second review: claimed ownership of the leaf-postability guard, and `reverseJournalEntry` now documented as also emitting `ledger.journal_entry.posted` (see note below the table and the spec's own Changelog) |
-| Accounts Payable (invoices) | `2026-09-06-accounts-payable.md` | `docs/accounts-payable` | Open, PR #5962 |
-| Accounts Payable (payments) | `2026-09-06-accounts-payable-payments.md` | `docs/accounts-payable` | Open, PR #5962 |
-| Journal Entry Line Dimension | `2026-09-06-journal-entry-line-dimension.md` | `docs/journal-entry-line-dimension` | Written, own branch |
-| Fixed Assets | `2026-09-06-fixed-assets.md` | `docs/fixed-assets` | Open, PR #6014 — full spec, adversarially reviewed, Final Compliance Report: fully compliant |
-| Posting Rules Engine (konto 490) | `2026-09-06-posting-rules-engine.md` | `docs/posting-rules-engine` | Open, PR #6015 — full spec, one independent adversarial review pass (nine issues fixed); second, external maintainer review (pkarw, om-auto-review-pr, 2026-09-14) — 8 findings (2 blockers, 3 majors, 2 minors, 1 nit), all resolved via a settings-based redesign (`PostingRulesSettings` replaces the earlier hardcoded account assumptions) — see the spec's own Changelog for full detail; a real client chart of accounts confirmed account numbering is accountant-specific, not standardized across tenants (see note below the table) |
-| This knowledge base | `2026-09-08-financial-module-knowledge-base.md` | `docs/financial-module-knowledge-base` | Open, PR #6016 |
-| GL bulk cross-module read service | `2026-09-10-general-ledger-bulk-read-service.md` | `docs/general-ledger-bulk-read-service` | Open, PR #6038 — draft, not yet reviewed — prerequisite for JPK_KR_PD's future `SPEC-010` (see note below the table) |
-| Accounts Receivable (sales invoice → GL posting) | `2026-08-18-sales-invoice-gl-posting.md` | `docs/sales-invoice-gl-posting` | Open, PR #6046 — full spec, one independent adversarial review pass (eleven issues fixed) plus a structured Final Compliance Matrix pass; not yet reviewed by a human/maintainer |
-| Cash & Bank Management | `2026-09-10-cash-bank-management.md` | `docs/cash-bank-management` | Open — full spec, independent adversarial review pass (14 issues fixed) plus a second, narrower verification pass (5 issues fixed) plus a full literature-verification + real-system-comparison pass; not yet reviewed by a human/maintainer (see note below the table) |
+| Contractor Registry | [`2026-09-06-contractor-registry.md`](https://github.com/open-mercato/open-mercato/pull/5955) + `...-implementation-guide.md` | `docs/contractor-registry` | Open, PR #5955 — full spec, closed external maintainer review (two blockers + six majors fixed); Final Compliance Report: ready for maintainer review; literature/real-system findings from the 2026-09-12 pass are proposed, not yet applied (see Notes below the table and Changelog) |
+| General Ledger core engine | [`2026-08-18-general-ledger-core-engine.md`](https://github.com/open-mercato/open-mercato/pull/5663) + `...-implementation-guide.md` | `docs/spec-072-general-ledger-core-engine` | Open, PR #5663 — see Changelog for the two 2026-09-14 corrections (leaf-postability guard ownership; `reverseJournalEntry` event emission) |
+| Accounts Payable (invoices) | [`2026-09-06-accounts-payable.md`](https://github.com/open-mercato/open-mercato/pull/5962) | `docs/accounts-payable` | Open, PR #5962 |
+| Accounts Payable (payments) | [`2026-09-06-accounts-payable-payments.md`](https://github.com/open-mercato/open-mercato/pull/5962) | `docs/accounts-payable` | Open, PR #5962 |
+| Journal Entry Line Dimension | [`2026-09-06-journal-entry-line-dimension.md`](https://github.com/open-mercato/open-mercato/pull/5972) | `docs/journal-entry-line-dimension` | Open, PR #5972 — written, not yet reviewed |
+| GL account balances / Trial Balance (ZSiO) | [`2026-09-09-general-ledger-account-balances.md`](https://github.com/open-mercato/open-mercato/pull/6013) | `docs/general-ledger-account-balances` | Open, PR #6013 — written, not yet reviewed |
+| Fixed Assets | [`2026-09-06-fixed-assets.md`](https://github.com/open-mercato/open-mercato/pull/6014) | `docs/fixed-assets` | Open, PR #6014 — full spec, adversarially reviewed, Final Compliance Report: fully compliant |
+| Posting Rules Engine (konto 490) | [`2026-09-06-posting-rules-engine.md`](https://github.com/open-mercato/open-mercato/pull/6015) | `docs/posting-rules-engine` | Open, PR #6015 — two external-maintainer review rounds (nine issues, then eight more), both resolved; see the spec's own Changelog |
+| This knowledge base | `2026-09-08-financial-module-knowledge-base.md` | `docs/financial-module-knowledge-base` | Open, PR #6016 (self-referential row — will read stale the moment this PR merges; treat "Open" as provisional) |
+| GL bulk cross-module read service | [`2026-09-10-general-ledger-bulk-read-service.md`](https://github.com/open-mercato/open-mercato/pull/6038) | `docs/general-ledger-bulk-read-service` | Open, PR #6038 — not yet reviewed by a maintainer; prerequisite for SPEC-010 below |
+| SPEC-010 — JPK_KR_PD (`financial_pl`, targets `official-modules`) | [`2026-09-11-jpk-kr-pd-financial-pl.md`](https://github.com/open-mercato/open-mercato/pull/6069) | `docs/jpk-kr-pd-financial-pl` (staged temporarily in this repo, not yet moved to `official-modules`) | Open, PR #6069 — first draft; depends on #6038 merging first; XSD verification pass done (see Changelog), one finding (Q4/`S_12_1`) still only proposed, not applied |
+| Accounts Receivable (sales invoice → GL posting) | [`2026-08-18-sales-invoice-gl-posting.md`](https://github.com/open-mercato/open-mercato/pull/6046) | `docs/sales-invoice-gl-posting` | Open, PR #6046 — full spec, one independent adversarial review pass (eleven issues fixed) plus a Final Compliance Matrix; not yet reviewed by a maintainer |
+| Cash & Bank Management | [`2026-09-10-cash-bank-management.md`](https://github.com/open-mercato/open-mercato/pull/6055) | `docs/cash-bank-management` | Open, PR #6055 — full spec, two independent adversarial review passes (14 + 5 issues fixed) plus a literature-verification pass; not yet reviewed by a maintainer |
 | Multi-Currency, Budgeting & Forecasting, Cost Accounting | — | — | Not started (SPEC-024 only) |
 
-**New 2026-09-10 — Accounts Receivable started.**
-`2026-08-18-sales-invoice-gl-posting.md` is the sell-side mirror of
-Accounts Payable — an explicit `postSalesInvoiceToLedger` command that
-reads `sales.SalesInvoice`/`SalesInvoiceLine` directly (no duplication)
-and posts Dr receivable / Cr per-line revenue / Cr VAT output. It had
-been named as a future dependency by the GL core engine's own Out of
-scope (#5663), Accounts Payable (#5962), and Contractor Registry since
-2026-09-06, without ever being written, until now. Went through one
-independent adversarial review pass (eleven issues fixed, including a
-real double-entry balance bug from an unhandled header-level discount
-and a misattributed `contractorBankWhitelistCheck` citation) plus a
-second, structured pass that added the required Final Compliance
-Matrix this document's own `om-spec-writing` skill mandates (the first
-pass had left it narrative-only) and a fresh-context scope-cohesion
-check (verdict: cohesive). It reuses this section's own §2 conventions
-correctly — no new subsidiary ledger (`sales.SalesInvoice.outstandingAmount`
-already is one), FK-id-only cross-module links, Phase 1 manual
-account-mapping matching AP's own stance. It leaves the
-`customers.CustomerEntity` ↔ `contractors.Contractor` identity bridge a
-named, unresolved gap (Contractor Registry itself only ever named this
-document as an undesigned, indirect consumer — no automatic-resolution
-need is confirmed anywhere in the codebase yet).
-
-**Correction (2026-09-12) — it did need a citation, and didn't have
-one.** The claim above ("without needing a new external-literature
-citation") was wrong: the document uses "receivable control account"
-four times with no citation anywhere for the concept. Fixed by adding
-Kieso Ch.7 "Cash and Receivables," p.7-12, footnote 5 (already verified
-in this knowledge base, §3, and more directly on-point here than the
-general Ch.3 definition used for AP's payable side, since it names
-receivables specifically) and Ustawa o rachunkowości art. 13/16.
-Compared against ERPNext (docs.frappe.io — GL posting happens
-automatically on Sales Invoice submission, not via a separate command;
-this document's `SalesInvoiceGlPosting` table substitutes for the
-idempotency guarantee Frappe's own `docstatus` field gives ERPNext for
-free) and Odoo (not independently re-verified this pass). All written
-directly into `2026-08-18-sales-invoice-gl-posting.md`'s own new
-"Literature & Prior Art" section — commit `80b642585` on
-`docs/sales-invoice-gl-posting`.
-
-**Correction (2026-09-12) — Cash & Bank Management was not "not
-started."** The table above used to lump it in with Multi-Currency/
-Budgeting/Cost Accounting as "Not started (SPEC-024 only)." Wrong: it
-has had a full, independently reviewed spec on its own branch since
-2026-09-10 (`2026-09-10-cash-bank-management.md`,
-`docs/cash-bank-management`) — bank statements, four match types
-(`sales_invoice`/`payment_batch`/`internal_transfer`/`manual_gl_entry`),
-FX gain/loss on settlement, two independent adversarial review passes,
-and its own literature-verification pass (2026-09-11: Fowler's
-Corresponding Account, Kieso's bank-reconciliation taxonomy). Table
-corrected above; this is now its own row.
-
-**Applied 2026-09-12 — Step 3 (real-system comparison) closed for Cash
-& Bank Management.** The 2026-09-11 pass covered Steps 1/2/4 but not
-Step 3. Checked ERPNext (docs.frappe.io — Bank Reconciliation Tool
-ships file import + fuzzy/ranked auto-matching as baseline, not a
-deferred phase; unmatched lines go through a generic "Create Voucher,"
-less structured than this document's Kieso-grounded `manual_gl_entry`)
-and Comarch ERP Optima (pomoc.comarch.pl — MT940 import + configurable
-automatic reconciliation, but gated behind mandatory manual verification
-before posting — a third, hybrid position). Confirms this document's
-Phase 1 manual-only design is a deliberate simplification relative to
-real market baseline, not a naive starting point, and gives Phase 2 two
-concrete reference shapes to choose between. Symfonia/enova365 not
-independently checked. Written directly into
-`2026-09-10-cash-bank-management.md`'s own "Literature & Prior Art"
-section — commit `9843e3e2d` on `docs/cash-bank-management`.
-
-**Resolved 2026-09-09:** Fixed Assets and Posting Rules Engine used to
-live only as uncommitted files in one worktree — flagged here as a
-real risk of losing the work. Both now have their own `docs/` branch,
-English translations (they were originally drafted in Polish, like
-the early Accounts Payable draft), and open PRs (#6014, #6015). This
-document itself now has a branch and PR too (#6016).
-
-**Updated 2026-09-09 (cont.):** Fixed Assets (#6014) is now a complete
-spec — Overview, Problem Statement, Proposed Solution, User Stories,
-Architecture, Data Models, API Contracts, Implementation Plan (Phase 1 +
-Phase 2), File Manifest, Testing Strategy, Risks & Impact Review with a
-Risk Register, Out of Scope, and a Final Compliance Report (verdict:
-fully compliant). It also picked up three scope additions during a
-knowledge-base verification pass against this doc's own sources —
-salvage/residual value (art. 32 ust. 2 UoR, optional, unlike Kieso's
-mandatory depreciable-base input), prospective-only useful-life/rate
-revision (art. 32 ust. 3 UoR, one of the few points where UoR and US GAAP
-agree), and impairment recognition plus mandatory reversal (art. 32 ust.
-4 / art. 35c UoR — the opposite of Kieso's prohibition on restoring an
-impairment for an asset held for use, the spec's most consequential
-divergence from the US-GAAP reference material). It then went through a
-fresh-context adversarial review, which found and fixed two blocking
-defects (the impairment/reversal commands weren't regenerating the
-depreciation schedule tail, which could drive net book value negative;
-neither command had an explicit `FixedAsset.status` guard) plus two
-smaller gaps — see the spec's own Changelog for the full citation trail
-and review record. Ready for a real review pass.
-
-**Corrected 2026-09-09 (cont., again — accumulated-impairment account):**
-A wzorcowy plan kont (a reference chart of accounts, zespół 0–8, supplied
-directly by the accounting team) surfaced a real design defect that no
-adversarial review round had caught, because it wasn't a spec-internal
-inconsistency but a wrong accounting-practice assumption: the spec was
-reusing `ledgerAccumulatedDepreciationAccountId` as the credit target for
-impairment write-downs, when real Polish practice keeps accumulated
-depreciation (070/071, "Umorzenie") and impairment write-downs (072,
-"Odpisy aktualizujące") on genuinely separate synthetic accounts.
-`FixedAsset` now has a fourth required, immutable ledger-account field,
-`ledgerAccumulatedImpairmentAccountId`, and `disposeAsset` posts two
-separate debit lines (depreciation, impairment) instead of one combined
-figure. A third fresh-context adversarial review round found zero real
-defects in the correction itself (one unrelated, pre-existing stale
-cross-reference label was fixed in passing). Final Compliance Report is
-now rev. 3. This correction is sourced from the reference chart of
-accounts alone, not from Kieso or the UoR excerpt available in this
-session — neither reaches Polish chart-of-accounts numbering at this
-level of detail.
-
-**Correction (2026-09-12) — the paragraph above was stale and
-contradicted this document's own table.** Posting Rules Engine (#6015)
-is **not** draft-quality-only. Verified directly against the actual file
-on `docs/posting-rules-engine`: it already has every required section
-(Overview, Problem Statement, Proposed Solution, User Stories,
-Invariants, Alternatives Considered, Architecture, Data Models, API
-Contracts, Migration & Deployment, Implementation Plan, File Manifest,
-Testing Strategy, Risks & Impact Review, Out of Scope, Final Compliance
-Report), and already went through one independent, fresh-context
-adversarial review pass (2026-09-10) that found and fixed nine real
-issues — see that file's own Changelog and Final Compliance Report. The
-table row in §1 already had this right; this paragraph did not and was
-corrected here rather than silently deleted, so the discrepancy itself
-is on record. What the document's own Final Compliance Report still
-defers: a Compliance Matrix and formal pass/fail verdict against
-`AGENTS.md`, left to a maintainer review — that is the actual remaining
-step, not more spec-writing.
-
-**Gap found while applying the new `financial-spec-writing-process`
-(2026-09-12):** zero external-literature or reference-system citations
-exist anywhere in the Posting Rules Engine spec, despite this document's
-own §4b already identifying Fowler 6.15 as a better match than 6.8 and
-recommending it be "swapped in" — that swap was never actually made in
-the spec file itself. Three further findings from this pass, not yet
-applied to the spec (recorded here per Step 5, pending a decision on
-whether to add them):
-- **Kieso, IFRS Insights supplement to Ch.4 "Income Statement and
-  Related Information," pp.4-45–4-46** — verified directly: IFRS
-  requires expenses classified either by *nature* (raw expense types —
-  Poland's zespół 4) or by *function* (COGS/selling/admin — zespół 5),
-  and notes many companies use a **"dual approach"** (function on the
-  income statement, nature-level detail in the notes), which the
-  IASB/FASB discussion paper "also recommends." This gives konto 490's
-  whole reclassification mechanism a real international-accounting
-  grounding, not just a Polish bookkeeping quirk — Polish full-books
-  practice (parallel zespół 4 + zespół 5, bridged via konto 490) *is* an
-  implementation of exactly this dual approach.
-- **Fowler 6.15.2 "Derived Accounts"** (p.130-131) — confirmed the exact
-  match already flagged in §4b: an account defined by a filter over
-  entries by attribute, not a real ledger account — structurally the
-  closest analog to how `DefaultAccountPostingRule` derives a zespół-5
-  posting from a zespół-4 entry's cost-center attribute.
-- **Hay §7.19 "Cost Center Assignment,"** pp.150–151 — read in full:
-  Hay's own model treats `COST CENTER ASSIGNMENT` as polymorphic (an
-  internal organization, work center, piece of equipment, product, or
-  project), deliberately generic. This module's own `CostCenter` entity
-  is flat (`code`/`name`/`isActive`, no hierarchy, no polymorphic
-  target) — a legitimate Phase 1 simplification, but worth naming as a
-  deliberate one rather than leaving it unremarked.
-
-**ERPNext comparison (2026-09-12, `docs.frappe.io/erpnext/cost-center`):**
-ERPNext models Cost Center as a **hierarchical tree** (group/non-group,
-`Parent Cost Center`), attached per line item on a transaction, with a
-"Cost Center Allocation" feature for percentage-based distribution
-across multiple cost centers — all real, checkable divergences from this
-module's flat, single-`defaultCostCenterId` Phase 1 model. More
-important: **ERPNext confirmed to have no automatic reclassification
-between expense-by-nature and expense-by-function accounts at all** —
-its Cost Center is a reporting/filtering tag on one chart of accounts,
-not a bridge between two parallel charts. This module's entire
-reclassification mechanism (real double-entry postings into a second,
-zespół-5 chart via konto 490) **has no direct ERPNext analog** — worth
-recording as a confirmed absence, not a gap in the research, per this
-project's citation-check discipline.
-
-**Applied to the spec itself (2026-09-12).** All four findings above
-(Kieso dual nature/function-of-expense, Fowler Derived Accounts, Hay
-Cost Center Assignment divergence, ERPNext absence) are now written
-directly into `.ai/specs/2026-09-06-posting-rules-engine.md`'s own new
-"Literature & Prior Art" section, not just recorded here — commit
-`a12b8fd15` on `docs/posting-rules-engine`. This entry stays as the
-searchable index; the spec carries the citations for anyone reading it
-standalone.
-
-**New 2026-09-10 — a second, real repository entered the picture.**
-`financial-pl` (Polish KSeF 2.0 e-invoicing + JPK_V7/VAT compliance)
-already exists as a substantial, real module — but not in *this* repo.
-It lives in `open-mercato/official-modules`, a separate git repository
+**`financial-pl` (JPK_V7/KSeF) lives outside this repo.** It's a real,
+substantial module, but in the separate `official-modules` repository —
 wired in as an optional, currently-uninstalled submodule
-(`external/official-modules/`, see this repo's `official-modules.json` —
+(`external/official-modules/`; this repo's `official-modules.json` has
 `activated: []`), on an unmerged branch (`feat/financial-pl-invoice-ux`).
-Confirmed by direct inspection, not assumed: its `index.ts` declares no
-`requires: ['ledger']` today, and every JPK_V7 field is sourced from its
-own invoice tables (`ReceivedInvoice`, `PurchaseVatRecord`), never from
-GL. **This is a correction of an earlier statement in this session** —
-`financial-pl` was initially, wrongly, described as not existing yet; it
-does exist, just in a sibling repo and on a feature branch, which this
-document's module map above (scoped to *this* repo's `.ai/specs/`) has
-no way to show. Worth remembering for any future reader of this doc: the
-module map above is not the whole picture once `official-modules` is in
-play.
+Not shown in the table above, which is scoped to this repo's
+`.ai/specs/`. JPK_KR_PD support is a confirmed target for that module
+(no longer hypothetical); SPEC-010 above is the in-repo spec for the
+cross-module read contract it will depend on.
 
-That module matters here because of JPK_KR_PD — Poland's electronic-
-accounting-books filing, phased in from 2026 (Ministry of Finance
-brochure and `gov.pl/kas`, both now in §3/§5 as Tier 1 sources).
-**Confirmed target (2026-09-10, internal decision):** Commerce Weavers
-needs JPK_KR_PD support and has decided to build it — no longer a
-hypothetical scoping question. Extending `financial-pl` to support it
-is that module's first-ever cross-module *read* from `ledger`, in
-bulk — a different shape of dependency than AP's existing write-side
-one. Full analysis: `2026-09-10-jpk-kr-pd-financial-pl-analysis.md`
-(delivered directly to the user, not committed anywhere —
-research/analysis, not a spec). One concrete outcome already has a real
-spec in *this* repo, listed in the table above:
-`2026-09-10-general-ledger-bulk-read-service.md` (PR #6038) — the
-cross-module read contract `SPEC-010` (JPK_KR_PD, in `official-modules`)
-will depend on. The GL core engine spec's Out of scope section
-(2026-09-10, three times now) tracks the same gap and points at the
-same document.
+**Findings recorded here but not yet written into the spec files they
+describe** (the 2026-09-12 research pass produced these; only three of
+the seven "written directly into the spec" claims from that pass were
+actually followed through — see Changelog for which):
 
-**Literature & Prior Art applied to the spec itself (2026-09-12).**
-Per the financial-spec-writing-process: re-verified this document's own
-#5663/#6013 citations directly (zero corrections needed — the first
-spec in the family with a clean re-check on both). Recorded a genuine,
-near-total absence of ledger/posting material in Hay/Fowler (Hay
-mentions "ledger" twice, unrelated; "posting" not once). Compared
-against ERPNext/Frappe (docs.frappe.io — no shared bulk-read service,
-each report queries directly) and Odoo (odoo-master.readthedocs.io —
-the opposite extreme, any module queries any model directly via
-`self.env`, no service layer at all): this document's formal
-DI-resolved contract sits deliberately between both. Written directly
-into `2026-09-10-general-ledger-bulk-read-service.md`'s own new
-"Literature & Prior Art" section — commit `dfb9b77a0` on
-`docs/general-ledger-bulk-read-service`.
-
-**Update (2026-09-11) — a first draft of `SPEC-010` now exists.**
-`2026-09-11-jpk-kr-pd-financial-pl.md`, staged **temporarily** in this
-repo's own `.ai/specs/` (not yet moved to `official-modules`, and not
-yet through any review — see that file's own status banner). It still
-needs the primary-source XSD verification pass and depends on `#6038`
-merging first, so "buildable" hasn't changed — but "still not written"
-no longer describes it, and the GL core engine spec's Out of scope
-bullet (PR #5663) has been corrected to match (see that spec's own
-Changelog).
-
-**Update (2026-09-12) — SPEC-010's Q2 (cohort/timing) corrected and
-partially resolved.** The original Q2 wrongly conflated `JPK_CIT`'s
-revenue-based cohort split (whose largest-taxpayer window, EUR 50M+,
-really has passed — filed by July 2026) with `JPK_KR_PD`'s own split,
-which is by **VAT filing frequency**, not size: Group 1 (monthly
-`JPK_V7M`) obligated from FY2026, first file due end of April 2027;
-Group 2 (quarterly/exempt) obligated from FY2027, first file due end
-of April 2028 — neither has passed. Confirmed against `gov.pl/web/kas`
-and cross-checked against taxeo.pl (the primary gov.pl page failed to
-fetch this session). Confirmed with the business: Commerce Weavers'
-target Open Mercato customers keep full accounting books, not `PKPiR`
-— so `JPK_KR_PD` is confirmed the right structure to keep building.
-Which VAT-frequency cohort specifically (and therefore the exact
-deadline) is confirmed still open, and explicitly does not block
-`#6038`'s review or the XSD verification pass — only the ship-by date
-depends on it. Corrected directly in
-`2026-09-11-jpk-kr-pd-financial-pl.md`'s own Open Questions section —
-commit `8c4402def` on `docs/jpk-kr-pd-financial-pl`.
-
-**Update (2026-09-12) — SPEC-010's own primary-source XSD verification
-pass is done, with a major finding.** Against the published
-Schemat_JPK_KR_PD schema documentation, cross-checked with Comarch ERP
-XL's own JPK_KR_PD implementation notes: **RPD is a small,
-manually-completed summary node (K_1-K_x amount fields) in real
-implementations, not the per-account/per-posting classification problem
-this document's own Q1/Design Decisions had assumed** -- the "comparable
-in size to the Posting Rules Engine" sizing for a future Phase 2 was an
-overstatement, now downgraded in SPEC-010 itself (not removed --
-automation may simply never be asked for, since Phase 1's manual input
-may be the correct permanent design). Also confirmed: ZOiS has eight
-entity-type variants, and Commerce Weavers' target customers need
-ZOiS7 ("jednostki pozostale"), not a single generic shape; a real,
-previously-missing mandatory field, S_12_1 (a per-account
-financial-statement-category marker), has no source anywhere in
-`LedgerAccount`/`LedgerAccountGroup` today -- a new open item (Q4) in
-SPEC-010, needing its own design decision before Phase 1 is buildable.
-Caveat carried through: both readings were of the XSD's documentation,
-not a byte-level read of the raw `.xsd` -- still needed before this is
-fully buildable. Written directly into
-`2026-09-11-jpk-kr-pd-financial-pl.md` -- commit `970d42e07` on
-`docs/jpk-kr-pd-financial-pl`.
-
-**New 2026-09-12 — the financial-spec-writing-process applied to
-Contractor Registry (#5955) for the first time.** This module was
-missing from the table above entirely, despite having a complete
-spec, an implementation guide, and a closed external maintainer review
-(PR #5955) — added as its own row. Findings: a stale cross-spec
-reference in its own "Related" header (`sales-invoice-gl-posting`
-still described as "planned, not yet written," corrected); both Fowler
-leads §4b/§4 had already flagged for this document — Ch.2 "Party"
-(§2.1, pp.17-19) and Ch.5 "Object Merge" (§5.3, pp.90-92) — read in
-full and closed (see §4b and §4 below, updated); an independent second
-confirmation of the Party pattern from Hay Ch.3 "Parties" (pp.23-24),
-not previously checked here. Real-system comparison: ERPNext keeps
-Customer/Supplier as separate doctypes (bridged via "Common Party
-Accounting"), unlike this module's single-entity `isVendor`/
-`isCustomer` design or Odoo's `res.partner` (this document's own
-Market Reference); ERPNext's generic "Merge with existing" rename tool
-is the concrete real-system precedent for the Object Merge gap;
-Comarch ERP Optima/XL re-verify VAT/VIES status on every commercial
-document (wider than this module's registration-time-only check) and
-cache Biała Lista results on the contractor card (same shape as
-`lastVerifiedAt`); no four-eyes/approval-gate precedent found in
-Optima's or enova365's public documentation, confirming this module's
-`contractors.vendor-approval` gate is an added control, not a
-reproduction of local market practice. All written directly into
-`2026-09-06-contractor-registry.md`'s own new "Literature & Prior Art"
-section — commit `e8dd1b1de` on `docs/contractor-registry`.
-
-**New 2026-09-14 — account numbering is not standardized across
-tenants, confirmed via a real client chart of accounts; this affects
-every spec in this family that names a specific account number.**
-Posting Rules Engine's second review round (pkarw, om-auto-review-pr)
-surfaced a wrong premise repeated across earlier drafts: `seedDefaults`
-assumed a universal Polish "401 → 500" default account-mapping
-template, and a fabricated "500-99 (Unallocated costs)" suspense
-account, on the premise that #5663 already seeds a standard chart of
-accounts to hang them off of. #5663 in fact seeds only
-`LedgerAccountGroup` (the zespoły 0–8 buckets), never any real
-`LedgerAccount` row for any tenant — "tenants build their own." A real
-client's chart of accounts (380 rows) confirmed this empirically:
-account numbering is accountant-specific, not standardized (the same
-way Comarch Optima/Symfonia/enova365 all let a company customize its
-own imported plan kont), and the client's own `-99` suffix convention
-(NKUP, non-tax-deductible cost) would have collided with the
-fabricated "500-99" account outright. Resolved in `posting_rules` by
-a new `PostingRulesSettings` entity — nullable account fields an admin
-points at, reject-if-unset, never a value the system assumes or
-hardcodes — mirroring `FixedAssetSettings`'s established pattern (see
-`2026-09-06-posting-rules-engine.md`'s own Design Decisions and
-2026-09-14 Changelog entry for the full redesign). **Reusable finding
-for every future spec in this family:** any specific account number
-named in a spec ("account 490", "account 401", a VAT clearing
-account, etc.) is illustrative only, never a literal value the system
-can rely on existing — the actual account must come from tenant-
-specific settings/configuration, not a seed or a hardcoded constant.
-A general chart-of-accounts import mechanism (bulk-loading a tenant's
-own numbering into `ledger.LedgerAccount`/`LedgerAccountType`) was
-discussed and deliberately deferred as a separate, `ledger`-owned
-future topic — not yet specified anywhere in this family.
-
-**New 2026-09-14 — a command that only sometimes emits its module's
-own domain event is a real, checkable gap, not a stylistic nit.**
-Found while building the GL core engine's Jira implementation
-backlog and re-verifying Posting Rules Engine's reversal-mirroring
-subscriber design against #5663's own text: `postJournalEntry` was
-documented (Commands, Events, File Manifest, Testing Strategy) as
-emitting `ledger.journal_entry.posted`, but `reverseJournalEntry`
-was not, anywhere — even though `2026-09-06-posting-rules-engine.md`'s
-subscriber ("Reversals are mirrored, not duplicated", corrected
-there 2026-09-14) already assumes a `REVERSAL` entry's lines arrive
-through that same event, to mirror a storno instead of duplicating
-it. Confirmed by reading #5663's own Commands/Events/File
-Manifest/Testing Strategy sections directly (not inferred) before
-concluding the gap was real. Corrected in #5663 (commit
-`8028c3e38`): `reverseJournalEntry` now documented as also emitting
-`ledger.journal_entry.posted` after commit. **Reusable finding for
-every future spec with more than one write command touching the
-same aggregate:** if one command's mutation is meant to be visible
-to the same downstream subscribers as another (here: both
-"post" and "reverse" produce a postable `JournalEntry`), say so
-for every such command individually — an event documented on only
-the first-written command is easy to silently leave off the
-second, and a subscriber spec written against the intended
-behavior (not the letter of the upstream document) can encode an
-assumption the upstream document never actually committed to.
+- Contractor Registry (`2026-09-06-contractor-registry.md`) — Fowler
+  Ch.2 "Party" + Hay Ch.3 "Parties" citations, the ERPNext/Odoo/Comarch
+  real-system comparison, and a fix for the stale "`sales-invoice-gl-posting`
+  … planned, not yet written" cross-reference (that spec now exists,
+  PR #6046) are all proposed only — no "Literature & Prior Art" section
+  exists on `docs/contractor-registry` today.
+- Cash & Bank Management (`2026-09-10-cash-bank-management.md`) —
+  literature grounding (Kieso Appendix 7A, Fowler's Corresponding
+  Account) is genuinely cited inline in Design Decisions, but was never
+  consolidated into its own dedicated "Literature & Prior Art" section.
+- SPEC-010 (`2026-09-11-jpk-kr-pd-financial-pl.md`) — the Q2 correction
+  (VAT-filing-frequency cohort split, not the size-based one) and the
+  new Q4 (`S_12_1` field gap) are both proposed only; the file as
+  pushed still has the old, size-based Q2 wording and only Q1–Q3.
 
 ---
 
@@ -491,9 +148,39 @@ later" split before inventing a different phasing.
 
 **`commandBus.execute(commandId, { input, ctx })`** — two-argument form.
 Several early spec drafts (including AP, before its maintainer-review fix
-round) mis-cited this as three-argument; the real signature lives at
-`packages/shared/src/lib/commands/command-bus.ts:223-226`. Worth a quick
+round) mis-cited this as three-argument; the real signature lives on the
+`CommandBus.execute` method in
+`packages/shared/src/lib/commands/command-bus.ts` (cite the symbol, not a
+line range — line numbers rot on every edit above them). Worth a quick
 grep-check on any new spec's code samples before finalizing.
+
+**Account numbers are illustrative, never literal.** A real client's
+chart of accounts (380 rows) confirmed account numbering is
+accountant-specific, not standardized across tenants — the same way
+Comarch Optima/Symfonia/enova365 all let a company customize its own
+imported plan kont. `ledger` seeds only `LedgerAccountGroup` (the
+zespoły 0–8 buckets), never a real `LedgerAccount` row for any
+tenant. Any specific account number named in a spec ("account 490",
+"account 401", a VAT clearing account, etc.) is illustrative only —
+the actual account must come from tenant-specific settings, never a
+seed or a hardcoded constant. Confirmed the hard way: Posting Rules
+Engine's first draft hardcoded a "401 → 500" mapping and a fabricated
+"500-99" suspense account; both were replaced by a `PostingRulesSettings`
+entity with nullable, admin-configured account fields (reject-if-unset),
+mirroring `FixedAssetSettings`'s established pattern (see Changelog,
+2026-09-14).
+
+**A module event must be documented on every command that produces
+the state it describes, not just the first one written.** GL core
+engine's `postJournalEntry` was documented as emitting
+`ledger.journal_entry.posted`; `reverseJournalEntry` was not,
+anywhere — even though a downstream subscriber (Posting Rules
+Engine's reversal-mirroring design) already assumed a `REVERSAL`
+entry's lines arrived through that same event. If more than one
+write command touches the same aggregate and downstream subscribers
+are meant to see all of them, say so for each command individually;
+an event documented on only the first-written command is easy to
+silently leave off later ones (see Changelog, 2026-09-14).
 
 ---
 
@@ -577,8 +264,9 @@ not accounting authority — useful for *how to model*, not *what's
 compliant*):**
 - Fowler, *Analysis Patterns* — ch.5 "Referring to Objects" (Name,
   Identification Scheme, Object Merge, Superseding, Object Equivalence —
-  see §4, relevant to vendor/customer dedup, not yet cross-checked against
-  Contractor Registry); ch.6 "Inventory and Accounting" (Account,
+  see §4, relevant to vendor/customer dedup; cross-checked against
+  Contractor Registry 2026-09-12, confirmed no such mechanism exists
+  today); ch.6 "Inventory and Accounting" (Account,
   Transaction, Summary Account, Memo Account, Posting Rules, Corresponding
   Account, Specialized Account Model). Confirmed via full-text search: does
   **not** use "control account" or "subsidiary ledger."
@@ -678,7 +366,11 @@ Posting Rules Engine's account-selection design come up for real.
 ## 4b. Verification of the 2026-09-08 literature-notes memo
 
 A separate memo (`kontekstliteraturadonaniesienia.md`) proposed mapping
-specific Fowler/Hay sections onto our modules. It was written when only
+specific Fowler/Hay sections onto our modules. That memo is not part of
+this repository — it was supplied directly in the session that compiled
+this document and is not independently re-checkable by a future reader;
+treat every claim below as verified against the books themselves (§3),
+not against the memo. It was written when only
 Hay's 51-page free sample was available, so its Hay items were flagged as
 "unverified, check if we buy the book." We since obtained and read the full
 277-page Hay book (§3 above), so every item below was checked against real
@@ -754,10 +446,12 @@ pointed at the wrong section.
   full (2026-09-12, not just the chapter intro as in the original
   2026-09-08 spot-check). Fowler's Party is exactly "the supertype of
   person and organization" — a full, developed pattern, not a stub.
-  Applied directly to `2026-09-06-contractor-registry.md`'s own new
+  Proposed for `2026-09-06-contractor-registry.md`'s own future
   "Literature & Prior Art" section, alongside an independent second
-  confirmation from Hay Ch.3 "Parties" (pp.23-24) — commit `e8dd1b1de`
-  on `docs/contractor-registry`. No longer an unread lead.
+  confirmation from Hay Ch.3 "Parties" (pp.23-24) — **not yet applied**;
+  no such section or commit exists on `docs/contractor-registry` today
+  (see Notes in §1 and Changelog, 2026-09-12). No longer an unread lead
+  as far as the *research* goes, even though the write-back is pending.
 
 ## 5. Quick links
 
@@ -773,5 +467,193 @@ pointed at the wrong section.
 - GnuCash Accounts Payable guide: https://www.gnucash.org/docs/v5/C/gnucash-guide/bus_ap.html
 - Odoo Accounting docs: https://www.odoo.com/documentation/19.0/applications/finance/accounting.html
 - Apache Fineract Accounting wiki: https://cwiki.apache.org/confluence/display/FINERACT/Accounting
-- Fowler, *Analysis Patterns* (PDF supplied by user, this conversation)
-- Hay, *Data Model Patterns* (PDF supplied by user, this conversation)
+- Fowler, *Analysis Patterns: Reusable Object Models* (Addison-Wesley,
+  1996, ISBN 0-201-89542-0) — see §3 for verification method
+- Hay, *Data Model Patterns: Conventions of Thought* (Dorset House,
+  1996, ISBN 0-932633-29-3) — see §3 for verification method
+
+## Changelog
+
+### 2026-09-08
+
+- Initial document compiled while cross-checking Fowler/Hay against the
+  GL/AP/JELD specs.
+
+### 2026-09-09
+
+- Fixed Assets and Posting Rules Engine moved off an uncommitted worktree
+  onto their own `docs/` branches and PRs (#6014, #6015); this document
+  itself got its own branch and PR (#6016).
+- Fixed Assets (#6014) completed as a full spec, picked up three
+  UoR-driven scope additions (salvage value; prospective-only
+  revision; impairment plus mandatory reversal), and passed a
+  fresh-context adversarial review (two blockers fixed).
+- A reference chart of accounts surfaced a real Fixed Assets defect:
+  accumulated depreciation and impairment write-downs need separate
+  ledger accounts (070/071 vs. 072), not one combined field. Fixed;
+  Final Compliance Report reached rev. 3.
+
+### 2026-09-10
+
+- Cash & Bank Management written as a full spec (bank statements, four
+  match types, FX gain/loss on settlement) — initially miscategorized
+  in §1 as "Not started"; corrected to its own row.
+- `financial-pl` (JPK_V7/KSeF) confirmed to already exist, in the
+  separate `official-modules` repo, on an unmerged branch — not visible
+  in this document's module map, which is scoped to this repo (see §1
+  Notes). JPK_KR_PD support confirmed as a real target for that module
+  (no longer a hypothetical scoping question).
+- Accounts Receivable (`sales-invoice-gl-posting`) written for the
+  first time, closing a dependency three sibling specs had named since
+  2026-09-06. One independent adversarial review pass (eleven issues
+  fixed, including a real double-entry balance bug from an unhandled
+  header-level discount).
+- GL bulk cross-module read service spec written (PR #6038) as the
+  read contract SPEC-010 (JPK_KR_PD) will depend on.
+
+### 2026-09-11
+
+- Cash & Bank Management: Step 3 (real-system comparison) closed
+  against ERPNext (auto-matching baseline) and Comarch ERP Optima
+  (hybrid: auto-match, mandatory manual verification before posting).
+- First draft of SPEC-010 (JPK_KR_PD) written, staged temporarily in
+  this repo pending a move to `official-modules`.
+- Kieso Ch.19 ("Accounting for Income Taxes") read in full for
+  SPEC-010's `RPD` node — temporary vs. permanent differences is a
+  usable classification axis; only the axis/vocabulary transfers, not
+  Illustration 19.31's US-specific example list (ustawa o CIT is the
+  correct source for what Polish RPD categories actually contain).
+
+### 2026-09-12
+
+`financial-spec-writing-process` applied across several specs in one
+pass. Three of the following seven findings were actually written back
+into their spec files (marked **applied**); the other four were only
+ever recorded here (marked **proposed, not applied** — see §1 Notes):
+
+- Accounts Receivable — added a missing citation (Kieso Ch.7
+  receivable-control-account footnote, art. 13/16 UoR) and an ERPNext
+  comparison. **Applied** to `2026-08-18-sales-invoice-gl-posting.md`'s
+  own new "Literature & Prior Art" section (commit `80b642585` on
+  `docs/sales-invoice-gl-posting`).
+- Posting Rules Engine — four findings (Kieso's IFRS nature-vs-function
+  "dual approach"; Fowler 6.15 "Derived Accounts" as the real match,
+  not 6.8; Hay's Cost Center Assignment is polymorphic where this
+  module's is flat; ERPNext has no reclassification-between-charts
+  analog at all). **Applied** to
+  `2026-09-06-posting-rules-engine.md`'s own new "Literature & Prior
+  Art" section (commit `a12b8fd15`).
+- GL bulk-read service — re-verified #5663/#6013 citations (clean);
+  recorded Hay/Fowler's near-total silence on ledger/posting material;
+  compared against ERPNext/Frappe and Odoo (both queried directly, no
+  shared read-service layer in either — this module's DI-resolved
+  contract sits deliberately between the two extremes). **Applied** to
+  `2026-09-10-general-ledger-bulk-read-service.md`'s own new
+  "Literature & Prior Art" section (commit `dfb9b77a0`).
+- Contractor Registry — added to the module map for the first time.
+  Fowler Ch.2 "Party" (confirmed, read in full) and Hay Ch.3 "Parties"
+  (independent second confirmation) plus an ERPNext/Odoo/Comarch
+  real-system comparison. **Proposed, not applied** — no "Literature &
+  Prior Art" section exists on `docs/contractor-registry` (the cited
+  commit `e8dd1b1de` does not exist). The stale
+  `sales-invoice-gl-posting` "planned, not yet written" cross-reference
+  in that same file is likewise still uncorrected.
+- SPEC-010 Q2 — re-derived the filing cohort as VAT-filing-frequency-based
+  (Group 1: monthly `JPK_V7M`, FY2026, due April 2027; Group 2:
+  quarterly/exempt, FY2027, due April 2028), not the size-based
+  "largest-taxpayer window" the original Q2 wrongly borrowed from
+  `JPK_CIT`. **Proposed, not applied** — `docs/jpk-kr-pd-financial-pl`
+  still has the old, size-based Q2 wording (the cited commit
+  `8c4402def` does not exist). Confirmed against gov.pl/web/kas
+  (cross-checked with taxeo.pl) that the target deployment profile
+  keeps full accounting books, not `PKPiR`, so `JPK_KR_PD` is the
+  right structure to keep building regardless of cohort.
+- SPEC-010 primary-source XSD verification — against the published
+  Schemat_JPK_KR_PD documentation (cross-checked with Comarch ERP XL's
+  own implementation notes): `RPD` is a small, manually-completed
+  summary node, not the per-posting classification problem originally
+  assumed (downgrades a "comparable to Posting Rules Engine" Phase 2
+  estimate); ZOiS has eight entity-type variants and the target
+  deployment profile needs ZOiS7 ("jednostki pozostałe"); a mandatory
+  field, `S_12_1` (per-account financial-statement-category marker),
+  has no source anywhere in `LedgerAccount`/`LedgerAccountGroup` today.
+  **Proposed, not applied** — `docs/jpk-kr-pd-financial-pl` still has
+  only Q1–Q3, no Q4 for the `S_12_1` gap (the cited commit `970d42e07`
+  does not exist).
+- A paragraph describing Posting Rules Engine as draft-quality-only
+  (contradicting this document's own module-map row) was corrected in
+  place: the spec already had every required section and one
+  fresh-context adversarial review pass (nine issues fixed) by this
+  date.
+- Fowler's Object Merge/Superseding (ch.5) cross-checked against
+  Contractor Registry: confirmed no such mechanism exists today — NIP
+  uniqueness prevents exact duplicates but not a two-different-NIPs
+  re-registration case, and `nip`'s unconditional immutability
+  forecloses an in-place fix. Recorded as a real, un-actioned gap, not
+  applied — no Phase 1 need is evidenced yet.
+- §4b memo-verification pass: corrected two wrong Fowler section
+  mappings for Posting Rules Engine (6.8 "Posting Rules for Many
+  Accounts" is about one rule firing across many same-type accounts,
+  not multiple simultaneous dimensions on one line — 6.15 "Derived
+  Accounts" is the real match) and two for Chart of Accounts (6.13
+  "Corresponding Account" is about reconciling two independent
+  parties' books, i.e. a future Bank Reconciliation module, not
+  ordinary double-entry; 6.14 "Specialized Account Model" is about
+  subtyping into a non-monetary domain, not `parentAccountId`
+  alternatives).
+
+### 2026-09-14
+
+- Posting Rules Engine's second, external maintainer review (pkarw,
+  `om-auto-review-pr`) — 8 findings (2 blockers, 3 majors, 2 minors, 1
+  nit), resolved via a settings-based redesign (`PostingRulesSettings`
+  replaces the earlier hardcoded account assumptions); see that spec's
+  own Changelog for the full record.
+- A real client chart of accounts confirmed account numbering is
+  accountant-specific, not standardized across tenants — promoted to a
+  standing convention (see §2).
+- GL core engine (#5663): two corrections found while cross-checking
+  Posting Rules Engine's second review — claimed ownership of the
+  leaf-postability guard (previously an unresolved gap between the two
+  specs' Out of Scope sections), and documented `reverseJournalEntry`
+  as also emitting `ledger.journal_entry.posted` (a downstream
+  subscriber already assumed it did, but #5663 only ever documented
+  the event on `postJournalEntry`) — promoted to a standing convention
+  (see §2). See #5663's own Changelog (commits `4d17094d0`,
+  `8028c3e38`).
+- This document's own first external maintainer review (pkarw,
+  `om-auto-review-pr`) — **CHANGES REQUESTED**: 1 blocker (B1: of the
+  seven "written directly into the spec — commit X" claims in the
+  2026-09-12 pass, four cited commits that don't exist in the repo;
+  verified independently on 2026-09-15 — three of the seven citations
+  are in fact correct, four are not, see above), 2 majors (M1: module
+  map missing four open PRs; M2: corrections accreting as unstructured
+  inline prose instead of a Changelog), 3 minors (m1: §3 contradicted
+  §4/§4b about whether Fowler ch.5 was checked; m2: naming the target
+  customer in a public repo; m3: bare filenames not navigable from
+  `develop`), 4 nits (n1: line-range citation instead of a symbol; n2:
+  the self-referential table row; n3: two unresolvable source
+  references; n4: "draft" ambiguity for #6038).
+
+### 2026-09-15
+
+- Addressed the 2026-09-14 review in full: restructured this document
+  so §1's table is the only current-state source and this Changelog is
+  the historical record (M2); corrected the four false "applied"
+  claims to "proposed, not yet applied" and left the three genuinely
+  correct ones as-is (B1); added the four missing module-map rows —
+  #6013 (GL account balances), #5972 (JELD), #6055 (Cash & Bank),
+  #6069 (SPEC-010) — and converted filenames to PR links since none of
+  these branches are on `develop` (M1, m3); promoted the two durable
+  2026-09-14 findings (account-number literalism; per-command event
+  documentation) from dated notes into §2 (M2); fixed §3's stale
+  cross-check note (m1); reworded three specific-customer-name mentions
+  to "the target deployment profile" per the reviewer's own suggested
+  wording, since naming a specific customer in a public OSS repo is a
+  publication decision, not a factual correction (m2, ask-first —
+  flagged for confirmation rather than assumed); cited
+  `CommandBus.execute` by symbol instead of a line range (n1); noted
+  the self-referential table row will read stale after merge (n2);
+  gave the memo and the Fowler/Hay citations something a future reader
+  can actually check (n3); dropped the ambiguous "draft" wording for
+  PR #6038 (n4).
