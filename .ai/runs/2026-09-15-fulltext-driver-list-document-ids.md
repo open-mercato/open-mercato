@@ -31,7 +31,7 @@ Add an optional `listDocumentIds` method to the fulltext search driver interface
 
 ### Phase 1: Add the `listDocumentIds` primitive
 
-- [ ] 1.1 Add `listDocumentIds` to `FullTextSearchDriver` interface
-- [ ] 1.2 Implement `listDocumentIds` in the Meilisearch driver
-- [ ] 1.3 Add `FullTextSearchStrategy.listDocumentIds` pass-through
-- [ ] 1.4 Add unit tests for driver + strategy
+- [x] 1.1 Add `listDocumentIds` to `FullTextSearchDriver` interface — 1621af687
+- [x] 1.2 Implement `listDocumentIds` in the Meilisearch driver — 1621af687
+- [x] 1.3 Add `FullTextSearchStrategy.listDocumentIds` pass-through — 1621af687
+- [x] 1.4 Add unit tests for driver + strategy — 1621af687
