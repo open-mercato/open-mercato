@@ -73,14 +73,14 @@ describe('calculateSmartLayout (via definitionToGraph autoLayout)', () => {
       [transition('a', 'b'), transition('a', 'c'), transition('b', 'd'), transition('c', 'd')]
     )
 
+    // The dagre layout flows left→right, so ranks map to the x axis.
     const { nodes } = definitionToGraph(definition)
-    const yById = new Map(nodes.map(n => [n.id, n.position.y]))
+    const xById = new Map(nodes.map(n => [n.id, n.position.x]))
 
-    expect(yById.get('a')).toBe(levelY(0))
-    expect(yById.get('b')).toBe(levelY(1))
-    expect(yById.get('c')).toBe(levelY(1))
-    // d is reachable at level 1 (a->...) but its longest path is 2, so it ranks below b/c.
-    expect(yById.get('d')).toBe(levelY(2))
+    expect(xById.get('a')!).toBeLessThan(xById.get('b')!)
+    expect(xById.get('b')).toBe(xById.get('c'))
+    // d is reachable at rank 1 (a->...) but its longest path is 2, so it ranks after b/c.
+    expect(xById.get('b')!).toBeLessThan(xById.get('d')!)
   })
 
   test('linear chain assigns one node per level', () => {
@@ -89,11 +89,11 @@ describe('calculateSmartLayout (via definitionToGraph autoLayout)', () => {
       [transition('a', 'b'), transition('b', 'c')]
     )
 
+    // The dagre layout flows left→right, so each chain node gets its own rank on x.
     const { nodes } = definitionToGraph(definition)
-    const yById = new Map(nodes.map(n => [n.id, n.position.y]))
+    const xById = new Map(nodes.map(n => [n.id, n.position.x]))
 
-    expect(yById.get('a')).toBe(levelY(0))
-    expect(yById.get('b')).toBe(levelY(1))
-    expect(yById.get('c')).toBe(levelY(2))
+    expect(xById.get('a')!).toBeLessThan(xById.get('b')!)
+    expect(xById.get('b')!).toBeLessThan(xById.get('c')!)
   })
 })
