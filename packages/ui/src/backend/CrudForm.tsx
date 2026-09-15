@@ -81,7 +81,6 @@ import { ComboboxInput } from './inputs/ComboboxInput'
 import { format } from 'date-fns/format'
 import { parseISO } from 'date-fns/parseISO'
 import type { Locale } from 'date-fns/locale'
-import { useDateFnsLocale } from '../primitives/date-locale'
 import { DateTimePicker } from './inputs/DateTimePicker'
 import { TimePicker } from './inputs/TimePicker'
 import { DatePicker } from './inputs/DatePicker'
@@ -4445,9 +4444,6 @@ const FieldControl = React.memo(function FieldControlImpl({
   )
   const builtin = field.type === 'custom' ? null : field
   const hasLoader = typeof builtin?.loadOptions === 'function'
-  // A field may pin its own locale; absent that the pickers follow the app's, so a date
-  // field and the time field beside it cannot disagree about which language they speak.
-  const fieldDateLocale = useDateFnsLocale()
   const disabled = Boolean(field.disabled)
   const readOnly = Boolean(field.readOnly)
   const autoFocusField = autoFocus && !disabled
@@ -4543,7 +4539,7 @@ const FieldControl = React.memo(function FieldControlImpl({
           maxDate={builtin?.maxDate}
           displayFormat={builtin?.displayFormat}
           closeOnSelect={builtin?.closeOnSelect}
-          locale={builtin?.locale ?? fieldDateLocale}
+          locale={builtin?.locale}
         />
       )}
       {field.type === 'datetime-local' && (
@@ -4557,7 +4553,7 @@ const FieldControl = React.memo(function FieldControlImpl({
           minDate={builtin?.minDate}
           maxDate={builtin?.maxDate}
           displayFormat={builtin?.displayFormat}
-          locale={builtin?.locale ?? fieldDateLocale}
+          locale={builtin?.locale}
         />
       )}
       {field.type === 'datepicker' && (
@@ -4571,7 +4567,7 @@ const FieldControl = React.memo(function FieldControlImpl({
           maxDate={builtin?.maxDate}
           displayFormat={builtin?.displayFormat}
           closeOnSelect={builtin?.closeOnSelect}
-          locale={builtin?.locale ?? fieldDateLocale}
+          locale={builtin?.locale}
         />
       )}
       {field.type === 'datetime' && (
@@ -4585,7 +4581,7 @@ const FieldControl = React.memo(function FieldControlImpl({
           minDate={builtin?.minDate}
           maxDate={builtin?.maxDate}
           displayFormat={builtin?.displayFormat}
-          locale={builtin?.locale ?? fieldDateLocale}
+          locale={builtin?.locale}
         />
       )}
       {field.type === 'time' && (

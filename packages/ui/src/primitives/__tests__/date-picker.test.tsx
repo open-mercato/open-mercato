@@ -6,8 +6,8 @@ import { DatePicker } from '../date-picker'
 import { DatePicker as LegacyDatePicker } from '../../backend/inputs/DatePicker'
 import { DateTimePicker as LegacyDateTimePicker } from '../../backend/inputs/DateTimePicker'
 
-function renderWithI18n(ui: React.ReactElement) {
-  return render(<I18nProvider locale="en" dict={{}}>{ui}</I18nProvider>)
+function renderWithI18n(ui: React.ReactElement, locale = 'en') {
+  return render(<I18nProvider locale={locale} dict={{}}>{ui}</I18nProvider>)
 }
 
 function getTrigger(): HTMLElement {
@@ -282,6 +282,17 @@ describe('DatePicker calendar under a non-English locale', () => {
     renderWithI18n(<DatePicker value={new Date(2026, 0, 15)} onChange={() => {}} />)
     await openPopover()
     expect(screen.getAllByRole('gridcell')[0]).toHaveAttribute('data-day', '2025-12-28')
+  })
+
+  // A call site that forgets to thread a `locale` prop is exactly the #5942 bug: without
+  // this fallback the picker silently renders English/Sunday-first for every tenant that
+  // does not explicitly pass one. `date-picker.tsx` must default to the active app locale
+  // so future call sites cannot regress the same way.
+  it('falls back to the app locale when no explicit locale prop is passed', async () => {
+    renderWithI18n(<DatePicker value={new Date(2026, 0, 15)} onChange={() => {}} />, 'pl')
+    await openPopover()
+    expect(screen.getByText(/styczeń 2026/)).toBeInTheDocument()
+    expect(screen.getAllByRole('gridcell')[0]).toHaveAttribute('data-day', '2025-12-29')
   })
 })
 
