@@ -46,6 +46,9 @@ const CF_FILTER_SUPPORTED_OPS = new Set<FilterOp>([
   'eq', 'ne', 'in', 'nin', 'like', 'ilike', 'exists', 'gt', 'gte', 'lt', 'lte',
 ])
 
+/** Custom field kinds stored numerically (`custom_field_values.value_int`/`value_float`) — sort numerically, not as text (#5674). */
+const NUMERIC_CF_SORT_KINDS = new Set(['integer', 'float'])
+
 const DECRYPT_CONCURRENCY = 8
 const AUTO_REINDEX_DEBOUNCE_DEFAULT_MS = 30_000
 const AUTO_REINDEX_DEBOUNCE_MAX_SCOPES = 10_000
@@ -202,6 +205,7 @@ export class HybridQueryEngine implements QueryEngine {
   private coverageStatsTtlMs: number
   private customFieldKeysCache = new Map<string, { expiresAt: number; value: string[] }>()
   private customFieldKeysTtlMs: number
+  private customFieldKindCache = new Map<string, { expiresAt: number; value: Map<string, string> }>()
   private columnCache = new Map<string, boolean>()
   private customEntityCache = new Map<string, boolean>()
   private debugVerbosity: boolean | null = null
@@ -738,6 +742,13 @@ export class HybridQueryEngine implements QueryEngine {
       )
       const requiresPlaintextSort = encryptedSortFields.size > 0
 
+      const cfSortKeys = Array.from(new Set(
+        resolvedSorts.filter((sort) => sort.field.startsWith('cf:')).map((sort) => sort.field.slice(3))
+      ))
+      const cfSortKinds = cfSortKeys.length
+        ? await this.resolveCustomFieldSortKinds(indexSources.map((source) => String(source.entityId)), opts.tenantId ?? null, cfSortKeys)
+        : new Map<string, string>()
+
       // ────────────────────────────────────────────────────────────────
       // Build a reusable "applyQueryShape" function that applies every
       // WHERE/JOIN/scope to a fresh SelectQueryBuilder. We use this in
@@ -1145,13 +1156,19 @@ export class HybridQueryEngine implements QueryEngine {
             const textExpr = this.buildCfTextExprSql(fieldName, indexSources)
             if (textExpr) {
               const direction = sql.raw(coerceSortDirection(s.dir))
-              next = next.orderBy(sql`${textExpr} ${direction}`)
+              const kind = cfSortKinds.get(fieldName.slice(3))
+              const sortExpr = kind && NUMERIC_CF_SORT_KINDS.has(kind) ? sql`(${textExpr})::numeric` : textExpr
+              next = next.orderBy(sql`${sortExpr} ${direction} NULLS LAST`)
             }
           } else {
             const baseField = resolveBaseColumn(fieldName)
             if (!baseField) continue
             next = next.orderBy(qualify(baseField), s.dir ?? SortDir.Asc)
           }
+        }
+        const lastSortField = resolvedSorts.length ? String(resolvedSorts[resolvedSorts.length - 1].field) : null
+        if (resolvedSorts.length && lastSortField !== 'id') {
+          next = next.orderBy(qualify('id'), SortDir.Asc)
         }
         return next
       }
@@ -2200,6 +2217,51 @@ export class HybridQueryEngine implements QueryEngine {
       this.customFieldKeysCache.set(cacheKey, { expiresAt: now + this.customFieldKeysTtlMs, value: result })
     }
     return result.slice()
+  }
+
+  /**
+   * Resolve the declared `kind` for a set of `cf:` sort keys so `applySort` can
+   * cast numeric kinds instead of ordering by jsonb text (#5674). A tenant-scoped
+   * definition wins over a global one for the same key.
+   */
+  private async resolveCustomFieldSortKinds(
+    entityIds: string[],
+    tenantId: string | null,
+    keys: string[]
+  ): Promise<Map<string, string>> {
+    if (!entityIds.length || !keys.length) return new Map()
+    const cacheKey = `${this.customFieldKeysCacheKey(entityIds, tenantId)}|${keys.slice().sort().join(',')}`
+    const now = Date.now()
+    const cached = this.customFieldKindCache.get(cacheKey)
+    if (cached && cached.expiresAt > now) return new Map(cached.value)
+
+    const db = this.getDb() as any
+    const rows = await db
+      .selectFrom('custom_field_defs')
+      .select(['key', 'kind', 'tenant_id'])
+      .where('entity_id', 'in', entityIds)
+      .where('key', 'in', keys)
+      .where('is_active', '=', true)
+      .where((eb: any) => eb.or([
+        eb('tenant_id', '=', tenantId),
+        eb('tenant_id', 'is', null),
+      ]))
+      .execute() as Array<{ key: unknown; kind: unknown; tenant_id: unknown }>
+
+    const result = new Map<string, string>()
+    for (const row of rows) {
+      const key = typeof row.key === 'string' ? row.key : String(row.key)
+      const kind = typeof row.kind === 'string' ? row.kind : null
+      if (!kind) continue
+      const isTenantScoped = row.tenant_id != null
+      // A tenant-scoped definition overrides a global one for the same key;
+      // otherwise keep whichever was resolved first.
+      if (!result.has(key) || isTenantScoped) result.set(key, kind)
+    }
+    if (this.customFieldKeysTtlMs > 0) {
+      this.customFieldKindCache.set(cacheKey, { expiresAt: now + this.customFieldKeysTtlMs, value: new Map(result) })
+    }
+    return result
   }
 
   private async entityHasActiveCustomFields(entityId: string, tenantId: string | null): Promise<boolean> {
