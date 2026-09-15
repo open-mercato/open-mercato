@@ -34,7 +34,7 @@ merges.
 | General Ledger core engine | [`2026-08-18-general-ledger-core-engine.md`](https://github.com/open-mercato/open-mercato/pull/5663) + `...-implementation-guide.md` | `docs/spec-072-general-ledger-core-engine` | Open, PR #5663 — see Changelog for the two 2026-09-14 corrections (leaf-postability guard ownership; `reverseJournalEntry` event emission) |
 | Accounts Payable (invoices) | [`2026-09-06-accounts-payable.md`](https://github.com/open-mercato/open-mercato/pull/5962) | `docs/accounts-payable` | Open, PR #5962 — merged latest `develop`; first `financial-spec-writing-process` pass applied (own new Literature & Prior Art section + real-system comparison, commit `d572a4001`), see Changelog |
 | Accounts Payable (payments) | [`2026-09-06-accounts-payable-payments.md`](https://github.com/open-mercato/open-mercato/pull/5962) | `docs/accounts-payable` | Open, PR #5962 |
-| Journal Entry Line Dimension | [`2026-09-06-journal-entry-line-dimension.md`](https://github.com/open-mercato/open-mercato/pull/5972) | `docs/journal-entry-line-dimension` | Open, PR #5972 — written, not yet reviewed |
+| Journal Entry Line Dimension | [`2026-09-06-journal-entry-line-dimension.md`](https://github.com/open-mercato/open-mercato/pull/5972) | `docs/journal-entry-line-dimension` | Open, PR #5972 — merged latest `develop`; first `financial-spec-writing-process` pass applied (own new Literature & Prior Art section + real-system comparison, commit `3b3780bd6`), see Changelog |
 | GL account balances / Trial Balance (ZSiO) | [`2026-09-09-general-ledger-account-balances.md`](https://github.com/open-mercato/open-mercato/pull/6013) | `docs/general-ledger-account-balances` | Open, PR #6013 — merged latest `develop`; first `financial-spec-writing-process` pass applied (own new Literature & Prior Art section + real-system comparison, commit `8afb415a7`), see Changelog |
 | Fixed Assets | [`2026-09-06-fixed-assets.md`](https://github.com/open-mercato/open-mercato/pull/6014) | `docs/fixed-assets` | Open, PR #6014 — full spec, adversarially reviewed, Final Compliance Report: fully compliant; merged latest `develop` and `financial-spec-writing-process` Steps 2-3 applied (own new Literature & Prior Art section + real-system comparison, commit `fc1cf0464`), see Changelog |
 | Posting Rules Engine (konto 490) | [`2026-09-06-posting-rules-engine.md`](https://github.com/open-mercato/open-mercato/pull/6015) | `docs/posting-rules-engine` | Open, PR #6015 — two external-maintainer review rounds (nine issues, then eight more), both resolved; see the spec's own Changelog |
@@ -384,6 +384,29 @@ real):**
   three-system comparison, including enova365's dedicated "Odpis
   aktualizujący" document, the strongest real-system validation found yet
   for Fixed Assets' impairment flow.
+  **New 2026-09-15, for Journal Entry Line Dimension** (Accounting
+  Dimensions, docs.frappe.io, documentation-level, verified 2026-09-15):
+  the strongest real-system validation found for this module's own
+  design. ERPNext supports an open-ended number of custom accounting
+  dimensions and, critically, supports attaching dimension values at
+  the individual transaction-row level, not just the document level —
+  confirming `journal_entry_line_dimension`'s own line-level (not
+  document-level) choice against a mature, real production ERP. Genuine
+  divergence in mechanism: ERPNext implements each new dimension as a
+  dynamically generated schema field (a real column per dimension),
+  while our module stores every dimension type as rows in one flexible
+  table — precisely why a new `DIMENSION_TYPES` value here is a
+  one-line constant change, not a migration, unlike ERPNext's
+  schema-per-dimension approach. Comarch ERP Optima ("Opis
+  Analityczny," verified 2026-09-15) explicitly breaks document lines
+  into multiple dimensions at the individual line level — a second real
+  confirmation of the same line-level design choice, in this exact
+  market. enova365 names a similarly-titled "Opisy analityczne"
+  feature, but public documentation doesn't confirm multi-dimension-
+  per-line support specifically — recorded as unverified, not a match.
+  Comarch and enova365 aren't open source, so per the same convention
+  used for the other modules in this family they're recorded here and
+  in the spec's own section, not added as separate Tier 4 entries.
 - **GnuCash** docs (gnucash.org/docs/v5/C/gnucash-guide/bus_ap.html) —
   explicitly documents one shared AP GL account with per-vendor detail
   reconstructed via linked Vendor/Bill/Payment records. The cleanest
@@ -438,11 +461,23 @@ module (AR is next per SPEC-024's ordering) is designed:
   for defining rules across many accounts. Directly relevant precedent for
   the Posting Rules Engine draft's own 4→5 reclassification design — worth
   a compare-and-contrast once that spec moves past draft.
-- **Hay's Account Categories and Structure** (7.21, p.153–154) — a simple
-  hierarchical account roll-up. Our actual design (parentAccountId +
-  journal_entry_line_dimension split) is already more expressive than this
-  (supports multiple co-occurring dimensions, not just one hierarchy) — noted
-  as a validation that we're ahead of this particular pattern, not a gap.
+- **Hay's Account Categories and Structure** (7.21, p.153–154) —
+  **corrected 2026-09-15 for completeness, not accuracy**: this note
+  previously described 7.21 as only "a simple hierarchical account
+  roll-up." On independent re-verification, the same figure actually
+  shows *two* distinct mechanisms: the "pig's ear" single-parent
+  roll-up (which this note already had, and which our `parentAccountId`
+  is already ahead of by design — Hay himself notes generalizing it to
+  a DAG "would be extremely difficult to administer," independent
+  confirmation of the same single-parent-over-DAG caution already cited
+  from Fowler §6.15/Hay's Summarization section elsewhere in this
+  document), and ACCOUNT CATEGORY/ACCOUNT CLASSIFICATION — an explicit
+  many-to-many join this note missed entirely, real precedent for "more
+  than one independent tag on the same thing at once," the same shape
+  `journal_entry_line_dimension` has, but at the account level rather
+  than the line level. Full correction recorded in
+  `2026-09-06-journal-entry-line-dimension.md`'s own new Literature &
+  Prior Art section.
 
 None of the above are confirmed gaps — they're specific, checkable questions
 that this pass didn't have time to answer. Worth another verification round
@@ -488,7 +523,10 @@ pointed at the wrong section.
   third option is structurally the closest match to what
   `journal_entry_line_dimension` actually does (a queryable attribute on the
   line, not an account). This is a stronger, more precise citation for that
-  module than 6.8 — worth swapping in.
+  module than 6.8 — worth swapping in. **Applied 2026-09-15**: independently
+  re-verified (still accurate on a second read) and cited in
+  `2026-09-06-journal-entry-line-dimension.md`'s own new Literature & Prior
+  Art section as the strongest match found in either book.
 
 **Fixed Assets (Hay, now fully verified, not just a figure title):**
 - 7.10 Depreciation (p.135) — confirmed for the DEBIT-expense/CREDIT-asset-
@@ -524,6 +562,25 @@ pointed at the wrong section.
   `2026-09-06-fixed-assets.md`'s own new Literature & Prior Art section.
 
 **Chart of Accounts / `journal_entry_line_dimension`:**
+- **New 2026-09-15 — Hay's Cost Center Assignment (Figure 7.19
+  "Allocating Expenses," pp.150-151), confirmed, and a more precise
+  match than 7.21 below for the `CostCenter` dimension type this
+  module names literally.** Hay models a COST CENTER ASSIGNMENT that
+  can be "of" a broad, open-ended set of entities (internal
+  organization, work centre, piece of equipment/product, project, or
+  "(something else)"), explicitly because "the possibilities for
+  allocating expenses are so broad, COST CENTER could refer to
+  virtually anything." That open placeholder is what
+  `journal_entry_line_dimension`'s own `DIMENSION_TYPES` enum
+  enumerates concretely instead of leaving unbounded. Difference worth
+  keeping precise: Hay's assignment is anchored on the EXPENSE
+  ACCOUNT (an account-level tag); this module's dimension row is
+  anchored on the individual `JournalEntryLine` — one level more
+  granular. Figure 7.19 itself only models the one COST CENTER
+  dimension, not several co-occurring ones — for that, 6.15 below
+  remains the closer match. Full detail in
+  `2026-09-06-journal-entry-line-dimension.md`'s own new Literature &
+  Prior Art section.
 - 6.3 Summary Account — confirmed real (already verified in depth earlier this
   session); structurally a GL-level hierarchy roll-up, not the same shape as
   our dimension table (already noted in §3/§4 above).
@@ -885,3 +942,42 @@ ever recorded here (marked **proposed, not applied** — see §1 Notes):
 - Cross-checked against this document's own §2 conventions — none apply
   directly (no control-account modeling, no new commands, no new tagging
   mechanism) — no changes needed to §2.
+
+### 2026-09-15 (Journal Entry Line Dimension — financial-spec-writing-process applied for the first time)
+
+- `2026-09-06-journal-entry-line-dimension.md` (PR #5972): merged
+  latest `develop` (166 commits) first; unlike the clean auto-merges
+  for AP/GL Account Balances/Fixed Assets, this one had a real
+  conflict — both branches added a new row to `.ai/specs/README.md`'s
+  Pending Specifications table at the same position. Resolved by
+  keeping both rows, in date order; commit `65c6a15e4`.
+- Added that document's first "Literature & Prior Art" section (commit
+  `3b3780bd6`). Independently re-verified two citations already sitting
+  in this knowledge base under that document's own entry (see the Tier
+  3/§4 entries above): Fowler §6.15 "Booking Entries to Multiple
+  Accounts" (confirmed accurate on a second read — the strongest match
+  in either book for JELD's own "more than one simultaneous dimension"
+  problem); Hay §7.21 "Account Categories and Structure" (corrected for
+  completeness — the prior note described only the single-parent
+  roll-up half of the figure, missing that the same figure also shows
+  an ACCOUNT CATEGORY/ACCOUNT CLASSIFICATION many-to-many join). Added
+  one citation this knowledge base never had: Hay's Cost Center
+  Assignment (Figure 7.19, pp.150-151) — a more precise match than 7.21
+  for the `CostCenter` dimension type JELD names literally. Also
+  recorded a genuine absence: Kieso has nothing on cost centres,
+  responsibility accounting, or per-transaction analytical dimensions
+  anywhere.
+- Added a real-system comparison (JELD had none before): ERPNext
+  (Accounting Dimensions — the strongest validation found, confirming
+  line-level multi-dimensional tagging against a mature open-source
+  ERP via a different mechanism, dynamically generated schema fields
+  rather than JELD's flexible dimension-type rows — see the new Tier 4
+  note above), Comarch ERP Optima ("Opis Analityczny" — explicitly
+  breaks document lines into multiple dimensions, a second real
+  confirmation of line-level tagging in this exact market), and
+  enova365 (a similarly-named "Opisy analityczne" feature exists, but
+  public documentation doesn't confirm multi-dimension-per-line support
+  specifically — recorded as unverified, not a match).
+- Cross-checked against this document's own §2 conventions — JELD is
+  already one of the three sources §2's "Three distinct tagging
+  mechanisms" convention was built from; no changes needed.
