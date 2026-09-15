@@ -34,5 +34,5 @@ Current status: implementation in progress.
 
 ### Phase 2: Verification and PR
 
-- [ ] 2.1 Run focused and applicable validation checks.
+- [x] 2.1 Run focused and applicable validation checks — `node --test scripts/__tests__/docker-production-runtime.test.mjs` passed; `yarn test:scripts` passed (952 passed, 1 skipped); repository-wide `typecheck` and `build:packages` are blocked by the pre-existing shared worktree dependency setup (`@open-mercato/web-research` / `typescript-js` resolution).
 - [ ] 2.2 Review, push, and open the PR against `develop`.
