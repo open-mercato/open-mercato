@@ -32,7 +32,7 @@ merges.
 |---|---|---|---|
 | Contractor Registry | [`2026-09-06-contractor-registry.md`](https://github.com/open-mercato/open-mercato/pull/5955) + `...-implementation-guide.md` | `docs/contractor-registry` | Open, PR #5955 — full spec, closed external maintainer review (two blockers + six majors fixed); Final Compliance Report: ready for maintainer review; literature/real-system findings from the 2026-09-12 pass are proposed, not yet applied (see Notes below the table and Changelog) |
 | General Ledger core engine | [`2026-08-18-general-ledger-core-engine.md`](https://github.com/open-mercato/open-mercato/pull/5663) + `...-implementation-guide.md` | `docs/spec-072-general-ledger-core-engine` | Open, PR #5663 — see Changelog for the two 2026-09-14 corrections (leaf-postability guard ownership; `reverseJournalEntry` event emission) |
-| Accounts Payable (invoices) | [`2026-09-06-accounts-payable.md`](https://github.com/open-mercato/open-mercato/pull/5962) | `docs/accounts-payable` | Open, PR #5962 |
+| Accounts Payable (invoices) | [`2026-09-06-accounts-payable.md`](https://github.com/open-mercato/open-mercato/pull/5962) | `docs/accounts-payable` | Open, PR #5962 — merged latest `develop`; first `financial-spec-writing-process` pass applied (own new Literature & Prior Art section + real-system comparison, commit `d572a4001`), see Changelog |
 | Accounts Payable (payments) | [`2026-09-06-accounts-payable-payments.md`](https://github.com/open-mercato/open-mercato/pull/5962) | `docs/accounts-payable` | Open, PR #5962 |
 | Journal Entry Line Dimension | [`2026-09-06-journal-entry-line-dimension.md`](https://github.com/open-mercato/open-mercato/pull/5972) | `docs/journal-entry-line-dimension` | Open, PR #5972 — written, not yet reviewed |
 | GL account balances / Trial Balance (ZSiO) | [`2026-09-09-general-ledger-account-balances.md`](https://github.com/open-mercato/open-mercato/pull/6013) | `docs/general-ledger-account-balances` | Open, PR #6013 — written, not yet reviewed |
@@ -243,6 +243,31 @@ Fowler nor Hay use those exact terms):**
   contain. Full detail and the Phase-2 design sketch built on it are in
   `2026-09-11-jpk-kr-pd-financial-pl.md` (SPEC-010 draft) itself, not
   duplicated here.
+  **New 2026-09-15 — Ch.13 "Current Liabilities and Contingencies,"
+  p.13-4, read for Accounts Payable.** Confirmed: "Accounts payable, or
+  trade accounts payable, are balances owed to others for goods,
+  supplies, or services purchased on open account," arising "because
+  of the time lag between the receipt of services or acquisition of
+  assets and the payment for them," with an explicit warning that "a
+  company must pay special attention to transactions occurring near
+  the end of one accounting period and at the beginning of the next.
+  It needs to ascertain that the record of goods received (the
+  inventory) agrees with the liability (accounts payable), and that
+  it records both in the proper period." Directly grounds Accounts
+  Payable's own account-300 (GR/IR) timing-gap design decision — a
+  recognized, generic accounting concern, not a project invention.
+  **Correction to how Ch.3 has been cited**: Ch.3's "Basic
+  Terminology" box (p.3-5, quoted above) defines "Ledger"/"subsidiary
+  ledger" only generically — it does not define "control account" as
+  its own term. That term appears in Kieso only tied to the
+  receivable-side footnote (Ch.7, p.7-12, fn.5).
+  `2026-08-18-sales-invoice-gl-posting.md`'s own Literature & Prior
+  Art section (PR #6046) describes Ch.3 as giving "the general...
+  definition used for Accounts Payable's payable side" for "control
+  account" specifically — that phrasing is imprecise; Accounts
+  Payable's own new Literature & Prior Art section (PR #5962) carries
+  the corrected citation. Not edited in the AR file itself (out of
+  scope for the AP pass) — noted here so a future pass can fix it.
 - Free alternative: Lumen Learning, *Financial Accounting*, chapter
   literally titled "Subsidiary Ledgers and Control Accounts"
   (courses.lumenlearning.com/finaccounting/chapter/subsidiary-ledgers-and-control-accounts)
@@ -274,7 +299,15 @@ compliant*):**
   Account Type, Account Categories and Structure, Cost/Revenue Center
   Assignment) — read in full; the ACCOUNTS PAYABLE pseudo-entity discussion
   (pp.124–130) is the closest real textual match to our control-account
-  design of anything found so far. Ch.6 "Contracts" (Purchase
+  design of anything found so far. **Confirmed and applied 2026-09-15**
+  in Accounts Payable's own new Literature & Prior Art section: Figure
+  7.1 "Accounts" (pp.119-120, "A LIABILITY ACCOUNT is any amount owed to
+  another party") and Figure 7.6 "Expenses" (pp.129-130, the VENDOR
+  BILL/VENDOR PAYMENT pattern, quoted verbatim there) are a near 1:1
+  structural match to `postVendorInvoice` (VENDOR BILL: expense debit +
+  liability credit) and the sibling payments module's
+  `markPaymentBatchSent` (VENDOR PAYMENT: liability debit + cash credit).
+  Ch.6 "Contracts" (Purchase
   Orders/Sales Orders, Contract Roles, pp.95–116) has **not** been read yet
   — flagged in §4 as the most promising unexamined lead for AP/AR vendor
   modeling.
@@ -657,3 +690,43 @@ ever recorded here (marked **proposed, not applied** — see §1 Notes):
   gave the memo and the Fowler/Hay citations something a future reader
   can actually check (n3); dropped the ambiguous "draft" wording for
   PR #6038 (n4).
+
+### 2026-09-15 (Accounts Payable — financial-spec-writing-process, first pass)
+
+- `2026-09-06-accounts-payable.md` (PR #5962): merged latest `develop`
+  (166 commits) first, resolving one trivial conflict in this repo's
+  own `.ai/specs/README.md` (two independently inserted table rows at
+  the same position — kept both); commit `f7c860df9`.
+- Added Accounts Payable's first "Literature & Prior Art" section
+  (commit `d572a4001`): Kieso Ch.13 (p.13-4, AP definition + the GR/IR
+  timing warning — direct grounding for the account-300 design
+  decision); Kieso Ch.3 (pp.3-4–3-5, Ledger/subsidiary-ledger
+  definition) with a correction of how
+  `sales-invoice-gl-posting.md`'s own citation described that same
+  section (see the Tier 2/Kieso entry in §3 above — not edited in the
+  AR file itself, only noted); Hay Ch.7 Figures 7.1 and 7.6
+  (pp.119-120, 129-130 — VENDOR BILL/VENDOR PAYMENT, a near 1:1 match
+  to this module and its payments sibling, now promoted from "closest
+  textual match" to a confirmed, applied citation — see the Tier
+  3/Hay entry in §3 above); a confirmed absence in Fowler (zero
+  "accounts payable"/"payable" matches anywhere in *Analysis
+  Patterns*).
+- Added a real-system comparison: ERPNext (genuine three-way matching
+  via PO/Purchase Receipt, confirming this document's Phase 2
+  deferral is a real simplification; automatic post-on-submit GL
+  posting, unlike this document's explicit two-step approve-then-post;
+  "Stock Received But Not Billed" as the two-sided GR/IR account this
+  document's own account 300 implements only one leg of; a dedicated
+  Accounts Payable Ageing report this document has no equivalent of),
+  Comarch ERP Optima (an explicit, separate booking step closer to
+  this document's own two-step design than ERPNext's; no PO/three-way
+  matching in its cost-invoice register flow either; no aging-bucket
+  report in its base tier, only due-date-filterable unreconciled-
+  document lists), and enova365 (a partial, inconclusive check —
+  confirmed real AP-adjacent settlement documents exist that neither
+  this document nor the other two comparisons mention, recorded as
+  genuinely unverified beyond that, not a confirmed absence).
+- Cross-checked against this document's own §2 conventions (control
+  account/subsidiary ledger, account-number-illustrative-only,
+  per-command event documentation) — already compliant on all three;
+  no changes needed to §2.
