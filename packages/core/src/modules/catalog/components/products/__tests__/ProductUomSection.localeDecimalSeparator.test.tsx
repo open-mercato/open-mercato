@@ -93,8 +93,9 @@ describe('ProductUomSection locale decimal separator (issue #5828)', () => {
     const input = document.getElementById(
       'catalog-product-uom-default-sales-quantity',
     ) as HTMLInputElement
-    fireEvent.change(input, { target: { value: '' } })
-    typeSequentially(input, '12.5')
-    expect(input.value).toBe('12.5')
+    // Same "field defaults to 1" behavior as the comma-decimal test above.
+    expect(input.value).toBe('1')
+    typeSequentially(input, '.25')
+    expect(input.value).toBe('1.25')
   })
 })
