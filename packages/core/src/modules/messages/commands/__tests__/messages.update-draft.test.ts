@@ -208,6 +208,22 @@ describe('messages.messages.update_draft command send transition', () => {
     )
   })
 
+  it('preserves explicit false when sending a public draft', async () => {
+    const { command, ctx } = createHarness({
+      visibility: 'public',
+      externalEmail: 'customer@example.com',
+      sendViaEmail: true,
+    }, [])
+
+    await command.execute(updateInput({ sendViaEmail: false }), ctx)
+
+    expect(emitMessagesEventMock).toHaveBeenCalledWith(
+      'messages.message.sent',
+      expect.objectContaining({ sendViaEmail: false }),
+      { persistent: true },
+    )
+  })
+
   it('rolls back the transaction and emits no events when the atomic flush fails', async () => {
     const { command, emFork, eventBus, ctx } = createHarness({}, [
       { recipientUserId, recipientType: 'to', deletedAt: null },

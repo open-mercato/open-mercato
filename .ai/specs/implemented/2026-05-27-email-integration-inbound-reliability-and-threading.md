@@ -29,7 +29,9 @@
 - Inbound matcher invocation in `commands/ingest-inbound-message.ts`.
 - IMAP worker rewrite in `packages/channel-imap/src/modules/channel_imap/lib/adapter.ts` + `imap-client.ts`: bootstrap, incremental, per-message commit, socket timeout, sent-folder dedup.
 - Auto-recovery sweeper folded into existing `workers/poll-tick.ts` (extends the predicate, no new worker).
-- New API `POST /api/communication_channels/channels/{id}/import-history` + worker `channel-import-history`.
+- New API `POST /api/communication_channels/channels/{id}/import-history` + worker `channel-import-history`,
+  which dispatches `communication_channels.message.import_inbound` so backfilled messages are
+  materialized without live recipient notifications.
 - New ACL feature `communication_channels.channel.import_history`.
 - Integration tests TC-CHANNEL-EMAIL-021…030 using **mocked `imapflow`** in-process fixtures (no Docker, no Greenmail).
 

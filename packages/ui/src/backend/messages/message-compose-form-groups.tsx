@@ -309,15 +309,6 @@ function EmailDeliverySection({ compose }: ComposeProps) {
     return null
   }
 
-  if (compose.isComposePublicVisibility) {
-    return (
-      <div className="rounded border px-3 py-2">
-        <p className="text-sm font-medium">{compose.t('messages.sendViaEmail', 'Also send via email')}</p>
-        <p className="text-xs text-muted-foreground">{compose.t('messages.sendViaEmailForcedPublic', 'For public visibility, email delivery is always enabled.')}</p>
-      </div>
-    )
-  }
-
   return (
     <div className="flex items-center justify-between rounded border px-3 py-2">
       <div>
