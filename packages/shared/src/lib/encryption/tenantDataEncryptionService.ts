@@ -34,6 +34,10 @@ const MAP_MISS_TTL_MS = 5 * 60 * 1000
 // up by long-lived processes without a restart (#2746). The service-level cache
 // previously had no TTL and shadowed the KMS's own 15-minute expiry.
 const DEK_CACHE_TTL_MS = 15 * 60 * 1000
+// Matches the `{ ttl: 300 }` passed to the `CacheStrategy` layer for the all-organizations
+// aggregate, so a process that only ever hits its own memory entry (no shared cache configured,
+// or already warm) still picks up a runtime map edit within the same bound (#6066).
+const AGGREGATE_CACHE_TTL_MS = 300 * 1000
 
 function cacheKey(key: MapCacheKey): string {
   return [
@@ -143,7 +147,7 @@ function normalizeEncryptedFieldNames(fields: readonly { field?: unknown }[] | n
  * contributes its `hashField` when the winning rule declares none, so merging an organization-scoped
  * map into a tenant-wide one never silently retargets an existing lookup-hash column.
  */
-function mergeEncryptedFieldRules(...groups: readonly EncryptedFieldRule[][]): EncryptedFieldRule[] {
+function mergeEncryptedFieldRules(groups: readonly EncryptedFieldRule[][]): EncryptedFieldRule[] {
   const merged: EncryptedFieldRule[] = []
   const byField = new Map<string, EncryptedFieldRule>()
   for (const group of groups) {
@@ -201,6 +205,7 @@ function getSqlConnection(em: EntityManager): SqlConnection | null {
 
 export class TenantDataEncryptionService {
   private static globalMemoryCache = new Map<string, EncryptionMapRecord>()
+  private static globalAggregateMemoryCache = new Map<string, { at: number; record: EncryptionMapRecord }>()
   private static globalInflightMaps = new Map<string, Promise<EncryptionMapRecord | null>>()
   private static globalDekCache = new Map<string, TenantDek>()
   private static globalInflightDeks = new Map<string, Promise<TenantDek | null>>()
@@ -208,6 +213,7 @@ export class TenantDataEncryptionService {
   private readonly kms: KmsService
   private readonly cache?: CacheStrategy
   private readonly memoryCache = TenantDataEncryptionService.globalMemoryCache
+  private readonly aggregateMemoryCache = TenantDataEncryptionService.globalAggregateMemoryCache
   private readonly dekCache = TenantDataEncryptionService.globalDekCache
   private readonly inflightDeks = TenantDataEncryptionService.globalInflightDeks
   private readonly inflightMaps = TenantDataEncryptionService.globalInflightMaps
@@ -415,7 +421,7 @@ export class TenantDataEncryptionService {
       if (!row || typeof row !== 'object') continue
       groups.push(normalizeEncryptedFieldRules(readEncryptedFieldsJson(row as Record<string, unknown>)))
     }
-    return mergeEncryptedFieldRules(...groups)
+    return mergeEncryptedFieldRules(groups)
   }
 
   /**
@@ -433,11 +439,18 @@ export class TenantDataEncryptionService {
       if (missExpiresAt > Date.now()) return []
       this.missCache.delete(tag)
     }
-    const mem = this.memoryCache.get(tag)
-    if (mem) return mem.fields
+    const mem = this.aggregateMemoryCache.get(tag)
+    if (mem) {
+      if (mem.at + AGGREGATE_CACHE_TTL_MS > Date.now()) return mem.record.fields
+      this.aggregateMemoryCache.delete(tag)
+    }
     if (this.cache && typeof this.cache.get === 'function') {
       const cached = await this.cache.get(tag)
-      if (cached) return (cached as EncryptionMapRecord).fields
+      if (cached) {
+        const record = cached as EncryptionMapRecord
+        this.aggregateMemoryCache.set(tag, { at: Date.now(), record })
+        return record.fields
+      }
     }
     const inflight = this.inflightMaps.get(tag)
     if (inflight) return (await inflight)?.fields ?? []
@@ -457,7 +470,7 @@ export class TenantDataEncryptionService {
       return []
     }
     this.missCache.delete(tag)
-    this.memoryCache.set(tag, loaded)
+    this.aggregateMemoryCache.set(tag, { at: Date.now(), record: loaded })
     if (this.cache && typeof this.cache.set === 'function') {
       await this.cache.set(tag, loaded, { ttl: 300 })
     }
@@ -480,14 +493,15 @@ export class TenantDataEncryptionService {
     map: EncryptionMapRecord | null,
   ): Promise<EncryptedFieldRule[]> {
     const mapRules = normalizeEncryptedFieldRules(map?.fields)
-    if (organizationId != null) return mergeEncryptedFieldRules(mapRules)
-    return mergeEncryptedFieldRules(mapRules, await this.getAllOrganizationFieldRules(entityId, tenantId))
+    if (organizationId != null) return mapRules
+    return mergeEncryptedFieldRules([mapRules, await this.getAllOrganizationFieldRules(entityId, tenantId)])
   }
 
   async invalidateMap(entityId: string, tenantId: string | null, organizationId: string | null): Promise<void> {
     const tags = [cacheKey({ entityId, tenantId, organizationId }), allOrganizationsCacheKey(entityId, tenantId)]
     for (const tag of tags) {
       this.memoryCache.delete(tag)
+      this.aggregateMemoryCache.delete(tag)
       this.inflightMaps.delete(tag)
       this.missCache.delete(tag)
       if (this.cache && typeof (this.cache as any).delete === 'function') {

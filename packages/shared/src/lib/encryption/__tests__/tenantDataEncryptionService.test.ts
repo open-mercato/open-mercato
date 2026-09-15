@@ -416,4 +416,21 @@ describe('TenantDataEncryptionService tenant-wide scope parity (issue #5949)', (
     const aggregateReads = execute.mock.calls.filter(([, params]) => (params as unknown[]).length === 2)
     expect(aggregateReads).toHaveLength(1)
   })
+
+  it('re-reads the all-organizations aggregate once its memory entry passes the 300s TTL', async () => {
+    const entityId = 'test:parity_expired_cache_entity'
+    const { service, execute } = makeService(entityId)
+    const nowSpy = jest.spyOn(Date, 'now')
+
+    nowSpy.mockReturnValue(1_000_000)
+    await service.encryptEntityPayload(entityId, { description: 'first' }, tenantId, null)
+
+    nowSpy.mockReturnValue(1_000_000 + 300_000 + 1)
+    await service.encryptEntityPayload(entityId, { description: 'second' }, tenantId, null)
+
+    nowSpy.mockRestore()
+
+    const aggregateReads = execute.mock.calls.filter(([, params]) => (params as unknown[]).length === 2)
+    expect(aggregateReads).toHaveLength(2)
+  })
 })
