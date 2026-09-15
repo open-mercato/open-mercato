@@ -1,0 +1,83 @@
+/**
+ * Node ESM resolution for `next/<subpath>` in the standalone MCP processes (#6118).
+ *
+ * `mercato ai_assistant mcp:serve-http` (and `mcp:serve`, `mcp:dev`,
+ * `mcp:list-tools`) run in plain Node, and the AI API operation runner loads
+ * API route modules with a runtime `import()`. Those modules import
+ * `NextResponse` from `'next/server'`: a bare package subpath that only a
+ * bundler resolves, because `next` ships no `exports` map and Node's ESM
+ * resolver does no extension guessing. Every route with that import (287 of
+ * them on the 0.7.0 packages) therefore fails to load with
+ * `ERR_MODULE_NOT_FOUND … node_modules/next/server`, and every tool backed by
+ * such a route returns "Failed to load route module".
+ *
+ * `next/server.js`, `next/headers.js`, `next/navigation.js` … do exist as files,
+ * which is why `@open-mercato/shared` imports `'next/headers.js'`. Rather than
+ * rewriting several hundred imports across every package (and every
+ * third-party module), this hook retries a failed bare `next/<subpath>` with
+ * the `.js` suffix. It only runs in the processes that install it, only for
+ * `next/*` specifiers, and only after the normal resolution failed, so it
+ * becomes a no-op the day `next` publishes an `exports` map.
+ */
+import { registerHooks } from 'node:module'
+
+type ResolveContext = Record<string, unknown>
+type ResolveResult = { url: string; format?: string | null | undefined; shortCircuit?: boolean }
+type NextResolve = (specifier: string, context?: ResolveContext) => ResolveResult
+
+/** Bare `next/<one segment>` specifiers, e.g. `next/server`, `next/headers`. */
+const NEXT_BARE_SUBPATH = /^next\/[A-Za-z0-9_-]+$/
+
+let installed = false
+
+function isModuleNotFound(error: unknown): boolean {
+  return Boolean(error) && typeof error === 'object' && (error as { code?: unknown }).code === 'ERR_MODULE_NOT_FOUND'
+}
+
+/**
+ * The resolve hook itself. Exported so it can be tested without touching the
+ * process-global hook chain.
+ */
+export function resolveNextSubpath(
+  specifier: string,
+  context: ResolveContext,
+  nextResolve: NextResolve,
+): ResolveResult {
+  if (!NEXT_BARE_SUBPATH.test(specifier)) return nextResolve(specifier, context)
+  try {
+    return nextResolve(specifier, context)
+  } catch (error) {
+    if (!isModuleNotFound(error)) throw error
+    try {
+      return nextResolve(`${specifier}.js`, context)
+    } catch {
+      // Neither form resolves (Next is not installed at all): surface the
+      // original error, which names the specifier the caller wrote.
+      throw error
+    }
+  }
+}
+
+type RegisterHooks = (hooks: { resolve: typeof resolveNextSubpath }) => unknown
+
+/**
+ * Install the hook once per process. Returns `true` when it was installed by
+ * this call, `false` when it already was or when the runtime has no
+ * `module.registerHooks` (Node < 22.15; `registerHooks` is then `undefined`
+ * and nothing changes). `register` is a test seam: pass `null` to simulate a
+ * runtime without the API.
+ */
+export function installNextSubpathResolveHook(
+  register: RegisterHooks | null | undefined = registerHooks as RegisterHooks | undefined,
+): boolean {
+  if (installed) return false
+  if (typeof register !== 'function') return false
+  register({ resolve: resolveNextSubpath })
+  installed = true
+  return true
+}
+
+/** Test seam: forget that the hook was installed. */
+export function resetNextSubpathResolveHookForTests(): void {
+  installed = false
+}
