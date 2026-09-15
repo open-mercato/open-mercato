@@ -371,6 +371,158 @@ chart-of-accounts level.
   they **know what to do next (move the date, or ask for the period to
   be unlocked)**.
 
+## Literature & Prior Art
+
+Per the project's financial-spec-writing-process, this section records
+what the accounting/data-modeling literature and comparable real
+systems say about this module's core mechanisms — the liability/
+control-account structure, the account-300 (GR/IR) timing gap, and the
+invoice-lifecycle-then-payment split — rather than re-deriving them
+from the workshop wall alone. All citations below were verified
+against full extracted text (not chapter titles alone); see
+`financial-module-knowledge-base.md` §3 for the verification trail.
+
+**Accounts Payable is a standard, textbook-recognized current
+liability, and the account-300 timing gap this document accepts is
+exactly the problem Kieso itself calls out — not an invented
+complication.** Kieso, *Intermediate Accounting*, 17th Ed., Ch. 13
+("Current Liabilities and Contingencies"), p. 13-4, defines: "Accounts
+payable, or trade accounts payable, are balances owed to others for
+goods, supplies, or services purchased on open account," arising
+"because of the time lag between the receipt of services or
+acquisition of assets and the payment for them," and warns that "a
+company must pay special attention to transactions occurring near the
+end of one accounting period and at the beginning of the next. It
+needs to ascertain that the record of goods received (the inventory)
+agrees with the liability (accounts payable), and that it records both
+in the proper period." This is precisely account 300's design problem
+(Design decisions, "Account 300 (GR/IR): a deliberately one-sided,
+transitional gap") — Kieso confirms the goods-received-vs-invoice-
+received timing mismatch is a recognized, generic accounting concern,
+not a Polish- or this-codebase-specific invention.
+
+**The control-account/subsidiary-ledger design (`liabilityAccountId` +
+per-vendor `VendorInvoice` rows) rests on Kieso's general
+ledger/subsidiary-ledger distinction — but Kieso does not define
+"control account" as its own term outside the receivable side, a
+correction worth recording.** Kieso, Ch. 3 ("Basic Terminology"), pp.
+3-4–3-5, "Ledger" entry: "A general ledger is a collection of all the
+asset, liability, stockholders' equity, revenue, and expense accounts.
+A subsidiary ledger contains the details related to a given general
+ledger account." — this is the real basis for the control-account/
+subsidiary-ledger split this module (and Contractor Registry, GL
+account balances) already uses. **Correction**:
+`2026-08-18-sales-invoice-gl-posting.md`'s own Literature & Prior Art
+section (added 2026-09-12) contrasts its Ch.7 receivable-specific
+footnote against "the general Ch.3 'Basic Terminology' definition used
+for Accounts Payable's payable side" — but full-text search confirms
+Ch.3's "Basic Terminology" glossary defines "Ledger"/"subsidiary
+ledger" generically, not "control account" as a distinct term; the
+term "control account" itself appears in Kieso only tied to the
+receivable-side footnote (Ch.7, p.7-12, fn.5) and scattered
+inventory-costing exercises, never as its own payable-side definition.
+This document's own citation above is therefore the first accurate
+Kieso grounding for AP's side of the pattern — the general
+ledger/subsidiary-ledger distinction is confirmed, but "control
+account" as a named term is not, on the payable side, something Kieso
+itself provides.
+
+**Hay's own accounting-pattern chapter models this module's exact
+shape — VENDOR BILL and VENDOR PAYMENT, not a generic invention.**
+Hay, *Data Model Patterns*, Ch. 7 ("Accounting"), Figure 7.1
+"Accounts," pp. 119–120: "A LIABILITY ACCOUNT is any amount owed to
+another party" (one of the three basic account kinds, alongside ASSET
+and EQUITY) — the general basis for `accounts_payable.liabilityAccountId`.
+More specifically, Figure 7.6 "Expenses," pp. 129–130: "when the
+company buys something and receives an invoice for it, a VENDOR
+BILL... is created. This transaction must be composed of one or more
+EQUITY (EXPENSE) DEBITS, each of which is a decrement in an EXPENSE
+ACCOUNT. The VENDOR BILL must also be composed of one or more
+LIABILITY CREDITS, each of which must be an increment in an ACCOUNTS
+PAYABLE LIABILITY ACCOUNT... When the organization pays its bills,
+through a VENDOR PAYMENT, one or more LIABILITY DEBITS are involved,
+each of which must be a decrement in the ACCOUNTS PAYABLE LIABILITY
+ACCOUNT... The VENDOR PAYMENT must also be composed of one or more
+ASSET CREDITS, each of which must be a decrement in a CASH ASSET
+ACCOUNT." This is a near 1:1 structural match to this document's own
+design: `postVendorInvoice`'s per-line net DR to an expense `accountId`
+plus CR to `liabilityAccountId` is exactly Hay's VENDOR BILL, and the
+sibling `accounts_payable_payments` module's `markPaymentBatchSent`
+(DR `liabilityAccountId`, CR cash) is exactly Hay's VENDOR PAYMENT —
+confirming the split between this document and its payments sibling
+follows a well-established data-modeling pattern, not an arbitrary
+Phase-1 convenience.
+
+**Fowler has nothing specific to Accounts Payable — a confirmed
+absence, not a gap in this research.** Full-text search of *Analysis
+Patterns* for "accounts payable"/"payable" returns zero matches
+anywhere in the book. Fowler's own accounting chapter (ch.6, "Inventory
+and Accounting") covers Account/Transaction/Posting Rules/
+Corresponding Account/Summary Account — already the basis for GL's and
+the Posting Rules Engine's own citations — but has no vendor-liability-
+specific pattern this document could draw on beyond the generic
+double-entry mechanics both those specs already ground.
+
+**ERPNext confirms this document's Phase 1 simplifications are
+deliberate, checkable divergences from a fuller real-system baseline,
+not oversights.** docs.frappe.io/erpnext/purchase-invoice (verified
+2026-09-15): ERPNext supports genuine three-way matching — a Purchase
+Invoice can be created "From Purchase Order" or "From Purchase
+Receipt," copying quantities/rates/references and "updat[ing] billed
+quantities on linked Purchase Orders or Purchase Receipts" — exactly
+the PO→GR→Invoice flow this document's own Design decisions confirm
+the workshop wall rejected for Phase 1 (two-way only: goods receipt →
+invoice, no PO). GL posting in ERPNext is automatic on submission
+("Submitting a Purchase Invoice normally: credits the Supplier payable
+account; debits expense, asset, stock, or Stock Received But Not
+Billed accounts... posts tax and additional-charge ledgers") — a
+one-step design, unlike this document's explicit `APPROVED` →
+`POSTED` two-step split via a separate `postVendorInvoice` command.
+Most directly relevant to account 300: ERPNext's own "**Stock Received
+But Not Billed**" account is the same GR/IR clearing concept this
+document implements only one side of — ERPNext posts *both* legs
+(crediting it on Purchase Receipt, debiting it on Purchase Invoice)
+because its own goods-receipt step posts financially, which is exactly
+the missing WMS-side leg this document's Risks & Impact Review already
+names as the reason account 300 doesn't zero out here. Finally,
+ERPNext ships a dedicated **Accounts Payable Ageing** report/dashboard
+(aging buckets by supplier, e.g. "121 days and above") that this
+document has no equivalent of anywhere — not even the invoice list's
+`dueDateFrom`/`dueDateTo` filters build toward true aging buckets.
+Worth recording as a real Phase 2 candidate, not silently absent.
+
+**Comarch ERP Optima's base tier matches this document's own two-step,
+no-three-way-matching design more closely than ERPNext does — a
+market-consistent simplification, not an arbitrary one.**
+pomoc.comarch.pl's VAT Registry documentation (verified 2026-09-15)
+describes an explicit, separate booking step for a purchase-cost
+invoice — "Księguj" (F7), "active only on the [Rejestr VAT] tab" —
+moving a document from the VAT register into the accounting books,
+structurally the same shape as this document's own `APPROVED` →
+(separate) `postVendorInvoice` split, and closer to it than ERPNext's
+auto-post-on-submit. The same documentation makes no mention of
+purchase-order or goods-receipt matching anywhere in the cost-invoice
+registration flow — consistent with this document's own Phase 2
+deferral of three-way matching being a reasonable fit for this market
+segment, not just a convenient cut. On aging: Optima's base tier
+(without its separate BI module) offers only due-date-filterable
+"unreconciled documents" lists (`Dokumenty nierozliczone`, `Lista
+dokumentów nierozliczonych`), not named aging-bucket reports — true
+"wiekowanie" (aging) requires Optima BI. This document's own
+`dueDateFrom`/`dueDateTo` filter is roughly at parity with Optima's
+base tier, not behind it.
+
+**enova365 — a partial, inconclusive check.** enova365's own
+accounting-module marketing page (verified 2026-09-15) confirms real
+AP-adjacent settlement documents exist — "noty odsetkowe, ponaglenia
+zapłaty, potwierdzenia salda" (interest notes, payment reminders,
+balance confirmations) — none of which this document or the
+ERPNext/Comarch comparisons above mention, worth naming as a real
+Phase 2 candidate. The page gives no detail on three-way matching or
+aging specifically, so — per this project's citation-check discipline
+— this is recorded as genuinely unverified from public documentation,
+not as a confirmed absence.
+
 ## Architecture
 
 ### Entities (`data/entities.ts`)
@@ -1533,3 +1685,45 @@ operation date. Threaded through Architecture → Commands
 (`postVendorInvoice`) and Testing Strategy. No schema change in this
 document — `VendorInvoice` already had both source fields; this only
 changes what `postVendorInvoice` sends downstream.
+
+### 2026-09-15 (financial-spec-writing-process applied for the first time)
+
+- Merged `upstream/develop` (166 commits) to bring the branch current
+  before this pass; resolved one trivial conflict in
+  `.ai/specs/README.md` (two independently inserted table rows at the
+  same position — kept both).
+- Cross-checked against `financial-module-knowledge-base.md` §2
+  (control-account/subsidiary-ledger convention, account-number-
+  illustrative-only convention, per-command event-documentation
+  convention) — already compliant on all three; no changes needed.
+- Added this document's first "Literature & Prior Art" section: Kieso
+  Ch.13 (p.13-4, Accounts Payable definition + the GR/IR timing
+  concern), Kieso Ch.3 (pp.3-4–3-5, Ledger/subsidiary-ledger
+  definition — with a correction of `sales-invoice-gl-posting.md`'s
+  own citation, which had implied Ch.3 defines "control account"
+  generically; it does not — that term is receivable-side only, Ch.7
+  fn.5), Hay Ch.7 (Figure 7.1 pp.119-120 LIABILITY ACCOUNT; Figure 7.6
+  pp.129-130 VENDOR BILL/VENDOR PAYMENT — a near 1:1 match to this
+  module's own architecture and its payments sibling), and a confirmed
+  absence in Fowler (zero "accounts payable"/"payable" matches
+  anywhere in *Analysis Patterns*).
+- Added a real-system comparison: ERPNext (genuine three-way matching
+  via PO/Purchase Receipt — this document's own Phase 2 deferral
+  confirmed as a real simplification; automatic post-on-submit GL
+  posting, unlike this document's explicit two-step approve-then-post;
+  "Stock Received But Not Billed" as the two-sided GR/IR account 300
+  implements only one leg of; a dedicated Accounts Payable Ageing
+  report this document has no equivalent of), Comarch ERP Optima (an
+  explicit, separate booking step closer to this document's own
+  two-step design than ERPNext's; no PO/three-way-matching in its
+  cost-invoice register flow, matching this document's own Phase 2
+  deferral; no aging-bucket report in its base tier either, only
+  due-date-filterable unreconciled-document lists — roughly at parity
+  with this document's own filters), and enova365 (a partial,
+  inconclusive check — confirmed real AP-adjacent settlement documents
+  exist that neither this document nor the other two comparisons
+  mention, but recorded as genuinely unverified beyond that from
+  public documentation, not as a confirmed absence).
+- No structural changes to Architecture/Data Models/Commands from this
+  pass — Steps 1-3 of `financial-spec-writing-process` only; Step 4
+  (structure) was already satisfied by the existing document.
