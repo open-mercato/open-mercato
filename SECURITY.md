@@ -4,7 +4,7 @@
 
 If you discover a security vulnerability in Open Mercato, **please report it privately** — do not open a public GitHub issue.
 
-**Email:** [info@openmercato.com](mailto:info@openmercato.com)
+**Email:** [security@openmercato.com](mailto:security@openmercato.com)
 
 ### What to Include
 
