@@ -1,5 +1,5 @@
 /** @jest-environment node */
-// Regression coverage for finding #6 in report-high.md: privilege escalation
+// Regression coverage for finding #6 in .ai/analysis/2026-05-security-high-findings.md: privilege escalation
 // because POST/PUT/DELETE were silently gated by `currencies.fetch.view`
 // rather than the dedicated `currencies.fetch.manage` feature. The dispatcher's
 // `extractMethodMetadata` only honors per-method overrides when the metadata

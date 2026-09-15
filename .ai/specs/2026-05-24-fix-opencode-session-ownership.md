@@ -3,7 +3,7 @@
 - **Date**: 2026-05-24
 - **Scope**: `packages/ai-assistant`, `packages/core/src/modules/api_keys`
 - **Type**: Security fix
-- **Source**: `report-high.md` finding #1 (cross-user OpenCode session continuation enables privilege escalation)
+- **Source**: `.ai/analysis/2026-05-security-high-findings.md` finding #1 (cross-user OpenCode session continuation enables privilege escalation)
 
 ## Problem
 
