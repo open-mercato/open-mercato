@@ -345,6 +345,8 @@ describe('BasicQueryEngine (Kysely)', () => {
     expect(serialized).toContain('::numeric')
     expect(serialized).toContain('value_float')
     expect(baseCall._ops.orderBys).toHaveLength(2)
+    const [orderExpr] = baseCall._ops.orderBys[0]
+    expect(JSON.stringify(orderExpr.toOperationNode())).toContain('NULLS LAST')
     expect(baseCall._ops.orderBys[1]).toEqual(['users.id', 'asc'])
   })
 
