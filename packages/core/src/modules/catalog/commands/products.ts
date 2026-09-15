@@ -2010,7 +2010,7 @@ const updateProductCommand: CommandHandler<
       action: "updated",
       product: record,
     });
-    return { productId: record.id };
+    return { productId: record.id, updatedAt: record.updatedAt.toISOString() };
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve("em") as EntityManager).fork();
