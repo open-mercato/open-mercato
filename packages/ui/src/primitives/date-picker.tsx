@@ -57,6 +57,12 @@ export type DatePickerProps = {
   align?: 'start' | 'center' | 'end'
   minDate?: Date
   maxDate?: Date
+  /**
+   * date-fns locale for month/weekday names and the first day of the week.
+   * Defaults to the active `I18nProvider` locale (`undefined` outside a
+   * provider, matching pre-existing behavior); pass one explicitly to pin it
+   * regardless of the app locale.
+   */
   locale?: Locale
   displayFormat?: string
   className?: string
