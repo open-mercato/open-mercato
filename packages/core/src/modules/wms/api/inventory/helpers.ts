@@ -72,7 +72,7 @@ export async function executeWmsCustomPostRoute<TInput, TResult>(
       organizationIds: organizationScope?.filterIds ?? (auth.orgId ? [auth.orgId] : null),
       request: options.request,
     }
-    const body = await readJsonSafe<Record<string, unknown>>(options.request, {})
+    const body = (await readJsonSafe<Record<string, unknown>>(options.request, {})) ?? {}
     const sessionOrganizationId = ctx.selectedOrganizationId ?? auth.orgId ?? null
     const organizationId = resolveBodyOrganizationId(body) ?? sessionOrganizationId
     if (!organizationId) {
