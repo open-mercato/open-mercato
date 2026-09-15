@@ -57,9 +57,16 @@ describe('agent_orchestrator fleet overview — column headers never overlap (is
     }
     // The numeric/meter/badge columns stay declared (that is what lets the
     // agent name absorb the remainder under `table-fixed`) …
-    expect(overviewSource).toMatch(/WRAPPING_HEAD\} w-24 text-right/)
+    expect(overviewSource).toMatch(/WRAPPING_HEAD\} w-32 text-right/)
     // … and wide enough for their CONTENT: the override meter is ~88px.
     expect(overviewSource).toMatch(/WRAPPING_HEAD\} hidden w-32 2xl:table-cell/)
+    expect(overviewSource).toMatch(/WRAPPING_HEAD\} w-32`/)
+    // "Absorb the remainder" needs a floor, or the agent column shrinks until
+    // its own header wraps letter by letter. `min-w-*` on a `<th>` is ignored by
+    // the fixed-layout algorithm, so the floor lives on the table and is the sum
+    // of the three declared columns (w-32 × 3 = min-w-96); the `overflow-x-auto`
+    // wrapper is what yields below it.
+    expect(overviewSource).toMatch(/<Table className="table-fixed min-w-96">/)
   })
 
   it('lets the system-health labels ellipse rather than overflow onto each other', () => {
