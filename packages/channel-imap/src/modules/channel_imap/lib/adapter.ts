@@ -235,7 +235,9 @@ class ImapChannelAdapter implements ChannelAdapter {
         rawMessage: item.rawBody,
         uid: item.uid,
         accountIdentifier: credentials.fromAddress,
-        fallbackDate: item.internalDate,
+        // INTERNALDATE is when the server received the message; the MIME Date
+        // header is the sender's and must not date the platform message (#6095).
+        receivedAt: item.internalDate,
       })
       messages.push(normalized)
     }
@@ -344,7 +346,9 @@ class ImapChannelAdapter implements ChannelAdapter {
         rawMessage: item.rawBody,
         uid: item.uid,
         accountIdentifier: credentials.fromAddress,
-        fallbackDate: item.internalDate,
+        // INTERNALDATE is when the server received the message; the MIME Date
+        // header is the sender's and must not date the platform message (#6095).
+        receivedAt: item.internalDate,
       })
       messages.push(normalized)
     }
