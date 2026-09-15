@@ -32,7 +32,8 @@ import {
 } from '@open-mercato/ui/primitives/select'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { parseLocaleNumber } from '@open-mercato/shared/lib/number'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { buildInventoryMutationReferenceId } from '../../lib/inventoryMutationUi'
 import {
@@ -91,11 +92,10 @@ const EMPTY_FORM: AdjustFormValues = {
   serialNumber: '',
 }
 
-function parseDeltaInput(value: string): number | null {
+export function parseDeltaInput(value: string, locale?: string): number | null {
   const trimmed = value.trim()
   if (!trimmed || trimmed === '-' || trimmed === '+') return null
-  const parsed = Number(trimmed)
-  return Number.isFinite(parsed) ? parsed : null
+  return parseLocaleNumber(trimmed, locale)
 }
 
 export function AdjustInventoryDialog({
@@ -108,6 +108,7 @@ export function AdjustInventoryDialog({
   initialLotId,
 }: AdjustInventoryDialogProps) {
   const t = useT()
+  const locale = useLocale()
   const queryClient = useQueryClient()
   const formRef = React.useRef<HTMLFormElement>(null)
   const { runMutation, retryLastMutation } = useGuardedMutation<{
@@ -690,7 +691,7 @@ export function AdjustInventoryDialog({
                   inputMode="decimal"
                   value={String(form.delta)}
                   onChange={(event) => {
-                    const parsed = parseDeltaInput(event.target.value)
+                    const parsed = parseDeltaInput(event.target.value, locale)
                     if (parsed == null) return
                     patchForm({ delta: parsed })
                   }}
