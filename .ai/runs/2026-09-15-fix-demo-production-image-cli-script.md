@@ -29,8 +29,8 @@ Current status: implementation in progress.
 
 ### Phase 1: Production image packaging
 
-- [ ] 1.1 Copy `apps/mercato/scripts` into the production runner image.
-- [ ] 1.2 Add the runtime packaging regression test.
+- [x] 1.1 Copy `apps/mercato/scripts` into the production runner image. — c2f287167
+- [x] 1.2 Add the runtime packaging regression test. — c2f287167
 
 ### Phase 2: Verification and PR
 
