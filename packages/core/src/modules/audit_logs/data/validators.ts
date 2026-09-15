@@ -16,6 +16,7 @@ const recordLike = z.union([
 
 export const actionLogCreateSchema = baseScopeSchema.extend({
   commandId: z.string().min(1),
+  onBehalfOfUserId: uuid.nullish(),
   actionLabel: z.string().min(1).optional(),
   resourceKind: z.string().min(1).optional(),
   resourceId: z.string().min(1).optional(),
