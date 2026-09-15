@@ -1,0 +1,37 @@
+# {{PROJECT_NAME}} — GitHub Copilot Instructions
+
+These are repository-wide custom instructions for GitHub Copilot. Copilot applies
+them to every chat and edit request in this workspace.
+
+## What this project is
+
+A standalone Open Mercato application. Build domain features ON TOP of the framework.
+To customise a core module beyond the extension system: `yarn mercato eject <module>`.
+Never edit `node_modules/@open-mercato/*` directly.
+
+## Task routing
+
+Read `AGENTS.md` before starting any task — it maps task types to the minimum files
+to load. Path-scoped guidance lives in `.github/instructions/*.instructions.md`.
+
+## Module system
+
+Modules in `src/modules/<id>/`. Register with `from: '@app'` in `src/modules.ts`.
+Run `yarn generate` after any module or entity change. Never edit `.mercato/generated/*`.
+
+## CRITICAL rules — always follow without exception
+
+1. **After editing any entity file** (`src/modules/<id>/entities/*.ts`):
+   - STOP before any further action.
+   - Tell the user: "I modified an entity in module <id>. Should I create a migration?"
+   - If yes: run `yarn db:generate`.
+   - Show the generated migration to the user before applying.
+   - Ask for confirmation, then run `yarn db:migrate`.
+   - Run `yarn generate` after the migration is applied.
+
+2. **After editing `src/modules.ts`**: immediately run `yarn generate`.
+
+3. **Never edit `.mercato/generated/*`**: edit the source and run `yarn generate` instead.
+
+4. **Before significant features**: check `.ai/specs/` for an existing spec. If none
+   exists, ask the user whether to create one first.
