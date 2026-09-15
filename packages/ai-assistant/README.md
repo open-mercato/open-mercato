@@ -121,6 +121,7 @@ curl http://localhost:4096/mcp
 | `OPENAI_API_KEY` | If using OpenAI | - | OpenAI API key |
 | `GOOGLE_GENERATIVE_AI_API_KEY` | If using Google | - | Google Generative AI API key |
 | `DEEPINFRA_API_KEY` | If using DeepInfra | - | DeepInfra API key (OpenAI-compatible preset) |
+| `ATLASCLOUD_API_KEY` | If using Atlas Cloud | - | Atlas Cloud API key (OpenAI-compatible preset) |
 | `GROQ_API_KEY` | If using Groq | - | Groq API key (OpenAI-compatible preset) |
 | `TOGETHER_API_KEY` | If using Together | - | Together AI API key |
 | `FIREWORKS_API_KEY` | If using Fireworks | - | Fireworks AI API key |
@@ -139,7 +140,7 @@ curl http://localhost:4096/mcp
 
 ### Built-in Providers
 
-The registry ships 10 built-in providers via the ports & adapters
+The registry ships 14 built-in providers via the ports & adapters
 architecture (see [`.ai/specs/implemented/2026-04-14-llm-provider-ports-and-adapters.md`](../../.ai/specs/implemented/2026-04-14-llm-provider-ports-and-adapters.md)).
 
 Native protocol adapters:
@@ -156,6 +157,7 @@ OpenAI-compatible presets (all share one protocol adapter with different
 |-------------|----------|---------------|---------|
 | `openai` | `api.openai.com` | `gpt-5-mini` | 128K |
 | `deepinfra` | `api.deepinfra.com/v1/openai` | `zai-org/GLM-5.1` | 202K |
+| `atlas-cloud` | `api.atlascloud.ai/v1` | `Qwen/Qwen3-235B-A22B-Instruct-2507` | 131K |
 | `groq` | `api.groq.com/openai/v1` | `llama-3.3-70b-versatile` | 131K |
 | `together` | `api.together.xyz/v1` | `meta-llama/Llama-3.3-70B-Instruct-Turbo` | 131K |
 | `fireworks` | `api.fireworks.ai/inference/v1` | `llama-v3p3-70b-instruct` | 131K |

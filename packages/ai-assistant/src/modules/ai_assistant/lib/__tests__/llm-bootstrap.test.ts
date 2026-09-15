@@ -21,6 +21,7 @@ describe('llm-bootstrap — built-in provider registration', () => {
     // OpenAI-compatible presets.
     expect(ids).toContain('openai')
     expect(ids).toContain('deepinfra')
+    expect(ids).toContain('atlas-cloud')
     expect(ids).toContain('groq')
     expect(ids).toContain('together')
     expect(ids).toContain('fireworks')
@@ -69,6 +70,14 @@ describe('llm-bootstrap — built-in provider registration', () => {
     const modelIds = deepinfra?.defaultModels.map((m) => m.id) ?? []
     expect(modelIds).toContain('zai-org/GLM-5.1')
     expect(modelIds).toContain('Qwen/Qwen3-235B-A22B-Instruct-2507')
+  })
+
+  it('atlas-cloud provider comes from the OpenAI-compatible preset', () => {
+    registerBuiltInLlmProviders()
+    const atlasCloud = llmProviderRegistry.get('atlas-cloud')
+    expect(atlasCloud).not.toBeNull()
+    expect(atlasCloud?.envKeys).toEqual(['ATLASCLOUD_API_KEY'])
+    expect(atlasCloud?.defaultModel).toBe('Qwen/Qwen3-235B-A22B-Instruct-2507')
   })
 
   it('resolveFirstConfigured picks a configured provider from the registry', () => {

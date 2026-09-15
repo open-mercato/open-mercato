@@ -45,6 +45,10 @@ Files like `AGENTS.md` and `CLAUDE.md` use UPPERCASE names and are not numberedâ
 
 ### Pending Specifications
 
+Implemented provider additions:
+
+- [Atlas Cloud AI Provider](implemented/2026-09-11-atlas-cloud-ai-provider.md) - Optional OpenAI-compatible Atlas Cloud preset for the AI Assistant.
+
 Specs awaiting implementation or partially complete. Focus here for actionable work.
 
 | SPEC | Date | Title | Description |
