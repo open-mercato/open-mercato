@@ -87,7 +87,8 @@ export function getEnrichersForEntity(
   selector?: EnricherSurfaceSelector,
 ): EnricherRegistryEntry[] {
   const entityEntries = getResponseEnrichers().filter(
-    (entry) => entry.enricher.targetEntity === targetEntity,
+    (entry) =>
+      entry.enricher.targetEntity === targetEntity || entry.enricher.targetEntity === '*',
   )
 
   if (!selector || selector.surface === 'api-response') {
