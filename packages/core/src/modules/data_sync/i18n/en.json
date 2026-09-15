@@ -59,6 +59,7 @@
   "data_sync.dashboard.start.parametersHelp": "Optional values this integration accepts for the manual run.",
   "data_sync.dashboard.start.providerManaged": "This integration starts sync runs from its own setup flow. Open the integration settings page to continue.",
   "data_sync.dashboard.start.runNowDescription": "Use this for the next immediate sync. Batch size and full-sync mode apply only to this manual run.",
+  "data_sync.dashboard.start.runNowDescriptionScoped": "Use this for the next immediate sync. Anything set here applies only to this manual run.",
   "data_sync.dashboard.start.runNowFootnote": "Manual runs show progress immediately and land on the run detail page after launch.",
   "data_sync.dashboard.start.runNowTitle": "Run once now",
   "data_sync.dashboard.start.status.credentialsMissing": "Credentials missing",
