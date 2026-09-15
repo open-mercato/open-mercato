@@ -736,7 +736,13 @@ their own. `seedDefaults` is the one exception: it seeds
 `LedgerAccountGroup` (system reference data, not the tenant's own
 chart of accounts) into every organization's scope, following the same
 convention `currencies/setup.ts` already uses for its own reference
-data.
+data. **Update (2026-09-15)**: this Phase 1 stance is unchanged, but
+building the chart of accounts by hand from here now has a faster,
+opt-in starting point —
+`2026-09-15-default-chart-of-accounts.md` (PR #6137) adds one command,
+`ledger.importDefaultChartOfAccounts`, that bulk-creates a hardcoded
+Polish starter template on request. Still no automatic seeding; a
+tenant must explicitly trigger the import.
 
 ### Migration (`migrations/`)
 
