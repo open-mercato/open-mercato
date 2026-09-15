@@ -11,7 +11,7 @@ jest.setTimeout(20000)
 type CapturedCrudFormProps = {
   injectionSpotId?: string
   entityIds?: string[]
-  recordId?: string
+  initialValues?: { id?: string }
   versionHistory?: unknown
 }
 
@@ -197,15 +197,16 @@ describe('SalesDocumentForm customer quick-create injection hosts', () => {
     )
   })
 
-  it('leaves the widgets in create mode with no record id', async () => {
+  it('leaves the dialogs in create mode with no initial record id', async () => {
     const { person, company } = await renderQuickCreateDialogs()
 
     // `CrudForm` derives `operation: 'create'` and an undefined injection-context
-    // `recordId` from the absence of both props, which is what lets a group widget
-    // registered on the newly bound host render its empty state instead of querying
-    // for a record that does not exist yet.
+    // `recordId` from the absence of `initialValues.id`, which is what lets a group
+    // widget registered on the newly bound host render its empty state instead of
+    // querying for a record that does not exist yet. `recordId` itself is internal
+    // to `CrudForm` (not a prop), so we assert the input that actually drives it.
     for (const props of [person, company]) {
-      expect(props.recordId).toBeUndefined()
+      expect(props.initialValues?.id).toBeUndefined()
       expect(props.versionHistory).toBeUndefined()
     }
   })

@@ -76,6 +76,15 @@ the legacy v1 detail pages publish their own declared `customers.*.detail:detail
 (`apps/mercato/src/modules/example/widgets/injection-table.ts`) for now; it becomes dead, and should be
 removed, when those two PRs merge.
 
+**Action for module authors — required if you target `crud-form:customers.person` / `…company` (or their
+`:fields` children) today.** Before this release, the only publishers of those two hosts were the person and
+company **detail** pages, so every widget registered there has only ever rendered with a saved record present
+(`operation: 'update'`, a concrete `recordId`). These two sales quick-create dialogs are the first surfaces
+to mount the same hosts in **create mode** — no `recordId`, `operation: 'create'`. If your widget assumed a
+record always exists (e.g. it queries by `recordId` unconditionally), it now also mounts in the dialogs and
+must tolerate `recordId` being `undefined` — render an empty/pending state instead of querying, the way the
+in-repo `customer_accounts` Account Status and Company Users groups already do.
+
 ### `Locale` is now derived from an augmentable `LocaleRegistry` (no action required)
 
 `Locale` in `@open-mercato/shared/lib/i18n/config` used to be a closed union literal. It is now
