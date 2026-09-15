@@ -35,7 +35,7 @@ merges.
 | Accounts Payable (invoices) | [`2026-09-06-accounts-payable.md`](https://github.com/open-mercato/open-mercato/pull/5962) | `docs/accounts-payable` | Open, PR #5962 — merged latest `develop`; first `financial-spec-writing-process` pass applied (own new Literature & Prior Art section + real-system comparison, commit `d572a4001`), see Changelog |
 | Accounts Payable (payments) | [`2026-09-06-accounts-payable-payments.md`](https://github.com/open-mercato/open-mercato/pull/5962) | `docs/accounts-payable` | Open, PR #5962 |
 | Journal Entry Line Dimension | [`2026-09-06-journal-entry-line-dimension.md`](https://github.com/open-mercato/open-mercato/pull/5972) | `docs/journal-entry-line-dimension` | Open, PR #5972 — written, not yet reviewed |
-| GL account balances / Trial Balance (ZSiO) | [`2026-09-09-general-ledger-account-balances.md`](https://github.com/open-mercato/open-mercato/pull/6013) | `docs/general-ledger-account-balances` | Open, PR #6013 — written, not yet reviewed |
+| GL account balances / Trial Balance (ZSiO) | [`2026-09-09-general-ledger-account-balances.md`](https://github.com/open-mercato/open-mercato/pull/6013) | `docs/general-ledger-account-balances` | Open, PR #6013 — merged latest `develop`; first `financial-spec-writing-process` pass applied (own new Literature & Prior Art section + real-system comparison, commit `8afb415a7`), see Changelog |
 | Fixed Assets | [`2026-09-06-fixed-assets.md`](https://github.com/open-mercato/open-mercato/pull/6014) | `docs/fixed-assets` | Open, PR #6014 — full spec, adversarially reviewed, Final Compliance Report: fully compliant |
 | Posting Rules Engine (konto 490) | [`2026-09-06-posting-rules-engine.md`](https://github.com/open-mercato/open-mercato/pull/6015) | `docs/posting-rules-engine` | Open, PR #6015 — two external-maintainer review rounds (nine issues, then eight more), both resolved; see the spec's own Changelog |
 | This knowledge base | [`2026-09-08-financial-module-knowledge-base.md`](https://github.com/open-mercato/open-mercato/pull/6016) | `docs/financial-module-knowledge-base` | Open, PR #6016 (self-referential row — will read stale the moment this PR merges; treat "Open" as provisional) |
@@ -268,6 +268,17 @@ Fowler nor Hay use those exact terms):**
   Payable's own new Literature & Prior Art section (PR #5962) carries
   the corrected citation. Not edited in the AR file itself (out of
   scope for the AP pass) — noted here so a future pass can fix it.
+  **New 2026-09-15 — Ch.3 "Closing Entries," Illustration 3.38, read
+  for GL Account Balances (ZSiO).** Kieso's own illustrated closing
+  entries route revenue and expense through a temporary Income
+  Summary account across three separate journal entries — not a
+  single entry debiting revenue directly against crediting expense.
+  A citation in `2026-09-09-general-ledger-account-balances.md`'s
+  Design decisions claimed the latter ("exactly this document's
+  `JournalEntryLine` shape"); corrected there and recorded in that
+  document's own new Literature & Prior Art section. Worth checking
+  before any future spec cites Kieso's closing-entry illustration as
+  a single combined entry — it isn't one.
 - Free alternative: Lumen Learning, *Financial Accounting*, chapter
   literally titled "Subsidiary Ledgers and Control Accounts"
   (courses.lumenlearning.com/finaccounting/chapter/subsidiary-ledgers-and-control-accounts)
@@ -311,6 +322,23 @@ compliant*):**
   Orders/Sales Orders, Contract Roles, pp.95–116) has **not** been read yet
   — flagged in §4 as the most promising unexamined lead for AP/AR vendor
   modeling.
+- **New 2026-09-15 — confirmed for GL Account Balances (ZSiO).**
+  Fowler §6.3 "Summary Account" re-verified verbatim (pp.101-102);
+  its own Figure 6.6, in the same section, explicitly names the
+  alternative GL Account Balances actually implements — a summary
+  account that both receives direct postings and rolls up its
+  descendants — not just "the leaf-only restriction we don't
+  enforce." Fowler §6.15 "Booking Entries to Multiple Accounts"
+  (pp.127-128, Figure 6.32) and Hay's "Summarization" section (ch.7,
+  p.154) both independently confirmed: each warns against a
+  multi-parent (DAG) account hierarchy as a rare, accident-prone
+  design, backing the project's own single-parent `parentAccountId`
+  choice from both sides. Hay's Table 7.1 "Debits and Credits"
+  (p.122) and Kieso's Illustration 3.1 (ch.3, p.3-5) both confirmed
+  identical to each other and to this project's `normalBalance` sign
+  convention. Full detail in
+  `2026-09-09-general-ledger-account-balances.md`'s own new Literature
+  & Prior Art section.
 - martinfowler.com, "Patterns for Accounting"
   (martinfowler.com/eaaDev/AccountingNarrative.html) — live, confirmed to
   also avoid "control account"/"subsidiary ledger" terminology.
@@ -329,6 +357,17 @@ compliant*):**
 
 **Tier 4 — open-source reference implementations (see it running for
 real):**
+- **ERPNext** (`frappe/erpnext` source — `financial_statements.py` —
+  and docs.frappe.io, verified 2026-09-15 for GL Account Balances):
+  Trial Balance is a live query directly over `tabGL Entry`, no
+  maintained running-balance table — the strongest real-system
+  confirmation in this document of the project's own "live query, not
+  a maintained balance table" choice, verified at the source-code
+  level rather than from documentation prose alone. Shows group
+  (parent) account rollup totals by default (`frappe/erpnext#27131`);
+  a documented bug (`frappe/erpnext#41453`) getting nominal-account
+  opening-balance zeroing wrong is worth remembering as a real failure
+  mode when any future spec touches period-closing interactions.
 - **GnuCash** docs (gnucash.org/docs/v5/C/gnucash-guide/bus_ap.html) —
   explicitly documents one shared AP GL account with per-vendor detail
   reconstructed via linked Vendor/Bill/Payment records. The cleanest
@@ -497,6 +536,7 @@ pointed at the wrong section.
 - FASB ASU 2023-04 (ASC 405-50): https://storage.fasb.org/ASU%202023-04.pdf
 - Fowler, "Patterns for Accounting": https://martinfowler.com/eaaDev/AccountingNarrative.html
 - Arlow & Neustadt, *Enterprise Patterns and MDA*: https://www.amazon.com/Enterprise-Patterns-MDA-Building-Archetype/dp/032111230X
+- ERPNext Accounting Reports docs: https://docs.frappe.io/erpnext/v13/user/manual/en/accounts/accounting-reports
 - GnuCash Accounts Payable guide: https://www.gnucash.org/docs/v5/C/gnucash-guide/bus_ap.html
 - Odoo Accounting docs: https://www.odoo.com/documentation/19.0/applications/finance/accounting.html
 - Apache Fineract Accounting wiki: https://cwiki.apache.org/confluence/display/FINERACT/Accounting
@@ -730,3 +770,40 @@ ever recorded here (marked **proposed, not applied** — see §1 Notes):
   account/subsidiary ledger, account-number-illustrative-only,
   per-command event documentation) — already compliant on all three;
   no changes needed to §2.
+
+### 2026-09-15 (GL Account Balances — financial-spec-writing-process, first pass)
+
+- `2026-09-09-general-ledger-account-balances.md` (PR #6013): merged
+  latest `develop` (166 commits) first; the only shared-file overlap
+  (`.ai/specs/README.md`, this document's own Pending row vs.
+  develop's unrelated new row) resolved cleanly by git itself with no
+  manual conflict markers; commit `319694a20`.
+- Added this document's first "Literature & Prior Art" section
+  (commit `8afb415a7`), consolidating and independently re-verifying
+  citations already scattered through its Design decisions: Fowler
+  §6.3 "Summary Account" (confirmed, plus a newly-cited Figure 6.6
+  variant matching the document's own choice to allow direct postings
+  to syntetyk accounts — see the Tier 3/Fowler entry in §3 above);
+  Fowler §6.15 and Hay's "Summarization" section (both confirmed
+  verbatim for the single-parent-over-DAG warning); Hay Table 7.1 and
+  Kieso Illustration 3.1 (confirmed for the `normalBalance` sign
+  convention). One genuine correction found: Kieso's illustrated
+  closing entries (Illustration 3.38) route revenue/expense through a
+  temporary Income Summary account across three entries, not one
+  entry debiting revenue directly against crediting expense as the
+  document previously claimed — fixed there and recorded in the Tier
+  2/Kieso entry in §3 above.
+- Added a real-system comparison (previously only an inline Odoo
+  callout): ERPNext (live query confirmed at the source-code level —
+  see the new Tier 4 entry in §3 above), Comarch ERP Optima (the
+  closest real-system match found anywhere in this document family —
+  its eleven-column ZSiO report is a one-to-one match to the
+  document's six `TrialBalanceRowDto` figures, but implies a
+  leaf-only-posting restriction this document's Phase 1 doesn't
+  enforce — a genuine, recorded divergence; not added to §3 since
+  Comarch isn't open source, but see the spec's own Literature & Prior
+  Art section for the full finding), and enova365 (same
+  four-figure-group shape, recorded as a partial match).
+- Cross-checked against this document's own §2 conventions — none
+  apply directly (no control-account modeling, no new commands) — no
+  changes needed.
