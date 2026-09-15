@@ -1248,6 +1248,13 @@ None.
 
 ## Changelog
 
+### 2026-09-15 — Assigned conversations no longer drop inbound messages (#6093)
+
+- The design decision "per-user channel owner becomes the default `ChannelThreadMapping.assigned_user_id`" relies on ingest addressing each inbound message to that assignee as a `MessageRecipient` (that row is what puts the message in the assignee's inbox). The messages validator, older than this spec, rejected any recipient on a `visibility: 'public'` message, so the two rules could only both hold while a conversation was unassigned. Once assigned — by `reassign_conversation`, or simply by replying from the panel, since `send-as-user` sets `assignedUserId` on first reply — every later inbound message failed compose with `recipients must be empty when visibility is public`, the poll/import workers classified that as a permanent failure, and the thread silently stopped receiving mail (12 of 321 messages in a 90-day import in the reported case).
+- Fix: `composeMessageBaseSchema` gains a server-only `inboundFromChannel` flag. `ingest-inbound-message` sets it, the validator skips the recipients rule when it is set (every other public-visibility rule still applies), `composeMessageRequestSchema` omits it and `POST /api/messages` strips a client-sent value, mirroring `sourceChannelType` (#4975). User-composed public messages are validated exactly as before.
+- Consequence to be aware of: the assignee now actually receives the `messages.new` notification for each inbound message in an assigned conversation, as this spec intended. Whether that notification also goes out by email is governed by compose's `sendViaEmail` handling, which #6090 (for #6089) changes to honour ingest's `sendViaEmail: false`.
+- Tests: `messages/data/__tests__/validators.test.ts` (waiver, unassigned case, non-ingested and explicit-false still rejected, other rules kept, absent from the client contract), `messages/api/__tests__/compose-channel-type.test.ts` (client flag dropped), `communication_channels/commands/__tests__/ingest-inbound-message.test.ts` (assignee as recipient, payload validates, unassigned still empty).
+
 ### 2026-06-02 — Scope narrowed to Gmail + IMAP
 
 The shipping email providers are **Gmail + IMAP+SMTP** only. The provider-key union is `'gmail' | 'imap'`. Work-mailboxes that do not offer a usable OAuth path connect via IMAP + SMTP with an app password.

@@ -390,6 +390,12 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
       // senders have no address (Discord, Slack, SMS…) are validated without it.
       // The messages validator fails closed on any type it does not recognize.
       sourceChannelType: input.channelType,
+      // #6093: this message came in from the channel, so the recipient below
+      // is internal routing (the conversation's assignee), not an external
+      // addressee. Without the flag the hub's "no recipients on a public
+      // message" rule rejected every message in an assigned conversation and
+      // the worker dropped it as a permanent failure.
+      inboundFromChannel: true,
       recipients: mapping?.assignedUserId
         ? [{ userId: mapping.assignedUserId, type: 'to' as const }]
         : [],

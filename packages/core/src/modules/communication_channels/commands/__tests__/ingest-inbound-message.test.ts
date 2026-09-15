@@ -490,6 +490,134 @@ describe('ingestInboundMessageCommand — non-email sender identity (#4975)', ()
   })
 })
 
+describe('ingestInboundMessageCommand — assigned conversation (#6093)', () => {
+  const assigneeId = '550e8400-e29b-41d4-a716-446655440099'
+
+  function makeCtx() {
+    const em: any = {
+      create: jest.fn((_entity: unknown, data: Record<string, any>) => ({
+        id: '550e8400-e29b-41d4-a716-446655440050',
+        ...data,
+      })),
+      persist: jest.fn(),
+      flush: jest.fn().mockResolvedValue(undefined),
+      getConnection: () => ({ execute: jest.fn().mockResolvedValue([]) }),
+    }
+    em.fork = () => em
+    const commandBus = {
+      execute: jest.fn(async () => ({ result: { id: 'msg-2', threadId: 'thread-1' } })),
+    }
+    return {
+      ctx: {
+        container: {
+          resolve: (name: string) => {
+            if (name === 'em') return em
+            if (name === 'channelAdapterRegistry') return { get: () => ({ providerKey: 'gmail' }) }
+            if (name === 'commandBus') return commandBus
+            return null
+          },
+        },
+      } as any,
+      commandBus,
+    }
+  }
+
+  function emailInput(): IngestInboundMessageInput {
+    return {
+      channelId: '550e8400-e29b-41d4-a716-446655440040',
+      providerKey: 'gmail',
+      channelType: 'email',
+      scope: {
+        tenantId: '550e8400-e29b-41d4-a716-446655440020',
+        organizationId: '550e8400-e29b-41d4-a716-446655440030',
+      },
+      message: {
+        externalMessageId: 'gmail-message-2',
+        externalConversationId: 'thread-abc',
+        senderIdentifier: 'alice@example.com',
+        senderDisplayName: 'Alice',
+        subject: 'Re: Quote',
+        body: 'Please go ahead.',
+        bodyFormat: 'text',
+        timestamp: new Date(),
+        channelPayload: {},
+        channelContentType: 'email/mime',
+        channelMetadata: {},
+      },
+    } as IngestInboundMessageInput
+  }
+
+  function primeLookups(mapping: Record<string, unknown> | null): void {
+    mockIngestFindOne.mockReset()
+    mockIngestFindOne
+      .mockResolvedValueOnce(null as never) // existingExternal — first delivery
+      .mockResolvedValueOnce({
+        id: 'ch-1',
+        isActive: true,
+        providerKey: 'gmail',
+        channelType: 'email',
+        userId: 'u-1',
+      } as never) // channel
+      .mockResolvedValueOnce({
+        id: '550e8400-e29b-41d4-a716-446655440061',
+        channelId: '550e8400-e29b-41d4-a716-446655440040',
+        externalConversationId: 'thread-abc',
+        lastMessageAt: new Date('2026-06-01T00:00:00Z'),
+      } as never) // existing conversation
+      .mockResolvedValueOnce(mapping as never) // existing thread mapping
+      .mockResolvedValue(null as never)
+  }
+
+  function composeInputOf(commandBus: { execute: jest.Mock }): Record<string, unknown> {
+    const composeCall = commandBus.execute.mock.calls.find(
+      (call: unknown[]) => call[0] === 'messages.messages.compose',
+    )
+    expect(composeCall).toBeDefined()
+    return (composeCall as any[])[1].input as Record<string, unknown>
+  }
+
+  it('addresses the message to the assigned user and marks it as channel-inbound', async () => {
+    primeLookups({ id: 'map-1', assignedUserId: assigneeId, messageThreadId: '550e8400-e29b-41d4-a716-446655440071' })
+    const { ctx, commandBus } = makeCtx()
+
+    await ingestInboundMessageCommand.execute(emailInput() as never, ctx)
+
+    const composeInput = composeInputOf(commandBus)
+    expect(composeInput.recipients).toEqual([{ userId: assigneeId, type: 'to' }])
+    expect(composeInput.inboundFromChannel).toBe(true)
+  })
+
+  it('produces a compose payload the messages validator accepts once the conversation is assigned', async () => {
+    // The regression this pins: before #6093 this exact payload failed
+    // `recipients must be empty when visibility is public`, the worker logged
+    // "permanent ingest failure; skipping message", and every reply after the
+    // conversation was assigned (e.g. by replying from the panel) was dropped.
+    primeLookups({ id: 'map-1', assignedUserId: assigneeId, messageThreadId: '550e8400-e29b-41d4-a716-446655440071' })
+    const { ctx, commandBus } = makeCtx()
+
+    await ingestInboundMessageCommand.execute(emailInput() as never, ctx)
+
+    // Contact resolution is mocked out above; supply the address the adapter
+    // would have resolved so only the recipients rule is under test.
+    const parsed = composeMessageSchema.safeParse({
+      ...composeInputOf(commandBus),
+      externalEmail: 'alice@example.com',
+    })
+    expect(parsed.success).toBe(true)
+  })
+
+  it('still composes an unassigned conversation with no recipients', async () => {
+    primeLookups({ id: 'map-1', assignedUserId: null, messageThreadId: '550e8400-e29b-41d4-a716-446655440071' })
+    const { ctx, commandBus } = makeCtx()
+
+    await ingestInboundMessageCommand.execute(emailInput() as never, ctx)
+
+    const composeInput = composeInputOf(commandBus)
+    expect(composeInput.recipients).toEqual([])
+    expect(composeInput.inboundFromChannel).toBe(true)
+  })
+})
+
 describe('ingestInboundMessageCommand — HTML body normalization', () => {
   function makeCtx() {
     const em: any = {
