@@ -24,6 +24,24 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.7.0 → 0.7.1 (unreleased)
 
+### WMS custom POST routes honor body `organizationId` when allowed
+
+`executeWmsCustomPostRoute` (shared by WMS inventory/ASN/putaway custom write routes such as
+`POST /api/wms/inventory/receive`, ASN receive/complete, putaway complete/assign/…) used to
+**silently overwrite** request-body `organizationId` with the session-selected / auth org.
+Multi-org callers that sent a different allowed org therefore mutated the selected org instead.
+
+It now:
+- passes through body `organizationId` when present and validates it with `ensureOrganizationScope`
+  (allowed org ids / Pattern C) — disallowed orgs return `403`
+- defaults to the session-selected / auth org only when the body omits `organizationId`
+- still always takes `tenantId` from auth (never from the body)
+
+**Action for module authors:** if a client relied on the old overwrite (sending org B while
+expecting writes in selected org A), stop sending `organizationId` or send org A explicitly.
+Barcode scan resolve/receive/putaway routes keep their session-only resolve policy and still
+force session org onto the body before this helper runs.
+
 ### `Locale` is now derived from an augmentable `LocaleRegistry` (no action required)
 
 `Locale` in `@open-mercato/shared/lib/i18n/config` used to be a closed union literal. It is now
