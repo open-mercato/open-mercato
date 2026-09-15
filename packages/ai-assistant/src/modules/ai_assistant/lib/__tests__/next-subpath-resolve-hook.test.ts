@@ -103,3 +103,39 @@ describe('installNextSubpathResolveHook', () => {
     expect(installNextSubpathResolveHook(null)).toBe(false)
   })
 })
+
+describe('installNextSubpathResolveHook against the runtime node:module', () => {
+  afterEach(() => {
+    jest.dontMock('node:module')
+    jest.resetModules()
+  })
+
+  it('loads and reports false on a Node without registerHooks (22.0-22.14)', () => {
+    // A named import of `registerHooks` would throw while the module loads on
+    // such a runtime; the helper must load and simply decline to install.
+    jest.resetModules()
+    jest.doMock('node:module', () => ({}))
+    let installed: boolean | undefined
+    jest.isolateModules(() => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const hookModule = require('../next-subpath-resolve-hook') as typeof import('../next-subpath-resolve-hook')
+      installed = hookModule.installNextSubpathResolveHook()
+    })
+    expect(installed).toBe(false)
+  })
+
+  it('installs through node:module.registerHooks when the runtime has it', () => {
+    jest.resetModules()
+    const register = jest.fn()
+    jest.doMock('node:module', () => ({ registerHooks: register }))
+    let installed: boolean | undefined
+    jest.isolateModules(() => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const hookModule = require('../next-subpath-resolve-hook') as typeof import('../next-subpath-resolve-hook')
+      installed = hookModule.installNextSubpathResolveHook()
+    })
+    expect(installed).toBe(true)
+    expect(register).toHaveBeenCalledTimes(1)
+    expect(register.mock.calls[0][0]).toEqual({ resolve: expect.any(Function) })
+  })
+})

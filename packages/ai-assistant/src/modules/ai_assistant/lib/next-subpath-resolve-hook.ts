@@ -19,7 +19,7 @@
  * `next/*` specifiers, and only after the normal resolution failed, so it
  * becomes a no-op the day `next` publishes an `exports` map.
  */
-import { registerHooks } from 'node:module'
+import * as nodeModule from 'node:module'
 
 type ResolveContext = Record<string, unknown>
 type ResolveResult = { url: string; format?: string | null | undefined; shortCircuit?: boolean }
@@ -61,14 +61,25 @@ export function resolveNextSubpath(
 type RegisterHooks = (hooks: { resolve: typeof resolveNextSubpath }) => unknown
 
 /**
+ * `module.registerHooks` exists from Node 22.15. It is read off the namespace
+ * rather than imported by name: in the published ESM build a named import of an
+ * export the running Node lacks fails while the module links, before the check
+ * in `installNextSubpathResolveHook` can run, and the package still declares
+ * `node >= 22.0.0`.
+ */
+function runtimeRegisterHooks(): RegisterHooks | undefined {
+  const candidate = (nodeModule as unknown as { registerHooks?: unknown }).registerHooks
+  return typeof candidate === 'function' ? (candidate as RegisterHooks) : undefined
+}
+
+/**
  * Install the hook once per process. Returns `true` when it was installed by
  * this call, `false` when it already was or when the runtime has no
- * `module.registerHooks` (Node < 22.15; `registerHooks` is then `undefined`
- * and nothing changes). `register` is a test seam: pass `null` to simulate a
- * runtime without the API.
+ * `module.registerHooks` (Node < 22.15), in which case nothing changes.
+ * `register` is a test seam: pass `null` to simulate a runtime without the API.
  */
 export function installNextSubpathResolveHook(
-  register: RegisterHooks | null | undefined = registerHooks as RegisterHooks | undefined,
+  register: RegisterHooks | null | undefined = runtimeRegisterHooks(),
 ): boolean {
   if (installed) return false
   if (typeof register !== 'function') return false
