@@ -25,10 +25,11 @@
     "runnerPolicy": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["primaryRunner", "portabilityRunner"],
+      "required": ["primaryRunner", "portabilityRunner", "reasoningEffort"],
       "properties": {
         "primaryRunner": { "enum": ["codex", "claude"] },
-        "portabilityRunner": { "type": ["string", "null"], "enum": ["codex", "claude", null] }
+        "portabilityRunner": { "type": ["string", "null"], "enum": ["codex", "claude", null] },
+        "reasoningEffort": { "type": ["string", "null"], "enum": ["minimal", "low", "medium", "high", "xhigh", null] }
       }
     },
     "catalog": {
