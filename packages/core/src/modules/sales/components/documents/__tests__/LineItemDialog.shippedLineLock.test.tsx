@@ -420,7 +420,15 @@ describe('LineItemDialog shipped-line lock (issue #5248)', () => {
 
   it('renders the effective price as a read-only value instead of an interactive lookup', async () => {
     renderDialog()
-    const priceInput = await waitFor(() => getInputIn('priceId'))
+    // The read-only input renders on the first pass, but the price kind beside it
+    // comes from the price list the dialog fetches, so waiting on the input alone
+    // asserts against a half-loaded field. Both have to be on screen before the
+    // expectations below run.
+    const priceInput = await waitFor(() => {
+      const input = getInputIn('priceId')
+      within(getField('priceId')).getByText('Retail')
+      return input
+    })
 
     expect(priceInput.readOnly).toBe(true)
     expect(priceInput.disabled).toBe(true)

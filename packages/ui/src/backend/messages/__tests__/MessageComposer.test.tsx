@@ -526,6 +526,16 @@ describe('MessageComposer draft flow', () => {
     })
   })
 
+  it('keeps inline composer titles at section level', async () => {
+    renderWithProviders(
+      <MessageComposer inline variant="reply" messageId="message-1" />,
+      { dict: {} },
+    )
+
+    expect(await screen.findByRole('heading', { level: 2, name: 'Reply' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { level: 1, name: 'Reply' })).not.toBeInTheDocument()
+  })
+
   it('does not render back link when inlineBackHref is null', async () => {
     const { container } = renderWithProviders(
       <MessageComposer inline inlineBackHref={null} variant="reply" messageId="message-1" />,
