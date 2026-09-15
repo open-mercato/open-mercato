@@ -301,6 +301,144 @@ database.
 | Expose reads as a `commandBus` command (`getJournalEntryLineDimensions`) | Rejected this round: real precedent (`sales` reading `catalog`'s `CatalogProduct` directly) already covers a hard-dependency direct entity read; wrapping it as a command solves a problem this codebase doesn't actually have — see Design Decisions, "Cross-module access" |
 | Direct `entityManager` write from a consumer module against this module's entity | Never seriously considered: every real write in this document family goes through the owning module's own Command (undo, validation, transaction discipline live there) — no precedent anywhere for a foreign module writing another module's entity directly |
 
+## Literature & Prior Art
+
+Per the project's financial-spec-writing-process, this section grounds
+this document's multi-dimensional tagging design against Fowler and
+Hay and adds the real-system comparison this document has never had.
+Two citations already sit in
+`financial-module-knowledge-base.md` §3/§4 under this document's own
+heading — re-verified here against the full extracted text rather than
+taken at the knowledge base's own word, per financial-spec-citation-check
+— plus one citation that pass never found. All page numbers verified
+against the full-text extraction; see `financial-module-knowledge-base.md`
+§3 for the verification method.
+
+**Fowler's Booking Entries to Multiple Accounts (§6.15, pp.127-131) is
+the strongest match found in either book — confirmed, and precisely
+the shape of this document's own core problem.** Fowler's own framing
+example is a consulting expense simultaneously "ACM's expense" *and*
+"an airfare expense" — one value needing classification along more
+than one simultaneous dimension, exactly this document's own Problem
+Statement (a fixed-asset invoice line needing both a cost centre *and*
+a fixed-asset tag at once). Fowler names three solutions: a DAG of
+overlapping summary accounts (Figure 6.32) — which he flags with a
+double-counting risk when two summary accounts' components overlap
+(Figure 6.33), a risk this document doesn't share, since its dimension
+types are independent and never overlap in membership the way two
+summary accounts might; memo entries (§6.15.1) — an extra posting
+into a second account purely for reporting, needing "an account for
+every combination," precisely the chart-of-accounts explosion this
+document's own Problem Statement rejects; and derived accounts
+(§6.15.2, Figure 6.34, building on §6.9 "Choosing Entries," p.118) — an
+account defined by a filter over entries by attribute, not a real
+postable account at all. Fowler's own closing line states the exact
+tradeoff this document made explicitly: "whenever we are trying to
+represent an aspect of an entry, we have a choice between an attribute
+of the entry or a new account level... If it is simply the reporting
+side, we can use an attribute." `journal_entry_line_dimension` is
+precisely that attribute-based path, generalized to more than one
+simultaneous attribute per line — the closest structural match to this
+document's design found anywhere in either book.
+
+**Hay's Cost Center Assignment (Figure 7.19 "Allocating Expenses,"
+pp.150-151) is a new find — not previously in the knowledge base under
+this document's own entry, and a more precise match than the 7.21
+citation already there for the `CostCenter` dimension type this
+document names literally.** Hay models a COST CENTER ASSIGNMENT that
+can be "of" a broad, open-ended set of entities — an internal
+organization, work centre, piece of equipment or product, a project,
+or "(something else)" — explicitly because "the possibilities for
+allocating expenses are so broad, COST CENTER could refer to virtually
+anything in the organization." That open "(something else)" is what
+this document's own `DIMENSION_TYPES` enum enumerates concretely
+(`CostCenter`, `BankAccount`, `FixedAsset`, `Currency`) instead of
+leaving unbounded — worth naming precisely, not just as a match: Hay's
+assignment is anchored on the EXPENSE ACCOUNT ("each EXPENSE ACCOUNT
+must be for a COST CENTER" — an account-level tag), while this
+document's dimension row is anchored on the individual
+`JournalEntryLine` — one level more granular than Hay's own model.
+Figure 7.19 itself only models the one COST CENTER dimension, not
+several co-occurring ones; for that broader claim, Fowler's §6.15
+above remains the closer match.
+
+**Hay's Account Categories and Structure (Figure 7.21, pp.153-154) —
+corrected here on completeness, not accuracy.** The knowledge base's
+own existing note describes 7.21 only as "a simple hierarchical
+account roll-up," which is incomplete: the figure actually shows two
+distinct mechanisms. The "pig's ear" roll-up (an ACCOUNT that is "part
+of" another ACCOUNT) is the single-parent hierarchy the earlier note
+described, and Hay explicitly notes that generalizing it to a DAG
+("replace the loop with a 'structure' entity") "would be extremely
+difficult to administer" — independent confirmation, from a second Hay
+figure, of the same single-parent-over-DAG caution this knowledge base
+already cites elsewhere (Fowler §6.15/Hay's Summarization section) for
+`parentAccountId`. But the same figure also shows ACCOUNT CATEGORY /
+ACCOUNT CLASSIFICATION — an explicit many-to-many join ("one ACCOUNT
+may be in more than one ACCOUNT CATEGORY, and one ACCOUNT CATEGORY may
+be a classification for more than one ACCOUNT") the earlier note
+missed entirely. ACCOUNT CLASSIFICATION is real precedent for "more
+than one independent tag on the same thing at once" — the same shape
+this document's own dimension table has — but, like Hay's COST CENTER
+ASSIGNMENT above, it tags the ACCOUNT, not the individual line. This
+document's own contribution, now confirmed across both Hay figures, is
+doing the same multi-tag idea one level down, at the transaction line
+rather than the account.
+
+**Confirmed absence: Kieso has nothing on cost centres, responsibility
+accounting, or any per-transaction analytical dimension.** A full-text
+search for "cost center," "responsibility accounting," and
+"dimension" (in the accounting sense) returns zero on-topic matches
+anywhere in *Intermediate Accounting*. Kieso is a financial-reporting
+text, not a managerial/cost-accounting one; this document's own design
+question sits entirely outside its scope — a genuine gap in that
+source, not a missed citation.
+
+**Real-system comparison.**
+
+- **ERPNext** (Accounting Dimensions, docs.frappe.io, verified
+  2026-09-15): the strongest real-system validation found for this
+  document's own design. ERPNext supports an open-ended number of
+  custom accounting dimensions beyond its two built-in ones (Cost
+  Center, Project), and — critically — supports attaching dimension
+  values at the individual transaction-row level, not just the
+  document level ("use row-level values when one document belongs to
+  multiple departments or segments"), confirming this document's own
+  line-level, not document-level, choice against a mature, real
+  production ERP. A genuine divergence in mechanism, not outcome:
+  ERPNext implements a new dimension as a dynamically generated schema
+  field (a real column added to the transaction doctype per
+  dimension), while this document stores every dimension type as rows
+  in one table — precisely the tradeoff this document's own Data
+  Models section already cites `text` over a Postgres enum for, so a
+  new dimension type is a one-line constant change, not a migration;
+  ERPNext's schema-per-dimension approach doesn't get that for free.
+- **Comarch ERP Optima** ("Opis Analityczny," sklep-optima.pl product
+  page, verified 2026-09-15): explicitly described as "rozbijanie
+  pozycji dokumentów na wiele wymiarów" (breaking document line items
+  down across multiple dimensions) at the individual line level — a
+  second real system confirming line-level, not document- or
+  account-level, multi-dimensional tagging is a real, marketed
+  capability in this exact market, not a design this document invented
+  in isolation.
+- **enova365** (enova.pl, Księga Handlowa module page, verified
+  2026-09-15): names "Opisy analityczne" (analytical descriptions) as
+  a feature of its general ledger module, but the public marketing
+  page doesn't document whether more than one independent dimension
+  can be attached to a single line simultaneously, or only one
+  analytical tag per entry — recorded as a similarly-named feature
+  exists, not confirmed as matching this document's specific
+  multi-dimension-per-line design.
+
+Together, ERPNext and Comarch confirm this document's central design
+bet — that multi-dimensional tagging belongs at the individual line,
+not the account or the document — is exactly how two real,
+independently-built systems in this market (one global open-source,
+one Polish-market commercial) already solve the identical problem,
+while ERPNext's schema-per-dimension approach highlights, by contrast,
+exactly why this document chose a flexible dimension-type column
+instead.
+
 ## Architecture
 
 ### Entities (`data/entities.ts`)
@@ -856,3 +994,48 @@ taken at the reviewer's word):
   (2026-09-08 entry, re: the #5663 split-rationale citation) directly
   against that file's current text — confirmed accurate (see its
   "Korekta (2026-09-08)" note); left as-is.
+
+### 2026-09-15 (financial-spec-writing-process applied for the first time)
+
+- Merged `upstream/develop` (166 commits) first; one conflict this
+  time (unlike the clean auto-merges for AP/GL Account Balances/Fixed
+  Assets): both branches added a new row to `.ai/specs/README.md`'s
+  Pending Specifications table at the same position. Resolved by
+  keeping both rows, in date order; commit `65c6a15e4`.
+- Added this document's first "Literature & Prior Art" section.
+  Independently re-verified two citations already sitting in
+  `financial-module-knowledge-base.md` under this document's own
+  entry: Fowler §6.15 "Booking Entries to Multiple Accounts" (confirmed
+  accurate — the strongest match in either book for this document's
+  own "more than one simultaneous dimension" problem); Hay §7.21
+  "Account Categories and Structure" (corrected for completeness —
+  the knowledge base's note described only the single-parent roll-up
+  half of the figure, missing that the same figure also shows an
+  ACCOUNT CATEGORY/ACCOUNT CLASSIFICATION many-to-many join, real
+  precedent for "more than one independent tag on one thing," just at
+  the account level rather than this document's line level). Added one
+  citation that knowledge-base pass never found: Hay's Cost Center
+  Assignment (Figure 7.19, pp.150-151) — a more precise match than 7.21
+  for the `CostCenter` dimension type this document names literally,
+  and confirmation that Hay's own open "(something else)" placeholder
+  for cost-center-assignable entities is what this document's
+  `DIMENSION_TYPES` enum enumerates concretely. Also recorded a genuine
+  absence: Kieso has nothing on cost centres, responsibility
+  accounting, or per-transaction analytical dimensions anywhere.
+- Added a real-system comparison (this document had none before):
+  ERPNext (Accounting Dimensions — the strongest validation found,
+  confirming line-level multi-dimensional tagging against a mature
+  open-source ERP, though via a different mechanism, dynamically
+  generated schema fields rather than this document's flexible
+  dimension-type rows), Comarch ERP Optima ("Opis Analityczny" —
+  explicitly breaks document lines into multiple dimensions, a second
+  real confirmation of line-level tagging in this exact market), and
+  enova365 (a similarly-named "Opisy analityczne" feature exists, but
+  public documentation doesn't confirm multi-dimension-per-line
+  support specifically — recorded as unverified, not a match).
+- No structural changes to Architecture/Data Models/Commands from this
+  pass — Steps 1-3 of `financial-spec-writing-process` only; Step 4
+  (structure) was already satisfied by the existing document, and Step
+  1 (cross-spec consistency) found no conflicts: this document already
+  is one of the three sources §2's "Three distinct tagging mechanisms"
+  convention was built from.
