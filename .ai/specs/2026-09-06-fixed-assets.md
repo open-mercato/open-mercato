@@ -719,6 +719,168 @@ day-to-day asset registration.
   automatic, with the caveat about that module's own Phase 1 scoping
   language noted in Architecture → Events.
 
+## Literature & Prior Art
+
+Per the project's financial-spec-writing-process, this section grounds
+this document's depreciation/impairment/disposal design against the
+accounting/data-modeling literature and adds the real-system
+comparison this document didn't have (the Overview's own "Market
+Reference" callout compares only GnuCash and Odoo, and only for the
+asset-lifecycle shape, not depreciation posting or impairment). This
+document already cites Kieso extensively (Design Decisions,
+Changelog) for salvage value, useful-life revision, and impairment —
+those citations stand; this section adds Fowler and Hay, both
+previously absent, and independently re-verifies two Hay findings a
+2026-09-12 knowledge-base pass had already flagged as promising but
+never written into this document. All citations verified against full
+extracted text; see `financial-module-knowledge-base.md` §3 for the
+verification method.
+
+**The depreciation posting itself matches Hay's own Figure 7.10 — with
+one precise refinement: Hay's illustration uses the net method, this
+document (like Kieso) uses the gross method.** Hay, *Data Model
+Patterns*, ch.7 "Accounting," "Depreciation" section, p.135: "a
+DEPRECIATION EXPENSE must be composed of one or more EQUITY (EXPENSE)
+DEBITS, each of which is a decrement in an EQUITY ACCOUNT of ACCOUNT
+TYPE DEPRECIATION EXPENSE... Each DEPRECIATION EXPENSE must also be
+composed of one or more ASSET CREDITS, each of which is a decrement in
+the ASSET ACCOUNT for the asset which is being depreciated." That
+"credit the asset's own account" detail is Hay's simplified net
+method — this document's `accrueDepreciation` instead debits
+`ledgerDepreciationExpenseAccountId` and credits
+`ledgerAccumulatedDepreciationAccountId`, a separate contra-asset
+account, matching Kieso's own explicit treatment instead ("the contra
+asset Accumulated Depreciation—Equipment is increased... Accumulated
+Depreciation—Equipment is a contra asset account [that] offsets the
+Equipment account on the balance sheet," ch.3, "Adjusting Entries,"
+p.3-23).
+Both books independently confirm the DEBIT-expense/CREDIT-asset-side
+mechanic; Kieso, not Hay, is the accurate citation for *which* account
+gets credited.
+
+**Hay's own "Ideal vs. Real" asset/account modeling progression is
+real and on point — but this document's actual design is a third
+variant, not quite either of Hay's two named ones, a refinement worth
+recording precisely.** Hay, ch.7, Figure 7.18 "Assets," pp.149-150:
+the "Ideal" case is a straight one-to-one ASSET-to-ASSET-ACCOUNT
+mapping; "In a real company, however, an ASSET ACCOUNT may be an
+accounting of one or more ASSETS... and an ASSET might be accounted
+for in one or more ASSET ACCOUNTS. This requires an ASSET ASSIGNMENT
+of an ASSET to an ASSET ACCOUNT" — a general many-to-many join. A
+2026-09-12 knowledge-base pass flagged this as "confirmed, and a
+strong validation" of this document's own asset-register design
+without checking the specific cardinality: `FixedAsset` actually links
+to *four* distinctly-named, fixed 1:1 account roles
+(`ledgerAssetAccountId`, `ledgerAccumulatedDepreciationAccountId`,
+`ledgerAccumulatedImpairmentAccountId`,
+`ledgerDepreciationExpenseAccountId` — Architecture → Entities), not
+Hay's general many-to-many ASSET ASSIGNMENT join table that would let
+an arbitrary number of accounts attach to one asset. This document's
+shape is a third variant between Hay's two: richer than the "Ideal"
+single account per asset, but a fixed, named schema rather than Hay's
+flexible "Real" join — worth citing as "the same problem Hay
+identifies, solved with a fixed small n-tuple of typed roles instead
+of an open join," not as a direct implementation of either of Hay's
+two named patterns.
+
+**Fowler's Specialized Account Model (§6.14) is exactly the
+alternative this document's own architecture explicitly rejected — a
+confirmed "road not taken," not a gap.** Fowler, *Analysis Patterns*,
+§6.14 "Specialized Account Model," pp.125-126: "With the accounting
+models it is usual to subtype to provide the information for the
+particular domain" — his own example subtypes the whole
+Account/Transaction pattern into whiskey-bottle "holdings" per
+location × goods-type, a non-monetary specialization of the ledger's
+own Account concept. This document's Problem Statement already states
+the alternative it rejected: `LedgerAccount.parentAccountId` is
+"structural chart-of-accounts placement, not an asset register," and
+Proposed Solution builds `FixedAsset` as its own entity with plain
+FK-ids into `ledger.LedgerAccount`, never a subtype of `LedgerAccount`
+itself. Fowler's §6.14 is the named pattern that alternative — an
+asset register modeled as a specialized Account subtype — would have
+followed; this document chose a separate register instead, for
+reasons Architecture and Design Decisions already give (a physical
+asset has depreciation/impairment/disposal lifecycle fields no ledger
+account has). Worth citing as confirmation this was a real fork in
+the literature, not an unconsidered default.
+
+**Confirmed absence: neither book has anything on disposal,
+retirement, or impairment as an accounting pattern.** Full-text search
+of both PDFs for "disposal," "retirement," and "impair" returns zero
+on-topic matches in either book's accounting chapters (Hay's only
+"disposal" hits are in an unrelated hazardous-materials chapter). This
+document's disposal and impairment design (Design Decisions,
+Architecture → Commands) has no literature precedent to check against
+in either book — recorded as a genuine gap in the literature, not a
+missed citation.
+
+**Real-system comparison.**
+
+- **ERPNext** (docs.frappe.io Asset Depreciation documentation,
+  verified 2026-09-15): generates the full depreciation schedule
+  upfront at asset creation (once "Calculate Depreciation" is enabled
+  and a Finance Book row exists) — a third real system agreeing with
+  this document's own "materialized in full at acceptance" choice,
+  strengthening the Overview's existing Market Reference finding
+  beyond GnuCash/Odoo alone. Each depreciation run posts exactly this
+  document's own entry shape: "a submitted depreciation entry debits
+  Depreciation Expense and credits Accumulated Depreciation." ERPNext
+  offers four depreciation methods (Straight Line, Double Declining
+  Balance, Written Down Value, Manual) against this document's one
+  (Straight Line, Phase 1) plus a reserved Declining Balance value for
+  Phase 2. Public documentation does not describe an impairment
+  feature at all — this document's impairment flow (Design Decisions,
+  Impairment) goes further than a mature open-source ERP's documented
+  feature set, not merely matching it. Disposal ("Selling an Asset,"
+  "Scrapping an Asset") exists as a documented feature, but the
+  specific gain/loss posting mechanics aren't detailed in public docs
+  — recorded as unverified, not confirmed either way.
+- **Comarch ERP Optima** (`pomoc.comarch.pl`, "Ewidencja środków
+  trwałych" documentation, verified 2026-09-15) — a genuine, useful
+  divergence from both this document and ERPNext: Optima generates its
+  depreciation plan **on demand** ("oblicza plan amortyzacji dla
+  wybranych środków trwałych" for a chosen date range, via a
+  dedicated command), not upfront at acceptance — closer to Odoo's
+  "computed on read" posture (already named and rejected in the
+  Overview's Market Reference) than to this document's or ERPNext's
+  upfront materialization. Confirms a real market split on this exact
+  design question, not a consensus this document simply followed.
+  Optima explicitly tracks separate "amortyzacja bilansowa i
+  podatkowa" (book and tax depreciation) as a named dual-track
+  feature — real-system confirmation that book/tax depreciation is a
+  materially separate capability worth deferring to Phase 2 (Out of
+  Scope), not a corner this document is cutting. Liquidation states
+  ("zlikwidowane," "zbyte") exist in the documented asset lifecycle,
+  and a "value revaluation" (rewaluacja) document exists, but neither
+  the liquidation gain/loss mechanics nor whether revaluation covers
+  impairment specifically are detailed in public documentation —
+  recorded as unverified.
+- **enova365** (`enova.pl`, Księga Inwentarzowa product page, verified
+  2026-09-15) — the strongest real-system validation found for this
+  document's impairment flow specifically: enova365 ships a dedicated
+  **"Odpis aktualizujący"** document, described as separate from
+  ordinary depreciation and used specifically to record an asset's
+  loss of value — the same shape as this document's `AssetImpairment`
+  entity and `recognizeImpairment` command, in a mainstream Polish
+  ERP, not just this document's own reading of art. 32 ust. 4 UoR.
+  Also confirms "amortyzacja bilansowa i podatkowa" as a named
+  dual-track feature, the same Phase-2-worthy split Comarch shows, and
+  documents "Likwidacja ŚT (LT)" as a named disposal document type
+  matching this document's own OT/LT naming convention directly, not
+  merely a similar concept under different names.
+
+Together, the three systems confirm this document's naming convention
+(OT/LT) and posting shape (Depreciation Expense debit, Accumulated
+Depreciation credit) are exactly what the target market already
+expects, while splitting on schedule timing (ERPNext upfront like this
+document; Optima on-demand like Odoo) — a real design choice with
+real-system precedent on both sides, not a default nobody else
+considered. enova365's dedicated impairment document is the clearest
+evidence yet that this document's impairment flow, which neither
+ERPNext nor the accounting-pattern literature covers, is solving a
+real, market-recognized requirement rather than adding scope the
+market doesn't need.
+
 ## Architecture
 
 ### Entities (`data/entities.ts`)
@@ -2826,3 +2988,48 @@ Full response to the CHANGES REQUESTED review:
 - Nit: this document had zero mentions anywhere in
   `.ai/specs/README.md`'s Pending Specifications index. Added its
   row.
+
+### 2026-09-15 (financial-spec-writing-process applied for the first time)
+
+- Merged `upstream/develop` (166 commits) first; one shared-file
+  overlap in `.ai/specs/README.md` resolved cleanly by git itself, no
+  manual conflict markers; commit `caac275d0`.
+- Added this document's first "Literature & Prior Art" section. This
+  document already cited Kieso extensively for salvage value,
+  useful-life revision, and impairment (see earlier Changelog
+  entries) — those stand unchanged. Added, for the first time: Hay
+  Figure 7.10 "Depreciation" (p.135, confirmed for the DEBIT-expense/
+  CREDIT-asset-side mechanic, with a precise refinement — Hay's own
+  illustration credits the asset's account directly, the net method;
+  this document credits a separate `ledgerAccumulatedDepreciationAccountId`
+  contra-asset account, matching Kieso's gross-method treatment
+  instead, not Hay's); Hay Figure 7.18 "Assets" (p.149-150, the
+  "Ideal vs. Real" asset/account modeling progression — independently
+  re-verified after a 2026-09-12 knowledge-base pass had flagged it as
+  "a strong validation" without checking cardinality; corrected to
+  note this document's four fixed, named account roles are a third
+  variant, not Hay's general many-to-many ASSET ASSIGNMENT join); and
+  Fowler §6.14 "Specialized Account Model" (pp.125-126, confirmed as
+  the literature's name for the "subtype `LedgerAccount` itself"
+  alternative this document's Problem Statement already rejected in
+  favor of a separate `FixedAsset` register). Also recorded a genuine
+  absence: neither book has anything on disposal, retirement, or
+  impairment as an accounting pattern.
+- Added a real-system comparison (previously only the Overview's own
+  GnuCash/Odoo asset-lifecycle-shape callout): ERPNext (upfront
+  schedule generation and the identical Depreciation Expense/
+  Accumulated Depreciation posting — a third real system agreeing
+  with this document's own materialize-at-acceptance choice; no
+  documented impairment feature, so this document's impairment flow
+  goes beyond a mature open-source ERP's public feature set), Comarch
+  ERP Optima (a genuine divergence — its depreciation plan is
+  generated on demand, not upfront, closer to Odoo's computed-on-read
+  posture than to this document's or ERPNext's; confirms dual book/tax
+  depreciation as a real, separate capability worth this document's
+  own Phase 2 deferral), and enova365 (a dedicated "Odpis
+  aktualizujący" document — the strongest real-system validation found
+  for this document's own impairment flow, plus a "Likwidacja ŚT (LT)"
+  document matching this document's own disposal naming directly).
+- No structural changes to Architecture/Data Models/Commands from this
+  pass — Steps 1-3 of `financial-spec-writing-process` only; Step 4
+  (structure) was already satisfied by the existing document.
