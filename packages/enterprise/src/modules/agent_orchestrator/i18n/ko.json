@@ -1167,6 +1167,8 @@
   "agent_orchestrator.proposal.options.noneProposed.description": "해당 건을 검토했지만 제시할 내용이 없었습니다. 내릴 결정도, 실행할 작업도 없습니다.",
   "agent_orchestrator.proposal.options.noneProposed.title": "에이전트가 아무것도 제안하지 않았습니다",
   "agent_orchestrator.proposal.options.rank": "#{rank}",
+  "agent_orchestrator.proposal.options.unreadable.description": "에이전트가 결정을 기록했지만 그 내용을 디코딩할 수 없었습니다 — 여기 있는 어떤 것도 실행하기에 안전하지 않습니다. 전체 추적을 열어 실행이 실제로 무엇을 반환했는지 확인하고 이 문제를 신고하세요. 빈 결과가 아니라 결함입니다.",
+  "agent_orchestrator.proposal.options.unreadable.title": "이 제안을 읽을 수 없습니다",
   "agent_orchestrator.proposal.proposes": "{agent}의 제안",
   "agent_orchestrator.proposal.reject.confirm": "제안 거부",
   "agent_orchestrator.proposal.reject.heading": "제안 거부",

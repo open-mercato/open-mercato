@@ -5,7 +5,7 @@
  */
 import { isAgentIconName, type AgentIconName } from '../data/agentIcons'
 import { normalizeAgentTags } from '../data/agentTags'
-import { deriveEnvelopeConfidence, normalizeProposalEnvelope } from '../data/proposalEnvelope'
+import { proposalPayloadSource, deriveEnvelopeConfidence, normalizeProposalEnvelope } from '../data/proposalEnvelope'
 import type { AgentType } from '../data/validators'
 import type { AgentTokenUsage, TokenizedFile } from '../lib/tokens/types'
 
@@ -289,8 +289,13 @@ function asNumber(value: unknown): number | null {
 }
 
 function extractRationale(payload: unknown): string | null {
-  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null
-  const rationale = (payload as Record<string, unknown>).rationale
+  // Goes through the shared resolver rather than a bare typeof check: an
+  // encrypted jsonb payload arrives decrypted-but-unparsed (a JSON string), and
+  // the bare check silently dropped the rationale for exactly the proposals
+  // whose options had already vanished. See `proposalPayloadSource`.
+  const source = proposalPayloadSource(payload)
+  if (source.kind !== 'record') return null
+  const rationale = source.record.rationale
   return typeof rationale === 'string' && rationale.trim() ? rationale : null
 }
 

@@ -1,12 +1,12 @@
 "use client"
 
 import * as React from 'react'
-import { Check, Scale, ShieldAlert } from 'lucide-react'
+import { AlertTriangle, Check, Scale, ShieldAlert } from 'lucide-react'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { normalizeProposalEnvelope, rankProposalOptions } from '../data/proposalEnvelope'
+import { isProposalPayloadUnreadable, normalizeProposalEnvelope, rankProposalOptions } from '../data/proposalEnvelope'
 import type { ProposalOption } from '../data/validators'
 import { humanizeKey } from './proposalFactsData'
 import { autoDispositionBlockMessageKey } from './proposalCaseStatus'
@@ -67,6 +67,7 @@ export function ProposalOptionList({
     () => rankProposalOptions(normalizeProposalEnvelope(payload).options),
     [payload],
   )
+  const payloadUnreadable = React.useMemo(() => isProposalPayloadUnreadable(payload), [payload])
   const interactive = !!onSelect && !disabled
 
   const optionRefs = React.useRef(new Map<string, HTMLButtonElement>())
@@ -116,6 +117,27 @@ export function ProposalOptionList({
     },
     [interactive, focusOption, options.length],
   )
+
+  // A payload that is PRESENT but unreadable must never render as "the agent
+  // proposed nothing". That sentence is a claim about what the agent decided,
+  // and making it on the strength of a payload we failed to parse is how a real
+  // proposal gets rejected by an operator who was never shown it.
+  if (payloadUnreadable) {
+    return (
+      <div className={className}>
+        <EmptyState
+          variant="subtle"
+          size="sm"
+          icon={<AlertTriangle className="size-5 text-status-warning-icon" />}
+          title={t('agent_orchestrator.proposal.options.unreadable.title', 'This proposal could not be read')}
+          description={t(
+            'agent_orchestrator.proposal.options.unreadable.description',
+            'The agent recorded a decision, but its payload could not be decoded — so nothing here is safe to act on. Open the full trace to see what the run actually returned, and report this: it is a fault, not an empty result.',
+          )}
+        />
+      </div>
+    )
+  }
 
   if (options.length === 0) {
     return (

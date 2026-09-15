@@ -1167,6 +1167,8 @@
   "agent_orchestrator.proposal.options.noneProposed.description": "Revisó el caso y no tenía nada que ofrecer. No hay decisión que tomar y no se ejecutará nada.",
   "agent_orchestrator.proposal.options.noneProposed.title": "El agente no propuso nada",
   "agent_orchestrator.proposal.options.rank": "#{rank}",
+  "agent_orchestrator.proposal.options.unreadable.description": "El agente registró una decisión, pero no se pudo decodificar su contenido, así que nada de esto es seguro para actuar. Abre la traza completa para ver qué devolvió realmente la ejecución e informa de esto: es un fallo, no un resultado vacío.",
+  "agent_orchestrator.proposal.options.unreadable.title": "No se pudo leer esta propuesta",
   "agent_orchestrator.proposal.proposes": "{agent} propone",
   "agent_orchestrator.proposal.reject.confirm": "Rechazar propuesta",
   "agent_orchestrator.proposal.reject.heading": "Rechazar propuesta",

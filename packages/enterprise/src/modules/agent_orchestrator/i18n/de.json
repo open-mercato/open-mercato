@@ -1167,6 +1167,8 @@
   "agent_orchestrator.proposal.options.noneProposed.description": "Er hat den Fall geprüft und hatte nichts anzubieten. Es gibt keine Entscheidung zu treffen und es wird nichts ausgeführt.",
   "agent_orchestrator.proposal.options.noneProposed.title": "Der Agent hat nichts vorgeschlagen",
   "agent_orchestrator.proposal.options.rank": "#{rank}",
+  "agent_orchestrator.proposal.options.unreadable.description": "Der Agent hat eine Entscheidung aufgezeichnet, aber ihre Nutzdaten konnten nicht dekodiert werden — nichts davon ist gefahrlos umsetzbar. Öffnen Sie den vollständigen Verlauf, um zu sehen, was der Lauf tatsächlich zurückgab, und melden Sie dies: Es ist ein Fehler, kein leeres Ergebnis.",
+  "agent_orchestrator.proposal.options.unreadable.title": "Dieser Vorschlag konnte nicht gelesen werden",
   "agent_orchestrator.proposal.proposes": "{agent} schlägt vor",
   "agent_orchestrator.proposal.reject.confirm": "Vorschlag ablehnen",
   "agent_orchestrator.proposal.reject.heading": "Vorschlag ablehnen",

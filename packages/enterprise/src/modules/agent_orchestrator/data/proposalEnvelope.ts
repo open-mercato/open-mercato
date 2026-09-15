@@ -81,27 +81,78 @@ function buildOption(raw: unknown, index: number, fallbackLabel: string): Propos
  * over-long rationale or an eleventh option must not lose its whole proposal to a
  * validation error the operator can do nothing about.
  */
+/**
+ * What a persisted payload actually is, before anything tries to read options
+ * out of it.
+ *
+ * `absent` and `unreadable` are deliberately NOT the same answer. An empty
+ * option set is a real agent verdict ("I looked and had nothing to offer");
+ * a payload that cannot be read is a FAULT, and rendering it as the former
+ * tells an operator the agent proposed nothing when it may have proposed
+ * something substantial. That mistake is invisible and unrecoverable — the
+ * operator rejects a decision they were never shown.
+ */
+export type ProposalPayloadSource =
+  | { kind: 'record'; record: Record<string, unknown> }
+  | { kind: 'absent' }
+  | { kind: 'unreadable' }
+
+/**
+ * Resolve a persisted payload to its object form.
+ *
+ * `agent_proposals.payload` is a **jsonb** column that is encrypted at rest, and
+ * the decryptor hands back a JSON *string*: `decryptFields` never parses a
+ * decrypted value (`tenantDataEncryptionService.ts` — auto-parsing crashed React
+ * renders for text columns whose value happened to be valid JSON, issue #1810).
+ * That rule is right for typed text columns and wrong for a jsonb envelope, so
+ * the string becomes an object again here, at the one boundary that knows this
+ * payload is JSON.
+ */
+export function proposalPayloadSource(raw: unknown): ProposalPayloadSource {
+  if (raw === null || raw === undefined) return { kind: 'absent' }
+  if (isRecord(raw)) return { kind: 'record', record: raw }
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim()
+    if (trimmed.length === 0) return { kind: 'absent' }
+    try {
+      const parsed = JSON.parse(trimmed)
+      if (isRecord(parsed)) return { kind: 'record', record: parsed }
+    } catch {
+      // Falls through: a non-JSON string is ciphertext that never decrypted, or
+      // a shape this module does not own. Either way it is not readable.
+    }
+  }
+  return { kind: 'unreadable' }
+}
+
+/** True when a payload is present but could not be read — never when it is legitimately empty. */
+export function isProposalPayloadUnreadable(raw: unknown): boolean {
+  return proposalPayloadSource(raw).kind === 'unreadable'
+}
+
 export function normalizeProposalEnvelope(raw: unknown, fallbackLabel?: string): AgentProposalPayload {
   const label = clampText(fallbackLabel, PROPOSAL_OPTION_LABEL_MAX) ?? IMPLICIT_OPTION_LABEL
-  if (!isRecord(raw)) return { options: [] }
-  const rationale = clampText(raw.rationale, PROPOSAL_RATIONALE_MAX)
+  const source = proposalPayloadSource(raw)
+  if (source.kind !== 'record') return { options: [] }
+  const record = source.record
+  const rationale = clampText(record.rationale, PROPOSAL_RATIONALE_MAX)
   const withRationale = (options: ProposalOption[]): AgentProposalPayload => ({
     options,
     ...(rationale !== undefined ? { rationale } : {}),
   })
 
-  if (Array.isArray(raw.options)) {
-    const options = raw.options
+  if (Array.isArray(record.options)) {
+    const options = record.options
       .slice(0, PROPOSAL_OPTIONS_MAX)
       .map((entry, index) => buildOption(entry, index, label))
       .filter((option): option is ProposalOption => option !== null)
     return withRationale(dedupeOptionIds(options))
   }
 
-  if (Array.isArray(raw.actions)) {
-    const actions = readActions(raw.actions)
+  if (Array.isArray(record.actions)) {
+    const actions = readActions(record.actions)
     if (actions.length === 0) return withRationale([])
-    const confidence = clampConfidence(raw.confidence)
+    const confidence = clampConfidence(record.confidence)
     return withRationale([
       {
         id: IMPLICIT_OPTION_ID,

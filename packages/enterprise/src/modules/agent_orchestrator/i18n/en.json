@@ -1167,6 +1167,8 @@
   "agent_orchestrator.proposal.options.noneProposed.description": "It looked at the case and had nothing to offer. There is no decision to make and nothing will run.",
   "agent_orchestrator.proposal.options.noneProposed.title": "The agent proposed nothing",
   "agent_orchestrator.proposal.options.rank": "#{rank}",
+  "agent_orchestrator.proposal.options.unreadable.description": "The agent recorded a decision, but its payload could not be decoded — so nothing here is safe to act on. Open the full trace to see what the run actually returned, and report this: it is a fault, not an empty result.",
+  "agent_orchestrator.proposal.options.unreadable.title": "This proposal could not be read",
   "agent_orchestrator.proposal.proposes": "{agent} proposes",
   "agent_orchestrator.proposal.reject.confirm": "Reject proposal",
   "agent_orchestrator.proposal.reject.heading": "Reject proposal",

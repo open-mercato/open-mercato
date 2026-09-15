@@ -1167,6 +1167,8 @@
   "agent_orchestrator.proposal.options.noneProposed.description": "Przeanalizował sprawę i nie miał nic do zaproponowania. Nie ma decyzji do podjęcia i nic nie zostanie wykonane.",
   "agent_orchestrator.proposal.options.noneProposed.title": "Agent niczego nie zaproponował",
   "agent_orchestrator.proposal.options.rank": "#{rank}",
+  "agent_orchestrator.proposal.options.unreadable.description": "Agent zapisał decyzję, ale nie udało się zdekodować jej treści — nic tutaj nie nadaje się do zatwierdzenia. Otwórz pełny ślad, aby zobaczyć, co naprawdę zwróciło uruchomienie, i zgłoś to: to błąd, a nie pusty wynik.",
+  "agent_orchestrator.proposal.options.unreadable.title": "Nie udało się odczytać tej propozycji",
   "agent_orchestrator.proposal.proposes": "{agent} proponuje",
   "agent_orchestrator.proposal.reject.confirm": "Odrzuć propozycję",
   "agent_orchestrator.proposal.reject.heading": "Odrzuć propozycję",
