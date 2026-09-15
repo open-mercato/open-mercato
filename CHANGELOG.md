@@ -700,7 +700,7 @@ This release also runs **noticeably lighter**. A broad performance-and-footprint
 - 🔒 Harden attachment copy/clone scope against partial-null rows (#2879). (#2991) *(@pkarw)*
 - 🔒 Mask GET credentials, write-only secret handling (#2253). (#2881) *(@pkarw)*
 - 🔒 HMAC-authenticate mock inbound webhook adapter (#2707). (#2790) *(@pat-lewczuk)*
-- 🔒 Complete report-high.md tracker (16 HIGH findings) + dev-DX password amendment. (#2635) *(@pat-lewczuk)*
+- 🔒 Complete `.ai/analysis/2026-05-security-high-findings.md` tracker (16 HIGH findings) + dev-DX password amendment. (#2635) *(@pat-lewczuk)*
 
 ## 🐛 Fixes
 - 🔐 Restrict event catalog access (#3860). (#4136) *(@haxiorz)*

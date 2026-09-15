@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 141 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 142 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -189,3 +189,4 @@ This catalog indexes 141 focused lessons. Route the task first, then read only r
 ### spec-pr
 
 - [Credit the author, not the merger, when generating a changelog](lessons/credit-the-author-not-the-merger-in-a-changelog.md) — area:spec-pr,ai-workflow; module:platform; topic:data-integrity,generated-files
+- [README cleanup must preserve project positioning and voice](lessons/readme-cleanup-must-preserve-project-positioning.md) — area:spec-pr; module:platform; topic:documentation,backward-compatibility

@@ -1,7 +1,9 @@
 # HIGH Findings Tracker
 
-Source: [`report.md`](report.md) — generated 2026-05-06.
+Source: `report.md` (not retained) — generated 2026-05-06.
 Total HIGH findings: **16**.
+
+This completed tracker is archived as historical security-review evidence.
 
 Status legend: `⬜ todo` · `🟡 in-progress` · `✅ fixed` · `🟢 verified` · `⏭️ skipped`
 
