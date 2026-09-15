@@ -125,9 +125,11 @@ function isEncryptedWithDek(value: unknown, dek: TenantDek): boolean {
  *
  * Called only after {@link isEncryptedWithDek} has already said "not sealed under the
  * current DEK". At that point a structurally well-formed envelope means one of two things:
- * genuine ciphertext under some other key, or a byte-exact forgery. Both must stop the
- * write — the first because nesting envelopes silently destroys recoverable data, the
- * second because rejecting it is strictly safer than persisting attacker-chosen bytes.
+ * genuine ciphertext under some other key, or a length-valid forgery — the shape check is
+ * length-based, not content-based, so any length-correct string qualifies, not just a
+ * byte-exact match against something real. Both must stop the write — the first because
+ * nesting envelopes silently destroys recoverable data, the second because rejecting it is
+ * strictly safer than persisting attacker-chosen bytes.
  *
  * The field name is safe to report (it comes from the encryption map, not user input); the
  * value never is, so it stays out of both the error message and the log.
@@ -478,8 +480,8 @@ export class TenantDataEncryptionService {
       // any normal decrypt, indistinguishable from correct ciphertext by inspection,
       // and it would overwrite the lookup hash with a hash of ciphertext (issue #5951).
       // Fail the write closed instead. Nothing is ever stored verbatim, so #2720 stays
-      // shut: a forgery that is not byte-exact still gets encrypted as plaintext above,
-      // and a byte-exact one is rejected rather than persisted.
+      // shut: a forgery whose shape is not length-valid still gets encrypted as plaintext
+      // above, and a length-valid one is rejected rather than persisted.
       assertNotSealedUnderAnotherKey(value, rule.field)
       const serialized = typeof value === 'string' ? value : JSON.stringify(value)
       const payload = encryptWithAesGcm(serialized, dek.key)

@@ -246,28 +246,28 @@ describe('TenantDataEncryptionService.encryptFields (issue #2720)', () => {
     const service = makeService()
     const previousDek = Buffer.alloc(32, 2).toString('base64')
     const sealedUnderPreviousDek = encryptWithAesGcm('mail@example.com', previousDek).value as string
+    const input = { email: sealedUnderPreviousDek, email_hash: hashForLookup('mail@example.com') }
+    const inputSnapshot = { ...input }
 
-    let emitted: Record<string, unknown> | null = null
-    try {
-      emitted = service.encryptFields(
-        { email: sealedUnderPreviousDek, email_hash: hashForLookup('mail@example.com') },
+    // encryptFields must reject the call outright rather than return a payload — a toBeNull()
+    // check on a try/catch result would also pass if it threw for an unrelated reason, so assert
+    // the throw directly.
+    expect(() =>
+      service.encryptFields(
+        input,
         [{ field: 'email', hashField: 'email_hash' }],
         { key: fixedKey } as never,
-      )
-    } catch {
-      emitted = null
-    }
+      ),
+    ).toThrow(TenantDataEncryptionError)
 
-    // Before the fix this returned a writable payload; assert on that payload rather than on
-    // the (always-cloned, therefore always-untouched) input, so the test fails without the fix.
-    expect(emitted).toBeNull()
+    // encryptFields clones before mutating, so a rejected call must leave the caller's object
+    // untouched — no nested envelope, no hash overwritten with one computed over ciphertext.
+    expect(input).toEqual(inputSnapshot)
 
-    // Spell out what that payload used to contain, so the regression is legible: one more
-    // AES-GCM layer whose plaintext is the previous envelope, and a lookup hash computed over
-    // ciphertext instead of over the email — neither of which any read path can undo.
-    const nested = encryptWithAesGcm(sealedUnderPreviousDek, fixedKey).value as string
-    expect(decryptWithAesGcm(nested, fixedKey)).toBe(sealedUnderPreviousDek)
-    expect(hashForLookup(sealedUnderPreviousDek)).not.toBe(hashForLookup('mail@example.com'))
+    // Illustrative only (not an assertion on the code under test): before the fix, the case
+    // above returned a writable payload containing one more AES-GCM layer whose plaintext was
+    // the previous envelope, plus a lookup hash computed over ciphertext instead of over the
+    // email — neither of which any read path could undo.
   })
 
   it('encrypts plaintext that happens to look like a v1 payload', () => {

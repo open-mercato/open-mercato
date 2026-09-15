@@ -19,9 +19,22 @@ jest.mock('@open-mercato/core/modules/entities/lib/install-from-ce', () => ({
   getAggregatedCustomEntityConfigs: jest.fn(() => []),
 }))
 
-jest.mock('@open-mercato/shared/lib/encryption/aes', () => ({
-  decryptWithAesGcm: jest.fn(),
-}))
+jest.mock('@open-mercato/shared/lib/encryption/aes', () => {
+  const actual = jest.requireActual('@open-mercato/shared/lib/encryption/aes')
+  return {
+    ...actual,
+    decryptWithAesGcm: jest.fn(),
+  }
+})
+
+// A shape-valid `<iv>:<ct>:<tag>:v1` envelope look-alike: the guard the CLI now uses
+// (`isEncryptedPayloadShape`) validates decoded byte lengths, so a fixture like the old
+// literal `'iv:cipher:tag:v1'` no longer reads as "already encrypted".
+const shapeValidCiphertext = (value: string) => {
+  const iv = Buffer.alloc(12, 7).toString('base64')
+  const tag = Buffer.alloc(16, 9).toString('base64')
+  return `${iv}:${Buffer.from(value).toString('base64')}:${tag}:v1`
+}
 
 const getDek = jest.fn()
 const encryptEntityPayload = jest.fn()
@@ -115,7 +128,7 @@ describe('entities rotate-encryption-key CLI', () => {
 
   it('rotates mapped fields with old key and updates rows', async () => {
     const rotate = cli.find((c: any) => c.command === 'rotate-encryption-key')!
-    const encryptedValue = 'iv:cipher:tag:v1'
+    const encryptedValue = shapeValidCiphertext('cipher')
 
     singleMapFixture()
 
@@ -146,7 +159,7 @@ describe('entities rotate-encryption-key CLI', () => {
     const rotate = cli.find((c: any) => c.command === 'rotate-encryption-key')!
     singleMapFixture()
     execute.mockResolvedValueOnce([
-      { id: 'row-1', resource_id: 'iv:cipher:tag:v1', context_json: null },
+      { id: 'row-1', resource_id: shapeValidCiphertext('cipher'), context_json: null },
     ])
     // Neither key opens it.
     ;(decryptWithAesGcm as jest.Mock).mockReturnValue(null)
@@ -168,8 +181,9 @@ describe('entities rotate-encryption-key CLI', () => {
   it('keeps an already-rotated row in the payload so the service skips it', async () => {
     const rotate = cli.find((c: any) => c.command === 'rotate-encryption-key')!
     singleMapFixture()
+    const alreadyRotated = shapeValidCiphertext('cipher')
     execute.mockResolvedValueOnce([
-      { id: 'row-1', resource_id: 'iv:cipher:tag:v1', context_json: null },
+      { id: 'row-1', resource_id: alreadyRotated, context_json: null },
     ])
     // The old key fails, the current key succeeds: this row was rotated by an earlier,
     // interrupted run. It must be left alone rather than reported as unrecoverable.
@@ -181,8 +195,35 @@ describe('entities rotate-encryption-key CLI', () => {
 
     await rotate.run(['--old-key', 'old-secret', '--tenant', 'tenant-1', '--org', 'org-1'])
 
-    expect(encryptEntityPayload.mock.calls[0][1]).toHaveProperty('resource_id', 'iv:cipher:tag:v1')
+    expect(encryptEntityPayload.mock.calls[0][1]).toHaveProperty('resource_id', alreadyRotated)
     expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('opens under neither'))
+
+    logSpy.mockRestore()
+    warnSpy.mockRestore()
+  })
+
+  // Regression: a real plaintext value that merely looks like an encrypted envelope (four
+  // colon-separated segments ending in "v1") must never enter rotation at all — the loose
+  // `isEncryptedPayload` check used to treat it as ciphertext, find that neither key opens
+  // it, and falsely warn "opens under neither ... key" for a value that was never encrypted.
+  // The strict `isEncryptedPayloadShape` check excludes it up front instead.
+  it('never enters a plaintext value that only looks like an encrypted envelope', async () => {
+    const rotate = cli.find((c: any) => c.command === 'rotate-encryption-key')!
+    singleMapFixture()
+    const looksEncryptedButIsnt = 'user:supplied:colon:v1'
+    execute.mockResolvedValueOnce([
+      { id: 'row-1', resource_id: looksEncryptedButIsnt, context_json: null },
+    ])
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {})
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+
+    await rotate.run(['--old-key', 'old-secret', '--tenant', 'tenant-1', '--org', 'org-1'])
+
+    expect(decryptWithAesGcm).not.toHaveBeenCalled()
+    expect(encryptEntityPayload).not.toHaveBeenCalled()
+    expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining('opens under neither'))
+    // No update was issued for the untouched plaintext row — only the select ran.
+    expect(execute).toHaveBeenCalledTimes(1)
 
     logSpy.mockRestore()
     warnSpy.mockRestore()
