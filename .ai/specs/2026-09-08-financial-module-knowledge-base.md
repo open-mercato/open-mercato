@@ -43,6 +43,7 @@ merges.
 | SPEC-010 — JPK_KR_PD (`financial_pl`, targets `official-modules`) | [`2026-09-11-jpk-kr-pd-financial-pl.md`](https://github.com/open-mercato/open-mercato/pull/6069) | `docs/jpk-kr-pd-financial-pl` (staged temporarily in this repo, not yet moved to `official-modules`) | Open, PR #6069 — first draft; depends on #6038 merging first; XSD verification pass done (see Changelog), one finding (Q4/`S_12_1`) still only proposed, not applied |
 | Accounts Receivable (sales invoice → GL posting) | [`2026-08-18-sales-invoice-gl-posting.md`](https://github.com/open-mercato/open-mercato/pull/6046) | `docs/sales-invoice-gl-posting` | Open, PR #6046 — full spec, one independent adversarial review pass (eleven issues fixed) plus a Final Compliance Matrix; not yet reviewed by a maintainer |
 | Cash & Bank Management | [`2026-09-10-cash-bank-management.md`](https://github.com/open-mercato/open-mercato/pull/6055) | `docs/cash-bank-management` | Open, PR #6055 — full spec, two independent adversarial review passes (14 + 5 issues fixed) plus a literature-verification pass; not yet reviewed by a maintainer |
+| Default Chart of Accounts (Polish plan kont importer) | [`2026-09-15-default-chart-of-accounts.md`](https://github.com/open-mercato/open-mercato/pull/6137) | `docs/default-chart-of-accounts` | Open, PR #6137 — first document in this family to carry the full `financial-spec-writing-process` (own Literature & Prior Art section + real-system comparison) from its very first draft, see Changelog |
 | Multi-Currency, Budgeting & Forecasting, Cost Accounting | — | — | Not started (SPEC-024 only) |
 
 **`financial-pl` (JPK_V7/KSeF) lives outside this repo.** It's a real,
@@ -407,6 +408,25 @@ real):**
   Comarch and enova365 aren't open source, so per the same convention
   used for the other modules in this family they're recorded here and
   in the spec's own section, not added as separate Tier 4 entries.
+  **New 2026-09-15, for Default Chart of Accounts** (Chart of Accounts,
+  docs.frappe.io, verified 2026-09-15): a genuine, honestly-recorded
+  divergence, not a validation. ERPNext automatically seeds a default
+  chart of accounts at company-creation time and separately offers a
+  "Chart of Accounts Importer" to replace that default, but only while
+  the company has no pre-existing transactions — the opposite of that
+  document's opt-in-only design, which deliberately doesn't reopen GL
+  core engine's own no-auto-seed Phase 1 decision. enova365 (Księga
+  Handlowa module docs, verified 2026-09-15) and Symfonia
+  (finanse.wsparcie.symfonia.pl, verified 2026-09-15) both match that
+  document's design closely — an explicit, optional import at company
+  setup, fully editable afterward — and enova365 additionally offers a
+  choice of templates by business type, exactly the Phase 2
+  parametrized-template idea that document defers. Comarch ERP
+  Optima's public documentation was inconclusive on this specific
+  question. Comarch, enova365 and Symfonia aren't open source, so per
+  the same convention used for the other modules in this family
+  they're recorded here and in the spec's own section, not added as
+  separate Tier 4 entries.
 - **GnuCash** docs (gnucash.org/docs/v5/C/gnucash-guide/bus_ap.html) —
   explicitly documents one shared AP GL account with per-vendor detail
   reconstructed via linked Vendor/Bill/Payment records. The cleanest
@@ -562,6 +582,23 @@ pointed at the wrong section.
   `2026-09-06-fixed-assets.md`'s own new Literature & Prior Art section.
 
 **Chart of Accounts / `journal_entry_line_dimension`:**
+- **New 2026-09-15, for Default Chart of Accounts — Kieso's Illustration
+  3.9 (ch. 3, pp. 3-12–3-13), confirmed, and the first citation of
+  Kieso in this knowledge base for a chart-of-accounts-shape claim
+  rather than only recognition/measurement rules.** Kieso presents a
+  real numbered chart of accounts organized by account type, with gaps
+  deliberately left inside each numeric range specifically to permit
+  the insertion of new accounts later without renumbering anything
+  already in use — directly informing that document's own template
+  numbering (e.g. `010`/`020`/`070`, not `010`/`011`/`012`). Also
+  confirmed: Hay, ch. 7, p. 119 — "the organization has wide latitude
+  in setting up the specific list" of account types — direct,
+  primary-source support for treating a hardcoded starter template as
+  a non-enforced starting point rather than a fixed structure. And a
+  genuine absence: Fowler has zero "chart of accounts" mentions
+  anywhere in *Analysis Patterns*. Full detail in
+  `2026-09-15-default-chart-of-accounts.md`'s own Literature & Prior
+  Art section.
 - **New 2026-09-15 — Hay's Cost Center Assignment (Figure 7.19
   "Allocating Expenses," pp.150-151), confirmed, and a more precise
   match than 7.21 below for the `CostCenter` dimension type this
@@ -981,3 +1018,48 @@ ever recorded here (marked **proposed, not applied** — see §1 Notes):
 - Cross-checked against this document's own §2 conventions — JELD is
   already one of the three sources §2's "Three distinct tagging
   mechanisms" convention was built from; no changes needed.
+
+### 2026-09-15 (Default Chart of Accounts — new document, financial-spec-writing-process applied from the first draft)
+
+- `2026-09-15-default-chart-of-accounts.md` (PR #6137): brand-new spec,
+  not an enrichment pass — the first document in this family to carry
+  a full Literature & Prior Art section and real-system comparison
+  from its very first draft rather than as a later pass. Branched
+  fresh off `upstream/develop` at `a52dc6707`, no merge conflict to
+  resolve.
+- Step 1 (cross-spec consistency): confirmed no existing spec, branch,
+  or PR already covered this. Found GL core engine's own explicit,
+  load-bearing "no default chart of accounts is seeded; tenants build
+  their own" Phase 1 decision (#5663, Design decisions), and SPEC-024's
+  aspirational, since-diverged-from `IChartOfAccountsTemplate`
+  FP-style plugin contract. Surfaced two genuine, consequential design
+  forks as Open Questions rather than guessing: (1) scope — PL-only
+  hardcoded template vs. a pluggable multi-country framework, resolved
+  as PL-only hardcoded; (2) seeding model — resolved as a Phase 1
+  opt-in command + button on the existing chart-of-accounts backend
+  page (no change to GL core engine's `onTenantCreated` behavior),
+  with the onboarding-wizard-integration alternative explicitly
+  tracked in Phase 2/Out of Scope, not dropped.
+- Step 2 (literature grounding): confirmed Kieso Illustration 3.9 (ch.
+  3, pp. 3-12–3-13) — deliberate account-numbering gaps, the first
+  citation of Kieso in this knowledge base for a chart-of-accounts-
+  shape claim; confirmed Hay ch. 7, p. 119 — "the organization has wide
+  latitude in setting up the specific list" of account types; recorded
+  a genuine absence — Fowler has zero "chart of accounts" mentions
+  anywhere in *Analysis Patterns*. See the new Tier 2/3 entry above.
+- Step 3 (real-system comparison): ERPNext recorded as a genuine,
+  honestly-documented divergence (it auto-seeds a default chart of
+  accounts and separately offers a Chart of Accounts Importer to
+  replace it, the opposite of this document's opt-in-only design);
+  enova365 and Symfonia both confirmed as close matches to this
+  document's opt-in/template/customizable-after design; Comarch
+  recorded as inconclusive rather than forced into a comparison. See
+  the new Tier 4 note above.
+- Step 4 (`om-spec-writing` structure): full document drafted from
+  TLDR through Changelog in one pass; Open Questions gate satisfied via
+  explicit user confirmation on both questions raised in Step 1.
+- Cross-checked against this document's own §2 conventions — no new
+  tagging mechanism, no new control-account pattern, no new event; the
+  "account numbers are illustrative, never literal" convention (§2)
+  directly informed that document's own Data Models section. No
+  changes needed to §2.
