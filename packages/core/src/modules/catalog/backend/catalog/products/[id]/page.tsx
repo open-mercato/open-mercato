@@ -1361,6 +1361,27 @@ export default function EditCatalogProductPage({
         }
       }
       await updateCrud("catalog/products", payload);
+      // The update route only returns `{ ok: true }`, so re-fetch the record to pick
+      // up the server-bumped updatedAt and refresh the optimistic-lock token — without
+      // this, a second consecutive save reuses the stale pre-edit updatedAt and the
+      // lock guard falsely reports a conflict (#5985).
+      const refreshedProductRes = await apiCall<ProductResponse>(
+        `/api/catalog/products?id=${encodeURIComponent(productId)}&page=1&pageSize=1&withDeleted=false`,
+      );
+      const refreshedRecord = Array.isArray(refreshedProductRes.result?.items)
+        ? refreshedProductRes.result?.items?.[0]
+        : undefined;
+      const refreshedUpdatedAt =
+        typeof refreshedRecord?.updatedAt === "string"
+          ? refreshedRecord.updatedAt
+          : typeof refreshedRecord?.updated_at === "string"
+            ? refreshedRecord.updated_at
+            : null;
+      if (refreshedUpdatedAt) {
+        setInitialValues((prev) =>
+          prev ? { ...prev, updatedAt: refreshedUpdatedAt } : prev,
+        );
+      }
       const previousConversionIds = new Set(
         initialConversionsRef.current
           .map((entry) => toTrimmedOrNull(entry.id))
