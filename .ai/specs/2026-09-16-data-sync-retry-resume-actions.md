@@ -1,6 +1,6 @@
 # Data Sync — retry, resume, and run-again as three distinct operator actions
 
-**Status:** skeleton — blocked on Open Questions
+**Status:** draft
 **Module:** `packages/core/src/modules/data_sync`
 **Related:**
 `.ai/specs/2026-09-02-data-sync-adapter-start-controls.md` (§ `POST /api/data_sync/run` — unchanged),
@@ -17,49 +17,53 @@ and turns "do that again" on a finished run into a prefilled start form rather t
 exercise. Operator-facing throughout; the engine, the cursor semantics and the run lifecycle are
 untouched.
 
-## 📝 Open Questions
+## 📝 Decisions taken
 
-**Q1 — Does the `retry` endpoint enforce `supportsStartControl('fullSync', entityType)`, and if so,
-does `run` start enforcing it too?**
+Both questions this spec opened with were answered before it was written. They are recorded here
+rather than deleted, because each one is a place a future reader will be tempted to change something
+and needs to know why it is the way it is.
 
-This is the one that blocks. `2026-09-02-data-sync-adapter-start-controls.md` decided the sibling
-case explicitly and in the opposite direction:
+### D0 — Neither `run` nor `retry` enforces `supportsStartControl('fullSync', entityType)`
+
+The adapter's start-control declaration stays what `2026-09-02-data-sync-adapter-start-controls.md`
+made it: a statement about **the operator's form**, not about what the endpoint permits. That spec
+settled the sibling case explicitly:
 
 > ### `POST /api/data_sync/run` — unchanged
 > A client that posts `fullSync: true` for an entity type whose adapter declares the control
 > inapplicable still gets a `null` start cursor. **This is a UI-applicability change, not a behaviour
 > change** — covered by a test.
 
-Its risk table reinforces the stance: the declaration is a statement about *the operator's form*, the
-API deliberately keeps accepting the field so "a scripted or API client can still send it", and the
-residual risk accepted is that "an adapter can misdeclare its own UI".
+Its risk table carries the same stance twice over: the API keeps accepting the field on purpose so
+"a scripted or API client can still send it", and the residual risk it accepts is that "an adapter can
+misdeclare its own UI".
 
-`fromBeginning: true` on `retry` and `fullSync: true` on `run` request the same thing — a `null` start
-cursor — so whatever we choose should be the same for both:
+`fromBeginning: true` on `retry` and `fullSync: true` on `run` request the identical thing — a `null`
+start cursor — so they must answer identically. Making `retry` strict while `run` stays permissive
+would leave two sibling endpoints disagreeing about what one declaration means, for no reason a caller
+could discover from either. Making **both** strict is coherent but reverses an accepted decision and
+breaks `run` for any API caller using the documented escape hatch, which needs a deprecation window
+under `BACKWARD_COMPATIBILITY.md` §7 rather than a line in this spec.
 
-- **(a) `retry` enforces, `run` stays permissive.** Delivers the prototype as drawn. Two sibling
-  endpoints then disagree about what an adapter's declaration means, for no reason a caller can
-  discover. Not recommended.
-- **(b) Neither enforces — the declaration stays a UI concern.** Consistent with the merged decision,
-  no contract change anywhere, and Phase 2 collapses into Phase 3 (hide the action in the UI, which
-  Phase 3 does anyway). Cheapest, and reversible into (c) later.
-- **(c) Both enforce.** Coherent, but it reverses an accepted decision, breaks `run` for any existing
-  API caller relying on the documented escape hatch, and needs a deprecation window per
-  `BACKWARD_COMPATIBILITY.md` §7 rather than a single spec line.
+**Consequences, which shape everything below:**
 
-I recommend **(b)**, and I withdraw the "server-side hole" framing I used in the prototype and in my
-summary of it — the permissiveness is a documented decision, not an oversight. Screen 4 note 3 and
-screen 13's third alert are wrong as drawn and need correcting whichever way this lands.
+- This feature changes **no API contract at all**. No new status code, no new error code, no request or
+  response field anywhere.
+- The originally planned phase "server-side full-sync gate + a new `422 fullSyncUnsupported`" **does not
+  exist**. Hiding the action for an entity type whose adapter declares full sync inapplicable is
+  ordinary UI gating, and it belongs to Phase 2 alongside the action it hides.
+- An earlier draft of this work, and the prototype as first drawn, described the missing check as a
+  "server-side hole". **That framing is withdrawn** — the permissiveness is a documented decision, not
+  an oversight. The prototype is corrected in the same change that lands this spec.
 
-**Q2 — One spec or two?**
+### D1 — One spec, not two
 
-Phase 1 (surface the resume point) is read-only, changes no contract, and ships and delivers value on
-its own. Phases 3–4 (the new actions) are a separate deployable capability that depends on none of
-Phase 1's code. Split into two specs, or keep one?
-
-I recommend **one spec**: they are a single operator-facing capability — *understand and control how a
-failed run is retried* — and the helper-line copy on screen 7 only reads correctly once the reader
-knows the overflow exists. Splitting would leave the actions spec re-deriving the vocabulary.
+Phase 1 (surface the resume point) is read-only, changes no contract, and ships alone. Phases 2–3 (the
+new actions) depend on none of Phase 1's code. They are nonetheless one specification, because they are
+one operator-facing capability — *understand and control how a failed run is retried* — and because the
+helper-line copy Phase 1 introduces only reads correctly once the reader knows the overflow menu
+exists. Split, the actions spec would spend its first page re-deriving the vocabulary this one
+establishes.
 
 ## 📝 Problem Statement
 
@@ -106,7 +110,8 @@ Items 2–5 reverse what the prototype draws. The prototype is the argument, not
 
 ### Surface cost
 
-One API change in total, and only under Q1(a)/(c). Everything else is already on the wire:
+Nothing. Under D0 there is no API change at all, and every value the new UI needs is already on
+the wire:
 
 | Need | Already available? |
 |---|---|
@@ -122,9 +127,3 @@ One API change in total, and only under Q1(a)/(c). Everything else is already on
   a logical sync's true totals. Recorded as a known gap, not solved here.
 - Deciding the fate of the vestigial `paused` status. Flagged for a separate issue.
 - The schedule-level full-sync switch and `buildDefaultScheduleState`.
-
----
-
-*Remaining sections — Architecture, API Contracts, UI/UX, Edge Cases, Risks & Impact Review, Phasing,
-Implementation Plan, Testing, Changelog — are written once Q1 and Q2 are answered. Q1 determines
-whether Phase 2 exists at all.*

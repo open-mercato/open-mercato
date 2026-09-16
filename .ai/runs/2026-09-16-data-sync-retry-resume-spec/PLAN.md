@@ -12,7 +12,7 @@
 
 | Phase | Step | Title | Exec | Status | Commit |
 |-------|------|-------|------|--------|--------|
-| 1 | 1.1 | Resolve the Open Questions block into recorded decisions | inline | todo | — |
+| 1 | 1.1 | Resolve the Open Questions block into recorded decisions | inline | done | bf9e185719 |
 | 1 | 1.2 | Write Architecture, Data Model, and API Contracts | inline | todo | — |
 | 1 | 1.3 | Write UI/UX and Edge Cases & Failure Scenarios | inline | todo | — |
 | 1 | 1.4 | Write Risks & Impact Review and Final Compliance Report | inline | todo | — |
