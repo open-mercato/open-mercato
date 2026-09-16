@@ -215,6 +215,7 @@ Constraints: unique `(domain_mapping_id, path_prefix)` among non-deleted rows �
 | `price_kind_id` | uuid, nullable | `catalog.CatalogPriceKind.id`; anonymous default |
 | `assortment_scope` | jsonb, nullable | `AssortmentScope \| null` — `{ categoryIds?, tagIds?, excludeProductIds?, excludeCategoryIds?, excludeTagIds? }`, the shared type from `packages/shared/src/lib/catalog-visibility/`. `excludeCategoryIds`/`excludeTagIds` added 2026-09-06 |
 | `require_authentication` | boolean | **New 2026-09-06.** Default `false`. When `true` and the request has no authenticated buyer, `storeContextService.resolve()` short-circuits `buyer.assortmentScope` to `[]` — see below |
+| `price_sort_fallback` | text | **New 2026-09-16.** `'approximate'` (default) or `'unavailable'`. Governs what `/products?sort=price_*` does past the 5 000-product in-memory sort cap: keep today's list-price fallback with `X-Sort-Approximate: true`, or withdraw the sort option entirely. See [Storefront Public API](./2026-08-14-storefront-public-api.md) §6.3 |
 | `is_default` | boolean | One per store |
 
 `assortment_scope` uses the same shape as `CustomerGroupTerms.assortment_scope`. When both are present they **intersect**: the buyer sees products allowed by the channel *and* by their group. Resolving Open Question 4 of the roadmap — channel scope is the store's assortment, group scope narrows it further for that buyer, and neither can widen the other.
@@ -241,6 +242,14 @@ export type BuyerContext = {
   allowPurchaseOnAccount: boolean
   approvalRequiredAbove: number | null
   assortmentScope: EffectiveAssortmentScope   // intersectScopes(channel, group union); null = unrestricted, [] = deny-all
+
+  // New 2026-09-16, per roadmap ADR-7 (amended). Named, independently-hashable projections
+  // of the fields above; they add no information, they make it addressable. Every cache,
+  // projection and index key in this suite is built from these rather than from `digest`
+  // whenever a named component would do.
+  assortmentScopeHash: string        // digest of assortmentScope; already a digest input (§6.1), now a first-class field
+  priceScopeKey: string              // sha256(channelId, currencyCode, priceKindId, sortedCustomerGroupIds), truncated
+  customerOverlayId: string | null   // customerId, and ONLY when that customer has price rows of their own — see §6.1
 }
 
 export type StoreContext = {
@@ -278,12 +287,20 @@ export interface StoreContextService {
 
 ```
 digest = sha256(
-  storeId, channelId, priceKindId, currencyCode, effectiveLocale, taxMode,
-  sortedCustomerGroupIds, customerId ?? '-', assortmentScopeHash
+  storeId, effectiveLocale, taxMode,
+  priceScopeKey,                    // channelId, currencyCode, priceKindId, sortedCustomerGroupIds
+  assortmentScopeHash,
+  customerOverlayId ?? '-'          // was: customerId ?? '-'  — see below
 )
 ```
 
-Truncated to 16 hex characters. It deliberately includes `customerId`, so a customer with a personal price row does not share a cache entry with their group peers.
+Truncated to 16 hex characters.
+
+**`customerOverlayId`, not `customerId` (fixed 2026-09-16).** The original wording — "it deliberately includes `customerId`, so a customer with a personal price row does not share a cache entry with their group peers" — states the right requirement and implements it with the wrong input. `customerId` is non-null for *every* authenticated buyer, so the digest gives every one of them a private cache entry, whether or not they have a personal price row. In B2B the large majority do not: they are their group, they resolve to exactly their group's prices, and they could have shared one entry with it. The original input buys the stated safety at the cost of near-zero cache hit rate for authenticated traffic — which is precisely the traffic R2 identifies as the most expensive to serve.
+
+`customerOverlayId` is `customerId` **when that customer has price rows of their own**, and `null` otherwise. The stated requirement is unchanged — a customer with a personal price row still gets a private entry, by construction — while buyers without contracts collapse onto a shared, group-level entry. It is resolved once in `resolve()` by an `EXISTS` over `catalog_product_variant_prices` filtered by `customer_id` (served by the partial index in `pricing-engine.md` Phase 2b) and cached per customer, invalidated on `catalog.prices.create/update/delete`. A query rather than a denormalized flag: a stale `false` would serve a contracted buyer their group's prices, which is R1's failure mode.
+
+**Named components are addressable on purpose.** `digest` remains the default key for anything buyer-dependent, but roadmap ADR-7 (amended) requires a surface that varies with only one dimension to key on that dimension's named component instead — `assortmentScopeHash` for scope-only counts (the split `storefront-public-api.md` §9.1 already makes), `priceScopeKey` for group-level prices. `buildStorefrontCacheKey` still takes `StoreContext` as a required argument and the structural CI guard below is unchanged; a component key is built *through* the helper, not around it.
 
 **Enforcement.** The suite ships a helper `buildStorefrontCacheKey(context: StoreContext, parts: string[])` that takes `StoreContext` as a required argument. Endpoints construct keys through it. A key built any other way is a review-blocking defect. Because R1 is Critical, review discipline alone is not the only gate: a Phase 1 deliverable is a structural test (`ecommerce/__tests__/no-raw-cache-calls.test.ts`, plain-regex grep over `ecommerce/api/**` for `cache.resolve(` / `.get(`/`.set(` calls outside `lib/cacheKeys.ts`, mirroring the existing `optimistic-lock-editable-entities.test.ts` pattern) that fails CI if a route bypasses the helper. This test MUST be registered in `scripts/repo-wide-guards.mjs`'s `REPO_WIDE_GUARDS` list — otherwise turbo's dependency-filtered CI silently skips it on PRs touching only `ecommerce` route files, which would defeat the point.
 
@@ -727,6 +744,14 @@ Open:
 ---
 
 ## 21) Changelog
+
+### 2026-09-16 — v4.3 (buyer-scoped read-path amendments)
+
+Applied the suite-wide amendment recorded as roadmap ADR-7 (amended) and ADR-9.
+
+- §6 `BuyerContext` gains `assortmentScopeHash`, `priceScopeKey` and `customerOverlayId` as named, independently-hashable scope components. No new information — all three are derived from fields already present; what changes is that cache, projection and index keys may now address one dimension instead of the whole context.
+- §6.1 the digest takes **`customerOverlayId`** where it previously took `customerId`. The old input made the stated requirement true by giving *every* authenticated buyer a private cache entry, including the majority of B2B buyers who hold no contract rows and resolve to exactly their group's prices — buying R1's safety at the cost of the cache hit rate on the traffic R2 calls most expensive to serve. The requirement is unchanged and now costs only what it should.
+- §5.3 gains **`price_sort_fallback`**, default `'approximate'` — the per-channel policy for what happens past the storefront's 5 000-product price-sort cap. Default preserves current behavior; `'unavailable'` exists because sorting a contract-priced B2B catalogue by list price is not an approximation of that buyer's price order.
 
 ### 2026-09-06 — v4.2 (sibling amendments applied)
 

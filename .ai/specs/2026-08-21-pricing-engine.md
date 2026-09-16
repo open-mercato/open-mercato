@@ -1,7 +1,7 @@
 # Pricing Engine
 
 ## 📝 TLDR
-A generic, reusable price-resolution contract sized so a simple deployment (one price per SKU) needs zero configuration, while a complex one (B2B contract pricing, customer/customer-group pricing, quantity tiers, channel pricing, time-boxed campaigns) is served by the same resolution algorithm. Ships in three independently-shippable phases across two module owners: **Phase 1** gives `catalog` the admin UI its already-complete price API/commands have never had; **Phase 2** hardens `catalog`'s existing resolver-chain extension point (a latent registry-scoping bug, currency-awareness, `customerGroupIds` set matching) so it is safe to build on; **Phase 3** ships a new, optional `pricing` module that registers into that hardened chain and takes over resolution — the same optional-integration shape as `availability`/`wms` and its ADR-4 (see provenance note below). Scope is **price resolution only**: context in, one best-matching unit price out. Discount/promotion effects (`promotions`, SPEC-055) and totals/tax/rounding (`salesCalculationService`) are explicitly out of scope and not duplicated. All three phases ship with **zero schema migrations**.
+A generic, reusable price-resolution contract sized so a simple deployment (one price per SKU) needs zero configuration, while a complex one (B2B contract pricing, customer/customer-group pricing, quantity tiers, channel pricing, time-boxed campaigns) is served by the same resolution algorithm. Ships in three independently-shippable phases across two module owners: **Phase 1** gives `catalog` the admin UI its already-complete price API/commands have never had; **Phase 2** hardens `catalog`'s existing resolver-chain extension point (a latent registry-scoping bug, currency-awareness, `customerGroupIds` set matching) so it is safe to build on; **Phase 3** ships a new, optional `pricing` module that registers into that hardened chain and takes over resolution — the same optional-integration shape as `availability`/`wms` and its ADR-4 (see provenance note below). Scope is **price resolution only**: context in, one best-matching unit price out. Discount/promotion effects (`promotions`, SPEC-055) and totals/tax/rounding (`salesCalculationService`) are explicitly out of scope and not duplicated. Phases 1–3 ship with **zero entity or schema changes**; one **index-only** migration (Phase 2b) adds the partial indexes the Phase 2 narrowing predicate needs. An earlier revision claimed "zero schema migrations" across the board, which read as a prohibition on indexes too — see Data Model.
 
 **Sibling spec provenance.** This spec cites `2026-08-14-ecommerce-suite-roadmap.md` (source of "ADR-4" and the `availability`/`wms` precedent), `2026-08-14-cart-module.md`, and `2026-08-14-customer-groups-and-b2b-terms.md`. All three ship in the same change as this document (PR [#5384](https://github.com/open-mercato/open-mercato/pull/5384)) and live beside it in `.ai/specs/` — read them there. They are settled sibling design, not forward references to unmerged work; an earlier revision of this note described them as living on an external branch, which was true while this spec was drafted and false the moment it landed alongside them.
 
@@ -129,7 +129,7 @@ resolution (this spec) ──▶ discount/promotion effects (promotions, SPEC-05
 
 ## 📝 Data Model
 
-**No schema changes in any phase.** `CatalogProductPrice` (`catalog/data/entities.ts:788+`) already carries every field: `currencyCode`, `kind`, `minQuantity`/`maxQuantity`, `unitPriceNet`/`unitPriceGross`, `taxRate`/`taxAmount`, `channelId`, `userId`/`userGroupId`, `customerId`/`customerGroupId`, `startsAt`/`endsAt`, tenant/org scope. Phase 1 exposes existing columns in a new UI. Phase 2 changes an in-memory TypeScript type (`PricingContext`) and an in-memory registry's storage location — no persistence involved. Phase 3 ships a module with zero entities: it reads catalog's existing rows at request time (the same cross-module read pattern response enrichers already use — an ID/entity-manager lookup, not a compile-time ORM relation) and persists nothing of its own.
+**No entity or column changes in any phase; one index-only migration in Phase 2b.** `CatalogProductPrice` (`catalog/data/entities.ts:788+`) already carries every field: `currencyCode`, `kind`, `minQuantity`/`maxQuantity`, `unitPriceNet`/`unitPriceGross`, `taxRate`/`taxAmount`, `channelId`, `userId`/`userGroupId`, `customerId`/`customerGroupId`, `startsAt`/`endsAt`, tenant/org scope. Phase 1 exposes existing columns in a new UI. Phase 2 changes an in-memory TypeScript type (`PricingContext`) and an in-memory registry's storage location — no persistence involved. Phase 3 ships a module with zero entities: it reads catalog's existing rows at request time (the same cross-module read pattern response enrichers already use — an ID/entity-manager lookup, not a compile-time ORM relation) and persists nothing of its own.
 
 **Actual current type** (`catalog/lib/pricing.ts:10-19`, verified by direct read, not reconstructed from memory):
 
@@ -166,6 +166,56 @@ export type PricingContext = {
 
 `quantity`/`date` stay required exactly as they are today — an earlier draft of this section incorrectly showed them as optional and dropped `| null` from the six existing optional fields; both would have been undisclosed, silently-permissive behavior changes (`matchesContext`'s range/window checks would pass on `undefined` rather than erroring) riding alongside the one currency change this spec deliberately discloses. Only `customerGroupIds` and `currencyCode` are new; every other field is untouched. This satisfies "MAY add optional fields" without narrowing anything required. The *pricing module's* own resolver (Phase 3) treats `currencyCode` as required at its own entry point and returns "no price found" rather than guessing when it's absent from a caller that opted into the stricter contract; catalog's baseline resolver keeps today's behavior (no currency filtering) when the field is omitted, so the "strictly safer" currency fix is opt-in at the point of adoption, not a silent behavior change for existing callers. See Edge Cases below for the one caller-visible behavior change this still causes.
 
+### Row narrowing: `buildPriceRowFilter` (new, Phase 2)
+
+*Added 2026-09-16.*
+
+`matchesContext`/`selectBestPrice` are pure functions over **whatever rows a caller fetched** (`catalog/lib/pricing.ts:88`), and this spec's own tenant-scoping Edge Case already treats "which rows reach the resolver" as an unstated caller contract. Today that is survivable because the only index on `catalog_product_variant_prices` is `(product_id, organization_id, tenant_id)` / `(variant_id, organization_id, tenant_id)` and callers fetch by product — which returns *every* price row for that product.
+
+That stops being survivable the moment per-customer pricing is actually used, which is the case this suite exists to serve. One product accumulates one row per contracted customer, so `storefront-public-api.md` §6.1's "collect every product and variant id, load their `CatalogProductPrice` rows in one query" loads `pageSize × contracts` rows to keep a handful: 24 products against 2 000 contracted customers is ~48 000 rows fetched and ~47 976 discarded, per request. Its ≤ 12-query budget is still met — the query count is right, one of the queries just returns a large fraction of the table. This is the `catalog_product_index_price` blow-up, relocated from index time to request time.
+
+Phase 2 therefore ships a SQL-shaped sibling of the in-memory matcher:
+
+```ts
+// packages/core/src/modules/catalog/lib/pricing.ts
+export function buildPriceRowFilter(ctx: PricingContext): FilterQuery<CatalogProductPrice>
+```
+
+It emits the narrowing half of `matchesContext` — the dimensions that are plain column comparisons and therefore indexable:
+
+```
+(customer_id       IS NULL OR customer_id       =  ctx.customerId)
+AND (customer_group_id IS NULL OR customer_group_id IN ctx.customerGroupIds)
+AND (user_id           IS NULL OR user_id           =  ctx.userId)
+AND (user_group_id     IS NULL OR user_group_id     =  ctx.userGroupId)
+AND (channel_id        IS NULL OR channel_id        =  ctx.channelId)
+AND (ctx.currencyCode IS NULL OR currency_code = ctx.currencyCode)
+```
+
+Quantity bounds, validity windows and offer resolution stay in `matchesContext` — they are cheap over an already-narrowed set and their `offer`-aware channel fallback (`resolvePriceChannelId`) is not expressible as one column predicate.
+
+**The invariant, which is the whole value of this step:**
+
+> `buildPriceRowFilter(ctx)` MUST NOT exclude any row that `matchesContext(row, ctx)` would accept.
+
+This is one-directional on purpose. The predicate is allowed to return rows the matcher then rejects — that is just a slightly wide fetch. It is never allowed to hide a row the matcher would have chosen, because that is a silently wrong price with no error anywhere. Soundness in this direction is what makes the predicate safe to add to every existing caller without re-verifying each one.
+
+It is verified as a **property-based** test, not a fixture table (`.ai/specs/2026-04-24-agentic-property-based-testing.md` — the harness exists): generate random `CatalogProductPrice` rows and random `PricingContext`s, assert `matchesContext(row, ctx) ⇒ buildPriceRowFilter(ctx).matches(row)` over the generated space. A fixture table tests the cases whoever wrote it already thought of, and the failure mode here is precisely a dimension nobody thought about — a `NULL` branch forgotten in one of six columns.
+
+`buildPriceRowFilter` is additive: it is a new export, no existing caller is required to adopt it, and adopting it cannot change which price `selectBestPrice` returns (that is what the invariant states). It is a prerequisite for `storefront-public-api.md` §6.1 and for anything reading prices on a per-page basis.
+
+### Phase 2b — the indexes that predicate needs (index-only migration)
+
+A narrowing predicate over unindexed columns is a sequential scan with extra steps, so Phase 2b adds the partial indexes it is written for — **indexes only, no column or entity changes**, created `CONCURRENTLY`:
+
+| Index | Columns | Why partial |
+|---|---|---|
+| `catalog_product_variant_prices_customer_idx` | `(customer_id, organization_id, tenant_id)` `WHERE customer_id IS NOT NULL AND deleted_at IS NULL` | Contract rows are the sparse minority; the partial index is a fraction of the table's size and is also what serves ADR-7's cached `customerOverlayId` `EXISTS` probe |
+| `catalog_product_variant_prices_customer_group_idx` | `(customer_group_id, organization_id, tenant_id)` `WHERE customer_group_id IS NOT NULL` | Same shape, group dimension |
+| `catalog_product_variant_prices_product_lookup_idx` | `(product_id, currency_code, channel_id, organization_id, tenant_id)` | The broad, non-contract read path — the common case, which today has only `(product_id, org, tenant)` |
+
+This is the one place this spec's "no migrations" property is spent, and it is spent deliberately: adding these later means building them on a live `catalog_product_variant_prices` with production volume, rather than on a table that is small everywhere today.
+
 ## 📝 API Contracts
 
 **Phase 1** adds no new HTTP routes. The admin UI consumes the existing `catalog/api/prices/route.ts` CRUD route and `catalog.prices.create/update/delete` commands, both already schema-complete for every specificity dimension — confirmed by direct inspection, not assumed. If implementation surfaces a genuine list-shaping gap (e.g., grouping price rows by product for the list view), that is a small additive query-param/response-field change to the existing route, not a new one.
@@ -199,6 +249,7 @@ export type PricingContext = {
 | `customerGroupIds` context matches more than one group-scoped row with different scores | Highest `scorePrice` score wins, exactly as today — that part is unchanged. The tie-break **among equally-scored** rows matching via different groups is `2026-08-14-customer-groups-and-b2b-terms.md` §3.2's rule (highest `CustomerGroup.priority`, then most recent membership), which ships alongside this spec and is authoritative; the provisional default an earlier revision proposed here is withdrawn (see the ownership split above) | Consistent, explainable price selection, with one stated owner for the rule rather than two documents guessing at each other |
 | `pricing` module installed, then disabled without an app restart (dev hot-toggle) | No unregister mechanism exists or is added by this spec — module enable/disable takes effect on next boot, consistent with how routes/ACL/DI already work for every other module in this system | Not a new operational burden; documented explicitly so it isn't assumed to be instant |
 | `pricing` module registers a resolver whose priority is misconfigured below catalog's built-in fallback | Falls back to catalog's baseline resolver silently succeeding at a lower specificity than intended | Phase 3's diagnostic page (if built) surfaces this; otherwise it's a configuration error the operator must catch via testing, documented as a known limitation |
+| A caller fetches price rows by product id alone, without `buildPriceRowFilter` (today's behavior, and every caller's behavior before Phase 2) | Correct price, unbounded fetch: every contracted customer's rows for that product are loaded and discarded in memory | Invisible on a catalogue with no contract pricing; degrades linearly with the number of contracts as B2B adoption grows, and does so without tripping a query-count budget because the query count is unchanged. Phase 2 makes the narrowing predicate available; adopting it is per-caller and cannot change the resolved price (Data Model invariant) |
 | A caller passes `resolveCatalogPrice`/`selectBestPrice` a row set that was not pre-scoped by `organization_id`/`tenant_id` (e.g. a careless future `pricing`-module or `cart`/`sales` integration fetches more broadly than today's callers do) | The resolver has no scoping check of its own — it is a pure function over whatever rows it receives, and always has been | Cross-tenant price leak. Not a new risk introduced by this spec, but this spec is the first place documenting it as an explicit caller contract: **every caller MUST pre-scope rows by `organization_id`/`tenant_id` before calling the resolver** — verified true of every current caller today, and must remain true of `pricing`'s Phase 3 resolver and any future consumer |
 
 ## 📝 Risks & Impact Review
@@ -207,6 +258,8 @@ export type PricingContext = {
 - **Registry-scoping fix is foundational, not cosmetic.** If Phase 2 ships without the `globalThis` migration actually verified under a multi-instance topology (not just the monorepo dev app), Phase 3's entire premise — "when installed, it takes over" — is unverified in exactly the environments (standalone apps) this spec's "generic and reusable" goal targets most. Mitigation: a regression test that registers a resolver from a second module instance and confirms `resolveCatalogPrice()` (running against the first instance) sees it — modeled on whatever test was added for the ORM-registry fix this lesson references.
 - **`sales/AGENTS.md` overclaim must be corrected regardless of Q1's outcome.** Leaving a false "MUST use `selectBestPrice`" rule in place misleads future contributors into believing sales pricing is already centrally enforced when it isn't. Mitigation: fix the doc in this spec's own change-set (Phase 1 or 2, whichever lands first) independent of whether `sales` wiring itself is in scope.
 - **Bundling Phase 1 (catalog UI) and Phase 3 (new module) into one spec has real process friction, even though the user explicitly chose to keep them together rather than split.** Not re-litigating that call — naming the cost it carries: (a) approving this spec as one unit needs a reviewer competent in both DS-compliant `CrudForm`/`DataTable` conventions *and* module-registry/`globalThis`/cross-module-coupling correctness — two largely disjoint skill sets under one verdict; (b) Phase 1 has zero dependency on Phase 2/3 (confirmed in Phasing), so bundling buys no sequencing benefit while still coupling their fates at spec-approval time — a dispute over the Phase 3 registry-dedupe design stalls the unrelated, ready-to-ship UI work too; (c) discoverability — a spec titled "Pricing Engine" is not where someone auditing "how do I add a price-rule admin page" would look, and the `customerGroupIds`-shape coordination risk (below) is harder for `2026-08-14-customer-groups-and-b2b-terms.md`'s author to find, buried in a document whose title foregrounds UI/registry work. Mitigation: none applied — the split-vs-bundle call is the user's and stands; this is recorded so the cost is visible, not silently absorbed.
+
+- **The pre-projection read path is the suite's B2B scaling limit, and Phase 2's predicate is the only thing standing in front of it.** `storefront-public-api.md` §6.3 defers materialized prices to a separate spec and bounds price *sorting* at 5 000 products; nothing bounds the *fetch*. Until the projection exists (roadmap ADR-9), every storefront listing for a tenant with contract pricing pays `pageSize × contracts` rows. Mitigation: `buildPriceRowFilter` + Phase 2b indexes ship before any storefront read path adopts per-customer pricing, and `storefront-public-api.md` §6.1 names the predicate as required rather than optional for that caller. Residual: the fetch is bounded per buyer, not eliminated — elimination is ADR-9's projection.
 
 ### Medium
 - **`customerGroupIds` shape is defined by two specs (this one and `2026-08-14-customer-groups-and-b2b-terms.md`).** ~~Risk of incompatible landed shapes if merge order isn't coordinated.~~ **Resolved 2026-09-06**: the ownership split is now stated in both documents (see the provenance note above and that spec's §7.1) — this spec owns the type shape, that one owns the group tie-break semantics. The two previously specified *different* tie-break rules for the same input, which is the concrete form the risk took; the conflict is closed, and merge order no longer matters since both land together.
@@ -219,6 +272,7 @@ export type PricingContext = {
 
 1. **Phase 1 — Catalog price-rule admin UI** (`catalog`). Independently shippable. No dependency on Phase 2 or 3.
 2. **Phase 2 — Catalog resolver contract hardening** (`catalog`). Independently shippable. No dependency on Phase 1. **Prerequisite for Phase 3.**
+   - **Phase 2b — Price-row index migration** (`catalog`). Index-only, `CONCURRENTLY`, no entity or column change. Ships with or immediately after Phase 2; Phase 2's `buildPriceRowFilter` is correct without it and merely slow, so the two are separable, but no storefront read path should adopt the predicate before 2b has landed.
 3. **Phase 3 — Pricing resolution engine module** (`pricing`, new, optional). Depends on Phase 2's hardened contract. Does not depend on Phase 1.
 
 Explicitly deferred / out of scope for this spec (named so the gap doesn't silently close itself — see Q1 decision and Risks): wiring `sales`/`cart` to call the engine (owned by `2026-08-14-cart-module.md`, provenance note above, and a future `sales`-specific spec), the promotions interaction rule flagged in Research, and any admin UI inside `pricing` beyond the optional diagnostic page.
@@ -240,6 +294,13 @@ Explicitly deferred / out of scope for this spec (named so the gap doesn't silen
 4b. Once 4a is decided, add a test asserting that specific rule. (Split from a single step because a test can't verify a rule that doesn't exist yet — the original single-step phrasing was circular.)
 5. Fix `sales/AGENTS.md`'s `selectBestPrice` overclaim to state the actual current state.
 6. Add an `UPGRADE_NOTES.md` entry for the currency behavior change (opt-in, strictly safer).
+7. Add `buildPriceRowFilter(ctx)` (Data Model → Row narrowing) as a new export. No existing caller is changed by this step.
+8. Add the property-based soundness test for it: for randomly generated rows and contexts, `matchesContext(row, ctx)` implies the row satisfies `buildPriceRowFilter(ctx)`. This test, not the predicate, is the deliverable of steps 7–8 — the predicate is a few lines and the failure mode is a forgotten `NULL` branch.
+
+### Phase 2b — Price-row index migration
+1. Write the index-only migration adding the three indexes in Data Model → Phase 2b, each `CREATE INDEX CONCURRENTLY` with its stated `WHERE` clause.
+2. Run `yarn db:generate`, then verify the emitted SQL contains only `CREATE INDEX` statements and update `migrations/.snapshot-open-mercato.json`; delete any unrelated migration the generator emits, per root `AGENTS.md`'s coding-agent exception.
+3. Confirm with `EXPLAIN` on a seeded fixture that a `buildPriceRowFilter` query for a contracted buyer uses `catalog_product_variant_prices_customer_idx` rather than the product-scope index.
 
 ### Phase 3 — Pricing resolution engine module
 1. Scaffold `packages/core/src/modules/pricing/` (`index.ts`, `acl.ts`, `setup.ts`, `di.ts`) — no entities. Even without the diagnostic page, `acl.ts`/`setup.ts` exist per module convention; add `pricing.diagnostics.view` to both only if Step 5 ships.
@@ -253,6 +314,8 @@ Explicitly deferred / out of scope for this spec (named so the gap doesn't silen
 
 - **API**: `catalog/api/prices` create/update/delete with every specificity field (Phase 1 UI's backing contract — already exists, add coverage if missing).
 - **Resolver behavior**: currency filtering (match / no-match), `customerGroupIds` set membership + tiebreak, same-priority resolver chain order, registry visibility across simulated module instances (Phase 2).
+- **Row narrowing (Phase 2)**: property-based soundness — `matchesContext(row, ctx)` implies `buildPriceRowFilter(ctx)` admits the row, over generated rows and contexts. Plus one end-to-end assertion that `selectBestPrice` returns the same row whether it is given the full product row set or the narrowed one, for a buyer who has a contract row and for one who has none.
+- **Index usage (Phase 2b)**: a narrowed query for a contracted buyer plans against the partial customer index, asserted on a seeded fixture large enough for the planner not to prefer a seq scan.
 - **UI**: create a tiered/customer-group price row via the new admin page, confirm it resolves correctly end to end (Phase 1).
 - **Module lifecycle**: `pricing` absent vs. installed vs. never-registered-this-boot (Phase 3), per `packages/core/src/__tests__/module-decoupling.test.ts`'s pattern for optional-module absence.
 
@@ -272,7 +335,10 @@ Explicitly deferred / out of scope for this spec (named so the gap doesn't silen
 
 ## Changelog
 
-- **2026-09-06** — Provenance and ownership pass, after a specification review of PR #5384.
+- **2026-09-16** — Row-narrowing pass, after an analysis of how the suite's read side behaves once per-customer pricing is actually used (roadmap ADR-9).
+  - Added `buildPriceRowFilter(ctx)` to Phase 2 (Data Model → Row narrowing) with a one-directional soundness invariant against `matchesContext`, verified by a property-based test. The gap it closes: `selectBestPrice` is pure over whatever rows a caller fetched, the only indexes on `catalog_product_variant_prices` are by product/variant, and `storefront-public-api.md` §6.1 fetches by product id — so a listing page loads every contracted customer's rows for every product on it. The spec already documented "which rows reach the resolver" as a caller contract for *tenant scoping*; this extends the same treatment to the dimension that determines the fetch's size.
+  - Added **Phase 2b**, an index-only migration (three partial/composite indexes, `CONCURRENTLY`). Restated the headline "zero schema migrations" property as "zero entity or schema changes; one index-only migration": the original wording was accurate about what it meant but read as a prohibition on adding indexes, which is what would have made the narrowing predicate a seq scan and left the indexes to be built later on a production-sized table.
+  - Added a High risk entry naming the pre-projection read path as the suite's B2B scaling limit, and an Edge Case row for a caller that fetches without the predicate (correct price, unbounded fetch, invisible to the ≤ 12-query budget).
   - The "Sibling spec provenance" note described `ecommerce-suite-roadmap.md`, `cart-module.md` and `customer-groups-and-b2b-terms.md` as living on an unmerged external branch and told the reader to `git show` them from a fork. All three ship in the same change as this document, so the instruction was false on merge. Rewritten: they are settled sibling design, still unimplemented — which is a weaker and accurate caveat — and the note now distinguishes that from this spec's code-verified citations. The Final Compliance Report row was corrected to match.
   - The `PricingContext` ownership conflict is closed. This spec claimed origination and asked the sibling to defer; the sibling never mentioned this spec, and the two specified **different** tie-break rules for the same input (highest `scorePrice` here, highest `CustomerGroup.priority` there). Split now stated in both: this spec owns the type shape, `customer-groups-and-b2b-terms.md` §3.2 owns the group tie-break. This spec's provisional default is withdrawn; the Edge Cases row and the Medium risk are updated.
 

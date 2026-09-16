@@ -21,7 +21,7 @@
 **Scope:**
 - Module inventory, ownership boundaries and dependency direction for the ecommerce suite
 - Twelve specs: what each owns, what it must not own, and in which order they land
-- Eight architecture decisions (ADR-1 … ADR-8) binding on every downstream spec
+- Nine architecture decisions (ADR-1 … ADR-9) binding on every downstream spec
 - Phasing with explicit gating criteria
 
 **Concerns:**
@@ -266,12 +266,37 @@ type BuyerContext = {
   locale: string
   taxMode: 'gross' | 'net'           // B2C shows gross, B2B typically net
   purchaseOnAccount: boolean
+
+  // Amended 2026-09-16 — see "Consequence: the digest is decomposable" below.
+  // These carry no information the fields above do not already carry. They are the
+  // named, independently-hashable projections of it that every cache key, price
+  // projection and price-sort path is built from, so that none of them has to key
+  // on the whole context as one opaque value.
+  assortmentScopeHash: string        // digest of the resolved EffectiveAssortmentScope (spec 12 §3.3)
+  priceScopeKey: string              // digest of (channelId, currencyCode, priceKindId, sorted customerGroupIds)
+  customerOverlayId: string | null   // customerId, and ONLY when that customer has price rows of their own
 }
 ```
 
 **Rationale.** B2C and B2B differ in *context*, not in code path. Resolving once at the edge means one place to test tenant isolation, and no module re-deriving "is this a B2B buyer" from partial signals.
 
 **Consequence.** Public read endpoints are no longer purely anonymous — an authenticated B2B session changes prices and assortment. Caching keys MUST include the buyer-context digest, and responses for authenticated contexts MUST be marked private. This is a security-relevant requirement, called out in every child spec's risk section.
+
+**Consequence: the digest is decomposable, not opaque (amended 2026-09-16).** "Caching keys MUST include the buyer-context digest" is necessary but not sufficient, and the suite already discovered why in miniature: `storefront-public-api.md` §9.1 had to split `priceRange` out of the facet block because the block was cached at the wrong granularity, and the fix worked only because `assortmentScopeHash` existed as a *named sub-component* of the digest rather than as an opaque whole. That was a reactive, one-off fix. This amendment generalizes it into a rule:
+
+> Every cache key, projection key and index key in this suite MUST be built from one or more of `BuyerContext`'s **named scope components**. No surface may key on a digest of the whole context where a named component would do.
+
+The three components and why the split is exactly there:
+
+| Component | Varies with | Shared between buyers? |
+|---|---|---|
+| `assortmentScopeHash` | resolved `EffectiveAssortmentScope` | Yes — every buyer resolving to the same scope |
+| `priceScopeKey` | channel, currency, price kind, group set | Yes — this is the bucket ADR-9 materializes |
+| `customerOverlayId` | one customer's own contract rows | No — by construction |
+
+The load-bearing member is the third one's `null`. In B2B the large majority of authenticated buyers have **no** price rows of their own — for pricing purposes they *are* their group, and may share a bucket, a cache entry and a sort order with every other buyer in it. Only buyers with authored contracts need an individual path. A context that cannot express "this buyer has no overlay" forces every authenticated buyer onto the individual path and throws that away.
+
+**How `customerOverlayId` is computed.** `storeContextService.resolve()` runs one `EXISTS` over `catalog_product_variant_prices` filtered by `customer_id`, served by the partial index in `pricing-engine.md` Phase 2b, and caches the boolean per customer with invalidation on `catalog.prices.create/update/delete`. It is a query, not a denormalized column: a stale `has_contract_prices` flag reading `false` would silently serve a contracted buyer their group's prices, which is the same class of disclosure R1 rates Critical, and a flag reading `true` where it should be `false` would quietly cost the sharing win this component exists to buy. One cached `EXISTS` on an index built for it is cheap enough not to trade correctness for.
 
 **Rejected alternative.** Separate `/api/ecommerce/b2b/*` endpoints. Doubles the API surface and the test matrix for what is one resolver difference.
 
@@ -284,6 +309,31 @@ type BuyerContext = {
 **Rationale.** SPEC-029 §14.2 forbids all shared UI, which means reimplementing Button, Badge, Sheet, Dialog, Spinner and their accessibility behaviour a second time. Two independently-maintained accessible dialog implementations is how WCAG regressions ship. The genuine requirement is that the storefront must not pull the back-office bundle — not that it must share no code.
 
 **Consequence.** `@open-mercato/storefront-ui` has a hard size and dependency budget enforced in CI, and MUST NOT import from `@open-mercato/ui`.
+
+---
+
+### ADR-9 — Buyer-scoped prices bucket by group; per-customer contracts are an overlay
+
+*Added 2026-09-16, after an analysis of how this suite's read side behaves once per-customer pricing is actually used.*
+
+**Decision.** When this suite eventually materializes resolved prices — which `storefront-public-api.md` §6.3 already names as the real fix for price sorting and defers to a separate spec — it does so in two pieces with two different cardinalities, and never in one:
+
+1. **Bucket projection.** Key: `(productId, priceScopeKey)`. Cardinality: products × *distinct* `priceScopeKey`s actually in use — channel × currency × price kind × group set. This is the shared, group-level price every buyer without a contract resolves to.
+2. **Customer overlay.** Key: `(customerId, productId)`. Materialized **only for the products that customer has an authored price row for**. Cardinality: the number of contract rows a merchant actually wrote — not products × customers.
+
+Per-customer prices MUST NOT enter the bucket key space. A sort or price-range facet over a catalogue too large to resolve in memory is a **merge** of a page from the bucket projection with that customer's overlay, not a scan of a per-customer index.
+
+The projection itself is **not specified or built here**. This ADR fixes only its *shape*, because the bucket key is the single decision in it that cannot be retrofitted: every cache key, every context digest and every narrowing predicate written before it either admits this shape or forecloses it.
+
+**Rationale.** This is the problem every platform in this space has already had, and the split above is where the ones that survived it landed. Sylius models the shared half as `ChannelPricing` and, when a search engine is added, normalizes it into the product document; the per-customer half it deliberately does *not* index, applying individual discounts in PHP after retrieval — which is why precise sorting by final price is not available there. Magento took the other road, `catalog_product_index_price` as a full `customer_group × website × product` cartesian, and its reindexing cost is the well-known consequence. The overlay is what lets this suite have Sylius's bounded index *and* correct sorting for contracted buyers: it is sparse by construction, because it materializes authored rows rather than a product space.
+
+**Consequence.**
+- `BuyerContext` carries `priceScopeKey` and `customerOverlayId` as separate named components (ADR-7, amended) — the projection is unbuildable without them.
+- Price resolution exposes a SQL-shaped narrowing predicate alongside its in-memory matcher, under a soundness invariant (`pricing-engine.md` Phase 2). Without it the pre-projection read path loads every customer's contract rows to serve one buyer.
+- The projection, when built, uses the existing `entity_indexes` / `query_index` machinery (generic JSONB projection rows, reindexer, jobs, coverage, queue) rather than a bespoke table — the suite does not own a second projection substrate.
+- Until it exists, price sorting stays bounded and **visibly** degraded per `storefront-public-api.md` §6.3, never silently approximate for a buyer whose whole catalogue is negotiated.
+
+**Rejected alternative.** One projection keyed on the full buyer-context digest. It is the simplest thing to write and it is the Magento outcome: every distinct buyer becomes a distinct key, the projection's size tracks customers rather than catalogue, and invalidating one price row touches an unbounded number of rows.
 
 ---
 
@@ -437,6 +487,10 @@ Every public namespace MUST be rate limited and MUST include the buyer-context d
 ---
 
 ## 13) Changelog
+
+### 2026-09-16
+- **Added ADR-9** — buyer-scoped prices bucket by `priceScopeKey`, per-customer contracts are a sparse overlay, and the two never share a key space. Recorded now, ahead of the projection spec itself, because the bucket key is the one decision in that future work that cannot be retrofitted: `storefront-public-api.md` §6.3 already defers the projection to a separate spec, but nothing in the suite constrained its shape, so any cache key or digest written in the meantime could have foreclosed it.
+- **Amended ADR-7** — `BuyerContext` now carries `assortmentScopeHash`, `priceScopeKey` and `customerOverlayId` as named, independently-hashable scope components, and the suite may no longer key a cache, projection or index on an opaque whole-context digest where a named component would do. `storefront-public-api.md` §9.1 had already been forced into this pattern once, reactively, to stop one buyer's price range leaking to another sharing an assortment scope; generalizing it is what makes ADR-9 expressible at all. Also fixed the ADR count in the TLDR (eight → nine).
 
 ### 2026-09-06
 - Added specs 11 (`2026-08-21-pricing-engine.md`) and 12 (`2026-08-21-buyer-scoped-catalog-visibility.md`) to §3.1, §3.2, §6 and §7. Both were written after this document and both deviate from it materially — spec 11 introduces a new optional `pricing` module and changes a `catalog` contract; spec 12 introduces a new `packages/shared` contract and amends specs 1, 3 and 5 — so §1's rule that a deviating child spec "MUST amend this document first" applies to both, and neither had. An implementer using this roadmap as the suite's index would not have found the write-side visibility control spec 12 rates Critical.

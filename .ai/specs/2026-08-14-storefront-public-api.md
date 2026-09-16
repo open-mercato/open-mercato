@@ -110,6 +110,20 @@ AND product ∈ (channel.assortmentScope ∩ buyer.assortmentScope)
 
 This is applied in one place — a `buildStorefrontProductScope(ctx)` helper — and every endpoint composes it. It is not repeated per endpoint, because an endpoint that forgets one clause is a data leak.
 
+**The scope clause is a predicate over denormalized keys, not a set of joins (added 2026-09-16).** The last line expands to `buyer-scoped-catalog-visibility.md` §3.3's DNF: an OR-list of AND-scopes, each of which can carry up to five id-set conditions. Written literally over the junction tables (`catalog_product_category_assignments`, `catalog_product_tag_assignments`) that is, per group, `EXISTS(categories) AND EXISTS(tags) AND NOT EXISTS(×3)`, OR'd across groups — and it sits in front of *every* product query in this document, the six facet aggregations of R2 included.
+
+The helper MUST therefore emit its scope clause against a denormalized, GIN-indexed key array on the product's index document rather than against the assignment tables:
+
+```
+scopeKeys: text[]   -- ['cat:<uuid>', …, 'tag:<uuid>'], categories expanded to include ancestors
+```
+
+Each DNF branch then becomes `scope_keys && ARRAY[…]` (array overlap) plus `NOT (scope_keys && ARRAY[…excludes])` — one index serving every branch, every buyer and every facet, instead of a join plan that grows with the buyer's group count.
+
+Two things make this cheap rather than speculative. The visibility spec already defines the matcher's input as `ScopedProduct = { id, categoryIds, tagIds }`, i.e. it has already committed to a product's scope-relevant attributes being a small flat set — `scopeKeys` is that set, serialized. And `CatalogProductCategory` already carries `ancestorIds`/`descendantIds` as maintained `jsonb` columns (`catalog/data/entities.ts`), so the ancestor expansion the "includes descendants" rule needs (§4.1) is a lookup, not a recursive CTE.
+
+This is a requirement on the helper's **output shape**, not a new entity: the keys live in the product's existing index document, maintained by the same indexer that already projects products. The point of writing it down now is that "applied in one place" already protects correctness; it does not by itself protect the shape, and a first implementation that puts `EXISTS`-over-junctions inside the helper satisfies every stated rule while making §8.2's filter-push and R2's facet cost unfixable without redoing it.
+
 ### 3.4 Content pages: one contract, two possible sources
 
 Static pages — terms, privacy, about us, shipping information — are the one part of this surface whose *content* the platform does not author. Today `@open-mercato/content` ships hardcoded React pages carrying Open Mercato's own legal entity (`packages/content/src/modules/content/frontend/terms/page.tsx`); a CMS module sits on the long-range roadmap. A storefront bound directly to either one has to be rewritten when the other arrives.
@@ -439,6 +453,8 @@ Locale resolution follows §7 unchanged: a page absent in the requested locale f
 
 Per response, in batch: collect every product and variant id, load their `CatalogProductPrice` rows in one query, and resolve each with `selectBestPrice(rows, pricingContext)` in memory. Never per item.
 
+**The row query MUST be narrowed by `buildPriceRowFilter(pricingContext)`** (`pricing-engine.md` → Data Model → Row narrowing, Phase 2), not fetched by product id alone (added 2026-09-16). Fetching by product id returns every contracted customer's rows for every product on the page — `pageSize × contracts` rows to keep a handful — and does so without tripping §10's query-count budget, because the number of queries is unchanged and only the row count explodes. The predicate is sound in one direction by contract (it never hides a row `matchesContext` would accept), so narrowing cannot change the resolved price. This surface is the reason that predicate exists; it is required here, not optional.
+
 `pricingContext` is built from `BuyerContext`:
 
 ```typescript
@@ -461,9 +477,19 @@ Per response, in batch: collect every product and variant id, load their `Catalo
 
 Both need resolved prices, which are buyer-dependent, so neither can be a plain SQL `ORDER BY` on a price column.
 
-Approach: resolve prices for the filtered id set, then sort and paginate in memory. Bounded by capping the pre-sort id set at 5 000 products; beyond that, price sort falls back to the default price kind's rows with an `X-Sort-Approximate: true` response header, and the child implementation logs it. A catalogue of that size with per-customer contract pricing needs a materialized price projection, which is a separate spec, not a silent degradation.
+Approach: resolve prices for the filtered id set, then sort and paginate in memory. Bounded by capping the pre-sort id set at 5 000 products. A catalogue of that size with per-customer contract pricing needs a materialized price projection, whose shape is fixed by roadmap ADR-9 and whose implementation is a separate spec.
 
-**Not hidden:** the 5 000 cap and the fallback are surfaced in the response header and in the admin diagnostics, per the roadmap's no-silent-caps rule.
+**What happens past the cap is a per-channel policy, not one fixed fallback (amended 2026-09-16).** The original single fallback — sort by the default price kind's rows, set `X-Sort-Approximate: true` — is right for a B2C catalogue, where list prices and the buyer's prices are the same numbers and "approximate" is an honest word for the result. It is wrong for a contracted B2B buyer whose *entire* catalogue is negotiated: sorting their page by list price does not approximate their price order, it is unrelated to it, and the only signal is a response header no shopper will ever see.
+
+New column on `EcommerceStoreChannelBinding` (amends `SPEC-029` §5.3, alongside `require_authentication` from `buyer-scoped-catalog-visibility.md` §4.2):
+
+| Column | Type | Default | Behavior past the cap |
+|---|---|---|---|
+| `price_sort_fallback` | text | `'approximate'` | `'approximate'` — today's behavior: sort by the default price kind, `X-Sort-Approximate: true`. `'unavailable'` — `price_asc`/`price_desc` are **not offered**: the sort option is absent from the response's available sorts, and requesting it explicitly returns the default sort with `X-Sort-Unavailable: true` rather than a wrong order. |
+
+`'approximate'` stays the default, so nothing changes for an existing or B2C channel. An operator running a contract-priced B2B channel sets `'unavailable'`, and loses a feature instead of shipping a price ranking that lies. Returning the default sort rather than a `400` is deliberate: a buyer who lands on a shared `?sort=price_asc` URL should get the catalogue, not an error.
+
+**Not hidden:** the 5 000 cap, the active policy and which of the two headers was set are surfaced in the response and in the admin diagnostics, per the roadmap's no-silent-caps rule.
 
 ---
 
@@ -499,7 +525,11 @@ Escaped, case-insensitive match over `title`, `subtitle`, `description`, `sku`, 
 
 ### 8.2 Phase 2 — `@open-mercato/search`
 
-`catalog` already ships a `search.ts` `SearchModuleConfig`. The storefront reuses that index, post-filtered by the effective assortment **before** ranking, so a restricted B2B buyer never sees a relevance-ranked list containing products they cannot buy.
+`catalog` already ships a `search.ts` `SearchModuleConfig`. The storefront reuses that index, filtered by the effective assortment **before** ranking, so a restricted B2B buyer never sees a relevance-ranked list containing products they cannot buy.
+
+**"Before ranking" means inside the query, not after retrieval (clarified 2026-09-16).** Retrieving the index's top-k and then dropping the out-of-assortment rows is correct but starves: a buyer whose scope admits 5% of the catalogue gets a top-50 retrieval that leaves two or three results, and no amount of paging recovers the rest. Because this platform's search strategies run over Postgres (`@open-mercato/search` fulltext/token/vector over `entity_indexes`) rather than over a separate engine, the scope predicate and the ranking can share one query — but only if the predicate is expressible against the indexed document, which is exactly what §3.3's `scopeKeys` requirement buys. The two are one decision, not two.
+
+§12 asserts the starvation case directly: a search whose unrestricted top-k would be dominated by out-of-assortment products still returns a full page of in-assortment results for the restricted buyer.
 
 ### 8.3 One response shape
 
@@ -521,6 +551,8 @@ Both phases return identical payloads. The client never learns which backend is 
 | `/pages/:slug` | 300s | `storeId` + effective locale + slug | Not buyer-keyed; `public` at the HTTP layer in both auth states |
 
 Every key is built through `buildStorefrontCacheKey(ctx, parts)` (SPEC-029 §6.1), which requires the `StoreContext` and therefore the digest. There are **two deliberate exceptions**, both of which still go through the helper rather than around it: the count-facets row keys on `assortmentScopeHash` (a documented sub-component of the digest, not an ad hoc value), and the two `/pages` rows key on the store id and effective locale, both likewise `StoreContext` fields. The page exception is safe for a different reason than the facet one — not "these fields happen not to vary by buyer" but "this payload has no buyer-dependent field in it at all" (§4.6), which is enforced by the contract test in §12 rather than assumed.
+
+**These are exceptions to the default key, not exceptions to the rule (amended 2026-09-16).** Roadmap ADR-7 now requires every cache, projection and index key in this suite to be built from `BuyerContext`'s **named** scope components — `assortmentScopeHash`, `priceScopeKey`, `customerOverlayId` — rather than from a digest of the whole context where a named component would do. The count-facet exception below is the first instance of that rule, arrived at reactively; it is now the general case. Concretely, for this document: a surface that varies only with the assortment keys on `assortmentScopeHash`; a surface that varies with price but not with an individual contract keys on `priceScopeKey`; only a surface that genuinely varies per contracted buyer takes `customerOverlayId`, and that component is `null` for the majority of authenticated B2B buyers, who have no price rows of their own and may therefore share entries with their whole group. Keying those buyers on a whole-context digest is what an opaque digest silently costs.
 
 ### 9.1 Facet cache split (fixed 2026-08-17)
 
@@ -574,7 +606,9 @@ Query counts are asserted in tests. A per-item query is a defect regardless of w
 |---|---|---|---|---|---|---|
 | R1 | Contract pricing served to the wrong buyer | **Critical** | `ecommerce` | A `/products` response cached without the digest, or an authenticated response cached by a CDN, serves ACME's negotiated prices to an anonymous visitor or a competitor. | All keys via `buildStorefrontCacheKey`; authenticated responses `private, no-store`; a cross-context isolation suite is a Phase 1 gate; a CDN configuration note ships with the spec | Low |
 | R2 | Facet cost under B2B | **High** | `ecommerce` | Six aggregations per uncached listing request, and per-buyer caching means low hit rates exactly for the buyers whose queries are most expensive. | Dimensions without an active filter share one base query; facets computed with `Promise.all`; the count-facet block (`categories`/`tags`/`options`/`productTypes`/`availability` — price-independent) is cached separately from items, keyed on the assortment-scope hash rather than the full digest; `priceRange` is excluded from that split and cached with `items` on the full digest instead (§9.1, fixed 2026-08-17 — bundling it into the assortment-hash cache would have leaked one buyer's price range to another sharing the same assortment scope) | Medium — a tenant with many distinct assortment scopes still pays for count facets; measured at the Phase 1 gate |
-| R3 | Price sort degrades silently | Medium | `ecommerce` | Above 5 000 matching products, price sort falls back to the default price kind and a buyer sees an order that does not match their prices, with no signal. | `X-Sort-Approximate: true` header, admin diagnostics entry, documented cap — not silent (§6.3) | Medium — accepted; a materialized price projection is the real fix and is out of scope |
+| R3 | Price sort degrades silently | Medium | `ecommerce` | Above 5 000 matching products, price sort falls back to the default price kind and a contracted B2B buyer sees an order unrelated to their prices, signalled only by a response header no shopper reads. | Per-channel `price_sort_fallback` policy (§6.3, amended 2026-09-16): `'approximate'` keeps the header-signalled fallback for B2C, `'unavailable'` withdraws the sort option entirely rather than showing a wrong order. Plus the documented cap and admin diagnostics. | Low for a channel set to `'unavailable'`; Medium and accepted for `'approximate'`, where the fallback is honest about B2C prices. A materialized price projection (roadmap ADR-9) remains the real fix and is out of scope here |
+| R13 | Price fetch unbounded under contract pricing | **High** | `ecommerce`, `catalog` | §6.1 fetches price rows by product id, so a listing page for a tenant with 2 000 contracted customers loads ~48 000 rows to keep two dozen. The ≤ 12-query budget still passes — the query count is unchanged — so the regression is invisible to §10's own gate and shows up only as latency that scales with B2B adoption. | §6.1 requires `buildPriceRowFilter` (`pricing-engine.md` Phase 2) rather than a fetch by product id; the partial indexes it needs ship in that spec's Phase 2b; a row-count assertion, not just a query-count assertion, is added to the §12 performance gate | Medium — bounded per buyer, not eliminated; elimination is ADR-9's projection |
+| R14 | Search starvation under a restrictive scope | Medium | `ecommerce` | A restricted buyer's search retrieves top-k from the index and post-filters it down to two results on a page of 24, looking like an empty catalogue rather than a filtered one. | §8.2: the scope predicate is pushed into the ranking query, which §3.3's `scopeKeys` array makes expressible; §12 asserts a full page of in-assortment results for a buyer whose unrestricted top-k would be dominated by hidden products | Low |
 | R4 | Handle enumeration oracle | **High** | `ecommerce` | Probing `/products/<handle>` distinguishes "restricted" from "nonexistent" by status code, body or timing, mapping a competitor's private assortment. | Identical `404` body for all four cases; assortment filtering happens inside the same query rather than as a post-check, so timing does not diverge; a timing test asserts no measurable difference | Low |
 | R5 | Stored XSS via product description | **High** | `ecommerce` | A back-office user with catalogue access stores `<img onerror=…>`; every storefront visitor executes it. | Server-side allowlist sanitization before the field leaves the API; the client renders sanitized HTML; sanitizing client-side would trust every client equally | Low |
 | R6 | Unknown query parameters ignored | Medium | `ecommerce` | A client sends `?categoryID=` (wrong case); the server ignores it and returns the whole catalogue, which the UI presents as filtered results. | Unknown parameters rejected with `400`; `appliedFilters` echoes the server's interpretation | Low |
@@ -597,6 +631,10 @@ Query counts are asserted in tests. A per-item query is a defect regardless of w
 **Buyer-dependent pricing:**
 - Anonymous and authenticated B2B requests to the same URL return different prices from the same fixture
 - Group price row wins over channel default; personal customer price wins over group
+- The narrowed price fetch (§6.1) and an unnarrowed fetch by product id resolve to the **same** price, for a buyer with a contract row and for one without (R13)
+- The price-row count fetched for a listing page does not grow with the number of *other* customers' contract rows on those products — asserted as a row count, not only as a query count, since the query count is what R13 slips past
+- `price_sort_fallback: 'unavailable'` past the 5 000 cap omits `price_asc`/`price_desc` from the available sorts and returns the default order with `X-Sort-Unavailable: true`; `'approximate'` returns the fallback order with `X-Sort-Approximate: true` (§6.3)
+- Two buyers in the same groups with the same channel/currency/price kind, neither holding contract rows, resolve to the same `priceScopeKey` and share a cache entry; giving one of them a single contract row moves only that buyer off the shared entry (§9, ADR-7)
 - `taxMode: 'net'` returns net amounts; `'gross'` returns gross; anonymous uses the store default
 - `priceTiers` reflects `min_quantity` / `max_quantity` rows for the buyer's context
 - `lowestPriorAmount` present on promotional items (R7)
@@ -621,6 +659,7 @@ Query counts are asserted in tests. A per-item query is a defect regardless of w
 **Search:**
 - `ILIKE` and search-module phases return identical shapes for the same fixture
 - Results are assortment-filtered before ranking
+- A restricted buyer searching a term whose unrestricted top-k is dominated by out-of-assortment products still receives a full page of in-assortment results — the scope predicate is part of the ranking query, not a post-filter over its output (R14, §8.2)
 - `q` shorter than 2 characters returns empty, not an error
 
 **Content pages:**
@@ -705,7 +744,14 @@ Phase 4 is independent of Phases 2 and 3 and can ship alongside either — it to
 
 ## 16) Changelog
 
-### 2026-09-16
+### 2026-09-16 (b) — buyer-scoped read-path amendments
+- **§6.1 now requires `buildPriceRowFilter`** rather than a fetch by product id, and R13 records why: `selectBestPrice` is pure over whatever rows the caller fetched, and the only indexes on `catalog_product_variant_prices` are by product/variant, so a listing page under contract pricing loads every contracted customer's rows for every product on it. §10's ≤ 12-query budget does not catch this — the query count is unchanged — so §12 now asserts a row count, not only a query count.
+- **§6.3's single fallback became a per-channel policy** (`price_sort_fallback`, amending `SPEC-029` §5.3). Sorting a contracted B2B buyer's page by list price is not an approximation of their price order, and `X-Sort-Approximate` is a signal no shopper sees; `'unavailable'` withdraws the sort instead. `'approximate'` remains the default, so B2C behavior is unchanged. R3 re-rated accordingly.
+- **§3.3 now fixes the scope clause's shape** — a GIN-indexed `scopeKeys` array on the product's index document, not `EXISTS` over the assignment tables. "Applied in one place" already protected correctness but not shape, and the DNF from `buyer-scoped-catalog-visibility.md` §3.3 sits in front of every query here, the six facet aggregations of R2 included.
+- **§8.2 clarified that "before ranking" means inside the query**, and added R14: post-filtering a top-k retrieval starves a restricted buyer down to a near-empty page. This is the same decision as §3.3's — pushing the predicate into the ranking query is only possible because the scope is expressible against the indexed document.
+- **§9 restated the two cache-key exceptions as instances of a general rule** (roadmap ADR-7, amended): keys are built from named scope components (`assortmentScopeHash`, `priceScopeKey`, `customerOverlayId`), never from a whole-context digest where a named one would do. §9.1's 2026-08-17 fix was the first, reactive instance of this; it is now the stated default.
+
+### 2026-09-16 (a) — content pages
 - Added `GET /pages` and `GET /pages/:slug` (§4.6–4.7) with the `StorefrontPage` contract (§5.5). The suite previously referenced static pages from two directions without ever defining them: spec 10 §4 routes `pages/[slug]`, and merchandising `US-N1` gives menu items a `content_page` target type — with no endpoint for either to read, and no entry in the sitemap that spec 10 generates from paginated API reads.
 - Introduced the `contentPageSource` DI seam (§3.4) rather than binding the endpoints to a module. The existing `content` module hardcodes pages in React (including Open Mercato's own legal entity in `terms/page.tsx`), a CMS module is on the long-range roadmap, and a storefront bound to either would be rewritten when the other arrived. Constrained the interface to two consumer-derived methods and stated the budget explicitly, because a seam designed against an unbuilt module is the usual way to get the shape wrong.
 - Made `body` a discriminated union over `html` and `blocks` so the reference storefront handles both arms before a CMS exists — the single decision that makes the swap cheap rather than theoretical.

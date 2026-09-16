@@ -249,6 +249,10 @@ export function intersectScopes(channel: AssortmentScope | null, group: Effectiv
 
 `matchesScope` is the single implementation both the SQL-shaped listing filter (§3.5) and the in-memory point-check (§6) are built from, so a listing query and a single-item check of the same effective scope can never disagree — a correctness property this spec asserts as a test (§9, §11).
 
+**"Single implementation" is a property held by a test, not by the code (clarified 2026-09-16).** A TypeScript predicate cannot run inside Postgres, so in practice there are two evaluators — `matchesScope` in memory and whatever SQL `buildStorefrontProductScope` emits — with an asserted equivalence between them. That is fine and is what §9/§11 already require, but it makes the equivalence test load-bearing rather than incidental, so it MUST be **property-based** over generated scopes and products rather than a fixture table. The failure this spec's own history predicts is a combination nobody enumerated — the flattened-union bug in §3.1 was exactly that — and a fixture table only ever covers what its author already thought of. The harness is in place (`.ai/specs/2026-04-24-agentic-property-based-testing.md`).
+
+**What the SQL side evaluates against (added 2026-09-16).** `ScopedProduct` is already `{ id, categoryIds, tagIds }` — this contract has therefore already committed to a product's scope-relevant attributes being a small, flat, denormalizable set, which is what makes an efficient SQL side possible at all. `storefront-public-api.md` §3.3 takes that commitment and fixes the representation: a GIN-indexed `scopeKeys: text[]` (`cat:<uuid>` / `tag:<uuid>`, categories expanded to include ancestors) on the product's index document, so each DNF branch is an array-overlap test rather than a chain of `EXISTS` over `catalog_product_category_assignments` / `catalog_product_tag_assignments`. Category ancestor expansion is a lookup, not a recursive CTE, because `CatalogProductCategory` already maintains `ancestorIds`/`descendantIds` as `jsonb`. Nothing in §3.2's semantics changes — this is the physical representation the equivalence test above is asserted across, and it is named here so the pure contract and its SQL twin are not designed independently.
+
 Per `packages/shared/AGENTS.md` § Before Adding a New Utility, step 5: `packages/shared/src/lib/catalog-visibility/` imports nothing from `catalog`, `customer_groups`, `ecommerce`, or `cart` — it operates only on plain ids and the `AssortmentScope`/`ScopedProduct` shapes defined here, so there is no circular dependency by construction, in either direction. This mirrors `availability-contract.md`'s identical shared/module split, which states the same property for its own base contract.
 
 ### 3.4 `require_authentication` (Q2)
@@ -437,7 +441,9 @@ A rising rate of `product_unavailable` rejections is exactly the kind of drift t
 
 ## 11) Integration Coverage
 
-**Combination algebra (pure-function unit tests, no fixtures needed):**
+**Combination algebra (property-based, plus the named regression cases below):**
+- The in-memory `matchesScope` and the SQL emitted by `buildStorefrontProductScope` agree for every generated `(product, EffectiveAssortmentScope)` pair — property-based, not a fixture table (§3.3). This is the test that makes "one implementation" true; the cases below are the specific regressions worth naming, not the coverage itself
+
 - `unionScopes([{categoryIds:[A]}, {tagIds:[B]}])` (the exact case a first draft got wrong, §3.1/R2): a category-A/no-tag-B product matches, AND a tag-B/not-category-A product also matches — proving genuine OR across dimensions, not the flattened-AND regression a review caught
 - `matchesScope` composed via `intersectScopes(channel, unionScopes([g1, g2]))` distributes correctly: equals `matchesOne(product, channel) && matchesScope(product, unionScopes([g1, g2]))` for every fixture (the distributive-law property §3.3 requires)
 - `unionScopes([null, A])` returns `null`; `unionScopes([])` returns `null`
@@ -516,6 +522,10 @@ A rising rate of `product_unavailable` rejections is exactly the kind of drift t
 ---
 
 ## 14) Changelog
+
+- **2026-09-16** — Read-path representation pass, part of the suite-wide amendment recorded as roadmap ADR-9. Two clarifications to §3.3, no semantic change to §3.1/§3.2:
+  - Stated that "`matchesScope` is the single implementation both sides are built from" is a property held by an **equivalence test**, since a TypeScript predicate cannot run in Postgres — and that the test must therefore be property-based rather than a fixture table. The spec's own history is the argument: the flattened-union bug a review caught in §3.1 was precisely a combination nobody had enumerated.
+  - Named the physical representation the SQL side evaluates against — a GIN-indexed `scopeKeys` array on the product's index document, specified in `storefront-public-api.md` §3.3 — rather than leaving the pure contract and its SQL twin to be designed independently. `ScopedProduct = { id, categoryIds, tagIds }` had already committed to the shape; this only records where it lands and why the DNF is affordable in front of every product query and facet aggregation.
 
 - **2026-09-06** — Amendment-application pass, after a specification review of PR #5384. §0's three sibling amendments were recorded but never applied, on the reasoning that the siblings were unmerged work on another branch — they are in the same directory and the same change. The gap was not cosmetic: `cart-module.md`, the document that actually owns the `cart` module and reads as complete, contained no assortment check anywhere, so an implementer building from it would have shipped exactly the Critical write-side hole §1.2 and R1 exist to close. All three amendments are now applied in the sibling documents (`customer-groups-and-b2b-terms.md` §5.3/§6/new §6.4/§17, `SPEC-029` §4.1/§5.3/§6, `cart-module.md` new §6a/§9/§11/§13/§14), and §0 is now a cross-reference index rather than a to-do list. No design change — the amendments applied are the ones §0 already specified.
 
