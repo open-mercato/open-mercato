@@ -150,7 +150,15 @@ export async function setRecordCustomFields(
   //
   // Only the SCALAR keys are prefetched. The array branch replaces its key's rows wholesale through
   // `nativeDelete`, so a row loaded here for such a key would be a managed entity standing behind a
-  // deleted row; the two sets are disjoint, so the loop below still sees exactly what it did before.
+  // deleted row; the two sets are disjoint, so the loop below reads the same rows it always did.
+  //
+  // It does move the auto-flush schedule, which this file cares about elsewhere (see the two comment
+  // blocks below): under FlushMode.AUTO an `em.find` flushes only when the unit of work has a queued
+  // action for the entity it queries, so the per-key `findOne`s used to interleave N such trigger
+  // points with the array branch's delete-then-insert. There is now exactly one, and it runs before
+  // this function has dirtied anything.
+  // Bounded by MAX_CUSTOM_FIELD_KEYS_PER_RECORD (128) — but note that cap is only enforced above
+  // when `preferDefs` is set, which no caller currently unsets.
   const scalarKeys = keys.filter((key) => values[key] !== undefined && !Array.isArray(values[key]))
   const existingByKey = new Map<string, CustomFieldValue>()
   if (scalarKeys.length > 0) {
@@ -161,8 +169,11 @@ export async function setRecordCustomFields(
       tenantId,
       fieldKey: { $in: scalarKeys },
     })
-    // A key with more than one row is malformed, but it exists; `findOne` updated whichever row the
-    // database returned first, so keep the first and let the rest stay untouched exactly as before.
+    // A key can legitimately hold several rows — that is how a multi-value field is stored, by the
+    // array branch below. Reaching such a key through the SCALAR branch means the payload or the def
+    // disagrees with what is on disk; `findOne` updated one arbitrary row (neither query orders, so
+    // "which" was never defined) and left the rest, so first-wins preserves that exactly. Neither
+    // shape converges the stale rows, and that is not this change's to fix.
     for (const row of existing) {
       if (!existingByKey.has(row.fieldKey)) existingByKey.set(row.fieldKey, row)
     }

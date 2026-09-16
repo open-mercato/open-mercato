@@ -85,7 +85,7 @@ describe('setRecordCustomFields', () => {
     const persist = jest.fn()
     const create = jest.fn((entity: unknown, data: Record<string, unknown>) => ({ ...data, entity }))
     const em = {
-      find: jest.fn(async (entity: unknown) => (entity === CustomFieldDef ? [] : [])),
+      find: jest.fn(async () => []),
       findOne: jest.fn(async () => null),
       create,
       persist,
@@ -176,10 +176,13 @@ describe('setRecordCustomFields', () => {
       updatedAt: new Date('2026-09-16T00:00:00.000Z'),
       configJson: {},
     }))
-    const existing = { fieldKey: 'beta', valueText: 'stale' }
+    // Two rows under one key: the shape a multi-value field leaves behind. `findOne` updated one
+    // arbitrary row and left the rest, so the prefetch has to keep first-wins rather than last-wins.
+    const firstRow = { fieldKey: 'beta', valueText: 'stale-1' }
+    const secondRow = { fieldKey: 'beta', valueText: 'stale-2' }
     const create = jest.fn((entity: unknown, data: Record<string, unknown>) => ({ ...data, entity }))
     const emMock = {
-      find: jest.fn(async (entity: unknown) => (entity === CustomFieldDef ? definitions : [existing])),
+      find: jest.fn(async (entity: unknown) => (entity === CustomFieldDef ? definitions : [firstRow, secondRow])),
       findOne: jest.fn(async () => null),
       create,
       persist: jest.fn(),
@@ -211,7 +214,8 @@ describe('setRecordCustomFields', () => {
       fieldKey: { $in: ['alpha', 'beta', 'gamma'] },
     })
     // The prefetched row is UPDATED in place; only the two keys without one are created.
-    expect(existing.valueText).toBe('b')
+    expect(firstRow.valueText).toBe('b')
+    expect(secondRow.valueText).toBe('stale-2')
     expect(create).toHaveBeenCalledTimes(2)
     expect(create).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ fieldKey: 'alpha' }))
     expect(create).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ fieldKey: 'gamma' }))
@@ -247,5 +251,41 @@ describe('setRecordCustomFields', () => {
     expect(emMock.find).toHaveBeenCalledWith(CustomFieldValue, expect.objectContaining({
       fieldKey: { $in: ['note'] },
     }))
+  })
+
+  it('reads no values at all when every key is multi-value', async () => {
+    const definition = {
+      key: 'segments',
+      kind: 'select',
+      organizationId: 'org-1',
+      tenantId: 'tenant-1',
+      updatedAt: new Date('2026-09-16T00:00:00.000Z'),
+      configJson: { multi: true },
+    }
+    const emMock = {
+      find: jest.fn(async (entity: unknown) => (entity === CustomFieldDef ? [definition] : [])),
+      findOne: jest.fn(async () => null),
+      create: jest.fn((entity: unknown, data: Record<string, unknown>) => ({ ...data, entity })),
+      persist: jest.fn(),
+      nativeDelete: jest.fn(async () => 2),
+      flush: jest.fn(async () => undefined),
+      begin: jest.fn(async () => undefined),
+      commit: jest.fn(async () => undefined),
+      rollback: jest.fn(async () => undefined),
+      isInTransaction: jest.fn(() => false),
+    }
+    const em = emMock as unknown as EntityManager
+
+    await setRecordCustomFields(em, {
+      entityId: 'example:todo',
+      recordId: 'record-1',
+      organizationId: 'org-1',
+      tenantId: 'tenant-1',
+      values: { segments: ['gamma', 'delta'] },
+    })
+
+    // Definitions only — an empty scalar-key set must not cost a round trip.
+    expect(emMock.find).toHaveBeenCalledTimes(1)
+    expect(emMock.find).toHaveBeenCalledWith(CustomFieldDef, expect.anything())
   })
 })
