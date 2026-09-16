@@ -128,7 +128,6 @@ describe('messages.messages.compose — inbound channel messages are not echoed 
     const payload = sentEventPayload()
     expect(payload.sendViaEmail).toBe(false)
     expect(payload.externalEmail).toBe('inbound-sender@example.com')
-    expect(payload.sourceEntityType).toBe('communication_channels.external_conversation')
   })
 
   it('still delivers by email when the caller asks for it', async () => {

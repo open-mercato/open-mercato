@@ -30,8 +30,6 @@ type MessageSentEventPayload = {
   senderUserId: string
   recipientUserIds: string[]
   sendViaEmail: boolean
-  /** Lets subscribers recognise channel-ingested messages (see message-notification). */
-  sourceEntityType?: string | null
   externalEmail?: string | null
   forwardedFrom?: string
   replyTo?: string
@@ -415,7 +413,6 @@ const composeMessageCommand: CommandHandler<unknown, { id: string; threadId: str
         senderUserId: input.userId,
         recipientUserIds: input.recipients.map((recipient) => recipient.userId),
         sendViaEmail: input.sendViaEmail,
-        sourceEntityType: input.sourceEntityType ?? null,
         externalEmail: responseExternalEmail,
         tenantId: input.tenantId,
         organizationId: input.organizationId,

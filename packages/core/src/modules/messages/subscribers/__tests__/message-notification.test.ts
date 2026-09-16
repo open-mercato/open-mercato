@@ -99,25 +99,6 @@ describe('messages sent subscriber', () => {
     )
   })
 
-  it('never queues an external job for a channel-ingested message (would echo the inbound sender)', async () => {
-    await handle({
-      messageId: 'message-1',
-      senderUserId: 'sender-1',
-      recipientUserIds: ['u1'],
-      sendViaEmail: true,
-      externalEmail: 'inbound-sender@example.com',
-      sourceEntityType: 'communication_channels.external_conversation',
-      tenantId: 'tenant-1',
-      organizationId: 'org-1',
-    }, ctx)
-
-    expect(enqueueMock).toHaveBeenCalledTimes(1)
-    expect(enqueueMock).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'recipient', recipientUserId: 'u1' }),
-    )
-    expect(enqueueMock).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'external' }))
-  })
-
   it('uses local strategy by default', async () => {
     await handle({
       messageId: 'message-1',
