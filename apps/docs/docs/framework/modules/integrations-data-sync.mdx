@@ -372,6 +372,44 @@ Operational notes:
 
 Each run stores tenant and organization scope and must stay scoped in every read/write.
 
+### Retry, resume, and run again
+
+A finished run offers one primary action, and sometimes one more behind the `⋯` overflow. Which ones appear is a property of the run's state, never of the operator — an action that does not apply is absent rather than disabled.
+
+| Run state | Primary action | Overflow |
+|---|---|---|
+| `failed` | **Retry** | Retry from the beginning |
+| `cancelled` | **Resume** | Start from the beginning |
+| `completed` | **Run again** | — |
+| `running` / `pending` | **Cancel** | — |
+
+- **Retry** and **Resume** are the same request (`POST /api/data_sync/runs/[id]/retry`), and both continue where the run stopped rather than starting over. A cancelled run reads *Resume* only because nothing went wrong — the operator stopped it — and "Retry" would misdescribe that.
+- **Retry from the beginning** sends `fromBeginning: true`, so the new run starts from a `null` cursor and replays the feed from its start. It is the one action behind a confirmation, and the confirmation names the cost — the estimated record count and the batch a plain retry would have resumed at — rather than asking "Are you sure?". It is not destructive: existing records are matched and updated, not duplicated.
+- **Run again** is offered on completed runs only. It navigates to `/backend/data-sync?from=<runId>`, which opens the "Run once now" form seeded from that run — integration, entity type, direction, and the stored run parameters. Nothing is submitted on arrival, and a banner names the run the settings came from. **Run as full sync** and **Batch size** are *not* seeded, because `sync_runs` stores neither; both render at their form defaults. If the adapter has since stopped declaring one of the stored parameters, a warning names the dropped key.
+
+Both the retry actions re-validate the stored run parameters against the adapter's *current* declaration, so a parameter you have removed or re-scoped falls away and a value that no longer satisfies its declaration fails the retry with a `422` instead of reaching your adapter.
+
+#### The resume-point line
+
+Wherever a retry is offered, the dashboard states where it would resume — as a line beneath the actions on the run detail page, and folded into the menu item's own label in the runs list.
+
+| Situation | Detail page | List row |
+|---|---|---|
+| The run committed at least one batch | "Resumes from batch 41 — `updated_at:2026-09-12T04:15:07Z`" | "Retry (resumes from batch 41)" |
+| The run committed no batch | "This run committed no batch. Retry starts from this feed's last saved position, which may be earlier than this run began." | "Retry (resumes from this feed's last saved position)" |
+
+**The no-committed-batch wording is deliberately non-committal, and must stay that way.** It does not say "starts from the beginning", because that would often be false: the endpoint resolves a resumable retry as `previous.cursor ?? resolveStartCursor(...)`, and `resolveStartCursor` reads the shared `sync_cursors` row (or, for an adapter that opted out, this entity type's own last run). A run that died on its first batch can therefore still resume at a cursor an earlier successful run wrote, silently skipping everything before it — exactly the partial-import trap the run-scoped cursor exists to prevent. The run row alone cannot predict that position, so the copy says only what the row knows, and **Retry from the beginning** stays available here precisely because it is the only action whose start position is knowable in advance.
+
+The cursor is rendered verbatim in a monospace face and is never truncated or prettified — it is an adapter-defined opaque string, and the one value an operator can paste into a support ticket. Adapters must therefore never encode a credential or personal data in a cursor.
+
+The run detail page also shows this run's own record — **Started from** (`initialCursor`) and **Committed through** (`cursor`) — for every state, including completed runs. Those describe what happened; the resume-point line above them is the only sentence about a future run.
+
+#### Hiding the from-the-beginning action
+
+An adapter can hide **Retry from the beginning** per entity type by declaring `supportsStartControl('fullSync', entityType)` as `false` — the same declaration that governs the "Run as full sync" switch on the start form. Use it for an entity type where a full replay means nothing. The run detail page states the restriction in one line beneath the actions; the runs list simply omits the menu item.
+
+As everywhere else with this declaration, **this is UI gating only**. `POST /api/data_sync/runs/[id]/retry` keeps accepting `fromBeginning: true` from a script or an API client whatever you declare, exactly as `POST /api/data_sync/run` keeps honouring `fullSync`. And if the options request that resolves the declaration fails, the action renders rather than disappearing — failing open matches `applicableStartControls`, and hiding a valid action because an unrelated request failed would be worse.
+
 ### Tracing
 
 When telemetry is enabled, the engine wraps every batch in its own **root** span — `data_sync.import.batch` or `data_sync.export.batch` — linked back to the run's trace. Rooting per batch is deliberate: a sync run can last hours, and a trace inherits a single sampling decision from its root, so leaving batches nested under the triggering request would put a whole run behind one decision (emitting nothing below a sampling ratio of 1.0, or one unrenderable trace at 1.0).
