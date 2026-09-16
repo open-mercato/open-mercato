@@ -256,6 +256,118 @@ An unknown, unreadable, or cross-tenant `runId` is not an error state — the te
 returns nothing and the form renders its normal empty defaults, exactly as a direct visit to
 `/backend/data-sync` does. See § Edge Cases.
 
+## 📝 UI/UX
+
+Only what is unique to this feature. The page scaffolding, `DataTable`, `RowActions`, `FormHeader` and
+flash-message behaviour are unchanged and not re-documented.
+
+### The resume-point line
+
+One line, rendered beneath the header action row on the detail page and as a second line inside the
+menu item on the list. It is the fix for the confusion this spec exists to end, and it renders in three
+forms depending on what `resolveResumePoint` returns:
+
+| `ResumePoint` | Detail page | List menu sub-label |
+|---|---|---|
+| `resumes` with a total | "Resumes from batch 41 of ~118 — `updated_at:2026-09-12T04:15:07Z`" | "Resumes from batch 41" |
+| `resumes` without a total | "Resumes from batch 41 — `updated_at:2026-09-12T04:15:07Z`" | "Resumes from batch 41" |
+| `fromBeginning` | "No batch was committed — Retry starts from the beginning" | "Starts from the beginning" |
+| `none` | not rendered | not rendered |
+
+The no-total form is not an edge case to tolerate — it is the **common** form for a streaming import,
+where the progress job's `totalCount` is null because nothing counted the source first. Both strings
+ship; neither is a fallback.
+
+The cursor is rendered verbatim in a monospace face and is never paraphrased, truncated or
+prettified. It is an adapter-defined opaque string — a watermark here, an id or a page token elsewhere
+— and it is the only value an operator can paste into a support ticket.
+
+### Actions per state
+
+Per the table in § Proposed Solution. Three rules govern the shape rather than the contents:
+
+- The primary action is a single click with **no confirm**. It is additive and safe, and demanding a
+  dialog for the common path is what teaches operators to dismiss dialogs unread.
+- The overflow menu renders only when it has at least one item. A `completed` run therefore shows one
+  button and no `⋯` — an overflow holding zero or one item is worse than none.
+- An action that does not apply is **absent, not disabled**. A disabled control invites a hunt for the
+  permission that would enable it; these are properties of the run and the adapter, not of the operator.
+
+`cancelled` runs read **Resume** rather than Retry (**D1**). Nothing went wrong — the operator stopped
+it — and "Retry" misdescribes that. This is one conditional string in two places, and it is the only
+point in this design where two different words are justified.
+
+### "Retry from the beginning" — visibility and confirm
+
+Hidden in three cases, each for its own reason:
+
+1. The run is not `failed` or `cancelled` — there is nothing to retry.
+2. `resolveResumePoint` returns `fromBeginning` (**D3**) — the request would be byte-identical to the
+   primary action, so offering both would present one operation as two.
+3. `applicableStartControls(integration.startControls, entityType).fullSync === false` — the adapter
+   declares a full replay meaningless for this entity type. The list page already resolves this map for
+   the start form; the detail page fetches `GET /api/data_sync/options` to resolve it the same way,
+   which is the same call it already makes to resolve run-parameter labels.
+
+Case 3 is **UI gating only**. Per **D0** the endpoint still accepts `fromBeginning: true` from a direct
+API caller, by design. The row menu carries no explanatory footnote about it (**D5**); the detail page
+states the restriction in a line beneath the actions, where there is room for a sentence.
+
+The confirm dialog names the cost concretely rather than asking "Are you sure?" — the record count, the
+batch a resumable retry would have started at, and the batch this one starts at — as prose in
+`ConfirmDialogOptions.text`, per § Architecture 4. `variant` is `"default"`. `Cmd/Ctrl+Enter` submits
+and `Escape` cancels; both come free with the primitive and both are required.
+
+### "Run again" and the prefilled start form
+
+Offered on `completed` runs only (**D2**). On a failed run it would differ from "Retry from the
+beginning" only in offering an edit step, which is not worth a second near-identical menu item on the
+state where the menu is already longest.
+
+It navigates to `/backend/data-sync?from=<runId>`, and the start form:
+
+- seeds integration, entity type, direction, batch size, and every stored parameter the adapter still
+  declares;
+- copies the source run's `fullSync` value **faithfully** (**D4**) rather than defaulting it on. A
+  prefill that quietly changes a setting is how a prefill surprises someone, and an operator who wants
+  a full replay can tick the switch that is right there;
+- renders an information banner naming the run it was seeded from, linking back to it;
+- renders a warning when normalizing the stored parameters dropped a key the adapter no longer
+  declares, naming the dropped key. The retry endpoint already drops such keys silently — here there is
+  a form in front of the operator, so silence would be a choice rather than a constraint;
+- submits nothing on arrival. Prefill is not a trigger.
+
+### Permissions
+
+Every action is gated on `data_sync.run`, which both pages already require for their existing
+mutations. A holder of `data_sync.view` alone sees every state, every counter, and the full
+resume-point line, and no action buttons at all — the line is a statement about the run, not an
+affordance.
+
+### i18n
+
+Every new string routes through `useT()` with a `data_sync.*` key and ships in all five locale files
+(`en`, `de`, `es`, `ko`, `pl`). No hardcoded user-facing string, and no locale-only English fallback.
+The batch numbers and the cursor interpolate as parameters so translators can reorder them.
+
+## 📝 Edge Cases & Failure Scenarios
+
+| # | Situation | What the operator sees |
+|---|---|---|
+| 1 | Retryable run, no batch committed (`cursor` is `null`) | "No batch was committed — Retry starts from the beginning". The overflow item is hidden (**D3**), so the page never presents one request as two choices |
+| 2 | Progress job's `totalCount` is null (the common streaming-import case) | The no-denominator string. Not an error, not a fallback — a first-class form |
+| 3 | The run has no progress job at all | Same as #2. `resolveResumePoint` is called with `totalBatches` omitted |
+| 4 | Adapter declares `fullSync` inapplicable for the entity type | The overflow item is absent; the detail page states why in one line. The endpoint still accepts the request from a direct caller (**D0**) |
+| 5 | Stored parameters no longer valid — `422` with `code: parametersStale` | The existing error message, plus a "Start a new run with these settings…" action that lands on the prefilled start form. The 422 already exists and is already machine-readable; what is new is the way out |
+| 6 | Another run for the same integration / entity type / direction is in flight — `409` | The existing error naming the conflict. The 409 body is a bare sentence today and this spec does not widen it, so the message cannot link the blocking run |
+| 7 | `GET /api/data_sync/options` fails while resolving `startControls` on the detail page | The overflow item renders. Failing open matches `applicableStartControls`, whose documented default for an unknown entity type is "every control applies"; failing closed would hide a valid action because an unrelated request failed |
+| 8 | `?from=<runId>` names a run that does not exist, is not readable, or belongs to another tenant | The tenant-scoped fetch returns nothing, the banner does not render, and the form shows its normal defaults — the same thing a direct visit to `/backend/data-sync` shows. Not an error state |
+| 9 | The prefill drops a stored parameter the adapter no longer declares | A warning naming the dropped key, above the form |
+| 10 | `cancelled` run — no `lastError` exists | The error card does not render, and the layout must not leave a gap where it would be. A banner names who cancelled the run and when, so it is distinguishable from a run that died silently |
+| 11 | Run reaches a terminal state while the operator is looking at it | The page already refreshes from `progress.job.*` and `om:bridge:reconnected`; the action area and the resume-point line re-derive from the refreshed run like every other part of the page |
+| 12 | The operator retries twice in quick succession | The second request hits the existing overlap `409`. No new guard, and no optimistic disabling that could strand the button if the first request fails |
+| 13 | `paused` status | No actions and no resume-point line. Nothing in the engine produces this status; see § Non-goals |
+
 ## 📝 Non-goals
 
 - Cursor semantics, engine behaviour, and the run lifecycle — untouched.
