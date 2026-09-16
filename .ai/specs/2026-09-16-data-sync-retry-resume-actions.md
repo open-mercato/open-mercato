@@ -368,6 +368,63 @@ The batch numbers and the cursor interpolate as parameters so translators can re
 | 12 | The operator retries twice in quick succession | The second request hits the existing overlap `409`. No new guard, and no optimistic disabling that could strand the button if the first request fails |
 | 13 | `paused` status | No actions and no resume-point line. Nothing in the engine produces this status; see § Non-goals |
 
+## 📝 Risks & Impact Review
+
+| # | Risk | Severity | Affected area | Mitigation | Residual |
+|---|---|---|---|---|---|
+| 1 | The resume-point line states a batch or cursor that is not where the retry actually starts, and an operator trusts it | High | Detail page, list row menu | Both surfaces derive the line from one pure function, `resolveResumePoint`, fed by the same `cursor`/`batchesCompleted` the endpoint itself resolves from. Unit-tested per state and per null case | The endpoint resolves `previous.cursor ?? resolveStartCursor(...)`; when `previous.cursor` is null the fallback may find a shared cursor the UI did not predict. Covered by rendering `fromBeginning` only for the null case and never promising a specific batch for it |
+| 2 | An operator triggers a full replay believing it resumes | High | `POST /api/data_sync/runs/[id]/retry` | The action lives in an overflow, never as a peer of the primary, and is the only path in the UI behind a confirm. The confirm names the record count and both start positions rather than asking "Are you sure?" | An operator can still confirm without reading. Reduced, not eliminated |
+| 3 | A full replay is read as destructive and avoided when it is the right fix | Medium | Confirm dialog | `variant` stays `"default"`; the copy states that existing records are matched and updated rather than duplicated | None |
+| 4 | Two sibling endpoints disagree about what an adapter's declaration means | High | `run` and `retry` | **D0** — neither enforces. This also satisfies the written commitment in `BACKWARD_COMPATIBILITY.md` § Data Sync Start Control Applicability | None. The separation is now recorded in two specs and the compatibility document |
+| 5 | The prefill silently changes a setting the operator did not choose | Medium | Start form | **D4** — `fullSync` is copied faithfully; a banner names the source run; a warning names any dropped parameter | An operator may not notice the banner. The form submits nothing on arrival, so the cost of not noticing is bounded at reading the fields |
+| 6 | `?from=<runId>` becomes a way to probe another tenant's run ids | Medium | Start form prefill | The prefill reads through the existing tenant-scoped `GET /api/data_sync/runs/[id]`, which already answers 404 outside the scope. An unreadable id renders the plain form, identical to a direct visit — no distinguishing error | None. The parameter grants no read the operator did not already have |
+| 7 | Hiding the from-scratch action for one entity type hides it everywhere, through a bad adapter predicate | Medium | Detail page, list row menu | `applicableStartControls` already defaults to "applies" for an unknown entity type and for a throwing predicate; an options-fetch failure fails open (Edge case 7) | An adapter can hide its own action. This is the same trust `2026-09-02` already extended, unchanged |
+| 8 | The list row's denominator-free string reads as a defect | Low | List row menu | It is specified as a first-class form, not a fallback, and the exact figure is one click away on the detail page | None |
+| 9 | Scope creep into cursor or engine semantics | Medium | Engine, run lifecycle | Explicit § Non-goals; no file under `lib/sync-engine.ts`, `lib/sync-run-service.ts` or `lib/start-cursor.ts` is in scope | None |
+| 10 | The prototype keeps asserting a defect that this spec withdrew, misleading a later reader | Medium | `.ai/prototypes/data-sync-retry-resume/` | Corrected in the same change that lands this spec, with the README naming the spec as the authority | None |
+
+## 📝 Final Compliance Report
+
+- **Backward compatibility — nothing to declare, and that is load-bearing.** No contract surface from
+  `BACKWARD_COMPATIBILITY.md`'s fourteen categories changes: no auto-discovery file, type, signature,
+  import path, event id, widget spot id, API route, DB schema, DI name, ACL feature, notification id,
+  AI id, CLI command, or generated file. The one thing that *could* have changed — making `retry`
+  reject `fromBeginning: true` for a restricted entity type — is ruled out not merely by preference but
+  by a commitment already recorded in that document:
+
+  > The declaration governs what the dashboard **offers**, never what the run API **accepts** — that
+  > separation MUST hold for any future change here, or an API client posting `fullSync: true` would
+  > silently stop getting a full run.
+  > — `BACKWARD_COMPATIBILITY.md` § Data Sync Start Control Applicability (2026-09-02)
+
+  **D0 is therefore obligatory, not discretionary.** No new entry in `BACKWARD_COMPATIBILITY.md` is
+  needed, and none is added.
+- **Provider-agnostic.** No provider name and no entity-type string is special-cased. Applicability is
+  read only through `applicableStartControls`, from the adapter's own declaration.
+- **Canonical mechanisms.** `useConfirmDialog` for the confirm, `RowActions` for the row menu,
+  `FormHeader` for the detail header, `apiCall` for every read, `useGuardedMutation` for every write,
+  `LoadingMessage`/`ErrorMessage` for states, `flash` for outcomes. One new module,
+  `lib/resume-point.ts`, and it exists to stop two pages computing the same sentence differently.
+- **No invented UI surface.** The prototype's richer confirm body is dropped rather than met by adding
+  a `body?: React.ReactNode` slot to the shared `ConfirmDialog`; § Architecture 4 records the
+  trade-off and leaves the slot available additively for a future second caller.
+- **Optimistic locking — not applicable, deliberately.** Retry, cancel and start are run-lifecycle
+  actions that create or transition a run, not concurrent edits of a user-editable record. They keep
+  the existing `optimistic-lock-exempt` annotations already present at both call sites; no
+  `updatedAt` header is introduced.
+- **Tenant scoping.** Every read and write goes through the existing tenant-scoped routes. The
+  `?from=<runId>` prefill grants no read the operator does not already have.
+- **i18n.** Every new string routes through `useT()` under a `data_sync.*` key and ships in all five
+  locale files. Batch numbers and cursors interpolate as parameters. No hardcoded user-facing string;
+  `yarn i18n:check-sync` and `yarn i18n:check-usage` must pass.
+- **Design system.** Status colours come from `status-*` tokens, never hardcoded Tailwind shades; no
+  arbitrary values; no `dark:` overrides on semantic tokens. The resume-point line uses
+  `text-muted-foreground` and the cursor a monospace token.
+- **Docs.** `packages/core/src/modules/data_sync/AGENTS.md` gains a short section correcting its
+  current one-line claim that "Retry reads the last successful cursor, resumes from there" into the
+  three named actions, and
+  `apps/docs/docs/framework/modules/integrations-data-sync.mdx` gains the operator-facing description.
+
 ## 📝 Non-goals
 
 - Cursor semantics, engine behaviour, and the run lifecycle — untouched.
