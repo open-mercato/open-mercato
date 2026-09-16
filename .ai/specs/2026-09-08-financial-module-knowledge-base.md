@@ -44,6 +44,7 @@ merges.
 | Accounts Receivable (sales invoice → GL posting) | [`2026-08-18-sales-invoice-gl-posting.md`](https://github.com/open-mercato/open-mercato/pull/6046) | `docs/sales-invoice-gl-posting` | Open, PR #6046 — full spec, one independent adversarial review pass (eleven issues fixed) plus a Final Compliance Matrix; not yet reviewed by a maintainer |
 | Cash & Bank Management | [`2026-09-10-cash-bank-management.md`](https://github.com/open-mercato/open-mercato/pull/6055) | `docs/cash-bank-management` | Open, PR #6055 — full spec, two independent adversarial review passes (14 + 5 issues fixed) plus a literature-verification pass; not yet reviewed by a maintainer |
 | Default Chart of Accounts (Polish plan kont importer) | [`2026-09-15-default-chart-of-accounts.md`](https://github.com/open-mercato/open-mercato/pull/6137) | `docs/default-chart-of-accounts` | Open, PR #6137 — first document in this family to carry the full `financial-spec-writing-process` (own Literature & Prior Art section + real-system comparison) from its very first draft; cross-spec pass against every sibling spec found and fixed a real defect (070/071/072 split vs. Fixed Assets, commit `981dbf470`), see Changelog |
+| Tax Management (Core framework `tax_management` + Poland `financial_pl`) | [`2026-09-16-tax-management.md`](https://github.com/open-mercato/open-mercato/pull/6168) | `docs/tax-management` | Open, PR #6168 — first draft, not yet reviewed; follows the Core-framework-plus-country-plugin split `SPEC-024-2026-02-11-financial-module.md` §10 already mandates |
 | Multi-Currency, Budgeting & Forecasting, Cost Accounting | — | — | Not started (SPEC-024 only) |
 
 **`financial-pl` (JPK_V7/KSeF) lives outside this repo.** It's a real,
@@ -204,6 +205,22 @@ silently leave off later ones (see Changelog, 2026-09-14).
   2026-09-10, see the `financial-pl` analysis). Same tier as UoR: a
   government source, directly on-point, ahead of any secondary
   tax-advisory explainer.
+- **Ordynacja podatkowa, art. 61b** and the Ministry of Finance's own
+  mikrorachunek podatkowy specification (podatki.gov.pl, verified
+  2026-09-16, for `2026-09-16-tax-management.md`) — the primary source
+  for the mikrorachunek checksum algorithm (26-character IBAN-format,
+  fixed prefix `10100071222`, ISO/IEC 7064 mod-97-10 check digits) and
+  the tytuł-przelewu identification requirement. **Corrects a source
+  Event Storming recording**, which named the number as "pobierany z
+  integracji KIS" (Krajowa Informacja Skarbowa): checked twice, against
+  six sources total (the government page, two independent algorithm
+  writeups, and a direct check of what KIS itself actually is), the
+  number is a pure offline computation with no external integration —
+  KIS is a taxpayer telephone helpline and tax-ruling service with no
+  technical/API role at all. The likely origin of the note: KIS's own
+  site announced mikrorachunek's 2020 launch, plausibly misread
+  secondhand as "KIS provides the number." See that document's own
+  Design decisions for the full correction.
 
 **Tier 2 — textbook/terminology (cite these when you need the *named*
 pattern "control account" / "subsidiary ledger" in English, since neither
@@ -280,6 +297,17 @@ Fowler nor Hay use those exact terms):**
   document's own new Literature & Prior Art section. Worth checking
   before any future spec cites Kieso's closing-entry illustration as
   a single combined entry — it isn't one.
+  **New 2026-09-16 — Ch.13 "Current Liabilities and Contingencies,"
+  p.13-8, read for Tax Management.** "Sales Taxes Payable" and "Income
+  Taxes Payable" are both discussed as current liabilities computed
+  from a return/formula and periodically remitted to a governmental
+  authority: "a business must prepare an income tax return and
+  compute the income taxes payable resulting from the operations of
+  the current period"; "most corporations must make periodic tax
+  payments... in an authorized bank depository." Grounds
+  `2026-09-16-tax-management.md`'s `calculate → post → pay` shape and
+  its `TaxLiabilityRecord` current-liability framing. A different page
+  and claim from AP's existing Ch.13 p.13-4 citation (GR/IR timing).
 - Free alternative: Lumen Learning, *Financial Accounting*, chapter
   literally titled "Subsidiary Ledgers and Control Accounts"
   (courses.lumenlearning.com/finaccounting/chapter/subsidiary-ledgers-and-control-accounts)
@@ -471,6 +499,21 @@ real):**
   not change-tracking. GnuCash was not re-checked this pass (already
   recorded above as having no audit-trail feature at all); Apache
   Fineract remains unchecked for this specific question.
+- **New 2026-09-16, for Tax Management.** ERPNext, Odoo, and GnuCash
+  have no equivalent of a government-assigned, checksum-derived tax
+  payment account — a genuine, explainable divergence, not a gap:
+  mikrorachunek podatkowy is a Poland-specific administrative
+  mechanism (introduced 2020), so no general-purpose or US/EU-generic
+  accounting system would have it. Odoo's own generic pattern (pay
+  taxes as a normal vendor-style payment against a liability account,
+  per its own community documentation) is still consistent with
+  `2026-09-16-tax-management.md`'s `TaxLiabilityRecord`
+  current-liability shape, just without the Poland-specific payment
+  target. Comarch Optima's, enova365's, and Symfonia's specific
+  mikrorachunek handling was searched for but not confirmed from
+  public documentation — recorded as **Unverified**, per
+  `financial-spec-citation-check`, rather than assumed from their
+  general Polish-market positioning.
 - **ISO 20022** — payment/remittance messaging standard; relevant only if a
   future Cash & Bank Management module needs bank-statement/payment
   interchange format, not for internal ledger modeling. Low priority.
@@ -1183,3 +1226,41 @@ already-shipped module).
   this knowledge base and
   `2026-09-10-general-ledger-bulk-read-service.md` itself needed
   updating.
+
+### 2026-09-16 (cont. — Tax Management: initial draft, PR #6168)
+
+New module, first draft of the sixth genuinely new open-mercato/
+financial_pl piece in this family (after Contractor Registry, Fixed
+Assets, JELD, GL bulk read service, and now this one). Per Step 5:
+
+- **Placement**: `SPEC-024-2026-02-11-financial-module.md` §10 ("Tax
+  Management") already mandates a Core-framework-plus-country-plugin
+  split ("Tax Management is almost entirely implemented through
+  country plugins. The Core Engine provides only the framework for
+  tax handling") — this document (`tax_management` + `financial_pl`)
+  follows that split rather than the single standalone module first
+  proposed, before SPEC-024 §10 was found. See the module map above.
+- **Mikrorachunek correction**: see the new Tier 1 entry in §3 above —
+  the source Event Storming recording's "KIS integration" framing is
+  corrected there in full, including the likely origin of the note.
+- **New citations**: Kieso Ch.13 p.13-8 (Tier 2, new) and the
+  ERPNext/Odoo/GnuCash mikrorachunek-divergence finding (Tier 4, new)
+  — see §3 above for both.
+- **Cross-spec consistency check** (does any *other* spec need
+  updating for this new module?): re-read `2026-09-06-posting-rules-
+  engine.md` in full (1453 lines) confirming, independently of the
+  Compliance & Audit pass that first found this, zero relation to tax
+  payments — its scope is exclusively zespół 4→5 reclassification
+  through account 490. Re-checked `2026-09-06-accounts-payable-
+  payments.md` and `2026-09-10-cash-bank-management.md` (Overview/
+  Problem Statement) and confirmed neither offers a reusable
+  payment-initiation primitive this document could reuse without
+  breaking their own scope (vendor-specific compliance; explicitly
+  not a payment-initiation system, respectively). **GL core engine**
+  (#5663) did need a change: its bare "Country-specific tax/compliance
+  plugins" Out of scope bullet had no pointer anywhere — added one
+  (commit `d6c968a04`), matching the pointer pattern already used for
+  #6038. `SPEC-024` itself was read but not edited — it carries no
+  cross-reference pointers to any dated spec anywhere in the document,
+  for any module, so adding one here would be a new, unprecedented
+  convention, not a fix to an existing one.
