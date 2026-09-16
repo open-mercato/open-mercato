@@ -143,6 +143,30 @@ export async function setRecordCustomFields(
   const ownCustomFieldTransaction = txCapable && !txEm.isInTransaction!()
   if (ownCustomFieldTransaction) await txEm.begin!()
   try {
+  // ONE read for every scalar key, instead of one `findOne` per key inside the loop below. The cost of
+  // writing a record's custom fields was linear in its key count, in sequential round trips: an entity
+  // with 24 defined keys spent ~18 of them here, which on a bulk import is the dominant cost of the
+  // whole write path — the queries themselves are ~1 ms each, it is their number that hurts.
+  //
+  // Only the SCALAR keys are prefetched. The array branch replaces its key's rows wholesale through
+  // `nativeDelete`, so a row loaded here for such a key would be a managed entity standing behind a
+  // deleted row; the two sets are disjoint, so the loop below still sees exactly what it did before.
+  const scalarKeys = keys.filter((key) => values[key] !== undefined && !Array.isArray(values[key]))
+  const existingByKey = new Map<string, CustomFieldValue>()
+  if (scalarKeys.length > 0) {
+    const existing = await em.find(CustomFieldValue, {
+      entityId,
+      recordId,
+      organizationId,
+      tenantId,
+      fieldKey: { $in: scalarKeys },
+    })
+    // A key with more than one row is malformed, but it exists; `findOne` updated whichever row the
+    // database returned first, so keep the first and let the rest stay untouched exactly as before.
+    for (const row of existing) {
+      if (!existingByKey.has(row.fieldKey)) existingByKey.set(row.fieldKey, row)
+    }
+  }
   for (const fieldKey of keys) {
     const raw = values[fieldKey]
     if (raw === undefined) continue
@@ -184,7 +208,7 @@ export async function setRecordCustomFields(
       ? await encryptCustomFieldValue(raw as Primitive, tenantId, getEncryptionService(), encryptionCache)
       : raw
 
-    let cf = await em.findOne(CustomFieldValue, { entityId, recordId, organizationId, tenantId, fieldKey })
+    let cf = existingByKey.get(fieldKey) ?? null
     if (!cf) {
       cf = em.create(CustomFieldValue, { entityId, recordId, organizationId, tenantId, fieldKey, createdAt: new Date() })
       toPersist.push(cf)
