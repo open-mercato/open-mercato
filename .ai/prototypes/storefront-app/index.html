@@ -1,0 +1,583 @@
+<!doctype html>
+<html lang="en" data-prototype-id="storefront-app">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Storefront App &mdash; interactive prototype</title>
+<link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="components.css" />
+<link rel="stylesheet" href="screens.css" />
+<link rel="stylesheet" href="prototype.css" />
+<style>
+  /* Storefront-only additions. Not part of the backend AppShell primitives in screens.css —
+     this prototype deliberately covers apps/storefront, which the om-mockup-prototype skill
+     scopes to backend/backoffice flows. Kept to plain DS tokens, no new colors. */
+  .sf-header{display:flex;align-items:center;gap:1.5rem;padding:0.875rem 1.5rem;border-bottom:1px solid var(--border);background:var(--background)}
+  .sf-logo{font-weight:600;font-size:1rem;letter-spacing:-0.01em}
+  .sf-nav{display:flex;gap:1.25rem;flex:1;font-size:0.875rem;color:var(--muted-foreground)}
+  .sf-nav a{color:inherit;text-decoration:none}
+  .sf-nav a.current{color:var(--foreground);font-weight:500}
+  .sf-header-actions{display:flex;align-items:center;gap:0.75rem}
+  .sf-cart-badge{position:relative}
+  .sf-cart-count{position:absolute;top:-6px;right:-6px;background:var(--primary);color:var(--primary-foreground);font-size:0.6875rem;line-height:1;border-radius:999px;padding:0.15rem 0.35rem}
+  .sf-container{max-width:72rem;margin:0 auto;padding:0 1.5rem}
+  .sf-hero{padding:3rem 1.5rem;text-align:center;background:var(--muted)}
+  .sf-hero h1{font-size:2.25rem;font-weight:300;letter-spacing:-0.02em;margin:0 0 0.5rem}
+  .sf-section{padding:2.5rem 1.5rem}
+  .sf-section h2{font-size:1.5rem;font-weight:600;margin:0 0 1rem}
+  .sf-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:1.25rem}
+  .sf-card{border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;background:var(--card)}
+  .sf-card-img{aspect-ratio:1/1;background:var(--muted);display:flex;align-items:center;justify-content:center;color:var(--muted-foreground)}
+  .sf-card-body{padding:0.75rem}
+  .sf-card-title{font-size:0.875rem;font-weight:500;margin:0 0 0.25rem}
+  .sf-price{font-size:1.125rem;font-weight:600}
+  .sf-price-was{font-size:0.8125rem;color:var(--muted-foreground);text-decoration:line-through;margin-right:0.375rem}
+  .sf-meta{font-size:0.75rem;color:var(--muted-foreground)}
+  .sf-breadcrumbs{font-size:0.8125rem;color:var(--muted-foreground);padding:1rem 1.5rem 0}
+  .sf-breadcrumbs a{color:inherit;text-decoration:none}
+  .sf-layout{display:grid;grid-template-columns:16rem 1fr;gap:2rem;padding:1.5rem}
+  .sf-filter-group{margin-bottom:1.25rem}
+  .sf-filter-group h3{font-size:0.8125rem;font-weight:600;text-transform:uppercase;letter-spacing:0.02em;color:var(--muted-foreground);margin:0 0 0.5rem}
+  .sf-swatch-row{display:flex;gap:0.5rem;flex-wrap:wrap}
+  .sf-swatch{border:1px solid var(--border);border-radius:var(--radius-md);padding:0.5rem 0.875rem;font-size:0.8125rem;background:var(--card);cursor:pointer}
+  .sf-swatch[aria-checked="true"]{border-color:var(--primary);border-width:2px;font-weight:600}
+  .sf-swatch[disabled]{color:var(--muted-foreground);text-decoration:line-through;cursor:not-allowed;opacity:0.6}
+  .sf-pdp{display:grid;grid-template-columns:1fr 1fr;gap:3rem;padding:2rem 1.5rem}
+  .sf-gallery-main{aspect-ratio:1/1;background:var(--muted);border-radius:var(--radius-lg);display:flex;align-items:center;justify-content:center;color:var(--muted-foreground)}
+  .sf-gallery-thumbs{display:flex;gap:0.5rem;margin-top:0.75rem}
+  .sf-gallery-thumb{width:3.5rem;height:3.5rem;border-radius:var(--radius-md);background:var(--muted);border:1px solid var(--border)}
+  .sf-tabs{display:flex;gap:1.5rem;border-bottom:1px solid var(--border);margin-top:2rem;font-size:0.875rem}
+  .sf-tabs button{background:none;border:none;padding:0.75rem 0;color:var(--muted-foreground);cursor:pointer;border-bottom:2px solid transparent}
+  .sf-tabs button[aria-selected="true"]{color:var(--foreground);border-color:var(--primary);font-weight:500}
+  .sf-cart-line{display:grid;grid-template-columns:4rem 1fr auto auto;gap:1rem;align-items:center;padding:1rem 0;border-bottom:1px solid var(--border)}
+  .sf-cart-thumb{width:4rem;height:4rem;border-radius:var(--radius-md);background:var(--muted)}
+  .sf-qty-stepper{display:flex;align-items:center;border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden;width:fit-content}
+  .sf-qty-stepper button{width:2rem;height:2rem;border:none;background:var(--card);cursor:pointer}
+  .sf-qty-stepper input{width:2.5rem;border:none;text-align:center;background:var(--card)}
+  .sf-summary{border:1px solid var(--border);border-radius:var(--radius-lg);padding:1.25rem}
+  .sf-summary-row{display:flex;justify-content:space-between;font-size:0.875rem;padding:0.375rem 0}
+  .sf-summary-row.total{font-weight:600;font-size:1rem;border-top:1px solid var(--border);margin-top:0.5rem;padding-top:0.75rem}
+  .sf-footer{border-top:1px solid var(--border);padding:2rem 1.5rem;display:flex;justify-content:space-between;font-size:0.8125rem;color:var(--muted-foreground)}
+  @media (max-width: 900px){ .sf-grid{grid-template-columns:repeat(2,1fr)} .sf-pdp{grid-template-columns:1fr} .sf-layout{grid-template-columns:1fr} }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<symbol id="ic-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+<symbol id="ic-cart" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/></symbol>
+<symbol id="ic-user" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></symbol>
+<symbol id="ic-chevron-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></symbol>
+<symbol id="ic-package" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73Z"/><path d="M12 22V12"/><path d="M3.29 7 12 12l8.71-5"/><path d="m7.5 4.27 9 5.15"/></symbol>
+<symbol id="ic-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+<symbol id="ic-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></symbol>
+<symbol id="ic-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></symbol></defs></svg>
+
+<div class="doc-toolbar">
+  <strong style="font-size:0.875rem">Storefront &mdash; prototype</strong>
+  <nav class="screen-nav" aria-label="Screens">
+    <a href="#s1">1 Home</a>
+    <a href="#s2">2 Listing</a>
+    <a href="#s3">3 Sort withdrawn</a>
+    <a href="#s4">4 Shared link</a>
+    <a href="#s5">5 Product</a>
+    <a href="#s6">6 Cart</a>
+    <a href="#s7">7 Page: html</a>
+    <a href="#s8">8 Page: blocks</a>
+  </nav>
+  <button class="btn btn-outline btn-sm" id="theme-toggle" type="button">
+    <svg><use href="#ic-sun"/></svg> Theme
+  </button>
+</div>
+
+<div class="doc">
+
+<header class="doc-head">
+  <h1>Storefront app &mdash; screen inventory</h1>
+  <p class="muted" style="max-width:72ch;margin:0">
+    Five storefront pages in eight states, derived from <code class="t-mono">.ai/specs/2026-08-14-storefront-app.md</code>
+    and its &sect;16 story map. <strong>Storefront chrome, not the backend AppShell</strong> &mdash; this is a deliberate,
+    explicitly requested exception to <code class="t-mono">om-mockup-prototype</code>&#8217;s backend scope, kept small:
+    desktop only, no account area, no checkout funnel.
+  </p>
+  <p class="muted" style="max-width:72ch;margin:0.75rem 0 0">
+    Screens 2&ndash;4 are the same listing under three server answers, because &sect;5.4a&#8217;s rule is only visible in
+    the difference between them: options come from the response&#8217;s <code class="t-mono">availableSorts</code>,
+    the control shows <code class="t-mono">appliedSort</code>, and a sort the server declined produces the catalogue
+    with a note rather than an error. The admin side of that policy is the
+    <code class="t-mono">ecommerce-store-admin</code> prototype, screens 12&ndash;13.
+  </p>
+</header>
+<!-- ============================================================ -->
+<!-- S1 — 1. Home -->
+<!-- ============================================================ -->
+<section class="screen" id="s1">
+  <div class="screen-meta">
+    <h2>1. Home</h2>
+    <p><code class="t-mono">app/page.tsx</code> &mdash; assembled from the store&#8217;s own <code class="t-mono">home.main</code> merchandising placements, not a fixed template.</p>
+    <div class="screen-refs"><span class="ref">&sect;4</span><span class="ref">&sect;6</span><span class="ref">US-A1</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">shop.northwind.example/</span></div>
+    <div style="background:var(--background);border-radius:0 0 var(--radius-lg) var(--radius-lg);overflow:hidden">
+      <header class="sf-header">
+        <span class="sf-logo" data-goto="s1">Northwind Fasteners</span>
+        <nav class="sf-nav"><a href="#" class="current" data-goto="s1">Shop</a><a href="#" data-goto="s2">Categories</a><a href="#">Wholesale</a><a href="#" data-goto="s7">About</a></nav>
+        <div class="sf-header-actions"><button class="icon-btn" aria-label="Search"><svg><use href="#ic-search"/></svg></button><button class="icon-btn" aria-label="Account"><svg><use href="#ic-user"/></svg></button><button class="icon-btn sf-cart-badge" aria-label="Cart" data-goto="s6"><svg><use href="#ic-cart"/></svg><span class="sf-cart-count">2</span></button></div>
+      </header>
+      <div class="sf-hero">
+        <h1>Fasteners, fixings and workshop supply</h1>
+        <p class="t-hint">Trade accounts welcome &middot; next-day despatch on stocked lines</p>
+      </div>
+      <div class="sf-section sf-container">
+        <h2>Shop by category</h2>
+        <div class="sf-grid">
+          <div class="sf-card clickable" data-goto="s2"><div class="sf-card-img"><svg style="width:2rem;height:2rem"><use href="#ic-package"/></svg></div><div class="sf-card-body"><div class="sf-card-title">Fasteners</div><span class="sf-meta">412 products</span></div></div>
+          <div class="sf-card"><div class="sf-card-img"><svg style="width:2rem;height:2rem"><use href="#ic-package"/></svg></div><div class="sf-card-body"><div class="sf-card-title">Hardware</div><span class="sf-meta">238 products</span></div></div>
+          <div class="sf-card"><div class="sf-card-img"><svg style="width:2rem;height:2rem"><use href="#ic-package"/></svg></div><div class="sf-card-body"><div class="sf-card-title">Tools</div><span class="sf-meta">156 products</span></div></div>
+          <div class="sf-card"><div class="sf-card-img"><svg style="width:2rem;height:2rem"><use href="#ic-package"/></svg></div><div class="sf-card-body"><div class="sf-card-title">Workshop consumables</div><span class="sf-meta">94 products</span></div></div>
+        </div>
+      </div>
+      <div class="sf-section sf-container">
+        <h2>New this month</h2>
+        <div class="sf-grid">
+            <div class="sf-card clickable" data-goto="s5"><div class="sf-card-img"><svg style="width:2rem;height:2rem"><use href="#ic-package"/></svg></div><div class="sf-card-body"><div class="sf-card-title">M8 Hex Bolt (Bulk Pack, 500ct)</div><span class="sf-price">84,00 z&#322;</span></div></div>
+            <div class="sf-card"><div class="sf-card-img"><svg style="width:2rem;height:2rem"><use href="#ic-package"/></svg></div><div class="sf-card-body"><div class="sf-card-title">M6 Hex Bolt (Bulk Pack, 500ct)</div><span class="sf-price">72,00 z&#322;</span></div></div>
+            <div class="sf-card"><div class="sf-card-img"><svg style="width:2rem;height:2rem"><use href="#ic-package"/></svg></div><div class="sf-card-body"><div class="sf-card-title">Standard Wood Screw 4&times;40</div><span class="sf-price">6,50 z&#322;</span></div></div>
+            <div class="sf-card"><div class="sf-card-img"><svg style="width:2rem;height:2rem"><use href="#ic-package"/></svg></div><div class="sf-card-body"><span class="badge badge-neutral" style="margin-bottom:0.25rem">Out of stock</span><div class="sf-card-title">Hex Nut Assortment Kit</div><span class="sf-price">34,00 z&#322;</span></div></div>
+            <div class="sf-card"><div class="sf-card-img"><svg style="width:2rem;height:2rem"><use href="#ic-package"/></svg></div><div class="sf-card-body"><div class="sf-card-title">Wing Nut 5-Pack</div><span class="sf-price">11,00 z&#322;</span></div></div>
+            <div class="sf-card"><div class="sf-card-img"><svg style="width:2rem;height:2rem"><use href="#ic-package"/></svg></div><div class="sf-card-body"><div class="sf-card-title">Flat Washer Assortment</div><span class="sf-price">18,00 z&#322;</span></div></div>
+        </div>
+      </div>
+      <footer class="sf-footer"><span>&copy; Northwind Fasteners</span><span>Terms &middot; Privacy &middot; Shipping</span></footer>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Every block on this page is a merchandising placement the merchant configured. A store with none shows the catalogue entry points rather than an empty page &mdash; the home route is a host, not a layout.</span></div>
+    <div class="note"><b>2</b><span>Branding tokens are SSR-injected as CSS custom properties, so the first paint already carries the merchant&#8217;s palette. A client-applied theme would flash the default one first (&sect;6).</span></div>
+    <div class="note"><b>3</b><span>The first focusable element is a skip link, not drawn here because it is visually hidden until focused (&sect;8).</span></div>
+  </div>
+</section>
+<!-- ============================================================ -->
+<!-- S2 — 2. Category listing &mdash; sort options come from the response -->
+<!-- ============================================================ -->
+<section class="screen" id="s2">
+  <div class="screen-meta">
+    <h2>2. Category listing &mdash; sort options come from the response</h2>
+    <p>The six options in this control are the ones this listing response advertised in <code class="t-mono">availableSorts</code>. The client holds no list of its own.</p>
+    <div class="screen-refs"><span class="ref">&sect;4</span><span class="ref">&sect;5.4</span><span class="ref">&sect;5.4a</span><span class="ref">&sect;7</span><span class="ref">US-B1</span><span class="ref">US-B2</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">shop.northwind.example/categories/fasteners</span></div>
+    <div style="background:var(--background);border-radius:0 0 var(--radius-lg) var(--radius-lg);overflow:hidden">
+      <header class="sf-header">
+        <span class="sf-logo" data-goto="s1">Northwind Fasteners</span>
+        <nav class="sf-nav"><a href="#" data-goto="s1">Shop</a><a href="#" class="current" data-goto="s2">Categories</a><a href="#">Wholesale</a><a href="#" data-goto="s7">About</a></nav>
+        <div class="sf-header-actions"><button class="icon-btn" aria-label="Search"><svg><use href="#ic-search"/></svg></button><button class="icon-btn" aria-label="Account"><svg><use href="#ic-user"/></svg></button><button class="icon-btn sf-cart-badge" aria-label="Cart" data-goto="s6"><svg><use href="#ic-cart"/></svg><span class="sf-cart-count">2</span></button></div>
+      </header>
+      <div class="sf-breadcrumbs"><a data-goto="s1">Home</a> <svg style="width:0.7rem;height:0.7rem;display:inline;vertical-align:-1px"><use href="#ic-chevron-right"/></svg> Fasteners</div>
+      <div class="sf-layout">
+        <aside>
+          <div class="sf-filter-group">
+            <h3>Category</h3>
+            <div class="chip chip-active">Fasteners <svg style="width:0.75rem;height:0.75rem;margin-left:0.25rem"><use href="#ic-x"/></svg></div>
+          </div>
+          <div class="sf-filter-group">
+            <h3>Price</h3>
+            <div class="row"><input class="input" style="width:5rem" value="0" /><span class="t-hint">&ndash;</span><input class="input" style="width:5rem" value="150" /></div>
+          </div>
+          <div class="sf-filter-group">
+            <h3>Tags</h3>
+            <div class="row" style="flex-wrap:wrap;gap:0.375rem"><span class="chip">b2b-only (14)</span><span class="chip">clearance (3)</span></div>
+          </div>
+        </aside>
+        <div>
+          <div class="row between" style="margin-bottom:1rem"><span class="t-hint" aria-live="polite">42 products</span><div class="row"><label class="t-hint" for="sort" style="margin-right:0.5rem">Sort</label><select class="select" id="sort" style="width:auto"><option selected>Best match</option><option>Newest</option><option>Price: low to high</option><option>Price: high to low</option><option>Name: A–Z</option><option>Name: Z–A</option></select></div></div>
+          <div class="sf-grid">
+            <div class="sf-card clickable" data-goto="s5"><div class="sf-card-img"><svg style="width:2rem;height:2rem"><use href="#ic-package"/></svg></div><div class="sf-card-body"><div class="sf-card-title">M8 Hex Bolt (Bulk Pack, 500ct)</div><span class="sf-price">84,00 z&#322;</span></div></div>
+            <div class="sf-card"><div class="sf-card-img"><svg style="width:2rem;height:2rem"><use href="#ic-package"/></svg></div><div class="sf-card-body"><div class="sf-card-title">M6 Hex Bolt (Bulk Pack, 500ct)</div><span class="sf-price">72,00 z&#322;</span></div></div>
+            <div class="sf-card"><div class="sf-card-img"><svg style="width:2rem;height:2rem"><use href="#ic-package"/></svg></div><div class="sf-card-body"><div class="sf-card-title">Standard Wood Screw 4&times;40</div><span class="sf-price">6,50 z&#322;</span></div></div>
+            <div class="sf-card"><div class="sf-card-img"><svg style="width:2rem;height:2rem"><use href="#ic-package"/></svg></div><div class="sf-card-body"><span class="badge badge-neutral" style="margin-bottom:0.25rem">Out of stock</span><div class="sf-card-title">Hex Nut Assortment Kit</div><span class="sf-price">34,00 z&#322;</span></div></div>
+            <div class="sf-card"><div class="sf-card-img"><svg style="width:2rem;height:2rem"><use href="#ic-package"/></svg></div><div class="sf-card-body"><div class="sf-card-title">Wing Nut 5-Pack</div><span class="sf-price">11,00 z&#322;</span></div></div>
+            <div class="sf-card"><div class="sf-card-img"><svg style="width:2rem;height:2rem"><use href="#ic-package"/></svg></div><div class="sf-card-body"><div class="sf-card-title">Flat Washer Assortment</div><span class="sf-price">18,00 z&#322;</span></div></div>
+          </div>
+        </div>
+      </div>
+      <footer class="sf-footer"><span>&copy; Northwind Fasteners</span><span>Terms &middot; Privacy &middot; Shipping</span></footer>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>The control is rendered from <code class="t-mono">availableSorts</code> and its value is the server&#8217;s <code class="t-mono">appliedSort</code> &mdash; not what the visitor last clicked. Those differ exactly when the server declined, which is the case screens 3 and 4 draw.</span></div>
+    <div class="note"><b>2</b><span>A literal list of six options in the client would keep offering a sort the server will not perform the moment a channel&#8217;s policy changes. The set is server-decided, the same rule <code class="t-mono">CheckoutStepper</code> applies to steps (&sect;5.4a).</span></div>
+    <div class="note"><b>3</b><span>Sidebar filters at <code class="t-mono">&ge;1024px</code>; below that a slide-over sheet with a 2-column grid (&sect;7). Not drawn separately &mdash; this prototype is deliberately desktop-only.</span></div>
+    <div class="note"><b>4</b><span>Changing the sort resets pagination to page 1, is reflected in the URL, and announces the new order through the same <code class="t-mono">aria-live="polite"</code> region as the result count (&sect;5.4a).</span></div>
+  </div>
+</section>
+<!-- ============================================================ -->
+<!-- S3 — 3. Listing on a channel that withdrew price sorting -->
+<!-- ============================================================ -->
+<section class="screen" id="s3">
+  <div class="screen-meta">
+    <h2>3. Listing on a channel that withdrew price sorting</h2>
+    <p>Same page, a contract-priced B2B channel with <code class="t-mono">price_sort_fallback: 'unavailable'</code>. The two price options are simply <strong>not there</strong> &mdash; nothing is disabled, greyed out or explained away.</p>
+    <div class="screen-refs"><span class="ref">&sect;5.4a</span><span class="ref">US-B2</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">b2b.northwind.example/categories/fasteners</span></div>
+    <div style="background:var(--background);border-radius:0 0 var(--radius-lg) var(--radius-lg);overflow:hidden">
+      <header class="sf-header">
+        <span class="sf-logo" data-goto="s1">Northwind Fasteners</span>
+        <nav class="sf-nav"><a href="#" data-goto="s1">Shop</a><a href="#" class="current" data-goto="s2">Categories</a><a href="#">Wholesale</a><a href="#" data-goto="s7">About</a></nav>
+        <div class="sf-header-actions"><button class="icon-btn" aria-label="Search"><svg><use href="#ic-search"/></svg></button><button class="icon-btn" aria-label="Account"><svg><use href="#ic-user"/></svg></button><button class="icon-btn sf-cart-badge" aria-label="Cart" data-goto="s6"><svg><use href="#ic-cart"/></svg><span class="sf-cart-count">2</span></button></div>
+      </header>
+      <div class="sf-breadcrumbs"><a data-goto="s1">Home</a> <svg style="width:0.7rem;height:0.7rem;display:inline;vertical-align:-1px"><use href="#ic-chevron-right"/></svg> Fasteners</div>
+      <div class="sf-layout">
+        <aside>
+          <div class="sf-filter-group">
+            <h3>Category</h3>
+            <div class="chip chip-active">Fasteners <svg style="width:0.75rem;height:0.75rem;margin-left:0.25rem"><use href="#ic-x"/></svg></div>
+          </div>
+          <div class="sf-filter-group">
+            <h3>Price</h3>
+            <div class="row"><input class="input" style="width:5rem" value="0" /><span class="t-hint">&ndash;</span><input class="input" style="width:5rem" value="150" /></div>
+          </div>
+          <div class="sf-filter-group">
+            <h3>Tags</h3>
+            <div class="row" style="flex-wrap:wrap;gap:0.375rem"><span class="chip">b2b-only (14)</span><span class="chip">clearance (3)</span></div>
+          </div>
+        </aside>
+        <div>
+          <div class="row between" style="margin-bottom:1rem"><span class="t-hint" aria-live="polite">7 412 products</span><div class="row"><label class="t-hint" for="sort" style="margin-right:0.5rem">Sort</label><select class="select" id="sort" style="width:auto"><option selected>Best match</option><option>Newest</option><option>Name: A–Z</option><option>Name: Z–A</option></select></div></div>
+          <div class="sf-grid">
+            <div class="sf-card clickable" data-goto="s5"><div class="sf-card-img"><svg style="width:2rem;height:2rem"><use href="#ic-package"/></svg></div><div class="sf-card-body"><div class="sf-card-title">M8 Hex Bolt (Bulk Pack, 500ct)</div><span class="sf-price">84,00 z&#322;</span></div></div>
+            <div class="sf-card"><div class="sf-card-img"><svg style="width:2rem;height:2rem"><use href="#ic-package"/></svg></div><div class="sf-card-body"><div class="sf-card-title">M6 Hex Bolt (Bulk Pack, 500ct)</div><span class="sf-price">72,00 z&#322;</span></div></div>
+            <div class="sf-card"><div class="sf-card-img"><svg style="width:2rem;height:2rem"><use href="#ic-package"/></svg></div><div class="sf-card-body"><div class="sf-card-title">Standard Wood Screw 4&times;40</div><span class="sf-price">6,50 z&#322;</span></div></div>
+            <div class="sf-card"><div class="sf-card-img"><svg style="width:2rem;height:2rem"><use href="#ic-package"/></svg></div><div class="sf-card-body"><span class="badge badge-neutral" style="margin-bottom:0.25rem">Out of stock</span><div class="sf-card-title">Hex Nut Assortment Kit</div><span class="sf-price">34,00 z&#322;</span></div></div>
+            <div class="sf-card"><div class="sf-card-img"><svg style="width:2rem;height:2rem"><use href="#ic-package"/></svg></div><div class="sf-card-body"><div class="sf-card-title">Wing Nut 5-Pack</div><span class="sf-price">11,00 z&#322;</span></div></div>
+            <div class="sf-card"><div class="sf-card-img"><svg style="width:2rem;height:2rem"><use href="#ic-package"/></svg></div><div class="sf-card-body"><div class="sf-card-title">Flat Washer Assortment</div><span class="sf-price">18,00 z&#322;</span></div></div>
+          </div>
+        </div>
+      </div>
+      <footer class="sf-footer"><span>&copy; Northwind Fasteners</span><span>Terms &middot; Privacy &middot; Shipping</span></footer>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Four options, not six. The response advertised four, so the control offers four. This is the whole point of rendering from <code class="t-mono">availableSorts</code>: the channel policy changed in the admin (see the <code class="t-mono">ecommerce-store-admin</code> prototype, screen 13) and reached the buyer with no storefront deploy and no client-side conditional.</span></div>
+    <div class="note"><b>2</b><span>There is deliberately <em>no</em> explanatory banner here. Nothing has gone wrong and nothing degraded &mdash; this catalogue simply does not offer that ordering, the same way it does not offer a sort by weight. A notice would invite the visitor to look for a feature that is not coming.</span></div>
+    <div class="note"><b>3</b><span>The withdrawal is a policy, not a cap being hit: past 5 000 products this channel would rather offer no price sort than one computed from list prices its buyers do not pay.</span></div>
+  </div>
+</section>
+<!-- ============================================================ -->
+<!-- S4 — 4. A shared ?sort=price_asc link on that same channel -->
+<!-- ============================================================ -->
+<section class="screen" id="s4">
+  <div class="screen-meta">
+    <h2>4. A shared <code class="t-mono">?sort=price_asc</code> link on that same channel</h2>
+    <p>Someone pasted a link from a channel that does sort by price. The visitor lands on the catalogue in the order the server applied, with one line explaining it &mdash; not a <code class="t-mono">400</code>, and not silently in a different order.</p>
+    <div class="screen-refs"><span class="ref">&sect;5.4a</span><span class="ref">US-B3</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">b2b.northwind.example/categories/fasteners?sort=price_asc</span></div>
+    <div style="background:var(--background);border-radius:0 0 var(--radius-lg) var(--radius-lg);overflow:hidden">
+      <header class="sf-header">
+        <span class="sf-logo" data-goto="s1">Northwind Fasteners</span>
+        <nav class="sf-nav"><a href="#" data-goto="s1">Shop</a><a href="#" class="current" data-goto="s2">Categories</a><a href="#">Wholesale</a><a href="#" data-goto="s7">About</a></nav>
+        <div class="sf-header-actions"><button class="icon-btn" aria-label="Search"><svg><use href="#ic-search"/></svg></button><button class="icon-btn" aria-label="Account"><svg><use href="#ic-user"/></svg></button><button class="icon-btn sf-cart-badge" aria-label="Cart" data-goto="s6"><svg><use href="#ic-cart"/></svg><span class="sf-cart-count">2</span></button></div>
+      </header>
+      <div class="sf-breadcrumbs"><a data-goto="s1">Home</a> <svg style="width:0.7rem;height:0.7rem;display:inline;vertical-align:-1px"><use href="#ic-chevron-right"/></svg> Fasteners</div>
+      <div class="sf-layout">
+        <aside>
+          <div class="sf-filter-group">
+            <h3>Category</h3>
+            <div class="chip chip-active">Fasteners <svg style="width:0.75rem;height:0.75rem;margin-left:0.25rem"><use href="#ic-x"/></svg></div>
+          </div>
+          <div class="sf-filter-group">
+            <h3>Price</h3>
+            <div class="row"><input class="input" style="width:5rem" value="0" /><span class="t-hint">&ndash;</span><input class="input" style="width:5rem" value="150" /></div>
+          </div>
+          <div class="sf-filter-group">
+            <h3>Tags</h3>
+            <div class="row" style="flex-wrap:wrap;gap:0.375rem"><span class="chip">b2b-only (14)</span><span class="chip">clearance (3)</span></div>
+          </div>
+        </aside>
+        <div>
+          <div class="row between" style="margin-bottom:1rem"><span class="t-hint" aria-live="polite">7 412 products</span><div class="row"><label class="t-hint" for="sort" style="margin-right:0.5rem">Sort</label><select class="select" id="sort" style="width:auto"><option selected>Best match</option><option>Newest</option><option>Name: A–Z</option><option>Name: Z–A</option></select></div></div>
+          <div class="alert alert-info" style="margin-bottom:1rem">
+            <svg><use href="#ic-info"/></svg>
+            <div><div class="alert-title">Sorted by best match</div><div class="t-hint">The link you followed asked for <strong>price, low to high</strong>. This catalogue does not offer price sorting, so these products are in our default order.</div></div>
+          </div>
+          <div class="sf-grid">
+            <div class="sf-card clickable" data-goto="s5"><div class="sf-card-img"><svg style="width:2rem;height:2rem"><use href="#ic-package"/></svg></div><div class="sf-card-body"><div class="sf-card-title">M8 Hex Bolt (Bulk Pack, 500ct)</div><span class="sf-price">84,00 z&#322;</span></div></div>
+            <div class="sf-card"><div class="sf-card-img"><svg style="width:2rem;height:2rem"><use href="#ic-package"/></svg></div><div class="sf-card-body"><div class="sf-card-title">M6 Hex Bolt (Bulk Pack, 500ct)</div><span class="sf-price">72,00 z&#322;</span></div></div>
+            <div class="sf-card"><div class="sf-card-img"><svg style="width:2rem;height:2rem"><use href="#ic-package"/></svg></div><div class="sf-card-body"><div class="sf-card-title">Standard Wood Screw 4&times;40</div><span class="sf-price">6,50 z&#322;</span></div></div>
+            <div class="sf-card"><div class="sf-card-img"><svg style="width:2rem;height:2rem"><use href="#ic-package"/></svg></div><div class="sf-card-body"><span class="badge badge-neutral" style="margin-bottom:0.25rem">Out of stock</span><div class="sf-card-title">Hex Nut Assortment Kit</div><span class="sf-price">34,00 z&#322;</span></div></div>
+            <div class="sf-card"><div class="sf-card-img"><svg style="width:2rem;height:2rem"><use href="#ic-package"/></svg></div><div class="sf-card-body"><div class="sf-card-title">Wing Nut 5-Pack</div><span class="sf-price">11,00 z&#322;</span></div></div>
+            <div class="sf-card"><div class="sf-card-img"><svg style="width:2rem;height:2rem"><use href="#ic-package"/></svg></div><div class="sf-card-body"><div class="sf-card-title">Flat Washer Assortment</div><span class="sf-price">18,00 z&#322;</span></div></div>
+          </div>
+        </div>
+      </div>
+      <footer class="sf-footer"><span>&copy; Northwind Fasteners</span><span>Terms &middot; Privacy &middot; Shipping</span></footer>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>The control and the note agree: the select shows <strong>Best match</strong>, which is what the server applied, and the note says what was asked for and why it did not happen. A control still showing &ldquo;Price: low to high&rdquo; while the grid is in another order is the failure this screen exists to rule out.</span></div>
+    <div class="note"><b>2</b><span>The note is rendered from <code class="t-mono">X-Sort-Unavailable</code>. The other degradation &mdash; <code class="t-mono">X-Sort-Approximate</code> &mdash; reads differently: it says the order shown is approximate, not that the sort is unavailable. Two headers, two sentences, because they are two different statements (&sect;5.4a).</span></div>
+    <div class="note"><b>3</b><span>A header nobody surfaces is precisely the failure &sect;5.4a exists to prevent. Before this, the only signal was a response header no shopper would ever see.</span></div>
+    <div class="note"><b>4</b><span>Returning the catalogue rather than an error is deliberate. A buyer following a link a colleague sent should get the products, not a page telling them the link is malformed.</span></div>
+  </div>
+</section>
+<!-- ============================================================ -->
+<!-- S5 — 5. Product detail -->
+<!-- ============================================================ -->
+<section class="screen" id="s5">
+  <div class="screen-meta">
+    <h2>5. Product detail</h2>
+    <p><code class="t-mono">products/[handle]/page.tsx</code> &mdash; variant selection, the buyer&#8217;s resolved price, and quantity rules enforced before submission rather than after it.</p>
+    <div class="screen-refs"><span class="ref">&sect;4</span><span class="ref">&sect;5.1</span><span class="ref">&sect;5.2</span><span class="ref">&sect;5.3</span><span class="ref">US-C1</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">shop.northwind.example/products/m8-hex-bolt-bulk</span></div>
+    <div style="background:var(--background);border-radius:0 0 var(--radius-lg) var(--radius-lg);overflow:hidden">
+      <header class="sf-header">
+        <span class="sf-logo" data-goto="s1">Northwind Fasteners</span>
+        <nav class="sf-nav"><a href="#" data-goto="s1">Shop</a><a href="#" class="current" data-goto="s2">Categories</a><a href="#">Wholesale</a><a href="#" data-goto="s7">About</a></nav>
+        <div class="sf-header-actions"><button class="icon-btn" aria-label="Search"><svg><use href="#ic-search"/></svg></button><button class="icon-btn" aria-label="Account"><svg><use href="#ic-user"/></svg></button><button class="icon-btn sf-cart-badge" aria-label="Cart" data-goto="s6"><svg><use href="#ic-cart"/></svg><span class="sf-cart-count">2</span></button></div>
+      </header>
+      <div class="sf-breadcrumbs"><a data-goto="s1">Home</a> <svg style="width:0.7rem;height:0.7rem;display:inline;vertical-align:-1px"><use href="#ic-chevron-right"/></svg> <a data-goto="s2">Fasteners</a> <svg style="width:0.7rem;height:0.7rem;display:inline;vertical-align:-1px"><use href="#ic-chevron-right"/></svg> M8 Hex Bolt</div>
+      <div class="sf-pdp">
+        <div>
+          <div class="sf-gallery-main"><svg style="width:3rem;height:3rem"><use href="#ic-package"/></svg></div>
+          <div class="sf-gallery-thumbs"><div class="sf-gallery-thumb"></div><div class="sf-gallery-thumb"></div><div class="sf-gallery-thumb"></div></div>
+        </div>
+        <div>
+          <h1 style="font-size:2rem;font-weight:300;letter-spacing:-0.02em;margin:0 0 0.5rem">M8 Hex Bolt (Bulk Pack, 500ct)</h1>
+          <p class="sf-meta" style="margin:0 0 1.25rem">SKU HB-M8-40 &middot; DIN 933 &middot; zinc plated</p>
+
+          <div class="row-3" style="align-items:baseline;margin-bottom:0.25rem"><span class="sf-price" style="font-size:1.75rem">84,00 z&#322;</span><span class="sf-price-was">112,00 z&#322;</span></div>
+          <p class="sf-meta" style="margin:0 0 1.5rem"><span class="badge badge-success">Your contract price</span> &middot; 0,17 z&#322; per unit &middot; excl. VAT</p>
+
+          <div class="sf-filter-group">
+            <h3>Finish</h3>
+            <div class="sf-swatch-row">
+              <button class="sf-swatch" aria-checked="true" role="radio">Zinc</button>
+              <button class="sf-swatch" role="radio">A2 stainless</button>
+              <button class="sf-swatch" role="radio" disabled aria-disabled="true">Black oxide</button>
+            </div>
+          </div>
+          <div class="sf-filter-group">
+            <h3>Pack size</h3>
+            <div class="sf-swatch-row">
+              <button class="sf-swatch" role="radio">100 ct</button>
+              <button class="sf-swatch" aria-checked="true" role="radio">500 ct</button>
+              <button class="sf-swatch" role="radio" disabled aria-disabled="true">2 000 ct</button>
+            </div>
+          </div>
+
+          <div class="row-3" style="margin:1.5rem 0 0.5rem;align-items:center">
+            <div class="sf-qty-stepper"><button aria-label="Decrease">&minus;</button><input value="4" aria-label="Quantity" /><button aria-label="Increase">+</button></div>
+            <button class="btn btn-primary" style="flex:1"><svg><use href="#ic-cart"/></svg> Add to cart</button>
+          </div>
+          <p class="sf-meta" style="margin:0">Sold in multiples of 2 &middot; minimum 2 &middot; 340 in stock</p>
+
+          <div class="sf-tabs">
+            <button aria-selected="true">Description</button>
+            <button aria-selected="false">Specification</button>
+            <button aria-selected="false">Delivery</button>
+          </div>
+          <p style="font-size:0.9375rem;line-height:1.6;margin-top:1rem">Zinc-plated hexagon head bolt to DIN 933, fully threaded. Supplied in a resealable bulk carton of 500. Suitable for general structural and workshop use.</p>
+        </div>
+      </div>
+      <footer class="sf-footer"><span>&copy; Northwind Fasteners</span><span>Terms &middot; Privacy &middot; Shipping</span></footer>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>&ldquo;Black oxide&rdquo; and &ldquo;2 000 ct&rdquo; are shown <strong>unavailable rather than hidden</strong> (&sect;5.1). A visitor who cannot find the combination they wanted needs to see that it does not exist; removing it from the list makes the page look like it never offered it.</span></div>
+    <div class="note"><b>2</b><span>The price is the buyer&#8217;s resolved price and says so. A contract price rendered as a plain number is indistinguishable from a list price, and the difference is the entire value of a B2B storefront (&sect;5.3).</span></div>
+    <div class="note"><b>3</b><span>Quantity rules &mdash; multiples of 2, minimum 2 &mdash; are stated next to the stepper, so the constraint is visible before submission rather than arriving as a rejection afterwards (&sect;5.2).</span></div>
+    <div class="note"><b>4</b><span>A product outside this buyer&#8217;s assortment renders the same <code class="t-mono">not-found.tsx</code> a deleted one does (US-B4). Not drawn here; the <code class="t-mono">buyer-scoped-catalog-visibility</code> prototype draws that state.</span></div>
+  </div>
+</section>
+<!-- ============================================================ -->
+<!-- S6 — 6. Cart -->
+<!-- ============================================================ -->
+<section class="screen" id="s6">
+  <div class="screen-meta">
+    <h2>6. Cart</h2>
+    <p><code class="t-mono">cart/page.tsx</code> &mdash; quantities, totals that follow them, and a line flagged in place rather than dropped.</p>
+    <div class="screen-refs"><span class="ref">&sect;4</span><span class="ref">&sect;5.6</span><span class="ref">US-D1</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">shop.northwind.example/cart</span></div>
+    <div style="background:var(--background);border-radius:0 0 var(--radius-lg) var(--radius-lg);overflow:hidden">
+      <header class="sf-header">
+        <span class="sf-logo" data-goto="s1">Northwind Fasteners</span>
+        <nav class="sf-nav"><a href="#" class="current" data-goto="s1">Shop</a><a href="#" data-goto="s2">Categories</a><a href="#">Wholesale</a><a href="#" data-goto="s7">About</a></nav>
+        <div class="sf-header-actions"><button class="icon-btn" aria-label="Search"><svg><use href="#ic-search"/></svg></button><button class="icon-btn" aria-label="Account"><svg><use href="#ic-user"/></svg></button><button class="icon-btn sf-cart-badge" aria-label="Cart" data-goto="s6"><svg><use href="#ic-cart"/></svg><span class="sf-cart-count">2</span></button></div>
+      </header>
+      <div class="sf-container" style="padding-top:2rem;padding-bottom:3rem">
+        <h1 style="font-size:2rem;font-weight:300;letter-spacing:-0.02em;margin:0 0 1.5rem">Cart</h1>
+        <div style="display:grid;grid-template-columns:1fr 20rem;gap:2.5rem">
+          <div>
+            <div class="sf-cart-line">
+              <div class="sf-cart-thumb"></div>
+              <div><div class="sf-card-title">M8 Hex Bolt (Bulk Pack, 500ct)</div><span class="sf-meta">Zinc &middot; 500 ct</span></div>
+              <div class="sf-qty-stepper"><button aria-label="Decrease">&minus;</button><input value="4" aria-label="Quantity" /><button aria-label="Increase">+</button></div>
+              <div style="text-align:right"><div class="sf-price">336,00 z&#322;</div><button class="btn btn-ghost btn-sm">Remove</button></div>
+            </div>
+            <div class="sf-cart-line">
+              <div class="sf-cart-thumb"></div>
+              <div><div class="sf-card-title">Flange Nut M8, A2</div><span class="sf-meta">A2 stainless &middot; 200 ct</span></div>
+              <div class="sf-qty-stepper"><button aria-label="Decrease">&minus;</button><input value="2" aria-label="Quantity" /><button aria-label="Increase">+</button></div>
+              <div style="text-align:right"><div class="sf-price">124,00 z&#322;</div><button class="btn btn-ghost btn-sm">Remove</button></div>
+            </div>
+            <div class="sf-cart-line" style="opacity:0.75">
+              <div class="sf-cart-thumb"></div>
+              <div><div class="sf-card-title">Threadlocker 243, 50 ml</div><span class="badge badge-error" style="margin-top:0.25rem">No longer available</span></div>
+              <div class="sf-qty-stepper"><button aria-label="Decrease" disabled>&minus;</button><input value="6" aria-label="Quantity" disabled /><button aria-label="Increase" disabled>+</button></div>
+              <div style="text-align:right"><div class="sf-price t-hint">&mdash;</div><button class="btn btn-outline btn-sm">Remove</button></div>
+            </div>
+          </div>
+          <div>
+            <div class="sf-summary">
+              <div class="sf-summary-row"><span>Subtotal</span><span class="num">460,00 z&#322;</span></div>
+              <div class="sf-summary-row"><span>Delivery</span><span class="t-hint">calculated at checkout</span></div>
+              <div class="sf-summary-row"><span>VAT 23%</span><span class="num">105,80 z&#322;</span></div>
+              <div class="sf-summary-row total"><span>Total</span><span class="num">565,80 z&#322;</span></div>
+              <button class="btn btn-primary" style="width:100%;margin-top:1rem">Checkout</button>
+              <p class="sf-meta" style="margin:0.75rem 0 0;text-align:center">One line needs attention before checkout</p>
+            </div>
+          </div>
+        </div>
+      </div>
+      <footer class="sf-footer"><span>&copy; Northwind Fasteners</span><span>Terms &middot; Privacy &middot; Shipping</span></footer>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>The unavailable line is <strong>flagged in place, never silently dropped</strong>. A cart that quietly removes a line produces an order the buyer believes is complete &mdash; the same failure the reorder and list-conversion previews exist to prevent, arriving through a different door.</span></div>
+    <div class="note"><b>2</b><span>It is also excluded from the totals and says so beneath the checkout button, so the number and the blocker are not discovered separately.</span></div>
+    <div class="note"><b>3</b><span>Quantity steppers meet the 44&times;44 touch-target minimum (&sect;7), which is why they are larger than a backend control would be.</span></div>
+    <div class="note"><b>4</b><span>An empty cart states what to do next rather than rendering an empty table &mdash; not drawn, this prototype is deliberately small.</span></div>
+    <div class="note"><b>5</b><span>The checkout funnel is out of scope here: it is specified and drawn by the <code class="t-mono">checkout-simple-checkout</code> spec and prototype.</span></div>
+  </div>
+</section>
+<!-- ============================================================ -->
+<!-- S7 — 7. Content page &mdash; format: 'html' -->
+<!-- ============================================================ -->
+<section class="screen" id="s7">
+  <div class="screen-meta">
+    <h2>7. Content page &mdash; <code class="t-mono">format: 'html'</code></h2>
+    <p><code class="t-mono">pages/[slug]/page.tsx</code>. The payload is sanitized server-side and rendered as received &mdash; the app does not re-sanitize it.</p>
+    <div class="screen-refs"><span class="ref">&sect;4</span><span class="ref">&sect;5.7</span><span class="ref">US-E1</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">shop.northwind.example/pages/about</span></div>
+    <div style="background:var(--background);border-radius:0 0 var(--radius-lg) var(--radius-lg);overflow:hidden">
+      <header class="sf-header">
+        <span class="sf-logo" data-goto="s1">Northwind Fasteners</span>
+        <nav class="sf-nav"><a href="#" data-goto="s1">Shop</a><a href="#" data-goto="s2">Categories</a><a href="#">Wholesale</a><a href="#" class="current" data-goto="s7">About</a></nav>
+        <div class="sf-header-actions"><button class="icon-btn" aria-label="Search"><svg><use href="#ic-search"/></svg></button><button class="icon-btn" aria-label="Account"><svg><use href="#ic-user"/></svg></button><button class="icon-btn sf-cart-badge" aria-label="Cart" data-goto="s6"><svg><use href="#ic-cart"/></svg><span class="sf-cart-count">2</span></button></div>
+      </header>
+      <div class="sf-breadcrumbs"><a data-goto="s1">Home</a> <svg style="width:0.7rem;height:0.7rem;display:inline;vertical-align:-1px"><use href="#ic-chevron-right"/></svg> About Northwind</div>
+      <div class="sf-container" style="padding-top:1.5rem;padding-bottom:3rem;max-width:48rem">
+        <div class="row-3" style="align-items:center;gap:0.75rem;margin-bottom:0.25rem"><span class="badge badge-info">format: 'html'</span><span class="sf-meta">rendered by <code class="t-mono">ContentPageBody</code></span></div>
+        <h1 style="font-size:2.25rem;font-weight:300;letter-spacing:-0.02em;margin:0 0 1.5rem">About Northwind</h1>
+        <div style="font-size:0.9375rem;line-height:1.7">
+          <h2 style="font-size:1.25rem;font-weight:600;margin:1.75rem 0 0.5rem">Who we are</h2>
+          <p>Northwind Fasteners has supplied trade and industry since 1974. We stock over seven thousand lines across fasteners, hardware and workshop consumables, and despatch stocked items the same working day when ordered before 15:00.</p>
+          <h2 style="font-size:1.25rem;font-weight:600;margin:1.75rem 0 0.5rem">Trade accounts</h2>
+          <p>Accounts are available to registered businesses. Approved accounts receive contract pricing, net payment terms and access to the wholesale catalogue.</p>
+          <ul style="margin:0.5rem 0 0 1.25rem"><li>Contract pricing on stocked lines</li><li>Net 30 terms subject to approval</li><li>Named account manager above agreed volumes</li></ul>
+        </div>
+      </div>
+      <footer class="sf-footer"><span>&copy; Northwind Fasteners</span><span>Terms &middot; Privacy &middot; Shipping</span></footer>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>The app deliberately does <strong>not</strong> re-sanitize. A second, differently-configured sanitizer is how two allowlists drift until one of them is the weaker one &mdash; and the weaker one is the one that matters (&sect;5.7).</span></div>
+    <div class="note"><b>2</b><span>Body headings are offset so the page&#8217;s own <code class="t-mono">&lt;h1&gt;</code> stays unique. Authored content will otherwise break that the first time someone opens a page with a heading (&sect;8).</span></div>
+    <div class="note"><b>3</b><span>A third, <strong>unrecognized</strong> <code class="t-mono">format</code> renders this title plus a neutral fallback and reports through the error boundary. It never renders <code class="t-mono">value</code> as markup &mdash; a CMS can introduce an arm against a storefront deployment that predates it, and the failure mode has to be a degraded page rather than an injection (R9). Not drawn: it is the absence of a body, which a screenshot cannot distinguish from a loading state.</span></div>
+  </div>
+</section>
+<!-- ============================================================ -->
+<!-- S8 — 8. Content page &mdash; format: 'blocks' -->
+<!-- ============================================================ -->
+<section class="screen" id="s8">
+  <div class="screen-meta">
+    <h2>8. Content page &mdash; <code class="t-mono">format: 'blocks'</code></h2>
+    <p>The same route and the same component, the other arm of the union. Blocks are delegated to <code class="t-mono">BlockRenderer</code> &mdash; the one merchandising placements already use.</p>
+    <div class="screen-refs"><span class="ref">&sect;4</span><span class="ref">&sect;5.6</span><span class="ref">&sect;5.7</span><span class="ref">US-E1</span></div>
+  </div>
+
+  <div class="frame">
+    <div class="frame-bar"><div class="frame-dots"><i></i><i></i><i></i></div><span class="frame-url">shop.northwind.example/pages/about</span></div>
+    <div style="background:var(--background);border-radius:0 0 var(--radius-lg) var(--radius-lg);overflow:hidden">
+      <header class="sf-header">
+        <span class="sf-logo" data-goto="s1">Northwind Fasteners</span>
+        <nav class="sf-nav"><a href="#" data-goto="s1">Shop</a><a href="#" data-goto="s2">Categories</a><a href="#">Wholesale</a><a href="#" class="current" data-goto="s7">About</a></nav>
+        <div class="sf-header-actions"><button class="icon-btn" aria-label="Search"><svg><use href="#ic-search"/></svg></button><button class="icon-btn" aria-label="Account"><svg><use href="#ic-user"/></svg></button><button class="icon-btn sf-cart-badge" aria-label="Cart" data-goto="s6"><svg><use href="#ic-cart"/></svg><span class="sf-cart-count">2</span></button></div>
+      </header>
+      <div class="sf-breadcrumbs"><a data-goto="s1">Home</a> <svg style="width:0.7rem;height:0.7rem;display:inline;vertical-align:-1px"><use href="#ic-chevron-right"/></svg> About Northwind</div>
+      <div class="sf-container" style="padding-top:1.5rem;padding-bottom:3rem;max-width:48rem">
+        <div class="row-3" style="align-items:center;gap:0.75rem;margin-bottom:0.25rem"><span class="badge badge-info">format: 'blocks'</span><span class="sf-meta">rendered by <code class="t-mono">ContentPageBody</code></span></div>
+        <h1 style="font-size:2.25rem;font-weight:300;letter-spacing:-0.02em;margin:0 0 1.5rem">About Northwind</h1>
+        <div class="stack-4">
+          <div class="card card-pad" style="border-style:dashed">
+            <span class="t-overline">block &middot; richText</span>
+            <p style="font-size:0.9375rem;line-height:1.7;margin:0.5rem 0 0">Northwind Fasteners has supplied trade and industry since 1974, from a single warehouse in Warsaw to four despatch sites across Poland.</p>
+          </div>
+          <div class="card card-pad" style="border-style:dashed">
+            <span class="t-overline">block &middot; imageWithText</span>
+            <div style="display:grid;grid-template-columns:10rem 1fr;gap:1.25rem;margin-top:0.5rem;align-items:center">
+              <div class="sf-card-img" style="border-radius:var(--radius-md)"><svg style="width:1.5rem;height:1.5rem"><use href="#ic-package"/></svg></div>
+              <p style="font-size:0.9375rem;line-height:1.7;margin:0">Every stocked line is held in our own warehouse. Nothing on this site is drop-shipped, which is why the availability you see is the availability we have.</p>
+            </div>
+          </div>
+          <div class="card card-pad" style="border-style:dashed">
+            <span class="t-overline">block &middot; productGrid</span>
+            <div class="sf-grid" style="grid-template-columns:repeat(3,1fr);margin-top:0.75rem">
+              <div class="sf-card clickable" data-goto="s5"><div class="sf-card-img"><svg style="width:2rem;height:2rem"><use href="#ic-package"/></svg></div><div class="sf-card-body"><div class="sf-card-title">M8 Hex Bolt (Bulk Pack)</div><span class="sf-price">84,00 z&#322;</span></div></div>
+              <div class="sf-card"><div class="sf-card-img"><svg style="width:2rem;height:2rem"><use href="#ic-package"/></svg></div><div class="sf-card-body"><div class="sf-card-title">Flange Nut M8, A2</div><span class="sf-price">62,00 z&#322;</span></div></div>
+              <div class="sf-card"><div class="sf-card-img"><svg style="width:2rem;height:2rem"><use href="#ic-package"/></svg></div><div class="sf-card-body"><div class="sf-card-title">Washer M8 DIN125</div><span class="sf-price">11,00 z&#322;</span></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <footer class="sf-footer"><span>&copy; Northwind Fasteners</span><span>Terms &middot; Privacy &middot; Shipping</span></footer>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note"><b>1</b><span>Dashed outlines and block labels are <strong>prototype annotation</strong>, not chrome the real page renders. They are here so a reviewer can see where one block ends and the next begins.</span></div>
+    <div class="note"><b>2</b><span>Blocks go to the same <code class="t-mono">BlockRenderer</code> merchandising placements use, not to a second implementation. Two renderers for one block vocabulary is two places to add each new block type, and one of them will be forgotten.</span></div>
+    <div class="note"><b>3</b><span><code class="t-mono">ContentPageBody</code> exists so the <code class="t-mono">format</code> branch lives in exactly one place. Inlining it in the route works until a second surface &mdash; a CMS landing page, a help article in the account area &mdash; needs the same union, at which point the unknown-arm fallback gets reimplemented and one copy forgets it (&sect;5.7).</span></div>
+  </div>
+</section>
+
+</div>
+
+<script>
+(function () {
+  var btn = document.getElementById('theme-toggle');
+  btn.addEventListener('click', function () {
+    document.documentElement.classList.toggle('dark');
+  });
+})();
+</script>
+<script src="comments.js"></script>
+<script src="prototype.js"></script>
+</body>
+</html>
