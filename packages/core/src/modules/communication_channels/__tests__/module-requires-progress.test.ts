@@ -1,6 +1,8 @@
 import fs from 'node:fs'
 import path from 'node:path'
 
+import metadata from '../index'
+
 const moduleRoot = path.join(__dirname, '..')
 
 describe('communication_channels module dependency on progress', () => {
@@ -11,9 +13,7 @@ describe('communication_channels module dependency on progress', () => {
   // worker instead fails silently on every retry (#6094). This test guards the
   // fix: the declaration must stay in sync with the DI dependency it protects.
   it('declares progress as a required module', () => {
-    const indexSource = fs.readFileSync(path.join(moduleRoot, 'index.ts'), 'utf8')
-    const requires = /requires:\s*\[([^\]]*)\]/.exec(indexSource)?.[1] ?? ''
-    expect(requires).toContain('progress')
+    expect(metadata.requires).toContain('progress')
   })
 
   it('still resolves progressService from the DI container in the import-history worker and command', () => {
@@ -25,7 +25,8 @@ describe('communication_channels module dependency on progress', () => {
       path.join(moduleRoot, 'commands', 'queue-import-history.ts'),
       'utf8',
     )
-    expect(workerSource).toContain("resolve<ProgressService>('progressService')")
-    expect(commandSource).toContain("resolve('progressService')")
+    const resolvesProgressService = /resolve(?:<[^>]*>)?\(\s*['"]progressService['"]\s*\)/
+    expect(workerSource).toMatch(resolvesProgressService)
+    expect(commandSource).toMatch(resolvesProgressService)
   })
 })
