@@ -161,29 +161,29 @@
           </tr>
           <tr>
             <td><span class="badge badge-error">failed</span></td>
-            <td>View · <span class="strong">Retry (resume from batch N)</span> · Retry from the beginning · Run again</td>
+            <td>View · <span class="strong">Retry (resume from batch N)</span> · Retry from the beginning</td>
             <td><span class="strong">Retry</span> + overflow</td>
             <td>“Resumes from batch 41 of ~118”</td>
             <td class="t-mono t-hint">POST …/retry <span class="t-hint">{fromBeginning:false}</span></td>
           </tr>
           <tr>
             <td><span class="badge badge-warning">cancelled</span></td>
-            <td>same as <span class="badge badge-error">failed</span></td>
-            <td>same as <span class="badge badge-error">failed</span></td>
+            <td>as <span class="badge badge-error">failed</span>, but the primary reads <span class="strong">Resume</span></td>
+            <td>as <span class="badge badge-error">failed</span>, but the primary reads <span class="strong">Resume</span></td>
             <td>“Resumes from batch 3 of ~26”</td>
             <td class="t-mono t-hint">POST …/retry</td>
           </tr>
           <tr>
             <td><span class="badge badge-error">failed</span> <span class="t-hint">· before batch 1</span></td>
-            <td>View · <span class="strong">Retry</span> · Run again</td>
-            <td><span class="strong">Retry</span> + overflow</td>
+            <td>View · <span class="strong">Retry</span> — nothing else</td>
+            <td><span class="strong">Retry</span> alone, no overflow</td>
             <td>“No batch was committed — Retry starts from the beginning”</td>
             <td class="t-mono t-hint">POST …/retry <span class="t-hint">(cursor resolves to null)</span></td>
           </tr>
           <tr>
             <td><span class="badge badge-error">failed</span> <span class="t-hint">· full sync inapplicable</span></td>
-            <td>View · <span class="strong">Retry</span> · Run again <span class="t-hint">(no “from the beginning”)</span></td>
-            <td><span class="strong">Retry</span> + overflow without the from-scratch item</td>
+            <td>View · <span class="strong">Retry</span> <span class="t-hint">(no “from the beginning”)</span></td>
+            <td><span class="strong">Retry</span> alone; the from-scratch item is absent</td>
             <td>“Resumes from batch 12 of ~40. This feed cannot be replayed from the start.”</td>
             <td class="t-hint">UI gating only — the endpoint still accepts <span class="t-mono">fromBeginning:true</span> by design</td>
           </tr>
@@ -372,7 +372,7 @@
 
   <div class="notes">
     <div class="note"><b>1</b><span>The list itself is unchanged from production — same columns, same row click into the detail page. Everything this prototype proposes on the list lives in the row-action menu, which opens on screens <a href="#s3" data-goto="s3">3</a>, <a href="#s4" data-goto="s4">4</a> and <a href="#s5" data-goto="s5">5</a>. Click a ⋯ button on a failed or completed row to follow it.</span></div>
-    <div class="note"><b>2</b><span><b>Open question:</b> a row gives no hint that a retry would resume — the resume point is only legible on the detail page and inside the open menu. Adding a “resumed from” column would cost a column for a value that is null on most rows. The prototype leaves the columns alone; say if that is wrong.</span></div>
+    <div class="note"><b>2</b><span><b>Decided, and the columns stay as they are.</b> A row gives no hint that a retry would resume — the resume point is legible on the detail page and inside the open row menu, and nowhere else. A dedicated “resumed from” column would spend a column on a value that is null for every row that is not <span class="badge badge-error">failed</span> or <span class="badge badge-warning">cancelled</span>, which is most of them.</span></div>
     <div class="note"><b>3</b><span>The two <span class="badge badge-error">failed</span> rows differ in ways the table cannot show: <code class="t-mono">erp-ambra / stock_levels</code> is a delta feed whose adapter declares full sync inapplicable, and <code class="t-mono">erp-ambra / price_lists</code> died before committing a single batch. Their menus differ accordingly.</span></div>
   </div>
 </section>
@@ -443,8 +443,6 @@
                   <span class="t-hint">Reprocesses all ~14 200 products</span>
                 </span>
               </div>
-              <hr class="separator" style="margin:.25rem 0" />
-              <div class="menu-item" data-goto="s12"><svg><use href="#ic-play"/></svg> Run again with these settings…</div>
             </div>
           </div>
         </main>
@@ -458,7 +456,7 @@
     <div class="note"><b>2</b><span><span class="strong">Retry</span> fires immediately — no confirm. It is the safe, additive action, and demanding a dialog for the common path is what makes operators stop reading dialogs.</span></div>
     <div class="note"><b>3</b><span><span class="strong">Retry from the beginning</span> never fires from the menu; it always opens the confirm on screen <a href="#s6" data-goto="s6">6</a>. It is the only from-scratch path in the UI.</span></div>
     <div class="note"><b>4</b><span>The “~118” batch estimate comes from the progress job's <code class="t-mono">totalCount</code>, which is often null for a streaming import. When it is null the line degrades to “Resumes from batch 41” with no denominator. The prototype cannot show both at once — that degraded string is real and must ship.</span></div>
-    <div class="note"><b>5</b><span><b>Rejectable proposal:</b> “Run again with these settings…” is shown on a <span class="badge badge-error">failed</span> run as well as a completed one. It is redundant with Retry-from-the-beginning except that it lets the operator edit parameters first. Say if it should be completed-only.</span></div>
+    <div class="note"><b>5</b><span><b>Decided (D2), and this screen was redrawn.</b> An earlier draft also offered “Run again with these settings…” here. It is now <span class="badge badge-success">completed</span>-only: on a failed run it differs from Retry-from-the-beginning solely in offering an edit step, which does not earn a second near-identical item on the state whose menu is already longest.</span></div>
   </div>
 </section>
 
@@ -519,12 +517,6 @@
                   <span class="t-hint">Resumes from batch 12 of ~40</span>
                 </span>
               </div>
-              <hr class="separator" style="margin:.25rem 0" />
-              <div class="menu-item" data-goto="s12"><svg><use href="#ic-play"/></svg> Run again with these settings…</div>
-              <div class="card-body t-hint" style="padding:.5rem .5rem .25rem;display:flex;gap:.375rem;align-items:flex-start">
-                <svg style="width:.875rem;height:.875rem;flex:none;margin-top:.125rem"><use href="#ic-lock"/></svg>
-                <span>This feed is delta-only — <b>erp-ambra</b> does not support replaying <b>stock_levels</b> from the start.</span>
-              </div>
             </div>
           </div>
         </main>
@@ -535,7 +527,7 @@
 
   <div class="notes">
     <div class="note"><b>1</b><span>“Retry from the beginning” is <b>absent</b>, not disabled. A disabled menu item invites a hunt for the permission that would enable it; this is a property of the feed, not of the operator.</span></div>
-    <div class="note"><b>2</b><span>The explanatory footnote under the menu is the part worth arguing about. Without it the operator only sees a shorter menu on one row than another and has to guess why. With it the menu grows a paragraph. <b>Decide:</b> footnote, or nothing and rely on the detail page saying it.</span></div>
+    <div class="note"><b>2</b><span><b>Decided (D5), and this screen was redrawn.</b> An earlier draft put an explanatory footnote under this menu. The menu now stays terse and the detail page carries the sentence instead — a row menu is a list of actions, not a place to explain an absent one, and the operator who wants the reason is one click from it.</span></div>
     <div class="note"><b>3</b><span><b>Corrected since this screen was first drawn.</b> An earlier draft called the missing <code class="t-mono">supportsStartControl</code> check in <code class="t-mono">api/runs/[id]/retry.ts</code> a server-side hole. It is not — it is the documented design. <code class="t-mono">BACKWARD_COMPATIBILITY.md</code> § Data Sync Start Control Applicability commits that the declaration “governs what the dashboard <b>offers</b>, never what the run API <b>accepts</b>”, and that the separation “MUST hold for any future change here”. So this is <b>UI gating only</b>: the endpoint keeps accepting <code class="t-mono">fromBeginning:true</code> from a direct caller, on purpose. See <code class="t-mono">.ai/specs/2026-09-16-data-sync-retry-resume-actions.md</code> § D0.</span></div>
   </div>
 </section>
@@ -685,7 +677,7 @@
             <div><dt>Resumable retry would start at</dt><dd class="t-mono">batch 41 / ~118</dd></div>
             <div><dt>This retry starts at</dt><dd class="t-mono">batch 1</dd></div>
           </div>
-          <span class="t-hint">Run parameters from the failed run are replayed unchanged. To change them, use “Run again with these settings…” instead.</span>
+          <span class="t-hint">Run parameters from the failed run are replayed unchanged, and there is no way to edit them here. To start with different settings, use the “Start or schedule a sync” form on the Data Sync dashboard.</span>
         </div>
         <div class="modal-foot">
           <span class="t-hint"><span class="kbd">⌘</span><span class="kbd">↵</span> confirm · <span class="kbd">esc</span> cancel</span>
@@ -766,7 +758,6 @@
                   <span class="t-hint">Reprocesses all ~14 200 products</span>
                 </span>
               </div>
-              <div class="menu-item" data-goto="s12"><svg><use href="#ic-play"/></svg> Run again with these settings…</div>
             </div>
           </div>
 
@@ -870,7 +861,6 @@
             <div class="hdr-actions">
               <div class="row">
                 <button class="btn btn-outline btn-sm"><svg><use href="#ic-rotate-ccw"/></svg> Retry</button>
-                <button class="btn btn-outline btn-sm btn-icon" aria-label="More run actions"><svg><use href="#ic-more"/></svg></button>
               </div>
               <span class="resume-line">
                 <svg><use href="#ic-bookmark"/></svg>
@@ -915,7 +905,7 @@
 
   <div class="notes">
     <div class="note"><b>1</b><span>With no committed cursor the two retries are literally the same request, and the helper line says so rather than claiming a resume point that does not exist. This is the case where today's silent Retry is <i>least</i> harmful and the labelling is <i>most</i> confusing.</span></div>
-    <div class="note"><b>2</b><span><b>Open question:</b> the overflow still contains “Retry from the beginning”, now a duplicate of the primary button. Hiding it would make the menu's contents depend on cursor presence as well as on adapter support — two reasons for the same item to vanish. The prototype keeps it; hiding it is defensible. Pick one.</span></div>
+    <div class="note"><b>2</b><span><b>Decided (D3), and this screen was redrawn.</b> An earlier draft kept “Retry from the beginning” in the overflow here, where it would issue a byte-identical request to the primary button. It is now hidden, which — with “Run again” being completed-only (D2) — leaves the overflow empty, so the <span class="t-mono">⋯</span> button disappears entirely. Yes, the item now vanishes for two different reasons (no cursor, or the adapter forbids a replay); presenting one operation as two choices is the worse outcome.</span></div>
     <div class="note"><b>3</b><span>“Started from: beginning of source” is <code class="t-mono">initialCursor === null</code> rendered in words. A literal <code class="t-mono">null</code> would be worse than nothing.</span></div>
   </div>
 </section>
@@ -961,7 +951,7 @@
             </div>
             <div class="hdr-actions">
               <div class="row">
-                <button class="btn btn-outline btn-sm"><svg><use href="#ic-rotate-ccw"/></svg> Retry</button>
+                <button class="btn btn-outline btn-sm"><svg><use href="#ic-rotate-ccw"/></svg> Resume</button>
                 <button class="btn btn-outline btn-sm btn-icon" aria-label="More run actions"><svg><use href="#ic-more"/></svg></button>
               </div>
               <span class="resume-line">
@@ -1007,7 +997,7 @@
   </div>
 
   <div class="notes">
-    <div class="note"><b>1</b><span>“Retry” is arguably the wrong word for a run the operator stopped on purpose — nothing went wrong. <b>Open question:</b> label this one <b>Resume</b> and keep “Retry” for <span class="badge badge-error">failed</span>? That is the only place in this design where two different words would be justified, because the two states genuinely differ in intent. The prototype keeps one word; changing it costs one conditional string.</span></div>
+    <div class="note"><b>1</b><span><b>Decided (D1), and this screen was redrawn.</b> The primary action reads <b>Resume</b> here and <b>Retry</b> on a <span class="badge badge-error">failed</span> run. Nothing went wrong with a run the operator stopped on purpose, and “Retry” misdescribes that. This is the only place in the design where two different words are justified, because the two states genuinely differ in intent — and it costs one conditional string on each of the two surfaces.</span></div>
     <div class="note"><b>2</b><span>The cancellation banner has no equivalent today. It is proposed because an operator arriving at a cancelled run otherwise cannot tell it apart from a run that died silently.</span></div>
     <div class="note"><b>3</b><span>No “Last error” card — a cancelled run has no <code class="t-mono">lastError</code>. The layout must not leave a hole where it would be.</span></div>
   </div>
@@ -1056,7 +1046,7 @@
               <div class="row">
                 <button class="btn btn-destructive btn-sm"><svg><use href="#ic-x-circle"/></svg> Cancel</button>
               </div>
-              <span class="resume-line muted">Retry becomes available if this run fails or is cancelled</span>
+
             </div>
           </div>
 
@@ -1088,7 +1078,7 @@
 
   <div class="notes">
     <div class="note"><b>1</b><span>Progress here is live — the page subscribes to <code class="t-mono">progress.job.updated</code> over the DOM event bridge. The static screen shows one frozen tick; the percentage, ETA and counters move without a reload.</span></div>
-    <div class="note"><b>2</b><span><b>Rejectable proposal:</b> the greyed line “Retry becomes available if this run fails or is cancelled”. It keeps the action area from jumping between states and teaches the model once. It is also one more sentence on a busy page. Drop it if it reads as noise.</span></div>
+    <div class="note"><b>2</b><span><b>Decided, and this screen was redrawn.</b> An earlier draft carried a greyed line reading “Retry becomes available if this run fails or is cancelled”. It is gone: the resume-point line is a statement about a retry that could actually happen, and a running run has none. The spec's <span class="t-mono">ResumePoint</span> returns <span class="t-mono">{ kind: 'none' }</span> here and nothing renders.</span></div>
     <div class="note"><b>3</b><span>“Committed through” updates live while the run is in flight. That is the same value a retry would resume from, which is what makes showing it on every state worth the row.</span></div>
     <div class="note"><b>4</b><span>A <span class="badge badge-neutral">pending</span> run is this screen with an indeterminate progress bar, both cursor rows reading “—”, and the same Cancel button. Not drawn separately.</span></div>
   </div>
@@ -1271,7 +1261,7 @@
                     <span class="strong">Run as full sync</span>
                     <span class="t-hint">Ignore the saved cursor and process the entire source again for this run</span>
                   </div>
-                  <span class="switch" role="switch" aria-checked="true"></span>
+                  <span class="switch" role="switch" aria-checked="false"></span>
                 </div>
               </div>
 
@@ -1300,8 +1290,8 @@
 
   <div class="notes">
     <div class="note"><b>1</b><span>This is the <b>existing</b> start form. “Run again” adds three things and no endpoint: a source banner, prefilled values, and the dropped-parameter warning. It scrolls the page to the card and focuses it.</span></div>
-    <div class="note"><b>2</b><span>“Run as full sync” is shown <b>on</b>, because arriving here from a completed run usually means “do the whole thing again”. <b>Open question:</b> should the prefill copy the run's own <code class="t-mono">fullSync</code> value instead (which was false)? Defaulting it on is a guess about intent; copying it faithfully is less surprising but makes the button do nothing new. The prototype guesses; say if it should not.</span></div>
-    <div class="note"><b>3</b><span>The “Run as full sync” switch is hidden entirely when the adapter declares it inapplicable — that gating already ships today (<code class="t-mono">lib/start-controls.ts</code>), which is exactly why the retry endpoint honouring the same declaration is the consistent thing to do.</span></div>
+    <div class="note"><b>2</b><span><b>Decided (D4), and this screen was redrawn.</b> An earlier draft defaulted “Run as full sync” <i>on</i>, guessing that arriving from a completed run means “do the whole thing again”. It now copies the source run's own value faithfully — here <code class="t-mono">false</code>. A prefill that quietly changes a setting is how a prefill surprises someone, and an operator who wants a full replay can tick the switch that is right there.</span></div>
+    <div class="note"><b>3</b><span>The “Run as full sync” switch is hidden entirely when the adapter declares it inapplicable — that gating already ships today (<code class="t-mono">lib/start-controls.ts</code>). The same declaration hides the from-the-beginning retry in the UI, and in both places it governs only what is <i>offered</i>; neither endpoint rejects the field. See <code class="t-mono">.ai/specs/2026-09-16-data-sync-retry-resume-actions.md</code> § D0.</span></div>
     <div class="note"><b>4</b><span>The dropped-parameter warning matches what the retry endpoint already does server-side: stored parameters are re-normalized against the adapter's <i>current</i> declaration, and undeclared keys fall away silently. Here the operator is told, because there is a form in front of them to fix it in.</span></div>
     <div class="note"><b>5</b><span><b>Undecided:</b> how the prefill travels. A query parameter (drawn) survives a reload and is linkable; router state does not leak ids into the URL. The prototype shows <code class="t-mono">?from=…</code> without committing to it.</span></div>
   </div>
