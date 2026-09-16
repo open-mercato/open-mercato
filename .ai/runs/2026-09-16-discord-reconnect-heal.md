@@ -38,6 +38,8 @@ showing "Needs reconnection".
 
 ## Progress
 
+PR: #6173
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Hub contract and connect flow
