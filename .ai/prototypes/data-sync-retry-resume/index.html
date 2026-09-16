@@ -163,28 +163,28 @@
             <td><span class="badge badge-error">failed</span></td>
             <td>View · <span class="strong">Retry (resume from batch N)</span> · Retry from the beginning</td>
             <td><span class="strong">Retry</span> + overflow</td>
-            <td>“Resumes from batch 41 of ~118”</td>
+            <td>“Resumes from batch 41”</td>
             <td class="t-mono t-hint">POST …/retry <span class="t-hint">{fromBeginning:false}</span></td>
           </tr>
           <tr>
             <td><span class="badge badge-warning">cancelled</span></td>
             <td>as <span class="badge badge-error">failed</span>, but the primary reads <span class="strong">Resume</span></td>
             <td>as <span class="badge badge-error">failed</span>, but the primary reads <span class="strong">Resume</span></td>
-            <td>“Resumes from batch 3 of ~26”</td>
+            <td>“Resumes from batch 3”</td>
             <td class="t-mono t-hint">POST …/retry</td>
           </tr>
           <tr>
             <td><span class="badge badge-error">failed</span> <span class="t-hint">· before batch 1</span></td>
-            <td>View · <span class="strong">Retry</span> — nothing else</td>
-            <td><span class="strong">Retry</span> alone, no overflow</td>
-            <td>“No batch was committed — Retry starts from the beginning”</td>
+            <td>View · <span class="strong">Retry</span> · Retry from the beginning</td>
+            <td><span class="strong">Retry</span> + overflow</td>
+            <td>“This run committed no batch. Retry starts from this feed's last saved position.”</td>
             <td class="t-mono t-hint">POST …/retry <span class="t-hint">(cursor resolves to null)</span></td>
           </tr>
           <tr>
             <td><span class="badge badge-error">failed</span> <span class="t-hint">· full sync inapplicable</span></td>
             <td>View · <span class="strong">Retry</span> <span class="t-hint">(no “from the beginning”)</span></td>
             <td><span class="strong">Retry</span> alone; the from-scratch item is absent</td>
-            <td>“Resumes from batch 12 of ~40. This feed cannot be replayed from the start.”</td>
+            <td>“Resumes from batch 12. This feed cannot be replayed from the start.”</td>
             <td class="t-hint">UI gating only — the endpoint still accepts <span class="t-mono">fromBeginning:true</span> by design</td>
           </tr>
           <tr>
@@ -429,20 +429,8 @@
 
             <div class="popover" style="position:absolute;right:1rem;top:5.5rem;width:20rem;z-index:30">
               <div class="menu-item" data-goto="s7"><svg><use href="#ic-eye"/></svg> View run</div>
-              <div class="menu-item" style="align-items:flex-start">
-                <svg style="margin-top:.125rem"><use href="#ic-rotate-ccw"/></svg>
-                <span class="vstack" style="gap:.125rem">
-                  <span>Retry</span>
-                  <span class="t-hint">Resumes from batch 41 of ~118</span>
-                </span>
-              </div>
-              <div class="menu-item" data-goto="s6" style="align-items:flex-start">
-                <svg style="margin-top:.125rem"><use href="#ic-rewind"/></svg>
-                <span class="vstack" style="gap:.125rem">
-                  <span>Retry from the beginning</span>
-                  <span class="t-hint">Reprocesses all ~14 200 products</span>
-                </span>
-              </div>
+              <div class="menu-item"><svg><use href="#ic-rotate-ccw"/></svg> Retry (resumes from batch 41)</div>
+              <div class="menu-item" data-goto="s6"><svg><use href="#ic-rewind"/></svg> Retry from the beginning</div>
             </div>
           </div>
         </main>
@@ -452,10 +440,10 @@
   </div>
 
   <div class="notes">
-    <div class="note"><b>1</b><span>The change on the list is exactly this: the single <span class="strong">Retry</span> item gains a second line naming the resume point, and two items appear below it. In production today the menu is <span class="t-mono">View · Retry</span> and Retry silently resumes (<code class="t-mono">backend/data-sync/page.tsx:398</code> hardcodes <code class="t-mono">fromBeginning:false</code>).</span></div>
+    <div class="note"><b>1</b><span>The change on the list is exactly this: the <span class="strong">Retry</span> item names its resume point <i>inside its own label</i> — <code class="t-mono">RowActionItem.label</code> is a <code class="t-mono">string</code> with no sub-label slot, so an earlier draft's two-line item was not buildable — and one item appears below it. In production today the menu is <span class="t-mono">View · Retry</span> and Retry silently resumes (<code class="t-mono">backend/data-sync/page.tsx:398</code> hardcodes <code class="t-mono">fromBeginning:false</code>).</span></div>
     <div class="note"><b>2</b><span><span class="strong">Retry</span> fires immediately — no confirm. It is the safe, additive action, and demanding a dialog for the common path is what makes operators stop reading dialogs.</span></div>
     <div class="note"><b>3</b><span><span class="strong">Retry from the beginning</span> never fires from the menu; it always opens the confirm on screen <a href="#s6" data-goto="s6">6</a>. It is the only from-scratch path in the UI.</span></div>
-    <div class="note"><b>4</b><span>The “~118” batch estimate comes from the progress job's <code class="t-mono">totalCount</code>, which is often null for a streaming import. When it is null the line degrades to “Resumes from batch 41” with no denominator. The prototype cannot show both at once — that degraded string is real and must ship.</span></div>
+    <div class="note"><b>4</b><span><b>Corrected since this screen was first drawn.</b> An earlier draft rendered “of ~118”. There is no such number: the progress job's <code class="t-mono">totalCount</code> estimates source <i>records</i> (<code class="t-mono">batch.totalEstimate</code>), and converting it to batches needs a batch size <code class="t-mono">sync_runs</code> does not store. Every surface shows the batch number alone.</span></div>
     <div class="note"><b>5</b><span><b>Decided (D2), and this screen was redrawn.</b> An earlier draft also offered “Run again with these settings…” here. It is now <span class="badge badge-success">completed</span>-only: on a failed run it differs from Retry-from-the-beginning solely in offering an edit step, which does not earn a second near-identical item on the state whose menu is already longest.</span></div>
   </div>
 </section>
@@ -510,13 +498,7 @@
 
             <div class="popover" style="position:absolute;right:1rem;top:5.5rem;width:20rem;z-index:30">
               <div class="menu-item"><svg><use href="#ic-eye"/></svg> View run</div>
-              <div class="menu-item" style="align-items:flex-start">
-                <svg style="margin-top:.125rem"><use href="#ic-rotate-ccw"/></svg>
-                <span class="vstack" style="gap:.125rem">
-                  <span>Retry</span>
-                  <span class="t-hint">Resumes from batch 12 of ~40</span>
-                </span>
-              </div>
+              <div class="menu-item"><svg><use href="#ic-rotate-ccw"/></svg> Retry (resumes from batch 12)</div>
             </div>
           </div>
         </main>
@@ -582,13 +564,7 @@
 
             <div class="popover" style="position:absolute;right:1rem;top:5.5rem;width:20rem;z-index:30">
               <div class="menu-item" data-goto="s11"><svg><use href="#ic-eye"/></svg> View run</div>
-              <div class="menu-item" data-goto="s12" style="align-items:flex-start">
-                <svg style="margin-top:.125rem"><use href="#ic-play"/></svg>
-                <span class="vstack" style="gap:.125rem">
-                  <span>Run again with these settings…</span>
-                  <span class="t-hint">Opens the start form, prefilled</span>
-                </span>
-              </div>
+              <div class="menu-item" data-goto="s12"><svg><use href="#ic-play"/></svg> Run again with these settings…</div>
             </div>
 
             <div class="popover" style="position:absolute;right:1rem;top:12.5rem;width:20rem;z-index:30">
@@ -664,7 +640,8 @@
         <div class="modal-body">
           <span class="t-body">
             This ignores the saved cursor and reads the entire source again — about
-            <b class="num">14 200</b> products — instead of continuing from batch 41.
+            <b class="num">14 200</b> products, the source-record estimate from this run's progress job —
+            instead of continuing from batch 41.
           </span>
           <div class="alert alert-warning">
             <svg><use href="#ic-warn"/></svg>
@@ -674,7 +651,7 @@
             </div>
           </div>
           <div class="kv">
-            <div><dt>Resumable retry would start at</dt><dd class="t-mono">batch 41 / ~118</dd></div>
+            <div><dt>Resumable retry would start at</dt><dd class="t-mono">batch 41</dd></div>
             <div><dt>This retry starts at</dt><dd class="t-mono">batch 1</dd></div>
           </div>
           <span class="t-hint">Run parameters from the failed run are replayed unchanged, and there is no way to edit them here. To start with different settings, use the “Start or schedule a sync” form on the Data Sync dashboard.</span>
@@ -745,19 +722,13 @@
               </div>
               <span class="resume-line">
                 <svg><use href="#ic-bookmark"/></svg>
-                Resumes from batch <b class="num">41</b> of <span class="num">~118</span> —
+                Resumes from batch <b class="num">41</b> —
                 <span class="t-mono">updated_at:2026-09-12T04:15:07Z</span>
               </span>
             </div>
 
             <div class="popover" style="position:absolute;right:0;top:4.5rem;width:19rem;z-index:30">
-              <div class="menu-item" data-goto="s6" style="align-items:flex-start">
-                <svg style="margin-top:.125rem"><use href="#ic-rewind"/></svg>
-                <span class="vstack" style="gap:.125rem">
-                  <span>Retry from the beginning</span>
-                  <span class="t-hint">Reprocesses all ~14 200 products</span>
-                </span>
-              </div>
+              <div class="menu-item" data-goto="s6"><svg><use href="#ic-rewind"/></svg> Retry from the beginning</div>
             </div>
           </div>
 
@@ -811,7 +782,7 @@
   </div>
 
   <div class="notes">
-    <div class="note"><b>1</b><span><b>The one line that fixes the original confusion</b> is under the buttons: “Resumes from batch 41 of ~118 — <span class="t-mono">updated_at:…</span>”. Production renders neither <code class="t-mono">cursor</code> nor <code class="t-mono">initialCursor</code> today, although <code class="t-mono">api/runs/[id]/route.ts</code> already returns both. No API change is needed for this.</span></div>
+    <div class="note"><b>1</b><span><b>The one line that fixes the original confusion</b> is under the buttons: “Resumes from batch 41 — <span class="t-mono">updated_at:…</span>”. Production renders neither <code class="t-mono">cursor</code> nor <code class="t-mono">initialCursor</code> today, although <code class="t-mono">api/runs/[id]/route.ts</code> already returns both. No API change is needed for this.</span></div>
     <div class="note"><b>2</b><span>The helper line is about the <i>next</i> run; the “Started from / Committed through” rows in the Progress card are about <i>this</i> run. They are deliberately not the same statement — this run's record stays visible for every state, including completed ones where no retry is offered.</span></div>
     <div class="note"><b>3</b><span>The raw cursor is shown verbatim in a monospace face. It is an adapter-defined opaque string (here a watermark, elsewhere an id or a page token) and paraphrasing it would destroy the only thing an operator can paste into a support ticket.</span></div>
     <div class="note"><b>4</b><span>The overflow menu is drawn open for review. It holds exactly two items; if a third ever appears, the primary button is probably wrong.</span></div>
@@ -861,10 +832,11 @@
             <div class="hdr-actions">
               <div class="row">
                 <button class="btn btn-outline btn-sm"><svg><use href="#ic-rotate-ccw"/></svg> Retry</button>
+                <button class="btn btn-outline btn-sm btn-icon" aria-label="More run actions"><svg><use href="#ic-more"/></svg></button>
               </div>
               <span class="resume-line">
                 <svg><use href="#ic-bookmark"/></svg>
-                No batch was committed — Retry starts from the beginning
+                This run committed no batch. Retry starts from this feed's last saved position.
               </span>
             </div>
           </div>
@@ -904,8 +876,8 @@
   </div>
 
   <div class="notes">
-    <div class="note"><b>1</b><span>With no committed cursor the two retries are literally the same request, and the helper line says so rather than claiming a resume point that does not exist. This is the case where today's silent Retry is <i>least</i> harmful and the labelling is <i>most</i> confusing.</span></div>
-    <div class="note"><b>2</b><span><b>Decided (D3), and this screen was redrawn.</b> An earlier draft kept “Retry from the beginning” in the overflow here, where it would issue a byte-identical request to the primary button. It is now hidden, which — with “Run again” being completed-only (D2) — leaves the overflow empty, so the <span class="t-mono">⋯</span> button disappears entirely. Yes, the item now vanishes for two different reasons (no cursor, or the adapter forbids a replay); presenting one operation as two choices is the worse outcome.</span></div>
+    <div class="note"><b>1</b><span><b>The copy here is deliberately non-committal</b>, and an earlier draft's “Retry starts from the beginning” was simply false. The run row records no committed cursor, but the endpoint's fallback may still find one in the shared <code class="t-mono">sync_cursors</code> row. The page says only what the row knows. Stating the exact position would need an additive <code class="t-mono">retryStartCursor</code> response field, which the spec declines and records as the follow-up.</span></div>
+    <div class="note"><b>2</b><span><b>D3 was withdrawn after specification review, and this screen was redrawn twice.</b> The draft that hid “Retry from the beginning” here argued the two requests were byte-identical. They are not: <code class="t-mono">retry.ts:121</code> resolves <code class="t-mono">previous.cursor ?? resolveStartCursor(...)</code>, so a run that died on its first batch can still resume at a <i>shared</i> cursor written by an earlier run — silently skipping everything before it. Hiding the from-scratch action removed the one control that guarantees a replay, exactly where it was most needed. It is back.</span></div>
     <div class="note"><b>3</b><span>“Started from: beginning of source” is <code class="t-mono">initialCursor === null</code> rendered in words. A literal <code class="t-mono">null</code> would be worse than nothing.</span></div>
   </div>
 </section>
@@ -956,7 +928,7 @@
               </div>
               <span class="resume-line">
                 <svg><use href="#ic-bookmark"/></svg>
-                Resumes from batch <b class="num">3</b> of <span class="num">~26</span> —
+                Resumes from batch <b class="num">3</b> —
                 <span class="t-mono">shipment_id:SHP-0000884</span>
               </span>
             </div>
@@ -1217,8 +1189,10 @@
                 <div class="stack-2">
                   <span class="alert-title">Prefilled from a previous run</span>
                   <span class="t-body">
-                    Settings copied from <a class="t-mono" data-goto="s11" style="text-decoration:underline">erp-ambra — customers</a>,
-                    completed 14 Sep 23:21. Change anything below before starting; nothing is submitted yet.
+                    Integration, entity type, direction and run parameters copied from
+                    <a class="t-mono" data-goto="s11" style="text-decoration:underline">erp-ambra — customers</a>,
+                    completed 14 Sep 23:21. Batch size and full sync are at their defaults — a past run does not record them.
+                    Change anything below before starting; nothing is submitted yet.
                   </span>
                 </div>
               </div>
@@ -1290,7 +1264,7 @@
 
   <div class="notes">
     <div class="note"><b>1</b><span>This is the <b>existing</b> start form. “Run again” adds three things and no endpoint: a source banner, prefilled values, and the dropped-parameter warning. It scrolls the page to the card and focuses it.</span></div>
-    <div class="note"><b>2</b><span><b>Decided (D4), and this screen was redrawn.</b> An earlier draft defaulted “Run as full sync” <i>on</i>, guessing that arriving from a completed run means “do the whole thing again”. It now copies the source run's own value faithfully — here <code class="t-mono">false</code>. A prefill that quietly changes a setting is how a prefill surprises someone, and an operator who wants a full replay can tick the switch that is right there.</span></div>
+    <div class="note"><b>2</b><span><b>D4 was restated after specification review.</b> An earlier draft defaulted this switch <i>on</i>; the draft after that said it copies the source run's own value “faithfully”. Neither is buildable — <code class="t-mono">sync_runs</code> has no <code class="t-mono">full_sync</code> column and no <code class="t-mono">batch_size</code> column, so there is nothing to copy. <code class="t-mono">fullSync</code> is consumed by <code class="t-mono">api/run.ts</code> to pick a start cursor and thrown away. The switch renders at its form default and the banner names which fields <i>were</i> seeded. The prototype's own <code class="t-mono">REQUIREMENTS.md</code> US-B2 had this right all along.</span></div>
     <div class="note"><b>3</b><span>The “Run as full sync” switch is hidden entirely when the adapter declares it inapplicable — that gating already ships today (<code class="t-mono">lib/start-controls.ts</code>). The same declaration hides the from-the-beginning retry in the UI, and in both places it governs only what is <i>offered</i>; neither endpoint rejects the field. See <code class="t-mono">.ai/specs/2026-09-16-data-sync-retry-resume-actions.md</code> § D0.</span></div>
     <div class="note"><b>4</b><span>The dropped-parameter warning matches what the retry endpoint already does server-side: stored parameters are re-normalized against the adapter's <i>current</i> declaration, and undeclared keys fall away silently. Here the operator is told, because there is a form in front of them to fix it in.</span></div>
     <div class="note"><b>5</b><span><b>Undecided:</b> how the prefill travels. A query parameter (drawn) survives a reload and is linkable; router state does not leak ids into the URL. The prototype shows <code class="t-mono">?from=…</code> without committing to it.</span></div>

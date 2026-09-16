@@ -75,3 +75,29 @@
   and nothing renders in the resume-point slot for a non-retryable state (D7). D7 was an outright
   contradiction: the prototype's screen 10 drew a greyed placeholder that the spec's own UI/UX table
   says must not render. Both are recorded in the spec's § Proposed Solution and the prototype README.
+
+## 2026-09-16T12:52:00Z — specification review: 3 blockers, 8 majors, all fixed
+- The review ran through two fresh-context agents given only the spec path and the repo — deliberately
+  not the authoring rationale, since an author cannot adversarially re-read their own document. Every
+  blocker was re-verified by hand against the code before being acted on.
+- Four promises the spec made turned out not to be cashable and were withdrawn rather than weakened:
+  the `fromBeginning` resume-point copy was **false** (the endpoint falls back to `resolveStartCursor`,
+  so a run that committed no batch can still resume at a shared cursor) and **D3 hid the one action
+  that would have fixed it**; `sync_runs` stores neither `full_sync` nor `batch_size`, so **D4 could
+  not be built as stated**; the "of ~118" denominator is not derivable from a source-record estimate;
+  and neither page gates on `data_sync.run` today, so § Permissions described a behaviour that does not
+  exist.
+- Also fixed: `RowActionItem.label` is a `string` with no sub-label slot — the identical constraint the
+  spec had already diagnosed for `ConfirmDialog` one section earlier and missed here; `lib/resume-point.ts`
+  is an ADDITIVE §2/§4 surface by the `lib/start-controls.ts` precedent and was claimed as "nothing to
+  declare"; the cancelled banner cannot name who; the `?from=` seed races two existing reset effects;
+  and rendering an adapter cursor is a new exposure surface with no adapter contract behind it.
+- Four prototype screens were redrawn a second time to match, and re-verified in a browser: no stale
+  denominators in any rendered copy, no false from-the-beginning claim, screen 8's overflow restored,
+  no two-line menu items left, no empty popovers, no dangling links.
+
+## 2026-09-16T12:52:00Z — decision needing the user's eye: D4 was restated, not just reworded
+- **D4 was one of the five decisions the user made explicitly.** It cannot ship as worded: the field it
+  copies does not exist on the run row. The prefill now seeds only integration, entity type, direction
+  and stored parameters — which is what the prototype's own `REQUIREMENTS.md` US-B2 said before this
+  spec added two fields on top of it. Flagged in the run report for confirmation.

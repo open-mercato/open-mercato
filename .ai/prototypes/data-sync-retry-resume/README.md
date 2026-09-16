@@ -53,8 +53,8 @@ have been redrawn; each redrawn screen's `.notes` block records what changed and
 | D0 | Neither `run` nor `retry` enforces `supportsStartControl('fullSync', …)` — the declaration governs what the dashboard **offers**, never what the API **accepts** | 1, 4, 13 |
 | D1 | A `cancelled` run's primary action reads **Resume**, not Retry | 1, 9 |
 | D2 | "Run again" is offered on `completed` runs only | 1, 3, 4, 6, 7 |
-| D3 | "Retry from the beginning" is hidden when no batch was committed — which leaves screen 8's overflow empty, so its `⋯` goes too | 1, 8 |
-| D4 | The prefilled start form copies the source run's `fullSync` faithfully instead of defaulting it on | 12 |
+| ~~D3~~ | ~~"Retry from the beginning" is hidden when no batch was committed~~ — **withdrawn after specification review.** The two requests are not identical: the endpoint falls back to the shared cursor, so hiding the from-scratch action removed the only control that guarantees a replay, exactly where it was needed | 1, 8 |
+| D4 | The prefilled start form seeds only what `sync_runs` actually stores — integration, entity type, direction, parameters. **Restated after review:** there is no `full_sync` or `batch_size` column, so an earlier "copies it faithfully" was not buildable | 12 |
 | D5 | The row-action menu carries no delta-only footnote; the detail page states it | 4 |
 | D6 | The runs list gains no "resumed from" column | 2 |
 | D7 | Nothing renders in the resume-point slot for a non-retryable state | 10 |
@@ -65,11 +65,28 @@ It is not a hole — `BACKWARD_COMPATIBILITY.md` § Data Sync Start Control Appl
 writing that the separation "MUST hold for any future change here". The claim is withdrawn and those
 screens are corrected.
 
+## Corrected after specification review
+
+A fresh-context specification review of the spec found three blockers and eight majors, and four of
+this prototype's screens were redrawn a second time as a result. The corrections are recorded in each
+screen's notes and in the spec's Changelog; the substantive ones:
+
+- **Screen 8's copy was false.** "Retry starts from the beginning" is not what happens when a run
+  committed no batch — the endpoint falls back to the shared cursor. The copy is now non-committal and
+  D3 is withdrawn.
+- **Screens 1, 3, 4, 7 and 9 dropped the "of ~118" denominator.** It is not derivable: `totalCount`
+  estimates source records, not batches.
+- **Screens 3 and 4's two-line menu items collapsed into one label.** `RowActionItem.label` is a
+  `string` with no sub-label slot — the same constraint the spec had already found in `ConfirmDialog`.
+- **Screen 12's prefill no longer claims to copy `fullSync`.** No such column exists.
+
 ## Still open
 
-Nothing in the flow itself. Two things the spec records as known gaps rather than decisions:
+Nothing in the flow itself. Three things the spec records as known gaps rather than decisions:
 
 - There is no `retried_from_run_id` column, so no screen can show a retry chain as one logical sync.
+- There is no additive `retryStartCursor` response field, which is why screen 8 can only be
+  non-committal about where a retry will resume.
 - `paused` is in the status union but nothing in the engine ever writes it. Flagged for its own issue.
 
 ## Verified
