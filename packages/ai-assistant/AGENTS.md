@@ -1154,7 +1154,6 @@ console.log('[AI Chat] DIAGNOSTIC - Request received:', {
 |---------|--------------|-----|
 | "Agent is working..." forever | OpenCode not responding | Run `curl http://localhost:4096/global/health` |
 | "MCP connection failed" | MCP server not running | Start with `yarn mercato ai_assistant mcp:serve-http --port 3001` |
-| Tool returns `Failed to load route module: Cannot find module '…/node_modules/next/server'` | Route module imports a bare `next/<subpath>` and the process runs outside Next (plain Node cannot resolve it: `next` has no `exports` map) | The CLI installs `lib/next-subpath-resolve-hook.ts` in `ensureBootstrap` (#6118), which retries `next/<subpath>.js`. If you host the runner in another plain-Node entry point, call `installNextSubpathResolveHook()` before the first tool call |
 | Empty response | OpenCode not connected to MCP | Run `curl http://localhost:4096/mcp` |
 | "Unauthorized" error | Missing/invalid API key | Check x-api-key in opencode.json |
 | Tools not found | Endpoint not in OpenAPI | Regenerate OpenAPI spec |

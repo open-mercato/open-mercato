@@ -2,6 +2,7 @@ import {
   installNextSubpathResolveHook,
   resetNextSubpathResolveHookForTests,
   resolveNextSubpath,
+  resolveNextSubpathAsync,
 } from '../next-subpath-resolve-hook'
 
 function notFound(specifier: string): Error & { code: string } {
@@ -50,7 +51,9 @@ describe('resolveNextSubpath (#6118)', () => {
       const nextResolve = jest
         .fn()
         .mockImplementationOnce(() => { throw notFound(subpath) })
-        .mockImplementationOnce((s: string) => ({ url: `file:///app/node_modules/${s}` }))
+        .mockImplementationOnce((resolvedSpecifier: string) => ({
+          url: `file:///app/node_modules/${resolvedSpecifier}`,
+        }))
       expect(resolveNextSubpath(subpath, context, nextResolve).url).toBe(`file:///app/node_modules/${subpath}.js`)
     }
   })
@@ -90,17 +93,42 @@ describe('installNextSubpathResolveHook', () => {
   it('registers the resolve hook once per process', () => {
     const register = jest.fn()
 
-    expect(installNextSubpathResolveHook(register)).toBe(true)
-    expect(installNextSubpathResolveHook(register)).toBe(false)
+    expect(installNextSubpathResolveHook(register, null)).toBe(true)
+    expect(installNextSubpathResolveHook(register, null)).toBe(false)
 
     expect(register).toHaveBeenCalledTimes(1)
     expect(register).toHaveBeenCalledWith({ resolve: resolveNextSubpath })
   })
 
-  it('is a no-op on a runtime without module.registerHooks', () => {
-    // `undefined` would select the default parameter (the real API); `null`
-    // stands in for a Node without `registerHooks`.
-    expect(installNextSubpathResolveHook(null)).toBe(false)
+  it('registers an asynchronous hook on Node 22.0-22.14', () => {
+    const registerHookModule = jest.fn()
+
+    expect(installNextSubpathResolveHook(null, registerHookModule)).toBe(true)
+    expect(registerHookModule).toHaveBeenCalledWith(
+      expect.objectContaining({ href: expect.stringMatching(/next-subpath-resolve-hook-worker\.js$/) }),
+      expect.stringMatching(/^file:/),
+    )
+  })
+
+  it('is a no-op on a runtime without either registration API', () => {
+    expect(installNextSubpathResolveHook(null, null)).toBe(false)
+  })
+})
+
+describe('resolveNextSubpathAsync', () => {
+  const context = { parentURL: 'file:///app/route.js' }
+
+  it('retries a bare next/<subpath> with the .js suffix', async () => {
+    const nextResolve = jest
+      .fn()
+      .mockRejectedValueOnce(notFound('/app/node_modules/next/server'))
+      .mockResolvedValueOnce({ url: 'file:///app/node_modules/next/server.js' })
+
+    const result = await resolveNextSubpathAsync('next/server', context, nextResolve)
+
+    expect(result.url).toBe('file:///app/node_modules/next/server.js')
+    expect(nextResolve).toHaveBeenNthCalledWith(1, 'next/server', context)
+    expect(nextResolve).toHaveBeenNthCalledWith(2, 'next/server.js', context)
   })
 })
 
@@ -110,18 +138,23 @@ describe('installNextSubpathResolveHook against the runtime node:module', () => 
     jest.resetModules()
   })
 
-  it('loads and reports false on a Node without registerHooks (22.0-22.14)', () => {
+  it('installs through node:module.register on Node 22.0-22.14', () => {
     // A named import of `registerHooks` would throw while the module loads on
-    // such a runtime; the helper must load and simply decline to install.
+    // such a runtime; the helper must load and use the older registration API.
     jest.resetModules()
-    jest.doMock('node:module', () => ({}))
+    const register = jest.fn()
+    jest.doMock('node:module', () => ({ register }))
     let installed: boolean | undefined
     jest.isolateModules(() => {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const hookModule = require('../next-subpath-resolve-hook') as typeof import('../next-subpath-resolve-hook')
       installed = hookModule.installNextSubpathResolveHook()
     })
-    expect(installed).toBe(false)
+    expect(installed).toBe(true)
+    expect(register).toHaveBeenCalledTimes(1)
+    expect(register.mock.calls[0][0]).toEqual(
+      expect.objectContaining({ href: expect.stringMatching(/next-subpath-resolve-hook-worker\.js$/) }),
+    )
   })
 
   it('installs through node:module.registerHooks when the runtime has it', () => {

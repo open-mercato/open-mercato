@@ -24,6 +24,7 @@ import * as nodeModule from 'node:module'
 type ResolveContext = Record<string, unknown>
 type ResolveResult = { url: string; format?: string | null | undefined; shortCircuit?: boolean }
 type NextResolve = (specifier: string, context?: ResolveContext) => ResolveResult
+type AsyncNextResolve = (specifier: string, context?: ResolveContext) => ResolveResult | Promise<ResolveResult>
 
 /** Bare `next/<one segment>` specifiers, e.g. `next/server`, `next/headers`. */
 const NEXT_BARE_SUBPATH = /^next\/[A-Za-z0-9_-]+$/
@@ -58,7 +59,26 @@ export function resolveNextSubpath(
   }
 }
 
+export async function resolveNextSubpathAsync(
+  specifier: string,
+  context: ResolveContext,
+  nextResolve: AsyncNextResolve,
+): Promise<ResolveResult> {
+  if (!NEXT_BARE_SUBPATH.test(specifier)) return nextResolve(specifier, context)
+  try {
+    return await nextResolve(specifier, context)
+  } catch (error) {
+    if (!isModuleNotFound(error)) throw error
+    try {
+      return await nextResolve(`${specifier}.js`, context)
+    } catch {
+      throw error
+    }
+  }
+}
+
 type RegisterHooks = (hooks: { resolve: typeof resolveNextSubpath }) => unknown
+type RegisterHookModule = (specifier: string | URL, parentURL?: string | URL) => unknown
 
 /**
  * `module.registerHooks` exists from Node 22.15. It is read off the namespace
@@ -72,18 +92,29 @@ function runtimeRegisterHooks(): RegisterHooks | undefined {
   return typeof candidate === 'function' ? (candidate as RegisterHooks) : undefined
 }
 
+function runtimeRegisterHookModule(): RegisterHookModule | undefined {
+  const candidate = (nodeModule as unknown as { register?: unknown }).register
+  return typeof candidate === 'function' ? (candidate as RegisterHookModule) : undefined
+}
+
 /**
  * Install the hook once per process. Returns `true` when it was installed by
- * this call, `false` when it already was or when the runtime has no
- * `module.registerHooks` (Node < 22.15), in which case nothing changes.
- * `register` is a test seam: pass `null` to simulate a runtime without the API.
+ * this call, `false` when it already was or when the runtime has neither
+ * registration API. Node 22.15+ uses the synchronous hook API; earlier
+ * supported Node 22 releases use the asynchronous hook API.
  */
 export function installNextSubpathResolveHook(
-  register: RegisterHooks | null | undefined = runtimeRegisterHooks(),
+  registerHooks: RegisterHooks | null | undefined = runtimeRegisterHooks(),
+  registerHookModule: RegisterHookModule | null | undefined = runtimeRegisterHookModule(),
 ): boolean {
   if (installed) return false
-  if (typeof register !== 'function') return false
-  register({ resolve: resolveNextSubpath })
+  if (typeof registerHooks === 'function') {
+    registerHooks({ resolve: resolveNextSubpath })
+  } else if (typeof registerHookModule === 'function') {
+    registerHookModule(new URL('./next-subpath-resolve-hook-worker.js', import.meta.url), import.meta.url)
+  } else {
+    return false
+  }
   installed = true
   return true
 }
