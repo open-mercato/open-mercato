@@ -24,6 +24,22 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.7.0 → 0.7.1 (unreleased)
 
+### WMS `wms.inventory.reserve` excludes staging/dock balances
+
+`wms.inventory.reserve` (and sales-order reservation automation that feeds it) no longer treats
+inventory sitting on `staging` or `dock` locations as reservable pick candidates. Those locations
+hold inbound stock until putaway completes; reserving them blocked putaway and overstated Available
+in sales/WMS widgets.
+
+When only staging/dock quantity remains for a variant, reserve returns the same `409` body as a true
+shortage: `{ error: 'insufficient_stock' }`. Callers that previously reserved straight off receive
+staging must either wait for putaway into storage (or another reservable location type) or retype
+stock into a reservable location before calling reserve.
+
+**Action for module authors:** treat `insufficient_stock` after inbound receive as a possible
+"not yet put away" signal when balances still sit on staging/dock; do not assume every on-hand qty
+is reservable.
+
 ### WMS custom POST routes honor body `organizationId` when allowed
 
 `executeWmsCustomPostRoute` (shared by WMS inventory/ASN/putaway custom write routes such as

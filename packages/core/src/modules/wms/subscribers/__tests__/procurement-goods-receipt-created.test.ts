@@ -4,6 +4,16 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn(),
 }))
 
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: jest.fn(async () => ({
+    translate: (key: string, fallback?: string, params?: Record<string, string>) => {
+      const template = fallback ?? key
+      if (!params) return template
+      return template.replace(/\{(\w+)\}/g, (_match, name: string) => params[name] ?? `{${name}}`)
+    },
+  })),
+}))
+
 jest.mock('../../lib/wmsIntegrationToggles', () => ({
   resolveWmsIntegrationToggleEnabled: jest.fn(),
 }))
@@ -85,6 +95,7 @@ describe('procurement-goods-receipt-created subscriber', () => {
           status: 'draft',
           referenceNumber: goodsReceiptId,
           sourceKey,
+          notes: `Created from procurement goods receipt ${goodsReceiptId}`,
           lines: [
             expect.objectContaining({
               catalogVariantId: '66666666-6666-4666-8666-666666666666',

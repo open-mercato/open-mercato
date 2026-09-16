@@ -1195,6 +1195,7 @@
   "wms.search.badge.warehouse": "Almacén",
   "wms.search.profile.productScoped": "Ámbito de producto",
   "wms.search.profile.variantScoped": "Ámbito de variante",
+  "wms.subscribers.procurementGoodsReceipt.asnNotes": "Creado desde el recibo de mercancías de compras {goodsReceiptId}",
   "wms.validation.warehouse.inactivePrimary": "Los almacenes inactivos no pueden marcarse como principal.",
   "wms.validation.warehouse.primaryConflict": "Otro almacén acaba de establecerse como principal para esta organización. Vuelve a intentarlo.",
   "wms.widgets.catalog.inventoryProfile.defaultStrategy": "Estrategia de rotación",

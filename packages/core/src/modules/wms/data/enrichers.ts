@@ -6,6 +6,7 @@ import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import { E } from '#generated/entities.ids.generated'
 import { InventoryBalance, InventoryReservation, ProductInventoryProfile, SalesOrderWarehouseAssignment, Warehouse } from './entities'
 import { formatCatalogVariantLabel } from '../lib/inventoryDisplayUi'
+import { isBalanceLocationReservable } from '../lib/inventoryPolicy'
 import { resolvePrimaryWarehouseId } from '../lib/primaryWarehousePolicy'
 import {
   WMS_ENRICHER_CACHE_TTL_MS,
@@ -282,6 +283,10 @@ function buildBalanceSummaryByVariant(
   const byVariant = new Map<string, BalanceAggregate>()
 
   for (const balance of balances) {
+    // Match reservation / sales-automation: staging/dock are inbound holding
+    // and must not inflate widget "Available" (or sellable on-hand aggregates).
+    if (!isBalanceLocationReservable(balance)) continue
+
     const current = byVariant.get(balance.catalogVariantId) ?? {
       onHand: 0,
       reserved: 0,
@@ -455,7 +460,8 @@ async function loadBalances(
       tenantId: scope.tenantId,
       deletedAt: null,
     },
-    undefined,
+    // Populate location so isBalanceLocationReservable can exclude staging/dock.
+    { populate: ['location'] },
     scope,
   )
 }
@@ -641,11 +647,14 @@ const salesOrderInventoryEnricher: ResponseEnricher<SalesOrderRecord, SalesOrder
     const variantAvailability = new Map<string, number>()
     const variantReserved = new Map<string, number>()
     for (const balance of balances) {
-      addToMap(
-        variantAvailability,
-        balance.catalogVariantId,
-        Number(balance.quantityOnHand) - Number(balance.quantityReserved) - Number(balance.quantityAllocated),
-      )
+      // Staging/dock must not count toward Available (same rule as reserve path).
+      if (isBalanceLocationReservable(balance)) {
+        addToMap(
+          variantAvailability,
+          balance.catalogVariantId,
+          Number(balance.quantityOnHand) - Number(balance.quantityReserved) - Number(balance.quantityAllocated),
+        )
+      }
       addToMap(variantReserved, balance.catalogVariantId, balance.quantityReserved)
     }
 

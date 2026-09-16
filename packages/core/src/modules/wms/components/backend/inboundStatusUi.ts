@@ -68,6 +68,19 @@ export function mapPutawayQueueSortField(columnId: string): string {
   return columnId === 'aging' ? 'createdAt' : columnId
 }
 
+/**
+ * Map UI sort direction to list API `sortDir`.
+ * Aging is age-since-created: UI "desc" (oldest first) is createdAt ascending,
+ * and UI "asc" (newest first) is createdAt descending.
+ */
+export function mapPutawayQueueSortDir(columnId: string, desc: boolean): 'asc' | 'desc' {
+  const dir = desc ? 'desc' : 'asc'
+  if (columnId === 'aging') {
+    return desc ? 'asc' : 'desc'
+  }
+  return dir
+}
+
 export function lineHasDiscrepancy(
   expectedQty: string | number | null | undefined,
   receivedQty: string | number | null | undefined,

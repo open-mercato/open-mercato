@@ -3,6 +3,7 @@ import {
   canShowPutawayCompleteAction,
   formatAgingLabel,
   lineHasDiscrepancy,
+  mapPutawayQueueSortDir,
   mapPutawayQueueSortField,
   putawayStatusVariant,
   qcStatusVariant,
@@ -46,6 +47,17 @@ describe('inboundStatusUi', () => {
     expect(mapPutawayQueueSortField('priority')).toBe('priority')
     expect(mapPutawayQueueSortField('status')).toBe('status')
     expect(mapPutawayQueueSortField('createdAt')).toBe('createdAt')
+  })
+
+  it('inverts aging sort direction so oldest/newest match createdAt order', () => {
+    // UI aging desc = oldest first = createdAt asc
+    expect(mapPutawayQueueSortDir('aging', true)).toBe('asc')
+    // UI aging asc = newest first = createdAt desc
+    expect(mapPutawayQueueSortDir('aging', false)).toBe('desc')
+    expect(mapPutawayQueueSortDir('priority', true)).toBe('desc')
+    expect(mapPutawayQueueSortDir('priority', false)).toBe('asc')
+    expect(mapPutawayQueueSortDir('createdAt', true)).toBe('desc')
+    expect(mapPutawayQueueSortDir('createdAt', false)).toBe('asc')
   })
 
   it('gates putaway Complete on adjust_inventory floor + manage or assignee', () => {

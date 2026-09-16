@@ -1,8 +1,9 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { FeatureTogglesService } from '@open-mercato/core/modules/feature_toggles/lib/feature-flag-check'
-import { createLogger } from '@open-mercato/shared/lib/logger'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { Asn } from '../data/entities'
 import { resolveWmsIntegrationToggleEnabled } from '../lib/wmsIntegrationToggles'
 
@@ -195,6 +196,13 @@ export default async function handle(payload: GoodsReceiptCreatedPayload, ctx: S
     organizationIds: [organizationId],
   }
 
+  const { translate } = await resolveTranslations()
+  const notes = translate(
+    'wms.subscribers.procurementGoodsReceipt.asnNotes',
+    'Created from procurement goods receipt {goodsReceiptId}',
+    { goodsReceiptId },
+  )
+
   try {
     await commandBus.execute('wms.asns.create', {
       input: {
@@ -206,7 +214,7 @@ export default async function handle(payload: GoodsReceiptCreatedPayload, ctx: S
         expectedAt,
         referenceNumber,
         sourceKey,
-        notes: `Created from procurement goods receipt ${goodsReceiptId}`,
+        notes,
         lines,
         metadata: {
           source: 'procurement.goods_receipt.created',

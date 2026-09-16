@@ -42,6 +42,7 @@ import {
 import {
   canShowPutawayCompleteAction,
   formatAgingLabel,
+  mapPutawayQueueSortDir,
   mapPutawayQueueSortField,
   putawayStatusVariant,
 } from './inboundStatusUi'
@@ -129,7 +130,7 @@ export default function WmsPutawayQueuePage() {
         page: String(page),
         pageSize: '50',
         sortField: sortCol ? mapPutawayQueueSortField(sortCol.id) : 'createdAt',
-        sortDir: sortCol ? (sortCol.desc ? 'desc' : 'asc') : 'asc',
+        sortDir: sortCol ? mapPutawayQueueSortDir(sortCol.id, Boolean(sortCol.desc)) : 'asc',
       }
       const load = async (status?: string) => {
         const params = new URLSearchParams(base)

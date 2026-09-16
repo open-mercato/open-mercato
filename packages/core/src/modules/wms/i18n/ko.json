@@ -1195,6 +1195,7 @@
   "wms.search.badge.warehouse": "창고",
   "wms.search.profile.productScoped": "제품 범위",
   "wms.search.profile.variantScoped": "변형 범위",
+  "wms.subscribers.procurementGoodsReceipt.asnNotes": "조달 입고 {goodsReceiptId}에서 생성됨",
   "wms.validation.warehouse.inactivePrimary": "비활성 창고는 기본 창고로 표시할 수 없습니다.",
   "wms.validation.warehouse.primaryConflict": "다른 창고가 이 조직의 기본 창고로 설정되었습니다. 다시 시도해 주세요.",
   "wms.widgets.catalog.inventoryProfile.defaultStrategy": "순환 전략",

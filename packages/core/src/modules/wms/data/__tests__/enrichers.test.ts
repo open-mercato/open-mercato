@@ -252,6 +252,68 @@ describe('wms sales order enrichers', () => {
     ])
   })
 
+  it('excludes staging/dock balances from Available and populates location', async () => {
+    const queryEngine = createQueryEngine((entityId) => {
+      if (entityId === E.sales.sales_order_line) {
+        return [
+          {
+            id: 'line-1',
+            order_id: 'order-1',
+            product_variant_id: 'variant-1',
+            quantity: '2',
+            line_number: 1,
+          },
+        ]
+      }
+      return []
+    })
+
+    findWithDecryptionMock.mockImplementation(async (_em, entity) => {
+      if (entity === InventoryReservation) return []
+      if (entity === SalesOrderWarehouseAssignment) return []
+      if (entity === Warehouse) {
+        return [{ id: 'warehouse-1', name: 'Main DC', code: 'MAIN' } as Warehouse]
+      }
+      if (entity === InventoryBalance) {
+        return [
+          {
+            catalogVariantId: 'variant-1',
+            quantityOnHand: '10',
+            quantityReserved: '0',
+            quantityAllocated: '0',
+            location: { id: 'loc-bin', type: 'bin' },
+          } as InventoryBalance,
+          {
+            catalogVariantId: 'variant-1',
+            quantityOnHand: '7',
+            quantityReserved: '0',
+            quantityAllocated: '0',
+            location: { id: 'loc-staging', type: 'staging' },
+          } as InventoryBalance,
+          {
+            catalogVariantId: 'variant-1',
+            quantityOnHand: '3',
+            quantityReserved: '0',
+            quantityAllocated: '0',
+            location: { id: 'loc-dock', type: 'dock' },
+          } as InventoryBalance,
+        ]
+      }
+      return []
+    })
+
+    const result = await salesOrderInventoryEnricher!.enrichMany!(
+      [{ id: 'order-1', orderNumber: 'SO-1' }],
+      createContext(true, queryEngine),
+    )
+
+    const balanceCall = findWithDecryptionMock.mock.calls.find((call) => call[1] === InventoryBalance)
+    expect(balanceCall?.[3]).toEqual({ populate: ['location'] })
+    expect(result[0]?._wms?.stockSummary).toEqual([
+      { catalogVariantId: 'variant-1', available: '10', reserved: '0' },
+    ])
+  })
+
   it('prefers explicit warehouse assignment over reservation-derived warehouse', async () => {
     const queryEngine = createQueryEngine((entityId) => {
       if (entityId === E.sales.sales_order_line) {
