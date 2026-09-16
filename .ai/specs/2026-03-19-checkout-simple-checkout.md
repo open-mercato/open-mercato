@@ -671,7 +671,72 @@ Rate limits, encryption, redaction, admin session viewer with the event trail, t
 
 ---
 
-## 20) Changelog
+## 20) User Story Map (Prototype Input)
+
+Added 2026-09-16 to support the `om-mockup-prototype` click-through. Derived from §5.2's step machine, §6's lock protocol, §7's submit sequence, §8's B2B rules and §15's risk register; no new scope. The actor is a buyer in the funnel unless stated.
+
+### Epic A — Completing a checkout
+
+- **US-A1** — As a buyer, I want to move through contact, addresses, delivery, payment and review, so that I can complete an order without losing what I have already entered.
+  - AC: steps the effective configuration does not need are skipped, not shown disabled — a digital-only cart has no `delivery` step, a known buyer with one address skips `contact` and `addresses` (§5.2).
+  - AC: backward navigation is always allowed before submit.
+  - AC: changing an address after selecting delivery invalidates the rate quote and returns the buyer to `delivery` **with the reason stated** — a stale rate is a shipping cost the merchant absorbs (§5.2, R5).
+  - AC: the step indicator is rendered from the session's own step list, never from a literal list in the client.
+
+- **US-A2** — As a buyer, I want submit to produce either an order or a quote depending on my terms, so that a negotiated purchase does not have to pretend to be a card payment.
+  - AC: `outcome_kind: 'order'` completes after payment; `outcome_kind: 'quote'` completes immediately with no payment step reached (§7.2 step 5, §8.1).
+  - AC: the confirmation names which of the two happened and what comes next; a quote confirmation must not read like an order confirmation.
+
+### Epic B — Being refused, before anything happens
+
+Every precondition failure is cheap and leaves nothing to undo (§7.1). Each names what went wrong and what the buyer can do instead.
+
+- **US-B1** — As a buyer, I want submit to abort when the price moved between review and charge, so that I am never charged an amount I did not agree to (R4).
+  - AC: `cart.lock()`'s forced re-price aborts with `409 price_changed` before any side effect, and the screen shows the per-line changes and the new total for re-confirmation (§6, §7.2 step 1).
+- **US-B2** — As a buyer, I want a stock shortfall named per line, so that I can adjust rather than guess (§7.2 step 2).
+- **US-B3** — As a B2B buyer over my credit limit, I want to be told, and offered prepayment or a quote, so that the checkout is not simply a dead end (`402`, §8.1).
+- **US-B4** — As a buyer holding a line that left my assortment, I want the lock refused with that line named, so that I can remove it rather than face an unexplained failure ([Buyer-Scoped Catalog Visibility](./2026-08-21-buyer-scoped-catalog-visibility.md) §6.2, US-F1). Removing or replacing the line unblocks the lock.
+- **US-B5** — As a buyer over the approval threshold, I want `request-approval` offered rather than a refusal, so that the path forward is on the screen (§8.1).
+
+### Epic C — Waiting for an approval
+
+- **US-C1** — As a B2B buyer, I want my cart to stay editable while an approval is pending, so that days of waiting do not strand my basket (§8.2).
+  - AC: the session parks in `awaiting_approval`, **the cart is not locked**, and nothing is reserved — the worst outcome of a stalled workflow instance is a delay, not money held.
+  - AC: the screen says the cart is still editable, rather than leaving the buyer to discover it.
+- **US-C2** — As a B2B buyer whose approved total has since risen, I want approval requested again rather than silently honoured, so that nobody is committed to an amount they did not approve (R8).
+  - AC: on approval the session returns to `open` with a forced re-price; if the new total exceeds the approved amount, re-approval is requested and the screen states both figures.
+
+### Epic D — Two tabs, two taps
+
+- **US-D1** — As a buyer with the basket open in a second tab, I want editing it during submit to send me back to checkout, so that I do not see a broken basket (§6, R6).
+  - AC: a locked cart rejects mutation with `423 Locked` **and the session id**, so the second tab can navigate rather than only report a failure.
+- **US-D2** — As a buyer who double-tapped submit, I want the second attempt refused rather than queued, so that one intent cannot become two orders and two charges (R2).
+  - AC: a repeat while the first is in flight returns `409 submit_in_progress`; a repeat after success returns the original result including `sales_order_id`; a repeat after failure starts a fresh attempt with fresh reservation keys (§7.4).
+
+### Epic E — Operating a checkout that went wrong
+
+- **US-E1** — As a support agent, I want a read-only session list and detail with the full event trail, so that "what happened" is answerable without reading application logs (§4.2, §9).
+  - AC: the trail is append-only and redacted at write time — never card data, never full addresses — and the screen says so, so nobody goes looking for an unredacted copy (§13).
+  - AC: a session with a workflow instance shows its `workflow_instance_id` as a correlation link, so the trail and the engine's own run can be read side by side (§4.1, §8.2).
+  - AC: force re-price and force-expire are command-routed admin mutations, gated on `checkout.sessions.manage` separately from the `checkout.sessions.view` that shows the page (§9.1).
+- **US-E2** — As an operator, I want a failed compensation surfaced rather than logged, so that a leaked stock or credit reservation cannot sit invisible (R9).
+  - AC: the failure is written as a `failure` event, raises an operational notification and enqueues a retry — it is never swallowed. A leaked reservation is invisible inventory or invisible exposure, and both need a human.
+
+### Cross-cutting rules
+
+- No refusal is a bare status code: each names what happened and what the buyer can do next.
+- Nothing is reserved before it is needed, and everything reserved is released in reverse order on failure (§7.3).
+- Server-decided sets — the step list, the available outcomes — are rendered from the session, never from a literal list in the client.
+
+### Risks without a screen
+
+Named here so a later reader does not look for them: **R1** (payment captured without an order), **R3** (leaked reservation from a process death), **R7** (credit overshoot from concurrent checkouts) and **R10** (rate-quote API abuse) have no buyer-facing or admin-facing state of their own. They are mitigated by the conditional status update, the idempotency keys, the serializable credit transaction and rate limiting — mechanisms, not screens. R9's *consequence* is a screen (US-E2); its detection is a background job.
+
+---
+
+## 21) Changelog
+
+- **§20 user story map added.** The spec described a step machine, a submit sequence and a risk register but never stated who wanted what, so a prototype had to infer the flow from a numbered procedure. Five epics derived from §5.2, §6, §7, §8 and §15; no new scope. The four risks with no screen of their own are named as such rather than left to look missing. The changelog moves from §20 to §21.
 
 ### 2026-09-16 — v2.2 (workflow boundary restated)
 
