@@ -352,6 +352,92 @@ no entity, no route, no UI, so none of those sections would carry real
 content — exactly the "cut the noise" heuristic the skill itself calls
 for, not a compliance gap.
 
+**Update (2026-09-16) — Phase 2 changes this.** The paragraph above
+describes this document as it stood through Phase 1: a pure,
+unreachable-over-HTTP DI service. Phase 2 (below) adds exactly the
+surface that paragraph said didn't exist — an API route, a backend
+page, and an ACL feature — because a second, independent need
+(compliance/audit data egress, surfaced by the 2026-09-05 Event
+Storming recording, not by JPK_KR_PD) turned out to need a
+human-facing delivery path, not just an in-process read contract. The
+Phase 1 statement was accurate for Phase 1; it is superseded, not
+retracted, by what follows.
+
+**Phase 2 — Compliance & Audit: cross-spec consistency (Step 1).**
+Re-checked against `financial-module-knowledge-base.md` §2 before
+designing anything new. The relevant precedent is #6013's own Phase 2:
+it added `ledger.reports.view` (a `.view`-only feature, no `.manage`
+counterpart — "this capability has no mutation surface") directly to
+`ledger`'s existing `acl.ts`/`setup.ts`, plus new API routes and a new
+backend page, all inside the already-shipped `ledger` module rather
+than a new one. This document follows the same shape: a new
+`ledger.audit.export` feature (again `.view`-only in spirit — an
+export is a read, not a mutation), added the same way. Checked
+directly against `2026-09-06-posting-rules-engine.md` too, since Tax
+Management was initially proposed as living there — that document's
+entire scope is the zespół 4 → zespół 5 cost reclassification through
+account 490; nothing in it touches payments, exports, or auditor
+access, confirming (independently of this document) that Compliance &
+Audit and Tax Management are two unrelated concerns that only ever
+shared a sentence in an early, informal 6-topic list, not a real
+architectural relationship.
+
+**Phase 2 — Literature grounding (Step 2).** Searched Fowler's
+*Analysis Patterns* and Hay's *Data Model Patterns* full text for
+"audit" (this pass, 2026-09-16, not superseding the 2026-09-12 pass
+above, which searched for immutability/posting material specifically).
+Hay: zero hits for "audit" anywhere in 361 pages — a genuine absence,
+consistent with the 2026-09-12 finding for "ledger"/"posting". Fowler:
+three relevant hits, all supporting this document's existing
+immutability claim rather than introducing a new one — §6.2
+("Transactions... add a further degree of auditability by linking
+entries together", p.95) and §6.5.2 ("I prefer keeping transactions
+because they make auditing easier for a small price in overhead. If
+you don't use transactions, you will still need some audit
+mechanism.", p.106) both ground, in a primary source, the claim this
+document already leans on for its snapshot-free design: that Open
+Mercato's balanced, immutable `JournalEntry`/`JournalEntryLine` model
+already **is** the audit mechanism Fowler describes needing — Phase 2
+only needs to add a way to get that data *out*, not to build a
+change-log or versioning layer on top of it. (A third Fowler hit,
+§3.9's "Observations cannot be deleted if a full audit trail is
+needed", p.34, is from an unrelated medical-records chapter and is
+noted only for completeness, not cited as grounding.) Kieso's
+Sarbanes-Oxley/internal-controls material (Ch.1) is regulatory history
+for US public companies attesting to internal-control effectiveness —
+real, but not a data-export or system-design requirement, and not
+obviously applicable to a Polish SME anyway (statutory audit
+thresholds and requirements for this project's actual market sit in
+Ustawa o rachunkowości art. 64–65, not in US securities law) —
+recorded as Unverified-for-this-context rather than force-cited.
+
+**Phase 2 — Comparison against real systems (Step 3): a genuine,
+useful divergence, not a gap.** Checked whether ERPNext and Odoo have
+an equivalent "give the auditor the data" feature (2026-09-16,
+WebSearch/WebFetch against docs.frappe.io and third-party
+documentation, since neither product's own docs site was directly
+crawlable for this specific feature). Both ship something literally
+called "Audit Trail" — and both turn out to be **a change-log of edits
+to amendable documents** (field-level diffs, who/when, up to N
+historical versions), not a bulk data-export path for an external
+auditor: ERPNext's tracks "values for the fields changed across
+different versions" of submittable doctypes; Odoo's records "the time,
+what was altered, and who made the modification" on journal entries
+and invoices. **This is a real, explainable divergence, not something
+Open Mercato is missing:** ERPNext and Odoo need a change-log because
+their journal entries can be edited/amended after posting; Open
+Mercato's GL core engine (#5663) already forecloses that by design —
+a posted `JournalEntry` cannot be edited, only reversed via a new
+entry (Invariants) — so there is nothing to log a change *to*. The
+actual gap this document's Event-Storming source names ("eksport do
+XML/CSV/Excel/PDF oraz pełna, niezmienna historia zapisów") is
+squarely about data egress from an already-immutable ledger, not
+about adding change-tracking Open Mercato's data model doesn't need.
+GnuCash was not re-checked this pass (already recorded, prior
+session, as having no audit-trail feature at all —
+single-entity-designed tool); Apache Fineract remains not yet checked
+(same open lead as the 2026-09-12 pass above).
+
 ## Architecture
 
 ### New files
@@ -372,11 +458,80 @@ for the same kind of call (the `commandBus` write path has none either
 — `AP`'s `postJournalEntry` call carries no separate ACL check beyond
 what `postJournalEntry` itself enforces).
 
+### Phase 2 — Compliance & Audit: export & read-only access
+
+Adds exactly one new surface: an HTTP export endpoint plus the ACL
+feature and backend page needed to reach it, following #6013's own
+Phase 2 shape (a `.view`-only feature added to an already-shipped
+module's existing `acl.ts`/`setup.ts`, not a new module). No new query
+logic — Phase 2 is a thin serialization layer over the Phase 1 service
+above:
+
+- `packages/ledger/src/modules/ledger/acl.ts` /`setup.ts` — register
+  `ledger.audit.export`, a `.view`-only feature with no `.manage`
+  counterpart (an export is a read, not a mutation — same reasoning
+  #6013 used for `ledger.reports.view`).
+- `packages/ledger/src/modules/ledger/api/audit/export/route.ts` — the
+  export endpoint (see API Contracts, below), gated by
+  `ledger.audit.export`, delegating internally to the Phase 1 service's
+  `iterateJournalEntries`/`iterateJournalEntryLines`/`listAccounts`/
+  `listAccountGroups` for every row it serializes.
+- A single backend "Audit Export" page (period picker, format picker,
+  download button), gated the same way.
+
+Unlike Phase 1's DI callers, which self-declare `tenantId`/
+`organizationId` as explicit arguments (Design decisions, above), the
+Phase 2 route derives both from session/request context the way every
+other API route in this codebase does — an HTTP caller doesn't get to
+assert its own scope the way an in-process DI caller does, which
+closes rather than widens the isolation risk Phase 1's Risks section
+already flags for the DI surface (see Risks, below).
+
 ## Data Models
 
 None. Reads existing `JournalEntry`, `JournalEntryLine`, `LedgerAccount`,
 `LedgerAccountGroup` rows exactly as defined in the GL core engine spec
 and #6013 — no new columns, no new tables.
+
+Phase 2 adds no new tables either. Every export is synchronous and
+bounded to a single `periodId` — the same period-bounded contract
+`getZois`/`getTrialBalance` already use — and serializes rows already
+returned by Phase 1's iterators and dictionary methods. There is no
+export-job entity, no queued or background state, and no new
+persisted artifact: the response is a generated CSV/XML/XLSX/PDF byte
+stream, not a stored file the system needs to reason about later. A
+future need for unbounded (multi-period, whole-tenant) or scheduled
+export is out of scope (see below) and would need a job entity if and
+when it actually arrives — not designed speculatively now, matching
+this document's reduced-scope mandate from the 2026-09-05 Event
+Storming recording.
+
+## API Contracts
+
+Phase 1 has none (Architecture, above) — this section exists only for
+Phase 2.
+
+### `GET /api/ledger/audit/export`
+
+Query parameters: `format` (`csv` | `xml` | `xlsx` | `pdf`, required),
+`periodId` (required — bounds every export to one accounting period,
+same as `getTrialBalance`). `organizationId`/`tenantId` are derived
+from session/request context, not caller-supplied — unlike the Phase 1
+DI service's caller-scoped arguments, this route is reached over HTTP
+and uses this codebase's normal request-scoped auth (see Architecture,
+Phase 2). Response: the generated file in the requested format,
+produced by serializing rows pulled from Phase 1's
+`iterateJournalEntries`/`iterateJournalEntryLines`/`listAccounts`/
+`listAccountGroups` — no new query logic, only serialization. Requires
+`ledger.audit.export`. The openapi entry follows the same pattern as
+#6013's `trial-balance` route.
+
+### `GET /api/ledger/audit/export/formats`
+
+Trivial metadata endpoint returning the supported format list and any
+per-format limits (e.g. a row cap on `pdf`, the format least suited to
+large tabular dumps) — lets the backend page render available options
+without hardcoding them client-side.
 
 ## Testing Strategy
 
@@ -400,6 +555,26 @@ and #6013 — no new columns, no new tables.
   resolves the service via DI and calls each method — proves the
   registration/resolution mechanism actually works cross-module, not
   just that the functions are individually correct.
+
+**Phase 2:**
+
+- `GET /api/ledger/audit/export` tenant isolation: a caller
+  authenticated for tenant A can never receive tenant B's rows in any
+  format — checked the same explicit way as Phase 1's iterator tests,
+  not left to the ACL check alone to prove it.
+- `ledger.audit.export` gating: a session without the feature gets a
+  403, mirroring #6013's `ledger.reports.view` test pattern.
+- Each of the four formats (csv/xml/xlsx/pdf) round-trips the same
+  underlying rows as the equivalent Phase 1 iterator call for a fixed
+  `periodId` fixture — a parsed csv/xml/xlsx must match value-for-value
+  what `iterateJournalEntries` returns for that period (pdf, which
+  doesn't parse back cleanly, gets a row-count/page-count assertion
+  instead) — guarding against the export layer silently drifting from
+  the read layer it wraps.
+- A `periodId` outside the caller's tenant/org, or omitted, is rejected
+  with a 400 before any row is read — the same "no default scope"
+  discipline Phase 1's Risks section already requires of the DI
+  methods, applied here at the HTTP boundary instead.
 
 ## Risks
 
@@ -433,6 +608,25 @@ caller that passes the wrong values gets that tenant's data with no
 framework check catching it. Recommend integration tests specifically
 target this (a stub consumer resolving the service with intentionally
 mismatched scope, asserting empty/rejected results) before this ships.
+
+### Compliance & Audit export (Phase 2)
+
+The genuine risk Phase 2 adds isn't a new one — it's Phase 1's own
+"caller-scoped, no framework default" isolation risk, moved to an HTTP
+boundary where it's actually more contained: unlike Phase 1's DI
+callers (any in-process module resolving the service, self-declaring
+scope), Phase 2's route handler derives `tenantId`/`organizationId`
+from session context the normal way every other API route in this
+codebase does, closing the "wrong caller-supplied scope" failure mode
+Phase 1's Tenant & data isolation risk flags for the DI surface. What
+Phase 2 does add: `pdf` generation for a large `periodId` (a full
+fiscal year, many thousands of lines) could be slow or memory-heavy
+synchronously — mitigated by treating `pdf` as the format most likely
+to need a row cap (API Contracts, above), not by adding async/queued
+export machinery, which this document's reduced scope (per the
+2026-09-05 Event Storming recording: "minimum to możliwość
+eksportu... brak jednego uniwersalnego standardu") explicitly doesn't
+ask for.
 
 ### Migration & deployment
 
@@ -482,6 +676,28 @@ tests.
   ad-hoc query builder is proposed — a future consumer needing
   something these five don't cover extends this service explicitly
   (a new named method), not a generic escape hatch.
+- **A universal audit-export standard.** The 2026-09-05 Event Storming
+  recording itself names this as unsolved industry-wide ("Brak jednego,
+  uniwersalnego standardu eksportu pod audyt w branży") — Phase 2 ships
+  four common formats (XML/CSV/Excel/PDF), not an attempt to define or
+  adopt a standard that doesn't exist.
+- **A change-log / amendment-history feature (an ERPNext/Odoo-style
+  "Audit Trail").** Checked directly against both (Literature & Prior
+  Art, Phase 2) — both track edits to amendable documents, which has
+  no equivalent need here: Open Mercato's `JournalEntry` rows are
+  immutable once posted (#5663 Invariants), so there is nothing to log
+  a change to. Building one anyway would solve a problem this
+  codebase's own data model already forecloses.
+- **Scheduled or recurring export.** Every export in this document is
+  a synchronous, on-demand HTTP call — no cron, no subscription, no
+  delivery mechanism (email/SFTP/etc.) for a periodically-regenerated
+  export. A real ask once an actual auditor workflow needs it, not
+  designed speculatively now.
+- **Multi-period or whole-tenant export in one call.** Every export is
+  bounded to one `periodId`, matching `getZois`/`getTrialBalance`'s
+  existing period-bounded contract (Data Models, above) — a caller
+  needing a full year makes one call per period, same as any other
+  period-scoped report in this codebase today.
 
 ## Implementation Plan
 
@@ -503,6 +719,24 @@ tests.
    that) — a cross-repo contract that only exists in a `.ai/specs/`
    markdown file is easy to miss.
 
+**Phase 2:**
+
+6. Add `ledger.audit.export` to `ledger`'s `acl.ts`/`setup.ts`,
+   following #6013's `ledger.reports.view` precedent exactly
+   (view-only feature, no `.manage` counterpart).
+7. Implement `GET /api/ledger/audit/export` and
+   `GET /api/ledger/audit/export/formats`, each delegating to the
+   Phase 1 service (steps 2-3, above) for rows and adding only
+   serialization (csv/xml/xlsx/pdf) on top.
+8. Add the backend "Audit Export" page (period picker, format picker,
+   download button), gated by `ledger.audit.export`.
+9. Add the Phase 2 test coverage from Testing Strategy, including the
+   per-format round-trip and route-level tenant-isolation cases.
+10. Record the Fowler §6.2/§6.5.2 grounding, the Hay absence, and the
+    ERPNext/Odoo audit-trail divergence finding in
+    `financial-module-knowledge-base.md` §3, per Step 5 of the
+    financial-spec-writing-process.
+
 ## File Manifest
 
 | File | Action | Notes |
@@ -511,6 +745,11 @@ tests.
 | `di.ts` | Modify | Register the new service under a named token |
 | `queries/listJournalEntries.ts` | Create or Modify | Extract from the route handler if not already standalone (Implementation Plan step 1) |
 | `__integration__/bulk-read-service.spec.ts` | Create | Cross-module resolution + tenant-isolation coverage |
+| `acl.ts` / `setup.ts` | Modify | Phase 2 — register `ledger.audit.export`, following #6013's `ledger.reports.view` pattern |
+| `api/ledger/audit/export/route.ts` | Create | Phase 2 — serializes Phase 1 service output to csv/xml/xlsx/pdf |
+| `api/ledger/audit/export/formats/route.ts` | Create | Phase 2 — supported-format metadata |
+| Backend "Audit Export" page | Create | Phase 2 — period/format picker, gated by `ledger.audit.export` |
+| `__integration__/audit-export.spec.ts` | Create | Phase 2 — per-format round-trip + route-level tenant-isolation coverage |
 
 ## Final Compliance Report
 
@@ -582,3 +821,45 @@ as of its own date. This document's actual design — cursor-paginated
 `AsyncIterable` methods, `getZois` delegating to #6013's
 `getTrialBalance`/`getAccountBalance` — is unchanged; only the
 citation supporting one design decision needed fixing.
+
+### 2026-09-16 — Phase 2 added: Compliance & Audit (export & read-only access)
+
+Per the confirmed direction to treat Tax Management and Compliance &
+Audit as two separate, individually-researched extensions rather than
+one bundle: added Compliance & Audit to this document as "Phase 2"
+rather than a new standalone spec, following the same precedent #6013
+itself used for its own Phase 2 (`ledger.reports.view` added directly
+to an already-shipped module). This supersedes, for the parts of this
+document Phase 2 touches, the 2026-09-10 "no API route, no backend
+page, no ACL feature" framing — that framing was correct for what
+existed at the time (Phase 1) and remains correct for Phase 1 itself;
+Phase 2 is additive, not a retraction.
+
+Research performed before writing Phase 2 (per
+financial-spec-writing-process):
+
+- **Step 1 (cross-spec consistency):** re-checked
+  `financial-module-knowledge-base.md` §2 and #6013's own Phase 2
+  addition as the direct precedent for adding a `.view`-only ACL
+  feature to an already-shipped module. Separately, read
+  `2026-09-06-posting-rules-engine.md` in full (1453 lines) to confirm
+  it has zero relation to Compliance & Audit or Tax Management (its
+  entire scope is zespół 4→5 reclassification via account 490) —
+  correcting an earlier informal "Tax Management → Posting Rules
+  Engine" pairing that this reading showed was a mismatch, unrelated
+  to the Phase 2 work landing in this document.
+- **Step 2 (literature):** searched Fowler's *Analysis Patterns* and
+  Hay's *Data Model Patterns* for "audit" specifically (a fresh pass,
+  distinct from the 2026-09-12 immutability/posting search above).
+  Hay: zero hits in 361 pages. Fowler: §6.2 (p.95) and §6.5.2 (p.106)
+  both support the claim that this document's existing immutable,
+  linked-entry design already constitutes the audit mechanism Fowler
+  describes needing — Phase 2 only needed to add data egress, not a
+  change-log.
+- **Step 3 (real systems):** confirmed ERPNext's and Odoo's "Audit
+  Trail" features are both change-logs of edits to amendable
+  documents, not bulk-export paths — a genuine, explainable divergence
+  given Open Mercato's `JournalEntry` is immutable-by-design (#5663
+  Invariants), not a gap to close by imitating them.
+
+Findings recorded in `financial-module-knowledge-base.md` §3.
