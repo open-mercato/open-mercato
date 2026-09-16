@@ -6,6 +6,13 @@ jest.mock('@open-mercato/shared/modules/events', () => ({
       entity: 'person',
       label: 'Person Created',
       category: 'crud',
+      payloadSchema: {
+        fields: [
+          { path: 'id', type: 'text' },
+          { path: 'organizationId', type: 'text', optional: true },
+          { path: 'tenantId', type: 'text', optional: true },
+        ],
+      },
     },
     {
       id: 'sales.order.placed',
@@ -68,5 +75,23 @@ describe('GET /api/events (core events module route)', () => {
     const body = (await res.json()) as { total: number; data: Array<{ module: string }> }
     expect(body.total).toBe(1)
     expect(body.data[0].module).toBe('customers')
+  })
+
+  it('exposes payloadSchema for events that declare one and omits it otherwise', async () => {
+    const res = await GET(makeReq())
+    const body = (await res.json()) as {
+      data: Array<{ id: string; payloadSchema?: { fields: Array<{ path: string; type: string; optional?: boolean }> } }>
+    }
+    const typed = body.data.find((e) => e.id === 'customers.person.created')
+    expect(typed?.payloadSchema).toEqual({
+      fields: [
+        { path: 'id', type: 'text' },
+        { path: 'organizationId', type: 'text', optional: true },
+        { path: 'tenantId', type: 'text', optional: true },
+      ],
+    })
+    const untyped = body.data.find((e) => e.id === 'sales.order.placed')
+    expect(untyped).toBeDefined()
+    expect(untyped?.payloadSchema).toBeUndefined()
   })
 })

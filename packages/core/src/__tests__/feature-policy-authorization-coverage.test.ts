@@ -29,6 +29,33 @@ const lowLevelMatcherAllowlist = new Set([
   'packages/core/src/modules/auth/lib/grantChecks.ts',
   // Static tool-route contract validation, not a user authorization decision.
   'packages/ai-assistant/src/modules/ai_assistant/lib/ai-api-operation-runner.ts',
+
+  // --- Grant/requirement computation over a proposed or resolved grant array,
+  // the same shape as `auth/lib/grantChecks.ts` above: none of these gates a
+  // live subject, they compute what MAY be granted or what is still missing.
+  'packages/core/src/modules/customer_accounts/lib/customerRoleAclSync.ts',
+  'packages/core/src/modules/workflows/lib/definition-grant.ts',
+  'packages/core/src/modules/workflows/api/grantable-features/route.ts',
+  'packages/core/src/modules/workflows/ai-tools/types.ts',
+  // Authoring-time lint: warns that a step needs a feature the DEFINITION does
+  // not grant. Evaluated against the definition, never against a caller.
+  'packages/core/src/modules/workflows/lib/flow-logic-warnings.ts',
+
+  // --- Pure decision functions over an ALREADY-RESOLVED effective-feature
+  // snapshot, with the impure per-request read living in the `-request`
+  // companion (the shape `workflows/AGENTS.md` documents). They use the
+  // wildcard-aware matcher deliberately, because a tenant `admin` holds
+  // `workflows.*` rather than the concrete id.
+  //
+  // FOLLOW-UP: these four are the only entries here that decide about a live
+  // subject. Whether they should route through `authorizeFeatures` instead —
+  // which additionally orders removed-feature, disabled-module and scope
+  // handling — is a maintainer call, not a merge-integration one. Tracked
+  // rather than silently rewritten.
+  'packages/core/src/modules/workflows/lib/task-visibility.ts',
+  'packages/core/src/modules/workflows/lib/task-visibility-request.ts',
+  'packages/core/src/modules/workflows/lib/work-inbox/provider.ts',
+  'packages/core/src/modules/workflows/lib/activity-executor.ts',
 ])
 
 function isTestFile(path: string): boolean {
