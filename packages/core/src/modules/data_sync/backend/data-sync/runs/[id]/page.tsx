@@ -21,6 +21,8 @@ import { Bookmark, RotateCcw, XCircle } from 'lucide-react'
 import { getSyncRunStatusVariant } from '../../../../lib/syncRunStatus'
 import { resolveResumePoint } from '../../../../lib/resume-point'
 import { useDataSyncRunAccess } from '../../../../components/useDataSyncRunAccess'
+import { RowActions } from '@open-mercato/ui/backend/RowActions'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import {
   buildRetryFailureMessage,
   resolveRunParameterText,
@@ -120,6 +122,7 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
   // The resume-point line is a statement about the run, not an affordance, so a
   // `data_sync.view` holder still sees it — they just get no buttons.
   const { canRunSync } = useDataSyncRunAccess()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   // Declarations cannot change between two refreshes of the same run, so the
   // options list is fetched once per integration rather than on every progress
   // event that re-reads the run.
@@ -296,6 +299,50 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
     }
   }, [runId, router, runMutation, t])
 
+  const handleRetryFromBeginning = React.useCallback(async () => {
+    if (!runId || !run) return
+    const resumePoint = resolveResumePoint(run)
+    const recordEstimate = run.progressJob?.totalCount ?? null
+    // Prose, not a layout: ConfirmDialogOptions.text is a string and neither it
+    // nor ConfirmDialogProps exposes a node slot. The information survives.
+    const text = [
+      recordEstimate
+        ? t('data_sync.runs.detail.retryFromBeginning.confirmWithEstimate', 'This ignores the saved cursor and reads the entire source again — about {count} records — instead of continuing.', { count: recordEstimate })
+        : t('data_sync.runs.detail.retryFromBeginning.confirm', 'This ignores the saved cursor and reads the entire source again, instead of continuing.'),
+      resumePoint.kind === 'resumes'
+        ? t('data_sync.runs.detail.retryFromBeginning.confirmResumePoint', 'A resumable retry would start at batch {batch}; this one starts at the beginning.', { batch: resumePoint.batchesCompleted })
+        : t('data_sync.runs.detail.retryFromBeginning.confirmNoResumePoint', 'This run committed no batch, so only a from-the-beginning retry has a start position you can rely on.'),
+      t('data_sync.runs.detail.retryFromBeginning.confirmMatched', 'Existing records are matched and updated, not duplicated.'),
+    ].join(' ')
+
+    const confirmed = await confirm({
+      title: t('data_sync.runs.detail.retryFromBeginning.title', 'Retry from the beginning?'),
+      text,
+      confirmText: t('data_sync.runs.detail.retryFromBeginning.action', 'Retry from the beginning'),
+      // Not destructive: a full replay updates matched records rather than
+      // deleting anything, and the red budget belongs to Cancel run.
+      variant: 'default',
+    })
+    if (!confirmed) return
+
+    const call = await runMutation({
+      // optimistic-lock-exempt: starts a new retry run (create), not a concurrent record edit
+      operation: () => apiCall<{ id: string }>(`/api/data_sync/runs/${encodeURIComponent(runId)}/retry`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fromBeginning: true }),
+      }, { fallback: null }),
+      mutationPayload: { runId, fromBeginning: true },
+      context: { operation: 'create', actionId: 'retry-sync-run-from-beginning', runId },
+    })
+    if (call.ok && call.result) {
+      flash(t('data_sync.runs.detail.retrySuccess'), 'success')
+      router.push(`/backend/data-sync/runs/${encodeURIComponent(call.result.id)}`)
+    } else {
+      flash(buildRetryFailureMessage(call.result as RetryFailureBody | null, t), 'error')
+    }
+  }, [confirm, run, runId, router, runMutation, t])
+
   if (isLoading) return <Page><PageBody><LoadingMessage label={t('data_sync.runs.detail.title')} /></PageBody></Page>
   if (isNotFound) {
     return (
@@ -313,6 +360,13 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
   if (error || !run) return <Page><PageBody><ErrorMessage label={error ?? t('data_sync.runs.detail.loadError')} /></PageBody></Page>
 
   const resumePoint = resolveResumePoint(run)
+  const overflowActions = canRunSync && resumePoint.kind !== 'none'
+    ? [{
+      id: 'retry-from-beginning',
+      label: t('data_sync.runs.detail.retryFromBeginning.action', 'Retry from the beginning'),
+      onSelect: () => { void handleRetryFromBeginning() },
+    }]
+    : []
   const totalProcessed = run.createdCount + run.updatedCount + run.skippedCount + run.failedCount
   const progressPercent = run.progressJob?.progressPercent ?? (run.status === 'completed' ? 100 : 0)
   const progressStatus = run.progressJob?.status ?? run.status
@@ -324,6 +378,7 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
 
   return (
     <Page>
+      {ConfirmDialogElement}
       <PageBody className="space-y-6">
         <FormHeader
           mode="detail"
@@ -359,6 +414,9 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
                       : t('data_sync.runs.detail.retry')}
                   </Button>
                 ) : null}
+                {/* Only rendered when it has an item — an overflow holding
+                    nothing is worse than no overflow. */}
+                {overflowActions.length > 0 ? <RowActions items={overflowActions} /> : null}
               </div>
               {resumePoint.kind === 'resumes' ? (
                 <p className="flex flex-wrap items-center justify-end gap-1 text-xs text-muted-foreground">
