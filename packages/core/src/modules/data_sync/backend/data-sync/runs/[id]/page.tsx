@@ -17,9 +17,10 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
-import { Bookmark, RotateCcw, XCircle } from 'lucide-react'
+import { Bookmark, Lock, RotateCcw, XCircle } from 'lucide-react'
 import { getSyncRunStatusVariant } from '../../../../lib/syncRunStatus'
 import { resolveResumePoint } from '../../../../lib/resume-point'
+import { applicableStartControls, type StartControlMap } from '../../../../lib/start-controls'
 import { useDataSyncRunAccess } from '../../../../components/useDataSyncRunAccess'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
@@ -119,6 +120,11 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
   const [logsPage, setLogsPage] = React.useState(1)
   const logsPageRef = React.useRef(1)
   const [parameterLabels, setParameterLabels] = React.useState<Record<string, string>>({})
+  // Fails OPEN: `null` means "not resolved", and `applicableStartControls`
+  // already defaults an unknown entity type to "every control applies". Hiding
+  // a valid action because an unrelated request failed would be worse than
+  // showing one the endpoint will accept anyway.
+  const [startControls, setStartControls] = React.useState<StartControlMap | null>(null)
   // The resume-point line is a statement about the run, not an affordance, so a
   // `data_sync.view` holder still sees it — they just get no buttons.
   const { canRunSync } = useDataSyncRunAccess()
@@ -131,15 +137,17 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
   // The run row stores machine keys. Resolve the adapter's declared labels so a
   // past run reads as "Start id" rather than "startId"; keys the adapter no
   // longer declares keep their raw form, which keeps historical runs readable.
-  const loadParameterLabels = React.useCallback(async (integrationId: string) => {
+  const loadIntegrationOptions = React.useCallback(async (integrationId: string) => {
     if (parameterLabelsIntegrationRef.current === integrationId) return
     parameterLabelsIntegrationRef.current = integrationId
-    const call = await apiCall<{ items?: Array<{ integrationId: string; runParameters?: RunParameterDeclaration[] }> }>(
+    const call = await apiCall<{ items?: Array<{ integrationId: string; runParameters?: RunParameterDeclaration[]; startControls?: StartControlMap }> }>(
       '/api/data_sync/options',
       undefined,
       { fallback: { items: [] } },
     )
-    const declared = (call.result?.items ?? []).find((item) => item.integrationId === integrationId)?.runParameters ?? []
+    const item = (call.result?.items ?? []).find((entry) => entry.integrationId === integrationId)
+    setStartControls(item?.startControls ?? {})
+    const declared = item?.runParameters ?? []
     const labels: Record<string, string> = {}
     for (const param of declared) {
       const resolved = resolveRunParameterText(t, param.labelKey, param.label)
@@ -171,10 +179,11 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
     }
     setRun(call.result)
     setIsLoading(false)
-    if (call.result.parameters && Object.keys(call.result.parameters).length > 0) {
-      void loadParameterLabels(call.result.integrationId)
-    }
-  }, [loadParameterLabels, runId, t])
+    // Fetched unconditionally now: the from-the-beginning action is gated on the
+    // adapter's start-control declaration, so a run with no parameters needs the
+    // options response too.
+    void loadIntegrationOptions(call.result.integrationId)
+  }, [loadIntegrationOptions, runId, t])
 
   const loadLogs = React.useCallback(async (page?: number) => {
     if (!runId) return
@@ -360,7 +369,10 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
   if (error || !run) return <Page><PageBody><ErrorMessage label={error ?? t('data_sync.runs.detail.loadError')} /></PageBody></Page>
 
   const resumePoint = resolveResumePoint(run)
-  const overflowActions = canRunSync && resumePoint.kind !== 'none'
+  // `null` (unresolved, including a failed fetch) and an entity type the
+  // adapter does not restrict both mean the control applies.
+  const canReplayFromStart = applicableStartControls(startControls, run.entityType).fullSync
+  const overflowActions = canRunSync && resumePoint.kind !== 'none' && canReplayFromStart
     ? [{
       id: 'retry-from-beginning',
       label: t('data_sync.runs.detail.retryFromBeginning.action', 'Retry from the beginning'),
@@ -425,6 +437,17 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
                   {/* Verbatim and never truncated: an adapter cursor is the only
                       value an operator can paste into a support ticket. */}
                   <span className="font-mono break-all">{resumePoint.cursor}</span>
+                </p>
+              ) : null}
+              {resumePoint.kind !== 'none' && !canReplayFromStart ? (
+                <p className="flex max-w-prose items-start justify-end gap-1 text-right text-xs text-muted-foreground">
+                  <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                  <span>
+                    {t('data_sync.runs.detail.retryFromBeginning.unsupported', 'This feed cannot be replayed from the start — {integration} does not support a full sync of {entityType}.', {
+                      integration: run.integrationId,
+                      entityType: run.entityType,
+                    })}
+                  </span>
                 </p>
               ) : null}
               {resumePoint.kind === 'noCommittedBatch' ? (

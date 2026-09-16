@@ -21,7 +21,7 @@
 | 1 | 1.6 | Gate the action affordances on `data_sync.run` | inline | done | pending |
 | 1 | 1.7 | Document the cursor-visibility contract for adapter authors | inline | done | pending |
 | 2 | 2.1 | Add the overflow action and its confirm on the detail page | inline | done | pending |
-| 2 | 2.2 | Hide the action when the adapter declares full sync inapplicable | inline | todo | — |
+| 2 | 2.2 | Hide the action when the adapter declares full sync inapplicable | inline | done | pending |
 | 2 | 2.3 | Add the same action to the list row menu | inline | todo | — |
 | 2 | 2.4 | Integration coverage `TC-DS-013` | dispatch | done | pending |
 | 3 | 3.1 | Add the "Run again" action on completed runs | inline | todo | — |

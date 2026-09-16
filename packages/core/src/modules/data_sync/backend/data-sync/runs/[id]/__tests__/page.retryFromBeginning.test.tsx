@@ -53,8 +53,13 @@ jest.mock('next/navigation', () => ({
 
 import SyncRunDetailPage from '../page'
 
-function mockRun(overrides: Record<string, unknown> = {}) {
+type OptionsResponse = { ok: boolean; status: number; result: unknown }
+
+function mockRun(overrides: Record<string, unknown> = {}, options?: OptionsResponse) {
   apiCallMock.mockImplementation(async (url: string) => {
+    if (url.startsWith('/api/data_sync/options')) {
+      return options ?? { ok: true, status: 200, result: { items: [{ integrationId: 'example', startControls: {} }] } }
+    }
     if (url.startsWith('/api/data_sync/runs/')) {
       return {
         ok: true,
@@ -170,6 +175,55 @@ describe('SyncRunDetailPage retry from the beginning', () => {
     renderWithProviders(<SyncRunDetailPage params={{ id: 'run-1' }} />)
 
     expect(await screen.findByRole('button', { name: 'Retry from the beginning' })).toBeInTheDocument()
+  })
+
+  it('hides the action when the adapter declares full sync inapplicable', async () => {
+    mockRun({}, {
+      ok: true,
+      status: 200,
+      result: {
+        items: [{
+          integrationId: 'example',
+          startControls: { example_orders: { fullSync: false, batchSize: true } },
+        }],
+      },
+    })
+    renderWithProviders(<SyncRunDetailPage params={{ id: 'run-1' }} />)
+
+    await screen.findByText(/Resumes from batch 41/)
+    await waitFor(() => expect(screen.queryByTestId('overflow')).not.toBeInTheDocument())
+    // The detail page explains the absence; the row menu deliberately does not.
+    expect(screen.getByText(/cannot be replayed from the start/i)).toBeInTheDocument()
+  })
+
+  it('keeps the action for an entity type the adapter does not restrict', async () => {
+    mockRun({}, {
+      ok: true,
+      status: 200,
+      result: {
+        items: [{
+          integrationId: 'example',
+          startControls: { some_other_entity: { fullSync: false, batchSize: true } },
+        }],
+      },
+    })
+    renderWithProviders(<SyncRunDetailPage params={{ id: 'run-1' }} />)
+
+    expect(await screen.findByRole('button', { name: 'Retry from the beginning' })).toBeInTheDocument()
+  })
+
+  /**
+   * Fails OPEN. `applicableStartControls` documents "every control applies" as
+   * the default for an unresolved entity type, and hiding a valid action
+   * because an unrelated request failed is the worse outcome — the endpoint
+   * accepts the request regardless.
+   */
+  it('keeps the action when the options fetch fails', async () => {
+    mockRun({}, { ok: false, status: 500, result: null })
+    renderWithProviders(<SyncRunDetailPage params={{ id: 'run-1' }} />)
+
+    expect(await screen.findByRole('button', { name: 'Retry from the beginning' })).toBeInTheDocument()
+    expect(screen.queryByText(/cannot be replayed from the start/i)).not.toBeInTheDocument()
   })
 
   it.each(['completed', 'running', 'pending'])('offers no overflow at all for a %s run', async (status) => {
