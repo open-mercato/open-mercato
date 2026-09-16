@@ -17,8 +17,9 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
-import { RotateCcw, XCircle } from 'lucide-react'
+import { Bookmark, RotateCcw, XCircle } from 'lucide-react'
 import { getSyncRunStatusVariant } from '../../../../lib/syncRunStatus'
+import { resolveResumePoint } from '../../../../lib/resume-point'
 import {
   buildRetryFailureMessage,
   resolveRunParameterText,
@@ -37,6 +38,10 @@ type SyncRunDetail = {
   entityType: string
   direction: 'import' | 'export'
   status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | 'paused'
+  // The API has returned both since the run-scoped-cursor work; this type
+  // simply never declared them, which is why no surface could render them.
+  cursor: string | null
+  initialCursor: string | null
   createdCount: number
   updatedCount: number
   skippedCount: number
@@ -303,6 +308,7 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
   }
   if (error || !run) return <Page><PageBody><ErrorMessage label={error ?? t('data_sync.runs.detail.loadError')} /></PageBody></Page>
 
+  const resumePoint = resolveResumePoint(run)
   const totalProcessed = run.createdCount + run.updatedCount + run.skippedCount + run.failedCount
   const progressPercent = run.progressJob?.progressPercent ?? (run.status === 'completed' ? 100 : 0)
   const progressStatus = run.progressJob?.status ?? run.status
@@ -331,20 +337,37 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
             </div>
           )}
           actionsContent={(
-            <>
-              {(run.status === 'running' || run.status === 'pending') ? (
-                <Button type="button" variant="destructive" size="sm" onClick={() => void handleCancel()}>
-                  <XCircle className="mr-2 h-4 w-4" />
-                  {t('data_sync.runs.detail.cancel')}
-                </Button>
+            <div className="flex flex-col items-end gap-1.5">
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                {(run.status === 'running' || run.status === 'pending') ? (
+                  <Button type="button" variant="destructive" size="sm" onClick={() => void handleCancel()}>
+                    <XCircle className="mr-2 h-4 w-4" />
+                    {t('data_sync.runs.detail.cancel')}
+                  </Button>
+                ) : null}
+                {resumePoint.kind !== 'none' ? (
+                  <Button type="button" variant="outline" size="sm" onClick={() => void handleRetry()}>
+                    <RotateCcw className="mr-2 h-4 w-4" />
+                    {t('data_sync.runs.detail.retry')}
+                  </Button>
+                ) : null}
+              </div>
+              {resumePoint.kind === 'resumes' ? (
+                <p className="flex flex-wrap items-center justify-end gap-1 text-xs text-muted-foreground">
+                  <Bookmark className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                  <span>{t('data_sync.runs.detail.resumePoint.resumes', 'Resumes from batch {batch} —', { batch: resumePoint.batchesCompleted })}</span>
+                  {/* Verbatim and never truncated: an adapter cursor is the only
+                      value an operator can paste into a support ticket. */}
+                  <span className="font-mono break-all">{resumePoint.cursor}</span>
+                </p>
               ) : null}
-              {run.status === 'failed' ? (
-                <Button type="button" variant="outline" size="sm" onClick={() => void handleRetry()}>
-                  <RotateCcw className="mr-2 h-4 w-4" />
-                  {t('data_sync.runs.detail.retry')}
-                </Button>
+              {resumePoint.kind === 'noCommittedBatch' ? (
+                <p className="flex max-w-prose items-start justify-end gap-1 text-right text-xs text-muted-foreground">
+                  <Bookmark className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                  <span>{t('data_sync.runs.detail.resumePoint.noCommittedBatch', "This run committed no batch. Retry starts from this feed's last saved position, which may be earlier than this run began.")}</span>
+                </p>
               ) : null}
-            </>
+            </div>
           )}
         />
 
@@ -389,6 +412,20 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
               </span>
               <span>{t('data_sync.runs.detail.progress.batches', { count: run.batchesCompleted })}</span>
             </div>
+            <dl className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <div className="flex items-center justify-between gap-3 rounded-md border bg-card px-3 py-2 text-sm">
+                <dt className="font-medium text-muted-foreground">{t('data_sync.runs.detail.cursor.startedFrom', 'Started from')}</dt>
+                <dd className={run.initialCursor ? 'font-mono break-all text-right' : 'text-muted-foreground'}>
+                  {run.initialCursor ?? t('data_sync.runs.detail.cursor.beginningOfSource', 'beginning of source')}
+                </dd>
+              </div>
+              <div className="flex items-center justify-between gap-3 rounded-md border bg-card px-3 py-2 text-sm">
+                <dt className="font-medium text-muted-foreground">{t('data_sync.runs.detail.cursor.committedThrough', 'Committed through')}</dt>
+                <dd className={run.cursor ? 'font-mono break-all text-right' : 'text-muted-foreground'}>
+                  {run.cursor ?? t('data_sync.runs.detail.cursor.nothingCommitted', 'nothing committed')}
+                </dd>
+              </div>
+            </dl>
           </CardContent>
         </Card>
 

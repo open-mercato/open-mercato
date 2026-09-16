@@ -14,7 +14,7 @@
 | Phase | Step | Title | Exec | Status | Commit |
 |-------|------|-------|------|--------|--------|
 | 1 | 1.1 | Add `lib/resume-point.ts` and its unit tests | inline | done | pending |
-| 1 | 1.2 | Render the resume point on the run detail page | inline | todo | — |
+| 1 | 1.2 | Render the resume point on the run detail page | inline | done | pending |
 | 1 | 1.3 | Render the resume point in the list row menu | inline | todo | — |
 | 1 | 1.4 | Relabel the `cancelled` primary action to Resume | inline | todo | — |
 | 1 | 1.5 | Integration coverage `TC-DS-012` | dispatch | todo | — |
