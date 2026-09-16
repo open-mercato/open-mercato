@@ -17,6 +17,7 @@
 - This is **not** stock/availability — it never touches `availabilityService` or `InventoryBalance`. It answers a different question: given who is asking (anonymous, or an authenticated buyer in one or more customer groups), which products are they even allowed to see and buy, independent of whether the item is in stock.
 - Three sibling specs in this suite already stub out the pieces — `CustomerGroupTerms.assortment_scope` (spec 1), `EcommerceStoreChannelBinding.assortment_scope` (spec 3, same shape, declared to **intersect** with the group's), and `buildStorefrontProductScope` as the single read-side enforcement seam (spec 4) — but none of them specify how a buyer's scope is computed when they belong to more than one group, how `categoryIds`/`tagIds`/`excludeProductIds` combine within one scope object, or how a fully closed (login-required) channel is expressed. This spec closes exactly those gaps; it does not re-derive what is already decided.
 - **The write side has no enforcement at all today.** `cart-module.md` (spec 5) is fully specified — `cart.lines.add`, `.update` and `.bulkAdd` already call `catalogPricingService` and `availabilityService.check()` — but never checks assortment scope. A buyer (or a script, or an AI purchasing agent) can add any product id directly to a cart today, bypassing the storefront's read-side 404 gate entirely. This spec closes that gap as a first-class requirement, not an afterthought.
+- **Visibility resolves per group *and* per customer** (§3.6, added 2026-09-16). A single named account can be granted more than its groups allow and restricted below what they allow, in the same row, and neither direction needs a new operator: the grant is one more branch of §3.1's union, the restriction one more layer of §3.3's intersection. The whole composition happens inside `resolveAssortmentScope()`, so the read seam, the cart write-side check and the cache-key contract are untouched. Per-customer *pricing* already worked this way (`CatalogProductPrice` carries `customer_id` and `customer_group_id` side by side); this brings visibility level with it.
 - The cache-key primitive this needs **already exists** as shared infrastructure: `SPEC-029` §6.1's buyer-context digest already reserves an `assortmentScopeHash` slot. Nothing new is deferred here; this spec makes sure a correctly specified algorithm feeds that slot.
 - Resolution: **base `AssortmentScope` type and pure algebra in `packages/shared`** (mirroring the `availability` contract's own base-in-shared / implementation-in-modules split), **storage and buyer-side resolution split between `customer_groups`** (group scope, union across memberships) **and `ecommerce`** (channel scope, intersection, the new authentication gate), **enforcement at both existing read seams (spec 4, unchanged) and a new write-side check added to `cart`'s three mutating line commands (spec 5, amended)**.
 
@@ -26,12 +27,15 @@
 - `EcommerceStoreChannelBinding.require_authentication: boolean` — new column, spec 3 §5.3
 - `AssortmentScope` schema amendment (both spec 1 and spec 3 own a column of this shape): add `excludeCategoryIds` / `excludeTagIds` alongside the existing `excludeProductIds`
 - A visibility check added to `cart.lines.add` / `.update` / `.bulkAdd` (spec 5, amended)
-- Admin: category/tag/product pickers on the existing group-terms and channel-binding forms; a small "why can/can't this buyer see this product" explainability tool
+- `CustomerAssortmentOverride` — one sparse, optional row per customer carrying `grant_scope` and `restrict_scope`, owned by `customer_groups` and linked to the customer as an **entity extension** (§4.4), shipped last as Phase 4
+- Admin: category/tag/product pickers on the existing group-terms and channel-binding forms, an injected "Assortment" section on the customer detail page, and a small "why can/can't this buyer see this product" explainability tool
 
 **Concerns:**
 - Getting the multi-group combination rule wrong either silently hides a product a merchant meant to grant (support ticket) or silently exposes one they meant to restrict (the more severe direction, same class as the suite's own cache-bleed findings)
 - The write-side gap is the single highest-value fix in this spec — a read-side 404 that a cart mutation ignores is not a visibility control, it is a suggestion
 - `require_authentication` and the multi-group union must not add a new cache-key dimension; they must resolve into the *existing* `assortmentScopeHash` input, or every fix here creates a second bleed vector
+- The per-customer layer is the suite's first *widening* buyer-side grant, so layer order stops being cosmetic: it must stay inside the buyer layer, below the channel intersection and below `require_authentication`'s short-circuit, or one account's override silently outranks a channel-wide restriction (R8)
+- Per-customer scoping costs cache sharing by construction; the requirement is that it costs it **only for the customers who have a rule**, which depends entirely on hashing the resolved value rather than the inputs (§3.7, R9)
 
 ---
 
@@ -41,9 +45,9 @@ This document does not restate what is already decided. It amends three unimplem
 
 | Sibling spec | What changed | Applied in |
 |---|---|---|
-| `2026-08-14-customer-groups-and-b2b-terms.md` | §5.3 `CustomerGroupTerms.assortment_scope`: shape amended (§4 below). §6 `ResolvedTerms`: the `assortmentScope` field is **withdrawn** — it cannot follow the generic per-field highest-priority-wins algorithm §6.1 defines for scalar terms (see §2.2 below for why). §6 gains a new sibling method, `resolveAssortmentScope()` (§5 below), specified here because its algorithm is the entire subject of this spec, not a two-line addition to another document. | That spec's §5.3, §6, new §6.4, §17 US-C2, changelog `2026-09-06` |
-| `SPEC-029-2026-02-17-ecommerce-storefront-module.md` | §5.3 `EcommerceStoreChannelBinding.assortment_scope`: same shape amendment. New column `require_authentication: boolean` (§4.2 below). §4.1 step 6 and §6 `BuyerContext.assortmentScope`: computed via the new `intersectScopes()` (§3 below) instead of ad hoc intersection prose. | That spec's §4.1, §5.3, §6, changelog `2026-09-06` (v4.2) |
-| `2026-08-14-cart-module.md` | §3.1a commands `cart.lines.add`, `cart.lines.update`, `cart.lines.bulkAdd`: gain a mandatory assortment-scope check (§6 below) when the cart's channel is store-bound. New request field, new rejection code, new integration tests. §9's lock transition (`active → locked`) gains a new precondition (§6.2). §11's Events list gains one new event, `cart.line.visibility_rejected` (§6.3a). No entity or column changes to `cart` itself. | That spec's new §6a, §9, §11, §13 (R11/R12), §14, changelog `2026-09-06` (rev 3) |
+| `2026-08-14-customer-groups-and-b2b-terms.md` | §5.3 `CustomerGroupTerms.assortment_scope`: shape amended (§4 below). §6 `ResolvedTerms`: the `assortmentScope` field is **withdrawn** — it cannot follow the generic per-field highest-priority-wins algorithm §6.1 defines for scalar terms (see §2.2 below for why). §6 gains a new sibling method, `resolveAssortmentScope()` (§5 below), specified here because its algorithm is the entire subject of this spec, not a two-line addition to another document. | That spec's §5.3, §6, new §6.4, §17 US-C2, changelog `2026-09-06`. **2026-09-16:** new entity §5.7 `CustomerAssortmentOverride` (§4.4 below), `resolveAssortmentScope()` gains `sourceCustomerOverrideId`, §10 gains the override's CRUD events and their cache-invalidation duty |
+| `SPEC-029-2026-02-17-ecommerce-storefront-module.md` | §5.3 `EcommerceStoreChannelBinding.assortment_scope`: same shape amendment. New column `require_authentication: boolean` (§4.2 below). §4.1 step 6 and §6 `BuyerContext.assortmentScope`: computed via the new `intersectScopes()` (§3 below) instead of ad hoc intersection prose. | That spec's §4.1, §5.3, §6, changelog `2026-09-06` (v4.2). **2026-09-16:** §4.1 step 6 and §6.1 note that the buyer-side scope now includes the per-customer override and that `assortmentScopeHash` hashes the canonicalized resolved value (§3.7) — no change to the composition line itself |
+| `2026-08-14-cart-module.md` | §3.1a commands `cart.lines.add`, `cart.lines.update`, `cart.lines.bulkAdd`: gain a mandatory assortment-scope check (§6 below) when the cart's channel is store-bound. New request field, new rejection code, new integration tests. §9's lock transition (`active → locked`) gains a new precondition (§6.2). §11's Events list gains one new event, `cart.line.visibility_rejected` (§6.3a). No entity or column changes to `cart` itself. | That spec's new §6a, §9, §11, §13 (R11/R12), §14, changelog `2026-09-06` (rev 3). **2026-09-16:** §5.2's re-pricing trigger 2 is restated as "buyer identity, group membership **or per-customer assortment override** change" (§6.2 below) |
 
 An earlier revision of this section recorded these amendments without applying them, on the reasoning that the siblings were unmerged work on another branch. That reasoning was wrong for this suite: the siblings are not on another branch, they are in the same directory and the same change. A recorded-but-unapplied amendment is invisible to anyone reading the amended document directly — which is how an implementer reads `cart-module.md`, a document marked "rev 2, pre-implementation fixes" that reads as complete. Applied 2026-09-06; this table is now a cross-reference index, not a to-do list.
 
@@ -88,6 +92,15 @@ Derived from §1's problem statement and §3–§7's proposed solution. Story ID
 **US-A3** — As a merchant admin, I want a buyer in two groups to see the union of what each group grants, so that adding a more permissive group only ever widens what that buyer can see, never narrows it based on a `priority` value set for an unrelated reason.
 - Given a buyer in "Wholesale" (grants category A) and "Preview" (grants tag B), viewing the buyer's effective catalog (Epic C's explainability tool) shows both a category-A/no-tag-B product and a tag-B/not-category-A product as visible.
 - Illustrative only in the prototype — §3.1's union algebra is not executed; a note says so explicitly and cites §3.1/R2.
+
+**US-A4** — As a merchant admin, I want to widen *or* narrow one named customer's catalog independently of their groups, so that I can give a single account early access to a collection, or hold it to its contracted assortment, without creating a group of one.
+- Given the customer detail page, the injected "Assortment" section shows two labelled blocks — "Also allow" and "Restrict to / exclude" — plus a validity window and a notes field (§7).
+- Filling only "Also allow" widens: the customer sees everything their groups grant plus the added categories/tags, and nothing their groups already grant is lost (§3.6).
+- Filling "Restrict to / exclude" narrows across *every* group grant, not only the products this override itself added — this is the direction a group-level scope cannot express.
+- Setting both blocks to the same scope yields "this customer sees only this," with no separate mode switch to find (§3.6).
+- Bounded by the channel: an override can never reveal a product the storefront channel's own scope excludes, and never reaches an anonymous visitor on a channel with `require_authentication` on (§3.6, R8).
+- Empty state: a customer with no override shows the section with both blocks empty and a line stating their assortment comes entirely from their groups — the common case, and the one that keeps their cache sharing intact (§3.7).
+- Permission: gated behind the same feature that gates group-terms editing; a viewer without it sees the section read-only, matching US-A1.
 
 ### Epic B — Merchant configures channel-level scope and the authentication gate (`ecommerce`)
 
@@ -267,6 +280,47 @@ This governs **catalog visibility only** — not the whole storefront (branding,
 
 The write side is new (§6): `cart.lines.add`/`.update`/`.bulkAdd` gain a `matchesScope` check.
 
+### 3.6 Per-customer overrides — both directions, no new operator (added 2026-09-16)
+
+§10's open question 2 ("a single named customer needing a scope wider or narrower than every one of their groups") is now a requirement, and it is a requirement **in both directions**: a per-customer rule must be able to widen a buyer's assortment above what their groups grant (give this one account early access to a launch collection) *and* to narrow it below (hide a discontinued line from one account; hold an account to its contracted assortment only). Widening alone would have been the cheaper half — it is one more branch in the existing OR-list — but it is also the half merchants ask for less often, and shipping only it would leave "hide product X from customer Y" expressible nowhere in this suite.
+
+Both directions fall out of the two operators §3.3 already defines. The override row carries **two independently nullable `AssortmentScope` fields**, one per direction:
+
+| Field | Operator | Effect |
+|---|---|---|
+| `grantScope` | joins the buyer-side OR-list as one more branch (`unionScopes`, §3.1) | widens — can only add products, exactly like adding another group |
+| `restrictScope` | ANDed into **every** branch of the unioned result (`intersectScopes`, §3.3) | narrows — applies to products granted by any group, not just by this customer's own branch |
+
+```
+// entirely inside customerGroupsService.resolveAssortmentScope(), §5.1
+branches   = [ ...scopeOfEachMatchingGroup ]            // one branch per group, §3.1 — unchanged
+if (override?.grantScope) branches.push(override.grantScope)   // absent grant is OMITTED, never pushed as null
+unioned    = unionScopes(branches)
+buyerScope = intersectScopes(override?.restrictScope ?? null, unioned)
+
+// inside ecommerce's storeContextService.resolve(), §5.2 — UNCHANGED
+effective  = intersectScopes(channel.assortmentScope, buyerScope)
+```
+
+**No new operator, no new type, and no change outside `customer_groups`.** `restrictScope` is applied with the same `intersectScopes` the channel layer already uses, for the same reason (§3.3's distributive law): a narrowing layer distributes across every OR-branch rather than merging arrays into one of them. Because the whole composition happens inside `resolveAssortmentScope()`, which already returns a finished `EffectiveAssortmentScope`, the read seam (`buildStorefrontProductScope`, §3.5), the write-side check (`cart`, §6) and the cache-key input (§3.7) require no change whatsoever — they consume a resolved value and have never known how many sources produced it.
+
+**Why two fields rather than one scope doing double duty.** A single `AssortmentScope` on the customer row would already *contain* `excludeProductIds`/`excludeCategoryIds`/`excludeTagIds`, and it would be genuinely ambiguous whether those exclusions veto only the customer's own branch (§3.2's within-one-scope rule) or every branch including the groups'. Two named fields make the direction a data-layer fact instead of a convention someone has to remember: exclusions written inside `grantScope` scope that branch alone, exactly as §3.2 already specifies for every other source; exclusions written in `restrictScope` apply to the whole buyer.
+
+**"This customer sees only their own assortment" needs no `mode` flag.** Setting `restrictScope` to the same value as `grantScope` produces replacement semantics by construction: every group branch is narrowed to the customer's own criteria and the customer's own branch survives intact, so the union collapses to exactly the customer's scope. An earlier sketch of this section proposed an explicit `mode: 'extend' | 'replace'` column for that case; it is redundant, and a redundant mode flag is a second source of truth that can disagree with the scopes beside it.
+
+**A customer grant can never widen past the channel, and never re-opens a closed one.** The customer layer lives *inside* the buyer layer, which is then intersected with the channel's own scope — so `grantScope` is bounded above by the channel exactly as a group grant already is. `require_authentication` (§3.4) is stronger still: it short-circuits **before** `customer_groups` is called at all, so an anonymous visitor's `[]` is reached without the override ever being read, and `intersectScopes(anything, [])` stays `[]`. This ordering is the security property that makes a widening per-customer layer safe to add, and §11 asserts it as a property rather than a fixture.
+
+### 3.7 Cache — the per-customer cost is paid only where a per-customer rule exists (added 2026-09-16)
+
+A per-customer scope inevitably costs cache sharing: `assortmentScopeHash` is what lets buyers resolving to the same scope share the expensive count-facet entries (`storefront-public-api.md` §9.1), and a buyer with a scope of their own cannot share it with anyone. That cost is accepted — but it MUST be paid **only by the customers who actually have an override row**, which in B2B is a sparse minority. This is the identical trade `SPEC-029` §6.1 already made once, for `customerOverlayId` over `customerId`, for the identical reason: keying on "is this buyer authenticated" gives every authenticated buyer a private entry and collapses the hit rate on precisely the traffic that costs the most to serve.
+
+Two requirements make that true rather than hoped-for:
+
+1. **`assortmentScopeHash` MUST be a digest of the canonicalized *resolved* `EffectiveAssortmentScope`, never of its inputs** — not of `customerId`, not of the contributing group ids, not of "has an override" as a flag. A buyer with no override row resolves to a value byte-identical to their group-only result, so they keep sharing every scope-keyed cache entry with their group peers; only a buyer with an override diverges, and they diverge exactly as far as their override actually changes the answer. Canonicalization is load-bearing and is part of this requirement: id arrays sorted, object keys sorted, branches sorted by their own canonical form. Without it, two buyers with semantically identical scopes hash differently whenever their branches arrive in a different group-priority order — a silent, *performance-only* regression that every semantic test in §11 would still pass.
+2. **"Does this customer have an override" is one indexed `EXISTS`, cached, not a denormalized flag.** `resolveAssortmentScope()` probes `customer_assortment_overrides` by `(tenant_id, customer_id)` — served by the unique partial index in §4.4 — and the result is cached per customer and invalidated on that row's own CRUD events, mirroring the `EXISTS`-over-`catalog_product_variant_prices` probe `SPEC-029` §6.1 specifies for `customerOverlayId`. A query rather than a column on the customer for the same reason that section gives: a stale `false` would serve a restricted buyer the unrestricted assortment, which is R1's failure direction, not a cosmetic one.
+
+**No new cache-key dimension.** `SPEC-029` §6.1's digest is unchanged and gains no component; this section constrains how the existing `assortmentScopeHash` slot is computed. Roadmap ADR-7's rule — key on the narrowest named component that varies — is satisfied unchanged: a scope-only surface still keys on `assortmentScopeHash`, and that hash now happens to isolate override-carrying customers automatically.
+
 ---
 
 ## 4) Data Model
@@ -282,9 +336,42 @@ Type becomes `AssortmentScope | null` (§3.3), i.e. the same jsonb column, with 
 | `assortment_scope` | jsonb, nullable | Unchanged column; type gains `excludeCategoryIds`/`excludeTagIds` per §4.1 |
 | `require_authentication` | boolean | **New.** Default `false`. §3.4 |
 
-### 4.3 No new entities, no new tables
+### 4.3 One new entity (Phase 4 only), no changes to existing tables
 
-Every field here lives on a column two sibling specs already planned to create. This spec's only net-new schema is one boolean.
+Every field in §4.1 and §4.2 lives on a column two sibling specs already planned to create; the net-new schema for Phases 1–3 is one boolean. The per-customer override (§3.6) adds one small, sparse table in Phase 4 — §4.4 — and changes no existing table.
+
+### 4.4 `CustomerAssortmentOverride` (`customer_assortment_overrides`, new — `customer_groups`, Phase 4)
+
+One optional row per customer. Absent row — the common case — means "this customer is governed entirely by their groups," and resolves byte-identically to today's group-only result (§3.7).
+
+| Column | Type | Notes |
+|---|---|---|
+| `customer_id` | uuid | `customers.CustomerEntity.id` — FK id only, no ORM relation, same convention as `CustomerGroupMembership.customer_id` (spec 1 §5.2) |
+| `grant_scope` | jsonb, nullable | `AssortmentScope \| null` — the widening direction (§3.6); `null`/absent means "adds nothing" and is **omitted** from the union list, never passed to `unionScopes` as `null` |
+| `restrict_scope` | jsonb, nullable | `AssortmentScope \| null` — the narrowing direction (§3.6); `null` means "narrows nothing" |
+| `valid_from` | timestamptz, nullable | null = always; same semantics as a membership window (spec 1 §5.2) |
+| `valid_until` | timestamptz, nullable | null = indefinite |
+| `notes` | text, nullable | Why this account has a bespoke assortment — the first question support asks |
+| `metadata` | jsonb, nullable | |
+
+Standard columns per root `AGENTS.md` (`id`, `created_at`, `updated_at`, `deleted_at`, `organization_id`, `tenant_id`). It is a new user-editable entity, so optimistic locking is default ON: `updated_at` is returned by its list/detail API and the edit/delete form derives the header from `initialValues.updatedAt`.
+
+Constraints and indexes: unique `(tenant_id, customer_id)` among rows with `deleted_at IS NULL` — this unique partial index is also what serves §3.7's `EXISTS` probe, so the probe needs no index of its own.
+
+**Declared as an entity extension, not as a column on the customer.** Per root `AGENTS.md` ("When extending another module's data, add a separate extension entity and declare a link in `data/extensions.ts`"), the table is owned by `customer_groups` and linked to the base customer entity in `customer_groups/data/extensions.ts`, using the canonical shape already in `customers/data/extensions.ts` (verified by direct read):
+
+```typescript
+// customer_groups/data/extensions.ts
+{
+  base: 'customers:customer_entity',
+  extension: 'customer_groups:customer_assortment_override',
+  join: { baseKey: 'id', extensionKey: 'customer_id' },
+  cardinality: 'one-to-one',
+  description: 'Per-customer catalog assortment override, resolved alongside group scopes by resolveAssortmentScope()',
+}
+```
+
+**Why `customer_groups` owns it despite the module name.** That module already owns `resolveAssortmentScope()` (§5.1) — the single buyer-side resolution seam — and already owns validity-windowed buyer rows with exactly these `valid_from`/`valid_until` semantics. Putting the override in `customers` instead would split one answer across two modules and force a second cross-module read on the hottest path in the suite, to save nothing.
 
 ---
 
@@ -301,8 +388,9 @@ interface CustomerGroupsService {
     customerId: string | null
     at?: Date
   }): Promise<{
-    scope: EffectiveAssortmentScope   // union across every matching group, §3.1/§3.3; no matching groups → null (unrestricted)
+    scope: EffectiveAssortmentScope   // the finished buyer-side scope: groups unioned (§3.1/§3.3), the customer's own grant unioned in and its restriction intersected over the result (§3.6); no groups and no override → null (unrestricted)
     sourceGroupIds: string[]          // every group that contributed a scope, for the explain tool (§7)
+    sourceCustomerOverrideId: string | null   // the customer's own override row, or null — the common case (§3.6, Phase 4)
   }>
 }
 ```
@@ -317,7 +405,7 @@ interface CustomerGroupsService {
 // ecommerce/lib/storeContext.ts (inside storeContextService.resolve())
 const requireAuth = channelBinding.requireAuthentication
 const groupResult = requireAuth && !buyer.isAuthenticated
-  ? { scope: [] as EffectiveAssortmentScope, sourceGroupIds: [] }   // §3.4 — the vacuous OR, not a sentinel
+  ? { scope: [] as EffectiveAssortmentScope, sourceGroupIds: [], sourceCustomerOverrideId: null }   // §3.4 — the vacuous OR, not a sentinel; the whole buyer layer, per-customer override included, is skipped
   : await customerGroupsService.resolveAssortmentScope({ customerId: buyer.customerId })
 
 buyer.assortmentScope = intersectScopes(channelBinding.assortmentScope, groupResult.scope)
@@ -371,6 +459,8 @@ Requiring the caller to *supply* `assortmentScope` (rather than `cart` re-derivi
 
 At `cart-module.md`'s re-pricing trigger 2 (buyer identity changes: login, logout, or a group membership change) and trigger 5 (checkout requests a lock — "mandatory, never skipped"), the whole-cart re-price already recomputes every line's price against a freshly-resolved buyer context. This spec adds a parallel re-*visibility* pass in the same code path, using the same freshly-resolved `assortmentScope`: every existing line is checked with `matchesScope`, exactly as in §6.1, but against lines that already exist rather than a line being added.
 
+Trigger 2 is stated in `cart-module.md` §5.2 as "buyer identity changes: login, logout, or a group membership change." A per-customer override (§3.6) is the same class of change and is read at the same seam, so that trigger's definition is amended to read "…or a group membership or per-customer assortment override change" — created, edited, deleted, or lapsing past its own `valid_until`. Without that clause the override's validity window would be the one buyer-side change that reaches checkout unchecked, which is R7's exact shape reintroduced through the new column.
+
 A line that fails the check is **not deleted** — deleting a buyer's line without disclosure is exactly the failure class `cart-module.md`'s own R2 (guest cart destroyed on merge) and R4 (undisclosed price increase) already exist to prevent, and this spec does not introduce a third instance of it. Instead, the line is flagged `product_unavailable` in the response's `warnings` array (§6.3), identically to how an out-of-stock line is already surfaced (`cart-module.md` §10.1). The difference from an ordinary add-time rejection is what happens at trigger 5 specifically: **the checkout lock (`active → locked`) MUST NOT succeed while any line carries an unresolved `product_unavailable` warning** — this is a new requirement on `cart-module.md` §9's lock transition, and it is what actually closes the TOCTOU window, mirroring how `requiresApproval` already blocks the same lock transition for an over-threshold B2B cart (`cart-module.md` §14's existing integration-coverage line: "Over `approval_required_above`... blocks the checkout lock"). The buyer must remove or replace the flagged line (or, if their access is restored, re-trigger a re-price) before checkout can proceed — the same recovery path they already have for an out-of-stock line.
 
 Whether the eventual `checkout` spec's own submit step additionally re-checks visibility a third time (the way `availability`'s authoritative `reserveAvailability()` re-checks stock at submit independent of the cart's advisory state) is that spec's own decision to make when it exists; this spec's requirement is only that the lock transition — which `cart` itself owns — cannot be acquired over a flagged line.
@@ -397,7 +487,8 @@ A rising rate of `product_unavailable` rejections is exactly the kind of drift t
 
 - **`customer_groups` group-terms form** (spec 1's existing `CustomerGroupTerms` CRUD): the `assortment_scope` field gains category/tag multi-select pickers (sourced from `catalog`'s existing category/tag list endpoints, via the same cross-module read pattern spec 1 §7.3 already uses for its group picker — a widget/read call, not an ORM relation) and product-exclude pickers for `excludeProductIds`/`excludeCategoryIds`/`excludeTagIds`. No new page; an addition to an existing one. New i18n keys live in `customer_groups`' existing `i18n/{en,pl}.json` namespace, alongside the rest of that form's labels.
 - **`ecommerce` channel-binding form** (`SPEC-029` §7's existing "Channels" tab, already described as showing "a live count of matching products"): gains the same category/tag/exclude pickers for the channel's own `assortment_scope`, plus a `require_authentication` toggle. The existing live-count preview naturally reflects both without new work, since it already recomputes against whatever `assortment_scope` is currently configured. The toggle's label and help text are new keys in `ecommerce`'s own `i18n/{en,pl}.json` namespace.
-- **Explainability tool (optional, nice-to-have — cut first if this spec needs to shrink), owned by `ecommerce`.** A small read-only admin panel under `ecommerce/backend/`, "why can/can't customer X see product Y," showing: which of the buyer's groups contributed (`sourceGroupIds` from §5.1), the channel's own scope, and the final verdict from `matchesScope`. `ecommerce` is the natural owner — it is already the module that composes both channel and group scope into `BuyerContext` (§5.2), so it is the only place both halves of the explanation are already in hand without a second cross-module read. Guarded by a new `ecommerce.visibility.diagnose` feature declared in `ecommerce/acl.ts` and granted to `admin` in `setup.ts` `defaultRoleFeatures`, matching the same pattern `pricing-engine.md`'s own optional diagnostic page uses for its `pricing.diagnostics.view` feature. Mirrors the explainability convention this suite already established twice — `ResolvedTerms.sourceGroupId` (spec 1 §6) and `AvailabilityPolicy.policySourceId` (`availability-contract.md` §5.2) — for the same reason: "why is this wrong" is the first support question in every one of these systems, and this is the third time this suite has needed the answer. The buyer-facing `product_unavailable` message shown by the write-path warning (§6.3) is a new key in `cart`'s own `i18n/{en,pl}.json` namespace, alongside its existing warning-code strings.
+- **Customer detail page — "Assortment" section (Phase 4, owned by `customer_groups`).** The per-customer override (§3.6) is edited where the customer already is, on `customers`' existing customer detail page, as a section **injected** by `customer_groups` through widget injection (`core` → Widget Injection) — never by editing a page another module owns, and never through an ORM relation. It carries the same category/tag/product pickers as the group-terms form, in two clearly separated blocks — "Also allow" (`grant_scope`) and "Restrict to / exclude" (`restrict_scope`) — plus the validity window and the `notes` field. The two blocks are labelled by direction rather than by field name, because the whole point of §3.6's two-field shape is that a merchant can see which way a rule cuts without reading the spec. Gated behind the same feature that already gates group-terms editing; a viewer without it sees the section read-only, matching US-A1's convention. New i18n keys live in `customer_groups`' existing namespace.
+- **Explainability tool (optional, nice-to-have — cut first if this spec needs to shrink), owned by `ecommerce`.** A small read-only admin panel under `ecommerce/backend/`, "why can/can't customer X see product Y," showing: which of the buyer's groups contributed (`sourceGroupIds` from §5.1), the buyer's own override if any (`sourceCustomerOverrideId`, split into its widening and narrowing halves so the direction is visible), the channel's own scope, and the final verdict from `matchesScope`. `ecommerce` is the natural owner — it is already the module that composes both channel and group scope into `BuyerContext` (§5.2), so it is the only place both halves of the explanation are already in hand without a second cross-module read. Guarded by a new `ecommerce.visibility.diagnose` feature declared in `ecommerce/acl.ts` and granted to `admin` in `setup.ts` `defaultRoleFeatures`, matching the same pattern `pricing-engine.md`'s own optional diagnostic page uses for its `pricing.diagnostics.view` feature. Mirrors the explainability convention this suite already established twice — `ResolvedTerms.sourceGroupId` (spec 1 §6) and `AvailabilityPolicy.policySourceId` (`availability-contract.md` §5.2) — for the same reason: "why is this wrong" is the first support question in every one of these systems, and this is the third time this suite has needed the answer. The buyer-facing `product_unavailable` message shown by the write-path warning (§6.3) is a new key in `cart`'s own `i18n/{en,pl}.json` namespace, alongside its existing warning-code strings.
 
 ---
 
@@ -413,7 +504,14 @@ A rising rate of `product_unavailable` rejections is exactly the kind of drift t
 | Cart line added while storefront-visible, buyer's cart channel is `storefront`, caller forgets to pass `assortmentScope` | `400 assortment_scope_required_for_storefront_channel` | §6.1, forgot-the-clause closed by validation |
 | POS sale of a product outside any storefront assortment scope | Succeeds — POS carts never carry a `StoreContext` scope to check against | §6.4 |
 | `unionScopes([])` (buyer resolves to zero matching groups, e.g. anonymous with no default group) | Returns `null` (unrestricted) — matches spec 1 §6.2's existing "absence of a group MUST NOT be an error" for every other field | §3.1, §5.1 |
-| A future third scope source (e.g. a per-customer override, if ever added) needs combining | `unionScopes`/`intersectScopes` are variadic/pure and compose without new call-site logic — the algebra does not assume exactly two sources | §3.3 design |
+| A third scope source (the per-customer override) needs combining | Composed with **no new operator** — its grant is one more `unionScopes` branch, its restriction one more `intersectScopes` layer. This row previously read "if ever added"; added 2026-09-16 | §3.3 design, §3.6 |
+| Customer has an override with `restrict_scope` only, and belongs to no group | `unionScopes([])` → `null` (unrestricted), then intersected with the restriction → `[restrictScope]`. The buyer is narrowed correctly rather than left unrestricted | §3.6, §3.3 |
+| Customer's `grant_scope` is absent | Omitted from the branch list. It MUST NOT be pushed as `null` — `unionScopes` treats any `null` element as an unrestricted source and would silently unrestrict the entire buyer | §3.6, R10 |
+| Customer's `grant_scope` names a category the channel's own scope excludes | Not visible. The channel layer is applied after the buyer layer, so a per-customer grant is bounded above by the channel exactly as a group grant is | §3.6 |
+| Channel `require_authentication = true`, anonymous visitor who happens to have an override row | `[]` (deny-all); the override is never read, because the short-circuit skips the whole buyer layer before `customer_groups` is called | §3.4, §3.6 |
+| Merchant wants "this customer sees only their own assortment," ignoring group grants | `restrict_scope` set to the same value as `grant_scope` — replacement falls out of the algebra, no `mode` column | §3.6 |
+| Override lapses past `valid_until` while a restricted line sits in the buyer's cart | Identical handling to an expired group membership: flagged at the next whole-cart pass, checkout-lock blocked until resolved | §6.2, R7 |
+| Buyer has no override row (the common case) | Resolves byte-identically to the group-only result, so they keep sharing every `assortmentScopeHash`-keyed cache entry with their group peers | §3.7 |
 
 ---
 
@@ -427,6 +525,9 @@ A rising rate of `product_unavailable` rejections is exactly the kind of drift t
 | R4 | Empty-array UI footgun | Medium | `customer_groups`, `ecommerce` | An admin clears a multi-select down to zero items intending "no change" and it is interpreted as "show nothing" | §3.2's explicit empty-equals-absent convention; a UI confirmation is out of scope for this spec but the *data-layer* behavior is safe regardless of what the UI does | Low |
 | R5 | New write-side rejection becomes its own enumeration oracle | Medium | `cart` | A distinguishable "restricted" vs. "not found" response on cart mutation lets a script map a competitor's private assortment through cart-add attempts, the write-side analogue of `storefront-public-api.md`'s own R4 | §6.3: identical `product_unavailable` warning for both cases | Low |
 | R6 | `ResolvedTerms.assortmentScope` removal breaks a caller written against spec 1 as currently drafted | Low | `customer_groups` | Spec 1 is unimplemented; no real caller exists yet. Risk is purely "whoever implements spec 1 first, before reading this amendment, ships the now-superseded field." | §0's amendment table is the single source of truth read before implementation; both documents will carry a forward/backward cross-reference once merged | Low |
+| R8 | A per-customer grant widens past the channel scope or re-opens a closed channel | **High** | `customer_groups`, `ecommerce` | §3.6 introduces the suite's first *widening* buyer-side source. A resolver that applied the customer grant after the channel intersection — or that read the override before the `require_authentication` short-circuit — would let one account see products the channel itself excludes, or let an anonymous visitor with a stale session reach a catalog the operator closed entirely. | Layer order is the mitigation and it is structural, not conventional: the override is resolved *inside* `resolveAssortmentScope()` (§5.1), whose result is then intersected with the channel by `ecommerce` (§5.2, unchanged); `require_authentication` short-circuits before that call is made at all. §11 asserts both as **properties** over generated inputs — `matchesScope(p, effective) ⇒ matchesOne(p, channel)` for every triple, and `[]` absorbs any override — not as fixtures | Low |
+| R9 | Per-customer scope shatters the shared facet cache for buyers who have no override | Medium (performance, not disclosure) | `ecommerce` | `assortmentScopeHash` derived from inputs (`customerId`, group ids, an "has override" flag) rather than from the resolved value gives every authenticated buyer a private cache entry — exactly the hit-rate collapse `SPEC-029` §6.1 already had to fix once for `customerOverlayId`. A non-canonical serialization causes the same collapse more subtly: semantically identical scopes hashing differently because their branches arrived in a different group-priority order. | §3.7's two requirements — hash the canonicalized *resolved* scope, and probe for an override with a cached indexed `EXISTS`. Tested by asserting equal hashes for two buyers whose resolved scopes are semantically equal but built in different branch order, and distinct hashes only where the override actually changes the resolved value | Low |
+| R10 | Absent grant passed as `null` silently unrestricts the buyer | Medium | `customer_groups` | `unionScopes` treats a `null` element as "this source is unrestricted," so a resolver that pushes a missing `grant_scope` into the branch list as `null` — the obvious way to write it — grants that buyer the entire catalog, in the permissive direction, with no error anywhere. | §3.6 states the omit-don't-push rule at the point the list is built; §8 carries it as an edge case; §11 carries it as a named regression test alongside the flattened-union fixture, since it is the same class of defect (a permissive failure produced by a plausible-looking one-liner) | Low |
 | R7 | Checkout-lock time-of-check/time-of-use gap | **High** | `cart` | A first draft of this spec's write-path fix checked visibility only at `lines.add`/`.update`/`.bulkAdd`. A membership can expire (`valid_until`, spec 1 §5.2) between add-time and checkout, and `cart-module.md`'s own checkout-lock re-price (trigger 5, "mandatory, never skipped") never re-checked visibility — so a line added while visible could still reach `SalesOrder` creation after becoming restricted, reopening R1/§1.2's exact scenario. Found by review. | §6.0/§6.2: the whole-cart re-visibility pass at triggers 2 and 5, with the lock transition blocked while any line is flagged `product_unavailable` — mirroring the existing `requiresApproval`-blocks-lock precedent in `cart-module.md` §14 | Low, once shipped |
 
 ---
@@ -434,7 +535,7 @@ A rising rate of `product_unavailable` rejections is exactly the kind of drift t
 ## 10) Open Questions (remaining, non-blocking)
 
 1. **Full site-wide access wall.** `require_authentication` (§3.4) gates catalog visibility, not the entire storefront (a fully private site with no public pages at all, including branding/marketing pages). That is a `customer_accounts`/portal-auth-wall feature, not a catalog-visibility one, and is out of scope here.
-2. **Per-customer override below the group level.** Everything in this spec resolves at the group level (§3.1) or the channel level. A single named customer needing a scope wider or narrower than every one of their groups (distinct from personal *pricing*, which `catalog`'s pricing resolver already supports per-customer) has no mechanism here. Not raised as a requirement by any sibling spec; noted so it is a deliberate omission, not an oversight.
+2. ~~**Per-customer override below the group level.**~~ **Resolved 2026-09-16** (user decision): it is a requirement, in both directions, and it is specified in §3.6 (algebra), §3.7 (cache), §4.4 (storage as an entity extension) and §12 Phase 4. It needed no new operator and no change to the read seam, the write-side check or the cache-key contract. Per-customer *pricing* already worked this way — `CatalogProductPrice` carries `customer_id` and `customer_group_id` side by side — so this brings visibility level with pricing rather than inventing a pattern.
 3. **Checkout-submit re-check.** §6.2 requires `cart`'s own lock transition to block on a flagged line, but whether the (not-yet-in-front-of-this-spec) `checkout` spec's submit step should *additionally* re-check visibility independent of the cart's advisory state — the same defense-in-depth `availability`'s authoritative `reserveAvailability()` applies on top of the cart's advisory stock state — is that spec's own decision, not resolved here.
 
 ---
@@ -472,6 +573,19 @@ A rising rate of `product_unavailable` rejections is exactly the kind of drift t
 - A membership change mid-session (trigger 2) re-runs the same whole-cart pass without waiting for checkout
 - End-to-end: a product outside a buyer's assortment returns `404` from `GET /products/:idOrHandle` **and** is rejected from `POST /carts/:token/lines` with the identical class of "not distinguishable from nonexistent" response (R5)
 
+**Per-customer overrides (Phase 4, §3.6/§3.7):**
+- Property: for every generated `(product, channelScope, groupScopes, override)`, `matchesScope(product, effective)` implies `matchesOne(product, channelScope)` — a customer grant can never widen past the channel (R8)
+- Property: with `require_authentication = true` and an anonymous request, the resolved scope is `[]` for every generated override, and `resolveAssortmentScope` is asserted **not called** (R8, same short-circuit assertion style the §3.4 test already uses)
+- Property: `assortmentScopeHash` is equal for two buyers whose resolved scopes are semantically equal but assembled in different branch order, and differs only where the override changes the resolved value (R9, canonicalization)
+- A buyer with no override row resolves to a value byte-identical to the group-only result — the test that makes §3.7's "cost paid only where a rule exists" true rather than aspirational
+- Named regression: an absent `grant_scope` is omitted from the branch list, not pushed as `null` — asserted by a buyer with a restricted group and an override carrying only `restrict_scope`, who must NOT become unrestricted (R10)
+- Widening: a customer whose groups grant category A and whose override grants tag B sees both, exactly as a second group would have granted (§3.6)
+- Narrowing across branches: a product granted by a *group* branch and excluded by `restrict_scope` is not visible — proving the restriction distributes over every branch rather than vetoing only the customer's own
+- Replacement: `restrict_scope` equal to `grant_scope` collapses the union to exactly the customer's own scope regardless of group grants (§3.6)
+- Validity window: an override past its `valid_until` contributes nothing in either direction; a cart line that depended on it is flagged at the next whole-cart pass and blocks the checkout lock (§6.2, R7's fixture re-run with an override instead of a membership)
+- `sourceCustomerOverrideId` is populated for a buyer with an override and `null` otherwise, and the explainability panel renders both halves with their direction labelled (§7)
+- The extension link resolves: `customers:customer_entity` → `customer_groups:customer_assortment_override` traverses through the data engine without an ORM relation (§4.4)
+
 **Enumeration safety:**
 - A restricted and a nonexistent product id produce identical `cart.lines.add` responses (timing and body) — mirrors `storefront-public-api.md`'s own R4 test, applied to the write path
 
@@ -499,7 +613,14 @@ A rising rate of `product_unavailable` rejections is exactly the kind of drift t
 
 **Gate:** the R1/R7 regression suite (§11) passes in full — this is the phase that closes the write-side gap and is the highest-priority phase of the three if only one can ship first.
 
-**On not splitting this into separate specs.** §12's own phase gates show Phases 1–3 are independently deployable, and Phase 3 alone is what removes the live exposure (§1.2) — a fact this document states plainly rather than hides. That is not, by itself, a reason to split into three documents: this suite already phases single conceptual capabilities within one spec rather than one-spec-per-phase (`availability-contract.md`'s three phases are one document; so is `customer-groups-and-b2b-terms.md`'s four). The read-side algebra fix (Phases 1–2) and the write-side enforcement (Phase 3) are one capability — a visibility control whose read half and write half must agree, the same way `cart-module.md`'s own ADR-2 treats cart and order totals as one correctness requirement rather than two specs that happen to compute the same number. What would justify a split is if Phase 3 depended on a module this document does not already assume; it does not — it amends `cart-module.md`, already a dependency.
+### Phase 4 — Per-customer overrides (§3.6)
+`CustomerAssortmentOverride` entity, its migration and the `customer_groups/data/extensions.ts` link (§4.4); `resolveAssortmentScope()` extended to union the grant and intersect the restriction, returning `sourceCustomerOverrideId`; the cached `EXISTS` probe and the canonical-serialization rule for `assortmentScopeHash` (§3.7); the injected "Assortment" section on the customer detail page (§7); the override's own CRUD events wired to buyer-context cache invalidation and to `cart`'s trigger-2 re-visibility pass (§6.2).
+
+**Deliberately last.** It depends on Phases 1–2 and on nothing in Phase 3, and Phase 3 is the phase that closes the live Critical exposure (R1). Sequencing the per-customer feature ahead of it would put a merchandising convenience in front of a security fix. Nothing in Phases 1–3 changes to accommodate it: that no read seam, write-side check or cache-key contract needs touching is the design property §3.6 is built around, and if that turns out not to hold during implementation it is a signal the composition was put in the wrong layer.
+
+**Gate:** the per-customer block in §11 passes, including the two R8 properties (channel bound, closed-channel absorption), the R10 null-grant regression, and the R9 hash-stability assertion.
+
+**On not splitting this into separate specs.** §12's own phase gates show all four phases are independently deployable, and Phase 3 alone is what removes the live exposure (§1.2) — a fact this document states plainly rather than hides. That is not, by itself, a reason to split into three documents: this suite already phases single conceptual capabilities within one spec rather than one-spec-per-phase (`availability-contract.md`'s three phases are one document; so is `customer-groups-and-b2b-terms.md`'s four). The read-side algebra fix (Phases 1–2) and the write-side enforcement (Phase 3) are one capability — a visibility control whose read half and write half must agree, the same way `cart-module.md`'s own ADR-2 treats cart and order totals as one correctness requirement rather than two specs that happen to compute the same number. What would justify a split is if Phase 3 depended on a module this document does not already assume; it does not — it amends `cart-module.md`, already a dependency.
 
 ---
 
@@ -507,7 +628,7 @@ A rising rate of `product_unavailable` rejections is exactly the kind of drift t
 
 | Requirement | Status |
 |---|---|
-| Scope cohesion | Three phases, each independently shippable per §12's own gates — the spec states this plainly rather than papering over it. Bundled as one document because they are facets of one capability (a visibility control whose read and write halves must agree), following this suite's own precedent of phasing one capability within one spec (`availability-contract.md`, `customer-groups-and-b2b-terms.md`) rather than one spec per phase — not because the phases are inseparable |
+| Scope cohesion | Four phases, each independently shippable per §12's own gates (Phase 4, the per-customer layer, is sequenced last on purpose so it cannot precede Phase 3's Critical write-side fix) — the spec states this plainly rather than papering over it. Bundled as one document because they are facets of one capability (a visibility control whose read and write halves must agree), following this suite's own precedent of phasing one capability within one spec (`availability-contract.md`, `customer-groups-and-b2b-terms.md`) rather than one spec per phase — not because the phases are inseparable |
 | Canonical mechanisms reused | `buildStorefrontProductScope` (spec 4) unchanged; `intersectScopes`/`unionScopes`/`matchesScope` follow the `availability` contract's base-in-shared precedent exactly; category/tag matching reuses `CatalogProductCategoryAssignment`/`CatalogProductTagAssignment`, the same tables `catalog`'s own `buildProductFilters` already joins against (verified by direct read of `catalog/api/products/route.ts`) |
 | No cross-module ORM relations | `AssortmentScope` operates on plain ids (`categoryIds`, `tagIds`, `excludeProductIds`); `cart`'s new field is a plain value passed by the caller, not a live reference; `customer_groups`/`ecommerce`/`cart` remain coupled only via DI services and FK ids |
 | Contracts and compatibility | `AssortmentScope` gains two optional keys (additive, jsonb, no migration); `ResolvedTerms.assortmentScope` removal is a change to an *unimplemented* sibling spec's contract, not a shipped one — no `BACKWARD_COMPATIBILITY.md` surface is broken since nothing here exists on `develop` yet; `cart.lines.add`/`.update`/`.bulkAdd` gain a new optional-then-conditionally-required field, additive to an unimplemented command signature |
@@ -515,13 +636,19 @@ A rising rate of `product_unavailable` rejections is exactly the kind of drift t
 | Sensitive data | No new PII surface; `AssortmentScope` carries only catalog ids |
 | Failure scenarios | §8, §9 — every new branch (union, authentication gate, write-path check, checkout-lock TOCTOU) has a stated behavior and a test |
 | Testability | Every Implementation Plan phase has an associated gate in §11/§12 |
-| Cache-key contract | No new cache-key dimension: `assortmentScopeHash` already exists in `SPEC-029` §6.1's digest; this spec supplies a correctly-computed value for that existing slot and does **not** build new shared cache-key infrastructure — that primitive was already built by `SPEC-029` itself, so nothing here is deferred |
+| Cache-key contract | No new cache-key dimension, including for the per-customer layer: `assortmentScopeHash` already exists in `SPEC-029` §6.1's digest, and §3.7 constrains how that existing slot is computed (canonicalized resolved value, never inputs) so that only customers carrying an override lose cache sharing. No new shared cache-key infrastructure is built — that primitive was already built by `SPEC-029` itself, so nothing here is deferred |
 | Handle-enumeration-oracle rule | Read side untouched (still `storefront-public-api.md` §4.2's existing behavior); write side gets the equivalent treatment (§6.3, R5) |
 | Citation accuracy | A fresh-context adversarial review (§14) found and this revision corrected two miscited sibling-document claims — a nonexistent cache-related "deferral" attributed to `pricing-engine.md`, and a "provenance note" wrongly attributed to `ecommerce-suite-roadmap.md` instead of `pricing-engine.md`'s own — and confirmed every other citation (the `cart-module.md` assortment-scope gap, the digest slot, the availability-contract precedent, the OR-facet grammar) against the actual sibling-document text |
 
 ---
 
 ## 14) Changelog
+
+- **2026-09-16** — **Per-customer visibility pass.** §10's open question 2 ("per-customer override below the group level," previously recorded as a deliberate omission) was raised as a requirement by the user, in **both directions** — a named account must be grantable more than its groups allow and restrictable below them. Three decisions were taken and are now specified:
+  - **Algebra (§3.6).** The override carries two independently nullable scopes, `grant_scope` (joins the OR-list, widens) and `restrict_scope` (intersected over every branch, narrows). Both reuse operators §3.3 already defines; there is no new type, no new operator, and no change to the read seam (§3.5), the cart write-side check (§6) or the digest (§6.1) — the whole composition happens inside `resolveAssortmentScope()`, which already returned a finished `EffectiveAssortmentScope`. An explicit `mode: 'extend' | 'replace'` column was considered and rejected: `restrict_scope = grant_scope` already produces replacement semantics, and a redundant mode flag is a second source of truth that can disagree with the scopes beside it. Two fields rather than one were chosen because a single scope's own `exclude*` keys would be genuinely ambiguous about whether they veto one branch or all of them.
+  - **Cache (§3.7).** The per-customer cost is accepted but must be paid only by customers who actually carry an override: `assortmentScopeHash` MUST digest the canonicalized *resolved* scope rather than its inputs, so a buyer with no override resolves byte-identically to the group-only result and keeps sharing the count-facet entries with their group peers. Mirrors `SPEC-029` §6.1's own `customerOverlayId`-not-`customerId` fix, including its cached indexed `EXISTS` probe rather than a denormalized flag. No new digest component.
+  - **Storage (§4.4).** A new sparse table `customer_assortment_overrides` owned by `customer_groups` and linked to `customers:customer_entity` as an **entity extension** in `customer_groups/data/extensions.ts`, per root `AGENTS.md`'s rule for extending another module's data — not a column on the customer entity, and not an ORM relation.
+  - Also added: US-A4; three new risks (**R8** a per-customer grant widening past the channel or a closed channel, mitigated structurally by layer order and asserted as a property; **R9** cache shattering from hashing inputs or a non-canonical serialization; **R10** the `unionScopes`-treats-`null`-as-unrestricted footgun when an absent grant is pushed instead of omitted); eight edge-case rows; a per-customer §11 block; and **Phase 4**, sequenced deliberately last so a merchandising convenience does not ship ahead of Phase 3's Critical write-side fix.
 
 - **2026-09-16** — Read-path representation pass, part of the suite-wide amendment recorded as roadmap ADR-9. Two clarifications to §3.3, no semantic change to §3.1/§3.2:
   - Stated that "`matchesScope` is the single implementation both sides are built from" is a property held by an **equivalence test**, since a TypeScript predicate cannot run in Postgres — and that the test must therefore be property-based rather than a fixture table. The spec's own history is the argument: the flattened-union bug a review caught in §3.1 was precisely a combination nobody had enumerated.

@@ -104,6 +104,9 @@ GET https://firda.pl/products/czerwona-sukienka
   │        assortment: requireAuthentication && !authenticated
   │                      ? [] (deny-all; customer_groups NOT called)
   │                      : customer_groups.resolveAssortmentScope() → OR-list
+│                        (groups, plus that customer's own override — grant
+│                         unioned in, restriction intersected over — all inside
+│                         that one call; visibility spec §3.6)
   │                    then intersectScopes(channel.assortmentScope, groupScope)
   │        catalog: CatalogPriceKind.displayMode of the resolved priceKindId
   │                 (group override, else channel default) → taxMode
@@ -247,7 +250,8 @@ export type BuyerContext = {
   // of the fields above; they add no information, they make it addressable. Every cache,
   // projection and index key in this suite is built from these rather than from `digest`
   // whenever a named component would do.
-  assortmentScopeHash: string        // digest of assortmentScope; already a digest input (§6.1), now a first-class field
+  assortmentScopeHash: string        // digest of the CANONICALIZED RESOLVED assortmentScope — never of its inputs (no customerId,
+                                     // no group ids, no has-override flag); see §6.1 and visibility spec §3.7
   priceScopeKey: string              // sha256(channelId, currencyCode, priceKindId, sortedCustomerGroupIds), truncated
   customerOverlayId: string | null   // customerId, and ONLY when that customer has price rows of their own — see §6.1
 }
@@ -299,6 +303,8 @@ Truncated to 16 hex characters.
 **`customerOverlayId`, not `customerId` (fixed 2026-09-16).** The original wording — "it deliberately includes `customerId`, so a customer with a personal price row does not share a cache entry with their group peers" — states the right requirement and implements it with the wrong input. `customerId` is non-null for *every* authenticated buyer, so the digest gives every one of them a private cache entry, whether or not they have a personal price row. In B2B the large majority do not: they are their group, they resolve to exactly their group's prices, and they could have shared one entry with it. The original input buys the stated safety at the cost of near-zero cache hit rate for authenticated traffic — which is precisely the traffic R2 identifies as the most expensive to serve.
 
 `customerOverlayId` is `customerId` **when that customer has price rows of their own**, and `null` otherwise. The stated requirement is unchanged — a customer with a personal price row still gets a private entry, by construction — while buyers without contracts collapse onto a shared, group-level entry. It is resolved once in `resolve()` by an `EXISTS` over `catalog_product_variant_prices` filtered by `customer_id` (served by the partial index in `pricing-engine.md` Phase 2b) and cached per customer, invalidated on `catalog.prices.create/update/delete`. A query rather than a denormalized flag: a stale `false` would serve a contracted buyer their group's prices, which is R1's failure mode.
+
+**`assortmentScopeHash` hashes the resolved value, not the inputs (added 2026-09-16).** Once a customer can carry an assortment override of their own ([Buyer-Scoped Catalog Visibility](./2026-08-21-buyer-scoped-catalog-visibility.md) §3.6), this distinction decides the cache hit rate the same way `customerOverlayId` just did for price: hashing `customerId`, the contributing group ids, or a "has an override" flag gives every authenticated buyer a private entry, while hashing the canonicalized resolved `EffectiveAssortmentScope` means a buyer with no override resolves byte-identically to their group-only result and keeps sharing the count-facet entries `storefront-public-api.md` §9.1 splits out. Canonicalization is part of the requirement — id arrays sorted, keys sorted, branches sorted by their own canonical form — because otherwise two semantically identical scopes hash differently whenever their branches arrive in a different group-priority order, a performance-only regression no semantic test would catch. Whether the buyer has an override at all is resolved by `customer_groups` with a cached indexed `EXISTS`, the same shape as the `customerOverlayId` probe above.
 
 **Named components are addressable on purpose.** `digest` remains the default key for anything buyer-dependent, but roadmap ADR-7 (amended) requires a surface that varies with only one dimension to key on that dimension's named component instead — `assortmentScopeHash` for scope-only counts (the split `storefront-public-api.md` §9.1 already makes), `priceScopeKey` for group-level prices. `buildStorefrontCacheKey` still takes `StoreContext` as a required argument and the structural CI guard below is unchanged; a component key is built *through* the helper, not around it.
 
@@ -744,6 +750,13 @@ Open:
 ---
 
 ## 21) Changelog
+
+### 2026-09-16 — v4.4 (per-customer assortment overrides)
+
+Applied from [Buyer-Scoped Catalog Visibility](./2026-08-21-buyer-scoped-catalog-visibility.md) §3.6/§3.7, where per-customer visibility was raised as a requirement in both directions.
+
+- §4.1 step 6 — the buyer-side scope now also carries that customer's own override (grant unioned in, restriction intersected over the result), resolved entirely inside `customer_groups.resolveAssortmentScope()`. **The composition line in this module is unchanged**: `intersectScopes(channel.assortmentScope, buyerScope)` still receives one finished `EffectiveAssortmentScope`, and the channel layer still bounds it from above, so an override can never reveal what a channel excludes.
+- §6 / §6.1 — stated that `assortmentScopeHash` digests the **canonicalized resolved** scope rather than its inputs, and why: it is the same trade this version's own `customerOverlayId` fix made for price, and it is what keeps the per-customer cost confined to customers who actually carry an override. No new digest component; `require_authentication`'s short-circuit is unchanged and still skips the whole buyer layer, override included.
 
 ### 2026-09-16 — v4.3 (buyer-scoped read-path amendments)
 

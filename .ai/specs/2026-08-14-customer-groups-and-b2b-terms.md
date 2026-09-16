@@ -232,6 +232,24 @@ Optimistic locking on the decide action uses `updated_at` (already present per t
 
 Approver identification reuses `customers.CustomerEntityRole` (`roleType = 'purchase_approver'`) rather than introducing a parallel role model.
 
+### 5.7 `CustomerAssortmentOverride` (`customer_assortment_overrides`) — added 2026-09-16
+
+One **optional** row per customer, carrying a catalog-visibility rule that applies to that customer alone, above and below whatever their groups grant. Absent row — the common case — means "this customer's assortment comes entirely from their groups," and resolves to a value byte-identical to the group-only result, which is what keeps that buyer sharing storefront cache entries with their group peers ([Buyer-Scoped Catalog Visibility](./2026-08-21-buyer-scoped-catalog-visibility.md) §3.7).
+
+| Column | Type | Notes |
+|---|---|---|
+| `customer_id` | uuid | `customers.CustomerEntity.id` — FK id only, no ORM relation, same convention as §5.2 |
+| `grant_scope` | jsonb, nullable | `AssortmentScope \| null` — the **widening** direction: joins the buyer's OR-list as one more branch, exactly like an additional group grant |
+| `restrict_scope` | jsonb, nullable | `AssortmentScope \| null` — the **narrowing** direction: intersected over *every* branch, so it also cuts what the customer's groups grant |
+| `valid_from` | timestamptz, nullable | null = always; same window semantics as a membership (§5.2) |
+| `valid_until` | timestamptz, nullable | null = indefinite |
+| `notes` | text, nullable | Why this account has a bespoke assortment — the first question support asks |
+| `metadata` | jsonb, nullable | |
+
+Constraints: unique `(tenant_id, customer_id)` among rows with `deleted_at IS NULL`. That unique partial index also serves the cached `EXISTS` probe the storefront uses to decide whether this buyer diverges from their group at all.
+
+Declared as an **entity extension** of the customer, not as columns on `CustomerEntity`, per root `AGENTS.md`'s rule for extending another module's data — `customer_groups/data/extensions.ts` links `customers:customer_entity` → `customer_groups:customer_assortment_override` on `id` ↔ `customer_id`, `one-to-one`. Both scopes and the two-direction algebra are specified in the visibility spec §3.6/§4.4; this module owns the table because it already owns `resolveAssortmentScope()` and already owns validity-windowed buyer rows with exactly these semantics.
+
 ---
 
 ## 6) Service Contract
@@ -271,8 +289,9 @@ interface CustomerGroupsService {
 
   // Assortment scope resolves separately from the scalar terms above — §6.4.
   resolveAssortmentScope(input: { customerId: string | null; at?: Date }): Promise<{
-    scope: EffectiveAssortmentScope   // union across every matching group; no matching groups → null (unrestricted)
+    scope: EffectiveAssortmentScope   // groups unioned, the customer's own grant unioned in and its restriction intersected over the result (§6.4); nothing matching → null (unrestricted)
     sourceGroupIds: string[]          // every group that contributed, for the explain-terms panel
+    sourceCustomerOverrideId: string | null   // the customer's own §5.7 row, or null — the common case
   }>
 
   checkCredit(input: {
@@ -329,7 +348,19 @@ Fixed: `resolveTerms` resolves only `priceKindId` (§5.3). The consumer that nee
 
 Fixed: the `assortmentScope` field is **withdrawn** from `ResolvedTerms`, and `resolveAssortmentScope()` (§6) replaces it. It returns an `EffectiveAssortmentScope` — an OR-list of AND-scopes, one branch per contributing group — so grants combine additively regardless of priority. The type and its pure combinators (`matchesOne`, `matchesScope`, `unionScopes`, `intersectScopes`) live in `packages/shared/src/lib/catalog-visibility/`; that spec owns their definition and this one consumes it. Every other `ResolvedTerms` field is untouched and keeps resolving via §6.1 exactly as before — this is a single-field exception, stated once, not a change to the algorithm.
 
-`customerId: null` (anonymous, or no matching groups) returns `{ scope: null, sourceGroupIds: [] }` — `null` meaning unrestricted, consistent with §6.2's rule that absence of a group MUST NOT be an error.
+`customerId: null` (anonymous, or no matching groups) returns `{ scope: null, sourceGroupIds: [], sourceCustomerOverrideId: null }` — `null` meaning unrestricted, consistent with §6.2's rule that absence of a group MUST NOT be an error.
+
+**Per-customer overrides resolve in the same call (added 2026-09-16).** A customer's own `CustomerAssortmentOverride` (§5.7) is applied here, inside this method, so that every consumer keeps receiving one finished `EffectiveAssortmentScope` and no caller learns how many sources produced it:
+
+```
+branches   = [ ...scopeOfEachMatchingGroup ]
+if (override?.grantScope) branches.push(override.grantScope)   // omitted when absent — NEVER pushed as null,
+                                                               // which unionScopes reads as "unrestricted source"
+unioned    = unionScopes(branches)
+buyerScope = intersectScopes(override?.restrictScope ?? null, unioned)
+```
+
+The grant widens (one more OR-branch, like an extra group) and the restriction narrows across every branch (the same operator the storefront channel's own scope uses). Setting both to the same scope yields "this customer sees only this," so no `mode` column exists. The override is bounded by the layers above it — `ecommerce` still intersects this result with the channel's own scope, and `require_authentication` short-circuits before this method is called at all — so an override can never reveal what a channel excludes. Full algebra, cache rule and risks: the visibility spec §3.6, §3.7, R8–R10.
 
 ---
 
@@ -433,9 +464,12 @@ export const features = [
 'customer_groups.credit.reserved' | '.released' | '.settled' | '.limit_exceeded'
 'customer_groups.credit_account.put_on_hold' | '.released_from_hold'
 'customer_groups.approval.requested' | '.approved' | '.rejected' | '.expired'
+'customer_groups.assortment_override.created' | '.updated' | '.deleted' | '.expired'
 ```
 
 `customer_groups.membership.added` and `.removed` MUST invalidate any cached buyer context and any price cache keyed on that customer — see R2.
+
+`customer_groups.assortment_override.*` carries the same duty for catalog visibility: it MUST invalidate the cached buyer context, the cached "does this customer have an override" probe (visibility spec §3.7) and any storefront cache entry keyed on that buyer's `assortmentScopeHash`. It is also a buyer-identity-class change for `cart`, which re-runs its whole-cart re-visibility pass on it exactly as it does on a membership change (`2026-08-14-cart-module.md` §5.2 trigger 2) — otherwise an override's `valid_until` would be the one buyer-side change that reaches checkout unchecked.
 
 `customer_groups.credit.limit_exceeded` drives an in-app notification to the account manager; a blocked B2B checkout that nobody is told about becomes a support ticket.
 
@@ -511,7 +545,12 @@ Entities `CustomerGroup`, `CustomerGroupMembership`; `resolveGroups`; admin CRUD
 
 **Gate:** an over-threshold subject routes to approval and cannot proceed until decided; double-decision surfaces a conflict.
 
-Phases 1 and 2 unblock the rest of the ecommerce suite. Phases 3 and 4 are required only by checkout (spec 7) and may land in parallel with specs 3–5.
+### Phase 5 — Per-customer assortment overrides
+`CustomerAssortmentOverride` (§5.7) and its `data/extensions.ts` link; `resolveAssortmentScope` extended per §6.4 to union the grant and intersect the restriction, returning `sourceCustomerOverrideId`; the override's CRUD events and their invalidation duty (§10); the injected "Assortment" section on the customer detail page. Tracked as Phase 4 of the visibility spec, which owns the algebra, the cache rule and the tests.
+
+**Gate:** a grant-only override widens without losing any group grant; a restriction cuts a product a group granted; an absent grant does not unrestrict the buyer; a buyer with no override row resolves byte-identically to the group-only result.
+
+Phases 1 and 2 unblock the rest of the ecommerce suite. Phases 3 and 4 are required only by checkout (spec 7) and may land in parallel with specs 3–5. Phase 5 depends only on Phase 2 and is deliberately sequenced after the visibility spec's own Phase 3 (the cart write-side enforcement), so a merchandising convenience does not ship ahead of that spec's Critical fix.
 
 ---
 
@@ -628,6 +667,15 @@ Approver/account manager reviews over-threshold purchase requests.
 ---
 
 ## 18) Changelog
+
+### 2026-09-16 (per-customer assortment overrides)
+
+Applied from [Buyer-Scoped Catalog Visibility](./2026-08-21-buyer-scoped-catalog-visibility.md) §3.6, where the user raised per-customer visibility as a requirement in both directions and the algebra, cache rule and storage decisions were taken.
+
+- **New entity §5.7 `CustomerAssortmentOverride`** — one optional, sparse row per customer with `grant_scope` (widens) and `restrict_scope` (narrows), a validity window and a notes field. Declared as an **entity extension** of `customers:customer_entity` in `customer_groups/data/extensions.ts` per root `AGENTS.md`, not as columns on the customer entity.
+- **§6 / §6.4** — `resolveAssortmentScope()` resolves the override in the same call and returns `sourceCustomerOverrideId`; the grant joins the union as one more branch, the restriction is intersected over every branch. No new operator, and no change to any consumer: the method already returned a finished `EffectiveAssortmentScope`.
+- **§10** — new `customer_groups.assortment_override.*` events with an explicit invalidation duty (buyer context, the override-existence probe, `assortmentScopeHash`-keyed entries) and a stated obligation on `cart`'s trigger-2 re-visibility pass, so an override lapsing cannot reach checkout unchecked.
+- **§14** — new Phase 5, sequenced after the visibility spec's cart-enforcement phase.
 
 ### 2026-09-06 (sibling amendments applied)
 

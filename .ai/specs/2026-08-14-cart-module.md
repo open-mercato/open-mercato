@@ -231,7 +231,7 @@ On add, and on every re-price, each line stores `unit_price_net`, `unit_price_gr
 A cart re-prices when, and only when:
 
 1. A line's quantity changes such that it crosses a `min_quantity` / `max_quantity` tier boundary — only the affected line
-2. Buyer identity changes: login, logout, or a group membership change altering `buyer_digest` — whole cart
+2. Buyer identity changes: login, logout, a group membership change, or a change to that customer's own assortment override (created, edited, deleted, or lapsing past its `valid_until`) altering `buyer_digest` — whole cart
 3. Currency or locale changes — whole cart
 4. A line snapshot is older than the staleness budget (default 30 minutes) and the cart is read — whole cart
 5. Checkout requests a lock (spec 7) — whole cart, mandatory, never skipped
@@ -320,7 +320,7 @@ A per-line check alone leaves a time-of-check/time-of-use window: `CustomerGroup
 
 So the re-pricing triggers in §5.2 that already run **whole-cart** carry a parallel re-*visibility* pass against the freshly-resolved scope:
 
-- **Trigger 2** (buyer identity changes: login, logout, group membership change) — the case that produces the drift.
+- **Trigger 2** (buyer identity changes: login, logout, group membership change, per-customer assortment override change) — the case that produces the drift.
 - **Trigger 5** (checkout requests a lock; "mandatory, never skipped") — the backstop.
 
 A line that fails is **not deleted**. Deleting a buyer's line without disclosure is the failure class R2 and R4 already exist to prevent, and this does not add a third instance of it. The line is flagged `product_unavailable` in `warnings`, exactly as an out-of-stock line already is, and **the `active → locked` transition is refused while any line carries that flag** (§9) — mirroring the existing precedent that an over-`approval_required_above` cart cannot lock. The buyer removes or replaces the line, or regains access and re-triggers a re-price, before checkout proceeds.
@@ -610,7 +610,7 @@ Approval routing, bulk lines, admin cart list, abandonment events.
 
 ## 16) Open Questions
 
-1. **Saved carts / multiple named carts** — B2B buyers maintain recurring order templates. The model supports it (a `name` column and a `saved` status), but the UX belongs to spec 9. *Deferred; not built speculatively.*
+1. **Saved carts / multiple named carts** — B2B buyers maintain recurring order templates. The model supports it (a `name` column and a `saved` status), but the UX belongs to spec 9. *Deferred; not built speculatively.* **Closed 2026-09-16:** spec 9 split the two meanings that "template" conflated — a parked basket is a saved cart, resumed once (and merged via the existing `cart.merge`/`cart.mergeUndo` when the buyer already holds one), while a reusable named set of products and quantities is a shopping list owned by `customer_accounts`. A copy-a-cart-into-a-new-cart primitive was briefly flagged against §3.1a as a gap; it is withdrawn — no new `cart` command is required.
 2. **Cross-store carts** — scoped to one store per the roadmap. Revisit if a tenant wants a shared basket across storefronts.
 3. **Cart-level currency switching** — currently re-prices the whole cart. Whether a buyer may switch currency mid-cart at all, or must start over, is a merchandising decision. *Assumed re-price is acceptable.*
 4. **Agent-authored carts** — `added_by: 'agent'` is in the model. Whether an AI-proposed line needs explicit buyer confirmation before it counts toward totals is an approval-contract question for the AI framework. *Reserved, not specified.*
@@ -639,6 +639,12 @@ Approval routing, bulk lines, admin cart list, abandonment events.
 ---
 
 ## 18) Changelog
+
+### 2026-09-16 (rev 6 — per-customer assortment overrides reach trigger 2)
+
+Applied from [Buyer-Scoped Catalog Visibility](./2026-08-21-buyer-scoped-catalog-visibility.md) §3.6/§6.2. That spec now resolves catalog visibility per customer as well as per group, and a per-customer override carries its own `valid_until` exactly as a group membership does.
+
+- §5.2 trigger 2 and §9's restatement of it now read "buyer identity changes: login, logout, a group membership change, **or a change to that customer's own assortment override**". Without that clause the override would have been the one buyer-side change that reaches the checkout lock unchecked — R7's shape, reintroduced through a new column rather than through the original TOCTOU window. No change to §6a's check itself: it consumes a resolved `EffectiveAssortmentScope` and has never known how many sources produced it.
 
 ### 2026-09-09 (rev 5 — the per-unit discount contract stated correctly)
 

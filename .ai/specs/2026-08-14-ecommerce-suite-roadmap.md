@@ -93,7 +93,7 @@ All new modules live in `packages/core/src/modules/<module>/` and follow the sta
 | Module | Extension |
 |---|---|
 | `@open-mercato/checkout` | Becomes the single checkout funnel for every channel, consuming a `cart` rather than owning line items |
-| `customer_accounts` | Storefront-facing account area: order history, address book, saved carts, wishlist, B2B buyer roster |
+| `customer_accounts` | Storefront-facing account area: order history, address book, saved carts, shopping lists, B2B buyer roster |
 | `wms` | Registers the concrete `availabilityService` implementation backed by `InventoryBalance` / `InventoryReservation` |
 | `catalog` | Admin UI for customer/group/quantity-scoped price rows (the data model already supports them) |
 | `sales` | Order creation entrypoint used by checkout; purchase-on-account payment method |
@@ -290,9 +290,11 @@ The three components and why the split is exactly there:
 
 | Component | Varies with | Shared between buyers? |
 |---|---|---|
-| `assortmentScopeHash` | resolved `EffectiveAssortmentScope` | Yes — every buyer resolving to the same scope |
+| `assortmentScopeHash` | canonicalized **resolved** `EffectiveAssortmentScope` — never its inputs | Yes — every buyer resolving to the same scope, which after spec 12 §3.6 means every buyer without an assortment override of their own |
 | `priceScopeKey` | channel, currency, price kind, group set | Yes — this is the bucket ADR-9 materializes |
 | `customerOverlayId` | one customer's own contract rows | No — by construction |
+
+The first component carries the same load-bearing property as the third, for the same reason, once spec 12 §3.6 lets a single customer hold an assortment rule of their own: hashing the *resolved* scope keeps every buyer without an override byte-identical to their group and sharing its entries, while hashing any input — `customerId`, the contributing group ids, or a has-override flag — gives every authenticated buyer a private entry and throws the sharing away. Canonicalization (sorted ids, sorted keys, sorted branches) is part of that requirement, since otherwise two identical scopes hash differently whenever their branches arrive in a different group-priority order.
 
 The load-bearing member is the third one's `null`. In B2B the large majority of authenticated buyers have **no** price rows of their own — for pricing purposes they *are* their group, and may share a bucket, a cache entry and a sort order with every other buyer in it. Only buyers with authored contracts need an individual path. A context that cannot express "this buyer has no overlay" forces every authenticated buyer onto the individual path and throws that away.
 
