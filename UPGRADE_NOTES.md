@@ -37,16 +37,15 @@ Both now pass `injectionSpotId={extensionPoints.hosts.personForm.spotId}` and
 `…hosts.companyForm.spotId`, read from the customers module's own declaration so the surfaces cannot
 drift apart again.
 
-**This is a breaking change under `BACKWARD_COMPATIBILITY.md` §6, accepted for this release without a
-bridge** — the same classification and waiver #5875 and #5882 record for the customers-module surfaces.
-§6 ("Widget Injection Spot IDs — FROZEN") says a change MUST NOT remove an existing spot ID from a page,
-and that is exactly what this does on these two dialogs. The removal is accepted rather than bridged
-because the id was never a *declared* host: no `extension-points.ts` entry ever named it, it existed only
-as a byproduct of `CrudForm` deriving a spot from the first entry in `entityIds`, and the deprecation
-protocol's dual-publish bridge is not reachable without changing `CrudForm` itself — the `:fields` child
-is resolved internally from the resolved spot id, and the `aliases`/`fallbacks` fields on a host
-declaration are consumed by the facts generator only, so declaring one would make the tooling agree while
-widgets still went dark.
+**This is an additive change — no action required for existing widgets.** Rather than remove
+`crud-form:customers.customer_entity` (§6, FROZEN) as a live surface on these two dialogs, `CrudForm`
+gained a new `legacyInjectionSpotId?: string` prop that dual-publishes a prior spot id's header, body, and
+field widgets alongside the primary one. Both dialogs pass
+`legacyInjectionSpotId={crudFormExtensionSpotId('customers.customer_entity')}` — the exact id `CrudForm`
+used to auto-derive here — so any widget still targeting it keeps rendering in both quick-create dialogs,
+unchanged. See [`BACKWARD_COMPATIBILITY.md`](BACKWARD_COMPATIBILITY.md) §6 and
+[`.ai/specs/2026-09-16-customers-quick-create-injection-spot-bridge.md`](.ai/specs/2026-09-16-customers-quick-create-injection-spot-bridge.md)
+for the full contract analysis.
 
 Nothing else about the dialogs changes: `entityIds` is untouched, so custom-field resolution and the
 component-replacement handle behave exactly as before, and validation and save are unaffected. Widgets
@@ -54,36 +53,19 @@ already registered against `crud-form:customers.person` / `crud-form:customers.c
 now additionally render in the matching quick dialog — including the `customer_accounts` Account Status and
 Company Users groups, which find no `recordId` in create mode and render their empty state.
 
-**Action for module authors — required if you target the legacy id.** If one of your widgets targets
-`crud-form:customers.customer_entity` or `crud-form:customers.customer_entity:fields` and you want it in
-the sales quick dialogs, add the canonical key alongside your existing one in your
-`widgets/injection-table.ts`:
-
-```ts
-export const injectionTable: ModuleInjectionTable = {
-  'crud-form:customers.customer_entity:fields': [myWidget],
-  'crud-form:customers.person:fields': [myWidget],
-  'crud-form:customers.company:fields': [myWidget],
-}
-```
-
-Keep the old key only while you still target a surface that publishes it. The person and company **create
-pages** and the "Add new person" dialog still do today; #5881 and #5915 bind them to the declared hosts and
-are not merged yet. Once both land, `crud-form:customers.customer_entity` is published by no page at all —
-the legacy v1 detail pages publish their own declared `customers.*.detail:details` hosts, not a derived
-`crud-form:*` spot — and the legacy key can be dropped. For the same reason the `example` module keeps its
-`crud-form:customers.customer_entity:fields` alias
-(`apps/mercato/src/modules/example/widgets/injection-table.ts`) for now; it becomes dead, and should be
-removed, when those two PRs merge.
+**Deprecation window.** `legacyInjectionSpotId` on these two call sites is intended to be removed after at
+least one minor version — track the removal against this entry and the spec above. Until then, no action is
+required from module authors targeting either the legacy id or the declared hosts.
 
 **Action for module authors — required if you target `crud-form:customers.person` / `…company` (or their
-`:fields` children) today.** Before this release, the only publishers of those two hosts were the person and
+`:fields` children), or the legacy `crud-form:customers.customer_entity` (or its `:fields` child), today.**
+Before this release, the only publishers of `crud-form:customers.person` / `…company` were the person and
 company **detail** pages, so every widget registered there has only ever rendered with a saved record present
 (`operation: 'update'`, a concrete `recordId`). These two sales quick-create dialogs are the first surfaces
-to mount the same hosts in **create mode** — no `recordId`, `operation: 'create'`. If your widget assumed a
-record always exists (e.g. it queries by `recordId` unconditionally), it now also mounts in the dialogs and
-must tolerate `recordId` being `undefined` — render an empty/pending state instead of querying, the way the
-in-repo `customer_accounts` Account Status and Company Users groups already do.
+to mount either host — or the bridged legacy id — in **create mode**: no `recordId`, `operation: 'create'`.
+If your widget assumed a record always exists (e.g. it queries by `recordId` unconditionally), it now also
+mounts in the dialogs and must tolerate `recordId` being `undefined` — render an empty/pending state instead
+of querying, the way the in-repo `customer_accounts` Account Status and Company Users groups already do.
 
 ### `Locale` is now derived from an augmentable `LocaleRegistry` (no action required)
 

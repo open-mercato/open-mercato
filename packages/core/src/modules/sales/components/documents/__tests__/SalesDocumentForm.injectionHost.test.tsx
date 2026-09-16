@@ -10,6 +10,7 @@ jest.setTimeout(20000)
 
 type CapturedCrudFormProps = {
   injectionSpotId?: string
+  legacyInjectionSpotId?: string
   entityIds?: string[]
   initialValues?: { id?: string }
   versionHistory?: unknown
@@ -184,6 +185,18 @@ describe('SalesDocumentForm customer quick-create injection hosts', () => {
 
     expect(person.injectionSpotId).not.toBe('crud-form:customers.customer_entity')
     expect(company.injectionSpotId).not.toBe('crud-form:customers.customer_entity')
+  })
+
+  it('bridges the previously auto-derived legacy spot id so its widgets keep rendering', async () => {
+    const { person, company } = await renderQuickCreateDialogs()
+
+    // Before this change, CrudForm had no `injectionSpotId` here and derived one from
+    // `entityIds[0]` (`E.customers.customer_entity`), publishing this exact id. Declaring
+    // the canonical host above would otherwise remove it as a live surface on these two
+    // dialogs — a FROZEN-surface break under BACKWARD_COMPATIBILITY.md §6. Passing it as
+    // `legacyInjectionSpotId` keeps any widget still targeting it rendering here.
+    expect(person.legacyInjectionSpotId).toBe('crud-form:customers.customer_entity')
+    expect(company.legacyInjectionSpotId).toBe('crud-form:customers.customer_entity')
   })
 
   it('exposes the same field-widget slots the customers edit surfaces expose', async () => {
