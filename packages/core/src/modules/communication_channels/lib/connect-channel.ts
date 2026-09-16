@@ -44,6 +44,14 @@ export interface CreateConnectedChannelRowArgs {
    * the adapter's push capability (push-capable → null, polling-only → 300).
    */
   pollIntervalSeconds?: number | null
+  /**
+   * The identifier was reported by the adapter itself (not sniffed from the
+   * credential bag). Rows this user created for the same provider before the
+   * adapter reported one carry `external_identifier = NULL` and would never match
+   * the heal key, so the newest such row is adopted instead of inserting another
+   * one next to it.
+   */
+  adoptUnidentifiedChannel?: boolean
 }
 
 /**
@@ -160,6 +168,21 @@ export async function createConnectedChannelRow(
       applyConnectionState(existing)
       await em.flush()
       return existing
+    }
+  }
+
+  if (args.adoptUnidentifiedChannel && effectiveExternalIdentifier && !isTenantWidePush) {
+    const unidentified = await findOneWithDecryption(
+      em,
+      CommunicationChannel,
+      { tenantId: scope.tenantId, userId, providerKey, externalIdentifier: null, deletedAt: null },
+      { orderBy: { createdAt: 'desc' } },
+      dscope,
+    )
+    if (unidentified) {
+      applyConnectionState(unidentified)
+      await em.flush()
+      return unidentified
     }
   }
 

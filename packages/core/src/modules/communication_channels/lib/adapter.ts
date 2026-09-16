@@ -519,6 +519,14 @@ export interface ValidateCredentialsResult {
    * that don't emit codes keep working and callers fall back to `errors`.
    */
   errorCodes?: Record<string, string>
+  /**
+   * Stable identity of the connected account, for providers whose credentials
+   * carry no email-shaped `username` / `email` / `fromAddress` (e.g. a Discord
+   * bot). When present on a successful validation the connect flow uses it as
+   * `CommunicationChannel.externalIdentifier`, so reconnecting the same account
+   * heals the existing channel instead of inserting a duplicate row.
+   */
+  externalIdentifier?: string
 }
 
 // ── The adapter contract ─────────────────────────────────────

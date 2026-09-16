@@ -90,6 +90,83 @@ describe('createConnectedChannelRow', () => {
     expect(reEm.flush).toHaveBeenCalled()
   })
 
+  describe('adapter-reported identity (#4977)', () => {
+    const DISCORD_BASE = {
+      ...BASE,
+      adapter: { channelType: 'discord', capabilities: { realtimePush: true } } as never,
+      providerKey: 'discord',
+      displayName: 'Discord',
+      externalIdentifier: 'discord:123',
+      adoptUnidentifiedChannel: true,
+    }
+
+    function buildEm() {
+      return {
+        create: jest.fn((_entity: unknown, data: Record<string, unknown>) => ({ ...data })),
+        persist: jest.fn(),
+        flush: jest.fn(async () => undefined),
+        fork: jest.fn(),
+      } as any
+    }
+
+    it('adopts and heals the newest legacy identifier-less row instead of inserting a duplicate', async () => {
+      const legacy: any = {
+        id: 'ch-legacy',
+        status: 'requires_reauth',
+        isActive: true,
+        lastError: 'gateway_close_4014',
+        externalIdentifier: null,
+      }
+      ;(findOneWithDecryption as jest.Mock).mockResolvedValueOnce(null).mockResolvedValueOnce(legacy)
+      const em = buildEm()
+      const channel = await createConnectedChannelRow({ em, ...DISCORD_BASE })
+
+      expect(channel).toBe(legacy)
+      expect(em.create).not.toHaveBeenCalled()
+      expect(legacy.status).toBe('connected')
+      expect(legacy.lastError).toBeNull()
+      expect(legacy.externalIdentifier).toBe('discord:123')
+      const [, , legacyFilter, legacyOptions] = (findOneWithDecryption as jest.Mock).mock.calls[1]
+      expect(legacyFilter).toEqual({
+        tenantId: 't',
+        userId: 'user-1',
+        providerKey: 'discord',
+        externalIdentifier: null,
+        deletedAt: null,
+      })
+      expect(legacyOptions).toEqual({ orderBy: { createdAt: 'desc' } })
+    })
+
+    it('heals the row already carrying the identifier without looking for legacy rows', async () => {
+      const existing: any = { id: 'ch-1', status: 'requires_reauth', lastError: 'gateway_close_4004' }
+      ;(findOneWithDecryption as jest.Mock).mockResolvedValueOnce(existing)
+      const em = buildEm()
+      const channel = await createConnectedChannelRow({ em, ...DISCORD_BASE })
+
+      expect(channel).toBe(existing)
+      expect(existing.status).toBe('connected')
+      expect(findOneWithDecryption).toHaveBeenCalledTimes(1)
+    })
+
+    it('inserts a new row when there is nothing to heal or adopt', async () => {
+      ;(findOneWithDecryption as jest.Mock).mockResolvedValue(null)
+      const em = buildEm()
+      const channel = await createConnectedChannelRow({ em, ...DISCORD_BASE })
+
+      expect(em.create).toHaveBeenCalledTimes(1)
+      expect(channel.externalIdentifier).toBe('discord:123')
+    })
+
+    it('never adopts a legacy row for an identifier sniffed from the credential bag', async () => {
+      ;(findOneWithDecryption as jest.Mock).mockResolvedValue(null)
+      const em = buildEm()
+      await createConnectedChannelRow({ em, ...BASE })
+
+      expect(findOneWithDecryption).toHaveBeenCalledTimes(1)
+      expect(em.create).toHaveBeenCalledTimes(1)
+    })
+  })
+
   it('skips the existence check (straight insert) when externalIdentifier is null', async () => {
     const em: any = {
       create: jest.fn((_entity: unknown, data: Record<string, unknown>) => ({ ...data })),
