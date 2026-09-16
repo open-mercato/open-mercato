@@ -5,6 +5,7 @@ import * as React from 'react'
 import { screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import type { StartControlMap } from '../../../lib/start-controls'
+import type { DefaultBatchSizeMap } from '../../../lib/default-batch-size'
 
 const apiCallMock = jest.fn()
 const runMutationMock = jest.fn()
@@ -42,7 +43,11 @@ import SyncRunsDashboardPage from '../page'
 const FULL_SYNC_LABEL = 'Run as full sync'
 const BATCH_SIZE_LABEL = 'Batch size'
 
-function mockOptions(startControls: StartControlMap | undefined, supportedEntities: string[]) {
+function mockOptions(
+  startControls: StartControlMap | undefined,
+  supportedEntities: string[],
+  defaultBatchSizes: DefaultBatchSizeMap = {},
+) {
   apiCallMock.mockImplementation(async (url: string) => {
     if (url.startsWith('/api/data_sync/options')) {
       return {
@@ -60,6 +65,7 @@ function mockOptions(startControls: StartControlMap | undefined, supportedEntiti
             supportedEntities,
             runParameters: [],
             startControls,
+            defaultBatchSizes,
             hasCredentials: true,
             isEnabled: true,
             settingsPath: '/backend/integrations/sync_mixed',
@@ -128,5 +134,38 @@ describe('data sync dashboard start controls', () => {
     await waitFor(() => expect(screen.getByText('Start sync')).toBeInTheDocument())
     expect(screen.queryByText(FULL_SYNC_LABEL)).not.toBeInTheDocument()
     expect(screen.queryByText(BATCH_SIZE_LABEL)).not.toBeInTheDocument()
+  })
+})
+
+describe('data sync dashboard batch size default', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+  })
+
+  it("seeds the field with core's default for an adapter that declares nothing", async () => {
+    mockOptions({}, ['orders.backfill'])
+
+    renderWithProviders(<SyncRunsDashboardPage />)
+
+    expect(await screen.findByText(BATCH_SIZE_LABEL)).toBeInTheDocument()
+    expect(screen.getByDisplayValue('100')).toBeInTheDocument()
+  })
+
+  it('seeds the field with the page size the adapter declared for the selected entity type', async () => {
+    mockOptions({}, ['orders.backfill'], { 'orders.backfill': 500 })
+
+    renderWithProviders(<SyncRunsDashboardPage />)
+
+    expect(await screen.findByText(BATCH_SIZE_LABEL)).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByDisplayValue('500')).toBeInTheDocument())
+  })
+
+  it("falls back to core's default for an entity type the adapter did not declare", async () => {
+    mockOptions({}, ['orders.feed'], { 'orders.backfill': 500 })
+
+    renderWithProviders(<SyncRunsDashboardPage />)
+
+    expect(await screen.findByText(BATCH_SIZE_LABEL)).toBeInTheDocument()
+    expect(screen.getByDisplayValue('100')).toBeInTheDocument()
   })
 })

@@ -42,6 +42,7 @@ type OptionsItem = {
   integrationId: string
   supportedEntities: string[]
   startControls: Record<string, { fullSync: boolean; batchSize: boolean }>
+  defaultBatchSizes: Record<string, number>
 }
 
 function buildAdapter(overrides: Partial<DataSyncAdapter> = {}): DataSyncAdapter {
@@ -89,6 +90,34 @@ describe('data_sync options route start controls', () => {
       'orders.backfill': { fullSync: false, batchSize: true },
     })
     expect(Object.keys(item.startControls).every((key) => item.supportedEntities.includes(key))).toBe(true)
+  })
+
+  it('ships an empty page-size map for an adapter that declares nothing', async () => {
+    mockGetDataSyncAdapter.mockReturnValue(buildAdapter())
+
+    const [item] = await readItems()
+    expect(item.defaultBatchSizes).toEqual({})
+  })
+
+  it('ships only the entity types the adapter declares a page size for', async () => {
+    mockGetDataSyncAdapter.mockReturnValue(buildAdapter({
+      defaultBatchSize: (entityType) => (entityType === 'orders.backfill' ? 500 : undefined),
+    }))
+
+    const [item] = await readItems()
+    expect(item.defaultBatchSizes).toEqual({ 'orders.backfill': 500 })
+    expect(Object.keys(item.defaultBatchSizes).every((key) => item.supportedEntities.includes(key))).toBe(true)
+  })
+
+  it('still answers 200 when an adapter page-size hook throws', async () => {
+    mockGetDataSyncAdapter.mockReturnValue(buildAdapter({
+      defaultBatchSize: () => {
+        throw new Error('[internal] adapter hook blew up')
+      },
+    }))
+
+    const [item] = await readItems()
+    expect(item.defaultBatchSizes).toEqual({})
   })
 
   it('still answers 200 when an adapter predicate throws', async () => {
