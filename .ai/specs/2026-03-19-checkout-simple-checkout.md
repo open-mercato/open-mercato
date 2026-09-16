@@ -19,7 +19,7 @@
 **Key Points:**
 - One funnel, two entry modes. A **merchant-initiated** checkout (pay link, simple checkout) creates a cart from link-defined lines; a **buyer-initiated** checkout (storefront, POS, agent) arrives with an existing cart token. From the moment a `CheckoutSession` exists, both are the same code path.
 - `CheckoutSession` holds `cart_id`, addresses, delivery selection, payment intent and the resulting quote or order. It never holds lines — the cart does.
-- **The funnel core is a fixed state machine, not a workflow.** `workflows` is used where it is strong — the B2B approval sub-flow and post-submit orchestration — and kept out of the sub-second, payment-adjacent conversion path. §5 justifies the split.
+- **The funnel core is a fixed state machine, not a workflow.** `workflows` is used where it is strong — four post-conversion processes (§5.1) — and kept out of the sub-second, payment-adjacent conversion path. The line is drawn by the character of the failure: the engine's known defect stalls an instance, which is an inconvenience where a human is waiting and a loss where money is. §5 justifies the split.
 - Submit is the only authoritative moment: re-price the cart, reserve stock, reserve credit, create the document, take payment, commit the reservation. It is idempotent under retry and safe under concurrent double-submit, or it produces duplicate orders and double charges.
 - B2B branches at submit: an approved buyer on account creates an **order** against a reserved credit line; a buyer requesting terms creates a **quote** for the merchant to convert.
 
@@ -112,7 +112,7 @@ Phase A pay links keep their existing path end to end. They create a `CheckoutTr
 | → `sales` | `commandBus`: `sales.quotes.create`, `sales.quotes.convert_to_order`, order creation |
 | ← `sales` | UMES widget: "Created from checkout" badge when `metadata.sourceModule = 'checkout'` |
 | → `promotions` | DI `promotionsService.registerUsage()` at submit step 7 (§7.2); `revertUsage()` called by `sales` on order cancellation, not by `checkout` directly. **Added 2026-08-17** — an earlier draft used `promotionsService` in §7.2 without listing the dependency here; confirmed via `SPEC-055`'s Amendment §A.2, which names `checkout` as the architecturally-destined in-process caller. Hard dependency, same as `cart`'s own `requires: ['promotions']` (`cart-module.md` §A.2b) — no advisory/optional fallback: a failed `registerUsage` call is a real submit failure, not a degraded-but-functional path. |
-| → `workflows` | Two uses, both async/human-scheduled per §5: the B2B approval sub-flow (§8.2, session parks in `awaiting_approval` pending a workflow decision) and post-submit orchestration (§5.1). **Added 2026-08-17** — omitted from this table despite being load-bearing for §5's own architecture decision. |
+| → `workflows` | Four uses, all post-conversion per §5.1: post-submit orchestration, the B2B approval sub-flow (§8.2, session parks in `awaiting_approval` pending a workflow decision), abandoned-checkout recovery, and failed-compensation escalation. Coupling is the three touch points in §5.1 — event out, command bus in, `workflow_instance_id` for correlation — and nothing else. **Added 2026-08-17**, widened 2026-09-16. Soft: a tenant without `workflows` loses these four processes and keeps a working checkout. |
 
 Retained from v1 unchanged, except the two additions above. The quote→order path through the command bus was the right call and is reused for both entry modes.
 
@@ -147,6 +147,7 @@ Standard scoped columns.
 | `payment_intent_ref` | text, nullable | Gateway reference |
 | `purchase_order_number` | text, nullable | B2B |
 | `approval_id` | uuid, nullable | `customer_groups.CustomerPurchaseApproval.id` |
+| `workflow_instance_id` | uuid, nullable | `workflows.WorkflowInstance.id` for the approval sub-flow (§5.1 touch point 3). FK id only, no ORM relation; null for every session that never requested approval |
 | `credit_reservation_key` | text, nullable | Idempotency key used with `reserveCredit` |
 | `stock_reservation_key` | text, nullable | Idempotency key used with `availabilityService.reserve` |
 | `submit_idempotency_key` | text, nullable | Unique per session; the duplicate-submit guard |
@@ -218,21 +219,63 @@ SPEC-029 §19.2 argued for `workflows` on four grounds: audit trail, per-store c
 |---|---|
 | Audit trail | `CheckoutSessionEvent` (§4.2) is append-only and purpose-shaped, with redaction rules a generic event log would not enforce |
 | Configurability | Step visibility and order are per-store configuration on the link or store, not a graph. The realistic variation is which of five known steps appear, not arbitrary topology |
-| Async activities | Post-submit orchestration **is** a workflow (§5.1). Nothing before submit is async |
+| Async activities | Four post-conversion processes **are** workflows (§5.1). Nothing before submit is async |
 | Compensation | The submit transaction has explicit, ordered compensation (§7.3). A saga across five modules with external side effects needs hand-written compensation regardless; a generic engine does not supply it |
 
-Against, and decisive:
+### The dividing criterion
 
+Not latency. **The character of the failure.**
+
+[Durable Workflow User-Task Continuation](./2026-07-15-durable-workflow-user-task-continuation.md) documents the engine's failure mode: `completeUserTask()` flushes `COMPLETED` before executing the transition, so a crash between the two leaves a completed task on a paused instance. The instance **stalls** — it does not corrupt, it does not double-execute, it stops.
+
+A stall where a human is already waiting is an inconvenience: somebody sees a halted instance and resumes it, and nothing was lost in the meantime. A stall on the payment path is money taken without an order behind it.
+
+> **`workflows` where a stall is an inconvenience. The state machine where a stall is a loss.**
+
+This is a sharper line than "synchronous versus asynchronous", and it puts the same things on the same sides: what the buyer waits for is exactly what must not stall.
+
+Supporting, in descending weight:
+
+- **Data protection.** The workflow event log is immutable by module contract — a `WorkflowEvent` MUST NOT be updated or deleted after creation. `CheckoutSessionEvent` is redacted at write time (§13). Driving the funnel through the engine would put contact details and addresses into a log that by design cannot be erased, against a right to erasure the session's own trail is built to honour. The engine offers no redaction hook to close this.
+- **Anonymous buyers.** A `USER_TASK` requires `assignedTo` or `assignedToRoles`. A guest checking out has neither. Portal user tasks (see below) give logged-in portal principals an identity; they give an anonymous buyer none. A funnel built from tasks cannot serve guest checkout, which is the majority of B2C conversions.
 - **Latency.** Checkout is the conversion-critical path. Every step transition through a durable engine adds writes and reads to an interaction a person is waiting on.
-- **Durability risk.** [Durable Workflow User-Task Continuation](./2026-07-15-durable-workflow-user-task-continuation.md) documents that `completeUserTask()` currently flushes `COMPLETED` before executing the transition, so a failure can leave a completed task on a paused instance. That is an acceptable characteristic for a back-office approval and an unacceptable one for a payment step. It is being fixed; the funnel should not be the first thing to depend on the fix.
 - **Testability.** A five-state machine with an explicit transition table is exhaustively testable. A configurable graph is not.
+
+### What changed in the engine on 2026-09-15, and why the decision stands
+
+PR #5718 landed substantial `workflows` work on `develop`. Three parts of it bear on this section and are the reason §5.1 below is larger than it was:
+
+| Landed | Effect here |
+|---|---|
+| `WAIT_FOR_CONDITION` — a step that pauses until a predicate over the run context holds, woken by a scoped write to the instance context and backstopped by a polling job with a hard timeout | Removes signal correlation as a precondition. A caller that knows the instance id names it directly; checkout stores `workflow_instance_id` (§4.1) and patches the context. **It does not change the funnel decision** — `awaiting_payment` is already a durable state with a recovery job (§12), and routing it through the engine would add a dependency without adding a guarantee |
+| Portal user tasks — a signed-in portal principal has their own task list | Closes the identity gap for the **B2B approval** flow (§5.1.2): the approver acts where they are already signed in. It closes nothing for guest checkout |
+| `workflowDefinitionAuthoring` — a module may own a real workflow definition | This is how the definitions in §5.1 ship: authored in code by `checkout`, seeded per tenant, visible and editable in the Studio afterwards |
+
+Consequently **none of the three open engine specs is a precondition for anything in §5.1**. [Correlated Workflow Signal Waits](./2026-07-20-correlated-workflow-signal-waits.md) is superseded for this purpose by the mechanism above; [Stable Workflow Activity Outputs](./2026-07-20-stable-workflow-activity-outputs.md) is authoring convenience; [Durable Workflow User-Task Continuation](./2026-07-15-durable-workflow-user-task-continuation.md) remains desirable for §5.1.2 and is mitigated there by the stalled-instance monitor (§8.2), not waited on.
 
 ### 5.1 Where `workflows` is used
 
-1. **B2B approval sub-flow** — long-running, human-in-the-loop, spanning hours or days, with notifications and escalation. Exactly what the engine is for. The session parks in `awaiting_approval` and resumes on the workflow's decision.
-2. **Post-submit orchestration** — confirmation email, invoice generation, fulfilment handoff, ERP sync. After the buyer is gone, where retries and durability matter more than latency.
+Four processes, all past the point where the buyer is waiting. Each ships as a code-authored definition owned by `checkout` and seeded per tenant, so a merchant can extend it in the Studio without a deployment.
 
-The boundary: **synchronous and buyer-facing is a state machine; asynchronous or human-scheduled is a workflow.**
+**1. Post-submit orchestration.** Triggered by `checkout.session.completed`. Confirmation email, invoice generation, fulfilment handoff, ERP sync. The buyer is gone; retries and durability matter and latency does not. This is also the module's most useful configuration surface — "notify the account manager above 50 000" is a step a merchant adds themselves.
+
+**2. B2B approval sub-flow.** Triggered by `checkout.session.approval_requested`. Long-running, human-in-the-loop, spanning hours or days, with notification and escalation. The session parks in `awaiting_approval`, **the cart is not locked** (§8.2), and nothing is reserved — so the engine's stall failure mode costs a delay and no money. The decision returns through the command bus and resumes the session.
+
+**3. Abandoned-checkout recovery.** Triggered by `checkout.session.expired`. A sequence measured in hours and days — reminder, then reminder with an incentive, then stop — that marketing owns and changes without engineering. It touches no reservation and no payment. Pure engine territory, and the clearest revenue case for shipping a default definition rather than a hook.
+
+**4. Failed-compensation escalation.** Triggered by `checkout.compensation.failed`. Detection and mechanical retry stay in the background job (§7.3, §12) where they belong; the **escalation ladder** — notify operations, escalate to a supervisor after an hour, open a task if still unresolved — is a human-scheduled process and belongs here.
+
+#### The contract between the funnel and the engine
+
+Exactly three touch points. No other coupling in either direction:
+
+| # | Direction | Mechanism |
+|---|---|---|
+| 1 | checkout → `workflows` | A domain event (§10). Definitions subscribe through their own triggers; checkout never calls `startWorkflow()` inline on the request path |
+| 2 | `workflows` → checkout | The command bus only (`checkout.session.*`, §11). A definition never writes `checkout_sessions` directly, so every workflow-originated write passes the same mutation guards, interceptors and audit trail as a buyer-originated one |
+| 3 | correlation | `CheckoutSession.workflow_instance_id` (§4.1), set for the approval flow. It is how the session shows approval status and how a resume names its instance |
+
+This keeps the dependency soft in the direction that matters: a tenant that disables `workflows` loses the four processes above and still has a working checkout.
 
 ### 5.2 Step machine
 
@@ -366,7 +409,9 @@ Concurrency is enforced by a conditional update `status = 'open' → 'submitting
 
 ### 8.2 Approval gate
 
-An over-threshold session transitions to `awaiting_approval`, creates a `CustomerPurchaseApproval` (spec 1 §5.6), and starts the approval workflow. The cart is **not** locked while waiting — approval can take days and a locked cart holds nothing useful. On approval the session returns to `open` with a forced re-price; prices may legitimately have moved in the interim, and the approved amount is re-checked against the new total. If the total rose above the approved amount, approval is re-requested rather than silently honoured.
+An over-threshold session transitions to `awaiting_approval`, creates a `CustomerPurchaseApproval` (spec 1 §5.6), and starts the approval workflow, recording its `workflow_instance_id` (§4.1).
+
+**Stalled-instance monitor.** Because the engine's user-task defect can leave a completed approval task on a paused instance (§5), a background check reports sessions in `awaiting_approval` whose workflow instance has been paused past a configured threshold, with the instance id, so an operator can resume it. This is the mitigation that makes §5.1.2 safe to build on the engine as it stands today, and it is why nothing is reserved while a session waits here: the worst outcome of a stall is a delay. The cart is **not** locked while waiting — approval can take days and a locked cart holds nothing useful. On approval the session returns to `open` with a forced re-price; prices may legitimately have moved in the interim, and the approved amount is re-checked against the new total. If the total rose above the approved amount, approval is re-requested rather than silently honoured.
 
 ### 8.3 Credit
 
@@ -592,7 +637,7 @@ Credit reservation, approval gating and resume, PO capture, `min_order_value`, o
 **Gate:** the parallel on-account limit test passes; re-approval on price increase verified.
 
 ### Phase B.6 — Hardening
-Rate limits, encryption, redaction, admin session viewer with the event trail, post-submit workflow, integration coverage.
+Rate limits, encryption, redaction, admin session viewer with the event trail, the four seeded workflow definitions of §5.1 (post-submit orchestration, B2B approval, abandoned-checkout recovery, failed-compensation escalation) with the stalled-instance monitor of §8.2, integration coverage.
 
 ---
 
@@ -627,6 +672,20 @@ Rate limits, encryption, redaction, admin session viewer with the event trail, p
 ---
 
 ## 20) Changelog
+
+### 2026-09-16 — v2.2 (workflow boundary restated)
+
+Rewrote §5 and §5.1 after re-reading the engine as it actually stands on `develop` following PR #5718 (merged 2026-09-15). The decision is unchanged — the funnel stays a state machine — but the previous justification had aged and under-specified the part it decided in favour of `workflows`.
+
+- **§5 — the criterion is now the character of the failure, not latency.** The engine's documented defect stalls an instance; a stall is an inconvenience where a human is already waiting and a loss where money is. Latency, testability, data protection and anonymous buyers are stated as supporting reasons in descending weight rather than as the argument itself.
+- **§5 — two reasons stated for the first time.** The workflow event log is immutable by module contract while `CheckoutSessionEvent` is redacted at write time, so driving the funnel through the engine would put buyer PII somewhere a right-to-erasure request cannot reach it. And a `USER_TASK` needs `assignedTo`/`assignedToRoles`, which a guest buyer does not have — a task-shaped funnel cannot serve guest checkout at all.
+- **§5 — reconciled with PR #5718.** `WAIT_FOR_CONDITION` plus the scoped instance-context write removes signal correlation as a precondition; portal user tasks close the approver-identity gap for §5.1.2; `workflowDefinitionAuthoring` is how the definitions ship. Recorded explicitly: **none of the three open engine specs is a precondition** for anything this spec asks of `workflows`. `2026-07-15-durable-workflow-user-task-continuation.md` stays desirable and is mitigated by the §8.2 monitor rather than waited on.
+- **§5.1 — two uses became four.** Post-submit orchestration and the B2B approval sub-flow were already there; **abandoned-checkout recovery** (`checkout.session.expired`) and **failed-compensation escalation** (`checkout.compensation.failed`) are new. The first is a revenue path the suite did not have anywhere; the second splits mechanical retry (stays a background job) from the human escalation ladder (becomes a workflow).
+- **§5.1 — the coupling is now a contract of exactly three touch points**: a domain event outbound, the command bus inbound, and `workflow_instance_id` for correlation. No definition writes `checkout_sessions` directly, so workflow-originated writes pass the same guards and audit trail as buyer-originated ones. The dependency is soft in the direction that matters — without `workflows` the four processes are lost and checkout still works.
+- **§4.1** gained `workflow_instance_id` (uuid, nullable, FK id only), which touch point 3 requires and no earlier revision had.
+- **§2 TLDR, §3.3, §17 Phase B.6** updated for the widened scope.
+
+Not yet done, tracked for the following revisions of this document: the explicit status transition table, the invalidation rules, sign-in during checkout, the §8.2 rejection path and stalled-instance monitor, and the migration-path note.
 
 ### 2026-08-21 — merged with `main`
 
