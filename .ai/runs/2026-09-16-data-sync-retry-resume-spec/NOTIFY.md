@@ -41,3 +41,20 @@
   expressible through the canonical primitive. The spec collapses the copy into `text` rather than
   growing a shared UI contract for one caller. Adding `body?: React.ReactNode` stays available
   additively and is recorded in the spec as the rejected alternative.
+
+## 2026-09-16T12:34:00Z — checkpoint 1 — Steps 1.1..1.5
+- Phase 1 (the specification body) is complete and verified. Five checks passed: nothing outside `.ai/`
+  was touched, all ten required spec sections are present, all seven cited repo paths resolve, all
+  three cited source line numbers are exact, and the `AGENTS.md` line the spec promises to correct
+  exists as described. Four checks were skipped with reasons — typecheck/test/build and the i18n
+  checkers have no changed inputs in a docs-only window, and the integration suite and browser
+  verification have no UI to exercise until Step 2.2 redraws the prototype.
+
+## 2026-09-16T12:34:00Z — finding: D0 is obligatory, not discretionary
+- `BACKWARD_COMPATIBILITY.md` § Data Sync Start Control Applicability (2026-09-02) already states in
+  writing that the adapter's start-control declaration "governs what the dashboard **offers**, never
+  what the run API **accepts**", and that the separation "MUST hold for any future change here, or an
+  API client posting `fullSync: true` would silently stop getting a full run". The server-side gate the
+  first draft of this work proposed — and that the prototype still calls a hole — would have broken a
+  recorded contract commitment, not merely diverged from a sibling endpoint. Recorded in the spec's
+  Final Compliance Report; the prototype is corrected in Phase 2.
