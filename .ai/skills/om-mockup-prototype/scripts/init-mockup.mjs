@@ -12,12 +12,11 @@ import {
 } from 'node:fs'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { buildTokens } from './sync-tokens.mjs'
+import { REPO_ROOT, buildTokens } from './sync-tokens.mjs'
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url))
 const SKILL_DIR = resolve(SCRIPT_DIR, '..')
-const REPO_ROOT = resolve(SKILL_DIR, '../../..')
-const ASSETS_DIR = join(SKILL_DIR, 'assets')
+const ASSETS_DIR = join(SKILL_DIR, 'references/assets')
 const PROTOTYPES_ROOT = join(REPO_ROOT, '.ai/prototypes')
 const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 
@@ -86,7 +85,7 @@ export function initializePrototype({ slug, requirements }, options = {}) {
   }
 
   try {
-    for (const filename of ['components.css', 'screens.css', 'prototype.css', 'prototype.js']) {
+    for (const filename of ['components.css', 'screens.css', 'prototype.css', 'prototype.js', 'theme.css']) {
       copyFileSync(join(ASSETS_DIR, filename), join(staging, filename))
     }
     for (const filename of ['index.html', 'comments.js', 'README.md']) {
@@ -113,6 +112,15 @@ function main() {
   }
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+function isInvokedDirectly() {
+  if (!process.argv[1]) return false
+  try {
+    return realpathSync(resolve(process.argv[1])) === realpathSync(fileURLToPath(import.meta.url))
+  } catch {
+    return false
+  }
+}
+
+if (isInvokedDirectly()) {
   main()
 }

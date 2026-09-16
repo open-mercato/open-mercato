@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>{{MODULE}} — interactive backend prototype</title>
 <link rel="stylesheet" href="tokens.css" />
+<link rel="stylesheet" href="theme.css" />
 <link rel="stylesheet" href="components.css" />
 <link rel="stylesheet" href="screens.css" />
 <link rel="stylesheet" href="prototype.css" />
@@ -51,9 +52,10 @@
   <h1>{{MODULE}} — screen inventory</h1>
   <p class="muted" style="max-width:65ch;margin:0">
     Interactive backend screens derived from <code class="t-mono">{{REQUIREMENTS}}</code>.
-    The shell, page scaffolding, DataTable chrome, and CrudForm layout mirror
-    <code class="t-mono">packages/ui/src/backend/</code>; colors and spacing come from
-    <code class="t-mono">globals.css</code>. Every screen lists its requirement and user-story coverage.
+    The shell, page scaffolding, DataTable chrome, and CrudForm layout follow the
+    product's backend screen anatomy; colors and spacing come from the design-token
+    snapshot (<code class="t-mono">tokens.css</code>, rebrandable through
+    <code class="t-mono">theme.css</code>). Every screen lists its requirement and user-story coverage.
   </p>
 </header>
 
