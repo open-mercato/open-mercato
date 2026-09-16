@@ -15,8 +15,8 @@
 |-------|------|-------|------|--------|--------|
 | 1 | 1.1 | Add `lib/resume-point.ts` and its unit tests | inline | done | pending |
 | 1 | 1.2 | Render the resume point on the run detail page | inline | done | pending |
-| 1 | 1.3 | Render the resume point in the list row menu | inline | todo | — |
-| 1 | 1.4 | Relabel the `cancelled` primary action to Resume | inline | todo | — |
+| 1 | 1.3 | Render the resume point in the list row menu | inline | done | pending |
+| 1 | 1.4 | Relabel the `cancelled` primary action to Resume | inline | done | pending |
 | 1 | 1.5 | Integration coverage `TC-DS-012` | dispatch | todo | — |
 | 1 | 1.6 | Gate the action affordances on `data_sync.run` | inline | todo | — |
 | 1 | 1.7 | Document the cursor-visibility contract for adapter authors | inline | todo | — |

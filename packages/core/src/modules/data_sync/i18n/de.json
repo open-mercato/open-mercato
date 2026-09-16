@@ -1,4 +1,7 @@
 {
+  "data_sync.dashboard.actions.resume": "Fortsetzen",
+  "data_sync.dashboard.actions.retryLastSaved": "{verb} (ab der zuletzt gespeicherten Position dieses Feeds)",
+  "data_sync.dashboard.actions.retryResumes": "{verb} (ab Batch {batch})",
   "data_sync.dashboard.actions.view": "Anzeigen",
   "data_sync.dashboard.columns.created": "Erstellt",
   "data_sync.dashboard.columns.createdAt": "Gestartet",
@@ -132,6 +135,7 @@
   "data_sync.runs.detail.progress.itemsProcessed": "{count} Elemente verarbeitet",
   "data_sync.runs.detail.progress.itemsProcessedTotal": "{processed} / {total} Elemente verarbeitet",
   "data_sync.runs.detail.progress.percent": "{percent}% abgeschlossen",
+  "data_sync.runs.detail.resume": "Fortsetzen",
   "data_sync.runs.detail.resumePoint.noCommittedBatch": "Dieser Lauf hat keinen Batch übernommen. Der erneute Versuch beginnt an der zuletzt gespeicherten Position dieses Feeds, die vor dem Beginn dieses Laufs liegen kann.",
   "data_sync.runs.detail.resumePoint.resumes": "Wird ab Batch {batch} fortgesetzt —",
   "data_sync.runs.detail.retry": "Wiederholen",

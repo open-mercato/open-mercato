@@ -45,6 +45,7 @@ import {
   ShieldCheck,
 } from 'lucide-react'
 import { getSyncRunStatusVariant, getSyncSummaryVariant } from '../../lib/syncRunStatus'
+import { resolveResumePoint } from '../../lib/resume-point'
 import type { RunParameter } from '../../lib/adapter'
 import { getApplicableRunParameters } from '../../lib/run-parameters'
 import {
@@ -69,6 +70,10 @@ type SyncRunRow = {
   entityType: string
   direction: 'import' | 'export'
   status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | 'paused'
+  // Already on the list payload; the row type simply never declared them.
+  cursor: string | null
+  initialCursor: string | null
+  batchesCompleted: number
   createdCount: number
   updatedCount: number
   failedCount: number
@@ -404,6 +409,30 @@ export default function SyncRunsDashboardPage() {
       flash(buildRetryFailureMessage(call.result as RetryFailureBody | null, t), 'error')
     }
   }, [t])
+
+  /**
+   * `RowActionItem.label` is a plain string rendered as the sole child of a
+   * single-line button, so the resume point has to live inside the label rather
+   * than on a second line. `US-A2` assumed this shape from the start.
+   */
+  const buildRetryActions = React.useCallback((row: SyncRunRow) => {
+    const resumePoint = resolveResumePoint(row)
+    if (resumePoint.kind === 'none') return []
+    const verb = row.status === 'cancelled'
+      ? t('data_sync.dashboard.actions.resume', 'Resume')
+      : t('data_sync.runs.detail.retry', 'Retry')
+    const label = resumePoint.kind === 'resumes'
+      ? t('data_sync.dashboard.actions.retryResumes', '{verb} (resumes from batch {batch})', {
+        verb,
+        batch: resumePoint.batchesCompleted,
+      })
+      : t('data_sync.dashboard.actions.retryLastSaved', "{verb} (resumes from this feed's last saved position)", { verb })
+    return [{
+      id: 'retry',
+      label,
+      onSelect: () => { void handleRetry(row) },
+    }]
+  }, [handleRetry, t])
 
   const handleFiltersApply = React.useCallback((values: FilterValues) => {
     const next: FilterValues = {}
@@ -1111,11 +1140,7 @@ export default function SyncRunsDashboardPage() {
                 destructive: true,
                 onSelect: () => { void handleCancel(row) },
               }] : []),
-              ...(row.status === 'failed' ? [{
-                id: 'retry',
-                label: t('data_sync.runs.detail.retry'),
-                onSelect: () => { void handleRetry(row) },
-              }] : []),
+              ...buildRetryActions(row),
             ]} />
           )}
           pagination={{ page, pageSize: 20, total, totalPages, totalIsCapped, onPageChange: setPage }}

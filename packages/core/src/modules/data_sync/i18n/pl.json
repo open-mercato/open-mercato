@@ -1,4 +1,7 @@
 {
+  "data_sync.dashboard.actions.resume": "Wznów",
+  "data_sync.dashboard.actions.retryLastSaved": "{verb} (od ostatniej zapisanej pozycji tego źródła)",
+  "data_sync.dashboard.actions.retryResumes": "{verb} (od partii {batch})",
   "data_sync.dashboard.actions.view": "Zobacz",
   "data_sync.dashboard.columns.created": "Utworzone",
   "data_sync.dashboard.columns.createdAt": "Rozpoczęto",
@@ -132,6 +135,7 @@
   "data_sync.runs.detail.progress.itemsProcessed": "{count} elementów przetworzonych",
   "data_sync.runs.detail.progress.itemsProcessedTotal": "{processed} / {total} elementów przetworzonych",
   "data_sync.runs.detail.progress.percent": "{percent}% ukończono",
+  "data_sync.runs.detail.resume": "Wznów",
   "data_sync.runs.detail.resumePoint.noCommittedBatch": "Ten przebieg nie zatwierdził żadnej partii. Ponowna próba zacznie od ostatniej zapisanej pozycji tego źródła, która może być wcześniejsza niż początek tego przebiegu.",
   "data_sync.runs.detail.resumePoint.resumes": "Wznowi od partii {batch} —",
   "data_sync.runs.detail.retry": "Ponów",

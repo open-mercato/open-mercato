@@ -1,4 +1,7 @@
 {
+  "data_sync.dashboard.actions.resume": "재개",
+  "data_sync.dashboard.actions.retryLastSaved": "{verb} (이 피드의 마지막 저장 위치부터)",
+  "data_sync.dashboard.actions.retryResumes": "{verb} (배치 {batch}부터)",
   "data_sync.dashboard.actions.view": "보기",
   "data_sync.dashboard.columns.created": "생성됨",
   "data_sync.dashboard.columns.createdAt": "시작됨",
@@ -132,6 +135,7 @@
   "data_sync.runs.detail.progress.itemsProcessed": "{count}개 항목 처리됨",
   "data_sync.runs.detail.progress.itemsProcessedTotal": "{total}개 중 {processed}개 항목 처리됨",
   "data_sync.runs.detail.progress.percent": "{percent}% 완료",
+  "data_sync.runs.detail.resume": "재개",
   "data_sync.runs.detail.resumePoint.noCommittedBatch": "이 실행은 커밋된 배치가 없습니다. 재시도는 이 피드의 마지막 저장 위치에서 시작하며, 이 실행이 시작된 지점보다 앞설 수 있습니다.",
   "data_sync.runs.detail.resumePoint.resumes": "배치 {batch}부터 재개 —",
   "data_sync.runs.detail.retry": "재시도",

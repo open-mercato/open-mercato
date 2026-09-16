@@ -348,7 +348,11 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
                 {resumePoint.kind !== 'none' ? (
                   <Button type="button" variant="outline" size="sm" onClick={() => void handleRetry()}>
                     <RotateCcw className="mr-2 h-4 w-4" />
-                    {t('data_sync.runs.detail.retry')}
+                    {/* A cancelled run was stopped on purpose — nothing went
+                        wrong, and "Retry" misdescribes that. */}
+                    {run.status === 'cancelled'
+                      ? t('data_sync.runs.detail.resume', 'Resume')
+                      : t('data_sync.runs.detail.retry')}
                   </Button>
                 ) : null}
               </div>

@@ -56,6 +56,7 @@ packages/core/src/modules/data_sync/
 │   ├── queue.ts                 # Queue helper for enqueuing sync jobs
 │   ├── batch-stream.ts          # Drives adapter streams; one root span per batch
 │   ├── run-parameters.ts        # Validate/coerce operator run parameters vs. adapter declaration
+│   ├── resume-point.ts          # What a retry of a run would do — shared by list + detail
 │   ├── sync-engine.ts           # Orchestrates streaming import/export with progress
 │   └── sync-run-service.ts      # CRUD for SyncRun + cursor management
 ├── api/
@@ -162,6 +163,10 @@ Run parameters are **operator-visible and stored in clear text** on
 declare a parameter that carries a secret — credentials belong in
 `integrationCredentialsService`.
 
+A **cursor is operator-visible too** — `cursor` and `initialCursor` are rendered
+verbatim on the dashboard and invited into support tickets — so never encode a
+credential or personal data in one either.
+
 **Translation.** `label`, `description` and `placeholder` are literals, so an
 adapter shipping to more than one locale MUST also set `labelKey` /
 `descriptionKey` / `placeholderKey`; the dashboard prefers the key and falls
@@ -238,7 +243,7 @@ If the sync provider needs bootstrap credentials, mappings, locales, channels, o
 - **Cursor persistence**: After each batch, the cursor is saved on the run row and mirrored into the shared `SyncCursor` row
 - **Shared cursor opt-out**: An adapter returning `persistsSharedCursor(entityType) === false` keeps that entity type's cursor on the run row only — use it for whole-table backfills whose cursor is one run's scan state, not a durable log position. Those entity types resolve an incremental start position from the most recent run (`resolveResumeCursor`) instead of the shared row, and from `null` when that run completed
 - **Resetting an opt-out**: A reset flow that deletes the shared `SyncCursor` row MUST also call `syncRunService.resetResumePosition(integrationId, entityType, direction, scope)`. An opted-out entity type has no shared row to delete, so deleting only that leaves the resume position on the last interrupted run and the next incremental run re-imports just the tail of the walk it was reset against. The call is a no-op when nothing is interrupted, so make it unconditionally
-- **Resume**: Retry reads the last successful cursor, resumes from there
+- **Retry / Resume / Run again**: three operator actions over two endpoints. **Retry** (`failed`) and **Resume** (`cancelled`) are the same request — `runs/[id]/retry` with `fromBeginning: false` — resuming from the run's committed `cursor`, or from `resolveStartCursor(...)` when it committed none. **Retry from the beginning** sends `fromBeginning: true` for a `null` start cursor; it is UI-gated on `supportsStartControl('fullSync', entityType)` while the endpoint keeps accepting the field. **Run again** (`completed`) opens the prefilled start form at `/backend/data-sync?from=<runId>` and posts `data_sync/run`. `lib/resume-point.ts` (`resolveResumePoint`) turns a run row into the one sentence both surfaces render, and never claims a start position for a run that committed no batch
 - **Progress**: Linked to `ProgressJob` via `progressJobId` for `ProgressTopBar` display
 - **Cancellation**: The engine polls `progressService.isCancellationRequested()` in the batch handler AND on the heartbeat tick while a batch is still in flight, aborting `StreamImportInput.signal` / `StreamExportInput.signal`. Adapters SHOULD honour the signal wherever the work is divisible (per page, per record, around a long flush) and `return` — with the `return` ABOVE the `yield`, never below it, or the engine commits a cursor for a half-applied page. Adapters that ignore the signal keep the old between-batches behavior.
 - **Error reporting**: Every `level: 'error'` row the engine writes is also reported to the active telemetry backend, grouped by a `code`. A `failed` import item MAY carry `data.errorCode` (a stable `module.reason` token, never an interpolated string) alongside `data.errorMessage`; the engine ENFORCES that shape — it is a metric label, so an interpolated value would blow up cardinality and, unlike attributes, would egress unredacted — and substitutes `data_sync.item_failed` for anything else, including a missing value. A run that finishes with `failedCount > 0` additionally reports one `data_sync.run_partial_failure` summary, independent of `adapter.operationalTelemetry` — that flag decides how chatty the operational log is, never whether a failure is observable. Policy: [`error-reporting.mdx`](../../../../../apps/docs/docs/framework/runtime/error-reporting.mdx)
