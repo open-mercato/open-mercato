@@ -419,7 +419,74 @@ Full axe sweep, manual accessibility pass, Lighthouse CI, bundle budgets, cross-
 
 ---
 
-## 16) Changelog
+## 16) User Story Map (Prototype Input)
+
+Added 2026-09-16 to support the `om-mockup-prototype` click-through. Derived from §4's route tree, §5's components, §6–§8's design, responsive and accessibility rules; no new scope. The actor is a storefront visitor unless stated.
+
+**Not covered here.** The checkout funnel and the account area are routes in §4 and phases in §13, but their behaviour is specified by [Checkout Funnel](./2026-03-19-checkout-simple-checkout.md) and [Storefront Customer Account](./2026-08-14-storefront-customer-account.md), and their user stories live there. Repeating them would create a second, drifting copy of a flow this spec only hosts.
+
+### Epic A — Landing and navigation
+
+- **US-A1** — As a visitor, I want a home page assembled from the store's own merchandising placements, so that what I see first is what the merchant chose, not a fixed template.
+  - AC: the page renders `home.main` placements; a store with none configured shows the catalogue entry points rather than an empty page.
+  - AC: branding tokens are SSR-injected as CSS custom properties, so the first paint is already the merchant's palette and there is no flash of default styling (§6).
+  - AC: the header carries a skip link as its first focusable element (§4, §8).
+
+### Epic B — Browsing a catalogue
+
+- **US-B1** — As a visitor, I want to filter a category listing and see how many products match, so that I can narrow a large catalogue without losing my place.
+  - AC: filters render as a sidebar at `≥1024`, a sheet below it (§7); the grid is 4 / 3 / 2 columns across the three breakpoints.
+  - AC: result-count and filter changes are announced through an `aria-live="polite"` region (§5.4).
+  - AC: active filters are reflected in the URL and restored from it.
+
+- **US-B2** — As a visitor, I want the sort options I am offered to be the ones the server will actually perform, so that I am never given an ordering the catalogue cannot produce.
+  - AC: options are rendered from the listing response's `availableSorts` and **never** from a literal list in the client (§5.4a) — a channel that withdrew price sorting simply offers fewer options, with no storefront deploy.
+  - AC: the control shows the server's `appliedSort` as its current value, not the value the visitor last clicked.
+  - AC: changing the sort resets pagination to page 1 and is reflected in the URL.
+  - AC: the change announces the new result order through the same `aria-live` region as the result count.
+
+- **US-B3** — As a visitor following a shared link whose sort this catalogue will not perform, I want the catalogue, so that a link someone sent me is never a dead end.
+  - AC: `?sort=price_asc` on a channel with `price_sort_fallback: 'unavailable'` renders the listing in the order the server applied, with a one-line note — not a `400`, and not silently in a different order (§5.4a).
+  - AC: the note is rendered from `X-Sort-Unavailable` / `X-Sort-Approximate` and the two read differently: one says the sort is not offered for this catalogue, the other that the order shown is approximate.
+  - AC: the sort control itself shows the applied sort, so the control and the note agree.
+
+- **US-B4** — As a visitor, I want a product I may not see to be indistinguishable from one that does not exist, so that the catalogue cannot be probed.
+  - AC: a restricted product's URL renders the same `not-found.tsx` a deleted product does.
+
+### Epic C — Product detail
+
+- **US-C1** — As a visitor, I want to choose a variant and see its price, availability and images update, so that what I add to the cart is what I looked at.
+  - AC: a variant combination that does not exist is shown unavailable rather than hidden, so the visitor can see why their selection failed (§5.1).
+  - AC: price is the buyer's resolved price, not a list price, and a buyer-specific price is labelled as such (§5.3).
+  - AC: the add-to-cart control reflects quantity rules — minimum, step — before submission rather than failing after it (§5.2).
+
+### Epic D — Cart
+
+- **US-D1** — As a visitor, I want to change quantities and remove lines with the totals following, so that I can see the cost of a change before committing to it.
+  - AC: an empty cart states what to do next rather than showing an empty table.
+  - AC: quantity steppers meet the 44×44 touch-target minimum (§7).
+  - AC: a line that became unavailable is flagged in place, never silently dropped.
+
+### Epic E — Content pages
+
+- **US-E1** — As a visitor, I want a merchant's static page to render whichever way it was authored, so that the same URL works for an HTML page and a block-composed one.
+  - AC: `format: 'html'` renders as received — the app does **not** re-sanitize, because a second allowlist is how two sanitizers drift until the weaker one is the one that matters (§5.7).
+  - AC: `format: 'blocks'` is delegated to the same `BlockRenderer` merchandising placements use, not to a second implementation.
+  - AC: an **unrecognized** `format` renders the page title and a neutral fallback and reports through the error boundary; it never renders `value` as markup (§5.7, R9).
+  - AC: body headings are offset so the page's own `<h1>` stays unique (§8).
+
+### Cross-cutting rules
+
+- Every route works at 2 columns / sheet filters below `640` and 4 columns / sidebar at `≥1024` (§7); touch targets are at least 44×44.
+- Motion is wrapped in `prefers-reduced-motion: reduce`; there are no full-page transitions, only skeletons (§6).
+- `axe-core` reports zero `serious` or `critical` violations on every route, anonymous and authenticated, at both widths (§8).
+- Server-decided sets — sort options (§5.4a), checkout steps (§5.5) — are always rendered from the response, never from a literal list in the client.
+
+---
+
+## 17) Changelog
+
+- **§16 user story map added.** The spec described routes, components and rules but never who wanted what, so a prototype had to infer the flow from a route tree. Six epics derived from §4–§8; no new scope. Checkout and account stories are deliberately left to the specs that own those flows. The changelog moves from §16 to §17.
 
 ### 2026-09-16 (b) — sort control
 - Added `SortControl` (§5.4a). Sorting appeared in this spec exactly once before, as the word "sort" in a §12 coverage line — no component, no contract, nothing saying where the option list comes from. That was survivable while the option set was fixed; it stopped being survivable when the public API gained a per-channel `price_sort_fallback` (§6.3 there), because a control holding its own literal list keeps offering a price sort the server has declined to perform, and nothing in this document forbade one.
