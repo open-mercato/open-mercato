@@ -30,19 +30,26 @@ jest.mock('@open-mercato/ui/backend/confirm-dialog', () => ({
   useConfirmDialog: () => ({ confirm: confirmMock, ConfirmDialogElement: null }),
 }))
 
-/** Renders the overflow items flat so they can be clicked without a portal. */
+/**
+ * Renders the overflow items flat so they can be clicked without a portal, and
+ * mirrors the real component's behaviour of rendering nothing for an empty
+ * list — a mock that renders a wrapper regardless would hide exactly the
+ * regression these tests exist to catch.
+ */
 jest.mock('@open-mercato/ui/backend/RowActions', () => ({
-  RowActions: ({ items }: { items: Array<{ id?: string; label: string; onSelect?: () => void }> }) => (
-    <div data-testid="overflow">
-      {items.map((item, index) => (
-        <button key={item.id ?? index} type="button" onClick={item.onSelect}>{item.label}</button>
-      ))}
-    </div>
+  RowActions: ({ items }: { items?: Array<{ id?: string; label: string; onSelect?: () => void }> }) => (
+    !items || items.length === 0 ? null : (
+      <div data-testid="overflow">
+        {items.map((item, index) => (
+          <button key={item.id ?? index} type="button" onClick={item.onSelect}>{item.label}</button>
+        ))}
+      </div>
+    )
   ),
 }))
 
 jest.mock('../../../../../components/useDataSyncRunAccess', () => ({
-  useDataSyncRunAccess: () => ({ canRunSync: true }),
+  useDataSyncRunAccess: () => ({ canRunSync: true, canConfigureSync: true }),
 }))
 
 jest.mock('next/navigation', () => ({
@@ -100,8 +107,21 @@ async function clickFromBeginning() {
   fireEvent.click(button)
 }
 
-function retryBodies(): unknown[] {
-  return runMutationMock.mock.calls.map(([arg]) => (arg as { mutationPayload?: unknown }).mutationPayload)
+/**
+ * Reads the body the request would actually send, by invoking the operation the
+ * guard was handed — asserting `mutationPayload` alone would still pass if the
+ * two disagreed.
+ */
+async function sentRetryBodies(): Promise<unknown[]> {
+  const bodies: unknown[] = []
+  for (const [arg] of runMutationMock.mock.calls) {
+    const { operation } = arg as { operation: () => unknown }
+    apiCallMock.mockClear()
+    await operation()
+    const init = apiCallMock.mock.calls.at(-1)?.[1] as { body?: string } | undefined
+    if (init?.body) bodies.push(JSON.parse(init.body))
+  }
+  return bodies
 }
 
 beforeEach(() => {
@@ -119,7 +139,7 @@ describe('SyncRunDetailPage retry from the beginning', () => {
     await clickFromBeginning()
 
     await waitFor(() => expect(runMutationMock).toHaveBeenCalled())
-    expect(retryBodies()).toContainEqual({ runId: 'run-1', fromBeginning: true })
+    expect(await sentRetryBodies()).toContainEqual({ fromBeginning: true })
   })
 
   it('sends nothing when the confirm is dismissed', async () => {

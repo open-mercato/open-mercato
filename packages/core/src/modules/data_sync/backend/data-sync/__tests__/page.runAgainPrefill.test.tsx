@@ -32,7 +32,7 @@ jest.mock('@open-mercato/ui/backend/confirm-dialog', () => ({
 }))
 
 jest.mock('../../../components/useDataSyncRunAccess', () => ({
-  useDataSyncRunAccess: () => ({ canRunSync: true }),
+  useDataSyncRunAccess: () => ({ canRunSync: true, canConfigureSync: true }),
 }))
 
 jest.mock('next/navigation', () => ({
@@ -43,6 +43,11 @@ jest.mock('next/navigation', () => ({
 
 import SyncRunsDashboardPage from '../page'
 
+/**
+ * Two integrations, so the suite can cover both seeding paths: one where the
+ * source run's integration differs from the initially-selected one (the reset
+ * effects re-run), and one where it is already selected (they do not).
+ */
 const OPTIONS = {
   items: [{
     integrationId: 'erp-ambra',
@@ -58,6 +63,20 @@ const OPTIONS = {
     hasCredentials: true,
     isEnabled: true,
     settingsPath: '/backend/integrations/erp-ambra',
+  }, {
+    integrationId: 'shopify-nordvik',
+    title: 'Shopify Nordvik',
+    description: null,
+    providerKey: 'shopify',
+    direction: 'import',
+    runMode: 'generic',
+    canStartRun: true,
+    supportedEntities: ['products'],
+    runParameters: [{ key: 'collection', label: 'Collection', type: 'text' }],
+    startControls: {},
+    hasCredentials: true,
+    isEnabled: true,
+    settingsPath: '/backend/integrations/shopify-nordvik',
   }],
 }
 
@@ -90,13 +109,50 @@ beforeEach(() => {
   searchParams = new URLSearchParams()
 })
 
+/**
+ * Reads what the entity-type control actually shows. Asserting the banner alone
+ * is what let a completely non-functional prefill ship green in review — the
+ * banner claimed four fields were copied while the form held none of them.
+ */
+function selectedEntityTypeText(): string {
+  const combos = screen.getAllByRole('combobox')
+  return combos.map((node) => node.textContent ?? '').join(' | ')
+}
+
 describe('SyncRunsDashboardPage ?from= prefill', () => {
-  it('seeds the form from the named run', async () => {
+  it('seeds the entity type into the form, not just the banner', async () => {
     searchParams = new URLSearchParams('from=run-9')
     mockApi()
     renderWithProviders(<SyncRunsDashboardPage />)
 
-    expect(await screen.findByText(/copied from erp-ambra/i)).toBeInTheDocument()
+    await screen.findByText(/copied from erp-ambra/i)
+    // price_lists, from the source run — NOT customers, the first supported entity.
+    await waitFor(() => expect(selectedEntityTypeText()).toMatch(/Price Lists/))
+    expect(selectedEntityTypeText()).not.toMatch(/\bCustomers\b/)
+  })
+
+  it('seeds the stored run parameter into its input', async () => {
+    searchParams = new URLSearchParams('from=run-9')
+    mockApi()
+    renderWithProviders(<SyncRunsDashboardPage />)
+
+    await screen.findByText(/copied from erp-ambra/i)
+    await waitFor(() => expect(screen.getByDisplayValue('b2b-active')).toBeInTheDocument())
+  })
+
+  /**
+   * The path the reset effects never re-run on, because the integration is
+   * already selected. An earlier version seeded nothing at all here while the
+   * banner still claimed it had.
+   */
+  it('seeds when the source run belongs to the already-selected integration', async () => {
+    searchParams = new URLSearchParams('from=run-9')
+    mockApi()
+    renderWithProviders(<SyncRunsDashboardPage />)
+
+    await screen.findByText(/copied from erp-ambra/i)
+    await waitFor(() => expect(selectedEntityTypeText()).toMatch(/Price Lists/))
+    expect(screen.getByDisplayValue('b2b-active')).toBeInTheDocument()
   })
 
   it('names the dropped parameter the adapter no longer declares', async () => {

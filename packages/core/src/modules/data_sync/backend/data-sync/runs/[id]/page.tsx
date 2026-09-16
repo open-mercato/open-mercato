@@ -450,9 +450,9 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
                       : t('data_sync.runs.detail.retry')}
                   </Button>
                 ) : null}
-                {/* Only rendered when it has an item — an overflow holding
-                    nothing is worse than no overflow. */}
-                {overflowActions.length > 0 ? <RowActions items={overflowActions} /> : null}
+                {/* RowActions renders nothing for an empty list, so an
+                    overflow with no items never appears. */}
+                <RowActions items={overflowActions} />
               </div>
               {resumePoint.kind === 'resumes' ? (
                 <p className="flex flex-wrap items-center justify-end gap-1 text-xs text-muted-foreground">

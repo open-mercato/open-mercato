@@ -26,7 +26,7 @@ jest.mock('@open-mercato/ui/backend/Page', () => ({
 }))
 
 jest.mock('../../../../../components/useDataSyncRunAccess', () => ({
-  useDataSyncRunAccess: () => ({ canRunSync }),
+  useDataSyncRunAccess: () => ({ canRunSync, canConfigureSync: canRunSync }),
 }))
 
 jest.mock('next/navigation', () => ({

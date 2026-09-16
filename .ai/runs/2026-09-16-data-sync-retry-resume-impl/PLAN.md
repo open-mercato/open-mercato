@@ -28,6 +28,7 @@
 | 3 | 3.2 | Seed the start form from `?from=<runId>` | inline | done | pending |
 | 3 | 3.3 | Route the stale-parameter 422 to the prefilled form | inline | done | pending |
 | 3 | 3.4 | Integration coverage `TC-DS-014` | dispatch | done | pending |
+| 3 | 3.5-review-fix | Apply the code review: 1 blocker, 3 majors, 5 minors | inline | done | pending |
 
 ## Goal
 

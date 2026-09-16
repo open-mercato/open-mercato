@@ -81,6 +81,16 @@ describe('isRetryableRunStatus', () => {
     expect(isRetryableRunStatus(status)).toBe(false)
   })
 
+  // `status` arrives on an API payload, so an object-literal lookup would have
+  // answered truthy here and offered Retry on a run in an unknown state.
+  it.each(['constructor', 'toString', 'valueOf', '__proto__', 'hasOwnProperty'])(
+    'rejects the inherited property name %s',
+    (status) => {
+      expect(isRetryableRunStatus(status)).toBe(false)
+      expect(resolveResumePoint(buildRun({ status }))).toEqual({ kind: 'none' })
+    },
+  )
+
   it('agrees with resolveResumePoint about which statuses qualify', () => {
     for (const status of ['pending', 'running', 'completed', 'failed', 'cancelled', 'paused']) {
       const retryable = isRetryableRunStatus(status)

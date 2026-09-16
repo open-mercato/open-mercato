@@ -208,19 +208,35 @@ export default function SyncRunsDashboardPage() {
   const [reloadToken, setReloadToken] = React.useState(0)
   // Server-side the run endpoints already require `data_sync.run`; the pages
   // did not, so a `data_sync.view` holder saw buttons that 403 on click.
-  const { canRunSync } = useDataSyncRunAccess()
+  const { canRunSync, canConfigureSync } = useDataSyncRunAccess()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const searchParams = useSearchParams()
   const fromRunId = searchParams?.get('from') ?? null
   /**
-   * The seed has to survive two existing effects that reset the form whenever
-   * the integration or the parameter declaration changes. Rather than racing
-   * them, the seeded values wait in a ref and those effects consult it — so the
-   * order the responses arrive in stops mattering.
+   * The seed is applied eagerly AND left for the two pre-existing reset effects
+   * to honour, because neither mechanism is sufficient alone: those effects do
+   * not re-run when the seeded integration is already the selected one, and
+   * eager writes alone would be clobbered when they do run.
+   *
+   * Each effect consumes the seed at most once, tracked per token, so a later
+   * manual change falls through to the ordinary defaults instead of having the
+   * old run's values re-applied over it.
    */
-  const pendingSeedRef = React.useRef<{ entityType: string; direction: 'import' | 'export'; parameters: Record<string, unknown> } | null>(null)
+  const seedRef = React.useRef<{
+    token: string
+    entityType: string
+    direction: 'import' | 'export'
+    parameters: Record<string, RunParameterFormValue>
+  } | null>(null)
+  const seedConsumedRef = React.useRef<{ selection: string | null; parameters: string | null }>({ selection: null, parameters: null })
   const seedAttemptedRef = React.useRef<string | null>(null)
   const seedMountedRef = React.useRef(true)
+
+  /** An operator touching the form retires the seed — and the banner with it. */
+  const retireSeed = React.useCallback(() => {
+    seedRef.current = null
+    setSeedSource(null)
+  }, [])
   const [seedSource, setSeedSource] = React.useState<{ integrationId: string; entityType: string; droppedKeys: string[] } | null>(null)
   const scopeVersion = useOrganizationScopeVersion()
   const t = useT()
@@ -322,19 +338,17 @@ export default function SyncRunsDashboardPage() {
 
   React.useEffect(() => {
     const defaults = buildDefaultRunParameterValues(runParameters)
-    const seed = pendingSeedRef.current
-    if (!seed) {
+    const seed = seedRef.current
+    if (!seed || seedConsumedRef.current.parameters === seed.token) {
       setParamValues(defaults)
       return
     }
-    // The declaration has resolved, so the seed can be applied and retired —
-    // a later re-render must not re-seed over the operator's own edits.
+    seedConsumedRef.current.parameters = seed.token
     const seeded: Record<string, RunParameterFormValue> = { ...defaults }
     for (const param of runParameters) {
       const value = seed.parameters[param.key]
-      if (value !== undefined) seeded[param.key] = value as RunParameterFormValue
+      if (value !== undefined) seeded[param.key] = value
     }
-    pendingSeedRef.current = null
     setParamValues(seeded)
   }, [runParameters])
 
@@ -357,8 +371,13 @@ export default function SyncRunsDashboardPage() {
       setSelectedEntityType('')
       return
     }
-    const seed = pendingSeedRef.current
-    if (seed && selectedIntegration.supportedEntities.includes(seed.entityType)) {
+    const seed = seedRef.current
+    if (
+      seed
+      && seedConsumedRef.current.selection !== seed.token
+      && selectedIntegration.supportedEntities.includes(seed.entityType)
+    ) {
+      seedConsumedRef.current.selection = seed.token
       setSelectedEntityType(seed.entityType)
       setSelectedDirection(seed.direction)
       return
@@ -467,7 +486,14 @@ export default function SyncRunsDashboardPage() {
    * a run starts and thrown away.
    */
   React.useEffect(() => {
-    if (!fromRunId || isLoadingOptions) return
+    // `router.replace` below drops the parameter, so a second "Run again" on the
+    // same run arrives as null → id. Re-arming on the null is what lets that
+    // repeat work without the guard also re-firing on every effect re-run.
+    if (!fromRunId) {
+      seedAttemptedRef.current = null
+      return
+    }
+    if (isLoadingOptions) return
     if (seedAttemptedRef.current === fromRunId) return
     seedAttemptedRef.current = fromRunId
 
@@ -485,6 +511,9 @@ export default function SyncRunsDashboardPage() {
       // Only an unmount aborts this. An earlier version cancelled on every
       // effect re-run, which — with the ref guard blocking a second fetch —
       // meant the seed never landed at all.
+      // An unknown, malformed or cross-tenant id is not an error state: the form
+      // simply renders its normal defaults. The attempt stays recorded so this
+      // does not retry in a loop — the parameter is still in the URL.
       if (!seedMountedRef.current || !call.ok || !call.result) return
 
       const source = call.result
@@ -504,13 +533,24 @@ export default function SyncRunsDashboardPage() {
         else dropped.push(key)
       }
 
-      pendingSeedRef.current = {
+      const token = `${fromRunId}:${Date.now()}`
+      seedRef.current = {
+        token,
         entityType: source.entityType,
         direction: source.direction,
-        parameters: carried,
+        parameters: carried as Record<string, RunParameterFormValue>,
       }
+      seedConsumedRef.current = { selection: null, parameters: null }
+
+      // Applied eagerly as well as left for the effects: selecting an
+      // integration that is already selected re-runs neither of them, and that
+      // is the common case when "Run again" is clicked from the dashboard.
       setSelectedIntegrationId(source.integrationId)
+      setSelectedEntityType(source.entityType)
+      setSelectedDirection(source.direction)
+      setParamValues((current) => ({ ...current, ...carried } as Record<string, RunParameterFormValue>))
       setSeedSource({ integrationId: source.integrationId, entityType: source.entityType, droppedKeys: dropped })
+
       // Drop the parameter so a re-render or a back-navigation cannot re-seed
       // over edits the operator has since made.
       router.replace('/backend/data-sync')
@@ -518,7 +558,10 @@ export default function SyncRunsDashboardPage() {
     void seed()
   }, [fromRunId, isLoadingOptions, options, router])
 
-  React.useEffect(() => () => { seedMountedRef.current = false }, [])
+  React.useEffect(() => {
+    seedMountedRef.current = true
+    return () => { seedMountedRef.current = false }
+  }, [])
 
   const handleRetryFromBeginning = React.useCallback(async (row: SyncRunRow) => {
     const confirmed = await confirm({
@@ -531,19 +574,23 @@ export default function SyncRunsDashboardPage() {
       variant: 'default',
     })
     if (!confirmed) return
-    // optimistic-lock-exempt: starts a new retry run (create), not a concurrent record edit
-    const call = await apiCall(`/api/data_sync/runs/${encodeURIComponent(row.id)}/retry`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ fromBeginning: true }),
-    }, { fallback: null })
+    const call = await runMutation({
+      // optimistic-lock-exempt: starts a new retry run (create), not a concurrent record edit
+      operation: () => apiCall(`/api/data_sync/runs/${encodeURIComponent(row.id)}/retry`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fromBeginning: true }),
+      }, { fallback: null }),
+      mutationPayload: { runId: row.id, fromBeginning: true },
+      context: { operation: 'create', actionId: 'retry-sync-run-from-beginning', runId: row.id },
+    })
     if (call.ok) {
       flash(t('data_sync.runs.detail.retrySuccess'), 'success')
       setReloadToken((token) => token + 1)
     } else {
       flash(buildRetryFailureMessage(call.result as RetryFailureBody | null, t), 'error')
     }
-  }, [confirm, t])
+  }, [confirm, runMutation, t])
 
   /**
    * `RowActionItem.label` is a plain string rendered as the sole child of a
@@ -957,7 +1004,7 @@ export default function SyncRunsDashboardPage() {
                 </Label>
                 <Select
                   value={selectedIntegrationId || undefined}
-                  onValueChange={(value) => setSelectedIntegrationId(value ?? '')}
+                  onValueChange={(value) => { retireSeed(); setSelectedIntegrationId(value ?? '') }}
                   disabled={isLoadingOptions || options.length === 0}
                 >
                   <SelectTrigger size="lg">
@@ -985,7 +1032,7 @@ export default function SyncRunsDashboardPage() {
                 </Label>
                 <Select
                   value={selectedEntityType || undefined}
-                  onValueChange={(value) => setSelectedEntityType(value ?? '')}
+                  onValueChange={(value) => { retireSeed(); setSelectedEntityType(value ?? '') }}
                   disabled={entityOptions.length === 0}
                 >
                   <SelectTrigger size="lg">
@@ -1007,7 +1054,7 @@ export default function SyncRunsDashboardPage() {
                 </Label>
                 <Select
                   value={selectedDirection}
-                  onValueChange={(value) => setSelectedDirection(value === 'export' ? 'export' : 'import')}
+                  onValueChange={(value) => { retireSeed(); setSelectedDirection(value === 'export' ? 'export' : 'import') }}
                   disabled={selectedIntegration?.direction !== 'bidirectional'}
                 >
                   <SelectTrigger size="lg">
@@ -1144,7 +1191,7 @@ export default function SyncRunsDashboardPage() {
                       onValueChange={(value) => updateScheduleEditor({
                         scheduleType: value === 'cron' ? 'cron' : 'interval',
                       })}
-                      disabled={isLoadingSchedule || isSavingSchedule || isDeletingSchedule || !selectedIntegration || !selectedEntityType}
+                      disabled={!canConfigureSync || isLoadingSchedule || isSavingSchedule || isDeletingSchedule || !selectedIntegration || !selectedEntityType}
                     >
                       <SelectTrigger size="lg">
                         <SelectValue />
@@ -1167,7 +1214,7 @@ export default function SyncRunsDashboardPage() {
                     <Input
                       value={scheduleEditor.scheduleValue}
                       onChange={(event) => updateScheduleEditor({ scheduleValue: event.target.value })}
-                      disabled={isLoadingSchedule || isSavingSchedule || isDeletingSchedule || !selectedIntegration || !selectedEntityType}
+                      disabled={!canConfigureSync || isLoadingSchedule || isSavingSchedule || isDeletingSchedule || !selectedIntegration || !selectedEntityType}
                       placeholder={scheduleEditor.scheduleType === 'cron' ? '0 * * * *' : '1h'}
                     />
                     <p className="text-xs text-muted-foreground">
@@ -1184,7 +1231,7 @@ export default function SyncRunsDashboardPage() {
                     <Input
                       value={scheduleEditor.timezone}
                       onChange={(event) => updateScheduleEditor({ timezone: event.target.value })}
-                      disabled={isLoadingSchedule || isSavingSchedule || isDeletingSchedule || !selectedIntegration || !selectedEntityType}
+                      disabled={!canConfigureSync || isLoadingSchedule || isSavingSchedule || isDeletingSchedule || !selectedIntegration || !selectedEntityType}
                     />
                   </div>
                 </div>
@@ -1201,7 +1248,7 @@ export default function SyncRunsDashboardPage() {
                       <Switch
                         checked={scheduleEditor.fullSync}
                         onCheckedChange={(checked) => updateScheduleEditor({ fullSync: checked })}
-                        disabled={isLoadingSchedule || isSavingSchedule || isDeletingSchedule || !selectedIntegration || !selectedEntityType}
+                        disabled={!canConfigureSync || isLoadingSchedule || isSavingSchedule || isDeletingSchedule || !selectedIntegration || !selectedEntityType}
                       />
                     </div>
                   </div>
@@ -1216,7 +1263,7 @@ export default function SyncRunsDashboardPage() {
                       <Switch
                         checked={scheduleEditor.isEnabled}
                         onCheckedChange={(checked) => updateScheduleEditor({ isEnabled: checked })}
-                        disabled={isLoadingSchedule || isSavingSchedule || isDeletingSchedule || !selectedIntegration || !selectedEntityType}
+                        disabled={!canConfigureSync || isLoadingSchedule || isSavingSchedule || isDeletingSchedule || !selectedIntegration || !selectedEntityType}
                       />
                     </div>
                   </div>

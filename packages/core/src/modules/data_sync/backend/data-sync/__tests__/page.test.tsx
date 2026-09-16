@@ -32,7 +32,7 @@ jest.mock('@open-mercato/ui/backend/DataTable', () => ({
 }))
 
 jest.mock('../../../components/useDataSyncRunAccess', () => ({
-  useDataSyncRunAccess: () => ({ canRunSync: true }),
+  useDataSyncRunAccess: () => ({ canRunSync: true, canConfigureSync: true }),
 }))
 
 jest.mock('next/navigation', () => ({

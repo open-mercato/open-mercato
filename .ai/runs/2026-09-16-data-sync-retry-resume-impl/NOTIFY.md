@@ -42,3 +42,30 @@
   file independently. Resolved by extracting `components/useDataSyncRunAccess.ts` and mocking that
   instead, which is the house precedent (`customers`' `useDealsAccess`) and takes the suite back to
   ~2s. Worth knowing for any other module that adds client-side feature gating.
+
+## 2026-09-16T14:05:00Z — code review found a blocker in the feature's headline path
+- A fresh-context reviewer, given only the code diff and the project's rules, found that **"Run again"
+  did not seed the form at all**, while the banner asserted that four fields had been copied. Two
+  independent causes: the `[runParameters]` effect is declared before the `[selectedIntegration]` one,
+  so it cleared the shared ref first and entity type and direction were dropped; and when the source
+  run's integration was already selected, `setSelectedIntegrationId` was a no-op write, so neither
+  effect re-ran and nothing was seeded at all.
+- **My tests did not catch it because they were vacuous** — every assertion targeted banner copy,
+  `router.replace` or call counts, and not one read the form. The reviewer demonstrated they all pass
+  with the seed consumption deleted. They now assert the entity-type combobox and the parameter input,
+  and cover the already-selected-integration path explicitly.
+- Also fixed: `seedMountedRef` was never re-armed on remount, so StrictMode killed the seed in dev on
+  every render; `seedAttemptedRef` permanently blocked a repeat "Run again" on the same run and left
+  `?from=` in the URL; a stale seed ref could hijack the operator's next integration change; the banner
+  never cleared; `RETRYABLE` was a plain object indexed by an API-supplied string, so `toString` and
+  `__proto__` answered truthy; the dashboard's from-scratch retry bypassed `useGuardedMutation`; and the
+  schedule controls were missed by the feature gate — they need `data_sync.configure`, a different
+  feature from `data_sync.run`.
+
+## 2026-09-16T14:05:00Z — unrelated SIGSEGV flake in the full unit suite
+- `yarn test` fails intermittently with `A jest worker process was terminated ... signal=SIGSEGV` in
+  `@open-mercato/documents` and `@open-mercato/cli`. Both packages are untouched by this branch
+  (`git diff --name-only origin/develop...HEAD -- packages/cli` is empty), and both pass in isolation —
+  `cli` runs 1924/1924 green, `documents` 1008/1008. It is a local worker crash under
+  `turbo --concurrency=2` with `--max-old-space-size=1024`, not a test failure, and it is reported as
+  such rather than hidden behind a re-run.

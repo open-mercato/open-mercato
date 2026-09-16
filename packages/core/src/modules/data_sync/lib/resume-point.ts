@@ -18,7 +18,13 @@ export type ResumePointRun = {
   batchesCompleted: number
 }
 
-const RETRYABLE: Record<string, true> = { failed: true, cancelled: true }
+/**
+ * A Set, not an object literal: `status` arrives on an API payload, and a plain
+ * object would answer truthy for `constructor`, `toString` and `__proto__`,
+ * offering Retry on a run in an unknown state. `start-controls.ts` and
+ * `run-parameters.ts` defend the same pattern.
+ */
+const RETRYABLE: ReadonlySet<string> = new Set(['failed', 'cancelled'])
 
 /**
  * Note what this deliberately does NOT return: a `fromBeginning` kind.
@@ -35,7 +41,7 @@ const RETRYABLE: Record<string, true> = { failed: true, cancelled: true }
  * that action is the only one whose start position is knowable from here.
  */
 export function resolveResumePoint(run: ResumePointRun): ResumePoint {
-  if (!RETRYABLE[run.status]) return { kind: 'none' }
+  if (!RETRYABLE.has(run.status)) return { kind: 'none' }
   if (!run.cursor) return { kind: 'noCommittedBatch' }
   return {
     kind: 'resumes',
@@ -53,5 +59,5 @@ export function resolveResumePoint(run: ResumePointRun): ResumePoint {
  * answers 409 for every other one.
  */
 export function isRetryableRunStatus(status: SyncRunStatus | string): boolean {
-  return Boolean(RETRYABLE[status])
+  return RETRYABLE.has(status)
 }
