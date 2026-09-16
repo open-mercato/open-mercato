@@ -4,6 +4,7 @@ import path from 'node:path'
 export const PLATFORM_LOCALE_CONFIG_PATH = path.join('packages', 'shared', 'src', 'lib', 'i18n', 'config.ts')
 
 const LOCALE_FILE_PATTERN = /^([a-z]{2,3}(?:-[a-z0-9]{2,8})*)\.json$/
+const LOCALE_SHAPED_FILE_PATTERN = /^[A-Za-z]{2,3}(?:[-_][A-Za-z0-9]{2,8})*\.json$/
 const STRING_LITERAL_PATTERN = /^(?:'([^'\\]+)'|"([^"\\]+)")$/
 
 function parseStringArrayLiteral(source, variableName) {
@@ -54,10 +55,17 @@ export function resolveAppRoot(root, filePath) {
 export function readAppLocaleSet(appRoot) {
   const i18nDir = path.join(appRoot, 'src', 'i18n')
   if (!fs.existsSync(i18nDir)) return null
-  const locales = fs
+  const fileNames = fs
     .readdirSync(i18nDir, { withFileTypes: true })
     .filter((entry) => entry.isFile())
-    .map((entry) => entry.name.match(LOCALE_FILE_PATTERN)?.[1])
+    .map((entry) => entry.name)
+  const unnormalized = fileNames.filter((name) => LOCALE_SHAPED_FILE_PATTERN.test(name) && !LOCALE_FILE_PATTERN.test(name))
+  if (unnormalized.length > 0) {
+    const renames = unnormalized.map((name) => `${name} -> ${name.toLowerCase().replace(/_/g, '-')}`).join(', ')
+    throw new Error(`Locale files in ${i18nDir} must use normalized lowercase, hyphenated codes: ${renames}`)
+  }
+  const locales = fileNames
+    .map((name) => name.match(LOCALE_FILE_PATTERN)?.[1])
     .filter((locale) => Boolean(locale))
   return locales.length > 0 ? locales : null
 }
@@ -74,7 +82,6 @@ function orderLocales(locales, platformLocales) {
 
 export function createTargetLocaleResolver({ root, referenceLocale, platform = readPlatformLocaleSet(root) }) {
   const appLocaleCache = new Map()
-  const platformTargets = platform.locales.filter((locale) => locale !== referenceLocale)
 
   const describeScope = (enJsonPath) => {
     const appRoot = resolveAppRoot(root, enJsonPath)
@@ -87,7 +94,6 @@ export function createTargetLocaleResolver({ root, referenceLocale, platform = r
 
   return {
     platform,
-    platformTargets,
     describeScope,
     targetsFor(enJsonPath) {
       return describeScope(enJsonPath).locales.filter((locale) => locale !== referenceLocale)

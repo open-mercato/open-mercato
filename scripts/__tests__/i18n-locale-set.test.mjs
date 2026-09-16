@@ -102,10 +102,21 @@ test('readAppLocaleSet lists locale files and ignores everything else', () => {
     'apps/app/src/i18n/pt-br.json': '{}',
     'apps/app/src/i18n/.hardcoded-allowlist.json': '{}',
     'apps/app/src/i18n/README.md': '',
-    'apps/app/src/i18n/en_US.json': '{}',
     'apps/app/src/i18n/nested/zu.json': '{}',
   })
   assert.deepEqual(readAppLocaleSet(path.join(root, 'apps', 'app')).sort(), ['en', 'pt-br', 'xh'])
+})
+
+test('readAppLocaleSet fails closed on locale files that are not in normalized form', () => {
+  const root = makeRepo({
+    'apps/app/src/i18n/en.json': '{}',
+    'apps/app/src/i18n/pt-BR.json': '{}',
+    'apps/app/src/i18n/zh_Hant.json': '{}',
+  })
+  assert.throws(
+    () => readAppLocaleSet(path.join(root, 'apps', 'app')),
+    (error) => error.message.includes('pt-BR.json -> pt-br.json') && error.message.includes('zh_Hant.json -> zh-hant.json'),
+  )
 })
 
 test('readAppLocaleSet returns null when the app has no locale files', () => {
