@@ -39,7 +39,7 @@ merges.
 | Fixed Assets | [`2026-09-06-fixed-assets.md`](https://github.com/open-mercato/open-mercato/pull/6014) | `docs/fixed-assets` | Open, PR #6014 — full spec, adversarially reviewed, Final Compliance Report: fully compliant; merged latest `develop` and `financial-spec-writing-process` Steps 2-3 applied (own new Literature & Prior Art section + real-system comparison, commit `fc1cf0464`), see Changelog |
 | Posting Rules Engine (konto 490) | [`2026-09-06-posting-rules-engine.md`](https://github.com/open-mercato/open-mercato/pull/6015) | `docs/posting-rules-engine` | Open, PR #6015 — two external-maintainer review rounds (nine issues, then eight more), both resolved; 2026-09-15 Out of scope annotated re: Default Chart of Accounts (#6137) — its own chart-of-accounts-import gap stays open, commit `72469b961`; see the spec's own Changelog |
 | This knowledge base | [`2026-09-08-financial-module-knowledge-base.md`](https://github.com/open-mercato/open-mercato/pull/6016) | `docs/financial-module-knowledge-base` | Open, PR #6016 (self-referential row — will read stale the moment this PR merges; treat "Open" as provisional) |
-| GL bulk cross-module read service | [`2026-09-10-general-ledger-bulk-read-service.md`](https://github.com/open-mercato/open-mercato/pull/6038) | `docs/general-ledger-bulk-read-service` | Open, PR #6038 — not yet reviewed by a maintainer; prerequisite for SPEC-010 below |
+| GL bulk cross-module read service | [`2026-09-10-general-ledger-bulk-read-service.md`](https://github.com/open-mercato/open-mercato/pull/6038) | `docs/general-ledger-bulk-read-service` | Open, PR #6038 — not yet reviewed by a maintainer; prerequisite for SPEC-010 below. **Update (2026-09-16):** Phase 2 added — Compliance & Audit export/read-only access (`ledger.audit.export`, `GET /api/ledger/audit/export`), following #6013's own Phase 2 precedent; see the spec's own Changelog |
 | SPEC-010 — JPK_KR_PD (`financial_pl`, targets `official-modules`) | [`2026-09-11-jpk-kr-pd-financial-pl.md`](https://github.com/open-mercato/open-mercato/pull/6069) | `docs/jpk-kr-pd-financial-pl` (staged temporarily in this repo, not yet moved to `official-modules`) | Open, PR #6069 — first draft; depends on #6038 merging first; XSD verification pass done (see Changelog), one finding (Q4/`S_12_1`) still only proposed, not applied |
 | Accounts Receivable (sales invoice → GL posting) | [`2026-08-18-sales-invoice-gl-posting.md`](https://github.com/open-mercato/open-mercato/pull/6046) | `docs/sales-invoice-gl-posting` | Open, PR #6046 — full spec, one independent adversarial review pass (eleven issues fixed) plus a Final Compliance Matrix; not yet reviewed by a maintainer |
 | Cash & Bank Management | [`2026-09-10-cash-bank-management.md`](https://github.com/open-mercato/open-mercato/pull/6055) | `docs/cash-bank-management` | Open, PR #6055 — full spec, two independent adversarial review passes (14 + 5 issues fixed) plus a literature-verification pass; not yet reviewed by a maintainer |
@@ -351,6 +351,24 @@ compliant*):**
   book/tax reconciliation — Kieso Ch.19 (above) is the only relevant PDF
   for that topic. Recorded so a future pass doesn't re-search these two
   for the same thing.
+- **New 2026-09-16 — checked and confirmed near-empty for "audit," for
+  GL Bulk Read Service Phase 2 (Compliance & Audit).** Full-text search
+  of both PDFs for "audit" specifically (a fresh, targeted pass —
+  distinct from the 2026-09-12 immutability/posting search recorded
+  elsewhere in this file). Hay: zero hits in 361 pages. Fowler: three
+  hits, two of them directly useful — §6.2 (p.95, "Transactions... add
+  a further degree of auditability by linking entries together") and
+  §6.5.2 (p.106, "I prefer keeping transactions because they make
+  auditing easier for a small price in overhead. If you don't use
+  transactions, you will still need some audit mechanism.") both
+  ground, in a primary source, this project's existing claim that the
+  balanced, immutable `JournalEntry`/`JournalEntryLine` model already
+  **is** the audit mechanism Fowler describes needing — the Phase 2
+  gap was data egress, not a missing audit concept (the third hit,
+  §3.9 p.34, is an unrelated medical-records chapter, noted only for
+  completeness). Full detail in
+  `2026-09-10-general-ledger-bulk-read-service.md`'s own Literature &
+  Prior Art section.
 - Arlow & Neustadt, *Enterprise Patterns and MDA* (Addison-Wesley,
   ISBN 9780321112309) — same genre as Fowler/Hay, has an archetype-pattern
   treatment of party/account structures; not yet checked for AP-specific
@@ -438,6 +456,21 @@ real):**
 - **Apache Fineract** (cwiki.apache.org/confluence/display/FINERACT/Accounting)
   — has a documented double-entry accounting module; no AP-specific control-
   account doc found.
+- **New 2026-09-16, for GL Bulk Read Service Phase 2 (Compliance &
+  Audit)** (docs.frappe.io + odoo.com, WebSearch/WebFetch-verified,
+  documentation-level): both ERPNext and Odoo ship a feature literally
+  called "Audit Trail," and both turn out to be **a change-log of
+  edits to amendable documents** (field-level diffs, who/when,
+  versioned amendments), not a bulk-export path for an external
+  auditor. A genuine, explainable divergence rather than a gap: both
+  reference systems allow posted journal entries to be edited/amended,
+  so they need a change-log; this project's GL core engine (#5663)
+  forecloses that by design (a posted `JournalEntry` cannot be edited,
+  only reversed), so there is nothing to log a change *to* — the
+  actual need here is data egress from an already-immutable ledger,
+  not change-tracking. GnuCash was not re-checked this pass (already
+  recorded above as having no audit-trail feature at all); Apache
+  Fineract remains unchecked for this specific question.
 - **ISO 20022** — payment/remittance messaging standard; relevant only if a
   future Cash & Bank Management module needs bank-statement/payment
   interchange format, not for internal ledger modeling. Low priority.
@@ -1107,3 +1140,46 @@ ever recorded here (marked **proposed, not applied** — see §1 Notes):
   the existing "accountant configures via Module Config, no
   auto-picked account" pattern the new document is fully compatible
   with). No changes needed to any of the four.
+
+### 2026-09-16 — GL Bulk Read Service Phase 2 (Compliance & Audit) — research recorded, cross-spec consistency checked
+
+Per Step 5 of the financial-spec-writing-process: recording the
+research performed before adding Compliance & Audit as "Phase 2" to
+`2026-09-10-general-ledger-bulk-read-service.md`
+(`docs/general-ledger-bulk-read-service`), rather than as a new
+standalone spec — following the same precedent #6013 itself used for
+its own Phase 2 (`ledger.reports.view` added directly to an
+already-shipped module).
+
+- **Step 1 (cross-spec consistency):** re-checked this file's §2 and
+  #6013's own Phase 2 as the direct precedent. Separately, read
+  `2026-09-06-posting-rules-engine.md` in full (1453 lines) — **this
+  corrects an earlier informal "Tax Management → Posting Rules
+  Engine" pairing**: that document's entire scope is the zespół 4→5
+  cost reclassification through account 490; nothing in it touches
+  payments, exports, or auditor access. Compliance & Audit and Tax
+  Management (KIS/mikrorachunek podatkowy) are two unrelated concerns
+  that only ever shared a sentence in an early, informal topic list,
+  not a real architectural relationship. Tax Management's own
+  placement remains an open, paused question — the user asked to
+  defer deciding it; not resolved by this pass.
+- **Step 2 (literature):** see the new Tier 3 entry in §3 above
+  (Fowler §6.2/§6.5.2, Hay zero hits for "audit").
+- **Step 3 (real systems):** see the new Tier 4 entry in §3 above
+  (ERPNext/Odoo "Audit Trail" is a change-log, not an export path — a
+  genuine divergence explained by this project's immutable
+  `JournalEntry` design).
+- **Cross-spec consistency check, post-hoc** (does any *other* spec
+  need updating for this new scope?): grepped every sibling
+  worktree's spec for "bulk-read"/"#6038"/"audit". Three real hits,
+  all already fine as-is: **GL core engine** (#5663) points
+  generically at "PR #6038 is where the interface is actually
+  designed" in its Out of scope bullet — still true, Phase 2 doesn't
+  change that pointer. **Posting Rules Engine** (#6015) cites #6038's
+  Final Compliance Report only as a formatting convention, unrelated
+  to Phase 2's content. **Fixed Assets** names #6038 only as a shared
+  merge-ordering dependency among GL-adjacent specs, unaffected by
+  Phase 2's content. No sibling spec needed a content change; only
+  this knowledge base and
+  `2026-09-10-general-ledger-bulk-read-service.md` itself needed
+  updating.
