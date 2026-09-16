@@ -42,11 +42,11 @@ showing "Needs reconnection".
 
 ### Phase 1: Hub contract and connect flow
 
-- [ ] 1.1 Add optional externalIdentifier to ValidateCredentialsResult and prefer it in the connect command
-- [ ] 1.2 Adopt a legacy identifier-less row when the adapter supplied the identifier
-- [ ] 1.3 Unit tests for the connect command and createConnectedChannelRow
+- [x] 1.1 Add optional externalIdentifier to ValidateCredentialsResult and prefer it in the connect command — 0fecdc1a2
+- [x] 1.2 Adopt a legacy identifier-less row when the adapter supplied the identifier — 0fecdc1a2
+- [x] 1.3 Unit tests for the connect command and createConnectedChannelRow — 0fecdc1a2
 
 ### Phase 2: Discord provider
 
-- [ ] 2.1 Return a stable discord:<applicationId> identifier from validateCredentials
-- [ ] 2.2 Unit test for the Discord identifier
+- [x] 2.1 Return a stable discord:<applicationId> identifier from validateCredentials — b70bb8ea3
+- [x] 2.2 Unit test for the Discord identifier — b70bb8ea3
