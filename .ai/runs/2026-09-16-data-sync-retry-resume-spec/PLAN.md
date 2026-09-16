@@ -16,7 +16,7 @@
 | 1 | 1.2 | Write Architecture, Data Model, and API Contracts | inline | done | pending |
 | 1 | 1.3 | Write UI/UX and Edge Cases & Failure Scenarios | inline | done | pending |
 | 1 | 1.4 | Write Risks & Impact Review and Final Compliance Report | inline | done | pending |
-| 1 | 1.5 | Write Phasing, Implementation Plan, Testing, and Changelog | inline | todo | — |
+| 1 | 1.5 | Write Phasing, Implementation Plan, Testing, and Changelog | inline | done | pending |
 | 2 | 2.1 | Remove the withdrawn server-side-hole claims from the prototype | inline | todo | — |
 | 2 | 2.2 | Redraw the prototype screens the five decisions reverse | inline | todo | — |
 | 2 | 2.3 | Reconcile the prototype README and REQUIREMENTS with the decisions | inline | todo | — |
