@@ -116,14 +116,18 @@ function main() {
 
   const localeResolver = createTargetLocaleResolver({ root: ROOT, referenceLocale: REFERENCE_LOCALE })
   const localesFilter = opts.localesFilter && opts.localesFilter.length > 0
-    ? new Set(opts.localesFilter.filter((l) => l !== REFERENCE_LOCALE))
+    ? new Set(opts.localesFilter.filter((locale) => locale !== REFERENCE_LOCALE))
     : null
   const targetsFor = (enPath) => localeResolver
     .targetsFor(enPath)
     .filter((locale) => !localesFilter || localesFilter.has(locale))
 
+  const scannedEnFiles = opts.moduleFilter
+    ? enFiles.filter((enPath) => deriveModuleName(enPath).includes(opts.moduleFilter))
+    : enFiles
+
   const locales = []
-  for (const enPath of enFiles) {
+  for (const enPath of scannedEnFiles) {
     for (const locale of targetsFor(enPath)) {
       if (!locales.includes(locale)) locales.push(locale)
     }
@@ -143,9 +147,8 @@ function main() {
 
   let modulesProcessed = 0
 
-  for (const enPath of enFiles) {
+  for (const enPath of scannedEnFiles) {
     const moduleName = deriveModuleName(enPath)
-    if (opts.moduleFilter && !moduleName.includes(opts.moduleFilter)) continue
     const enFlat = safeLoadJsonFlat(enPath)
     if (!enFlat) continue
     modulesProcessed += 1
