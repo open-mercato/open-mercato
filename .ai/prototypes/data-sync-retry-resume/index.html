@@ -185,7 +185,7 @@
             <td>View · <span class="strong">Retry</span> · Run again <span class="t-hint">(no “from the beginning”)</span></td>
             <td><span class="strong">Retry</span> + overflow without the from-scratch item</td>
             <td>“Resumes from batch 12 of ~40. This feed cannot be replayed from the start.”</td>
-            <td class="t-mono t-hint">422 for a direct caller sending fromBeginning:true</td>
+            <td class="t-hint">UI gating only — the endpoint still accepts <span class="t-mono">fromBeginning:true</span> by design</td>
           </tr>
           <tr>
             <td><span class="badge badge-warning">paused</span></td>
@@ -536,7 +536,7 @@
   <div class="notes">
     <div class="note"><b>1</b><span>“Retry from the beginning” is <b>absent</b>, not disabled. A disabled menu item invites a hunt for the permission that would enable it; this is a property of the feed, not of the operator.</span></div>
     <div class="note"><b>2</b><span>The explanatory footnote under the menu is the part worth arguing about. Without it the operator only sees a shorter menu on one row than another and has to guess why. With it the menu grows a paragraph. <b>Decide:</b> footnote, or nothing and rely on the detail page saying it.</span></div>
-    <div class="note"><b>3</b><span>This is also a <b>server-side hole today</b>, independent of the UI: <code class="t-mono">api/runs/[id]/retry.ts</code> never calls <code class="t-mono">supportsStartControl</code>, so a direct API caller can send <code class="t-mono">fromBeginning:true</code> for this exact entity type and get a full replay the adapter declared impossible. The endpoint must reject it with 422 — see screen <a href="#s13" data-goto="s13">13</a>. That turns a currently-accepted request into an error, so it needs a backward-compatibility line in the spec.</span></div>
+    <div class="note"><b>3</b><span><b>Corrected since this screen was first drawn.</b> An earlier draft called the missing <code class="t-mono">supportsStartControl</code> check in <code class="t-mono">api/runs/[id]/retry.ts</code> a server-side hole. It is not — it is the documented design. <code class="t-mono">BACKWARD_COMPATIBILITY.md</code> § Data Sync Start Control Applicability commits that the declaration “governs what the dashboard <b>offers</b>, never what the run API <b>accepts</b>”, and that the separation “MUST hold for any future change here”. So this is <b>UI gating only</b>: the endpoint keeps accepting <code class="t-mono">fromBeginning:true</code> from a direct caller, on purpose. See <code class="t-mono">.ai/specs/2026-09-16-data-sync-retry-resume-actions.md</code> § D0.</span></div>
   </div>
 </section>
 
@@ -1311,7 +1311,7 @@
 <section class="screen" id="s13">
   <div class="screen-meta">
     <h2>13. When a retry is refused</h2>
-    <p>Three rejections the endpoint already produces or should produce, and what the operator sees instead of a raw status code.</p>
+    <p>The two rejections the endpoint already produces, and what the operator sees instead of a raw status code.</p>
     <div class="screen-refs"><span class="ref">§2.2</span><span class="ref">US-C1</span></div>
   </div>
 
@@ -1368,15 +1368,6 @@
               <span class="t-hint t-mono">409 · findRunningOverlap</span>
             </div>
           </div>
-
-          <div class="alert alert-warning">
-            <svg><use href="#ic-lock"/></svg>
-            <div class="stack-2" style="width:100%">
-              <span class="alert-title">erp-ambra cannot replay stock_levels from the start</span>
-              <span class="t-body">The adapter declares full sync inapplicable for this entity type. The resumable retry is unaffected.</span>
-              <span class="t-hint t-mono">422 · code: fullSyncUnsupported — new, does not exist today</span>
-            </div>
-          </div>
         </main>
         <footer class="app-foot"><span>v1.0.0</span><nav class="row-3"><span>Terms</span><span>Privacy</span></nav></footer>
       </div>
@@ -1384,9 +1375,9 @@
   </div>
 
   <div class="notes">
-    <div class="note"><b>1</b><span>Three alerts are stacked on one screen for review. In the app each arrives on its own as a flash message and only one can be true at a time.</span></div>
-    <div class="note"><b>2</b><span>The first two exist today. <code class="t-mono">parametersStale</code> is already machine-readable so the dashboard can render it in the operator's language; what is missing is the <b>way out</b> — the button into the prefilled start form, which is the same navigation “Run again” performs.</span></div>
-    <div class="note"><b>3</b><span>The third does <b>not</b> exist: <code class="t-mono">api/runs/[id]/retry.ts</code> accepts <code class="t-mono">fromBeginning:true</code> without consulting <code class="t-mono">supportsStartControl('fullSync', entityType)</code>. Adding the check turns a request the API accepts today into a 422, so it is a contract change and needs a “Migration &amp; Backward Compatibility” line in the spec. No UI in the app sends that body today, so the practical blast radius is external API callers only.</span></div>
+    <div class="note"><b>1</b><span>Both alerts are stacked on one screen for review. In the app each arrives on its own as a flash message and only one can be true at a time.</span></div>
+    <div class="note"><b>2</b><span>Both exist today. <code class="t-mono">parametersStale</code> is already machine-readable so the dashboard can render it in the operator's language; what is missing is the <b>way out</b> — the button into the prefilled start form, which is the same navigation “Run again” performs.</span></div>
+    <div class="note"><b>3</b><span><b>A third alert was removed from this screen.</b> It showed a <code class="t-mono">422 fullSyncUnsupported</code> for a from-scratch retry of an entity type whose adapter forbids full sync. That rejection will never exist: per <code class="t-mono">BACKWARD_COMPATIBILITY.md</code> the declaration governs what the dashboard offers, never what the API accepts, so the endpoint keeps accepting the request. The restriction is stated on the run detail page instead of raised as an error — screen <a href="#s4" data-goto="s4">4</a> note 3.</span></div>
     <div class="note"><b>4</b><span>The overlap error names the blocking run but cannot link it — this screen guesses a link. Whether the endpoint returns the conflicting run's id is undecided; today the 409 body is a bare sentence.</span></div>
   </div>
 </section>
