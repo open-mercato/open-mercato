@@ -31,6 +31,10 @@ jest.mock('@open-mercato/ui/backend/DataTable', () => ({
   DataTable: () => <div data-testid="runs-table" />,
 }))
 
+jest.mock('../../../components/useDataSyncRunAccess', () => ({
+  useDataSyncRunAccess: () => ({ canRunSync: true }),
+}))
+
 jest.mock('next/navigation', () => ({
   usePathname: () => '/backend/data-sync',
   useRouter: () => ({ push: jest.fn() }),

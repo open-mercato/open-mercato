@@ -46,6 +46,10 @@ jest.mock('@open-mercato/ui/backend/RowActions', () => ({
   ),
 }))
 
+jest.mock('../../../components/useDataSyncRunAccess', () => ({
+  useDataSyncRunAccess: () => ({ canRunSync: true }),
+}))
+
 jest.mock('next/navigation', () => ({
   usePathname: () => '/backend/data-sync',
   useRouter: () => ({ push: jest.fn(), replace: jest.fn() }),

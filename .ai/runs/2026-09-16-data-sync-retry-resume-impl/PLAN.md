@@ -18,7 +18,7 @@
 | 1 | 1.3 | Render the resume point in the list row menu | inline | done | pending |
 | 1 | 1.4 | Relabel the `cancelled` primary action to Resume | inline | done | pending |
 | 1 | 1.5 | Integration coverage `TC-DS-012` | dispatch | todo | — |
-| 1 | 1.6 | Gate the action affordances on `data_sync.run` | inline | todo | — |
+| 1 | 1.6 | Gate the action affordances on `data_sync.run` | inline | done | pending |
 | 1 | 1.7 | Document the cursor-visibility contract for adapter authors | inline | todo | — |
 | 2 | 2.1 | Add the overflow action and its confirm on the detail page | inline | todo | — |
 | 2 | 2.2 | Hide the action when the adapter declares full sync inapplicable | inline | todo | — |

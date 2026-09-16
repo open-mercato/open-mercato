@@ -46,6 +46,7 @@ import {
 } from 'lucide-react'
 import { getSyncRunStatusVariant, getSyncSummaryVariant } from '../../lib/syncRunStatus'
 import { resolveResumePoint } from '../../lib/resume-point'
+import { useDataSyncRunAccess } from '../../components/useDataSyncRunAccess'
 import type { RunParameter } from '../../lib/adapter'
 import { getApplicableRunParameters } from '../../lib/run-parameters'
 import {
@@ -196,6 +197,9 @@ export default function SyncRunsDashboardPage() {
   const [isSavingSchedule, setIsSavingSchedule] = React.useState(false)
   const [isDeletingSchedule, setIsDeletingSchedule] = React.useState(false)
   const [reloadToken, setReloadToken] = React.useState(0)
+  // Server-side the run endpoints already require `data_sync.run`; the pages
+  // did not, so a `data_sync.view` holder saw buttons that 403 on click.
+  const { canRunSync } = useDataSyncRunAccess()
   const scopeVersion = useOrganizationScopeVersion()
   const t = useT()
   const { runMutation } = useGuardedMutation<Record<string, unknown>>({
@@ -416,6 +420,7 @@ export default function SyncRunsDashboardPage() {
    * than on a second line. `US-A2` assumed this shape from the start.
    */
   const buildRetryActions = React.useCallback((row: SyncRunRow) => {
+    if (!canRunSync) return []
     const resumePoint = resolveResumePoint(row)
     if (resumePoint.kind === 'none') return []
     const verb = row.status === 'cancelled'
@@ -432,7 +437,7 @@ export default function SyncRunsDashboardPage() {
       label,
       onSelect: () => { void handleRetry(row) },
     }]
-  }, [handleRetry, t])
+  }, [canRunSync, handleRetry, t])
 
   const handleFiltersApply = React.useCallback((values: FilterValues) => {
     const next: FilterValues = {}
@@ -696,7 +701,8 @@ export default function SyncRunsDashboardPage() {
   ], [t])
 
   const canStartSelectedIntegration = Boolean(
-    selectedIntegration
+    canRunSync
+    && selectedIntegration
     && selectedEntityType
     && selectedIntegration.isEnabled
     && selectedIntegration.canStartRun !== false
@@ -1134,7 +1140,7 @@ export default function SyncRunsDashboardPage() {
                 label: t('data_sync.dashboard.actions.view'),
                 onSelect: () => { router.push(`/backend/data-sync/runs/${encodeURIComponent(row.id)}`) },
               },
-              ...(row.status === 'running' ? [{
+              ...(canRunSync && row.status === 'running' ? [{
                 id: 'cancel',
                 label: t('data_sync.runs.detail.cancel'),
                 destructive: true,

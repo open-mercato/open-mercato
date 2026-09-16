@@ -20,6 +20,7 @@ import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { Bookmark, RotateCcw, XCircle } from 'lucide-react'
 import { getSyncRunStatusVariant } from '../../../../lib/syncRunStatus'
 import { resolveResumePoint } from '../../../../lib/resume-point'
+import { useDataSyncRunAccess } from '../../../../components/useDataSyncRunAccess'
 import {
   buildRetryFailureMessage,
   resolveRunParameterText,
@@ -116,6 +117,9 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
   const [logsPage, setLogsPage] = React.useState(1)
   const logsPageRef = React.useRef(1)
   const [parameterLabels, setParameterLabels] = React.useState<Record<string, string>>({})
+  // The resume-point line is a statement about the run, not an affordance, so a
+  // `data_sync.view` holder still sees it — they just get no buttons.
+  const { canRunSync } = useDataSyncRunAccess()
   // Declarations cannot change between two refreshes of the same run, so the
   // options list is fetched once per integration rather than on every progress
   // event that re-reads the run.
@@ -339,13 +343,13 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
           actionsContent={(
             <div className="flex flex-col items-end gap-1.5">
               <div className="flex flex-wrap items-center justify-end gap-2">
-                {(run.status === 'running' || run.status === 'pending') ? (
+                {canRunSync && (run.status === 'running' || run.status === 'pending') ? (
                   <Button type="button" variant="destructive" size="sm" onClick={() => void handleCancel()}>
                     <XCircle className="mr-2 h-4 w-4" />
                     {t('data_sync.runs.detail.cancel')}
                   </Button>
                 ) : null}
-                {resumePoint.kind !== 'none' ? (
+                {canRunSync && resumePoint.kind !== 'none' ? (
                   <Button type="button" variant="outline" size="sm" onClick={() => void handleRetry()}>
                     <RotateCcw className="mr-2 h-4 w-4" />
                     {/* A cancelled run was stopped on purpose — nothing went
