@@ -28,3 +28,16 @@
 - All nine Steps edit one of two documents and depend on decisions held in the planning conversation
   (the Q1 rationale, the five reversals, the prototype's exact current wording). A fresh executor would
   have to re-derive all of it before writing a line, which is the documented `inline` criterion.
+
+## 2026-09-16T12:26:00Z — decision: Commit column filled in one sweep at the final gate
+- A Step cannot record its own post-amend SHA: writing the SHA into `PLAN.md` and amending changes the
+  SHA again, so Step 1.1's first attempt recorded a dead object. Every Step now writes `pending` and the
+  real short SHAs are filled in a single bookkeeping pass during the final gate. `Status` remains the
+  authoritative resume signal throughout, which is what `om-auto-continue-pr-loop` parses.
+
+## 2026-09-16T12:26:00Z — decision: the confirm dialog body collapses to plain text
+- `useConfirmDialog`/`ConfirmDialog` expose `text` as a string and no `children`/`body` node slot, so
+  the prototype's richer dialog body (warning callout plus a two-cell batch comparison) is not
+  expressible through the canonical primitive. The spec collapses the copy into `text` rather than
+  growing a shared UI contract for one caller. Adding `body?: React.ReactNode` stays available
+  additively and is recorded in the spec as the rejected alternative.
