@@ -1,20 +1,26 @@
 # Handoff — 2026-09-16-data-sync-retry-resume-spec
 
-**Last updated:** 2026-09-16T12:44:00Z
+**Last updated:** 2026-09-16T12:55:00Z
 **Branch:** jtomaszewski/data-sync-retry-vs-resume (pushed to the `fsh` fork remote)
 **PR:** https://github.com/open-mercato/open-mercato/pull/6154
-**Current phase/step:** all nine Steps `done` — final gate passed
-**Last commit:** a00d97f2af — docs(data_sync): bind the retry endpoint's permissiveness to the start-controls spec
+**Current phase/step:** all eleven Steps `done` (nine planned + two review fixes) — final gate passed, review applied
+**Last commit:** 74e10a4a2e — docs(prototypes): redraw for the withdrawn D3 and the restated D4
 
 ## What just happened
 - All three Phases landed: the specification is written end to end, the prototype was redrawn to agree
   with it on every point, and `2026-09-02-data-sync-adapter-start-controls.md` now records that the two
   endpoints are bound together.
-- The final gate passed under the documented docs-only minimum. Browser verification confirmed all five
-  redraw assertions (D0–D4) mechanically; four screenshots are in `final-gate-artifacts/`.
+- The final gate passed under the documented docs-only minimum.
+- A fresh-context specification review then found 3 blockers and 8 majors. All were verified against the
+  code and fixed. The substantive ones: the `fromBeginning` resume-point copy was **false** and D3 hid
+  the action that would have fixed it; `sync_runs` stores neither `full_sync` nor `batch_size`, so D4
+  could not be built as worded; the batch denominator is not derivable; and neither page gates on
+  `data_sync.run` today. The prototype was redrawn a second time to match and re-verified in a browser.
 
 ## Next concrete action
-- Nothing in this run. Implementation is a separate PR — hand the spec to `om-auto-implement-spec`,
+- Nothing in this run. **One item needs the user's eye**: D4 was one of five decisions they made
+  explicitly, and it was restated rather than merely reworded, because the field it copies does not
+  exist on the run row. Implementation is a separate PR — hand the spec to `om-auto-implement-spec`,
   which can take its Phases 1–3 directly from § Implementation Plan.
 
 ## Blockers / open questions
