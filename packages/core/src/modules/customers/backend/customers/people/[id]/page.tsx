@@ -299,7 +299,11 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
       )
       setData(payload as PersonOverview)
     } catch (err) {
-      if ((err as { status?: number }).status === 404) {
+      const status = (err as { status?: number }).status
+      // A malformed id (400) can never match a record, so it is indistinguishable
+      // from a well-formed but missing id (404) for the viewer — treat both as
+      // not-found instead of surfacing the raw server error text (#6158).
+      if (status === 404 || status === 400) {
         setIsNotFound(true)
       } else {
         const message = err instanceof Error ? err.message : t('customers.people.detail.error.load')
