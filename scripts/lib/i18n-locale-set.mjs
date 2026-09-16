@@ -4,11 +4,22 @@ import path from 'node:path'
 export const PLATFORM_LOCALE_CONFIG_PATH = path.join('packages', 'shared', 'src', 'lib', 'i18n', 'config.ts')
 
 const LOCALE_FILE_PATTERN = /^([a-z]{2,3}(?:-[a-z0-9]{2,8})*)\.json$/
+const STRING_LITERAL_PATTERN = /^(?:'([^'\\]+)'|"([^"\\]+)")$/
 
 function parseStringArrayLiteral(source, variableName) {
   const match = source.match(new RegExp(`export\\s+const\\s+${variableName}\\s*(?::[^=]+)?=\\s*\\[([^\\]]*)\\]`))
   if (!match) return null
-  return Array.from(match[1].matchAll(/'([^']+)'|"([^"]+)"/g), (entry) => entry[1] ?? entry[2])
+  const members = match[1].split(',').map((member) => member.trim())
+  if (members.length > 0 && members[members.length - 1] === '') members.pop()
+  const values = members.map((member) => member.match(STRING_LITERAL_PATTERN))
+  if (values.length === 0 || values.some((literal) => !literal)) {
+    throw new Error(`The \`${variableName}\` literal in the platform i18n config must contain only string literals`)
+  }
+  const locales = values.map((literal) => literal[1] ?? literal[2])
+  if (new Set(locales).size !== locales.length) {
+    throw new Error(`The \`${variableName}\` literal in the platform i18n config contains duplicate entries`)
+  }
+  return locales
 }
 
 function parseStringLiteral(source, variableName) {

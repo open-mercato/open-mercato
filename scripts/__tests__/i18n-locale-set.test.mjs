@@ -63,6 +63,20 @@ test('parseLocaleConfigSource fails closed when the literals are missing or inco
   )
 })
 
+test('parseLocaleConfigSource accepts a multi-line array with a trailing comma', () => {
+  const source = "export const locales: Locale[] = [\n  'en',\n  'pl',\n]\nexport const defaultLocale: Locale = 'en'\n"
+  assert.deepEqual(parseLocaleConfigSource(source), { locales: ['en', 'pl'], defaultLocale: 'en' })
+})
+
+test('parseLocaleConfigSource rejects a partially readable locales array instead of dropping members', () => {
+  const withDefault = (array) => `export const locales = ${array}\nexport const defaultLocale = 'en'\n`
+  assert.throws(() => parseLocaleConfigSource(withDefault("['en', ...extraLocales]")), /only string literals/)
+  assert.throws(() => parseLocaleConfigSource(withDefault("['en', EXTRA_LOCALE]")), /only string literals/)
+  assert.throws(() => parseLocaleConfigSource(withDefault("['en', , 'pl']")), /only string literals/)
+  assert.throws(() => parseLocaleConfigSource(withDefault('[]')), /only string literals/)
+  assert.throws(() => parseLocaleConfigSource(withDefault("['en', 'pl', 'en']")), /duplicate/)
+})
+
 test('readPlatformLocaleSet parses the real platform config', () => {
   const platform = readPlatformLocaleSet(REPO_ROOT)
   assert.ok(platform.locales.includes('en'))

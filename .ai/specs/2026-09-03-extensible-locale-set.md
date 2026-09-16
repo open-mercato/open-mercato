@@ -465,3 +465,8 @@ change, not a behaviour change; an assertion covering the new prop was added alo
   `apps/<app>/` follow that app's `src/i18n/` locale files, so an app that adds or drops a language
   is checked for exactly its own set. Same checked locales, findings, and exit codes in this
   repository; the sync checker's header now lists the resolved scopes.
+- Review follow-up (PR #6114): the `config.ts` parser now requires the whole `locales` array to be
+  string literals (a spread, identifier, empty member, empty array, or duplicate aborts the run instead of
+  silently dropping members), and `i18n-check-values --module` filters modules before deriving the
+  compared locales, so a platform module is never reported against an app-only locale. Covered by
+  parser regressions in `i18n-locale-set.test.mjs` and CLI-level cases in `i18n-check-values-scopes.test.mjs`.
