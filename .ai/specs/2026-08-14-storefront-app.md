@@ -141,7 +141,7 @@ apps/storefront/src/app/
 │   ├── page.tsx                  Overview
 │   ├── orders/page.tsx  ·  orders/[id]/page.tsx
 │   ├── quotes/page.tsx  ·  addresses/page.tsx  ·  profile/page.tsx
-│   ├── wishlists/page.tsx  ·  saved-carts/page.tsx
+│   ├── shopping-lists/page.tsx  ·  saved-carts/page.tsx
 │   └── company/{page,buyers,approvals,credit,price-list}.tsx   (B2B)
 ├── (auth)/{login,register,forgot-password,reset-password}/page.tsx
 ├── pages/[slug]/page.tsx         static pages via /pages/:slug (public API §4.7)
@@ -344,7 +344,7 @@ Playwright, headless, against a seeded fixture store. Renumbered from SPEC-029 v
 
 **Checkout:** full B2C purchase to confirmation; full B2B on-account purchase; over-threshold routes to approval; address change invalidates the rate and says why; price change at submit requires re-confirmation; double-submit creates one order; reload mid-checkout resumes at the right step; browser back does not corrupt state; payment failure surfaces recoverably (R4).
 
-**Account:** order history within scope; a colleague's order is not visible under `own`; reorder preview shows every difference class and creates a cart only on confirm; address CRUD; wishlist add and add-all-to-cart; B2B approvals inbox decision; price-list export.
+**Account:** order history within scope; a colleague's order is not visible under `own`; reorder preview shows every difference class and creates a cart only on confirm; address CRUD; shopping-list add with a quantity and add-all-to-cart; B2B approvals inbox decision; price-list export.
 
 **Buyer isolation:** an anonymous request following an authenticated one for the same URL returns anonymous prices (R1); structured data on an authenticated page carries no price (R2).
 
@@ -381,7 +381,7 @@ Stepper, addresses, delivery selection, payment, review, submit with all three t
 **Gate:** the full checkout suite passes including reload, back-button and double-submit at every step.
 
 ### Phase 5 — Account
-Order history, detail, reorder preview, addresses, profile, wishlists, saved carts, B2B company pages.
+Order history, detail, reorder preview, addresses, profile, shopping lists, saved carts, B2B company pages.
 
 **Gate:** visibility scope respected in the UI; reorder preview surfaces every difference class.
 

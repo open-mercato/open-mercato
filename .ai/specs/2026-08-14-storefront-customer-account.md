@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Status** | Specification (rev 2 — pre-implementation fixes 2026-08-17) |
+| **Status** | Specification (rev 3 — shopping lists, shared line resolution 2026-09-16) |
 | **Created** | 2026-08-14 |
 | **Suite** | [Ecommerce Suite Roadmap](./2026-08-14-ecommerce-suite-roadmap.md) — spec 9, Phase 4 |
 | **Modules** | `customer_accounts` (extended), `portal` (extended) |
@@ -13,7 +13,7 @@
 ## TLDR
 
 **Key Points:**
-- The buyer-facing account area: order history, addresses, saved carts and reorder, wishlist, back-in-stock alerts — plus a B2B half that is the real differentiator: a company buyer roster, an approvals inbox, credit exposure, PO history and quote acceptance.
+- The buyer-facing account area: order history, addresses, saved carts and reorder, shopping lists, back-in-stock alerts — plus a B2B half that is the real differentiator: a company buyer roster, an approvals inbox, credit exposure, PO history and quote acceptance.
 - It extends `customer_accounts`, which already ships `CustomerUser`, `CustomerRole`, `CustomerRoleAcl`, `CustomerUserAcl`, sessions, invitations and password reset. Identity, authentication and portal ACL are **solved** — this spec adds commerce surfaces on top, not a second identity model.
 - Order history reads `sales` **through the query engine, never an ORM relation**. `customer_accounts` must not import `SalesOrder`.
 - The sharpest risk is authorization, not features: a B2B buyer must see their company's orders but not their colleague's salary-sensitive negotiated terms, and an ex-employee's revoked access must actually revoke.
@@ -21,14 +21,14 @@
 **Scope:**
 - Order and quote history, order detail, reorder, document downloads
 - Address book over `customers.CustomerAddress`
-- Saved carts, wishlist, back-in-stock subscriptions
+- Saved carts, shopping lists with per-item quantities, back-in-stock subscriptions
 - B2B: buyer roster with roles, approvals inbox, credit overview, PO history, quote acceptance
 - Portal navigation and page registration
 
 **Concerns:**
 - "Which orders may this user see" is a per-tenant policy question with no single right answer, and getting it wrong either hides a buyer's own orders or discloses a colleague's
 - Reorder is a trap: prices, availability and even product existence change between the original order and the reorder, and a silent partial reorder is worse than a refusal
-- Wishlist and back-in-stock subscriptions are a GDPR surface — they are behavioural data tied to an identified person
+- Shopping lists and back-in-stock subscriptions are a GDPR surface — they are behavioural data tied to an identified person
 
 ---
 
@@ -71,7 +71,7 @@ Between an order and its reorder a product may be discontinued, renamed, reprice
               │          invitations, password reset, DomainMapping
               │
               ├── NEW: account pages + these entities
-              │        CustomerWishlist / Item
+              │        CustomerShoppingList / Item
               │        CustomerSavedCart
               │        CustomerBackInStockSubscription
               │        CustomerOrderVisibilityPolicy
@@ -131,26 +131,31 @@ Revocation is immediate: removing a `CustomerPersonCompanyLink` or deactivating 
 
 Standard scoped columns. Everything else this module needs already exists elsewhere.
 
-### 5.1 `CustomerWishlist` (`customer_wishlists`) / `CustomerWishlistItem` (`customer_wishlist_items`)
+### 5.1 `CustomerShoppingList` (`customer_shopping_lists`) / `CustomerShoppingListItem` (`customer_shopping_list_items`)
 
-| `CustomerWishlist` | Type | Notes |
+| `CustomerShoppingList` | Type | Notes |
 |---|---|---|
 | `customer_user_id` | uuid | |
 | `store_id` | uuid, nullable | |
-| `name` | text | Default "My wishlist"; B2B buyers keep several |
+| `name` | text | Default "My shopping list"; B2B buyers keep several ("Monthly restock", "Site B consumables") |
 | `visibility` | text | `private \| company \| shared_link` |
 | `share_token` | text, nullable | Only for `shared_link`; CSPRNG |
 | `is_default` | boolean | |
 
-| `CustomerWishlistItem` | Type | Notes |
+| `CustomerShoppingListItem` | Type | Notes |
 |---|---|---|
-| `wishlist_id` | uuid | |
+| `shopping_list_id` | uuid | |
 | `product_id` / `variant_id` | uuid | |
-| `quantity` | numeric(16,4) | B2B buyers wishlist a quantity, not just an item |
+| `quantity` | numeric(16,4) | Required, default 1. A list line is a quantity of a thing, not a bookmark for it — this is what separates a shopping list from a wishlist, and it is what makes `add-to-cart` a real conversion rather than a lookup |
 | `note` | text, nullable | |
+| `unit_price_snapshot` | numeric(16,4), nullable | The buyer's resolved unit price at the moment the item was added. The `PRICE_MOVED` anchor for §7.1; null when no price resolved (an unpriced or assortment-excluded product), and a null anchor omits the class rather than asserting "unchanged" |
+| `snapshot_price_kind_id` | uuid, nullable | Which `CatalogPriceKind` the snapshot was taken under. `PRICE_MOVED` is reported only when the current context resolves the same kind — otherwise the comparison would report a change of viewer as a change of price (§7.1) |
+| `snapshot_currency_code` | text, nullable | |
 | `added_at` | timestamptz | |
 
-`visibility: 'company'` is a B2B affordance: a buyer assembles a proposed order and a colleague with authority converts it to a cart.
+`visibility: 'company'` is a B2B affordance: a buyer assembles a proposed order and a colleague with authority converts it to a cart. `shared_link` remains the B2C affordance — a shopper shares a list by token — so one entity serves both personas without a `kind` discriminator.
+
+**Why "shopping list" and not "wishlist" (decided 2026-09-16).** A wishlist records intent to want; a shopping list records intent to buy, in a stated amount. This entity was always the second thing — it carries a per-item quantity and a `company` visibility whose whole purpose is converting a colleague's list into a cart — so the wishlist name described a model this spec never had. It is also the term the B2B market uses (BigCommerce B2B Edition ships "Shopping Lists"; Adobe Commerce B2B calls them "Requisition Lists"). The rename is free today because Phase 3 is unimplemented: no table exists, no ACL id is seeded, no event has been emitted, so `BACKWARD_COMPATIBILITY.md` binds none of it. After Phase 3 ships, the same rename costs a migration, a deprecated-id bridge and a dual-emit window.
 
 ### 5.2 `CustomerSavedCart` (`customer_saved_carts`)
 
@@ -158,11 +163,12 @@ Standard scoped columns. Everything else this module needs already exists elsewh
 |---|---|---|
 | `customer_user_id` | uuid | |
 | `cart_id` | uuid | `cart.Cart.id`, status `saved` |
-| `name` | text | "Monthly restock" |
-| `is_template` | boolean | A template is copied on use rather than resumed |
+| `name` | text | "Friday's order, parked" |
 | `last_used_at` | timestamptz, nullable | |
 
 This realizes cart spec Open Question 1. The cart module holds the basket; this holds the naming and the buyer's relationship to it.
+
+**`is_template` removed (2026-09-16).** An earlier revision gave this entity a template flag whose semantics were "copied on use rather than resumed" — a named, reusable set of products and quantities that survives being used. That is a shopping list (§5.1), described a second time in a second table, and the duplication was invisible only while §5.1 was called a wishlist. A saved cart is now exactly one thing: **a real basket, suspended, to be resumed once**. Reusable belongs to a list; parked belongs to a cart. Capability parity is kept by conversion in both directions rather than by a flag — `POST /shopping-lists/from-cart` turns the basket a buyer is holding into a reusable list, and §7.3 turns a list into a basket.
 
 ### 5.3 `CustomerBackInStockSubscription` (`customer_back_in_stock_subscriptions`)
 
@@ -207,8 +213,8 @@ Anonymous subscriptions require double opt-in — otherwise the endpoint is an o
 | Quotes | Merchant-issued quotes; accept converts to an order |
 | Addresses | CRUD over `CustomerAddress`; default shipping and billing |
 | Profile | Name, email, phone, password, locale, communication preferences |
-| Wishlists | List and detail; add all to cart |
-| Saved carts | Resume or copy a template |
+| Shopping lists | List and detail; edit quantities inline; add all to cart |
+| Saved carts | Resume a parked basket; save it as a shopping list instead |
 | Returns | Request a return against a delivered order; status tracking |
 
 ### 6.2 B2B only
@@ -230,27 +236,63 @@ Pages register through `portal`'s existing route and navigation mechanism with `
 
 ---
 
-## 7) Reorder
+## 7) Line Resolution: Reorder and List Conversion
 
-Never silent, and never partial-without-saying-so.
+Never silent, and never partial-without-saying-so. Two surfaces turn a stored set of lines into a cart — reorder from an order, and add-to-cart from a shopping list — and they face the same problem: the stored lines were captured in a context that has since moved. One resolver serves both (§7.1), then each surface decides how much ceremony the buyer owes before the cart is created (§7.2, §7.3).
+
+### 7.1 The shared resolver (added 2026-09-16)
+
+`portalLineResolutionService.resolveLineSet(lines, buyerContext, { priceAnchor })` takes any set of `{ productId, variantId, quantity, anchorUnitPrice?, anchorPriceKindId? }` and returns a `ResolvedLineSet`: every input line, resolved in the buyer's **current** context, with zero or more difference classes attached.
+
+```
+For each line, in the buyer's CURRENT context:
+  product exists and is active?      → else UNAVAILABLE
+  within the current assortment?     → else NOT_PERMITTED
+  variant still exists?              → else VARIANT_GONE
+  availability for the quantity      → else PARTIAL or OUT_OF_STOCK
+  quantity rules still satisfied?    → else QUANTITY_ADJUSTED
+  current price vs. the anchor       → else PRICE_MOVED   (see anchor rule below)
+```
+
+`ResolvedLineSet.isClean` is true only when no line carries any class.
+
+**The price anchor rule.** `PRICE_MOVED` is computable only against a price the buyer has actually seen. Reorder always has one — the order line's own unit price. A shopping list has one only if a snapshot was captured when the item was added (§5.1), and only if that snapshot was taken under the **same resolved price kind** as the current context: a `company`-visible list assembled by one buyer and converted by a colleague on different negotiated terms must not report "the price moved" when what actually changed is who is looking. Where the anchor is absent or its price kind differs, `PRICE_MOVED` is **omitted** for that line — never reported as "unchanged", because an unknown difference and no difference are not the same statement.
+
+Because resolution is read-only, it is not a command and carries no mutation guard. It sits in `customer_accounts` rather than `cart` because it answers a portal question ("what would this buyer get"), not a basket question.
+
+### 7.2 Reorder — always previews
 
 ```
 1. Load the order's lines within the visibility scope
-2. For each line resolve, in the buyer's CURRENT context:
-     product exists and is active?      → else UNAVAILABLE
-     within the current assortment?     → else NOT_PERMITTED
-     variant still exists?              → else VARIANT_GONE
-     current price                      → compare to the original
-     availability for the quantity      → else PARTIAL or OUT_OF_STOCK
-     quantity rules still satisfied?    → else QUANTITY_ADJUSTED
-3. Return a reorder PREVIEW — never a cart
+2. Resolve them via §7.1, anchored on each line's original unit price
+3. Return a reorder PREVIEW — never a cart, even when the resolution is clean
 4. The buyer confirms, having seen every issue
-5. Only then create the cart from the accepted lines, via `cartService`'s `cart.lines.bulkAdd` command (`cart-module.md` §3.1a/§10) — never a direct `Cart`/`CartLine` write, the same command wishlist add-to-cart (§8) uses
+5. Only then create the cart from the accepted lines, via `cartService`'s `cart.lines.bulkAdd` command (`cart-module.md` §3.1a/§10) — never a direct `Cart`/`CartLine` write, the same command list conversion (§7.3) uses
 ```
 
 The preview names every difference, per line, with the reason. A reorder that quietly drops two of eight lines produces a wrong order the buyer believes is right, and they discover it at delivery.
 
 Price differences are shown per line and in total. A B2B buyer restocking monthly needs to see that the unit price moved before committing, not after.
+
+Reorder previews even a clean resolution because the buyer's intent is inherently retrospective — they asked for "the same again", and confirming what "the same" means today is the whole point of the screen.
+
+### 7.3 Shopping list → cart — previews on difference (added 2026-09-16)
+
+A list is converted far more often than an order is reordered, and a mandatory two-step on an unchanged list is friction with no information in it. So the ceremony is conditional, not the honesty:
+
+```
+1. Load the list's items within the caller's visibility scope (§5.1)
+2. Resolve them via §7.1, anchored on each item's price snapshot where one applies
+3. If ResolvedLineSet.isClean → create the cart immediately via `cart.lines.bulkAdd` and return it
+4. Otherwise → create NOTHING; return the preview and a short-lived resolutionToken
+5. The buyer confirms the lines they accept; confirm re-resolves and compares
+```
+
+Step 5 is the part that matters. The token proves the buyer confirmed a preview they were actually shown; **re-resolution at confirm is what makes the result correct**, because stock can move between preview and confirm. If the fresh resolution differs from the token's, the confirm is refused and a new preview is returned rather than a cart — a buyer must never accept difference set A and receive cart B. Tokens expire after 15 minutes; an expired token is the same refusal.
+
+The accepted lines carry each item's stored `quantity`, not 1. A `QUANTITY_ADJUSTED` line enters the cart at the adjusted quantity **and says so** — the adjustment is part of the preview the buyer confirmed, never an unannounced correction.
+
+This is the same principle as §7.2 under a different frequency, not a weaker one: the rule is that no difference reaches the cart unseen. A clean list has no difference to see.
 
 ---
 
@@ -271,10 +313,12 @@ Base `/api/portal/account`. All require an authenticated `CustomerUser` session.
 | POST | `/quotes/:id/accept` | `portal.quotes.accept` | Custom action, mutation guard — delegates to `sales`'s existing quote→order conversion, not a new implementation |
 | GET/POST/PUT/DELETE | `/addresses[/:id]` | `portal.addresses.view` (reads) / `portal.addresses.manage` (writes) — existing, unseeded | `makeCrudRoute` |
 | GET/PUT | `/profile` | `portal.account.manage` (existing) | `makeCrudRoute` |
-| GET/POST/DELETE | `/wishlists[/:id][/items/:itemId]` | `portal.wishlists.manage`; `company`-visibility reads additionally require the item's wishlist to be scoped to the caller's company | `makeCrudRoute` |
-| POST | `/wishlists/:id/add-to-cart` | `portal.wishlists.manage` | Custom action, mutation guard — creates/extends a cart via `cart.lines.bulkAdd` (§7) |
-| GET/POST/DELETE | `/saved-carts[/:id]` | `portal.wishlists.manage` (saved carts share the "own basket management" feature — no separate id) | `makeCrudRoute` |
-| POST | `/saved-carts/:id/resume` | `portal.wishlists.manage` | Custom action — see Open Questions for the `cart`-module copy-primitive gap this depends on |
+| GET/POST/DELETE | `/shopping-lists[/:id][/items/:itemId]` | `portal.shopping_lists.manage`; `company`-visibility reads additionally require the item's list to be scoped to the caller's company | `makeCrudRoute` |
+| POST | `/shopping-lists/:id/add-to-cart-preview` | `portal.shopping_lists.manage` | Custom action (read-only resolution via §7.1, no mutation guard) — returns the difference set and a `resolutionToken` |
+| POST | `/shopping-lists/:id/add-to-cart` | `portal.shopping_lists.manage` | Custom action, mutation guard — resolves via §7.1; creates/extends a cart via `cart.lines.bulkAdd` immediately when clean, otherwise requires the accepted lines plus a live `resolutionToken` and refuses with a fresh preview when re-resolution differs (§7.3) |
+| GET/POST/DELETE | `/saved-carts[/:id]` | `portal.shopping_lists.manage` (saved carts share the "own basket management" feature — no separate id) | `makeCrudRoute` |
+| POST | `/saved-carts/:id/resume` | `portal.shopping_lists.manage` | Custom action, mutation guard — makes the saved cart active; when the buyer already holds a non-empty active cart it delegates to the existing `cart.merge` (undoable via `cart.mergeUndo`). The saved-cart record is consumed on resume. Needs no new `cart` primitive since `is_template` was removed (§5.2) |
+| POST | `/shopping-lists/from-cart` | `portal.shopping_lists.manage` | Custom action, mutation guard — snapshots the active cart's lines, quantities and resolved unit prices (§5.1) into a new list; the cart is left untouched |
 | GET/POST/DELETE | `/back-in-stock[/:id]` | own (no feature gate beyond authentication — a buyer manages only their own subscriptions) | `makeCrudRoute` |
 | GET | `/company` | `portal.company.manage` (new) | `makeCrudRoute` (read) |
 | GET/POST/DELETE | `/company/buyers[/:id]` | `portal.users.view` (reads) / `portal.users.manage` / `.roles.manage` (writes) — existing, unchanged | `makeCrudRoute` |
@@ -298,7 +342,7 @@ An earlier draft invented a parallel `portal.account.*` namespace. `packages/cor
 | `portal.account.orders.reorder` | New | `portal.orders.reorder` |
 | `portal.account.documents.download` | New | `portal.documents.download` |
 | `portal.account.quotes.accept` | New | `portal.quotes.accept` |
-| `portal.account.wishlists.manage` | New | `portal.wishlists.manage` |
+| `portal.account.wishlists.manage` | New | `portal.shopping_lists.manage` |
 | `portal.account.company.manage` | Conflated two resources | **Split**: buyer roster reuses `portal.users.*` unchanged; company profile/billing gets new `portal.company.manage` |
 | `portal.account.approvals.decide` | New (distinct persona from the admin-facing `customer_groups.approvals.decide`) | `portal.approvals.decide` |
 | `portal.account.credit.view` | New | `portal.credit.view` |
@@ -310,7 +354,7 @@ export const newFeatures = [
   { id: 'portal.orders.reorder',     title: 'Reorder from order history' },
   { id: 'portal.documents.download', title: 'Download order/invoice documents' },
   { id: 'portal.quotes.accept',      title: 'Accept a merchant-issued quote' },
-  { id: 'portal.wishlists.manage',   title: 'Manage wishlists and saved carts' },
+  { id: 'portal.shopping_lists.manage', title: 'Manage shopping lists and saved carts' },
   { id: 'portal.company.manage',     title: 'Manage company profile and billing details' },
   { id: 'portal.approvals.decide',   title: 'Approve or reject purchase requests' },
   { id: 'portal.credit.view',        title: 'View credit limit and exposure' },
@@ -323,7 +367,7 @@ export const newFeatures = [
 ## 9) Events
 
 ```typescript
-'customer_accounts.wishlist.created' | '.item_added' | '.item_removed'
+'customer_accounts.shopping_list.created' | '.item_added' | '.item_removed' | '.converted'
 'customer_accounts.saved_cart.created' | '.resumed'
 'customer_accounts.back_in_stock.subscribed' | '.confirmed' | '.notified' | '.unsubscribed'
 'customer_accounts.reorder.created'
@@ -341,12 +385,12 @@ A subscriber on `availability.state.changed` matches active subscriptions and en
 |---|---|---|---|---|---|
 | R1 | Cross-buyer order disclosure | **Critical** | A default of `company` scope, or a missing filter on one endpoint, shows a colleague's — or another company's — orders, prices and negotiated terms. | Default scope is `own`; a single `buildOrderVisibilityFilter` composed by every order-reading endpoint; per-endpoint tests with a same-company colleague and a different-company user; policy cache invalidated and sessions terminated on link removal or deactivation | Low |
 | R2 | Revoked access persists | **High** | An employee leaves; their portal session and cached policy keep working until TTL, and they continue reading company orders. | Deactivation terminates active `CustomerUserSession` rows and invalidates the policy cache by tag; a test asserts an in-flight session is refused after deactivation | Low |
-| R3 | Silent partial reorder | **High** | Two of eight lines are unavailable; the reorder cart contains six and the buyer, recognizing the order name, checks out believing it complete. | Reorder is a two-step preview-then-confirm; every line difference named with a reason; no cart created before confirmation (§7) | Low |
+| R3 | Silent partial reorder or list conversion | **High** | Two of eight lines are unavailable; the resulting cart contains six and the buyer, recognizing the order or list name, checks out believing it complete. A long-lived shopping list is the worse case: it drifts further from current prices and availability than a month-old order does, and is converted far more often. | One shared resolver (§7.1) gives both surfaces the same difference classes, named per line with a reason. Reorder always previews (§7.2); list conversion previews whenever any difference exists and creates no cart until confirmed (§7.3). Confirm re-resolves and refuses a stale `resolutionToken` rather than creating a cart the buyer did not accept | Low |
 | R4 | Back-in-stock as a mail relay | **High** | The public subscribe endpoint accepts arbitrary addresses; an attacker uses the storefront to send unsolicited mail carrying the tenant's domain reputation. | Double opt-in for anonymous subscriptions; rate limit per IP and per address; one-click unsubscribe token; a hard cap on active subscriptions per address | Low |
 | R5 | Notification storm on restock | Medium | A large goods receipt satisfies thousands of subscriptions at once; the mail provider throttles or blocks the tenant. | Queue-based delivery with per-recipient and per-tenant rate limits; debounce per variant (availability spec §9); batching per recipient across variants | Low |
 | R6 | Document download authorization | **High** | An invoice URL is guessable or unchecked, and one buyer downloads another's invoice. | Documents fetched by id through the visibility filter and `allow_document_download`; identical `404` for not-found and not-permitted; no direct storage URLs, ever — always a proxied, authorized read | Low |
 | R7 | Price list export leaks contract pricing | Medium | An exported CSV of contracted prices is forwarded outside the company. | Cannot be prevented technically once authorized; gated behind `allow_price_visibility`, exports are audit-logged with user and timestamp, and the file is watermarked with the company name and generation time | Medium — accepted; the mitigation is traceability, not prevention |
-| R8 | Wishlist and subscriptions as GDPR data | Medium | Behavioural data tied to an identified person outlives account deletion with nothing cleaning it up. | **Fixed 2026-08-17** — no generic "GDPR erasure surface" exists in this platform (verified); the real, shipped pattern is a per-module subscriber on a lifecycle-deletion event, e.g. `communication_channels/subscribers/user-deleted-cascade.ts` listening on `auth.user.deleted`. This module adds `customer_accounts/subscribers/user-deleted-cascade.ts` listening on the already-emitted `customer_accounts.user.deleted`: hard-deletes `CustomerWishlist`/`CustomerWishlistItem`/`CustomerSavedCart` rows for that user, and nulls `customer_user_id` on `CustomerBackInStockSubscription` rows (converting to an anonymous subscription rather than deleting outright, since the product-availability interest itself isn't personal data once disconnected from an identity); anonymous subscriptions carry their own erasure path via the unsubscribe token; retention default 180 days with expiry | Low |
+| R8 | Shopping lists and subscriptions as GDPR data | Medium | Behavioural data tied to an identified person outlives account deletion with nothing cleaning it up. | **Fixed 2026-08-17** — no generic "GDPR erasure surface" exists in this platform (verified); the real, shipped pattern is a per-module subscriber on a lifecycle-deletion event, e.g. `communication_channels/subscribers/user-deleted-cascade.ts` listening on `auth.user.deleted`. This module adds `customer_accounts/subscribers/user-deleted-cascade.ts` listening on the already-emitted `customer_accounts.user.deleted`: hard-deletes `CustomerShoppingList`/`CustomerShoppingListItem`/`CustomerSavedCart` rows for that user, and nulls `customer_user_id` on `CustomerBackInStockSubscription` rows (converting to an anonymous subscription rather than deleting outright, since the product-availability interest itself isn't personal data once disconnected from an identity); anonymous subscriptions carry their own erasure path via the unsubscribe token; retention default 180 days with expiry | Low |
 | R9 | Order history N+1 | Medium | An order list resolving shipments, payments and documents per row makes the most-visited account page the slowest. | Projection-based list query; detail-only enrichment; query count asserted for a 25-order page | Low |
 
 ---
@@ -388,13 +432,20 @@ A subscriber on `availability.state.changed` matches active subscriptions and en
 - Buyer invitation, role assignment and deactivation
 - Quote acceptance creates an order; a non-approver is refused
 
-**Wishlists and saved carts:**
+**Shopping lists and saved carts:**
 - `company` visibility shares within the company only; `private` does not
 - `shared_link` requires the token; the token is not guessable
 - Add-all-to-cart skips items outside the current assortment and says so
-- Resuming a template copies rather than resumes
+- Add-all-to-cart carries each line's stored `quantity` into the cart, not quantity 1; a quantity the current quantity rules reject is adjusted and the adjustment is reported, never applied silently
+- A clean list converts in one step and returns a cart; a list with any difference class returns a preview and creates **no** cart
+- Every §7.1 difference class surfaces for a list conversion, not only for reorder
+- Confirming with a stale `resolutionToken` — stock consumed between preview and confirm — is refused with a fresh preview, and no cart is created
+- An expired (>15 min) token is refused the same way
+- `PRICE_MOVED` is omitted, not reported as unchanged, when an item has no price snapshot; and when a `company` list assembled under one price kind is converted by a colleague resolving a different kind
+- Resuming a saved cart makes it active and consumes the saved-cart record; resuming onto a non-empty active cart merges and the merge is undoable
+- `POST /shopping-lists/from-cart` captures quantities and a price snapshot per line, and leaves the source cart unchanged
 
-**GDPR:** deleting a `CustomerUser` triggers `customer_accounts.user.deleted`, and the subscriber cascade removes that user's wishlists, saved-cart links and disconnects (not deletes) their back-in-stock subscriptions (R8, fixed 2026-08-17).
+**GDPR:** deleting a `CustomerUser` triggers `customer_accounts.user.deleted`, and the subscriber cascade removes that user's shopping lists, saved-cart links and disconnects (not deletes) their back-in-stock subscriptions (R8, fixed 2026-08-17).
 
 **Performance:** a 25-order history page meets its query-count budget (R9).
 
@@ -408,14 +459,16 @@ A subscriber on `availability.state.changed` matches active subscriptions and en
 **Gate:** the full visibility matrix passes, including immediate revocation.
 
 ### Phase 2 — Self-service
-Addresses, profile, returns request, reorder preview and confirm.
+Addresses, profile, returns request, the §7.1 shared line resolver, reorder preview and confirm.
 
 **Gate:** every reorder difference class surfaces in the preview.
 
-### Phase 3 — Wishlists, saved carts, back-in-stock
-All three entities, the `availability.state.changed` subscriber, double opt-in, unsubscribe, rate limiting.
+The resolver ships here even though its second consumer arrives in Phase 3 — building it as a reorder-private helper first would guarantee it grows an order-shaped signature that list conversion then has to fight.
 
-**Gate:** the mail-relay and notification-storm tests pass.
+### Phase 3 — Shopping lists, saved carts, back-in-stock
+All three entities, list conversion over the Phase 2 resolver, the `availability.state.changed` subscriber, double opt-in, unsubscribe, rate limiting.
+
+**Gate:** the mail-relay and notification-storm tests pass; list conversion surfaces every difference class and creates no cart when one is present.
 
 ### Phase 4 — B2B
 Company page, buyer roster, approvals inbox, credit overview, PO history, price list and export, quote acceptance.
@@ -430,7 +483,7 @@ Company page, buyer roster, approvals inbox, credit overview, PO history, price 
 2. **Spending limits per buyer** — distinct from approval thresholds: a per-buyer monthly cap. Belongs with `customer_groups` credit if it is built.
 3. **Shipment tracking depth** — whether tracking is a link out to the carrier or an ingested timeline depends on `shipping_carriers` capabilities, unverified here.
 4. **Self-service returns** — this spec exposes a return *request*. The approval, RMA and refund flow belongs to [WMS Phase 5](./2026-04-15-wms-phase-5-returns-reverse-logistics.md) and `sales`; the boundary needs confirming before Phase 2.
-5. **Saved-cart resume as a copy** (added 2026-08-17) — §5.2 states "A template is copied on use rather than resumed," but `cart-module.md`'s command set (§3.1a) has no copy-a-cart-into-a-new-cart primitive today, only `cart.merge`. `POST /saved-carts/:id/resume` needs either a new `cart` command or a confirmation that `cart.merge` (creating an empty cart and merging the saved one into it) is an acceptable substitute. Flagged against `cart-module.md` for its next revision if the gap is real.
+5. **Saved-cart resume as a copy** — *resolved 2026-09-16.* The gap existed only because `CustomerSavedCart.is_template` claimed a copy semantic that `cart-module.md` §3.1a had no primitive for. Removing the flag (§5.2) removes the requirement: a saved cart is resumed, never copied, and resuming onto a non-empty active cart uses the already-specified `cart.merge`/`cart.mergeUndo`. The reusable-template capability moved to shopping lists, which already own the conversion path. No new `cart` command is needed and the flag against `cart-module.md` is withdrawn.
 
 ---
 
@@ -456,6 +509,16 @@ Company page, buyer roster, approvals inbox, credit overview, PO history, price 
 ---
 
 ## 15) Changelog
+
+### 2026-09-16 (rev 3 — shopping lists, shared line resolution, saved-cart reconciliation)
+
+- **§7 rewritten as a shared resolver.** Reorder's per-line difference analysis was private to reorder while list conversion shared only the final `cart.lines.bulkAdd` call — so a list, which drifts further from current prices and availability than a month-old order does, could add lines silently. Extracted `portalLineResolutionService.resolveLineSet` (§7.1) and gave both surfaces the same difference classes. Reorder still always previews (§7.2); list conversion previews **only when a difference exists** (§7.3), since a mandatory two-step on an unchanged list is friction carrying no information. Confirm re-resolves and refuses a `resolutionToken` whose resolution has moved, so stock consumed between preview and confirm cannot turn accepted-difference-set-A into cart-B.
+- Added `unit_price_snapshot` / `snapshot_price_kind_id` / `snapshot_currency_code` to `CustomerShoppingListItem`: without an anchor `PRICE_MOVED` is not computable for a list. The price-kind column exists so a `company` list converted by a colleague on different negotiated terms does not report a change of viewer as a change of price; a missing or mismatched anchor **omits** the class rather than asserting "unchanged".
+- Added `POST /shopping-lists/:id/add-to-cart-preview` and the `.converted` event; stated that the resolver ships in Phase 2 with reorder and is reused by Phase 3, rather than being born order-shaped and retrofitted.
+- **Removed `CustomerSavedCart.is_template`.** "Copied on use rather than resumed" described a reusable named set of products and quantities — a shopping list, modelled twice. A saved cart is now only a parked basket, resumed once, merging via the existing `cart.merge`/`cart.mergeUndo` when one is already held. Capability parity comes from `POST /shopping-lists/from-cart` instead of a flag. This closes Open Question 5 and withdraws the copy-primitive gap flagged against `cart-module.md` §3.1a, whose own Open Question 1 is updated to match.
+
+- Renamed `CustomerWishlist`/`CustomerWishlistItem` to `CustomerShoppingList`/`CustomerShoppingListItem` (`customer_shopping_lists`/`customer_shopping_list_items`), the ACL feature `portal.wishlists.manage` to `portal.shopping_lists.manage`, the routes under `/wishlists` to `/shopping-lists`, and the events `customer_accounts.wishlist.*` to `customer_accounts.shopping_list.*`. Rationale in §5.1: the model already carried per-item quantities and a company-visibility convert-to-cart flow, which is a shopping list, not a wishlist. Done now because Phase 3 is unimplemented, so nothing on the contract surface exists yet to break.
+- Made `CustomerShoppingListItem.quantity` required with default 1 rather than an unqualified B2B note, and added the matching add-all-to-cart integration coverage: the stored quantity reaches the cart, and a quantity the current rules reject is adjusted visibly.
 
 ### 2026-08-17 (rev 2 — pre-implementation fixes)
 
