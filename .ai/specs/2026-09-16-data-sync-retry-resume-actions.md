@@ -19,11 +19,14 @@ untouched.
 
 ## Overview
 
-Three files change, one of them new. No entity, column, migration, snapshot, endpoint, request field,
-response field, status code or error code changes anywhere. The work is a shared pure helper that
-turns a run row into a sentence about what a retry would do, two pages that render it, one confirm
-dialog built from the existing `useConfirmDialog` primitive, and one query parameter that seeds the
-start form from a past run.
+Three source files change behaviour, one of them new — a shared pure helper that turns a run row into
+a sentence about what a retry would do, plus the two pages that render it. Around that sit five locale
+files, two documentation files, three new integration specs and the component tests, so the diff is
+roughly a dozen files even though the behavioural surface is three.
+
+No entity, column, migration, snapshot, endpoint, request field, response field, status code or error
+code changes anywhere. That is a constraint the design was cut back to satisfy, not a happy accident —
+§ Surface cost lists the three things an earlier draft promised that the data model cannot support.
 
 ## 📝 Decisions taken
 
@@ -64,10 +67,11 @@ under `BACKWARD_COMPATIBILITY.md` §7 rather than a line in this spec.
   "server-side hole". **That framing is withdrawn** — the permissiveness is a documented decision, not
   an oversight. The prototype is corrected in the same change that lands this spec.
 
-### D1 — One spec, not two
+### Scope — one spec, not two
 
-Phase 1 (surface the resume point) is read-only, changes no contract, and ships alone. Phases 2–3 (the
-new actions) depend on none of Phase 1's code. They are nonetheless one specification, because they are
+This is a scope decision, deliberately left unnumbered so it cannot be confused with the design
+decisions **D1**–**D7** below. Phase 1 (surface the resume point) is read-only, changes no contract, and
+ships alone. Phases 2–3 (the new actions) depend on none of Phase 1's code. They are nonetheless one specification, because they are
 one operator-facing capability — *understand and control how a failed run is retried* — and because the
 helper-line copy Phase 1 introduces only reads correctly once the reader knows the overflow menu
 exists. Split, the actions spec would spend its first page re-deriving the vocabulary this one
@@ -95,8 +99,8 @@ Not two peer buttons named Resume and Retry — to an operator those are synonym
 
 | Run state | Primary | Overflow | Resume-point line |
 |---|---|---|---|
-| `failed` | **Retry** | Retry from the beginning · — | "Resumes from batch 41 of ~118 — `<cursor>`" |
-| `cancelled` | **Resume** | Retry from the beginning · — | "Resumes from batch 3 of ~26 — `<cursor>`" |
+| `failed` | **Retry** | Retry from the beginning | "Resumes from batch 41 — `<cursor>`" |
+| `cancelled` | **Resume** | Start from the beginning | "Resumes from batch 3 — `<cursor>`" |
 | `completed` | **Run again** | — | "Opens the start form with this run's settings" |
 | `running` / `pending` | **Cancel** | — | — |
 | `paused` | — | — | — (never produced; see Non-goals) |
@@ -109,11 +113,14 @@ Decisions already taken, carried from the prototype review:
    retry-from-the-beginning that differs only in offering an edit step.
 3. **"Retry from the beginning" is hidden when no batch was committed**, where it is byte-for-byte the
    same request as the primary action.
-4. The prefilled start form **copies the source run's `fullSync` faithfully** rather than defaulting it
-   on. Guessing intent is how a prefill surprises someone.
+4. The prefilled start form seeds **only what the run actually stores** — integration, entity type,
+   direction, and the stored `parameters`. It does not seed `fullSync` or batch size, because
+   `sync_runs` persists neither: `fullSync` is consumed by `api/run.ts` to pick a start cursor and
+   thrown away, and `batchSize` reaches the queue payload only. Both controls render at their form
+   defaults, and the banner says which fields were seeded so the operator is not left guessing.
 5. The row-action menu carries **no** "this feed is delta-only" footnote; the detail page states it.
 
-Two smaller decisions, settled the same way:
+Two smaller decisions (**D6** and **D7**), settled the same way:
 
 6. **The list gains no "resumed from" column.** It would spend a column on a value that is null for
    every row that is not `failed` or `cancelled`. The row menu's sub-label carries it instead.
@@ -127,15 +134,19 @@ each redrawn screen's notes record what changed and why.
 
 ### Surface cost
 
-Nothing. Under D0 there is no API change at all, and every value the new UI needs is already on
-the wire:
+No API change — but only because the design was cut back to what the data model actually holds:
 
-| Need | Already available? |
+| Need | Status |
 |---|---|
-| Detail resume point | `cursor`, `initialCursor`, `batchesCompleted` on `GET /api/data_sync/runs/[id]` |
-| List row resume point | `cursor`, `initialCursor`, `batchesCompleted` on `GET /api/data_sync/runs` |
-| `~118` denominator | Progress job `totalCount` — **detail only**; list rows show "batch 41" with no denominator rather than joining progress jobs into the list query |
-| "Run again" prefill | `?from=<runId>` on `/backend/data-sync`; the start form fetches the run itself, so the list payload does not grow `parameters` |
+| Detail resume point | ✅ `cursor`, `initialCursor`, `batchesCompleted` already on `GET /api/data_sync/runs/[id]` |
+| List row resume point | ✅ the same three fields already on `GET /api/data_sync/runs` |
+| A batch denominator ("of ~118") | ❌ **not derivable** — `totalCount` estimates source records, not batches, and batch size is not persisted. Dropped; § Architecture 1b |
+| Prefilling `fullSync` / batch size | ❌ **not stored** — `sync_runs` has neither column. Dropped from the prefill |
+| A truthful start position when the run committed no batch | ❌ **not on the run row** — it is the endpoint's `resolveStartCursor` fallback. Would need an additive `retryStartCursor` field; declined, see § Non-goals |
+| "Run again" prefill of what *is* stored | ✅ `?from=<runId>`; the start form fetches the run itself, so the list payload does not grow `parameters` |
+
+Three of those six are things an earlier draft promised and the data cannot support. Each is now a
+stated limitation rather than a silent one.
 
 ## 📝 Architecture
 
@@ -148,26 +159,53 @@ operator two different stories about the same run.
 
 ```ts
 export type ResumePoint =
-  | { kind: 'none' }                                            // not a retryable state
-  | { kind: 'fromBeginning' }                                   // retryable, but no batch committed
-  | { kind: 'resumes'; batchesCompleted: number; totalBatches: number | null; cursor: string }
+  | { kind: 'none' }                                     // not a retryable state
+  | { kind: 'noCommittedBatch' }                         // retryable, but this run committed nothing
+  | { kind: 'resumes'; batchesCompleted: number; cursor: string }
 
 export function resolveResumePoint(run: {
   status: SyncRunStatus
   cursor: string | null
   batchesCompleted: number
-}, totalBatches?: number | null): ResumePoint
+}): ResumePoint
 ```
 
 Rules it encodes, in one place rather than twice:
 
 - `failed` and `cancelled` are the only retryable states; everything else is `{ kind: 'none' }`.
-- A retryable run whose `cursor` is `null` is `{ kind: 'fromBeginning' }` — Retry and "Retry from the
-  beginning" would issue byte-identical requests, which is what makes **D3** (hide the overflow item)
-  correct rather than merely tidy.
-- `totalBatches` is an optional second argument, not a field on the run. The list page never passes it;
-  the detail page passes the progress job's derived batch total. This is what lets one function serve a
-  row that can only say "batch 41" and a page that can say "batch 41 of ~118".
+- A retryable run whose `cursor` is `null` is `{ kind: 'noCommittedBatch' }`.
+
+**What this function must never claim.** An earlier draft called that third case `fromBeginning` and
+rendered "Retry starts from the beginning". That is false, and dangerously so. The endpoint resolves:
+
+```ts
+// api/runs/[id]/retry.ts:121
+const cursor = parsedBody.data.fromBeginning
+  ? null
+  : previous.cursor ?? await resolveStartCursor({ ... })
+```
+
+`resolveStartCursor` reads the **shared** `sync_cursors` row (or, for an adapter that opted out, this
+entity type's own last run) — state the run row does not carry. So a run that died on its first batch
+can still resume at a shared cursor written by an earlier successful run, silently skipping everything
+before it. That is the exact class of silent partial import `2026-08-12-data-sync-run-scoped-cursor`
+exists to prevent, and a UI sentence promising "from the beginning" would send an operator straight
+into it.
+
+The run row alone therefore **cannot** predict the effective start position for this case, and this
+spec does not pretend otherwise: the copy says only what the row knows, and the from-scratch action
+stays available so an operator who needs a guaranteed replay has one. Surfacing the server-resolved
+start position as an additive `retryStartCursor` response field would let the UI be precise here; it is
+a contract change, it is not needed for the rest of the feature, and it is recorded in § Non-goals as
+the follow-up that would close this gap.
+
+### 1b. Why there is no "of ~118" denominator
+
+An earlier draft rendered "batch 41 of ~118", taking the total from the progress job's `totalCount`.
+`totalCount` is set from `batch.totalEstimate` (`lib/sync-engine.ts:768`) and estimates **source
+records**, not batches. Converting records to batches needs the run's batch size, which `sync_runs`
+does not store, and adapter batches need not be uniform in any case. The denominator is therefore not
+derivable from anything that ships today, and every surface renders the batch number alone.
 
 ### 2. `backend/data-sync/runs/[id]/page.tsx` — the detail page
 
@@ -213,11 +251,17 @@ is the genuinely destructive action on the same page.
 
 ## 📝 Data Models
 
-None. No entity, column, migration, or `.snapshot-open-mercato.json` change. The run row already
-carries every field this feature reads: `status`, `cursor`, `initialCursor`, `batchesCompleted`,
-`parameters`.
+None. No entity, column, migration, or `.snapshot-open-mercato.json` change.
 
-Deliberately **not** added: a `retried_from_run_id` column. See § Non-goals.
+The run row carries exactly five fields this feature reads — `status`, `cursor`, `initialCursor`,
+`batchesCompleted`, `parameters` — and the design is deliberately bounded by that list. Three columns
+are **not** added, each of which would have made some part of the design nicer:
+
+| Not added | What it would have enabled | Why not here |
+|---|---|---|
+| `full_sync`, `batch_size` | Prefilling both controls from the source run | Additive columns plus a migration, a snapshot update and two response fields — a materially different spec for a convenience |
+| `cancelled_by` | "Cancelled by Anna Nowak" instead of "Cancelled at 21:41" | Same, for one banner |
+| `retried_from_run_id` | Showing a retry chain as one logical sync with true totals | Same, and it needs its own design for how the chain is presented |
 
 ## 📝 API Contracts
 
@@ -272,20 +316,28 @@ flash-message behaviour are unchanged and not re-documented.
 
 ### The resume-point line
 
-One line, rendered beneath the header action row on the detail page and as a second line inside the
-menu item on the list. It is the fix for the confusion this spec exists to end, and it renders in three
-forms depending on what `resolveResumePoint` returns:
+On the detail page it is one line beneath the header action row. **On the list it is folded into the
+menu item's own label**, not a second line: `RowActionItem.label` is a `string` rendered as the sole
+child of a single-line button (`packages/ui/src/backend/RowActions.tsx:8`), and there is no
+`description` or `ReactNode` slot. This is the same constraint § Architecture 4 hits with
+`ConfirmDialog`, and it is answered the same way — the copy collapses rather than the shared primitive
+growing a prop for one caller. `US-A2`'s own wording ("Retry (resume from batch N)") already assumed
+this shape.
 
-| `ResumePoint` | Detail page | List menu sub-label |
+It is the fix for the confusion this spec exists to end, and it renders in three forms depending on
+what `resolveResumePoint` returns:
+
+| `ResumePoint` | Detail page | List row menu item |
 |---|---|---|
-| `resumes` with a total | "Resumes from batch 41 of ~118 — `updated_at:2026-09-12T04:15:07Z`" | "Resumes from batch 41" |
-| `resumes` without a total | "Resumes from batch 41 — `updated_at:2026-09-12T04:15:07Z`" | "Resumes from batch 41" |
-| `fromBeginning` | "No batch was committed — Retry starts from the beginning" | "Starts from the beginning" |
-| `none` | not rendered | not rendered |
+| `resumes` | "Resumes from batch 41 — `updated_at:2026-09-12T04:15:07Z`" | "Retry (resumes from batch 41)" |
+| `noCommittedBatch` | "This run committed no batch. Retry starts from this feed's last saved position, which may be earlier than this run began." | "Retry (resumes from this feed's last saved position)" |
+| `none` | not rendered | plain "Retry" |
 
-The no-total form is not an edge case to tolerate — it is the **common** form for a streaming import,
-where the progress job's `totalCount` is null because nothing counted the source first. Both strings
-ship; neither is a fallback.
+**The `noCommittedBatch` copy is deliberately non-committal**, for the reason § Architecture 1 gives:
+the run row cannot predict where the endpoint's fallback will land. Saying less is the only honest
+option without the additive `retryStartCursor` field this spec declines to add.
+
+The list column shows no batch denominator and neither does the detail page — § Architecture 1b.
 
 The cursor is rendered verbatim in a monospace face and is never paraphrased, truncated or
 prettified. It is an adapter-defined opaque string — a watermark here, an id or a page token elsewhere
@@ -308,22 +360,21 @@ point in this design where two different words are justified.
 
 ### "Retry from the beginning" — visibility and confirm
 
-Hidden in three cases, each for its own reason:
+Hidden in two cases:
 
 1. The run is not `failed` or `cancelled` — there is nothing to retry.
-2. `resolveResumePoint` returns `fromBeginning` (**D3**) — the request would be byte-identical to the
-   primary action, so offering both would present one operation as two.
-3. `applicableStartControls(integration.startControls, entityType).fullSync === false` — the adapter
+2. `applicableStartControls(integration.startControls, entityType).fullSync === false` — the adapter
    declares a full replay meaningless for this entity type. The list page already resolves this map for
    the start form; the detail page fetches `GET /api/data_sync/options` to resolve it the same way,
    which is the same call it already makes to resolve run-parameter labels.
 
-Case 3 is **UI gating only**. Per **D0** the endpoint still accepts `fromBeginning: true` from a direct
+Case 2 is **UI gating only**. Per **D0** the endpoint still accepts `fromBeginning: true` from a direct
 API caller, by design. The row menu carries no explanatory footnote about it (**D5**); the detail page
 states the restriction in a line beneath the actions, where there is room for a sentence.
 
-The confirm dialog names the cost concretely rather than asking "Are you sure?" — the record count, the
-batch a resumable retry would have started at, and the batch this one starts at — as prose in
+The confirm dialog names the cost concretely rather than asking "Are you sure?" — the record count
+(`progressJob.totalCount`, the source-record estimate, omitted from the copy when it is null rather
+than guessed at), the batch a resumable retry would have started at, and the batch this one starts at — as prose in
 `ConfirmDialogOptions.text`, per § Architecture 4. `variant` is `"default"`. `Cmd/Ctrl+Enter` submits
 and `Escape` cancels; both come free with the primitive and both are required.
 
@@ -346,12 +397,46 @@ It navigates to `/backend/data-sync?from=<runId>`, and the start form:
   a form in front of the operator, so silence would be a choice rather than a constraint;
 - submits nothing on arrival. Prefill is not a trigger.
 
-### Permissions
+**Sequencing is part of the contract, not an implementation detail.** `backend/data-sync/page.tsx`
+already runs an effect keyed on `[selectedIntegration]` that unconditionally overwrites direction and
+coerces the entity type, and a second that resets `paramValues` once the adapter's declaration
+resolves. Options load asynchronously, so a seed applied on mount lands *before* both and is silently
+overwritten — a form that flashes prefilled and then is not, and a bidirectional adapter's `export` run
+seeded as `import`. The implementation must therefore:
 
-Every action is gated on `data_sync.run`, which both pages already require for their existing
-mutations. A holder of `data_sync.view` alone sees every state, every counter, and the full
-resume-point line, and no action buttons at all — the line is a statement about the run, not an
-affordance.
+- seed exactly once, **after** the options response resolves for the target integration, behind a ref
+  guard;
+- suppress both reset effects while a seed is pending;
+- strip `?from=` via `router.replace` once applied, so a re-render or a back-navigation cannot re-seed
+  over the operator's edits;
+- treat a malformed id identically to an unknown one. A non-UUID `?from=` answers `400 Invalid run id`,
+  not `404` — both render the plain form.
+
+### Accessibility
+
+Three things this design needs that the surrounding pages do not already provide:
+
+- The `⋯` overflow gets an accessible name (`aria-label`), since it has no text.
+- The resume-point line is associated with the action it describes via `aria-describedby`, so a screen
+  reader reaching the Retry button hears where it would resume before activating it. A visually
+  adjacent line is not an association.
+- A cursor is an adapter-defined string of unbounded length and § UI/UX forbids truncating it. It
+  therefore wraps rather than overflowing, and the detail page's layout must survive a several-hundred
+  character value without pushing the action row off-screen.
+
+### Permissions — new work, not an existing behaviour
+
+**Today neither page gates anything on `data_sync.run`.** `backend/data-sync/page.meta.ts:12` and
+`backend/data-sync/runs/[id]/page.meta.ts:3` both declare `requireFeatures: ['data_sync.view']`, and
+neither page reads granted features anywhere. A viewer currently sees Retry, Cancel and the whole start
+form, and receives a 403 on click. The API routes are correctly gated (`api/runs/[id]/retry.ts:21`
+requires `data_sync.run`); the pages are not.
+
+This spec does not inherit that behaviour, it adds it. Both pages resolve `data_sync.run` from the
+granted feature set and render no action affordance without it — a holder of `data_sync.view` alone
+sees every state, every counter and the full resume-point line, because the line is a statement about
+the run rather than an affordance. Phase 1 Step 1.6 implements it, and it is the one part of this spec
+that changes behaviour for an existing role rather than adding a new control.
 
 ### i18n
 
@@ -363,16 +448,16 @@ The batch numbers and the cursor interpolate as parameters so translators can re
 
 | # | Situation | What the operator sees |
 |---|---|---|
-| 1 | Retryable run, no batch committed (`cursor` is `null`) | "No batch was committed — Retry starts from the beginning". The overflow item is hidden (**D3**), so the page never presents one request as two choices |
-| 2 | Progress job's `totalCount` is null (the common streaming-import case) | The no-denominator string. Not an error, not a fallback — a first-class form |
-| 3 | The run has no progress job at all | Same as #2. `resolveResumePoint` is called with `totalBatches` omitted |
+| 1 | Retryable run, no batch committed (`cursor` is `null`) | The non-committal `noCommittedBatch` copy, and **the from-scratch action stays visible**. The endpoint's `previous.cursor ?? resolveStartCursor(...)` fallback may resume at a shared cursor the run row cannot see, so this is precisely the case where an operator most needs a guaranteed replay — and an earlier draft hid it here |
+| 2 | Progress job is absent or its `totalCount` is null | No effect. No surface renders a batch denominator — § Architecture 1b |
+| 3 | An adapter opted out of the shared cursor (`persistsSharedCursor` false) | Same as #1. The fallback reads this entity type's own last run instead of the shared row; either way the run row cannot predict it |
 | 4 | Adapter declares `fullSync` inapplicable for the entity type | The overflow item is absent; the detail page states why in one line. The endpoint still accepts the request from a direct caller (**D0**) |
 | 5 | Stored parameters no longer valid — `422` with `code: parametersStale` | The existing error message, plus a "Start a new run with these settings…" action that lands on the prefilled start form. The 422 already exists and is already machine-readable; what is new is the way out |
 | 6 | Another run for the same integration / entity type / direction is in flight — `409` | The existing error naming the conflict. The 409 body is a bare sentence today and this spec does not widen it, so the message cannot link the blocking run |
 | 7 | `GET /api/data_sync/options` fails while resolving `startControls` on the detail page | The overflow item renders. Failing open matches `applicableStartControls`, whose documented default for an unknown entity type is "every control applies"; failing closed would hide a valid action because an unrelated request failed |
 | 8 | `?from=<runId>` names a run that does not exist, is not readable, or belongs to another tenant | The tenant-scoped fetch returns nothing, the banner does not render, and the form shows its normal defaults — the same thing a direct visit to `/backend/data-sync` shows. Not an error state |
 | 9 | The prefill drops a stored parameter the adapter no longer declares | A warning naming the dropped key, above the form |
-| 10 | `cancelled` run — no `lastError` exists | The error card does not render, and the layout must not leave a gap where it would be. A banner names who cancelled the run and when, so it is distinguishable from a run that died silently |
+| 10 | `cancelled` run — no `lastError` exists | The error card does not render, and the layout must not leave a gap where it would be. A banner names **when** the run was cancelled, from `updatedAt`, so it is distinguishable from a run that died silently. It does **not** name who: `cancel.ts:96` calls `markStatus(run.id, 'cancelled', scope)`, which writes only status, `lastError` and `updatedAt`, and `triggeredBy` is who *started* the run. Recording the canceller needs a column — see § Non-goals |
 | 11 | Run reaches a terminal state while the operator is looking at it | The page already refreshes from `progress.job.*` and `om:bridge:reconnected`; the action area and the resume-point line re-derive from the refreshed run like every other part of the page |
 | 12 | The operator retries twice in quick succession | The second request hits the existing overlap `409`. No new guard, and no optimistic disabling that could strand the button if the first request fails |
 | 13 | `paused` status | No actions and no resume-point line. Nothing in the engine produces this status; see § Non-goals |
@@ -391,13 +476,24 @@ The batch numbers and the cursor interpolate as parameters so translators can re
 | 8 | The list row's denominator-free string reads as a defect | Low | List row menu | It is specified as a first-class form, not a fallback, and the exact figure is one click away on the detail page | None |
 | 9 | Scope creep into cursor or engine semantics | Medium | Engine, run lifecycle | Explicit § Non-goals; no file under `lib/sync-engine.ts`, `lib/sync-run-service.ts` or `lib/start-cursor.ts` is in scope | None |
 | 10 | The prototype keeps asserting a defect that this spec withdrew, misleading a later reader | Medium | `.ai/prototypes/data-sync-retry-resume/` | Corrected in the same change that lands this spec, with the README naming the spec as the authority | None |
+| 11 | **An adapter cursor carries a secret or personal data, and this spec puts it on screen** | High | Detail page, list row menu | Cursors are rendered nowhere today, so this is a new exposure surface. `data_sync/AGENTS.md` already constrains run parameters — "never declare a parameter that carries a secret" — but says nothing about cursors. Phase 1 Step 1.7 adds the matching one-line adapter contract to that file, in the same change that first renders one | An adapter written before that line exists may already encode a page token or a customer-keyed watermark. The value is shown only to `data_sync.view` holders, but the UI copy invites pasting it into a support ticket, so the contract line is the mitigation that matters |
 
 ## 📝 Final Compliance Report
 
-- **Backward compatibility — nothing to declare, and that is load-bearing.** No contract surface from
-  `BACKWARD_COMPATIBILITY.md`'s fourteen categories changes: no auto-discovery file, type, signature,
-  import path, event id, widget spot id, API route, DB schema, DI name, ACL feature, notification id,
-  AI id, CLI command, or generated file. The one thing that *could* have changed — making `retry`
+- **Backward compatibility — one additive surface, and one thing deliberately not changed.** Twelve of
+  `BACKWARD_COMPATIBILITY.md`'s fourteen categories are untouched: no auto-discovery file, signature of
+  an existing export, event id, widget spot id, API route, DB schema, DI name, ACL feature id,
+  notification id, AI id, CLI command, or generated file.
+
+  **§2 and §4 do change, additively.** `lib/resume-point.ts` exports a new module path and the new type
+  `ResumePoint`, and § Cross-cutting commits to documenting it in `data_sync/AGENTS.md` — which under §4
+  is what makes a path public API. The precedent is exact: `lib/start-controls.ts` is recorded as
+  ADDITIVE in `BACKWARD_COMPATIBILITY.md` § Data Sync Start Control Applicability for the same shape, in
+  the same folder, in the same module. **The implementation PR MUST add the matching ADDITIVE row**; an
+  earlier draft of this section claimed there was nothing to declare, which was wrong by the repo's own
+  precedent.
+
+  The one thing that *could* have broken something — making `retry`
   reject `fromBeginning: true` for a restricted entity type — is ruled out not merely by preference but
   by a commitment already recorded in that document:
 
@@ -406,8 +502,7 @@ The batch numbers and the cursor interpolate as parameters so translators can re
   > silently stop getting a full run.
   > — `BACKWARD_COMPATIBILITY.md` § Data Sync Start Control Applicability (2026-09-02)
 
-  **D0 is therefore obligatory, not discretionary.** No new entry in `BACKWARD_COMPATIBILITY.md` is
-  needed, and none is added.
+  **D0 is therefore obligatory, not discretionary.**
 - **Provider-agnostic.** No provider name and no entity-type string is special-cased. Applicability is
   read only through `applicableStartControls`, from the adapter's own declaration.
 - **Canonical mechanisms.** `useConfirmDialog` for the confirm, `RowActions` for the row menu,
@@ -425,7 +520,8 @@ The batch numbers and the cursor interpolate as parameters so translators can re
   `?from=<runId>` prefill grants no read the operator does not already have.
 - **i18n.** Every new string routes through `useT()` under a `data_sync.*` key and ships in all five
   locale files. Batch numbers and cursors interpolate as parameters. No hardcoded user-facing string;
-  `yarn i18n:check-sync` and `yarn i18n:check-usage` must pass.
+  `yarn i18n:check` (which runs `check-sync`, `check-usage`, `check-hardcoded` and `check-values`) must
+  pass.
 - **Design system.** Status colours come from `status-*` tokens, never hardcoded Tailwind shades; no
   arbitrary values; no `dark:` overrides on semantic tokens. The resume-point line uses
   `text-muted-foreground` and the cursor a monospace token.
@@ -437,6 +533,13 @@ The batch numbers and the cursor interpolate as parameters so translators can re
 ## 📝 Non-goals
 
 - Cursor semantics, engine behaviour, and the run lifecycle — untouched.
+- **An additive `retryStartCursor` response field.** It would let the detail page state precisely where
+  a retry will resume even when the run committed no batch, closing the one place this design can only
+  be non-committal (§ Architecture 1). It is a contract change, nothing else in the feature needs it,
+  and the honest copy is adequate in the meantime. The obvious follow-up if operators ask for it.
+- **`sync_runs.full_sync`, `sync_runs.batch_size`, `sync_runs.cancelled_by`.** Three additive columns
+  that would each improve one sentence of this design. Each needs a migration, a snapshot update, a
+  response field and a `BACKWARD_COMPATIBILITY.md` entry — a different spec, not a footnote in this one.
 - Linking a retry to the run it retried. No `retried_from_run_id` column exists, so no screen can show
   a logical sync's true totals. Recorded as a known gap, not solved here.
 - Deciding the fate of the vestigial `paused` status. Flagged for a separate issue.
@@ -462,9 +565,9 @@ understanding what a button does.
 ### Phase 1 — Surface the resume point
 
 **Step 1.1 — Add `lib/resume-point.ts`**
-The pure module and its `ResumePoint` type per § Architecture 1, with unit tests covering: each
-retryable and non-retryable status; a null cursor; a null and a present `totalBatches`; a zero
-`batchesCompleted` with a non-null cursor. No UI in this step.
+The pure module and its `ResumePoint` type per § Architecture 1, with unit tests covering each
+retryable and non-retryable status, a null cursor, and a zero `batchesCompleted` with a non-null
+cursor. No UI in this step. The module takes no `totalBatches` argument — § Architecture 1b.
 
 **Step 1.2 — Render the resume point on the run detail page**
 Add `cursor` and `initialCursor` to `SyncRunDetail`, render the line beneath the header action row in
@@ -473,8 +576,9 @@ state. Add the locale keys to all five files. Component tests assert the three f
 `data_sync.view`-only variant.
 
 **Step 1.3 — Render the resume point in the list row menu**
-Add the same two fields to `SyncRunRow` and the sub-label to the existing Retry menu item, derived
-from the same helper with `totalBatches` omitted. Component test asserts the denominator-free string.
+Add `cursor`, `initialCursor` **and** `batchesCompleted` to `SyncRunRow` — it currently declares none
+of the three — and fold the resume point into the existing Retry item's `label` string, per
+§ UI/UX. Component test asserts both label forms.
 
 **Step 1.4 — Relabel the `cancelled` primary action to Resume**
 The conditional string on both surfaces (**D1**), plus its locale keys. Test asserts `failed` reads
@@ -482,7 +586,19 @@ Retry and `cancelled` reads Resume on both surfaces.
 
 **Step 1.5 — Integration coverage `TC-DS-012`**
 Assert that a failed run's detail page renders the committed cursor verbatim, and that a run with no
-committed batch renders the from-the-beginning string instead.
+committed batch renders the non-committal `noCommittedBatch` string instead — explicitly **not** a
+claim about starting from the beginning.
+
+**Step 1.6 — Gate the action affordances on `data_sync.run`**
+Both pages resolve the feature from the granted set and render no action area without it. This is new
+behaviour, not an existing guarantee: today both `page.meta.ts` files require only `data_sync.view` and
+neither page reads features at all, so a viewer sees buttons that 403 on click. Tests assert that a
+`data_sync.view`-only principal sees the resume-point line and no buttons, on both surfaces.
+
+**Step 1.7 — Document the cursor-visibility contract for adapter authors**
+Add one line to `packages/core/src/modules/data_sync/AGENTS.md`, beside the existing run-parameter
+constraint: a cursor is operator-visible and must never encode a credential or personal data. This
+lands in the same phase that first renders a cursor, not after it. Risk 11.
 
 ### Phase 2 — Retry from the beginning
 
@@ -492,23 +608,21 @@ The `⋯` menu, the `useConfirmDialog` call with the prose body from § Architec
 Locale keys in all five files. Tests assert the request body, that confirming is required before any
 request is sent, and that cancelling sends nothing.
 
-**Step 2.2 — Hide the action when no batch was committed**
-Drive visibility from `resolveResumePoint` (**D3**). Test asserts the item is absent for a run whose
-cursor is null and present for one whose cursor is set.
-
-**Step 2.3 — Hide the action when the adapter declares full sync inapplicable**
+**Step 2.2 — Hide the action when the adapter declares full sync inapplicable**
 Resolve `startControls` on the detail page through the `GET /api/data_sync/options` call it already
 makes, gate the item on `applicableStartControls(...).fullSync`, and state the restriction in a line
 beneath the actions. Test asserts the item is absent for a restricted entity type, present for an
 unrestricted one, and **present when the options fetch fails** (Edge case 7 — fails open).
 
-**Step 2.4 — Add the same action to the list row menu**
+**Step 2.3 — Add the same action to the list row menu**
 Same gating, no explanatory footnote (**D5**). Test asserts the menu contents for each of the three
 failed-run shapes.
 
-**Step 2.5 — Integration coverage `TC-DS-013`**
+**Step 2.4 — Integration coverage `TC-DS-013`**
 Assert that a from-the-beginning retry starts a run whose `initialCursor` is null while the resumable
-retry of the same run starts one that inherits the failed run's cursor.
+retry of the same run starts one that inherits the failed run's cursor. Assert the same for a run that
+committed no batch — the case where the two requests differ most and an earlier draft wrongly called
+them identical.
 
 ### Phase 3 — Run again
 
@@ -518,11 +632,15 @@ The primary button on the detail page and the row menu item, both navigating to
 asserts the target URL and that no Retry action renders for a completed run.
 
 **Step 3.2 — Seed the start form from `?from=<runId>`**
-Read the parameter, fetch the run, seed integration / entity type / direction / batch size /
-parameters / `fullSync` faithfully (**D4**), render the source banner, and render the dropped-parameter
-warning. Tests assert each seeded field, faithful `fullSync` copying, the dropped-key warning, that an
-unknown id renders the plain form with no banner and no error (Edge case 8), and that arrival submits
-nothing.
+Read the parameter, fetch the run, and seed integration / entity type / direction / stored
+`parameters` — and nothing else, because `sync_runs` persists neither `fullSync` nor batch size
+(**D4**). Render the source banner naming which fields were seeded, and the dropped-parameter warning.
+Implement the sequencing contract in § UI/UX: seed once after options resolve, behind a ref guard;
+suppress the two existing reset effects while a seed is pending; strip the parameter with
+`router.replace` once applied. Tests assert each seeded field, that `fullSync` and batch size are left
+at their form defaults, the dropped-key warning, that an unknown **or malformed** id renders the plain
+form with no banner and no error (Edge case 8), that a later options resolution does not overwrite the
+seed, and that arrival submits nothing.
 
 **Step 3.3 — Route the stale-parameter 422 to the prefilled form**
 Add the "Start a new run with these settings…" action to the existing `parametersStale` error surface
@@ -543,15 +661,16 @@ accurate but incomplete once Phase 2 lands, and wrong as a description of the wh
 
 | Surface | Coverage |
 |---|---|
-| `lib/resume-point.ts` | Every status; null cursor; null and present `totalBatches`; zero `batchesCompleted` with a non-null cursor |
-| Run detail page | The three resume-point forms; the Started-from / Committed-through block across states; the action set per status; `Resume` vs `Retry` wording; the overflow rendering only when non-empty; the `data_sync.view`-only variant |
+| `lib/resume-point.ts` | Every status; null cursor; zero `batchesCompleted` with a non-null cursor. **No `totalBatches` case — the argument does not exist** |
+| Run detail page | Both resume-point forms; that `noCommittedBatch` never renders a "from the beginning" claim; the Started-from / Committed-through block across states; the action set per status; `Resume` vs `Retry` wording; the overflow rendering only when non-empty |
+| Permissions | A `data_sync.view`-only principal sees the resume-point line and no action buttons, on both surfaces |
 | Confirm dialog | Confirming issues `fromBeginning: true`; cancelling issues nothing; no request precedes the confirm |
-| Visibility gating | Hidden for a null cursor; hidden for a restricted entity type; **present when the options fetch fails** |
-| List row menu | The sub-label without a denominator; menu contents for each failed-run shape; `completed` offers only Run again |
-| Start form prefill | Each seeded field; faithful `fullSync`; the source banner; the dropped-parameter warning; unknown id renders plain defaults; arrival submits nothing |
+| Visibility gating | Hidden for a restricted entity type; **present when the options fetch fails**; **present for a null cursor**, which is where a guaranteed replay matters most |
+| List row menu | Both single-string label forms; menu contents for each failed-run shape; `completed` offers only Run again |
+| Start form prefill | Each seeded field; that `fullSync` and batch size stay at form defaults; the source banner; the dropped-parameter warning; unknown **and malformed** ids render plain defaults; a late options resolution does not overwrite the seed; arrival submits nothing |
 | Error surfaces | `parametersStale` renders the way out; the overlap `409` renders unchanged |
-| Integration `TC-DS-012` | Resume point rendered from a real failed run, and from one with no committed batch |
-| Integration `TC-DS-013` | From-the-beginning retry yields a null `initialCursor`; resumable retry inherits the cursor |
+| Integration `TC-DS-012` | Resume point rendered from a real failed run, and the non-committal form from one with no committed batch |
+| Integration `TC-DS-013` | From-the-beginning retry yields a null `initialCursor`; resumable retry inherits the cursor; the two differ for a run that committed no batch |
 | Integration `TC-DS-014` | Run again lands prefilled and the resulting run carries the parameters |
 
 Per `.ai/qa/AGENTS.md` the three integration specs ship in the same change as the behaviour they
@@ -560,8 +679,33 @@ cover, create their own fixtures, clean up in teardown, and depend on no seeded 
 ## Changelog
 
 - **2026-09-16** — Initial spec. Written after a 13-screen clickable prototype
-  (`.ai/prototypes/data-sync-retry-resume/`) was reviewed; five of that prototype's drawn choices were
-  reversed during review (**D1**–**D5**) and the prototype was corrected in the same change. The
-  originally planned server-side full-sync gate on `retry` was dropped entirely once
-  `BACKWARD_COMPATIBILITY.md` § Data Sync Start Control Applicability was found to forbid it (**D0**),
-  which left the feature with no API contract change at all.
+  (`.ai/prototypes/data-sync-retry-resume/`) was reviewed; six of that prototype's drawn choices were
+  reversed during that review (**D2**–**D7**) and the prototype was corrected in the same change.
+  **D1** — a `cancelled` run reading Resume — confirmed what the prototype's requirements already said
+  rather than reversing it. The originally planned server-side full-sync gate on `retry` was dropped
+  entirely once `BACKWARD_COMPATIBILITY.md` § Data Sync Start Control Applicability was found to forbid
+  it (**D0**).
+- **2026-09-16** — Revised after specification review (3 blockers, 8 majors). Four of the design's
+  promises turned out not to be cashable against the data model and were withdrawn rather than
+  weakened:
+  - **The `fromBeginning` resume-point copy was false.** The endpoint falls back to
+    `resolveStartCursor(...)` when the run committed no batch, so a run that died on its first batch can
+    still resume at a shared cursor. The copy is now non-committal, and the withdrawn **D3** — which hid
+    the from-scratch action in exactly that case — is gone, so the operator keeps the one control that
+    guarantees a replay.
+  - **`sync_runs` stores neither `full_sync` nor `batch_size`**, so the prefill seeds only integration,
+    entity type, direction and `parameters` — which is what the prototype's own `US-B2` had said before
+    this spec added two fields on top of it. **D4** is restated accordingly.
+  - **The "of ~118" denominator is not derivable.** `totalCount` estimates source records, not batches.
+    Every surface now renders the batch number alone, and `ResumePoint` lost its `totalBatches`
+    argument.
+  - **Neither page gates on `data_sync.run` today.** § Permissions claimed an existing behaviour that
+    does not exist; it is now specified as new work with its own step.
+
+  Also: the list row's sub-label collapses into the item's `label` string, because `RowActionItem.label`
+  is a `string` — the same constraint the spec had already found in `ConfirmDialog` and missed one
+  section earlier; `lib/resume-point.ts` is declared as an ADDITIVE §2/§4 surface following the
+  `lib/start-controls.ts` precedent; the cancelled banner names *when* rather than *who*, since nothing
+  records the canceller; the `?from=` seeding sequence is specified against the two existing reset
+  effects that would otherwise clobber it; and a new Risk 11 covers rendering an adapter cursor
+  verbatim, with an adapter-contract line scheduled in the same phase that first renders one.

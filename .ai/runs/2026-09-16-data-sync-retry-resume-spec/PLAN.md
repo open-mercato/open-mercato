@@ -21,6 +21,7 @@
 | 2 | 2.2 | Redraw the prototype screens the five decisions reverse | inline | done | `8a4d526486` |
 | 2 | 2.3 | Reconcile the prototype README and REQUIREMENTS with the decisions | inline | done | `4a18ef0827` |
 | 3 | 3.1 | Cross-reference the start-controls spec that Q1 relies on | inline | done | `a00d97f2af` |
+| 3 | 3.2-review-fix | Apply the specification review: 3 blockers, 8 majors | inline | done | pending |
 
 ## Goal
 
