@@ -141,6 +141,7 @@
   "data_sync.runs.detail.retry": "Reintentar",
   "data_sync.runs.detail.retryError": "No se pudo reintentar la ejecución",
   "data_sync.runs.detail.retryFromBeginning.action": "Reintentar desde el principio",
+  "data_sync.runs.detail.retryFromBeginning.actionCancelled": "Empezar desde el principio",
   "data_sync.runs.detail.retryFromBeginning.confirm": "Esto ignora el cursor guardado y vuelve a leer todo el origen, en lugar de continuar.",
   "data_sync.runs.detail.retryFromBeginning.confirmMatched": "Los registros existentes se emparejan y actualizan, no se duplican.",
   "data_sync.runs.detail.retryFromBeginning.confirmNoResumePoint": "Esta ejecución no confirmó ningún lote, así que solo un reintento desde el principio tiene una posición de inicio fiable.",

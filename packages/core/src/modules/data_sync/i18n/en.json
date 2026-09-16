@@ -141,6 +141,7 @@
   "data_sync.runs.detail.retry": "Retry",
   "data_sync.runs.detail.retryError": "Failed to retry sync run",
   "data_sync.runs.detail.retryFromBeginning.action": "Retry from the beginning",
+  "data_sync.runs.detail.retryFromBeginning.actionCancelled": "Start from the beginning",
   "data_sync.runs.detail.retryFromBeginning.confirm": "This ignores the saved cursor and reads the entire source again, instead of continuing.",
   "data_sync.runs.detail.retryFromBeginning.confirmMatched": "Existing records are matched and updated, not duplicated.",
   "data_sync.runs.detail.retryFromBeginning.confirmNoResumePoint": "This run committed no batch, so only a from-the-beginning retry has a start position you can rely on.",

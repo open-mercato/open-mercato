@@ -141,6 +141,7 @@
   "data_sync.runs.detail.retry": "Wiederholen",
   "data_sync.runs.detail.retryError": "Lauf konnte nicht wiederholt werden",
   "data_sync.runs.detail.retryFromBeginning.action": "Von vorne wiederholen",
+  "data_sync.runs.detail.retryFromBeginning.actionCancelled": "Von vorne starten",
   "data_sync.runs.detail.retryFromBeginning.confirm": "Dies ignoriert den gespeicherten Cursor und liest die gesamte Quelle erneut, statt fortzusetzen.",
   "data_sync.runs.detail.retryFromBeginning.confirmMatched": "Vorhandene Datensätze werden abgeglichen und aktualisiert, nicht dupliziert.",
   "data_sync.runs.detail.retryFromBeginning.confirmNoResumePoint": "Dieser Lauf hat keinen Batch übernommen, daher hat nur ein Neustart von vorne eine verlässliche Startposition.",

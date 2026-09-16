@@ -141,6 +141,7 @@
   "data_sync.runs.detail.retry": "Ponów",
   "data_sync.runs.detail.retryError": "Nie udało się ponowić przebiegu",
   "data_sync.runs.detail.retryFromBeginning.action": "Uruchom od początku",
+  "data_sync.runs.detail.retryFromBeginning.actionCancelled": "Zacznij od początku",
   "data_sync.runs.detail.retryFromBeginning.confirm": "Ignoruje zapisany kursor i czyta całe źródło od nowa, zamiast kontynuować.",
   "data_sync.runs.detail.retryFromBeginning.confirmMatched": "Istniejące rekordy są dopasowywane i aktualizowane, nie duplikowane.",
   "data_sync.runs.detail.retryFromBeginning.confirmNoResumePoint": "Ten przebieg nie zatwierdził żadnej partii, więc tylko uruchomienie od początku ma pewną pozycję startową.",

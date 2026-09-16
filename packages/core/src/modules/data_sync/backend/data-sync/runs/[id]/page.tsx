@@ -375,7 +375,9 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
   const overflowActions = canRunSync && resumePoint.kind !== 'none' && canReplayFromStart
     ? [{
       id: 'retry-from-beginning',
-      label: t('data_sync.runs.detail.retryFromBeginning.action', 'Retry from the beginning'),
+      label: run.status === 'cancelled'
+        ? t('data_sync.runs.detail.retryFromBeginning.actionCancelled', 'Start from the beginning')
+        : t('data_sync.runs.detail.retryFromBeginning.action', 'Retry from the beginning'),
       onSelect: () => { void handleRetryFromBeginning() },
     }]
     : []

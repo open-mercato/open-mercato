@@ -123,13 +123,25 @@ describe('SyncRunsDashboardPage row actions', () => {
   it('reads Resume, not Retry, for a run the operator stopped on purpose', async () => {
     const labels = await labelsFor(buildRow({ status: 'cancelled', batchesCompleted: 3 }))
     expect(labels).toContain('Resume (resumes from batch 3)')
-    expect(labels.some((label) => label.startsWith('Retry'))).toBe(false)
+    // The overflow must not smuggle "Retry" back in on the one state that
+    // deliberately avoids the word.
+    expect(labels).toContain('Start from the beginning')
+    expect(labels.some((label) => /Retry/.test(label))).toBe(false)
+  })
+
+  it('offers the from-scratch replay alongside the resumable retry', async () => {
+    const labels = await labelsFor(buildRow())
+    expect(labels).toContain('Retry from the beginning')
   })
 
   it('stays non-committal when the run committed no batch', async () => {
     const labels = await labelsFor(buildRow({ cursor: null, batchesCompleted: 0 }))
     expect(labels).toContain("Retry (resumes from this feed's last saved position)")
-    expect(labels.join(' ')).not.toMatch(/from the beginning/i)
+    // The resume-point label itself never claims a from-scratch start; the
+    // separate action is a different item, and stays available precisely here.
+    const resumeLabel = labels.find((label) => label.includes('resumes from'))
+    expect(resumeLabel).not.toMatch(/from the beginning/i)
+    expect(labels).toContain('Retry from the beginning')
   })
 
   it.each(['pending', 'running', 'completed'])('offers no retry for a %s run', async (status) => {

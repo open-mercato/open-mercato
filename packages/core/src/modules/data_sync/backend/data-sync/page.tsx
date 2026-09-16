@@ -47,6 +47,7 @@ import {
 import { getSyncRunStatusVariant, getSyncSummaryVariant } from '../../lib/syncRunStatus'
 import { resolveResumePoint } from '../../lib/resume-point'
 import { useDataSyncRunAccess } from '../../components/useDataSyncRunAccess'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import type { RunParameter } from '../../lib/adapter'
 import { getApplicableRunParameters } from '../../lib/run-parameters'
 import {
@@ -64,6 +65,14 @@ import {
   type RunFailureBody,
   type RunParameterFormValue,
 } from '../../components/RunParameterFields'
+
+function fromBeginningLabel(status: string, t: (key: string, fallback: string) => string): string {
+  // A cancelled run avoids the word "Retry" on its primary action; letting it
+  // back in through the overflow would undo that.
+  return status === 'cancelled'
+    ? t('data_sync.runs.detail.retryFromBeginning.actionCancelled', 'Start from the beginning')
+    : t('data_sync.runs.detail.retryFromBeginning.action', 'Retry from the beginning')
+}
 
 type SyncRunRow = {
   id: string
@@ -200,6 +209,7 @@ export default function SyncRunsDashboardPage() {
   // Server-side the run endpoints already require `data_sync.run`; the pages
   // did not, so a `data_sync.view` holder saw buttons that 403 on click.
   const { canRunSync } = useDataSyncRunAccess()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const scopeVersion = useOrganizationScopeVersion()
   const t = useT()
   const { runMutation } = useGuardedMutation<Record<string, unknown>>({
@@ -414,6 +424,31 @@ export default function SyncRunsDashboardPage() {
     }
   }, [t])
 
+  const handleRetryFromBeginning = React.useCallback(async (row: SyncRunRow) => {
+    const confirmed = await confirm({
+      title: t('data_sync.runs.detail.retryFromBeginning.title', 'Retry from the beginning?'),
+      text: [
+        t('data_sync.runs.detail.retryFromBeginning.confirm', 'This ignores the saved cursor and reads the entire source again, instead of continuing.'),
+        t('data_sync.runs.detail.retryFromBeginning.confirmMatched', 'Existing records are matched and updated, not duplicated.'),
+      ].join(' '),
+      confirmText: t('data_sync.runs.detail.retryFromBeginning.action', 'Retry from the beginning'),
+      variant: 'default',
+    })
+    if (!confirmed) return
+    // optimistic-lock-exempt: starts a new retry run (create), not a concurrent record edit
+    const call = await apiCall(`/api/data_sync/runs/${encodeURIComponent(row.id)}/retry`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fromBeginning: true }),
+    }, { fallback: null })
+    if (call.ok) {
+      flash(t('data_sync.runs.detail.retrySuccess'), 'success')
+      setReloadToken((token) => token + 1)
+    } else {
+      flash(buildRetryFailureMessage(call.result as RetryFailureBody | null, t), 'error')
+    }
+  }, [confirm, t])
+
   /**
    * `RowActionItem.label` is a plain string rendered as the sole child of a
    * single-line button, so the resume point has to live inside the label rather
@@ -432,12 +467,24 @@ export default function SyncRunsDashboardPage() {
         batch: resumePoint.batchesCompleted,
       })
       : t('data_sync.dashboard.actions.retryLastSaved', "{verb} (resumes from this feed's last saved position)", { verb })
-    return [{
+    const actions = [{
       id: 'retry',
       label,
       onSelect: () => { void handleRetry(row) },
     }]
-  }, [canRunSync, handleRetry, t])
+    // Same adapter gating as the detail page, and the same fail-open default.
+    // No explanatory footnote here: a row menu lists actions, it does not
+    // explain an absent one — the detail page carries that sentence.
+    const integration = options.find((option) => option.integrationId === row.integrationId)
+    if (applicableStartControls(integration?.startControls, row.entityType).fullSync) {
+      actions.push({
+        id: 'retry-from-beginning',
+        label: fromBeginningLabel(row.status, t),
+        onSelect: () => { void handleRetryFromBeginning(row) },
+      })
+    }
+    return actions
+  }, [canRunSync, handleRetry, handleRetryFromBeginning, options, t])
 
   const handleFiltersApply = React.useCallback((values: FilterValues) => {
     const next: FilterValues = {}
@@ -720,6 +767,7 @@ export default function SyncRunsDashboardPage() {
 
   return (
     <Page>
+      {ConfirmDialogElement}
       <PageBody className="space-y-6">
         <Card>
           <CardHeader className="space-y-4">
