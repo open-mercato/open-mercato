@@ -20,7 +20,7 @@
 | 2 | 2.1 | Remove the withdrawn server-side-hole claims from the prototype | inline | done | pending |
 | 2 | 2.2 | Redraw the prototype screens the five decisions reverse | inline | done | pending |
 | 2 | 2.3 | Reconcile the prototype README and REQUIREMENTS with the decisions | inline | done | pending |
-| 3 | 3.1 | Cross-reference the start-controls spec that Q1 relies on | inline | todo | — |
+| 3 | 3.1 | Cross-reference the start-controls spec that Q1 relies on | inline | done | pending |
 
 ## Goal
 
