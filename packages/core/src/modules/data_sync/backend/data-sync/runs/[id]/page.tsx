@@ -17,7 +17,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
-import { Bookmark, Lock, RotateCcw, XCircle } from 'lucide-react'
+import { Bookmark, Lock, Play, RotateCcw, XCircle } from 'lucide-react'
 import { getSyncRunStatusVariant } from '../../../../lib/syncRunStatus'
 import { resolveResumePoint } from '../../../../lib/resume-point'
 import { applicableStartControls, type StartControlMap } from '../../../../lib/start-controls'
@@ -418,6 +418,17 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
                     {t('data_sync.runs.detail.cancel')}
                   </Button>
                 ) : null}
+                {canRunSync && run.status === 'completed' ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => { router.push(`/backend/data-sync?from=${encodeURIComponent(run.id)}`) }}
+                  >
+                    <Play className="mr-2 h-4 w-4" />
+                    {t('data_sync.runs.detail.runAgain', 'Run again')}
+                  </Button>
+                ) : null}
                 {canRunSync && resumePoint.kind !== 'none' ? (
                   <Button type="button" variant="outline" size="sm" onClick={() => void handleRetry()}>
                     <RotateCcw className="mr-2 h-4 w-4" />
@@ -439,6 +450,11 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
                   {/* Verbatim and never truncated: an adapter cursor is the only
                       value an operator can paste into a support ticket. */}
                   <span className="font-mono break-all">{resumePoint.cursor}</span>
+                </p>
+              ) : null}
+              {canRunSync && run.status === 'completed' ? (
+                <p className="text-xs text-muted-foreground">
+                  {t('data_sync.runs.detail.runAgain.hint', "Opens the start form with this run's settings")}
                 </p>
               ) : null}
               {resumePoint.kind !== 'none' && !canReplayFromStart ? (

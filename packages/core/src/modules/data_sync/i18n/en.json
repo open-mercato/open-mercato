@@ -2,6 +2,7 @@
   "data_sync.dashboard.actions.resume": "Resume",
   "data_sync.dashboard.actions.retryLastSaved": "{verb} (resumes from this feed's last saved position)",
   "data_sync.dashboard.actions.retryResumes": "{verb} (resumes from batch {batch})",
+  "data_sync.dashboard.actions.runAgain": "Run again with these settings…",
   "data_sync.dashboard.actions.view": "View",
   "data_sync.dashboard.columns.created": "Created",
   "data_sync.dashboard.columns.createdAt": "Started",
@@ -65,6 +66,9 @@
   "data_sync.dashboard.start.runNowDescriptionScoped": "Use this for the next immediate sync. Anything set here applies only to this manual run.",
   "data_sync.dashboard.start.runNowFootnote": "Manual runs show progress immediately and land on the run detail page after launch.",
   "data_sync.dashboard.start.runNowTitle": "Run once now",
+  "data_sync.dashboard.start.seededDropped": "One stored parameter was not carried over: {keys} is no longer declared by {integration}.",
+  "data_sync.dashboard.start.seededDroppedPlural": "Some stored parameters were not carried over: {keys} are no longer declared by {integration}.",
+  "data_sync.dashboard.start.seededFrom": "Integration, entity type, direction and run parameters copied from {integration} — {entityType}. Batch size and full sync are at their defaults: a past run does not record them.",
   "data_sync.dashboard.start.status.credentialsMissing": "Credentials missing",
   "data_sync.dashboard.start.status.credentialsReady": "Credentials ready",
   "data_sync.dashboard.start.status.disabled": "Integration disabled",
@@ -151,5 +155,7 @@
   "data_sync.runs.detail.retryFromBeginning.unsupported": "This feed cannot be replayed from the start — {integration} does not support a full sync of {entityType}.",
   "data_sync.runs.detail.retryParametersStale": "The stored run parameters are no longer valid for this integration. Start a new run from the Data Sync dashboard.",
   "data_sync.runs.detail.retrySuccess": "Sync run retried",
+  "data_sync.runs.detail.runAgain": "Run again",
+  "data_sync.runs.detail.runAgain.hint": "Opens the start form with this run's settings",
   "data_sync.runs.detail.title": "Sync Run"
 }

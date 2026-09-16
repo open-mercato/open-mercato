@@ -2,6 +2,7 @@
   "data_sync.dashboard.actions.resume": "재개",
   "data_sync.dashboard.actions.retryLastSaved": "{verb} (이 피드의 마지막 저장 위치부터)",
   "data_sync.dashboard.actions.retryResumes": "{verb} (배치 {batch}부터)",
+  "data_sync.dashboard.actions.runAgain": "이 설정으로 다시 실행…",
   "data_sync.dashboard.actions.view": "보기",
   "data_sync.dashboard.columns.created": "생성됨",
   "data_sync.dashboard.columns.createdAt": "시작됨",
@@ -65,6 +66,9 @@
   "data_sync.dashboard.start.runNowDescriptionScoped": "다음 즉시 동기화에 사용하세요. 여기에서 설정한 값은 이 수동 실행에만 적용됩니다.",
   "data_sync.dashboard.start.runNowFootnote": "수동 실행은 즉시 진행 상황을 표시하며 시작 후 실행 상세 페이지로 이동합니다.",
   "data_sync.dashboard.start.runNowTitle": "지금 한 번 실행",
+  "data_sync.dashboard.start.seededDropped": "저장된 매개변수 하나가 복사되지 않았습니다: {integration}은(는) 더 이상 {keys}을(를) 선언하지 않습니다.",
+  "data_sync.dashboard.start.seededDroppedPlural": "일부 저장된 매개변수가 복사되지 않았습니다: {integration}은(는) 더 이상 {keys}을(를) 선언하지 않습니다.",
+  "data_sync.dashboard.start.seededFrom": "{integration} — {entityType}에서 통합, 엔터티 유형, 방향, 실행 매개변수를 복사했습니다. 배치 크기와 전체 동기화는 기본값입니다 — 지난 실행은 이를 기록하지 않습니다.",
   "data_sync.dashboard.start.status.credentialsMissing": "자격 증명 누락",
   "data_sync.dashboard.start.status.credentialsReady": "자격 증명 준비됨",
   "data_sync.dashboard.start.status.disabled": "통합 비활성화됨",
@@ -151,5 +155,7 @@
   "data_sync.runs.detail.retryFromBeginning.unsupported": "이 피드는 처음부터 다시 실행할 수 없습니다 — {integration}은(는) {entityType}의 전체 동기화를 지원하지 않습니다.",
   "data_sync.runs.detail.retryParametersStale": "저장된 실행 매개변수가 이 연동에 더 이상 유효하지 않습니다. Data Sync 대시보드에서 새 실행을 시작하세요.",
   "data_sync.runs.detail.retrySuccess": "동기화 실행이 재시도되었습니다",
+  "data_sync.runs.detail.runAgain": "다시 실행",
+  "data_sync.runs.detail.runAgain.hint": "이 실행의 설정으로 시작 양식을 엽니다",
   "data_sync.runs.detail.title": "동기화 실행"
 }

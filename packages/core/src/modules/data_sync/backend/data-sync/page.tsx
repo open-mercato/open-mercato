@@ -2,7 +2,7 @@
 import * as React from 'react'
 import { extensionPoints } from '@open-mercato/core/modules/data_sync/extension-points'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
@@ -210,6 +210,18 @@ export default function SyncRunsDashboardPage() {
   // did not, so a `data_sync.view` holder saw buttons that 403 on click.
   const { canRunSync } = useDataSyncRunAccess()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
+  const searchParams = useSearchParams()
+  const fromRunId = searchParams?.get('from') ?? null
+  /**
+   * The seed has to survive two existing effects that reset the form whenever
+   * the integration or the parameter declaration changes. Rather than racing
+   * them, the seeded values wait in a ref and those effects consult it — so the
+   * order the responses arrive in stops mattering.
+   */
+  const pendingSeedRef = React.useRef<{ entityType: string; direction: 'import' | 'export'; parameters: Record<string, unknown> } | null>(null)
+  const seedAttemptedRef = React.useRef<string | null>(null)
+  const seedMountedRef = React.useRef(true)
+  const [seedSource, setSeedSource] = React.useState<{ integrationId: string; entityType: string; droppedKeys: string[] } | null>(null)
   const scopeVersion = useOrganizationScopeVersion()
   const t = useT()
   const { runMutation } = useGuardedMutation<Record<string, unknown>>({
@@ -309,7 +321,21 @@ export default function SyncRunsDashboardPage() {
   )
 
   React.useEffect(() => {
-    setParamValues(buildDefaultRunParameterValues(runParameters))
+    const defaults = buildDefaultRunParameterValues(runParameters)
+    const seed = pendingSeedRef.current
+    if (!seed) {
+      setParamValues(defaults)
+      return
+    }
+    // The declaration has resolved, so the seed can be applied and retired —
+    // a later re-render must not re-seed over the operator's own edits.
+    const seeded: Record<string, RunParameterFormValue> = { ...defaults }
+    for (const param of runParameters) {
+      const value = seed.parameters[param.key]
+      if (value !== undefined) seeded[param.key] = value as RunParameterFormValue
+    }
+    pendingSeedRef.current = null
+    setParamValues(seeded)
   }, [runParameters])
 
   // A control the form stopped showing must not keep submitting the value the
@@ -329,6 +355,12 @@ export default function SyncRunsDashboardPage() {
   React.useEffect(() => {
     if (!selectedIntegration) {
       setSelectedEntityType('')
+      return
+    }
+    const seed = pendingSeedRef.current
+    if (seed && selectedIntegration.supportedEntities.includes(seed.entityType)) {
+      setSelectedEntityType(seed.entityType)
+      setSelectedDirection(seed.direction)
       return
     }
     setSelectedEntityType((current) => (
@@ -423,6 +455,70 @@ export default function SyncRunsDashboardPage() {
       flash(buildRetryFailureMessage(call.result as RetryFailureBody | null, t), 'error')
     }
   }, [t])
+
+  /**
+   * Seeds the start form from `?from=<runId>`, exactly once, after the options
+   * response has resolved — the integration list must exist before an
+   * integration can be selected.
+   *
+   * Only what `sync_runs` actually stores is copied: integration, entity type,
+   * direction and the stored parameters. `fullSync` and batch size are NOT
+   * seeded, because the table has no column for either — they are consumed when
+   * a run starts and thrown away.
+   */
+  React.useEffect(() => {
+    if (!fromRunId || isLoadingOptions) return
+    if (seedAttemptedRef.current === fromRunId) return
+    seedAttemptedRef.current = fromRunId
+
+    const seed = async () => {
+      const call = await apiCall<{
+        integrationId: string
+        entityType: string
+        direction: 'import' | 'export'
+        parameters: Record<string, unknown> | null
+      }>(`/api/data_sync/runs/${encodeURIComponent(fromRunId)}`, undefined, { fallback: null })
+
+      // An unknown, malformed or cross-tenant id is not an error state: the
+      // form simply renders its normal defaults, exactly as a direct visit
+      // does. A 400 from a non-UUID is handled identically to a 404.
+      // Only an unmount aborts this. An earlier version cancelled on every
+      // effect re-run, which — with the ref guard blocking a second fetch —
+      // meant the seed never landed at all.
+      if (!seedMountedRef.current || !call.ok || !call.result) return
+
+      const source = call.result
+      const integration = options.find((option) => option.integrationId === source.integrationId)
+      if (!integration) return
+
+      const declaredKeys = new Set(
+        (integration.runParameters ?? [])
+          .filter((param) => !param.direction || param.direction === source.direction)
+          .map((param) => param.key),
+      )
+      const stored = source.parameters ?? {}
+      const carried: Record<string, unknown> = {}
+      const dropped: string[] = []
+      for (const [key, value] of Object.entries(stored)) {
+        if (declaredKeys.has(key)) carried[key] = value
+        else dropped.push(key)
+      }
+
+      pendingSeedRef.current = {
+        entityType: source.entityType,
+        direction: source.direction,
+        parameters: carried,
+      }
+      setSelectedIntegrationId(source.integrationId)
+      setSeedSource({ integrationId: source.integrationId, entityType: source.entityType, droppedKeys: dropped })
+      // Drop the parameter so a re-render or a back-navigation cannot re-seed
+      // over edits the operator has since made.
+      router.replace('/backend/data-sync')
+    }
+    void seed()
+  }, [fromRunId, isLoadingOptions, options, router])
+
+  React.useEffect(() => () => { seedMountedRef.current = false }, [])
 
   const handleRetryFromBeginning = React.useCallback(async (row: SyncRunRow) => {
     const confirmed = await confirm({
@@ -828,6 +924,31 @@ export default function SyncRunsDashboardPage() {
             ) : null}
           </CardHeader>
           <CardContent className="space-y-6">
+            {seedSource ? (
+              <Alert status="information">
+                <AlertDescription className="space-y-1">
+                  <p>
+                    {t('data_sync.dashboard.start.seededFrom', 'Integration, entity type, direction and run parameters copied from {integration} — {entityType}. Batch size and full sync are at their defaults: a past run does not record them.', {
+                      integration: seedSource.integrationId,
+                      entityType: seedSource.entityType,
+                    })}
+                  </p>
+                  {seedSource.droppedKeys.length > 0 ? (
+                    <p>
+                      {t(
+                        seedSource.droppedKeys.length === 1
+                          ? 'data_sync.dashboard.start.seededDropped'
+                          : 'data_sync.dashboard.start.seededDroppedPlural',
+                        seedSource.droppedKeys.length === 1
+                          ? 'One stored parameter was not carried over: {keys} is no longer declared by {integration}.'
+                          : 'Some stored parameters were not carried over: {keys} are no longer declared by {integration}.',
+                        { keys: seedSource.droppedKeys.join(', '), integration: seedSource.integrationId },
+                      )}
+                    </p>
+                  ) : null}
+                </AlertDescription>
+              </Alert>
+            ) : null}
             <div className="grid gap-4 xl:grid-cols-3">
               <div className="space-y-2 xl:col-span-1">
                 <Label className="flex items-center gap-2 text-sm font-medium">
@@ -1195,6 +1316,14 @@ export default function SyncRunsDashboardPage() {
                 onSelect: () => { void handleCancel(row) },
               }] : []),
               ...buildRetryActions(row),
+              // Completed only: on a failed run this differs from the
+              // from-scratch retry solely in offering an edit step, which does
+              // not earn a second near-identical item.
+              ...(canRunSync && row.status === 'completed' ? [{
+                id: 'run-again',
+                label: t('data_sync.dashboard.actions.runAgain', 'Run again with these settings…'),
+                onSelect: () => { router.push(`/backend/data-sync?from=${encodeURIComponent(row.id)}`) },
+              }] : []),
             ]} />
           )}
           pagination={{ page, pageSize: 20, total, totalPages, totalIsCapped, onPageChange: setPage }}

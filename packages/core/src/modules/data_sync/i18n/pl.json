@@ -2,6 +2,7 @@
   "data_sync.dashboard.actions.resume": "Wznów",
   "data_sync.dashboard.actions.retryLastSaved": "{verb} (od ostatniej zapisanej pozycji tego źródła)",
   "data_sync.dashboard.actions.retryResumes": "{verb} (od partii {batch})",
+  "data_sync.dashboard.actions.runAgain": "Uruchom ponownie z tymi ustawieniami…",
   "data_sync.dashboard.actions.view": "Zobacz",
   "data_sync.dashboard.columns.created": "Utworzone",
   "data_sync.dashboard.columns.createdAt": "Rozpoczęto",
@@ -65,6 +66,9 @@
   "data_sync.dashboard.start.runNowDescriptionScoped": "Użyj tej opcji dla najbliższej natychmiastowej synchronizacji. Ustawienia wprowadzone tutaj dotyczą wyłącznie tego ręcznego przebiegu.",
   "data_sync.dashboard.start.runNowFootnote": "Ręczne przebiegi od razu pokazują postęp, a po uruchomieniu przenoszą na stronę szczegółów przebiegu.",
   "data_sync.dashboard.start.runNowTitle": "Uruchom teraz jednorazowo",
+  "data_sync.dashboard.start.seededDropped": "Jeden zapisany parametr nie został przeniesiony: {integration} już nie deklaruje {keys}.",
+  "data_sync.dashboard.start.seededDroppedPlural": "Niektóre zapisane parametry nie zostały przeniesione: {integration} już nie deklaruje {keys}.",
+  "data_sync.dashboard.start.seededFrom": "Integracja, typ encji, kierunek i parametry skopiowane z {integration} — {entityType}. Rozmiar partii i pełna synchronizacja mają wartości domyślne: przebieg ich nie zapisuje.",
   "data_sync.dashboard.start.status.credentialsMissing": "Brak poświadczeń",
   "data_sync.dashboard.start.status.credentialsReady": "Poświadczenia gotowe",
   "data_sync.dashboard.start.status.disabled": "Integracja wyłączona",
@@ -151,5 +155,7 @@
   "data_sync.runs.detail.retryFromBeginning.unsupported": "Tego źródła nie można odtworzyć od początku — {integration} nie obsługuje pełnej synchronizacji {entityType}.",
   "data_sync.runs.detail.retryParametersStale": "Zapisane parametry uruchomienia nie są już poprawne dla tej integracji. Uruchom nowe zadanie z pulpitu Data Sync.",
   "data_sync.runs.detail.retrySuccess": "Przebieg ponowiony",
+  "data_sync.runs.detail.runAgain": "Uruchom ponownie",
+  "data_sync.runs.detail.runAgain.hint": "Otwiera formularz startu z ustawieniami tego przebiegu",
   "data_sync.runs.detail.title": "Przebieg synchronizacji"
 }

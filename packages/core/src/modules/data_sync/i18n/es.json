@@ -2,6 +2,7 @@
   "data_sync.dashboard.actions.resume": "Reanudar",
   "data_sync.dashboard.actions.retryLastSaved": "{verb} (desde la última posición guardada de este feed)",
   "data_sync.dashboard.actions.retryResumes": "{verb} (desde el lote {batch})",
+  "data_sync.dashboard.actions.runAgain": "Ejecutar de nuevo con estos ajustes…",
   "data_sync.dashboard.actions.view": "Ver",
   "data_sync.dashboard.columns.created": "Creados",
   "data_sync.dashboard.columns.createdAt": "Iniciado",
@@ -65,6 +66,9 @@
   "data_sync.dashboard.start.runNowDescriptionScoped": "Use this for the next immediate sync. Anything set here applies only to this manual run.",
   "data_sync.dashboard.start.runNowFootnote": "Manual runs show progress immediately and land on the run detail page after launch.",
   "data_sync.dashboard.start.runNowTitle": "Run once now",
+  "data_sync.dashboard.start.seededDropped": "Un parámetro guardado no se copió: {integration} ya no declara {keys}.",
+  "data_sync.dashboard.start.seededDroppedPlural": "Algunos parámetros guardados no se copiaron: {integration} ya no declara {keys}.",
+  "data_sync.dashboard.start.seededFrom": "Integración, tipo de entidad, dirección y parámetros copiados de {integration} — {entityType}. El tamaño de lote y la sincronización completa están en sus valores por defecto: una ejecución pasada no los registra.",
   "data_sync.dashboard.start.status.credentialsMissing": "Credentials missing",
   "data_sync.dashboard.start.status.credentialsReady": "Credentials ready",
   "data_sync.dashboard.start.status.disabled": "Integration disabled",
@@ -151,5 +155,7 @@
   "data_sync.runs.detail.retryFromBeginning.unsupported": "Este feed no puede reproducirse desde el inicio — {integration} no admite una sincronización completa de {entityType}.",
   "data_sync.runs.detail.retryParametersStale": "Los parámetros de ejecución guardados ya no son válidos para esta integración. Inicia una nueva ejecución desde el panel de Data Sync.",
   "data_sync.runs.detail.retrySuccess": "Ejecución reintentada",
+  "data_sync.runs.detail.runAgain": "Ejecutar de nuevo",
+  "data_sync.runs.detail.runAgain.hint": "Abre el formulario de inicio con los ajustes de esta ejecución",
   "data_sync.runs.detail.title": "Ejecución de sincronización"
 }

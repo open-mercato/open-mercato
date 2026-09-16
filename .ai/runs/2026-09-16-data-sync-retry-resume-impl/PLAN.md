@@ -24,8 +24,8 @@
 | 2 | 2.2 | Hide the action when the adapter declares full sync inapplicable | inline | done | pending |
 | 2 | 2.3 | Add the same action to the list row menu | inline | done | pending |
 | 2 | 2.4 | Integration coverage `TC-DS-013` | dispatch | done | pending |
-| 3 | 3.1 | Add the "Run again" action on completed runs | inline | todo | — |
-| 3 | 3.2 | Seed the start form from `?from=<runId>` | inline | todo | — |
+| 3 | 3.1 | Add the "Run again" action on completed runs | inline | done | pending |
+| 3 | 3.2 | Seed the start form from `?from=<runId>` | inline | done | pending |
 | 3 | 3.3 | Route the stale-parameter 422 to the prefilled form | inline | todo | — |
 | 3 | 3.4 | Integration coverage `TC-DS-014` | dispatch | todo | — |
 

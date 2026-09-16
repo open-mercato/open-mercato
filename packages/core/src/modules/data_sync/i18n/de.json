@@ -2,6 +2,7 @@
   "data_sync.dashboard.actions.resume": "Fortsetzen",
   "data_sync.dashboard.actions.retryLastSaved": "{verb} (ab der zuletzt gespeicherten Position dieses Feeds)",
   "data_sync.dashboard.actions.retryResumes": "{verb} (ab Batch {batch})",
+  "data_sync.dashboard.actions.runAgain": "Mit diesen Einstellungen erneut ausführen…",
   "data_sync.dashboard.actions.view": "Anzeigen",
   "data_sync.dashboard.columns.created": "Erstellt",
   "data_sync.dashboard.columns.createdAt": "Gestartet",
@@ -65,6 +66,9 @@
   "data_sync.dashboard.start.runNowDescriptionScoped": "Use this for the next immediate sync. Anything set here applies only to this manual run.",
   "data_sync.dashboard.start.runNowFootnote": "Manual runs show progress immediately and land on the run detail page after launch.",
   "data_sync.dashboard.start.runNowTitle": "Run once now",
+  "data_sync.dashboard.start.seededDropped": "Ein gespeicherter Parameter wurde nicht übernommen: {keys} wird von {integration} nicht mehr deklariert.",
+  "data_sync.dashboard.start.seededDroppedPlural": "Einige gespeicherte Parameter wurden nicht übernommen: {keys} werden von {integration} nicht mehr deklariert.",
+  "data_sync.dashboard.start.seededFrom": "Integration, Entitätstyp, Richtung und Laufparameter übernommen von {integration} — {entityType}. Batch-Größe und vollständige Synchronisation stehen auf Standard: Ein vergangener Lauf speichert sie nicht.",
   "data_sync.dashboard.start.status.credentialsMissing": "Credentials missing",
   "data_sync.dashboard.start.status.credentialsReady": "Credentials ready",
   "data_sync.dashboard.start.status.disabled": "Integration disabled",
@@ -151,5 +155,7 @@
   "data_sync.runs.detail.retryFromBeginning.unsupported": "Dieser Feed kann nicht von vorne abgespielt werden — {integration} unterstützt keine vollständige Synchronisation von {entityType}.",
   "data_sync.runs.detail.retryParametersStale": "Die gespeicherten Laufparameter sind für diese Integration nicht mehr gültig. Starten Sie einen neuen Lauf über das Data-Sync-Dashboard.",
   "data_sync.runs.detail.retrySuccess": "Lauf wiederholt",
+  "data_sync.runs.detail.runAgain": "Erneut ausführen",
+  "data_sync.runs.detail.runAgain.hint": "Öffnet das Startformular mit den Einstellungen dieses Laufs",
   "data_sync.runs.detail.title": "Synchronisierungslauf"
 }
