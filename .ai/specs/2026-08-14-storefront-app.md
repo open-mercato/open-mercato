@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Status** | Specification |
+| **Status** | Specification (rev 2 — content pages) |
 | **Created** | 2026-08-14 |
 | **Suite** | [Ecommerce Suite Roadmap](./2026-08-14-ecommerce-suite-roadmap.md) — spec 10, Phase 4 |
 | **Deliverables** | `apps/storefront`, `@open-mercato/storefront-ui` |
@@ -18,11 +18,12 @@
 - Per [ADR-8](./2026-08-14-ecommerce-suite-roadmap.md#adr-8--the-storefront-shares-tokens-not-components) it may depend on a small, budgeted `@open-mercato/storefront-ui` — a deliberate softening of SPEC-029 v3 §14.2, which forbade all shared UI and would have meant a second independently-maintained accessible dialog, sheet and combobox. Two implementations of a focus trap is how WCAG regressions ship.
 - Accessibility is a **gate, not a phase**: WCAG 2.2 AA is asserted by automated axe runs per route plus a manual keyboard and screen-reader pass, and a failure blocks the phase.
 - The app is server-first: catalogue pages render on the server with buyer-aware caching, and only genuinely interactive surfaces — variant selection, filters, cart, checkout — are client components.
+- Static pages (terms, privacy, about) are read through the public API's swappable `contentPageSource` seam rather than from the `content` module directly, and `ContentPageBody` renders both arms of the `body` union from day one — so the route survives a CMS module replacing the source without being rewritten.
 
 **Scope:**
 - `apps/storefront` route tree, data layer, state and SEO
 - `@open-mercato/storefront-ui` with a CI-enforced size and dependency budget
-- Component specifications for catalogue, PDP, filters, cart, checkout and account
+- Component specifications for catalogue, PDP, filters, cart, checkout, account and content pages
 - Design system, responsive strategy, WCAG 2.2 AA, performance budgets
 - Playwright coverage
 
@@ -98,8 +99,11 @@ Everything commerce-specific — `ProductCard`, `VariantSelector`, `FilterSideba
 | Cart | Client, always live | Client, always live |
 | Checkout | Client, always live | Client, always live |
 | Account | Client, always live | Client, always live |
+| Content page | Server, ISR 300s, **shared** | Server, ISR 300s, **shared** |
 
 **The rule:** anonymous responses may be shared and cached; authenticated responses are per-request and never enter a shared cache. The app reads `buyer.isAuthenticated` from `/context` at the edge and picks the path. Any CDN in front must be configured to vary on the session cookie or bypass on its presence — this is a **deployment requirement**, documented in the app README, because getting it wrong reproduces spec 4 R1 outside the platform's control.
+
+**Content pages are the one row that ignores the rule**, in both directions: they are cached and shared identically for anonymous and authenticated visitors, and the CDN requirement above does not apply to them. That is safe for a narrow and verifiable reason — the payload contains no buyer-dependent field at all (public API §4.6), a property asserted by that spec's contract suite rather than assumed here. The exception has to be stated explicitly, because "cached the same for a logged-in buyer" is otherwise indistinguishable from R1's failure mode on inspection, and a reader who cannot tell the two apart will eventually turn one into the other.
 
 ### 3.4 Data layer
 
@@ -140,12 +144,12 @@ apps/storefront/src/app/
 │   ├── wishlists/page.tsx  ·  saved-carts/page.tsx
 │   └── company/{page,buyers,approvals,credit,price-list}.tsx   (B2B)
 ├── (auth)/{login,register,forgot-password,reset-password}/page.tsx
-├── pages/[slug]/page.tsx         content module static pages
+├── pages/[slug]/page.tsx         static pages via /pages/:slug (public API §4.7)
 ├── sitemap.ts  ·  robots.ts      per store, from the public API
 ├── not-found.tsx  ·  error.tsx  ·  global-error.tsx
 ```
 
-`sitemap.ts` and `robots.ts` resolve SPEC-029 v4 Open Question 6 in favour of the app: Next.js generates them natively from paginated API reads, and `store.settings.seo.robotsTxt` supplies the robots body.
+`sitemap.ts` and `robots.ts` resolve SPEC-029 v4 Open Question 6 in favour of the app: Next.js generates them natively from paginated API reads, and `store.settings.seo.robotsTxt` supplies the robots body. The page half comes from `GET /pages` (public API §4.6) — a static page absent from the sitemap is a static page nobody finds. *(The public API spec's own Open Question 1 still records this as undecided from its side; the two want reconciling, and nothing in this spec changes if it lands there instead — only where the pagination loop lives.)*
 
 ---
 
@@ -203,6 +207,17 @@ New in this spec. Renders the step machine (checkout §5.2) from the session.
 `ProductCard`, `ProductGrid`, `ProductSkeleton`, `AvailabilityBadge`, `ImageGallery`, `SearchDialog`, `MiniCart`, `BlockRenderer` (merchandising blocks), `ReorderPreview`, `ApprovalCard`, `PriceListTable`.
 
 `AvailabilityBadge` renders **nothing** for `not_tracked` — availability spec R5 forbids presenting an uncounted item as "in stock".
+
+### 5.7 `ContentPageBody`
+
+New in this revision. Renders `StorefrontPage.body` (public API §5.5), a discriminated union.
+
+- `format: 'html'` → rendered as received. The payload is sanitized server-side (public API R10) and the app **does not** re-sanitize: a second, differently-configured sanitizer is how two allowlists drift until one of them is the weaker one, and the weaker one is the one that matters
+- `format: 'blocks'` → delegated to `BlockRenderer` (§5.6), the same component merchandising placements use
+- An **unrecognized `format`** renders the page title plus a neutral fallback and reports through the app's error boundary. It never renders `value` as markup. A CMS may introduce a third arm against a storefront deployment that predates it, and the failure mode for that has to be a degraded page rather than an injection (R9)
+- Body headings are offset so the page's own `<h1>` stays unique (§8), which authored content will otherwise break the first time someone starts a page with a heading
+
+The component exists so that the `format` branch lives in exactly one place. Inlining it in `pages/[slug]/page.tsx` works until a second surface — a CMS-backed landing page, a help article embedded in account — needs the same union, at which point the fallback behaviour gets reimplemented and one copy forgets the unknown-arm case.
 
 ---
 
@@ -281,7 +296,7 @@ Budgets are enforced in CI by a bundle-size check. A breach fails the build.
 
 ## 10) SEO
 
-Per-page `generateMetadata` from the API payload's `seo` block; canonical URLs from the primary domain binding; `hreflang` across `supportedLocales`; Open Graph and Twitter cards.
+Per-page `generateMetadata` from the API payload's `seo` block; canonical URLs from the primary domain binding; `hreflang` across `supportedLocales`; Open Graph and Twitter cards. Content pages use the same path — `StorefrontPage.seo` carries `noindex`, so a merchant can publish a page that is linkable but unindexed without the app needing a second mechanism.
 
 Structured data: `Product` with `Offer` (price, currency, availability, `priceValidUntil`), `BreadcrumbList`, `Organization`, `ItemList` on listings, `WebSite` with `SearchAction`.
 
@@ -301,6 +316,7 @@ Structured data: `Product` with `Offer` (price, currency, availability, `priceVa
 | R6 | Bundle growth degrades LCP | Medium | Incremental client components push catalogue routes past budget and mobile LCP misses target. | Per-route CI bundle budgets; server components by default; checkout code split away from catalogue | Low |
 | R7 | Cart token exposure in the client | **High** | The cart token is stored where another script can read it, or lands in a URL and leaks via referrer. | httpOnly cookie set by a server route handler; never in `localStorage`, never in a URL (cart spec R6); the app never reads the raw token in client code | Low |
 | R8 | Branding FOUC | Low | Store colours apply after hydration and the first paint is unbranded. | Branding SSR-injected into `<head>` (SPEC-029 §7.2); runtime `setProperty` reserved for the admin preview | Low |
+| R9 | A new body format renders as raw markup | Medium | A CMS replaces the page source and emits a `body.format` this storefront predates; a permissive fallback passes `value` to `dangerouslySetInnerHTML` and renders unsanitized author content, or renders a serialized object. | `ContentPageBody` switches exhaustively and falls through to a neutral fallback, never to raw `value` (§5.7); a test asserts an unknown format renders no markup originating from `value` | Low |
 
 ---
 
@@ -320,6 +336,8 @@ Playwright, headless, against a seeded fixture store. Renumbered from SPEC-029 v
 
 **Buyer isolation:** an anonymous request following an authenticated one for the same URL returns anonymous prices (R1); structured data on an authenticated page carries no price (R2).
 
+**Content pages:** a published page renders at `/pages/<slug>` with its SEO metadata and appears in the sitemap; an unpublished or unknown slug renders the app's 404 rather than an error; an `html` body renders its sanitized content; a `blocks` body renders through `BlockRenderer`; an unknown `body.format` renders the fallback and no markup originating from `value` (R9); a footer menu item with `target_type: content_page` resolves to the right URL; the same page is byte-identical for an anonymous and an authenticated buyer (§3.3's exception).
+
 **Accessibility:** axe zero serious/critical on every route in both auth states at both widths; keyboard-only traversal of the full purchase journey; skip link on first Tab; focus returns from every dialog; 200 % zoom without horizontal scroll.
 
 **Performance:** Lighthouse CI on home, category and PDP meets §9; bundle budgets enforced per route.
@@ -334,9 +352,11 @@ Scaffold, `@open-mercato/storefront-ui` with its CI budget, `storefrontFetch` wi
 **Gate:** the package budget is enforced and passing; branding renders without FOUC.
 
 ### Phase 2 — Catalogue
-Home with merchandising blocks, category, collection, PDP, search, filters, URL-synced filter state, sitemap and robots.
+Home with merchandising blocks, category, collection, PDP, search, filters, URL-synced filter state, content pages with `ContentPageBody`, sitemap and robots.
 
-**Gate:** buyer isolation tests pass; catalogue bundle and LCP budgets met.
+**Gate:** buyer isolation tests pass; catalogue bundle and LCP budgets met; content pages appear in the sitemap and an unknown `body.format` degrades rather than injects.
+
+Content pages sit here rather than in a phase of their own because they are what the sitemap and the footer navigation need in order to be complete, and both ship in this phase. They depend on public API Phase 4.
 
 ### Phase 3 — Cart
 Cart page, mini-cart, add-to-cart with quantity rules and tiers, promotion codes, price-change disclosure, merge summary.
@@ -381,12 +401,20 @@ Full axe sweep, manual accessibility pass, Lighthouse CI, bundle budgets, cross-
 | Performance | Budgets enforced in CI; a breach fails the build |
 | Security | Cart token httpOnly and never in a URL; authenticated responses `no-store`; structured data anonymous-priced only |
 | API consumption | Only public endpoints; no privileged surface reachable from the app |
+| Content pages | Read through `GET /pages/:slug`; the `content` module is never imported, so the source stays swappable. Body HTML is sanitized by the API and not re-sanitized here (§5.7); an unknown `body.format` degrades rather than rendering raw markup |
 | Dialog UX | `Cmd/Ctrl+Enter` submits, `Escape` cancels, per root `AGENTS.md` |
 | Integration coverage | §12, shipping in the same change |
 
 ---
 
 ## 16) Changelog
+
+### 2026-09-16
+- Gave `pages/[slug]` an actual contract. It had been a single annotated line in the route tree since the initial draft, pointing at the `content` module, which ships hardcoded React pages carrying Open Mercato's own legal entity — so the route as specified had nothing a tenant could publish to and nothing the sitemap could enumerate.
+- Bound the route to the public API's `contentPageSource` seam (public API §3.4) instead of to the `content` module, so a CMS module replacing the source later does not reach this app.
+- Added `ContentPageBody` (§5.7) handling both arms of the `body` union plus an unknown third, and R9 for the case where a future format arrives at an older deployment. Handling the union now is the reason the swap stays cheap.
+- Added the content-page row to the rendering table (§3.3) and stated plainly why it is exempt from the shared-cache rule — an exemption that looks identical to R1's failure mode unless the reason is written down next to it.
+- Recorded that the public API spec still lists sitemap ownership as open from its side while §4 here treats it as settled, rather than leaving the two silently disagreeing.
 
 ### 2026-08-14
 - Initial specification, carrying forward SPEC-029 v3 §14 (app architecture), §15 (components), §16 (design system), §17 (RWD), §18 (WCAG) and the app half of §24 (performance).
