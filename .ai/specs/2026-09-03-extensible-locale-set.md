@@ -224,11 +224,13 @@ Both checkers now resolve target locales per module through `scripts/lib/i18n-lo
   literal (the pre-existing `scripts/dev.mjs` issue noted below).
 - **Inside `apps/<app>/`**: the locale files present in `apps/<app>/src/i18n/`. That directory is
   already the step an app takes to add a language (upgrade note: add `src/i18n/<code>.json`), so it
-  doubles as the app's declaration of which languages its own modules must carry. An app without
-  that directory follows the platform set.
+  doubles as the app's declaration of which languages its own modules must carry. File names must
+  use the normalized code `registerLocales` stores (lowercase, hyphenated: `pt-br.json`). An app
+  without that directory follows the platform set.
 
-The resolver fails closed: an unreadable or inconsistent `config.ts` aborts the check instead of
-falling back to a stale list. In this repository both scopes resolve to `en, pl, es, de, ko`, so
+The resolver fails closed: an unreadable or inconsistent `config.ts` (including a `locales` array
+that is not entirely string literals) and a locale-shaped app file that is not normalized
+(`pt-BR.json`, `zh_Hant.json`) abort the check instead of silently dropping a language. In this repository both scopes resolve to `en, pl, es, de, ko`, so
 the checked locales, the findings, and the exit codes are unchanged; only the sync checker's
 header changes, listing each resolved scope with its locales.
 
@@ -470,3 +472,6 @@ change, not a behaviour change; an assertion covering the new prop was added alo
   silently dropping members), and `i18n-check-values --module` filters modules before deriving the
   compared locales, so a platform module is never reported against an app-only locale. Covered by
   parser regressions in `i18n-locale-set.test.mjs` and CLI-level cases in `i18n-check-values-scopes.test.mjs`.
+- An app's locale files must use normalized codes (lowercase, hyphenated — the form `registerLocales` stores).
+  A locale-shaped file such as `pt-BR.json` or `zh_Hant.json` now aborts the run with the rename to make,
+  instead of being silently left out of the app's checked set.
