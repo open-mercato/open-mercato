@@ -114,7 +114,7 @@ At creation, the order stores the current material plan derived from the selecte
 
 Wave 0 statuses are **Draft**, **Released**, **In progress**, **Completed**, and **Cancelled**. Status is a deliberate user declaration. An issue, return, or confirmation does not change it automatically. Status does not post inventory.
 
-Draft orders cannot receive a new issue or confirmation until the user releases the order. Completed orders may still receive allowed facts. Cancelled orders cannot receive new issues or confirmations, but returns and reversals of previously posted documents remain possible. Cancellation is irreversible in Wave 0.
+Draft orders cannot receive a new issue or confirmation until the user releases the order. Completed orders may still receive new material issues, returns, production confirmations, and reversals. Cancellation is rejected while an issue or production-confirmation operation is in progress or has an unresolved result. Cancelled orders cannot receive new issues or confirmations, but returns and reversals of previously posted documents remain possible. Cancellation is irreversible in Wave 0.
 
 The operational list supports search by order number and filtering at least by product variant, status, and due date.
 
@@ -140,6 +140,7 @@ The supported compatibility profile may limit a document to one WMS movement whe
 ### 7.2 Material return
 
 A return is a separate inventory receipt fact. It does not edit the earlier issue. A return may exceed the earlier issue or may return material that was not issued earlier; both are explicit, visible variances and remain subject to WMS policy.
+The return uses the Work Order's current issue location at posting time and persists that location as an immutable snapshot on the return document and production fact.
 
 ### 7.3 Production confirmation and receipt
 
@@ -151,9 +152,13 @@ Partial confirmations are allowed. Multiple confirmations produce separate facts
 
 ### 7.4 WMS result handling
 
+Every issue, return, production confirmation, and reversal has a durable `operationId` owned by Manufacturing.
+
 A known WMS rejection creates no posted Manufacturing document or fact. The user may correct the input and start a new operation with a new identifier.
 
-An unknown result blocks a new operation for the same action until the user reads the result or safely retries with the same `operationId`. A safe retry must return the earlier accepted result and must not create a duplicate document, fact, or movement.
+Known rejections are durable operation results. Retrying a rejected operation with the same `operationId` and the same payload returns the stored rejection without another WMS call, document, fact, or movement. Reusing an `operationId` with a different payload is always rejected without another WMS call, document, fact, or movement.
+
+An unknown result blocks a new operation for the same action until the user reads the result or safely retries with the same `operationId`. A safe retry must return the earlier accepted or rejected result and must not create a duplicate document, fact, or movement.
 
 ## 8. Facts, history, and correction
 
@@ -165,7 +170,7 @@ Manufacturing distinguishes three concepts:
 
 The order detail and history show those concepts separately while keeping their correlation visible. Posted documents and facts are not edited or deleted. The order plan may change without rewriting historical execution.
 
-A correction reverses the full original document and creates a new compensating document. It does not mutate or delete the source. Each document may be reversed only once. A reversing document may itself be reversed once, creating a directly linked correction chain. The history shows the full chain and the net inventory effect.
+A correction reverses the full original document and creates a new compensating document. It uses the immutable snapshot of variants, quantities, and locations stored on the source document, never the Work Order's current plan or defaults. It does not mutate or delete the source. Each document may be reversed only once. A reversing document may itself be reversed once, creating a directly linked correction chain. The history shows the full chain and the net inventory effect.
 
 Reversal remains subject to WMS approval. A rejected reversal leaves the source document active and creates no accepted correction fact.
 
@@ -190,6 +195,8 @@ The following rules may block an action because they protect the meaning or inte
 - missing required location or permission;
 - known WMS rejection;
 - duplicate operation or an unresolved operation with an unknown result;
+- cancellation while an issue or production-confirmation operation is in progress or has an unresolved result;
+- reuse of an `operationId` with a different payload;
 - editing a released BOM revision;
 - issuing or confirming a cancelled or draft order where the action is not allowed;
 - reversing a document more than once;
@@ -235,7 +242,7 @@ The acceptance walkthrough must demonstrate at least:
 
 ### 12.2 Safety and integrity gate
 
-Automated checks must cover tenant and organisation scoping, access control, optimistic locking, WMS mutation guards, idempotency, durable operation correlation, rejected operations, retry behaviour, correction-chain integrity, and the supported transaction/fallback profile.
+Automated checks must cover tenant and organisation scoping, access control, optimistic locking, WMS mutation guards, cancellation versus in-flight or unresolved operations, idempotency for accepted and rejected replay plus payload mismatch, durable operation correlation, unknown-result retry behaviour, correction-chain integrity, immutable reversal snapshots, return-location snapshots, and the supported transaction/fallback profile.
 
 ## 13. Explicit Wave 0 exclusions
 
@@ -313,6 +320,13 @@ Each topic requires a separate business decision and specification. None may be 
 This document is the English repository edition of the business-scope source decided on 9 September 2026. The source document, earlier roadmaps, backlog items, prototypes, and technical analyses are context only. They cannot restore a removed requirement, add a hidden business restriction, or change the acceptance criteria without an explicit update to this document.
 
 ## 20. Changelog
+
+### 16 September 2026 — review clarifications
+
+- defined cancellation behaviour for in-flight and unresolved issue or production-confirmation operations;
+- made accepted and rejected operation replay and payload mismatch handling explicit;
+- bound reversals and material returns to immutable location and execution snapshots;
+- enumerated the facts allowed after completion and expanded the future safety-gate coverage.
 
 ### 9 September 2026 — reviewed scope
 
