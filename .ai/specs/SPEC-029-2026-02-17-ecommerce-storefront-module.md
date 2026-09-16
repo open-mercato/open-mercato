@@ -544,6 +544,13 @@ Scope: the admin/backoffice surface only — store definition, hostname binding,
 - **US-E2.** As a Tenant Admin, I want to be notified when my store has no default channel binding, so that I can fix a misconfiguration before it causes a `503` for real traffic (§6.2).
   - *Error:* an in-app admin notification (`notifications.ts`, §10) is the delivery mechanism — this is a proactive alert, not something the admin has to discover by hitting the storefront themselves.
 
+- **US-E3.** As a Tenant Admin running a contract-priced B2B channel, I want to choose what price sorting does past the 5 000-product cap, so that my buyers are never shown a price ranking computed from prices they do not pay (§5.3 `price_sort_fallback`, added 2026-09-16).
+  - *Default value:* the field is `approximate` on an existing and a newly-created binding, so a B2C channel keeps today's behaviour and an admin who never opens this control changes nothing.
+  - The control sits with the other per-channel catalogue policies — assortment scope, `require_authentication` and the live product count — because all four answer "what does this channel show, to whom".
+  - Choosing `unavailable` must state its consequence on the form: `price_asc`/`price_desc` stop being offered on this channel at all, and a buyer arriving on a shared `?sort=price_asc` link gets the catalogue in the default order rather than an error.
+  - Choosing `approximate` must state its own: past the cap the order is computed from the default price kind, not from the buyer's resolved prices, and the only signal is a response header no shopper sees.
+  - The 5 000 cap is named on the form rather than left as an unexplained threshold — the roadmap's no-silent-caps rule applies to the admin surface too, not only to the API response.
+
 ### Epic F — SEO defaults
 *Screens: store edit → SEO tab*
 
@@ -567,7 +574,7 @@ Scope: the admin/backoffice surface only — store definition, hostname binding,
 **Store edit** — tabs: General, Branding, Domains, Channels, SEO.
 
 - **Domains** lists bindings joined to their `DomainMapping`, surfacing verification status, last DNS check and any TLS failure reason **read-only**, with a link to the domain management screen in `customer_accounts`. Adding a binding picks from already-verified domains. A binding to an unverified domain renders a warning that the store will not serve at that host yet.
-- **Channels** binds a `SalesChannel`, optionally overrides the price kind, and edits `assortment_scope` with a live count of matching products.
+- **Channels** binds a `SalesChannel`, optionally overrides the price kind, and edits `assortment_scope` with a live count of matching products. It also carries the two per-channel catalogue policies added since: `require_authentication` (§5.3) and `price_sort_fallback` (§5.3), which belong beside the scope because all four describe what this channel shows and to whom.
 - **Branding** offers colour pickers, the font allowlist, a radius slider, logo and favicon upload, and a live preview.
 
 **Branding live preview** renders a miniature storefront in an iframe. Values are pushed via `postMessage` and applied as CSS variables without saving. The preview iframe is `sandbox`ed and receives only validated values — it is the same injection boundary as §7.3.
@@ -750,6 +757,11 @@ Open:
 ---
 
 ## 21) Changelog
+
+### 2026-09-16 — v4.5 (story and admin-surface coverage for `price_sort_fallback`)
+
+- **§10a Epic E** gains **US-E3** for the `price_sort_fallback` column v4.3 added to §5.3. The column was specified and defaulted, but no story described the control that sets it, so the admin surface it belongs to had no acceptance criteria — including the one that matters, that each value states its own consequence on the form.
+- **§11** the Channels bullet is amended to list `require_authentication` and `price_sort_fallback`. It had described only the channel, price kind and assortment scope, and so still described the tab as it stood before 2026-09-06.
 
 ### 2026-09-16 — v4.4 (per-customer assortment overrides)
 
