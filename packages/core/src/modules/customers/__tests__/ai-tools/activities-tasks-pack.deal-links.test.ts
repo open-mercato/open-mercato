@@ -79,10 +79,18 @@ function makeDealCtx(links: { person?: unknown; company?: unknown }) {
   const ctx = makeCtx()
   const em = ctx.em as unknown as Record<string, jest.Mock>
   em.findOne = jest.fn(
-    async (entity: unknown, where: Record<string, unknown>, options?: { populate?: string[] }) => {
+    async (
+      entity: unknown,
+      where: Record<string, unknown>,
+      options?: { populate?: string[]; orderBy?: Record<string, unknown> },
+    ) => {
       const meta = LINK_ENTITIES.get(entity)
       if (meta) {
-        for (const key of [...Object.keys(where ?? {}), ...(options?.populate ?? [])]) {
+        for (const key of [
+          ...Object.keys(where ?? {}),
+          ...(options?.populate ?? []),
+          ...Object.keys(options?.orderBy ?? {}),
+        ]) {
           if (!meta.properties.includes(key)) {
             throw new Error(`Trying to query by not existing property ${meta.name}.${key}`)
           }
@@ -140,7 +148,10 @@ describe('customers.manage_deal_comment — timeline owner from the deal links (
     expect(em.findOne).toHaveBeenCalledWith(
       CustomerDealPersonLink,
       { deal: DEAL_ID },
-      { populate: ['person'] },
+      {
+        populate: ['person'],
+        orderBy: { isPrimary: 'DESC', createdAt: 'ASC', id: 'ASC' },
+      },
     )
     expect(runnerBody()).toMatchObject({ dealId: DEAL_ID, entityId: PERSON_ID })
     expect(result.commentId).toBe('created-1')
@@ -168,7 +179,10 @@ describe('customers.manage_deal_comment — timeline owner from the deal links (
     expect(em.findOne).toHaveBeenCalledWith(
       CustomerDealCompanyLink,
       { deal: DEAL_ID },
-      { populate: ['company'] },
+      {
+        populate: ['company'],
+        orderBy: { createdAt: 'ASC', id: 'ASC' },
+      },
     )
     expect(runnerBody().entityId).toBe(COMPANY_ID)
   })

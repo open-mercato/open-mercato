@@ -79,7 +79,7 @@ async function loadDealForScope(
  * to people / companies via the `customer_deal_person_links` and
  * `customer_deal_company_links` tables. Comments and activities however need
  * a non-null `entity_id` (the timeline owner) so this helper resolves the
- * deal's first linked person, then falls back to its first linked company.
+ * deal's primary linked person, then the oldest person, then the oldest company.
  * When neither exists, the caller MUST instruct the operator to link a
  * contact before writing to the deal.
  *
@@ -97,14 +97,20 @@ async function resolveDealLinkedEntityId(em: EntityManager, dealId: string): Pro
   const personLink = await em.findOne(
     CustomerDealPersonLink,
     { deal: dealId } as never,
-    { populate: ['person'] as never },
+    {
+      populate: ['person'] as never,
+      orderBy: { isPrimary: 'DESC', createdAt: 'ASC', id: 'ASC' },
+    },
   )
   const personId = linkedEntityIdOf(personLink, 'person')
   if (personId) return personId
   const companyLink = await em.findOne(
     CustomerDealCompanyLink,
     { deal: dealId } as never,
-    { populate: ['company'] as never },
+    {
+      populate: ['company'] as never,
+      orderBy: { createdAt: 'ASC', id: 'ASC' },
+    },
   )
   return linkedEntityIdOf(companyLink, 'company')
 }
