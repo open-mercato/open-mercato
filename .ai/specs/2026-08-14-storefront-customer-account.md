@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Status** | Specification (rev 3 — shopping lists, shared line resolution 2026-09-16) |
+| **Status** | Specification (rev 3 — shopping lists, shared line resolution 2026-09-16; story map §15 added 2026-09-16) |
 | **Created** | 2026-08-14 |
 | **Suite** | [Ecommerce Suite Roadmap](./2026-08-14-ecommerce-suite-roadmap.md) — spec 9, Phase 4 |
 | **Modules** | `customer_accounts` (extended), `portal` (extended) |
@@ -508,7 +508,144 @@ Company page, buyer roster, approvals inbox, credit overview, PO history, price 
 
 ---
 
-## 15) Changelog
+## 15) User Story Map (Prototype Input)
+
+Added 2026-09-16 to support the `om-mockup-prototype` portal click-through. Derived from §4's visibility scopes, §5's data models, §6's surface list, §7's line resolution and §11's integration coverage; no new scope. Roles are portal (`CustomerUser`) roles unless noted, and every screen sits behind `requireCustomerAuth` per §6.3.
+
+### Epic A — Order History and Visibility
+The buyer finds what their company bought, seeing exactly as much as policy allows.
+
+- **US-A1** — As a portal buyer, I want a list of the orders I am permitted to see, so that I can find a past purchase without emailing support.
+  - AC: the default scope is `own` (§4.2) and the list says which scope it is showing, so a buyer who expected company-wide results learns why they are not there rather than assuming orders are missing.
+  - AC: first-run empty state ("No orders yet") offers a link to the catalogue, not a bare empty table.
+  - AC: a filter returning nothing shows a distinct no-results state with a clear-filters action — never the same copy as first-run empty.
+  - AC: the list is a projection (§R9); status uses `status-*` pills, totals use `tabular-nums`.
+
+- **US-A2** — As a portal buyer, I want an order detail with lines, shipments, payments and documents, so that I can reconcile a delivery or a dispute myself.
+  - AC: documents appear only when `allow_document_download` is true; when false the section states that downloads are disabled for the account rather than rendering dead buttons.
+  - AC: no response or link exposes a direct storage URL (R6) — every document is a proxied, authorized read.
+
+- **US-A3** — As a colleague on `company_summary` scope, I want to see my company's order headers without per-line prices, so that I can track activity without reading a peer's negotiated terms.
+  - AC: number, date, status and total are present; lines, per-line prices and documents are absent.
+  - AC: the absence is stated ("Line detail is not available on your access level"), never an empty panel the buyer reads as a data error.
+  - AC: with `allow_price_visibility: false` the same screen shows quantities without prices.
+
+- **US-A4** — As a buyer from another company, I want a permission failure that reveals nothing, so that order ids cannot be probed.
+  - AC: not-found and not-permitted are indistinguishable in copy and status (R1/R6) — one `404` screen serves both.
+  - AC: the screen offers a way back to the buyer's own orders rather than dead-ending.
+
+### Epic B — Reorder
+The buyer asks for "the same again" and is told what "the same" means today.
+
+- **US-B1** — As a buyer, I want a reorder preview that names every line that changed, so that I never check out a silently partial repeat of a previous order.
+  - AC: the preview is shown even when the resolution is clean (§7.2) — reorder intent is retrospective, so confirming what "the same" means is the screen's whole purpose.
+  - AC: every §7.1 difference class — `UNAVAILABLE`, `NOT_PERMITTED`, `VARIANT_GONE`, `PARTIAL`, `OUT_OF_STOCK`, `QUANTITY_ADJUSTED`, `PRICE_MOVED` — is rendered per line with its reason, not summarized as a count.
+  - AC: price movement is shown per line and as a total delta, since a monthly restock buyer must see it before committing.
+  - AC: the preview call creates no cart; only confirm does, via `cart.lines.bulkAdd` (§7.2).
+  - AC: unavailable lines are excluded from the confirm selection by default and say so; the buyer may not accept a `NOT_PERMITTED` line at all.
+
+### Epic C — Shopping Lists
+A list is a quantity of a thing, not a bookmark for it (§5.1).
+
+- **US-C1** — As a buyer, I want several named shopping lists with a visibility setting, so that a recurring restock is reusable and a colleague can pick it up.
+  - AC: empty state explains what a list is for and offers "Create your first list"; the default name is "My shopping list" (§5.1).
+  - AC: visibility is `private | company | shared_link`; choosing `shared_link` reveals the generated token link, and the copy states that anyone holding it can read the list.
+  - AC: `company` visibility is labeled as company-wide readable, since that is the affordance that lets a colleague convert it.
+
+- **US-C2** — As a buyer, I want to edit item quantities inline on the list, so that the list states how much to buy, not merely what.
+  - AC: quantity is a required field defaulting to 1 (§5.1) — a blank quantity is never saved.
+  - AC: edits save optimistically with an undo affordance; a failed save restores the prior value and surfaces the error inline.
+  - AC: each item shows whether a price snapshot exists; an item without one says the price cannot be compared, rather than showing a blank price column.
+
+- **US-C3** — As a buyer with an unchanged list, I want add-all-to-cart to just work, so that a clean conversion is one step.
+  - AC: when `ResolvedLineSet.isClean`, the cart is created immediately and the buyer lands on it (§7.3) — no confirmation interstitial.
+  - AC: each line enters at its stored quantity, never 1.
+
+- **US-C4** — As a buyer whose list has drifted, I want a preview before anything is added, so that no difference reaches the cart unseen.
+  - AC: any difference class creates **nothing** and returns a preview plus a short-lived `resolutionToken` (§7.3).
+  - AC: `PRICE_MOVED` is **omitted** for an item with no snapshot, and for a `company` list converted by a colleague resolving a different price kind — the screen says the price could not be compared, and never says "unchanged" (§5.1/§7.1).
+  - AC: a `QUANTITY_ADJUSTED` line enters at the adjusted quantity and says so on the preview the buyer confirms.
+  - AC: the token's expiry (15 minutes) is visible, so a buyer who steps away understands the refusal they are about to meet.
+
+- **US-C5** — As a buyer confirming a stale preview, I want a refusal and a fresh preview, so that I never accept difference set A and receive cart B.
+  - AC: confirm re-resolves; if the resolution moved, the confirm is refused and a new preview replaces it (§7.3) — no cart is created.
+  - AC: an expired token produces the same refusal with the same recovery, not a different error class.
+  - AC: the refusal names what changed since the preview, not merely "please try again".
+
+### Epic D — Saved Carts
+A saved cart is a real basket, suspended, resumed once (§5.2).
+
+- **US-D1** — As a buyer, I want to resume a basket I parked, so that an interrupted order survives.
+  - AC: resume makes the cart active and consumes the saved-cart record — the list shows one fewer entry afterwards, which the confirm copy states in advance.
+  - AC: resuming while already holding a non-empty active cart delegates to `cart.merge` (§8), the screen says the two baskets will be merged, and the result offers undo via `cart.mergeUndo`.
+  - AC: there is no "copy" or "template" affordance — reusable belongs to a shopping list (§5.2).
+
+- **US-D2** — As a buyer, I want to save the basket I am holding as a shopping list, so that a one-off order becomes a recurring one.
+  - AC: `POST /shopping-lists/from-cart` snapshots quantities and resolved unit prices and leaves the source cart untouched — the copy says the cart is not emptied.
+  - AC: the new list opens on its detail screen so the buyer can name it immediately.
+
+### Epic E — Self-service
+Everything a buyer would otherwise email support about.
+
+- **US-E1** — As a buyer, I want to manage my addresses with defaults, so that checkout is not a retyping exercise.
+  - AC: CRUD over `customers.CustomerAddress` (§5.4); default shipping and default billing are separately settable.
+  - AC: delete is a confirm dialog — Escape cancels, Cmd/Ctrl+Enter confirms.
+
+- **US-E2** — As a buyer, I want to edit my profile, password and communication preferences, so that my account is mine to maintain.
+  - AC: a stale save surfaces the platform conflict bar (`surfaceRecordConflict`), not a raw 409.
+
+- **US-E3** — As a B2B buyer, I want to accept a merchant-issued quote, so that a negotiated price becomes an order without a phone call.
+  - AC: acceptance is gated on `portal.quotes.accept`; a buyer without it sees the quote read-only with the reason stated.
+  - AC: acceptance delegates to `sales`' existing quote→order conversion (§8).
+
+- **US-E4** — As a buyer, I want to request a return against a delivered order, so that a wrong delivery has a path that is not email.
+  - AC: only delivered lines are selectable; the screen states that this is a request, and that approval and refund are handled by the merchant (§13 Q4).
+
+### Epic F — B2B Company Operations
+Where a wholesale buyer actually spends their time (§6.2).
+
+- **US-F1** — As a company admin, I want the company profile, billing details and payment terms on one page, so that I can check what the merchant has on file.
+  - AC: gated on `portal.company.manage`; terms are read-only here — they are the merchant's to set (`customer_groups`).
+
+- **US-F2** — As a company admin, I want a buyer roster with roles, invitations and deactivation, so that staff turnover does not become a disclosure.
+  - AC: deactivation warns that it terminates active sessions immediately (R2) and is confirmed before it applies.
+  - AC: a deactivated buyer stays listed with a status pill; rows never silently disappear.
+
+- **US-F3** — As a purchase approver, I want an inbox of requests I may decide, so that a junior colleague's basket is not blocked on a phone call.
+  - AC: the inbox lists only approvals assigned to this user (§8) and is empty-stated when there is nothing to decide.
+  - AC: approve and reject both require a note field to be at least available; reject makes it expected.
+
+- **US-F4** — As an approver deciding an already-decided request, I want the conflict surfaced, so that a race between two approvers cannot double-decide.
+  - AC: the second decision surfaces the optimistic-lock conflict from `customer_groups`' existing decide command (§8) via `surfaceRecordConflict`, naming who decided and when.
+  - AC: the screen offers to reload the current decision rather than re-submitting.
+
+- **US-F5** — As a finance-facing buyer, I want credit limit, exposure, available and a ledger extract, so that I know what is left before committing.
+  - AC: gated on `allow_price_visibility`; without it the page is not in the navigation at all.
+  - AC: exposure is presented as a computed figure reconciled with the ledger, not a standalone counter.
+
+- **US-F6** — As a buyer in a dispute, I want PO numbers searchable against orders, so that I can answer "which PO was that" without a spreadsheet.
+  - AC: search matches PO number and order number; no-results state is distinct from empty.
+
+- **US-F7** — As a buyer, I want my contracted price list with quantity tiers and a CSV export, so that I can plan a purchase offline.
+  - AC: gated on `portal.pricelist.view` and `allow_price_visibility`; the export is audit-logged and the screen says so (R7).
+  - AC: the exported file is watermarked with company name and generation time — stated on the screen, since the mitigation is traceability rather than prevention.
+
+### Cross-cutting rules
+
+- Every screen sits inside the real `PortalShell` (§6.3): 240px sidebar, "Portal" and "Account" nav groups, header, footer.
+- Not-permitted and not-found are one screen with one copy, everywhere (R1/R6).
+- No difference reaches a cart unseen (§7) — this is the rule; reorder and list conversion differ only in frequency, not in honesty.
+- Any editable record surfaces concurrent-edit conflicts through the platform conflict bar, never a raw status code.
+- Portal copy is translated (`useT`); status is expressed with `status-*` tokens only.
+
+### Out of scope for the prototype
+
+- **Back-in-stock subscribe/confirm/unsubscribe** (§5.3) — these live on the product page and in email, not on an account surface.
+- **The GDPR cascade** (R8) — a `user-deleted-cascade.ts` subscriber with no screen.
+
+---
+
+## 16) Changelog
 
 ### 2026-09-16 (rev 3 — shopping lists, shared line resolution, saved-cart reconciliation)
 
@@ -519,6 +656,8 @@ Company page, buyer roster, approvals inbox, credit overview, PO history, price 
 
 - Renamed `CustomerWishlist`/`CustomerWishlistItem` to `CustomerShoppingList`/`CustomerShoppingListItem` (`customer_shopping_lists`/`customer_shopping_list_items`), the ACL feature `portal.wishlists.manage` to `portal.shopping_lists.manage`, the routes under `/wishlists` to `/shopping-lists`, and the events `customer_accounts.wishlist.*` to `customer_accounts.shopping_list.*`. Rationale in §5.1: the model already carried per-item quantities and a company-visibility convert-to-cart flow, which is a shopping list, not a wishlist. Done now because Phase 3 is unimplemented, so nothing on the contract surface exists yet to break.
 - Made `CustomerShoppingListItem.quantity` required with default 1 rather than an unqualified B2B note, and added the matching add-all-to-cart integration coverage: the stored quantity reaches the cart, and a quantity the current rules reject is adjusted visibly.
+
+- **Added §15, a user story map**, as prototype input for `om-mockup-prototype`. Derived from §4's scopes, §5's models, §6's surfaces, §7's resolution and §11's coverage — no new scope. Six epics (order visibility, reorder, shopping lists, saved carts, self-service, B2B operations) with UX-level acceptance criteria for the empty, no-access, error, optimistic and conflict states a spec table does not express. Back-in-stock and the GDPR cascade are named as out of scope for a prototype: neither is an account screen. The changelog moved from §15 to §16.
 
 ### 2026-08-17 (rev 2 — pre-implementation fixes)
 
