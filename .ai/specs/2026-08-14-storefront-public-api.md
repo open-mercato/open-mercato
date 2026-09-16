@@ -201,10 +201,14 @@ Response:
   currencyCode: string
   taxMode: 'gross' | 'net'
   appliedFilters: AppliedFilters      // echo of what the server actually applied
+  availableSorts: Array<'relevance' | 'price_asc' | 'price_desc' | 'title_asc' | 'title_desc' | 'newest' | 'featured'>
+  appliedSort: (typeof availableSorts)[number]   // what the server actually sorted by
 }
 ```
 
 `appliedFilters` echoes the server's interpretation. A client that requested a category outside the assortment sees it absent here rather than silently dropped.
+
+`availableSorts` and `appliedSort` do the same job for ordering (added 2026-09-16). They exist because §6.3's per-channel `price_sort_fallback` makes the offered set **server-decided**: a channel set to `'unavailable'` omits `price_asc`/`price_desc` past the listing cap, and a client with its own hard-coded list would keep offering a sort this server has declined to perform. `appliedSort` is separate from the request's `?sort=` for the same reason `appliedFilters` is separate from the query: a `?sort=price_asc` that is not on offer resolves to the default and says so here, rather than being echoed back as though it had been honoured. `storefront-app.md` §5.4a renders its control from these two fields and from nothing else.
 
 ### 4.2 `GET /products/:idOrHandle`
 
@@ -487,6 +491,8 @@ New column on `EcommerceStoreChannelBinding` (amends `SPEC-029` §5.3, alongside
 |---|---|---|---|
 | `price_sort_fallback` | text | `'approximate'` | `'approximate'` — today's behavior: sort by the default price kind, `X-Sort-Approximate: true`. `'unavailable'` — `price_asc`/`price_desc` are **not offered**: the sort option is absent from the response's available sorts, and requesting it explicitly returns the default sort with `X-Sort-Unavailable: true` rather than a wrong order. |
 
+Either way the offered set is carried in the response's `availableSorts`, and what the server actually did in `appliedSort` (§4.1) — the policy is not something a client can be expected to know or to mirror in its own literal option list.
+
 `'approximate'` stays the default, so nothing changes for an existing or B2C channel. An operator running a contract-priced B2B channel sets `'unavailable'`, and loses a feature instead of shipping a price ranking that lies. Returning the default sort rather than a `400` is deliberate: a buyer who lands on a shared `?sort=price_asc` URL should get the catalogue, not an error.
 
 **Not hidden:** the 5 000 cap, the active policy and which of the two headers was set are surfaced in the response and in the admin diagnostics, per the roadmap's no-silent-caps rule.
@@ -633,7 +639,8 @@ Query counts are asserted in tests. A per-item query is a defect regardless of w
 - Group price row wins over channel default; personal customer price wins over group
 - The narrowed price fetch (§6.1) and an unnarrowed fetch by product id resolve to the **same** price, for a buyer with a contract row and for one without (R13)
 - The price-row count fetched for a listing page does not grow with the number of *other* customers' contract rows on those products — asserted as a row count, not only as a query count, since the query count is what R13 slips past
-- `price_sort_fallback: 'unavailable'` past the 5 000 cap omits `price_asc`/`price_desc` from the available sorts and returns the default order with `X-Sort-Unavailable: true`; `'approximate'` returns the fallback order with `X-Sort-Approximate: true` (§6.3)
+- `price_sort_fallback: 'unavailable'` past the 5 000 cap omits `price_asc`/`price_desc` from `availableSorts` and returns the default order with `X-Sort-Unavailable: true`; `'approximate'` returns the fallback order with `X-Sort-Approximate: true` (§6.3)
+- `?sort=price_asc` against a channel offering neither resolves to the default order with `appliedSort` naming it — not a `400`, and not an `appliedSort` echoing the unhonoured request (§4.1)
 - Two buyers in the same groups with the same channel/currency/price kind, neither holding contract rows, resolve to the same `priceScopeKey` and share a cache entry; giving one of them a single contract row moves only that buyer off the shared entry (§9, ADR-7)
 - `taxMode: 'net'` returns net amounts; `'gross'` returns gross; anonymous uses the store default
 - `priceTiers` reflects `min_quantity` / `max_quantity` rows for the buyer's context
@@ -746,6 +753,7 @@ Phase 4 is independent of Phases 2 and 3 and can ship alongside either — it to
 
 ### 2026-09-16 (b) — buyer-scoped read-path amendments
 - **§6.1 now requires `buildPriceRowFilter`** rather than a fetch by product id, and R13 records why: `selectBestPrice` is pure over whatever rows the caller fetched, and the only indexes on `catalog_product_variant_prices` are by product/variant, so a listing page under contract pricing loads every contracted customer's rows for every product on it. §10's ≤ 12-query budget does not catch this — the query count is unchanged — so §12 now asserts a row count, not only a query count.
+- **§4.1 gained `availableSorts` and `appliedSort`.** The sort set became server-decided the moment §6.3 became a policy, and the response had no field carrying it — leaving `storefront-app.md`'s control with nothing to read and no reason not to hard-code six options.
 - **§6.3's single fallback became a per-channel policy** (`price_sort_fallback`, amending `SPEC-029` §5.3). Sorting a contracted B2B buyer's page by list price is not an approximation of their price order, and `X-Sort-Approximate` is a signal no shopper sees; `'unavailable'` withdraws the sort instead. `'approximate'` remains the default, so B2C behavior is unchanged. R3 re-rated accordingly.
 - **§3.3 now fixes the scope clause's shape** — a GIN-indexed `scopeKeys` array on the product's index document, not `EXISTS` over the assignment tables. "Applied in one place" already protected correctness but not shape, and the DNF from `buyer-scoped-catalog-visibility.md` §3.3 sits in front of every query here, the six facet aggregations of R2 included.
 - **§8.2 clarified that "before ranking" means inside the query**, and added R14: post-filtering a top-k retrieval starves a restricted buyer down to a near-empty page. This is the same decision as §3.3's — pushing the predicate into the ranking query is only possible because the scope is expressible against the indexed document.

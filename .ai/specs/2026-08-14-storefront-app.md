@@ -191,6 +191,16 @@ Desktop sticky sidebar; mobile slide-over closing on apply. `CategoryFilter` as 
 
 Result-count changes announced via `aria-live="polite"`.
 
+### 5.4a `SortControl`
+
+*Added 2026-09-16.*
+
+- **Options are rendered from what the listing response advertises, never hard-coded** — the same rule `CheckoutStepper` (§5.5) already applies to steps, for the same reason: the set is server-decided and the client has no way to know it. A channel configured with `price_sort_fallback: 'unavailable'` (public API §6.3) omits `price_asc`/`price_desc` from its available sorts past the listing cap, and a control holding its own literal list of six options would keep offering a sort the server will not perform.
+- An inbound `?sort=` the response did not honour renders as the sort the server actually applied, with a one-line note that the requested order is not available for this catalogue — not as an error, and not silently. A buyer following a shared `?sort=price_asc` link must still land on the catalogue.
+- The note is rendered from `X-Sort-Unavailable` / `X-Sort-Approximate`, so the two degradations read differently: one says the sort is not offered here, the other that the order is approximate. A header no one surfaces is the failure this bullet exists to prevent.
+- The active sort is reflected in the URL and restored from it; changing it resets pagination to page 1.
+- Rendered as a labelled `<select>`; its change announces the new result order through the same `aria-live="polite"` region §5.4 uses for result counts.
+
 ### 5.5 `CheckoutStepper`
 
 New in this spec. Renders the step machine (checkout §5.2) from the session.
@@ -326,6 +336,8 @@ Playwright, headless, against a seeded fixture store. Renumbered from SPEC-029 v
 
 **Browse:** home renders merchandising blocks; product card navigates to PDP; category page shows enrichment, filters and products; filter by category updates the URL and results; chip removal clears; search filters; pagination; sort; collection page.
 
+**Sort (§5.4a):** the control renders exactly the options the listing response advertises and no others; a response omitting `price_asc`/`price_desc` produces a control without them; an inbound `?sort=price_asc` against such a response lands on the catalogue in the server's applied order with the unavailable note shown, never on an error page; `X-Sort-Approximate` and `X-Sort-Unavailable` render as distinguishable notes; changing the sort updates the URL and resets to page 1.
+
 **PDP:** variant selector renders for a configurable product; selecting all options updates price and availability; unavailable combinations are disabled and not hidden; gallery keyboard and swipe navigation; breadcrumbs; related products; `priceTiers` for a B2B buyer.
 
 **Cart:** add from PDP and from the grid; quantity change re-prices at a tier boundary; increment violation refused with valid values offered; remove; promotion code apply and remove; price-change disclosure; mini-cart; persistence across reload; guest→customer merge on login shows the merge summary.
@@ -409,7 +421,12 @@ Full axe sweep, manual accessibility pass, Lighthouse CI, bundle budgets, cross-
 
 ## 16) Changelog
 
-### 2026-09-16
+### 2026-09-16 (b) — sort control
+- Added `SortControl` (§5.4a). Sorting appeared in this spec exactly once before, as the word "sort" in a §12 coverage line — no component, no contract, nothing saying where the option list comes from. That was survivable while the option set was fixed; it stopped being survivable when the public API gained a per-channel `price_sort_fallback` (§6.3 there), because a control holding its own literal list keeps offering a price sort the server has declined to perform, and nothing in this document forbade one.
+- The rule is the one §5.5 already states for checkout steps — derived from the server response, never hard-coded — applied to the same class of problem.
+- Added the §12 coverage block, including the shared-link case (`?sort=price_asc` against a response that does not offer it lands on the catalogue, not an error) and the requirement that the two degradation headers read as different notes rather than as the same shrug.
+
+### 2026-09-16 (a) — content pages
 - Gave `pages/[slug]` an actual contract. It had been a single annotated line in the route tree since the initial draft, pointing at the `content` module, which ships hardcoded React pages carrying Open Mercato's own legal entity — so the route as specified had nothing a tenant could publish to and nothing the sitemap could enumerate.
 - Bound the route to the public API's `contentPageSource` seam (public API §3.4) instead of to the `content` module, so a CMS module replacing the source later does not reach this app.
 - Added `ContentPageBody` (§5.7) handling both arms of the `body` union plus an unknown third, and R9 for the case where a future format arrives at an older deployment. Handling the union now is the reason the swap stays cheap.
