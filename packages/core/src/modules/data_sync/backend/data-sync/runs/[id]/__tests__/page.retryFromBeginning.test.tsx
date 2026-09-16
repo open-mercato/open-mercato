@@ -226,6 +226,27 @@ describe('SyncRunDetailPage retry from the beginning', () => {
     expect(screen.queryByText(/cannot be replayed from the start/i)).not.toBeInTheDocument()
   })
 
+  it('offers a way out when the retry is refused for stale parameters', async () => {
+    runMutationMock.mockResolvedValue({ ok: false, result: { code: 'parametersStale' } })
+    mockRun()
+    renderWithProviders(<SyncRunDetailPage params={{ id: 'run-1' }} />)
+    await clickFromBeginning()
+
+    // flash() takes a string and has no action slot, so the remedy lives in a
+    // persistent banner rather than a toast that scrolls away.
+    expect(await screen.findByRole('button', { name: /start a new run with these settings/i })).toBeInTheDocument()
+  })
+
+  it('shows no way-out banner for an ordinary retry failure', async () => {
+    runMutationMock.mockResolvedValue({ ok: false, result: { code: 'somethingElse' } })
+    mockRun()
+    renderWithProviders(<SyncRunDetailPage params={{ id: 'run-1' }} />)
+    await clickFromBeginning()
+
+    await waitFor(() => expect(runMutationMock).toHaveBeenCalled())
+    expect(screen.queryByRole('button', { name: /start a new run with these settings/i })).not.toBeInTheDocument()
+  })
+
   it.each(['completed', 'running', 'pending'])('offers no overflow at all for a %s run', async (status) => {
     mockRun({ status })
     renderWithProviders(<SyncRunDetailPage params={{ id: 'run-1' }} />)

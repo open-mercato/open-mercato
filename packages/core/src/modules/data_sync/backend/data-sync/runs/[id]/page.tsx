@@ -18,6 +18,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { Bookmark, Lock, Play, RotateCcw, XCircle } from 'lucide-react'
+import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { getSyncRunStatusVariant } from '../../../../lib/syncRunStatus'
 import { resolveResumePoint } from '../../../../lib/resume-point'
 import { applicableStartControls, type StartControlMap } from '../../../../lib/start-controls'
@@ -129,6 +130,12 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
   // `data_sync.view` holder still sees it — they just get no buttons.
   const { canRunSync } = useDataSyncRunAccess()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
+  /**
+   * `flash` takes a string and has no action slot, so the one refusal whose
+   * remedy is a navigation gets a persistent banner instead of a toast that
+   * scrolls away with nowhere to go.
+   */
+  const [staleParameters, setStaleParameters] = React.useState(false)
   // Declarations cannot change between two refreshes of the same run, so the
   // options list is fetched once per integration rather than on every progress
   // event that re-reads the run.
@@ -304,7 +311,9 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
       flash(t('data_sync.runs.detail.retrySuccess'), 'success')
       router.push(`/backend/data-sync/runs/${encodeURIComponent(call.result.id)}`)
     } else {
-      flash(buildRetryFailureMessage(call.result as RetryFailureBody | null, t), 'error')
+      const failure = call.result as RetryFailureBody | null
+      setStaleParameters(failure?.code === 'parametersStale')
+      flash(buildRetryFailureMessage(failure, t), 'error')
     }
   }, [runId, router, runMutation, t])
 
@@ -348,7 +357,9 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
       flash(t('data_sync.runs.detail.retrySuccess'), 'success')
       router.push(`/backend/data-sync/runs/${encodeURIComponent(call.result.id)}`)
     } else {
-      flash(buildRetryFailureMessage(call.result as RetryFailureBody | null, t), 'error')
+      const failure = call.result as RetryFailureBody | null
+      setStaleParameters(failure?.code === 'parametersStale')
+      flash(buildRetryFailureMessage(failure, t), 'error')
     }
   }, [confirm, run, runId, router, runMutation, t])
 
@@ -477,6 +488,23 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
             </div>
           )}
         />
+
+        {staleParameters ? (
+          <Alert status="error">
+            <AlertDescription className="space-y-2">
+              <p>{buildRetryFailureMessage({ code: 'parametersStale' }, t)}</p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => { router.push(`/backend/data-sync?from=${encodeURIComponent(run.id)}`) }}
+              >
+                <Play className="mr-2 h-4 w-4" />
+                {t('data_sync.runs.detail.startNewRunFromHere', 'Start a new run with these settings…')}
+              </Button>
+            </AlertDescription>
+          </Alert>
+        ) : null}
 
         <Card>
           <CardHeader>

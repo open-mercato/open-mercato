@@ -157,5 +157,6 @@
   "data_sync.runs.detail.retrySuccess": "동기화 실행이 재시도되었습니다",
   "data_sync.runs.detail.runAgain": "다시 실행",
   "data_sync.runs.detail.runAgain.hint": "이 실행의 설정으로 시작 양식을 엽니다",
+  "data_sync.runs.detail.startNewRunFromHere": "이 설정으로 새 실행 시작…",
   "data_sync.runs.detail.title": "동기화 실행"
 }

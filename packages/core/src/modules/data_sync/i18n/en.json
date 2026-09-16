@@ -157,5 +157,6 @@
   "data_sync.runs.detail.retrySuccess": "Sync run retried",
   "data_sync.runs.detail.runAgain": "Run again",
   "data_sync.runs.detail.runAgain.hint": "Opens the start form with this run's settings",
+  "data_sync.runs.detail.startNewRunFromHere": "Start a new run with these settings…",
   "data_sync.runs.detail.title": "Sync Run"
 }

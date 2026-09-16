@@ -157,5 +157,6 @@
   "data_sync.runs.detail.retrySuccess": "Lauf wiederholt",
   "data_sync.runs.detail.runAgain": "Erneut ausführen",
   "data_sync.runs.detail.runAgain.hint": "Öffnet das Startformular mit den Einstellungen dieses Laufs",
+  "data_sync.runs.detail.startNewRunFromHere": "Neuen Lauf mit diesen Einstellungen starten…",
   "data_sync.runs.detail.title": "Synchronisierungslauf"
 }

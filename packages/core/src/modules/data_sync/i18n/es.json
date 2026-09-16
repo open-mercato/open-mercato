@@ -157,5 +157,6 @@
   "data_sync.runs.detail.retrySuccess": "Ejecución reintentada",
   "data_sync.runs.detail.runAgain": "Ejecutar de nuevo",
   "data_sync.runs.detail.runAgain.hint": "Abre el formulario de inicio con los ajustes de esta ejecución",
+  "data_sync.runs.detail.startNewRunFromHere": "Iniciar una nueva ejecución con estos ajustes…",
   "data_sync.runs.detail.title": "Ejecución de sincronización"
 }
