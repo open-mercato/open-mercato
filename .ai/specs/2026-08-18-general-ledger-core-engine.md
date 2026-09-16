@@ -1330,7 +1330,17 @@ deploy independently of any other module.
   balanced posting with a realized-FX-gain/loss line) and needs no
   change here. Revaluation is a scheduled, balance-level recompute —
   a future Multi-Currency spec, not this posting engine.
-- Country-specific tax/compliance plugins.
+- **Country-specific tax/compliance plugins.** **Update (2026-09-16):**
+  a first draft of the Core-framework half of this now exists as its
+  own document, `2026-09-16-tax-management.md`, opened as PR #6168 —
+  a small new `tax_management` module (tax code registry, GL account
+  mapping, `TaxLiabilityRecord` lifecycle, posts through
+  `ledger.postJournalEntry` the same way AP already does) plus a
+  `financial_pl` implementation for Poland's VAT/CIT/PIT, following
+  the Core-framework-plus-country-plugin split
+  `SPEC-024-2026-02-11-financial-module.md` §10 already mandates. Not
+  folded into this spec, for the same scope-cohesion reasons named for
+  #6038 above. Not yet reviewed.
 - **A bulk, cross-module read/export path for `JournalEntry`/
   `JournalEntryLine`.** Every read surface this engine and #6013 expose
   today is shaped for a person through a UI: `GET
