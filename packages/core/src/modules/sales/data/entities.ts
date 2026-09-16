@@ -1759,6 +1759,7 @@ export class SalesPayment {
 
 @Entity({ tableName: 'sales_payment_allocations' })
 @Index({ name: 'sales_payment_allocations_scope_idx', properties: ['payment', 'organizationId', 'tenantId'] })
+@Index({ name: 'sales_payment_allocations_order_idx', properties: ['order'] })
 export class SalesPaymentAllocation {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
