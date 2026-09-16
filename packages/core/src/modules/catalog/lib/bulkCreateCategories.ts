@@ -4,6 +4,7 @@ import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib
 import { CatalogProductCategory } from '../data/entities'
 import type { CategoryBulkCreateRow } from '../data/validators'
 import type { ProgressService, ProgressServiceContext } from '../../progress/lib/progressService'
+import { rebuildCategoryHierarchyForOrganization } from './categoryHierarchy'
 import {
   MAX_CHECKPOINTED_FAILURES,
   buildFirstRowIndexByKey,
@@ -65,6 +66,12 @@ function buildCommandContext(
     },
     selectedOrganizationId: scope.organizationId,
     organizationIds: [scope.organizationId],
+    // The per-row `catalog.categories.create` command normally rebuilds the whole organization's
+    // category tree on every call. At this endpoint's own 10,000-row cap that is O(n^2) — a full
+    // scan-and-rewrite of every category per row. Deferred here to exactly one rebuild after the
+    // batch (see the `finally` block below), which this context is required to run per
+    // `BulkImportSuppression.skipDerivedRebuild`'s contract.
+    bulkImport: { skipDerivedRebuild: true },
   }
 }
 
@@ -227,101 +234,116 @@ export async function createCatalogCategoriesWithProgress(params: {
     }
   }
 
-  for (let index = startIndex; index < items.length; index += 1) {
-    // Polled at the head of the iteration so a cancel is honored even when every remaining row
-    // is rejected by pre-validation, and only on the checkpoint boundary: this is an
-    // identity-map-bypassing read (`isCancellationRequested` uses `disableIdentityMap`), so a
-    // per-row poll would add one uncached query per row on top of the command's own work.
-    // Cancellation therefore lands within at most `checkpointInterval` rows.
-    if ((index - startIndex) % checkpointInterval === 0) {
-      const cancelled = await progressService.isCancellationRequested(
-        progressJobId,
-        scope.tenantId,
-        scope.organizationId,
-      )
-      if (cancelled) {
-        const partialSummary = buildSummary()
-        await progressService.updateProgress(
+  try {
+    for (let index = startIndex; index < items.length; index += 1) {
+      // Polled at the head of the iteration so a cancel is honored even when every remaining row
+      // is rejected by pre-validation, and only on the checkpoint boundary: this is an
+      // identity-map-bypassing read (`isCancellationRequested` uses `disableIdentityMap`), so a
+      // per-row poll would add one uncached query per row on top of the command's own work.
+      // Cancellation therefore lands within at most `checkpointInterval` rows.
+      if ((index - startIndex) % checkpointInterval === 0) {
+        const cancelled = await progressService.isCancellationRequested(
           progressJobId,
-          { meta: { resultSummary: partialSummary } },
-          progressContext,
+          scope.tenantId,
+          scope.organizationId,
         )
-        await progressService.markCancelled(progressJobId, progressContext)
-        return partialSummary
+        if (cancelled) {
+          const partialSummary = buildSummary()
+          await progressService.updateProgress(
+            progressJobId,
+            { meta: { resultSummary: partialSummary } },
+            progressContext,
+          )
+          await progressService.markCancelled(progressJobId, progressContext)
+          return partialSummary
+        }
       }
-    }
 
-    const row = items[index]
-    const slug = normalizeSlugForLookup(row.slug ?? null)
+      const row = items[index]
+      const slug = normalizeSlugForLookup(row.slug ?? null)
 
-    // Reclaims a record an interrupted attempt of this job already created for this exact row,
-    // so it is neither duplicated nor reported as a conflict against itself. Every other row
-    // falls through to the normal path, including rows the classifier cannot speak for.
-    const reclaimedId = findRecordCreatedByPreviousAttempt(resumeIndex, index, naturalKeyOfRow(row), reclaimedIds)
-    if (reclaimedId) {
-      reclaimedIds.add(reclaimedId)
-      createdIds.push(reclaimedId)
-      createdCount += 1
-      await checkpoint(index)
-      continue
-    }
-
-    if (slug && existingSlugs.has(slug)) {
-      recordFailure({
-        index,
-        name: row.name,
-        code: 'slug_taken',
-        message: 'Category slug already exists for this organization.',
-      })
-      await checkpoint(index)
-      continue
-    }
-    if (row.parentId && !existingParentIds.has(String(row.parentId))) {
-      recordFailure({
-        index,
-        name: row.name,
-        code: 'parent_not_found',
-        message: 'Parent category not found or inaccessible.',
-      })
-      await checkpoint(index)
-      continue
-    }
-
-    try {
-      const { result } = await commandBus.execute<
-        CategoryBulkCreateRow & { organizationId: string; tenantId: string },
-        { categoryId: string }
-      >('catalog.categories.create', {
-        input: { ...row, organizationId: scope.organizationId, tenantId: scope.tenantId },
-        ctx: commandContext,
-      })
-      if (result?.categoryId) {
-        createdIds.push(result.categoryId)
+      // Reclaims a record an interrupted attempt of this job already created for this exact row,
+      // so it is neither duplicated nor reported as a conflict against itself. Every other row
+      // falls through to the normal path, including rows the classifier cannot speak for.
+      const reclaimedId = findRecordCreatedByPreviousAttempt(resumeIndex, index, naturalKeyOfRow(row), reclaimedIds)
+      if (reclaimedId) {
+        reclaimedIds.add(reclaimedId)
+        createdIds.push(reclaimedId)
         createdCount += 1
-        if (slug) existingSlugs.add(slug)
-      } else {
-        // Recorded rather than dropped so `createdCount + failedCount` always accounts for
-        // every row in the batch.
+        await checkpoint(index)
+        continue
+      }
+
+      if (slug && existingSlugs.has(slug)) {
+        recordFailure({
+          index,
+          name: row.name,
+          code: 'slug_taken',
+          message: 'Category slug already exists for this organization.',
+        })
+        await checkpoint(index)
+        continue
+      }
+      if (row.parentId && !existingParentIds.has(String(row.parentId))) {
+        recordFailure({
+          index,
+          name: row.name,
+          code: 'parent_not_found',
+          message: 'Parent category not found or inaccessible.',
+        })
+        await checkpoint(index)
+        continue
+      }
+
+      try {
+        const { result } = await commandBus.execute<
+          CategoryBulkCreateRow & { organizationId: string; tenantId: string },
+          { categoryId: string }
+        >('catalog.categories.create', {
+          input: { ...row, organizationId: scope.organizationId, tenantId: scope.tenantId },
+          ctx: commandContext,
+        })
+        if (result?.categoryId) {
+          createdIds.push(result.categoryId)
+          createdCount += 1
+          if (slug) existingSlugs.add(slug)
+        } else {
+          // Recorded rather than dropped so `createdCount + failedCount` always accounts for
+          // every row in the batch.
+          recordFailure({
+            index,
+            name: row.name,
+            code: 'command_failed',
+            message: 'Category creation returned no category id.',
+          })
+        }
+      } catch (error) {
         recordFailure({
           index,
           name: row.name,
           code: 'command_failed',
-          message: 'Category creation returned no category id.',
+          message: error instanceof Error ? error.message : 'Category creation failed',
         })
       }
-    } catch (error) {
-      recordFailure({
-        index,
-        name: row.name,
-        code: 'command_failed',
-        message: error instanceof Error ? error.message : 'Category creation failed',
-      })
+
+      await checkpoint(index)
     }
 
-    await checkpoint(index)
+    const summary = buildSummary()
+    await progressService.completeJob(progressJobId, { resultSummary: summary }, progressContext)
+    return summary
+  } finally {
+    // The per-row command deferred its own rebuild (`bulkImport.skipDerivedRebuild`); this is the
+    // one rebuild it is owed, run exactly once regardless of which path above returned or threw —
+    // including an exception that propagates to the worker's `failJob` catch. Unconditional
+    // rather than gated on "did this attempt write a row": a hard-killed earlier attempt can
+    // leave rows created but unrebuilt without reaching its own `finally`, and a resumed attempt
+    // that happens to create nothing new (already-reclaimed batch tail) must still heal that
+    // state rather than leave it stale indefinitely. One rebuild per invocation stays O(n) over
+    // the whole batch, so this cannot reintroduce the per-row O(n^2) cost it replaces. Reuses the
+    // same `em` the pre-validation queries above already read through, same as every other read
+    // in this function — the per-row commands each fork their own, so this one never accumulates
+    // their identity-map entries.
+    await rebuildCategoryHierarchyForOrganization(em, scope.organizationId, scope.tenantId)
   }
-
-  const summary = buildSummary()
-  await progressService.completeJob(progressJobId, { resultSummary: summary }, progressContext)
-  return summary
 }

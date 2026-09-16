@@ -153,4 +153,65 @@ describe('bulk-created categories still emit the command\'s normal CRUD side eff
     // indexer call that would never have existed even for a single non-bulk create.
     expect(calls.every((call) => call.indexer === undefined)).toBe(true)
   })
+
+  it('rebuilds the category tree once for the whole batch instead of once per row', async () => {
+    const createCommand = loadCreateCommand()
+    const em = buildEm()
+    const dataEngine = { markOrmEntityChange: jest.fn().mockResolvedValue(undefined) }
+
+    const commandBus = {
+      execute: jest.fn().mockImplementation(async (id: string, { input, ctx }: { input: Record<string, unknown>; ctx: unknown }) => {
+        if (id !== 'catalog.categories.create') throw new Error(`unexpected command ${id}`)
+        const result = await createCommand.execute(input, ctx)
+        return { result }
+      }),
+    }
+
+    const progressService = {
+      getJob: jest.fn().mockResolvedValue({ meta: null }),
+      startJob: jest.fn().mockResolvedValue(undefined),
+      updateProgress: jest.fn().mockResolvedValue(undefined),
+      isCancellationRequested: jest.fn().mockResolvedValue(false),
+      markCancelled: jest.fn().mockResolvedValue(undefined),
+      completeJob: jest.fn().mockResolvedValue(undefined),
+    }
+
+    const container = {
+      resolve: jest.fn((name: string) => {
+        if (name === 'commandBus') return commandBus
+        if (name === 'progressService') return progressService
+        if (name === 'em') return em
+        if (name === 'dataEngine') return dataEngine
+        return undefined
+      }),
+    } as unknown as AwilixContainer
+
+    const items: CategoryBulkCreateRow[] = [row('Alpha'), row('Beta'), row('Gamma')]
+
+    const summary = await createCatalogCategoriesWithProgress({
+      container,
+      progressJobId: 'job-1',
+      items,
+      scope: { organizationId: ORG, tenantId: TENANT, userId: 'user-1' },
+    })
+    expect(summary.createdCount).toBe(items.length)
+
+    // Every row's command invocation carries the suppression flag that tells `catalog.categories.create`
+    // to skip its own per-call `rebuildCategoryHierarchyForOrganization` — the mechanism that made a
+    // full-cap (10,000-row) category import quadratic (#6045): every one of the N rows re-scanned and
+    // rewrote every category created so far.
+    const suppressionFlags = commandBus.execute.mock.calls.map(([, { ctx }]: [string, { ctx: { bulkImport?: { skipDerivedRebuild?: boolean } } }]) => ctx.bulkImport?.skipDerivedRebuild)
+    expect(suppressionFlags).toEqual([true, true, true])
+
+    // The deferred rebuild's own `em.find(CatalogProductCategory, { organizationId, tenantId, deletedAt: null }, …)`
+    // is the only unfiltered, batch-wide query this scenario produces — pre-validation's slug/parent
+    // lookups are both skipped because none of the three rows sets a slug or a parentId. So a call
+    // count of exactly 1 proves the rebuild ran once for the whole batch, not once per row.
+    expect(em.find).toHaveBeenCalledTimes(1)
+    expect(em.find).toHaveBeenCalledWith(
+      expect.anything(),
+      { organizationId: ORG, tenantId: TENANT, deletedAt: null },
+      expect.objectContaining({ orderBy: { name: 'ASC' } }),
+    )
+  })
 })

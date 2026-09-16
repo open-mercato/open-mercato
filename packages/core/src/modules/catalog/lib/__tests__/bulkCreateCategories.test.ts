@@ -48,6 +48,10 @@ function buildContainer(opts: {
   // Resume no longer probes row by row; the batch pre-validation query supplies everything it
   // needs. Kept so tests can assert that no per-row lookup sneaks back in.
   const findOne = jest.fn().mockResolvedValue(null)
+  // The deferred tree rebuild the worker runs once after the batch (`skipDerivedRebuild`) reads
+  // and flushes through this same `em`; `find` above already resolves to `[]` for its unfiltered
+  // organization-wide query, so only `flush` needs a mock here.
+  const flush = jest.fn().mockResolvedValue(undefined)
 
   const isCancellationRequested = opts.isCancellationRequested ?? jest.fn().mockResolvedValue(false)
   const updateProgress = jest.fn().mockResolvedValue(undefined)
@@ -64,12 +68,12 @@ function buildContainer(opts: {
       if (name === 'progressService') {
         return { getJob, startJob, updateProgress, isCancellationRequested, markCancelled, completeJob }
       }
-      if (name === 'em') return { find, findOne }
+      if (name === 'em') return { find, findOne, flush }
       return undefined
     }),
   } as unknown as AwilixContainer
 
-  return { container, execute, find, findOne, updateProgress, startJob, completeJob, markCancelled, getJob, isCancellationRequested }
+  return { container, execute, find, findOne, flush, updateProgress, startJob, completeJob, markCancelled, getJob, isCancellationRequested }
 }
 
 describe('createCatalogCategoriesWithProgress', () => {
