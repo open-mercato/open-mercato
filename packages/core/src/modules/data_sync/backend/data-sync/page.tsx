@@ -226,7 +226,7 @@ export default function SyncRunsDashboardPage() {
     token: string
     entityType: string
     direction: 'import' | 'export'
-    parameters: Record<string, RunParameterFormValue>
+    parameters: Record<string, unknown>
   } | null>(null)
   const seedConsumedRef = React.useRef<{ selection: string | null; parameters: string | null }>({ selection: null, parameters: null })
   const seedAttemptedRef = React.useRef<string | null>(null)
@@ -346,8 +346,13 @@ export default function SyncRunsDashboardPage() {
     seedConsumedRef.current.parameters = seed.token
     const seeded: Record<string, RunParameterFormValue> = { ...defaults }
     for (const param of runParameters) {
-      const value = seed.parameters[param.key]
-      if (value !== undefined) seeded[param.key] = value
+      const raw = seed.parameters[param.key]
+      if (raw === undefined || raw === null) continue
+      // The API returns each parameter with its coerced type, so a number
+      // arrives as a JS number and the text input would render blank while
+      // `buildRunParametersPayload` still shipped it. `RunParameterFormValue`
+      // is `string | boolean`; normalise the way the defaults builder does.
+      seeded[param.key] = param.type === 'boolean' ? raw === true : String(raw)
     }
     setParamValues(seeded)
   }, [runParameters])
@@ -505,24 +510,27 @@ export default function SyncRunsDashboardPage() {
         parameters: Record<string, unknown> | null
       }>(`/api/data_sync/runs/${encodeURIComponent(fromRunId)}`, undefined, { fallback: null })
 
-      // An unknown, malformed or cross-tenant id is not an error state: the
-      // form simply renders its normal defaults, exactly as a direct visit
-      // does. A 400 from a non-UUID is handled identically to a 404.
-      // Only an unmount aborts this. An earlier version cancelled on every
-      // effect re-run, which — with the ref guard blocking a second fetch —
-      // meant the seed never landed at all.
-      // An unknown, malformed or cross-tenant id is not an error state: the form
-      // simply renders its normal defaults. The attempt stays recorded so this
-      // does not retry in a loop — the parameter is still in the URL.
+      // Only an unmount aborts this: an earlier version cancelled on every effect
+      // re-run, which — with the ref guard blocking a second fetch — meant the
+      // seed never landed at all. An unknown, malformed or cross-tenant id is
+      // not an error state either; the form renders its normal defaults, and the
+      // attempt stays recorded so this cannot retry in a loop.
       if (!seedMountedRef.current || !call.ok || !call.result) return
 
       const source = call.result
       const integration = options.find((option) => option.integrationId === source.integrationId)
-      if (!integration) return
+      // Validated once here so both seeding paths agree: the same-integration
+      // path never re-runs the selection effect, so nothing would catch an
+      // entity type the adapter has since dropped. Seeding one anyway leaves
+      // Start sync enabled against a value the API answers 422 to, while the
+      // banner claims everything was copied.
+      if (!integration || !integration.supportedEntities.includes(source.entityType)) return
 
+      // The shared resolver, so the banner and the form cannot disagree: it also
+      // honours `entityType` scoping, which a direction-only filter missed — a
+      // re-scoped parameter was counted as carried, then silently dropped.
       const declaredKeys = new Set(
-        (integration.runParameters ?? [])
-          .filter((param) => !param.direction || param.direction === source.direction)
+        getApplicableRunParameters(integration.runParameters, source.direction, source.entityType)
           .map((param) => param.key),
       )
       const stored = source.parameters ?? {}
@@ -538,7 +546,7 @@ export default function SyncRunsDashboardPage() {
         token,
         entityType: source.entityType,
         direction: source.direction,
-        parameters: carried as Record<string, RunParameterFormValue>,
+        parameters: carried,
       }
       seedConsumedRef.current = { selection: null, parameters: null }
 
@@ -548,7 +556,6 @@ export default function SyncRunsDashboardPage() {
       setSelectedIntegrationId(source.integrationId)
       setSelectedEntityType(source.entityType)
       setSelectedDirection(source.direction)
-      setParamValues((current) => ({ ...current, ...carried } as Record<string, RunParameterFormValue>))
       setSeedSource({ integrationId: source.integrationId, entityType: source.entityType, droppedKeys: dropped })
 
       // Drop the parameter so a re-render or a back-navigation cannot re-seed
@@ -899,6 +906,9 @@ export default function SyncRunsDashboardPage() {
     && selectedIntegration.hasCredentials,
   )
   const hasSavedSchedule = Boolean(scheduleEditor.id)
+  // One expression for all seven schedule controls: the duplication is what let
+  // the two buttons drift out of the feature gate.
+  const scheduleControlsDisabled = !canConfigureSync || isLoadingSchedule || isSavingSchedule || isDeletingSchedule
   const selectedEntityLabel = selectedEntityType ? formatEntityTypeLabel(selectedEntityType) : t('data_sync.dashboard.columns.entityType')
   const integrationStateVariant = getSyncSummaryVariant(selectedIntegration?.isEnabled ? 'enabled' : 'disabled')
   const credentialsVariant = getSyncSummaryVariant(selectedIntegration?.hasCredentials ? 'ready' : 'missing')
@@ -1191,7 +1201,7 @@ export default function SyncRunsDashboardPage() {
                       onValueChange={(value) => updateScheduleEditor({
                         scheduleType: value === 'cron' ? 'cron' : 'interval',
                       })}
-                      disabled={!canConfigureSync || isLoadingSchedule || isSavingSchedule || isDeletingSchedule || !selectedIntegration || !selectedEntityType}
+                      disabled={scheduleControlsDisabled || !selectedIntegration || !selectedEntityType}
                     >
                       <SelectTrigger size="lg">
                         <SelectValue />
@@ -1214,7 +1224,7 @@ export default function SyncRunsDashboardPage() {
                     <Input
                       value={scheduleEditor.scheduleValue}
                       onChange={(event) => updateScheduleEditor({ scheduleValue: event.target.value })}
-                      disabled={!canConfigureSync || isLoadingSchedule || isSavingSchedule || isDeletingSchedule || !selectedIntegration || !selectedEntityType}
+                      disabled={scheduleControlsDisabled || !selectedIntegration || !selectedEntityType}
                       placeholder={scheduleEditor.scheduleType === 'cron' ? '0 * * * *' : '1h'}
                     />
                     <p className="text-xs text-muted-foreground">
@@ -1231,7 +1241,7 @@ export default function SyncRunsDashboardPage() {
                     <Input
                       value={scheduleEditor.timezone}
                       onChange={(event) => updateScheduleEditor({ timezone: event.target.value })}
-                      disabled={!canConfigureSync || isLoadingSchedule || isSavingSchedule || isDeletingSchedule || !selectedIntegration || !selectedEntityType}
+                      disabled={scheduleControlsDisabled || !selectedIntegration || !selectedEntityType}
                     />
                   </div>
                 </div>
@@ -1248,7 +1258,7 @@ export default function SyncRunsDashboardPage() {
                       <Switch
                         checked={scheduleEditor.fullSync}
                         onCheckedChange={(checked) => updateScheduleEditor({ fullSync: checked })}
-                        disabled={!canConfigureSync || isLoadingSchedule || isSavingSchedule || isDeletingSchedule || !selectedIntegration || !selectedEntityType}
+                        disabled={scheduleControlsDisabled || !selectedIntegration || !selectedEntityType}
                       />
                     </div>
                   </div>
@@ -1263,7 +1273,7 @@ export default function SyncRunsDashboardPage() {
                       <Switch
                         checked={scheduleEditor.isEnabled}
                         onCheckedChange={(checked) => updateScheduleEditor({ isEnabled: checked })}
-                        disabled={!canConfigureSync || isLoadingSchedule || isSavingSchedule || isDeletingSchedule || !selectedIntegration || !selectedEntityType}
+                        disabled={scheduleControlsDisabled || !selectedIntegration || !selectedEntityType}
                       />
                     </div>
                   </div>
@@ -1286,7 +1296,7 @@ export default function SyncRunsDashboardPage() {
                       type="button"
                       variant="outline"
                       onClick={() => void handleDeleteSchedule()}
-                      disabled={!hasSavedSchedule || isDeletingSchedule}
+                      disabled={scheduleControlsDisabled || !hasSavedSchedule}
                     >
                       {isDeletingSchedule
                         ? t('data_sync.dashboard.schedule.deleting', 'Removing...')
@@ -1296,7 +1306,7 @@ export default function SyncRunsDashboardPage() {
                       type="button"
                       variant="outline"
                       onClick={() => void handleSaveSchedule()}
-                      disabled={isSavingSchedule || !selectedIntegration || !selectedEntityType}
+                      disabled={scheduleControlsDisabled || !selectedIntegration || !selectedEntityType}
                     >
                       <CalendarClock className="mr-2 size-4" />
                       {isSavingSchedule

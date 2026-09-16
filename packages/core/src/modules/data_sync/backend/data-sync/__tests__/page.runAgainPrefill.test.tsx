@@ -31,8 +31,10 @@ jest.mock('@open-mercato/ui/backend/confirm-dialog', () => ({
   useConfirmDialog: () => ({ confirm: jest.fn(), ConfirmDialogElement: null }),
 }))
 
+let canConfigureSync = true
+
 jest.mock('../../../components/useDataSyncRunAccess', () => ({
-  useDataSyncRunAccess: () => ({ canRunSync: true, canConfigureSync: true }),
+  useDataSyncRunAccess: () => ({ canRunSync: true, canConfigureSync }),
 }))
 
 jest.mock('next/navigation', () => ({
@@ -58,7 +60,10 @@ const OPTIONS = {
     runMode: 'generic',
     canStartRun: true,
     supportedEntities: ['customers', 'price_lists'],
-    runParameters: [{ key: 'segment', label: 'Segment', type: 'text' }],
+    runParameters: [
+      { key: 'segment', label: 'Segment', type: 'text' },
+      { key: 'startId', label: 'Start id', type: 'number' },
+    ],
     startControls: {},
     hasCredentials: true,
     isEnabled: true,
@@ -86,11 +91,24 @@ const SOURCE_RUN = {
   entityType: 'price_lists',
   direction: 'import',
   status: 'completed',
-  parameters: { segment: 'b2b-active', legacy_region: 'emea' },
+  // `startId` arrives as a JS number, the way the API returns a coerced
+  // `type: 'number'` parameter.
+  parameters: { segment: 'b2b-active', startId: 4200, legacy_region: 'emea' },
+}
+
+/** A run on the OTHER integration, so the cross-integration seed path is real. */
+const OTHER_RUN = {
+  id: 'run-7',
+  integrationId: 'shopify-nordvik',
+  entityType: 'products',
+  direction: 'export' as const,
+  status: 'completed',
+  parameters: { collection: 'summer' },
 }
 
 function mockApi(runResponse: { ok: boolean; status: number; result: unknown } | null = null) {
   apiCallMock.mockImplementation(async (url: string) => {
+    if (url === '/api/data_sync/runs/run-7') return { ok: true, status: 200, result: OTHER_RUN }
     if (url.startsWith('/api/data_sync/options')) return { ok: true, status: 200, result: OPTIONS }
     if (url.startsWith('/api/data_sync/runs/')) {
       return runResponse ?? { ok: true, status: 200, result: SOURCE_RUN }
@@ -107,6 +125,7 @@ beforeEach(() => {
   apiCallMock.mockReset()
   routerReplaceMock.mockReset()
   searchParams = new URLSearchParams()
+  canConfigureSync = true
 })
 
 /**
@@ -214,6 +233,72 @@ describe('SyncRunsDashboardPage ?from= prefill', () => {
     await waitFor(() => expect(screen.getByTestId('runs-table')).toBeInTheDocument())
     expect(screen.queryByText(/copied from/i)).not.toBeInTheDocument()
     expect(apiCallMock.mock.calls.some(([url]) => String(url).startsWith('/api/data_sync/runs/'))).toBe(false)
+  })
+
+  /**
+   * F1: a `type: 'number'` parameter arrives as a JS number. The text input
+   * renders only strings, so before this it showed blank while
+   * `buildRunParametersPayload` still submitted the seeded value — the form and
+   * the request disagreeing silently.
+   */
+  it('renders a seeded number parameter as text rather than blank', async () => {
+    searchParams = new URLSearchParams('from=run-9')
+    mockApi()
+    renderWithProviders(<SyncRunsDashboardPage />)
+
+    await screen.findByText(/copied from erp-ambra/i)
+    await waitFor(() => expect(screen.getByDisplayValue('4200')).toBeInTheDocument())
+  })
+
+  /**
+   * F5: every earlier test used the already-selected integration, so the
+   * selection effect's seed branch was never entered. Deleting it left the suite
+   * green while a cross-integration seed silently reset the direction.
+   */
+  it('seeds across integrations, keeping the source run’s direction', async () => {
+    searchParams = new URLSearchParams('from=run-7')
+    mockApi()
+    renderWithProviders(<SyncRunsDashboardPage />)
+
+    await screen.findByText(/copied from shopify-nordvik/i)
+    await waitFor(() => expect(selectedEntityTypeText()).toMatch(/Products/))
+    // shopify-nordvik declares direction 'import'; the run was an export, and
+    // the seed must win over the integration's default.
+    expect(screen.getByDisplayValue('summer')).toBeInTheDocument()
+  })
+
+  it('does not seed an entity type the adapter has since dropped', async () => {
+    searchParams = new URLSearchParams('from=run-9')
+    mockApi({ ok: true, status: 200, result: { ...SOURCE_RUN, entityType: 'retired_entity' } })
+    renderWithProviders(<SyncRunsDashboardPage />)
+
+    await waitFor(() => expect(apiCallMock).toHaveBeenCalledWith(
+      '/api/data_sync/runs/run-9', undefined, expect.anything(),
+    ))
+    // No banner, because nothing was copied — Start sync must not be left
+    // pointing at a value the API answers 422 to.
+    expect(screen.queryByText(/copied from/i)).not.toBeInTheDocument()
+  })
+
+  /** F6: the schedule gate shipped with no coverage, which is why it drifted. */
+  it('disables every schedule control without data_sync.configure', async () => {
+    canConfigureSync = false
+    mockApi()
+    renderWithProviders(<SyncRunsDashboardPage />)
+
+    const save = await screen.findByRole('button', { name: /save recurring schedule/i })
+    expect(save).toBeDisabled()
+    expect(screen.getByRole('button', { name: /remove schedule/i })).toBeDisabled()
+  })
+
+  it('enables the schedule controls with data_sync.configure', async () => {
+    mockApi()
+    renderWithProviders(<SyncRunsDashboardPage />)
+
+    const save = await screen.findByRole('button', { name: /save recurring schedule/i })
+    // The shared disabled expression also covers the schedule fetch, so wait for
+    // it to settle rather than asserting on the loading frame.
+    await waitFor(() => expect(save).not.toBeDisabled())
   })
 
   it('submits nothing on arrival — a prefill is not a trigger', async () => {

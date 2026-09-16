@@ -140,6 +140,9 @@ describe('SyncRunDetailPage retry from the beginning', () => {
 
     await waitFor(() => expect(runMutationMock).toHaveBeenCalled())
     expect(await sentRetryBodies()).toContainEqual({ fromBeginning: true })
+    // Pinned: without this a double-submit — two runs started from one click —
+    // satisfies every other assertion in this suite.
+    expect(runMutationMock).toHaveBeenCalledTimes(1)
   })
 
   it('sends nothing when the confirm is dismissed', async () => {
@@ -195,6 +198,22 @@ describe('SyncRunDetailPage retry from the beginning', () => {
     renderWithProviders(<SyncRunDetailPage params={{ id: 'run-1' }} />)
 
     expect(await screen.findByRole('button', { name: 'Retry from the beginning' })).toBeInTheDocument()
+  })
+
+  /**
+   * `resolveResumePoint`'s contract: a run that committed nothing has no known
+   * start position, so the confirm must not invent one. Asserting only that the
+   * button renders would miss copy claiming "would start at batch 0".
+   */
+  it('claims no resumable start position when the run committed no batch', async () => {
+    mockRun({ cursor: null, batchesCompleted: 0 })
+    renderWithProviders(<SyncRunDetailPage params={{ id: 'run-1' }} />)
+    await clickFromBeginning()
+
+    await waitFor(() => expect(confirmMock).toHaveBeenCalled())
+    const { text } = confirmMock.mock.calls[0][0] as { text: string }
+    expect(text).not.toMatch(/batch \d/)
+    expect(text).toMatch(/committed no batch/i)
   })
 
   it('hides the action when the adapter declares full sync inapplicable', async () => {
