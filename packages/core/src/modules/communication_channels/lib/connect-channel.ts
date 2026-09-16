@@ -172,17 +172,28 @@ export async function createConnectedChannelRow(
   }
 
   if (args.adoptUnidentifiedChannel && effectiveExternalIdentifier && !isTenantWidePush) {
-    const unidentified = await findOneWithDecryption(
+    const unidentified = (await findWithDecryption(
       em,
       CommunicationChannel,
       { tenantId: scope.tenantId, userId, providerKey, externalIdentifier: null, deletedAt: null },
       { orderBy: { createdAt: 'desc' } },
       dscope,
-    )
-    if (unidentified) {
-      applyConnectionState(unidentified)
+    )) as CommunicationChannel[]
+    const [adopted, ...superseded] = unidentified
+    if (adopted) {
+      applyConnectionState(adopted)
+      // Per-user credentials are stored once per provider, so every older
+      // identifier-less row is a duplicate of the adopted one. Left active, a
+      // stuck `requires_reauth` duplicate would keep its reauth banner forever.
+      for (const duplicate of superseded) {
+        if (duplicate.isPrimary) adopted.isPrimary = true
+        duplicate.isActive = false
+        duplicate.isPrimary = false
+        duplicate.status = 'disconnected'
+        duplicate.lastError = 'superseded_by_reconnect'
+      }
       await em.flush()
-      return unidentified
+      return adopted
     }
   }
 

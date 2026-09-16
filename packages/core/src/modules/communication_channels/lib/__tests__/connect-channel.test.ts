@@ -117,7 +117,8 @@ describe('createConnectedChannelRow', () => {
         lastError: 'gateway_close_4014',
         externalIdentifier: null,
       }
-      ;(findOneWithDecryption as jest.Mock).mockResolvedValueOnce(null).mockResolvedValueOnce(legacy)
+      ;(findOneWithDecryption as jest.Mock).mockResolvedValueOnce(null)
+      ;(findWithDecryption as jest.Mock).mockResolvedValueOnce([]).mockResolvedValueOnce([legacy])
       const em = buildEm()
       const channel = await createConnectedChannelRow({ em, ...DISCORD_BASE })
 
@@ -126,7 +127,7 @@ describe('createConnectedChannelRow', () => {
       expect(legacy.status).toBe('connected')
       expect(legacy.lastError).toBeNull()
       expect(legacy.externalIdentifier).toBe('discord:123')
-      const [, , legacyFilter, legacyOptions] = (findOneWithDecryption as jest.Mock).mock.calls[1]
+      const [, , legacyFilter, legacyOptions] = (findWithDecryption as jest.Mock).mock.calls[1]
       expect(legacyFilter).toEqual({
         tenantId: 't',
         userId: 'user-1',
@@ -137,6 +138,34 @@ describe('createConnectedChannelRow', () => {
       expect(legacyOptions).toEqual({ orderBy: { createdAt: 'desc' } })
     })
 
+    it('retires older legacy duplicates so a stuck requires_reauth row stops showing', async () => {
+      const newest: any = { id: 'ch-new', status: 'connected', isActive: true, isPrimary: false, externalIdentifier: null }
+      const stuck: any = {
+        id: 'ch-old',
+        status: 'requires_reauth',
+        isActive: true,
+        isPrimary: true,
+        lastError: 'gateway_close_4014',
+        externalIdentifier: null,
+      }
+      ;(findOneWithDecryption as jest.Mock).mockResolvedValueOnce(null)
+      ;(findWithDecryption as jest.Mock).mockResolvedValueOnce([]).mockResolvedValueOnce([newest, stuck])
+      const em = buildEm()
+      const channel = await createConnectedChannelRow({ em, ...DISCORD_BASE })
+
+      expect(channel).toBe(newest)
+      expect(newest.externalIdentifier).toBe('discord:123')
+      expect(newest.isPrimary).toBe(true)
+      expect(stuck).toMatchObject({
+        isActive: false,
+        isPrimary: false,
+        status: 'disconnected',
+        lastError: 'superseded_by_reconnect',
+        externalIdentifier: null,
+      })
+      expect(em.flush).toHaveBeenCalledTimes(1)
+    })
+
     it('heals the row already carrying the identifier without looking for legacy rows', async () => {
       const existing: any = { id: 'ch-1', status: 'requires_reauth', lastError: 'gateway_close_4004' }
       ;(findOneWithDecryption as jest.Mock).mockResolvedValueOnce(existing)
@@ -145,7 +174,7 @@ describe('createConnectedChannelRow', () => {
 
       expect(channel).toBe(existing)
       expect(existing.status).toBe('connected')
-      expect(findOneWithDecryption).toHaveBeenCalledTimes(1)
+      expect(findWithDecryption).toHaveBeenCalledTimes(1)
     })
 
     it('inserts a new row when there is nothing to heal or adopt', async () => {
@@ -162,7 +191,7 @@ describe('createConnectedChannelRow', () => {
       const em = buildEm()
       await createConnectedChannelRow({ em, ...BASE })
 
-      expect(findOneWithDecryption).toHaveBeenCalledTimes(1)
+      expect(findWithDecryption).toHaveBeenCalledTimes(1)
       expect(em.create).toHaveBeenCalledTimes(1)
     })
   })
