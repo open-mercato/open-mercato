@@ -113,8 +113,17 @@ Decisions already taken, carried from the prototype review:
    on. Guessing intent is how a prefill surprises someone.
 5. The row-action menu carries **no** "this feed is delta-only" footnote; the detail page states it.
 
-Items 2–5 reverse what the prototype draws. The prototype is the argument, not the conclusion; its
-`.notes` flag each one as rejectable and its README lists them.
+Two smaller decisions, settled the same way:
+
+6. **The list gains no "resumed from" column.** It would spend a column on a value that is null for
+   every row that is not `failed` or `cancelled`. The row menu's sub-label carries it instead.
+7. **Nothing renders in the resume-point slot for a non-retryable state.** An earlier draft carried a
+   greyed "Retry becomes available if this run fails or is cancelled" placeholder on running runs; the
+   line is a statement about a retry that could actually happen, and there is none.
+
+Items 2–7 reverse what the prototype originally drew. The prototype was the argument, not the
+conclusion — it has been redrawn to match these decisions in the same change that lands this spec, and
+each redrawn screen's notes record what changed and why.
 
 ### Surface cost
 

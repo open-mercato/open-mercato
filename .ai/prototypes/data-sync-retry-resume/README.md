@@ -40,17 +40,37 @@ The toolbar supports click-through, presentation, and comment modes. Comments ar
 | 12 | Start form prefilled by "Run again" | The three additions that need no new endpoint |
 | 13 | When a retry is refused | 422 `parametersStale`, 409 overlap, and the new 422 |
 
-## What is a proposal, not a decision
+## Decisions taken — and where they live now
 
-Every screen's `.notes` block marks its own open questions. The ones that need an answer
-before a spec can be written:
+**The specification is the authority, not this prototype.** Where the two ever disagree, the spec wins:
+[`.ai/specs/2026-09-16-data-sync-retry-resume-actions.md`](../../specs/2026-09-16-data-sync-retry-resume-actions.md).
 
-- Should a `cancelled` run's button say **Resume** rather than **Retry** (screen 9)?
-- Should "Run again" appear on `failed` runs or only on `completed` ones (screen 3)?
-- Should "Retry from the beginning" hide when no cursor was committed (screen 8)?
-- Should the prefilled start form default "Run as full sync" on, or copy the source run's
-  value (screen 12)?
-- Does the row-action menu carry the "this feed is delta-only" footnote, or stay terse (screen 4)?
+These screens were reviewed, and seven of the choices they originally drew were reversed. The screens
+have been redrawn; each redrawn screen's `.notes` block records what changed and why.
+
+| # | Decision | Screens redrawn |
+|---|---|---|
+| D0 | Neither `run` nor `retry` enforces `supportsStartControl('fullSync', …)` — the declaration governs what the dashboard **offers**, never what the API **accepts** | 1, 4, 13 |
+| D1 | A `cancelled` run's primary action reads **Resume**, not Retry | 1, 9 |
+| D2 | "Run again" is offered on `completed` runs only | 1, 3, 4, 6, 7 |
+| D3 | "Retry from the beginning" is hidden when no batch was committed — which leaves screen 8's overflow empty, so its `⋯` goes too | 1, 8 |
+| D4 | The prefilled start form copies the source run's `fullSync` faithfully instead of defaulting it on | 12 |
+| D5 | The row-action menu carries no delta-only footnote; the detail page states it | 4 |
+| D6 | The runs list gains no "resumed from" column | 2 |
+| D7 | Nothing renders in the resume-point slot for a non-retryable state | 10 |
+
+**D0 is the one worth reading twice.** An earlier draft of this work called the missing
+`supportsStartControl` check on the retry endpoint a "server-side hole", and screens 4 and 13 said so.
+It is not a hole — `BACKWARD_COMPATIBILITY.md` § Data Sync Start Control Applicability commits in
+writing that the separation "MUST hold for any future change here". The claim is withdrawn and those
+screens are corrected.
+
+## Still open
+
+Nothing in the flow itself. Two things the spec records as known gaps rather than decisions:
+
+- There is no `retried_from_run_id` column, so no screen can show a retry chain as one logical sync.
+- `paused` is in the status union but nothing in the engine ever writes it. Flagged for its own issue.
 
 ## Verified
 
