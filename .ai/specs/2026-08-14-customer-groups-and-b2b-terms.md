@@ -626,8 +626,19 @@ Operator sets, and support explains, the per-group buying terms.
 - **US-C2** — As a support agent, I want an "explain terms" panel on the customer detail page, so that when a buyer asks "why do I have net-30 instead of net-60" I can answer without guessing across four overlapping groups (R5).
   - AC: each resolved scalar field (`priceKindId`, `paymentTermsDays`, `allowPurchaseOnAccount`, `approvalRequiredAbove`, `minOrderValue`) shows its value and the group it came from (`sourceGroupId`).
   - AC: assortment scope is shown in its own row, sourced from `resolveAssortmentScope()` rather than `resolveTerms()` (§6.4), and names **every** contributing group (`sourceGroupIds`, plural) — it is a union across groups, not a single highest-priority winner, so a single-source label would misrepresent it.
+  - AC: when the customer carries an override (§5.7), that row also names it (`sourceCustomerOverrideId`) **alongside** the contributing groups, split into its widening and narrowing halves — naming only the group union would attribute a customer-specific rule to groups that did not make it, which is the wrong answer to the question this panel exists to answer.
   - AC: a field with `sourceGroupId: null` is labeled "tenant default", not left blank.
   - AC: the trace is a visible ancestor path (child → parent → tenant), not a tooltip that must be discovered.
+
+- **US-C3** — As an operator, I want to widen *or* narrow one named customer's assortment independently of their groups, so that I can give a single account early access to a collection, or hold it to its contracted assortment, without creating a group of one (§5.7, added 2026-09-16).
+  - AC: the customer detail page carries an "Assortment" section injected by this module (§5.7, §7.3), with two blocks labelled by **direction** — "Also allow" (`grant_scope`) and "Restrict to / exclude" (`restrict_scope`) — plus the validity window and `notes`.
+  - AC: empty state — a customer with no override row shows both blocks empty and a line stating their assortment comes entirely from their groups; saving both blocks empty writes **no row**, rather than an empty one.
+  - AC: "Also allow" can only add: everything the customer's groups grant survives, since the grant joins the union as one more branch (§6.4).
+  - AC: "Restrict to / exclude" narrows across **every** group grant, not only the products this override itself added — the direction no group-level scope can express; the screen states the consequence before saving.
+  - AC: setting both blocks to the same scope yields "this customer sees only this"; the resulting "replacement" label is **derived from the two values and read-only**, because §6.4 deliberately has no `mode` column for it to disagree with.
+  - AC: the validity window uses the same semantics as a membership (§5.2) — `valid_from` null = always, `valid_until` null = indefinite.
+  - AC: permission — gated behind the same feature that gates group-terms editing (US-C1); a viewer without it sees the section **read-only rather than hidden**, so a bespoke account stays recognisable as one.
+  - AC: the pickers are the same category/tag/exclude widget US-C1 and the channel-binding scope already use — do not invent a third.
 
 ### Epic D — Group Picker in Catalog & Sales
 Operator references a group from a price row or tax rate without inventing a UUID.
@@ -669,6 +680,8 @@ Approver/account manager reviews over-threshold purchase requests.
 ## 18) Changelog
 
 ### 2026-09-16 (per-customer assortment overrides)
+
+- **§17** — added **US-C3** for the new entity, and extended US-C2's assortment-scope acceptance criterion so the explain-terms panel names the customer's own override beside the contributing groups. Without it the story map described a panel that would attribute a customer-specific rule to the groups, which is the one answer that panel must not give.
 
 Applied from [Buyer-Scoped Catalog Visibility](./2026-08-21-buyer-scoped-catalog-visibility.md) §3.6, where the user raised per-customer visibility as a requirement in both directions and the algebra, cache rule and storage decisions were taken.
 
