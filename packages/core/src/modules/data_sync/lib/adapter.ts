@@ -323,9 +323,9 @@ export interface DataSyncAdapter {
    * every start path an operator actually uses — and the operator is left to
    * know the right number and type it into a form.
    *
-   * It is a floor, not a ceiling: an explicit `batchSize` on the run request
-   * still wins, so an operator can always page smaller (or larger) for one run.
-   * What this sets is what they get when they choose nothing.
+   * It is a default, not a bound in either direction: an explicit `batchSize`
+   * on the run request always wins, so an operator can page smaller or larger
+   * for one run. What this sets is what they get when they choose nothing.
    *
    * The declaration is clamped to the same `1..1000` `runSyncSchema` accepts,
    * and a value that is not a positive integer is ignored rather than fatal —
