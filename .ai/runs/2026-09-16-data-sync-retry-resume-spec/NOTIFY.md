@@ -58,3 +58,20 @@
   first draft of this work proposed — and that the prototype still calls a hole — would have broken a
   recorded contract commitment, not merely diverged from a sibling endpoint. Recorded in the spec's
   Final Compliance Report; the prototype is corrected in Phase 2.
+
+## 2026-09-16T12:44:00Z — final gate passed (docs-only minimum gate)
+- All nine Steps are `done`. Eight structural checks passed and browser verification confirmed every
+  redraw assertion mechanically: screen 9 reads `Resume`, screen 8 has no overflow button, screen 12's
+  full-sync switch is off, screen 13 carries two alerts, and "Run again" survives only on the two
+  `completed` screens. No console errors beyond the favicon 404, no overflow, no dangling links or
+  icons, no empty popovers.
+- The full `validation.commands` list, the integration suite and the design-system pass were skipped
+  under the documented docs-only path in `references/final-gate.md`. The skip is justified mechanically
+  rather than assumed: no changed path lies outside `.ai/`, so none of those commands has a changed
+  input. Every skip and its reason is recorded in `final-gate-checks.md`.
+
+## 2026-09-16T12:44:00Z — scope note: seven prototype decisions reversed, not five
+- Two more surfaced while reconciling the two documents. The list gains no "resumed from" column (D6),
+  and nothing renders in the resume-point slot for a non-retryable state (D7). D7 was an outright
+  contradiction: the prototype's screen 10 drew a greyed placeholder that the spec's own UI/UX table
+  says must not render. Both are recorded in the spec's § Proposed Solution and the prototype README.

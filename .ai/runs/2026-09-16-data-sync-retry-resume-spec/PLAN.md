@@ -12,15 +12,15 @@
 
 | Phase | Step | Title | Exec | Status | Commit |
 |-------|------|-------|------|--------|--------|
-| 1 | 1.1 | Resolve the Open Questions block into recorded decisions | inline | done | pending |
-| 1 | 1.2 | Write Architecture, Data Model, and API Contracts | inline | done | pending |
-| 1 | 1.3 | Write UI/UX and Edge Cases & Failure Scenarios | inline | done | pending |
-| 1 | 1.4 | Write Risks & Impact Review and Final Compliance Report | inline | done | pending |
-| 1 | 1.5 | Write Phasing, Implementation Plan, Testing, and Changelog | inline | done | pending |
-| 2 | 2.1 | Remove the withdrawn server-side-hole claims from the prototype | inline | done | pending |
-| 2 | 2.2 | Redraw the prototype screens the five decisions reverse | inline | done | pending |
-| 2 | 2.3 | Reconcile the prototype README and REQUIREMENTS with the decisions | inline | done | pending |
-| 3 | 3.1 | Cross-reference the start-controls spec that Q1 relies on | inline | done | pending |
+| 1 | 1.1 | Resolve the Open Questions block into recorded decisions | inline | done | `ba63e5d1aa` |
+| 1 | 1.2 | Write Architecture, Data Model, and API Contracts | inline | done | `aa85f13a1c` |
+| 1 | 1.3 | Write UI/UX and Edge Cases & Failure Scenarios | inline | done | `074a53923c` |
+| 1 | 1.4 | Write Risks & Impact Review and Final Compliance Report | inline | done | `038f116c03` |
+| 1 | 1.5 | Write Phasing, Implementation Plan, Testing, and Changelog | inline | done | `6e48bea531` |
+| 2 | 2.1 | Remove the withdrawn server-side-hole claims from the prototype | inline | done | `b3a2b3d0e3` |
+| 2 | 2.2 | Redraw the prototype screens the five decisions reverse | inline | done | `8a4d526486` |
+| 2 | 2.3 | Reconcile the prototype README and REQUIREMENTS with the decisions | inline | done | `4a18ef0827` |
+| 3 | 3.1 | Cross-reference the start-controls spec that Q1 relies on | inline | done | `a00d97f2af` |
 
 ## Goal
 
