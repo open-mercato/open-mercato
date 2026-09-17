@@ -34,6 +34,13 @@ type LinkChannelMessagePayload = {
   organizationId?: string | null
   providerKey?: string | null
   direction?: 'inbound' | 'outbound' | null
+  /**
+   * The provider's own receive/send time, carried by the hub on the event
+   * (#6095). An ISO string when the event rode the queue, a Date for an
+   * in-process emit. Absent on events enqueued before the field existed and on
+   * adapters that supply no timestamp.
+   */
+  providerTimestamp?: string | Date | null
 }
 
 type SubscriberContext = {
@@ -91,12 +98,13 @@ export default async function handler(
   // ── (1b) Resolve when the email actually happened ─────────────────────
   //
   // `link.createdAt` is when the hub ingested the message, which for a history
-  // import is the import minute, not the day the mail arrived (#6095). The
-  // provider's own timestamp lives on the ExternalMessage row the link points
-  // at, so read it from there and fall back to the ingest time only when the
-  // adapter supplied none. Resolved once here and threaded through every
-  // branch below so the address-match and threading-inheritance paths agree.
-  const occurredAt = await resolveOccurredAt(em, link, tenantId, organizationId, dscope)
+  // import is the import minute, not the day the mail arrived (#6095). The hub
+  // carries the provider's own timestamp on the event payload, so take it from
+  // there: reading the communication_channels ExternalMessage row here would
+  // cross the storage boundary (Cross-Module Coupling in AGENTS.md) and add a
+  // peer-table query per event. Resolved once and threaded through every branch
+  // below so the address-match and threading-inheritance paths agree.
+  const occurredAt = resolveOccurredAt(payload, link)
 
   // ── (2) Resolve the channel to get its owner userId ───────────────────
   //
@@ -456,34 +464,27 @@ async function handleThreadingInheritance(
  * When the linked email happened, for `CustomerInteraction.occurredAt` (#6095).
  *
  * Preference order:
- *   1. `ExternalMessage.providerTimestamp` — the provider's own receive/send
- *      time, written by ingest from the adapter's `timestamp`;
- *   2. `MessageChannelLink.createdAt` — the ingest time, the only date the
- *      handler knew before #6095;
+ *   1. `payload.providerTimestamp` — the provider's own receive/send time, put
+ *      on the hub event by ingest / delivery;
+ *   2. `MessageChannelLink.createdAt` — the ingest time, the only date this
+ *      handler knew before #6095, and the compatibility path for events that
+ *      were enqueued before the field existed;
  *   3. now, for a link row with no usable `createdAt` (test stubs).
- *
- * The lookup goes through the entity name as a string for the same reason the
- * link itself does: the customers module must not import the hub's entities.
  */
-async function resolveOccurredAt(
-  em: EntityManager,
+function resolveOccurredAt(
+  payload: LinkChannelMessagePayload,
   link: Record<string, unknown>,
-  tenantId: string,
-  organizationId: string,
-  dscope: { tenantId: string; organizationId: string },
-): Promise<Date> {
+): Date {
   const ingestedAt = link.createdAt instanceof Date ? link.createdAt : new Date()
-  const externalMessageId = link.externalMessageId
-  if (typeof externalMessageId !== 'string' || !externalMessageId) return ingestedAt
-  const externalMessage = (await findOneWithDecryption(
-    em,
-    'ExternalMessage' as any,
-    { id: externalMessageId, tenantId, organizationId } as any,
-    undefined,
-    dscope,
-  )) as { providerTimestamp?: unknown } | null
-  const providerTimestamp = externalMessage?.providerTimestamp
-  return providerTimestamp instanceof Date ? providerTimestamp : ingestedAt
+  const carried = payload.providerTimestamp
+  if (carried instanceof Date) {
+    return Number.isNaN(carried.getTime()) ? ingestedAt : carried
+  }
+  if (typeof carried === 'string' && carried) {
+    const parsed = new Date(carried)
+    if (!Number.isNaN(parsed.getTime())) return parsed
+  }
+  return ingestedAt
 }
 
 interface InteractionData {

@@ -429,14 +429,25 @@ describe('link-channel-message subscriber — inbound', () => {
 // ---------------------------------------------------------------------------
 
 describe('link-channel-message subscriber — interaction timestamp (#6095)', () => {
-  const payload = {
-    eventType: 'communication_channels.message.received',
-    channelLinkId: 'mcl-1',
-    channelId: 'ch-1',
-    tenantId: 't-1',
-    organizationId: 'o-1',
-    providerKey: 'gmail',
-    direction: 'inbound' as const,
+  // The provider's own receive/send time rides on the hub event payload. The
+  // customers module must not read the communication_channels ExternalMessage
+  // row to get it: that would be a cross-module storage read (AGENTS.md
+  // Cross-Module Coupling) plus one extra query per event.
+  const providerTimestamp = new Date('2026-06-16T08:30:00Z')
+  const ingestedAt = new Date('2026-09-12T14:00:00Z')
+
+  function payload(overrides: Record<string, unknown> = {}) {
+    return {
+      eventType: 'communication_channels.message.received',
+      channelLinkId: 'mcl-1',
+      channelId: 'ch-1',
+      tenantId: 't-1',
+      organizationId: 'o-1',
+      providerKey: 'gmail',
+      direction: 'inbound' as const,
+      providerTimestamp: providerTimestamp.toISOString(),
+      ...overrides,
+    }
   }
 
   function linkRow(overrides: Record<string, unknown> = {}) {
@@ -444,91 +455,96 @@ describe('link-channel-message subscriber — interaction timestamp (#6095)', ()
       id: 'mcl-1',
       providerKey: 'gmail',
       direction: 'inbound',
-      createdAt: new Date('2026-09-12T14:00:00Z'),
+      externalMessageId: 'em-1',
+      createdAt: ingestedAt,
       channelMetadata: { from: 'alice@example.com', to: [], cc: [], subject: 'Hello' },
       ...overrides,
     }
   }
 
-  it('dates the interaction with the provider timestamp of the linked ExternalMessage', async () => {
+  // findOne[0]: link, findOne[1]: channel. No ExternalMessage lookup.
+  function makeEmForTimestamp(link: Record<string, unknown> = linkRow(), executeResults?: unknown[][]) {
+    return makeEm({
+      findOneResults: [link, { userId: 'u-1' }],
+      ...(executeResults ? { executeResults } : {}),
+    })
+  }
+
+  it('dates the interaction with the provider timestamp carried on the event payload', async () => {
     // Before #6095 every interaction created by a history import carried the
     // import day, so a person's timeline showed 90 days of email on one date.
     mockFindPeople.mockResolvedValueOnce([{ id: 'person-1', email: 'alice@example.com' }])
-    const providerTimestamp = new Date('2026-06-16T08:30:00Z')
-    const em = makeEm({
-      // findOne[0]: link, findOne[1]: ExternalMessage, findOne[2]: channel
-      findOneResults: [
-        linkRow({ externalMessageId: 'em-1' }),
-        { id: 'em-1', providerTimestamp },
-        { userId: 'u-1' },
-      ],
-    })
+    const em = makeEmForTimestamp()
 
-    await handler(payload as any, makeCtx(em))
+    await handler(payload() as any, makeCtx(em))
 
-    expect(em.findOne).toHaveBeenCalledWith(
-      'ExternalMessage',
-      expect.objectContaining({ id: 'em-1', tenantId: 't-1', organizationId: 'o-1' }),
-      undefined,
-    )
     expect(em.create).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ occurredAt: providerTimestamp }),
     )
   })
 
-  it('falls back to the link creation time when the ExternalMessage has no provider timestamp', async () => {
+  it('accepts a Date instance on the payload, for an in-process emit with no JSON round trip', async () => {
     mockFindPeople.mockResolvedValueOnce([{ id: 'person-1', email: 'alice@example.com' }])
-    const createdAt = new Date('2026-09-12T14:00:00Z')
-    const em = makeEm({
-      findOneResults: [
-        linkRow({ externalMessageId: 'em-1', createdAt }),
-        { id: 'em-1', providerTimestamp: null },
-        { userId: 'u-1' },
-      ],
-    })
+    const em = makeEmForTimestamp()
 
-    await handler(payload as any, makeCtx(em))
+    await handler(payload({ providerTimestamp }) as any, makeCtx(em))
 
     expect(em.create).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ occurredAt: createdAt }),
+      expect.objectContaining({ occurredAt: providerTimestamp }),
     )
   })
 
-  it('does not look the ExternalMessage up when the link carries no externalMessageId', async () => {
+  it('never reads the communication_channels ExternalMessage row', async () => {
     mockFindPeople.mockResolvedValueOnce([{ id: 'person-1', email: 'alice@example.com' }])
-    const createdAt = new Date('2026-09-12T14:00:00Z')
-    const em = makeEm({ findOneResults: [linkRow({ createdAt }), { userId: 'u-1' }] })
+    const em = makeEmForTimestamp()
 
-    await handler(payload as any, makeCtx(em))
+    await handler(payload() as any, makeCtx(em))
 
-    expect(em.findOne).not.toHaveBeenCalledWith('ExternalMessage', expect.anything(), undefined)
+    const lookedUp = em.findOne.mock.calls.map((call: unknown[]) => call[0])
+    expect(lookedUp).not.toContain('ExternalMessage')
+  })
+
+  it('falls back to the link creation time when the event carries no provider timestamp', async () => {
+    // Events queued before this change, and channels whose adapter supplies no
+    // timestamp, both land here.
+    mockFindPeople.mockResolvedValueOnce([{ id: 'person-1', email: 'alice@example.com' }])
+    const em = makeEmForTimestamp()
+
+    await handler(payload({ providerTimestamp: undefined }) as any, makeCtx(em))
+
     expect(em.create).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ occurredAt: createdAt }),
+      expect.objectContaining({ occurredAt: ingestedAt }),
     )
   })
 
-  it('uses the provider timestamp on the threading-inheritance path too', async () => {
+  it('falls back to the link creation time when the payload timestamp is unparsable', async () => {
+    mockFindPeople.mockResolvedValueOnce([{ id: 'person-1', email: 'alice@example.com' }])
+    const em = makeEmForTimestamp()
+
+    await handler(payload({ providerTimestamp: 'not-a-date' }) as any, makeCtx(em))
+
+    expect(em.create).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ occurredAt: ingestedAt }),
+    )
+  })
+
+  it('uses the payload provider timestamp on the threading-inheritance path too', async () => {
     // No address match, no crmPersonId → the handler inherits the person from
     // the hub thread. That interaction must carry the same real date.
     mockFindPeople.mockResolvedValueOnce([])
-    const providerTimestamp = new Date('2026-07-01T10:00:00Z')
-    const em = makeEm({
-      findOneResults: [
-        linkRow({
-          messageId: 'msg-inbound',
-          externalMessageId: 'em-1',
-          channelMetadata: { from: 'unknown@example.com', to: [], cc: [], subject: 'Re: Hello' },
-        }),
-        { id: 'em-1', providerTimestamp },
-        { userId: 'u-1' },
-      ],
-      executeResults: [[{ entity_id: 'person-9' }]],
-    })
+    const em = makeEmForTimestamp(
+      linkRow({
+        messageId: 'msg-inbound',
+        channelMetadata: { from: 'unknown@example.com', to: [], cc: [], subject: 'Re: Hello' },
+      }),
+      [[{ entity_id: 'person-9' }]],
+    )
 
-    await handler(payload as any, makeCtx(em))
+    await handler(payload() as any, makeCtx(em))
 
     expect(em.create).toHaveBeenCalledWith(
       expect.anything(),

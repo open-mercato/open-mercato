@@ -26,8 +26,12 @@ import ingestInboundMessageCommand, {
 } from '../ingest-inbound-message'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { composeMessageSchema } from '../../../messages/data/validators'
+import { emitCommunicationChannelsEvent } from '../../events'
 
 const mockIngestFindOne = findOneWithDecryption as jest.MockedFunction<typeof findOneWithDecryption>
+const mockIngestEmit = emitCommunicationChannelsEvent as jest.MockedFunction<
+  typeof emitCommunicationChannelsEvent
+>
 
 describe('ingestInboundMessageCommand metadata', () => {
   it('exports the canonical command id', () => {
@@ -588,6 +592,26 @@ describe('ingestInboundMessageCommand — provider timestamp (#6095)', () => {
     })
     expect(parsed.success).toBe(true)
     expect(parsed.data?.sentAt).toEqual(receivedAt)
+  })
+
+  it('carries the provider timestamp on the emitted message.received payload', async () => {
+    // The customers subscriber dates its CustomerInteraction from this field.
+    // It must travel on the event, not be re-read from the ExternalMessage row
+    // by the consuming module (AGENTS.md Cross-Module Coupling).
+    primeLookups()
+    mockIngestEmit.mockClear()
+    const { ctx } = makeCtx()
+    const receivedAt = new Date('2026-06-16T08:30:00Z')
+
+    await ingestInboundMessageCommand.execute(emailInput(receivedAt) as never, ctx)
+
+    const receivedCall = mockIngestEmit.mock.calls.find(
+      (call: unknown[]) => call[0] === 'communication_channels.message.received',
+    )
+    expect(receivedCall).toBeDefined()
+    expect((receivedCall as any[])[1]).toMatchObject({
+      providerTimestamp: receivedAt.toISOString(),
+    })
   })
 })
 

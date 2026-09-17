@@ -567,6 +567,16 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
         providerKey: input.providerKey,
         channelType: input.channelType,
         direction: 'inbound',
+        // #6095: subscribers that date their own rows from this message (the
+        // customers timeline) need the provider's receive time, not the moment
+        // this worker ran. Carried here so no consumer has to read the
+        // ExternalMessage row across the module boundary. ISO string because a
+        // persistent event is serialized onto the queue; null when the adapter
+        // supplied no timestamp, which leaves the consumer's own fallback.
+        providerTimestamp:
+          externalMessage.providerTimestamp instanceof Date
+            ? externalMessage.providerTimestamp.toISOString()
+            : null,
         tenantId: input.scope.tenantId,
         organizationId: input.scope.organizationId ?? null,
       },
