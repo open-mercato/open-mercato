@@ -40,7 +40,7 @@ import {
   InlineDictionaryEditor,
 } from '../../../../components/detail/InlineEditors'
 import { DetailFieldsSection, type DetailFieldConfig } from '@open-mercato/ui/backend/detail'
-import { isValidSocialUrl } from '@open-mercato/core/modules/customers/lib/detailHelpers'
+import { isValidSocialUrl, isDetailNotFoundStatus } from '@open-mercato/core/modules/customers/lib/detailHelpers'
 import type { ActivitySummary, DealSummary, TagSummary, TodoLinkSummary } from '../../../../components/detail/types'
 import { CustomDataSection } from '../../../../components/detail/CustomDataSection'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
@@ -299,11 +299,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
       )
       setData(payload as PersonOverview)
     } catch (err) {
-      const status = (err as { status?: number }).status
-      // A malformed id (400) can never match a record, so it is indistinguishable
-      // from a well-formed but missing id (404) for the viewer — treat both as
-      // not-found instead of surfacing the raw server error text (#6158).
-      if (status === 404 || status === 400) {
+      if (isDetailNotFoundStatus((err as { status?: number }).status)) {
         setIsNotFound(true)
       } else {
         const message = err instanceof Error ? err.message : t('customers.people.detail.error.load')
