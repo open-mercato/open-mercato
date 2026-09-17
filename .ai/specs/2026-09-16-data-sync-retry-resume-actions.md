@@ -123,10 +123,22 @@ Decisions already taken, carried from the prototype review:
 Two smaller decisions (**D6** and **D7**), settled the same way:
 
 6. **The list gains no "resumed from" column.** It would spend a column on a value that is null for
-   every row that is not `failed` or `cancelled`. The row menu's sub-label carries it instead.
+   every row that is not `failed` or `cancelled`. The run detail page carries it instead (**D8**).
 7. **Nothing renders in the resume-point slot for a non-retryable state.** An earlier draft carried a
    greyed "Retry becomes available if this run fails or is cancelled" placeholder on running runs; the
    line is a statement about a retry that could actually happen, and there is none.
+
+One decision (**D8**) was taken later, against a running instance rather than on paper:
+
+8. **The resume point does not appear in the runs list at all** — not as a column (**D6**), and not
+   folded into the row-menu label either. `RowActions` renders each `RowActionItem.label` as the sole
+   child of a **fixed-width** (`w-44`, 176px) button whose base class includes `whitespace-nowrap`
+   (`packages/ui/src/primitives/button.tsx:7`), so a label past roughly 22 characters does not wrap —
+   it overflows the menu's border and background and paints over the page. Every label this feature
+   added exceeded that budget in at least one locale; the German `noCommittedBatch` form runs to 64
+   characters. The row menu therefore names the action alone (**Retry** / **Resume** / **Run again…**),
+   and the run detail page is the single surface that states a resume position. See the Changelog entry
+   for 2026-09-17.
 
 Items 2–7 reverse what the prototype originally drew. The prototype was the argument, not the
 conclusion — it has been redrawn to match these decisions in the same change that lands this spec, and
@@ -316,22 +328,23 @@ flash-message behaviour are unchanged and not re-documented.
 
 ### The resume-point line
 
-On the detail page it is one line beneath the header action row. **On the list it is folded into the
-menu item's own label**, not a second line: `RowActionItem.label` is a `string` rendered as the sole
-child of a single-line button (`packages/ui/src/backend/RowActions.tsx:8`), and there is no
-`description` or `ReactNode` slot. This is the same constraint § Architecture 4 hits with
-`ConfirmDialog`, and it is answered the same way — the copy collapses rather than the shared primitive
-growing a prop for one caller. `US-A2`'s own wording ("Retry (resume from batch N)") already assumed
-this shape.
+**It renders on the run detail page only** — one line beneath the header action row — in two forms
+depending on what `resolveResumePoint` returns:
 
-It is the fix for the confusion this spec exists to end, and it renders in three forms depending on
-what `resolveResumePoint` returns:
+| `ResumePoint` | Detail page |
+|---|---|
+| `resumes` | "Resumes from batch 41 — `updated_at:2026-09-12T04:15:07Z`" |
+| `noCommittedBatch` | "This run committed no batch. Retry starts from this feed's last saved position, which may be earlier than this run began." |
+| `none` | not rendered |
 
-| `ResumePoint` | Detail page | List row menu item |
-|---|---|---|
-| `resumes` | "Resumes from batch 41 — `updated_at:2026-09-12T04:15:07Z`" | "Retry (resumes from batch 41)" |
-| `noCommittedBatch` | "This run committed no batch. Retry starts from this feed's last saved position, which may be earlier than this run began." | "Retry (resumes from this feed's last saved position)" |
-| `none` | not rendered | plain "Retry" |
+**The runs list does not carry it, in any form** (**D8**). An earlier draft folded it into the row
+item's own label — `RowActionItem.label` is a `string` with no `description` or `ReactNode` slot
+(`packages/ui/src/backend/RowActions.tsx:8`), the same constraint § Architecture 4 hits with
+`ConfirmDialog` — on the assumption that collapsing the copy was the cheap way out, as `US-A2`'s own
+wording ("Retry (resume from batch N)") had assumed. It is not: that label is the sole child of a
+**fixed-width** `w-44` menu whose items are `whitespace-nowrap`, so the collapsed string overflowed the
+menu box instead of fitting in it. The row menu names the action alone, and `resolveResumePoint` has
+exactly one caller — the detail page.
 
 **The `noCommittedBatch` copy is deliberately non-committal**, for the reason § Architecture 1 gives:
 the run row cannot predict where the endpoint's fallback will land. Saying less is the only honest
@@ -473,10 +486,10 @@ The batch numbers and the cursor interpolate as parameters so translators can re
 | 5 | The prefill silently changes a setting the operator did not choose | Medium | Start form | **D4** — `fullSync` is copied faithfully; a banner names the source run; a warning names any dropped parameter | An operator may not notice the banner. The form submits nothing on arrival, so the cost of not noticing is bounded at reading the fields |
 | 6 | `?from=<runId>` becomes a way to probe another tenant's run ids | Medium | Start form prefill | The prefill reads through the existing tenant-scoped `GET /api/data_sync/runs/[id]`, which already answers 404 outside the scope. An unreadable id renders the plain form, identical to a direct visit — no distinguishing error | None. The parameter grants no read the operator did not already have |
 | 7 | Hiding the from-scratch action for one entity type hides it everywhere, through a bad adapter predicate | Medium | Detail page, list row menu | `applicableStartControls` already defaults to "applies" for an unknown entity type and for a throwing predicate; an options-fetch failure fails open (Edge case 7) | An adapter can hide its own action. This is the same trust `2026-09-02` already extended, unchanged |
-| 8 | The list row's denominator-free string reads as a defect | Low | List row menu | It is specified as a first-class form, not a fallback, and the exact figure is one click away on the detail page | None |
+| 8 | ~~The list row's denominator-free string reads as a defect~~ | — | — | Moot under **D8**: the list row carries no resume string at all | None |
 | 9 | Scope creep into cursor or engine semantics | Medium | Engine, run lifecycle | Explicit § Non-goals; no file under `lib/sync-engine.ts`, `lib/sync-run-service.ts` or `lib/start-cursor.ts` is in scope | None |
 | 10 | The prototype keeps asserting a defect that this spec withdrew, misleading a later reader | Medium | `.ai/prototypes/data-sync-retry-resume/` | Corrected in the same change that lands this spec, with the README naming the spec as the authority | None |
-| 11 | **An adapter cursor carries a secret or personal data, and this spec puts it on screen** | High | Detail page, list row menu | Cursors are rendered nowhere today, so this is a new exposure surface. `data_sync/AGENTS.md` already constrains run parameters — "never declare a parameter that carries a secret" — but says nothing about cursors. Phase 1 Step 1.7 adds the matching one-line adapter contract to that file, in the same change that first renders one | An adapter written before that line exists may already encode a page token or a customer-keyed watermark. The value is shown only to `data_sync.view` holders, but the UI copy invites pasting it into a support ticket, so the contract line is the mitigation that matters |
+| 11 | **An adapter cursor carries a secret or personal data, and this spec puts it on screen** | High | Detail page (the list never renders a cursor — **D8**) | Cursors are rendered nowhere today, so this is a new exposure surface. `data_sync/AGENTS.md` already constrains run parameters — "never declare a parameter that carries a secret" — but says nothing about cursors. Phase 1 Step 1.7 adds the matching one-line adapter contract to that file, in the same change that first renders one | An adapter written before that line exists may already encode a page token or a customer-keyed watermark. The value is shown only to `data_sync.view` holders, but the UI copy invites pasting it into a support ticket, so the contract line is the mitigation that matters |
 
 ## 📝 Final Compliance Report
 
@@ -575,10 +588,12 @@ all three forms, and add the "Started from / Committed through" block to the Pro
 state. Add the locale keys to all five files. Component tests assert the three forms and the
 `data_sync.view`-only variant.
 
-**Step 1.3 — Render the resume point in the list row menu**
-Add `cursor`, `initialCursor` **and** `batchesCompleted` to `SyncRunRow` — it currently declares none
-of the three — and fold the resume point into the existing Retry item's `label` string, per
-§ UI/UX. Component test asserts both label forms.
+**Step 1.3 — ~~Render the resume point in the list row menu~~ — reverted by D8**
+As built, this added `cursor`, `initialCursor` and `batchesCompleted` to `SyncRunRow` and folded the
+resume point into the Retry item's `label` string. **D8 reverted all of it** once the overflow showed
+up on a running instance: the three fields are gone again, the label names the action alone, and the
+component test now asserts that no row label states a position. Kept here because the reversal, not the
+step, is the thing worth remembering.
 
 **Step 1.4 — Relabel the `cancelled` primary action to Resume**
 The conditional string on both surfaces (**D1**), plus its locale keys. Test asserts `failed` reads
@@ -666,7 +681,7 @@ accurate but incomplete once Phase 2 lands, and wrong as a description of the wh
 | Permissions | A `data_sync.view`-only principal sees the resume-point line and no action buttons, on both surfaces |
 | Confirm dialog | Confirming issues `fromBeginning: true`; cancelling issues nothing; no request precedes the confirm |
 | Visibility gating | Hidden for a restricted entity type; **present when the options fetch fails**; **present for a null cursor**, which is where a guaranteed replay matters most |
-| List row menu | Both single-string label forms; menu contents for each failed-run shape; `completed` offers only Run again |
+| List row menu | Menu contents for each run state; that a failed run reading "Retry" is byte-identical whether or not it committed a batch (**D8** — no label states a position); `completed` offers only Run again… |
 | Start form prefill | Each seeded field; that `fullSync` and batch size stay at form defaults; the source banner; the dropped-parameter warning; unknown **and malformed** ids render plain defaults; a late options resolution does not overwrite the seed; arrival submits nothing |
 | Error surfaces | `parametersStale` renders the way out; the overlap `409` renders unchanged |
 | Integration `TC-DS-012` | Resume point rendered from a real failed run, and the non-committal form from one with no committed batch |
@@ -678,6 +693,39 @@ cover, create their own fixtures, clean up in teardown, and depend on no seeded 
 
 ## Changelog
 
+- **2026-09-17** — **D8**, taken against a running instance during manual test-drive rather than on
+  paper. The resume point is removed from the runs list entirely. `RowActions` fixes its menu at `w-44`
+  (176px) and renders every item through a `whitespace-nowrap` `Button`, so a label longer than roughly
+  22 characters overflows the menu's border and background rather than wrapping — which is what
+  "Retry (resumes from this feed's last saved position)" did, visibly, in Polish. Shortening the copy
+  could not fix it: the `noCommittedBatch` case has to say *the feed's* saved position rather than
+  *this run's*, and no phrasing carrying that distinction fits 22 characters in German or Polish. The
+  two alternatives both changed a shared primitive — widening/wrapping the menu, or adding a
+  `description` slot to `RowActionItem` — and were declined in favour of keeping the primitive
+  untouched. Consequences: `data_sync.dashboard.actions.retryResumes` and `.retryLastSaved` are deleted
+  from all five locales; `.runAgain` shortens to "Run again…" (it overflowed too, at 30–40 characters);
+  `SyncRunRow` drops `cursor`, `initialCursor` and `batchesCompleted`, which existed only to feed the
+  label; the list page calls `isRetryableRunStatus` instead of `resolveResumePoint`. The cost is real
+  and accepted: **US-A1's "see where a retry will resume before pressing it" now requires opening the
+  run**, one click further than the story asked for. `lib/resume-point.ts` is unchanged — the helper and
+  its contract were never the problem.
+- **2026-09-17** — **Known residual, deliberately not fixed here.** Two shipped row-menu labels still
+  exceed what `RowActions` can render: `Retry from the beginning` (24 characters) and the Spanish
+  `Reintentar desde el principio` (29), against a box that holds roughly 22. The menu is a fixed `w-44`
+  (176px) whose items inherit `whitespace-nowrap` from the `Button` primitive, so an over-long label
+  paints outside the menu's border rather than wrapping — the same defect issue #3580 fixed in the
+  sibling `ActionsDropdown`, which `RowActions` was never given.
+
+  A fix was built and measured against a running instance, then **reverted to keep this change out of a
+  shared UI primitive**. Recording what it found, because it is not guessable from the CSS and the next
+  attempt should not have to rediscover it: the naive fix (`w-max max-w-xs` + wrapping items) sizes the
+  menu to **316px for three short labels** whose longest item has a max-content of **167px**, because
+  `Button` is `inline-flex` and an inline-flex child inside a `max-content` block yields a bogus
+  intrinsic width. Overriding the items to `flex` is what makes `w-max` behave; with it the menu
+  measures 177px for a normal row menu, keeps the 176px floor for short ones, and grows to the 320px cap
+  and wraps for a long label. Two intermediate attempts — swapping `w-max` for `w-fit`, then widening
+  `min-w-44` to `min-w-48` — were symptom fixes that left `w-fit`/`max-w-xs` inert with `min-width`
+  silently doing all the sizing. `ActionsDropdown` likely sits at ~320px for the same reason.
 - **2026-09-16** — Initial spec. Written after a 13-screen clickable prototype
   (`.ai/prototypes/data-sync-retry-resume/`) was reviewed; six of that prototype's drawn choices were
   reversed during that review (**D2**–**D7**) and the prototype was corrected in the same change.

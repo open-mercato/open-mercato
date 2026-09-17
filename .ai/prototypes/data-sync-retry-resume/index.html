@@ -429,7 +429,7 @@
 
             <div class="popover" style="position:absolute;right:1rem;top:5.5rem;width:20rem;z-index:30">
               <div class="menu-item" data-goto="s7"><svg><use href="#ic-eye"/></svg> View run</div>
-              <div class="menu-item"><svg><use href="#ic-rotate-ccw"/></svg> Retry (resumes from batch 41)</div>
+              <div class="menu-item"><svg><use href="#ic-rotate-ccw"/></svg> Retry</div>
               <div class="menu-item" data-goto="s6"><svg><use href="#ic-rewind"/></svg> Retry from the beginning</div>
             </div>
           </div>
@@ -440,7 +440,7 @@
   </div>
 
   <div class="notes">
-    <div class="note"><b>1</b><span>The change on the list is exactly this: the <span class="strong">Retry</span> item names its resume point <i>inside its own label</i> — <code class="t-mono">RowActionItem.label</code> is a <code class="t-mono">string</code> with no sub-label slot, so an earlier draft's two-line item was not buildable — and one item appears below it. In production today the menu is <span class="t-mono">View · Retry</span> and Retry silently resumes (<code class="t-mono">backend/data-sync/page.tsx:398</code> hardcodes <code class="t-mono">fromBeginning:false</code>).</span></div>
+    <div class="note"><b>1</b><span><b>Redrawn twice (D8).</b> An earlier draft gave this item a two-line label; <code class="t-mono">RowActionItem.label</code> is a <code class="t-mono">string</code> with no sub-label slot, so that collapsed into one long string — which then <i>overflowed</i> the fixed <code class="t-mono">w-44</code>, <code class="t-mono">whitespace-nowrap</code> menu once it was driven for real. The resume point left the list altogether: the row menu names the action, the detail page states the position. What the list adds is the second item below Retry. In production today the menu is <span class="t-mono">View · Retry</span> and Retry silently resumes (<code class="t-mono">backend/data-sync/page.tsx:398</code> hardcodes <code class="t-mono">fromBeginning:false</code>).</span></div>
     <div class="note"><b>2</b><span><span class="strong">Retry</span> fires immediately — no confirm. It is the safe, additive action, and demanding a dialog for the common path is what makes operators stop reading dialogs.</span></div>
     <div class="note"><b>3</b><span><span class="strong">Retry from the beginning</span> never fires from the menu; it always opens the confirm on screen <a href="#s6" data-goto="s6">6</a>. It is the only from-scratch path in the UI.</span></div>
     <div class="note"><b>4</b><span><b>Corrected since this screen was first drawn.</b> An earlier draft rendered “of ~118”. There is no such number: the progress job's <code class="t-mono">totalCount</code> estimates source <i>records</i> (<code class="t-mono">batch.totalEstimate</code>), and converting it to batches needs a batch size <code class="t-mono">sync_runs</code> does not store. Every surface shows the batch number alone.</span></div>
@@ -498,7 +498,7 @@
 
             <div class="popover" style="position:absolute;right:1rem;top:5.5rem;width:20rem;z-index:30">
               <div class="menu-item"><svg><use href="#ic-eye"/></svg> View run</div>
-              <div class="menu-item"><svg><use href="#ic-rotate-ccw"/></svg> Retry (resumes from batch 12)</div>
+              <div class="menu-item"><svg><use href="#ic-rotate-ccw"/></svg> Retry</div>
             </div>
           </div>
         </main>
@@ -564,7 +564,7 @@
 
             <div class="popover" style="position:absolute;right:1rem;top:5.5rem;width:20rem;z-index:30">
               <div class="menu-item" data-goto="s11"><svg><use href="#ic-eye"/></svg> View run</div>
-              <div class="menu-item" data-goto="s12"><svg><use href="#ic-play"/></svg> Run again with these settings…</div>
+              <div class="menu-item" data-goto="s12"><svg><use href="#ic-play"/></svg> Run again…</div>
             </div>
 
             <div class="popover" style="position:absolute;right:1rem;top:12.5rem;width:20rem;z-index:30">

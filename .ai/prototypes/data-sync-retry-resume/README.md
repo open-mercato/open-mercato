@@ -45,7 +45,7 @@ The toolbar supports click-through, presentation, and comment modes. Comments ar
 **The specification is the authority, not this prototype.** Where the two ever disagree, the spec wins:
 [`.ai/specs/2026-09-16-data-sync-retry-resume-actions.md`](../../specs/2026-09-16-data-sync-retry-resume-actions.md).
 
-These screens were reviewed, and seven of the choices they originally drew were reversed. The screens
+These screens were reviewed, and eight of the choices they originally drew were reversed. The screens
 have been redrawn; each redrawn screen's `.notes` block records what changed and why.
 
 | # | Decision | Screens redrawn |
@@ -58,6 +58,7 @@ have been redrawn; each redrawn screen's `.notes` block records what changed and
 | D5 | The row-action menu carries no delta-only footnote; the detail page states it | 4 |
 | D6 | The runs list gains no "resumed from" column | 2 |
 | D7 | Nothing renders in the resume-point slot for a non-retryable state | 10 |
+| D8 | **The resume point does not reach the runs list at all** — added after the implementation was driven manually. `RowActions` fixes its menu at `w-44` and renders items `whitespace-nowrap`, so the collapsed label overflowed the menu box instead of fitting in it. The row menu names the action alone; the detail page is the only surface that states a position | 3, 4, 6 |
 
 **D0 is the one worth reading twice.** An earlier draft of this work called the missing
 `supportsStartControl` check on the retry endpoint a "server-side hole", and screens 4 and 13 said so.
@@ -78,7 +79,17 @@ screen's notes and in the spec's Changelog; the substantive ones:
   estimates source records, not batches.
 - **Screens 3 and 4's two-line menu items collapsed into one label.** `RowActionItem.label` is a
   `string` with no sub-label slot — the same constraint the spec had already found in `ConfirmDialog`.
+  *(Superseded by D8 below: collapsing was not enough, and the resume point left the list entirely.)*
 - **Screen 12's prefill no longer claims to copy `fullSync`.** No such column exists.
+
+## Corrected again after manual testing (D8)
+
+Every screen above was drawn at whatever width the label needed. The real `RowActions` menu is a fixed
+`w-44` (176px) box whose items are `whitespace-nowrap`, so "Retry (resumes from this feed's last saved
+position)" did not wrap inside it — it painted over the page behind it, visibly so in Polish and worse
+in German. This is the one defect the prototype could not have caught: it drew the copy, not the
+primitive the copy renders in. Screens 3, 4 and 6 now show the shipped labels — **Retry**, **Resume**,
+**Run again…** — and the resume point appears only on the detail-page screens.
 
 ## Still open
 

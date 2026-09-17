@@ -380,23 +380,25 @@ A finished run offers one primary action, and sometimes one more behind the `⋯
 |---|---|---|
 | `failed` | **Retry** | Retry from the beginning |
 | `cancelled` | **Resume** | Start from the beginning |
-| `completed` | **Run again** | — |
+| `completed` | **Run again…** | — |
 | `running` / `pending` | **Cancel** | — |
 
 - **Retry** and **Resume** are the same request (`POST /api/data_sync/runs/[id]/retry`), and both continue where the run stopped rather than starting over. A cancelled run reads *Resume* only because nothing went wrong — the operator stopped it — and "Retry" would misdescribe that.
 - **Retry from the beginning** sends `fromBeginning: true`, so the new run starts from a `null` cursor and replays the feed from its start. It is the one action behind a confirmation, and the confirmation names the cost — the estimated record count and the batch a plain retry would have resumed at — rather than asking "Are you sure?". It is not destructive: existing records are matched and updated, not duplicated.
-- **Run again** is offered on completed runs only. It navigates to `/backend/data-sync?from=<runId>`, which opens the "Run once now" form seeded from that run — integration, entity type, direction, and the stored run parameters. Nothing is submitted on arrival, and a banner names the run the settings came from. **Run as full sync** and **Batch size** are *not* seeded, because `sync_runs` stores neither; both render at their form defaults. If the adapter has since stopped declaring one of the stored parameters, a warning names the dropped key.
+- **Run again…** is offered on completed runs only. It navigates to `/backend/data-sync?from=<runId>`, which opens the "Run once now" form seeded from that run — integration, entity type, direction, and the stored run parameters. Nothing is submitted on arrival, and a banner names the run the settings came from. **Run as full sync** and **Batch size** are *not* seeded, because `sync_runs` stores neither; both render at their form defaults. If the adapter has since stopped declaring one of the stored parameters, a warning names the dropped key.
 
 Both the retry actions re-validate the stored run parameters against the adapter's *current* declaration, so a parameter you have removed or re-scoped falls away and a value that no longer satisfies its declaration fails the retry with a `422` instead of reaching your adapter.
 
 #### The resume-point line
 
-Wherever a retry is offered, the dashboard states where it would resume — as a line beneath the actions on the run detail page, and folded into the menu item's own label in the runs list.
+The **run detail page** states where a retry would resume, as a line beneath the actions.
 
-| Situation | Detail page | List row |
-|---|---|---|
-| The run committed at least one batch | "Resumes from batch 41 — `updated_at:2026-09-12T04:15:07Z`" | "Retry (resumes from batch 41)" |
-| The run committed no batch | "This run committed no batch. Retry starts from this feed's last saved position, which may be earlier than this run began." | "Retry (resumes from this feed's last saved position)" |
+| Situation | Detail page |
+|---|---|
+| The run committed at least one batch | "Resumes from batch 41 — `updated_at:2026-09-12T04:15:07Z`" |
+| The run committed no batch | "This run committed no batch. Retry starts from this feed's last saved position, which may be earlier than this run began." |
+
+The **runs list does not repeat it**, and should not be changed to. `RowActions` renders each `RowActionItem.label` as the sole child of a fixed-width (`w-44`), `whitespace-nowrap` button, so a label carrying the resume point overflows the menu box rather than wrapping inside it — visibly so in the longer locales, where "Retry (resumes from this feed's last saved position)" runs to 64 characters in German against a budget of roughly 22. The row menu therefore names the action only (**Retry** / **Resume**), and the detail page is the single surface that states a position.
 
 **The no-committed-batch wording is deliberately non-committal, and must stay that way.** It does not say "starts from the beginning", because that would often be false: the endpoint resolves a resumable retry as `previous.cursor ?? resolveStartCursor(...)`, and `resolveStartCursor` reads the shared `sync_cursors` row (or, for an adapter that opted out, this entity type's own last run). A run that died on its first batch can therefore still resume at a cursor an earlier successful run wrote, silently skipping everything before it — exactly the partial-import trap the run-scoped cursor exists to prevent. The run row alone cannot predict that position, so the copy says only what the row knows, and **Retry from the beginning** stays available here precisely because it is the only action whose start position is knowable in advance.
 
