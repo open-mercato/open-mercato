@@ -378,7 +378,14 @@ reference.
 **Generating the P&L in both variants belongs to task #4/ZSiO, not
 this spec.** This spec is responsible only for the source data
 existing (correctly reclassified, tagged entries) — the report itself
-is a reporting-layer concern, a different owner.
+is a reporting-layer concern, a different owner. **Update
+(2026-09-17):** that owner is now drafted —
+`2026-09-17-annual-financial-statements.md` reads this spec's own
+account-490 invariant as the thing it *validates* (not re-derives) when
+generating RZiS's two variants: a same-net-result check between the
+porównawczy (zespół 4) and kalkulacyjny (zespół 5) variants, failing
+generation with a diagnostic pointing back here if `reconcileCostRing`
+hasn't caught up yet. Not yet reviewed.
 
 ## User Stories
 
