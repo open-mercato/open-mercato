@@ -1,8 +1,6 @@
 {
   "data_sync.dashboard.actions.resume": "Fortsetzen",
-  "data_sync.dashboard.actions.retryLastSaved": "{verb} (ab der zuletzt gespeicherten Position dieses Feeds)",
-  "data_sync.dashboard.actions.retryResumes": "{verb} (ab Batch {batch})",
-  "data_sync.dashboard.actions.runAgain": "Mit diesen Einstellungen erneut ausführen…",
+  "data_sync.dashboard.actions.runAgain": "Erneut ausführen…",
   "data_sync.dashboard.actions.view": "Anzeigen",
   "data_sync.dashboard.columns.created": "Erstellt",
   "data_sync.dashboard.columns.createdAt": "Gestartet",

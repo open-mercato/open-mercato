@@ -1,8 +1,6 @@
 {
   "data_sync.dashboard.actions.resume": "재개",
-  "data_sync.dashboard.actions.retryLastSaved": "{verb} (이 피드의 마지막 저장 위치부터)",
-  "data_sync.dashboard.actions.retryResumes": "{verb} (배치 {batch}부터)",
-  "data_sync.dashboard.actions.runAgain": "이 설정으로 다시 실행…",
+  "data_sync.dashboard.actions.runAgain": "다시 실행…",
   "data_sync.dashboard.actions.view": "보기",
   "data_sync.dashboard.columns.created": "생성됨",
   "data_sync.dashboard.columns.createdAt": "시작됨",

@@ -45,7 +45,7 @@ import {
   ShieldCheck,
 } from 'lucide-react'
 import { getSyncRunStatusVariant, getSyncSummaryVariant } from '../../lib/syncRunStatus'
-import { resolveResumePoint } from '../../lib/resume-point'
+import { isRetryableRunStatus } from '../../lib/resume-point'
 import { useDataSyncRunAccess } from '../../components/useDataSyncRunAccess'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import type { RunParameter } from '../../lib/adapter'
@@ -80,10 +80,6 @@ type SyncRunRow = {
   entityType: string
   direction: 'import' | 'export'
   status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | 'paused'
-  // Already on the list payload; the row type simply never declared them.
-  cursor: string | null
-  initialCursor: string | null
-  batchesCompleted: number
   createdCount: number
   updatedCount: number
   failedCount: number
@@ -600,26 +596,19 @@ export default function SyncRunsDashboardPage() {
   }, [confirm, runMutation, t])
 
   /**
-   * `RowActionItem.label` is a plain string rendered as the sole child of a
-   * single-line button, so the resume point has to live inside the label rather
-   * than on a second line. `US-A2` assumed this shape from the start.
+   * `RowActionItem.label` is rendered as the sole child of a fixed-width,
+   * `whitespace-nowrap` button, so a label carrying the resume point overflows
+   * the menu box. The resume point therefore lives only on the run detail page,
+   * which has room to state it in full.
    */
   const buildRetryActions = React.useCallback((row: SyncRunRow) => {
     if (!canRunSync) return []
-    const resumePoint = resolveResumePoint(row)
-    if (resumePoint.kind === 'none') return []
-    const verb = row.status === 'cancelled'
-      ? t('data_sync.dashboard.actions.resume', 'Resume')
-      : t('data_sync.runs.detail.retry', 'Retry')
-    const label = resumePoint.kind === 'resumes'
-      ? t('data_sync.dashboard.actions.retryResumes', '{verb} (resumes from batch {batch})', {
-        verb,
-        batch: resumePoint.batchesCompleted,
-      })
-      : t('data_sync.dashboard.actions.retryLastSaved', "{verb} (resumes from this feed's last saved position)", { verb })
+    if (!isRetryableRunStatus(row.status)) return []
     const actions = [{
       id: 'retry',
-      label,
+      label: row.status === 'cancelled'
+        ? t('data_sync.dashboard.actions.resume', 'Resume')
+        : t('data_sync.runs.detail.retry', 'Retry'),
       onSelect: () => { void handleRetry(row) },
     }]
     // Same adapter gating as the detail page, and the same fail-open default.
@@ -1378,7 +1367,7 @@ export default function SyncRunsDashboardPage() {
               // not earn a second near-identical item.
               ...(canRunSync && row.status === 'completed' ? [{
                 id: 'run-again',
-                label: t('data_sync.dashboard.actions.runAgain', 'Run again with these settings…'),
+                label: t('data_sync.dashboard.actions.runAgain', 'Run again…'),
                 onSelect: () => { router.push(`/backend/data-sync?from=${encodeURIComponent(row.id)}`) },
               }] : []),
             ]} />

@@ -1,8 +1,6 @@
 {
   "data_sync.dashboard.actions.resume": "Reanudar",
-  "data_sync.dashboard.actions.retryLastSaved": "{verb} (desde la última posición guardada de este feed)",
-  "data_sync.dashboard.actions.retryResumes": "{verb} (desde el lote {batch})",
-  "data_sync.dashboard.actions.runAgain": "Ejecutar de nuevo con estos ajustes…",
+  "data_sync.dashboard.actions.runAgain": "Ejecutar de nuevo…",
   "data_sync.dashboard.actions.view": "Ver",
   "data_sync.dashboard.columns.created": "Creados",
   "data_sync.dashboard.columns.createdAt": "Iniciado",

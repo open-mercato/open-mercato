@@ -65,9 +65,6 @@ function buildRow(overrides: Record<string, unknown> = {}) {
     entityType: 'example_orders',
     direction: 'import' as const,
     status: 'failed' as const,
-    cursor: 'updated_at:2026-09-12T04:15:07Z',
-    initialCursor: null,
-    batchesCompleted: 41,
     createdCount: 1,
     updatedCount: 2,
     failedCount: 3,
@@ -110,19 +107,22 @@ beforeEach(() => {
 })
 
 describe('SyncRunsDashboardPage row actions', () => {
-  it('names the resume point inside the Retry label for a failed run', async () => {
+  /**
+   * `RowActionItem.label` is the sole child of a fixed-width,
+   * `whitespace-nowrap` button, so a label carrying the resume point overflowed
+   * the menu box instead of wrapping inside it. The row menu now names the
+   * action only; the run detail page is the single surface that states where a
+   * retry resumes.
+   */
+  it('names the action alone for a failed run, with no resume point', async () => {
     const labels = await labelsFor(buildRow())
-    expect(labels).toContain('Retry (resumes from batch 41)')
-  })
-
-  it('renders no batch denominator — no such number is derivable', async () => {
-    const labels = await labelsFor(buildRow())
-    expect(labels.join(' ')).not.toMatch(/of\s*~?\d/)
+    expect(labels).toContain('Retry')
+    expect(labels.join(' ')).not.toMatch(/resumes|batch|saved position/i)
   })
 
   it('reads Resume, not Retry, for a run the operator stopped on purpose', async () => {
-    const labels = await labelsFor(buildRow({ status: 'cancelled', batchesCompleted: 3 }))
-    expect(labels).toContain('Resume (resumes from batch 3)')
+    const labels = await labelsFor(buildRow({ status: 'cancelled' }))
+    expect(labels).toContain('Resume')
     // The overflow must not smuggle "Retry" back in on the one state that
     // deliberately avoids the word.
     expect(labels).toContain('Start from the beginning')
@@ -134,14 +134,22 @@ describe('SyncRunsDashboardPage row actions', () => {
     expect(labels).toContain('Retry from the beginning')
   })
 
-  it('stays non-committal when the run committed no batch', async () => {
-    const labels = await labelsFor(buildRow({ cursor: null, batchesCompleted: 0 }))
-    expect(labels).toContain("Retry (resumes from this feed's last saved position)")
-    // The resume-point label itself never claims a from-scratch start; the
-    // separate action is a different item, and stays available precisely here.
-    const resumeLabel = labels.find((label) => label.includes('resumes from'))
-    expect(resumeLabel).not.toMatch(/from the beginning/i)
-    expect(labels).toContain('Retry from the beginning')
+  /**
+   * The cursor and batch count no longer reach the label at all, so a run that
+   * committed nothing reads exactly like one that committed 41 batches — which
+   * is the point: the row menu makes no positional claim either way.
+   */
+  it('reads identically whether or not the run committed a batch', async () => {
+    const committed = await labelsFor(buildRow({ cursor: 'updated_at:2026-09-12T04:15:07Z', batchesCompleted: 41 }))
+    const uncommitted = await labelsFor(buildRow({ cursor: null, batchesCompleted: 0 }))
+    expect(uncommitted).toEqual(committed)
+    expect(uncommitted).toContain('Retry')
+    expect(uncommitted).toContain('Retry from the beginning')
+  })
+
+  it('keeps the run-again label short enough for the menu it renders in', async () => {
+    const labels = await labelsFor(buildRow({ status: 'completed' }))
+    expect(labels).toContain('Run again…')
   })
 
   it.each(['pending', 'running', 'completed'])('offers no retry for a %s run', async (status) => {

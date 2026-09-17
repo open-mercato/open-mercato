@@ -1,8 +1,6 @@
 {
   "data_sync.dashboard.actions.resume": "Wznów",
-  "data_sync.dashboard.actions.retryLastSaved": "{verb} (od ostatniej zapisanej pozycji tego źródła)",
-  "data_sync.dashboard.actions.retryResumes": "{verb} (od partii {batch})",
-  "data_sync.dashboard.actions.runAgain": "Uruchom ponownie z tymi ustawieniami…",
+  "data_sync.dashboard.actions.runAgain": "Uruchom ponownie…",
   "data_sync.dashboard.actions.view": "Zobacz",
   "data_sync.dashboard.columns.created": "Utworzone",
   "data_sync.dashboard.columns.createdAt": "Rozpoczęto",
