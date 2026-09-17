@@ -1377,11 +1377,20 @@ export default function EditCatalogProductPage({
           : typeof refreshedRecord?.updated_at === "string"
             ? refreshedRecord.updated_at
             : null;
-      if (refreshedUpdatedAt) {
-        setInitialValues((prev) =>
-          prev ? { ...prev, updatedAt: refreshedUpdatedAt } : prev,
-        );
-      }
+      // Merge the just-submitted `values` back into `initialValues` too, not only
+      // `updatedAt` — CrudForm re-syncs its visible fields from `initialValues`
+      // whenever that prop's identity changes, so leaving the other fields at
+      // their stale pre-edit snapshot here made a successful save visually
+      // revert the field the user just changed back to its old value (#6170).
+      setInitialValues((prev) =>
+        prev
+          ? {
+              ...prev,
+              ...values,
+              updatedAt: refreshedUpdatedAt ?? prev.updatedAt,
+            }
+          : prev,
+      );
       const previousConversionIds = new Set(
         initialConversionsRef.current
           .map((entry) => toTrimmedOrNull(entry.id))
