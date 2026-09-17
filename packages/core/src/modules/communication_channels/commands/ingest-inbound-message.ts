@@ -429,7 +429,7 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
       userId: await resolveCommunicationChannelsSystemUserId(
         em,
         input.scope.tenantId,
-        routedAssigneeId,
+        mapping?.assignedUserId ?? null,
       ),
     }
 

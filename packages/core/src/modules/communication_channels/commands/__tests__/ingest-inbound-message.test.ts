@@ -25,6 +25,7 @@ import ingestInboundMessageCommand, {
   type IngestInboundMessageInput,
 } from '../ingest-inbound-message'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { resolveCommunicationChannelsSystemUserId } from '../../lib/system-user'
 import { composeMessageSchema } from '../../../messages/data/validators'
 
 const mockIngestFindOne = findOneWithDecryption as jest.MockedFunction<typeof findOneWithDecryption>
@@ -738,6 +739,8 @@ describe('ingestInboundMessageCommand — per-user channel owner is the default 
 
     expect(composeInputOf(commandBus).recipients).toEqual([{ userId: ownerId, type: 'to' }])
     expect(createdWith(created, 'externalThreadRef')).toBeUndefined()
+    const senderFallback = (resolveCommunicationChannelsSystemUserId as jest.Mock).mock.calls.at(-1)?.[2]
+    expect(senderFallback).toBeNull()
   })
 
   it('keeps a manual assignment authoritative over the channel owner', async () => {
