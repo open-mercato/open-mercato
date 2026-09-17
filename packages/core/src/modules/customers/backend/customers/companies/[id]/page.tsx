@@ -306,7 +306,11 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
         setData(payload as CompanyOverview)
       } catch (err) {
         if (cancelled) return
-        if ((err as { status?: number }).status === 404) {
+        const status = (err as { status?: number }).status
+        // A malformed id (400) can never match a record, so it is indistinguishable
+        // from a well-formed but missing id (404) for the viewer — treat both as
+        // not-found instead of surfacing the raw server error text (#6158).
+        if (status === 404 || status === 400) {
           setIsNotFound(true)
         } else {
           const message = err instanceof Error ? err.message : t('customers.companies.detail.error.load', 'Failed to load company.')
