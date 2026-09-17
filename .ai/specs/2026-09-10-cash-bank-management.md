@@ -687,7 +687,13 @@ No seed data — chart-of-accounts/bank-account mapping is tenant-specific.
     `bookedExchangeRate` that isn't `1` is also rejected (nothing to
     convert). Missing/invalid rate → rejects with a readable
     `EXCHANGE_RATE_REQUIRED` error, no partial write (see Design
-    decisions, Testing Strategy). Computes the realized gain/loss as
+    decisions, Testing Strategy). **Update (2026-09-17):** the
+    Multi-Currency spec (`.ai/specs/2026-09-17-multi-currency.md`)
+    proposes `SalesInvoice.exchangeRate`; once that ships,
+    `bookedExchangeRate` can default from the invoice's own stored
+    rate instead of always requiring manual entry here — a caller
+    still overriding it explicitly should remain possible. Not
+    applied yet. Computes the realized gain/loss as
     `statementLineAmountInBankCurrency - (matchedAmountInInvoiceCurrency * bookedExchangeRate)`
     (the same multiplication direction, converting the settled invoice
     amount back into bank currency for comparison) and, when non-zero,
