@@ -418,7 +418,7 @@ describe('ingestInboundMessageCommand — non-email sender identity (#4975)', ()
         isActive: true,
         providerKey: 'discord',
         channelType: 'discord',
-        userId: 'u-1',
+        userId: '550e8400-e29b-41d4-a716-446655440077',
       } as never) // channel
       .mockResolvedValueOnce(null as never) // conversation → create
       .mockResolvedValueOnce(null as never) // mapping → create
@@ -547,7 +547,7 @@ describe('ingestInboundMessageCommand — assigned conversation (#6093)', () => 
     } as IngestInboundMessageInput
   }
 
-  function primeLookups(mapping: Record<string, unknown> | null): void {
+  function primeLookups(mapping: Record<string, unknown> | null, channelUserId: string | null = 'u-1'): void {
     mockIngestFindOne.mockReset()
     mockIngestFindOne
       .mockResolvedValueOnce(null as never) // existingExternal — first delivery
@@ -556,7 +556,7 @@ describe('ingestInboundMessageCommand — assigned conversation (#6093)', () => 
         isActive: true,
         providerKey: 'gmail',
         channelType: 'email',
-        userId: 'u-1',
+        userId: channelUserId,
       } as never) // channel
       .mockResolvedValueOnce({
         id: '550e8400-e29b-41d4-a716-446655440061',
@@ -606,8 +606,8 @@ describe('ingestInboundMessageCommand — assigned conversation (#6093)', () => 
     expect(parsed.success).toBe(true)
   })
 
-  it('still composes an unassigned conversation with no recipients', async () => {
-    primeLookups({ id: 'map-1', assignedUserId: null, messageThreadId: '550e8400-e29b-41d4-a716-446655440071' })
+  it('still composes an unassigned conversation on a tenant-wide channel with no recipients', async () => {
+    primeLookups({ id: 'map-1', assignedUserId: null, messageThreadId: '550e8400-e29b-41d4-a716-446655440071' }, null)
     const { ctx, commandBus } = makeCtx()
 
     await ingestInboundMessageCommand.execute(emailInput() as never, ctx)
@@ -615,6 +615,153 @@ describe('ingestInboundMessageCommand — assigned conversation (#6093)', () => 
     const composeInput = composeInputOf(commandBus)
     expect(composeInput.recipients).toEqual([])
     expect(composeInput.inboundFromChannel).toBe(true)
+  })
+})
+
+describe('ingestInboundMessageCommand — per-user channel owner is the default assignee (#6106)', () => {
+  const ownerId = '550e8400-e29b-41d4-a716-446655440088'
+  const assigneeId = '550e8400-e29b-41d4-a716-446655440099'
+  const conversationId = '550e8400-e29b-41d4-a716-446655440061'
+
+  function makeCtx() {
+    const created: Array<{ data: Record<string, any> }> = []
+    const em: any = {
+      create: jest.fn((_entity: unknown, data: Record<string, any>) => {
+        const row = { id: '550e8400-e29b-41d4-a716-446655440050', ...data }
+        created.push({ data: row })
+        return row
+      }),
+      persist: jest.fn(),
+      flush: jest.fn().mockResolvedValue(undefined),
+      getConnection: () => ({ execute: jest.fn().mockResolvedValue([]) }),
+    }
+    em.fork = () => em
+    const commandBus = {
+      execute: jest.fn(async () => ({ result: { id: 'msg-3', threadId: 'thread-3' } })),
+    }
+    return {
+      created,
+      commandBus,
+      ctx: {
+        container: {
+          resolve: (name: string) => {
+            if (name === 'em') return em
+            if (name === 'channelAdapterRegistry') return { get: () => ({ providerKey: 'discord' }) }
+            if (name === 'commandBus') return commandBus
+            return null
+          },
+        },
+      } as any,
+    }
+  }
+
+  function discordInput(): IngestInboundMessageInput {
+    return {
+      channelId: '550e8400-e29b-41d4-a716-446655440040',
+      providerKey: 'discord',
+      channelType: 'discord',
+      scope: {
+        tenantId: '550e8400-e29b-41d4-a716-446655440020',
+        organizationId: '550e8400-e29b-41d4-a716-446655440030',
+      },
+      message: {
+        externalMessageId: '1550017981365358683',
+        externalConversationId: 'discord:1541039457296326710',
+        senderIdentifier: '1465576843796156549',
+        senderDisplayName: 'Discord user',
+        body: 'hello from discord',
+        bodyFormat: 'text',
+        timestamp: new Date(),
+        channelPayload: {},
+        channelContentType: 'discord/message',
+        channelMetadata: {},
+      },
+    } as IngestInboundMessageInput
+  }
+
+  function primeLookups(options: {
+    channelUserId: string | null
+    conversation: Record<string, unknown> | null
+    mapping: Record<string, unknown> | null
+  }): void {
+    mockIngestFindOne.mockReset()
+    mockIngestFindOne
+      .mockResolvedValueOnce(null as never)
+      .mockResolvedValueOnce({
+        id: 'ch-1',
+        isActive: true,
+        providerKey: 'discord',
+        channelType: 'discord',
+        userId: options.channelUserId,
+      } as never)
+      .mockResolvedValueOnce(options.conversation as never)
+      .mockResolvedValueOnce(options.mapping as never)
+      .mockResolvedValue(null as never)
+  }
+
+  function composeInputOf(commandBus: { execute: jest.Mock }): Record<string, any> {
+    const composeCall = commandBus.execute.mock.calls.find(
+      (call: unknown[]) => call[0] === 'messages.messages.compose',
+    )
+    expect(composeCall).toBeDefined()
+    return (composeCall as any[])[1].input as Record<string, any>
+  }
+
+  function createdWith(created: Array<{ data: Record<string, any> }>, key: string): Record<string, any> | undefined {
+    return created.map((entry) => entry.data).find((row) => key in row)
+  }
+
+  it('addresses the first message of a thread to the channel owner and assigns the new thread to them', async () => {
+    primeLookups({ channelUserId: ownerId, conversation: null, mapping: null })
+    const { ctx, commandBus, created } = makeCtx()
+
+    await ingestInboundMessageCommand.execute(discordInput() as never, ctx)
+
+    const composeInput = composeInputOf(commandBus)
+    expect(composeInput.recipients).toEqual([{ userId: ownerId, type: 'to' }])
+    expect(composeInput.inboundFromChannel).toBe(true)
+    expect(createdWith(created, 'lastMessageAt')?.assignedUserId).toBe(ownerId)
+    expect(createdWith(created, 'externalThreadRef')?.assignedUserId).toBe(ownerId)
+    const parsed = composeMessageSchema.safeParse(composeInput)
+    expect(parsed.success).toBe(true)
+  })
+
+  it('routes a later message on an unassigned legacy thread to the channel owner', async () => {
+    primeLookups({
+      channelUserId: ownerId,
+      conversation: { id: conversationId, lastMessageAt: new Date('2026-06-01T00:00:00Z') },
+      mapping: { id: 'map-1', assignedUserId: null, messageThreadId: '550e8400-e29b-41d4-a716-446655440071' },
+    })
+    const { ctx, commandBus, created } = makeCtx()
+
+    await ingestInboundMessageCommand.execute(discordInput() as never, ctx)
+
+    expect(composeInputOf(commandBus).recipients).toEqual([{ userId: ownerId, type: 'to' }])
+    expect(createdWith(created, 'externalThreadRef')).toBeUndefined()
+  })
+
+  it('keeps a manual assignment authoritative over the channel owner', async () => {
+    primeLookups({
+      channelUserId: ownerId,
+      conversation: { id: conversationId, lastMessageAt: new Date('2026-06-01T00:00:00Z') },
+      mapping: { id: 'map-1', assignedUserId: assigneeId, messageThreadId: '550e8400-e29b-41d4-a716-446655440071' },
+    })
+    const { ctx, commandBus } = makeCtx()
+
+    await ingestInboundMessageCommand.execute(discordInput() as never, ctx)
+
+    expect(composeInputOf(commandBus).recipients).toEqual([{ userId: assigneeId, type: 'to' }])
+  })
+
+  it('leaves a tenant-wide channel unassigned and without recipients', async () => {
+    primeLookups({ channelUserId: null, conversation: null, mapping: null })
+    const { ctx, commandBus, created } = makeCtx()
+
+    await ingestInboundMessageCommand.execute(discordInput() as never, ctx)
+
+    expect(composeInputOf(commandBus).recipients).toEqual([])
+    expect(createdWith(created, 'lastMessageAt')?.assignedUserId).toBeNull()
+    expect(createdWith(created, 'externalThreadRef')?.assignedUserId).toBeNull()
   })
 })
 

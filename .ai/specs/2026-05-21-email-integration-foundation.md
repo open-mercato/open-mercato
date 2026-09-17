@@ -1248,6 +1248,11 @@ None.
 
 ## Changelog
 
+### 2026-09-17 — The per-user channel owner is the default assignee at ingest (#6106)
+
+- The rule "per-user channel owner becomes the default `ChannelThreadMapping.assigned_user_id`" was never implemented: ingest created the conversation and the thread mapping without an assignee, and addressed the message only to `mapping.assignedUserId`. The first message of every thread (no mapping yet) and every message on an unassigned thread therefore had no `MessageRecipient`, and the participant-scoped inbox list showed it to nobody, the channel owner included.
+- Fix: `ingest-inbound-message` routes to `mapping.assignedUserId ?? channel.userId` and stamps `channel.userId` as `assignedUserId` on a newly created `ExternalConversation` and `ChannelThreadMapping`. A manual assignment still wins; existing mappings are not rewritten; tenant-wide channels (`user_id` NULL) stay unassigned. The inbox list scope (`applyMessageParticipantScope`) is unchanged, so nobody gains visibility into another user's messages. Relies on the #6093 `inboundFromChannel` waiver above.
+
 ### 2026-09-15 — Assigned conversations no longer drop inbound messages (#6093)
 
 - The design decision "per-user channel owner becomes the default `ChannelThreadMapping.assigned_user_id`" relies on ingest addressing each inbound message to that assignee as a `MessageRecipient` (that row is what puts the message in the assignee's inbox). The messages validator, older than this spec, rejected any recipient on a `visibility: 'public'` message, so the two rules could only both hold while a conversation was unassigned. Once assigned — by `reassign_conversation`, or simply by replying from the panel, since `send-as-user` sets `assignedUserId` on first reply — every later inbound message failed compose with `recipients must be empty when visibility is public`, the poll/import workers classified that as a permanent failure, and the thread silently stopped receiving mail (12 of 321 messages in a 90-day import in the reported case).
