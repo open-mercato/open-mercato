@@ -106,6 +106,9 @@ describe('createConnectedChannelRow', () => {
         persist: jest.fn(),
         flush: jest.fn(async () => undefined),
         fork: jest.fn(),
+        begin: jest.fn(async () => undefined),
+        commit: jest.fn(async () => undefined),
+        rollback: jest.fn(async () => undefined),
       } as any
     }
 
@@ -151,6 +154,10 @@ describe('createConnectedChannelRow', () => {
       ;(findOneWithDecryption as jest.Mock).mockResolvedValueOnce(null)
       ;(findWithDecryption as jest.Mock).mockResolvedValueOnce([]).mockResolvedValueOnce([newest, stuck])
       const em = buildEm()
+      const primaryFlagsAtFlush: Array<{ newest: boolean; stuck: boolean }> = []
+      em.flush.mockImplementation(async () => {
+        primaryFlagsAtFlush.push({ newest: newest.isPrimary, stuck: stuck.isPrimary })
+      })
       const channel = await createConnectedChannelRow({ em, ...DISCORD_BASE })
 
       expect(channel).toBe(newest)
@@ -163,7 +170,11 @@ describe('createConnectedChannelRow', () => {
         lastError: 'superseded_by_reconnect',
         externalIdentifier: null,
       })
-      expect(em.flush).toHaveBeenCalledTimes(1)
+      expect(primaryFlagsAtFlush[0]).toEqual({ newest: false, stuck: false })
+      expect(primaryFlagsAtFlush.some((flags) => flags.newest && !flags.stuck)).toBe(true)
+      expect(primaryFlagsAtFlush.every((flags) => !(flags.newest && flags.stuck))).toBe(true)
+      expect(em.begin).toHaveBeenCalledTimes(1)
+      expect(em.commit).toHaveBeenCalledTimes(1)
     })
 
     it('heals the row already carrying the identifier without looking for legacy rows', async () => {

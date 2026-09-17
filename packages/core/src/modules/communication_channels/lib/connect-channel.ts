@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CommunicationChannel } from '../data/entities'
 import type { ChannelAdapter } from './adapter'
@@ -181,18 +182,32 @@ export async function createConnectedChannelRow(
     )) as CommunicationChannel[]
     const [adopted, ...superseded] = unidentified
     if (adopted) {
-      applyConnectionState(adopted)
       // Per-user credentials are stored once per provider, so every older
       // identifier-less row is a duplicate of the adopted one. Left active, a
       // stuck `requires_reauth` duplicate would keep its reauth banner forever.
-      for (const duplicate of superseded) {
-        if (duplicate.isPrimary) adopted.isPrimary = true
-        duplicate.isActive = false
-        duplicate.isPrimary = false
-        duplicate.status = 'disconnected'
-        duplicate.lastError = 'superseded_by_reconnect'
-      }
-      await em.flush()
+      const inheritsPrimary = superseded.some((duplicate) => duplicate.isPrimary)
+      // Postgres checks the partial `communication_channels_one_primary_per_user_uq`
+      // index per statement and one flush does not order the SET-false before
+      // the SET-true, so the old primary is cleared in its own phase (each phase
+      // flushes) before the adopted row takes the flag, inside one transaction.
+      await withAtomicFlush(
+        em,
+        [
+          () => {
+            for (const duplicate of superseded) {
+              duplicate.isActive = false
+              duplicate.isPrimary = false
+              duplicate.status = 'disconnected'
+              duplicate.lastError = 'superseded_by_reconnect'
+            }
+          },
+          () => {
+            applyConnectionState(adopted)
+            if (inheritsPrimary) adopted.isPrimary = true
+          },
+        ],
+        { transaction: true },
+      )
       return adopted
     }
   }
