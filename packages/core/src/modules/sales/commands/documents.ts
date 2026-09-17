@@ -80,6 +80,7 @@ import {
   ORDER_PAYMENT_LEDGER_WARNING_CODE,
   resolveSuppliedOrderPaymentLedgerFields,
   orderLineCreateSchema,
+  orderLineBulkUpsertSchema,
   orderAdjustmentCreateSchema,
   invoiceCreateSchema,
   invoiceUpdateSchema,
@@ -135,6 +136,7 @@ import {
   mapQuoteLineEntityToSnapshot,
   resolveUpsertDiscountFields,
   resolveUpsertTotalsOrigin,
+  type SalesPersistedLineSnapshot,
 } from "../lib/lineSnapshots";
 import { loadShippedQuantityByLine } from "../lib/shipments/snapshots";
 import { resolveDictionaryEntryValue, resolveCachedDictionaryEntryValue } from "../lib/dictionaries";
@@ -7041,24 +7043,42 @@ async function assertShippedOrderLineChangeAllowed(
   });
 }
 
+/**
+ * Shipment guard for one line, against an already-loaded shipped-quantity map.
+ * A bulk write loads that map once for the whole order instead of once per
+ * line; the per-line command keeps loading it itself via
+ * {@link assertShippedOrderLineEditable}.
+ */
+async function assertShippedOrderLineEditableAgainst(
+  shippedQuantityByLine: Map<string, number>,
+  existingSnapshot: SalesLineSnapshot | null,
+  parsed: OrderLineUpsertInput,
+): Promise<void> {
+  const lineId = existingSnapshot?.id;
+  if (!existingSnapshot || !lineId) return;
+  await assertShippedOrderLineChangeAllowed(
+    existingSnapshot,
+    parsed,
+    shippedQuantityByLine.get(lineId) ?? 0,
+    false,
+  );
+}
+
 async function assertShippedOrderLineEditable(
   em: EntityManager,
   order: SalesOrder,
   existingSnapshot: SalesLineSnapshot | null,
   parsed: z.infer<typeof orderLineUpsertSchema>,
 ): Promise<void> {
-  const lineId = existingSnapshot?.id;
-  if (!existingSnapshot || !lineId) return;
-  const shippedByLine = await loadShippedQuantityByLine(em, order.id, {
+  if (!existingSnapshot?.id) return;
+  const shippedQuantityByLine = await loadShippedQuantityByLine(em, order.id, {
     tenantId: order.tenantId,
     organizationId: order.organizationId,
   });
-  const shippedQuantity = shippedByLine.get(lineId) ?? 0;
-  await assertShippedOrderLineChangeAllowed(
+  await assertShippedOrderLineEditableAgainst(
+    shippedQuantityByLine,
     existingSnapshot,
     parsed,
-    shippedQuantity,
-    false,
   );
 }
 
@@ -7115,6 +7135,207 @@ async function assertOrderAcceptsNewLine(
   });
 }
 
+type OrderLineUpsertInput = Omit<
+  z.infer<typeof orderLineUpsertSchema>,
+  "orderId"
+> & { orderId?: string };
+
+type OrderLineUpsertDependencies = {
+  em: EntityManager;
+  order: SalesOrder;
+  uomResolver: UomResolver;
+  resolveTaxCalculationService: () => TaxCalculationService | null;
+};
+
+/**
+ * Resolve `taxCalculationService` lazily and at most once. A line that already
+ * carries both net and gross never needs it, and a bulk write must not resolve
+ * it once per line.
+ */
+function createTaxCalculationServiceResolver(container: {
+  resolve: (name: string) => unknown;
+}): () => TaxCalculationService | null {
+  let resolved = false;
+  let service: TaxCalculationService | null = null;
+  return () => {
+    if (resolved) return service;
+    resolved = true;
+    try {
+      service = container.resolve(
+        "taxCalculationService",
+      ) as TaxCalculationService;
+    } catch {
+      service = null;
+    }
+    return service;
+  };
+}
+
+/**
+ * Resolve one order-line upsert entry into the line snapshot it should become:
+ * price-mode net/gross fallback, metadata merge, UoM normalization and the
+ * unit-price conversion that follows a unit change, then the merged snapshot.
+ *
+ * Shared by `sales.orders.lines.upsert` and `sales.orders.lines.upsert_many` so
+ * the per-line semantics cannot drift between them. Guards, line numbering,
+ * totals and persistence stay with the callers — this builds a value and
+ * touches nothing.
+ */
+async function buildUpsertedOrderLineSnapshot(
+  dependencies: OrderLineUpsertDependencies,
+  parsed: OrderLineUpsertInput,
+  existingSnapshot: SalesPersistedLineSnapshot | null,
+  fallbackLineNumber: number,
+): Promise<SalesPersistedLineSnapshot> {
+  const { em, order, uomResolver, resolveTaxCalculationService } =
+    dependencies;
+  const priceMode =
+    parsed.priceMode === "gross"
+      ? "gross"
+      : parsed.priceMode === "net"
+        ? "net"
+        : null;
+  let unitPriceNet =
+    parsed.unitPriceNet ?? existingSnapshot?.unitPriceNet ?? null;
+  let unitPriceGross =
+    parsed.unitPriceGross ?? existingSnapshot?.unitPriceGross ?? null;
+  let taxRate = parsed.taxRate ?? existingSnapshot?.taxRate ?? null;
+  if (priceMode && (unitPriceNet === null || unitPriceGross === null)) {
+    const taxService = resolveTaxCalculationService();
+    if (taxService) {
+      const taxResult = await taxService.calculateUnitAmounts({
+        amount:
+          priceMode === "gross"
+            ? (unitPriceGross ?? unitPriceNet ?? 0)
+            : (unitPriceNet ?? unitPriceGross ?? 0),
+        mode: priceMode,
+        organizationId: parsed.organizationId,
+        tenantId: parsed.tenantId,
+        taxRateId: parsed.taxRateId ?? undefined,
+        taxRate: taxRate ?? undefined,
+      });
+      unitPriceNet = unitPriceNet ?? taxResult.netAmount;
+      unitPriceGross = unitPriceGross ?? taxResult.grossAmount;
+      taxRate = taxResult.taxRate ?? taxRate;
+    }
+  }
+
+  const metadata =
+    typeof parsed.metadata === "object" && parsed.metadata
+      ? { ...parsed.metadata }
+      : existingSnapshot?.metadata
+        ? cloneJson(existingSnapshot.metadata)
+        : {};
+  if (parsed.priceId) metadata.priceId = parsed.priceId;
+  if (priceMode) metadata.priceMode = priceMode;
+
+  const statusEntryId =
+    parsed.statusEntryId ?? existingSnapshot?.statusEntryId ?? null;
+  const lineId = parsed.id ?? existingSnapshot?.id ?? randomUUID();
+  const lineUomInput = {
+    productId: parsed.productId ?? existingSnapshot?.productId ?? null,
+    productVariantId:
+      parsed.productVariantId ?? existingSnapshot?.productVariantId ?? null,
+    quantity: parsed.quantity ?? existingSnapshot?.quantity ?? 0,
+    quantityUnit: parsed.quantityUnit ?? existingSnapshot?.quantityUnit ?? null,
+    normalizedQuantity: existingSnapshot?.normalizedQuantity ?? null,
+    normalizedUnit: existingSnapshot?.normalizedUnit ?? null,
+    uomSnapshot: existingSnapshot?.uomSnapshot ?? null,
+  };
+  let normalizedUom = await normalizeLineUom({
+    em,
+    resolver: uomResolver,
+    organizationId: order.organizationId,
+    tenantId: order.tenantId,
+    line: {
+      ...lineUomInput,
+      unitPriceNet: unitPriceNet ?? 0,
+      unitPriceGross: unitPriceGross ?? unitPriceNet ?? 0,
+    },
+  });
+  const convertedPrices = convertLineUnitPricesOnUnitChange({
+    existingSnapshot,
+    nextQuantityUnit: normalizedUom.quantityUnit,
+    nextUomSnapshot: normalizedUom.uomSnapshot,
+    unitPriceNet,
+    unitPriceGross,
+  });
+  if (convertedPrices.didConvert) {
+    unitPriceNet = convertedPrices.unitPriceNet;
+    unitPriceGross = convertedPrices.unitPriceGross;
+    normalizedUom = await normalizeLineUom({
+      em,
+      resolver: uomResolver,
+      organizationId: order.organizationId,
+      tenantId: order.tenantId,
+      line: {
+        ...lineUomInput,
+        unitPriceNet: unitPriceNet ?? 0,
+        unitPriceGross: unitPriceGross ?? unitPriceNet ?? 0,
+      },
+    });
+  }
+  const updatedSnapshot: SalesPersistedLineSnapshot = {
+    id: lineId,
+    lineNumber:
+      parsed.lineNumber ??
+      existingSnapshot?.lineNumber ??
+      fallbackLineNumber,
+    kind: parsed.kind ?? existingSnapshot?.kind ?? "product",
+    productId: parsed.productId ?? existingSnapshot?.productId ?? null,
+    productVariantId:
+      parsed.productVariantId ?? existingSnapshot?.productVariantId ?? null,
+    name: parsed.name ?? existingSnapshot?.name ?? null,
+    description: parsed.description ?? existingSnapshot?.description ?? null,
+    comment: parsed.comment ?? existingSnapshot?.comment ?? null,
+    quantity: normalizedUom.quantity,
+    quantityUnit: normalizedUom.quantityUnit,
+    normalizedQuantity: normalizedUom.normalizedQuantity,
+    normalizedUnit: normalizedUom.normalizedUnit,
+    uomSnapshot: normalizedUom.uomSnapshot
+      ? cloneJson(normalizedUom.uomSnapshot)
+      : null,
+    currencyCode:
+      parsed.currencyCode ??
+      existingSnapshot?.currencyCode ??
+      order.currencyCode,
+    unitPriceNet: unitPriceNet ?? 0,
+    unitPriceGross: unitPriceGross ?? unitPriceNet ?? 0,
+    ...resolveUpsertDiscountFields(
+      parsed.discountAmount,
+      parsed.discountAmountBasis,
+      existingSnapshot,
+    ),
+    discountPercent:
+      parsed.discountPercent ?? existingSnapshot?.discountPercent ?? 0,
+    taxRate: taxRate ?? 0,
+    taxAmount: parsed.taxAmount ?? existingSnapshot?.taxAmount ?? null,
+    totalNetAmount:
+      parsed.totalNetAmount ?? existingSnapshot?.totalNetAmount ?? null,
+    totalGrossAmount:
+      parsed.totalGrossAmount ?? existingSnapshot?.totalGrossAmount ?? null,
+    ...resolveUpsertTotalsOrigin(parsed.totalNetAmount, existingSnapshot),
+    configuration:
+      parsed.configuration ?? existingSnapshot?.configuration ?? null,
+    promotionCode:
+      parsed.promotionCode ?? existingSnapshot?.promotionCode ?? null,
+    metadata,
+    customFieldSetId:
+      parsed.customFieldSetId ?? existingSnapshot?.customFieldSetId ?? null,
+    customFields:
+      parsed.customFields && typeof parsed.customFields === "object"
+        ? cloneJson(parsed.customFields)
+        : (existingSnapshot?.customFields ?? null),
+    statusEntryId,
+    catalogSnapshot:
+      parsed.catalogSnapshot ?? existingSnapshot?.catalogSnapshot ?? null,
+    promotionSnapshot:
+      parsed.promotionSnapshot ?? existingSnapshot?.promotionSnapshot ?? null,
+  };
+
+  return updatedSnapshot;
+}
+
 const orderLineUpsertCommand: CommandHandler<
   { body?: Record<string, unknown>; query?: Record<string, unknown> },
   { orderId: string; lineId: string }
@@ -7161,166 +7382,21 @@ const orderLineUpsertCommand: CommandHandler<
       : null;
     await assertOrderAcceptsNewLine(order, existingSnapshot);
     await assertShippedOrderLineEditable(em, order, existingSnapshot, parsed);
-    const priceMode =
-      parsed.priceMode === "gross"
-        ? "gross"
-        : parsed.priceMode === "net"
-          ? "net"
-          : null;
-    let unitPriceNet =
-      parsed.unitPriceNet ?? existingSnapshot?.unitPriceNet ?? null;
-    let unitPriceGross =
-      parsed.unitPriceGross ?? existingSnapshot?.unitPriceGross ?? null;
-    let taxRate = parsed.taxRate ?? existingSnapshot?.taxRate ?? null;
-    if (priceMode && (unitPriceNet === null || unitPriceGross === null)) {
-      let taxService: TaxCalculationService | null = null;
-      try {
-        taxService = ctx.container.resolve(
-          "taxCalculationService",
-        ) as TaxCalculationService;
-      } catch {
-        taxService = null;
-      }
-      if (taxService) {
-        const taxResult = await taxService.calculateUnitAmounts({
-          amount:
-            priceMode === "gross"
-              ? (unitPriceGross ?? unitPriceNet ?? 0)
-              : (unitPriceNet ?? unitPriceGross ?? 0),
-          mode: priceMode,
-          organizationId: parsed.organizationId,
-          tenantId: parsed.tenantId,
-          taxRateId: parsed.taxRateId ?? undefined,
-          taxRate: taxRate ?? undefined,
-        });
-        unitPriceNet = unitPriceNet ?? taxResult.netAmount;
-        unitPriceGross = unitPriceGross ?? taxResult.grossAmount;
-        taxRate = taxResult.taxRate ?? taxRate;
-      }
-    }
-
-    const metadata =
-      typeof parsed.metadata === "object" && parsed.metadata
-        ? { ...parsed.metadata }
-        : existingSnapshot?.metadata
-          ? cloneJson(existingSnapshot.metadata)
-          : {};
-    if (parsed.priceId) metadata.priceId = parsed.priceId;
-    if (priceMode) metadata.priceMode = priceMode;
-
-    const statusEntryId =
-      parsed.statusEntryId ?? (existingSnapshot as any)?.statusEntryId ?? null;
-    const lineId = parsed.id ?? existingSnapshot?.id ?? randomUUID();
-    const lineUomInput = {
-      productId: parsed.productId ?? existingSnapshot?.productId ?? null,
-      productVariantId:
-        parsed.productVariantId ?? existingSnapshot?.productVariantId ?? null,
-      quantity: parsed.quantity ?? existingSnapshot?.quantity ?? 0,
-      quantityUnit: parsed.quantityUnit ?? existingSnapshot?.quantityUnit ?? null,
-      normalizedQuantity: existingSnapshot?.normalizedQuantity ?? null,
-      normalizedUnit: existingSnapshot?.normalizedUnit ?? null,
-      uomSnapshot: existingSnapshot?.uomSnapshot ?? null,
-    };
     const uomResolver = createUomResolver();
-    let normalizedUom = await normalizeLineUom({
-      em,
-      resolver: uomResolver,
-      organizationId: order.organizationId,
-      tenantId: order.tenantId,
-      line: {
-        ...lineUomInput,
-        unitPriceNet: unitPriceNet ?? 0,
-        unitPriceGross: unitPriceGross ?? unitPriceNet ?? 0,
-      },
-    });
-    const convertedPrices = convertLineUnitPricesOnUnitChange({
-      existingSnapshot,
-      nextQuantityUnit: normalizedUom.quantityUnit,
-      nextUomSnapshot: normalizedUom.uomSnapshot,
-      unitPriceNet,
-      unitPriceGross,
-    });
-    if (convertedPrices.didConvert) {
-      unitPriceNet = convertedPrices.unitPriceNet;
-      unitPriceGross = convertedPrices.unitPriceGross;
-      normalizedUom = await normalizeLineUom({
+    const updatedSnapshot = await buildUpsertedOrderLineSnapshot(
+      {
         em,
-        resolver: uomResolver,
-        organizationId: order.organizationId,
-        tenantId: order.tenantId,
-        line: {
-          ...lineUomInput,
-          unitPriceNet: unitPriceNet ?? 0,
-          unitPriceGross: unitPriceGross ?? unitPriceNet ?? 0,
-        },
-      });
-    }
-    const updatedSnapshot: SalesLineSnapshot & {
-      statusEntryId?: string | null;
-      catalogSnapshot?: Record<string, unknown> | null;
-      promotionSnapshot?: Record<string, unknown> | null;
-    } = {
-      id: lineId,
-      lineNumber:
-        parsed.lineNumber ??
-        existingSnapshot?.lineNumber ??
-        lineSnapshots.length + 1,
-      kind: parsed.kind ?? existingSnapshot?.kind ?? "product",
-      productId: parsed.productId ?? existingSnapshot?.productId ?? null,
-      productVariantId:
-        parsed.productVariantId ?? existingSnapshot?.productVariantId ?? null,
-      name: parsed.name ?? existingSnapshot?.name ?? null,
-      description: parsed.description ?? existingSnapshot?.description ?? null,
-      comment: parsed.comment ?? existingSnapshot?.comment ?? null,
-      quantity: normalizedUom.quantity,
-      quantityUnit: normalizedUom.quantityUnit,
-      normalizedQuantity: normalizedUom.normalizedQuantity,
-      normalizedUnit: normalizedUom.normalizedUnit,
-      uomSnapshot: normalizedUom.uomSnapshot
-        ? cloneJson(normalizedUom.uomSnapshot)
-        : null,
-      currencyCode:
-        parsed.currencyCode ??
-        existingSnapshot?.currencyCode ??
-        order.currencyCode,
-      unitPriceNet: unitPriceNet ?? 0,
-      unitPriceGross: unitPriceGross ?? unitPriceNet ?? 0,
-      ...resolveUpsertDiscountFields(
-        parsed.discountAmount,
-        parsed.discountAmountBasis,
-        existingSnapshot,
-      ),
-      discountPercent:
-        parsed.discountPercent ?? existingSnapshot?.discountPercent ?? 0,
-      taxRate: taxRate ?? 0,
-      taxAmount: parsed.taxAmount ?? existingSnapshot?.taxAmount ?? null,
-      totalNetAmount:
-        parsed.totalNetAmount ?? existingSnapshot?.totalNetAmount ?? null,
-      totalGrossAmount:
-        parsed.totalGrossAmount ?? existingSnapshot?.totalGrossAmount ?? null,
-      ...resolveUpsertTotalsOrigin(parsed.totalNetAmount, existingSnapshot),
-      configuration:
-        parsed.configuration ?? existingSnapshot?.configuration ?? null,
-      promotionCode:
-        parsed.promotionCode ?? existingSnapshot?.promotionCode ?? null,
-      metadata,
-      customFieldSetId:
-        parsed.customFieldSetId ?? existingSnapshot?.customFieldSetId ?? null,
-      customFields:
-        parsed.customFields && typeof parsed.customFields === "object"
-          ? cloneJson(parsed.customFields)
-          : ((existingSnapshot as any)?.customFields ?? null),
-    };
-    (updatedSnapshot as any).statusEntryId = statusEntryId;
-    (updatedSnapshot as any).catalogSnapshot =
-      parsed.catalogSnapshot ??
-      (existingSnapshot as any)?.catalogSnapshot ??
-      null;
-    (updatedSnapshot as any).promotionSnapshot =
-      parsed.promotionSnapshot ??
-      (existingSnapshot as any)?.promotionSnapshot ??
-      null;
-
+        order,
+        uomResolver,
+        resolveTaxCalculationService: createTaxCalculationServiceResolver(
+          ctx.container,
+        ),
+      },
+      parsed,
+      existingSnapshot,
+      lineSnapshots.length + 1,
+    );
+    const lineId = updatedSnapshot.id;
     let nextLines = parsed.id
       ? lineSnapshots.map((line) =>
           line.id === parsed.id ? updatedSnapshot : line,
@@ -7594,6 +7670,284 @@ const orderLineDeleteCommand: CommandHandler<
       actionLabel: translate(
         "sales.audit.orders.lines.delete",
         "Delete order line",
+      ),
+      resourceKind: "sales.order",
+      resourceId: result.orderId,
+      tenantId: after.order.tenantId,
+      organizationId: after.order.organizationId,
+      snapshotBefore: before ?? null,
+      snapshotAfter: after,
+      payload: {
+        undo: { before, after } satisfies OrderUndoPayload,
+      },
+    };
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<OrderUndoPayload>(logEntry);
+    const before = payload?.before;
+    if (!before) return;
+    const em = (ctx.container.resolve("em") as EntityManager).fork();
+    ensureOrderScope(ctx, before.order.organizationId, before.order.tenantId);
+    await restoreOrderGraph(em, before);
+    await em.flush();
+  },
+};
+
+/**
+ * Place `line` in `lines` at the position the caller asked for.
+ *
+ * A supplied `targetPosition` is a 1-based destination, not a sort key: the
+ * line is pulled out of its current slot and spliced back in there, so moving
+ * a line one step in either direction is expressible (sorting a list that
+ * contains ties is not — see the per-line command). Without a target position
+ * an existing line keeps its slot and a new line is appended.
+ */
+function placeOrderLine(
+  lines: SalesPersistedLineSnapshot[],
+  line: SalesPersistedLineSnapshot,
+  targetPosition: number | null,
+): SalesPersistedLineSnapshot[] {
+  const currentIndex = lines.findIndex((entry) => entry.id === line.id);
+  const remaining =
+    currentIndex === -1
+      ? [...lines]
+      : [...lines.slice(0, currentIndex), ...lines.slice(currentIndex + 1)];
+  if (targetPosition == null) {
+    if (currentIndex === -1) {
+      remaining.push(line);
+      return remaining;
+    }
+    remaining.splice(currentIndex, 0, line);
+    return remaining;
+  }
+  const index = Math.min(Math.max(targetPosition - 1, 0), remaining.length);
+  remaining.splice(index, 0, line);
+  return remaining;
+}
+
+/**
+ * Write a whole set of order-line changes in one aggregate load.
+ *
+ * `sales.orders.lines.upsert` is per line: each call reloads the order, all of
+ * its lines and adjustments, recalculates the document and flushes, so writing
+ * N lines costs O(N²) in rows read. This command takes the same per-line
+ * bodies as a list, loads the aggregate once, resolves every line in memory
+ * against one UoM resolver, calculates totals once and flushes once — O(N) —
+ * and produces the end state N sequential single upserts would produce.
+ *
+ * All-or-nothing: a refusal on any line or delete aborts the whole batch.
+ */
+const orderLineBulkUpsertCommand: CommandHandler<
+  { body?: Record<string, unknown>; query?: Record<string, unknown> },
+  { orderId: string; lineIds: string[] }
+> = {
+  id: "sales.orders.lines.upsert_many",
+  async prepare(input, ctx) {
+    const raw = (input?.body as Record<string, unknown> | undefined) ?? {};
+    const orderId = typeof raw.orderId === "string" ? raw.orderId : null;
+    if (!orderId) return {};
+    const em = ctx.container.resolve("em") as EntityManager;
+    const snapshot = await loadOrderSnapshot(em, orderId);
+    if (snapshot)
+      ensureOrderScope(
+        ctx,
+        snapshot.order.organizationId,
+        snapshot.order.tenantId,
+      );
+    return snapshot ? { before: snapshot } : {};
+  },
+  async execute(input, ctx) {
+    const { translate } = await resolveTranslations();
+    const parsed = orderLineBulkUpsertSchema.parse(
+      (input?.body as Record<string, unknown> | undefined) ?? {},
+    );
+    const em = (ctx.container.resolve("em") as EntityManager).fork();
+    const order = await findOneWithDecryption(em, SalesOrder, {
+      id: parsed.orderId,
+      deletedAt: null,
+    });
+    if (!order) throw notFound("Sales order not found");
+    ensureOrderScope(ctx, order.organizationId, order.tenantId);
+    await enforceSalesDocumentOptimisticLock(
+      ctx,
+      order,
+      SALES_RESOURCE_KIND_ORDER,
+    );
+
+    const [existingLines, adjustments] = await Promise.all([
+      em.find(SalesOrderLine, { order }, { orderBy: { lineNumber: "asc" } }),
+      em.find(
+        SalesOrderAdjustment,
+        { order },
+        { orderBy: { position: "asc" } },
+      ),
+    ]);
+    const existingSnapshotsById = new Map(
+      existingLines.map((line) => [line.id, mapOrderLineEntityToSnapshot(line)]),
+    );
+
+    const deleteIds = new Set(parsed.deleteIds);
+    for (const id of deleteIds) {
+      if (existingSnapshotsById.has(id)) continue;
+      throw notFound(
+        translate(
+          "sales.documents.detail.error",
+          "Document not found or inaccessible.",
+        ),
+      );
+    }
+    if (deleteIds.size) {
+      const shippedItems = await em.find(SalesShipmentItem, {
+        orderLine: { $in: [...deleteIds] },
+        shipment: { deletedAt: null },
+      });
+      if (shippedItems.length) {
+        throw new CrudHttpError(409, {
+          error: translate(
+            "sales.documents.items.errorDeleteShipped",
+            "Cannot delete a line that has shipped items.",
+          ),
+        });
+      }
+    }
+
+    const editsExistingLine = parsed.lines.some(
+      (line) => line.id != null && existingSnapshotsById.has(line.id),
+    );
+    const shippedQuantityByLine = editsExistingLine
+      ? await loadShippedQuantityByLine(em, order.id, {
+          tenantId: order.tenantId,
+          organizationId: order.organizationId,
+        })
+      : new Map<string, number>();
+
+    const dependencies: OrderLineUpsertDependencies = {
+      em,
+      order,
+      uomResolver: createUomResolver(),
+      resolveTaxCalculationService: createTaxCalculationServiceResolver(
+        ctx.container,
+      ),
+    };
+    let nextLines = [...existingSnapshotsById.values()].filter(
+      (line) => !deleteIds.has(line.id),
+    );
+    const lineIds: string[] = [];
+    for (const entry of parsed.lines) {
+      const existingSnapshot = entry.id
+        ? (existingSnapshotsById.get(entry.id) ?? null)
+        : null;
+      await assertOrderAcceptsNewLine(order, existingSnapshot);
+      await assertShippedOrderLineEditableAgainst(
+        shippedQuantityByLine,
+        existingSnapshot,
+        entry,
+      );
+      const upserted = await buildUpsertedOrderLineSnapshot(
+        dependencies,
+        {
+          ...entry,
+          organizationId: parsed.organizationId,
+          tenantId: parsed.tenantId,
+        },
+        existingSnapshot,
+        nextLines.length + 1,
+      );
+      nextLines = placeOrderLine(nextLines, upserted, entry.lineNumber ?? null);
+      lineIds.push(upserted.id);
+    }
+
+    if (!nextLines.length) {
+      throw new CrudHttpError(409, {
+        error: translate(
+          "sales.documents.items.errorDeleteLast",
+          "An order must contain at least one line item.",
+        ),
+      });
+    }
+
+    const sourceInputs = nextLines.map((line, index) => ({
+      ...line,
+      statusEntryId: line.statusEntryId ?? null,
+      catalogSnapshot: line.catalogSnapshot ?? null,
+      promotionSnapshot: line.promotionSnapshot ?? null,
+      organizationId: order.organizationId,
+      tenantId: order.tenantId,
+      orderId: order.id,
+      lineNumber: index + 1,
+    }));
+    const calcLines: SalesLineSnapshot[] = sourceInputs.map((line, index) =>
+      createLineSnapshotFromInput(line, line.lineNumber ?? index + 1),
+    );
+    const adjustmentDrafts = adjustments.map(mapOrderAdjustmentToDraft);
+    const salesCalculationService =
+      ctx.container.resolve<SalesCalculationService>("salesCalculationService");
+    const calculationContext = buildCalculationContext({
+      tenantId: order.tenantId,
+      organizationId: order.organizationId,
+      currencyCode: order.currencyCode,
+      shippingSnapshot: order.shippingMethodSnapshot,
+      paymentSnapshot: order.paymentMethodSnapshot,
+      shippingMethodId: order.shippingMethodId ?? null,
+      paymentMethodId: order.paymentMethodId ?? null,
+      shippingMethodCode: order.shippingMethodCode ?? null,
+      paymentMethodCode: order.paymentMethodCode ?? null,
+    });
+    const calculation = await salesCalculationService.calculateDocumentTotals({
+      documentKind: "order",
+      lines: calcLines,
+      adjustments: adjustmentDrafts,
+      context: calculationContext,
+      existingTotals: resolveExistingPaymentTotals(order),
+    });
+    let eventBus: EventBus | null = null;
+    try {
+      eventBus = ctx.container.resolve("eventBus") as EventBus;
+    } catch {
+      eventBus = null;
+    }
+    // Persist the whole batch and the recalculated totals atomically so a
+    // mid-build failure cannot leave a half-updated order committed (#2336).
+    await withAtomicFlush(
+      em,
+      [
+        async () => {
+          await applyOrderLineResults({
+            em,
+            order,
+            calculation,
+            sourceLines: sourceInputs,
+            existingLines,
+          });
+          applyOrderTotals(order, calculation.totals, calculation.lines.length);
+          await emitTotalsCalculated(eventBus, {
+            documentKind: "order",
+            documentId: order.id,
+            organizationId: order.organizationId,
+            tenantId: order.tenantId,
+            customerId: order.customerEntityId ?? null,
+            totals: calculation.totals,
+            lineCount: calculation.lines.length,
+          });
+        },
+      ],
+      { transaction: true, label: "sales.orders.lines.upsert_many" },
+    );
+    return { orderId: order.id, lineIds };
+  },
+  captureAfter: async (_input, result, ctx) => {
+    const em = (ctx.container.resolve("em") as EntityManager).fork();
+    return loadOrderSnapshot(em, result.orderId);
+  },
+  buildLog: async ({ result, snapshots }) => {
+    const before = snapshots.before as OrderGraphSnapshot | undefined;
+    const after = snapshots.after as OrderGraphSnapshot | undefined;
+    if (!after) return null;
+    const { translate } = await resolveTranslations();
+    return {
+      actionLabel: translate(
+        "sales.audit.orders.lines.upsert_many",
+        "Update order lines",
       ),
       resourceKind: "sales.order",
       resourceId: result.orderId,
@@ -10126,6 +10480,7 @@ registerCommand(updateOrderCommand);
 registerCommand(createOrderCommand);
 registerCommand(deleteOrderCommand);
 registerCommand(orderLineUpsertCommand);
+registerCommand(orderLineBulkUpsertCommand);
 registerCommand(orderLineDeleteCommand);
 registerCommand(quoteLineUpsertCommand);
 registerCommand(quoteLineDeleteCommand);
