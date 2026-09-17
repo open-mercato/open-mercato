@@ -198,7 +198,7 @@ describe('GET /api/auth/roles', () => {
   })
 })
 
-// Regression coverage for finding #3 in report-high.md: cross-tenant role
+// Regression coverage for finding #3 in .ai/analysis/2026-05-security-high-findings.md: cross-tenant role
 // create/update/delete via body-supplied tenantId. The route's mapInput
 // callbacks must reject foreign tenantIds before the command bus ever runs.
 describe('roles route — cross-tenant tenant guard wiring (finding #3)', () => {

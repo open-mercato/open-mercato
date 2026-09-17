@@ -1,5 +1,5 @@
 /** @jest-environment node */
-// Regression coverage for finding #2 in report-high.md: cross-tenant
+// Regression coverage for finding #2 in .ai/analysis/2026-05-security-high-findings.md: cross-tenant
 // write/delete of `AttachmentPartition` via the `attachments.manage` feature.
 
 jest.mock('#generated/entities.ids.generated', () => ({

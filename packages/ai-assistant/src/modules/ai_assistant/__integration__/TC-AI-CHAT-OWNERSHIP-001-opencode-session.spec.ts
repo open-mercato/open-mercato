@@ -3,7 +3,7 @@ import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/he
 
 /**
  * TC-AI-CHAT-OWNERSHIP-001: OpenCode session ownership (security fix #1
- * from `report-high.md`, spec
+ * from `.ai/analysis/2026-05-security-high-findings.md`, spec
  * `.ai/specs/2026-05-24-fix-opencode-session-ownership.md`).
  *
  * Exercises the HTTP surface of the OpenCode chat route

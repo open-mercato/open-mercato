@@ -22,3 +22,6 @@ Keep the manuals in sync with the starter (`packages/starter/` — CLI, steps, d
 the `platform/` bootstraps) and the spec
 [`.ai/specs/2026-07-19-unified-starter-package.md`](../../../.ai/specs/2026-07-19-unified-starter-package.md).
 After editing the HTML sources, regenerate both PDFs.
+
+For the enterprise Agent Orchestrator flow, see
+[`run-agent-on-opencode.md`](run-agent-on-opencode.md).

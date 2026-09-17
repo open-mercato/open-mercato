@@ -33,7 +33,7 @@ PostgreSQL, Redis, Meilisearch), and prints the superadmin credentials at the en
 - The shipped example agents use **Anthropic** models — pick **Anthropic (Claude)** at the
   LLM prompt and paste your `sk-ant-...` key.
 - Requirements, troubleshooting, and the full manual live in
-  [`docs/manuals/windows/`](docs/manuals/windows/). On locked-down corporate machines run
+  [the Windows manuals](README.md). On locked-down corporate machines run
   the read-only audit first: `npx @open-mercato/starter doctor` (prints a "hand this to IT"
   sheet for anything that needs admin rights).
 
