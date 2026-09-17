@@ -116,3 +116,50 @@ describe('EditCatalogProductPage — sequential saves keep the optimistic-lock t
     )
   })
 })
+
+describe('EditCatalogProductPage — a successful save keeps the just-edited field visible (#6170)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    latestCrudFormProps = null
+
+    apiCallMock.mockImplementation((url: string) => {
+      if (url.includes('/api/catalog/products?id=')) {
+        return Promise.resolve({
+          ok: true,
+          result: {
+            items: [
+              {
+                id: 'prod-1',
+                title: 'Mock product',
+                updated_at: '2026-01-01T00:00:00.000Z',
+              },
+            ],
+          },
+        })
+      }
+      return Promise.resolve({ ok: true, result: { items: [] } })
+    })
+  })
+
+  it('does not revert the submitted field back to its stale pre-edit value after save', async () => {
+    render(<EditCatalogProductPage params={{ id: 'prod-1' }} />)
+
+    await waitFor(() => expect(latestCrudFormProps?.isLoading).toBe(false))
+    expect((latestCrudFormProps?.initialValues as { title?: string })?.title).toBe('Mock product')
+
+    const onSubmit = latestCrudFormProps?.onSubmit as (values: unknown) => Promise<void>
+
+    await act(async () => {
+      await onSubmit({ ...BASE_INITIAL_VALUES, title: 'Renamed product' })
+    })
+
+    // Before the fix, initialValues only had `updatedAt` refreshed — title stayed
+    // at the stale pre-edit snapshot ('Mock product'), which made CrudForm's
+    // initialValues-resync effect revert the visibly-saved title back to it.
+    await waitFor(() =>
+      expect((latestCrudFormProps?.initialValues as { title?: string })?.title).toBe(
+        'Renamed product',
+      ),
+    )
+  })
+})
