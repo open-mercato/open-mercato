@@ -26,6 +26,16 @@ describe('catalog edit pages — optimistic-lock single header source', () => {
     expect(productPageSource).toContain('initialValues={initialValues ?? undefined}')
   })
 
+  it('product edit page re-syncs initialValues to the just-saved form values after every submit, so a second consecutive save does not send a stale optimistic-lock header and CrudForm does not snap fields back to their pre-save snapshot (#5985)', () => {
+    expect(productPageSource).toContain('const updateResult = await updateCrud("catalog/products", payload)')
+    expect(productPageSource).toContain('setInitialValues((prev) =>')
+    // Must merge the full submitted `formValues`, not just `updatedAt` — CrudForm
+    // reconciles `values` against `initialValues` on every change and re-applies
+    // every field the user isn't still mid-edit on, so refreshing `updatedAt` alone
+    // would leave every other field pinned to its pre-save snapshot.
+    expect(productPageSource).toContain('...formValues,')
+  })
+
   it('variant UPDATE is single-sourced (bare updateCrud; CrudForm auto-derives), while the price sync sends each price its own version', () => {
     // The variant update itself stays bare — CrudForm auto-derives the variant
     // header from initialValues.updatedAt.
