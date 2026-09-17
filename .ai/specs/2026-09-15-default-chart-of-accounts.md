@@ -379,7 +379,17 @@ finansowy:**
 | --- | --- |
 | `800` / Kapitał (fundusz) podstawowy / CREDIT | `800-1` Kapitał (fundusz) podstawowy |
 | `820` / Rozliczenie wyniku finansowego / CREDIT | `820-1` Rozliczenie wyniku finansowego |
+| `840` / Rozliczenia międzyokresowe przychodów / CREDIT | `840-1` Rozliczenia międzyokresowe przychodów |
 | `860` / Wynik finansowy / CREDIT | `860-1` Wynik finansowy |
+
+`840` / Rozliczenia międzyokresowe przychodów (RMP) is a forward
+pointer added for the new Deferred Revenue spec
+(`2026-09-17-deferred-revenue.md`, PR #6193): Zespół 6 already carried
+`640` Rozliczenia międzyokresowe kosztów czynne (prepaid costs, DEBIT)
+but Zespół 8 had no liability-side counterpart for revenue received
+before it is earned. `840` mirrors `640`'s role on the credit side —
+the account `RevenueDeferral` records against until the recognition
+schedule accrues it into `700`/`730`.
 
 Zespół 0's `070`/`071`/`072` split — separate accumulated-depreciation
 accounts for tangible (`070`) and intangible (`071`) fixed assets, and
@@ -397,7 +407,7 @@ accounting team) that Fixed Assets' own correction cites, not from
 Kieso/Hay/Fowler — none of the three covers Polish chart-of-accounts
 numbering at this level of detail (see Literature & Prior Art).
 
-Totals: 38 `LedgerAccountType` rows, 42 `LedgerAccount` rows across the
+Totals: 39 `LedgerAccountType` rows, 43 `LedgerAccount` rows across the
 nine zespoły — deliberately leaving numbering gaps within each zespół
 (e.g. `010`/`020`/`070`, not `010`/`011`/`012`) matching Kieso's own
 Illustration 3.9 convention of numbering with intentional gaps "to
