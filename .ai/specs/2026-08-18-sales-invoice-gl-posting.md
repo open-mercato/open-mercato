@@ -149,6 +149,16 @@ FK-id only, no ORM relation, the same shape
 `journal_entry_line_dimension` already established for referencing
 `ledger.JournalEntryLine` without owning it.
 
+**Update (2026-09-17):** the Deferred Revenue spec
+(`.ai/specs/2026-09-17-deferred-revenue.md`) reads
+`SalesInvoiceLineRevenueAccount` directly rather than adding its own
+"which income account" configuration — the per-line revenue account
+this module already assigns at posting time is exactly the account a
+deferral needs to reclassify against and later recognize back into.
+This module gained a second real consumer of that entity without any
+schema change here; noted so a future change to
+`SalesInvoiceLineRevenueAccount`'s shape checks that dependency too.
+
 **Manual, per-line revenue account assignment in Phase 1 — no
 automatic category-to-account mapping.** Closely mirrors Accounts
 Payable's own explicit Phase 1 decision: "no precedent whatsoever in
