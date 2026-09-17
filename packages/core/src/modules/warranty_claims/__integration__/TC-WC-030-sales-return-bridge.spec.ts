@@ -139,7 +139,7 @@ test.describe('TC-WC-030: sales-return execution bridge', () => {
       const duplicateResponse = await postSalesReturn(request, token, claim.id!, linked.updatedAt)
       const duplicateBody = await readJsonSafe<SalesReturnResponse>(duplicateResponse)
       expect(duplicateResponse.status(), 'second call should be rejected').toBe(400)
-      expect(duplicateBody?.error ?? '').toContain('salesReturnAlreadyLinked')
+      expect(duplicateBody?.error ?? '').toContain('This claim is already linked to a sales return.')
 
       if (createBody?.salesReturnId) {
         await deleteSalesEntityIfExists(request, token, '/api/sales/returns', createBody.salesReturnId)
@@ -182,7 +182,7 @@ test.describe('TC-WC-030: sales-return execution bridge', () => {
       const skippedResponse = await postSalesReturn(request, token, skipped.claim.id!, skippedCurrent.updatedAt)
       const skippedBody = await readJsonSafe<SalesReturnResponse>(skippedResponse)
       expect(skippedResponse.status(), `claim without linkable lines should 400: ${JSON.stringify(skippedBody)}`).toBe(400)
-      expect(skippedBody?.error ?? '').toContain('salesReturnNoEligibleLines')
+      expect(skippedBody?.error ?? '').toContain('No claim lines are eligible for a sales return.')
     } finally {
       await cancelThenDeleteClaimIfPossible(request, token, cappedClaimId)
       await cancelThenDeleteClaimIfPossible(request, token, skippedClaimId)

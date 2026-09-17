@@ -217,7 +217,7 @@ test.describe('TC-WC-033: replacement-order execution bridge', () => {
       const response = await postReplacementOrder(request, token, noReplaceClaim.id!, current.updatedAt)
       const body = await readJsonSafe<ReplacementOrderResponse>(response)
       expect(response.status(), `claim without replace-disposition lines should 400: ${JSON.stringify(body)}`).toBe(400)
-      expect(body?.error ?? '').toContain('replacementNoEligibleLines')
+      expect(body?.error ?? '').toContain('No claim lines are eligible for a replacement order.')
     } finally {
       await cancelThenDeleteClaimIfPossible(request, token, draftClaimId)
       await cancelThenDeleteClaimIfPossible(request, token, noReplaceClaimId)

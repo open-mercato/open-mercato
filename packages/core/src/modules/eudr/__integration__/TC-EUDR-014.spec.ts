@@ -341,7 +341,7 @@ test.describe('TC-EUDR-014: annual due-diligence report', () => {
       const referencedDelete = await apiRequest(request, 'DELETE', `${STATEMENTS_PATH}?id=${encodeURIComponent(upstreamDdsId)}`, { token })
       expect(referencedDelete.status(), 'deleting an available statement referenced downstream must fail').toBe(400)
       const referencedDeleteBody = await readJsonSafe<{ error?: string }>(referencedDelete)
-      expect(referencedDeleteBody?.error ?? '').toContain('referencedDownstream')
+      expect(referencedDeleteBody?.error ?? '').toContain('This statement is referenced by a downstream statement.')
       const downstreamCleanup = await apiRequest(request, 'DELETE', `${STATEMENTS_PATH}?id=${encodeURIComponent(downstreamDdsId)}`, { token })
       expect(downstreamCleanup.status(), 'draft downstream statement should delete cleanly').toBe(200)
       downstreamDdsId = null
