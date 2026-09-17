@@ -267,6 +267,16 @@ exists. `currencies` joins `requires` as a third hard dependency (see
 Module Dependency) — multi-currency exchange-rate handling itself
 stays out of scope (see Out of scope).
 
+**Update (2026-09-17):** the Multi-Currency spec
+(`.ai/specs/2026-09-17-multi-currency.md`) proposes adding
+`SalesInvoice.currencyId`/`exchangeRate` directly, resolved at
+invoice-creation time rather than here at posting time. Once that
+ships, this resolution step becomes redundant with a value already
+on the row — `postSalesInvoiceToLedger` should read the stored
+`currencyId` instead of re-querying `currencies.Currency` by code.
+Not applied yet; flagged here so the two changes land in the right
+order.
+
 **`operationDate` requires a non-null `issueDate` — the command
 validates this rather than guessing a substitute date.** #5663 makes
 `JournalEntry.operationDate` non-nullable, "every entry has a business
