@@ -66,6 +66,7 @@ type SerializableSectionItem = {
   labelKey?: string
   href: string
   icon?: React.ReactNode
+  navBadge?: { label: 'alpha' | 'beta' }
   order?: number
   children?: SerializableSectionItem[]
 }
@@ -204,6 +205,7 @@ async function serializeNavItem(item: AdminNavItem): Promise<ResolvedNavItem> {
     enabled: item.enabled,
     hidden: item.hidden,
     pageContext: item.pageContext,
+    navBadge: item.navBadge,
     iconName: typeof item.icon === 'string' ? item.icon : undefined,
     iconMarkup: await serializeIconMarkup(item.icon),
     order: resolveNavItemWeight(item),
@@ -314,6 +316,7 @@ async function serializeSectionItem(item: {
   labelKey?: string
   href: string
   icon?: React.ReactNode
+  navBadge?: { label: 'alpha' | 'beta' }
   order?: number
   children?: SerializableSectionItem[]
 }): Promise<BackendChromeSectionItem> {
@@ -325,6 +328,7 @@ async function serializeSectionItem(item: {
     order: item.order,
     iconName: typeof item.icon === 'string' ? item.icon : undefined,
     iconMarkup: await serializeIconMarkup(item.icon),
+    navBadge: item.navBadge,
     children: item.children ? await Promise.all(item.children.map((child) => serializeSectionItem(child))) : undefined,
   }
 }

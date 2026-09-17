@@ -19,6 +19,7 @@ export const metadata = {
   pageGroupKey: 'agent_orchestrator.nav.group',
   pagePriority: 20,
   pageOrder: 100,
+  navBadge: { label: 'beta' },
   icon: agentsIcon,
   breadcrumb: [{ label: 'Agents', labelKey: 'agent_orchestrator.nav.agents' }],
 }

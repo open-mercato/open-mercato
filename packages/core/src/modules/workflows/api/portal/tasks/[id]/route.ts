@@ -26,6 +26,7 @@ import {
   decidePortalTaskAccess,
   PORTAL_TASK_REFUSAL,
   PORTAL_TASKS_VIEW_FEATURE,
+  PORTAL_TASKS_COMPLETE_FEATURE,
   resolvePortalTaskPrincipal,
 } from '../../../../lib/portal-task-access'
 import {
@@ -92,7 +93,11 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
       // What the UI needs to decide whether to render the completion form at
       // all. A portal admin reading a member's task gets `false` — they see the
       // work, they never finish it.
-      canComplete: decision.actable,
+      canComplete: decision.actable && await rbac.userHasAllFeatures(
+        auth.sub,
+        [PORTAL_TASKS_COMPLETE_FEATURE],
+        { tenantId: auth.tenantId, organizationId: auth.orgId },
+      ),
     }
 
     return NextResponse.json(body)

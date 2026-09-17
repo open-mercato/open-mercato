@@ -54,6 +54,7 @@ interface StepInput<TStepId extends string> {
   stepId: TStepId
   stepName: string
   stepType: WorkflowStepType
+  milestone?: CodeStepDefinition['milestone']
   description?: string
   config?: Record<string, unknown>
   userTaskConfig?: CodeStepDefinition['userTaskConfig']
@@ -103,6 +104,7 @@ export function defineWorkflow<const TSteps extends readonly StepInput<string>[]
     stepId: step.stepId,
     stepName: step.stepName,
     stepType: step.stepType,
+    ...(step.milestone !== undefined && { milestone: step.milestone }),
     ...(step.description !== undefined && { description: step.description }),
     ...(step.config !== undefined && { config: step.config }),
     ...(step.userTaskConfig !== undefined && { userTaskConfig: step.userTaskConfig }),

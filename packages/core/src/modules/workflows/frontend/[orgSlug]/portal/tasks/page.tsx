@@ -47,16 +47,16 @@ type Props = { params: { orgSlug: string } }
 export default function PortalTasksPage({ params }: Props) {
   const t = useT()
   const [tasks, setTasks] = React.useState<PortalTaskRow[] | null>(null)
-  const [failed, setFailed] = React.useState(false)
+  const [failure, setFailure] = React.useState<'load' | 'noCompany' | 'permission' | null>(null)
 
   // Deliberately depends on NOTHING. `t` is not a dependency because the error
   // copy is translated at render, not stored — a `t` that changes identity
   // between renders would otherwise re-run the effect and refetch in a loop.
   const load = React.useCallback(async () => {
-    setFailed(false)
-    const { ok, result } = await apiCall<PortalTaskListResponse>('/api/workflows/portal/tasks')
+    setFailure(null)
+    const { ok, status, result } = await apiCall<PortalTaskListResponse>('/api/workflows/portal/tasks')
     if (!ok || !result?.ok) {
-      setFailed(true)
+      setFailure(status === 403 ? (result?.error === 'No company association' ? 'noCompany' : 'permission') : 'load')
       setTasks([])
       return
     }
@@ -143,10 +143,14 @@ export default function PortalTasksPage({ params }: Props) {
         <div className="flex items-center justify-center py-20">
           <Spinner />
         </div>
-      ) : failed ? (
+      ) : failure ? (
         <PortalCard>
           <p role="alert" className="text-sm text-status-error-text">
-            {t('workflows.portal.tasks.loadError', 'Could not load your tasks.')}
+            {failure === 'noCompany'
+              ? t('workflows.portal.tasks.noCompany', 'Your account is not linked to a company. Contact your administrator to access tasks.')
+              : failure === 'permission'
+                ? t('workflows.portal.tasks.permissionDenied', 'You do not have permission to perform this action.')
+                : t('workflows.portal.tasks.loadError', 'Could not load your tasks.')}
           </p>
         </PortalCard>
       ) : openTasks.length === 0 && doneTasks.length === 0 ? (

@@ -30,6 +30,7 @@ const sidebarNavItemSchema: z.ZodType<{
   pageContext?: 'main' | 'admin' | 'settings' | 'profile'
   iconName?: string
   iconMarkup?: string
+  navBadge?: { label: 'alpha' | 'beta' }
   order?: number
   children?: any[]
 }> = z.lazy(() =>
@@ -43,6 +44,7 @@ const sidebarNavItemSchema: z.ZodType<{
     pageContext: z.enum(['main', 'admin', 'settings', 'profile']).optional(),
     iconName: z.string().optional(),
     iconMarkup: z.string().optional(),
+    navBadge: z.object({ label: z.enum(['alpha', 'beta']) }).optional(),
     order: z.number().optional(),
     children: z.array(sidebarNavItemSchema).optional(),
   }),
@@ -56,6 +58,7 @@ const sectionItemSchema: z.ZodType<{
   order?: number
   iconName?: string
   iconMarkup?: string
+  navBadge?: { label: 'alpha' | 'beta' }
   children?: any[]
 }> = z.lazy(() =>
   z.object({
@@ -66,6 +69,7 @@ const sectionItemSchema: z.ZodType<{
     order: z.number().optional(),
     iconName: z.string().optional(),
     iconMarkup: z.string().optional(),
+    navBadge: z.object({ label: z.enum(['alpha', 'beta']) }).optional(),
     children: z.array(sectionItemSchema).optional(),
   }),
 )

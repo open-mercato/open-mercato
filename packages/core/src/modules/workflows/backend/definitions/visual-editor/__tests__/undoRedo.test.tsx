@@ -9,8 +9,15 @@
  * Cmd+Shift+Z redo, redo invalidation), not React Flow.
  */
 import * as React from 'react'
-import { act, fireEvent, screen } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
+import type { NodeTypeConversionDraft } from '../../../../components/NodeEditDialogCrudForm'
+
+const mockConfirm = jest.fn()
+jest.mock('@open-mercato/ui/backend/confirm-dialog', () => ({
+  ...jest.requireActual('@open-mercato/ui/backend/confirm-dialog'),
+  useConfirmDialog: () => ({ confirm: mockConfirm, ConfirmDialogElement: null }),
+}))
 
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ replace: jest.fn(), push: jest.fn(), refresh: jest.fn() }),
@@ -38,7 +45,7 @@ jest.mock('../../../../components/TemplateGalleryDialog', () => ({
 
 // Canvas stub: renders every node label so the test can read the document, and
 // forwards a click as React Flow's node click so the inspector can be opened.
-type StubNode = { id: string; data: { label?: string } }
+type StubNode = { id: string; type?: string; data: { label?: string } }
 jest.mock('../../../../components/WorkflowGraph', () => ({
   WorkflowGraph: ({
     initialNodes,
@@ -50,7 +57,7 @@ jest.mock('../../../../components/WorkflowGraph', () => ({
     <ul data-testid="canvas">
       {(initialNodes ?? []).map((node) => (
         <li key={node.id}>
-          <button type="button" data-testid="canvas-node" onClick={() => onNodeClick?.({}, node)}>
+          <button type="button" data-testid="canvas-node" data-node-type={node.type} onClick={() => onNodeClick?.({}, node)}>
             {String(node.data?.label ?? '')}
           </button>
         </li>
@@ -68,14 +75,16 @@ jest.mock('../../../../components/NodeEditDialogCrudForm', () => ({
     isOpen,
     onSave,
     onClose,
+    onConvertType,
   }: {
     node: { id: string } | null
     isOpen: boolean
     onSave: (nodeId: string, updates: Record<string, unknown>) => void
     onClose: () => void
+    onConvertType: (nodeId: string, targetType: 'automated', draft: NodeTypeConversionDraft) => Promise<boolean | void>
   }) =>
     isOpen && node ? (
-      <button
+      <><button
         type="button"
         data-testid="inspector-save"
         onClick={() => {
@@ -85,6 +94,9 @@ jest.mock('../../../../components/NodeEditDialogCrudForm', () => ({
       >
         save
       </button>
+      <button type="button" data-testid="inspector-convert" onClick={() => {
+        void onConvertType(node.id, 'automated', { updates: { label: 'Converted draft', stepName: 'Converted draft' } })
+      }}>convert</button></>
     ) : null,
 }))
 jest.mock('../../../../components/NodeEditDialog', () => ({ NodeEditDialog: () => null }))
@@ -122,6 +134,7 @@ describe('visual editor undo/redo (spec section 4.5)', () => {
   beforeEach(() => {
     stubMatchMedia()
     window.localStorage.clear()
+    mockConfirm.mockReset()
   })
 
   function addUserTaskStep() {
@@ -138,6 +151,38 @@ describe('visual editor undo/redo (spec section 4.5)', () => {
       fireEvent.click(screen.getByTestId('inspector-save'))
     })
   }
+
+  test('conversion commits submitted edits only after confirmation and undoes them together', async () => {
+    let resolveConfirmation: (confirmed: boolean) => void = () => undefined
+    mockConfirm.mockImplementation(() => new Promise<boolean>((resolve) => { resolveConfirmation = resolve }))
+    renderWithProviders(<VisualEditorPage />)
+    addUserTaskStep()
+    fireEvent.click(screen.getAllByTestId('canvas-node')[0])
+    fireEvent.click(screen.getByTestId('inspector-convert'))
+
+    expect(canvasLabels()).toEqual(['New User Task'])
+    expect(screen.getByTestId('canvas-node')).toHaveAttribute('data-node-type', 'userTask')
+    expect(screen.queryByTestId('inspector-convert')).toBeNull()
+    await act(async () => { resolveConfirmation(true) })
+
+    await waitFor(() => expect(canvasLabels()).toEqual(['Converted draft']))
+    expect(screen.getByTestId('canvas-node')).toHaveAttribute('data-node-type', 'automated')
+    pressUndo()
+    expect(canvasLabels()).toEqual(['New User Task'])
+    expect(screen.getByTestId('canvas-node')).toHaveAttribute('data-node-type', 'userTask')
+  })
+
+  test('cancelled conversion reopens the inspector without changing the saved node', async () => {
+    mockConfirm.mockResolvedValue(false)
+    renderWithProviders(<VisualEditorPage />)
+    addUserTaskStep()
+    fireEvent.click(screen.getAllByTestId('canvas-node')[0])
+    fireEvent.click(screen.getByTestId('inspector-convert'))
+
+    await screen.findByTestId('inspector-convert')
+    expect(canvasLabels()).toEqual(['New User Task'])
+    expect(screen.getByTestId('canvas-node')).toHaveAttribute('data-node-type', 'userTask')
+  })
 
   test('an inspector save is undoable after the dialog closed, and redoable', () => {
     renderWithProviders(<VisualEditorPage />)

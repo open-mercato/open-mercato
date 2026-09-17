@@ -1,5 +1,9 @@
 export type BackendChromePageContext = 'main' | 'admin' | 'settings' | 'profile'
 
+export type BackendChromeNavBadge = {
+  label: 'alpha' | 'beta'
+}
+
 export type BackendChromeNavItem = {
   id?: string
   href: string
@@ -10,6 +14,7 @@ export type BackendChromeNavItem = {
   pageContext?: BackendChromePageContext
   iconName?: string
   iconMarkup?: string
+  navBadge?: BackendChromeNavBadge
   /**
    * The weight this item was sorted by: `pagePriority` when the page declared one, else `pageOrder`,
    * else a large fallback so undeclared pages sort last. Always a number, so re-sorting by it
@@ -39,6 +44,7 @@ export type BackendChromeSectionItem = {
   order?: number
   iconName?: string
   iconMarkup?: string
+  navBadge?: BackendChromeNavBadge
   children?: BackendChromeSectionItem[]
 }
 

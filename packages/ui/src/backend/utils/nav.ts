@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import React from 'react'
-import type { Module, ModuleRoute, PageMetadata } from '@open-mercato/shared/modules/registry'
+import type { Module, ModuleRoute, NavigationBadgeMetadata, PageMetadata } from '@open-mercato/shared/modules/registry'
 import { hasAllFeatures as checkFeatures } from '@open-mercato/shared/security/features'
 
 /** Route with optional page-metadata aliases that may be merged during generation. */
@@ -20,6 +20,7 @@ export type AdminNavItem = {
   order?: number
   priority?: number
   icon?: ReactNode
+  navBadge?: { label: 'alpha' | 'beta' }
   children?: AdminNavItem[]
   pageContext?: 'main' | 'admin' | 'settings' | 'profile'
 }
@@ -28,6 +29,26 @@ export type AdminNavFeatureChecker = (features: string[]) => Promise<Iterable<st
 
 export type BuildAdminNavOptions = {
   checkFeatures?: AdminNavFeatureChecker
+  now?: Date
+}
+
+function resolveActiveNavigationBadge(
+  badge: NavigationBadgeMetadata | undefined,
+  now: Date,
+): AdminNavItem['navBadge'] {
+  if (!badge) return undefined
+  if (badge.label !== 'alpha' && badge.label !== 'beta') return undefined
+  const currentTime = now.getTime()
+  if (Number.isNaN(currentTime)) return undefined
+
+  const startsAt = badge.startsAt === undefined ? undefined : Date.parse(badge.startsAt)
+  const endsAt = badge.endsAt === undefined ? undefined : Date.parse(badge.endsAt)
+  if ((startsAt !== undefined && Number.isNaN(startsAt)) || (endsAt !== undefined && Number.isNaN(endsAt))) {
+    return undefined
+  }
+  if (startsAt !== undefined && currentTime < startsAt) return undefined
+  if (endsAt !== undefined && currentTime >= endsAt) return undefined
+  return { label: badge.label }
 }
 
 /**
@@ -95,6 +116,7 @@ export type SettingsSectionItem = {
   labelKey?: string
   href: string
   icon?: ReactNode
+  navBadge?: { label: 'alpha' | 'beta' }
   requireFeatures?: string[]
   order: number
   children?: SettingsSectionItem[]
@@ -137,6 +159,7 @@ function buildContextSections(
       labelKey: item.titleKey,
       href: item.href,
       icon: item.icon,
+      navBadge: item.navBadge,
       requireFeatures: undefined,
       order: item.order ?? item.priority ?? 100,
       children: item.children?.map(mapSectionItem),
@@ -283,6 +306,7 @@ export function convertToSectionNavGroups(
     labelKey: item.labelKey,
     href: item.href,
     icon: item.icon,
+    navBadge: item.navBadge,
     order: item.order,
     children: item.children?.map(mapSectionItem),
   })
@@ -302,6 +326,7 @@ type ConvertedSectionNavItem = {
   labelKey?: string
   href: string
   icon?: ReactNode
+  navBadge?: { label: 'alpha' | 'beta' }
   requireFeatures?: string[]
   order?: number
   children?: ConvertedSectionNavItem[]
@@ -324,6 +349,7 @@ export async function buildAdminNav(
     return seg ? seg.split('-').map(capitalize).join(' ') : 'Home'
   }
   const entries: AdminNavItem[] = []
+  const navigationNow = options?.now ?? new Date()
 
   // Collect all unique features needed across all routes first
   const allRequiredFeatures = new Set<string>()
@@ -394,6 +420,7 @@ export async function buildAdminNav(
       const priority = r.priority ?? order
       const icon = r.icon
       const pageContext = r.pageContext
+      const navBadge = resolveActiveNavigationBadge(r.navBadge, navigationNow)
       entries.push({
         group: displayGroup,
         groupId,
@@ -408,6 +435,7 @@ export async function buildAdminNav(
         priority,
         icon,
         pageContext,
+        navBadge,
       })
     }
   }

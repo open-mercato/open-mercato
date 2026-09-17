@@ -16,7 +16,7 @@
  * visible notice rather than a blank screen.
  */
 
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { metadata as listMeta } from '../[orgSlug]/portal/tasks/page.meta'
 import { metadata as detailMeta } from '../[orgSlug]/portal/tasks/[id]/page.meta'
@@ -104,6 +104,18 @@ describe('the page guards are declared', () => {
 })
 
 describe('the list page', () => {
+  test.each([
+    ['No company association', 'Your account is not linked to a company. Contact your administrator to access tasks.'],
+    ['Insufficient permissions', 'You do not have permission to perform this action.'],
+  ])('explains a refused list request: %s', async (error, message) => {
+    mockApiCall.mockResolvedValue({ ok: false, status: 403, result: { ok: false, error } })
+
+    render(<PortalTasksPage params={{ orgSlug: 'acme' }} />)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(message)
+    expect(screen.queryByText('Could not load your tasks.')).toBeNull()
+  })
+
   test('renders the customer\'s tasks from the portal API', async () => {
     mockApiCall.mockResolvedValue({
       ok: true,
@@ -235,11 +247,34 @@ describe('the detail page', () => {
     await waitFor(() =>
       expect(
         screen.getByText(
-          'You can see this task because it belongs to your company. Only the person it is assigned to can complete it.',
+          'You do not have permission to complete this task.',
         ),
       ).toBeTruthy(),
     )
     expect(screen.queryByText('Complete task')).toBeNull()
+  })
+
+  test('explains permission loss during completion and hides the form', async () => {
+    mockApiCall.mockResolvedValueOnce(detailResponse()).mockResolvedValueOnce({
+      ok: false,
+      status: 403,
+      result: { ok: false, error: 'Insufficient permissions' },
+    })
+
+    render(<PortalTaskDetailPage params={{ orgSlug: 'acme', id: 'task-1' }} />)
+    fireEvent.click(await screen.findByText('Complete task'))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('You do not have permission to perform this action.')
+    expect(screen.queryByText('Complete task')).toBeNull()
+    expect(screen.queryByText('Could not submit this task.')).toBeNull()
+  })
+
+  test('a detail load failure renders its company explanation instead of a perpetual spinner', async () => {
+    mockApiCall.mockResolvedValue({ ok: false, status: 403, result: { ok: false, error: 'No company association' } })
+
+    render(<PortalTaskDetailPage params={{ orgSlug: 'acme', id: 'task-1' }} />)
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Your account is not linked to a company.')
   })
 
   test('a 404 renders the neutral not-available message, never an error dump', async () => {

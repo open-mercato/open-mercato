@@ -19,5 +19,9 @@ export const WORKFLOW_TASK_TODO_SOURCE = 'workflows:user_task'
  * convention the other todo sources follow.
  */
 export function workflowTaskHref(taskId: string): string {
-  return `/backend/workflows/tasks/${encodeURIComponent(taskId)}`
+  return `/backend/tasks/${encodeURIComponent(taskId)}`
+}
+
+export function isWorkflowTaskSource(source: string): boolean {
+  return source === WORKFLOW_TASK_TODO_SOURCE || source === 'workflows'
 }

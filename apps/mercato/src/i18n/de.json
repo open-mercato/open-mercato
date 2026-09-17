@@ -49,6 +49,8 @@
   "appShell.customizeSidebar": "Seitenleiste anpassen",
   "appShell.goToDashboard": "Zum Dashboard",
   "appShell.moreActions": "Weitere Aktionen",
+  "appShell.navBadge.alpha": "Alpha",
+  "appShell.navBadge.beta": "Beta",
   "appShell.openMenu": "Menü öffnen",
   "appShell.productName": "Open Mercato",
   "appShell.searchNavAria": "Navigation durchsuchen",

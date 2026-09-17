@@ -3,7 +3,7 @@
 import type { DictionarySelectLabels } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
 import type { CustomerDictionaryKind } from '../../lib/dictionaries'
 import { CUSTOMER_INTERACTION_TASK_SOURCE, CUSTOMER_INTERACTION_TASK_TYPE } from '../../lib/interactionCompatibility'
-import { WORKFLOW_TASK_TODO_SOURCE, workflowTaskHref } from '../../lib/workflowTaskLink'
+import { isWorkflowTaskSource, workflowTaskHref } from '../../lib/workflowTaskLink'
 
 
 /**
@@ -48,7 +48,7 @@ export function resolveTodoHref(source: string, todoId: string | null | undefine
   if (module === 'example') {
     return `/backend/todos/${encodeURIComponent(todoId)}/edit`
   }
-  if (source === WORKFLOW_TASK_TODO_SOURCE) return workflowTaskHref(todoId)
+  if (isWorkflowTaskSource(source)) return workflowTaskHref(todoId)
   return `/backend/${module}/todos/${encodeURIComponent(todoId)}/edit`
 }
 

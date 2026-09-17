@@ -1,7 +1,7 @@
 'use client'
 
 import type { Node } from '@xyflow/react'
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Trash2 } from 'lucide-react'
@@ -113,22 +113,18 @@ export function RolesCrudField({ id, value, setValue, disabled }: CrudCustomFiel
  */
 function StepTypeConversionControl({
   nodeType,
+  targetType,
+  onTargetTypeChange,
   onConvert,
 }: {
   nodeType: string | undefined
+  targetType: string
+  onTargetTypeChange: (targetType: string) => void
   onConvert: (targetType: ConvertibleStepType) => void
 }) {
   const t = useT()
   const currentType = isConvertibleStepType(nodeType) ? nodeType : null
   const options = useMemo(() => listStepTypeConversionOptions(nodeType), [nodeType])
-  const [targetType, setTargetType] = useState<string>(currentType ?? '')
-
-  // A conversion replaces the node type under an already-mounted control, so
-  // the selection follows the step rather than stranding the previous choice.
-  useEffect(() => {
-    setTargetType(currentType ?? '')
-  }, [currentType])
-
   if (options.length === 0) return null
 
   const canConvert = targetType.length > 0 && targetType !== currentType
@@ -142,7 +138,9 @@ function StepTypeConversionControl({
         )}
       </p>
       <div className="flex items-center gap-2">
-        <Select value={targetType} onValueChange={setTargetType}>
+        <Select value={targetType} onValueChange={(value) => {
+          if (isConvertibleStepType(value)) onTargetTypeChange(value)
+        }}>
           <SelectTrigger className="w-64" aria-label={t('workflows.steps.stepType')}>
             <SelectValue placeholder={t('workflows.stepConversion.targetPlaceholder', 'Select a step type')} />
           </SelectTrigger>
@@ -194,6 +192,12 @@ function UnmappedConfigDrawer({ value }: { value: Record<string, unknown> }) {
   )
 }
 
+export type NodeTypeConversionDraft = {
+  updates: Partial<Node['data']>
+  branchingRoutes?: SwitchRoutesValue
+  routeOrder?: RouteOrderEntry[]
+}
+
 export interface NodeEditDialogCrudFormProps {
   node: Node | null
   isOpen: boolean
@@ -224,7 +228,7 @@ export interface NodeEditDialogCrudFormProps {
    * rewrites the node, because conversion replaces the node type and its data
    * rather than producing a form value.
    */
-  onConvertType?: (nodeId: string, targetType: ConvertibleStepType) => void
+  onConvertType?: (nodeId: string, targetType: ConvertibleStepType, draft?: NodeTypeConversionDraft) => void | boolean | Promise<void | boolean>
   /**
    * How the inspector is presented. Defaults to `overlay` so a caller that has
    * not opted in keeps the modal shape it had.
@@ -259,6 +263,7 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
   const activityTypeOptions = useActivityTypeOptions()
   const [initialValues, setInitialValues] = useState<Partial<NodeFormValues>>({})
   const [showJsonSchemaWarning, setShowJsonSchemaWarning] = useState(false)
+  const conversionDraftRef = useRef<{ nodeId: string; values: Partial<NodeFormValues> } | null>(null)
 
   const activityTestContext = useMemo<ActivityTestContext | undefined>(() => {
     if (!node || !onPinSample || !onUnpinSample) return undefined
@@ -275,7 +280,12 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
   // Load node data when dialog opens
   useEffect(() => {
     if (node && isOpen) {
-      const values = nodeToFormValues(node)
+      if (conversionDraftRef.current?.nodeId === node.id) {
+        setInitialValues(conversionDraftRef.current.values)
+        conversionDraftRef.current = null
+        return
+      }
+      const values = { ...nodeToFormValues(node), conversionTargetType: node.type ?? '' }
       setInitialValues(
         isBranchingNodeType(node.type)
           ? { ...values, branchingRoutes: branchingRoutes ?? { field: '', routes: [] } }
@@ -285,8 +295,35 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
     }
   }, [node, isOpen, branchingRoutes, routeOrder])
 
+  const handleConvertType = useCallback(async (targetType: ConvertibleStepType, values: Record<string, unknown>) => {
+    if (!node || !onConvertType) return
+    try {
+      const draft: NodeTypeConversionDraft = {
+        updates: formValuesToNodeUpdates(values as unknown as NodeFormValues, node),
+        ...(isBranchingNodeType(node.type)
+          ? { branchingRoutes: values.branchingRoutes as SwitchRoutesValue | undefined }
+          : { routeOrder: values.routeOrder as RouteOrderEntry[] | undefined }),
+      }
+      conversionDraftRef.current = { nodeId: node.id, values: values as Partial<NodeFormValues> }
+      const converted = await onConvertType(node.id, targetType, draft)
+      if (converted !== false) conversionDraftRef.current = null
+    } catch (error) {
+      throw new Error(t(error instanceof Error ? error.message : String(error)))
+    }
+  }, [node, onConvertType, t])
+
   const handleSubmit = useCallback(async (values: Record<string, unknown>) => {
     if (!node) return
+
+    if (
+      onConvertType
+      && typeof values.conversionTargetType === 'string'
+      && isConvertibleStepType(values.conversionTargetType)
+      && values.conversionTargetType !== node.type
+    ) {
+      await handleConvertType(values.conversionTargetType, values)
+      return
+    }
 
     // Validate and sanitize step ID
     const sanitizedId = sanitizeId(node.id)
@@ -309,7 +346,7 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
       const message = error instanceof Error ? error.message : String(error)
       throw new Error(t(message))
     }
-  }, [node, onSave, onSaveBranchingRoutes, onSaveRouteOrder, onClose, t])
+  }, [node, onSave, onSaveBranchingRoutes, onSaveRouteOrder, onConvertType, handleConvertType, onClose, t])
 
   const handleDelete = useCallback(() => {
     if (!node || !onDelete) return
@@ -647,16 +684,22 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
         title: t('workflows.stepConversion.groupTitle', 'Change step type'),
         column: 1,
         bare: false,
-        component: () => (
+        component: ({ values, setValue }) => (
           <StepTypeConversionControl
             nodeType={node.type}
-            onConvert={(targetType) => onConvertType(node.id, targetType)}
+            targetType={typeof values.conversionTargetType === 'string' ? values.conversionTargetType : node.type ?? ''}
+            onTargetTypeChange={(targetType) => setValue('conversionTargetType', targetType)}
+            onConvert={(targetType) => {
+              void handleConvertType(targetType, values).catch((error: unknown) => {
+                flash(error instanceof Error ? error.message : String(error), 'error')
+              })
+            }}
           />
         ),
       })
     }
     return [...typeGroups, ...extras]
-  }, [node, typeGroups, unmappedConfig, onConvertType, t])
+  }, [node, typeGroups, unmappedConfig, onConvertType, handleConvertType, t])
 
   // Define all possible form fields (only relevant ones are used based on groups)
   const fields: CrudField[] = useMemo(() => [

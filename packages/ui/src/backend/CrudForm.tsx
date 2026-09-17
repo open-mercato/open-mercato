@@ -420,7 +420,7 @@ export type CrudFormProps<TValues extends Record<string, unknown>> = {
   replacementHandle?: string
   // Enable collapsible group headers with localStorage persistence.
   // Pass `true` to enable with auto-generated pageType, or `{ pageType }` for explicit key.
-  collapsibleGroups?: boolean | { pageType: string; chevronPosition?: 'left' | 'right' }
+  collapsibleGroups?: boolean | { pageType: string; chevronPosition?: 'left' | 'right'; showFieldCount?: boolean }
   /**
    * Enable drag-and-drop reordering of groups with localStorage persistence.
    * NOTE: Only column-1 groups are sortable. Column-2 (sidebar) groups are fixed
@@ -452,6 +452,7 @@ export type CrudFormGroup = {
   title?: string
   column?: 1 | 2
   description?: string
+  defaultCollapsed?: boolean
   // Either list field ids, inline field configs, or mix of both
   fields?: (CrudField | string)[]
   // Inject a custom component into the group card
@@ -837,6 +838,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   const collapsibleGroupsEnabled = Boolean(collapsibleGroups)
   const collapsiblePageType = typeof collapsibleGroups === 'object' ? collapsibleGroups.pageType : formId
   const collapsibleChevronPosition = typeof collapsibleGroups === 'object' ? collapsibleGroups.chevronPosition : undefined
+  const showGroupFieldCounts = typeof collapsibleGroups !== 'object' || collapsibleGroups.showFieldCount !== false
   const groupCollapseRefs = React.useRef(new Map<string, CollapsibleGroupHandle>())
 
   // Sortable groups support
@@ -3555,6 +3557,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                   groupId={g.id}
                   title={t(g.title, g.title)}
                   pageType={collapsiblePageType}
+                  defaultExpanded={!g.defaultCollapsed}
                   chevronPosition={collapsibleChevronPosition}
                 >
                   {loadingContent}
@@ -3602,8 +3605,9 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                 groupId={g.id}
                 title={t(g.title, g.title)}
                 pageType={collapsiblePageType}
+                defaultExpanded={!g.defaultCollapsed}
                 errorCount={customFieldErrors}
-                fieldCount={customFieldCount}
+                fieldCount={showGroupFieldCounts ? customFieldCount : undefined}
                 chevronPosition={collapsibleChevronPosition}
               >
                 <div className={densityStackMd}>
@@ -3656,8 +3660,9 @@ export function CrudForm<TValues extends Record<string, unknown>>({
               groupId={g.id}
               title={t(g.title, g.title)}
               pageType={collapsiblePageType}
+              defaultExpanded={!g.defaultCollapsed}
               errorCount={groupErrorCount}
-              fieldCount={groupFields.length}
+              fieldCount={showGroupFieldCounts ? groupFields.length : undefined}
               chevronPosition={collapsibleChevronPosition}
             >
               <div className={densityStackMd}>

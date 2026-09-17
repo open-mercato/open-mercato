@@ -49,6 +49,8 @@
   "appShell.customizeSidebar": "사이드바 사용자 지정",
   "appShell.goToDashboard": "대시보드로 이동",
   "appShell.moreActions": "추가 작업",
+  "appShell.navBadge.alpha": "알파",
+  "appShell.navBadge.beta": "베타",
   "appShell.openMenu": "메뉴 열기",
   "appShell.productName": "Open Mercato",
   "appShell.searchNavAria": "탐색 검색",

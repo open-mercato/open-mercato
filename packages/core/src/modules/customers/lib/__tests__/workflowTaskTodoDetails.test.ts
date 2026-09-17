@@ -27,6 +27,30 @@ function workflowTaskLink(): CustomerTodoLink {
 }
 
 describe('resolveLegacyTodoDetails for workflow user tasks', () => {
+  it('resolves existing module-only links through the scoped task entity without changing stored rows', async () => {
+    const query = jest.fn().mockResolvedValue({
+      items: [{ id: TASK_ID, task_name: 'Existing task title' }],
+      total: 1,
+    })
+    const link = workflowTaskLink()
+    link.todoSource = 'workflows'
+
+    const details = await resolveLegacyTodoDetails(
+      { query } as never,
+      [link],
+      TENANT_ID,
+      [ORGANIZATION_ID],
+    )
+
+    expect(query).toHaveBeenCalledWith('workflows:user_task', expect.objectContaining({
+      tenantId: TENANT_ID,
+      organizationIds: [ORGANIZATION_ID],
+      filters: { id: { $in: [TASK_ID] } },
+    }))
+    expect(details.get(`workflows:${TASK_ID}`)?.title).toBe('Existing task title')
+    expect(link.todoSource).toBe('workflows')
+  })
+
   it('queries the user_task entity and reads the title from task_name', async () => {
     const queried: Array<{ entity: string; filters: unknown }> = []
     const queryEngine = {

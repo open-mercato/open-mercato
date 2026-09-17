@@ -55,13 +55,15 @@ export default function PortalTaskDetailPage({ params }: Props) {
   const [values, setValues] = React.useState<Record<string, PortalTaskFormValue>>({})
   const [comments, setComments] = React.useState('')
   const [submitting, setSubmitting] = React.useState(false)
-  const [failure, setFailure] = React.useState<'load' | 'submit' | null>(null)
+  const [failure, setFailure] = React.useState<'load' | 'submit' | 'noCompany' | 'permission' | null>(null)
 
   const listHref = `/${params.orgSlug}/portal/tasks`
 
   // Depends on the id alone. The failure copy is translated at render rather
   // than stored, so a `t` that changes identity cannot re-run this effect.
   const load = React.useCallback(async () => {
+    setFailure(null)
+    setNotFound(false)
     const { ok, status, result } = await apiCall<PortalTaskDetailResponse>(
       `/api/workflows/portal/tasks/${encodeURIComponent(params.id)}`,
     )
@@ -70,7 +72,8 @@ export default function PortalTaskDetailPage({ params }: Props) {
       return
     }
     if (!ok || !result?.ok) {
-      setFailure('load')
+      setDetail(null)
+      setFailure(status === 403 ? (result?.error === 'No company association' ? 'noCompany' : 'permission') : 'load')
       return
     }
     setDetail(result)
@@ -99,7 +102,7 @@ export default function PortalTaskDetailPage({ params }: Props) {
       if (!task) return
       setSubmitting(true)
       setFailure(null)
-      const { ok, result } = await apiCall<{ ok: boolean; error?: string }>(
+      const { ok, status, result } = await apiCall<{ ok: boolean; error?: string }>(
         `/api/workflows/portal/tasks/${encodeURIComponent(task.id)}/complete`,
         {
           method: 'POST',
@@ -113,13 +116,22 @@ export default function PortalTaskDetailPage({ params }: Props) {
       )
       setSubmitting(false)
       if (!ok || !result?.ok) {
-        setFailure('submit')
+        setFailure(status === 403 ? (result?.error === 'No company association' ? 'noCompany' : 'permission') : 'submit')
+        if (status === 403) setDetail((current) => current ? { ...current, canComplete: false } : current)
         return
       }
       router.push(listHref)
     },
     [task, values, comments, router, listHref],
   )
+
+  const failureMessage = failure === 'noCompany'
+    ? t('workflows.portal.tasks.noCompany', 'Your account is not linked to a company. Contact your administrator to access tasks.')
+    : failure === 'permission'
+      ? t('workflows.portal.tasks.permissionDenied', 'You do not have permission to perform this action.')
+      : failure === 'submit'
+        ? t('workflows.portal.tasks.submitError', 'Could not submit this task.')
+        : t('workflows.portal.tasks.loadError', 'Could not load your tasks.')
 
   if (notFound) {
     return (
@@ -144,6 +156,13 @@ export default function PortalTaskDetailPage({ params }: Props) {
   }
 
   if (!detail || !task) {
+    if (failure) {
+      return (
+        <PortalCard>
+          <p role="alert" className="text-sm text-status-error-text">{failureMessage}</p>
+        </PortalCard>
+      )
+    }
     return (
       <div className="flex items-center justify-center py-20">
         <Spinner />
@@ -188,8 +207,8 @@ export default function PortalTaskDetailPage({ params }: Props) {
           <p className="text-sm text-muted-foreground">
             {isOpen
               ? t(
-                  'workflows.portal.tasks.detail.readOnly',
-                  'You can see this task because it belongs to your company. Only the person it is assigned to can complete it.',
+                  'workflows.portal.tasks.completePermissionDenied',
+                  'You do not have permission to complete this task.',
                 )
               : t('workflows.portal.tasks.detail.closed', 'This task is already finished.')}
           </p>
@@ -197,9 +216,7 @@ export default function PortalTaskDetailPage({ params }: Props) {
 
         {failure ? (
           <p role="alert" className="mt-4 text-sm text-status-error-text">
-            {failure === 'submit'
-              ? t('workflows.portal.tasks.submitError', 'Could not submit this task.')
-              : t('workflows.portal.tasks.loadError', 'Could not load your tasks.')}
+            {failureMessage}
           </p>
         ) : null}
       </PortalCard>

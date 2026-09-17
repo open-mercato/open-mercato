@@ -250,6 +250,11 @@ type SerializablePageMetadata = {
     order?: number
     icon?: string
   }
+  navBadge?: {
+    label: 'alpha' | 'beta'
+    startsAt?: string
+    endsAt?: string
+  }
   icon?: string
 }
 
@@ -1786,7 +1791,7 @@ function detectExportedHttpMethods(sourceFile: string): HttpMethod[] {
 }
 
 function buildPageRouteProps(metaExpr: string, routePath: string): string {
-  return `pattern: ${toLiteral(routePath || '/')}, requireAuth: (${metaExpr})?.requireAuth, requireRoles: (${metaExpr})?.requireRoles, requireFeatures: (${metaExpr})?.requireFeatures, requireCustomerAuth: (${metaExpr})?.requireCustomerAuth, requireCustomerFeatures: (${metaExpr})?.requireCustomerFeatures, nav: (${metaExpr})?.nav, title: (${metaExpr})?.pageTitle ?? (${metaExpr})?.title, titleKey: (${metaExpr})?.pageTitleKey ?? (${metaExpr})?.titleKey, group: (${metaExpr})?.pageGroup ?? (${metaExpr})?.group, groupKey: (${metaExpr})?.pageGroupKey ?? (${metaExpr})?.groupKey, icon: (${metaExpr})?.icon, order: (${metaExpr})?.pageOrder ?? (${metaExpr})?.order, priority: (${metaExpr})?.pagePriority ?? (${metaExpr})?.priority, navHidden: (${metaExpr})?.navHidden, visible: (${metaExpr})?.visible, enabled: (${metaExpr})?.enabled, breadcrumb: (${metaExpr})?.breadcrumb, pageContext: (${metaExpr})?.pageContext, placement: (${metaExpr})?.placement`
+  return `pattern: ${toLiteral(routePath || '/')}, requireAuth: (${metaExpr})?.requireAuth, requireRoles: (${metaExpr})?.requireRoles, requireFeatures: (${metaExpr})?.requireFeatures, requireCustomerAuth: (${metaExpr})?.requireCustomerAuth, requireCustomerFeatures: (${metaExpr})?.requireCustomerFeatures, nav: (${metaExpr})?.nav, navBadge: (${metaExpr})?.navBadge, title: (${metaExpr})?.pageTitle ?? (${metaExpr})?.title, titleKey: (${metaExpr})?.pageTitleKey ?? (${metaExpr})?.titleKey, group: (${metaExpr})?.pageGroup ?? (${metaExpr})?.group, groupKey: (${metaExpr})?.pageGroupKey ?? (${metaExpr})?.groupKey, icon: (${metaExpr})?.icon, order: (${metaExpr})?.pageOrder ?? (${metaExpr})?.order, priority: (${metaExpr})?.pagePriority ?? (${metaExpr})?.priority, navHidden: (${metaExpr})?.navHidden, visible: (${metaExpr})?.visible, enabled: (${metaExpr})?.enabled, breadcrumb: (${metaExpr})?.breadcrumb, pageContext: (${metaExpr})?.pageContext, placement: (${metaExpr})?.placement`
 }
 
 function buildPageRouteManifestSpread(metaExpr: string, routePath: string): WriterFunction {
@@ -1866,6 +1871,17 @@ function normalizePortalNav(raw: unknown): SerializablePageMetadata['nav'] {
   }
 }
 
+function normalizeNavigationBadge(raw: unknown): SerializablePageMetadata['navBadge'] {
+  if (!raw || typeof raw !== 'object') return undefined
+  const source = raw as Record<string, unknown>
+  if (source.label !== 'alpha' && source.label !== 'beta') return undefined
+  return {
+    label: source.label,
+    startsAt: typeof source.startsAt === 'string' ? source.startsAt : undefined,
+    endsAt: typeof source.endsAt === 'string' ? source.endsAt : undefined,
+  }
+}
+
 function normalizePageMetadata(raw: unknown): SerializablePageMetadata | null {
   if (!raw || typeof raw !== 'object') return null
   const source = raw as Record<string, unknown>
@@ -1898,6 +1914,8 @@ function normalizePageMetadata(raw: unknown): SerializablePageMetadata | null {
   if (placement) normalized.placement = placement
   const nav = normalizePortalNav(source.nav)
   if (nav) normalized.nav = nav
+  const navBadge = normalizeNavigationBadge(source.navBadge)
+  if (navBadge) normalized.navBadge = navBadge
   if (typeof source.icon === 'string') normalized.icon = source.icon
 
   return Object.keys(normalized).length > 0 ? normalized : null
@@ -3017,6 +3035,7 @@ function buildPageRouteEntries(metaExpr: WriterFunction, routePath: string): Gen
     { name: 'requireCustomerAuth', value: optionalPropertyAccess(meta, 'requireCustomerAuth') },
     { name: 'requireCustomerFeatures', value: optionalPropertyAccess(meta, 'requireCustomerFeatures') },
     { name: 'nav', value: optionalPropertyAccess(meta, 'nav') },
+    { name: 'navBadge', value: optionalPropertyAccess(meta, 'navBadge') },
     {
       name: 'title',
       value: nullishCoalesce([

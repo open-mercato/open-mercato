@@ -99,6 +99,8 @@ const dict = {
   'appShell.expandSidebar': 'Expand',
   'appShell.userFallback': 'User',
   'appShell.goToDashboard': 'Go to dashboard',
+  'appShell.navBadge.alpha': 'Alpha',
+  'appShell.navBadge.beta': 'Beta',
   'appShell.closeMenu': 'Close',
   'common.terms': 'Terms',
   'common.privacy': 'Privacy',
@@ -211,6 +213,26 @@ describe('AppShell', () => {
         },
       }),
     )
+  })
+
+  it('renders an active sidebar release badge beside the page title', () => {
+    const { container } = renderWithProviders(
+      <AppShell
+        email="demo@example.com"
+        groups={[{
+          id: 'core',
+          name: 'Core',
+          items: [{ href: '/backend/early-access', title: 'Early access', navBadge: { label: 'beta' } }],
+        }]}
+      >
+        <div>Child content</div>
+      </AppShell>,
+      { dict },
+    )
+
+    const badge = container.querySelector('[data-slot="tag"]')
+    expect(badge).toHaveTextContent('Beta')
+    expect(badge).toHaveClass('uppercase')
   })
 
   it('provides a skip link targeting the focusable main content landmark', () => {

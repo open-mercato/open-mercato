@@ -2,9 +2,11 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { render, waitFor } from '@testing-library/react'
+import { act, render, waitFor } from '@testing-library/react'
 import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import EditCatalogProductPage from '../page'
+import { updateCrud } from '@open-mercato/ui/backend/utils/crud'
+import type { ProductFormValues } from '@open-mercato/core/modules/catalog/components/products/productForm'
 
 type Deferred<T> = { promise: Promise<T>; resolve: (value: T) => void }
 function createDeferred<T>(): Deferred<T> {
@@ -50,6 +52,13 @@ jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   ),
 }))
 
+jest.mock('@open-mercato/ui/backend/utils/crud', () => ({
+  createCrud: jest.fn(),
+  updateCrud: jest.fn(),
+  deleteCrud: jest.fn(),
+}))
+
+const updateCrudMock = updateCrud as jest.Mock
 const apiCallMock = apiCall as jest.Mock
 const readApiResultOrThrowMock = readApiResultOrThrow as jest.Mock
 
@@ -146,5 +155,80 @@ describe('EditCatalogProductPage — parallel form loaders (#3180)', () => {
     await waitFor(() => expect(latestCrudFormProps?.isLoading).toBe(false))
     // The per-variant media fetch was dispatched in the background (section-local).
     await waitFor(() => expect(variantMediaCalls()).toBe(1))
+  })
+})
+
+
+describe('EditCatalogProductPage — repeated saves (#5985)', () => {
+  let currentVersion: string
+
+  function formValues(): ProductFormValues {
+    return latestCrudFormProps?.initialValues as ProductFormValues
+  }
+
+  async function saveTitle(title: string) {
+    const onSubmit = latestCrudFormProps?.onSubmit as (values: ProductFormValues) => Promise<void>
+    await act(async () => onSubmit({ ...formValues(), title }))
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    latestCrudFormProps = null
+    currentVersion = '2026-09-15T10:00:00.000Z'
+    apiCallMock.mockImplementation((url: string) => Promise.resolve({
+      ok: true,
+      result: {
+        items: url.includes('/api/catalog/products?id=')
+          ? [{ id: 'prod-1', title: 'Saved product', updated_at: currentVersion }]
+          : [],
+      },
+    }))
+    readApiResultOrThrowMock.mockResolvedValue({ items: [] })
+    updateCrudMock.mockResolvedValue({ ok: true, result: { ok: true } })
+  })
+
+  it('refreshes the form version after every successful save and retains saved values', async () => {
+    render(<EditCatalogProductPage params={{ id: 'prod-1' }} />)
+    await waitFor(() => expect(latestCrudFormProps?.isLoading).toBe(false))
+    expect(formValues().updatedAt).toBe(currentVersion)
+
+    const expectedVersions: unknown[] = []
+    updateCrudMock.mockImplementation(async (_path: string, payload: Record<string, unknown>) => {
+      expectedVersions.push(formValues().updatedAt)
+      expect(formValues().updatedAt).toBe(currentVersion)
+      currentVersion = new Date(Date.parse(currentVersion) + 1000).toISOString()
+      apiCallMock.mockImplementation((url: string) => Promise.resolve({
+        ok: true,
+        result: {
+          items: url.includes('/api/catalog/products?id=')
+            ? [{ id: 'prod-1', title: payload.title, updated_at: currentVersion }]
+            : [],
+        },
+      }))
+      return { ok: true, result: { ok: true } }
+    })
+
+    await saveTitle('First rename')
+    expect(formValues().title).toBe('First rename')
+    expect(formValues().updatedAt).toBe('2026-09-15T10:00:01.000Z')
+    await saveTitle('Second rename')
+    expect(formValues().title).toBe('Second rename')
+    expect(formValues().updatedAt).toBe('2026-09-15T10:00:02.000Z')
+    expect(expectedVersions).toEqual(['2026-09-15T10:00:00.000Z', '2026-09-15T10:00:01.000Z'])
+    expect(updateCrudMock).toHaveBeenCalledTimes(2)
+    expect(callsTo('/api/catalog/product-unit-conversions')).toBe(3)
+  })
+
+  it('preserves the loaded version and propagates a rejected update without refreshing past a conflict', async () => {
+    render(<EditCatalogProductPage params={{ id: 'prod-1' }} />)
+    await waitFor(() => expect(latestCrudFormProps?.isLoading).toBe(false))
+    const loadedVersion = formValues().updatedAt
+    currentVersion = '2026-09-15T10:00:01.000Z'
+    const conflict = Object.assign(new Error('Record modified'), { status: 409 })
+    updateCrudMock.mockRejectedValueOnce(conflict)
+
+    await expect(saveTitle('Stale rename')).rejects.toBe(conflict)
+    expect(formValues().updatedAt).toBe(loadedVersion)
+    expect(callsTo('/api/catalog/products?id=')).toBe(1)
   })
 })

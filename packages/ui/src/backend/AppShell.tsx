@@ -19,6 +19,7 @@ import { IconButton } from '../primitives/icon-button'
 import { Input } from '../primitives/input'
 import { SearchInput } from '../primitives/search-input'
 import { Checkbox } from '../primitives/checkbox'
+import { Tag } from '../primitives/tag'
 import { Separator } from '../primitives/separator'
 import { FlashMessages } from './FlashMessages'
 import { QueryProvider } from '../theme/QueryProvider'
@@ -36,6 +37,7 @@ import { slugifySidebarId } from '@open-mercato/shared/modules/navigation/sideba
 import { readVersionedPreference, writeVersionedPreference } from '@open-mercato/shared/lib/browser/versionedPreference'
 import { cloneSidebarGroups } from './sidebar/customization-helpers'
 import type { SectionNavGroup } from './section-page/types'
+import type { BackendChromeNavBadge } from '@open-mercato/shared/modules/navigation/backendChrome'
 import { InjectionSpot } from './injection/InjectionSpot'
 import { useNavBadge } from './nav/navBadges'
 import {
@@ -110,6 +112,7 @@ export type AppShellProps = {
       icon?: React.ReactNode
       iconName?: string
       iconMarkup?: string
+      navBadge?: BackendChromeNavBadge
       enabled?: boolean
       hidden?: boolean
       pageContext?: 'main' | 'admin' | 'settings' | 'profile'
@@ -121,6 +124,7 @@ export type AppShellProps = {
         icon?: React.ReactNode
         iconName?: string
         iconMarkup?: string
+        navBadge?: BackendChromeNavBadge
         enabled?: boolean
         hidden?: boolean
         pageContext?: 'main' | 'admin' | 'settings' | 'profile'
@@ -446,6 +450,20 @@ function NavItemBadge({ href, compact }: { href: string; compact: boolean }) {
   )
 }
 
+function NavReleaseBadge({ badge, label }: { badge?: BackendChromeNavBadge; label: string }) {
+  if (!badge) return null
+  return (
+    <Tag
+      variant={badge.label === 'alpha' ? 'warning' : 'info'}
+      shape="square"
+      aria-label={label}
+      className="ml-auto shrink-0 px-1.5 py-0 text-overline uppercase tracking-wide"
+    >
+      {label}
+    </Tag>
+  )
+}
+
 // An InjectionSpot renders nothing when no widget is registered, so its wrapper must collapse
 // instead of surviving as an empty flex child that still costs a full `gap-3`.
 function sidebarInjectionWrapper(compact: boolean): string {
@@ -648,6 +666,10 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
   const [navQuery, setNavQuery] = React.useState('')
   const navQueryNorm = navQuery.trim().toLowerCase()
   const navQueryActive = navQueryNorm.length > 0
+  const getNavBadgeLabel = (badge?: BackendChromeNavBadge) => {
+    if (!badge) return ''
+    return t(`appShell.navBadge.${badge.label}`, badge.label === 'alpha' ? 'Alpha' : 'Beta')
+  }
   const matchesQuery = React.useCallback((label: string | undefined) => {
     if (!navQueryActive) return true
     if (!label) return false
@@ -964,6 +986,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
 
             const renderSectionItem = (item: (typeof section.items)[number], depth = 0): React.ReactNode => {
               const label = item.labelKey ? t(item.labelKey, item.label) : item.label
+              const navBadgeLabel = getNavBadgeLabel(item.navBadge)
               const childItems = sortSectionItems(filterChildren(item.children))
               const isOnItemBranch = !!pathname && (
                 pathname === item.href ||
@@ -993,7 +1016,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
                         : 'text-muted-foreground hover:bg-muted'
                     }`}
                     style={spacingStyle}
-                    title={compact ? label : undefined}
+                    title={compact ? (navBadgeLabel ? `${label} · ${navBadgeLabel}` : label) : undefined}
                     data-menu-item-id={item.id}
                     onClick={() => setMobileOpen(false)}
                   >
@@ -1008,7 +1031,8 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
                         item.href.includes('/backend/entities/user/') && item.href.endsWith('/records') ? DataTableIcon : DefaultIcon,
                       )}
                     </span>
-                    {!compact && <span className="truncate">{label}</span>}
+                    {!compact && <span className="min-w-0 truncate">{label}</span>}
+                    {!compact && <NavReleaseBadge badge={item.navBadge} label={navBadgeLabel} />}
                     <NavItemBadge href={item.href} compact={compact} />
                   </Link>
                   {showChildren ? childItems.map((child) => renderSectionItem(child, depth + 1)) : null}
@@ -1219,6 +1243,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
                           {(open || compact) && (
                             <div className={`flex flex-col ${compact ? 'items-center' : ''} gap-1`}>
                               {visibleItems.map((i) => {
+                                const navBadgeLabel = getNavBadgeLabel(i.navBadge)
                                 const allChildItems = (i.children ?? []).filter((child) => child.hidden !== true)
                                 const matchingChildItems = navQueryActive
                                   ? allChildItems.filter((c) => matchesQuery(c.title))
@@ -1238,7 +1263,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
                                         isParentActive ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted'
                                       } ${i.enabled === false ? 'pointer-events-none opacity-50' : ''}`}
                                       aria-disabled={i.enabled === false}
-                                      title={compact ? i.title : undefined}
+                                      title={compact ? (navBadgeLabel ? `${i.title} · ${navBadgeLabel}` : i.title) : undefined}
                                       data-menu-item-id={i.id ?? i.href}
                                       onClick={() => setMobileOpen(false)}
                                     >
@@ -1253,7 +1278,8 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
                                           DefaultIcon,
                                         )}
                                       </span>
-                                      {!compact && <span>{i.title}</span>}
+                                      {!compact && <span className="min-w-0 truncate">{i.title}</span>}
+                                      {!compact && <NavReleaseBadge badge={i.navBadge} label={navBadgeLabel} />}
                                     </Link>
                                     {showChildren ? (
                                       <div className={`relative flex flex-col ${compact ? 'items-center' : ''} gap-1`}>
@@ -1261,6 +1287,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
                                           <span aria-hidden className="pointer-events-none absolute left-1.5 top-1 bottom-1 w-px bg-border" />
                                         )}
                                         {childItems.map((c) => {
+                                          const navBadgeLabel = getNavBadgeLabel(c.navBadge)
                                           const childActive = pathname?.startsWith(c.href)
                                           const childBase = compact ? 'w-10 h-8 justify-center' : 'w-full pl-5 pr-3 py-2 gap-2'
                                           return (
@@ -1271,7 +1298,7 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
                                                 childActive ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted'
                                               } ${c.enabled === false ? 'pointer-events-none opacity-50' : ''}`}
                                               aria-disabled={c.enabled === false}
-                                              title={compact ? c.title : undefined}
+                                              title={compact ? (navBadgeLabel ? `${c.title} · ${navBadgeLabel}` : c.title) : undefined}
                                               data-menu-item-id={c.id ?? c.href}
                                               onClick={() => setMobileOpen(false)}
                                             >
@@ -1286,7 +1313,8 @@ function AppShellBody({ productName, logo, email, canManageUpgradeActions = fals
                                                   c.href.includes('/backend/entities/user/') && c.href.endsWith('/records') ? DataTableIcon : DefaultIcon,
                                                 )}
                                               </span>
-                                              {!compact && <span>{c.title}</span>}
+                                              {!compact && <span className="min-w-0 truncate">{c.title}</span>}
+                                              {!compact && <NavReleaseBadge badge={c.navBadge} label={navBadgeLabel} />}
                                             </Link>
                                           )
                                         })}

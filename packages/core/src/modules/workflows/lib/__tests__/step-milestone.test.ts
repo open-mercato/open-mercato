@@ -1,5 +1,8 @@
 /** @jest-environment node */
 import { workflowStepSchema } from '../../data/validators'
+import { workflowsConfig } from '../../workflows'
+import { codeWorkflowUuid } from '../find-definition'
+import { registerCodeWorkflows, clearCodeWorkflowRegistry } from '../code-registry'
 
 const emitWorkflowsEvent = jest.fn(async () => {})
 jest.mock('../../events', () => ({
@@ -29,7 +32,7 @@ const INSTANCE = {
 
 type StepDef = { stepId: string; stepType: string; milestone?: string }
 
-function makeEm(steps: StepDef[]) {
+function makeEm(steps: StepDef[] | null, instance = INSTANCE) {
   const em: Record<string, unknown> = {
     flush: jest.fn(async () => {}),
     // The event logger chains `em.persist(row).flush()`, so persist returns the EM.
@@ -37,8 +40,8 @@ function makeEm(steps: StepDef[]) {
     create: jest.fn((_entity: unknown, data: unknown) => data),
     findOne: jest.fn(async (entity: unknown) => {
       const name = (entity as { name?: string })?.name ?? ''
-      if (name === 'WorkflowInstance') return INSTANCE
-      if (name === 'WorkflowDefinition') return { id: 'definition-1', definition: { steps } }
+      if (name === 'WorkflowInstance') return instance
+      if (name === 'WorkflowDefinition') return steps ? { id: instance.definitionId, definition: { steps } } : null
       return null
     }),
   }
@@ -66,7 +69,10 @@ function milestoneEvents() {
 
 beforeEach(() => {
   emitWorkflowsEvent.mockClear()
+  clearCodeWorkflowRegistry()
 })
+
+afterEach(() => clearCodeWorkflowRegistry())
 
 describe('the step schema', () => {
   it('accepts a milestone annotation on ANY step type, a PARALLEL_JOIN included', () => {
@@ -91,6 +97,39 @@ describe('the step schema', () => {
 })
 
 describe('a completing step announces its milestone', () => {
+  it.each(['database', 'code'])('announces checkout checkpoints from a %s definition when their steps complete', async (source) => {
+    const checkout = workflowsConfig.workflows.find((workflow) => workflow.workflowId === 'workflows.checkout-demo')
+    expect(checkout).toBeDefined()
+    const steps = checkout!.definition.steps
+    expect(steps.filter((step) => step.milestone).map((step) => [step.stepId, step.milestone])).toEqual([
+      ['customer_info', 'customer_details_collected'],
+      ['wait_payment_confirmation', 'payment_confirmed'],
+      ['end', 'checkout_completed'],
+    ])
+    registerCodeWorkflows([checkout!])
+    const instance = {
+      ...INSTANCE,
+      workflowId: checkout!.workflowId,
+      definitionId: source === 'code' ? codeWorkflowUuid(checkout!.workflowId) : INSTANCE.definitionId,
+    }
+    const em = makeEm(source === 'code' ? null : steps, instance)
+    for (const step of steps) {
+      expect(workflowStepSchema.safeParse(step).success).toBe(true)
+      const previousCount = milestoneEvents().length
+      await exitStep(em, stepInstance(step.stepId))
+      expect(milestoneEvents()).toHaveLength(previousCount + (step.milestone ? 1 : 0))
+      if (step.milestone) {
+        expect(milestoneEvents().at(-1)?.[1]).toMatchObject({
+          stepId: step.stepId,
+          milestoneKey: step.milestone,
+          workflowId: checkout!.workflowId,
+          tenantId: INSTANCE.tenantId,
+          organizationId: INSTANCE.organizationId,
+        })
+      }
+    }
+  })
+
   it('announces it after a PARALLEL_JOIN — the case a step alias could never express', async () => {
     const em = makeEm([
       { stepId: 'branch_a', stepType: 'AUTOMATED' },

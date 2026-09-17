@@ -5,7 +5,7 @@ import { useLastRunOverlay } from '../../../components/run/useLastRunOverlay'
 // Conditional imports based on feature flag
 import { NodeEditDialog } from '../../../components/NodeEditDialog'
 import { EdgeEditDialog } from '../../../components/EdgeEditDialog'
-import { NodeEditDialogCrudForm } from '../../../components/NodeEditDialogCrudForm'
+import { NodeEditDialogCrudForm, type NodeTypeConversionDraft } from '../../../components/NodeEditDialogCrudForm'
 import { EdgeEditDialogCrudForm } from '../../../components/EdgeEditDialogCrudForm'
 import type { Node, Edge, Connection } from '@xyflow/react'
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
@@ -1372,16 +1372,16 @@ export default function VisualEditorPage() {
   // cannot execute is quarantined by `convertStepType` and stays visible in the
   // inspector. The dialog closes before the confirm so only one modal is on
   // screen (same reason as the delete flow).
-  const handleConvertNodeType = useCallback(async (nodeId: string, targetType: ConvertibleStepType) => {
-    if (isCodeOnly) return
+  const handleConvertNodeType = useCallback(async (nodeId: string, targetType: ConvertibleStepType, draft?: NodeTypeConversionDraft) => {
+    if (isCodeOnly) return false
     const node = nodesRef.current.find((candidate) => candidate.id === nodeId)
-    if (!node) return
+    if (!node) return false
 
     const before = captureDocument()
-    const result = convertStepType({ type: node.type, data: node.data as Record<string, unknown> }, targetType)
+    const result = convertStepType({ type: node.type, data: { ...node.data, ...draft?.updates } }, targetType)
     if (!result.ok) {
       flash(t('workflows.stepConversion.unavailable', 'This step type cannot be changed.'), 'error')
-      return
+      return false
     }
 
     setShowNodeDialog(false)
@@ -1396,9 +1396,25 @@ export default function VisualEditorPage() {
           )
         : t('workflows.stepConversion.confirm', 'The step keeps its name, position and routes.'),
     })
-    if (!confirmed) return
+    if (!confirmed) {
+      if (draft) {
+        setSelectedNode(node)
+        setShowNodeDialog(true)
+      }
+      return false
+    }
 
     commitCapturedDocument(before, historyLabels.convert)
+    if (draft?.branchingRoutes) {
+      const routes = draft.branchingRoutes
+      setEdges((currentEdges) => node.type === 'switch'
+        ? applySwitchRoutes(currentEdges, nodeId, routes)
+        : applyIfElseRoutes(currentEdges, nodeId, routes.routes))
+    } else if (draft?.routeOrder?.length) {
+      const entries = draft.routeOrder
+      normalizeRoutesOnFirstEdit(nodeId)
+      setEdges((currentEdges) => applyRouteOrder(currentEdges, nodeId, entries))
+    }
     setNodes((nds) =>
       nds.map((candidate) =>
         candidate.id === nodeId
@@ -1413,7 +1429,8 @@ export default function VisualEditorPage() {
         : t('workflows.stepConversion.converted', 'Step type changed'),
       result.quarantined.length > 0 ? 'warning' : 'success',
     )
-  }, [isCodeOnly, confirm, captureDocument, commitCapturedDocument, historyLabels.convert, scheduleAutosave, t])
+    return true
+  }, [isCodeOnly, confirm, captureDocument, commitCapturedDocument, historyLabels.convert, scheduleAutosave, normalizeRoutesOnFirstEdit, t])
 
   // Inline node delete: a node's trash button dispatches WORKFLOW_NODE_DELETE_EVENT
   // (decoupled from the node component); route it through the same confirm +

@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import type { BackendChromeNavBadge } from '@open-mercato/shared/modules/navigation/backendChrome'
 
 export type SectionNavItem = {
   id: string
@@ -8,6 +9,7 @@ export type SectionNavItem = {
   icon?: ReactNode
   iconName?: string
   iconMarkup?: string
+  navBadge?: BackendChromeNavBadge
   requireFeatures?: string[]
   order?: number
   children?: SectionNavItem[]
