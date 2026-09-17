@@ -2252,7 +2252,7 @@ export class HybridQueryEngine implements QueryEngine {
     keys: string[]
   ): Promise<Map<string, string>> {
     if (!entityIds.length || !keys.length) return new Map()
-    const cacheKey = `${this.customFieldKeysCacheKey(entityIds, tenantId)}|${keys.slice().sort().join(',')}`
+    const cacheKey = `${this.customFieldKeysCacheKey(entityIds, tenantId)}|${keys.slice().sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).join(',')}`
     const now = Date.now()
     const cached = this.customFieldKindCache.get(cacheKey)
     if (cached && cached.expiresAt > now) return new Map(cached.value)
