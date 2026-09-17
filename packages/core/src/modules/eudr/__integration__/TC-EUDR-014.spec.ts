@@ -320,7 +320,7 @@ test.describe('TC-EUDR-014: annual due-diligence report', () => {
       const elapsedDelete = await apiRequest(request, 'DELETE', `${STATEMENTS_PATH}?id=${encodeURIComponent(availableElapsedId)}`, { token })
       expect(elapsedDelete.status(), 'deleting an available statement after the amend window must fail').toBe(400)
       const elapsedDeleteBody = await readJsonSafe<{ error?: string }>(elapsedDelete)
-      expect(elapsedDeleteBody?.error ?? '').toContain('amendWindowElapsed')
+      expect(elapsedDeleteBody?.error ?? '').toContain('The amendment window has elapsed.')
       const elapsedStillReadable = await apiRequest(request, 'GET', `${STATEMENTS_PATH}?id=${encodeURIComponent(availableElapsedId)}`, { token })
       const elapsedReadBody = await readJsonSafe<{ items?: Array<{ id?: string }> }>(elapsedStillReadable)
       expect(elapsedReadBody?.items?.[0]?.id, 'blocked delete must leave the statement readable').toBe(availableElapsedId)

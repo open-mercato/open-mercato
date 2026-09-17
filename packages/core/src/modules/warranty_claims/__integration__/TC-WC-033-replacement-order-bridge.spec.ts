@@ -153,7 +153,7 @@ test.describe('TC-WC-033: replacement-order execution bridge', () => {
       const duplicateResponse = await postReplacementOrder(request, token, claim.id!, linked.updatedAt)
       const duplicateBody = await readJsonSafe<ReplacementOrderResponse>(duplicateResponse)
       expect(duplicateResponse.status(), 'second call should be rejected').toBe(400)
-      expect(duplicateBody?.error ?? '').toContain('replacementAlreadyLinked')
+      expect(duplicateBody?.error ?? '').toContain('This claim is already linked to a replacement order.')
     } finally {
       await cancelThenDeleteClaimIfPossible(request, token, claimId)
       if (replacementOrderId) await deleteSalesEntityIfExists(request, token, '/api/sales/orders', replacementOrderId)
@@ -189,7 +189,7 @@ test.describe('TC-WC-033: replacement-order execution bridge', () => {
       const draftResponse = await postReplacementOrder(request, token, draftClaim.id!, draftClaim.updatedAt)
       const draftBody = await readJsonSafe<ReplacementOrderResponse>(draftResponse)
       expect(draftResponse.status(), `draft claim should be rejected: ${JSON.stringify(draftBody)}`).toBe(400)
-      expect(draftBody?.error ?? '').toContain('replacementInvalidStatus')
+      expect(draftBody?.error ?? '').toContain('A replacement order can only be created for approved, awaiting-return, received, inspecting, or resolved claims.')
 
       let noReplaceClaim = await createClaimFixture(request, token, {
         claimType: 'return',
