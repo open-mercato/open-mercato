@@ -47,6 +47,7 @@ merges.
 | Tax Management (Core framework `tax_management` + Poland `financial_pl`) | [`2026-09-16-tax-management.md`](https://github.com/open-mercato/open-mercato/pull/6168) | `docs/tax-management` | Open, PR #6168 — first draft, not yet reviewed; follows the Core-framework-plus-country-plugin split `SPEC-024-2026-02-11-financial-module.md` §10 already mandates |
 | Annual Financial Statements (Core `financial_statements` + Poland `financial_pl` — Bilans/RZiS) | [`2026-09-17-annual-financial-statements.md`](https://github.com/open-mercato/open-mercato/pull/6188) | `docs/annual-financial-statements` | Open, PR #6188 — first draft, not yet reviewed; follows the same `SPEC-024-2026-02-11-financial-module.md` §11 Core-framework-plus-country-plugin split as Tax Management (§10); the actual Załącznik nr 1 line templates are Unverified pending a primary-source read (see Tier 1 below) |
 | Multi-Currency (exchange rate integration + period-end FX revaluation) | [`2026-09-17-multi-currency.md`](https://github.com/open-mercato/open-mercato/pull/6190) | `docs/multi-currency` | Open, PR #6190 — first draft, not yet reviewed; integration spec against the already-implemented `currencies` module, not a new rate engine; UoR Art. 30 ("wycena bilansowa") is Unverified pending a primary-source read (see Tier 1 below) |
+| Deferred Revenue (RMP — scheduled recognition over time for AR/Sales) | [`2026-09-17-deferred-revenue.md`](https://github.com/open-mercato/open-mercato/pull/6193) | `docs/deferred-revenue` | Open, PR #6193 — first draft, not yet reviewed; scope deliberately narrowed to what the Event Storming source material actually supports (AR/Sales only) after an earlier, informal "generic RMK+leasing+loan-installment mechanism" framing was checked against the primary transcript and found to have no basis there (see Changelog); models `RevenueRecognitionScheduleEntry` closely on Fixed Assets' own `DepreciationScheduleEntry`/`accrueDepreciation` shape |
 | Budgeting & Forecasting, Cost Accounting | — | — | Not started (SPEC-024 only) |
 
 **`financial-pl` (JPK_V7/KSeF) lives outside this repo.** It's a real,
@@ -252,6 +253,14 @@ silently leave off later ones (see Changelog, 2026-09-14).
   roughly Art. 25 (Rozdział 2) — Rozdział 4 ("Wycena aktywów i pasywów"),
   where Art. 30 lives, is not present. Same discipline as the Załącznik nr 1
   gap above: flagged, not implemented from recollection.
+- **Ustawa o rachunkowości, Art. 6** (zasada memoriału / accrual
+  principle) — **Unverified.** `2026-09-17-deferred-revenue.md`
+  (Deferred Revenue) would ideally cite this article as the statutory
+  basis for recognizing revenue in the period it is earned rather than
+  when cash is received, but this session's extracted UoR text
+  (`/tmp/uor.txt`) only covers roughly Art. 9 through Art. 25 — Art. 6
+  (Rozdział 1) is outside that range. Same gap pattern as the Art. 30
+  and Załącznik nr 1 entries above; flagged rather than assumed.
 
 **Tier 2 — textbook/terminology (cite these when you need the *named*
 pattern "control account" / "subsidiary ledger" in English, since neither
@@ -339,6 +348,20 @@ Fowler nor Hay use those exact terms):**
   `2026-09-16-tax-management.md`'s `calculate → post → pay` shape and
   its `TaxLiabilityRecord` current-liability framing. A different page
   and claim from AP's existing Ch.13 p.13-4 citation (GR/IR timing).
+  **New 2026-09-17 — Ch.3 "The Accounting Information System,"
+  Illustration 3.21 "Categories of Adjusting Entries" and the
+  "Unearned Revenues" section (p.3-15), read for Deferred Revenue.**
+  Confirmed, directly on point: Illustration 3.21 places "Unearned
+  revenues" alongside "Prepaid expenses" as the two deferral
+  categories (mirror images of each other), and the prose states:
+  "When companies receive cash before services are performed, they
+  record a liability by increasing (crediting) a liability account
+  called unearned revenues... Instead, [the company] delays
+  recognition of revenue until the adjustment process." Directly
+  grounds treating `840` (new, see the Default Chart of Accounts
+  entry in §1) as a liability credited at invoice time and debited
+  down as revenue is earned — the exact mirror of `640`'s RMK
+  (prepaid-expense) role already established for Fixed Assets.
 - Free alternative: Lumen Learning, *Financial Accounting*, chapter
   literally titled "Subsidiary Ledgers and Control Accounts"
   (courses.lumenlearning.com/finaccounting/chapter/subsidiary-ledgers-and-control-accounts)
@@ -497,6 +520,14 @@ compliant*):**
   later. See `2026-09-17-multi-currency.md`'s own Literature & Prior
   Art section for full detail.
 
+- Fowler, *Analysis Patterns*, and Hay, *Data Model Patterns* — checked
+  for "deferred revenue," "unearned revenue," "prepaid," and
+  "amortization schedule" (Deferred Revenue, 2026-09-17): **confirmed
+  absence in both books**, consistent with the established pattern for
+  this pair — neither treats scheduled-recognition-over-time as a
+  data-modeling problem at all. Kieso (Tier 2 above) remains the only
+  literature source for this topic.
+
 **Tier 4 — open-source reference implementations (see it running for
 real):**
 - **ERPNext** (`frappe/erpnext` source — `financial_statements.py` —
@@ -642,6 +673,29 @@ real):**
   coordinating with each other). Recorded here per this project's own
   discipline of noting what was deliberately not done and why, rather than
   leaving a silent gap in the record.
+- **New 2026-09-17, for Deferred Revenue.** **ERPNext** (Deferred
+  Accounting, docs.frappe.io, verified 2026-09-17): a native, built-in
+  feature — schedule computed at the invoice-line level, direction-
+  mirrored for deferred revenue and deferred expense alike, with both
+  an automatic (scheduler-driven) and a manual "Process Deferred
+  Accounting" trigger (Income/Expense type, posting date, service-date
+  range, optional account filter). Confirms the shape (line-level
+  schedule, liability-account staging) but not the Phase 1 scope
+  choice — ERPNext ships the scheduler by default, this project
+  deliberately doesn't yet (see the spec's own Design decisions).
+  **Odoo** (odoo-users.readthedocs.io, verified 2026-09-17): the more
+  load-bearing finding — "Deferred revenues" is an *optional*,
+  separately-installed module ("Assets management & revenue
+  recognition" under Accounting → Configuration), not part of core/
+  default accounting. Once enabled: full invoice amount credited to a
+  Deferred Revenue liability account at validation, then automatic
+  monthly entries debit that liability and credit income (worked
+  example: a $24,000/24-month contract recognizes $1,000/month). This
+  directly answers whether scheduled revenue recognition is
+  foundational to a financial system or safely deferrable: confirmed
+  **not elementary even in a mature ERP** — it's an opt-in add-on
+  there too, consistent with this project's own manual-trigger-only,
+  no-scheduler Phase 1 design.
 
 
 ---
@@ -1484,3 +1538,77 @@ Assets, JELD, GL bulk read service, and now this one). Per Step 5:
   `currencyCode`→`currencyId` resolution step, commit `f7bb59473`), and
   `cash-bank-management.md` (`bookedExchangeRate` default-from-invoice,
   commit `e9dd3da8d`).
+
+### 2026-09-17 (cont. — Deferred Revenue: initial draft, PR #6193)
+
+- **Scope correction applied before drafting, under direct challenge.**
+  An earlier-conversation framing ("the recording explicitly says this
+  should be one generic mechanism, reused for leasing installments and
+  loan/bond capital-plus-interest installments too") had been accepted
+  and built into the proposed scope without re-verifying it against
+  the actual primary source. When asked directly what the recording
+  transcript itself supports, the three actual Event Storming output
+  files were read in full (`eventstormingpodsumowanie.md`,
+  `eventstormingfinal.md`, `eventstormingwall.html`) and searched for
+  "leasing," "kredyt," "obligacj," and "rata kapitałowo-odsetkowa" —
+  **zero hits in any of the three files.** The only primary-source
+  basis for this topic is narrower and AR/Sales-specific: "Rozpoznano
+  przychód w czasie → Zawieszono na koncie bilansowym (RMP) →
+  Wygenerowano harmonogram rozliczeń (1/12 co miesiąc)" and "Harmonogram
+  rozliczania przychodu w czasie (subskrypcje/POC) — własny spec,"
+  explicitly listed under "Nowe względem obecnego zakresu — do
+  rozważenia w kolejnych fazach." The spec was scoped to exactly this:
+  revenue recognized over time for AR/Sales (subscriptions, annual
+  licenses), not a generic RMK+leasing+loan-installment engine. Per
+  `financial-spec-citation-check`'s "re-verify under direct challenge"
+  rule — recorded here so a future spec doesn't reintroduce the
+  leasing/loan framing without first checking for its own primary-source
+  basis.
+- **Percent-of-Completion (POC) explicitly out of scope**, per the
+  source material's own flag: "POC — Percent of Completion (metoda
+  stopnia zaawansowania; dopisek „Przewaga" niejasny, do wyjaśnienia z
+  ekspertem domenowym)" — the wall itself marks this unclear and
+  pending a domain expert, not a design decision this spec should make.
+- **Central architectural precedent**: Fixed Assets' own
+  `DepreciationScheduleEntry`/`accrueDepreciation` (materialize
+  schedule in full, manual/explicit accrual trigger, per-entry
+  transaction, idempotent via `accruedAt IS NULL`, fiscal-period-lock
+  aware, `referenceType`/`referenceId` tagging) is reused almost 1:1 as
+  `RevenueRecognitionScheduleEntry`/`accrueRevenueRecognition` — Fixed
+  Assets' own spec had already named this pattern's future
+  generalization "Revenue Recognition module" and deliberately declined
+  to extract it early with only one real consumer
+  (`2026-09-06-fixed-assets.md`, "Generic RMK/scheduled-recognition
+  extraction... deliberately deferred architectural debt"). This spec
+  follows that same discipline rather than forcing a shared extraction
+  now.
+- **Module naming**: `deferred_revenue`, deliberately not "Revenue
+  Recognition" — SPEC-024 §3.5 already reserves that name for a larger,
+  separate topic (ASC 606-style multi-element contract billing/
+  allocation, ranked Phase 3 in SPEC-024's own priority table).
+- **Reuses `sales_invoice_gl_posting`'s `SalesInvoiceLineRevenueAccount`**
+  (each invoice line's originally-credited revenue account, already
+  persisted per line at posting time) instead of adding new
+  "which income account" configuration — checked directly against
+  `2026-08-18-sales-invoice-gl-posting.md`. Also checked directly
+  against `packages/core/src/modules/sales/data/entities.ts`:
+  `SalesInvoiceLine` has no service-period or deferral fields of its
+  own (only a generic `metadata` jsonb), confirming the new module must
+  own all deferral-specific data itself.
+- **New Default Chart of Accounts gap found and patched**: Zespół 6 has
+  `640` Rozliczenia międzyokresowe kosztów czynne (RMK, DEBIT) but
+  Zespół 8 had no RMP counterpart. `840` Rozliczenia międzyokresowe
+  przychodów (CREDIT) added to `2026-09-15-default-chart-of-accounts.md`
+  as a forward pointer (commit `fa3a456dd`), mirroring `640`'s role on
+  the credit side.
+- **New citations**: one Kieso hit (Tier 2 — Ch.3 Illustration 3.21 +
+  the "Unearned Revenues" section, directly on point), one confirmed
+  absence spanning both Fowler and Hay (Tier 3), one new UoR Art. 6
+  Unverified flag (Tier 1, same gap pattern as the existing Art. 30/
+  Załącznik nr 1 entries), and the ERPNext/Odoo comparison (Tier 4) —
+  see §3 above for all. The Odoo finding is the load-bearing one: even
+  in a mature ERP, scheduled revenue recognition is an optional,
+  separately-installed module, not core accounting — directly answers
+  whether this capability is foundational or safely deferrable
+  (deferrable; Phase 1 here is deliberately manual-trigger-only, no
+  scheduler, matching that precedent).
