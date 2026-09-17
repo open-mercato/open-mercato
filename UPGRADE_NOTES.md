@@ -24,6 +24,34 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.7.0 → 0.7.1 (unreleased)
 
+### `runSyncSchema.batchSize` is optional instead of defaulted (type-only)
+
+`runSyncSchema` in `@open-mercato/core/modules/data_sync/data/validators` used to declare
+`batchSize: z.number().int().min(1).max(1000).default(100)`. It is now `.optional()`, so a
+`DataSyncAdapter` can answer "nobody named a page size" with its own `defaultBatchSize(entityType)`
+— a schema default made that state indistinguishable from an operator typing 100.
+
+**No runtime change.** The same request bodies are accepted, the same `1..1000` bound applies, and an
+omitted `batchSize` still resolves to 100 for every adapter that declares nothing — the fallback just
+moved from the schema into `startDataSyncRun`.
+
+**What may not compile.** `RunSyncInput['batchSize']` is now `number | undefined`, so code that reads
+a parsed value and passes it somewhere requiring `number` needs to handle the absent case:
+
+```ts
+// before
+const batchSize: number = runSyncSchema.parse(body).batchSize
+
+// after — let the start helper resolve it, or supply your own fallback
+const { batchSize } = runSyncSchema.parse(body)          // number | undefined
+await startDataSyncRun({ ..., input: { ..., batchSize } })
+```
+
+If you start runs from a route of your own, **leave `batchSize` undefined** rather than substituting a
+number: a value you pass shadows the adapter's declared default. See
+[`packages/core/src/modules/data_sync/AGENTS.md`](packages/core/src/modules/data_sync/AGENTS.md)
+§ Default batch size.
+
 ### `Locale` is now derived from an augmentable `LocaleRegistry` (no action required)
 
 `Locale` in `@open-mercato/shared/lib/i18n/config` used to be a closed union literal. It is now

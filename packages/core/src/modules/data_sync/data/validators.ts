@@ -5,7 +5,10 @@ export const runSyncSchema = z.object({
   entityType: z.string().min(1),
   direction: z.enum(['import', 'export']),
   fullSync: z.boolean().default(false),
-  batchSize: z.number().int().min(1).max(1000).default(100),
+  // Optional rather than defaulted: the run route cannot otherwise tell "the
+  // operator asked for 100" from "nobody named a page size", and only the second
+  // may be answered by the adapter's declared default.
+  batchSize: z.number().int().min(1).max(1000).optional(),
   triggeredBy: z.string().optional(),
   // Adapter-declared run parameters. Validated/coerced against the adapter's
   // `runParameters` declaration in the run route; here we only accept a record.

@@ -248,7 +248,8 @@ export function IntegrationScheduleTab(props: IntegrationScheduleTabProps) {
         entityType,
         direction,
         fullSync: scheduleState.fullSync,
-        batchSize: 100,
+        // No page size: this row has no field for one, so sending core's default
+        // would only shadow the adapter's declared one.
       }
       if (runParameters.length > 0) requestBody.parameters = buildDefaultRunParameterValues(runParameters)
       const call = await runMutation({

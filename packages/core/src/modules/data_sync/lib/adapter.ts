@@ -311,6 +311,31 @@ export interface DataSyncAdapter {
    * them has a beginning to restart from.
    */
   supportsStartControl?(control: DataSyncStartControl, entityType: string): boolean
+  /**
+   * The page size a run of this entity type gets when whoever started it named
+   * none. Return `undefined` — or declare nothing at all — to keep core's
+   * default of 100.
+   *
+   * Core cannot infer a page size: 100 is a safe number for a source that pages
+   * over HTTP and a starving one for a batch the adapter applies in parallel
+   * lanes, and only the adapter knows which it is. Today that knowledge has
+   * nowhere to go, so an entity type whose natural page is 500 gets 100 from
+   * every start path an operator actually uses — and the operator is left to
+   * know the right number and type it into a form.
+   *
+   * It is a default, not a bound in either direction: an explicit `batchSize`
+   * on the run request always wins, so an operator can page smaller or larger
+   * for one run. What this sets is what they get when they choose nothing.
+   *
+   * The declaration is clamped to the same `1..1000` `runSyncSchema` accepts,
+   * and a value that is not a positive integer is ignored rather than fatal —
+   * an adapter must not be able to make itself unstartable over its page size.
+   *
+   * Per entity type for the same reason {@link DataSyncAdapter.persistsSharedCursor}
+   * is: one adapter commonly serves both an incremental feed, where the page is
+   * a drain window, and a whole-table backfill, where it is a commit boundary.
+   */
+  defaultBatchSize?(entityType: string): number | undefined
   getInitialCursor?(input: { entityType: string; scope: TenantScope }): Promise<string | null>
   getMapping(input: { entityType: string; scope: TenantScope }): Promise<DataMapping>
   validateConnection?(input: {
