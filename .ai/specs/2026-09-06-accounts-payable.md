@@ -537,6 +537,13 @@ not as a confirmed absence.
   data), `invoiceNumber` (the vendor's own invoice number, free text —
   this isn't a document we number ourselves), `invoiceDate`, `dueDate`,
   `currencyId` (FK-id, `uuid`, like `JournalEntry.currencyId` in GL),
+  `exchangeRate` (nullable `numeric(18,8)` — **Update (2026-09-17):**
+  resolved via `currencies.ExchangeRateService.getRate()` at
+  `invoiceDate`, mirroring `fixed_assets.FixedAsset.exchangeRate`;
+  the creating command rejects rather than silently defaulting if no
+  rate is resolvable when `currencyId` differs from the tenant's base
+  currency — see the Multi-Currency spec,
+  `.ai/specs/2026-09-17-multi-currency.md`, Design decision 2),
   `status` (`DRAFT`/`PENDING_APPROVAL`/`APPROVED`/`REJECTED`/`POSTED`/
   `CANCELLED`), `goodsReceiptReference` (nullable `uuid`, FK-id →
   `wms.InventoryMovement.id` where `type = 'receipt'`, no ORM relation
