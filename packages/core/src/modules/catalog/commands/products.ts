@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { z } from "zod";
 import { registerCommand } from "@open-mercato/shared/lib/commands";
 import type {
   CommandHandler,
@@ -1370,11 +1371,20 @@ function applyProductSnapshot(
   record.updatedAt = new Date(snapshot.updatedAt);
 }
 
+/**
+ * Output contract for the product commands, consumed by the workflows context
+ * ledger through `commandRegistry.outputSchemaOf`. All three commands return
+ * the product id and nothing else — create and update from `record.id`, delete
+ * from the resolved input id.
+ */
+const productIdOutputSchema = z.object({ productId: z.string().uuid() });
+
 const createProductCommand: CommandHandler<
   ProductCreateInput,
   { productId: string }
 > = {
   id: "catalog.products.create",
+  outputSchema: productIdOutputSchema,
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(
       productCreateSchema,
@@ -1649,6 +1659,7 @@ const updateProductCommand: CommandHandler<
   { productId: string }
 > = {
   id: "catalog.products.update",
+  outputSchema: productIdOutputSchema,
   async prepare(input, ctx) {
     const id = requireId(input, "Product id is required");
     const em = ctx.container.resolve("em") as EntityManager;
@@ -2180,6 +2191,7 @@ const deleteProductCommand: CommandHandler<
   { productId: string }
 > = {
   id: "catalog.products.delete",
+  outputSchema: productIdOutputSchema,
   async prepare(input, ctx) {
     const id = requireId(input, "Product id is required");
     const em = ctx.container.resolve("em") as EntityManager;
