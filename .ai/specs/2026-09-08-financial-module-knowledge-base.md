@@ -46,7 +46,8 @@ merges.
 | Default Chart of Accounts (Polish plan kont importer) | [`2026-09-15-default-chart-of-accounts.md`](https://github.com/open-mercato/open-mercato/pull/6137) | `docs/default-chart-of-accounts` | Open, PR #6137 — first document in this family to carry the full `financial-spec-writing-process` (own Literature & Prior Art section + real-system comparison) from its very first draft; cross-spec pass against every sibling spec found and fixed a real defect (070/071/072 split vs. Fixed Assets, commit `981dbf470`), see Changelog |
 | Tax Management (Core framework `tax_management` + Poland `financial_pl`) | [`2026-09-16-tax-management.md`](https://github.com/open-mercato/open-mercato/pull/6168) | `docs/tax-management` | Open, PR #6168 — first draft, not yet reviewed; follows the Core-framework-plus-country-plugin split `SPEC-024-2026-02-11-financial-module.md` §10 already mandates |
 | Annual Financial Statements (Core `financial_statements` + Poland `financial_pl` — Bilans/RZiS) | [`2026-09-17-annual-financial-statements.md`](https://github.com/open-mercato/open-mercato/pull/6188) | `docs/annual-financial-statements` | Open, PR #6188 — first draft, not yet reviewed; follows the same `SPEC-024-2026-02-11-financial-module.md` §11 Core-framework-plus-country-plugin split as Tax Management (§10); the actual Załącznik nr 1 line templates are Unverified pending a primary-source read (see Tier 1 below) |
-| Multi-Currency, Budgeting & Forecasting, Cost Accounting | — | — | Not started (SPEC-024 only) |
+| Multi-Currency (exchange rate integration + period-end FX revaluation) | [`2026-09-17-multi-currency.md`](https://github.com/open-mercato/open-mercato/pull/6190) | `docs/multi-currency` | Open, PR #6190 — first draft, not yet reviewed; integration spec against the already-implemented `currencies` module, not a new rate engine; UoR Art. 30 ("wycena bilansowa") is Unverified pending a primary-source read (see Tier 1 below) |
+| Budgeting & Forecasting, Cost Accounting | — | — | Not started (SPEC-024 only) |
 
 **`financial-pl` (JPK_V7/KSeF) lives outside this repo.** It's a real,
 substantial module, but in the separate `official-modules` repository —
@@ -237,6 +238,21 @@ silently leave off later ones (see Changelog, 2026-09-14).
   needs to be sourced and full-text verified first, the same rigor
   already applied to the mikrorachunek algorithm above.
 
+- **Ustawa o rachunkowości, Art. 9** — **Confirmed** (checked directly against
+  the extracted statute text): *"Księgi rachunkowe prowadzi się w języku
+  polskim i w walucie polskiej"* (accounting books are kept in Polish and in
+  Polish currency). Grounds `2026-09-17-multi-currency.md`'s assumption that a
+  Polish-registered tenant's base/functional currency (`currencies.Currency.
+  isBase`) is a legal given, not a UI-configurable preference.
+- **Ustawa o rachunkowości, Art. 30** ("wycena bilansowa" — the actual
+  period-end FX revaluation mandate) — **Unverified.**
+  `2026-09-17-multi-currency.md` (Multi-Currency) needs this article to confirm
+  P&L-recognition of unrealized FX gain/loss on open balances, but this
+  session's extracted UoR text (`/tmp/uor.txt`) runs only Art. 9 through
+  roughly Art. 25 (Rozdział 2) — Rozdział 4 ("Wycena aktywów i pasywów"),
+  where Art. 30 lives, is not present. Same discipline as the Załącznik nr 1
+  gap above: flagged, not implemented from recollection.
+
 **Tier 2 — textbook/terminology (cite these when you need the *named*
 pattern "control account" / "subsidiary ledger" in English, since neither
 Fowler nor Hay use those exact terms):**
@@ -358,6 +374,22 @@ Fowler nor Hay use those exact terms):**
      beginning to ending retained earnings; grounds treating the uchwała
      zarządu as external input data, not a system-computed workflow.
 
+- Kieso, *Intermediate Accounting*, 17th Ed. — foreign currency
+  transactions/translation: **Confirmed absence, stated by the book
+  itself.** Ch.17, footnote 25 (p.17-33): *"Understanding of foreign
+  currency hedging transactions requires knowledge related to
+  consolidation of multinational entities, which is beyond the scope
+  of this text."* One limited, conceptual mention survives: the
+  "Global View" sidebar, Ch.7 (p.7-28), on FX risk in receivables —
+  no transaction/revaluation mechanics. Ch.3, Appendix 3B "Using
+  Reversing Entries" (pp.3-43–3-45) — **Confirmed**, and directly
+  load-bearing: *"A reversing entry is the exact opposite of the
+  adjusting entry made in the previous period."* Grounds
+  `2026-09-17-multi-currency.md`'s reuse of GL core engine's existing
+  `REVERSAL` mechanism for undoing a prior period's FX valuation,
+  instead of a new `JournalEntry.type` value. Full detail in that
+  document's own Literature & Prior Art section.
+
 **Tier 3 — software-analysis-pattern literature (data-modeling vocabulary,
 not accounting authority — useful for *how to model*, not *what's
 compliant*):**
@@ -445,6 +477,25 @@ compliant*):**
   ISBN 9780321112309) — same genre as Fowler/Hay, has an archetype-pattern
   treatment of party/account structures; not yet checked for AP-specific
   content.
+
+- Fowler, *Analysis Patterns* — §3.1 "Quantity" (p.36-38),
+  **Confirmed**: *"Monetary values should also be represented as
+  quantities... using a currency as the unit... monetary quantities
+  can enforce the use of fixed point numbers for the amount
+  attribute"* — grounds `currencies.AGENTS.md`'s own 4-decimal-
+  precision, no-floating-point rule. §3.2 "Conversion Ratio" (p.38-39),
+  **Confirmed, closely on point**: *"For monetary values, whose units
+  are currencies, the conversion ratios are not constant over time. We
+  can deal with this problem by giving the conversion ratios
+  attributes to indicate their time of applicability."* — near-literal
+  description of `currencies.ExchangeRate`'s `date`-stamped design;
+  the single best literature match found so far in this project. Note:
+  Fowler's many other "exchange rate" mentions (ch.9, Trading
+  Patterns) are a **Mismatch** for this topic — that chapter models FX
+  as a *traded instrument*, not a booked invoice rate or open-balance
+  revaluation; flagged so it isn't mistaken for on-topic material
+  later. See `2026-09-17-multi-currency.md`'s own Literature & Prior
+  Art section for full detail.
 
 **Tier 4 — open-source reference implementations (see it running for
 real):**
@@ -580,6 +631,18 @@ real):**
 - **ISO 20022** — payment/remittance messaging standard; relevant only if a
   future Cash & Bank Management module needs bank-statement/payment
   interchange format, not for internal ledger modeling. Low priority.
+- **Multi-Currency (`2026-09-17-multi-currency.md`) — Step 3 consciously
+  narrowed, not silently skipped.** No ERPNext/Odoo comparison pass was done
+  for this spec: the internal precedent is unusually strong (a production-
+  grade `currencies` module already in the codebase, plus four independent
+  sibling specs — GL core engine, GL account balances, Cash & Bank
+  Management, Sales Invoice → GL Posting — that arrived at compatible
+  designs, e.g. the same rate-direction convention and the same
+  required-not-defaulted rule for a differing-currency rate, without
+  coordinating with each other). Recorded here per this project's own
+  discipline of noting what was deliberately not done and why, rather than
+  leaving a silent gap in the record.
+
 
 ---
 
@@ -1374,3 +1437,50 @@ Assets, JELD, GL bulk read service, and now this one). Per Step 5:
   (commits `21e9717db` and `8d4c8c58e`), matching the pattern already
   used for Tax Management → GL core engine.
 
+
+### 2026-09-17 (cont. — Multi-Currency: initial draft, PR #6190)
+
+- **Scope narrowed significantly from the informal "silnik kursowy"
+  framing before drafting began.** Direct reads of the already-
+  implemented `currencies` module (`AGENTS.md`, `data/entities.ts`,
+  `services/README.md` — not a dated spec, real shipped code) found a
+  production-grade, multi-provider (NBP, Raiffeisen), date-based
+  exchange-rate service already consumed in production by
+  `customers/api/deals`. This spec's real job narrowed to: (1) add
+  `exchangeRate`/`currencyId` to `VendorInvoice`/`SalesInvoice`, and
+  (2) period-end FX revaluation of open foreign-currency balances — a
+  genuinely new capability, but a small one, as a new `fx_revaluation`
+  module.
+- **Four independent sibling specs, checked in Step 1, all already
+  deferred to this document without coordinating with each other**: GL
+  core engine (#5663, "a future Multi-Currency spec"), GL account
+  balances (#6013, `currency: null` + "a Multi-Currency-spec
+  concern"), Cash & Bank Management (#6055, manual `bookedExchangeRate`
+  entry required pending this gap), and Sales Invoice → GL Posting
+  ("multi-currency exchange-rate handling... stays out of scope").
+  `sales.SalesOrder.exchangeRate`'s existence (previously known only
+  secondhand via Cash & Bank Management) was verified directly against
+  `packages/core/src/modules/sales/data/entities.ts` this pass.
+- **Step 3 (ERPNext/Odoo comparison) consciously skipped**, by explicit
+  user decision, given how strong the internal precedent already is —
+  see Tier 4 note in §3 above.
+- **New citations**: two Kieso hits (Tier 2 — a confirmed absence
+  stated by the book itself, plus a genuinely load-bearing Appendix 3B
+  "Reversing Entries" citation), two Fowler hits (Tier 3 — the
+  strongest literature match found in this project so far, "Quantity"
+  and "Conversion Ratio"), one Hay confirmed-absence (consistent with
+  the established pattern for this book), and one UoR Art. 9 confirmed
+  citation plus an Art. 30 Unverified flag (Tier 1) — see §3 above for
+  all.
+- **Design choice**: no new `JournalEntry.type` value for the
+  revaluation entry — reuses GL core engine's existing `REVERSAL`
+  mechanism plus `referenceType`/`referenceId` tagging (the same
+  pattern Cash & Bank Management already uses), avoiding a schema
+  change to `ledger` for a case its own reversal design already covers.
+- **Cross-spec forward-pointer patches applied**: `accounts-payable.md`
+  (`VendorInvoice.exchangeRate`, commit `31a08b1aa`),
+  `sales-invoice-gl-posting.md` (`SalesInvoice.currencyId`/
+  `exchangeRate` + a coordination note on the now-partially-redundant
+  `currencyCode`→`currencyId` resolution step, commit `f7bb59473`), and
+  `cash-bank-management.md` (`bookedExchangeRate` default-from-invoice,
+  commit `e9dd3da8d`).
