@@ -830,6 +830,26 @@ export default function EditCatalogProductPage({
     };
   }, []);
 
+  // The browser's default `history.scrollRestoration` ("auto") tries to restore the
+  // previous session's pixel scroll offset on a full reload. This page's form sections
+  // (variants, options, unit-of-measure, ...) mount progressively as data loads, so the
+  // restore fires before the page has grown to its final height, then that same pixel
+  // offset lines up with a different, further-down section once loading finishes —
+  // landing the reload mid-page instead of at the top (#6171). Opt this page out of
+  // native scroll restoration and start every load at the top unless a hash target
+  // (handled by the effect below) asks for a specific section.
+  React.useEffect(() => {
+    if (typeof window === "undefined" || !window.history) return
+    const previousScrollRestoration = window.history.scrollRestoration
+    window.history.scrollRestoration = "manual"
+    if (!window.location.hash) {
+      window.scrollTo(0, 0)
+    }
+    return () => {
+      window.history.scrollRestoration = previousScrollRestoration
+    }
+  }, [])
+
   // Next.js client-side navigation does not scroll to hash targets.
   // Runs without a dependency array intentionally: the target element is rendered
   // asynchronously by CrudForm, so we need to retry until it exists in the DOM.
