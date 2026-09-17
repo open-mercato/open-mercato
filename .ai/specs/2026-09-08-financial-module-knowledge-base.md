@@ -45,6 +45,7 @@ merges.
 | Cash & Bank Management | [`2026-09-10-cash-bank-management.md`](https://github.com/open-mercato/open-mercato/pull/6055) | `docs/cash-bank-management` | Open, PR #6055 — full spec, two independent adversarial review passes (14 + 5 issues fixed) plus a literature-verification pass; not yet reviewed by a maintainer |
 | Default Chart of Accounts (Polish plan kont importer) | [`2026-09-15-default-chart-of-accounts.md`](https://github.com/open-mercato/open-mercato/pull/6137) | `docs/default-chart-of-accounts` | Open, PR #6137 — first document in this family to carry the full `financial-spec-writing-process` (own Literature & Prior Art section + real-system comparison) from its very first draft; cross-spec pass against every sibling spec found and fixed a real defect (070/071/072 split vs. Fixed Assets, commit `981dbf470`), see Changelog |
 | Tax Management (Core framework `tax_management` + Poland `financial_pl`) | [`2026-09-16-tax-management.md`](https://github.com/open-mercato/open-mercato/pull/6168) | `docs/tax-management` | Open, PR #6168 — first draft, not yet reviewed; follows the Core-framework-plus-country-plugin split `SPEC-024-2026-02-11-financial-module.md` §10 already mandates |
+| Annual Financial Statements (Core `financial_statements` + Poland `financial_pl` — Bilans/RZiS) | [`2026-09-17-annual-financial-statements.md`](https://github.com/open-mercato/open-mercato/pull/6188) | `docs/annual-financial-statements` | Open, PR #6188 — first draft, not yet reviewed; follows the same `SPEC-024-2026-02-11-financial-module.md` §11 Core-framework-plus-country-plugin split as Tax Management (§10); the actual Załącznik nr 1 line templates are Unverified pending a primary-source read (see Tier 1 below) |
 | Multi-Currency, Budgeting & Forecasting, Cost Accounting | — | — | Not started (SPEC-024 only) |
 
 **`financial-pl` (JPK_V7/KSeF) lives outside this repo.** It's a real,
@@ -222,6 +223,20 @@ silently leave off later ones (see Changelog, 2026-09-14).
   secondhand as "KIS provides the number." See that document's own
   Design decisions for the full correction.
 
+- **Załącznik nr 1 do Ustawy o rachunkowości** (the statutory Bilans/RZiS
+  line-item schema) — **Unverified.** `2026-09-17-annual-financial-
+  statements.md` (Annual Financial Statements) names this annex as the
+  authoritative source for `financial_pl`'s Bilans/RZiS line templates,
+  but this session's own extracted UoR text (`/tmp/uor.txt`) starts at
+  Rozdział 2 and does not include the annexes — no primary-source
+  verification of the actual line-item text has been done. Flagged
+  honestly as a gap, the same discipline already applied to entry-level
+  attachments in GL core engine: the template files
+  (`financial_pl/lib/bilansTemplate.ts`/`rzisTemplate.ts`) must not be
+  implemented from recollection: a full UoR text including its annexes
+  needs to be sourced and full-text verified first, the same rigor
+  already applied to the mikrorachunek algorithm above.
+
 **Tier 2 — textbook/terminology (cite these when you need the *named*
 pattern "control account" / "subsidiary ledger" in English, since neither
 Fowler nor Hay use those exact terms):**
@@ -323,6 +338,25 @@ Fowler nor Hay use those exact terms):**
   different book from the Kieso one above — good secondary confirmation,
   but Kieso above is now the stronger citation since it was checked as a
   complete book.
+  3. **New 2026-09-17, for Annual Financial Statements** — three more
+     Confirmed hits: Ch.5 "Balance Sheet and Statement of Cash Flows,"
+     "Classification in the Balance Sheet" (pp.5-5–5-6, Illustration
+     5.1) — the general classified format (Current assets / Long-term
+     investments / PP&E / Intangibles / Other vs. Current liabilities /
+     Long-term debt / Owners' equity); Mismatch noted alongside the
+     confirmation — this is a *flexible* US GAAP convention, whereas
+     Poland's Bilans follows a legally fixed line-item schema (see the
+     new Tier 1 gap entry above). Ch.4 "Income Statement and Related
+     Information," IFRS Insights §"Expense Classifications" (pp.4-44–
+     4-46, citing IAS 1) — nature-of-expense vs. function-of-expense
+     presentation, both required by construction to reach the same net
+     income (worked example, Telaris Co., $205,000 either way); grounds
+     RZiS's porównawczy/kalkulacyjny variant-parity requirement as an
+     internationally-recognized IAS 1 distinction, not a Polish-specific
+     quirk. Ch.4 "Retained Earnings Statement" (Illustration 4.19) — net
+     income plus/minus board-decided dividends/appropriations reconciles
+     beginning to ending retained earnings; grounds treating the uchwała
+     zarządu as external input data, not a system-computed workflow.
 
 **Tier 3 — software-analysis-pattern literature (data-modeling vocabulary,
 not accounting authority — useful for *how to model*, not *what's
@@ -335,6 +369,16 @@ compliant*):**
   Transaction, Summary Account, Memo Account, Posting Rules, Corresponding
   Account, Specialized Account Model). Confirmed via full-text search: does
   **not** use "control account" or "subsidiary ledger."
+  **New 2026-09-17, for Annual Financial Statements**: §6.12 "Balance
+  Sheet and Income Statement" (p.123-124) — Confirmed but limited:
+  distinguishes balance-sheet accounts (persist a balance across
+  periods) from income-statement accounts (reset to zero at period
+  end) as a general conceptual pattern; confirms *why* GL core
+  engine's `CLOSING` entry needs to zero zespoły 4-7 specifically, but
+  doesn't address statement-document generation, line-item mapping, or
+  multi-jurisdiction formats — this document's actual design problem
+  stays unaddressed in Fowler, consistent with this book's already-thin
+  accounting coverage relative to this project's real requirements.
 - Hay, *Data Model Patterns* — ch.7 "Accounting" (pseudo-entity Account/
   Account Type, Account Categories and Structure, Cost/Revenue Center
   Assignment) — read in full; the ACCOUNTS PAYABLE pseudo-entity discussion
@@ -514,6 +558,25 @@ real):**
   public documentation — recorded as **Unverified**, per
   `financial-spec-citation-check`, rather than assumed from their
   general Polish-market positioning.
+- **New 2026-09-17, for Annual Financial Statements.** **ERPNext**
+  (`frappe/erpnext`, `chart_of_accounts.py`, `develop` branch, read
+  from the live GitHub source): `report_type` ("Balance Sheet" or
+  "Profit and Loss") is derived once from `root_type` (Asset/Liability/
+  Equity → Balance Sheet; else → Profit and Loss) and stored on the
+  Account at creation — confirms the coarse two-statement split is
+  commonly a small, fixed function of a type enum, and confirms by
+  *absence* that ERPNext doesn't attempt a fine-grained statutory-line
+  mapping at the framework level either. **Odoo** (documentation, v19):
+  Account Type fixes Balance-Sheet-vs-Profit&Loss-vs-Off-Balance-Sheet
+  placement; its own docs tie correct Account Type configuration to the
+  ability to "generate country-specific legal and financial reports,"
+  implying the actual statutory line structure is a localization-layer
+  concern, not a core-account field — independent confirmation of this
+  document's Core-`financial_statements`/`financial_pl` boundary.
+  Comarch Optima/Symfonia/enova365 remain Unverified (no public
+  technical documentation of their account-to-statement-line mapping);
+  GnuCash not directly comparable (no by-nature/by-function P&L variant
+  split exists in its account hierarchy).
 - **ISO 20022** — payment/remittance messaging standard; relevant only if a
   future Cash & Bank Management module needs bank-statement/payment
   interchange format, not for internal ledger modeling. Low priority.
@@ -1264,3 +1327,50 @@ Assets, JELD, GL bulk read service, and now this one). Per Step 5:
   cross-reference pointers to any dated spec anywhere in the document,
   for any module, so adding one here would be a new, unprecedented
   convention, not a fix to an existing one.
+
+### 2026-09-17 (cont. — Annual Financial Statements: initial draft, PR #6188)
+
+- **Placement**: `SPEC-024-2026-02-11-financial-module.md` §11
+  ("Financial Statements") mandates the same Core-framework-plus-
+  country-plugin split already found for Tax Management (§10) —
+  confirmed with the user before drafting, given the two prior false
+  starts on Tax Management's own scope. `financial_statements` (Core)
+  ships only the generic `ReportFormat`/`ReportSection`/`ReportLine`
+  shape plus a trial-balance aggregation function; `financial_pl` owns
+  the actual Bilans/RZiS templates, mapping, and uchwała input. See
+  the module map above.
+- **Two SPEC-024-era sketch details corrected** against this project's
+  own later conventions: `ReportLine.formula` as an account-number-
+  range string (SPEC-024 §2.4's own `"SUM(1000:1999)"` example) —
+  replaced with a `StatementLineMapping` table reference, since
+  accounts are tenant-created and tenant-renumbered (Default Chart of
+  Accounts, #6137); and an implicit assumption that statement-line
+  placement could be derived the way GL core engine's simpler
+  `reportType` question was (`mapAccountTypeToStatement`, rejected
+  there for being redundant state) — replaced with a tenant-configured,
+  per-Wn/Ma-side settings entity, once the debit/credit-dependent
+  classification requirement (a rozrachunki account can be an asset or
+  a liability depending on its balance side) surfaced from the source
+  Event Storming session.
+- **New citations**: three Kieso hits (Tier 2, new — Balance Sheet
+  classification, IAS 1 nature-vs-function parity, Retained Earnings
+  Statement), one Fowler hit (Tier 3, new — confirmed but limited), and
+  the ERPNext/Odoo statement-placement comparison (Tier 4, new) — see
+  §3 above for all.
+- **Explicit gap flagged, not silently assumed**: Załącznik nr 1 do
+  Ustawy o rachunkowości (the actual Bilans/RZiS statutory line
+  schema) has not been primary-source verified in this session — the
+  extracted UoR text starts at Rozdział 2 and omits the annexes. Recorded
+  as Unverified (Tier 1, new) rather than implemented from recollection;
+  a real UoR text including annexes is needed before
+  `bilansTemplate.ts`/`rzisTemplate.ts` are actually written.
+- **Cross-spec consistency check**: re-read GL core engine (#5663 —
+  `CLOSING` entry type, the rejected `reportType`-on-account-type
+  alternative), GL account balances (#6013 — `getTrialBalance` shape,
+  its own Bilans/P&L Out-of-scope pointer), Posting Rules Engine
+  (#6015 — account 490 invariant, its own "different owner" pointer),
+  and Default Chart of Accounts (#6137 — accounts fully tenant-editable
+  post-import). Both #6013 and #6015 needed a forward-pointer update
+  (commits `21e9717db` and `8d4c8c58e`), matching the pattern already
+  used for Tax Management → GL core engine.
+
