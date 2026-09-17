@@ -165,6 +165,32 @@ describe('encryptCustomFieldValue plaintext fallback (regression: issue #5921)',
     expect(warnCalls()).toHaveLength(2)
   })
 
+  // Regression: hitting the cap used to `.clear()` the whole set, un-throttling
+  // every already-reported field at once (worst possible time — the log flood
+  // the cap exists to prevent). It must evict only the single oldest entry.
+  it('evicts only the oldest entry when the throttle cap is reached, not the whole set', async () => {
+    const service = unresolvableDekService()
+    const WARN_CAP = 5000
+    const fieldAt = (i: number) => ({ entityId: 'customers:person', fieldKey: `field-${i}` })
+
+    for (let i = 0; i < WARN_CAP; i += 1) {
+      await encryptCustomFieldValue('v', 'tenant-1', service, undefined, fieldAt(i))
+    }
+    expect(warnCalls()).toHaveLength(WARN_CAP)
+
+    // One more distinct field crosses the cap and evicts field-0 (the oldest).
+    await encryptCustomFieldValue('v', 'tenant-1', service, undefined, fieldAt(WARN_CAP))
+    expect(warnCalls()).toHaveLength(WARN_CAP + 1)
+
+    // A still-degraded field reported well before the cap stays throttled.
+    await encryptCustomFieldValue('v', 'tenant-1', service, undefined, fieldAt(WARN_CAP - 1))
+    expect(warnCalls()).toHaveLength(WARN_CAP + 1)
+
+    // The evicted oldest entry is the one exception: it reports again.
+    await encryptCustomFieldValue('v', 'tenant-1', service, undefined, fieldAt(0))
+    expect(warnCalls()).toHaveLength(WARN_CAP + 2)
+  })
+
   it('does not let one tenant recovering unthrottle another tenant still degraded', async () => {
     const field = { entityId: 'customers:person', fieldKey: 'national_id' }
     const recovered = { isEnabled: () => true, getDek: async () => ({ key: fixedKey }) } as any

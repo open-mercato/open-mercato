@@ -134,7 +134,10 @@ function warnOnPlaintextFallback(
     const field = options?.fieldKey ?? null
     const warnKey = `${scopedTenantId}|${entity ?? 'unknown'}|${field ?? 'unknown'}`
     if (plaintextFallbackWarned.has(warnKey)) return
-    if (plaintextFallbackWarned.size >= PLAINTEXT_FALLBACK_WARN_CAP) plaintextFallbackWarned.clear()
+    if (plaintextFallbackWarned.size >= PLAINTEXT_FALLBACK_WARN_CAP) {
+      const oldest = plaintextFallbackWarned.values().next().value
+      if (oldest !== undefined) plaintextFallbackWarned.delete(oldest)
+    }
     plaintextFallbackWarned.add(warnKey)
     logger.warn('Custom field configured as encrypted was stored as plaintext', {
       tenantId: scopedTenantId,
