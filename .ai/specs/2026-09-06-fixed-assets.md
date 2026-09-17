@@ -466,6 +466,24 @@ the RMK mechanism for depreciation — there is no separate RMK entity;
 "RMK" in this spec names the accounting concept the schedule implements,
 not a distinct table.
 
+**Update (2026-09-17):** the second real consumer arrived —
+`2026-09-17-deferred-revenue.md` (Deferred Revenue, PR #6193) needed
+"an amount recognized gradually on a schedule" for revenue instead of
+depreciation, and its `RevenueRecognitionScheduleEntry`/
+`accrueRevenueRecognition` mirror `DepreciationScheduleEntry`/
+`accrueDepreciation` closely (paged batch, per-entry transaction,
+idempotent via a nullable `accruedAt`, fiscal-period-lock aware,
+`referenceType`/`referenceId` tagging). The shape transferred cleanly,
+confirming the bet this decision made. Extraction is still
+deliberately not done: Deferred Revenue's own Design decisions reach
+the identical conclusion independently — two small, working
+implementations that happen to share a shape is a weaker case for a
+shared abstraction than it might first appear, and forcing one now
+would still be guessing at an API from exactly two data points. Left
+as two duplicated schedule mechanisms on purpose; a future pass may
+revisit this once a third consumer appears or the duplication itself
+becomes the actual pain point.
+
 **Its own asset register, not just `parentAccountId`.** A fixed asset
 needs far more data than a position in the account hierarchy (acquisition
 date, value, rate, accumulated depreciation) — `parentAccountId` is only
