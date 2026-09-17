@@ -131,7 +131,8 @@
     "@stripe/react-stripe-js": "^6.8.2",
     "@stripe/stripe-js": "^9.14.0",
     "@open-mercato/gateway-stripe": "{{PACKAGE_VERSION}}",
-    "@open-mercato/sync-akeneo": "{{PACKAGE_VERSION}}"
+    "@open-mercato/sync-akeneo": "{{PACKAGE_VERSION}}",
+    "@open-mercato/gateway-autopay": "{{PACKAGE_VERSION}}"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",
