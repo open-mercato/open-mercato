@@ -71,6 +71,8 @@ Telemetry / observability wiring (keep at parity when the `@open-mercato/telemet
 13. `packages/cli/src/lib/telemetry-init.ts` (the `mercato telemetry init` adoption command) embeds copies of the `.env` telemetry block and the `instrumentation.ts` bootstrap so it can patch a pre-telemetry app — keep those constants in sync when items 9/12 change.
 14. `@open-mercato/telemetry` dep + `bullmq-otel` optionalDep ↔ `packages/create-app/template/package.json.template` (telemetry ships the `@opentelemetry/*` SDK as transitive `optionalDependencies`, so the template only pins `@open-mercato/telemetry`). Because the template pins every `@open-mercato` dep to `{{PACKAGE_VERSION}}`, the telemetry package version MUST stay in monorepo lockstep — `scripts/check-version-alignment.sh` enforces it, and a fresh scaffold's `yarn install` fails otherwise.
 
+Known deferred drift: the monorepo's `starters/` directory (hybrid install/start scripts, compose files under `starters/docker/`, the MCP-as-dev.mjs-child runtime in `scripts/dev.mjs` + `scripts/dev-mcp.mjs`) is NOT mirrored into the template yet — generated apps keep compose files at their own root and the pre-starters dev runtime. Mirroring the starters layout into the template is a tracked follow-up of `.ai/specs/2026-07-17-hybrid-dev-runtime-and-starters.md`; sync `scripts/dev.mjs` + `scripts/dev-mcp.mjs` together when doing it (the former imports the latter).
+
 ## Dev Runtime Expectations
 
 - `yarn dev` is the compact runtime. It folds routine startup logs and lets the user press `d` to show or hide raw logs.
@@ -190,11 +192,15 @@ packages/create-app/agentic/
 ├── codex/                       # Codex tool config
 │   ├── enforcement-rules.md     # Prepended to AGENTS.md with marker comments
 │   └── mcp.json.example
-└── cursor/                      # Cursor tool config
-    ├── rules/*.mdc              # Glob-scoped rules (alwaysApply + entity/generated guards)
-    ├── hooks.json               # afterFileEdit hook registration
-    ├── hooks/entity-migration-check.mjs  # Plain ESM (no tsx dependency)
-    └── mcp.json.example
+├── cursor/                      # Cursor tool config
+│   ├── rules/*.mdc              # Glob-scoped rules (alwaysApply + entity/generated guards)
+│   ├── hooks.json               # afterFileEdit hook registration
+│   ├── hooks/entity-migration-check.mjs  # Plain ESM (no tsx dependency)
+│   └── mcp.json.example
+└── github-copilot/             # GitHub Copilot tool config (no hook mechanism — text only)
+    ├── copilot-instructions.md.template  # → .github/copilot-instructions.md ({{PROJECT_NAME}})
+    ├── instructions/*.instructions.md    # Path-scoped guards via `applyTo` globs
+    └── mcp.json.example                  # → .vscode/mcp.json.example ("servers" key)
 ```
 
 ### Skills Mixin (external open-mercato/skills + local overrides)
@@ -225,3 +231,5 @@ Both generators recursively emit the same `agentic/` source tree: `src/setup/too
 - The Codex generator patches `AGENTS.md` (created by shared generator) — ordering matters
 - `{{PROJECT_NAME}}` is the only placeholder; resolved from `path.basename(targetDir)`
 - Cursor hook is `.mjs` (no tsx dep); Claude Code hook is `.ts` (needs tsx in devDependencies)
+- GitHub Copilot has no hook mechanism, so its migration/generated guards are instruction text only (`.github/copilot-instructions.md` + `.github/instructions/*.instructions.md` with `applyTo` globs); MCP example lands at `.vscode/mcp.json.example` and uses the VS Code `"servers"` key (not `"mcpServers"`)
+- A new tool id must be added in BOTH generators — `packages/create-app/src/setup/tools/<tool>.ts` (+ `wizard.ts`) and `packages/cli/src/lib/agentic-setup.ts` — plus the idempotency map in `packages/cli/src/lib/agentic-init.ts`. Renumber the `multiple`/`skip` wizard keys when inserting

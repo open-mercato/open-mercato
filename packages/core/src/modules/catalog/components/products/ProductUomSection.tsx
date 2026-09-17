@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { useT } from "@open-mercato/shared/lib/i18n/context";
+import { useT, useLocale } from "@open-mercato/shared/lib/i18n/context";
+import { parseLocaleNumber } from "@open-mercato/shared/lib/number";
 import { apiCall } from "@open-mercato/ui/backend/utils/apiCall";
 import { Button } from "@open-mercato/ui/primitives/button";
 import { Checkbox } from "@open-mercato/ui/primitives/checkbox";
@@ -56,19 +57,24 @@ const REFERENCE_UNIT_OPTIONS = REFERENCE_UNIT_CODES.map((code) => ({
   fallback: REFERENCE_UNIT_DISPLAY[code] ?? code,
 }));
 
-function normalizeDecimalInput(value: string): string {
-  return value.replace(/,/g, ".");
+// Keeps the field submit-ready (dot-decimal, no grouping characters) while the user is
+// still typing. Falls back to the raw value when it isn't parseable yet (empty, a lone
+// sign) so the field stays editable. Delegates to `parseLocaleNumber` instead of a
+// hard-coded `,` -> `.` swap, which broke on grouped input such as `1 234,56` (#5828).
+export function normalizeDecimalInput(value: string, locale?: string): string {
+  const parsed = parseLocaleNumber(value, locale);
+  return parsed === null ? value : String(parsed);
 }
 
-function toPositiveNumber(value: unknown): number | null {
+export function toPositiveNumber(value: unknown, locale?: string): number | null {
   if (typeof value === "number") {
     return Number.isFinite(value) && value > 0 ? value : null;
   }
   if (typeof value !== "string") return null;
   const normalized = toTrimmedOrNull(value);
   if (!normalized) return null;
-  const numeric = Number(normalized.replace(",", "."));
-  return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
+  const numeric = parseLocaleNumber(normalized, locale);
+  return numeric !== null && numeric > 0 ? numeric : null;
 }
 
 function toSortValue(value: string): number {
@@ -82,7 +88,10 @@ function formatPreviewNumber(value: number): string {
   return Number.isInteger(rounded) ? String(rounded) : rounded.toString();
 }
 
-function normalizeConversions(value: unknown): ProductUnitConversionDraft[] {
+function normalizeConversions(
+  value: unknown,
+  locale?: string,
+): ProductUnitConversionDraft[] {
   if (!Array.isArray(value)) return [];
   const normalized = value
     .map((entry) => {
@@ -92,7 +101,7 @@ function normalizeConversions(value: unknown): ProductUnitConversionDraft[] {
         id: toTrimmedOrNull(row.id) ?? null,
         unitCode: toTrimmedOrNull(row.unitCode) ?? "",
         toBaseFactor: toTrimmedOrNull(row.toBaseFactor)
-          ? normalizeDecimalInput(toTrimmedOrNull(row.toBaseFactor) as string)
+          ? normalizeDecimalInput(toTrimmedOrNull(row.toBaseFactor) as string, locale)
           : "",
         sortOrder: toTrimmedOrNull(row.sortOrder) ?? "",
         isActive: row.isActive !== false,
@@ -135,13 +144,14 @@ export function ProductUomSection({
   embedded = false,
 }: ProductUomSectionProps) {
   const t = useT();
+  const locale = useLocale();
   const { enabled: unitPriceDisplayEnabled } = useUnitPriceDisplayEnabled();
   const [unitOptions, setUnitOptions] = React.useState<UnitOption[]>([]);
   const [loadingUnits, setLoadingUnits] = React.useState(false);
   const [errorLoadingUnits, setErrorLoadingUnits] = React.useState(false);
   const conversions = React.useMemo(
-    () => normalizeConversions(values.unitConversions),
-    [values.unitConversions],
+    () => normalizeConversions(values.unitConversions, locale),
+    [values.unitConversions, locale],
   );
 
   React.useEffect(() => {
@@ -238,13 +248,13 @@ export function ProductUomSection({
   const defaultSalesUnit = toTrimmedOrNull(values.defaultSalesUnit) ?? "";
   const defaultSalesQuantityRaw =
     toTrimmedOrNull(values.defaultSalesUnitQuantity) ?? "1";
-  const defaultSalesQuantity = normalizeDecimalInput(defaultSalesQuantityRaw);
+  const defaultSalesQuantity = normalizeDecimalInput(defaultSalesQuantityRaw, locale);
   const unitPriceEnabled = Boolean(values.unitPriceEnabled);
   const unitPriceReferenceUnit =
     toTrimmedOrNull(values.unitPriceReferenceUnit) ?? "";
   const unitPriceBaseQuantityRaw =
     toTrimmedOrNull(values.unitPriceBaseQuantity) ?? "";
-  const unitPriceBaseQuantity = normalizeDecimalInput(unitPriceBaseQuantityRaw);
+  const unitPriceBaseQuantity = normalizeDecimalInput(unitPriceBaseQuantityRaw, locale);
 
   const baseUnitLabel = findUnitLabel(defaultUnit) ?? defaultUnit;
   const salesUnitLabel =
@@ -261,17 +271,17 @@ export function ProductUomSection({
       (entry) =>
         entry.isActive &&
         entry.unitCode.toLowerCase() === defaultSalesKey &&
-        toPositiveNumber(entry.toBaseFactor) !== null,
+        toPositiveNumber(entry.toBaseFactor, locale) !== null,
     );
-    return row ? toPositiveNumber(row.toBaseFactor) : null;
-  }, [conversions, defaultSalesUnit, defaultUnit]);
+    return row ? toPositiveNumber(row.toBaseFactor, locale) : null;
+  }, [conversions, defaultSalesUnit, defaultUnit, locale]);
 
-  const defaultSalesQuantityNumber = toPositiveNumber(defaultSalesQuantity);
+  const defaultSalesQuantityNumber = toPositiveNumber(defaultSalesQuantity, locale);
   const defaultSalesQuantityNormalized =
     defaultSalesQuantityNumber && defaultSalesFactor
       ? defaultSalesQuantityNumber * defaultSalesFactor
       : null;
-  const unitPriceBaseQuantityNumber = toPositiveNumber(unitPriceBaseQuantity);
+  const unitPriceBaseQuantityNumber = toPositiveNumber(unitPriceBaseQuantity, locale);
 
   const validConversions = conversions.filter(
     (entry) =>
@@ -388,7 +398,7 @@ export function ProductUomSection({
             onChange={(event) =>
               setValue(
                 "defaultSalesUnitQuantity",
-                normalizeDecimalInput(event.target.value),
+                normalizeDecimalInput(event.target.value, locale),
               )
             }
             placeholder="1"
@@ -541,7 +551,7 @@ export function ProductUomSection({
                 onChange={(event) =>
                   setValue(
                     "unitPriceBaseQuantity",
-                    normalizeDecimalInput(event.target.value),
+                    normalizeDecimalInput(event.target.value, locale),
                   )
                 }
                 placeholder="1"
@@ -595,7 +605,7 @@ export function ProductUomSection({
         ) : (
           <div className="space-y-2">
             {conversions.map((entry, index) => {
-              const conversionFactor = toPositiveNumber(entry.toBaseFactor);
+              const conversionFactor = toPositiveNumber(entry.toBaseFactor, locale);
               const conversionPreviewText =
                 entry.unitCode && conversionFactor !== null
                   ? t(
@@ -653,7 +663,7 @@ export function ProductUomSection({
                     value={entry.toBaseFactor}
                     onChange={(event) =>
                       updateConversion(index, {
-                        toBaseFactor: normalizeDecimalInput(event.target.value),
+                        toBaseFactor: normalizeDecimalInput(event.target.value, locale),
                       })
                     }
                     placeholder="1"
