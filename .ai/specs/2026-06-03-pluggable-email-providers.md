@@ -24,6 +24,7 @@ Maintainer feedback on PR #2448 requested this to be modeled as external integra
 - Add external provider packages:
   - `@open-mercato/channel-resend` with provider key `resend`.
   - `@open-mercato/channel-ses` with provider key `ses`.
+  - `@open-mercato/channel-smtp` with provider key `smtp`, for any SMTP relay (Mailgun, Postmark, SendGrid, Brevo, Office 365, self-hosted Postfix).
 - Provider packages own adapter registration, system-email env credential resolution, and env preconfiguration.
 - Pre-tenant system email, such as self-service onboarding verification, uses the same hub adapter registry with env credentials when no tenant channel exists yet.
 
@@ -37,11 +38,17 @@ Provider packages implement outbound-only `ChannelAdapter`s and register their o
 
 - Resend adapter sends via the Resend Node SDK.
 - SES adapter sends through Nodemailer SES transport backed by AWS SDK v3 credential chain.
+- SMTP adapter sends through a plain Nodemailer SMTP transport. Unlike the other two, its endpoint is operator-supplied, so it carries an SSRF guard: `@open-mercato/shared/lib/host-pinning` classifies the host statically at credential-save time and resolves-then-pins it to a validated public IP at connect time, and cleartext transport is refused unless an operator opts in. `@open-mercato/channel-imap` shares that guard — it is the same attack surface, and a copy that drifts is worse than no shared copy.
 
 Env preconfiguration is provider-owned:
 
 - `channel_resend` seeds tenant-wide credentials/channel when `RESEND_API_KEY` and a sender address are present.
 - `channel_ses` seeds tenant-wide credentials/channel when `AWS_SES_REGION` or `AWS_REGION` and a sender address are present.
+- `channel_smtp` seeds tenant-wide credentials/channel when `SMTP_HOST`, `SMTP_USER`, `SMTP_PASSWORD` and a sender address are present.
+
+Each preset is gated on `isSelectedSystemEmailProvider(...)`, so only the provider named by
+`SYSTEM_EMAIL_PROVIDER` seeds anything and a leftover key from a previous provider never advertises
+an Enabled integration nothing sends through.
 
 ## API Contracts
 
@@ -76,6 +83,13 @@ Environment variables:
 | `AWS_SES_REGION` | SES region used by `channel_ses`; falls back to `AWS_REGION`. |
 | `AWS_REGION` | AWS SDK region fallback. |
 | `AWS_SES_CONFIGURATION_SET` | Optional SES configuration set. |
+| `SMTP_HOST` | SMTP relay hostname used by `channel_smtp`. |
+| `SMTP_PORT` | SMTP relay port. Defaults to `587`. |
+| `SMTP_TLS` | `tls`, `starttls` or `none`. Defaults to `tls` on port 465 and `starttls` elsewhere. |
+| `SMTP_USER` | SMTP AUTH username. |
+| `SMTP_PASSWORD` | SMTP AUTH password. |
+| `OM_CHANNEL_SMTP_ALLOW_INTERNAL_HOSTS` | Permit a private/loopback relay host (bypasses the SSRF guard). Default `false`. |
+| `OM_CHANNEL_SMTP_ALLOW_INSECURE_TRANSPORT` | Permit cleartext SMTP. Default `false`. |
 | `NOTIFICATIONS_EMAIL_FROM` | First sender fallback. |
 | `EMAIL_FROM` | Default sender fallback. |
 | `ADMIN_EMAIL` | Final sender fallback and operational admin recipient. |
@@ -85,7 +99,8 @@ Environment variables:
 - Existing `sendEmail()` imports continue to work.
 - Existing Resend deployments continue to work when `RESEND_API_KEY` and a sender address are set, because `SYSTEM_EMAIL_PROVIDER` defaults to `resend`.
 - `shared` no longer contains provider delivery code or provider dependencies.
-- SES is additive through `@open-mercato/channel-ses`.
+- SES is additive through `@open-mercato/channel-ses`; generic SMTP is additive through `@open-mercato/channel-smtp`.
+- `@open-mercato/channel-imap`'s `isInternalHost` and `resolveSafeHostAddress` keep their existing import paths and behaviour; both now delegate to `@open-mercato/shared/lib/host-pinning`.
 - Inbox Ops inbound/reply Resend webhook behavior is unchanged.
 
 ## Test Plan
@@ -93,6 +108,8 @@ Environment variables:
 - Shared tests cover transport delegation, disabled delivery, sender fallback, missing transport, configuration checks, attachments, `replyTo`, and scope propagation.
 - Resend adapter tests mock the Resend SDK and verify HTML/text rendering, `replyTo`, attachments, and provider failure handling.
 - SES adapter tests mock Nodemailer/AWS SDK and verify region resolution, HTML/text rendering, `replyTo`, attachments, configuration set mapping, and provider failure handling.
+- SMTP adapter tests swap the transport seam and verify relay coordinates, HTML/text rendering, `replyTo`, base64 attachments, missing-recipient/subject rejection, and provider failure handling; credential tests cover the SSRF guard, the cleartext refusal and both escape hatches; preset tests cover port-derived TLS defaults and the selected-provider gate.
+- Shared host-pinning tests cover the SSRF classifier (including obfuscated IPv4 encodings) and connect-time pinning against DNS rebinding.
 - Communication hub tests cover system email dispatch through the adapter registry and pre-tenant env fallback.
 - Browser integration coverage visits `/start` at desktop and mobile widths and verifies the onboarding CTA, disabled superadmin control, connected database state, responsive layout, and absence of browser errors.
 - Run focused package tests/typechecks, `yarn check:dep-versions`, generated registry refresh, and the full contrib gate before moving the draft PR toward review.
@@ -118,3 +135,4 @@ Environment variables:
 ## Changelog
 
 - 2026-06-03: Updated spec to use Communications Hub system email transport with Resend default and SES as an external provider package.
+- 2026-09-17: Added `@open-mercato/channel-smtp` (provider key `smtp`) as a third outbound provider for generic SMTP relays, and hoisted the host:port SSRF guard into `@open-mercato/shared/lib/host-pinning` so it is shared with `@open-mercato/channel-imap` rather than duplicated.
