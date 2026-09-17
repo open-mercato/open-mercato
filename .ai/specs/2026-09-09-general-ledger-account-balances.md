@@ -1008,7 +1008,17 @@ existing, already-migrated tables.
   additive, not a redesign (see Design decisions, Risks).
 - **Bilans, P&L (4xx/5xx), Cash Flow, tax reporting (JPK)** — separate,
   larger future documents; this document's scope-cohesion boundary is
-  ZSiO only (see Design decisions, Alternatives considered).
+  ZSiO only (see Design decisions, Alternatives considered). **Update
+  (2026-09-17):** a first draft of the Bilans/RZiS half now exists as
+  its own document, `2026-09-17-annual-financial-statements.md` — a
+  small new Core module (`financial_statements`) that consumes this
+  document's own `getTrialBalance` directly, plus a `financial_pl`
+  implementation owning the actual Załącznik-nr-1 line templates,
+  per-account statement-line mapping, and the RZiS variant-parity check
+  — following the Core-framework-plus-country-plugin split SPEC-024 §11
+  already mandates (the same split already applied to Tax Management,
+  §10). Tax reporting (JPK) and Cash Flow remain separate, still-future
+  documents. Not yet reviewed.
 - **Off-balance-sheet accounts** (konta pozabilansowe) — no such
   concept exists anywhere in #5663's `LedgerAccountType`/
   `LedgerAccountGroup` today; the zero-sum check in this document
