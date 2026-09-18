@@ -1,4 +1,4 @@
-# 0.8.0 (2026-09-17)
+# 0.8.0 (2026-09-18)
 
 ## Highlights
 
@@ -28,6 +28,8 @@ Platform plumbing rounds out the release: `entry.overrides` in `src/modules.ts` 
 - ✨ Let adapters declare which start controls apply to the data-sync dashboard's Run once now card. (#5863) *(@maxidragon)*
 - ✨ Report recorded errors to the telemetry backend, establishing that any catch which records an error (dead-letters, failed status, fallback) must also call `reportError`. (#5960) *(@jtomaszewski)*
 - ✨ Add a module runtime start hook (`runtime.ts`) so a module can start and gracefully stop a process-wide worker loop, broker subscription or poller with zero host wiring, starting from `mercato queue worker --all` (SPEC-072). (#6057) *(@jtomaszewski, @maxidragon)*
+- ✨ Developer-ready component library, DS primitives and SSE heartbeat fix. (#6199) *(@zielivia)*
+- ✨ Enable the Agent Orchestrator + OpenCode agents in standalone apps. (#6208) *(@pat-lewczuk)*
 
 ## 🔒 Security
 - 🔒 Raise Yarn's npm minimal-age gate from 1 day to 5 days to close the supply-chain window for compromised-maintainer package publishes. (#5138) *(@zawoj)*
@@ -190,6 +192,7 @@ Platform plumbing rounds out the release: `entry.overrides` in `src/modules.ts` 
 - 🐛 Extend the malformed-id not-found fix to the v2 people/companies detail pages, deduping the check via a shared helper (extends #6166). (#6180) *(@patzick)*
 - 🐛 Flip a quarantined Discord channel's `isActive` off after a fatal gateway close, so the admin list stops showing it as Active (fixes #4979). (#6189) *(@patzick)*
 - 🐳 Move the fullapp Docker stack onto a fresh bridge network, fixing demo-container TCP connection timeouts to Redis/Postgres/Meilisearch. (#6191) *(@pat-lewczuk)*
+- 🐛 Make main's three red CI jobs green (push delivery deadlock, TC-ONB-002 budget, two broken unit suites) (fixes #6223). (#6220) *(@patzick)*
 
 ## 🛠️ Improvements
 - 🛠️ Retire the duplicated string-template emitters in the CLI's module-registry generator in favor of the existing AST emitter (#4672). (#5034) *(@wojciechszyjka)*
@@ -255,6 +258,7 @@ Platform plumbing rounds out the release: `entry.overrides` in `src/modules.ts` 
 - @KubaBir
 - @matgren
 - @truongx
+- @zielivia
 ---
 
 # 0.7.0 (2026-08-26)
