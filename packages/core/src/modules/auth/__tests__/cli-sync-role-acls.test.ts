@@ -264,7 +264,10 @@ describe('auth CLI sync-role-acls', () => {
     customerRolesByTenant['t-1'] = [buyerRole]
     existingCustomerAcls = [{ role: buyerRole, tenantId: 't-1', featuresJson: [] }]
 
-    await expect(cmd.run(['--tenant', 't-1'])).resolves.not.toThrow()
+    // Bare await on purpose: completing at all is the regression signal, and an
+    // unwrapped rejection reports the real `Metadata for entity ... not found`
+    // rather than a matcher's "rejected instead of resolved".
+    await cmd.run(['--tenant', 't-1'])
 
     expect(findOne).not.toHaveBeenCalledWith(
       expect.objectContaining({ name: 'CustomerRole' }),
