@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { Tenant, Organization } from '@open-mercato/core/modules/directory/data/entities'
+import { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
 
 type IdBuckets = {
   userIds: Iterable<string>
@@ -46,6 +47,20 @@ export async function loadAuditLogDisplayMaps(em: EntityManager, ids: IdBuckets)
     acc[id] = display ?? id
     return acc
   }, {})
+
+  // Action/access log actors written by an API key store the bare `api_keys.id`
+  // (the `api_key:` prefix is stripped at write time — see ActionLogService.sanitizeActor).
+  // Resolve any actor id the User lookup missed against api_keys so callers never
+  // fall back to rendering the raw UUID, including for keys that were later revoked.
+  const unresolvedUserIds = userIds.filter((id) => !usersMap[id])
+  if (unresolvedUserIds.length) {
+    const apiKeys = await em.find(ApiKey, { id: { $in: unresolvedUserIds as any } })
+    for (const apiKey of apiKeys) {
+      const id = String(apiKey.id)
+      const label = apiKey.deletedAt ? `API key: ${apiKey.name} (revoked)` : `API key: ${apiKey.name}`
+      usersMap[id] = label
+    }
+  }
 
   const tenantsMap = tenants.reduce<Record<string, string>>((acc, tenant) => {
     const id = String(tenant.id)

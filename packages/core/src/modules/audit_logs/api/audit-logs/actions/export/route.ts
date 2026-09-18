@@ -202,7 +202,7 @@ export async function GET(req: Request) {
       : actionType.charAt(0).toUpperCase() + actionType.slice(1)
     const baseRow = {
       when: entry.createdAt?.toISOString?.() ?? '',
-      user: entry.actorUserId ? displayMaps.users[entry.actorUserId] ?? entry.actorUserId : 'System',
+      user: entry.actorUserId ? displayMaps.users[entry.actorUserId] ?? 'Unknown user' : 'System',
       action: actionLabel,
       source: deriveActionLogSource(entry.contextJson, entry.actorUserId).toUpperCase(),
     }
