@@ -1758,4 +1758,88 @@ describe('progress service — stale-sweep recovery (GSM-314)', () => {
       expect.objectContaining({ jobId: 'job-1', processedCount: 50 }),
     )
   })
+  it('markCancelled — flushes the throttled meta so a producer\'s partial summary survives the cancel', async () => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+
+    const job = {
+      id: 'job-1',
+      status: 'running',
+      jobType: 'catalog.categories.bulk_create',
+      processedCount: 0,
+      progressPercent: 0,
+      totalCount: 100,
+      cancellable: true,
+      meta: {},
+    } as unknown as ProgressJob
+    em.findOneOrFail.mockResolvedValue(job)
+    em.findOne.mockResolvedValue(job)
+
+    const service = createProgressService(em as never, eventBus)
+
+    // First write opens the throttle entry and persists. The second lands inside the throttle
+    // window with an unchanged progressPercent, so persistAndMaybeBroadcast writes nothing —
+    // exactly what a bulk worker does when it records its partial summary just before cancelling.
+    await service.updateProgress('job-1', { processedCount: 0, meta: { lastCompletedRowIndex: 4 } }, baseCtx)
+    const writesBefore = em.nativeUpdate.mock.calls.length
+    await service.updateProgress('job-1', { meta: { resultSummary: { createdCount: 5 } } }, baseCtx)
+    expect(em.nativeUpdate.mock.calls.length).toBe(writesBefore)
+
+    em.nativeUpdate.mockClear()
+    await service.markCancelled('job-1', baseCtx)
+
+    const [, , data] = em.nativeUpdate.mock.calls[0]
+    expect(data.status).toBe('cancelled')
+    expect(data.meta).toEqual(expect.objectContaining({
+      lastCompletedRowIndex: 4,
+      resultSummary: { createdCount: 5 },
+    }))
+  })
+
+  it('markCancelled — broadcasts the flushed row rather than the pre-flush copy', async () => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+
+    const throttleSnapshot = {
+      id: 'job-1',
+      status: 'running',
+      jobType: 'catalog.categories.bulk_create',
+      processedCount: 0,
+      progressPercent: 0,
+      totalCount: 100,
+      cancellable: true,
+      meta: {},
+    } as unknown as ProgressJob
+    // Stands in for the database row. Every read returns a fresh copy the way
+    // disableIdentityMap does, so a payload built from the pre-flush copy is
+    // distinguishable from one built after the write landed.
+    const persistedRow: Record<string, unknown> = { ...(throttleSnapshot as unknown as Record<string, unknown>) }
+
+    em.findOneOrFail.mockResolvedValue(throttleSnapshot)
+    em.findOne.mockImplementation(() => Promise.resolve({ ...persistedRow } as unknown as ProgressJob))
+    em.nativeUpdate.mockImplementation((_entity: unknown, _filter: unknown, data: Record<string, unknown>) => {
+      Object.assign(persistedRow, data)
+      return Promise.resolve(1)
+    })
+
+    const service = createProgressService(em as never, eventBus)
+
+    await service.updateProgress('job-1', { processedCount: 0, meta: { lastCompletedRowIndex: 39 } }, baseCtx)
+    const writesBefore = em.nativeUpdate.mock.calls.length
+    await service.updateProgress('job-1', { meta: { resultSummary: { createdCount: 40 } } }, baseCtx)
+    // The summary write is throttled, so only markCancelled's flush can put it on the wire.
+    expect(em.nativeUpdate.mock.calls.length).toBe(writesBefore)
+
+    eventBus.emit.mockClear()
+    await service.markCancelled('job-1', baseCtx)
+
+    expect(eventBus.emit).toHaveBeenCalledWith(
+      PROGRESS_EVENTS.JOB_CANCELLED,
+      expect.objectContaining({
+        jobId: 'job-1',
+        status: 'cancelled',
+        meta: expect.objectContaining({ resultSummary: { createdCount: 40 } }),
+      }),
+    )
+  })
 })

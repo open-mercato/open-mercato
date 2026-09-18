@@ -188,6 +188,7 @@ const createCategoryCommand: CommandHandler<CategoryCreateInput, { categoryId: s
       [
         () => em.flush(),
         async () => {
+          if (ctx.bulkImport?.skipDerivedRebuild) return
           await rebuildCategoryHierarchyForOrganization(em, record.organizationId, record.tenantId)
         },
       ],
