@@ -34,6 +34,16 @@ export type PortalNavMetadata = {
   icon?: string
 }
 
+/**
+ * Optional release-stage label shown beside a backend sidebar entry.
+ * Date boundaries are ISO 8601 strings; startsAt is inclusive and endsAt is exclusive.
+ */
+export type NavigationBadgeMetadata = {
+  label: 'alpha' | 'beta'
+  startsAt?: string
+  endsAt?: string
+}
+
 // Metadata you can export from page.meta.ts or directly from a server page
 export type PageMetadata = {
   requireAuth?: boolean
@@ -47,6 +57,8 @@ export type PageMetadata = {
   requireCustomerFeatures?: readonly string[]
   // Portal: optional sidebar presentation hint (auto-listed by portal nav endpoint)
   nav?: PortalNavMetadata
+  // Backend: optional time-bounded release-stage label in sidebar navigation
+  navBadge?: NavigationBadgeMetadata
   // Titles and grouping (aliases supported)
   title?: string
   titleKey?: string
@@ -107,6 +119,8 @@ export type ModuleRoute = {
   requireCustomerFeatures?: string[]
   // Portal: optional sidebar presentation hint (auto-listed by portal nav endpoint)
   nav?: PortalNavMetadata
+  // Backend: optional time-bounded release-stage label in sidebar navigation
+  navBadge?: NavigationBadgeMetadata
   title?: string
   titleKey?: string
   group?: string

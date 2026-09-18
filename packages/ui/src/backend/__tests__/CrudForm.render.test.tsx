@@ -59,6 +59,25 @@ describe('CrudForm initialValues', () => {
     triggerInjectionEventMock.mockClear()
   })
 
+  it('supports initially collapsed advanced groups without exposing field counts', async () => {
+    renderWithProviders(
+      <CrudForm
+        title="Form"
+        fields={fields}
+        groups={[{ id: 'advanced', title: 'Advanced settings', fields: ['name'], defaultCollapsed: true }]}
+        collapsibleGroups={{ pageType: 'collapsed-group-test', showFieldCount: false }}
+        initialValues={{ name: 'Preserved value' }}
+        onSubmit={() => {}}
+      />,
+    )
+    const group = screen.getByRole('button', { name: 'Advanced settings', exact: true })
+    expect(group).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+    fireEvent.click(group)
+    await waitFor(() => expect(group).toHaveAttribute('aria-expanded', 'true'))
+    expect(screen.getByDisplayValue('Preserved value')).toBeVisible()
+  })
+
   function getInput(container: HTMLElement): HTMLInputElement {
     return container.querySelector('[data-crud-field-id="name"] input[type="text"]') as HTMLInputElement
   }

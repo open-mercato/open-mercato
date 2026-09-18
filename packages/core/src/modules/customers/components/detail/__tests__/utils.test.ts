@@ -17,8 +17,12 @@ describe('resolveTodoHref', () => {
   // 404 until this case was split out.
   it('opens a workflow user task on the workflow task screen, not the todo editor', () => {
     expect(resolveTodoHref(WORKFLOW_TASK_TODO_SOURCE, '11111111-1111-1111-1111-111111111111')).toBe(
-      '/backend/workflows/tasks/11111111-1111-1111-1111-111111111111',
+      '/backend/tasks/11111111-1111-1111-1111-111111111111',
     )
+  })
+
+  it('opens existing workflow links stored with the legacy module source', () => {
+    expect(resolveTodoHref('workflows', 'task-id')).toBe('/backend/tasks/task-id')
   })
 
   it('still uses the todo editor convention for other module sources', () => {

@@ -2,23 +2,14 @@
 
 import { useState, useEffect } from 'react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
-import {
-  Drawer,
-  DrawerBody,
-  DrawerContent,
-  DrawerDescription,
-  DrawerFooter,
-  DrawerHeader,
-  DrawerTitle,
-} from '@open-mercato/ui/primitives/drawer'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
+import { Drawer, DrawerBody, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle } from '@open-mercato/ui/primitives/drawer'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Badge } from '@open-mercato/ui/primitives/badge'
-import { Plus, Loader2, AlertCircle, Workflow } from 'lucide-react'
-import { createLogger } from '@open-mercato/shared/lib/logger'
-
-const logger = createLogger('workflows')
+import { Plus, Workflow } from 'lucide-react'
 
 export interface WorkflowDefinition {
   id: string
@@ -60,249 +51,129 @@ export interface WorkflowSelectorProps {
   searchPlaceholder?: string
 }
 
-/**
- * WorkflowSelector - Reusable dialog for searching and selecting workflow definitions
- *
- * Features:
- * - Search/filter workflows by name, ID, description
- * - Display workflow details (version, enabled status, description)
- * - Exclude already-selected workflows
- * - Loading and error states
- * - Responsive grid layout
- *
- * A wide Drawer rather than a modal: this is a searchable record BROWSER, not a
- * tiny picker — each row carries a version chip, an enabled state and a
- * description, which a Popover cannot hold and a CommandMenu would flatten
- * away. Escape cancels; there is no submit, selection IS the primary action.
- */
+
 export function WorkflowSelector({
-  isOpen,
-  onClose,
-  onSelect,
-  excludeWorkflowIds = [],
-  title = 'Select Workflow',
-  description = 'Choose a workflow to invoke as a sub-workflow',
-  onlyEnabled = true,
-  emptyMessage,
-  searchPlaceholder = 'Search by workflow ID, name, or description...',
+  isOpen, onClose, onSelect, excludeWorkflowIds = [], title, description,
+  onlyEnabled = true, emptyMessage, searchPlaceholder,
 }: WorkflowSelectorProps) {
   const t = useT()
   const [workflows, setWorkflows] = useState<WorkflowDefinition[]>([])
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [failed, setFailed] = useState(false)
+  const [retry, setRetry] = useState(0)
   const [searchQuery, setSearchQuery] = useState('')
 
-  // Fetch workflows on mount
   useEffect(() => {
-    if (isOpen) {
-      fetchWorkflows()
-    }
-  }, [isOpen])
-
-  const fetchWorkflows = async () => {
+    if (!isOpen) return
+    let cancelled = false
     setLoading(true)
-    setError(null)
-    try {
-      // Build query params
-      const params = new URLSearchParams()
-      params.set('limit', '50') // Reasonable limit for selector
-
-      if (onlyEnabled) {
-        params.set('enabled', 'true')
-      }
-
-      const url = `/api/workflows/definitions?${params.toString()}`
-      const response = await apiFetch(url)
-
-      if (response.ok) {
-        const result = await response.json()
-        setWorkflows(result.data || [])
-      } else {
-        let errorMessage = `Failed to load workflows (${response.status})`
-        try {
-          const errorData = await response.json()
-          if (errorData.error) {
-            errorMessage = errorData.error
+    setFailed(false)
+    setWorkflows([])
+    const load = async () => {
+      try {
+        const items: WorkflowDefinition[] = []
+        let offset = 0
+        while (!cancelled) {
+          const params = new URLSearchParams({ limit: '100', offset: String(offset) })
+          if (onlyEnabled) params.set('enabled', 'true')
+          const response = await apiCall<{ data?: WorkflowDefinition[]; pagination?: { hasMore?: boolean } }>(
+            `/api/workflows/definitions?${params}`, undefined, { fallback: {} },
+          )
+          if (cancelled) return
+          if (!response.ok || !Array.isArray(response.result?.data)) {
+            setFailed(true)
+            return
           }
-        } catch {
-          // Use default error message
+          items.push(...response.result.data.filter((item) => typeof item?.workflowId === 'string'))
+          if (!response.result.pagination?.hasMore || response.result.data.length === 0) break
+          offset += 100
         }
-        logger.error('Failed to fetch workflows', {
-          url,
-          status: response.status,
-          message: errorMessage,
-        })
-        setError(errorMessage)
+        if (!cancelled) setWorkflows(items)
+      } catch {
+        if (!cancelled) setFailed(true)
+      } finally {
+        if (!cancelled) setLoading(false)
       }
-    } catch (err) {
-      logger.error('Failed to fetch workflows', { err })
-      const errorMessage = err instanceof Error ? err.message : 'Network error loading workflows'
-      setError(errorMessage)
-    } finally {
-      setLoading(false)
     }
-  }
+    void load()
+    return () => { cancelled = true }
+  }, [isOpen, onlyEnabled, retry])
 
-  // Filter workflows based on search query and exclusions
-  const getFilteredWorkflows = (): WorkflowDefinition[] => {
-    return workflows
-      .filter(wf => !excludeWorkflowIds.includes(wf.workflowId))
-      .filter(wf => {
-        if (!searchQuery) return true
-        const query = searchQuery.toLowerCase()
-        return (
-          wf.workflowName.toLowerCase().includes(query) ||
-          wf.workflowId.toLowerCase().includes(query) ||
-          wf.description?.toLowerCase().includes(query)
-        )
-      })
-  }
-
-  const handleSelect = (workflow: WorkflowDefinition) => {
-    onSelect(workflow.workflowId, workflow)
-    setSearchQuery('') // Clear search on select
-  }
-
-  const handleClose = () => {
-    setSearchQuery('')
-    onClose()
-  }
-
-  const filteredWorkflows = getFilteredWorkflows()
+  const query = searchQuery.trim().toLocaleLowerCase()
+  const filtered = workflows.filter((workflow) =>
+    !excludeWorkflowIds.includes(workflow.workflowId)
+    && [workflow.workflowId, workflow.workflowName, workflow.description]
+      .some((part) => typeof part === 'string' && part.toLocaleLowerCase().includes(query)),
+  )
+  const handleClose = () => { setSearchQuery(''); onClose() }
 
   return (
-    <Drawer open={isOpen} onOpenChange={(next) => { if (!next) handleClose() }}>
-      <DrawerContent
-        data-testid="workflow-selector-drawer"
-        className="w-full max-w-none sm:w-3/5"
-        closeAriaLabel={t('workflows.selectors.workflow.close', 'Close workflow picker')}
-      >
+    <Drawer open={isOpen} onOpenChange={(open) => { if (!open) handleClose() }}>
+      <DrawerContent data-testid="workflow-selector-drawer" className="w-full max-w-none sm:w-3/5" closeAriaLabel={t('workflows.selectors.workflow.close')}>
         <DrawerHeader>
-          <DrawerTitle>{title}</DrawerTitle>
-          <DrawerDescription>{description}</DrawerDescription>
+          <DrawerTitle>{title ?? t('workflows.selectors.workflow.title')}</DrawerTitle>
+          <DrawerDescription>{description ?? t('workflows.fieldEditors.workflowSelector.selectSubWorkflowDescription')}</DrawerDescription>
         </DrawerHeader>
-
-        {/* Search Input */}
         <div className="px-6">
           <Input
-            type="text"
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder={searchPlaceholder}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            placeholder={searchPlaceholder ?? t('workflows.selectors.workflow.search')}
+            aria-label={searchPlaceholder ?? t('workflows.selectors.workflow.search')}
             autoFocus
-            disabled={loading}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault()
+                event.stopPropagation()
+              }
+            }}
           />
         </div>
-
-        {/* Workflows List */}
         <DrawerBody className="py-4">
-          {loading ? (
-            <div className="flex flex-col items-center justify-center py-12">
-              <Loader2 className="h-12 w-12 animate-spin text-primary mb-4" />
-              <p className="text-muted-foreground text-sm">Loading workflows...</p>
-            </div>
-          ) : error ? (
-            <div className="flex flex-col items-center justify-center py-12">
-              <AlertCircle className="h-16 w-16 text-destructive mb-4" />
-              <p className="text-destructive text-sm font-medium mb-2">{error}</p>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={fetchWorkflows}
-              >
-                Retry
-              </Button>
-            </div>
-          ) : filteredWorkflows.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12">
-              <Workflow className="w-16 h-16 text-muted mb-4" />
-              <p className="text-muted-foreground text-sm mb-2">
-                {emptyMessage || (
-                  searchQuery
-                    ? 'No workflows found matching your search'
-                    : workflows.length === 0
-                    ? 'No workflows exist yet'
-                    : 'All workflows have already been excluded'
-                )}
-              </p>
-              <p className="text-muted-foreground text-xs mb-3">
-                {workflows.length === 0
-                  ? 'Create workflows in the Workflow Definitions page first'
-                  : searchQuery
-                  ? `Showing 0 of ${workflows.length} total workflows`
-                  : `${workflows.length} workflows already excluded`
-                }
-              </p>
-              {searchQuery && (
-                <Button
-                  variant="link"
-                  size="sm"
-                  onClick={() => setSearchQuery('')}
-                >
-                  Clear search
-                </Button>
-              )}
-            </div>
+          {loading ? <LoadingMessage label={t('workflows.common.loading')} /> : failed ? (
+            <ErrorMessage label={t('workflows.messages.loadFailed')} action={
+              <Button type="button" variant="outline" onClick={() => setRetry((value) => value + 1)}>{t('workflows.commandSettings.retry')}</Button>
+            } />
+          ) : filtered.length === 0 ? (
+            <EmptyState icon={<Workflow />} title={emptyMessage ?? t(query ? 'workflows.selectors.workflow.noMatches' : 'workflows.selectors.workflow.empty')} actions={query ? (
+              <Button type="button" variant="outline" onClick={() => setSearchQuery('')}>{t('workflows.selectors.workflow.clearSearch')}</Button>
+            ) : undefined} />
           ) : (
-            <>
-              <div className="mb-3 text-sm text-muted-foreground">
-                {filteredWorkflows.length} workflow{filteredWorkflows.length !== 1 ? 's' : ''} available
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {filteredWorkflows.map((workflow) => (
-                  <button
-                    key={workflow.id}
-                    onClick={() => handleSelect(workflow)}
-                    className="text-left p-4 border-2 border-border rounded-lg hover:border-primary hover:bg-accent transition-all group"
-                  >
-                    <div className="flex items-start justify-between mb-2">
-                      <div className="flex-1 min-w-0">
-                        <h4 className="text-sm font-semibold group-hover:text-primary truncate">
-                          {workflow.workflowName}
-                        </h4>
-                        <p className="text-xs text-muted-foreground font-mono mt-0.5 truncate">
-                          {workflow.workflowId}
-                        </p>
-                      </div>
-                      <Plus className="size-5 text-muted-foreground group-hover:text-primary transition-colors flex-shrink-0 ml-2" />
-                    </div>
-
-                    <div className="flex items-center gap-2 mb-2 flex-wrap">
-                      <Badge variant="secondary" className="text-xs">
-                        v{workflow.version}
-                      </Badge>
-                      {workflow.enabled ? (
-                        <Badge variant="default" className="bg-status-success-solid text-status-success-solid-foreground text-xs">
-                          Enabled
-                        </Badge>
-                      ) : (
-                        <Badge variant="secondary" className="text-xs">
-                          Disabled
-                        </Badge>
-                      )}
-                    </div>
-
-                    {workflow.description && (
-                      <p className="text-xs text-muted-foreground line-clamp-2">
-                        {workflow.description}
-                      </p>
-                    )}
-                  </button>
-                ))}
-              </div>
-            </>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              {filtered.map((workflow) => (
+                <Button
+                  key={workflow.id}
+                  type="button"
+                  variant="outline"
+                  className="group h-auto min-w-0 flex-col items-stretch justify-start gap-2 whitespace-normal rounded-lg border-2 p-4 text-left font-normal hover:border-primary"
+                  onClick={() => { onSelect(workflow.workflowId, workflow); setSearchQuery('') }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+                      event.preventDefault()
+                      event.stopPropagation()
+                      onSelect(workflow.workflowId, workflow)
+                      setSearchQuery('')
+                    }
+                  }}
+                >
+                  <span className="flex items-start justify-between gap-2">
+                    <span className="min-w-0">
+                      <span className="block break-words text-sm font-semibold">{workflow.workflowName || workflow.workflowId}</span>
+                      <span className="mt-0.5 block break-all font-mono text-xs text-muted-foreground">{workflow.workflowId}</span>
+                    </span>
+                    <Plus className="size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                  </span>
+                  <span className="flex flex-wrap gap-2">
+                    <Badge variant="secondary">v{workflow.version}</Badge>
+                    <Badge variant="outline">{t(workflow.enabled ? 'common.enabled' : 'common.disabled')}</Badge>
+                  </span>
+                  {workflow.description ? <span className="line-clamp-3 break-words text-xs text-muted-foreground" title={workflow.description}>{workflow.description}</span> : null}
+                </Button>
+              ))}
+            </div>
           )}
         </DrawerBody>
-
-        <DrawerFooter>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={handleClose}
-          >
-            {t('common.cancel', 'Cancel')}
-          </Button>
-        </DrawerFooter>
+        <DrawerFooter><Button type="button" variant="outline" onClick={handleClose}>{t('workflows.common.cancel')}</Button></DrawerFooter>
       </DrawerContent>
     </Drawer>
   )

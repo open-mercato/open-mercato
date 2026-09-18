@@ -1,4 +1,5 @@
 import { slugifySidebarId } from '@open-mercato/shared/modules/navigation/sidebarPreferences'
+import type { BackendChromeNavBadge } from '@open-mercato/shared/modules/navigation/backendChrome'
 
 export type SidebarItem = {
   id?: string
@@ -8,6 +9,7 @@ export type SidebarItem = {
   icon?: React.ReactNode
   iconName?: string
   iconMarkup?: string
+  navBadge?: BackendChromeNavBadge
   enabled?: boolean
   hidden?: boolean
   pageContext?: 'main' | 'admin' | 'settings' | 'profile'
@@ -57,6 +59,7 @@ export function cloneSidebarGroups(groups: SidebarGroup[]): SidebarGroup[] {
     icon: item.icon,
     iconName: item.iconName,
     iconMarkup: item.iconMarkup,
+    navBadge: item.navBadge,
     enabled: item.enabled,
     hidden: item.hidden,
     pageContext: item.pageContext,

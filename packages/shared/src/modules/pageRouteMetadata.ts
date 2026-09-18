@@ -22,6 +22,7 @@ export function resolvePageRouteMetadata(pattern: string, metadata: PageMetadata
     requireCustomerAuth: metadata?.requireCustomerAuth,
     requireCustomerFeatures: Array.isArray(metadata?.requireCustomerFeatures) ? [...metadata.requireCustomerFeatures] : undefined,
     nav: metadata?.nav,
+    navBadge: metadata?.navBadge,
     title: metadata?.pageTitle ?? metadata?.title,
     titleKey: metadata?.pageTitleKey ?? metadata?.titleKey,
     group: metadata?.pageGroup ?? metadata?.group,

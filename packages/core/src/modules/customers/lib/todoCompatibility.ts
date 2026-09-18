@@ -14,6 +14,7 @@ import {
 } from './interactionCompatibility'
 import { hydrateCanonicalInteractions, loadCustomerSummaries } from './interactionReadModel'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { isWorkflowTaskSource, WORKFLOW_TASK_TODO_SOURCE } from './workflowTaskLink'
 
 const logger = createLogger('customers')
 
@@ -231,7 +232,8 @@ export async function resolveLegacyTodoDetails(
     const ids = Array.from(idSet)
     if (!ids.length) continue
     try {
-      const result = await queryEngine.query<Record<string, unknown>>(source as EntityId, {
+      const entityId = isWorkflowTaskSource(source) ? WORKFLOW_TASK_TODO_SOURCE : source
+      const result = await queryEngine.query<Record<string, unknown>>(entityId as EntityId, {
         tenantId,
         organizationIds: scopedOrganizationIds.length > 0 ? scopedOrganizationIds : undefined,
         filters: { id: { $in: ids } },

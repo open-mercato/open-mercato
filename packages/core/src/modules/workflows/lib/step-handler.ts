@@ -13,7 +13,6 @@ import { EntityManager } from '@mikro-orm/core'
 import {
   WorkflowInstance,
   WorkflowBranchInstance,
-  WorkflowDefinition,
   StepInstance,
   UserTask,
   WorkflowEvent,
@@ -197,8 +196,8 @@ async function emitStepMilestone(em: EntityManager, stepInstance: StepInstance):
   try {
     const instance = await em.findOne(WorkflowInstance, { id: stepInstance.workflowInstanceId })
     if (!instance) return
-    const definition = await em.findOne(WorkflowDefinition, { id: instance.definitionId })
-    const stepDef = definition?.definition?.steps?.find((step: any) => step.stepId === stepInstance.stepId)
+    const definition = await findDefinitionForInstance(em, instance)
+    const stepDef = definition?.definition?.steps?.find((step) => step.stepId === stepInstance.stepId)
     const milestoneKey = typeof stepDef?.milestone === 'string' ? stepDef.milestone : null
     if (!milestoneKey) return
     await emitWorkflowsEvent(

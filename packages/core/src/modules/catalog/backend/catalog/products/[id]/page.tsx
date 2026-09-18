@@ -587,7 +587,7 @@ export default function EditCatalogProductPage({
       .catch(() => {})
   }, [fetchTaxRateById, initialValues?.taxRateId, taxRates])
 
-  React.useEffect(() => {
+  const loadProduct = React.useCallback(async (signal?: AbortSignal) => {
     if (!productId) {
       setLoading(false);
       setError(
@@ -598,8 +598,7 @@ export default function EditCatalogProductPage({
       );
       return;
     }
-    let cancelled = false;
-    async function loadProduct() {
+    async function fetchProduct() {
       setLoading(true);
       setError(null);
       setIsNotFound(false);
@@ -619,7 +618,7 @@ export default function EditCatalogProductPage({
           ? productRes.result?.items?.[0]
           : undefined;
         if (!record) {
-          if (!cancelled) setIsNotFound(true);
+          if (!signal?.aborted) setIsNotFound(true);
           return;
         }
         const rawMetadata = isRecord(record.metadata)
@@ -770,7 +769,7 @@ export default function EditCatalogProductPage({
                 ? record.updated_at
                 : null,
         };
-        if (!cancelled) {
+        if (!signal?.aborted) {
           setInitialValues({ ...initial, ...customValues });
           setCategorizeOptions({
             categories: categoryOptions,
@@ -781,7 +780,7 @@ export default function EditCatalogProductPage({
         await loadVariants(productId!);
       } catch (err) {
         logger.error('catalog.products.edit.load failed', { err });
-        if (!cancelled) {
+        if (!signal?.aborted) {
           const message =
             err instanceof Error && err.message
               ? err.message
@@ -791,15 +790,19 @@ export default function EditCatalogProductPage({
                 );
           setError(message);
         }
+        throw err;
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!signal?.aborted) setLoading(false);
       }
     }
-    loadProduct();
-    return () => {
-      cancelled = true;
-    };
+    await fetchProduct();
   }, [fetchAttachments, loadVariants, productId, t]);
+
+  React.useEffect(() => {
+    const controller = new AbortController();
+    void loadProduct(controller.signal).catch(() => {});
+    return () => controller.abort();
+  }, [loadProduct]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -1448,6 +1451,9 @@ export default function EditCatalogProductPage({
         previousSnapshots,
         offersPayload,
       );
+      // The write already succeeded. A failed refresh reports itself through the
+      // page error state, so it must not surface as a failed save.
+      await loadProduct().catch(() => {});
       flash(t("catalog.products.edit.success", "Product updated."), "success");
       if (fallbackVariantName) {
         flash(
@@ -1459,7 +1465,7 @@ export default function EditCatalogProductPage({
         );
       }
     },
-    [productId, t, taxRates, variants],
+    [loadProduct, productId, t, taxRates, variants],
   );
 
   if (!productId) {

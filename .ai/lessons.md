@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 141 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 143 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -96,6 +96,10 @@ This catalog indexes 141 focused lessons. Route the task first, then read only r
 - [Sanitize generated component override entries before runtime use](lessons/sanitize-generated-component-override-entries-before.md) — area:umes,architecture; module:shared,cli; topic:component-overrides,generated-files,filters
 
 ### backend-ui
+
+- [Retest stateful flows and legacy records](lessons/retest-stateful-flows-and-legacy-records.md) — area:backend-ui,testing; module:catalog,customers,workflows,agent_orchestrator; topic:optimistic-locking,routing,i18n,testing
+
+- [Configuration suggestions must reflect runtime capabilities](lessons/configuration-suggestions-must-reflect-runtime-capabilities.md) — area:backend-ui,testing; module:agent_orchestrator,ui; topic:ui-components,validation-errors,testing
 
 - [Write-only secret editors need explicit unchanged intent and separate form state](lessons/write-only-secret-editors-need-explicit-unchanged-intent.md) — area:backend-ui,integration,testing; module:integrations,ui; topic:data-integrity,ui-components,testing
 - [Always propagate structured conflict payload from `onBeforeSave` blockers](lessons/always-propagate-structured-conflict-payload-from.md) — area:backend-ui,umes,debugging; module:ui; topic:concurrency,optimistic-locking,ui-components

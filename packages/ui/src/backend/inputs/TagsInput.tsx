@@ -23,6 +23,7 @@ export type TagsInputProps = {
   autoFocus?: boolean
   disabled?: boolean
   allowCustomValues?: boolean
+  commitOnBlur?: boolean
   showSuggestionsOnFocus?: boolean
   suppressInitialSuggestionsOnFocus?: boolean
 }
@@ -59,6 +60,7 @@ export function TagsInput({
   autoFocus,
   disabled = false,
   allowCustomValues = true,
+  commitOnBlur = true,
   showSuggestionsOnFocus = true,
   suppressInitialSuggestionsOnFocus = false,
 }: TagsInputProps) {
@@ -265,7 +267,7 @@ export function TagsInput({
               setInput('')
               return
             }
-            addTag(input)
+            if (commitOnBlur) addTag(input)
             setInput('')
           }}
         />
@@ -273,14 +275,14 @@ export function TagsInput({
           <div className="basis-full mt-1 text-xs text-muted-foreground">Loading suggestions…</div>
         ) : null}
         {!loading && filteredSuggestions.length ? (
-          <div className="basis-full mt-1 flex flex-col gap-1">
+          <div className="basis-full mt-1 flex max-h-64 min-w-0 flex-col gap-1 overflow-y-auto">
             {filteredSuggestions.map((option) => (
               <Button
                 key={option.value}
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="w-full justify-start font-normal flex flex-col items-start text-xs px-1.5 py-1"
+                className="h-auto min-h-9 w-full shrink-0 flex-col items-start justify-start gap-0.5 whitespace-normal px-2 py-2 text-left text-xs font-normal"
                 onMouseDown={(event) => {
                   suppressBlurCommitRef.current = true
                   event.preventDefault()
@@ -291,9 +293,9 @@ export function TagsInput({
                   setInput('')
                 }}
               >
-                <span>{option.label}</span>
+                <span className="max-w-full break-words">{option.label}</span>
                 {option.description ? (
-                  <span className="text-overline text-muted-foreground">{option.description}</span>
+                  <span className="max-w-full break-all text-overline text-muted-foreground">{option.description}</span>
                 ) : null}
               </Button>
             ))}

@@ -5,6 +5,40 @@ import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWith
 import { TagsInput } from '../TagsInput'
 
 describe('TagsInput', () => {
+  it('lets suggestion labels and descriptions wrap within an auto-height row', () => {
+    renderWithProviders(
+      <TagsInput
+        value={[]}
+        onChange={() => {}}
+        suggestions={[{ value: 'agent_orchestrator.agents.run', label: 'Run agents directly', description: 'agent_orchestrator.agents.run' }]}
+      />,
+    )
+    const suggestion = screen.getByRole('button', { name: /Run agents directly/ })
+    expect(suggestion).toHaveClass('h-auto', 'shrink-0', 'whitespace-normal', 'gap-0.5')
+    expect(screen.getByText('agent_orchestrator.agents.run')).toHaveClass('break-all')
+  })
+
+  it('can require explicit selection or Enter without committing a search on blur', () => {
+    const onChange = jest.fn()
+    renderWithProviders(<TagsInput value={[]} onChange={onChange} commitOnBlur={false} />)
+    const input = screen.getByRole('textbox')
+    fireEvent.change(input, { target: { value: 'search fragment' } })
+    fireEvent.blur(input)
+    expect(onChange).not.toHaveBeenCalled()
+    fireEvent.change(input, { target: { value: 'sales.*' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(onChange).toHaveBeenCalledWith(['sales.*'])
+  })
+
+  it('preserves commit-on-blur for existing callers', () => {
+    const onChange = jest.fn()
+    renderWithProviders(<TagsInput value={[]} onChange={onChange} />)
+    const input = screen.getByRole('textbox')
+    fireEvent.change(input, { target: { value: 'existing behavior' } })
+    fireEvent.blur(input)
+    expect(onChange).toHaveBeenCalledWith(['existing behavior'])
+  })
+
   it('does not add the typed query when selecting a suggestion', () => {
     function Harness() {
       const [value, setValue] = React.useState<string[]>([])

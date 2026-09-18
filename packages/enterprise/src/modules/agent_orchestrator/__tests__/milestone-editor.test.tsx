@@ -1,170 +1,177 @@
 /**
  * @jest-environment jsdom
- *
- * The milestone editor island: reordering, the key suggestions read back from
- * the bound workflow, and the drift warning it renders without ever blocking a
- * save.
  */
-
+import * as React from 'react'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import type { ProcessMilestone } from '../data/validators'
 import { MilestoneEditor } from '../backend/processes/definitions/MilestoneEditor'
+import { fetchWorkflowMilestones } from '../backend/processes/definitions/milestoneSuggestions'
+import dictionary from '../i18n/en.json'
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({ apiCall: jest.fn() }))
-
 const apiCallMock = apiCall as jest.Mock
-
-/** The test translator returns the key, so assertions read as the contract. */
-const t: TranslateFn = (key) => key
-
-const MILESTONES: ProcessMilestone[] = [
+const t: TranslateFn = (key, fallback, params) => {
+  const text = (dictionary as Record<string, string>)[key] ?? fallback ?? key
+  return text.replace(/\{(\w+)\}/g, (match, name: string) => String(params?.[name] ?? match))
+}
+const milestones: ProcessMilestone[] = [
   { key: 'reported', label: 'Reported', order: 0 },
-  { key: 'assessed', label: 'Assessed', order: 1 },
-  { key: 'paid', label: 'Paid', order: 2 },
+  { key: 'paid', label: 'Paid', order: 1 },
 ]
-
-/**
- * The workflow as the definitions API returns it. A milestone key is what a STEP
- * announces, so the editor reads the keys off the steps rather than the step ids
- * themselves — the whole point of the model is that the two are different things.
- */
-function respondWithEmittedKeys(keys: Array<string | null>) {
-  apiCallMock.mockResolvedValue({
+function response(keys: string[], workflowId = 'claims.intake') {
+  return {
     ok: true,
-    status: 200,
     result: {
       data: [
         {
-          workflowId: 'claims.intake',
+          id: 'definition',
+          workflowId,
+          version: 1,
           definition: {
-            steps: keys.map((milestone, index) => ({
-              stepId: `step_${index}`,
-              ...(milestone ? { milestone } : {}),
-            })),
+            steps: keys.map((milestone) => ({ stepId: milestone, stepName: milestone + ' step', milestone })),
           },
         },
       ],
+      pagination: { hasMore: false },
     },
-    response: {},
-    cacheStatus: null,
-  })
+  }
 }
-
-function renderEditor(
-  value: ProcessMilestone[],
-  onChange: (next: ProcessMilestone[]) => void,
-  overrides: { workflowId?: string | null } = {},
-) {
-  renderWithProviders(
-    <MilestoneEditor
-      value={value}
-      onChange={onChange}
-      workflowId={overrides.workflowId === undefined ? 'claims.intake' : overrides.workflowId}
-      t={t}
-    />,
+function Harness({
+  workflowId = 'claims.intake',
+  initial = [],
+}: {
+  workflowId?: string
+  initial?: ProcessMilestone[]
+}) {
+  const [value, setValue] = React.useState(initial)
+  return (
+    <>
+      <MilestoneEditor value={value} onChange={setValue} workflowId={workflowId} t={t} />
+      <output data-testid="stored">{JSON.stringify(value)}</output>
+    </>
   )
 }
-
 beforeEach(() => {
   apiCallMock.mockReset()
-  respondWithEmittedKeys(['reported', 'assessed', 'paid'])
+  apiCallMock.mockResolvedValue(response(['reported', 'paid']))
 })
 
-describe('milestone editor', () => {
-  it('reorders a milestone and renumbers the whole list', async () => {
-    const onChange = jest.fn()
-    renderEditor(MILESTONES, onChange)
+test('selects a reported milestone, edits its display name without changing its key, and removes the suggestion', async () => {
+  renderWithProviders(<Harness />)
+  const suggestion = await screen.findByRole('button', { name: /Reported.*reported step/ })
+  fireEvent.click(suggestion)
+  const label = screen.getByDisplayValue('Reported')
+  fireEvent.change(label, { target: { value: 'Request received' } })
+  expect(screen.getByTestId('stored').textContent).toContain('"key":"reported","label":"Request received"')
+  expect(screen.queryByRole('button', { name: /Reported.*reported step/ })).toBeNull()
+})
 
-    const moveUp = await screen.findAllByRole('button', {
-      name: 'agent_orchestrator.processDefinitions.milestones.moveUp',
-    })
-    // The first row cannot move up; the third row's control moves "Paid" above "Assessed".
-    fireEvent.click(moveUp[2])
+test('adds all unselected milestones without duplicates and supports reordering', async () => {
+  renderWithProviders(<Harness initial={[milestones[0]]} />)
+  fireEvent.click(await screen.findByRole('button', { name: /Paid.*paid step/ }))
+  fireEvent.click(
+    screen.getAllByRole('button', { name: t('agent_orchestrator.processDefinitions.milestones.moveUp') })[1],
+  )
+  expect(JSON.parse(screen.getByTestId('stored').textContent!)).toEqual([
+    { key: 'paid', label: 'Paid', order: 0 },
+    { key: 'reported', label: 'Reported', order: 1 },
+  ])
+})
 
-    expect(onChange).toHaveBeenCalledTimes(1)
-    const next = onChange.mock.calls[0][0] as ProcessMilestone[]
-    expect(next.map((one) => one.label)).toEqual(['Reported', 'Paid', 'Assessed'])
-    expect(next.map((one) => one.order)).toEqual([0, 1, 2])
+test('empty workflow explains overall status and never invents suggestions', async () => {
+  apiCallMock.mockResolvedValue(response([]))
+  renderWithProviders(<Harness />)
+  expect(
+    await screen.findByText(t('agent_orchestrator.processDefinitions.milestones.noSuggestions')),
+  ).toBeTruthy()
+  expect(screen.queryByText(t('agent_orchestrator.processDefinitions.milestones.available'))).toBeNull()
+})
+
+test('custom drafts are not saved or warned about until explicitly added', async () => {
+  renderWithProviders(<Harness />)
+  await screen.findByText(t('agent_orchestrator.processDefinitions.milestones.available'))
+  fireEvent.click(screen.getByText(t('agent_orchestrator.processDefinitions.milestones.custom')))
+  fireEvent.change(screen.getByLabelText(t('agent_orchestrator.processDefinitions.milestones.label')), {
+    target: { value: 'Review done' },
   })
+  expect(screen.getByTestId('stored').textContent).toBe('[]')
+  expect(screen.queryByRole('alert')).toBeNull()
+  fireEvent.click(
+    screen.getByRole('button', {
+      name: t('agent_orchestrator.processDefinitions.milestones.add'),
+      exact: true,
+    }),
+  )
+  expect(screen.getByTestId('stored').textContent).toContain('"key":"review_done"')
+  expect(screen.getByText(/Not reported by the selected workflow: Review done/)).toBeTruthy()
+})
 
-  it('disables the ordering controls at the ends of the list', async () => {
-    renderEditor(MILESTONES, jest.fn())
-    const moveUp = await screen.findAllByRole('button', {
-      name: 'agent_orchestrator.processDefinitions.milestones.moveUp',
-    })
-    const moveDown = screen.getAllByRole('button', {
-      name: 'agent_orchestrator.processDefinitions.milestones.moveDown',
-    })
-    expect((moveUp[0] as HTMLButtonElement).disabled).toBe(true)
-    expect((moveDown[2] as HTMLButtonElement).disabled).toBe(true)
-  })
+test('network failures offer retry and do not assert milestones are missing', async () => {
+  apiCallMock.mockRejectedValueOnce(new Error('offline'))
+  renderWithProviders(<Harness initial={milestones} />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Try again' }))
+  await waitFor(() => expect(apiCallMock).toHaveBeenCalledTimes(2))
+  expect(screen.queryByText(/Not reported by the selected workflow:/)).toBeNull()
+})
 
-  it('suggests the keys the workflow emits and adds a milestone at the end', async () => {
-    const onChange = jest.fn()
-    renderEditor(MILESTONES, onChange)
-
-    await waitFor(() => expect(document.querySelectorAll('datalist option')).toHaveLength(3))
-    fireEvent.click(screen.getByText('agent_orchestrator.processDefinitions.milestones.add'))
-
-    const next = onChange.mock.calls[0][0] as ProcessMilestone[]
-    expect(next).toHaveLength(4)
-    expect(next[3].order).toBe(3)
-    // A new row starts blank: the key is a business identifier the author chooses
-    // and the workflow must literally emit, never a generated id.
-    expect(next[3].key).toBe('')
-  })
-
-  it('ignores steps that announce no milestone — a step is not a milestone', async () => {
-    respondWithEmittedKeys(['reported', null, null])
-    renderEditor(MILESTONES, jest.fn())
-    await waitFor(() => expect(document.querySelectorAll('datalist option')).toHaveLength(1))
-  })
-
-  it('warns about a declared key no step emits, without blocking anything', async () => {
-    respondWithEmittedKeys(['reported', 'paid'])
-    renderEditor(MILESTONES, jest.fn())
-
-    await waitFor(() =>
-      expect(
-        screen.getByText('agent_orchestrator.processDefinitions.milestones.problems.title'),
-      ).toBeTruthy(),
-    )
-    expect(
-      screen.getByText('agent_orchestrator.processDefinitions.milestones.problems.stillSaveable'),
-    ).toBeTruthy()
-    // The editor still renders every row and every control — nothing is disabled by a warning.
-    expect(
-      screen.getAllByRole('button', {
-        name: 'agent_orchestrator.processDefinitions.milestones.remove',
+test('switching workflows keeps selected milestones and ignores a late old response', async () => {
+  let resolveOld: (value: ReturnType<typeof response>) => void = () => {}
+  apiCallMock.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        resolveOld = resolve
       }),
-    ).toHaveLength(3)
-  })
+  )
+  const { rerender } = renderWithProviders(<Harness initial={milestones} />)
+  apiCallMock.mockResolvedValue(response(['reviewed'], 'new.workflow'))
+  rerender(<Harness workflowId="new.workflow" initial={milestones} />)
+  await screen.findByRole('button', { name: /Reviewed.*reviewed step/ })
+  resolveOld(response(['reported']))
+  await waitFor(() => expect(screen.queryByRole('button', { name: /Reported.*reported step/ })).toBeNull())
+  expect(screen.getByTestId('stored').textContent).toContain('"key":"paid"')
+})
 
-  it('reports nothing when the workflow could not be resolved — unknown is not missing', async () => {
-    apiCallMock.mockResolvedValue({ ok: false, status: 403, result: {}, response: {}, cacheStatus: null })
-    renderEditor(MILESTONES, jest.fn())
+test('new single-agent processes suggest only completion without requesting a workflow', async () => {
+  renderWithProviders(<MilestoneEditor value={[]} onChange={jest.fn()} workflowId={null} singleAgent t={t} />)
+  expect(screen.getByRole('button', { name: /Task completed/ })).toBeTruthy()
+  expect(apiCallMock).not.toHaveBeenCalled()
+})
 
-    await waitFor(() =>
-      expect(
-        screen.getByText('agent_orchestrator.processDefinitions.milestones.emittedUnresolved'),
-      ).toBeTruthy(),
-    )
-    expect(
-      screen.queryByText('agent_orchestrator.processDefinitions.milestones.problems.title'),
-    ).toBeNull()
-  })
-
-  it('still authors milestones with no workflow bound, and asks nothing', async () => {
-    // A single-agent process has no workflow id until the definition is saved, and
-    // the vocabulary is authored on the PROCESS — so the editor stays usable.
-    renderEditor([], jest.fn(), { workflowId: null })
-
-    expect(
-      screen.getByText('agent_orchestrator.processDefinitions.milestones.add'),
-    ).toBeTruthy()
-    await waitFor(() => expect(apiCallMock).not.toHaveBeenCalled())
-  })
+test('reads the latest published version across pages and combines repeated milestone emissions', async () => {
+  apiCallMock
+    .mockResolvedValueOnce({
+      ok: true,
+      result: {
+        data: [{ workflowId: 'claims.intake', version: 1, definition: { steps: [{ milestone: 'old' }] } }],
+        pagination: { hasMore: true },
+      },
+    })
+    .mockResolvedValueOnce({
+      ok: true,
+      result: {
+        data: [
+          {
+            workflowId: 'claims.intake',
+            version: 3,
+            definition: {
+              steps: [
+                { stepName: 'Card payment', milestone: 'paid' },
+                { stepName: 'Bank transfer', milestone: 'paid' },
+                { stepName: 'Unmarked step' },
+              ],
+            },
+          },
+        ],
+        pagination: { hasMore: false },
+      },
+    })
+  const result = await fetchWorkflowMilestones('claims.intake')
+  expect(result?.suggestions).toEqual([
+    { key: 'paid', label: 'Paid', steps: ['Card payment', 'Bank transfer'] },
+  ])
+  expect(apiCallMock.mock.calls[1][0]).toContain('offset=100')
+  expect(apiCallMock.mock.calls[0][0]).toContain('lifecycle=published')
 })

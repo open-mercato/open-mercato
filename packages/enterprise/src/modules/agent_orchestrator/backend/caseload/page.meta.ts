@@ -16,6 +16,7 @@ export const metadata = {
   pageGroupKey: 'agent_orchestrator.nav.group',
   pagePriority: 60,
   pageOrder: 140,
+  navBadge: { label: 'beta' },
   icon: caseloadIcon,
   breadcrumb: [{ label: 'Caseload', labelKey: 'agent_orchestrator.nav.caseload' }],
 }

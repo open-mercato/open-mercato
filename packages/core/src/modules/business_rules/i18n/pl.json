@@ -231,7 +231,7 @@
   "business_rules.rules.form.placeholders.description": "Opcjonalnie: Opisz cel tej reguły",
   "business_rules.rules.form.placeholders.entityType": "Zacznij pisać, aby zobaczyć podpowiedzi",
   "business_rules.rules.form.placeholders.eventType": "Zacznij pisać, aby zobaczyć podpowiedzi",
-  "business_rules.rules.form.placeholders.ruleCategory": "np. Cenowanie, Przepływ pracy, Jakość danych",
+  "business_rules.rules.form.placeholders.ruleCategory": "np. Cenowanie, Automatyzacja, Jakość danych",
   "business_rules.rules.form.placeholders.ruleId": "AUTO_GENERATED_ID",
   "business_rules.rules.form.placeholders.ruleName": "Wprowadź opisową nazwę reguły",
   "business_rules.rules.form.priority": "Priorytet",

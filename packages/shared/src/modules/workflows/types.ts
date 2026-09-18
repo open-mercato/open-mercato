@@ -63,6 +63,7 @@ export interface CodeStepDefinition<TStepId extends string = string> {
   stepId: TStepId
   stepName: string
   stepType: WorkflowStepType
+  milestone?: string
   description?: string
   config?: Record<string, unknown>
   userTaskConfig?: {

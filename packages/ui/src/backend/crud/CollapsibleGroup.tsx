@@ -142,6 +142,8 @@ export const CollapsibleGroup = React.forwardRef<CollapsibleGroupHandle, Collaps
         )}
         <div
           id={contentId}
+          inert={!expanded}
+          aria-hidden={!expanded}
           className={cn(
             'motion-safe:transition-all motion-safe:duration-200 overflow-hidden',
             expanded ? 'max-h-[5000px] opacity-100' : 'max-h-0 opacity-0'

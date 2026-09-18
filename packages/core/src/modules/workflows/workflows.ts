@@ -142,6 +142,7 @@ const checkoutDemo = defineWorkflow({
       stepId: 'customer_info',
       stepName: 'Customer Information',
       stepType: 'USER_TASK',
+      milestone: 'customer_details_collected',
       description: 'Collect customer shipping and contact information',
       userTaskConfig: {
         formSchema: {
@@ -162,11 +163,12 @@ const checkoutDemo = defineWorkflow({
       stepId: 'wait_payment_confirmation',
       stepName: 'Wait for Payment Confirmation',
       stepType: 'WAIT_FOR_SIGNAL',
+      milestone: 'payment_confirmed',
       description: 'Waiting for payment provider webhook confirmation',
       signalConfig: { signalName: 'payment_confirmed', timeout: 'PT5M' },
     },
     { stepId: 'order_confirmation', stepName: 'Order Confirmation', stepType: 'AUTOMATED', description: 'Create order record and send confirmation', timeout: 'PT15S' },
-    { stepId: 'end', stepName: 'Complete', stepType: 'END', description: 'Checkout completed successfully' },
+    { stepId: 'end', stepName: 'Complete', stepType: 'END', milestone: 'checkout_completed', description: 'Checkout completed successfully' },
   ] as const,
   transitions: [
     {

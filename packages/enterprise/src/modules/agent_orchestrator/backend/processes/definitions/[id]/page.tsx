@@ -163,6 +163,7 @@ export default function ProcessDefinitionDetailPage({ params }: { params?: { id?
   const [runInput, setRunInput] = React.useState('')
   const [runBusy, setRunBusy] = React.useState(false)
   const [triggerBusy, setTriggerBusy] = React.useState(false)
+  const triggersValid = React.useRef(true)
   const [milestoneBusy, setMilestoneBusy] = React.useState(false)
 
   const { runMutation, retryLastMutation } = useGuardedMutation<{ retryLastMutation: () => Promise<boolean> }>({
@@ -270,6 +271,10 @@ export default function ProcessDefinitionDetailPage({ params }: { params?: { id?
    */
   const saveTriggers = React.useCallback(async () => {
     if (triggerBusy || !task) return
+    if (!triggersValid.current) {
+      flash(t('agent_orchestrator.processDefinitions.triggers.fixConfiguration'), 'error')
+      return
+    }
     if (invalidScheduleIndexes(triggerDraft).length > 0) {
       flash(t('agent_orchestrator.processDefinitions.form.errors.cronInvalid'), 'error')
       return
@@ -607,6 +612,7 @@ export default function ProcessDefinitionDetailPage({ params }: { params?: { id?
             <TriggerEditor
               value={triggerDraft}
               onChange={setTriggerDraft}
+              onValidityChange={(valid) => { triggersValid.current = valid }}
               disabled={triggerBusy}
               locale={locale}
               t={t}
@@ -648,6 +654,7 @@ export default function ProcessDefinitionDetailPage({ params }: { params?: { id?
                 value={milestoneDraft}
                 onChange={setMilestoneDraft}
                 workflowId={task.workflowId}
+                singleAgent={task.workflowMode === 'single_agent'}
                 disabled={milestoneBusy}
                 t={t}
               />

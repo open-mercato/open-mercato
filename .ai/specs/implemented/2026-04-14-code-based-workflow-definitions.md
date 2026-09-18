@@ -416,6 +416,14 @@ New locale keys:
 
 ## Migration & Compatibility
 
+### Milestones — Migration & Backward Compatibility
+
+`CodeStepDefinition.milestone?: string` and the corresponding `defineWorkflow` input are additive. The builder preserves explicitly supplied milestone keys and omits the property when absent, leaving existing definitions unchanged. The existing core step schema validates keys and the existing `workflows.instance.milestone_reached` event carries them; no new event ID, payload contract, database migration, or execution-state transition is introduced.
+
+Milestone emission resolves the instance's definition through `findDefinitionForInstance`, retaining database precedence and the deterministic-ID guard for code fallback. The bundled checkout declares `customer_details_collected` on customer task completion, `payment_confirmed` on payment signal completion, and `checkout_completed` on the final END step, after order creation and confirmation activities. It does not declare fulfilment, which this demo does not perform. Existing customized database definitions are not overwritten and must opt into these annotations separately.
+
+Regression coverage checks builder preservation/absence, module registration, and emission from both database-backed and unpersisted code checkout definitions. Existing definition-resolution tests cover fallback and database precedence.
+
 ### Database Migration
 
 - Add `code_workflow_id varchar(100) NULL` to `workflow_definitions`.
@@ -674,6 +682,10 @@ None.
 **Fully compliant** — ready for implementation. Post-implementation fixes through 2026-04-28 (dedicated `/customize` endpoint, soft-deleted override revival, embedded triggers in PUT, dotted `workflowId` regex, mutation-guard wiring on reset, list `find`/`count` split, legacy seed-ID rename migration, removal of cross-organization customize block) were re-reviewed against the same compliance matrix with no regressions.
 
 ## Changelog
+
+### 2026-09-14
+
+- Added optional milestone preservation to the code workflow builder and checkout's three business checkpoints. Reused the existing instance-definition resolver for milestone emission so code-only workflows report progress without a database copy. Added builder and checkout emission regression coverage; existing customized definitions remain unchanged.
 
 ### 2026-04-14
 - Initial specification

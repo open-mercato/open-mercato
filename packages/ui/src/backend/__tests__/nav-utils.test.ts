@@ -346,6 +346,67 @@ describe('settings navigation helpers', () => {
   })
 })
 
+describe('sidebar alpha and beta navigation badges', () => {
+  const baseRoute = {
+    pattern: '/backend/early-access',
+    title: 'Early access',
+  }
+
+  it('includes an active badge and excludes badges outside their window', async () => {
+    const now = new Date('2026-10-01T12:00:00Z')
+    const entries = await buildAdminNav(
+      [{
+        id: 'example',
+        backendRoutes: [
+          { ...baseRoute, navBadge: { label: 'alpha', startsAt: '2026-10-01T00:00:00Z', endsAt: '2026-11-01T00:00:00Z' } },
+          { pattern: '/backend/beta', title: 'Beta', navBadge: { label: 'beta', startsAt: '2026-11-01T00:00:00Z' } },
+          { pattern: '/backend/expired', title: 'Expired', navBadge: { label: 'beta', endsAt: '2026-10-01T12:00:00Z' } },
+        ],
+      }],
+      { auth: { roles: [] } },
+      undefined,
+      undefined,
+      { now },
+    )
+
+    expect(entries.find((entry) => entry.href === baseRoute.pattern)?.navBadge).toEqual({ label: 'alpha' })
+    expect(entries.find((entry) => entry.href === '/backend/beta')?.navBadge).toBeUndefined()
+    expect(entries.find((entry) => entry.href === '/backend/expired')?.navBadge).toBeUndefined()
+  })
+
+  it('fails closed for malformed date boundaries and preserves badges on settings sections', async () => {
+    const entries = await buildAdminNav(
+      [{
+        id: 'example',
+        backendRoutes: [
+          { pattern: '/backend/settings/early-access', title: 'Early access', pageContext: 'settings', group: 'Example', groupKey: 'example.settings', navBadge: { label: 'beta', startsAt: 'not-a-date' } },
+        ],
+      }],
+      { auth: { roles: [] } },
+      undefined,
+      undefined,
+      { now: new Date('2026-10-01T12:00:00Z') },
+    )
+
+    expect(entries[0].navBadge).toBeUndefined()
+
+    const validEntries = await buildAdminNav(
+      [{
+        id: 'example',
+        backendRoutes: [
+          { pattern: '/backend/settings/early-access', title: 'Early access', pageContext: 'settings', group: 'Example', groupKey: 'example.settings', navBadge: { label: 'beta' } },
+        ],
+      }],
+      { auth: { roles: [] } },
+      undefined,
+      undefined,
+      { now: new Date('2026-10-01T12:00:00Z') },
+    )
+
+    expect(buildSettingsSections(validEntries, { 'example.settings': 1 })[0]?.items[0]?.navBadge).toEqual({ label: 'beta' })
+  })
+})
+
 describe('profile navigation helpers', () => {
   const profileEntry = (overrides: Partial<AdminNavItem>): AdminNavItem => ({
     group: 'Account',

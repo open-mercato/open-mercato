@@ -535,6 +535,7 @@ Implementation remains blocked until this specification is merged and the public
 
 ## Changelog
 
+- **2026-09-15** — #6054 presentation correction: portal detail `canComplete` now includes the existing `portal.tasks.complete` grant as well as task eligibility. Viewers receive a read-only explanation; permission refusals and missing company associations have specific messages in every shipped locale. Server write authorization and tenant/company scoping are unchanged.
 ### 2026-07-22
 
 - Rebased the specification baseline onto current `develop`, preserving the merged stable-activity-output specification.

@@ -22,6 +22,7 @@ const requireCustomerFeature = jest.fn<(...args: unknown[]) => Promise<void>>()
 const findWithDecryption = jest.fn<(...args: unknown[]) => Promise<unknown[]>>()
 const completeUserTask = jest.fn<(...args: unknown[]) => Promise<void>>()
 const loadAcl = jest.fn<(...args: unknown[]) => Promise<{ isPortalAdmin: boolean; features: string[] }>>()
+const userHasAllFeatures = jest.fn<(...args: unknown[]) => Promise<boolean>>()
 const getAuthFromRequest = jest.fn<(req: Request) => Promise<unknown>>()
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
@@ -127,13 +128,14 @@ beforeEach(() => {
   requireCustomerFeature.mockResolvedValue(undefined)
   completeUserTask.mockResolvedValue(undefined)
   loadAcl.mockResolvedValue({ isPortalAdmin: false, features: ['portal.tasks.view'] })
+  userHasAllFeatures.mockResolvedValue(true)
   signedInAs()
 
   const { createRequestContainer } = require('@open-mercato/shared/lib/di/container')
   createRequestContainer.mockResolvedValue({
     resolve: (name: string) => {
       if (name === 'em') return mockEm
-      if (name === 'customerRbacService') return { loadAcl, userHasAllFeatures: async () => true }
+      if (name === 'customerRbacService') return { loadAcl, userHasAllFeatures }
       if (name === 'taskHandler') return { completeUserTask }
       return null
     },
@@ -141,6 +143,21 @@ beforeEach(() => {
 })
 
 describe('authentication and feature gates', () => {
+  test('a viewer assigned their own task can read it but receives no completion affordance', async () => {
+    taskRow = makeTask()
+    userHasAllFeatures.mockResolvedValue(false)
+
+    const response = await runDetail()
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ ok: true, canComplete: false })
+    expect(userHasAllFeatures).toHaveBeenCalledWith(PORTAL_SUB, ['portal.tasks.complete'], {
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+    })
+    expect(completeUserTask).not.toHaveBeenCalled()
+  })
+
   test('an unauthenticated caller gets 401 on every portal route', async () => {
     getCustomerAuthFromRequest.mockResolvedValue(null)
 

@@ -12,6 +12,24 @@ const minimalTransitions = [
 ]
 
 describe('defineWorkflow()', () => {
+  test('preserves declared milestones and omits undeclared milestones', () => {
+    const workflow = defineWorkflow({
+      workflowId: 'test.milestones',
+      workflowName: 'Milestones',
+      steps: [
+        { stepId: 'start', stepName: 'Start', stepType: 'START' },
+        { stepId: 'end', stepName: 'Complete', stepType: 'END', milestone: 'checkout_completed' },
+      ] as const,
+      transitions: minimalTransitions,
+    })
+
+    expect(workflow.definition.steps[0]).toEqual(minimalSteps[0])
+    expect(workflow.definition.steps[0]).not.toHaveProperty('milestone')
+    expect(workflow.definition.steps[1].milestone).toBe('checkout_completed')
+    const config = createWorkflowsModuleConfig({ moduleId: 'test', workflows: [workflow] })
+    expect(config.workflows[0].definition.steps[1].milestone).toBe('checkout_completed')
+  })
+
   test('returns a CodeWorkflowDefinition with correct top-level structure', () => {
     const workflow = defineWorkflow({
       workflowId: 'sales.order-approval',

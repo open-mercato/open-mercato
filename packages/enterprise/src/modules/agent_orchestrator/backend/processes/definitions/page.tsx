@@ -1,10 +1,11 @@
 "use client"
 
 import * as React from 'react'
+import { WorkflowPickerField } from './WorkflowPickerField'
 import { useRouter } from 'next/navigation'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { z } from 'zod'
-import { Plus, Bot, Workflow as WorkflowIcon, CalendarClock, Hand, Radio, X, TriangleAlert } from 'lucide-react'
+import { Plus, Bot, Workflow as WorkflowIcon, CalendarClock, Hand, Radio, TriangleAlert } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
@@ -15,12 +16,11 @@ import {
   type CrudField,
   type CrudFieldOption,
   type CrudCustomFieldRenderProps,
+  type CrudFormGroup,
 } from '@open-mercato/ui/backend/CrudForm'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { IconButton } from '@open-mercato/ui/primitives/icon-button'
-import { Input } from '@open-mercato/ui/primitives/input'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrud, updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
@@ -45,10 +45,10 @@ import { parseProcessTriggers, scheduleTriggers, eventTriggers, manualTrigger } 
 import { parseProcessMilestones } from '../../../lib/tasks/milestones'
 import { TriggerEditor, invalidScheduleIndexes } from './TriggerEditor'
 import { MilestoneEditor } from './MilestoneEditor'
+import { PermissionPicker } from './PermissionPicker'
 import {
   parseGrantedFeaturesText,
   resolveFeaturePrefill,
-  unknownFeatureIds,
 } from './formHelpers'
 
 const ENTITY_ID = 'agent_orchestrator:process_definition'
@@ -119,6 +119,11 @@ type FormValues = {
   updatedAt?: string | null
 }
 
+type WorkflowDefinitionListResponse = {
+  data?: Array<Record<string, unknown>>
+  items?: Array<Record<string, unknown>>
+}
+
 /**
  * The disposition rule a single-agent process runs with, as one choice instead of
  * a threshold plus a margin plus a boolean. `ask` is the safe default: a process
@@ -144,6 +149,19 @@ function readString(record: Record<string, unknown>, ...keys: string[]): string 
     if (typeof value === 'string') return value
   }
   return ''
+}
+
+function mapWorkflowOptions(items: Array<Record<string, unknown>>): CrudFieldOption[] {
+  return items
+    .map((item) => {
+      const id = readString(item, 'workflowId', 'workflow_id')
+      const name = readString(item, 'workflowName', 'workflow_name', 'name')
+      return {
+        value: id,
+        label: name ? `${name} (${id})` : id,
+      }
+    })
+    .filter((option) => option.value !== '')
 }
 
 function mapRow(item: Record<string, unknown>): ProcessDefinitionRow | null {
@@ -182,31 +200,16 @@ function parseJsonField(raw: string | undefined, fieldId: string, message: strin
   }
 }
 
-type FeatureCatalogItem = { id: string; title: string }
-
-const FEATURES_DATALIST_ID = 'om-agent-process-definition-features'
-
-/**
- * Chips + datalist picker over the declared feature catalog. The form value
- * stays the newline-joined string (`grantedFeaturesText`) so submit/edit
- * plumbing is unchanged; this component is the safety layer: catalog
- * suggestions while typing, warning chips for unknown ids, a least-privilege
- * prefill when switching a fresh task to a workflow target, and a non-blocking
- * empty-grants warning for workflow-target tasks.
- */
 function FeaturesPickerField({
   fieldProps,
-  catalog,
   isEdit,
   t,
 }: {
   fieldProps: CrudCustomFieldRenderProps
-  catalog: FeatureCatalogItem[]
   isEdit: boolean
   t: ReturnType<typeof useT>
 }) {
   const { value, values, setValue } = fieldProps
-  const [draft, setDraft] = React.useState('')
   const prefilledRef = React.useRef(false)
   const features = React.useMemo(
     () => parseGrantedFeaturesText(typeof value === 'string' ? value : ''),
@@ -224,82 +227,9 @@ function FeaturesPickerField({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workflowMode])
 
-  const unknown = React.useMemo(
-    () => new Set(unknownFeatureIds(features, catalog.map((item) => item.id))),
-    [features, catalog],
-  )
-
-  const addDraft = React.useCallback(() => {
-    const trimmed = draft.trim()
-    if (!trimmed) return
-    if (!features.includes(trimmed)) setValue([...features, trimmed].join('\n'))
-    setDraft('')
-  }, [draft, features, setValue])
-
-  const removeFeature = React.useCallback(
-    (id: string) => {
-      setValue(features.filter((feature) => feature !== id).join('\n'))
-    },
-    [features, setValue],
-  )
-
   return (
     <div className="space-y-2">
-      <div className="flex items-center gap-2">
-        <Input
-          id={fieldProps.id}
-          list={FEATURES_DATALIST_ID}
-          value={draft}
-          placeholder={t('agent_orchestrator.processDefinitions.form.featuresAdd')}
-          onChange={(event) => setDraft(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') {
-              event.preventDefault()
-              addDraft()
-            }
-          }}
-        />
-        <Button type="button" variant="outline" onClick={addDraft} disabled={!draft.trim()}>
-          {t('agent_orchestrator.processDefinitions.form.featuresAddAction')}
-        </Button>
-        <datalist id={FEATURES_DATALIST_ID}>
-          {catalog.map((item) => (
-            <option key={item.id} value={item.id}>
-              {item.title}
-            </option>
-          ))}
-        </datalist>
-      </div>
-      {features.length > 0 ? (
-        <div className="flex flex-wrap gap-1.5">
-          {features.map((feature) => {
-            const isUnknown = unknown.has(feature)
-            return (
-              <span
-                key={feature}
-                title={isUnknown ? t('agent_orchestrator.processDefinitions.form.featuresUnknown') : undefined}
-                className={
-                  isUnknown
-                    ? 'inline-flex items-center gap-1 rounded-md border border-status-warning-border bg-status-warning-bg px-2 py-0.5 font-mono text-xs text-status-warning-text'
-                    : 'inline-flex items-center gap-1 rounded-md border border-border bg-muted px-2 py-0.5 font-mono text-xs text-foreground'
-                }
-              >
-                {isUnknown ? <TriangleAlert className="size-3 shrink-0" /> : null}
-                {feature}
-                <IconButton
-                  type="button"
-                  variant="ghost"
-                  size="xs"
-                  aria-label={t('agent_orchestrator.processDefinitions.form.featuresRemove', undefined, { id: feature })}
-                  onClick={() => removeFeature(feature)}
-                >
-                  <X className="size-3" />
-                </IconButton>
-              </span>
-            )
-          })}
-        </div>
-      ) : null}
+      <PermissionPicker value={features} onChange={(selected) => setValue(selected.join('\n'))} />
       {features.length === 0 ? (
         <div
           role="status"
@@ -369,10 +299,31 @@ export default function ProcessDefinitionsPage() {
   const [editing, setEditing] = React.useState<ProcessDefinitionRow | null>(null)
   const [mode, setMode] = React.useState<'list' | 'create' | 'edit'>('list')
   const [agents, setAgents] = React.useState<CrudFieldOption[]>([])
-  const [workflows, setWorkflows] = React.useState<CrudFieldOption[]>([])
-  const [featureCatalog, setFeatureCatalog] = React.useState<FeatureCatalogItem[]>([])
   const locale = useLocale()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
+  const triggersValid = React.useRef(true)
+
+  const loadWorkflowOptions = React.useCallback(async (query?: string): Promise<CrudFieldOption[]> => {
+    const trimmedQuery = query?.trim()
+    const searchQuery = trimmedQuery ? `&search=${encodeURIComponent(trimmedQuery)}` : ''
+    const call = await apiCall<WorkflowDefinitionListResponse>(
+      `/api/workflows/definitions?limit=100&offset=0${searchQuery}`,
+      undefined,
+      { fallback: { data: [] } },
+    )
+    if (!call.ok) return []
+    const items = Array.isArray(call.result?.data)
+      ? call.result.data
+      : Array.isArray(call.result?.items)
+        ? call.result.items
+        : []
+    return mapWorkflowOptions(items)
+  }, [])
+
+  const resolveWorkflowLabel = React.useCallback(async (value: string): Promise<string> => {
+    const options = await loadWorkflowOptions(value)
+    return options.find((option) => option.value === value)?.label ?? value
+  }, [loadWorkflowOptions])
 
   const load = React.useCallback(async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) setIsLoading(true)
@@ -425,41 +376,8 @@ export default function ProcessDefinitionsPage() {
           .filter((option) => option.value !== ''),
       )
     })
-    void apiCall<{ items?: Array<Record<string, unknown>> }>(
-      '/api/workflows/definitions?pageSize=100',
-      undefined,
-      { fallback: { items: [] } },
-    ).then((call) => {
-      if (cancelled || !call.ok) return
-      const items = Array.isArray(call.result?.items) ? call.result.items : []
-      setWorkflows(
-        items
-          .map((item) => {
-            const id = typeof item.workflowId === 'string' ? item.workflowId : ''
-            const label = typeof item.name === 'string' && item.name ? `${item.name} (${id})` : id
-            return { value: id, label }
-          })
-          .filter((option) => option.value !== ''),
-      )
-    })
-    void apiCall<{ items?: Array<Record<string, unknown>> }>(
-      '/api/agent_orchestrator/features',
-      undefined,
-      { fallback: { items: [] } },
-    ).then((call) => {
-      if (cancelled || !call.ok) return
-      const items = Array.isArray(call.result?.items) ? call.result.items : []
-      setFeatureCatalog(
-        items
-          .map((item) => ({
-            id: typeof item.id === 'string' ? item.id : '',
-            title: typeof item.title === 'string' ? item.title : '',
-          }))
-          .filter((item) => item.id !== ''),
-      )
-    })
     return () => { cancelled = true }
-  }, [])
+  }, [loadWorkflowOptions])
 
   const toggleEnabled = React.useCallback(async (row: ProcessDefinitionRow, next: boolean) => {
     setRows((prev) => prev.map((item) => (item.id === row.id ? { ...item, enabled: next } : item)))
@@ -540,7 +458,7 @@ export default function ProcessDefinitionsPage() {
         id: 'workflowMode',
         label: t('agent_orchestrator.processDefinitions.form.workflowMode'),
         type: 'select',
-        description: t('agent_orchestrator.processDefinitions.form.workflowModeHint'),
+        description: t('agent_orchestrator.processDefinitions.form.workflowChoiceHint'),
         options: [
           { value: 'single_agent', label: t('agent_orchestrator.processDefinitions.mode.singleAgent') },
           { value: 'workflow', label: t('agent_orchestrator.processDefinitions.mode.workflow') },
@@ -573,10 +491,9 @@ export default function ProcessDefinitionsPage() {
       {
         id: 'workflowId',
         label: t('agent_orchestrator.processDefinitions.form.workflow'),
-        type: 'combobox',
-        options: workflows,
-        seedOptions: workflows,
-        allowCustomValues: true,
+        type: 'custom',
+        component: (props) => <WorkflowPickerField {...props} resolveLabel={resolveWorkflowLabel} />,
+        description: t('agent_orchestrator.processDefinitions.form.workflowHint'),
         visibleWhen: { field: 'workflowMode', equals: 'workflow' },
       },
       {
@@ -597,18 +514,19 @@ export default function ProcessDefinitionsPage() {
         type: 'custom',
         description: t('agent_orchestrator.processDefinitions.form.grantedFeaturesHint'),
         component: (fieldProps) => (
-          <FeaturesPickerField fieldProps={fieldProps} catalog={featureCatalog} isEdit={mode === 'edit'} t={t} />
+          <FeaturesPickerField fieldProps={fieldProps} isEdit={mode === 'edit'} t={t} />
         ),
       },
       {
         id: 'triggers',
-        label: t('agent_orchestrator.processDefinitions.triggers.title'),
+        label: '',
         type: 'custom',
         description: t('agent_orchestrator.processDefinitions.triggers.description'),
         component: ({ value, setValue }) => (
           <TriggerEditor
             value={Array.isArray(value) ? (value as ProcessTrigger[]) : []}
             onChange={(next) => setValue(next)}
+            onValidityChange={(valid) => { triggersValid.current = valid }}
             locale={locale}
             t={t}
           />
@@ -616,21 +534,62 @@ export default function ProcessDefinitionsPage() {
       },
       {
         id: 'milestones',
-        label: t('agent_orchestrator.processDefinitions.milestones.title'),
+        label: '',
         type: 'custom',
         description: t('agent_orchestrator.processDefinitions.milestones.description'),
         component: ({ value, values, setValue }) => (
           <MilestoneEditor
             value={Array.isArray(value) ? (value as ProcessMilestone[]) : []}
             onChange={(next) => setValue(next)}
-            workflowId={typeof values?.workflowId === 'string' ? values.workflowId : null}
+            workflowId={values?.workflowMode === 'workflow' && typeof values?.workflowId === 'string' ? values.workflowId : null}
+            singleAgent={values?.workflowMode === 'single_agent'}
             t={t}
           />
         ),
       },
-      { id: 'enabled', label: t('agent_orchestrator.processDefinitions.form.enabled'), type: 'checkbox' },
+      { id: 'enabled', label: t('agent_orchestrator.processDefinitions.form.enabled'), type: 'checkbox', description: t('agent_orchestrator.processDefinitions.form.enabledHint') },
     ],
-    [t, agents, workflows, featureCatalog, locale, mode],
+    [t, agents, locale, mode, resolveWorkflowLabel],
+  )
+
+  const groups = React.useMemo<CrudFormGroup[]>(
+    () => [
+      {
+        id: 'process',
+        title: t('agent_orchestrator.processDefinitions.form.purposeTitle'),
+        fields: ['name', 'description', 'workflowMode', 'agentId', 'autoApproveThreshold', 'workflowId'],
+      },
+      {
+        id: 'execution',
+        title: t('agent_orchestrator.processDefinitions.form.startTitle'),
+        fields: ['triggers'],
+      },
+      {
+        id: 'progress',
+        title: t('agent_orchestrator.processDefinitions.form.progressTitle'),
+        fields: ['milestones'],
+      },
+      {
+        id: 'access',
+        column: 2,
+        title: t('agent_orchestrator.processDefinitions.form.accessTitle'),
+        fields: ['grantedFeaturesText'],
+      },
+      {
+        id: 'activation',
+        column: 2,
+        title: t('agent_orchestrator.processDefinitions.form.activationTitle'),
+        fields: ['enabled'],
+      },
+      {
+        id: 'inputContract',
+        column: 2,
+        title: t('agent_orchestrator.processDefinitions.form.inputContract'),
+        description: t('agent_orchestrator.processDefinitions.form.inputContractHint'),
+        fields: ['inputDefaultsJson', 'inputSchemaJson'],
+      },
+    ],
+    [t],
   )
 
   const columns = React.useMemo<ColumnDef<ProcessDefinitionRow>[]>(
@@ -769,7 +728,7 @@ export default function ProcessDefinitionsPage() {
     return (
       <Page>
         <PageBody>
-          <div className="max-w-2xl">
+          <div className="w-full">
             <CrudForm<FormValues>
               title={
                 isEdit
@@ -777,6 +736,7 @@ export default function ProcessDefinitionsPage() {
                   : t('agent_orchestrator.processDefinitions.form.createTitle')
               }
               fields={fields}
+              groups={groups}
               initialValues={initialValues}
               entityIds={[ENTITY_ID]}
               schema={formSchema}
@@ -784,6 +744,10 @@ export default function ProcessDefinitionsPage() {
               cancelHref="/backend/processes/definitions"
               disableOptimisticLock
               onSubmit={async (values) => {
+                if (!triggersValid.current) {
+                  const message = t('agent_orchestrator.processDefinitions.triggers.fixConfiguration')
+                  throw createCrudFormError(message, { triggers: message })
+                }
                 const body = buildBody(values)
                 try {
                   if (isEdit) {

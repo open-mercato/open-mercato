@@ -130,6 +130,7 @@ describe('agent_orchestrator locale coverage', () => {
    * walked cannot silently go back to English.
    */
   const REPORTED_KEYS = [
+    'agent_orchestrator.agentDetail.evaluation.section.runs',
     'agent_orchestrator.agentDetail.tabs.overview',
     'agent_orchestrator.agentDetail.tabs.activity',
     'agent_orchestrator.agentDetail.tabs.evaluation',
