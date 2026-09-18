@@ -11,6 +11,63 @@ export function isUniqueViolation(err: unknown): boolean {
   return typeof message === 'string' && /duplicate key value|unique constraint/i.test(message)
 }
 
+const FOREIGN_KEY_VIOLATION_MESSAGE = /violates foreign key constraint(?: "([^"]+)")?/i
+
+const MAX_ERROR_CHAIN_DEPTH = 4
+
+/**
+ * MikroORM wraps driver errors and copies the pg fields onto the wrapper, but
+ * the original error may also sit behind `cause` (Node) or `previous`
+ * (MikroORM), possibly re-wrapped by a transaction helper. Walk that chain,
+ * breadth-first with a small depth cap, so a check works on any layer.
+ */
+function pgErrorCandidates(err: unknown): Array<Record<string, unknown>> {
+  const found: Array<Record<string, unknown>> = []
+  const seen = new Set<unknown>()
+  let layer: unknown[] = [err]
+  for (let depth = 0; depth < MAX_ERROR_CHAIN_DEPTH && layer.length > 0; depth += 1) {
+    const next: unknown[] = []
+    for (const candidate of layer) {
+      if (!candidate || typeof candidate !== 'object' || seen.has(candidate)) continue
+      seen.add(candidate)
+      const record = candidate as Record<string, unknown>
+      found.push(record)
+      next.push(record.cause, record.previous)
+    }
+    layer = next
+  }
+  return found
+}
+
+/**
+ * Detect a Postgres foreign-key violation (SQLSTATE 23503): the row is still
+ * referenced by a dependent table, or the payload references a parent that
+ * does not exist. Looks through MikroORM's driver-error wrapping.
+ */
+export function isForeignKeyViolation(err: unknown): boolean {
+  return pgErrorCandidates(err).some((candidate) => {
+    if (candidate.code === '23503') return true // Postgres foreign_key_violation
+    return typeof candidate.message === 'string' && FOREIGN_KEY_VIOLATION_MESSAGE.test(candidate.message)
+  })
+}
+
+/**
+ * Name of the constraint behind a foreign-key violation, read from the pg
+ * `constraint` field on any layer of the wrapper chain, or parsed out of the
+ * quoted constraint in the driver message when the field is missing.
+ */
+export function getForeignKeyViolationConstraint(err: unknown): string | null {
+  for (const candidate of pgErrorCandidates(err)) {
+    if (typeof candidate.constraint === 'string' && candidate.constraint.length > 0) return candidate.constraint
+  }
+  for (const candidate of pgErrorCandidates(err)) {
+    if (typeof candidate.message !== 'string') continue
+    const match = FOREIGN_KEY_VIOLATION_MESSAGE.exec(candidate.message)
+    if (match?.[1]) return match[1]
+  }
+  return null
+}
+
 /**
  * Postgres SQLSTATEs for transient connection / availability failures — the
  * database (or its connection pool) is temporarily unreachable and the request
