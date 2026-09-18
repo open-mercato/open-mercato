@@ -81,6 +81,11 @@ test.describe('TC-AGENT-UXC-003: semantic cron validation + next-run preview', (
     await page.getByRole('button', { name: /new definition/i }).click()
 
     await page.getByRole('button', { name: /add schedule/i }).click()
+    // A new schedule starts on the guided "Every day" frequency, which offers a
+    // time picker instead of the raw expression. The cron field belongs to the
+    // custom frequency.
+    await page.getByRole('combobox', { name: 'Repeat', exact: true }).click()
+    await page.getByRole('option', { name: /custom schedule/i }).click()
     const cronInput = page.getByLabel(/cron expression/i)
     await expect(cronInput).toBeVisible({ timeout: 10_000 })
 

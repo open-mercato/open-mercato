@@ -231,4 +231,22 @@ describe('EditCatalogProductPage — repeated saves (#5985)', () => {
     expect(formValues().updatedAt).toBe(loadedVersion)
     expect(callsTo('/api/catalog/products?id=')).toBe(1)
   })
+
+  it('reports a successful save even when the post-save refresh fails', async () => {
+    render(<EditCatalogProductPage params={{ id: 'prod-1' }} />)
+    await waitFor(() => expect(latestCrudFormProps?.isLoading).toBe(false))
+
+    const refreshFailure = new Error('Network unavailable')
+    updateCrudMock.mockImplementation(async () => {
+      apiCallMock.mockImplementation((url: string) =>
+        url.includes('/api/catalog/products?id=')
+          ? Promise.reject(refreshFailure)
+          : Promise.resolve({ ok: true, result: { items: [] } }),
+      )
+      return { ok: true, result: { ok: true } }
+    })
+
+    await expect(saveTitle('Renamed while offline')).resolves.toBeUndefined()
+    expect(updateCrudMock).toHaveBeenCalledTimes(1)
+  })
 })

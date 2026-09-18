@@ -1451,7 +1451,9 @@ export default function EditCatalogProductPage({
         previousSnapshots,
         offersPayload,
       );
-      await loadProduct();
+      // The write already succeeded. A failed refresh reports itself through the
+      // page error state, so it must not surface as a failed save.
+      await loadProduct().catch(() => {});
       flash(t("catalog.products.edit.success", "Product updated."), "success");
       if (fallbackVariantName) {
         flash(
