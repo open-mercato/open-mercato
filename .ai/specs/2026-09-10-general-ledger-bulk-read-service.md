@@ -75,6 +75,16 @@ one is filed).
   re-checked against `SPEC-010`'s actual requirements once it's written,
   but "will this get used" is no longer the open question — "will this
   shape survive contact with the real requirements" is.
+  **Update (2026-09-18): `SPEC-010` now exists and has moved to
+  `official-modules#54`** (drafted, independently reviewed by @pkarw,
+  fixed against real `official-modules` code, then run through a
+  compliance pass against `official-modules`' own `AGENTS.md`). "Still
+  doesn't exist" no longer holds; every field/method here should now
+  be re-checked against that document's actual Data Model — in
+  particular, its `Dziennik`/`KontoZapis` field-gap findings
+  (`D_2`/`D_9`/`Z_1`/`Z_2` have no source in `JournalEntry`/
+  `JournalEntryLine` today) are real inputs this service's DTOs should
+  account for, not something to re-derive independently.
 - **Cross-repo contract stability.** Once `financial_pl` (in
   `official-modules`) depends on this service's shape, changing that
   shape is a breaking change across two separate git repositories, not
@@ -664,7 +674,9 @@ tests.
 ## Out of scope
 
 - **JPK_KR_PD itself.** This document is the dependency, not the
-  feature — see the (not yet written) `SPEC-010` in `official-modules`.
+  feature — see `SPEC-010` in `official-modules`
+  (`official-modules#54`, moved there 2026-09-18 from its earlier
+  `open-mercato` staging location — see Concerns, above).
 - **Book/tax reconciliation (`RPD` in JPK_KR_PD terms).** Nothing in
   `ledger` tracks book-vs-tax differences on accounts or postings;
   building that is independently sized work, not a read-service
