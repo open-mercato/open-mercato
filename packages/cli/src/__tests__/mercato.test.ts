@@ -279,6 +279,33 @@ describe('--help never triggers side effects (issue #5581)', () => {
       consoleErrorSpy.mockRestore()
     })
 
+    it('prints usage instead of destroying data when greenfield --yes --help is passed', async () => {
+      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+      const dbGreenfield = jest.fn()
+
+      registerCliModules([
+        {
+          id: 'db',
+          cli: [{
+            command: 'greenfield',
+            help: 'Destroys all data.',
+            run: dbGreenfield,
+          }],
+        } as any,
+      ])
+
+      // --yes is the flag that skips greenfield's confirmation prompt, so pairing it with
+      // --help is the scenario that must never reach `run`, regardless of flag order.
+      const exitCode = await run(['node', 'mercato', 'db', 'greenfield', '--yes', '--help'])
+
+      expect(exitCode).toBe(0)
+      expect(dbGreenfield).not.toHaveBeenCalled()
+
+      consoleLogSpy.mockRestore()
+      consoleErrorSpy.mockRestore()
+    })
+
     it('forwards --help to commands that declare handlesHelp', async () => {
       const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
       const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
