@@ -224,7 +224,12 @@ export async function createRequestContainer(): Promise<AppContainer> {
     // registrations override this default via Awilix replace semantics —
     // see the enterprise `record_locks` module for the canonical override.
     // Spec: .ai/specs/implemented/2026-05-25-oss-optimistic-locking.md
-    crudMutationGuardService: asFunction((em: EntityManager) =>
+    // Deliberately parameterless: CLASSIC injection derives dependency keys from
+    // the factory's parameter NAMES, and a parameter named `em` shadows the
+    // binding above — which esbuild then renames to `em2`, making the container
+    // look up a key that is never registered. Closing over the enclosing `em`
+    // yields the same instance `em: asValue(em)` exposes and survives bundling.
+    crudMutationGuardService: asFunction(() =>
       createOptimisticLockGuardService({
         getEm: () => em,
         readers: getAllOptimisticLockReaders(),
