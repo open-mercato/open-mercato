@@ -49,16 +49,23 @@ async function deleteDeviceIfExists(request: APIRequestContext, token: string, i
   await apiRequest(request, 'DELETE', `${ADMIN_DEVICES_PATH}/${id}`, { token }).catch(() => undefined)
 }
 
-// `CrudForm` is a controlled client component: `locator.fill()` before hydration sets the DOM value
-// and React then wipes it on hydration, so the picker looks like it returned nothing when nothing
-// was ever typed. Waiting for the submit button to become enabled gates on CrudForm's own async
-// readiness signal; typing with `pressSequentially` and re-checking `inputValue()` confirms the
-// keystrokes actually landed before trusting the suggestion list.
+// `ComboboxInput` re-syncs its displayed text from an async label/suggestion resolution effect
+// (debounced search, eager label lookup) any time that effect resolves while the field is focused
+// and not yet marked as user-typed. Typing character-by-character with `pressSequentially` can race
+// that resolution and have its leading keystrokes silently overwritten. `fill()` sets the value in
+// one atomic operation, so it isn't vulnerable to the same mid-typing reset — retrying absorbs a
+// reset that happens to land immediately after the fill. Mirrors `safeFill` in
+// `packages/core/src/modules/customers/__integration__/TC-CRM-002.spec.ts`.
 async function typeIntoCombobox(page: Page, input: import('@playwright/test').Locator, text: string): Promise<void> {
   await expect(input).toBeVisible({ timeout: 15_000 })
   await expect(input).toBeEnabled({ timeout: 15_000 })
-  await input.click()
-  await input.pressSequentially(text, { delay: 20 })
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    await input.click()
+    await input.fill('')
+    await input.fill(text)
+    if ((await input.inputValue().catch(() => '')) === text) return
+    await page.waitForTimeout(250)
+  }
   await expect(input).toHaveValue(text, { timeout: 5_000 })
 }
 
@@ -180,8 +187,21 @@ test.describe('TC-DEV-010: device owner picker and owner column render names, no
       // `ComboboxInput.confirmSelection` reverts the input when `allowCustomValues` is false and the
       // typed text does not match a known option.
       await expect(userInput2).not.toHaveValue(bogusUuid, { timeout: 5_000 })
+      // `CrudForm` never disables the submit button for validation state — it stays clickable and
+      // `handleSubmit` blocks an empty required field with an inline error instead. So the pin here
+      // is behavioral: clicking submit must not register a device or navigate away from the form.
+      const deviceIdValue2 = `qa-tc-dev-010-rejected-${suffix}`
+      await page.locator('[data-crud-field-id="deviceId"]').first().getByRole('textbox').fill(deviceIdValue2)
       const submitButton2 = page.getByRole('button', { name: /Create|Save/i }).last()
-      await expect(submitButton2).toBeDisabled()
+      await submitButton2.click()
+      await page.waitForTimeout(1_000)
+      await expect(page).toHaveURL(/\/backend\/devices\/create$/)
+      const rejectedAttempt = await apiRequest(request, 'GET', `${ADMIN_DEVICES_PATH}?deviceId=${deviceIdValue2}`, { token: adminToken })
+      const rejectedItems = (await readJsonSafe<{ items?: Array<{ deviceId: string }> }>(rejectedAttempt))?.items ?? []
+      expect(
+        rejectedItems.some((item) => item.deviceId === deviceIdValue2),
+        'submitting with an out-of-list owner value must not register a device',
+      ).toBe(false)
 
       // -- Owner column: a device whose owner never appeared in a picker search ---
       const bobDeviceId = `qa-tc-dev-010-bob-${suffix}`
