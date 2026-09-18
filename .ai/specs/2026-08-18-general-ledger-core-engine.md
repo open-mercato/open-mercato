@@ -1503,7 +1503,7 @@ deploy independently of any other module.
   to `official-modules`, not yet reviewed). "Still isn't written" no
   longer holds; the primary-source XSD verification pass and the
   dependency on `#6038` merging still do — see that document's own
-  status banner and Open Questions.
+  status banner and Open Questions. **Update (2026-09-18):** `SPEC-010` has since moved to `official-modules#54` (reviewed by @pkarw on the `open-mercato#6069` copy first, two rounds of fixes applied, then a compliance pass against `official-modules`' own `AGENTS.md`) — "staged temporarily in `open-mercato`" no longer holds either. Still true: the dependency on `#6038` merging, and the raw-XSD vendoring step that document's own Implementation Plan still names as outstanding. See `2026-09-08-financial-module-knowledge-base.md`'s module map for the current pointer.
 
 ## Final Compliance Report — 2026-08-27 (updated 2026-09-03, 2026-09-07, 2026-09-10)
 
@@ -1537,6 +1537,13 @@ pointer-only update to the same Out of scope bullet — "still isn't
 written" no longer holds, the primary-source XSD pass and the `#6038`
 dependency still do — no design decision in this document changes, so
 this doesn't move the Compliance Matrix or the verdict below either.
+
+A fifth follow-up, 2026-09-18: `SPEC-010` moved from its temporary
+`open-mercato` staging location to `official-modules#54`, after an
+independent maintainer review and two rounds of fixes. Another
+pointer-only update to the same Out of scope bullet — no design
+decision in this document changes, so this doesn't move the
+Compliance Matrix or the verdict below either.
 
 The 2026-09-10 update responds to a collaborator's discovery-pass PR
 review (matgren) — art. 23 ust. 2 statutory entry-content fields, an
