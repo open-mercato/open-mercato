@@ -1,4 +1,4 @@
-import type { EntityManager } from '@mikro-orm/postgresql'
+import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import type { CacheStrategy } from '@open-mercato/cache'
 import { getCurrentCacheTenant, runWithCacheTenant } from '@open-mercato/cache'
 import { UserAcl, RoleAcl, User, UserRole } from '@open-mercato/core/modules/auth/data/entities'
@@ -11,7 +11,10 @@ import {
   resolveEffectiveFeatures,
 } from '@open-mercato/shared/security/featurePolicy'
 import { filterGrantsByEnabledModules } from '@open-mercato/shared/security/enabledModulesRegistry'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { resolveRoleOrganizationScope, roleAclAllowsOrganization } from './roleOrganizationScope'
+
+const logger = createLogger('auth').child({ component: 'rbac' })
 
 interface AclData {
   isSuperAdmin: boolean
@@ -184,10 +187,58 @@ export class RbacService {
     }
   }
 
-  private async isGlobalSuperAdmin(userId: string): Promise<boolean> {
+  // A super-admin grant is deliberately GLOBAL: it survives every scope the
+  // caller asks about, which is what lets a platform super-admin work inside a
+  // customer tenant. What it must not do is survive the question of whose grant
+  // it is. Both lookups below are therefore evaluated against the user's OWN
+  // tenant (`users.tenant_id`), never against no tenant at all.
+  //
+  // Without that binding a single `user_acls` row — or a role link — stamped
+  // with ANY tenant confers platform super-admin everywhere, so a row written
+  // under the wrong tenant becomes a full privilege escalation with nothing in
+  // the schema or the UI to show for it. `user_acls` has no organization column
+  // and no uniqueness beyond its primary key, so such a row is cheap to create
+  // and invisible to the tenant/organization cross-wire checks.
+  //
+  // This is the tenant binding `resolveCanonicalStaffAuthContext` already
+  // applies when it computes `auth.isSuperAdmin` (see lib/sessionIntegrity.ts:
+  // `userAclGrantsSuperAdmin` / `roleAclGrantsSuperAdmin`, both bound to the
+  // user's own tenant). Before this change the two authorities disagreed:
+  // session integrity would say "not a super-admin" while `loadAcl` handed the
+  // same request `['*']`.
+  //
+  // The memo stays keyed by `userId` alone because the answer now depends only
+  // on the user's own tenant, which is a property of the user — not on the scope
+  // being asked about. `invalidateUserCache` therefore still clears it correctly.
+  private async isGlobalSuperAdmin(
+    em: EntityManager,
+    userId: string,
+    userTenantId: string | null,
+  ): Promise<boolean> {
     if (this.globalSuperAdminCache.has(userId)) return this.globalSuperAdminCache.get(userId)!
-    const em = this.em.fork()
-    const userSuper = await em.findOne(UserAcl, { user: userId as any, isSuperAdmin: true })
+    if (!userTenantId) {
+      // A user with no tenant of their own has no tenant to be a super-admin of.
+      //
+      // Reported rather than returned silently, because the consequence is larger than
+      // the flag: `loadAcl` derives its tenant as `scope.tenantId || user.tenantId`, and
+      // for such a principal both are null - `resolveCanonicalStaffAuthContext` pins
+      // `auth.tenantId` to `user.tenantId`, and `applySuperAdminScope` cannot override it
+      // from the cookie because it requires `auth.isSuperAdmin`, which is already false
+      // here. So the result is `{ isSuperAdmin: false, features: [], organizations: null }`
+      // and EVERY feature check fails. A tenant-less account is a shape the codebase
+      // supports deliberately (see commands/acl.ts), so an operator whose only platform
+      // administrator has one deserves a line in the log rather than a locked-out UI with
+      // no in-product signal. The foreign-tenant branches below cannot warn without an
+      // extra query; this one costs nothing.
+      logger.warn('User has no tenant of their own, so no grant can confer super-admin', { userId })
+      this.globalSuperAdminCache.set(userId, false)
+      return false
+    }
+    const userSuper = await em.findOne(UserAcl, {
+      user: userId,
+      tenantId: userTenantId,
+      isSuperAdmin: true,
+    } as FilterQuery<UserAcl>)
     if (userSuper && (userSuper as any).isSuperAdmin) {
       this.globalSuperAdminCache.set(userId, true)
       return true
@@ -195,7 +246,11 @@ export class RbacService {
     const links = await findWithDecryption(
       em,
       UserRole,
-      { user: userId as any },
+      // Roles that belong to the user's own tenant, as
+      // `resolveCanonicalStaffAuthContext` already requires. The encryption
+      // scope stays `{ null, null }` as before — this change is about which rows
+      // count, not about which key decrypts them.
+      { user: userId, role: { tenantId: userTenantId } } as FilterQuery<UserRole>,
       { populate: ['role'] },
       { tenantId: null, organizationId: null },
     )
@@ -212,7 +267,11 @@ export class RbacService {
       this.globalSuperAdminCache.set(userId, false)
       return false
     }
-    const roleSupers = await em.find(RoleAcl, { isSuperAdmin: true, role: { $in: roleIds as any } } as any)
+    const roleSupers = await em.find(RoleAcl, {
+      isSuperAdmin: true,
+      tenantId: userTenantId,
+      role: { $in: roleIds },
+    } as FilterQuery<RoleAcl>)
     const result = roleSupers.some((roleAcl) => (
       !!roleAcl.isSuperAdmin && !isRestrictedRoleAcl(roleAcl)
     ))
@@ -249,18 +308,6 @@ export class RbacService {
     const cacheKey = this.getCacheKey(userId, scope)
     const cached = await this.getFromCache(cacheKey)
     if (cached) return cached
-
-    // Direct user-level super-admin grants and unrestricted role-level
-    // super-admin grants are global. Organization-restricted role grants are
-    // deliberately excluded by isGlobalSuperAdmin and continue through the
-    // scoped ACL projection below.
-    if (!userId.startsWith('api_key:')) {
-      if (await this.isGlobalSuperAdmin(userId)) {
-        const result = { isSuperAdmin: true, features: ['*'], organizations: null }
-        await this.setCache(cacheKey, result, userId, scope)
-        return result
-      }
-    }
 
     if (userId.startsWith('api_key:')) {
       const apiKeyId = userId.slice('api_key:'.length)
@@ -350,6 +397,23 @@ export class RbacService {
       await this.setCache(cacheKey, result, userId, scope)
       return result
     }
+
+    // Direct user-level super-admin grants and unrestricted role-level
+    // super-admin grants are global. Organization-restricted role grants are
+    // deliberately excluded by isGlobalSuperAdmin and continue through the
+    // scoped ACL projection below.
+    //
+    // The check runs AFTER the user is loaded because it is evaluated against
+    // the user's own tenant — see isGlobalSuperAdmin. It reuses that load and
+    // that EntityManager rather than issuing its own, so the reordering costs
+    // no extra query. API-key principals never reached it and still do not:
+    // their branch above has already returned.
+    if (await this.isGlobalSuperAdmin(em, userId, user.tenantId ?? null)) {
+      const result = { isSuperAdmin: true, features: ['*'], organizations: null }
+      await this.setCache(cacheKey, result, userId, scope)
+      return result
+    }
+
     const tenantId = scope.tenantId || user.tenantId || null
     const orgId = scope.organizationId || user.organizationId || null
 
