@@ -583,6 +583,11 @@ export async function applyInventoryImport(
           referenceType: 'manual' as const,
           referenceId: randomUUID(),
           performedBy: input.performedBy,
+          // Additive imports genuinely add new stock, so the ledger should read
+          // "Receipt" rather than "Adjustment" (#4105 QA follow-up). Reconcile
+          // mode can move the balance in either direction and stays labeled as
+          // an adjustment/correction.
+          movementType: mode === 'additive' ? ('receipt' as const) : undefined,
           metadata: {
             importBatchId: input.importBatchId,
             importRowNumber: row.rowNumber,

@@ -2,6 +2,7 @@
 
 import { z } from 'zod'
 import {
+  inventoryAdjustCommandSchema,
   inventoryAdjustSchema,
   inventoryCycleCountSchema,
   productInventoryProfileCreateSchema,
@@ -99,6 +100,55 @@ describe('wms validator rules', () => {
         performedBy: '99999999-9999-4999-8999-999999999999',
       }),
     ).toThrow(/non-zero/i)
+  })
+
+  it('strips movementType from the public adjust schema (#4105)', () => {
+    const parsed = inventoryAdjustSchema.parse({
+      ...scoped,
+      warehouseId: '55555555-5555-4555-8555-555555555555',
+      locationId: '66666666-6666-4666-8666-666666666666',
+      catalogVariantId: '77777777-7777-4777-8777-777777777777',
+      delta: 5,
+      reason: 'Manual correction',
+      referenceType: 'manual',
+      referenceId: '88888888-8888-4888-8888-888888888888',
+      performedBy: '99999999-9999-4999-8999-999999999999',
+      movementType: 'receipt',
+    })
+    expect(parsed).not.toHaveProperty('movementType')
+  })
+
+  it('accepts receipt movementType only on the command schema with a positive delta (#4105)', () => {
+    const parsed = inventoryAdjustCommandSchema.parse({
+      ...scoped,
+      warehouseId: '55555555-5555-4555-8555-555555555555',
+      locationId: '66666666-6666-4666-8666-666666666666',
+      catalogVariantId: '77777777-7777-4777-8777-777777777777',
+      delta: 5,
+      reason: 'CSV import inventory receipt',
+      referenceType: 'manual',
+      referenceId: '88888888-8888-4888-8888-888888888888',
+      performedBy: '99999999-9999-4999-8999-999999999999',
+      movementType: 'receipt',
+    })
+    expect(parsed.movementType).toBe('receipt')
+  })
+
+  it('rejects receipt-labeled adjustments with a non-positive delta (#4105)', () => {
+    expect(() =>
+      inventoryAdjustCommandSchema.parse({
+        ...scoped,
+        warehouseId: '55555555-5555-4555-8555-555555555555',
+        locationId: '66666666-6666-4666-8666-666666666666',
+        catalogVariantId: '77777777-7777-4777-8777-777777777777',
+        delta: -5,
+        reason: 'Forged receipt for a stock correction',
+        referenceType: 'manual',
+        referenceId: '88888888-8888-4888-8888-888888888888',
+        performedBy: '99999999-9999-4999-8999-999999999999',
+        movementType: 'receipt',
+      }),
+    ).toThrow(/positive delta/i)
   })
 
   it('defaults autoAdjust to true for cycle count payloads', () => {
