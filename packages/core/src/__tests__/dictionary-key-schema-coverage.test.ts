@@ -7,23 +7,22 @@ import { dictionaryKeySchema } from '@open-mercato/core/modules/dictionaries/dat
 /**
  * Dictionary key coverage guard.
  *
- * A module that owns a system dictionary declares its key as a source constant and then reaches
- * the dictionary two ways: the seed writes the row straight through the EntityManager, while the
- * browser-side helper creates it on demand through `POST /api/dictionaries`, which validates the
- * key with `dictionaryKeySchema`. Nothing connected those two paths, so a module could ship a key
- * its own API rejects — the seeded tenant worked, and a tenant that never ran that seed hit a
- * validation failure on first use, with the feature simply unavailable.
- *
- * This audit closes the gap statically: every dictionary key literal declared anywhere in the
- * product must satisfy the schema the create route enforces. Pinning the known keys instead would
- * pass while the next module reintroduced the same mismatch.
+ * Every dictionary key literal declared anywhere in the product must satisfy the schema the
+ * create route enforces (`dictionaryKeySchema`), so a module can never ship a key its own API
+ * would reject. Pinning the known keys instead would pass while the next module reintroduced
+ * the same mismatch.
  *
  * Scope is derived from a glob over every package's module tree plus the app and template module
- * roots, so a new package is covered without editing this file. A declaration counts when its
- * name carries `DICTIONARY_KEY`, `DICTIONARY_KEYS` or a `_DICTIONARIES` suffix — the naming every
- * current declaration site already uses — and the key literals are read out of the four shapes
- * those declarations take: a bare string, an array of strings, a map of strings, and a map of
- * descriptor objects carrying a `key` property.
+ * roots, so a new package is covered without editing this file. A declaration counts under one of
+ * three rules: its name ends in `DICTIONARY_KEY`, `DICTIONARY_KEYS` or `_DICTIONARIES` (unambiguous
+ * naming); its name ends in `DEFINITIONS` and its type annotation mentions "dictionary" (the
+ * `DEFINITIONS` suffix alone is too generic — other modules use it for unrelated descriptor maps);
+ * or, regardless of the enclosing declaration's name, any descriptor object carries a
+ * `dictionaryKey` property, since that property name is unambiguous on its own. Key literals are
+ * read out of five shapes: a bare string, an array of strings, an array of descriptor objects, a
+ * map of strings, and a map of descriptor objects — a descriptor object's key lives in either a
+ * `key` property (only honored under the first two rules) or a `dictionaryKey` property (always
+ * honored).
  */
 
 const repoRoot = join(__dirname, '..', '..', '..', '..')
@@ -34,7 +33,8 @@ const SCAN_GLOBS = [
   'packages/create-app/template/src/modules/**/*.{ts,tsx}',
 ]
 
-const DECLARATION_NAME = /(?:DICTIONARY_KEYS?|_DICTIONARIES)$/
+const UNAMBIGUOUS_DECLARATION_NAME = /(?:DICTIONARY_KEYS?|_DICTIONARIES)$/
+const AMBIGUOUS_DECLARATION_NAME = /DEFINITIONS$/
 
 type KeyDeclaration = {
   file: string
@@ -46,14 +46,40 @@ function readStringLiteral(node: ts.Node): string | null {
   return ts.isStringLiteralLike(node) ? node.text : null
 }
 
-function collectKeysFromInitializer(initializer: ts.Expression): string[] {
+function readDescriptorKey(value: ts.Expression, includeAmbiguousKey: boolean): string | null {
+  if (!ts.isObjectLiteralExpression(value)) return null
+  for (const property of value.properties) {
+    if (!ts.isPropertyAssignment(property)) continue
+    const name = property.name.getText()
+    if (name !== 'dictionaryKey' && !(includeAmbiguousKey && name === 'key')) continue
+    const literal = readStringLiteral(property.initializer)
+    if (literal !== null) return literal
+  }
+  return null
+}
+
+function collectKeysFromInitializer(initializer: ts.Expression, includeBareLiterals: boolean): string[] {
   const unwrapped = ts.isAsExpression(initializer) ? initializer.expression : initializer
 
-  const literal = readStringLiteral(unwrapped)
-  if (literal !== null) return [literal]
+  if (includeBareLiterals) {
+    const literal = readStringLiteral(unwrapped)
+    if (literal !== null) return [literal]
+  }
 
   if (ts.isArrayLiteralExpression(unwrapped)) {
-    return unwrapped.elements.map(readStringLiteral).filter((value): value is string => value !== null)
+    const keys: string[] = []
+    for (const element of unwrapped.elements) {
+      if (includeBareLiterals) {
+        const direct = readStringLiteral(element)
+        if (direct !== null) {
+          keys.push(direct)
+          continue
+        }
+      }
+      const descriptorKey = readDescriptorKey(element, includeBareLiterals)
+      if (descriptorKey !== null) keys.push(descriptorKey)
+    }
+    return keys
   }
 
   if (ts.isObjectLiteralExpression(unwrapped)) {
@@ -61,18 +87,15 @@ function collectKeysFromInitializer(initializer: ts.Expression): string[] {
     for (const property of unwrapped.properties) {
       if (!ts.isPropertyAssignment(property)) continue
       const value = ts.isAsExpression(property.initializer) ? property.initializer.expression : property.initializer
-      const direct = readStringLiteral(value)
-      if (direct !== null) {
-        keys.push(direct)
-        continue
+      if (includeBareLiterals) {
+        const direct = readStringLiteral(value)
+        if (direct !== null) {
+          keys.push(direct)
+          continue
+        }
       }
-      if (!ts.isObjectLiteralExpression(value)) continue
-      for (const nested of value.properties) {
-        if (!ts.isPropertyAssignment(nested)) continue
-        if (nested.name.getText() !== 'key') continue
-        const nestedKey = readStringLiteral(nested.initializer)
-        if (nestedKey !== null) keys.push(nestedKey)
-      }
+      const descriptorKey = readDescriptorKey(value, includeBareLiterals)
+      if (descriptorKey !== null) keys.push(descriptorKey)
     }
     return keys
   }
@@ -82,7 +105,7 @@ function collectKeysFromInitializer(initializer: ts.Expression): string[] {
 
 function collectDeclarations(file: string): KeyDeclaration[] {
   const source = readFileSync(join(repoRoot, file), 'utf8')
-  if (!/(?:DICTIONARY_KEYS?|_DICTIONARIES)\b/.test(source)) return []
+  if (!/(?:DICTIONARY_KEYS?|_DICTIONARIES|DEFINITIONS|dictionaryKey)\b/.test(source)) return []
 
   const parsed = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
   const found: KeyDeclaration[] = []
@@ -90,10 +113,12 @@ function collectDeclarations(file: string): KeyDeclaration[] {
   const visit = (node: ts.Node): void => {
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
       const constant = node.name.text
-      if (DECLARATION_NAME.test(constant)) {
-        for (const key of collectKeysFromInitializer(node.initializer)) {
-          found.push({ file, constant, key })
-        }
+      const isUnambiguous = UNAMBIGUOUS_DECLARATION_NAME.test(constant)
+      const isAmbiguousDictionary =
+        AMBIGUOUS_DECLARATION_NAME.test(constant) && node.type !== undefined && /dictionary/i.test(node.type.getText())
+      const includeBareLiterals = isUnambiguous || isAmbiguousDictionary
+      for (const key of collectKeysFromInitializer(node.initializer, includeBareLiterals)) {
+        found.push({ file, constant, key })
       }
     }
     ts.forEachChild(node, visit)
@@ -110,7 +135,7 @@ const declarations = fg
 
 describe('dictionary keys declared by modules', () => {
   it('finds the declaration sites to audit', () => {
-    expect(declarations.length).toBeGreaterThan(10)
+    expect(declarations.length).toBeGreaterThan(20)
   })
 
   it('every declared key satisfies the schema the create route enforces', () => {
@@ -127,5 +152,23 @@ describe('dictionary keys declared by modules', () => {
       .map((declaration) => declaration.key)
 
     expect(plannerKeys).toHaveLength(3)
+  })
+
+  it('covers the sales dictionary definitions', () => {
+    const salesKeys = declarations
+      .filter((declaration) => declaration.constant === 'DEFINITIONS' && declaration.file.includes('modules/sales/'))
+      .map((declaration) => declaration.key)
+      .sort()
+
+    expect(salesKeys).toEqual(
+      [
+        'sales.adjustment_kind',
+        'sales.deal_loss_reason',
+        'sales.order_line_status',
+        'sales.order_status',
+        'sales.payment_status',
+        'sales.shipment_status',
+      ].sort(),
+    )
   })
 })

@@ -1,7 +1,7 @@
 # Dictionary Key Namespaces
 
 - **Date**: 2026-09-18
-- **Status**: Implemented
+- **Status**: Implemented — awaiting deployment, so the spec stays in `.ai/specs/` and is listed under Pending in the index
 - **Scope**: `packages/core/src/modules/dictionaries`
 
 ## Problem
@@ -64,4 +64,8 @@ the catch-all `500`.
 
 `packages/core/src/__tests__/dictionary-key-schema-coverage.test.ts` parses every package's module
 tree and asserts that each declared dictionary key satisfies the schema the create route enforces, so
-a module shipping a key its own API rejects fails CI rather than a customer's first use.
+a module shipping a key its own API rejects fails CI rather than a customer's first use. A
+declaration is audited when its name ends in `DICTIONARY_KEY`, `DICTIONARY_KEYS` or `_DICTIONARIES`;
+when its name ends in `DEFINITIONS` and its type annotation mentions "dictionary" (the bare
+`DEFINITIONS` suffix is too generic to trust on its own); or, regardless of the declaration's name,
+whenever a descriptor object carries an explicit `dictionaryKey` property.

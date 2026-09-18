@@ -158,7 +158,7 @@ export async function POST(req: Request) {
       return NextResponse.json(err.body, { status: err.status })
     }
     if (err instanceof z.ZodError) {
-      return NextResponse.json({ error: err.issues[0]?.message ?? 'Validation failed' }, { status: 400 })
+      return NextResponse.json({ error: err.issues[0]?.message ?? '[internal] Validation failed' }, { status: 400 })
     }
     logger.error('Failed to create dictionary', { err })
     return NextResponse.json({ error: 'Failed to create dictionary' }, { status: 500 })
