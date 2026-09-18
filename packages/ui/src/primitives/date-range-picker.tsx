@@ -224,7 +224,7 @@ export function DateRangePicker({
                     type="button"
                     onClick={() => handlePresetClick(preset)}
                     className={cn(
-                      'inline-flex h-8 items-center rounded-md px-3 text-left text-sm transition-colors shrink-0',
+                      'inline-flex h-8 items-center rounded-md px-3 text-left text-sm cursor-pointer transition-colors shrink-0',
                       'hover:bg-accent hover:text-accent-foreground',
                       'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
                       isActive && 'bg-muted font-medium text-foreground',

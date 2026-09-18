@@ -1,23 +1,34 @@
 /** @jest-environment jsdom */
 
 import * as React from 'react'
-import { render as rtlRender, screen } from '@testing-library/react'
+import { act, fireEvent, render as rtlRender, screen } from '@testing-library/react'
 import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '../accordion'
+import { ActivityFeedComment, ActivityFeedFileChip } from '../activity-feed'
+import { Alert } from '../alert'
+import { Badge } from '../badge'
 import { Calendar } from '../calendar'
+import { ColorPicker } from '../color-picker'
+import { CommandMenu, CommandMenuContent, CommandMenuInput } from '../command-menu'
 import { Checkbox } from '../checkbox'
 import { CounterInput } from '../counter-input'
 import { DatePicker } from '../date-picker'
 import { DateRangePicker } from '../date-range-picker'
+import { Dialog, DialogContent } from '../dialog'
+import { Drawer, DrawerContent } from '../drawer'
 import { Pagination } from '../pagination'
 import { PasswordInput } from '../password-input'
 import { Radio, RadioGroup } from '../radio'
 import { Rating } from '../rating'
+import { RichEditorColorPalette, richEditorItemVariants } from '../rich-editor'
 import { SearchInput } from '../search-input'
 import { SegmentedControl, SegmentedControlItem } from '../segmented-control'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../select'
+import { Sheet, SheetContent } from '../sheet'
+import { StepIndicator } from '../step-indicator'
 import { Tabs, TabsList, TabsTrigger } from '../tabs'
 import { Tag } from '../tag'
+import { TimePicker } from '../time-picker'
 
 // Tailwind v4 dropped the preflight rule that gave `button` and `[role="button"]`
 // a pointer cursor, so every clickable primitive has to carry `cursor-pointer`
@@ -149,5 +160,97 @@ describe('clickable primitives advertise a pointer cursor', () => {
   it('DateRangePicker trigger', () => {
     render(<DateRangePicker value={null} onChange={() => {}} />)
     expectPointer(document.querySelector('[data-slot="date-range-picker-trigger"]'))
+  })
+  it('ActivityFeed download and reply buttons', () => {
+    render(
+      <>
+        <ActivityFeedFileChip name="report.pdf" onDownload={() => {}} />
+        <ActivityFeedComment onReply={() => {}}>Looks good</ActivityFeedComment>
+      </>,
+    )
+    expectPointer(document.querySelector('[data-slot="activity-feed-file-chip-download"]'))
+    expectPointer(document.querySelector('[data-slot="activity-feed-comment-reply"]'))
+  })
+
+  it('Alert dismiss button', () => {
+    render(<Alert dismissible onDismiss={() => {}}>Heads up</Alert>)
+    expectPointer(document.querySelector('[data-slot="alert-dismiss"]'))
+  })
+
+  it('Badge remove button', () => {
+    render(<Badge removable onRemove={() => {}}>Draft</Badge>)
+    expectPointer(document.querySelector('[data-slot="badge-remove"]'))
+  })
+
+  it('ColorPicker trigger and swatches', async () => {
+    render(<ColorPicker value="#112233" onChange={() => {}} />)
+    const trigger = document.querySelector('[data-slot="color-picker-trigger"]')
+    expectPointer(trigger)
+    await act(async () => {
+      fireEvent.click(trigger!)
+    })
+    expectPointer(document.querySelector('[data-slot="color-picker-swatch"]'))
+  })
+
+  it('CommandMenu input clear button', () => {
+    render(
+      <CommandMenu open>
+        <CommandMenuContent>
+          <CommandMenuInput value="query" onValueChange={() => {}} />
+        </CommandMenuContent>
+      </CommandMenu>,
+    )
+    expectPointer(document.querySelector('[data-slot="command-menu-input-clear"]'))
+  })
+
+  it('DateRangePicker preset buttons', async () => {
+    render(<DateRangePicker value={null} onChange={() => {}} />)
+    await act(async () => {
+      fireEvent.click(document.querySelector('[data-slot="date-range-picker-trigger"]')!)
+    })
+    expectPointer(document.querySelector('[data-slot="date-range-presets"] button'))
+  })
+
+  it('Dialog, Drawer and Sheet close buttons', () => {
+    render(
+      <>
+        <Dialog open>
+          <DialogContent>Dialog body</DialogContent>
+        </Dialog>
+        <Drawer open>
+          <DrawerContent>Drawer body</DrawerContent>
+        </Drawer>
+        <Sheet open>
+          <SheetContent closeLabel="Close sheet">Sheet body</SheetContent>
+        </Sheet>
+      </>,
+    )
+    expectPointer(document.querySelector('[data-slot="dialog-close-button"]'))
+    expectPointer(document.querySelector('[data-slot="drawer-close-button"]'))
+    expectPointer(document.querySelector('[aria-label="Close sheet"]'))
+  })
+
+  it('RichEditor toolbar items and colour palette', () => {
+    expect(richEditorItemVariants()).toContain('cursor-pointer')
+    render(<RichEditorColorPalette value="default" onChange={() => {}} />)
+    expectPointer(document.querySelector('[role="option"]'))
+  })
+
+  it('StepIndicator clickable steps', () => {
+    render(
+      <StepIndicator
+        steps={[
+          { id: 'one', label: 'One', status: 'complete' },
+          { id: 'two', label: 'Two', status: 'current' },
+        ]}
+        onStepClick={() => {}}
+      />,
+    )
+    expectPointer(document.querySelector('[data-slot="step-indicator-item"] button'))
+  })
+
+  it('TimePicker close button', () => {
+    render(<TimePicker value={null} onChange={() => {}} onClose={() => {}} />)
+    expectPointer(document.querySelector('[data-slot="time-picker-close"]'))
   })
 })

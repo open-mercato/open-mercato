@@ -93,7 +93,7 @@ const SheetContent = React.forwardRef<
       {children}
       {!hideClose ? (
         <DialogPrimitive.Close
-          className="absolute right-4 top-4 inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus-visible:shadow-focus"
+          className="absolute right-4 top-4 inline-flex size-8 items-center justify-center rounded-md text-muted-foreground cursor-pointer transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus-visible:shadow-focus"
           aria-label={closeLabel}
         >
           <X className="size-4" aria-hidden="true" />

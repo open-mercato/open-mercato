@@ -675,7 +675,7 @@ const richEditorItemVariants = cva(
   // sub-600 (= text-muted-foreground, #5c5c5c) in the default state to
   // strong-950 (= text-foreground, #171717) in the active / open states per
   // Figma 166261:22214 / 166261:22217 reference cells.
-  'group/rich-editor-item inline-flex h-7 shrink-0 items-center justify-center rounded-md bg-transparent text-sm font-medium leading-5 text-muted-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:pointer-events-none disabled:opacity-40 data-[active=true]:bg-muted data-[active=true]:text-foreground data-[state=open]:bg-muted data-[state=open]:text-foreground',
+  'group/rich-editor-item inline-flex h-7 shrink-0 items-center justify-center rounded-md bg-transparent text-sm font-medium leading-5 text-muted-foreground cursor-pointer transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:pointer-events-none disabled:opacity-40 data-[active=true]:bg-muted data-[active=true]:text-foreground data-[state=open]:bg-muted data-[state=open]:text-foreground',
   {
     variants: {
       type: {
@@ -937,7 +937,7 @@ export function RichEditorColorPalette({ value, onChange, labels, palette, class
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => onChange?.(key)}
             className={cn(
-              'flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
+              'flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm cursor-pointer transition-colors hover:bg-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
               isActive && 'font-medium text-foreground',
             )}
             data-color-key={key}

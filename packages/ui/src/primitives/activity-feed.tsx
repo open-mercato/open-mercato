@@ -194,7 +194,7 @@ const ActivityFeedFileChip = React.forwardRef<HTMLDivElement, ActivityFeedFileCh
           aria-label={downloadAriaLabel}
           onClick={onDownload}
           className={cn(
-            'ml-1 inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors',
+            'ml-1 inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none cursor-pointer transition-colors',
             'hover:bg-muted/40 hover:text-foreground focus-visible:shadow-focus',
           )}
         >
@@ -239,7 +239,7 @@ const ActivityFeedComment = React.forwardRef<HTMLDivElement, ActivityFeedComment
           data-slot="activity-feed-comment-reply"
           onClick={onReply}
           className={cn(
-            'shrink-0 rounded-md text-sm font-medium text-accent-indigo outline-none transition-colors',
+            'shrink-0 rounded-md text-sm font-medium text-accent-indigo outline-none cursor-pointer transition-colors',
             'hover:text-accent-indigo/80 focus-visible:shadow-focus',
           )}
         >

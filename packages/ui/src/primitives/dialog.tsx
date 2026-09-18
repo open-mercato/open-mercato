@@ -150,7 +150,7 @@ const DialogContent = React.forwardRef<
             <DialogClose
               data-dialog-close=""
               data-slot="dialog-close-button"
-              className="absolute right-4 top-4 rounded-sm opacity-70 transition-opacity hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              className="absolute right-4 top-4 rounded-sm opacity-70 cursor-pointer transition-opacity hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               aria-label={closeAriaLabel ?? t('ui.dialog.close.ariaLabel', 'Close')}
             >
               <X className="h-4 w-4" />

@@ -155,7 +155,7 @@ function hexToHueDegrees(hex: string): number {
 }
 
 const triggerVariants = cva(
-  'inline-flex items-center gap-2 rounded-md border border-input bg-background px-2.5 py-1.5 text-sm shadow-xs outline-none transition-colors ' +
+  'inline-flex items-center gap-2 rounded-md border border-input bg-background px-2.5 py-1.5 text-sm shadow-xs outline-none cursor-pointer transition-colors ' +
     'hover:bg-muted/40 ' +
     'focus-visible:shadow-focus ' +
     'disabled:cursor-not-allowed disabled:opacity-60',
@@ -171,7 +171,7 @@ const triggerVariants = cva(
 )
 
 const swatchVariants = cva(
-  'inline-flex size-6 items-center justify-center rounded-full outline-none ' +
+  'inline-flex size-6 items-center justify-center rounded-full outline-none cursor-pointer ' +
     'focus-visible:shadow-focus ' +
     'disabled:cursor-not-allowed disabled:opacity-50',
 )
@@ -570,7 +570,7 @@ export const ColorPicker = React.forwardRef<HTMLButtonElement, ColorPickerProps>
                     data-slot="color-picker-eyedropper"
                     aria-label={t('ui.colorPicker.eyedropper.ariaLabel', 'Pick color from screen')}
                     className={cn(
-                      'inline-flex size-9 shrink-0 items-center justify-center rounded-md border border-input bg-background text-muted-foreground shadow-xs transition-colors',
+                      'inline-flex size-9 shrink-0 items-center justify-center rounded-md border border-input bg-background text-muted-foreground shadow-xs cursor-pointer transition-colors',
                       'hover:bg-muted/40 hover:text-foreground',
                       'focus-visible:shadow-focus focus-visible:outline-none',
                     )}
@@ -585,7 +585,7 @@ export const ColorPicker = React.forwardRef<HTMLButtonElement, ColorPickerProps>
                     data-slot="color-picker-remove"
                     aria-label={removeAriaLabel}
                     className={cn(
-                      'inline-flex size-9 shrink-0 items-center justify-center rounded-md border border-input bg-background text-muted-foreground shadow-xs transition-colors',
+                      'inline-flex size-9 shrink-0 items-center justify-center rounded-md border border-input bg-background text-muted-foreground shadow-xs cursor-pointer transition-colors',
                       'hover:bg-status-error-bg hover:text-status-error-text hover:border-status-error-border',
                       'focus-visible:shadow-focus focus-visible:outline-none',
                     )}
@@ -616,7 +616,7 @@ export const ColorPicker = React.forwardRef<HTMLButtonElement, ColorPickerProps>
                     onClick={() => onEditSavedColors()}
                     data-slot="color-picker-edit"
                     className={cn(
-                      'text-sm font-medium text-accent-indigo outline-none transition-colors',
+                      'text-sm font-medium text-accent-indigo outline-none cursor-pointer transition-colors',
                       'hover:underline focus-visible:underline',
                       'focus-visible:shadow-focus rounded-sm',
                     )}
@@ -666,7 +666,7 @@ export const ColorPicker = React.forwardRef<HTMLButtonElement, ColorPickerProps>
                   onClick={() => handleAddSwatch(normalizedValue)}
                   data-slot="color-picker-add"
                   className={cn(
-                    'flex w-full items-center gap-1.5 rounded-b-xl px-4 py-3.5 text-left text-sm text-muted-foreground outline-none transition-colors',
+                    'flex w-full items-center gap-1.5 rounded-b-xl px-4 py-3.5 text-left text-sm text-muted-foreground outline-none cursor-pointer transition-colors',
                     'hover:bg-muted/40 hover:text-foreground',
                     'focus-visible:shadow-focus focus-visible:outline-none',
                   )}

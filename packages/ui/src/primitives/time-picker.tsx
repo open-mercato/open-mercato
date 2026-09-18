@@ -351,7 +351,7 @@ export const TimePickerStatusChip = React.forwardRef<HTMLButtonElement, TimePick
 
     const stateClasses =
       effectiveState === 'selected'
-        ? cn(colors.bgSoft, colors.border, colors.text)
+        ? cn(colors.bgSoft, colors.border, colors.text, 'cursor-pointer')
         : effectiveState === 'hover'
           ? cn('bg-muted/30 border-border', colors.text, 'cursor-pointer')
           : effectiveState === 'disabled'
@@ -492,7 +492,7 @@ export function HorizontalScrollRow({
           onClick={() => scrollBy('left')}
           aria-label={scrollLeftAriaLabel}
           className={cn(
-            'absolute left-1 top-1/2 z-10 flex -translate-y-1/2 items-center justify-center rounded-full border border-border bg-background text-muted-foreground shadow-xs transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
+            'absolute left-1 top-1/2 z-10 flex -translate-y-1/2 items-center justify-center rounded-full border border-border bg-background text-muted-foreground shadow-xs cursor-pointer transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
             arrowButtonClass,
           )}
           data-slot="time-picker-scroll-left"
@@ -506,7 +506,7 @@ export function HorizontalScrollRow({
           onClick={() => scrollBy('right')}
           aria-label={scrollRightAriaLabel}
           className={cn(
-            'absolute right-1 top-1/2 z-10 flex -translate-y-1/2 items-center justify-center rounded-full border border-border bg-background text-muted-foreground shadow-xs transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
+            'absolute right-1 top-1/2 z-10 flex -translate-y-1/2 items-center justify-center rounded-full border border-border bg-background text-muted-foreground shadow-xs cursor-pointer transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
             arrowButtonClass,
           )}
           data-slot="time-picker-scroll-right"
@@ -729,7 +729,7 @@ function TimePickerCard({
               type="button"
               onClick={onClose}
               disabled={disabled}
-              className="inline-flex size-7 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring/40 disabled:pointer-events-none disabled:opacity-60"
+              className="inline-flex size-7 shrink-0 items-center justify-center rounded-full text-muted-foreground cursor-pointer transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring/40 disabled:pointer-events-none disabled:opacity-60"
               aria-label={closeAriaLabel}
               data-slot="time-picker-close"
             >

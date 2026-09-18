@@ -90,7 +90,7 @@ const alertVariants = cva(
 // (visually ≈ #5c5c5c gray). White at full opacity for filled so it
 // stays legible over the saturated bg.
 const alertDismissVariants = cva(
-  'shrink-0 rounded-md p-0.5 transition-opacity focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
+  'shrink-0 rounded-md p-0.5 cursor-pointer transition-opacity focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
   {
     variants: {
       style: {

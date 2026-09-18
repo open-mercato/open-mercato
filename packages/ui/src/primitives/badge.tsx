@@ -153,7 +153,7 @@ export const Badge = React.forwardRef<HTMLDivElement, BadgeProps>(
             aria-label={removeAriaLabel}
             onClick={onRemove}
             className={cn(
-              '-mr-0.5 ml-0.5 inline-flex shrink-0 items-center justify-center rounded-full outline-none transition-opacity',
+              '-mr-0.5 ml-0.5 inline-flex shrink-0 items-center justify-center rounded-full outline-none cursor-pointer transition-opacity',
               'opacity-70 hover:opacity-100 focus-visible:opacity-100',
               resolvedSize === 'lg' ? 'size-4' : 'size-3.5',
             )}

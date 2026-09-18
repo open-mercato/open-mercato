@@ -232,7 +232,7 @@ const CommandMenuInput = React.forwardRef<
             aria-label={clearAriaLabel}
             onClick={() => handleChange('')}
             className={cn(
-              'inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors',
+              'inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none cursor-pointer transition-colors',
               'hover:bg-muted/40 hover:text-foreground',
               'focus-visible:shadow-focus',
             )}
@@ -329,7 +329,7 @@ const CommandMenuGroup = React.forwardRef<
               onClick={onAction}
               aria-label={actionAriaLabel ?? actionLabel ?? 'See all'}
               className={cn(
-                'inline-flex items-center gap-1 rounded-md text-xs font-medium text-muted-foreground outline-none transition-colors',
+                'inline-flex items-center gap-1 rounded-md text-xs font-medium text-muted-foreground outline-none cursor-pointer transition-colors',
                 'hover:text-foreground focus-visible:shadow-focus',
               )}
             >

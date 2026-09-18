@@ -253,7 +253,7 @@ export const StepIndicator = React.forwardRef<HTMLOListElement, StepIndicatorPro
                   className={cn(
                     'inline-flex items-center gap-2',
                     isVertical && 'w-full',
-                    'rounded-md outline-none focus-visible:shadow-focus text-left',
+                    'rounded-md outline-none focus-visible:shadow-focus text-left cursor-pointer',
                   )}
                 >
                   {itemBody}
