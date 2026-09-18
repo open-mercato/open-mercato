@@ -4,8 +4,8 @@ import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CommunicationChannel } from '../data/entities'
 import {
-  COMMUNICATION_CHANNELS_INGEST_INBOUND_COMMAND_ID,
-  type IngestInboundMessageInput,
+  COMMUNICATION_CHANNELS_IMPORT_INBOUND_COMMAND_ID,
+  type ImportInboundMessageInput,
 } from '../commands/ingest-inbound-message'
 import { COMMUNICATION_CHANNELS_QUEUES } from '../lib/queue'
 import { refreshCredentialsIfNeeded } from '../lib/credential-refresh'
@@ -191,14 +191,14 @@ export default async function handle(
       for (const message of page.messages) {
         if (processedCount >= maxMessages) break
         try {
-          const input: IngestInboundMessageInput = {
+          const input: ImportInboundMessageInput = {
             channelId: channel.id,
             providerKey: channel.providerKey,
             channelType: channel.channelType,
             scope: { tenantId: scope.tenantId, organizationId: scope.organizationId },
             message,
           }
-          await commandBus.execute(COMMUNICATION_CHANNELS_INGEST_INBOUND_COMMAND_ID, {
+          await commandBus.execute(COMMUNICATION_CHANNELS_IMPORT_INBOUND_COMMAND_ID, {
             input,
             ctx: commandCtx as never,
           })
