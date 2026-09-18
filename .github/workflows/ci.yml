@@ -209,7 +209,7 @@ jobs:
 
       - name: Install dependencies
         if: steps.nm-cache.outputs.cache-hit != 'true'
-        run: yarn install --immutable
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/yarn-retry-on-install-crash.sh" yarn install --immutable
 
       - name: Build packages
         # Always builds all packages — no filter. Turbo cache handles the speedup:
@@ -369,7 +369,7 @@ jobs:
 
       - name: Install dependencies
         if: steps.nm-cache.outputs.cache-hit != 'true'
-        run: yarn install --immutable
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/yarn-retry-on-install-crash.sh" yarn install --immutable
 
       - name: Check for dead resolution keys
         # Runs before the audit because a dead `resolutions` key is a *cause* of the
@@ -431,7 +431,7 @@ jobs:
 
       - name: Install dependencies
         if: steps.nm-cache.outputs.cache-hit != 'true'
-        run: yarn install --immutable
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/yarn-retry-on-install-crash.sh" yarn install --immutable
 
       - name: Guard against an empty lint task graph
         # Fails when `turbo run lint` resolves to zero commands, so a future
@@ -504,7 +504,7 @@ jobs:
 
       - name: Install dependencies
         if: steps.nm-cache.outputs.cache-hit != 'true'
-        run: yarn install --immutable
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/yarn-retry-on-install-crash.sh" yarn install --immutable
 
       - name: DS lint (head)
         # `|| true`: the report must be published even when error-level
@@ -643,7 +643,7 @@ jobs:
 
       - name: Install dependencies
         if: steps.nm-cache.outputs.cache-hit != 'true'
-        run: yarn install --immutable
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/yarn-retry-on-install-crash.sh" yarn install --immutable
 
       - name: Cache Turbo build outputs
         uses: actions/cache@v6
@@ -792,7 +792,7 @@ jobs:
 
       - name: Install dependencies
         if: steps.nm-cache.outputs.cache-hit != 'true'
-        run: yarn install --immutable
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/yarn-retry-on-install-crash.sh" yarn install --immutable
 
       - name: Download build artifacts
         uses: actions/download-artifact@v8
@@ -916,7 +916,7 @@ jobs:
 
       - name: Install dependencies
         if: steps.nm-cache.outputs.cache-hit != 'true'
-        run: yarn install --immutable
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/yarn-retry-on-install-crash.sh" yarn install --immutable
 
       - name: Download build artifacts
         uses: actions/download-artifact@v8
