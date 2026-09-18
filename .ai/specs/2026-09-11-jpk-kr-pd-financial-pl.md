@@ -28,21 +28,23 @@
 > #2 asked for (the primary-source XSD pass above). Every finding was
 > re-checked against the current file content rather than accepted at
 > face value (per this project's citation-check discipline). Result:
-> both Blockers confirmed and fixed (tenant/organization scope
-> validation on `jpk-kr.generate`; an encryption contract for
-> `generatedXml`/`upoXml`/RPD inputs); Major #4 (whole-ledger scale)
-> and Major #5 (missing test plan) confirmed and fixed; Major #2's
-> XSD/scope sub-claim was already resolved by the 2026-09-12 commits
-> above, but its deadline sub-claim was real and unaddressed -- the
-> Ministry regulation effective 2026-02-20 extended JPK_KR_PD's
-> deadline to the end of the 7th month after fiscal year end, so the
-> "window already closed (March 2026)" framing below was itself wrong,
-> not just stale (see Problem Statement); Major #1 (placement) was
-> already flagged by this document's own banner, no text change
-> needed; Major #3 (filing status machine vs. `JpkVatFiling`'s real
-> persisted contract) could not be checked from this environment
-> (`official-modules` is unreachable, see Code analysis) and is left
-> open as Q5, not guessed at.
+> both Blockers confirmed and fixed (tenant/organization scope now
+> derived server-side, never trusted from the caller, on
+> `jpk-kr.generate`/`.submit`; an encryption-at-rest entry for
+> `generatedXml`/`upoXml` in `financial_pl`'s `defaultEncryptionMaps`);
+> Major #4 (whole-ledger scale) and Major #5 (missing test plan)
+> confirmed and fixed; Major #2's XSD/scope sub-claim was already
+> resolved by the 2026-09-12 commits above, but its deadline
+> sub-claim was real and unaddressed -- the Ministry regulation
+> effective 2026-02-20 extended JPK_KR_PD's deadline to the end of
+> the 7th month after fiscal year end, so the "window already closed
+> (March 2026)" framing below was itself wrong, not just stale (see
+> Problem Statement); Major #1 (placement) was already flagged by
+> this document's own banner, no text change needed; Major #3
+> (filing status machine) is now Confirmed and fixed too (Q5) --
+> `official-modules` turned out to be reachable with this session's
+> read access after all, corrected from this same paragraph's own
+> earlier "unreachable" claim (see Code analysis below).
 >
 > **⚠ Temporary location.** This spec describes a `financial_pl` feature
 > (implemented in the separate `official-modules` repo), and by this
@@ -303,47 +305,64 @@ tool here, not FK-id references or `tryResolve`, which this project
 reserves for genuinely optional peers (see the financial-module
 dependency-graph analysis this session produced).
 
-**`jpk-kr.generate`/`jpk-kr.submit` must validate the caller-supplied
-`tenantId`/`organizationId`, not merely accept them — added
-2026-09-18, per @pkarw's PR `#6069` review Blocker #1, confirmed real
-against this repo's own command layer (not `official-modules`, which
-is unreachable from this environment — but the pattern is real and
-load-bearing here regardless of which repo the command ends up in).**
-`packages/shared/src/lib/commands/scope.ts` exports
-`ensureTenantScope(ctx, tenantId)` / `ensureOrganizationScope(ctx,
-organizationId)`, already used this way in, among others,
-`packages/core/src/modules/customers/commands/{pipelines,comments}.ts`:
-the command schema still takes `tenantId`/`organizationId` in its
-payload (removing them isn't the fix — many command contexts, e.g.
-worker/system callers, have no other way to state scope), but the
-handler must call both scope guards against `ctx.auth`/
-`ctx.organizationScope` before using the caller-supplied values, and
-both throw `403 Forbidden` on mismatch. `commands/jpk-kr.ts` must do
-the same before resolving or creating a `JpkKrFiling` — this closes
+**`jpk-kr.generate`/`jpk-kr.submit` must never trust a caller-supplied
+`tenantId`/`organizationId` for scope — corrected 2026-09-18, now
+Confirmed against real `official-modules` code (a prior pass on this
+finding, same day, could only reason from this repo's analogous
+pattern; `official-modules` turned out to be reachable after all with
+this session's read access — see Code analysis below for the
+network-access correction).** `commands/jpk.ts`'s real
+`upsertFilingCommand`/`generateCommand`/`submitCommand` never read
+`organizationId`/`tenantId` out of the parsed input at all — even
+though `jpkFilingUpsertSchema` still declares them as optional fields
+(legacy/back-compat only), the handler ignores `parsed.organizationId`/
+`parsed.tenantId` completely and instead calls a local
+`resolveCommandScope(ctx)` that derives both from `ctx.auth.tenantId`
+and `ctx.selectedOrganizationId ?? ctx.organizationIds?.[0] ??
+ctx.auth.orgId` — i.e. from the authenticated request context, never
+the request body. Every entity lookup and every `em.create` is then
+scoped by that derived value, and `ensureTenantScope`/
+`ensureOrganizationScope` (`@open-mercato/shared/lib/commands/scope`)
+are called with the *derived* scope, not a client-supplied one — their
+job is authorizing that derived scope (superAdmin bypass,
+`allowedIds` check), not validating a claim the client made.
+`jpkGenerateSchema`/`jpkSubmitSchema` don't even declare
+`organizationId`/`tenantId` fields — just `{ filingId }` — because
+generate/submit only ever act on an *existing* filing already scoped
+at creation time. **This document's `jpk-kr.generate` command shape,
+`{ tenantId, organizationId, fiscalYear, celZlozenia }`, should follow
+the same pattern**: drop `tenantId`/`organizationId` from what the
+handler trusts (accepting-but-ignoring them, as `jpkFilingUpsertSchema`
+does, is acceptable for schema compatibility; the point is the handler
+must call `resolveCommandScope(ctx)` and use *that*, never
+`parsed.tenantId`/`parsed.organizationId`, for every lookup, create,
+and `ensureTenantScope`/`ensureOrganizationScope` call) — this closes
 the gap the Edge Cases section below previously accepted as
 unmitigated caller responsibility.
 
-**`generatedXml`, `upoXml`, and the `JpkKrDeclarationInputs` RPD
-amount columns need an explicit encryption-at-rest contract — added
-2026-09-18, per @pkarw's PR `#6069` review Blocker #2.** This
-document cannot verify `JpkVatFiling`'s own encryption contract in
-`official-modules` (unreachable from this environment, see Code
-analysis below), so it does not assume the review's specific
-`defaultEncryptionMaps` citation without independent confirmation —
-but the underlying requirement is real and independently grounded in
-this repo's own precedent: `packages/core/src/modules/api_keys/data/
-entities.ts` stores `sessionSecretEncrypted` as a dedicated encrypted
-column, and `channel_discord`'s `IntegrationCredentials.credentials`
-blob is "encrypted at rest, scope `channel_discord`" via
-`@open-mercato/shared/lib/encryption/{find,entityFields}`. A full
-annual general ledger export and its UPO receipt are at least as
-sensitive as either precedent (the export *is* the taxpayer's
-complete books). `JpkKrFiling.generatedXml`/`.upoXml` and
-`JpkKrDeclarationInputs`'s amount columns should register through the
-same entity-fields encryption registry rather than being stored as
-plain `text`/`numeric` columns; the exact registration call is an
-implementation detail once `#6038` and this spec are both buildable,
-not designed further here.
+**`generatedXml`/`upoXml` need an encryption-at-rest contract —
+Confirmed 2026-09-18 against the real `financial_pl` module (corrected
+from a same-day earlier pass that reasoned from this repo's own
+precedent only, believing `official-modules` unreachable).**
+`packages/financial-pl/src/modules/financial_pl/encryption.ts` exports
+`defaultEncryptionMaps: ModuleEncryptionMap[]`, and it already has an
+entry naming `JpkVatFiling` by exactly this reasoning: *"The generated
+JPK_VAT XML is... compliance-sensitive (carries the full sales+purchase
+register), so it is encrypted too"* — `{ entityId:
+'financial_pl:jpk_vat_filing', fields: [{ field: 'generated_xml' },
+{ field: 'upo_xml' } ] }`. @pkarw's review citation of
+`defaultEncryptionMaps` was accurate; this document's earlier
+2026-09-18 pass was wrong to treat it as unverifiable. `JpkKrFiling`
+needs the equivalent entry (`financial_pl:jpk_kr_filing`, fields
+`generated_xml`/`upo_xml`) once the entity exists. **One correction to
+this document's own earlier fix, not to the review:** `JpkVatFiling`'s
+`declaration_inputs` (JSON, the closest sibling to this document's
+`JpkKrDeclarationInputs`) is *not* in the encryption map — only the two
+XML blobs are. There is no real precedent for encrypting the RPD
+summary-amount columns, and this document should not have invented
+one; `JpkKrDeclarationInputs`'s amount columns stay plain
+`numeric(19,4)`, matching how `JpkVatFiling.declarationInputs` is
+actually treated.
 
 ### Code analysis (verified 2026-09-11, direct inspection of the real `open-mercato` checkout)
 
@@ -380,17 +399,27 @@ re-checked, not carried over from the 2026-09-10 analysis unverified:
   eventually anchor to once Accounts Receivable (`#6046`) merges — today
   it's still a spec-only dependency like everything else here, but it's a
   real table, which the ledger/AP/financial_pl side of this document is not.
-- **`official-modules` remains unreachable from this environment** — no
-  `external/` checkout exists locally (`activated: []` in
-  `official-modules.json`, matching what the file already declared), and
-  this session still has no network path to `github.com` (org-level proxy
-  block, confirmed again this session). Every citation in this document to
-  `financial_pl`'s actual source (`commands/jpk.ts`,
-  `lib/jpk/jpk-submission-client.ts`, etc., in the Proposed Solution
-  section above) is therefore standing on the 2026-09-10 analysis's
-  earlier reading, not re-verified in this pass — flag this explicitly
-  before Phase 1 implementation starts, since `feat/financial-pl-invoice-ux`
-  may have moved on since 2026-09-10.
+- **`official-modules` was unreachable from this environment as of
+  2026-09-11/12 — corrected 2026-09-18.** No `external/` checkout
+  existed locally (`activated: []` in `official-modules.json`,
+  matching what the file already declared), and this session had no
+  network path to `github.com` on 2026-09-11/12 (org-level proxy
+  block, confirmed twice that session). **Re-checked directly, not
+  assumed carried-over, on 2026-09-18: `github.com` is reachable now**
+  (`git ls-remote`/`gh api` against `open-mercato/official-modules`
+  both succeeded), and a shallow clone of `feat/financial-pl-invoice-ux`
+  confirms `commands/jpk.ts`'s real `resolveCommandScope`/
+  `ensureTenantScope`/`ensureOrganizationScope` pattern, the real
+  `JpkFilingStatusColumn` enum, and `encryption.ts`'s
+  `defaultEncryptionMaps` entry for `JpkVatFiling` — see Architecture →
+  Design decisions and Q5, both corrected from "unverified" to
+  Confirmed on that basis. Access is read-only (`pull`, not `push` —
+  `mikoajp` has no write access to `official-modules`), so the actual
+  file *move* to `official-modules` (Major #1 / Q3) still needs a fork
+  and a separate PR there, not something this pass did unasked.
+  Whether `github.com` stays reachable from whatever environment reads
+  this next should not be assumed either way — check again rather than
+  trusting this note.
 
 ### Primary-source XSD verification (2026-09-12)
 
@@ -533,10 +562,10 @@ New entity, `JpkKrFiling`, mirroring `JpkVatFiling`'s shape:
 | `tenantId` / `organizationId` | uuid | standard scoping |
 | `fiscalYear` | int | the reported year, not a period id — annual filing |
 | `celZlozenia` | enum | initial / korekta (correction), matching JPK_V7's own field name |
-| `status` | enum | `draft → generating → submitting → submitted → polling → accepted \| rejected` |
-| `generatedXml` | text/blob, **encrypted at rest** (added 2026-09-18, see Architecture → Design decisions) | |
+| `status` | enum | **Corrected 2026-09-18** (see Architecture → Design decisions / Q5, now Confirmed against real `JpkVatFiling` code): `draft → generated → submitting → submitted`, not the original six-state guess. `JpkVatFiling`'s own declared type is `'draft' \| 'generated' \| 'submitted'`, but its real command code (`commands/jpk.ts`) also assigns a fourth, type-cast value `'submitting'` at runtime (`const JPK_SUBMITTING_STATUS = 'submitting' as JpkVatFiling['status']`) — the declared TS type is itself slightly behind the real runtime contract, worth noting rather than silently matching either one blindly. There is no separate `polling`/`accepted`/`rejected` state in the sibling: outcome is read off `submissionError` (`null` = last attempt clean, non-null = failed) and `submissionReference`/`updatedAt`, not extra enum values. `JpkKrFiling` should follow the same shape unless a real reason for `accepted`/`rejected` as their own states turns up (flag it if so; don't invent extra states preemptively as this document did) |
+| `generatedXml` | text/blob, **encrypted at rest** (`financial_pl:jpk_kr_filing` in `encryption.ts`'s `defaultEncryptionMaps`, mirroring `financial_pl:jpk_vat_filing` — Confirmed 2026-09-18, see Architecture → Design decisions) | |
 | `submissionReference` | string | |
-| `upoXml` | text/blob, **encrypted at rest** (added 2026-09-18) | UPO (urzędowe poświadczenie odbioru) |
+| `upoXml` | text/blob, **encrypted at rest** (same map entry) | UPO (urzędowe poświadczenie odbioru) |
 | `submissionError` | text, nullable | |
 
 `JpkKrDeclarationInputs` (operator-entered `RPD` fields — corrected
@@ -612,7 +641,7 @@ separately.
 No new HTTP routes proposed. All generation/submission happens through
 commands (mirroring JPK_V7):
 
-- `jpk-kr.generate` — `{ tenantId, organizationId, fiscalYear, celZlozenia }` → **validates `tenantId`/`organizationId` via `ensureTenantScope`/`ensureOrganizationScope` before anything else (added 2026-09-18, see Architecture → Design decisions)** → resolves a `JpkKrFiling`, calls the builder chain, sets `status: generating → draft` (XML produced, not yet submitted).
+- `jpk-kr.generate` — `{ tenantId, organizationId, fiscalYear, celZlozenia }`, but **`tenantId`/`organizationId` are accepted-but-ignored, not trusted (corrected 2026-09-18, see Architecture → Design decisions): the handler must derive scope via `resolveCommandScope(ctx)` from `ctx.auth`/`ctx.selectedOrganizationId`, exactly matching `commands/jpk.ts`'s real pattern, and use that derived scope for every lookup/create and for `ensureTenantScope`/`ensureOrganizationScope`** → resolves a `JpkKrFiling`, calls the builder chain, sets `status: draft → generated` (XML produced, not yet submitted — corrected to the real two-value naming, see Data Model).
 - `jpk-kr.submit` — `{ filingId }` → `submitJpk` (reused unchanged) → `status: submitting → polling`.
 - `jpk-kr.poll-status` — background, reused unchanged from the JPK_V7 worker pattern.
 
@@ -641,13 +670,17 @@ backend exists. Left for a follow-up once Phase 1 (backend) is agreed.
 - **Wrong `tenantId`/`organizationId` passed to the bulk-read calls.**
   Inherited risk from `#6038` (explicit caller responsibility, no
   framework guardrail) at the `LedgerBulkReadService` layer itself —
-  that part is unchanged. **Corrected 2026-09-18:** the outer
-  `jpk-kr.generate`/`.submit` commands are not similarly unmitigated —
-  see Architecture → Design decisions for the `ensureTenantScope`/
-  `ensureOrganizationScope` guard now required there. The residual
-  risk is narrower than originally stated: a caller that passes
-  scope-check but a wrong *fiscal year/period* combination, not an
-  outright wrong tenant/org.
+  that part is unchanged; the bulk reads still trust whatever scope
+  they're called with. **Corrected 2026-09-18, re-verified against
+  real `official-modules` code:** the outer `jpk-kr.generate`/
+  `.submit` commands are not similarly unmitigated, provided they
+  follow `commands/jpk.ts`'s real pattern — `resolveCommandScope(ctx)`
+  derives scope from the authenticated context, never from the
+  request body, so there is no caller-supplied `tenantId`/
+  `organizationId` to get wrong at that layer. The residual risk is
+  narrower than originally stated: `LedgerBulkReadService`'s own
+  scoping (a `#6038` concern, not this document's) and a
+  wrong *fiscal year/period* passed within a correctly-derived scope.
 
 ## 📝 Risks & Impact Review
 
@@ -737,12 +770,13 @@ in this family (e.g. `2026-08-18-general-ledger-core-engine.md`).
   the builder's handling of missing fields (synthesize `Z_1`, leave
   `D_2`/`D_9`/`Z_2` as documented placeholders) is asserted, not left
   implicit.
-- **Scope-violation test (new 2026-09-18).** `jpk-kr.generate`/
-  `.submit` reject a payload whose `tenantId`/`organizationId` does
-  not match the calling context's own scope with `403 Forbidden`,
-  mirroring the existing scope-guard tests for
-  `customers/commands/{pipelines,comments}.ts` — see Architecture →
-  Design decisions.
+- **Scope-derivation test (corrected 2026-09-18).** `jpk-kr.generate`/
+  `.submit` ignore a payload `tenantId`/`organizationId` that
+  disagrees with the calling context and act on the context's own
+  scope instead (never the body's) — and a caller with no allowed
+  access to the context-derived organization gets `403 Forbidden`
+  from `ensureOrganizationScope`, mirroring `commands/jpk.ts`'s real
+  tests for `upsertFilingCommand`/`generateCommand`.
 - **Encryption round-trip test (new 2026-09-18).** A generated
   `JpkKrFiling.generatedXml`/`.upoXml` round-trips through
   encrypt/decrypt unchanged, and is not readable as plaintext from a
@@ -815,17 +849,19 @@ final:
   (`K_1`-`K_6` vs `K_1`-`K_8`) and `S_12_1`'s full allowed-value list for
   the `ZOiS7` variant -- both need the raw XSD, not the secondary
   documentation this pass used.
-- **Q5 — New 2026-09-18, from PR `#6069`'s review (@pkarw, Major #3):**
-  is `JpkKrFiling`'s proposed `draft → generating → submitting →
-  submitted → polling → accepted | rejected` status machine actually
-  consistent with `JpkVatFiling`'s real, persisted status contract in
-  `official-modules`? The review claims the real contract is only
-  `draft | generated | submitted`. **Unverified, not guessed at:**
-  `official-modules` is unreachable from this environment (no network
-  path to `github.com`, confirmed again in Code analysis above), so
-  this document cannot confirm or refute the review's specific claim.
-  Needs a direct read of `JpkVatFiling`'s entity/migration in
-  `official-modules` before Phase 1 implementation starts.
+- **Q5 — Resolved 2026-09-18, from PR `#6069`'s review (@pkarw, Major
+  #3).** Confirmed: `official-modules`'s real `JpkFilingStatusColumn`
+  is `'draft' | 'generated' | 'submitted'`, plus a fourth, type-cast
+  runtime-only value `'submitting'` `commands/jpk.ts` uses without
+  declaring it in the type. This document's original six-state
+  `draft → generating → submitting → submitted → polling →
+  accepted | rejected` machine had no real precedent — corrected in
+  Data Model, above, to `draft → generated → submitting → submitted`
+  with outcome read off `submissionError`, matching the sibling
+  exactly. (A same-day earlier pass on this document had marked this
+  Q as unverifiable, believing `official-modules` unreachable — see
+  Code analysis below for the network-access correction; that pass
+  was wrong to stop at "can't check.")
 - **Q6 — New 2026-09-18, from PR `#6069`'s review (@pkarw, Major #4):**
   whole-annual-ledger XML/ZIP assembly at scale (see Architecture,
   above) — does JPK_V7's in-memory submission pipeline hold up for a
@@ -891,5 +927,18 @@ encryption layers (not `official-modules`, confirmed unreachable):
 `packages/core/src/modules/api_keys/data/entities.ts`
 (`sessionSecretEncrypted`), and
 `packages/channel-discord/src/modules/channel_discord/lib/credentials.ts`
--- grounding the scope-validation and encryption-at-rest design
-decisions added under Architecture, above.
+-- initial (same-day) grounding for the scope-validation and
+encryption-at-rest design decisions, before official-modules access
+was re-checked (see below).
+
+2026-09-18 addition (official-modules re-checked, corrected the
+"unreachable" claim above): direct read access (pull, not push) to
+`github.com/open-mercato/official-modules`, branch
+`feat/financial-pl-invoice-ux` -- `commands/jpk.ts`
+(`resolveCommandScope`, `ensureTenantScope`/`ensureOrganizationScope`
+usage, `jpkGenerateSchema`/`jpkSubmitSchema`/`jpkFilingUpsertSchema` in
+`data/validators.ts`), `data/entities.ts` (`JpkVatFiling`,
+`JpkFilingStatusColumn`), and `encryption.ts` (`defaultEncryptionMaps`)
+-- used to correct Blocker #1/#2 and resolve Q5 (Major #3) from
+unverified guesses to Confirmed findings; see Architecture -> Design
+decisions, Data Model, and Open Questions.
