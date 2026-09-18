@@ -32,11 +32,11 @@
     }
   },
   "peerDependencies": {
-    "@ai-sdk/anthropic": "^4.0.1",
-    "@ai-sdk/azure": "^4.0.0",
-    "@ai-sdk/openai": "^4.0.2",
+    "@ai-sdk/anthropic": "^4.0.53",
+    "@ai-sdk/azure": "^4.0.70",
+    "@ai-sdk/openai": "^4.0.66",
     "@open-mercato/web-research": "^0.6.0",
-    "ai": "^7.0.4"
+    "ai": "^7.0.99"
   },
   "peerDependenciesMeta": {
     "@ai-sdk/anthropic": {
@@ -50,19 +50,19 @@
     }
   },
   "dependencies": {
-    "zod": "^4.4.3"
+    "zod": "^4.6.2"
   },
   "devDependencies": {
-    "@ai-sdk/anthropic": "^4.0.1",
-    "@ai-sdk/azure": "^4.0.0",
-    "@ai-sdk/openai": "^4.0.2",
+    "@ai-sdk/anthropic": "^4.0.53",
+    "@ai-sdk/azure": "^4.0.70",
+    "@ai-sdk/openai": "^4.0.66",
     "@open-mercato/web-research": "workspace:*",
     "@types/jest": "^30.0.0",
-    "@types/node": "^26.0.1",
-    "ai": "^7.0.4",
+    "@types/node": "^26.5.1",
+    "ai": "^7.0.99",
     "esbuild": "^0.28.1",
     "glob": "^13.0.6",
-    "jest": "^30.4.2",
+    "jest": "^30.5.1",
     "ts-jest": "^29.4.11",
     "typescript": "^6.0.3"
   },

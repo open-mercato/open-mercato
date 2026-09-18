@@ -42,14 +42,14 @@
     }
   },
   "dependencies": {
-    "zod": "^4.4.3"
+    "zod": "^4.6.2"
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",
-    "@types/node": "^26.0.1",
+    "@types/node": "^26.5.1",
     "esbuild": "^0.28.1",
     "glob": "^13.0.6",
-    "jest": "^30.4.2",
+    "jest": "^30.5.1",
     "ts-jest": "^29.4.11",
     "typescript": "^6.0.3"
   },

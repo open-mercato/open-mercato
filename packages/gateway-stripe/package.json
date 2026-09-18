@@ -65,9 +65,9 @@
     "@open-mercato/core": "workspace:*",
     "@open-mercato/queue": "workspace:*",
     "@open-mercato/ui": "workspace:*",
-    "@stripe/react-stripe-js": "^6.8.2",
-    "@stripe/stripe-js": "^9.14.0",
-    "stripe": "^22.3.1"
+    "@stripe/react-stripe-js": "^6.10.0",
+    "@stripe/stripe-js": "^9.16.0",
+    "stripe": "^22.6.2"
   },
   "peerDependencies": {
     "@mikro-orm/postgresql": "^7.0.14",
@@ -78,13 +78,13 @@
   "devDependencies": {
     "@open-mercato/shared": "workspace:*",
     "@types/jest": "^30.0.0",
-    "@types/react": "^19.2.18",
-    "@types/react-dom": "^19.2.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
     "esbuild": "^0.28.2",
     "glob": "^13.0.6",
-    "jest": "^30.4.2",
-    "react": "19.2.8",
-    "react-dom": "19.2.8",
+    "jest": "^30.5.1",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
     "ts-jest": "^29.4.12",
     "typescript": "7.0.2"
   },
