@@ -39,8 +39,8 @@ Add `TC-DEV-010.spec.ts`, a Playwright browser-level integration test covering t
 
 ### Phase 1: Add browser-level owner picker and owner column coverage
 
-- [ ] 1.1 Scaffold spec file and fixtures
-- [ ] 1.2 Picker success + rejection assertions
-- [ ] 1.3 Owner column + detail page assertions
-- [ ] 1.4 ACL-degradation assertions
-- [ ] 1.5 Full suite run and CI wiring check
+- [x] 1.1 Scaffold spec file and fixtures
+- [x] 1.2 Picker success + rejection assertions
+- [x] 1.3 Owner column + detail page assertions (including pagination)
+- [x] 1.4 ACL-degradation assertions
+- [ ] 1.5 Full suite run and CI wiring check — could not execute the live Playwright run in this environment (no Docker for the ephemeral env, no running dev server); validated via `--list` discovery, `tsc`, `eslint`, and `i18n:check-hardcoded` instead. Flagging for human/CI verification.
